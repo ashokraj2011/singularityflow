@@ -62,10 +62,13 @@ function decisionCards(inbox: Inbox): string {
       ${approval.reviewPacketSha256 ? `<div class="review-binding"><span>Review packet</span><code>${escape(approval.reviewPacketSha256)}</code>${approval.submittedSourceCommit ? `<span>Source commit</span><code>${escape(approval.submittedSourceCommit)}</code>` : ''}</div>` : ''}
       ${approval.sha256 ? `<code>${escape(approval.sha256.slice(0, 16))}</code>` : ''}
       ${approval.selfApproval ? '<p class="warning-text">You generated this; approval will not count as independent review.</p>' : ''}
+      ${approval.heldBy ? `<p class="warning-text">${escape(approval.heldBy.headline)}</p>` : ''}
       <div class="card-foot">
         ${approval.kind === 'output' || approval.artifactPath
     ? `<button class="secondary" data-open-approval="${escape(approval.id)}">Open artifact</button>` : ''}
-        <button data-approve="${escape(approval.id)}">Approve…</button>
+        ${approval.heldBy
+    ? `<button data-decide-list="${escape(approval.id)}">Decide what blocks this step</button>`
+    : `<button data-approve="${escape(approval.id)}">Approve…</button>`}
         <button class="secondary" data-reject="${escape(approval.id)}">Request changes…</button>
       </div>
     </article>`).join('')}</div>`;
@@ -176,7 +179,7 @@ export function inboxHtml(inbox: Inbox, refresh: InboxRefreshState = { refreshin
 const SCRIPT = `
   const vscode = window.__sfVscode;
   document.addEventListener('click', (event) => {
-    const target = event.target.closest('[data-refresh-stories],[data-story],[data-artifact],[data-approve],[data-reject],[data-open-approval],[data-decide]');
+    const target = event.target.closest('[data-refresh-stories],[data-story],[data-artifact],[data-approve],[data-reject],[data-open-approval],[data-decide],[data-decide-list]');
     if (!target) return;
     if (target.hasAttribute('data-refresh-stories')) vscode.postMessage({ type: 'refresh-stories' });
     else if (target.dataset.story) vscode.postMessage({
@@ -187,6 +190,7 @@ const SCRIPT = `
     else if (target.dataset.reject) vscode.postMessage({ type: 'reject', id: target.dataset.reject });
     else if (target.dataset.openApproval) vscode.postMessage({ type: 'open-approval', id: target.dataset.openApproval });
     else if (target.dataset.decide) vscode.postMessage({ type: 'decide', id: target.dataset.decide });
+    else if (target.dataset.decideList) vscode.postMessage({ type: 'decide-list', id: target.dataset.decideList });
   });
   document.addEventListener('click',event=>{
     const target=event.target.closest('[data-review-route]');
@@ -212,7 +216,8 @@ export type InboxMessage =
   | { type: 'approve'; approval: PendingApproval }
   | { type: 'reject'; approval: PendingApproval }
   | { type: 'open-approval'; approval: PendingApproval }
-  | { type: 'decide'; workId: string };
+  | { type: 'decide'; workId: string }
+  | { type: 'decide-list'; approval: PendingApproval };
 
 export class InboxPanel {
   private static current = new Map<InboxMode, InboxPanel>();
@@ -315,6 +320,7 @@ export class InboxPanel {
       approve: (message) => { const approval = approvalFor(message); if (approval) onMessage({ type: 'approve', approval }); },
       reject: (message) => { const approval = approvalFor(message); if (approval) onMessage({ type: 'reject', approval }); },
       'open-approval': (message) => { const approval = approvalFor(message); if (approval) onMessage({ type: 'open-approval', approval }); },
+      'decide-list': (message) => { const approval = approvalFor(message); if (approval?.heldBy) onMessage({ type: 'decide-list', approval }); },
       decide: (message) => {
         const workId = stringField(message, 'id');
         if (workId && this.currentInbox().decision?.workId === workId) onMessage({ type: 'decide', workId });

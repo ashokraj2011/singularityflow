@@ -9,7 +9,7 @@
 import * as vscode from 'vscode';
 
 import {
-  booleanField, registerMessageRouter, stringField, type InboundMessage
+  registerMessageRouter, stringField, type InboundMessage
 } from './messages.ts';
 import { navigateTo } from './navigate.ts';
 import { approvalBlockingCommits, approvalBlockingCommitsHtml, contentSecurityPolicy, escape, evidenceConsistencyHtml, navigationTarget,
@@ -21,11 +21,15 @@ export type ApprovalChecklistDecision = {
   decision: typeof APPROVAL_DECISIONS[number];
   reason?: string;
 };
+/** The adequacy facets a witness exception names, exactly as the CLI reads them (src/wel-review.mjs). */
+export const WITNESS_FACETS = ['setup', 'action', 'assertions', 'boundaries', 'implementation'] as const;
 export type WitnessMappingDecision = {
   mappingSha256: string;
   decision: typeof APPROVAL_DECISIONS[number];
   reason?: string;
   expiresAt?: string;
+  /** For an exception: which parts of the test fall short. */
+  inadequate?: Array<typeof WITNESS_FACETS[number]>;
 };
 export type WitnessMappingReview = {
   mappingSha256: string;
@@ -82,7 +86,6 @@ export interface ApprovalReviewSubmission {
   confirmation: string;
   decisions: ApprovalChecklistDecision[];
   witnessDecisions: WitnessMappingDecision[];
-  acknowledgeSelfApproval: boolean;
 }
 
 type SubmissionCheck = {
@@ -96,7 +99,6 @@ export function validateApprovalReviewSubmission(
   raw: InboundMessage
 ): SubmissionCheck {
   const confirmation = stringField(raw, 'confirmation') ?? '';
-  const acknowledgeSelfApproval = booleanField(raw, 'acknowledgeSelfApproval');
   const entries = Array.isArray(raw.decisions) ? raw.decisions : [];
   const decisions: ApprovalChecklistDecision[] = [];
   const witnessDecisions: WitnessMappingDecision[] = [];
@@ -153,6 +155,7 @@ export function validateApprovalReviewSubmission(
     const decision = typeof entry.decision === 'string' ? entry.decision : '';
     const reason = typeof entry.reason === 'string' ? entry.reason.trim() : '';
     const expiresAt = typeof entry.expiresAt === 'string' ? entry.expiresAt.trim() : '';
+    const inadequate = Array.isArray(entry.inadequate) ? entry.inadequate.filter((facet): facet is string => typeof facet === 'string') : [];
     const mapping = expectedMappings.get(mappingSha256);
     if (!mapping || seenMappings.has(mappingSha256)) {
       errors.push(`Unknown or repeated witness mapping '${mappingSha256 || '(missing)'}'.`);
@@ -177,11 +180,17 @@ export function validateApprovalReviewSubmission(
       errors.push(`Choose an expiry for witness mapping exception '${mappingSha256}'.`);
       continue;
     }
+    if (decision === 'exception' && (!inadequate.length
+        || inadequate.some((facet) => !(WITNESS_FACETS as readonly string[]).includes(facet)))) {
+      errors.push(`Choose which part of the test falls short for witness mapping exception '${mappingSha256}'.`);
+      continue;
+    }
     witnessDecisions.push({
       mappingSha256,
       decision: decision as WitnessMappingDecision['decision'],
       ...(reason ? { reason } : {}),
-      ...(decision === 'exception' ? { expiresAt } : {})
+      ...(decision === 'exception'
+        ? { expiresAt, inadequate: WITNESS_FACETS.filter((facet) => inadequate.includes(facet)) } : {})
     });
   }
   for (const mapping of requestWitnessMappings) {
@@ -189,16 +198,47 @@ export function validateApprovalReviewSubmission(
       errors.push(`Choose a decision for ${mapping.clauseId} → ${mapping.sourcePath}.`);
     }
   }
+  // The typed phase is the one deliberate act; a self-approval is stated, as the CLI and Copilot do,
+  // and recorded as self-approval by the engine. A second tick the engine never read added nothing.
   if (confirmation !== request.expected) errors.push(`Type exactly '${request.expected}' to approve.`);
-  if (request.selfApproval && !acknowledgeSelfApproval) {
-    errors.push('Acknowledge that this is self-approval and is not independent review.');
-  }
   return {
-    value: errors.length ? null : {
-      confirmation, decisions, witnessDecisions, acknowledgeSelfApproval
-    },
+    value: errors.length ? null : { confirmation, decisions, witnessDecisions },
     errors
   };
+}
+
+/**
+ * What an approval did, from the CLI's own result: its headline (approved and where the Story is now,
+ * or an approval recorded that still needs more) and the first next step.
+ */
+export function approvalOutcome(output: string): { headline: string; next: string | null } {
+  const lines = String(output ?? '').split(/\r?\n/u).map((line) => line.trim());
+  const headline = [...lines].reverse().find((line) => /^Recorded an approval\b/u.test(line) || /^Approved \S+\. /u.test(line))
+    ?? lines.find((line) => /^Approved \S+ by /u.test(line)) ?? 'Approval recorded.';
+  const next = lines.find((line) => /^NOW\s+\S/u.test(line))?.replace(/^NOW\s+/u, '') ?? null;
+  return { headline, next };
+}
+
+/**
+ * The `approve` arguments for the reviewer's recorded answers, in the form the CLI parses
+ * (src/commands/approve.mjs): a witness exception carries its facets, `exception:<facet>[,<facet>]`.
+ */
+export function storyApprovalArguments({ workId, phaseId, receiptToken, checklist, witnessDecisions }: {
+  workId: string; phaseId: string; receiptToken: string;
+  checklist: ApprovalChecklistDecision[]; witnessDecisions: WitnessMappingDecision[];
+}): string[] {
+  const argv = ['approve', workId, '--fetch', '--phase', phaseId, '--selection-receipt', receiptToken];
+  for (const entry of checklist) {
+    argv.push('--article', `${entry.article}=${entry.decision}`);
+    if (entry.decision !== 'satisfied' && entry.reason) argv.push('--article-reason', entry.reason);
+  }
+  for (const entry of witnessDecisions) {
+    const decision = entry.decision === 'exception' ? `exception:${(entry.inadequate ?? []).join(',')}` : entry.decision;
+    argv.push('--witness-mapping', `${entry.mappingSha256}=${decision}`);
+    if (entry.decision !== 'satisfied' && entry.reason) argv.push('--witness-mapping-reason', entry.reason);
+    if (entry.decision === 'exception' && entry.expiresAt) argv.push('--witness-mapping-expires', entry.expiresAt);
+  }
+  return argv;
 }
 
 const DECISION_OPTIONS = [
@@ -242,13 +282,17 @@ function witnessMappingHtml(mapping: WitnessMappingReview): string {
     <label class="approval-reason">Reason <span>required for exception or not applicable</span>
       <textarea data-reason disabled aria-label="${escape(mapping.clauseId)} witness reason"></textarea>
     </label>
+    <fieldset class="approval-facets" data-facets disabled>
+      <legend>Falls short on <span>required for an exception</span></legend>
+      ${WITNESS_FACETS.map((facet) => `<label><input type="checkbox" data-facet="${facet}"> ${facet}</label>`).join('')}
+    </fieldset>
     <label class="approval-expiry">Exception expiry
       <input type="date" data-expiry disabled aria-label="${escape(mapping.clauseId)} exception expiry">
     </label>
   </fieldset>`;
 }
 
-function reviewBody(request: ApprovalReviewRequest, errors: string[] = []): string {
+export function approvalReviewBody(request: ApprovalReviewRequest, errors: string[] = []): string {
   const binding = [
     `<strong>Story</strong><code>${escape(request.workId)}</code>`,
     `<strong>Phase</strong><code>${escape(request.phaseId)}</code>`,
@@ -280,7 +324,6 @@ function reviewBody(request: ApprovalReviewRequest, errors: string[] = []): stri
   const selfApproval = request.selfApproval ? `<section class="approval-self" aria-label="Self-approval warning">
     <h2>Self-approval — not independent review</h2>
     <p>The current Git identity generated this phase. The decision will be recorded as self-approval.</p>
-    <label><input type="checkbox" data-self-approval> I understand and want to record this self-approval.</label>
   </section>` : '';
   const checklist = request.articles.length
     ? `<section><h2>Specification quality checklist</h2>
@@ -348,7 +391,9 @@ body > .page-nav button { flex:none; white-space:nowrap; }
 .approval-reason:has(textarea:disabled) { opacity:.58; }
 .approval-self { margin:1rem 0; padding:1rem; border:1px solid var(--sf-wait); border-left:4px solid var(--sf-wait); border-radius:var(--sf-radius); background:var(--vscode-inputValidation-warningBackground,var(--sf-surface)); }
 .approval-self h2 { margin-top:0; color:var(--sf-wait); }
-.approval-self label { display:flex; gap:.5rem; align-items:flex-start; margin-top:.7rem; font-weight:650; }
+.approval-facets { display:flex; flex-wrap:wrap; gap:.4rem 1rem; margin:0; padding:.5rem .75rem; border:var(--sf-border); border-radius:var(--sf-radius); }
+.approval-facets label { display:flex; gap:.35rem; align-items:center; font-weight:500; }
+.approval-facets[disabled] { opacity:.55; }
 .approval-evidence { margin:.65rem 0; padding:.65rem .8rem; border:var(--sf-border); border-radius:var(--sf-radius); }
 .approval-confirmation { border-left:3px solid var(--sf-wait); padding-left:1rem; }
 .approval-held { margin:1rem 0; padding:1rem; border:1px solid var(--sf-wait); border-left:4px solid var(--sf-wait); border-radius:var(--sf-radius); }
@@ -370,8 +415,11 @@ const REVIEW_SCRIPT = `
   const witnessRows = Array.from(form.querySelectorAll('.witness-mapping'));
   const progress = form.querySelector('[data-progress]');
   const api = window.__sfVscode;
-  // Decisions survive a hidden tab or a host-side error re-render. The typed confirmation and the
-  // self-approval acknowledgement are never remembered: they are made fresh, every time.
+  // Decisions survive a hidden tab or a host-side error re-render. The typed confirmation is never
+  // remembered: it is made fresh, every time.
+  function facets(row) {
+    return Array.from(row.querySelectorAll('[data-facet]')).filter((box) => box.checked).map((box) => box.dataset.facet);
+  }
   function rowKey(row) { return row.dataset.article ? 'article:' + row.dataset.article : 'mapping:' + row.dataset.mapping; }
   function remember() {
     const saved = {};
@@ -379,7 +427,8 @@ const REVIEW_SCRIPT = `
       saved[rowKey(row)] = {
         decision: row.querySelector('[data-decision]').value,
         reason: row.querySelector('[data-reason]').value,
-        expiry: row.querySelector('[data-expiry]') ? row.querySelector('[data-expiry]').value : ''
+        expiry: row.querySelector('[data-expiry]') ? row.querySelector('[data-expiry]').value : '',
+        facets: facets(row)
       };
     }
     api.setState({ decisions: saved });
@@ -391,6 +440,7 @@ const REVIEW_SCRIPT = `
     row.querySelector('[data-decision]').value = value.decision || '';
     row.querySelector('[data-reason]').value = value.reason || '';
     if (row.querySelector('[data-expiry]')) row.querySelector('[data-expiry]').value = value.expiry || '';
+    for (const box of row.querySelectorAll('[data-facet]')) box.checked = (value.facets || []).includes(box.dataset.facet);
   }
   function decisions() {
     return rows.map((row) => ({
@@ -404,16 +454,16 @@ const REVIEW_SCRIPT = `
       mappingSha256: row.dataset.mapping,
       decision: row.querySelector('[data-decision]').value,
       reason: row.querySelector('[data-reason]').value.trim(),
-      expiresAt: row.querySelector('[data-expiry]').value
+      expiresAt: row.querySelector('[data-expiry]').value,
+      inadequate: facets(row)
     }));
   }
   function valid() {
     const complete = [...decisions(), ...witnessDecisions()].every((entry) => entry.decision
       && (entry.decision === 'satisfied' || entry.reason)
-      && (entry.decision !== 'exception' || !('expiresAt' in entry) || entry.expiresAt));
+      && (entry.decision !== 'exception' || !('expiresAt' in entry) || (entry.expiresAt && entry.inadequate.length)));
     const confirmed = form.querySelector('[data-confirmation]').value === form.dataset.expected;
-    const self = form.querySelector('[data-self-approval]');
-    return complete && confirmed && (!self || self.checked);
+    return complete && confirmed;
   }
   function sync(event) {
     for (const row of rows) {
@@ -434,6 +484,9 @@ const REVIEW_SCRIPT = `
       reason.required = Boolean(reasonNeeded);
       expiry.disabled = !expiryNeeded;
       expiry.required = expiryNeeded;
+      const facetSet = row.querySelector('[data-facets]');
+      facetSet.disabled = !expiryNeeded;
+      if (!expiryNeeded) for (const box of facetSet.querySelectorAll('[data-facet]')) box.checked = false;
       if (!reasonNeeded) reason.value = '';
       if (!expiryNeeded) expiry.value = '';
     }
@@ -449,12 +502,12 @@ const REVIEW_SCRIPT = `
     const undecided = entries.filter((entry) => !entry.decision).length;
     const reasons = entries.filter((entry) => entry.decision && entry.decision !== 'satisfied' && !entry.reason).length;
     const expiries = witnessDecisions().filter((entry) => entry.decision === 'exception' && !entry.expiresAt).length;
+    const shortfalls = witnessDecisions().filter((entry) => entry.decision === 'exception' && !entry.inadequate.length).length;
     if (undecided) missing.push(count(undecided, 'decision', 'decisions'));
     if (reasons) missing.push(count(reasons, 'reason', 'reasons'));
     if (expiries) missing.push(count(expiries, 'expiry date', 'expiry dates'));
+    if (shortfalls) missing.push(count(shortfalls, 'choice of what falls short', 'choices of what falls short'));
     if (form.querySelector('[data-confirmation]').value !== form.dataset.expected) missing.push('the typed confirmation');
-    const self = form.querySelector('[data-self-approval]');
-    if (self && !self.checked) missing.push('the self-approval acknowledgement');
     const text = missing.length ? 'Still needed: ' + missing.join(', ') + '.' : 'Ready to record.';
     if (progress && progress.textContent !== text) progress.textContent = text;
   }
@@ -471,13 +524,12 @@ const REVIEW_SCRIPT = `
     event.preventDefault();
     sync();
     if (!valid()) {
-      error.textContent = 'Complete every decision, required reason, acknowledgement, and exact confirmation.';
+      error.textContent = 'Complete every decision, required reason, and the exact confirmation.';
       return;
     }
     window.__sfVscode.postMessage({
       type: 'approval.submit',
       confirmation: form.querySelector('[data-confirmation]').value,
-      acknowledgeSelfApproval: Boolean(form.querySelector('[data-self-approval]')?.checked),
       decisions: decisions(),
       witnessDecisions: witnessDecisions()
     });
@@ -507,7 +559,7 @@ export function collectApprovalReview(
       const token = nonce();
       panel.webview.html = page(
         request.title,
-        `<style nonce="${token}">${REVIEW_STYLE}</style>${reviewBody(request, errors)}`,
+        `<style nonce="${token}">${REVIEW_STYLE}</style>${approvalReviewBody(request, errors)}`,
         contentSecurityPolicy(panel.webview, token),
         token,
         REVIEW_SCRIPT

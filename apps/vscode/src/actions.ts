@@ -446,7 +446,7 @@ export async function approveWithReceipt(
       if (!(await stillCurrent())) return false;
       // What the approval would be refused for, read beside the bundle: the page then offers the
       // decision list first. A failed read shows nothing extra; the approval gate still decides.
-      const decisions = client.run<{ data?: { items?: unknown[]; headline?: string } }>(
+      const decisions = client.run<{ data?: { items?: unknown[]; holding?: number; headline?: string } }>(
         ['decisions', request.workId, '--phase', request.phaseId, '--json']).catch(() => null);
       // Commits after the submission that approval would refuse for (an undecided intent amendment
       // among them), named on the page before the person reviews. Advisory, read the same way.
@@ -460,8 +460,9 @@ export async function approveWithReceipt(
         'review', request.phaseId, '--format', 'json'
       ]);
       const listed = (await decisions)?.data;
-      pendingDecisions = Array.isArray(listed?.items) && listed.items.length && typeof listed.headline === 'string'
-        ? { count: listed.items.length, headline: listed.headline } : null;
+      // Only the decisions approval refuses for hold the page (SPEC-OAP D5); the list may hold others.
+      const holding = typeof listed?.holding === 'number' ? listed.holding : Array.isArray(listed?.items) ? listed.items.length : 0;
+      pendingDecisions = holding && typeof listed?.headline === 'string' ? { count: holding, headline: listed.headline } : null;
       blockingCommits = (await readiness)?.blockingCommits ?? null;
       const answered = await tests;
       const summary = answered?.resultType === 'sflow-test-summary' ? answered : answered?.data;
@@ -479,7 +480,6 @@ export async function approveWithReceipt(
   let confirmed: string | null = null;
   let checklist: ApprovalChecklistDecision[] = [];
   let witnessDecisions: WitnessMappingDecision[] = [];
-  let acknowledgeSelfApproval = false;
   if (request.kind === 'story') {
     const { collectApprovalReview } = await import('./views/approval-review.ts');
     const actorLabel = (
@@ -521,7 +521,6 @@ export async function approveWithReceipt(
     confirmed = review.confirmation;
     checklist = review.decisions;
     witnessDecisions = review.witnessDecisions;
-    acknowledgeSelfApproval = review.acknowledgeSelfApproval;
   } else {
     confirmed = await askConfirmation({ expected: request.expected, summary: request.summary });
   }
@@ -540,34 +539,24 @@ export async function approveWithReceipt(
     return false;
   }
 
+  // One builder for the CLI's argument forms (a witness exception carries its facets).
   const argv = request.kind === 'story'
-    ? ['approve', request.workId, '--fetch', '--phase', request.phaseId, '--selection-receipt', receipt.token]
+    ? (await import('./views/approval-review.ts')).storyApprovalArguments({ workId: request.workId, phaseId: request.phaseId,
+      receiptToken: receipt.token, checklist, witnessDecisions })
     : ['initiative', 'approve', request.subject, '--selection-receipt', receipt.token];
-  if (request.kind === 'story' && acknowledgeSelfApproval) argv.push('--acknowledge-self-approval');
-  if (request.kind === 'story') {
-    for (const entry of checklist) {
-      argv.push('--article', `${entry.article}=${entry.decision}`);
-      if (entry.decision !== 'satisfied' && entry.reason) {
-        argv.push('--article-reason', entry.reason);
-      }
-    }
-    for (const entry of witnessDecisions) {
-      argv.push('--witness-mapping', `${entry.mappingSha256}=${entry.decision}`);
-      if (entry.decision !== 'satisfied' && entry.reason) {
-        argv.push('--witness-mapping-reason', entry.reason);
-      }
-      if (entry.decision === 'exception' && entry.expiresAt) {
-        argv.push('--witness-mapping-expires', entry.expiresAt);
-      }
-    }
-  }
   const run = async (extra: string[] = []): Promise<boolean> => {
     if (!(await stillCurrent())) return false;
     output.appendLine(`\n$ singularity-flow ${formatCliArgsForDisplay([...argv, ...extra])}`);
-    await vscode.window.withProgress(
+    const result = { output: await vscode.window.withProgress(
       { location: vscode.ProgressLocation.Notification, title: request.summary, cancellable: false },
       () => client.runText([...argv, ...extra])
-    );
+    ) };
+    // What the approval did and the next step, where the person approved (SPEC-OAP D7).
+    output.appendLine(result.output);
+    const { approvalOutcome } = await import('./views/approval-review.ts');
+    const outcome = approvalOutcome(result.output);
+    void vscode.window.showInformationMessage(outcome.next ? `${outcome.headline} Next: ${outcome.next}` : outcome.headline, 'Show output')
+      .then((choice) => { if (choice) output.show(true); });
     return true;
   };
 

@@ -74,10 +74,25 @@ export function assertStoryTestCommands(workflow) {
   }
 }
 
+/** A step awaiting approval keeps the tests its review ran: a decision now would make that review stale. */
+export function testCommandReviewHold(workflow, phaseId) {
+  const phase = workflow?.phases?.[phaseId];
+  if (phase?.status !== 'awaiting_approval') return null;
+  const name = phase.label ?? phaseId;
+  return {
+    words: `${name} is awaiting approval, and a test command decided now would change what its submitted review ran, so its approval would need a fresh submission. `
+      + `An approver returns ${name} for changes first (/sf-reject); the command is then decided before it is submitted again. For later Stories, propose it with /sf-test-setup.`,
+    command: `singularity-flow reject ${phaseId} --work-id ${workflow.workItem?.id ?? '<WORK-ID>'} --fetch --reason <REASON>`
+  };
+}
+
 function openStep(workflow, phaseId) {
   const phase = workflow?.phases?.[phaseId];
   if (!phase) fail(`This Story has no step ${phaseId}.`);
   if (!OPEN_STEP.has(phase.status)) fail(`Step ${phaseId} is ${phase.status}; a Story-only test command is decided before the step is approved.`, 'TEST_COMMAND_DECISION_CLOSED');
+  const hold = testCommandReviewHold(workflow, phaseId);
+  if (hold) fail(hold.words, 'TEST_COMMAND_DECISION_DURING_REVIEW', { workId: workflow.workItem?.id ?? null, phase: phaseId,
+    nextAction: { command: hold.command, label: `Return ${phase.label ?? phaseId} for changes first.` } });
   return phase;
 }
 

@@ -7222,6 +7222,10 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   const onApprovalsMessage = async (message: ApprovalsMessage): Promise<void> => {
     const { approval } = message;
     const initiative = store.current.snapshot?.initiative;
+    // Held by decisions: the decision list for the same step, where the approval page would send them.
+    if (message.type === 'decide-list') {
+      return void vscode.commands.executeCommand('singularityFlow.decisions', { workId: approval.workId, phase: approval.phase });
+    }
     if (message.type === 'open') {
       if (approval.artifactPath) {
         await openArtifact(repository, {

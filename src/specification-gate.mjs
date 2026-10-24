@@ -25,7 +25,7 @@ import { readFile } from 'node:fs/promises';
 import { markerQuestionHash } from './clarification-markers.mjs';
 import { answeredMarkerHashes, readClarificationRecord, resolvedClarificationPolicy } from './clarifications.mjs';
 import {
-  MARKER_FINDING_KINDS, STARTER_CHECKLIST, analyzeSpecification, evaluateSpecificationQuality,
+  CHECKLIST_DECISIONS, MARKER_FINDING_KINDS, STARTER_CHECKLIST, analyzeSpecification, evaluateSpecificationQuality,
   policyHash, specificationQualityPolicy, validateChecklistDecisions
 } from './specification-quality.mjs';
 import { matchApprovalAuthority } from './approval-authority.mjs';
@@ -187,6 +187,23 @@ export async function evaluateSpecificationGate(root, definition, workflow, phas
  * evidence for a reviewer, but the confirmation attributed to a human identity has to come from that
  * human — so an absent article is a refusal, never a `satisfied`.
  */
+/**
+ * The checklist a reviewer answers at approval, when the pinned policy requires one: every surface
+ * shows these articles before the person confirms, so no approval is refused only for want of them.
+ * Null when the policy records no checklist.
+ */
+export function approvalChecklistPrompt(policy, checklist = STARTER_CHECKLIST) {
+  const resolved = specificationQualityPolicy(policy ?? {});
+  if (resolved.approvalChecklist === 'off' || resolved.mode === 'off') return null;
+  return {
+    checklist: checklist.id, required: resolved.mode === 'enforce',
+    articles: checklist.articles.map(({ id, title, question }) => ({ id, title, question })),
+    decisions: [...CHECKLIST_DECISIONS],
+    // A decision other than satisfied needs a reason, and this group when one is named.
+    exceptionAuthority: resolved.exceptionAuthority ?? null
+  };
+}
+
 export function evaluateApprovalChecklist({
   policy, decisions = [], authorities = null, actor = null, checklist = STARTER_CHECKLIST
 } = {}) {

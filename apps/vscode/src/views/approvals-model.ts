@@ -57,6 +57,11 @@ export interface PendingApproval {
   submittedSourceCommit?: string | null;
   /** What approving does when a workflow decision follows the phase, in the engine's words. */
   afterApproval?: string | null;
+  /**
+   * The decisions the approval would be refused for (submission readiness `decisions-required`), so
+   * the card offers the decision list first instead of an approval the engine would refuse.
+   */
+  heldBy?: { count: number; headline: string } | null;
 }
 
 export interface Approvals {
@@ -232,6 +237,14 @@ function afterApprovalText(snapshot: RepositorySnapshot, workflow: StoryWorkflow
     : `'${ahead.label}' then chooses the next step from the recorded values.`;
 }
 
+/** The decisions the engine says hold this step's approval, from the same readiness every surface reads. */
+function heldByDecisions(snapshot: RepositorySnapshot, phaseId: string): { count: number; headline: string } | null {
+  const readiness = snapshot.submissionReadiness;
+  const held = readiness?.phaseId === phaseId && readiness.classification === 'decisions-required' ? readiness.decisions : null;
+  return held && Number.isSafeInteger(held.count) && held.count > 0 && typeof held.headline === 'string'
+    ? { count: held.count, headline: held.headline } : null;
+}
+
 function storyApprovalsOf(snapshot: RepositorySnapshot, workflow: StoryWorkflow): Approvals {
   const actor = lower(snapshot.identities?.git?.email) || null;
   const phaseId = workflow.currentPhase;
@@ -314,7 +327,8 @@ function storyApprovalsOf(snapshot: RepositorySnapshot, workflow: StoryWorkflow)
       workId: workflow.workItem.id,
       reviewPacketSha256: packet,
       submittedSourceCommit: sourceCommit,
-      afterApproval: afterApprovalText(snapshot, workflow, phase.id)
+      afterApproval: afterApprovalText(snapshot, workflow, phase.id),
+      heldBy: heldByDecisions(snapshot, phase.id)
     }],
     obstacles: [],
     empty: null

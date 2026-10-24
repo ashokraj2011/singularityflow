@@ -562,7 +562,6 @@ export const RESOLVER_SUBCOMMANDS = Object.freeze({
   ])
 });
 
-// `gateway serve` hosts confirmed mutations.
 const GATEWAY_ACTIONS = ['serve', 'tools', 'events'];
 const gatewayOperation = (definition, name) => GATEWAY_ACTIONS.includes(name)
   ? never(`gateway.${name}`, definition, name === 'serve' ? 'mutation' : 'read') : unknownSubcommand('gateway', name, GATEWAY_ACTIONS);

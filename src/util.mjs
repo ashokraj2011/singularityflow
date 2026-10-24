@@ -172,6 +172,16 @@ export const BOOLEAN_OPTIONS = Object.freeze(new Set([
   'debug', 'personal', 'from-template', 'clear'
 ]));
 
+/**
+ * Options whose value is a person's own words. A title or reason may start with `--`, and the word
+ * after the option was then read as another option: `--title --from-branch=evil` gave title=true and
+ * from-branch=evil, so the command run differed from the one a person confirmed. The word after one
+ * of these is always its value. Every one is read with optionString only.
+ */
+export const FREE_TEXT_OPTIONS = Object.freeze(new Set([
+  'title', 'description', 'acceptance-criteria', 'reason', 'message', 'note', 'notes', 'intent', 'answer', 'question', 'detail'
+]));
+
 export function parseArgs(argv) {
   const positionals = [];
   const options = {};
@@ -205,7 +215,7 @@ export function parseArgs(argv) {
     }
     const key = token.slice(2);
     const next = argv[index + 1];
-    if (next !== undefined && !next.startsWith('--') && !BOOLEAN_OPTIONS.has(key)) {
+    if (next !== undefined && (FREE_TEXT_OPTIONS.has(key) || !next.startsWith('--')) && !BOOLEAN_OPTIONS.has(key)) {
       put(key, next);
       index += 1;
     } else put(key, true);

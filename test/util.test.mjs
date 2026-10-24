@@ -8,6 +8,16 @@ import {
 } from '../src/util.mjs';
 import { replaceWithSharingRetry } from '../src/atomic-replace.mjs';
 
+test('a person\'s own words after a free-text option are its value, even when they start with --', () => {
+  assert.deepEqual(parseArgs(['start', 'S-1', '--title', '--from-branch=evil', '--description', '--no-fetch', '--json']), {
+    positionals: ['start', 'S-1'], options: { title: '--from-branch=evil', description: '--no-fetch', json: true }
+  });
+  assert.deepEqual(parseArgs(['decision', 'test-risk', '--reason', '--accept-test-risk is what we want']).options,
+    { reason: '--accept-test-risk is what we want' });
+  // Any other option still stops at the next option.
+  assert.deepEqual(parseArgs(['status', '--workspace', '--json']).options, { workspace: true, json: true });
+});
+
 test('roster table is a boolean flag and cannot swallow a selector or positional value', () => {
   assert.deepEqual(parseArgs(['workspace', 'list', '--table', 'extra']), {
     positionals: ['workspace', 'list', 'extra'], options: { table: true }

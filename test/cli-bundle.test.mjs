@@ -128,7 +128,11 @@ test('the bundled CLI answers exactly like the sources while opening a handful o
   // Story-only test command decisions and Nx unit targets (7,349,935 on main 47c15469): the runner
   // refusal's routes, recovery's planned-runner check and adoption/request actions, the resolver's
   // Story-only commands and provenance, and the decision's narration line.
-  assert.ok(closure('cold-hook-context.mjs').reduce((sum, item) => sum + item.bytes, 0) < 7_355_000,
+  // 7,380,000 (next 5,000 boundary): 7,375,185 after the 2026-10-24 round (main 4a72b80f: 7,352,651): cold-catalogs
+  // +11,131 (INT's typed Git reads in git-access.mjs, kept with the lazily loaded planners), cold-worker-protocol
+  // +4,918, cold-core +2,586, cold-hooks +1,915 (the guard's host-only and canonical-name rules), cold-narrow-reads
+  // +1,825 and cold-hook-context +159.
+  assert.ok(closure('cold-hook-context.mjs').reduce((sum, item) => sum + item.bytes, 0) < 7_380_000,
     'phase-review reads retain their existing byte ceiling after moving families');
   assert.match(await readFile(path.join(outdir, 'cold-light.mjs'), 'utf8'), /function enterPhase\b/u,
     'phase binding must not fall through to the compatibility/admin bundle');

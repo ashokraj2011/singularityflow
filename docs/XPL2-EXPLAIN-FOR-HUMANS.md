@@ -6,15 +6,17 @@ graphical release (the VS Code **Change Explorer**: map, inventory, inspector, e
 M2 (a deterministic reading tour in every view, and optional structured narration with a separate,
 labelled commentary mode) and M3 (recorded test attempts, criterion witnesses and evidence-reuse
 applicability from their owners, ordinary commit history for a line, this machine's invocation and
-prompt records for a generation, and snapshot comparison in the explorer) and M4 (exact links: the
+prompt records for a generation with the entries its retention removed, observed writes that name who
+left a line when they explain it exactly, and retained snapshots compared from the explorer and the
+CLI) and M4 (exact links: the
 implementation bindings a code-delivery receipt records, joined to captured units by file content,
 with the approval's decision about them; structural impact stays a named unavailability). Nothing here approves, verifies, publishes or gates. Every view is
 read-only and grants no authority; only an explicit `--narrate` calls a model.
 
-**Not in this release:** a structural impact producer (none is keyed to an exact change set), observed writes (no recorder exists, so
-who or what wrote a line stays `origin-unestablished`), PR rendering and export, retained historical
-snapshots, and installed-host qualification. Each is reported as a named unavailability, never
-approximated.
+**Not in this release:** a structural impact producer (none is keyed to an exact change set), observed
+writes from terminal commands, kernel model invocations and phase publication (§6), PR rendering and
+export, reopening a retained snapshot as a view, and installed-host qualification. Each is reported as
+a named unavailability, never approximated.
 
 ## 1. Decision
 
@@ -38,7 +40,10 @@ XPL2 is a *subject view* layer over the existing comprehension capture (`CMP`), 
 | Surface | Owner |
 |---|---|
 | Engine | `src/comprehension/xpl2/` — `reasons`, `templates`, `vocabulary`, `model`, `change-subject`, `subjects`, `clause-sources`, `narration`, `command` |
-| Records | `src/comprehension/xpl2/clause-sources.mjs` (clauses, and attempts, witnesses, reuse decisions and implementation bindings in the slice; invocations and prompts for `--subject generation`), `compareXpl2Views` in `apps/vscode/src/views/change-explorer.ts` (snapshot comparison), `lineCommitAt` in `src/git.mjs` |
+| Records | `src/comprehension/xpl2/clause-sources.mjs` (clauses, and attempts, witnesses, reuse decisions and implementation bindings in the slice; invocations, prompts, prompt removal notes and observed writes for `--subject generation`), `lineCommitAt` and `committedFilesAtRevisions` in `src/git.mjs` |
+| Observed writes | `observed-write-recorder.mjs` (run by the post-tool hook in `src/copilot-mutation-guard.mjs`, in the hook bundle chunk), `observed-writes.mjs` (the store's reader), `writer-attribution.mjs` (pure chain by digest), `line-writer.mjs` (which change holds a line) |
+| Comparison | `compare.mjs` (import-free; the Change Explorer imports it), `snapshots.mjs` (retained in `src/comprehension/ide-slice.mjs`, read only by `--compare`) |
+| Terminal text | `src/narration/render-explanation-subject.mjs`, registered by the explain handler (narration, comparison, record view) |
 | Narration | `src/comprehension/xpl2/narration.mjs` (pure input projection, prompt and validation, and `narrateXpl2Explanation`, the one model call, loaded only for `--narrate`) |
 | Capture | `src/comprehension/ide-slice.mjs` (adds `explanationView`; `explanationInputs` only on request) |
 | CLI | `singularity-flow explain --subject …`, operation `explain.subject` in `src/command-registry.mjs` |
@@ -56,7 +61,8 @@ XPL2 is a *subject view* layer over the existing comprehension capture (`CMP`), 
 | `explain TOPIC --subject S` | Refused: a topic and a subject are never combined silently. |
 | `explain --subject S --narrate` | Optional operation `explain.subject.narrate`; with models off it falls back to `explain.subject` and reports the narration unavailable (`model-disabled-fallback`). |
 | `--length` or `--commentary` without `--narrate` | Refused (`XPL2_NARRATION_LENGTH_INVALID`, `XPL2_NARRATION_OPTION_INVALID`). |
-| `explain --subject S --snapshot …` | Refused with `XPL2_SNAPSHOT_UNAVAILABLE`; use `--since REVISION` for an explicit baseline. |
+| `explain --subject S --snapshot …` | Refused with `XPL2_SNAPSHOT_UNAVAILABLE`: a retained snapshot keeps only what a comparison needs and cannot be shown as a view; the refusal names `--compare`, and `--since REVISION` sets an explicit baseline. |
+| `explain --subject change --compare previous|SNAPSHOT-ID` | The view plus `data.comparison` against a retained snapshot (§6). An unknown or ambiguous ID (`XPL2_SNAPSHOT_NOT_FOUND`, `XPL2_SNAPSHOT_AMBIGUOUS`), another subject (`XPL2_COMPARE_SUBJECT_INVALID`) or a malformed digest (`XPL2_SNAPSHOT_ID_INVALID`) is refused with `details.nextAction`; `previous` with nothing earlier reports the comparison unavailable. |
 
 The subject view is `kind: "xpl2-explanation"` at schema version 1, marked transient: it is a
 read projection and is never persisted as a record. Consumers must refuse an unknown kind or a
@@ -69,9 +75,9 @@ future version rather than guess (tested by `XPL2-AC-061`).
 | `change` | none | Inventory, relationships, attention, and every source's state |
 | `clause` | `--id NAMESPACE:ID` | Declarations (all of them, conflicts kept), the clauses its text names and those naming it, delivery requirement, region associations, `@clause` tags in changed code with the author's note, declared test tags |
 | `test` | `--id` | Declared tags, exact-path presence in the change, recorded results with their scope, the criterion witness the verification owner judged, and recorded attempts (`--id TA-…`) |
-| `line` | `--path P --line N [--side before\|after]` | The unit that contains the line, or `outside-change-set` / opaque; ordinary commit history at the exact baseline commit (an unchanged after-side line is mapped across the hunks above it); `origin-unestablished` for who or what produced it |
+| `line` | `--path P --line N [--side before\|after]` | The unit that contains the line, or `outside-change-set` / opaque; ordinary commit history at the exact baseline commit (an unchanged after-side line is mapped across the hunks above it); the recorded write that changed it last when observed writes explain the file exactly, otherwise `origin-unestablished` with the precise reason |
 | `gap` | none | The owner's gap register when readable; otherwise the named unavailability |
-| `generation` | `--phase P --gen N` | Recorded phase/generation history, and this machine's model invocations, prompt-log entries and test attempts for that generation; authorship is `origin-unestablished` |
+| `generation` | `--phase P --gen N` | Recorded phase/generation history, and this machine's model invocations, prompt-log entries (and those its retention removed), observed writes and test attempts for that generation; the generation's authorship as a whole is `origin-unestablished` (ask a line) |
 
 `--path` is repository-relative and portable: absolute paths, drive letters and `..` escapes are
 refused; spaces, colons and non-ASCII names are accepted. `--for reviewer|auditor|developer`
@@ -96,13 +102,14 @@ indented by the common emitter and is outside this bound). A bounded page sets
 | `SRC-REPLAY` | Normalized Story history | `cmp.story-replay` | Recorded order only; not a provenance timeline |
 | `SRC-PROOF` | Shadow proof observation | `gdp.shadow-proof` | `gap` subject only, when the owner answers |
 | `OBS-WEL`, `OBS-PE` | Witness insights, prompt/tool-trace capture | enrollment / none | Named state (`observe`, `off`, `not read by this release`) |
-| `OBS-IMPACT`, `OBS-PROVENANCE`, `OBS-ADMISSION` | Impact, provenance, admission | none | Named `adapter-unavailable` / `evaluation-unavailable`. The impact preview (change flight plans) is keyed by intent and baseline, not a change set, and the world-model blast projection is a draft, so neither is admitted as exact-subject impact |
+| `OBS-IMPACT`, `OBS-PROVENANCE`, `OBS-ADMISSION` | Impact, provenance for the whole change, admission | none | Named `adapter-unavailable` / `evaluation-unavailable`. The impact preview (change flight plans) is keyed by intent and baseline, not a change set, and the world-model blast projection is a draft, so neither is admitted as exact-subject impact. Provenance is asked line by line (`SRC-WRITES`) |
+| `SRC-WRITES` / `OBS-WRITES` | Observed writes on this machine | `xpl2.observed-writes` | `--subject line` and `--subject generation` only; unverified local records (14 days, 1 MiB a day); dropped days, unreadable lines and the read bound mark coverage incomplete |
 | `OBS-LINE` | Line locator | `xpl2.line-locator` | Subject-scoped |
 | `SRC-RUN-NN` / `OBS-RUN-NN` | Test attempts the phase's delivery bound (submitted runs, or preflight runs before submission) | `verification.test-attempts` | Each record's digest checked against the delivery's binding; a tampered, unreadable or not-yet-admitted record contributes no fact |
 | (witnesses) | Criterion witnesses | `verification.witness-results` | Judged by the verification owner's `witnessResult` against those attempts; cites `SRC-DELIVERY` and the run |
 | `SRC-REUSE` | Evidence-reuse decisions | `story.evidence-reuse` | State from the owner's `evidenceReuseState`; the current source is observed only when a decision exists; the evaluation instant is not hashed |
 | `SRC-LINE-HISTORY` / `OBS-LINE-HISTORY` | Commit history of the baseline for one line | `git.commit-history` | `--subject line` only: one `git blame --porcelain` at the exact baseline commit |
-| `SRC-INVOCATIONS`, `SRC-PROMPTS`, `SRC-GENERATION-ATTEMPTS` | This machine's model invocation records, prompt log and test attempts | `model-runner.invocation-audit`, `prompt-audit`, `verification.test-attempts` | `--subject generation` only; never prompt text; `machine-local-only`, `recording-disabled` and `outcome-unobserved` stay visible |
+| `SRC-INVOCATIONS`, `SRC-PROMPTS`, `SRC-GENERATION-ATTEMPTS` | This machine's model invocation records, prompt log (with its removal notes) and test attempts | `model-runner.invocation-audit`, `prompt-audit`, `verification.test-attempts` | `--subject generation` only; never prompt text; `machine-local-only`, `recording-disabled`, `source-expired` and `outcome-unobserved` stay visible |
 
 Every source carries integrity (`verified`, `self-hashed`, `unverified`, `failed`, `unavailable`),
 origin, applicability (`current`, `stale`, `unknown`) and availability. A digest is never invented
@@ -117,7 +124,8 @@ for an unavailable or inaccessible source.
 `gap-observed`, `no-complete-evaluation`, `line-in-unit`, `line-outside`, `line-opaque`,
 `generation-recorded`, `provenance-unavailable`, `source-state`, and for M3 `witness-result`,
 `test-attempt`, `evidence-reuse`, `line-commit`, `line-changed`, `line-commit-unavailable`,
-`generation-invocation`, `invocation-overlap`, `generation-prompt`, `capture-state`, and for M4 `exact-cause`,
+`generation-invocation`, `invocation-overlap`, `generation-prompt`, `capture-state`, `prompt-entries-removed`,
+`prompt-log-cleared`, `line-writer`, `line-writer-unestablished`, `generation-write`, and for M4 `exact-cause`,
 `binding-not-joined`, `binding-decision`, `line-binding`. Text arguments are
 display-sanitized (controls, format and bidirectional characters removed and bounded); identities
 are compared on untouched values.
@@ -222,16 +230,62 @@ change**, and **Copy summary** copies it.
   context line inside a hunk through the patch. An added or changed line is not in the baseline's
   history, and no later commit is read. An after-side question about a deleted or renamed-away
   file says so and points to the before side or the new path. The commit's author
-  is quoted as what the commit records. Who or what produced the captured content is
-  `origin-unestablished`; no share of model-written lines is estimated anywhere.
+  is quoted as what the commit records, never as who produced the line; no share of model-written
+  lines is estimated anywhere.
+- **Observed writes.** The post-tool hook of an explicit SFlow Copilot turn records every file edit
+  the host reports successful: the tool's own arguments and the file's bytes right after it. A write
+  is *verified* only when the arguments explain the bytes exactly: a whole-file write equal to the
+  file, or replacements (`edit`, `replace_string_in_file`, `multi_replace_string_in_file`, the update
+  hunks of an `apply_patch`) that, undone on the file last first, each at its one exact place, give
+  the bytes before them. A record keeps the path, SHA-256 before and after, the whole lines each step
+  changed, and the writer (turn, skill, hashed Copilot session, agent) with the Story, step and open
+  generation; never content, arguments or commands. A failed call is not recorded; an ambiguous,
+  moved or unknown edit is kept unverified, so it can block a claim but never make one. Records live in
+  `<git dir>/singularity-flow/xpl2/observed-writes/` (one JSONL segment per UTC day, 1 MiB a day, 14
+  days), are discardable and are read only by explain commands.
+- **Who left a line.** `--subject line` takes the change that holds the line: this capture for an
+  added or changed after-side line (baseline bytes to the captured bytes, by the capture's own
+  digest), otherwise the commit `git blame` named (its parent's bytes to its own, two blobs read in
+  one batch, only when a record names the path). The line is attributed only when the verified writes
+  chain by digest from those starting bytes, or from a whole-file write, to the bytes that hold it,
+  and every history the digests allow, followed back through each write's changed lines, names the
+  same writer. Recorded time order is never used. The statement names the write(s), the tool, the
+  turn and session, and the Story step; it is this machine's record of what a tool did, not of who
+  designed the line. Otherwise the view keeps `origin-unestablished` and states the basis: no
+  recorded write, bytes no recorded write left, an unrecorded change in between, an unverifiable
+  write, several writers or histories, the line unchanged by the writes, or unreadable records.
+- **Sources that do not record writes.** Terminal commands: the guard sees their changes only
+  against a baseline shared across tool calls, so a command's change cannot be told from an edit or
+  a person in the same window. Kernel model invocations: their records keep a content-free tool
+  observation (name, kind, operation, status, output size) and no target or digest; the ACP client
+  sees each mutating call's targets, but recording its writes needs the provider's raw tool input,
+  whose shape this release has not verified against a live run. Phase publication: a generation's
+  delivered change set and sidecars carry paths and content digests, but their producer is the
+  authorship declared at publication, not a write anyone observed; the kernel's own writes (Story
+  state, context records, sidecars) are Singularity Flow files, which change views do not show. Each stays a named unavailability.
 - **Generation.** `--subject generation` lists this machine's model invocations for that exact
   Story, phase and generation, in their own recorded start order, with overlaps named and never
   ordered; requested and provider-reported models are separate, and a missing outcome or tool
   observation is said, never counted as zero. Prompt-log entries say whether they were prepared,
   handed to the Copilot host or sent through the runner, and how many secret-shaped values were
-  redacted; the prompt text never enters the view. An unreadable store, a listing cut at its bound
+  redacted; the prompt text never enters the view. The prompt log now writes a text-free removal note
+  (identity, Story, step, generation, why, when) for every entry its retention window or size limit
+  removes, bounded to the newest 2,000, and a clear leaves a single cleared note; the view states
+  how many entries of the generation were removed and when the log was cleared. The generation's
+  observed writes are listed with their writer and files. An unreadable store, a listing cut at its bound
   and records missing their identity are each reported, never read as none. Reading enables no
   capture.
+- **Retained snapshots.** Every stable change view the comprehension slice builds (for VS Code and
+  for every CLI subject) is retained in `<git dir>/singularity-flow/xpl2/snapshots/` under its
+  explanation-set digest: its comparison projection only (unit IDs, paths, unit and unit-content
+  digests, source and observation states, the statement count). At most 64 snapshots, 512 KiB each
+  and 8 MiB in all, each kept until 14 days unseen; an entry whose content does not match its name is
+  not read. Each view reports its own snapshot ID (`data.snapshot`).
+- **CLI comparison.** `explain --subject change --compare previous|SNAPSHOT-ID` (a digest or a prefix of
+  at least 12 hex digits) compares the current view with a retained snapshot using the explorer's own
+  comparison (`compare.mjs`); `previous` is the most recently seen other snapshot of the same Story.
+  The result (`data.comparison`) and the terminal say how many change units are new, gone and
+  unchanged, which files they are in and which sources changed, and never change the view.
 - **Comparison.** When a newer snapshot raises *Snapshot changed*, the banner counts the change units
   that are new, gone and unchanged, compared unit by unit by the change each holds
   (`unitContentSha256`: its own hunk text with its paths, independent of position; the file change
@@ -314,6 +368,9 @@ Measured on the development machine with the source CLI, cold process per call:
 | `explain --subject line` | 40 / 80 | 27 | 0.44 s | 14,880 |
 | `explain code` (baseline) | any | 32 | 0.41–0.48 s | — |
 
+`--subject line` reads Git once more (one batch for at most two blobs) only when an observed-write
+record names the line's path; with none it spawns nothing extra.
+
 Subprocess counts are flat in the number of files (no per-file or per-unit work) and are asserted by
 `XPL2-AC-060`. They come from the existing capture primitives; the proposed warm target of three Git
 spawns needs a warm retained capture, which this release does not have (V13: no safe read is
@@ -325,16 +382,20 @@ open.
 - A path the diff preview cannot project (for example one Git must quote) leaves every unit opaque
   for that capture. XPL2 says so with `text-projection-unavailable` rather than calling a text file
   non-text; the limit is inherited from the preview owner.
-- Retained historical snapshots do not exist yet, so an exact diff can be opened only while the
-  capture is current. An already-open diff keeps its captured bytes.
+- Retained snapshots keep no file bytes, so an exact diff can still be opened only while the capture
+  is current. An already-open diff keeps its captured bytes.
 - WEL contents are never read; the WEL state is reported only. Of PE, only content-free metadata is
   read (model invocation records and prompt-log entries without their text), and only for
   `--subject generation`.
-- No recorder of observed file writes exists, and model invocation records carry no file paths, so a
-  line's producer stays `origin-unestablished`. The prompt log keeps no tombstones, so an entry that
-  retention removed cannot be told apart from one never kept; the view states the retention window.
-- Historical snapshots are not retained: `--snapshot` is refused, and comparison is between the
-  snapshot on screen and the newer one that raised *Snapshot changed*.
+- Observed writes come only from explicit SFlow Copilot turns' checked file edits on this machine.
+  The hook sees the file right after the tool, so a write by another process inside the tool's own
+  run is part of what it observes; the arguments check rejects any write the tool's replacements do
+  not explain, and an edit left unsaved in an editor buffer is seen as no change. Native chat,
+  terminal commands, kernel model invocations and other machines are not observed (§6).
+- Prompt-log entries removed before removal notes existed, or past the newest 2,000 notes, still
+  cannot be told from entries never kept; the view states the retention window and marks the notes
+  partial at their bound.
+- `--snapshot` is refused: a retained snapshot is a comparison projection, not a view.
 
 ## 11. Acceptance traceability
 
@@ -353,7 +414,7 @@ rest is open), **open** (not implemented in this release).
 | 008 | No lexical entailment shortcut | tested | `test/xpl2-narration.test.mjs` (60 adversarial cases) |
 | 009 | Narration cannot mutate results | tested | `test/xpl2-narration.test.mjs` (no PR integration exists; the copied summary is the computed tour) |
 | 010 | Explicit model and capture choice | tested | `test/xpl2-narration.test.mjs` (local stand-in provider through the real runner; no provider is called) |
-| 011 | Line origin not inferred | tested | `test/xpl2-provenance.test.mjs` (real invocation records through the runner with a local stand-in) |
+| 011 | Line origin not inferred | tested | `test/xpl2-provenance.test.mjs` (invocation records never name a writer), `test/xpl2-observed-writes.test.mjs` (through the real post-tool hook: a line is attributed only when the writes explain the file exactly, line by line across two turns and through `git blame`; failed, unrecorded, ambiguous and forked histories stay unestablished with their basis) |
 | 012 | Disjoint footprint is insufficient | tested | `test/xpl2-applicability.test.mjs` (the reuse owner's rule; XPL2 computes no overlap) |
 | 013 | Reference performance qualification | open | Local measurements in §6; installed-host qualification open |
 | 014 | Impact producer readiness | tested | Named unavailability (`test/xpl2-engine.test.mjs`, `test/xpl2-exact-links.test.mjs`); no producer keyed to an exact change set exists |
@@ -367,7 +428,7 @@ rest is open), **open** (not implemented in this release).
 | 022 | Paged source remains pinned | tested | `test/vscode-xpl2-ui.test.mjs` |
 | 023 | Partial inventory is explicit | tested | `test/xpl2-engine.test.mjs` |
 | 024 | Clustering preserves counts | tested | `test/vscode-xpl2-graph.test.mjs` |
-| 025 | Historical native diff | partial | Captured bytes kept and live bytes never substituted (`test/xpl2-diff.test.mjs`); reopening after a move needs retained snapshots |
+| 025 | Historical native diff | partial | Captured bytes kept and live bytes never substituted (`test/xpl2-diff.test.mjs`); retained snapshots (`test/xpl2-snapshots.test.mjs`) keep no file bytes, so reopening after a move is still open |
 | 026 | UTF offsets and deletion side | tested | `test/xpl2-diff.test.mjs` |
 | 027 | Opaque resource rendering | tested | `test/xpl2-diff.test.mjs` |
 | 028 | Hash does not authenticate author | tested | `test/xpl2-engine.test.mjs` |
@@ -377,15 +438,15 @@ rest is open), **open** (not implemented in this release).
 | 032 | Region is not hunk cause | tested | `test/xpl2-engine.test.mjs`, `test/xpl2-exact-links.test.mjs` (with exact bindings beside it) |
 | 033 | Test association is not cause or coverage | tested | `test/xpl2-relations.test.mjs` |
 | 034 | Multiple exact causes | tested | `test/xpl2-exact-links.test.mjs`, real Story in `test/xpl2-exact-links-story.test.mjs` |
-| 035 | Unit identity cannot be reused | tested | `test/xpl2-exact-links.test.mjs` (same display IDs, other bytes: not joined), `test/xpl2-provenance.test.mjs` (comparison) |
+| 035 | Unit identity cannot be reused | tested | `test/xpl2-exact-links.test.mjs` (same display IDs, other bytes: not joined), `test/xpl2-provenance.test.mjs` (comparison), `test/xpl2-snapshots.test.mjs` (CLI comparison equals the explorer's, by unit content) |
 | 036 | Existing unchanged test can be inspected | tested | `test/xpl2-engine.test.mjs` |
 | 037 | Suite and witness limits displayed | tested | `test/xpl2-engine.test.mjs` |
 | 038 | Action prerequisites retained | tested | `test/xpl2-engine.test.mjs` |
 | 039 | Reuse is not a new execution | tested | `test/xpl2-applicability.test.mjs` |
 | 040 | Unknown dependency coverage | tested | `test/xpl2-applicability.test.mjs` |
-| 041 | No AI line-share fabrication | tested | `test/xpl2-provenance.test.mjs` (no feature telemetry is emitted) |
-| 042 | Parallel and reordered events | tested | `test/xpl2-provenance.test.mjs` |
-| 043 | Capture boundary and privacy | partial | Prepared, handed-off, redacted, capture-off and machine-local states and no capture enablement tested (`test/xpl2-provenance.test.mjs`); an expired entry cannot be told from one never kept, because the prompt log keeps no tombstones, so the retention window is stated instead |
+| 041 | No AI line-share fabrication | tested | `test/xpl2-provenance.test.mjs` (no feature telemetry is emitted); observed writes name one line's writer, never a share |
+| 042 | Parallel and reordered events | tested | `test/xpl2-provenance.test.mjs`; `test/xpl2-observed-writes.test.mjs` (writes are chained by digest, never by recorded time) |
+| 043 | Capture boundary and privacy | tested | Prepared, handed-off, redacted, capture-off and machine-local states, no capture enablement, an entry the retention window removed named from the log's removal note, and a clear stated (`test/xpl2-provenance.test.mjs`); observed-write records hold no content (`test/xpl2-observed-writes.test.mjs`). Removals before notes existed stay indistinguishable (§10) |
 | 044 | Missing events are not zero actions | tested | `test/xpl2-provenance.test.mjs` |
 | 045 | Read has no mutation | tested | `test/xpl2-routing.test.mjs` |
 | 046 | Unsafe prose can be withheld | tested | `test/xpl2-narration.test.mjs` |

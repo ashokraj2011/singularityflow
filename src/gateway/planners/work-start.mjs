@@ -112,19 +112,24 @@ export async function workStartPlan({ arguments: args = {}, root = null, context
  * Every value comes from the signed preview, so a host executor that builds its command here starts
  * exactly what was confirmed. The branch is passed explicitly because the preview already rendered
  * the configured naming rule; letting `start` render it again is a second answer to one question.
+ *
+ * Every value travels inside its own option as `--name=value`. Passed as the next argv item, a value
+ * that starts with `--` is read as a new option, so a title of `--from-branch=evil` was shown as a
+ * title and started as a base branch. Joined, a value can only ever be that option's.
  */
 export function workStartArguments(preview) {
   const source = preview.source;
+  const option = (name, value) => `--${name}=${value}`;
   return [
     'start', preview.subject.id, '--json', '--fetch',
     ...(source.tracker === 'jira' ? ['--jira'] : []),
-    ...(source.tracker === 'github' ? ['--github', source.key] : []),
-    ...(source.tracker === 'none' ? ['--title', preview.subject.title, '--description', source.description] : []),
-    ...(source.tracker === 'none' && source.acceptanceCriteria ? ['--acceptance-criteria', source.acceptanceCriteria] : []),
-    '--work-type', preview.workProfile.workType,
+    ...(source.tracker === 'github' ? [option('github', source.key)] : []),
+    ...(source.tracker === 'none' ? [option('title', preview.subject.title), option('description', source.description)] : []),
+    ...(source.tracker === 'none' && source.acceptanceCriteria ? [option('acceptance-criteria', source.acceptanceCriteria)] : []),
+    option('work-type', preview.workProfile.workType),
     '--isolated-worktree',
-    '--ref', preview.branch.name,
-    ...(preview.branch.base ? ['--from-branch', preview.branch.base] : [])
+    option('ref', preview.branch.name),
+    ...(preview.branch.base ? [option('from-branch', preview.branch.base)] : [])
   ];
 }
 

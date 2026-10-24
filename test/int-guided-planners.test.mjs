@@ -24,7 +24,7 @@ import {
 import { workStartArguments } from '../src/gateway/planners/work-start.mjs';
 import { previewDigest } from '../src/gateway/plan-descriptor.mjs';
 import { validateSflowResult } from '../src/gateway/result.mjs';
-import { run } from '../src/util.mjs';
+import { parseArgs, run } from '../src/util.mjs';
 
 const ACTOR = { login: 'dev-1', email: 'dev-1@example.com', name: 'Dev One' };
 const OTHER = { login: 'dev-2', email: 'dev-2@example.com', name: 'Dev Two' };
@@ -262,10 +262,21 @@ test('work start plans the exact normalized record from a session intake and der
   assert.equal(planned.data.plan.confirmation, 'exact-confirm');
   assert.equal(planned.data.plan.effects.publicationCreated, true);
   assert.deepEqual(workStartArguments(preview), [
-    'start', 'WRK-7', '--json', '--fetch', '--title', 'Stop duplicate checkout submissions',
-    '--description', 'Submitting twice creates two orders.', '--work-type', 'feature', '--isolated-worktree',
-    '--ref', 'WRK-7', '--from-branch', 'main'
+    'start', 'WRK-7', '--json', '--fetch', '--title=Stop duplicate checkout submissions',
+    '--description=Submitting twice creates two orders.', '--work-type=feature', '--isolated-worktree',
+    '--ref=WRK-7', '--from-branch=main'
   ]);
+  // Text a person typed stays the value of its own option, whatever it starts with or contains.
+  const hostile = await kernel.resolve({ utterance: 'create the work item', arguments: { intakeId: kernel.recordIntake({
+    workId: 'WRK-11', workType: 'feature', tracker: 'none', title: '--from-branch=evil',
+    description: '--ref\n--work-type=other', acceptanceCriteria: '--isolated-worktree=no; a=b'
+  }).intakeId } });
+  assert.equal(hostile.kind, 'plan');
+  const started = parseArgs(workStartArguments(hostile.data.plan.review.preview)).options;
+  assert.deepEqual([started.title, started.description, started['acceptance-criteria'], started.ref, started['work-type'], started['from-branch']],
+    ['--from-branch=evil', '--ref\n--work-type=other', '--isolated-worktree=no; a=b', 'WRK-11', 'feature', undefined]);
+  const tracked = parseArgs(workStartArguments({ ...hostile.data.plan.review.preview, source: { tracker: 'github', key: '--jira' } })).options;
+  assert.deepEqual([tracked.github, tracked.jira], ['--jira', undefined]);
 
   for (const [fields, code] of [
     [{ workId: 'WRK-8', workType: 'not-declared', title: 'T', description: 'D' }, 'WORK_TYPE_UNKNOWN'],

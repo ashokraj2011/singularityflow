@@ -19,6 +19,7 @@ import { planDeveloperConversation } from '../src/gateway/conversation.mjs';
 import { createHostGateway } from '../src/gateway/host.mjs';
 import { gatewayPlanners } from '../src/gateway/planners/index.mjs';
 import { validateSflowResult } from '../src/gateway/result.mjs';
+import { estimateTokens } from '../src/gateway/tools.mjs';
 import { run } from '../src/util.mjs';
 
 const ACTOR = { login: 'dev', email: 'dev@example.test', name: 'Dev' };
@@ -104,8 +105,10 @@ test('the first sflow_next carries the waiting Story, its phase and its next act
   assert.deepEqual([lead.kind, lead.interaction, lead.executable], ['read', 'read', true]);
   assert.deepEqual({ ...lead.slots }, { work: 'WRK-2018', phase: 'planning', status: 'awaiting_approval', group: 'waiting-on-you' });
   assert.equal(answer.next.filter((action) => action.emphasis === 'primary').length, 1);
-  // The legal set is still all there, after the work, and still offers nothing to execute.
-  assert.ok(answer.next.slice(1).every((action) => action.id.startsWith('legal:') && !action.executable));
+  // The legal set is still all there, after the work, as phrases rather than more actions.
+  assert.equal(answer.next.length, 1);
+  assert.equal(answer.data.legal.via, 'sflow_resolve');
+  assert.equal(Object.keys(answer.data.legal.utterances).length, answer.data.legal.count);
 
   // Answering took one call; acting on the answer takes one more, straight from the handle.
   assert.deepEqual(tools.calls, ['sflow_next']);
@@ -113,6 +116,41 @@ test('the first sflow_next carries the waiting Story, its phase and its next act
   assert.equal(packet.operation.id, 'review.packet');
   assert.equal(packet.kind, 'read');
   assert.deepEqual(tools.calls, ['sflow_next', 'sflow_read']);
+});
+
+/**
+ * What one `sflow_next` on this fixture may cost, as the compact JSON both hosts hand the model.
+ *
+ * 22,278 B (~5.6K tokens at four bytes a token) while the legal set followed the Story as 47
+ * selections; 4,319 B with it as `data.legal`. The headroom is for registry growth (~42 B an
+ * operation) and a longer temporary path, not for a second list of actions.
+ */
+const NEXT_ANSWER_BYTE_BOUND = 6_000;
+
+test('with work leading, the answer stays small and the legal set is still everything legal now', async (t) => {
+  const kernel = await repository(t, ['WRK-2018']);
+  const answer = validateSflowResult(await kernel.next({ scope: 'subject' }));
+  const text = JSON.stringify(answer);
+  const bytes = Buffer.byteLength(text, 'utf8');
+  assert.ok(bytes <= NEXT_ANSWER_BYTE_BOUND,
+    `sflow_next is ${bytes} B (~${estimateTokens(text)} tokens), over its ${NEXT_ANSWER_BYTE_BOUND} B bound`);
+
+  // A scope that reads no work answers with the legal set as actions: the same operations, in the
+  // same order, with the same phrases, and none of them is left out of the compact form.
+  const full = kernel.next({ scope: 'investigation' });
+  assert.ok(full.next.length > 0);
+  assert.deepEqual(Object.entries(answer.data.legal.utterances),
+    full.next.map((action) => [action.id.slice('legal:'.length), action.label]));
+  assert.equal(answer.data.legal.count, full.next.length);
+});
+
+test('each legal phrase is one sflow_resolve from its operation, as a selection handle was', async (t) => {
+  const tools = counted(await repository(t, ['WRK-2018']));
+  const { legal } = (await tools.next({ scope: 'home' })).data;
+  for (const [operation, utterance] of Object.entries(legal.utterances)) {
+    assert.equal((await tools.resolve({ utterance })).operation.id, operation, utterance);
+  }
+  assert.equal(tools.calls.length, 1 + legal.count);
 });
 
 test('home scope answers the same way, and so does a host behind the audit wrapper', async (t) => {

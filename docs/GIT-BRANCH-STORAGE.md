@@ -62,7 +62,8 @@ A Story branch is created from the selected application or capability base. It s
 - application source and test changes for the Story;
 - `singularity/work-items/<WORK-ID>/workflow.json`, the Story's operational authority;
 - phase artifacts, briefs, approvals, evidence, receipts, and review material;
-- an immutable copy of the configuration selected when the Story started;
+- an immutable copy of the configuration selected when the Story started: its own
+  workflow's closure, not every workflow's agents, templates and skills;
 - `singularity/configuration-source.json`, which binds that copy to the exact
   `sflow/config` commit and per-file hashes.
 

@@ -89,7 +89,11 @@ test('frequent lifecycle handlers do not reach the legacy dispatcher and stay un
     // REQ-014, their review fixes and the free-text option parser) adds 3,729 to main 4a72b80f's 9,063,836:
     // command-registry.mjs +1,958 (wm rules, wm brief --polish, explain --narrate and the gateway command), git.mjs +897
     // (XPL2's lineCommitAt), util.mjs +623 (free-text options, commentary and polish flags), inject.mjs +192. No new file.
-    assert.ok(closure.bytes <= 9_070_000, `${file} exceeds the 9 MB eager-source budget (${closure.bytes} bytes)`);
+    // 9,075,000 (next 5,000 boundary): a Story branch carries only its own workflow's configuration closure, adding
+    // 7,737 to main 1ecccc54's 9,065,911: configuration-branch.mjs +5,679 (closure materialization and its re-derived
+    // check), commands/start.mjs +1,114 (closure inputs and the whole-copy fallback notice), config.mjs +956 (the
+    // pinned initialization status doctor now shares). story-configuration-closure.mjs loads lazily. No new file.
+    assert.ok(closure.bytes <= 9_075_000, `${file} exceeds the 9 MB eager-source budget (${closure.bytes} bytes)`);
   }
 });
 

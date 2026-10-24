@@ -1338,9 +1338,9 @@ lease, and refuses when the branch moved or became reviewable. It never changes
 **Review capability proposals** dashboard exposes the same **Check integrity** and
 **Discard stale proposal** actions.
 
-A newly created Story branch receives an immutable copy of the approved revision.
-`singularity/configuration-source.json` records the configuration repository,
-`sflow/config` commit, and per-file SHA-256 hashes. The workflow validates those
+A newly created Story branch receives an immutable copy of its own workflow's part of
+the approved revision. `singularity/configuration-source.json` records the configuration
+repository, `sflow/config` commit, per-file SHA-256 hashes and that closure. The workflow validates those
 hashes on later lifecycle mutations.
 
 ## Workspace configuration

@@ -5,7 +5,7 @@ import path from 'node:path';
 import { requireApprovalAuthority } from './approval-authority.mjs';
 import { applyCapabilityPolicyToWorkResolution } from './capability-context.mjs';
 import { captureTerminalActionAuthorization } from './action-authorization.mjs';
-import { approvedStoryApprovalAuthorities, resolveApprovedStoryWorkType } from './configuration-branch.mjs';
+import { approvedStoryApprovalAuthorities, resolveApprovedStoryWorkTypeFor } from './configuration-branch.mjs';
 import { isTestQualityCommand, phaseRequiresCodeDelivery } from './delivery-evidence.mjs';
 import { normalizeRequiredTestCommand } from './code-delivery-tests.mjs';
 import { pinnedObligationGraph } from './evidence/obligation-compiler.mjs';
@@ -162,7 +162,7 @@ async function candidateFor(root, config, workflow, { approvedConfigurationSnaps
     fail('Select a newer approved configuration at the original pinned authority.', 'TCA_AMENDMENT_AUTHORITY_CHANGED');
   }
   const resolved = applyCapabilityPolicyToWorkResolution(
-    resolveApprovedStoryWorkType(approvedConfigurationSnapshot, workflow.workItem.workType), workflow.resolution.capability);
+    await resolveApprovedStoryWorkTypeFor(approvedConfigurationSnapshot, workflow), workflow.resolution.capability);
   const authorities = approvedStoryApprovalAuthorities(approvedConfigurationSnapshot);
   const policy = testCommandAmendmentPolicy(workflow, resolved, authorities);
   if (!same(phase.qualityCommands, policy.oldCommands)) fail('The runtime phase differs from its pinned command contract.', 'TCA_AMENDMENT_STALE');

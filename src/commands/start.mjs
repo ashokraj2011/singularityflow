@@ -408,6 +408,12 @@ export async function startCommand(positionals, options) {
   finally { process.chdir(previousDirectory); }
 }
 
+// Why a Story branch received the whole approved configuration instead of its workflow's closure.
+const CLOSURE_FALLBACK = {
+  STORY_CONFIGURATION_BASE_CARRIES_MORE: 'its base branch already carries configuration the closure would delete',
+  STORY_CONFIGURATION_AGENT_OUTSIDE_CLOSURE: '--agent names a repository agent outside this workflow'
+};
+
 async function startCommandAtRoot(positionals, options) {
   normalizeQualityGateMode(optionString(options, 'gate-mode', 'hard'));
   const id = requirePositional(positionals, 1, 'work ID');
@@ -1703,7 +1709,10 @@ async function startCommandAtRoot(positionals, options) {
     configurationSnapshot = await measureCommandSpan('start.configuration-materialize', () => materializeConfigurationSnapshot(root, {
       authority: configurationAuthority,
       snapshot: approvedConfigurationSnapshot,
-      remoteName: remote
+      remoteName: remote,
+      // The Story branch carries its own workflow's closure, not every approved workflow.
+      workTypes: [workType],
+      agents: [optionString(options, 'agent')].filter(Boolean)
     }));
   }
   // The selected lifecycle branch, not the checkout the user happened to start from, owns the
@@ -1945,7 +1954,10 @@ async function startCommandAtRoot(positionals, options) {
       configuration: approvedConfigurationSnapshot ? {
         branch: approvedConfigurationSnapshot.authority.branch,
         commit: approvedConfigurationSnapshot.sourceCommit,
-        authorityCommit: approvedConfigurationSnapshot.observedCommit
+        authorityCommit: approvedConfigurationSnapshot.observedCommit,
+        // The Story branch carries its own workflow's closure unless start had to copy all of it.
+        carried: configurationSnapshot?.closure ? 'closure' : 'whole',
+        ...(configurationSnapshot?.closureUnavailable ? { closureUnavailable: configurationSnapshot.closureUnavailable } : {})
       } : null,
       readiness: startReadiness,
       documents: supportingDocuments.length,
@@ -2031,6 +2043,7 @@ async function startCommandAtRoot(positionals, options) {
     summary(workflow);
     console.log(`Story-start readiness: ${startReadiness.status} · configuration, workflow agents, and Git publication verified.`);
     for (const warning of startReadiness.warnings ?? []) console.log(`Readiness advisory: ${warning.message}`);
+    if (configurationSnapshot?.closureUnavailable) console.log(`Configuration: this Story branch carries the whole approved configuration, not only its own workflow's files (${CLOSURE_FALLBACK[configurationSnapshot.closureUnavailable] ?? configurationSnapshot.closureUnavailable}).`);
     if (sealedTestPolicy?.capability?.status === 'not-checked' || sealedTestPolicy?.capability?.modules?.length) {
       console.log('Test capability (sealed with the Story; plan each criterion where its test can run):');
       for (const line of capabilityLines(sealedTestPolicy.capability)) console.log(`  ${line}`);

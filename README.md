@@ -1038,8 +1038,9 @@ CLI-managed maps are changed through `capability add`, `capability protect`, and
 application branch. Version-1 maps retain their legacy behavior until an explicit reviewed
 `capability adopt-managed` operation is approved.
 
-When a Story starts, Flow copies one exact approved `sflow/config` revision onto
-the new Story branch and commits `singularity/configuration-source.json`. That
+When a Story starts, Flow copies its own workflow's closure of one exact approved
+`sflow/config` revision onto the new Story branch (other workflows' agents, templates
+and skills stay behind) and commits `singularity/configuration-source.json`. That
 record pins the source repository, full configuration commit, and SHA-256 of every
 copied configuration asset. Later phases therefore cannot silently change when
 shared configuration advances. Application `main` remains application code and

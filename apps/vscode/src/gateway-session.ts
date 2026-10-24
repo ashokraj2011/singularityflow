@@ -24,7 +24,7 @@ import { visibleSubjects } from '../../../src/gateway/conversation.mjs';
 import {
   guideSessionScope, readGuideSession, rememberGuideSession, resetGuideSession
 } from '../../../src/gateway/local-store.mjs';
-import { bindingActorId, createHostGateway } from '../../../src/gateway/host.mjs';
+import { bindingActorId, createHostGateway, pausedToolAnswer } from '../../../src/gateway/host.mjs';
 import {
   astContextPlanner, astQueryPlanner, astStatusPlanner
 } from '../../../src/gateway/planners/ast-intelligence.mjs';
@@ -160,6 +160,12 @@ export type GatewaySession = {
     rememberResult(result: any): Promise<unknown>;
     reset(): Promise<{ cleared: boolean }>;
   };
+  /**
+   * A language-model tool call while SFlow guidance is paused, answered before the kernel, a binding
+   * or Git: the same check `gateway serve` makes (host.mjs). Null when not paused. The editor's own
+   * screens never call it; pause turns off Copilot guidance, not this window.
+   */
+  readonly pausedToolAnswer: (tool: string) => any | null;
 };
 
 /**
@@ -351,7 +357,8 @@ export function gatewaySession(context: GatewayRepositoryContext): GatewaySessio
         lastMenu: (result?.next ?? []).map((action: { id?: string }) => action.id)
       }),
       reset: async () => resetGuideSession(guideOwner())
-    }
+    },
+    pausedToolAnswer: (tool) => pausedToolAnswer(tool)
   };
   sessionRoot = root;
   sessionWorkspaceId = workspaceId;

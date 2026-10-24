@@ -30,6 +30,8 @@ declare module '*/gateway/host.mjs' {
   export function hostBinding(root: string | null, options: Record<string, unknown>): Record<string, unknown>;
   /** The person a binding, and the guide session, are keyed to. */
   export function bindingActorId(root: string | null): string | null;
+  /** A model's tool call while SFlow guidance is paused: the refusal, or null when not paused. */
+  export function pausedToolAnswer(tool: string): SflowResult | null;
 }
 
 declare module '*/personalization.mjs' {

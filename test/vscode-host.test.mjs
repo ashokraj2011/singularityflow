@@ -1723,6 +1723,43 @@ test('@sflow uses the current profile for guidance and never personalizes or run
   assert.equal(registered.terminals.length, 0);
 });
 
+test('the five SFlow language-model tools answer through the gateway, and a paused SFlow answers them first', async (t) => {
+  // /sf-recommend, /sf-home and /sf-advise call sflow_resolve and sflow_read when VS Code offers them.
+  if (!requireBundle(t)) return;
+  const root = await demoRepository();
+  const { api } = stubVscode();
+  api.workspace.workspaceFolders = [{ uri: { fsPath: root } }];
+  const tools = new Map();
+  api.lm = { registerTool: (name, tool) => { tools.set(name, tool); return { dispose() {} }; } };
+  api.LanguageModelToolResult = class { constructor(content) { this.content = content; } };
+  api.LanguageModelTextPart = class { constructor(value) { this.value = value; } };
+  const extension = loadExtension(api);
+  const hostContext = context();
+  t.after(() => { for (const disposable of hostContext.subscriptions) disposable.dispose?.(); });
+  t.after(() => rm(process.env.SINGULARITY_FLOW_COPILOT_MODE_FILE, { force: true }));
+  await extension.activate(hostContext);
+  const names = ['sflow_resolve', 'sflow_read', 'sflow_next', 'sflow_run', 'sflow_explain'];
+  assert.deepEqual([...tools.keys()].filter((name) => name.startsWith('sflow_')), names);
+  const call = async (name, input) => JSON.parse((await tools.get(name).invoke({ input })).content[0].value);
+
+  const resolved = await call('sflow_resolve', { utterance: 'what should I do next' });
+  assert.deepEqual([resolved.kind, resolved.operation.id, resolved.next.length], ['read', 'developer.next', 1]);
+  const read = await call('sflow_read', { resolutionId: resolved.next[0].handle });
+  assert.equal(read.operation.id, 'developer.next');
+  assert.ok(read.data.guidance && Object.hasOwn(read.data, 'personalization'));
+
+  // Paused: every tool is answered by the shared check before the kernel, and nothing is read.
+  await writeFile(process.env.SINGULARITY_FLOW_COPILOT_MODE_FILE, '{"schemaVersion":1,"paused":true}');
+  for (const name of names) {
+    const paused = await call(name, name === 'sflow_read' ? { resolutionId: resolved.next[0].handle }
+      : name === 'sflow_run' ? { planId: 'pln_x' } : name === 'sflow_next' ? { scope: 'home' }
+        : name === 'sflow_explain' ? { question: 'why is my Story blocked?' } : { utterance: 'what should I do next' });
+    assert.deepEqual([paused.kind, paused.why[0].code, paused.data.paused], ['refusal', 'gateway.copilot-paused', true], name);
+  }
+  await rm(process.env.SINGULARITY_FLOW_COPILOT_MODE_FILE, { force: true });
+  assert.equal((await call('sflow_resolve', { utterance: 'what should I do next' })).operation.id, 'developer.next');
+});
+
 test('@sflow deterministic commands use bounded CLI reads and unmatched text never guesses', async (t) => {
   if (!requireBundle(t)) return;
   const root = await demoRepository();

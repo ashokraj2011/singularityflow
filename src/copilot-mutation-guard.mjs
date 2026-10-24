@@ -693,6 +693,13 @@ function plannedActionExecution(call, value) {
   return positionals[0] === 'action' && positionals[1] === 'execute';
 }
 const HOOK_DENIAL = 'PHASE_MUTATION_OPERATION_NOT_ALLOWED: a lifecycle hook records the host\'s own decisions (a turn\'s boundary among them), so only the host runs it, or the person in their own terminal with the exact payload. Give them the command; do not retry it';
+/**
+ * `sflow_run` carries out a plan; a read turn carries out none. The four read tools pass every turn
+ * (they are not terminals, edits or delegations), so a read skill may answer through them. Matched by
+ * suffix: an MCP host may prefix the server name (`singularity-flow-sflow_run`).
+ */
+const GATEWAY_RUN_TOOL = /(?:^|[^a-z0-9])sflow_run$/u;
+const GATEWAY_RUN_DENIAL = 'PHASE_MUTATION_OPERATION_NOT_ALLOWED: sflow_run carries out a plan, and this read-only turn carries out none. Answer with sflow_resolve, sflow_read, sflow_next or sflow_explain, or this skill\'s own CLI read; a plan the person wants carried out runs from its own /sf-* skill. Do not retry it';
 const GATEWAY_SERVER_DENIAL = 'PHASE_MUTATION_OPERATION_NOT_ALLOWED: the gateway server carries out plans a person confirms in their own client\'s UI, so only that client starts it (from its MCP configuration), never a turn. Use the SFlow tools the host already offers; do not retry it';
 /** A verified host-only command (a hook, or the gateway server), as the refusal that names why. */
 function hostOnlyDenial(call, value) {
@@ -1049,6 +1056,9 @@ export async function mutationToolGuard(payload = {}) {
 
 async function mutationToolDecision(payload, record) {
   const toolCalls = calls(payload);
+  if (mutationTurnMode(record.skill) === 'read' && toolCalls.some(call => GATEWAY_RUN_TOOL.test(call.name))) {
+    return { permissionDecision: 'deny', next: [], permissionDecisionReason: GATEWAY_RUN_DENIAL };
+  }
   const guarded = toolCalls.filter(call => TERMINALS.has(call.name) || DELEGATION.has(call.name) || isEdit(call.name));
   const stagingReads = toolCalls.filter(call => FILE_READS.has(call.name)
     && targets(call.args).some(target => /(?:^|[\\/])singularity-flow[\\/]/u.test(target)));

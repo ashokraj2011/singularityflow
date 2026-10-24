@@ -31,6 +31,8 @@ import { createGatewayKernel } from './kernel.mjs';
 import { createHandleAuthority } from './handles.mjs';
 import { gatewayRegistry } from './operations.mjs';
 import { DEFAULT_GATEWAY_POLICY, resolveGatewayPolicy } from './policy.mjs';
+import { noEffects, preservedAll, sflowResult } from './result.mjs';
+import { copilotModePresentation, readCopilotMode } from '../copilot-mode.mjs';
 import { branch, head, identity, localGitDisplayName, repoRoot } from '../git.mjs';
 import { operationContext, withOperationContext } from '../operation-context.mjs';
 import { worktreeFingerprint } from '../worktree-fingerprint.mjs';
@@ -127,6 +129,43 @@ export function hostBinding(root, { workspaceId = null, hostSessionId, subject =
      */
     actorId: bindingActorId(root),
     hostSessionId
+  });
+}
+
+/** The operation a refused tool call names: the tool's own entry point, or the explain operation. */
+const TOOL_OPERATIONS = Object.freeze({
+  sflow_resolve: 'gateway.resolve', sflow_read: 'gateway.read', sflow_next: 'gateway.next',
+  sflow_run: 'gateway.run', sflow_explain: 'help.explain'
+});
+
+/**
+ * Paused SFlow guidance answers a model's tool call before the kernel sees it.
+ *
+ * `singularity-flow pause on` turns SFlow's Copilot guidance off on this machine, and every CLI
+ * read entry checks it before Git. The five tools are the same guidance by another door, so both
+ * model-facing hosts (VS Code's language-model tools and `gateway serve`) ask this one function
+ * first, before any binding, Git read or planner. It reads the bounded local preference only, so
+ * a call that is not paused costs one small file read. The host's own screens (My Work, cards)
+ * are not Copilot guidance and do not call it. Null when not paused.
+ */
+export function pausedToolAnswer(tool, mode = readCopilotMode()) {
+  if (!mode?.paused) return null;
+  const presentation = copilotModePresentation(mode);
+  return sflowResult({
+    kind: 'refusal',
+    operation: { id: TOOL_OPERATIONS[tool] ?? 'gateway.resolve', classification: 'read' },
+    outcome: { status: 'refused', messageId: 'gateway.refused', slots: {} },
+    effects: noEffects(),
+    why: [{ code: 'gateway.copilot-paused', source: 'policy', slots: {} }],
+    preserved: preservedAll('gateway.nothing-was-carried-out'),
+    restState: 'blocked',
+    data: {
+      paused: true,
+      nativeCopilot: true,
+      stateAvailable: mode.stateAvailable !== false,
+      agentInstruction: presentation.agentInstruction,
+      commandGuidance: presentation.commandGuidance
+    }
   });
 }
 

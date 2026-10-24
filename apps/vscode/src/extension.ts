@@ -766,7 +766,11 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       ?? { root: null, workspaceId: null, workspaceName: null, repositoryId: null, origin: 'machine-local' };
     const answer = async (name: string, input: Record<string, any>) => {
       const route = toolRoute();
-      const { kernel } = gatewaySession(route);
+      const session = gatewaySession(route);
+      // Paused SFlow guidance answers before the kernel, a binding or Git, as `gateway serve` does.
+      const paused = session.pausedToolAnswer(name);
+      if (paused) return paused;
+      const { kernel } = session;
       if (name === 'sflow_resolve') return kernel.resolve(input as never);
       if (name === 'sflow_read') return kernel.read({ resolutionId: String(input.resolutionId ?? '') });
       if (name === 'sflow_next') return kernel.next({ scope: input.scope, subject: input.subject ?? null });

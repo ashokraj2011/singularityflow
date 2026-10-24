@@ -1167,6 +1167,37 @@ test('/sf-continue executes an authorized planned action only when its own turn 
   assert.equal((await mutationToolGuard({ ...read, toolName: 'bash', toolArgs: { command: execute(ids.sync), cwd: f.root } })).permissionDecision, 'deny');
 });
 
+test('a read turn answers through the four SFlow read tools, and sflow_run is refused in it', async t => {
+  // Read skills (/sf-recommend, /sf-home, /sf-advise) call sflow_resolve and sflow_read when the host offers them.
+  const f = await fixture(t);
+  const tool = (payload, toolName, toolArgs = {}) => mutationToolGuard({ ...payload, toolName, toolArgs });
+  for (const skill of ['/sf-recommend', '/sf-home', '/sf-advise', '/sf-status']) {
+    const read = await f.enter(skill, `gateway-${skill.slice(4)}`);
+    assert.equal(mutationTurnMode(skill), 'read', skill);
+    // VS Code names the language-model tool; an MCP host may prefix its server name.
+    for (const name of ['sflow_resolve', 'sflow_read', 'sflow_next', 'sflow_explain', 'singularity-flow-sflow_read', 'mcp__singularity-flow__sflow_next']) {
+      assert.deepEqual(await tool(read, name, { utterance: 'what should I do next' }), {}, `${skill} ${name}`);
+    }
+    for (const name of ['sflow_run', 'singularity-flow-sflow_run', 'mcp__singularity-flow__sflow_run']) {
+      const refused = await tool(read, name, { planId: 'pln_x' });
+      assert.equal(refused.permissionDecision, 'deny', `${skill} ${name}`);
+      assert.match(refused.permissionDecisionReason, /^PHASE_MUTATION_OPERATION_NOT_ALLOWED: sflow_run carries out a plan, and this read-only turn carries out none/u);
+      // The refusal names the reads and the skill's own CLI read: the turn keeps answering.
+      assert.match(refused.permissionDecisionReason, /Answer with sflow_resolve, sflow_read, sflow_next or sflow_explain, or this skill's own CLI read/u);
+    }
+    // One sflow_run in a batch refuses the batch, as any refused call does.
+    assert.equal((await mutationToolGuard({ ...read, toolName: undefined, toolArgs: undefined,
+      toolCalls: [{ name: 'sflow_read', args: {} }, { name: 'sflow_run', args: {} }] })).permissionDecision, 'deny');
+  }
+  // A turn that may run kernel actions leaves sflow_run to the host's own confirmation dialog.
+  const kernel = await f.enter('/sf-next', 'gateway-next');
+  assert.equal(mutationTurnMode('/sf-next'), 'kernel-only');
+  assert.deepEqual(await tool(kernel, 'sflow_run', { planId: 'pln_x' }), {});
+  assert.deepEqual(await tool(kernel, 'sflow_resolve', { utterance: 'home' }), {});
+  // Outside an explicit SFlow turn nothing is recorded, so the guard has nothing to say.
+  assert.deepEqual(await tool({ cwd: f.root, sessionId: 'native-chat' }, 'sflow_run', { planId: 'pln_x' }), {});
+});
+
 test('Epic, Initiative and repair drafting turns edit exactly the files their SFlow commands issued, with or without a Story', async t => {
   const f = await fixture(t);
   const bare = async (skill, sessionId) => {

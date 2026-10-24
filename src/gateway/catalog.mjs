@@ -61,6 +61,8 @@ export const KERNEL_CODES = Object.freeze([
   'gateway.not-a-read',
   'gateway.not-a-mutation',
   'gateway.read-only',
+  /** SFlow guidance is paused on this machine; a model's tool call is answered before the kernel. */
+  'gateway.copilot-paused',
   'gateway.run-in-progress',
   'gateway.confirmation-channel-unavailable',
   'gateway.confirmation-declined',

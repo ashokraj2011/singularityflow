@@ -63,15 +63,27 @@ export function reviewOpenResult(item, { subject = null } = {}) {
       interaction: 'ceremony',
       emphasis: 'primary',
       executable: false,
-      slots: { work: item.id, phase: item.phase ?? 'none', hostAction: 'vscode.openReviewCeremony' },
+      slots: { work: item.id, phase: item.phase ?? 'none' },
+      /**
+       * The trusted review surface, by opaque identifiers only. `[INT:IFC-061]` `[INT:CON-131]`
+       *
+       * Typed by `host-action-vscode-open-review-ceremony-v1`; the kernel checks it on the way out and
+       * the editor again on the way in, and the review it opens reads the decision from records itself.
+       */
+      hostAction: {
+        id: 'vscode.openReviewCeremony',
+        arguments: {
+          workId: item.id,
+          ...(['story', 'initiative'].includes(item.kind) ? { workKind: item.kind } : {}),
+          ...(item.phase ? { phase: item.phase } : {}),
+          generation: Number.isInteger(item.generation) ? item.generation : 0
+        }
+      },
       fallback: ceremonyFallback(item)
     }],
     restState: 'awaiting-decision',
     data: {
       ceremony: {
-        hostAction: 'vscode.openReviewCeremony',
-        // Opaque identifiers only; the receiving surface reauthorizes them `[INT:CON-131]`.
-        arguments: { workId: item.id, workKind: item.kind, phase: item.phase ?? null, generation: item.generation ?? 0 },
         decisionAvailableToActor: decidable,
         blockers: item.blockers ?? [],
         executable: false

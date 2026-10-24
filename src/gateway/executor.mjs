@@ -24,6 +24,7 @@
  * answer. A host that has to catch exceptions to render a stale confirmation will render it as an
  * error toast, which is the dead end `[UXH:CON-007]` prohibits.
  */
+import { HOST_ACTIONS, validateHostAction } from './argument-schemas.mjs';
 import { HANDLE_FAILURE_CODES } from './catalog.mjs';
 import { SingularityFlowError } from '../util.mjs';
 import { noEffects, preservedAll, sflowResult } from './result.mjs';
@@ -119,6 +120,17 @@ export function createActionExecutor({ gateway, scope = 'home' } = {}) {
     }
 
     /**
+     * A host action opens a trusted view, and is never a kernel call. `[INT:CON-130]`
+     *
+     * Handed back like a ceremony: the host validates it again and opens the view it names. Nothing
+     * here reads, resolves or runs, so a host action cannot enter the plan, receipt or publication
+     * path even by mistake — there is no kernel call on this branch to make one.
+     */
+    if (action.hostAction != null || action.kind === 'host-action') {
+      return { outcome: 'host-action', action };
+    }
+
+    /**
      * A plan is confirmed, never dispatched. `[INT:CON-039]` `[INT:CON-111]`
      *
      * Pressing a plan's button hands the host its review — the exact preview, effects and hash —
@@ -189,4 +201,52 @@ export function createActionExecutor({ gateway, scope = 'home' } = {}) {
       return execute(action);
     }
   });
+}
+
+/**
+ * The receiving host's refusal of a host action, as a result like any other. `[INT:CON-131]`
+ *
+ * A host action that fails on receipt is never opened, and the reader is told so on a card rather
+ * than by silence: what was refused and why, that nothing was opened or changed, and — when the
+ * action came with one — the terminal continuation instead `[INT:REQ-130]`.
+ */
+export function hostActionRefusal({ action = 'unknown', reason = 'malformed' } = {}, { fallback = null } = {}) {
+  const continuation = fallback?.command ? [{
+    handle: 'host-action:fallback', id: 'host-action:fallback', label: fallback.label ?? 'Do it from a terminal instead',
+    rank: 0, kind: 'read', reasonCode: 'gateway.host-action-fallback', confirmation: 'none',
+    interaction: 'navigation', emphasis: 'primary', executable: false,
+    fallback: { label: fallback.label ?? 'Do it from a terminal instead', command: fallback.command }
+  }] : [];
+  return sflowResult({
+    kind: 'refusal',
+    operation: { id: 'gateway.host-action', classification: 'read' },
+    outcome: { status: 'refused', messageId: 'gateway.refused', slots: { action, reason } },
+    effects: noEffects(),
+    why: [{ code: 'gateway.host-action-refused', source: 'deterministic', slots: { action, reason } }],
+    preserved: preservedAll('gateway.nothing-was-carried-out'),
+    next: continuation,
+    // A view this build lacks is unavailable here; anything else was refused, and retrying it elsewhere will not help.
+    restState: continuation.length ? null : (reason === 'not-available-in-this-build' ? 'unavailable' : 'blocked')
+  });
+}
+
+/**
+ * Validate a host action again where it is received, before anything is opened.
+ * `[INT:IFC-061]` `[INT:CON-130]` `[INT:CON-131]`
+ *
+ * The kernel already checked it when it was emitted; this is the receiving extension's own check,
+ * because a deep link or a stale card did not necessarily come from this kernel. Against the same
+ * allowlist and typed schema, and then against `available` — the actions this build has a view
+ * for. An allowlisted action without one is refused as not available here, never quietly ignored.
+ */
+export function receiveHostAction(candidate, { available = HOST_ACTIONS, fallback = null } = {}) {
+  const checked = validateHostAction(candidate);
+  if (!checked.ok) {
+    return Object.freeze({ accepted: false, reason: checked.reason, result: hostActionRefusal(checked, { fallback }) });
+  }
+  if (!available.includes(checked.hostAction.id)) {
+    const refused = { action: checked.hostAction.id, reason: 'not-available-in-this-build' };
+    return Object.freeze({ accepted: false, reason: refused.reason, result: hostActionRefusal(refused, { fallback }) });
+  }
+  return Object.freeze({ accepted: true, hostAction: checked.hostAction });
 }

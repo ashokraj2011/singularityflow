@@ -494,11 +494,12 @@ function plannedActionArgv(positionals, options, value) {
  * Commands only a host runs. A lifecycle hook records host decisions (a turn's own boundary among
  * them). The gateway server carries out plans a person confirms in its client's own UI: started from
  * a turn, the agent would be that client, claim the UI at initialize and answer the confirmation
- * itself. Only its reads (`tools`, `events`) are a turn's.
+ * itself. Only its reads (`tools`, `events`) and the guide session are a turn's: resetting
+ * conversational context changes no work, plan, workspace selection or lifecycle record `[INT:REQ-101]`.
  */
 function hostOnlyCommand(positionals) {
   return ['hook', 'exec'].includes(positionals[0])
-    || (positionals[0] === 'gateway' && !['tools', 'events'].includes(positionals[1] ?? 'tools'));
+    || (positionals[0] === 'gateway' && !['tools', 'events', 'session'].includes(positionals[1] ?? 'tools'));
 }
 
 function argvAllowed(argv, mode, value) {

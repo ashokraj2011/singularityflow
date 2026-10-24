@@ -1240,6 +1240,11 @@ test('guided run, documentation of changed code and the reinstall preview get th
       assert.match(refusal.permissionDecisionReason, /^PHASE_MUTATION_OPERATION_NOT_ALLOWED: the gateway server carries out plans/u, `${skill}: ${command}`);
     }
     assert.deepEqual(await shell(payload, 'singularity-flow gateway tools --json'), {}, `${skill}: gateway tools`);
+    // Showing or resetting conversational context changes no work, plan, workspace selection or
+    // lifecycle record, so any turn may `[INT:REQ-101]`; switching the selected workspace stays the person's.
+    for (const command of ['singularity-flow gateway session --json', 'singularity-flow gateway session reset']) {
+      assert.deepEqual(await shell(payload, command), {}, `${skill}: ${command}`);
+    }
   }
   const reinstall = { cwd: f.root, sessionId: 'reinstall-bare', prompt: '/sf-reinstall' };
   await recordRepositoryBoundaryTurn(reinstall, { captureMutation: (value, record) => captureMutationTurn(value, record,

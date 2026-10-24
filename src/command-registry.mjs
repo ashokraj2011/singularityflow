@@ -562,7 +562,7 @@ export const RESOLVER_SUBCOMMANDS = Object.freeze({
   ])
 });
 
-const GATEWAY_ACTIONS = ['serve', 'tools', 'events'];
+const GATEWAY_ACTIONS = ['serve', 'tools', 'events', 'session'];
 const gatewayOperation = (definition, name) => GATEWAY_ACTIONS.includes(name)
   ? never(`gateway.${name}`, definition, name === 'serve' ? 'mutation' : 'read') : unknownSubcommand('gateway', name, GATEWAY_ACTIONS);
 

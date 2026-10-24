@@ -1377,11 +1377,14 @@ const PAGES = Object.freeze({
       'sflow_read, sflow_next, sflow_run and sflow_explain. The kernel decides what is legal; a plan runs only after the',
       'person confirms it in the MCP client\'s own UI (elicitation), and a client that cannot ask gets plans to read and',
       'the explicit command instead. The MCP configuration holds no credentials. gateway tools prints the schemas and',
-      'their measured size; gateway events lists recent gateway calls on this machine without what anyone typed.'
+      'their measured size; gateway events lists recent gateway calls on this machine without what anyone typed.',
+      'gateway session shows what the conversation remembers for this workspace (the subject on screen, the last menu),',
+      'none of which can confirm or carry out anything; gateway session reset forgets it and leaves work, pending plans',
+      'and the selected workspace unchanged.'
     ],
     options: [
       ['--transport stdio', 'serve: the only transport.'],
-      ['--workspace WORKSPACE', 'serve: the workspace to serve; the active one by default.'],
+      ['--workspace WORKSPACE', 'serve, session: the workspace to serve or whose conversation to show or reset; the active one by default.'],
       ['--host HOST', 'events: only this host (mcp, vscode).'],
       ['--operation ID', 'events: only this operation.'],
       ['--outcome STATUS', 'events: only succeeded, refused, failed or noop.'],
@@ -1393,7 +1396,8 @@ const PAGES = Object.freeze({
     examples: [
       ['singularity-flow gateway serve --transport stdio', 'Serve the gateway to an MCP host.'],
       ['singularity-flow gateway tools --json', 'Print the five schemas and their measured size.'],
-      ['singularity-flow gateway events --host mcp --outcome refused', 'List refused MCP calls.']
+      ['singularity-flow gateway events --host mcp --outcome refused', 'List refused MCP calls.'],
+      ['singularity-flow gateway session reset', 'Forget the conversational context for this workspace.']
     ],
     seeAlso: ['home', 'explain']
   },

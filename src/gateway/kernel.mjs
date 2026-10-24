@@ -417,15 +417,20 @@ export function createGatewayKernel({
     });
   }
 
-  /** Every legal operation, each as a selection with no arguments yet: the list `next` has always been. */
-  function legalNow(legalSet, issuedAgainst) {
+  /** Every legal operation this policy reaches, in registry order, with its permission. */
+  function legalOperations(legalSet) {
     const legal = legalSet
       ?? registry.operations.filter((entry) => entry.classification === 'read').map((entry) => entry.id);
     return legal
       .map((id) => registry.operations.find((entry) => entry.id === id))
       .filter(Boolean)
       .map((operation) => ({ operation, permission: operationPermission(policy, operation.id, { registry }) }))
-      .filter(({ permission }) => permission.reachable)
+      .filter(({ permission }) => permission.reachable);
+  }
+
+  /** Every legal operation, each as a selection with no arguments yet: the list `next` has always been. */
+  function legalNow(legal, issuedAgainst) {
+    return legal
       .map(({ operation, permission }) => ({
         handle: permission.confirmation === 'ceremony'
           ? `ceremony:${operation.id}`
@@ -454,6 +459,24 @@ export function createGatewayKernel({
         executable: false,
         fallback: { label: 'Ask what SFlow can do', command: 'sflow explain' }
       }));
+  }
+
+  /**
+   * The same legal set beside work that leads: each operation's ID and the phrase `sflow_resolve`
+   * resolves to it.
+   *
+   * With work leading, that work's action is the answer and this set is what else is possible. As
+   * 47 selections it was ~20 KB of every `sflow_next` (~5K tokens), for handles that saved nothing:
+   * a selection handle and the operation's registered phrase are each one `sflow_resolve` from it.
+   * It is still the whole set and still unranked `[INT:CON-038]`: a map has no order to read a
+   * recommendation from, and nothing in it is emphasised or issued.
+   */
+  function legalReference(legal) {
+    return {
+      count: legal.length,
+      via: 'sflow_resolve',
+      utterances: Object.fromEntries(legal.map(({ operation }) => [operation.id, operation.gateway.aliases.en.phrases[0]]))
+    };
   }
 
   /** The `work.list` operation `next` reads, when this kernel has a repository and that planner. */
@@ -659,7 +682,9 @@ export function createGatewayKernel({
      * through that planner, and leads with it. Which work is Home's rule (`deriveHomeState`): the
      * named subject, else the Story whose branch is checked out, else the only open one. Its
      * lifecycle next action comes first, as a read handle `sflow_read` takes as it is; with several
-     * open and none current, each is listed with its own.
+     * open and none current, each is listed with its own. When work leads, the legal set follows as
+     * `data.legal` rather than as more actions (`legalReference`); when none does, it is the answer
+     * and stays the action list.
      *
      * A kernel with nothing to read answers synchronously, as it always has. One that reads the work
      * returns a promise of the same result.
@@ -667,11 +692,12 @@ export function createGatewayKernel({
     next({ scope = 'home', subject = null } = {}) {
       const issuedAgainst = currentBinding();
       const legalSet = currentLegalActions(subject);
-      const legal = legalNow(legalSet, issuedAgainst);
+      const legal = legalOperations(legalSet);
       const workList = workReader(scope);
-      if (!workList) return nextResult(scope, subjectOf(subject), legal);
-      return leadingWork(workList, subject, legalSet, issuedAgainst)
-        .then((work) => nextResult(scope, work.subject ?? subjectOf(subject), legal, work));
+      if (!workList) return nextResult(scope, subjectOf(subject), legalNow(legal, issuedAgainst));
+      return leadingWork(workList, subject, legalSet, issuedAgainst).then((work) => (work.lead?.length
+        ? nextResult(scope, work.subject ?? subjectOf(subject), [], { ...work, data: { ...work.data, legal: legalReference(legal) } })
+        : nextResult(scope, work.subject ?? subjectOf(subject), legalNow(legal, issuedAgainst), work)));
     },
 
     /** `sflow_explain`: bounded, cited, and never a way to turn an answer into an act `[INT:CON-040]`. */

@@ -101,8 +101,9 @@ const TOUR_STEPS = Object.freeze([
   ['links', ['exact-cause', 'binding-not-joined', 'line-binding', 'clause-tag', 'region-association', 'acceptance-tag', 'test-tag']],
   ['checks', ['witness-result', 'test-result', 'test-attempt', 'evidence-reuse', 'binding-decision', 'clause-untagged', 'gap-observed']],
   ['attention', ['no-complete-evaluation', 'admission-unavailable', 'feature-state', 'source-state', 'provenance-unavailable',
-    'cause-not-recorded', 'capture-state', 'records-unreadable']],
-  ['history', ['generation-recorded', 'generation-invocation', 'generation-prompt', 'generation-attempt', 'invocation-overlap']]
+    'cause-not-recorded', 'capture-state', 'records-unreadable', 'line-writer-unestablished']],
+  ['history', ['line-writer', 'generation-recorded', 'generation-invocation', 'generation-prompt', 'generation-attempt', 'invocation-overlap',
+    'generation-write', 'prompt-entries-removed', 'prompt-log-cleared']]
 ]);
 
 function readingTour(statements, attentionStatements, next) {
@@ -282,6 +283,81 @@ function lineHistoryStatements(b, derived, query, history) {
   }));
 }
 
+/** A recorded writer in plain words: which explicit turn of which Copilot session, or which invocation. */
+function writerText(writer) {
+  if (writer?.kind === 'copilot-turn') {
+    const skill = /^(?:sf|sflow)-[a-z0-9-]+$/u.test(String(writer.skill ?? '')) ? `/${String(writer.skill).replace(/^sflow-/u, 'sf-')}` : 'an explicit SFlow';
+    return `the ${skill} turn ${recordIdentifier(writer.turn, 'unrecorded').slice(0, 8)} of Copilot session ${recordIdentifier(writer.session, 'unrecorded')}`
+      + `${writer.agent ? ` (agent ${recordText(writer.agent, 'unnamed')})` : ''}`;
+  }
+  if (writer?.kind === 'model-invocation') return `model invocation ${recordText(writer.invocation, 'unrecorded')}`;
+  return 'an unrecognized writer';
+}
+
+function writeSubjectText(subject) {
+  if (!subject?.workId) return ', with no Story bound';
+  return `, for Story ${recordText(subject.workId, 'unknown')}, step ${recordText(subject.phase, 'unknown')}`
+    + (Number.isSafeInteger(Number(subject.generation)) && subject.generation != null ? `, generation ${Number(subject.generation)}` : ', with no generation open');
+}
+
+/**
+ * Admit what this machine's observed writes say about one line [XPL2 M3]: the writer whose recorded
+ * write changed it last, only when the writes explain the file's bytes exactly; otherwise the
+ * general provenance statement and the precise reason observed writes do not establish one.
+ */
+function lineWriterStatements(b, derived, query, lineWriter) {
+  const subject = `${query.path}:${query.line} (${query.side})`;
+  const store = lineWriter?.store ?? null;
+  const partial = Boolean(store?.dropped || store?.unreadable || store?.omitted);
+  let cites = [];
+  if (store?.status === 'available') {
+    b.source({
+      id: 'SRC-WRITES', label: 'Observed writes on this machine', owner: 'xpl2.observed-writes', family: 'observed-write-record',
+      integrity: 'unverified', origin: 'observed-local', applicability: 'current', availability: 'present',
+      coverage: { scope: 'this machine', complete: !partial, records: store.records.length, retentionDays: store.retentionDays ?? 0 }, subject: true
+    });
+    cites = ['SRC-WRITES'];
+  } else if (lineWriter) {
+    const unreadable = store?.status === 'inaccessible';
+    b.observation({
+      id: 'OBS-WRITES', adapter: 'xpl2.observed-writes', scope: 'observed writes of this file on this machine',
+      completeness: unreadable ? 'unavailable' : 'complete-for-scope', reason: unreadable ? 'source-inaccessible' : 'source-not-recorded', subject: true
+    });
+    cites = ['OBS-WRITES'];
+  }
+  if (lineWriter?.status === 'attributed') {
+    derived.push(b.derivedStatement({
+      about: 'line', template: 'xpl2.line-writer@1', cites: [...cites, lineWriter.span === 'commit' ? 'SRC-LINE-HISTORY' : 'SRC-MANIFEST'],
+      arguments: {
+        side: query.side, path: query.path, line: query.line,
+        writes: lineWriter.writes.slice(0, 3).map((write) => recordIdentifier(write.id, 'OW-unrecorded')).join(', ')
+          + (lineWriter.writes.length > 3 ? ` and ${lineWriter.writes.length - 3} more` : ''),
+        tools: [...new Set(lineWriter.writes.map((write) => recordText(write.tool, 'unrecorded tool')))].join(', '),
+        writer: writerText(lineWriter.writer), subject: writeSubjectText(lineWriter.subject),
+        span: lineWriter.span === 'commit' ? 'commit' : 'captured', commit: lineWriter.commit ?? 'none'
+      },
+      limitations: ['machine-local-only', ...(partial ? ['partial-inventory'] : [])]
+    }));
+    return;
+  }
+  // Ordinary commit history is not provenance, and no share of the content is estimated
+  // [XPL2-AC-011, AC-041]; observed writes say precisely why they do not establish one either.
+  derived.push(b.derivedStatement({
+    about: 'line', template: 'xpl2.provenance-unavailable@1', cites: ['OBS-PROVENANCE'],
+    arguments: { subject, reason: 'origin-unestablished' }
+  }));
+  if (lineWriter) {
+    derived.push(b.derivedStatement({
+      about: 'line', template: 'xpl2.line-writer-unestablished@1', cites,
+      arguments: {
+        subject, basis: lineWriter.basis, writes: Number.isSafeInteger(lineWriter.writes) ? lineWriter.writes : 0,
+        span: lineWriter.span === 'commit' ? 'commit' : 'captured', commit: lineWriter.commit ?? 'none'
+      },
+      limitations: partial ? ['partial-inventory'] : []
+    }));
+  }
+}
+
 const INVOCATION_STATES = new Set(['completed', 'failed', 'started']);
 const PROMPT_SOURCE_KINDS = new Set(['wm-compose', 'vscode-governed-handoff', 'model-invocation']);
 const MAXIMUM_OVERLAPS = 20;
@@ -426,8 +502,64 @@ function generationStatements(b, derived, query, sources) {
       } catch { malformed += 1; }
     }
     unreadable('prompt-log', malformed);
+    // Entries retention removed are named from the log's own removal notes [XPL2-AC-043]; an entry
+    // removed before notes were kept, or past their bound, still cannot be told from one never kept.
+    const removed = prompts.removed?.status === 'available' ? prompts.removed : null;
+    for (const reason of ['expired', 'size']) {
+      const group = (removed?.entries ?? []).filter((entry) => entry.reason === reason);
+      if (!group.length) continue;
+      const times = group.map((entry) => recordText(entry.recordedAt, '')).filter(Boolean).sort();
+      derived.push(b.derivedStatement({
+        about: 'generation', template: 'xpl2.prompt-entries-removed@1', cites: ['SRC-PROMPTS'],
+        arguments: { records: group.length, reason, earliest: times[0] ?? 'an unrecorded time', latest: times.at(-1) ?? 'an unrecorded time' },
+        limitations: ['source-expired', ...(removed.complete ? [] : ['partial-inventory'])]
+      }));
+    }
+    for (const clear of (removed?.cleared ?? []).slice(-3)) {
+      derived.push(b.derivedStatement({
+        about: 'generation', template: 'xpl2.prompt-log-cleared@1', cites: ['SRC-PROMPTS'],
+        arguments: { clearedAt: recordText(clear.removedAt, 'an unrecorded time'), records: Number.isSafeInteger(clear.records) && clear.records >= 0 ? clear.records : 0 }
+      }));
+    }
   } else if (prompts) {
     inaccessible('prompt-log', 'OBS-PROMPTS', 'prompt-audit', 'prompt log on this machine', prompts.status);
+  }
+  const writes = sources?.writes ?? null;
+  if (writes?.status === 'available') {
+    const partial = Boolean(writes.omitted || writes.dropped || writes.unreadable);
+    b.source({
+      id: 'SRC-WRITES', label: 'Observed writes on this machine', owner: 'xpl2.observed-writes', family: 'observed-write-record',
+      integrity: 'unverified', origin: 'observed-local', applicability: 'current', availability: 'present',
+      coverage: { scope: 'this machine', complete: !partial, records: writes.records.length, retentionDays: writes.retentionDays ?? 0 }, subject: true
+    });
+    derived.push(b.derivedStatement({
+      about: 'generation', template: 'xpl2.capture-state@1', cites: ['SRC-WRITES'],
+      arguments: {
+        capture: 'writes', state: 'on', records: writes.records.length, retentionDays: Number.isSafeInteger(writes.retentionDays) ? writes.retentionDays : 0,
+        reason: writes.records.length ? 'machine-local-only' : 'source-not-recorded'
+      },
+      limitations: partial ? ['partial-inventory'] : []
+    }));
+    let malformed = 0;
+    for (const record of writes.records) {
+      const files = Array.isArray(record?.files) ? record.files.filter((file) => typeof file?.path === 'string') : [];
+      const writeId = recordIdentifier(record?.id, '');
+      if (!writeId || !files.length) { malformed += 1; continue; }
+      try {
+        derived.push(b.derivedStatement({
+          about: 'generation', template: 'xpl2.generation-write@1', cites: ['SRC-WRITES'],
+          arguments: {
+            writeId, tools: recordText(record.tool, 'an unrecorded tool'), writer: writerText(record.writer),
+            recordedAt: recordText(record.recordedAt, 'an unrecorded time'), files: files.length,
+            verified: files.filter((file) => file.verified === true).length,
+            paths: files.slice(0, 5).map((file) => file.path).join(', ') + (files.length > 5 ? ` and ${files.length - 5} more` : '')
+          }
+        }));
+      } catch { malformed += 1; }
+    }
+    unreadable('writes', malformed);
+  } else if (writes) {
+    inaccessible('writes', 'OBS-WRITES', 'xpl2.observed-writes', 'observed writes of this generation on this machine', writes.status);
   }
   const attempts = sources?.attempts ?? null;
   if (attempts?.status === 'available') {
@@ -469,7 +601,7 @@ function generationStatements(b, derived, query, sources) {
   }
 }
 
-const CAPTURE_SOURCES = Object.freeze({ invocations: 'SRC-INVOCATIONS', 'prompt-log': 'SRC-PROMPTS', attempts: 'SRC-GENERATION-ATTEMPTS' });
+const CAPTURE_SOURCES = Object.freeze({ writes: 'SRC-WRITES', invocations: 'SRC-INVOCATIONS', 'prompt-log': 'SRC-PROMPTS', attempts: 'SRC-GENERATION-ATTEMPTS' });
 
 function nextActions(model) {
   const first = model.attention[0] ?? null;
@@ -484,7 +616,7 @@ function nextActions(model) {
  * a shadow-proof gap register already read through its owner for the `gap` subject.
  */
 export function explainXpl2Subject(input, rawQuery = {}, {
-  proof = null, maximumUnits = null, lineHistory = null, generationSources = null
+  proof = null, maximumUnits = null, lineHistory = null, lineWriter = null, generationSources = null
 } = {}) {
   const query = normalizeXpl2Query(rawQuery);
   const universe = buildChangeExplanationUniverse({
@@ -590,12 +722,7 @@ export function explainXpl2Subject(input, rawQuery = {}, {
       }));
     }
     lineHistoryStatements(b, derived, query, lineHistory);
-    // Ordinary commit history is not provenance: who or what wrote the captured content is not
-    // established by any admitted record, and no share of it is estimated [XPL2-AC-011, AC-041].
-    derived.push(b.derivedStatement({
-      about: 'line', template: 'xpl2.provenance-unavailable@1', cites: ['OBS-PROVENANCE'],
-      arguments: { subject: `${query.path}:${query.line} (${query.side})`, reason: 'origin-unestablished' }
-    }));
+    lineWriterStatements(b, derived, query, lineWriter);
   }
 
   if (query.subject === 'generation') {

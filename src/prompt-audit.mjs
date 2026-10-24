@@ -20,6 +20,8 @@ const LOG = 'prompts.jsonl';
 const KEY = 'integrity.key';
 const LOCK = 'write.lock';
 const RECOVERY_DIRECTORY = 'recovery';
+const REMOVALS = 'removed.jsonl';
+const MAXIMUM_REMOVALS = 2000;
 const DEFAULT_RETENTION_DAYS = 30;
 const MAXIMUM_RETENTION_DAYS = 365;
 const DEFAULT_MAXIMUM_BYTES = 64 * 1024 * 1024;
@@ -785,6 +787,49 @@ async function recoverMalformedLog(target, data) {
   return { file: recoveryFile, malformed: data.malformed.length };
 }
 
+/**
+ * What retention or a clear took out of the log, without any text [XPL2-AC-043]: one line per
+ * removed entry naming only its identity, Story, step and generation, so a removed entry can be
+ * told apart from one never kept. Bounded to the newest MAXIMUM_REMOVALS lines and best effort: a
+ * failure here never fails the log's own maintenance.
+ */
+async function recordRemovals(target, lines, { replace = false } = {}) {
+  if (!lines.length) return;
+  const file = path.join(target.directory, REMOVALS);
+  try {
+    const existing = replace ? [] : (await readFile(file, 'utf8').catch(() => '')).split('\n').filter(Boolean);
+    if (!replace && existing.length + lines.length <= MAXIMUM_REMOVALS) {
+      await appendFile(file, `${lines.map((line) => JSON.stringify(line)).join('\n')}\n`, { mode: 0o600 });
+      return;
+    }
+    const kept = [...existing, ...lines.map((line) => JSON.stringify(line))].slice(-MAXIMUM_REMOVALS);
+    await writeAtomic(file, `${kept.join('\n')}\n`, { mode: 0o600 });
+  } catch { /* the removal note is advisory */ }
+}
+
+function removalLine(item, reason, removedAt) {
+  const record = item.record ?? {};
+  return {
+    id: record.id ?? null, recordedAt: record.recordedAt ?? null, workId: record.workId ?? null, phase: record.phase ?? null,
+    generation: record.generation ?? null, source: record.source ?? null, reason, removedAt
+  };
+}
+
+/** Removal notes for one Story step, newest last, and every clear of the whole log. */
+export async function listPromptAuditRemovals(root, { workId = null, phase = null } = {}) {
+  const target = await location(root);
+  const text = await readFile(path.join(target.directory, REMOVALS), 'utf8').catch((error) => (error?.code === 'ENOENT' ? '' : Promise.reject(error)));
+  const lines = text.split('\n').filter(Boolean);
+  const parsed = lines.map((line) => { try { return JSON.parse(line); } catch { return null; } });
+  return {
+    entries: parsed.filter((entry) => entry && entry.reason !== 'cleared' && (!workId || entry.workId === workId) && (!phase || entry.phase === phase)),
+    cleared: parsed.filter((entry) => entry?.reason === 'cleared'),
+    unreadable: parsed.filter((entry) => !entry).length,
+    // At the bound, older notes may already be gone.
+    complete: lines.length < MAXIMUM_REMOVALS
+  };
+}
+
 async function maintainLog(target, config, { force = false } = {}) {
   const today = new Date().toISOString().slice(0, 10);
   if (!force && String(config.lastPrunedAt ?? '').slice(0, 10) === today) {
@@ -798,19 +843,27 @@ async function maintainLog(target, config, { force = false } = {}) {
     return { config, recovery, removed: 0, data: anchored };
   }
   const cutoff = Date.now() - (retentionDays(config.retentionDays) * 24 * 60 * 60 * 1000);
-  let retained = data.items.filter((item) => {
+  const kept = (item) => {
     const recorded = Date.parse(item.record.recordedAt);
     return !Number.isFinite(recorded) || recorded >= cutoff;
-  });
+  };
+  const expired = data.items.filter((item) => !kept(item));
+  let retained = data.items.filter(kept);
   let retainedBytes = retained.reduce((total, item) => total + Buffer.byteLength(item.raw) + 1, 0);
   let first = 0;
   while (retainedBytes > config.maximumBytes && retained.length - first > 1) {
     retainedBytes -= Buffer.byteLength(retained[first].raw) + 1;
     first += 1;
   }
+  const overSize = retained.slice(0, first);
   if (first) retained = retained.slice(first);
   const removed = data.items.length - retained.length;
-  if (removed) await rewriteLog(target.logFile, retained);
+  if (removed) {
+    await rewriteLog(target.logFile, retained);
+    const removedAt = new Date().toISOString();
+    await recordRemovals(target, [...expired.map((item) => removalLine(item, 'expired', removedAt)),
+      ...overSize.map((item) => removalLine(item, 'size', removedAt))]);
+  }
   const sealed = retained.filter((item) => item.storedRecord?.integrity?.mac);
   const logInfo = await stat(target.logFile).catch((error) => error?.code === 'ENOENT' ? null : Promise.reject(error));
   const next = await writeSettings(target, {
@@ -905,6 +958,8 @@ export async function clearPromptAudits(root) {
     removed = data.records.length + data.malformed.length;
     await rm(target.logFile, { force: true });
     await rm(path.join(target.directory, RECOVERY_DIRECTORY), { recursive: true, force: true });
+    // A clear removes every note of earlier removals too, and leaves only that it happened.
+    await recordRemovals(target, [{ reason: 'cleared', records: removed, removedAt: new Date().toISOString() }], { replace: true });
     const current = await settings(target.settingsFile);
     await writeSettings(target, {
       ...current, headMac: null, tailMac: null, logBytes: 0, logMtimeMs: null,

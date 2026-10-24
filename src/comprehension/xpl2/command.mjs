@@ -8,7 +8,7 @@
  */
 import path from 'node:path';
 
-import { lineCommitAt, repoRoot } from '../../git.mjs';
+import { gitDir, isAncestor, lineCommitAt, repoRoot, worktreeBytesAtRevision } from '../../git.mjs';
 import {
   action, commandResult, noEffects, succeeded
 } from '../../narration/command-result.mjs';
@@ -29,7 +29,7 @@ const MAXIMUM_BYTES = 8 * 1024 * 1024;
 
 const USAGE = 'Usage: singularity-flow explain --subject change|clause|test|line|gap|generation '
   + '[--id ID] [--path PATH --line N [--side before|after]] [--phase PHASE --gen N] '
-  + '[--since REVISION] [--work-id ID] [--for reviewer|auditor|developer] [--max-bytes N] '
+  + '[--since REVISION] [--work-id ID] [--for reviewer|auditor|developer] [--max-bytes N] [--compare previous|SNAPSHOT-ID] '
   + '[--narrate [--length brief|standard|long] [--commentary]] [--json]';
 const NARRATION_LENGTHS = ['brief', 'standard', 'long'];
 
@@ -44,8 +44,39 @@ function narrationFollowup(options) {
   return argv.map((word) => /^[A-Za-z0-9_./:@%+=,-]+$/u.test(word) ? word : `'${String(word).replaceAll("'", `'"'"'`)}'`).join(' ');
 }
 
-function refuse(message, code = 'XPL2_SUBJECT_INVALID') {
-  throw new SingularityFlowError(message, { code });
+function refuse(message, code = 'XPL2_SUBJECT_INVALID', details = null) {
+  throw new SingularityFlowError(message, { code, ...(details ? { details } : {}) });
+}
+
+const COMPARE_NEXT_ACTION = 'singularity-flow explain --subject change --compare previous --json';
+const SNAPSHOT_SELECTOR = /^(?:previous|(?:sha256:)?[a-f0-9]{12,64})$/u;
+
+/**
+ * Compare this change view with a retained snapshot [XPL2 M3, 5.1], unit by unit, with the same
+ * comparison the Change Explorer's banner uses. An explicit snapshot that is not retained is
+ * refused; `previous` with nothing earlier says so beside the view.
+ */
+async function compareWithRetained(root, selector, model, workId) {
+  const [{ resolveXpl2Snapshot, XPL2_SNAPSHOT_LIMITS }, { compareXpl2Views }] = await Promise.all([import('./snapshots.mjs'), import('./compare.mjs')]);
+  const resolved = await resolveXpl2Snapshot(gitDir(root), selector, { current: model.explanationSetSha256, workId });
+  if (resolved.status === 'ambiguous') {
+    refuse(`Snapshot '${selector}' matches more than one retained snapshot; give more of its digest.`, 'XPL2_SNAPSHOT_AMBIGUOUS',
+      { choices: resolved.choices, nextAction: `singularity-flow explain --subject change --compare ${resolved.choices[0]} --json` });
+  }
+  if (resolved.status !== 'available') {
+    if (selector !== 'previous') {
+      refuse(`No retained snapshot matches '${selector}'. Snapshots are kept on this machine for ${XPL2_SNAPSHOT_LIMITS.retentionDays} days; compare with the previous one instead.`,
+        'XPL2_SNAPSHOT_NOT_FOUND', { retained: resolved.retained, nextAction: COMPARE_NEXT_ACTION });
+    }
+    return { status: 'unavailable', reason: 'source-not-recorded', selector, retained: resolved.retained, newer: { id: model.explanationSetSha256 } };
+  }
+  const { snapshot } = resolved;
+  return {
+    status: 'available', selector,
+    older: { id: snapshot.id, retainedAt: snapshot.retainedAt, seenAt: snapshot.seenAt, context: snapshot.context },
+    newer: { id: model.explanationSetSha256 },
+    result: compareXpl2Views(snapshot.projection, model)
+  };
 }
 
 function queryFromOptions(options) {
@@ -112,9 +143,19 @@ export async function runExplanationSubject(_argv, { positionals, options, opera
     refuse(`Narration length '${length}' is invalid. Use brief, standard or long.`, 'XPL2_NARRATION_LENGTH_INVALID');
   }
   if (optionString(options, 'snapshot') != null) {
-    refuse('Retained snapshots cannot be selected in this release. Use --since REVISION for an explicit Git baseline.', 'XPL2_SNAPSHOT_UNAVAILABLE');
+    refuse('A retained snapshot keeps only what a comparison needs (unit and source digests), not a whole view, so it cannot be shown. '
+      + 'Compare the current change with it using --compare SNAPSHOT-ID, or use --since REVISION for an explicit Git baseline.',
+    'XPL2_SNAPSHOT_UNAVAILABLE', { nextAction: COMPARE_NEXT_ACTION });
   }
   const query = queryFromOptions(options);
+  const compareSelector = optionString(options, 'compare');
+  if (compareSelector != null && query.subject !== 'change') {
+    refuse('--compare compares whole change views; use it with --subject change.', 'XPL2_COMPARE_SUBJECT_INVALID', { nextAction: COMPARE_NEXT_ACTION });
+  }
+  if (compareSelector != null && !SNAPSHOT_SELECTOR.test(compareSelector)) {
+    refuse(`--compare takes previous or a snapshot digest (at least 12 hex digits), not '${compareSelector}'.`, 'XPL2_SNAPSHOT_ID_INVALID',
+      { nextAction: COMPARE_NEXT_ACTION });
+  }
   const requestedBytes = optionNumber(options, 'max-bytes');
   const maximumBytes = requestedBytes == null ? XPL2_DEFAULT_MAXIMUM_BYTES : requestedBytes;
   if (!Number.isSafeInteger(maximumBytes) || maximumBytes < MINIMUM_BYTES || maximumBytes > MAXIMUM_BYTES) {
@@ -128,7 +169,9 @@ export async function runExplanationSubject(_argv, { positionals, options, opera
     base: optionString(options, 'since'),
     workId: optionString(options, 'work-id'),
     phase: query.subject === 'generation' ? null : optionString(options, 'phase'),
-    includeExplanationInputs: true
+    includeExplanationInputs: true,
+    // The change view is kept on this machine for a later --compare; the result says so.
+    retainExplanationSnapshot: query.subject === 'change'
   });
   const input = {
     context: slice.context,
@@ -158,13 +201,25 @@ export async function runExplanationSubject(_argv, { positionals, options, opera
     }, query);
     lineHistory = { request, result: request?.kind === 'baseline' ? lineCommitAt(root, request.revision, request.path, request.line) : null };
   }
+  // Who left the line: this machine's observed writes, matched to the bytes that hold it by digest.
+  const lineWriter = query.subject === 'line'
+    ? await (await import('./line-writer.mjs')).readLineWriter({
+      manifest: slice.manifest, baselineCommit: slice.baselineCommit, headCommit: slice.headCommit, gitDirectory: gitDir(root),
+      readBytes: (revision, file) => worktreeBytesAtRevision(root, revision, file),
+      isAncestor: (older, newer) => isAncestor(root, older, newer)
+    }, query, lineHistory)
+    : null;
   const generationSources = query.subject === 'generation' && input.workflow
     ? await (await import('./clause-sources.mjs')).readGenerationSources(root, input.workflow, { phase: query.phase, generation: query.generation })
     : null;
   // --max-bytes bounds what is delivered: the explanation and, when asked for, its narration. A
   // narration keeps a small reserve for its own notice; one that would not fit is replaced by it.
   const reserve = wantsNarration ? NARRATION_RESERVE_BYTES : 0;
-  const { model, bytes } = boundedModel(input, query, { proof, lineHistory, generationSources }, maximumBytes - reserve);
+  const { model, bytes } = boundedModel(input, query, { proof, lineHistory, lineWriter, generationSources }, maximumBytes - reserve);
+  // A comparison reads the retained store only when asked, and never changes the view.
+  // Always the whole change view: a bounded page would report the units it left out as gone.
+  const comparison = compareSelector == null ? null
+    : await compareWithRetained(root, compareSelector, slice.explanationView ?? model, slice.context.workId);
   // The computed view is complete before narration starts and is never changed by it [XPL2-AC-009].
   let narration = null;
   if (wantsNarration) {
@@ -193,6 +248,14 @@ export async function runExplanationSubject(_argv, { positionals, options, opera
       kind: 'informational'
     })
   ].filter((entry) => !(query.subject === 'gap' && entry.id === 'explanation.gap'));
+  if (query.subject === 'change' && compareSelector == null) {
+    next.push(action({
+      id: 'explanation.compare',
+      label: 'Compare this change, unit by unit, with the previous view retained on this machine.',
+      command: COMPARE_NEXT_ACTION,
+      kind: 'informational'
+    }));
+  }
   if (!wantsNarration) {
     next.push(action({
       id: 'explanation.narrate',
@@ -202,12 +265,15 @@ export async function runExplanationSubject(_argv, { positionals, options, opera
       modelPolicy: 'optional'
     }));
   }
+  // This view's terminal prose loads with this handler only.
+  await import('../../narration/render-explanation-subject.mjs');
   return emitCommandResult(commandResult({
     operation,
     subject: slice.context.workId
       ? { kind: 'story', id: slice.context.workId }
       : { kind: 'repository', id: path.basename(root) },
-    outcome: succeeded('explanation.subject-reported', {
+    // Keeping the comparison snapshot is a write to this machine's local store, and is said.
+    outcome: succeeded(slice.explanationSnapshot?.retained ? 'explanation.subject-retained' : 'explanation.subject-reported', {
       subject: query.subject,
       status: model.subject.status,
       statements: model.selection.statements.length + model.derived.length
@@ -223,6 +289,9 @@ export async function runExplanationSubject(_argv, { positionals, options, opera
       },
       explanation: model,
       ...(narration ? { narration } : {}),
+      // This view's own retained snapshot, so a later --compare can name it.
+      snapshot: slice.explanationSnapshot ?? { id: null, retained: false, reason: 'not-applicable' },
+      ...(comparison ? { comparison } : {}),
       wire: {
         bytes: bytes + narrationBytes, explanationBytes: bytes, narrationBytes, maximumBytes, measure: 'compact-utf8-json'
       }

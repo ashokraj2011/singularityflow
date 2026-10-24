@@ -53,7 +53,7 @@ Usage:
     [--narrate] [--length brief|standard|long] [--json]]
   singularity-flow explain --subject change|clause|test|line|gap|generation [--id ID]
     [--path PATH --line N [--side before|after]] [--phase PHASE --gen N] [--since REVISION]
-    [--work-id ID] [--for reviewer|auditor|developer] [--max-bytes N]
+    [--work-id ID] [--for reviewer|auditor|developer] [--max-bytes N] [--compare previous|SNAPSHOT-ID]
     [--narrate [--length brief|standard|long] [--commentary]] [--json]
   singularity-flow show <SFREF-HANDLE|SFDOC-HANDLE> [--section HEADING | --json-pointer POINTER | --range RANGE]
     [--max-bytes N] [--json]

@@ -23,14 +23,14 @@ import { nextSuggestionsHeading } from '../personalization.mjs';
  * computed here from what the command reports it changed. A message can never promise more than
  * the effects support.
  */
-function preservationLine(result) {
+export function preservationLine(result) {
   if (!preservedEverything(result)) return null;
   const message = MESSAGES[result.outcome.messageId];
   if (!message?.preserves) return null;
   return 'No lifecycle state, files, publications or external systems were changed.';
 }
 
-function headline(result) {
+export function headline(result) {
   const message = MESSAGES[result.outcome.messageId];
   if (!message) return result.outcome.messageId;
   return message.headline(result.outcome.slots ?? {});
@@ -326,7 +326,7 @@ function comprehensionText(result) {
   return [style.heading(headline(result)), preservationLine(result)].filter(Boolean).join('\n\n');
 }
 
-function codeExplanationTerminalValue(value, fallback = 'unavailable', maximum = 2_000) {
+export function codeExplanationTerminalValue(value, fallback = 'unavailable', maximum = 2_000) {
   const normalized = String(value ?? fallback)
     .normalize('NFKC')
     .replace(/[\p{Cc}\p{Cf}\u2028\u2029]/gu, ' ')
@@ -336,83 +336,13 @@ function codeExplanationTerminalValue(value, fallback = 'unavailable', maximum =
   return selected.length > maximum ? `${selected.slice(0, maximum - 1)}…` : selected;
 }
 
-const XPL2_SECTIONS = [
-  ['What changed', ['change-inventory', 'singularity-files-hidden', 'file-type', 'mode-change', 'hunk', 'opaque-unit', 'declaration-overlap']],
-  ['Why it is linked', ['clause-declared', 'clause-cites', 'clause-required', 'clause-tag', 'region-association',
-    'acceptance-tag', 'test-tag', 'cause-not-recorded']],
-  ['What was checked', ['test-result', 'clause-untagged', 'gap-observed', 'no-complete-evaluation']],
-  ['Limits and unknowns', ['admission-unavailable', 'feature-state', 'source-state', 'provenance-unavailable', 'generation-recorded']]
-];
+// An explain --subject view's prose is registered by its own lazily loaded handler
+// (render-explanation-subject.mjs), so commands that never explain a subject do not load it.
+const FAMILY_RENDERERS = new Map();
 
-/** Computed XPL2 subject view: typed statements with citations, in the selected audience's order. */
-function explanationSubjectText(result) {
-  const explanation = result.data?.explanation;
-  if (!explanation) return [headline(result), preservationLine(result)].filter(Boolean).join('\n');
-  const safe = codeExplanationTerminalValue;
-  const short = (value) => safe(value).replace(/^sha256:/u, '').slice(0, 12);
-  const snapshot = explanation.snapshot ?? {};
-  const subject = explanation.subject ?? {};
-  const audience = explanation.presentation?.audience ?? 'reviewer';
-  const plan = explanation.presentation?.audiences?.[audience] ?? { order: [], folded: [] };
-  const folded = new Set(plan.folded ?? []);
-  const byId = new Map((explanation.statements ?? []).map((entry) => [entry.id, entry]));
-  const ordered = (plan.order ?? []).map((id) => byId.get(id)).filter(Boolean);
-  const cite = (entry) => `${safe(entry.text)} [${entry.cites.map((id) => safe(id)).join(', ')}]`;
-  const lines = [
-    style.heading(headline(result)),
-    `Subject: ${safe(subject.kind)} · ${safe(subject.status)}${subject.reason ? ` (${safe(subject.reason)})` : ''} · audience ${safe(audience)}`,
-    `Source: ${safe(snapshot.truth)} · baseline ${short(snapshot.baseline?.revision)} → capture ${short(snapshot.compatibilityCandidateSha256)}`
-      + `${snapshot.workId ? ` · Story ${safe(snapshot.workId)}` : ''}${snapshot.phase ? ` · phase ${safe(snapshot.phase)}` : ''}`,
-    'Authority: none — this view grants no approval, test result or merge verdict.'
-  ];
-  if ((subject.choices ?? []).length) {
-    lines.push('', style.heading('Exact choices'));
-    for (const choice of subject.choices) lines.push(`  ${safe(choice.kind)}: ${safe(choice.label)}`);
-  }
-  if ((explanation.derived ?? []).length) {
-    lines.push('', style.heading('Answer'));
-    for (const entry of explanation.derived) lines.push(`  ${safe(entry.id)}  ${cite(entry)}`);
-  }
-  if ((explanation.attention ?? []).length && ['change', 'gap'].includes(subject.kind)) {
-    lines.push('', style.heading('Needs attention'));
-    for (const entry of explanation.attention) {
-      const statement = byId.get(entry.statement);
-      if (statement) lines.push(`  ${safe(entry.id)} [${safe(entry.category)}] ${cite(statement)}`);
-    }
-  }
-  for (const [title, kinds] of XPL2_SECTIONS) {
-    const members = ordered.filter((entry) => kinds.includes(entry.kind));
-    const shown = members.filter((entry) => !folded.has(entry.id));
-    if (!members.length) continue;
-    lines.push('', style.heading(title));
-    for (const entry of shown) lines.push(`  ${safe(entry.id)}  ${cite(entry)}`);
-    if (shown.length < members.length) {
-      lines.push(`  ${members.length - shown.length} more folded for the ${safe(audience)} audience; --for auditor lists everything.`);
-    }
-  }
-  const counts = explanation.inventory?.counts;
-  if (counts) {
-    lines.push('', `Counts: ${counts.files} file(s) · ${counts.textHunks} text hunk(s) · ${counts.opaqueUnits} opaque · `
-      + `${counts.causeBoundUnits} hunk-bound cause link(s) · ${counts.unexplainedUnits} without an exact cause · ${counts.clauses} clause(s)`
-      + `${counts.clauseTags || counts.acceptanceTags ? ` · ${counts.clauseTags ?? 0} @clause tag(s) · ${counts.acceptanceTags ?? 0} @ac tag(s)` : ''}`
-      + `${counts.clauseCitations ? ` · ${counts.clauseCitations} clause citation(s)` : ''}`);
-  }
-  if (explanation.delivery?.complete === false) {
-    lines.push(`Delivery bounded: ${explanation.delivery.returnedUnits} of ${explanation.delivery.totalUnits} unit(s) shown; narrow with --subject line or clause, or raise --max-bytes.`);
-  }
-  lines.push('', style.heading('Sources'));
-  for (const source of explanation.sources ?? []) {
-    const properties = source.properties ?? {};
-    lines.push(`  ${safe(source.id)}  ${safe(source.label ?? source.family)} · integrity ${safe(properties.integrity)} · `
-      + `${safe(properties.origin)} · ${safe(properties.applicability)} · ${safe(properties.availability)}`
-      + `${source.digest ? ` · ${short(source.digest)}` : ''}`);
-  }
-  for (const observation of explanation.observations ?? []) {
-    lines.push(`  ${safe(observation.id)}  read observation · ${safe(observation.reason)} · ${safe(observation.scope)}`);
-  }
-  lines.push('', `Explanation set ${short(explanation.explanationSetSha256)} · view ${short(explanation.explanationSha256)}`);
-  lines.push(style.detail(preservationLine(result)));
-  return lines.filter((line) => line != null).join('\n');
+/** Register the terminal prose of a command family whose handler loads it; unregistered, a result shows its headline. */
+export function registerFamilyRenderer(prefix, render) {
+  FAMILY_RENDERERS.set(prefix, render);
 }
 
 function sizeText(bytes) {
@@ -709,7 +639,9 @@ export function renderCommandResult(result) {
     ].filter(Boolean).join('\n');
   }
   if (result.operation.id.startsWith('comprehension.')) return comprehensionText(result);
-  if (result.operation.id.startsWith('explain.subject')) return explanationSubjectText(result);
+  if (result.operation.id.startsWith('explain.subject')) {
+    return FAMILY_RENDERERS.get('explain.subject')?.(result) ?? [headline(result), preservationLine(result)].filter(Boolean).join('\n');
+  }
   if (result.operation.id.startsWith('explain.code') && result.data?.repository?.kind === 'repository-explanation') {
     return repositoryExplanationText(result);
   }

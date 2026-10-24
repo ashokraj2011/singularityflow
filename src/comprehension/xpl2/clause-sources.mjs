@@ -127,6 +127,7 @@ export const XPL2_RECORD_LIMITS = Object.freeze({
   reuses: 50,
   invocations: 100,
   prompts: 100,
+  writes: 50,
   attemptBytes: 8 * 1024 * 1024
 });
 
@@ -249,7 +250,7 @@ async function workItemRelative(root, workId) {
 export async function readGenerationSources(root, workflow, { phase, generation }) {
   const workId = workflow?.workItem?.id ?? null;
   if (!workId) return null;
-  const result = { invocations: null, prompts: null, attempts: null };
+  const result = { invocations: null, prompts: null, attempts: null, writes: null };
   try {
     const { listModelInvocationAudits } = await import('../../model-runner.mjs');
     const all = (await listModelInvocationAudits(root)).filter((record) => record?.subject?.id === workId
@@ -263,8 +264,10 @@ export async function readGenerationSources(root, workflow, { phase, generation 
     result.invocations = { status: String(error?.code ?? '').startsWith('SCHEMA_') ? 'unsupported' : 'inaccessible', records: [], omitted: 0 };
   }
   try {
-    const { listPromptAudits } = await import('../../prompt-audit.mjs');
+    const { listPromptAuditRemovals, listPromptAudits } = await import('../../prompt-audit.mjs');
     const listing = await listPromptAudits(root, { workId, phase, limit: PROMPT_LISTING_LIMIT });
+    // What retention or a clear removed is noted without text, so it is not read as never kept.
+    const removals = await listPromptAuditRemovals(root, { workId, phase }).catch(() => null);
     const records = (listing.records ?? []).filter((record) => Number(record.generation) === Number(generation));
     result.prompts = {
       status: 'available',
@@ -280,10 +283,27 @@ export async function readGenerationSources(root, workflow, { phase, generation 
       omitted: Math.max(0, records.length - XPL2_RECORD_LIMITS.prompts),
       // The log lists at most this many entries of the Story's phase, newest first, before the
       // generation is chosen; a full listing may have left older entries of this generation out.
-      truncated: (listing.records?.length ?? 0) >= PROMPT_LISTING_LIMIT
+      truncated: (listing.records?.length ?? 0) >= PROMPT_LISTING_LIMIT,
+      removed: removals ? {
+        status: 'available',
+        entries: removals.entries.filter((entry) => Number(entry.generation) === Number(generation))
+          .map((entry) => ({ reason: entry.reason, recordedAt: entry.recordedAt, removedAt: entry.removedAt })),
+        cleared: removals.cleared.map((entry) => ({ removedAt: entry.removedAt, records: entry.records })),
+        complete: removals.complete && removals.unreadable === 0
+      } : { status: 'inaccessible', entries: [], cleared: [], complete: false }
     };
   } catch {
     result.prompts = { status: 'inaccessible', enabled: null, retentionDays: null, integrity: null, records: [], omitted: 0 };
+  }
+  try {
+    // Observed writes this machine recorded for the generation while it was open.
+    const [{ gitDir }, { readObservedWrites }] = await Promise.all([import('../../git.mjs'), import('./observed-writes.mjs')]);
+    const read = await readObservedWrites(gitDir(root), { subject: { workId, phase, generation } });
+    result.writes = read.status === 'inaccessible' ? { status: 'inaccessible', records: [], omitted: 0 }
+      : { status: 'available', records: read.records.slice(-XPL2_RECORD_LIMITS.writes), omitted: read.omitted + Math.max(0, read.records.length - XPL2_RECORD_LIMITS.writes),
+        dropped: read.dropped ?? 0, unreadable: read.unreadable ?? 0, retentionDays: read.retentionDays ?? 0 };
+  } catch {
+    result.writes = { status: 'inaccessible', records: [], omitted: 0 };
   }
   try {
     const { stepAttempts } = await import('../../verification/attempts.mjs');

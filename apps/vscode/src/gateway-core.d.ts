@@ -246,7 +246,7 @@ declare module '*/model-free-commands.mjs' {
 declare module '*/copilot-guidance.mjs' {
   export function directCopilotSkillId(skill: unknown): string | null;
   export function copilotSkillForCommand(command: unknown, fallback?: string): string;
-  export function copilotCommandForCommand(command: unknown, skill?: unknown, fallback?: string): string;
+  export function copilotCommandForCommand(command: unknown, skill?: unknown, fallback?: string): string | null;
 }
 
 declare module '*/safe-command-guidance.mjs' {

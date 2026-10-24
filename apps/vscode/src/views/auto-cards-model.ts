@@ -1,5 +1,5 @@
 /** Pure AUT v2 cards rendered by My Work's generic result surface. */
-import { commandGuidance } from '../copilot-command.ts';
+import { routedCommandGuidance } from '../copilot-command.ts';
 
 export type AutoCardActionView = {
   /** Stable host lookup identity. The webview never receives a mutable record handle. */
@@ -149,7 +149,8 @@ function action(
   command: string | null, confirmation: string | null = null
 ): AutoCardActionView | null {
   if (!subject || !command) return null;
-  const guidance = commandGuidance(command.startsWith('singularity-flow auto ')
+  // A card action prefills both surfaces, so it needs a command a packaged skill carries out.
+  const guidance = routedCommandGuidance(command.startsWith('singularity-flow auto ')
     ? { command, skill: '/sf-auto' }
     : command);
   if (!guidance) return null;

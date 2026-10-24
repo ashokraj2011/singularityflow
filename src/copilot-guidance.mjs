@@ -1,4 +1,4 @@
-import { skillForCommandLine } from './command-skills.mjs';
+import { commandLineWithoutSkill, skillForCommandLine } from './command-skills.mjs';
 import { modelFreeCommandForCommand } from './model-free-commands.mjs';
 
 /**
@@ -19,7 +19,9 @@ export function directCopilotSkillId(skill) {
   return value?.match(/^\/sf-[a-z0-9]+(?:-[a-z0-9]+)*(?=\s|$)/u)?.[0] ?? null;
 }
 
+/** The command's Copilot skill; null for a command no packaged skill carries out. */
 export function copilotSkillForCommand(command, fallback = '/sf-next') {
+  if (commandLineWithoutSkill(command)) return null;
   return directCopilotSkill(skillForCommandLine(command)) ?? fallback;
 }
 
@@ -69,6 +71,8 @@ function approvalSelectors(command) {
  * the exact command through `/sf-confirm`, which runs it once; the CLI refuses a stale digest.
  */
 export function copilotCommandForCommand(command, skill = null, fallback = '/sf-next') {
+  // No skill carries it out: a supplied skill is no route for it either (null, "no verified equivalent").
+  if (commandLineWithoutSkill(command)) return null;
   const route = skillRouteForCommand(command, skill, fallback);
   const value = String(command ?? '').trim();
   const digest = value.match(/\s--confirm(?:-plan)?\s+(sha256:[a-f0-9]{64}|[a-z]{2,12}-[a-f0-9]{16,64})(?:\s|$)/u)?.[1];
@@ -172,7 +176,7 @@ function skillRouteForCommand(command, skill, fallback) {
 }
 
 export function copilotAction({ skill = null, command, ...rest }) {
-  const directSkill = directCopilotSkill(skill) ?? copilotSkillForCommand(command);
+  const directSkill = commandLineWithoutSkill(command) ? null : directCopilotSkill(skill) ?? copilotSkillForCommand(command);
   return {
     ...rest,
     skill: directSkill,
@@ -286,7 +290,7 @@ export function actionCommandLines({ skill, command }, label = 'Run') {
   const modelFreeCommand = modelFreeCommandForCommand(command);
   return [
     `${label}:`,
-    `Copilot: ${copilotCommandForCommand(command, skill)}`,
+    `Copilot: ${copilotCommandForCommand(command, skill) ?? 'no verified equivalent; use the Shell command'}`,
     `Shell: ${command}`,
     `VS Code (model-free): ${modelFreeCommand ?? 'not available for this action'}`
   ];

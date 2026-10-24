@@ -10,7 +10,7 @@
 
 import { authoringSkillEntry } from './authoring-skills.mjs';
 import { commandDefinition } from './command-registry.mjs';
-import { skillForCommandLine } from './command-skills.mjs';
+import { commandLineWithoutSkill, skillForCommandLine } from './command-skills.mjs';
 import { modelFreeCommandForArgv } from './model-free-commands.mjs';
 import {
   copilotCommandForCommand, directCopilotSkill, directCopilotSkillId
@@ -362,6 +362,12 @@ export function safeCommandGuidance(value) {
   )) return null;
   const safe = fromCommand ?? fromArgv;
   if (!safe) return null;
+  // A registered command no skill carries out (an amendment's decision): its routes are the Shell
+  // command and "no verified Copilot equivalent". A supplied skill or route contradicts that.
+  if (commandLineWithoutSkill(safe.command)) {
+    if (input.skill != null || input.copilotCommand != null) return null;
+    return Object.freeze({ ...safe, skill: null, copilotCommand: null, modelFreeCommand: modelFreeCommandForArgv(safe.argv) });
+  }
   const canonicalSkill = normalizedSkill(skillForCommandLine(safe.command));
   if (!canonicalSkill) return null;
   // The exact subcommand route is authoritative.  Treating every skill in a broad command family
@@ -440,19 +446,20 @@ export function commandGuidanceForCommands(commands) {
     const phaseOperation = safe.argv[0] === 'phase'
       && ['draft-check', 'prepublish', 'begin'].includes(safe.argv[1]);
     const publication = safe.argv[0] === 'phase' && safe.argv[1] === 'publish';
+    const unrouted = !publication && !phaseOperation && safe.copilotCommand === null;
     return [id, Object.freeze({ command: safe.command,
       modelFreeCommand: safe.modelFreeCommand,
       copilotCommand: publication ? copilotCommandForCommand(safe.command, '/sf-publish') : phaseOperation ? null : safe.copilotCommand,
-      copilotStatus: phaseOperation ? 'unavailable' : 'available',
+      copilotStatus: phaseOperation || unrouted ? 'unavailable' : 'available',
       copilotReason: phaseOperation
         ? `No dedicated Copilot equivalent exists for phase ${safe.argv[1]}; use the Shell command. /sf-phase is an authoring journey, not this exact operation.`
-        : null })];
+        : unrouted ? 'No verified Copilot equivalent; use the Shell command.' : null })];
   })));
 }
 
 /** One action's routes in the contract order: Copilot, Shell, then the model-free VS Code route. */
 export function commandRouteLines(guidance, indent = '') {
-  return [`${indent}Copilot: ${guidance.copilotCommand ?? 'no verified Copilot equivalent; use the Shell command'}`, `${indent}Shell: ${guidance.command}`,
+  return [`${indent}Copilot: ${guidance.copilotCommand ?? guidance.copilotReason ?? 'no verified Copilot equivalent; use the Shell command'}`, `${indent}Shell: ${guidance.command}`,
     `${indent}VS Code (model-free): ${guidance.modelFreeCommand ?? 'not available for this action'}`];
 }
 

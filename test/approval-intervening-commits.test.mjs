@@ -15,8 +15,10 @@ import path from 'node:path';
 import test from 'node:test';
 import { fileURLToPath } from 'node:url';
 
-import { refusalDetails, refusalRemediationPlan, renderRefusalPlan } from '../src/refusal-remediation.mjs';
+import { refusalDetails, refusalEnvelope, refusalRemediationPlan, renderRefusalPlan } from '../src/refusal-remediation.mjs';
 import { blockingCommitLines } from '../src/owed-decisions.mjs';
+import { actionCommandLines, copilotAction, copilotCommandForCommand } from '../src/copilot-guidance.mjs';
+import { safeCommandGuidance } from '../src/safe-command-guidance.mjs';
 import { SingularityFlowError } from '../src/util.mjs';
 import { CLI, specification, submittedPlanningStory } from './helpers/submitted-planning-story.mjs';
 
@@ -26,6 +28,7 @@ const APPROVE = ['approve', 'planning', '--work-id', WORK];
 const STATUS = `singularity-flow story intent-amendment status --work-id ${WORK} --json`;
 const DECIDE = `singularity-flow story intent-amendment decide AMD-001 --decision <approve|reject> --confirm AMD-001 --work-id ${WORK}`;
 const EXISTING_ROUTES = ['inspect-current-phase', 'leave-approval-turn', 'inspect-current-phase-evidence'];
+const NO_ROUTE = 'no verified Copilot equivalent; use the Shell command';
 
 function refusal(details) {
   return new SingularityFlowError('history changed', { code: 'STORY_REVIEW_INTERVENING_COMMIT',
@@ -57,6 +60,64 @@ test('an undecided amendment after the submission is seen and decided before any
   const rendered = renderRefusalPlan(plan);
   assert.match(rendered, /an intent amendment proposed after its submission waits for a person's decision/u);
   assert.ok(rendered.indexOf(STATUS) < rendered.indexOf('End this approval-only turn'), rendered);
+});
+
+/**
+ * Seen live (2026-10-24, hex-2018): both commands of this plan printed `Copilot: /sf-reject`. The
+ * crosswalk sent the whole `story intent-amendment` family to /sf-reject, which returns the phase:
+ * a different decision, and one its approval-only turn may not record for the amendment. Each step
+ * now carries its own routes, and neither the read nor the person's decision has a Copilot one.
+ */
+test('each step of the pending-amendment plan carries its own routes, and none of them is /sf-reject', async () => {
+  const plan = refusalRemediationPlan(refusal(pendingDetails), APPROVE);
+  const routes = plan.steps.map(({ id, command, skill, copilotCommand, copilotReason = null }) => ({ id, command, skill, copilotCommand, copilotReason }));
+  assert.deepEqual(routes, [
+    { id: 'inspect-intent-amendment', command: STATUS, skill: null, copilotCommand: null, copilotReason: null },
+    { id: 'decide-intent-amendment', command: DECIDE, skill: null, copilotCommand: null, copilotReason: 'no verified equivalent: decide it in your terminal' },
+    { id: 'leave-approval-turn', command: null, skill: null, copilotCommand: null, copilotReason: null }
+  ]);
+  const rendered = renderRefusalPlan(plan).split('\n');
+  const routesOf = (command) => rendered.slice(rendered.indexOf(`     Shell: ${command}`) - 1, rendered.indexOf(`     Shell: ${command}`) + 2);
+  assert.deepEqual(routesOf(STATUS), [`     Copilot: ${NO_ROUTE}`, `     Shell: ${STATUS}`, '     VS Code (model-free): not available for this action']);
+  assert.deepEqual(routesOf(DECIDE), ['     Copilot: no verified equivalent: decide it in your terminal', `     Shell: ${DECIDE}`,
+    '     VS Code (model-free): not available for this action']);
+  assert.doesNotMatch(rendered.join('\n'), /Copilot: \/sf-/u);
+  // Returning the phase is named as what it is, and as not deciding the amendment.
+  assert.match(plan.steps[1].label, /a person returns planning with \/sf-reject in a new turn; that does not decide AMD-001/u);
+
+  // VS Code rebuilds every route from the command, so it reaches the same answer.
+  const envelope = JSON.parse(JSON.stringify(refusalEnvelope(refusal(pendingDetails), APPROVE)));
+  const { refusalFor } = await import('../apps/vscode/src/views/refusal.ts');
+  const { resultCardHtml } = await import('../apps/vscode/src/views/result-card-page.ts');
+  const { commandGuidanceText } = await import('../apps/vscode/src/views/command-guidance.ts');
+  const { view: card } = refusalFor({ message: 'history changed', result: envelope });
+  assert.deepEqual(card.actions.map(({ command, skill, copilotCommand }) => ({ command, skill, copilotCommand })),
+    [{ command: STATUS, skill: null, copilotCommand: null }, { command: DECIDE, skill: null, copilotCommand: null }]);
+  const html = resultCardHtml(card);
+  assert.equal(html.split('Copilot: no verified equivalent; use the Shell command').length - 1, 2, html);
+  assert.doesNotMatch(html, /\/sf-reject<\/code>|Copilot: <code>/u);
+  assert.equal(commandGuidanceText(STATUS), `Copilot: no verified equivalent; use the Shell command\nShell: ${STATUS}\nVS Code (model-free): not available for this action`);
+});
+
+test('the intent-amendment crosswalk routes only drafting and proposing to /sf-reject', () => {
+  for (const command of [STATUS, DECIDE, `singularity-flow story intent-amendment --work-id ${WORK}`,
+    `singularity-flow story intent-amendment acknowledge AMD-001 --work-id ${WORK}`]) {
+    const guidance = safeCommandGuidance(command);
+    assert.equal(guidance?.command, command, command);
+    assert.equal(guidance.skill, null, command);
+    assert.equal(guidance.copilotCommand, null, command);
+    assert.equal(copilotCommandForCommand(command, '/sf-reject'), null, `a supplied skill is no route either: ${command}`);
+    // A producer asserting the old route is contradicted, never shown.
+    assert.equal(safeCommandGuidance({ command, skill: '/sf-reject' }), null, command);
+    assert.equal(safeCommandGuidance({ command, copilotCommand: '/sf-reject' }), null, command);
+    const action = copilotAction({ skill: '/sf-reject', command, reason: 'x' });
+    assert.deepEqual([action.skill, action.copilotCommand], [null, null], command);
+    assert.equal(actionCommandLines({ skill: '/sf-reject', command })[1], 'Copilot: no verified equivalent; use the Shell command');
+  }
+  for (const command of [`singularity-flow story intent-amendment draft --work-id ${WORK}`,
+    `singularity-flow story intent-amendment propose --work-id ${WORK} --file amended.md --reason x`]) {
+    assert.equal(safeCommandGuidance(command)?.copilotCommand, '/sf-reject', command);
+  }
 });
 
 test('commits of any other kind keep the existing recover and new-turn reject routes', () => {
@@ -103,7 +164,9 @@ test('the advisory prints as warning lines with every route, and the approval pa
   const lines = blockingCommitLines(advisory);
   assert.equal(lines[0], `${advisory.statement} (Advisory; the approval gate decides.)`);
   assert.ok(lines.includes(`    Shell: ${STATUS}`) && lines.includes(`    Shell: ${DECIDE}`), lines.join('\n'));
-  assert.ok(lines.includes('    Copilot: /sf-reject'), lines.join('\n'));
+  // Neither the read nor the person's decision is /sf-reject's: that skill returns the phase.
+  assert.equal(lines.filter((line) => line === `    Copilot: ${NO_ROUTE}`).length, 2, lines.join('\n'));
+  assert.ok(!lines.some((line) => line.includes('/sf-reject')), lines.join('\n'));
   assert.deepEqual(blockingCommitLines(null), []);
   const { approvalBlockingCommits, approvalBlockingCommitsHtml } = await import('../apps/vscode/src/views/webview.ts');
   const page = approvalBlockingCommits(advisory);

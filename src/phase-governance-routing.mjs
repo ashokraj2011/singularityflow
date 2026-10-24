@@ -10,7 +10,8 @@ export function phaseGovernanceHold(workflow, phase) {
   if (amendment) return {
     code: 'INTENT_AMENDMENT_ACKNOWLEDGEMENT_REQUIRED', classification: 'amendment-acknowledgement-required',
     reason: `Approved amendment '${amendment.id}' requires an explicit human acknowledgement before downstream submission.`,
-    actions: [copilotAction({ skill: '/sf-reject',
+    // No skill acknowledges an amendment (/sf-reject's turn may not), so the action has no Copilot route.
+    actions: [copilotAction({
       command: `singularity-flow story intent-amendment acknowledge ${amendment.id} --work-id ${workflow.workItem.id}`,
       reason: 'Review the changed clauses and affected phases, then acknowledge only with the contributor\'s explicit choice.' })]
   };

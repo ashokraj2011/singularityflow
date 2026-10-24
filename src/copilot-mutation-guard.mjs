@@ -606,6 +606,8 @@ function argvAllowed(argv, mode, value) {
   // Deciding an upstream issue is the earlier step's approvers' call, like approve and reject; an
   // agent may raise one and keep working, never decide it.
   if (positionals[0] === 'upstream-issue' && UPSTREAM_ISSUE_DECISIONS.includes(positionals[1])) return false;
+  // So is deciding an intent amendment: the scope's approvers decide it, in their own terminal.
+  if (intentAmendmentDecision(positionals)) return false;
   // Accepting that a step's tests cannot run here, reusing another step's recorded run for it, or
   // saying one of its screen sizes does not apply, is its approvers' call too; the refusal names it.
   if (positionals[0] === 'decision' && ['test-risk', 'evidence-reuse', 'visual-profile'].includes(positionals[1])) return false;
@@ -663,6 +665,15 @@ function upstreamIssueDecision(call, value) {
   if (!safe) return false;
   const { positionals } = parseCli(safe.argv);
   return positionals[0] === 'upstream-issue' && UPSTREAM_ISSUE_DECISIONS.includes(positionals[1]);
+}
+
+/** `story intent-amendment decide`: a person who approves the scope decides it, never an agent turn. */
+function intentAmendmentDecision(positionals) {
+  return positionals[0] === 'story' && positionals[1] === 'intent-amendment' && positionals[2] === 'decide';
+}
+function intentAmendmentDecisionCall(call, value) {
+  const safe = verifiedShellForm(call, value);
+  return Boolean(safe) && intentAmendmentDecision(parseCli(safe.argv).positionals);
 }
 
 /** A verified `env bind` or `env unbind`: only the person supplies or removes environment values. */
@@ -1134,6 +1145,8 @@ async function mutationToolDecision(payload, record) {
           'PHASE_MUTATION_OPERATION_NOT_ALLOWED: recording the decision list is the person\'s own step: they run the exact decisions record command in their own terminal (a /sf-decide turn may record only its upstream-issue options, after their explicit yes). Show the user the summary and the command, and stop; do not retry it or change its digest');
         if (targetOriginPinCall(call, value)) return mutationDenial(contract, TARGET_ORIGIN_PIN_DENIAL);
         if (knowledgeConfirmationCall(call, value)) return mutationDenial(contract, KNOWLEDGE_CONFIRMATION_DENIAL);
+        if (intentAmendmentDecisionCall(call, value)) return mutationDenial(contract,
+          'PHASE_MUTATION_OPERATION_NOT_ALLOWED: an intent amendment is decided by a person who approves the scope, in their own terminal, not by this turn. Show the user the amendment and the decide command, and stop; do not retry it');
         if (testRunRiskDecision(call, value)) return mutationDenial(contract,
           'PHASE_MUTATION_OPERATION_NOT_ALLOWED: accepting that a step\'s tests cannot run here, reusing an earlier step\'s recorded run for it, that one of its screen sizes does not apply, or how a closed Story\'s drifted clause is resolved, is decided by a person who approves that step, in their own terminal, not by this turn. Show the user the command and stop; do not retry it');
         if (contract.turnMode !== 'authoring' && verifiedShellForm(call, value)) {

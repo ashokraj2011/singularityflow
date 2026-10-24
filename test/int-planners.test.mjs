@@ -335,25 +335,32 @@ test('the kernel routes a resolved read to the planner that now exists', async (
   assert.equal(explained.data.topic, 'approvals');
 
   /**
-   * And the ones still missing keep saying so by name rather than returning empty.
+   * And a planner a host lacks keeps saying so by name rather than returning empty.
    *
-   * The unimplemented planner is derived rather than named. Naming one made this test fail every
-   * time that planner got written — which is the ratchet working, but it turns a correctness check
-   * into a chore, and a chore gets deleted.
+   * The absent planner is derived rather than named. Naming one made this test fail every time that
+   * planner got written — which is the ratchet working, but it turns a correctness check into a
+   * chore, and a chore gets deleted. Now that this build has every declared planner, the absence is
+   * produced the way a real small host produces it: a planner map without some reads in it.
    */
-  const missing = unimplementedPlanners(gatewayPlanners());
-  assert.ok(missing.length, 'nothing left to assert once every planner exists');
+  const built = unimplementedPlanners(gatewayPlanners());
+  const readPlanners = [...new Set(gatewayRegistry().operations
+    .filter((entry) => entry.classification === 'read').map((entry) => entry.gateway.planner))];
+  const missing = built.length ? built : readPlanners;
+  const host = gatewayPlanners();
+  for (const name of missing) host.delete(name);
+  const smallKernel = createGatewayKernel({ binding, planners: host });
+  assert.deepEqual(unimplementedPlanners(host).filter((name) => missing.includes(name)).sort(), [...missing].sort());
   const candidates = gatewayRegistry().operations
     .filter((entry) => entry.classification === 'read' && missing.includes(entry.gateway.planner));
   // One whose arguments are all optional, so resolution reaches a handle instead of asking a question.
   const resolvedCandidates = await Promise.all(candidates.map(async (entry) => ({
     entry,
-    resolved: await kernel.resolve({ utterance: entry.gateway.aliases.en.phrases[0] })
+    resolved: await smallKernel.resolve({ utterance: entry.gateway.aliases.en.phrases[0] })
   })));
   const pick = resolvedCandidates.find(({ resolved }) => resolved.kind === 'read');
   assert.ok(pick, 'no unimplemented read resolves without arguments');
   const operation = pick.entry;
-  const read = await kernel.read({ resolutionId: pick.resolved.next[0].handle });
+  const read = await smallKernel.read({ resolutionId: pick.resolved.next[0].handle });
   assert.equal(read.kind, 'refusal');
   assert.equal(read.why[0].code, 'gateway.planner-unavailable');
   assert.equal(read.why[0].slots.planner, operation.gateway.planner);

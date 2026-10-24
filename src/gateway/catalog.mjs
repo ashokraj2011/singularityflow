@@ -284,11 +284,49 @@ export const GOLDEN_JOURNEY_CODES = Object.freeze([
   'investigation.nothing-was-carried-out'
 ]);
 
+/** Comparison, watches, ceremony destinations and the local records a confirmed plan writes. */
+export const GUIDED_CODES = Object.freeze([
+  'compare.exact-revisions',
+  'compare.side-unresolved',
+  'compare.subject-unavailable',
+  'compare.paths-truncated',
+  'compare.untracked-not-compared',
+  'compare.impact-of-this-range',
+  'compare.nothing-was-carried-out',
+  'watch.from-local-store',
+  'watch.subject-not-visible',
+  'watch.fired',
+  'watch.revocable',
+  'watch.no-actor',
+  'watch.local-store-changed',
+  'watch.governed-state-untouched',
+  'watch.nothing-was-carried-out',
+  'review.ceremony-destination',
+  'review.nothing-awaiting-decision',
+  'review.no-decision-was-recorded',
+  'work.draft-saved-locally',
+  'work.no-governed-record-created',
+  'workspace.selection-changed',
+  'workspace.governed-state-untouched',
+  'impact.assistance-not-invoked',
+  'repository.query.typed-read',
+  'repository.query.revision-unresolved',
+  'repository.query.needs',
+  'repository.query.version-unmapped',
+  'repository.query.switch-to-repository',
+  'repository.query.not-registered',
+  'repository.query.build-provider-unavailable',
+  'repository.query.truncated',
+  'repository.query.submodules-not-descended',
+  'repository.query.large-files-skipped',
+  'repository.query.no-workspace-selected'
+]);
+
 /** Every code, in one frozen set, which is the thing a surface actually needs. */
 export const REASON_CODES = Object.freeze([
   ...RESOLUTION_CODES, ...KERNEL_CODES, ...HOME_CODES, ...DEVELOPER_CODES,
   ...WORKSPACE_RECOVERY_CODES, ...FAULT_CODES, ...WORK_CODES, ...READINESS_CODES, ...RETURN_CODES,
-  ...SURFACE_CODES, ...GOLDEN_JOURNEY_CODES
+  ...SURFACE_CODES, ...GOLDEN_JOURNEY_CODES, ...GUIDED_CODES
 ]);
 
 /**
@@ -385,7 +423,23 @@ export const WARNING_CODES = Object.freeze([
    * A disclosure rather than a problem: the reader's local changes are real and the result is still
    * correct, but anything derived from the committed tree does not account for them.
    */
-  'work.local-changes-present'
+  'work.local-changes-present',
+  /** A comparison shows the first paths only; the total is in the slots. */
+  'compare.paths-truncated',
+  /** A working-tree comparison reads tracked files; untracked ones are in neither side. */
+  'compare.untracked-not-compared',
+  /** A watch whose subject this repository cannot see is unknown, never quiet. */
+  'watch.subject-not-visible',
+  /** An assisted operation returned its deterministic facts with no interpretation. */
+  'impact.assistance-not-invoked',
+  /** A typed repository read showed the first facts only. */
+  'repository.query.truncated',
+  /** A read stopped at submodule boundaries; their contents were not read. */
+  'repository.query.submodules-not-descended',
+  /** Search matched files too large to return a preview from. */
+  'repository.query.large-files-skipped',
+  /** No workspace is selected, so only this repository is known. */
+  'repository.query.no-workspace-selected'
 ]);
 
 const CODES = new Set(REASON_CODES);

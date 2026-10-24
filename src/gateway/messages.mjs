@@ -47,6 +47,7 @@ export const RESULT_MESSAGES = Object.freeze({
   'gateway.resolved': M('Ready to go'),
   'gateway.candidates': M('More than one thing matches'),
   'gateway.clarification': M('One more thing needed'),
+  'gateway.ceremony': M('A decision is waiting', 'Decide it in the review, where the exact record is shown.'),
 
   // ---- Resolution
   'resolution.selection-handle.invalid': M('That choice is no longer current', 'The world moved since it was offered. Ask again and it will be recomputed.'),
@@ -292,7 +293,43 @@ export const RESULT_MESSAGES = Object.freeze({
   'goal.durable-execution': M(
     'From the repository Goal lifecycle branch',
     'The contract, plan, approval, and state were reconstructed from the exact GEX revision.'
-  )
+  ),
+
+  // ---- Comparison, watches, ceremonies and confirmed local records
+  'compare.exact-revisions': M('Compared {left} with {right}', '{paths} path(s) differ between the two exact revisions.'),
+  'compare.side-unresolved': M('The {side} side does not resolve', '\'{value}\' is not a revision this repository has. Nothing was guessed in its place.'),
+  'compare.subject-unavailable': M('This build cannot compare {subjectKind}s', 'Comparing that kind needs an evidence source this build does not read.'),
+  'compare.paths-truncated': M('Showing {shown} of {total} paths'),
+  'compare.untracked-not-compared': M('Untracked files are not compared', 'Only tracked files are in either side of this comparison.'),
+  'compare.impact-of-this-range': M('See what this range affects'),
+  'compare.nothing-was-carried-out': M('Nothing was carried out', 'Comparison is read-only.'),
+  'watch.from-local-store': M('{count} watch(es) on this machine', 'Watches are local to you and checked against the records now.'),
+  'watch.subject-not-visible': M('{count} watched item(s) are not visible here', 'Their state is unknown from this repository, not unchanged.'),
+  'watch.fired': M('This moved since you started watching'),
+  'watch.revocable': M('You can stop watching this'),
+  'watch.no-actor': M('SFlow cannot tell who you are', 'Configure your Git identity so watches can be kept for you.'),
+  'watch.local-store-changed': M('Your watches were updated'),
+  'watch.governed-state-untouched': M('No work, approval or branch changed'),
+  'watch.nothing-was-carried-out': M('Nothing was carried out'),
+  'review.ceremony-destination': M('Open the review to decide', 'The decision is recorded only there, with your identity on it.'),
+  'review.nothing-awaiting-decision': M('Nothing is waiting for a decision', '{workId} is {group}.'),
+  'review.no-decision-was-recorded': M('No decision was recorded'),
+  'work.draft-saved-locally': M('Saved as a local draft', 'A draft is a proposal. Starting from it asks you to confirm again.'),
+  'work.no-governed-record-created': M('No work was created'),
+  'workspace.selection-changed': M('You are now in {workspace}'),
+  'workspace.governed-state-untouched': M('No work, approval or branch changed'),
+  'impact.assistance-not-invoked': M('No interpretation was produced', 'These are the deterministic facts only.'),
+  'repository.query.typed-read': M('Read {query} at {commit}', 'From the {tree}, with nothing checked out or changed.'),
+  'repository.query.revision-unresolved': M('\'{revision}\' is not a revision here', 'Nothing was guessed in its place.'),
+  'repository.query.needs': M('This question needs a {field}'),
+  'repository.query.version-unmapped': M('No tag names version {version}', 'A version maps to a commit only through a tag that names it exactly.'),
+  'repository.query.switch-to-repository': M('{repository} is in this workspace but not this session', 'Switch to it to read it; on this machine: {onThisMachine}.'),
+  'repository.query.not-registered': M('{repository} is not a registered repository', 'Only repositories the workspace registers can be read.'),
+  'repository.query.build-provider-unavailable': M('No build provider is configured', 'Mapping a build to a commit needs a configured read-only provider.'),
+  'repository.query.truncated': M('Showing the first {shown}'),
+  'repository.query.submodules-not-descended': M('{count} submodule(s) were not read'),
+  'repository.query.large-files-skipped': M('{count} large file(s) were skipped'),
+  'repository.query.no-workspace-selected': M('No workspace is selected', 'Only this repository is known.')
 });
 
 /**

@@ -225,6 +225,26 @@ export const ARGUMENT_SCHEMAS = Object.freeze([
     summary: optional('text')
   }),
   schema('work-start-v1', { intakeId: required('identifier') }),
+  /**
+   * The typed intake a host form hands `kernel.recordIntake` `[INT:REQ-066]` `[INT:CON-065]`.
+   *
+   * Not an operation argument: no model-facing tool accepts it. It is the record the work-start
+   * planner normalizes into the exact preview a person confirms, and it lives only in the session.
+   */
+  schema('work-intake-record-v1', {
+    workId: required('identifier'),
+    shape: optional('enum', { values: ['initiative', 'epic', 'story'] }),
+    workType: required('identifier'),
+    tracker: optional('enum', { values: ['none', 'jira', 'github'] }),
+    trackerKey: optional('string'),
+    title: optional('string'),
+    description: optional('text'),
+    acceptanceCriteria: optional('text'),
+    baseBranch: optional('ref'),
+    source: optional('enum', { values: [
+      'jira', 'github-issue', 'manual', 'initiative', 'story', 'bug-report', 'idea', 'repository-observation', 'finding'
+    ] })
+  }),
   schema('work-draft-save-v1', { intakeId: required('identifier'), label: required('string') }),
   schema('workspace-switch-v1', { workspaceId: required('identifier') }),
   schema('workspace-bootstrap-status-v1', { bootstrapId: required('identifier') }),
@@ -242,6 +262,22 @@ export const ARGUMENT_SCHEMAS = Object.freeze([
     repositoryId: optional('identifier'),
     path: optional('relative-path'),
     question: optional('text')
+  }),
+  schema('repository-query-v1', {
+    query: required('enum', { values: [
+      'repositories', 'status', 'branches', 'tags', 'log', 'commit', 'path-history', 'blame', 'diff',
+      'merge-base', 'contains', 'search', 'version-commit', 'build-commit'
+    ] }),
+    repositoryId: optional('identifier'),
+    revision: optional('ref'),
+    base: optional('ref'),
+    path: optional('relative-path'),
+    text: optional('string', { maxLength: 500 }),
+    lineStart: optional('integer', { min: 1 }),
+    lineEnd: optional('integer', { min: 1 }),
+    version: optional('string', { maxLength: 128 }),
+    buildId: optional('identifier'),
+    max: optional('integer', { min: 1, max: 500 })
   }),
   schema('ast-context-v1', {
     path: optional('relative-path'),

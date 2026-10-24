@@ -71,6 +71,7 @@ export const DEFAULT_GATEWAY_POLICY = Object.freeze({
     'work.start.intake': 'none',
     'workspace.list': 'none',
     'repository.explore': 'none',
+    'repository.query': 'none',
     'intent.trace': 'none',
     'compare': 'none',
     'impact.quick': 'none',

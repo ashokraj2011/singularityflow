@@ -22,7 +22,8 @@ import {
 } from './git-remote-diagnostics.mjs';
 import { isFullyQualifiedWindowsPath } from './platform-process.mjs';
 import { gitHostSearchDirectories, isAppleDeveloperGit } from './git-host-selection.mjs';
-import { networkDisabled } from './util.mjs';
+import { processResultCompleted } from './process-result.mjs';
+import { gitReadOutput, isGitRefName, networkDisabled, run, SingularityFlowError } from './util.mjs';
 
 const LOCAL_DEADLINE_MS = 30_000;
 const MAX_OBJECT_BYTES = 32 * 1024 * 1024;
@@ -1068,4 +1069,283 @@ export async function createGitRuntime(options = {}) {
   const runtime = new GitRuntime({ path: executable, version: versionText, platform },
     environment, deadlineMs, options.signal ?? null, networkDisabled(sourceEnvironment));
   return success({ executable: 'git' }, runtime, { classification: 'runtime' });
+}
+
+// ---------------------------------------------------------------------------------------------------
+// Typed repository reads for the gateway. `[INT:CON-081]` `[INT:IFC-040]` `[INT:REQ-080]`
+//
+// Here rather than in git.mjs because only gateway planners use them, and git.mjs is on the eager
+// path of every lifecycle command; this facade is not.
+//
+// The gateway asks Git typed questions and never forwards argv. Each read below takes values that
+// have already been through an argument schema, re-checks the ones that reach argv, runs one local
+// Git read with a timeout, no lazy fetch, no replace objects and an explicit revision, and returns
+// data rather than text to be parsed again. None of them checks out, writes the index, fetches, or
+// runs project code `[INT:CON-083]`. Paths are passed as `:(literal)` pathspecs so pathspec magic in a
+// repository-relative value cannot widen a read past what the caller named.
+// ---------------------------------------------------------------------------------------------------
+
+export const TYPED_GIT_TIMEOUT_MS = 15_000;
+const TYPED_GIT_MAX_BUFFER = 8 * 1024 * 1024;
+const TYPED_TEXT_PREVIEW = 240;
+
+function typedGit(root, args, { maxBuffer = TYPED_GIT_MAX_BUFFER } = {}) {
+  // No replace objects, no lazy fetch, and GIT_OPTIONAL_LOCKS=0 so even `status` cannot refresh the
+  // index: a read must not write anything.
+  return run('git', ['-c', 'core.quotePath=false', '-c', 'core.fsmonitor=false', ...args], {
+    cwd: root, allowFailure: true, timeoutMs: TYPED_GIT_TIMEOUT_MS, killSignal: 'SIGKILL', maxBuffer,
+    env: { ...withoutGitProcessOverrides(process.env), GIT_NO_REPLACE_OBJECTS: '1', GIT_NO_LAZY_FETCH: '1', GIT_OPTIONAL_LOCKS: '0' }
+  });
+}
+
+const nullList = (value) => value.split('\0').filter(Boolean);
+
+/** The exact commit a validated name peels to, or null. A leading dash never reaches argv. */
+function exactCommit(root, name) {
+  if (!name || name.startsWith('-') || !/^[\w./@{}^~+-]+$/u.test(name)) return null;
+  const result = typedGit(root, ['rev-parse', '--verify', '--quiet', '--end-of-options', `${name}^{commit}`]);
+  return gitReadOutput(result, `The commit of '${name}'`, { absentStatus: 1, code: 'TYPED_GIT_READ_UNAVAILABLE' })?.trim() || null;
+}
+
+function typedOutput(result, label) {
+  return gitReadOutput(result, label, { code: 'TYPED_GIT_READ_UNAVAILABLE' });
+}
+
+/** A repository-relative path, or a refusal before anything reaches argv. */
+function repositoryRelative(relative) {
+  const value = String(relative ?? '');
+  if (!value || value.startsWith('/') || value.startsWith('\\') || /^[A-Za-z]:/u.test(value)
+      || value.split(/[/\\]/u).includes('..') || /[\u0000-\u001f\u007f]/u.test(value)) {
+    throw new SingularityFlowError(`'${value}' is not a repository-relative path.`, { code: 'TYPED_GIT_PATH_INVALID' });
+  }
+  return value.replace(/\\/gu, '/');
+}
+
+/** The same path as a literal pathspec, so pathspec magic in the value cannot widen the read. */
+function literalPathspec(relative) {
+  return `:(literal)${repositoryRelative(relative)}`;
+}
+
+/** An exact commit for a ref or object name, or null when Git does not know it. Never an option. */
+export function typedRevision(root, revision) {
+  const name = String(revision ?? '');
+  if (/^[0-9a-f]{7,64}$/iu.test(name) || isGitRefName(name) || name === 'HEAD') return exactCommit(root, name);
+  return null;
+}
+
+export function typedMergeBase(root, left, right) {
+  const result = typedGit(root, ['merge-base', '--end-of-options', left, right]);
+  return gitReadOutput(result, 'The merge base', { absentStatus: 1, code: 'TYPED_GIT_READ_UNAVAILABLE' })?.trim() || null;
+}
+
+/** Commits reachable from only one side: `left` counts what `right` lacks, and the reverse. */
+export function typedAheadBehind(root, left, right) {
+  const output = typedOutput(typedGit(root, ['rev-list', '--left-right', '--count', `${left}...${right}`, '--']),
+    'The commit counts');
+  const [leftOnly, rightOnly] = output.trim().split(/\s+/u).map(Number);
+  return { leftOnly: leftOnly || 0, rightOnly: rightOnly || 0 };
+}
+
+/**
+ * The changed paths between two commits, or between a commit and the working tree when `right` is
+ * null. Binary-aware: `--numstat` reports `-` for a binary path, which is carried as `binary: true`
+ * so a reader is told a diff exists without being handed bytes it cannot read.
+ */
+export function typedChangedPaths(root, left, right = null, { paths = [], max = 200 } = {}) {
+  const pathspecs = paths.map(literalPathspec);
+  const range = right ? [left, right] : [left];
+  const status = typedOutput(typedGit(root, [
+    'diff', '--no-ext-diff', '--no-textconv', '--no-renames', '--name-status', '-z', ...range, '--', ...pathspecs
+  ]), 'The changed paths');
+  const numstat = typedOutput(typedGit(root, [
+    'diff', '--no-ext-diff', '--no-textconv', '--no-renames', '--numstat', '-z', ...range, '--', ...pathspecs
+  ]), 'The changed line counts');
+  const counts = new Map();
+  for (const record of nullList(numstat)) {
+    const [added, removed, file] = record.split('\t');
+    if (file) counts.set(file, { added, removed });
+  }
+  const fields = nullList(status);
+  const entries = [];
+  for (let index = 0; index + 1 < fields.length; index += 2) {
+    const file = fields[index + 1];
+    const count = counts.get(file);
+    const binary = count?.added === '-' && count?.removed === '-';
+    entries.push({
+      status: fields[index].slice(0, 1),
+      path: file,
+      binary,
+      added: binary || !count ? null : Number(count.added),
+      removed: binary || !count ? null : Number(count.removed)
+    });
+  }
+  entries.sort((a, b) => a.path.localeCompare(b.path));
+  return { entries: entries.slice(0, max), total: entries.length, truncated: entries.length > max };
+}
+
+/** Bounded commit metadata; author names only, never addresses, which are not evidence. */
+export function typedLog(root, { revision = 'HEAD', path: relative = null, max = 50, exclude = null } = {}) {
+  const limit = Math.max(1, Math.min(Number(max) || 50, 500));
+  const result = typedGit(root, [
+    'log', `--max-count=${limit + 1}`, '--format=%H%x00%P%x00%aI%x00%cI%x00%an%x00%s%x1e', '--end-of-options',
+    ...(exclude ? [revision, `^${exclude}`] : [revision]), '--', ...(relative ? [literalPathspec(relative)] : [])
+  ]);
+  const output = typedOutput(result, 'The commit history');
+  const commits = output.split('\x1e').map((row) => row.trim()).filter(Boolean).map((row) => {
+    const [commit, parents, authoredAt, committedAt, author, subject] = row.split('\0');
+    return {
+      commit, parents: parents ? parents.split(' ') : [], authoredAt, committedAt,
+      author, subject: String(subject ?? '').slice(0, TYPED_TEXT_PREVIEW)
+    };
+  });
+  return { commits: commits.slice(0, limit), truncated: commits.length > limit };
+}
+
+export function typedCommit(root, revision, { maxPaths = 200 } = {}) {
+  const commit = typedRevision(root, revision);
+  if (!commit) return null;
+  const [entry] = typedLog(root, { revision: commit, max: 1 }).commits;
+  const parent = entry.parents[0] ?? null;
+  const changed = parent
+    ? typedChangedPaths(root, parent, commit, { max: maxPaths })
+    : (() => {
+      const listed = nullList(typedOutput(typedGit(root, ['ls-tree', '-r', '--name-only', '-z', commit]), 'The root commit tree'));
+      return {
+        entries: listed.slice(0, maxPaths).map((file) => ({ status: 'A', path: file, binary: null, added: null, removed: null })),
+        total: listed.length, truncated: listed.length > maxPaths
+      };
+    })();
+  return { ...entry, changed };
+}
+
+/** Line ownership for a bounded range at an explicit revision. Line text is a bounded preview. */
+export function typedBlame(root, { revision, path: relative, start = 1, end = null, maxLines = 200 } = {}) {
+  const first = Math.max(1, Number(start) || 1);
+  const last = Math.min(Number(end) || first + maxLines - 1, first + maxLines - 1);
+  const output = typedOutput(typedGit(root, [
+    'blame', '--line-porcelain', '-L', `${first},${last}`, revision, '--', repositoryRelative(relative)
+  ]), 'The line ownership');
+  const lines = [];
+  let current = null;
+  for (const row of output.split('\n')) {
+    const header = /^([0-9a-f]{40,64}) \d+ (\d+)/u.exec(row);
+    if (header) { current = { commit: header[1], line: Number(header[2]), author: null, authoredAt: null }; continue; }
+    if (!current) continue;
+    if (row.startsWith('author ')) current.author = row.slice(7);
+    else if (row.startsWith('author-time ')) current.authoredAt = new Date(Number(row.slice(12)) * 1000).toISOString();
+    else if (row.startsWith('\t')) {
+      lines.push({ ...current, text: row.slice(1, 1 + TYPED_TEXT_PREVIEW) });
+      current = null;
+    }
+  }
+  return { lines, range: { start: first, end: last } };
+}
+
+export function typedRefs(root, { kind = 'branch', contains = null, max = 200 } = {}) {
+  const prefix = { branch: 'refs/heads/', tag: 'refs/tags/', remote: 'refs/remotes/' }[kind];
+  if (!prefix) throw new SingularityFlowError(`'${kind}' is not a ref kind.`, { code: 'TYPED_GIT_REF_KIND_INVALID' });
+  const output = typedOutput(typedGit(root, [
+    'for-each-ref', `--count=${Math.max(1, Math.min(Number(max) || 200, 1000)) + 1}`, '--sort=-committerdate',
+    '--format=%(refname)%00%(objectname)%00%(*objectname)%00%(committerdate:iso-strict)',
+    ...(contains ? [`--contains=${contains}`] : []), prefix
+  ]), 'The refs');
+  const refs = output.split('\n').filter(Boolean).map((row) => {
+    const [ref, object, peeled, committedAt] = row.split('\0');
+    return { name: ref.slice(prefix.length), ref, commit: peeled || object, committedAt: committedAt || null };
+  });
+  const limit = Math.max(1, Math.min(Number(max) || 200, 1000));
+  return { refs: refs.slice(0, limit), truncated: refs.length > limit };
+}
+
+/** A released version's commit, only through a tag that exactly names it. Never a guess. */
+export function typedVersionCommit(root, version) {
+  const name = String(version ?? '');
+  if (!isGitRefName(name)) return null;
+  for (const tag of [name, `v${name}`]) {
+    const commit = exactCommit(root, `refs/tags/${tag}`);
+    if (commit) return { tag, commit };
+  }
+  return null;
+}
+
+/**
+ * Gitlinks recorded at a revision, so a read can say which paths it did not descend into.
+ *
+ * Read from that revision's `.gitmodules` and then only those paths, rather than by listing the
+ * whole tree: a disclosure must not cost a full-repository walk on every query.
+ */
+export function typedSubmodules(root, revision) {
+  const declared = typedGit(root, ['config', '--blob', `${revision}:.gitmodules`, '--get-regexp', '^submodule\\..*\\.path$']);
+  if (declared.status !== 0) return [];
+  const paths = declared.stdout.split('\n').map((row) => row.split(' ').slice(1).join(' ')).filter(Boolean)
+    .filter((file) => !file.split('/').includes('..') && !file.startsWith('/')).slice(0, 200);
+  if (!paths.length) return [];
+  const output = typedOutput(typedGit(root, ['ls-tree', '-z', revision, '--', ...paths.map(literalPathspec)]), 'The submodule entries');
+  return nullList(output).map((row) => /^160000 commit ([0-9a-f]+)\t(.+)$/su.exec(row))
+    .filter(Boolean).map(([, commit, file]) => ({ path: file, commit }));
+}
+
+/**
+ * Exact (fixed-string) text search at an explicit revision, binary files skipped by Git itself.
+ * `excludes` are glob pathspecs the caller's policy names; large blobs are dropped afterwards by
+ * size, and every exclusion that fired is returned so the reader is told what was not searched.
+ */
+export function typedGrep(root, { revision, text, paths = [], excludes = [], max = 100, maxBlobBytes = 1024 * 1024 } = {}) {
+  const needle = String(text ?? '');
+  if (!needle || /[\u0000-\u001f\u007f]/u.test(needle) || needle.length > 500) {
+    throw new SingularityFlowError('A search needs one line of literal text.', { code: 'TYPED_GIT_SEARCH_INVALID' });
+  }
+  const limit = Math.max(1, Math.min(Number(max) || 100, 500));
+  const result = typedGit(root, [
+    'grep', '-n', '-I', '-F', '--no-color', '-z', `--max-count=${limit}`, '-e', needle, revision, '--',
+    ...(paths.length ? paths.map(literalPathspec) : ['.']),
+    ...excludes.map((glob) => `:(exclude,glob)${glob}`)
+  ]);
+  if (result.status === 1 && processResultCompleted(result)) return { matches: [], oversized: [], truncated: false };
+  const output = typedOutput(result, 'The text search');
+  const matches = [];
+  for (const row of output.split('\n').filter(Boolean)) {
+    const [location, line, ...rest] = row.split('\0');
+    const file = location.startsWith(`${revision}:`) ? location.slice(revision.length + 1) : location;
+    matches.push({ path: file, line: Number(line), preview: rest.join('\0').slice(0, TYPED_TEXT_PREVIEW) });
+  }
+  const files = [...new Set(matches.map((entry) => entry.path))];
+  const sizes = new Map();
+  if (files.length) {
+    const listed = typedOutput(typedGit(root, ['ls-tree', '-l', '-z', revision, '--', ...files.map(literalPathspec)]), 'The blob sizes');
+    for (const row of nullList(listed)) {
+      const match = /^\d+ blob [0-9a-f]+\s+(\d+)\t(.+)$/su.exec(row);
+      if (match) sizes.set(match[2], Number(match[1]));
+    }
+  }
+  const oversized = files.filter((file) => (sizes.get(file) ?? 0) > maxBlobBytes);
+  const kept = matches.filter((entry) => !oversized.includes(entry.path));
+  return { matches: kept.slice(0, limit), oversized, truncated: kept.length > limit };
+}
+
+/** Working-tree status, bounded: what is modified, staged or untracked, by path. */
+export function typedStatus(root, { max = 200 } = {}) {
+  const output = typedOutput(typedGit(root, ['status', '--porcelain=v1', '-z', '--untracked-files=all', '--no-renames']),
+    'The working tree status');
+  const entries = nullList(output).map((row) => ({ index: row[0], worktree: row[1], path: row.slice(3) }))
+    .sort((a, b) => a.path.localeCompare(b.path));
+  return { entries: entries.slice(0, max), total: entries.length, truncated: entries.length > max };
+}
+
+/**
+ * One path's patch between two commits, bounded. A binary path yields no text, and a patch past
+ * `maxBytes` is cut and says so, so a diff can be shown without handing a model a whole file.
+ */
+export function typedPatch(root, left, right, relative, { maxBytes = 16 * 1024 } = {}) {
+  const output = typedOutput(typedGit(root, [
+    'diff', '--no-ext-diff', '--no-textconv', '--no-color', '--no-renames', '--unified=3', left, right, '--', literalPathspec(relative)
+  ], { maxBuffer: Math.max(maxBytes * 4, 256 * 1024) }), 'The patch');
+  if (/^Binary files .* differ$/mu.test(output)) return { binary: true, text: null, bytes: 0, truncated: false };
+  const bytes = Buffer.byteLength(output, 'utf8');
+  return {
+    binary: false,
+    text: bytes > maxBytes ? Buffer.from(output, 'utf8').subarray(0, maxBytes).toString('utf8') : output,
+    bytes,
+    truncated: bytes > maxBytes
+  };
 }

@@ -144,3 +144,22 @@ export async function impactQuick({ arguments: args = {}, subject = null, root =
     repositoryScope: root
   });
 }
+
+/**
+ * `impact.quick.assisted`: the same fact set, and a truthful statement that nothing interpreted it.
+ *
+ * Assisted interpretation consumes the deterministic facts and may not add, delete or reclassify
+ * one `[INT:CON-069]`. The kernel planner therefore returns exactly `impact.quick`'s facts under the
+ * assisted operation's name and says the interpretation was not invoked in-process — the model
+ * boundary belongs to a host, and a result that implied otherwise would be the one claim here that
+ * no record backs.
+ */
+export async function impactQuickAssisted(input = {}) {
+  const facts = await impactQuick(input);
+  return sflowResult({
+    ...facts,
+    operation: { id: 'impact.quick.assisted', classification: 'read' },
+    warnings: [...facts.warnings, { code: 'impact.assistance-not-invoked', source: 'unavailable', slots: {} }],
+    data: { ...facts.data, assisted: { requested: true, invoked: false } }
+  });
+}

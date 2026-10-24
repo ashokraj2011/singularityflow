@@ -22,7 +22,7 @@ import {
   governedGoalTracePlanner
 } from './governed-goal.mjs';
 import { homeOverview } from './home-overview.mjs';
-import { impactQuick } from './impact-quick.mjs';
+import { impactQuick, impactQuickAssisted } from './impact-quick.mjs';
 import { impactWhatIf, impactWhatIfAssisted } from './impact-what-if.mjs';
 import { intentTracePlanner } from './intent-trace.mjs';
 import { problemInvestigate, problemInvestigateAssisted } from './problem-investigate.mjs';
@@ -40,6 +40,21 @@ import {
   workspacePrepareGuide
 } from './workspace-reliability-surface.mjs';
 
+/**
+ * A planner loaded on first use. `[INT:CON-032]`
+ *
+ * The map is imported by every host that resolves anything, so a planner listed here statically is
+ * on the startup path of the CLI's hooks and the editor whether or not anyone asks it a question.
+ * Still a function, so the registry-versus-map distinction — and the ratchet — see it as present.
+ */
+const lazy = (load, name) => async (request) => (await load())[name](request);
+const compare = () => import('./compare.mjs');
+const repositoryQueries = () => import('./repository-query.mjs');
+const reviews = () => import('./review-open.mjs');
+const watches = () => import('./watches.mjs');
+const starts = () => import('./work-start.mjs');
+const workspaces = () => import('./workspace-switch.mjs');
+
 export function gatewayPlanners(overrides = {}) {
   return new Map(Object.entries({
     'ast-context': astContextPlanner,
@@ -51,6 +66,7 @@ export function gatewayPlanners(overrides = {}) {
     'ast-status': astStatusPlanner,
     'ast-symbol': astSymbolPlanner,
     'auto-flight-read': autoFlightRead,
+    compare: lazy(compare, 'comparePlanner'),
     'help-explain': helpExplain,
     'developer-next': developerNext,
     'context-brief': contextBrief,
@@ -60,13 +76,28 @@ export function gatewayPlanners(overrides = {}) {
     'goal-trace': governedGoalTracePlanner,
     'home-overview': homeOverview,
     'impact-quick': impactQuick,
+    'impact-quick-assisted': impactQuickAssisted,
     'impact-what-if': impactWhatIf,
     'impact-what-if-assisted': impactWhatIfAssisted,
     'intent-trace': intentTracePlanner,
     'problem-investigate': problemInvestigate,
     'problem-investigate-assisted': problemInvestigateAssisted,
     'repository-explore': repositoryExplore,
+    'repository-query': lazy(repositoryQueries, 'repositoryQuery'),
     'review-packet': reviewPacket,
+    'review-open': lazy(reviews, 'reviewOpen'),
+    'watch-list': lazy(watches, 'watchList'),
+    /**
+     * Mutation planners. Each is a read that returns the exact plan descriptor a person confirms;
+     * the act is a separate host-supplied executor, so a read-only host can offer every plan and
+     * carry out none of them `[INT:CON-110]`.
+     */
+    'watch-create': lazy(watches, 'watchCreatePlan'),
+    'watch-revoke': lazy(watches, 'watchRevokePlan'),
+    'work-start': lazy(starts, 'workStartPlan'),
+    'work-draft-save': lazy(starts, 'workDraftSavePlan'),
+    'workspace-switch': lazy(workspaces, 'workspaceSwitchPlan'),
+    'workspace-materialize': lazy(workspaces, 'workspaceMaterializePlan'),
     'work-continue': workContinue,
     'work-handoff': workHandoff,
     'work-readiness': workReadiness,
@@ -86,7 +117,7 @@ export function gatewayPlanners(overrides = {}) {
 export {
   astContextPlanner, astEvidenceReplayPlanner, astHierarchyPlanner, astModulePlanner,
   astQueryPlanner, astReferencesPlanner, astStatusPlanner, astSymbolPlanner,
-  autoFlightRead,
+  autoFlightRead, impactQuickAssisted,
   contextBrief, developerNext, governedGoalImpactPlanner, governedGoalInspectPlanner, governedGoalNextPlanner,
   governedGoalTracePlanner, helpExplain, homeOverview, impactQuick, impactWhatIf, impactWhatIfAssisted, problemInvestigate,
   intentTracePlanner, problemInvestigateAssisted, repositoryExplore, reviewPacket, workContinue, workHandoff,

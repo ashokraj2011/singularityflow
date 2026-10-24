@@ -11,6 +11,8 @@
  * construction rather than by nobody having called it yet — a mutation path that exists and is
  * simply unused is one flag away from being live, and the flag is usually set by someone debugging.
  */
+import { randomUUID } from 'node:crypto';
+
 import {
   createHandleAuthority, issueConfirmationReceipt, redeemConfirmationReceipt, subjectFromBinding
 } from './handles.mjs';
@@ -26,6 +28,10 @@ import { resolveIntent } from './resolve.mjs';
 import { homeProjectionV2 } from './home-projection-v2.mjs';
 import { SingularityFlowError } from '../util.mjs';
 
+/** How long a collected intake stays in the session before it has to be collected again. */
+export const INTAKE_TTL_MS = 30 * 60 * 1000;
+const MAX_SESSION_INTAKES = 32;
+
 /**
  * Narration IDs a kernel-side result can carry, so a surface can translate all of them.
  *
@@ -36,6 +42,8 @@ import { SingularityFlowError } from '../util.mjs';
 export const KERNEL_MESSAGES = Object.freeze([
   'gateway.read', 'gateway.next', 'gateway.explained', 'gateway.refused', 'gateway.home',
   'gateway.developer-next', 'gateway.completed',
+  /** A ceremony destination: the decision exists and a person makes it elsewhere `[INT:IFC-052]`. */
+  'gateway.ceremony',
   /**
    * A read that answers "am I ready?" with "no" `[UXH:REQ-062]`.
    *
@@ -121,6 +129,22 @@ export function createGatewayKernel({
 } = {}) {
   const policy = resolveGatewayPolicy(policyLayers, { registry });
   const confirmationReceipts = new Map();
+
+  /**
+   * Intake drafts collected by the host, for this session only. `[INT:CON-065]` `[INT:CON-101]`
+   *
+   * Conversational and form fields stay ephemeral until a confirmed operation creates governed
+   * records, so they live here — bounded, expiring, gone with the session — and planners reach them
+   * through `session.intake(id)` rather than through anything a model can name.
+   */
+  const intakes = new Map();
+  const session = Object.freeze({
+    intake(id) {
+      const entry = intakes.get(id);
+      if (!entry || now() >= entry.expiresAt) return null;
+      return entry.record;
+    }
+  });
 
   /**
    * The world *now*, not the world this kernel was built in. `[INT:REQ-036]`
@@ -210,16 +234,61 @@ export function createGatewayKernel({
       ? plannerContext({ operation, arguments: args, subject })
       : plannerContext;
     const produced = validateSflowResult(
-      await planner({ operation, arguments: args, subject, registry, policy, root, context: context ?? {} })
+      await planner({ operation, arguments: args, subject, registry, policy, root, context: context ?? {}, session })
     );
     return validateSflowResult(sealPlannerNavigation(produced, issuedAgainst));
+  }
+
+  /**
+   * A ceremony resolution becomes its destination. `[INT:CON-113]` `[INT:IFC-052]`
+   *
+   * The resolver already knows the operation is an authorization and refuses to issue it a handle;
+   * what it cannot know is *where* the decision is — which Story, phase and generation, and which
+   * terminal command decides it. The operation's planner reads that from governed records. Its
+   * result must itself be a ceremony (or a refusal saying there is nothing to decide), so a planner
+   * cannot turn the destination into anything a host could execute.
+   */
+  async function ceremonyDestination(result, subject) {
+    if (result.kind !== 'ceremony') return result;
+    const operation = registry.operations.find((entry) => entry.id === result.operation.id);
+    const planner = operation && planners.get(operation.gateway.planner);
+    if (typeof planner !== 'function') return result;
+    const args = result.data?.arguments ?? {};
+    const context = typeof plannerContext === 'function'
+      ? plannerContext({ operation, arguments: args, subject })
+      : plannerContext;
+    const produced = validateSflowResult(await planner({
+      operation, arguments: args, subject, registry, policy, root, context: context ?? {}, session
+    }));
+    if (!['ceremony', 'refusal'].includes(produced.kind)
+        || (produced.kind === 'ceremony' && produced.operation.id !== operation.id)
+        || produced.next.some((action) => action.executable)) {
+      throw new SingularityFlowError(`Planner '${operation.gateway.planner}' did not return a ceremony destination.`, {
+        code: 'PLANNER_CEREMONY_INVALID'
+      });
+    }
+    return produced;
   }
 
   async function issueResolvedPlan(result, issuedAgainst) {
     if (result.kind !== 'plan') return result;
     const operation = registry.operations.find((entry) => entry.id === result.operation.id);
-    const builder = operation && planBuilders.get(operation.gateway.planner);
-    if (!operation || typeof builder !== 'function') return result;
+    /**
+     * The mutation's own planner is its plan builder. `[INT:CON-110]`
+     *
+     * A mutation planner is a read returning the exact descriptor a person confirms, so every host
+     * that has the planner can offer a content-hashed plan; whether the act can then be carried out
+     * is the separate executor capability, gated by `readOnly`. `planBuilders` still overrides,
+     * which is how a host narrows or substitutes a builder without forking the planner map.
+     */
+    const builder = operation && (planBuilders.get(operation.gateway.planner) ?? planners.get(operation.gateway.planner));
+    if (!operation) return result;
+    if (typeof builder !== 'function') {
+      // Without a builder there is no plan to show, and a plan-shaped result with nothing in it
+      // would be a non-read resolution that no confirmation could ever be bound to.
+      return refuse(operation.id, 'gateway.planner-unavailable', 'unavailable',
+        { planner: operation.gateway.planner }, 'unavailable', operation.classification);
+    }
     if (operation.classification === 'authorization') {
       throw new SingularityFlowError('An authorization cannot be issued as an executable Plan.', {
         code: 'PLAN_FORBIDDEN'
@@ -236,7 +305,7 @@ export function createGatewayKernel({
     try {
       descriptor = await builder({
         operation, arguments: args, subject: result.subject, registry, policy, root,
-        context: context ?? {}
+        context: context ?? {}, session
       });
     } catch (error) {
       const nextAction = typeof error?.details?.nextAction === 'string'
@@ -293,7 +362,23 @@ export function createGatewayKernel({
         binding: issuedAgainst,
         subject
       });
-      return issueResolvedPlan(result, issuedAgainst);
+      return ceremonyDestination(await issueResolvedPlan(result, issuedAgainst), subject);
+    },
+
+    /**
+     * Keep a host-collected intake for this session and return its ID. Not a model-facing tool.
+     *
+     * The record is validated against its typed schema here, so a work-start plan is only ever
+     * computed from fields a schema accepted, and it expires with the session's other ephemera.
+     */
+    recordIntake(fields = {}) {
+      const record = validateArguments('work-intake-record-v1', fields);
+      for (const [id, entry] of intakes) if (now() >= entry.expiresAt) intakes.delete(id);
+      if (intakes.size >= MAX_SESSION_INTAKES) intakes.delete(intakes.keys().next().value);
+      const id = `int_${randomUUID().replaceAll('-', '').slice(0, 24)}`;
+      const expiresAt = now() + INTAKE_TTL_MS;
+      intakes.set(id, { record, expiresAt });
+      return Object.freeze({ intakeId: id, expiresAt, record });
     },
 
     /** `sflow_read`: a resolved read handle, revalidated against the world, and nothing else. */

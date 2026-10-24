@@ -36,7 +36,7 @@ export const GATEWAY_PLANNERS = Object.freeze([
   'workspace-bootstrap-status', 'workspace-prepare-guide', 'repository-open-guide',
   'workspace-doctor-guide', 'workspace-explore-guide',
   'impact-quick', 'impact-quick-assisted', 'impact-what-if', 'impact-what-if-assisted',
-  'problem-investigate', 'problem-investigate-assisted', 'repository-explore', 'intent-trace',
+  'problem-investigate', 'problem-investigate-assisted', 'repository-explore', 'repository-query', 'intent-trace',
   'compare', 'watch-list', 'watch-create', 'watch-revoke', 'review-packet', 'review-open', 'help-explain'
 ].map((name) => Object.freeze({ name, run: null })));
 
@@ -48,7 +48,7 @@ export const GATEWAY_PLANNERS = Object.freeze([
  * passes, nobody notices for weeks. A count that a test asserts against turns that from an invisible
  * smell into a number someone has to look at and lower.
  */
-export const MAX_UNIMPLEMENTED_GATEWAY_PLANNERS = 10;
+export const MAX_UNIMPLEMENTED_GATEWAY_PLANNERS = 0;
 
 /**
  * Which declared planners this build does not have.
@@ -591,6 +591,24 @@ export const GATEWAY_DECLARATIONS = Object.freeze([
     argumentSchema: 'repository-explore-v1',
     planner: 'repository-explore',
     noModelFixture: 'repository-explore-model-free'
+  },
+
+  /**
+   * §9 The typed Git query set: fourteen closed questions, never argv `[INT:IFC-040]` `[INT:CON-081]`.
+   *
+   * One operation with a closed `query` enum rather than fourteen operations, so the reachable
+   * catalog stays readable and every query shares the one containment and evidence contract.
+   */
+  {
+    ...READ,
+    id: 'repository.query',
+    modelPolicy: 'never',
+    goals: ['repository.explore'],
+    aliases: en('show repository history', 'search this repository', 'who changed this line'),
+    subjects: ['repository', 'story'],
+    argumentSchema: 'repository-query-v1',
+    planner: 'repository-query',
+    noModelFixture: 'repository-query-model-free'
   },
 
   // §9.1 Joined from records, never inferred from proximity or commit prose `[INT:REQ-185]` `[INT:CON-182]`.

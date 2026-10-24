@@ -48,6 +48,34 @@ const ACP_BOUNDARY_OPTIONS = Object.freeze([
   '--disable-builtin-mcps', '--no-custom-instructions', '--no-ask-user',
   '--no-remote', '--no-remote-export', '--no-auto-update'
 ]);
+const boundaryProbes = new Map();
+
+/**
+ * The boundary options this Copilot CLI still accepts. A release that removes one refuses to start
+ * when given it: Copilot CLI 1.0.103 exits with "--no-remote was removed. Use /remote off in a
+ * session", so every SFlow model call failed. Its own help is the evidence: an option is dropped
+ * only when the help is Copilot's (it advertises --acp) and does not list it. Help that cannot be
+ * read, or a reviewed wrapper's minimal help, keeps every option, as before. One probe per
+ * executable and process.
+ */
+export function copilotBoundaryOptions(launch, runtime, configuredArguments = []) {
+  const helpArguments = launch.arguments([...configuredArguments, '--help']);
+  const key = `${launch.command}\0${helpArguments.join('\0')}`;
+  if (boundaryProbes.has(key)) return boundaryProbes.get(key);
+  const probe = runtime.spawnSyncImpl(launch.command, helpArguments, {
+    encoding: 'utf8', windowsHide: true, timeout: 5000, ...launch.spawnOptions
+  });
+  const help = `${probe?.stdout ?? ''}\n${probe?.stderr ?? ''}`;
+  // Option names are letters and hyphens only, so they need no escaping.
+  const listed = (option) => new RegExp(`(^|\\s)${option}(?:\\s|=|,|$)`, 'mu').test(help);
+  const copilotHelp = probe?.status === 0 && listed('--acp');
+  const result = Object.freeze({
+    options: Object.freeze(copilotHelp ? ACP_BOUNDARY_OPTIONS.filter(listed) : [...ACP_BOUNDARY_OPTIONS]),
+    unavailable: Object.freeze(copilotHelp ? ACP_BOUNDARY_OPTIONS.filter((option) => !listed(option)) : [])
+  });
+  boundaryProbes.set(key, result);
+  return result;
+}
 
 // The kernel uses one provider-independent tool vocabulary. Copilot CLI has its own host-native
 // names, and --allow-tool accepts permission patterns rather than those tool names. Passing the
@@ -136,7 +164,8 @@ function copilotAiCreditArguments(limits = {}) {
 export function copilotModelParameterArguments(parameters, requestedModel) {
   if (!parameters) return [];
   const args = [];
-  if (typeof parameters.effort === 'string') args.push('--reasoning-effort', parameters.effort);
+  // Auto picks its own effort and refuses a session given one (Copilot CLI 1.0.103).
+  if (typeof parameters.effort === 'string' && requestedModel !== 'auto') args.push('--reasoning-effort', parameters.effort);
   if (typeof parameters.autoTier === 'string' && requestedModel === 'auto') args.push('--auto-tier', parameters.autoTier);
   return args;
 }
@@ -637,8 +666,9 @@ async function openCopilotAcp(request, runtimeOverrides = {}) {
   }
   // The first prompt is verified before any process starts, as a single invocation always was.
   await verifiedStagedPrompt(request, 'ACP stdio');
+  const boundary = copilotBoundaryOptions(launch, runtime, configured.arguments ?? []);
   const args = [
-    ...(configured.arguments ?? []), '--acp', ...ACP_BOUNDARY_OPTIONS,
+    ...(configured.arguments ?? []), '--acp', ...boundary.options,
     ...copilotAllowedRootArguments(request)
   ];
   args.push(...copilotToolArguments(request.tools));
@@ -1054,7 +1084,9 @@ async function openCopilotAcp(request, runtimeOverrides = {}) {
       broken = true;
       if (sessionId) await connection.cancel({ sessionId }).catch(() => {});
       if (error instanceof SingularityFlowError) throw error;
-      const diagnostic = boundedDiagnostic(stderr);
+      // Copilot answers a refused session in the protocol, not on stderr ("session construction
+      // failed: Reasoning effort is not supported when using the \"auto\" model"): keep its words.
+      const diagnostic = boundedDiagnostic(stderr) || boundedDiagnostic(String(error?.message ?? ''));
       throw new SingularityFlowError(
         diagnostic ? `${providerLabel} ACP prompt transport failed: ${diagnostic}` : `${providerLabel} ACP prompt transport failed.`,
         { code: 'MODEL_PROVIDER_PROTOCOL_FAILED', details: { transport: 'acp-stdio', diagnostic: diagnostic || null } }

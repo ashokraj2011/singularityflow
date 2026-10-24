@@ -1,5 +1,5 @@
 /** Bounded, model-free comprehension projection for an explicitly leased IDE surface. */
-import { branch } from '../git.mjs';
+import { branch, gitDir } from '../git.mjs';
 import { readCachedAstSymbols } from '../ast-intelligence.mjs';
 import { buildRepositorySubjectIndex, resolveContext } from '../repository-subject-index.mjs';
 import { SingularityFlowError } from '../util.mjs';
@@ -145,6 +145,13 @@ async function loadComprehensionIdeSliceOnce(root, {
     );
   }
 
+  // Each stable change view is retained under its explanation-set digest for a later
+  // `explain --compare`. Only that command reads the store; failing to keep a snapshot changes
+  // nothing about this slice.
+  const explanationSnapshot = explanationView
+    ? await import('./xpl2/snapshots.mjs').then((store) => store.retainXpl2Snapshot(gitDir(root), explanationView)).catch(() => null)
+    : null;
+
   // CLI subject views rebuild from these exact inputs. They stay out of the serialized IDE
   // snapshot, which carries only the computed view.
   const explanationInputs = includeExplanationInputs
@@ -171,6 +178,7 @@ async function loadComprehensionIdeSliceOnce(root, {
     codeExplanation,
     explanationView,
     explanationViewUnavailableReason,
+    explanationSnapshot,
     // The exact commit the capture compared against, whatever revision text selected it.
     baselineCommit: changeSet.base?.commit ?? null,
     walkthrough: {

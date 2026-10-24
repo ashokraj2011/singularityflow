@@ -387,6 +387,33 @@ function narrationLines(narration, { safe, cite }) {
   return lines;
 }
 
+/** `explain --compare`: what moved between a retained snapshot and this view, unit by unit [XPL2 M3, 5.1]. */
+function comparisonLines(comparison, { safe, short }) {
+  const plural = (count, word) => `${count} ${word}${count === 1 ? '' : 's'}`;
+  if (comparison.status !== 'available') {
+    return [style.heading('Comparison'), `  No earlier retained snapshot of this Story on this machine to compare with (${comparison.retained ?? 0} retained). `
+      + 'Views are retained as they are built; compare again after the change moves.'];
+  }
+  const { older, result } = comparison;
+  const context = older.context ?? {};
+  const lines = [style.heading(`Compared with retained snapshot ${short(older.id)}`),
+    `  Retained ${safe(older.retainedAt)}${context.workId ? ` · Story ${safe(context.workId)}` : ''}${context.phase ? ` · phase ${safe(context.phase)}` : ''}`
+      + ` · baseline ${short(context.baseline)}${result.sameSet ? ' · the same explanation set as this view' : ''}`];
+  const sources = result.sources.changedCount
+    ? `${plural(result.sources.changedCount, 'source')} changed (${result.sources.changed.map((id) => safe(id)).join(', ')}${result.sources.changedCount > result.sources.changed.length ? ', …' : ''})`
+    : 'no source changed';
+  if (!result.units) {
+    lines.push(`  That snapshot predates unit content digests, so its change units cannot be compared unit by unit; ${sources}.`);
+    return lines;
+  }
+  const files = (units) => [...new Set(units.map((unit) => safe(unit.path)))].join(', ');
+  lines.push(`  Since that snapshot: ${plural(result.units.addedCount, 'change unit')} new, ${result.units.removedCount} gone, ${result.units.kept} unchanged; ${sources}.`);
+  // Files, not display IDs: each view numbers its units afresh, so H-001 here may be another change.
+  if (result.units.added.length) lines.push(`  New changes in ${files(result.units.added)}${result.units.addedCount > result.units.added.length ? ', …' : ''}.`);
+  if (result.units.removed.length) lines.push(`  Changes gone from ${files(result.units.removed)}${result.units.removedCount > result.units.removed.length ? ', …' : ''}.`);
+  return lines;
+}
+
 /** Computed XPL2 subject view: typed statements with citations, in the selected audience's order. */
 function explanationSubjectText(result) {
   const explanation = result.data?.explanation;
@@ -412,6 +439,7 @@ function explanationSubjectText(result) {
     lines.push('', style.heading('Exact choices'));
     for (const choice of subject.choices) lines.push(`  ${safe(choice.kind)}: ${safe(choice.label)}`);
   }
+  if (result.data?.comparison) lines.push('', ...comparisonLines(result.data.comparison, { safe, short }));
   const narration = result.data?.narration ?? null;
   if (narration) {
     lines.push('', ...narrationLines(narration, { safe, cite }));
@@ -459,7 +487,9 @@ function explanationSubjectText(result) {
   for (const observation of explanation.observations ?? []) {
     lines.push(`  ${safe(observation.id)}  read observation · ${safe(observation.reason)} · ${safe(observation.scope)}`);
   }
-  lines.push('', `Explanation set ${short(explanation.explanationSetSha256)} · view ${short(explanation.explanationSha256)}`);
+  const retained = result.data?.snapshot;
+  lines.push('', `Explanation set ${short(explanation.explanationSetSha256)} · view ${short(explanation.explanationSha256)}`
+    + (retained?.retained ? ' · retained on this machine for --compare' : retained ? ` · not retained (${safe(retained.reason)})` : ''));
   lines.push(style.detail(preservationLine(result)));
   return lines.filter((line) => line != null).join('\n');
 }

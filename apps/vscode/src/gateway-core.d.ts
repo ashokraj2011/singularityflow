@@ -53,7 +53,8 @@ interface GatewayKernel {
   resolve(request: { utterance?: string; goalHint?: string; selectionHandle?: string; arguments?: unknown },
     context?: { subject?: unknown }): Promise<SflowResult> | SflowResult;
   read(request: { resolutionId: string }): Promise<SflowResult>;
-  next(request?: { scope?: string; subject?: unknown }): SflowResult;
+  /** Synchronous with nothing to read; a promise when the kernel reads the repository's open work. */
+  next(request?: { scope?: string; subject?: unknown }): Promise<SflowResult> | SflowResult;
   explain?(request: { question?: string; topic?: string }): Promise<SflowResult>;
   /** Host-only: the exact preview, effects and hash a confirmation is about. */
   planReview(planId: string): PlanReview;

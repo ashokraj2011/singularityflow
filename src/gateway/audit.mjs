@@ -109,13 +109,17 @@ export function auditedKernel(kernel, { host, modelSelected = false, env = proce
     ...kernel,
     resolve: timed('sflow_resolve', (request, options) => kernel.resolve(request, options), (request) => request.utterance),
     read: timed('sflow_read', (request) => kernel.read(request)),
-    // `next` stays synchronous for the hosts that render from it; its event is written behind it.
+    // `next` stays synchronous when it has no work to read, for the hosts that render from it; a
+    // kernel reading the work answers with a promise. Either way the event is written behind it.
     next(request = {}) {
       const started = Date.now();
+      const recorded = (result) => {
+        recordGatewayEvent({ tool: 'sflow_next', result, durationMs: Date.now() - started, host, modelSelected,
+          correlationId: `cor_${randomUUID().replaceAll('-', '').slice(0, 20)}` }, { env }).catch(() => {});
+        return result;
+      };
       const result = kernel.next(request);
-      recordGatewayEvent({ tool: 'sflow_next', result, durationMs: Date.now() - started, host, modelSelected,
-        correlationId: `cor_${randomUUID().replaceAll('-', '').slice(0, 20)}` }, { env }).catch(() => {});
-      return result;
+      return typeof result?.then === 'function' ? result.then(recorded) : recorded(result);
     },
     explain: timed('sflow_explain', (request) => kernel.explain(request), (request) => request.question),
     run: timed('sflow_run', (request, confirmation) => kernel.run(request, confirmation))

@@ -3,7 +3,8 @@
  *
  * Seven steps, in one order, and the order is the safety property rather than an implementation
  * detail. Each step can only ever *narrow*: a selection handle beats a subject hint, a subject hint
- * beats a phrase, a phrase beats a goal, and legality beats all of them. Nothing later in the list
+ * beats a phrase, a phrase beats a goal, a goal beats an ordinary-language route that disagrees with
+ * it, and legality beats all of them. Nothing later in the list
  * can widen what something earlier allowed, so there is no sequence of hints that reaches an
  * operation the user's current state does not already permit.
  *
@@ -398,7 +399,17 @@ export function resolveIntent(request = {}, {
     const conversation = planDeveloperConversation(utterance);
     if (conversation.route) {
       const routed = pool.filter((operation) => operation.id === conversation.route.operationId);
-      if (routed.length) {
+      /**
+       * A route that serves a different goal than the hint yields to the hint. Both read the same
+       * words, the route as a pattern over prose and the hint as the caller's own direction, and
+       * the pattern is the weaker of the two. "What can I do next?" with goal `work.list` matched an
+       * imperative pattern and came back as a work.continue question for a workId nobody had.
+       * Yielding only skips this narrowing: step 4 narrows by the goal instead, and a goal alone
+       * still cannot select a write.
+       */
+      const yieldsToGoal = Boolean(goalHint) && isBroadGoal(goalHint)
+        && routed.every((operation) => !operation.gateway.goals.includes(goalHint));
+      if (routed.length && !yieldsToGoal) {
         pool = routed;
         matchedBy = MATCH_CONVERSATION;
         if (conversation.route.operationId === 'work.start.intake' && conversation.route.work) {

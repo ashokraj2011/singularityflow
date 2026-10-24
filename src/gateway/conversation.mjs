@@ -171,7 +171,7 @@ const ROUTES = Object.freeze([
     operationId: 'developer.next', skill: '/sf-home', automatic: true, confirmation: 'none',
     patterns: [
       /\b(where am i|what am i working on|what i am working on|what is active|what's active|current status)\b/,
-      /\b(what should i do|what do i do|what now|what next|show me my day)\b/
+      /\b(what should i do|what do i do|what can i do|what could i do|what now|what next|what's next|what is next|show me my day)\b/
     ]
   })
 ]);
@@ -233,6 +233,12 @@ export function planDeveloperConversation(utterance) {
   // mutation intent merely because it names the blocked action.
   if (matched.some((entry) => entry.id === 'inspect-readiness')
     && /\b(why|cannot|can't|blocked|blocking|not ready)\b/.test(normalized)) {
+    matched = matched.filter((entry) => !entry.id.startsWith('act-'));
+  }
+  // "What can I do next?" asks which actions exist; "do the next step" asks to take one. The first
+  // also contains "do … next", so a question that reached orientation is not an imperative as well:
+  // left ambiguous it was routed nowhere, and beside a goal hint it became a work.continue question.
+  if (matched.some((entry) => entry.id === 'orient') && /^(what|which|where)\b/.test(normalized)) {
     matched = matched.filter((entry) => !entry.id.startsWith('act-'));
   }
   const helpIntent = classifyHelpIntent(utterance);

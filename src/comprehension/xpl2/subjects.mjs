@@ -87,7 +87,38 @@ function neighbourhood(model, seedNodes) {
   return { nodes, relationships };
 }
 
-function presentationFor(model, selection) {
+/**
+ * The deterministic "Read this change" tour [XPL2 13.1]: purpose, changed units, links, recorded
+ * checks, attention and unknowns, recorded history, then one safe inspection action. Each step shows
+ * at most TOUR_STEP_LIMIT statements and counts the rest, which stay in the view. No model is used.
+ */
+export const TOUR_STEP_LIMIT = 12;
+const TOUR_STEPS = Object.freeze([
+  ['purpose', ['clause-declared', 'clause-cites', 'clause-required']],
+  ['changes', ['change-inventory', 'singularity-files-hidden', 'file-type', 'mode-change', 'hunk', 'opaque-unit',
+    'line-in-unit', 'line-outside', 'line-opaque', 'line-commit', 'line-uncommitted', 'line-commit-unavailable']],
+  ['links', ['exact-cause', 'binding-not-joined', 'line-binding', 'clause-tag', 'region-association', 'acceptance-tag', 'test-tag']],
+  ['checks', ['witness-result', 'test-result', 'test-attempt', 'evidence-reuse', 'binding-decision', 'gap-observed']],
+  ['attention', ['no-complete-evaluation', 'admission-unavailable', 'feature-state', 'source-state', 'provenance-unavailable',
+    'capture-state']],
+  ['history', ['generation-recorded', 'generation-invocation', 'generation-prompt', 'generation-attempt', 'invocation-overlap']]
+]);
+
+function readingTour(statements, attentionStatements, next) {
+  const placed = new Set();
+  const steps = TOUR_STEPS.map(([step, kinds]) => {
+    const ids = [
+      ...(step === 'attention' ? attentionStatements : []),
+      ...statements.filter((entry) => kinds.includes(entry.kind)).map((entry) => entry.id)
+    ].filter((id) => !placed.has(id));
+    const unique = [...new Set(ids)];
+    for (const id of unique) placed.add(id);
+    return { step, statements: unique.slice(0, TOUR_STEP_LIMIT), omitted: Math.max(0, unique.length - TOUR_STEP_LIMIT) };
+  });
+  return [...steps, { step: 'next', statements: [], omitted: 0, action: next[0] ?? null }];
+}
+
+function presentationFor(model, selection, next = []) {
   const statements = model.statements.filter((entry) => selection.statements.includes(entry.id));
   const byKind = (kinds) => statements.filter((entry) => kinds.includes(entry.kind)).map((entry) => entry.id);
   const attentionStatements = model.attention.map((entry) => entry.statement)
@@ -125,7 +156,10 @@ function presentationFor(model, selection) {
       ...byKind(['clause-tag', 'region-association', 'acceptance-tag', 'test-tag']),
       ...byKind(['test-result']),
       ...attentionStatements
-    ])
+    ]),
+    // The structured tour also walks the query's derived statements (a line, a gap register, a
+    // generation), which belong to this subject's selection.
+    tour: readingTour([...statements, ...(model.derived ?? [])], attentionStatements, next)
   };
 }
 
@@ -322,13 +356,14 @@ export function explainXpl2Subject(input, rawQuery = {}, { proof = null, maximum
     },
     status, reason, choices
   };
-  const presentation = presentationFor(draft, effectiveSelection);
+  const next = nextActions(draft);
+  const presentation = presentationFor(draft, effectiveSelection, next);
   return b.build({
     subject,
     snapshot: universe.snapshot,
     inventory: universe.inventory,
     availability: universe.availability,
-    next: nextActions(draft),
+    next,
     presentation: { audience: query.audience, ...presentation },
     selection: effectiveSelection,
     delivery

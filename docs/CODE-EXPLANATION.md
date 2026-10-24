@@ -71,6 +71,8 @@ Subject views carry the clause links a change has while it is being written: a `
 changed code (with the author's note after the ID), an `@ac` comment in a changed test, and a
 clause's specification text naming another clause. `explain --subject change` lists them under
 *Why it is linked*, and `explain --subject clause --id ID` gathers everything linked to one clause.
+`explain --subject ... --narrate` is its own optional operation, `explain.subject.narrate`, with the
+same automatic fallback; see [Explain for humans](XPL2-EXPLAIN-FOR-HUMANS.md) for its boundary.
 `explain code` keeps its fixed schema and does not change.
 
 ## Subject and interval

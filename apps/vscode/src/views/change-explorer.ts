@@ -135,6 +135,8 @@ export interface Xpl2Explanation {
     audience: string;
     audiences: Record<string, { order: string[]; folded: string[] }>;
     walkthrough: string[];
+    /** The deterministic reading tour; absent in views built before it existed. */
+    tour?: TourStep[];
   };
   delivery: { complete: boolean; reason: string | null };
   explanationSetSha256: string;
@@ -142,6 +144,24 @@ export interface Xpl2Explanation {
 }
 
 export type ExplorerAudience = 'reviewer' | 'auditor' | 'developer';
+
+export interface TourStep {
+  step: 'purpose' | 'changes' | 'links' | 'checks' | 'attention' | 'history' | 'next';
+  statements: string[];
+  omitted: number;
+  action?: { id: string; kind: string; about: string; label: string } | null;
+}
+
+/** Plain headings for the reading tour's fixed steps [XPL2 13.1]. */
+export const TOUR_HEADINGS: Record<TourStep['step'], string> = {
+  purpose: 'What it is for',
+  changes: 'What changed',
+  links: 'Why it is linked',
+  checks: 'What was checked',
+  attention: 'What needs attention, and what is not known',
+  history: 'How it was produced',
+  next: 'What to inspect next'
+};
 
 export interface PatchFile {
   pathBefore: string | null;
@@ -304,9 +324,20 @@ export function explorerSummary(view: Xpl2Explanation): string {
       + ` → capture ${shortDigest(view.snapshot.compatibilityCandidateSha256)}`,
     'Record-derived and read-only; this summary grants no approval, test result or merge verdict.'
   ];
-  const body = view.presentation.walkthrough.map((id) => byId.get(id)).filter(Boolean)
-    .map((entry) => `- ${visibleText(entry!.text)} [${entry!.cites.join(', ')}]`);
-  return [...heading, '', ...body, '', `Explanation set ${shortDigest(view.explanationSetSha256)}`].join('\n');
+  const line = (id: string) => {
+    const entry = byId.get(id);
+    return entry ? `- ${visibleText(entry.text)} [${entry.cites.join(', ')}]` : null;
+  };
+  const tour = view.presentation.tour;
+  const body = tour?.length
+    ? tour.flatMap((step) => {
+      if (step.step === 'next') return step.action ? ['', `${TOUR_HEADINGS.next}:`, `- ${visibleText(step.action.label)}`] : [];
+      const lines = step.statements.map(line).filter((entry): entry is string => Boolean(entry));
+      if (!lines.length) return [];
+      return ['', `${TOUR_HEADINGS[step.step]}:`, ...lines, ...(step.omitted ? [`- ${step.omitted} more in the explorer`] : [])];
+    })
+    : ['', ...view.presentation.walkthrough.map(line).filter((entry): entry is string => Boolean(entry))];
+  return [...heading, ...body, '', `Explanation set ${shortDigest(view.explanationSetSha256)}`].join('\n');
 }
 
 // ---- Graph layout: three columns, bounded, clustered ------------------------------------------
@@ -463,6 +494,32 @@ function relationshipsTable(view: Xpl2Explanation): string {
       const vocabulary = (XPL2_RELATIONSHIPS as Record<string, { notImplied: string }>)[edge.type];
       return `<tr><td><button type="button" class="link" data-node="${escape(edge.from)}">${escape(label(edge.from))}</button></td><td>${escape(edge.type)}${edge.qualifier ? ` <span class="badge">${escape(edge.qualifier)}</span>` : ''}</td><td><button type="button" class="link" data-node="${escape(edge.to)}">${escape(label(edge.to))}</button></td><td>${escape(edge.scope)}</td><td>${escape(vocabulary?.notImplied ?? '')}</td><td>${edge.cites.map((id) => `<code>${escape(id)}</code>`).join(' ')}</td></tr>`;
     }).join('')}</tbody></table></div>`;
+}
+
+/** The "Read this change" panel: the computed tour in its fixed order, no model involved. */
+function tourHtml(view: Xpl2Explanation): string {
+  const tour = view.presentation.tour ?? [];
+  if (!tour.length) return '<p class="xpl-empty">This view has no reading tour; the map and the Relationships table show every recorded fact.</p>';
+  const byId = new Map([...view.statements, ...((view as { derived?: Xpl2Statement[] }).derived ?? [])].map((entry) => [entry.id, entry]));
+  const nodes = new Set(view.nodes.map((node) => node.id));
+  const item = (id: string) => {
+    const entry = byId.get(id);
+    if (!entry) return '';
+    const cites = `<span class="xpl-cites">${entry.cites.map((cite) => `<code>${escape(cite)}</code>`).join(' ')}</span>`;
+    return nodes.has(entry.about) && view.nodes.find((node) => node.id === entry.about)?.kind !== 'unit'
+      ? `<li><button type="button" class="link xpl-tour-item" data-node="${escape(entry.about)}">${escape(entry.text)}</button> ${cites}</li>`
+      : `<li>${escape(entry.text)} ${cites}</li>`;
+  };
+  const steps = tour.map((step) => {
+    if (step.step === 'next') {
+      return `<li class="xpl-tour-step"><h3>${escape(TOUR_HEADINGS.next)}</h3>${step.action
+        ? `<p>${escape(step.action.label)} <button type="button" class="secondary" data-next-attention>Next attention item →</button></p>`
+        : '<p class="xpl-empty">No attention item was reported.</p>'}</li>`;
+    }
+    const items = step.statements.map(item).join('');
+    return `<li class="xpl-tour-step"><h3>${escape(TOUR_HEADINGS[step.step] ?? step.step)}</h3>${items ? `<ul class="xpl-statements">${items}</ul>` : '<p class="xpl-empty">Nothing is recorded for this step.</p>'}${step.omitted ? `<p class="xpl-note">${step.omitted} more in this step — counted, and shown in the map and the Relationships table.</p>` : ''}</li>`;
+  }).join('');
+  return `<p class="xpl-note">A fixed reading order of the recorded statements. No model is used, and nothing here is a verdict.</p><ol class="xpl-tour">${steps}</ol>`;
 }
 
 export interface TimelineEvent { at?: string | null; kind: string; phase?: string | null; generation?: number | string | null; provenance?: string | null }
@@ -692,12 +749,14 @@ export function changeExplorerBody(input: ExplorerRenderInput): string {
               <button type="button" role="tab" id="xpl-view-map" aria-controls="xpl-panel-map" aria-selected="true" data-view="map">Map</button>
               <button type="button" role="tab" id="xpl-view-relationships" aria-controls="xpl-panel-relationships" aria-selected="false" tabindex="-1" data-view="relationships">Relationships</button>
               <button type="button" role="tab" id="xpl-view-timeline" aria-controls="xpl-panel-timeline" aria-selected="false" tabindex="-1" data-view="timeline">Timeline</button>
+              <button type="button" role="tab" id="xpl-view-tour" aria-controls="xpl-panel-tour" aria-selected="false" tabindex="-1" data-view="tour">Read this change</button>
             </div>
           </div>
           <p class="xpl-note">Select a requirement, changed file or result. Dashed and dotted lines are scoped associations, not proof. The Relationships view lists every relationship as a table.</p>
           <div id="xpl-panel-map" role="tabpanel" aria-labelledby="xpl-view-map">${mapHtml(view)}</div>
           <div id="xpl-panel-relationships" role="tabpanel" aria-labelledby="xpl-view-relationships" hidden>${relationshipsTable(view)}</div>
           <div id="xpl-panel-timeline" role="tabpanel" aria-labelledby="xpl-view-timeline" hidden>${timelineHtml(view, input.timeline)}</div>
+          <div id="xpl-panel-tour" role="tabpanel" aria-labelledby="xpl-view-tour" hidden>${tourHtml(view)}</div>
         </section>
         <section class="xpl-card" aria-labelledby="xpl-selected-title">
           <div class="xpl-card-head"><h2 id="xpl-selected-title">Selected change</h2>
@@ -761,7 +820,10 @@ export const EXPLORER_STYLE = `
   .xpl-eyebrow { display:block; font-size:10px; text-transform:uppercase; letter-spacing:.07em; color: var(--vscode-descriptionForeground); margin:0; }
   .xpl-note { font-size:12px; color: var(--vscode-descriptionForeground); }
   .xpl-empty { font-size:12px; color: var(--vscode-descriptionForeground); font-style:italic; }
-  .xpl-views { display:flex; gap:4px; }
+  .xpl-views { display:flex; gap:4px; flex-wrap:wrap; }
+  .xpl-tour { margin:0; padding-left:20px; display:flex; flex-direction:column; gap:10px; }
+  .xpl-tour-step h3 { font-size:13px; margin:0 0 4px; }
+  .xpl-tour-item { text-align:left; }
   .xpl-views button { background:transparent; color:inherit; border:1px solid transparent; border-radius:6px; padding:4px 10px; cursor:pointer; }
   .xpl-views button[aria-selected="true"] { border-color: var(--vscode-focusBorder); }
   .xpl-map { position:relative; display:grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap:28px; padding:6px 0; }
@@ -985,7 +1047,7 @@ export const EXPLORER_SCRIPT = `
         tab.setAttribute('aria-selected', String(active));
         tab.tabIndex = active ? 0 : -1;
       }
-      for (const name of ['map', 'relationships', 'timeline']) {
+      for (const name of ['map', 'relationships', 'timeline', 'tour']) {
         const panel = document.getElementById('xpl-panel-' + name);
         if (panel) panel.hidden = name !== view;
       }

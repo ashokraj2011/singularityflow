@@ -3430,7 +3430,8 @@ singularity-flow explain [code [--hunk H-ID | --symbol ID | --clause ID] [--sinc
   [--narrate] [--length brief|standard|long] [--json]]
 singularity-flow explain --subject change|clause|test|line|gap|generation [--id ID]
   [--path PATH --line N [--side before|after]] [--phase PHASE --gen N] [--since REVISION]
-  [--work-id ID] [--for reviewer|auditor|developer] [--max-bytes N] [--json]
+  [--work-id ID] [--for reviewer|auditor|developer] [--max-bytes N]
+  [--narrate [--length brief|standard|long] [--commentary]] [--json]
 singularity-flow why [QUESTION] [--json]
 ```
 
@@ -3448,7 +3449,11 @@ become evidence. In Copilot use `/sf-explain-code`. See
 cites admitted sources or read observations; unknown, disabled and not-recorded stay distinct. It is
 model-free and read-only, and grants no approval. `--for` reorders and folds for a reviewer, auditor
 or developer without changing the statement set. The default output is bounded to 64 KiB and says
-when it is a page. In Copilot use `/sf-explain`; in VS Code open **Change Explorer**. See
+when it is a page. Every view carries a fixed reading tour (purpose, changes, links, checks,
+attention, history, one safe next step). `--narrate` is a separate optional operation: a model may
+only choose and order statement IDs, the statements shown are the computed ones, attention items are
+always shown, and nothing is stored; `--commentary` adds labelled, unverified model prose that is
+withheld when it carries markup, control characters, secret-shaped or oversized text. In Copilot use `/sf-explain`; in VS Code open **Change Explorer**. See
 [Explain for humans](docs/XPL2-EXPLAIN-FOR-HUMANS.md).
 
 ### Reference expansion

@@ -1,14 +1,15 @@
 # Explain for humans (`XPL2`) — decision record and implementation status
 
 **Implemented boundary (this release):** M0 (decision, compatibility, transient schema), M1
-(`explain --subject` for all six subjects at their actual source availability) and the early M5
-graphical release (the VS Code **Change Explorer**: map, inventory, inspector, exact native diff).
-Nothing here approves, verifies, publishes or gates. Every view is read-only, model-free and
-grants no authority.
+(`explain --subject` for all six subjects at their actual source availability), the early M5
+graphical release (the VS Code **Change Explorer**: map, inventory, inspector, exact native diff) and
+M2 (a deterministic reading tour in every view, and optional structured narration with a separate,
+labelled commentary mode). Nothing here approves, verifies, publishes or gates. Every view is
+read-only and grants no authority; only an explicit `--narrate` calls a model.
 
-**Not in this release:** subject narration (M2), line provenance and proof carry-forward (M3), exact
-hunk-level cause producers (M4), PR rendering and export, retained historical snapshots, and
-installed-host qualification. Each is reported as a named unavailability, never approximated.
+**Not in this release:** line provenance and proof carry-forward (M3), exact hunk-level cause
+producers (M4), PR rendering and export, retained historical snapshots, and installed-host
+qualification. Each is reported as a named unavailability, never approximated.
 
 ## 1. Decision
 
@@ -32,6 +33,7 @@ XPL2 is a *subject view* layer over the existing comprehension capture (`CMP`), 
 | Surface | Owner |
 |---|---|
 | Engine | `src/comprehension/xpl2/` — `reasons`, `templates`, `vocabulary`, `model`, `change-subject`, `subjects`, `clause-sources`, `command` |
+| Narration | `src/comprehension/xpl2/narration.mjs` (pure: input projection, prompt, validation) and `narration-command.mjs` (the one model call, loaded only for `--narrate`) |
 | Capture | `src/comprehension/ide-slice.mjs` (adds `explanationView`; `explanationInputs` only on request) |
 | CLI | `singularity-flow explain --subject …`, operation `explain.subject` in `src/command-registry.mjs` |
 | Copilot | `/sf-explain` (`plugin/skills/sflow-explain`), conversational, relays the same command |
@@ -46,7 +48,8 @@ XPL2 is a *subject view* layer over the existing comprehension capture (`CMP`), 
 | `explain code --narrate` | Unchanged. |
 | `explain --subject S …` | New operation `explain.subject`. |
 | `explain TOPIC --subject S` | Refused: a topic and a subject are never combined silently. |
-| `explain --subject S --narrate` | Refused with `XPL2_NARRATION_UNAVAILABLE`; narration remains on `explain code`. |
+| `explain --subject S --narrate` | Optional operation `explain.subject.narrate`; with models off it falls back to `explain.subject` and reports the narration unavailable (`model-disabled-fallback`). |
+| `--length` or `--commentary` without `--narrate` | Refused (`XPL2_NARRATION_LENGTH_INVALID`, `XPL2_NARRATION_OPTION_INVALID`). |
 | `explain --subject S --snapshot …` | Refused with `XPL2_SNAPSHOT_UNAVAILABLE`; use `--since REVISION` for an explicit baseline. |
 
 The subject view is `kind: "xpl2-explanation"` at schema version 1, marked transient: it is a
@@ -142,7 +145,39 @@ links to another only through its specification text naming it; the change view 
 its tags and records name plus one citation step either way. A file or test whose change wrote a tag
 (with a note, for `@clause`) is not reported as a change with no recorded reason.
 
-## 5. Change Explorer (VS Code)
+## 5. Reading tour and narration (M2)
+
+**Reading tour.** Every view's `presentation.tour` lists, in a fixed order, the statements for
+*purpose* (clause text), *changes* (inventory and units), *links* (tags, region associations),
+*checks* (recorded results), *attention* (every attention statement, then visibility limits),
+*history* (generation records), and one safe *next* inspection action. Each step shows at most
+twelve statements and counts the rest; every statement stays in the view. It is presentation only:
+the same for every audience and outside both hashes. The Change Explorer shows it under **Read this
+change**, and **Copy summary** copies it.
+
+**Structured narration** (`--narrate [--length brief|standard|long]`, 100/250/500 words):
+
+- *Input.* Only the delivered statements' IDs, kinds, computed text, citations and limits, the
+  attention list, counts and the closed connective list. Attention statements first, then the tour
+  order, bounded to 160 statements; the number left out is reported. No source, patch, paths beyond
+  what statements say, or tools.
+- *Output.* `{"sections":[{"connective":"…","statements":["S-…"]}]}` with the connectives `start`,
+  `changes`, `links`, `checks`, `attention`, `unknown`, `next`. Any other field is discarded as
+  prose and counted; unknown connectives, IDs and duplicates are dropped and counted; a verdict or
+  other top-level field, a non-JSON answer or an oversized answer makes the narration unavailable.
+- *Display.* The computed text of each chosen ID under the connective's fixed heading, labelled
+  `AI-organized summary — record-derived, advisory`. Attention statements the model left out are
+  appended under *What needs attention (always shown)*, outside the word budget.
+- *Commentary* (`--commentary`). Free text labelled `AI commentary — semantic support unverified`,
+  always `semanticSupport: unverified` (valid IDs are citation syntax only). It is withheld, with
+  each reason, for markup or links, control or escape characters, secret-shaped text, over-length
+  text, no citation, or citations that are not statements of the view.
+- *Boundary.* The call goes through the model runner with its usual audit and the existing prompt
+  capture setting (never switched on here), under channel `xpl2-narration-advisory` with no tools.
+  Any failure reports the narration unavailable with its code. The narration is never stored and
+  never changes `data.explanation` or either hash.
+
+## 6. Change Explorer (VS Code)
 
 - **Layout.** Inventory rail (search, counts, attention), a map of *Intent → Changed code →
   Recorded results* with an *Also changed* group, a Relationships table and a Timeline, the selected
@@ -176,7 +211,7 @@ its tags and records name plus one citation step either way. A file or test whos
   under a nonce CSP with `default-src 'none'`. Colours come only from theme variables, with narrow
   layouts and reduced motion supported.
 
-## 6. Measured performance (local, not qualified)
+## 7. Measured performance (local, not qualified)
 
 Measured on the development machine with the source CLI, cold process per call:
 
@@ -194,7 +229,7 @@ spawns needs a warm retained capture, which this release does not have (V13: no 
 omitted to meet a spawn count). Installed-host p50/p95 qualification (`XPL2-AC-013`, `-064`) remains
 open.
 
-## 7. Known limits
+## 8. Known limits
 
 - A path the diff preview cannot project (for example one Git must quote) leaves every unit opaque
   for that capture. XPL2 says so with `text-projection-unavailable` rather than calling a text file
@@ -203,7 +238,7 @@ open.
   capture is current. An already-open diff keeps its captured bytes.
 - WEL and PE contents are never read by this release; their state is reported only.
 
-## 8. Acceptance traceability
+## 9. Acceptance traceability
 
 State: **tested** (witness passes in this repository), **partial** (the part named is tested; the
 rest is open), **open** (not implemented in this release).
@@ -217,9 +252,9 @@ rest is open), **open** (not implemented in this release).
 | 005 | Audience parity | tested | `test/xpl2-engine.test.mjs` |
 | 006 | Semantic determinism | tested | `test/xpl2-engine.test.mjs` |
 | 007 | Corrupt source isolation | tested | `test/xpl2-engine.test.mjs` |
-| 008 | No lexical entailment shortcut | open | M2 narration is not offered for subjects |
-| 009 | Narration cannot mutate results | open | M2 |
-| 010 | Explicit model and capture choice | open | M2 |
+| 008 | No lexical entailment shortcut | tested | `test/xpl2-narration.test.mjs` (60 adversarial cases) |
+| 009 | Narration cannot mutate results | tested | `test/xpl2-narration.test.mjs` (no PR integration exists; the copied summary is the computed tour) |
+| 010 | Explicit model and capture choice | tested | `test/xpl2-narration.test.mjs` (local stand-in provider through the real runner; no provider is called) |
 | 011 | Line origin not inferred | partial | Provenance named unavailable (`test/xpl2-routing.test.mjs`); M3 producer open |
 | 012 | Disjoint footprint is insufficient | open | M3 |
 | 013 | Reference performance qualification | open | Local measurements in §6; installed-host qualification open |
@@ -250,7 +285,8 @@ rest is open), **open** (not implemented in this release).
 | 038 | Action prerequisites retained | tested | `test/xpl2-engine.test.mjs` |
 | 039–044 | Reuse, dependency coverage, line share, event order, capture privacy, missing events | open | M3 producers |
 | 045 | Read has no mutation | tested | `test/xpl2-routing.test.mjs` |
-| 046, 047 | Unsafe prose, computed-only narration input | open | M2 |
+| 046 | Unsafe prose can be withheld | tested | `test/xpl2-narration.test.mjs` |
+| 047 | Computed-only input and bounded output | tested | `test/xpl2-narration.test.mjs` |
 | 048 | Click routes, not executes | tested | `test/vscode-xpl2-ui.test.mjs` |
 | 049 | Linked selection | tested | `test/vscode-xpl2-graph.test.mjs` |
 | 050 | First release without WEL and PE | tested | `test/vscode-xpl2-graph.test.mjs` |

@@ -2,7 +2,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 
-import { EXPLORER_SCRIPT, EXPLORER_STYLE } from '../apps/vscode/src/views/change-explorer.ts';
+import { EXPLORER_SCRIPT, EXPLORER_STYLE, explorerSummary, TOUR_HEADINGS } from '../apps/vscode/src/views/change-explorer.ts';
 import { explainXpl2Subject } from '../src/comprehension/xpl2/subjects.mjs';
 import { XPL2_RELATIONSHIPS } from '../src/comprehension/xpl2/vocabulary.mjs';
 import { createXpl2Fixture } from './helpers/xpl2-fixture.mjs';
@@ -34,8 +34,8 @@ test('XPL2-AC-051 Full-fidelity table and keyboard reach every relationship and 
     const tag = html.slice(html.indexOf(`id="${button.domId}"`) - 200, html.indexOf(`id="${button.domId}"`) + 600);
     assert.match(tag, /aria-label="[^"]{12,}"/u, `${button.node} has a description`);
   }
-  // The map, table and timeline are one ARIA tab set with arrow-key movement.
-  for (const view_ of ['map', 'relationships', 'timeline']) {
+  // The map, table, timeline and reading tour are one ARIA tab set with arrow-key movement.
+  for (const view_ of ['map', 'relationships', 'timeline', 'tour']) {
     assert.match(html, new RegExp(`role="tab" id="xpl-view-${view_}" aria-controls="xpl-panel-${view_}"`, 'u'));
     assert.match(html, new RegExp(`id="xpl-panel-${view_}" role="tabpanel" aria-labelledby="xpl-view-${view_}"`, 'u'));
   }
@@ -86,4 +86,28 @@ test('XPL2-AC-052 Themes and narrow layouts keep readable labels, focus and equi
   assert.match(html, /aria-label="Previous change unit"/u);
   assert.match(html, /aria-label="Next change unit"/u);
   assert.match(html, /<select id="xpl-audience" aria-label="Audience ordering">/u);
+});
+
+test('XPL2 13.1 Read this change shows the computed tour in its fixed order, inert and model-free', async (t) => {
+  const { view, html } = await prototypeView(t);
+  const panel = html.slice(html.indexOf('id="xpl-panel-tour"'), html.indexOf('</ol>', html.indexOf('id="xpl-panel-tour"')));
+  const headings = [...panel.matchAll(/<h3>([^<]+)<\/h3>/gu)].map((match) => match[1]);
+  assert.deepEqual(headings, view.presentation.tour.map((step) => shown(TOUR_HEADINGS[step.step])));
+  const byId = new Map(view.statements.map((entry) => [entry.id, entry]));
+  for (const id of view.presentation.tour.flatMap((step) => step.statements)) {
+    assert.ok(panel.includes(shown(byId.get(id).text)), `tour shows ${id} as computed`);
+  }
+  assert.match(panel, /No model is used, and nothing here is a verdict\./u);
+  assert.match(panel, /data-next-attention/u);
+  assert.doesNotMatch(panel, /AI-organized|commentary/iu);
+  // Copy summary follows the same steps and headings.
+  const summary = explorerSummary(view);
+  for (const step of view.presentation.tour.filter((entry) => entry.statements.length)) {
+    assert.ok(summary.includes(`${TOUR_HEADINGS[step.step]}:`), step.step);
+  }
+  // A view built before the tour existed still renders, falling back to its walkthrough.
+  const { tour: _tour, ...presentation } = view.presentation;
+  const older = renderExplorer({ ...view, presentation });
+  assert.match(older, /This view has no reading tour/u);
+  assert.ok(explorerSummary({ ...view, presentation }).length > 0);
 });

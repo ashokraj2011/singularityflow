@@ -16,7 +16,7 @@ async function printUnuploadedProposals(root) {
   for (const intent of pending) {
     console.log(`  ${intent.targetRef.slice('refs/heads/'.length)}  ${intent.status}${intent.fault?.classification ? ` (${intent.fault.classification})` : ''}`);
     if (intent.fault?.advice) console.log(`    ${intent.fault.advice}`);
-    console.log(`    Retry: singularity-flow push retry ${intent.intentId}`);
+    console.log(`    Retry: singularity-flow sync ${intent.intentId}`);
   }
 }
 

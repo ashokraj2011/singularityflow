@@ -240,7 +240,7 @@ function durableCheckout(root) {
 export function enrollmentPendingNotice(enrollment) {
   const fault = enrollment?.fault ?? null;
   const diverged = enrollment?.transportStatus === 'remote-diverged' || fault?.classification === 'remote-diverged';
-  const retry = enrollment?.transportIntent && !diverged ? `singularity-flow push retry ${enrollment.transportIntent}` : null;
+  const retry = enrollment?.transportIntent && !diverged ? `singularity-flow sync ${enrollment.transportIntent}` : null;
   const reason = diverged
     ? ` ${CONFIGURATION_BRANCH} moved before the push landed, so the next Story start adds you again.`
     : fault ? ` Git refused the push to ${CONFIGURATION_BRANCH}${fault.classification ? ` (${fault.classification})` : ''}`
@@ -429,7 +429,7 @@ export async function publishCurrentIdentityToConfiguration(root, {
     const commit = run('git', ['rev-parse', 'HEAD'], { cwd: scratch }).stdout.trim();
 
     // A Story starts in its own checkout, which a failed start removes. Retain and push the commit
-    // from the repository's main checkout, which outlives it, so a later `push retry` can still run.
+    // from the repository's main checkout, which outlives it, so a later `sync <INTENT-ID>` can still run.
     const publisher = durableCheckout(root);
     const retained = run('git', ['fetch', '--no-tags', '--', scratch, commit], {
       cwd: publisher, allowFailure: true

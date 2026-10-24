@@ -206,7 +206,7 @@ async function proseOnlyRefusals() {
  * list may only shrink: lower a count when you give one of them a structured route.
  */
 const PROSE_ONLY_REFUSALS = Object.freeze({
-  'src/action-plans.mjs': 1, 'src/agents.mjs': 4, 'src/cli.mjs': 5,
+  'src/action-plans.mjs': 1, 'src/agents.mjs': 4, 'src/cli.mjs': 4,
   'src/commands/phase-lifecycle.mjs': 3, 'src/commands/start.mjs': 1, 'src/commands/story.mjs': 1, 'src/commands/submit.mjs': 2,
   'src/config.mjs': 2, 'src/configuration-proposal.mjs': 1, 'src/convergence-context.mjs': 1, 'src/design-sources.mjs': 1,
   'src/direct-skills.mjs': 1, 'src/epic-review.mjs': 1, 'src/generation-boundary.mjs': 1, 'src/initialization/recovery.mjs': 1,

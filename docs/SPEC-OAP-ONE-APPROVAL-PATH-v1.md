@@ -168,6 +168,16 @@ Built in M2 (2026-10-24):
   and `push retry` folds into `sync`. A person sees them only when the automatic attempt fails,
   with the one failing cause.
 
+Built in M3: sync absorbs push retry (2026-10-24). `singularity-flow sync [WORK-ID]` publishes the
+Story's retained commit as before, then retries every push this repository saved outside a Story
+that can still land (pending, pushing, outcome-unknown, and, because the person ran it, needs-user
+and attempt-budget-exhausted). It prints one line for each: what it was, its commit and the outcome,
+and for one that did not land its one cause and `singularity-flow sync <INTENT-ID>` as the retry. Run
+where no Story is checked out, it does only that and says no Story publication is pending.
+`sync <INTENT-ID>` retries exactly one, from any folder. `push retry <INTENT-ID>` still works as the
+same command, but every message, next action, help page, VS Code message and skill now names
+`sync <INTENT-ID>`. `next` still publishes only the Story when it runs sync for the person.
+
 ### 4. One approval ceremony
 
 The same three moments on every surface: **review → decide → confirm once.**

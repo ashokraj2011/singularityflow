@@ -8,7 +8,7 @@ import {
 import { installGitFactStore } from './git-fact-store.mjs';
 import { repoRoot } from './git-execution.mjs';
 import {
-  gitReadOutput, optionBoolean, optionString, optionStrings, parseArgs, requirePositional, run, SingularityFlowError
+  gitReadOutput, isTransportIntentId, optionBoolean, optionString, optionStrings, parseArgs, requirePositional, run, SingularityFlowError
 } from './util.mjs';
 import { validatePortableWorkId } from './work-id.mjs';
 import { VERSION } from './version.mjs';
@@ -121,7 +121,9 @@ export function excludesActiveWorkspaceRouting(
       && REPOSITORY_INDEPENDENT_REVISION_CHECK_ACTIONS.has(action))
     // Portable Process Evidence verification consumes only the named bundle bytes. It must work
     // in a fresh directory and must never be redirected to the last selected workspace.
-    || (command === 'evidence' && subcommand === 'verify');
+    || (command === 'evidence' && subcommand === 'verify')
+    // `sync <INTENT-ID>` retries a saved push in its own checkout, like `push`; no repository need be open.
+    || (command === 'sync' && isTransportIntentId(subcommand));
 }
 
 /**

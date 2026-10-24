@@ -635,7 +635,7 @@ test('a refusal only a person can clear names its cause, and push status says wh
   // An automatic caller (a resumed workspace setup) gets the intent and its retry, not a loop back to resume.
   await assert.rejects(retryTransportIntent(created.intentId, item.options), (error) => error.code === 'TRANSPORT_INTENT_NEEDS_USER'
     && error.details.intentId === created.intentId
-    && error.details.nextAction.command === `singularity-flow push retry ${created.intentId}`
+    && error.details.nextAction.command === `singularity-flow sync ${created.intentId}`
     && /Git refused it \(local-hook-failed: husky - pre-push hook exited with code 1/u.test(error.message));
   // A remote that could not be read leaves the outcome unknown: the retry reconciles it, not push status again.
   const unknown = await createTransportIntent({
@@ -650,9 +650,9 @@ test('a refusal only a person can clear names its cause, and push status says wh
   const cli = new URL('../bin/singularity-flow.mjs', import.meta.url).pathname;
   const status = run(process.execPath, [cli, '--no-model', 'push', 'status', created.intentId], { cwd: item.work, env: item.env }).stdout;
   assert.match(status, /is needs-user; commit [0-9a-f]{12} remains addressable\. Git refused it \(local-hook-failed: husky - pre-push hook exited with code 1 \(npm run lint\)\)\. Review the local Git hook output/u);
-  assert.match(status, new RegExp(`singularity-flow push retry ${created.intentId}`, 'u'), 'after the fix, the retry publishes the same commit');
+  assert.match(status, new RegExp(`singularity-flow sync ${created.intentId}`, 'u'), 'after the fix, the retry publishes the same commit');
   const unknownStatus = run(process.execPath, [cli, '--no-model', 'push', 'status', unknown.intentId], { cwd: item.work, env: item.env }).stdout;
-  assert.match(unknownStatus, new RegExp(`Retry this preserved publication[\\s\\S]*singularity-flow push retry ${unknown.intentId}`, 'u'));
+  assert.match(unknownStatus, new RegExp(`Retry this preserved publication[\\s\\S]*singularity-flow sync ${unknown.intentId}`, 'u'));
   assert.doesNotMatch(unknownStatus, /Shell: singularity-flow push status/u, 'never a route back to itself');
 
   // A push the account may not make is a missing write permission, not read access.

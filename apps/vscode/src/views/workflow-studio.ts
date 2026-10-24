@@ -319,7 +319,8 @@ export class WorkflowStudioPanel implements vscode.Disposable {
   private async retryUpload(intentId: string | null): Promise<void> {
     const upload = this.uploads.find(entry => entry.intentId === intentId);
     if (!upload) { this.post({ type: 'studio.failed', message: 'That upload is no longer waiting. Refresh the list.' }); return; }
-    const command = ['push', 'retry', upload.intentId, '--json'];
+    // `sync <INTENT-ID>` is the one retry command; its JSON carries the intent as data.intent.
+    const command = ['sync', upload.intentId, '--json'];
     this.output.appendLine(`\n$ singularity-flow ${formatCliArgsForDisplay(command)}`);
     let text: string;
     try {

@@ -1119,8 +1119,9 @@ Already have the clone? `singularity-flow workspace adopt <DIRECTORY> --id <ID> 
 --dry-run --json` produces a preserving proof before it creates a workspace shell. Dirty clones need
 the exact content-aware `--confirm-dirty` hash from that preview. SFlow does not fetch, switch, stash,
 commit, reset, clean, edit remotes, or move the clone. Pre-Story pushes use durable transport intents:
-`singularity-flow push status` inspects them and `singularity-flow push retry <INTENT-ID>` re-observes
-the exact remote ref before a bounded retry; neither path force-pushes.
+`singularity-flow push status` inspects them and `singularity-flow sync <INTENT-ID>` re-observes
+the exact remote ref before a bounded retry; neither path force-pushes. Plain `singularity-flow sync`
+retries every one of them that can still land, after the Story's own retained commit.
 
 The editor extension exposes both actions from one **Workspaces** view. A saved
 workspace is its local directory plus its mapped capability scope; the selected
@@ -2353,7 +2354,7 @@ If a push fails after commit, the local commit is retained and a machine-local p
 singularity-flow sync
 ```
 
-After the commit boundary, `sync` retries the existing commit without rewriting history. Optimistic branch-head checks prevent concurrent decisions from silently overwriting each other.
+After the commit boundary, `sync` retries the existing commit without rewriting history. Optimistic branch-head checks prevent concurrent decisions from silently overwriting each other. It then retries this repository's saved pushes (workflow proposals, approval-group enrollment, configuration and setup pushes) that can still land, one line each; `sync <INTENT-ID>` retries exactly one.
 
 For isolated tests only, `git.publish: off` disables remote publication. Do not use it when Git is the state-transfer channel.
 
@@ -2868,7 +2869,7 @@ evidence workflow.
 | `singularity-flow reopen [ID] --fetch --to PHASE --reason TEXT [--gate-recovery --confirm SHA256]` | Return a closed Story to an allowed phase. `--gate-recovery` previews a content-bound exception only when the final gate assigns a blocker to a phase outside ordinary `rejectTo`; repeat it with the emitted digest to commit and push the reopen. |
 | `singularity-flow cancel [ID] --fetch --reason TEXT --confirm ID` | Stop active work without claiming completion; preserve all artifacts and approvals, commit and push the decision, and show the Story under Archived. |
 | `singularity-flow cancel ID --release [--apply --confirm ID]` | Preview or apply a reversible release of a cancelled checkout: preserve remaining edits in a named stash, return to the recorded base branch, and keep the archived branch intact. |
-| `singularity-flow sync` | Restore a dead pre-commit transaction from its durable preimage, or retry an existing post-commit publication without rewriting it. |
+| `singularity-flow sync` | Restore a dead pre-commit transaction from its durable preimage, or retry an existing post-commit publication without rewriting it; then retry this repository's saved pushes. `sync <INTENT-ID>` retries one saved push. |
 | `singularity-flow gate --terminal` | Run the final deterministic/remote-state gate. |
 | `singularity-flow pr [ID] [--create]` | Preview the story pull request built from committed state; `--create` opens it after typed confirmation. |
 | `singularity-flow epic merge-plan [--epic ID]` | Show the dependency-ordered story merge sequence, each story's status, and the next story to merge. |

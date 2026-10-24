@@ -1203,10 +1203,10 @@ export async function proposeConfigurationChange(root, {
         + `${publication.fault?.advice ?? ''}\n`
         + `${publication.fault?.evidence?.diagnostics ?? publication.fault?.evidence?.diagnostic ?? ''}\n`
         + `Inspect: singularity-flow push status ${publication.intentId} --json. `
-        + `After repairing the reported error, retry the retained upload: singularity-flow push retry ${publication.intentId} --json.`, {
+        + `After repairing the reported error, retry the retained upload: singularity-flow sync ${publication.intentId} --json.`, {
           code: 'CONFIGURATION_PROPOSAL_PUBLICATION_PENDING',
           details: { branch: reviewBranch, commit, intentId: publication.intentId, status: publication.status,
-            failure: publication.fault, retryCommand: `singularity-flow push retry ${publication.intentId} --json`,
+            failure: publication.fault, retryCommand: `singularity-flow sync ${publication.intentId} --json`,
             // The routed way out (recovery plans read nextAction, not retryCommand).
             ...(transportRetryAction(publication) ? { nextAction: transportRetryAction(publication) } : {}),
             recoveryCommands: [`singularity-flow push status ${publication.intentId}`] }

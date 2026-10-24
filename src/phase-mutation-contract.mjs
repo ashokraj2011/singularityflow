@@ -16,7 +16,7 @@ import { consumedByPublishedGeneration, nextPhaseGeneration } from './phase-gene
 export const MUTATION_CONTRACT_VERSION = 1;
 /**
  * The skills whose own steps run registered SFlow commands the registry calls mutations and edit no
- * file. A read turn refused each of them its core step (`finalize`, `pr --create`, `push retry`,
+ * file. A read turn refused each of them its core step (`finalize`, `pr --create`, `sync <INTENT-ID>`,
  * `story start`, `epic start`, `mcp smoke`, …). The kernel-only turn admits any registered command
  * except approval, rejection and the person-only decisions the guard names, and no file edits.
  */

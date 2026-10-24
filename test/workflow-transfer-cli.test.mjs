@@ -115,7 +115,7 @@ test('workflow import retains a hook-refused upload, shows the actual error, and
   assert.equal(intent.fault.evidence.exitCode, 1);
   assert.match(intent.fault.evidence.diagnostics, /pre-receive hook declined/u);
   assert.match(intent.fault.evidence.diagnostics, /stderr:\n[\s\S]*remote: server hook declined this update/u);
-  assert.match(refused.stdout + refused.stderr, new RegExp('push retry ' + intent.intentId));
+  assert.match(refused.stdout + refused.stderr, new RegExp('singularity-flow sync ' + intent.intentId));
   assert.equal(git(item.root, 'rev-parse', intent.scope.requiredLocalRef), intent.sourceCommit);
   assert.equal(git(item.root, 'rev-parse', 'HEAD'), appHead);
   assert.equal(git(item.root, 'write-tree'), appIndex);

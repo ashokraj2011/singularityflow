@@ -1,4 +1,7 @@
-/** Inspect and retry exact pre-Story transport intents. */
+/**
+ * Inspect and retry exact pre-Story transport intents. `sync <INTENT-ID>` is the one way to retry one
+ * [SPEC-OAP M3]; the retry subcommand here stays as its alias, for scripts that call it.
+ */
 import {
   listTransportIntents, readTransportIntent, retryTransportIntent, transportCheckoutMissing, transportFaultSummary, transportIntentsForRepository
 } from '../transport-intents.mjs';
@@ -21,7 +24,7 @@ function faultSlots(intent) {
 function nextActions(intent) {
   // Its checkout is gone: nothing can run there (the advice says to repeat the operation).
   if (transportCheckoutMissing(intent)) return [];
-  const retry = `singularity-flow push retry ${intent?.intentId}`;
+  const retry = `singularity-flow sync ${intent?.intentId}`;
   if (['pending', 'pushing', 'outcome-unknown'].includes(intent?.status)) {
     return [action({ id: 'transport-next-action', label: 'Retry this preserved publication', command: retry, kind: 'remediation' })];
   }
@@ -42,6 +45,18 @@ function result(operation, outcome, { intent = null, intents = null, changed = f
     restState: intent?.status === 'succeeded' ? 'complete' : 'informational',
     data: intent ? { intent } : { intents }
   });
+}
+
+/**
+ * The person's own retry of one saved push: `sync <INTENT-ID>`, and the retry subcommand above as its alias.
+ * It is the explicit retry after credentials, trust, proxy, or permissions were corrected outside
+ * SFlow, so it carries the authority automatic callers never get.
+ */
+export async function retryIntentCommand(intentId, { operation, json = false }) {
+  const intent = await retryTransportIntent(intentId, { allowNeedsUser: true });
+  return emitCommandResult(result(operation, succeeded('transport.retry-completed', {
+    intentId: intent.intentId, status: intent.status, ...faultSlots(intent)
+  }), { intent, changed: true }), { json });
 }
 
 export async function run(_argv, { positionals, options, operation }) {
@@ -73,15 +88,11 @@ export async function run(_argv, { positionals, options, operation }) {
     }), { json });
   }
   if (action === 'retry') {
-    if (!intentId) throw new SingularityFlowError('push retry requires an intent ID.', {
-      code: 'TRANSPORT_INTENT_ID_REQUIRED'
+    if (!intentId) throw new SingularityFlowError('Name the saved push to retry: singularity-flow sync <INTENT-ID>. '
+      + 'singularity-flow push status lists them.', {
+      code: 'TRANSPORT_INTENT_ID_REQUIRED', details: { nextAction: 'singularity-flow push status' }
     });
-    // This command is the explicit user retry after credentials, trust, proxy, or permissions were
-    // corrected outside SFlow. Automatic callers do not receive this authority.
-    const intent = await retryTransportIntent(intentId, { allowNeedsUser: true });
-    return emitCommandResult(result(operation, succeeded('transport.retry-completed', {
-      intentId: intent.intentId, status: intent.status, ...faultSlots(intent)
-    }), { intent, changed: true }), { json });
+    return retryIntentCommand(intentId, { operation, json });
   }
   throw new SingularityFlowError(`Unknown push subcommand '${action}'. Available: status, retry.`, {
     code: 'UNKNOWN_SUBCOMMAND'

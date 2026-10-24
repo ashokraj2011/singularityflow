@@ -164,5 +164,5 @@ test('the CLI names a proposal saved here but not uploaded, instead of saying no
   });
   assert.match(listed.stdout, /Saved on this computer but not uploaded, so nobody can review them yet:/u);
   assert.match(listed.stdout, /sflow\/config-change\/workflow\/import-workflows-demo-3123abcd {2}pending/u);
-  assert.match(listed.stdout, /Retry: singularity-flow push retry psh_/u);
+  assert.match(listed.stdout, /Retry: singularity-flow sync psh_/u);
 });

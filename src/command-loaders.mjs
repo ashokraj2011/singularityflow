@@ -50,6 +50,7 @@ export const COMMAND_LOADERS = Object.freeze({
   './commands/progress.mjs': () => import('./commands/progress.mjs'),
   './commands/proof.mjs': () => import('./commands/proof.mjs'),
   './commands/push.mjs': () => import('./commands/push.mjs'),
+  './commands/sync.mjs': () => import('./commands/sync.mjs'),
   './commands/receipt.mjs': () => import('./commands/receipt.mjs'),
   './commands/recommend.mjs': () => import('./commands/recommend.mjs'),
   './commands/report.mjs': () => import('./commands/report.mjs'),

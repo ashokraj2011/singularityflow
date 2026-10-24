@@ -1228,7 +1228,7 @@ test('next skill executes one action and preserves explicit approval controls', 
   assert.match(content, /singularity-flow nextsteps <WORK-ID> --for-agent --json/);
   assert.match(content, /ACTIVE_SUBJECT_MISMATCH/);
   assert.match(content, /state=publication_pending[^.]*first `NOW` command equals `singularity-flow sync`/i);
-  assert.match(content, /show it and explain it retries only the retained commit/i);
+  assert.match(content, /show it and explain it retries only the retained commit and saved pushes/i);
   assert.match(content, /singularity-flow sync <WORK-ID>[^.]*once in the verified cwd/i);
   assert.match(content, /never follow `THEN`, invoke `\/sf-nextsteps` or `\/sf-next`, or retry/i);
   assert.ok(content.indexOf('state=publication_pending') < content.indexOf('singularity-flow sync <WORK-ID>'),

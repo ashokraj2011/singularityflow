@@ -993,6 +993,10 @@ const PAGES = Object.freeze({
       'state, and destination ref for pushes outside Story publication. Status is offline with',
       'respect to mutation: it never retries or changes a remote.',
       '',
+      'Retry one with singularity-flow sync <INTENT-ID>; plain sync retries every one of this',
+      'repository that can still land, after the Story\'s own commit. push retry <INTENT-ID> is the',
+      'same as sync <INTENT-ID> and stays for scripts that call it.',
+      '',
       'Retry first reads the remote target. It recognizes an already-completed push, refuses remote',
       'divergence, uses an exact commit-to-ref refspec, never force-pushes, and preserves the local',
       'commit when the outcome cannot be proved.'
@@ -1003,7 +1007,7 @@ const PAGES = Object.freeze({
     ],
     examples: [
       ['singularity-flow push status', 'List unresolved pre-Story publication intents.'],
-      ['singularity-flow push retry psh_…', 'Re-observe the target and retry only when it is proven safe.']
+      ['singularity-flow sync psh_…', 'Re-observe the target and retry only when it is proven safe.']
     ],
     seeAlso: ['workspace', 'sync', 'doctor']
   },
@@ -2367,16 +2371,24 @@ const PAGES = Object.freeze({
     seeAlso: ['reject', 'cancel', 'approve']
   },
   sync: {
-    summary: 'Recover an interrupted publication without losing prior work.',
+    summary: 'Finish what was not published: the Story\'s retained commit and this repository\'s saved pushes.',
     description: [
       'After a commit, sync retries its exact push. Before a commit, a dead transaction restores',
       'the integrity-bound preimage recorded in its local journal and preserves partial bytes in',
       '.git/singularity-flow/publication-rescues/. This includes first creation, phase preparation,',
       'document/evidence ingestion, telemetry reconciliation, approval, rejection, and publication.',
       'Recovery reads the subject journal before parsing a possibly damaged aggregate. A failed',
-      'rollback retains that journal for another exact retry; a live command is never rolled back.'
+      'rollback retains that journal for another exact retry; a live command is never rolled back.',
+      '',
+      'Then sync retries every push this repository saved outside a Story that can still land',
+      '(workflow proposals, approval-group enrollment, configuration and setup pushes), one line',
+      'each with its commit and outcome; one that does not land names its cause and the fix. Outside',
+      'a Story it does only that. sync <INTENT-ID> retries exactly one (push status lists them).'
     ],
-    examples: [['singularity-flow sync', '']],
+    examples: [
+      ['singularity-flow sync', 'Publish the retained commit, then retry the saved pushes.'],
+      ['singularity-flow sync psh_…', 'Retry one saved push.']
+    ],
     seeAlso: ['doctor', 'ledger', 'status']
   }
 });

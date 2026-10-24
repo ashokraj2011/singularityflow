@@ -2240,7 +2240,7 @@ export async function publishEditorConfiguration(
             branch: targetBranch,
             intentId: reservedPublication.intentId,
             status: reservedPublication.status,
-            nextAction: `singularity-flow push retry ${reservedPublication.intentId}`
+            nextAction: `singularity-flow sync ${reservedPublication.intentId}`
           },
           cause: error
         }
@@ -2267,7 +2267,7 @@ export async function publishEditorConfiguration(
           branch: targetBranch,
           intentId: reservedPublication.intentId,
           status: reservedPublication.status,
-          nextAction: `singularity-flow push retry ${reservedPublication.intentId}`
+          nextAction: `singularity-flow sync ${reservedPublication.intentId}`
         },
         cause: error
       }

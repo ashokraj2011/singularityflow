@@ -94,7 +94,7 @@ branch="$(field branch)"
 commit="$(field commit)"
 if [ "$(field pushed)" = "false" ]; then
   echo "The import was saved on this computer but not uploaded, so it cannot be activated yet." >&2
-  echo "Check that you can push to the remote repository, then run: ${cli[*]} push retry $(field transportIntent)" >&2
+  echo "Check that you can push to the remote repository, then run: ${cli[*]} sync $(field transportIntent)" >&2
   exit 1
 fi
 

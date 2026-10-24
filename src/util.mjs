@@ -317,6 +317,11 @@ export function isGitRefName(value) {
   return /^(?![./])(?!.*(?:\.\.|@\{|[~^:?*\\[]))(?!.*\/\.)(?!.*[/.]$)[^\s\u0000-\u001f\u007f]+$/.test(value);
 }
 
+/** A saved push's ID (`psh_<uuid>`), which `sync <INTENT-ID>` takes in place of a Work ID. */
+export function isTransportIntentId(value) {
+  return typeof value === 'string' && /^psh_[a-f0-9-]{20,64}$/u.test(value);
+}
+
 export function optionBoolean(options, key, fallback = false) {
   const value = options[key];
   if (value === undefined) return fallback;

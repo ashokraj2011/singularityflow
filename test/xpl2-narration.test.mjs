@@ -345,3 +345,50 @@ test('XPL2 13.1 the tour is presentation: every audience gets the same tour and 
   const changes = line.presentation.tour.find((step) => step.step === 'changes').statements;
   assert.ok(changes.some((id) => id.startsWith('D-')), 'a line question tours its own derived statements');
 });
+
+/** The command result `explain --subject … --narrate` emits, around one narration object. */
+async function narratedResult(model, narration) {
+  const { commandResult, noEffects, succeeded } = await import('../src/narration/command-result.mjs');
+  return commandResult({
+    operation: { id: 'explain.subject.narrate', classification: 'read' },
+    subject: { kind: 'story', id: 'ORD-418' },
+    outcome: succeeded('explanation.subject-reported', { subject: 'change', status: model.subject.status, statements: model.statements.length }),
+    effects: noEffects(), next: [], restState: 'informational',
+    data: { mode: 'observe-only', explanation: model, narration }
+  });
+}
+
+test('XPL2 13.2 the terminal shows a narration: banner, the model\'s order of recorded statements, attention, commentary state', async (t) => {
+  const { renderCommandResult } = await import('../src/narration/render-terminal.mjs');
+  const { model, input } = await narrationFixture(t);
+  const [first, second] = input.statements.filter((entry) => !input.mandatory.includes(entry.id));
+  const narration = validateXpl2Narration(JSON.stringify({
+    sections: [{ connective: 'changes', statements: [second.id] }, { connective: 'start', statements: [first.id], prose: CANARY }],
+    commentary: { text: `Read ${first.id} before the rest.`, citations: [first.id] }
+  }), input, { commentary: true });
+  const text = renderCommandResult(await narratedResult(model, narration));
+  const at = (needle) => { const index = text.indexOf(needle); assert.ok(index >= 0, `${needle} is shown`); return index; };
+  // The banner leads, then the model's sections in its own order, each line the record's text and citations.
+  assert.ok(at(XPL2_NARRATION_BANNER) < at(`${XPL2_CONNECTIVES.changes}\n`));
+  assert.ok(at(`${XPL2_CONNECTIVES.changes}\n`) < at(`${XPL2_CONNECTIVES.start}\n`), 'sections keep the narration order');
+  assert.ok(at(`  ${second.id}  ${second.text} [${second.cites.join(', ')}]`) < at(`  ${first.id}  ${first.text} [${first.cites.join(', ')}]`));
+  for (const id of input.mandatory) assert.ok(text.indexOf(`  ${id}  `) < at('Record view'), `attention ${id} is in the narration`);
+  assert.ok(at(`${XPL2_CONNECTIVES.attention} (always shown)`) < at('Record view'));
+  assert.match(text, /Discarded from the model's answer: 1 field of model prose\./u);
+  assert.ok(!text.includes(CANARY), 'model prose never reaches the terminal');
+  assert.ok(at(XPL2_COMMENTARY_BANNER) > at(`${XPL2_CONNECTIVES.start}\n`));
+  assert.ok(text.includes(`Read ${first.id} before the rest. [${first.id}]`));
+  // The computed record view is still below it, unchanged.
+  assert.ok(at('Record view') < at('Sources'));
+
+  const unreturned = renderCommandResult(await narratedResult(model,
+    validateXpl2Narration(JSON.stringify({ sections: [] }), input, { commentary: true })));
+  assert.match(unreturned, new RegExp(`${XPL2_COMMENTARY_BANNER}\\n  Not returned: the model gave no commentary\\.`, 'u'));
+  const withheld = renderCommandResult(await narratedResult(model,
+    validateXpl2Narration(JSON.stringify({ sections: [], commentary: { text: '<b>x</b>', citations: [first.id] } }), input, { commentary: true })));
+  assert.match(withheld, /Withheld: The commentary contained markup, links or code\./u);
+  const { unavailableXpl2Narration } = await import('../src/comprehension/xpl2/narration.mjs');
+  const off = renderCommandResult(await narratedResult(model, unavailableXpl2Narration('model-disabled-fallback', model)));
+  assert.match(off, /Narration unavailable \(model-disabled-fallback\); the record view below is the whole answer\./u);
+  assert.ok(off.indexOf('Record view') < off.indexOf('Sources'));
+});

@@ -344,6 +344,49 @@ const XPL2_SECTIONS = [
   ['Limits and unknowns', ['admission-unavailable', 'feature-state', 'source-state', 'provenance-unavailable', 'generation-recorded']]
 ];
 
+const DISCARDED_LABELS = [
+  ['unknownIds', 'unknown statement ID'], ['duplicates', 'repeated statement'], ['prose', 'field of model prose'],
+  ['connectives', 'unknown section'], ['invalidSections', 'malformed section'], ['byLength', 'statement past the word budget'],
+  ['commentary', 'unrequested commentary']
+];
+
+/**
+ * An `--narrate` result in the terminal [XPL2 13.2]: the advisory banner, the model's sections in its
+ * order with each statement's own computed text and citations, the attention statements the kernel
+ * always appends, what was discarded, and the commentary's state under its own banner.
+ */
+function narrationLines(narration, { safe, cite }) {
+  const lines = [style.heading(safe(narration.banner))];
+  if (narration.status !== 'available') {
+    lines.push(`  Narration unavailable (${safe(narration.reason)}); the record view below is the whole answer.`);
+    return lines;
+  }
+  lines.push(style.detail(`  A model chose and ordered these recorded statements (${narration.words ?? 0} of ${narration.maximumWords ?? 0} words); `
+    + 'every line is the record\'s own text and it adds no facts.'));
+  for (const section of narration.sections ?? []) {
+    lines.push('', style.heading(safe(section.heading)));
+    for (const statement of section.statements ?? []) {
+      lines.push(`  ${safe(statement.id)}  ${cite({ text: statement.text, cites: statement.cites ?? [] })}`);
+    }
+  }
+  const discarded = DISCARDED_LABELS.filter(([key]) => narration.discarded?.[key] > 0)
+    .map(([key, label]) => `${narration.discarded[key]} ${label}${narration.discarded[key] === 1 ? '' : 's'}`);
+  if (discarded.length) lines.push('', style.detail(`  Discarded from the model's answer: ${discarded.join(', ')}.`));
+  const commentary = narration.commentary ?? null;
+  if (commentary) {
+    lines.push('', style.heading(safe(commentary.banner)));
+    if (commentary.status === 'shown') {
+      lines.push(`  ${safe(commentary.text, 'no text', 4_000)} [${(commentary.citations ?? []).map((id) => safe(id)).join(', ')}]`,
+        style.detail('  Citing statement IDs is syntax only; nothing checked that the text means what the statements say.'));
+    } else if (commentary.status === 'withheld') {
+      lines.push(`  Withheld: ${(commentary.explanation ?? []).map((reason) => safe(reason)).join(' ')}`);
+    } else {
+      lines.push('  Not returned: the model gave no commentary.');
+    }
+  }
+  return lines;
+}
+
 /** Computed XPL2 subject view: typed statements with citations, in the selected audience's order. */
 function explanationSubjectText(result) {
   const explanation = result.data?.explanation;
@@ -368,6 +411,12 @@ function explanationSubjectText(result) {
   if ((subject.choices ?? []).length) {
     lines.push('', style.heading('Exact choices'));
     for (const choice of subject.choices) lines.push(`  ${safe(choice.kind)}: ${safe(choice.label)}`);
+  }
+  const narration = result.data?.narration ?? null;
+  if (narration) {
+    lines.push('', ...narrationLines(narration, { safe, cite }));
+    lines.push('', style.heading('Record view'),
+      style.detail('The computed statements, in the record\'s own order; the narration above changed none of them.'));
   }
   if ((explanation.derived ?? []).length) {
     lines.push('', style.heading('Answer'));

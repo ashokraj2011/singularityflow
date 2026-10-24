@@ -104,6 +104,32 @@ function refuse(operationId, code, source, slots = {}, restState = 'blocked', cl
   });
 }
 
+/** How many open work items `next` lists with their actions: the Home menu's six choices. */
+const MAX_LISTED_WORK = 6;
+
+/**
+ * A subject hint as the subject a result is about.
+ *
+ * The tools send `{workspaceId, repositoryId, workId}` and hosts send `{kind, id}`. A result names
+ * one `{kind, id}`, and passing the tool shape through declared a subject with neither.
+ */
+function subjectOf(hint) {
+  if (!hint) return null;
+  if (hint.kind && hint.id) return hint;
+  if (hint.workId) return { kind: hint.workKind ?? 'story', id: hint.workId };
+  if (hint.repositoryId) return { kind: 'repository', id: hint.repositoryId };
+  if (hint.workspaceId) return { kind: 'workspace', id: hint.workspaceId };
+  return null;
+}
+
+/** The work item a hint names, if any. A bare tool `workId` names an ID, not a kind. */
+function namedWork(hint) {
+  if (hint?.workId) return { id: String(hint.workId), kind: hint.workKind ?? null };
+  if (!['story', 'initiative', 'epic'].includes(hint?.kind) || !hint.id) return null;
+  // Work records are Stories and Initiatives; an Epic is matched by its ID alone.
+  return { id: String(hint.id), kind: hint.kind === 'epic' ? null : hint.kind };
+}
+
 /**
  * Build a kernel for one host session.
  *
@@ -256,6 +282,10 @@ export function createGatewayKernel({
     });
   }
 
+  const contextFor = (operation, args, subject) => (typeof plannerContext === 'function'
+    ? plannerContext({ operation, arguments: args, subject })
+    : plannerContext);
+
   /**
    * Run a planner and hold its output to the same contract as everything else.
    *
@@ -263,16 +293,14 @@ export function createGatewayKernel({
    * planner that returns something shaped like a result is exactly the thing that would otherwise
    * reach a host and be rendered as if the kernel had produced it.
    */
-  async function invoke(operation, args, subject, issuedAgainst = currentBinding()) {
+  async function invoke(operation, args, subject, issuedAgainst = currentBinding(),
+    context = contextFor(operation, args, subject)) {
     const planner = planners.get(operation.gateway.planner);
     if (typeof planner !== 'function') {
       // A capability this build genuinely lacks, reported as absent rather than as forbidden.
       return refuse(operation.id, 'gateway.planner-unavailable', 'unavailable',
         { planner: operation.gateway.planner }, 'unavailable');
     }
-    const context = typeof plannerContext === 'function'
-      ? plannerContext({ operation, arguments: args, subject })
-      : plannerContext;
     const produced = validateSflowResult(
       await planner({ operation, arguments: args, subject, registry, policy, root, context: context ?? {}, session })
     );
@@ -389,6 +417,173 @@ export function createGatewayKernel({
     });
   }
 
+  /** Every legal operation, each as a selection with no arguments yet: the list `next` has always been. */
+  function legalNow(legalSet, issuedAgainst) {
+    const legal = legalSet
+      ?? registry.operations.filter((entry) => entry.classification === 'read').map((entry) => entry.id);
+    return legal
+      .map((id) => registry.operations.find((entry) => entry.id === id))
+      .filter(Boolean)
+      .map((operation) => ({ operation, permission: operationPermission(policy, operation.id, { registry }) }))
+      .filter(({ permission }) => permission.reachable)
+      .map(({ operation, permission }) => ({
+        handle: permission.confirmation === 'ceremony'
+          ? `ceremony:${operation.id}`
+          : handles.issueSelection({
+              operationId: operation.id,
+              classification: operation.classification,
+              // Selection is allowed to precede form collection. Resolution restores these
+              // exact bytes and either validates them or asks for the missing typed fields.
+              arguments: {},
+              binding: issuedAgainst
+            }).reference.id,
+        id: `legal:${operation.id}`,
+        label: operation.gateway.aliases.en.phrases[0],
+        kind: operation.classification === 'authorization' ? 'ceremony' : operation.classification === 'read' ? 'read' : 'plan',
+        reasonCode: 'gateway.legal-now',
+        confirmation: permission.confirmation,
+        interaction: permission.confirmation === 'ceremony'
+          ? 'ceremony'
+          : (operation.classification === 'read' ? 'read' : 'form'),
+        /**
+         * "Everything legal now" is a list, not a recommendation `[INT:CON-038]`. Emphasising one
+         * of them would be this call quietly answering a question it was not asked — which is what
+         * the home planner exists to answer, from ordering rules a reader can check.
+         */
+        emphasis: 'secondary',
+        executable: false,
+        fallback: { label: 'Ask what SFlow can do', command: 'sflow explain' }
+      }));
+  }
+
+  /** The `work.list` operation `next` reads, when this kernel has a repository and that planner. */
+  function workReader(scope) {
+    if (!root || !['home', 'subject'].includes(scope)) return null;
+    const operation = registry.operations.find((entry) => entry.id === 'work.list');
+    if (!operation || typeof planners.get(operation.gateway.planner) !== 'function') return null;
+    return operationPermission(policy, operation.id, { registry }).reachable ? operation : null;
+  }
+
+  /**
+   * One work item's lifecycle next action, issued now as a read handle. `[INT:REQ-061]`
+   *
+   * Not a pick from the legal list, which `[INT:CON-038]` keeps unranked: the work record computes
+   * one next action from phase state (`work-records.mjs`), and this only binds it to the item's ID
+   * under the same checks a resolution makes. Null when that action is not a read this session may
+   * carry out, so a lead is never a write and never a ceremony.
+   */
+  function workAction(item, legalSet, issuedAgainst, emphasis) {
+    const operation = registry.operations.find((entry) => entry.id === item.nextAction?.operation);
+    if (operation?.classification !== 'read' || (legalSet && !legalSet.includes(operation.id))) return null;
+    const permission = operationPermission(policy, operation.id, { registry });
+    if (!permission.reachable || !permission.executable) return null;
+    let args;
+    try {
+      args = validateArguments(operation.gateway.argumentSchema, { workId: item.id, workKind: item.kind });
+    } catch {
+      return null;
+    }
+    const { reference } = handles.issueRead({
+      operationId: operation.id, classification: operation.classification, arguments: args, binding: issuedAgainst
+    });
+    const label = operation.gateway.aliases.en.phrases[0];
+    return {
+      handle: reference.id,
+      id: `work:${item.id}`,
+      label,
+      kind: 'read',
+      reasonCode: item.nextAction.reasonCode,
+      confirmation: permission.confirmation,
+      interaction: 'read',
+      emphasis,
+      executable: true,
+      slots: { work: item.id, phase: item.phase ?? 'none', status: item.status ?? 'none', group: item.group },
+      fallback: { label, command: `sflow status --work-id ${item.id}` }
+    };
+  }
+
+  /**
+   * The open work `next` leads with, read through the host's own `work.list` planner.
+   *
+   * Never a refusal: a read that fails leaves the legal set standing and says the work was not
+   * read, because "your work could not be read" is a worse answer to "what can I do?" than that set.
+   */
+  async function leadingWork(operation, hint, legalSet, issuedAgainst) {
+    const args = validateArguments(operation.gateway.argumentSchema, {});
+    const context = contextFor(operation, args, null) ?? {};
+    let listed = null;
+    try {
+      listed = await invoke(operation, args, null, issuedAgainst, context);
+    } catch {
+      listed = null;
+    }
+    if (listed?.kind !== 'read') {
+      return { warnings: [{ code: 'gateway.next-work-unread', source: 'unavailable', slots: {} }] };
+    }
+    const { deriveHomeState } = await import('./home-work-projection.mjs');
+    const named = namedWork(hint);
+    const state = deriveHomeState(listed.data, {
+      workId: named?.id ?? context.workId ?? context.storyId ?? null,
+      workKind: named ? named.kind : context.workKind ?? null,
+      branch: context.branch ?? issuedAgainst?.branch ?? null
+    });
+    const isOpen = (item) => item.group !== 'recently-completed';
+    const open = state.items.filter(isOpen);
+    // Asked about one item and it is not here: say so rather than answering about another one.
+    const focus = state.currentWork ?? (!named && open.length === 1 ? open[0] : null);
+    // Home's order after the focus, so recovery still outranks everything else listed.
+    const shown = [...(focus ? [focus] : []), ...state.ordered.filter((item) => isOpen(item) && item !== focus)]
+      .slice(0, MAX_LISTED_WORK);
+    const lead = shown
+      .map((item) => workAction(item, legalSet, issuedAgainst, item === focus ? 'primary' : 'secondary'))
+      .filter(Boolean);
+    const handleOf = (item) => lead.find((action) => action.id === `work:${item.id}`)?.handle ?? null;
+    const summary = (item) => ({
+      kind: item.kind, id: item.id, title: item.title, phase: item.phase, phaseLabel: item.phaseLabel,
+      status: item.status, group: item.group, whyVisible: item.whyVisible, blockers: [...item.blockers],
+      branch: item.branch,
+      nextAction: item.nextAction ? { ...item.nextAction, handle: handleOf(item) } : null
+    });
+    const why = focus
+      ? [{ code: state.currentWork ? 'gateway.next-current-work' : 'gateway.next-only-open-work',
+        source: 'lifecycle', reference: focus.id, slots: { work: focus.id } }]
+      : named
+        ? [{ code: 'work.not-in-this-repository', source: 'lifecycle', reference: named.id, slots: { workId: named.id } }]
+        : [{ code: open.length ? 'gateway.next-several-open-work' : 'gateway.next-no-open-work',
+          source: 'lifecycle', slots: { count: String(open.length) } }];
+    return {
+      subject: focus ? { kind: focus.kind, id: focus.id } : null,
+      lead,
+      why,
+      warnings: [...listed.warnings],
+      data: {
+        focus: focus ? summary(focus) : null,
+        work: { count: open.length, items: shown.map(summary), listed: shown.length }
+      }
+    };
+  }
+
+  function nextResult(scope, subject, legal, { lead = [], why = [], warnings = [], data = {} } = {}) {
+    const next = [...lead, ...legal].map((action, rank) => ({ ...action, rank }));
+    return sflowResult({
+      kind: 'read',
+      operation: { id: 'gateway.next', classification: 'read' },
+      subject,
+      outcome: {
+        status: 'succeeded',
+        messageId: 'gateway.next',
+        slots: { scope, count: next.length, ...(data.focus ? { work: data.focus.id, phase: data.focus.phase ?? 'none' } : {}) }
+      },
+      effects: noEffects(),
+      why,
+      warnings,
+      next,
+      // An empty legal set is an answer, and it needs somewhere to stop rather than a dead end.
+      restState: next.length ? null : 'informational',
+      data
+    });
+  }
+
   const kernel = Object.freeze({
     registry,
     policy,
@@ -456,57 +651,27 @@ export function createGatewayKernel({
      * Deliberately cheap and side-effect-free — no world model, no agent, no artifacts, no phase
      * advance. It is the call a surface makes constantly, so anything expensive here becomes a
      * reason not to call it, and a stale action list is worse than none.
+     *
+     * The legal set alone does not answer the question this call is made for. Asked "what can I do
+     * next?" with one Story awaiting approval, Copilot was given 47 operations in registry order and
+     * no Story, and needed ten more calls to find it (2026-10-24). So for `home` and `subject`, a
+     * kernel with a repository and the host's `work.list` planner also reads the governed work,
+     * through that planner, and leads with it. Which work is Home's rule (`deriveHomeState`): the
+     * named subject, else the Story whose branch is checked out, else the only open one. Its
+     * lifecycle next action comes first, as a read handle `sflow_read` takes as it is; with several
+     * open and none current, each is listed with its own.
+     *
+     * A kernel with nothing to read answers synchronously, as it always has. One that reads the work
+     * returns a promise of the same result.
      */
     next({ scope = 'home', subject = null } = {}) {
       const issuedAgainst = currentBinding();
-      const legal = currentLegalActions(subject)
-        ?? registry.operations.filter((entry) => entry.classification === 'read').map((entry) => entry.id);
-      const offered = legal
-        .map((id) => registry.operations.find((entry) => entry.id === id))
-        .filter(Boolean)
-        .map((operation) => ({ operation, permission: operationPermission(policy, operation.id, { registry }) }))
-        .filter(({ permission }) => permission.reachable)
-        .map(({ operation, permission }, index) => ({ operation, permission, index }))
-        .map(({ operation, permission, index }) => ({
-          handle: permission.confirmation === 'ceremony'
-            ? `ceremony:${operation.id}`
-            : handles.issueSelection({
-                operationId: operation.id,
-                classification: operation.classification,
-                // Selection is allowed to precede form collection. Resolution restores these
-                // exact bytes and either validates them or asks for the missing typed fields.
-                arguments: {},
-                binding: issuedAgainst
-              }).reference.id,
-          id: `legal:${operation.id}`,
-          label: operation.gateway.aliases.en.phrases[0],
-          rank: index,
-          kind: operation.classification === 'authorization' ? 'ceremony' : operation.classification === 'read' ? 'read' : 'plan',
-          reasonCode: 'gateway.legal-now',
-          confirmation: permission.confirmation,
-          interaction: permission.confirmation === 'ceremony'
-            ? 'ceremony'
-            : (operation.classification === 'read' ? 'read' : 'form'),
-          /**
-           * "Everything legal now" is a list, not a recommendation `[INT:CON-038]`. Emphasising one
-           * of them would be this call quietly answering a question it was not asked — which is what
-           * the home planner exists to answer, from ordering rules a reader can check.
-           */
-          emphasis: 'secondary',
-          executable: false,
-          fallback: { label: 'Ask what SFlow can do', command: 'sflow explain' }
-        }));
-
-      return sflowResult({
-        kind: 'read',
-        operation: { id: 'gateway.next', classification: 'read' },
-        subject,
-        outcome: { status: 'succeeded', messageId: 'gateway.next', slots: { scope, count: offered.length } },
-        effects: noEffects(),
-        next: offered,
-        // An empty legal set is an answer, and it needs somewhere to stop rather than a dead end.
-        restState: offered.length ? null : 'informational'
-      });
+      const legalSet = currentLegalActions(subject);
+      const legal = legalNow(legalSet, issuedAgainst);
+      const workList = workReader(scope);
+      if (!workList) return nextResult(scope, subjectOf(subject), legal);
+      return leadingWork(workList, subject, legalSet, issuedAgainst)
+        .then((work) => nextResult(scope, work.subject ?? subjectOf(subject), legal, work));
     },
 
     /** `sflow_explain`: bounded, cited, and never a way to turn an answer into an act `[INT:CON-040]`. */

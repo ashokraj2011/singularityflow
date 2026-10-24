@@ -70,6 +70,12 @@ export const KERNEL_CODES = Object.freeze([
   'gateway.confirmation-required',
   'gateway.confirmation-invalid',
   'gateway.legal-now',
+  /** Which work `sflow_next` led with, and why that one. */
+  'gateway.next-current-work',
+  'gateway.next-only-open-work',
+  'gateway.next-several-open-work',
+  'gateway.next-no-open-work',
+  'gateway.next-work-unread',
   'gateway.nothing-was-carried-out',
   'gateway.handle-unknown',
   'gateway.handle-kind-mismatch',
@@ -429,6 +435,8 @@ export const WARNING_CODES = Object.freeze([
   'return.acknowledgement-boundary-unavailable',
   /** The work list covers one repository; anything in a sibling is absent rather than empty. */
   'work.single-repository-scope',
+  /** `sflow_next` could not read the governed work, so its legal set names no work item. */
+  'gateway.next-work-unread',
   /** A readiness answer computed from some of its inputs, and it says which were missing. */
   'readiness.partial-inputs',
   /** Impact was assessed without a piece of evidence it would ordinarily use. */

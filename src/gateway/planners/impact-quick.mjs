@@ -122,7 +122,21 @@ export function impactQuickResult({
       rank: activeWork.length, kind: 'read', reasonCode: 'impact.start-reviewed-plan', confirmation: 'none',
       interaction: 'navigation', emphasis: 'link', executable: false,
       fallback: { label: 'Start in the terminal', command: 'sflow start <WORK-ID>' }
-    }, 'work.start.intake', { source: 'finding', summary: `Change ${revisions.baseline ?? baseRef ?? 'HEAD'}..${revisions.target ?? targetRef ?? 'worktree'}: ${paths.length} path(s)` })] : [])],
+    }, 'work.start.intake', { source: 'finding', summary: `Change ${revisions.baseline ?? baseRef ?? 'HEAD'}..${revisions.target ?? targetRef ?? 'worktree'}: ${paths.length} path(s)` })] : []),
+    /**
+     * The full Impact Analysis view, as a host action. `[INT:IFC-061]` `[INT:CON-130]`
+     *
+     * Offered whatever this range found, because the view reads more than changed paths. Opening a
+     * view, nothing more: the kernel withholds it from a host that cannot open one, and the terminal
+     * command beside it is the same answer for a host without views `[INT:REQ-130]`.
+     */
+    {
+      handle: 'host-action:impact', id: 'impact:open-view', label: 'Open Impact Analysis',
+      rank: activeWork.length + (paths.length ? 1 : 0), kind: 'host-action', reasonCode: 'impact.open-impact-view',
+      confirmation: 'none', interaction: 'navigation', emphasis: 'link', executable: false,
+      hostAction: { id: 'vscode.openImpact', arguments: {} },
+      fallback: { label: 'Show the impact in the terminal', command: 'sflow impact' }
+    }],
     restState: activeWork.length || paths.length ? null : 'informational',
     data: {
       // `[INT:IFC-031]`: the report names exactly what it was computed from.

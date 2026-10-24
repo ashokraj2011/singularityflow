@@ -16,7 +16,7 @@ import { randomUUID } from 'node:crypto';
 import {
   createHandleAuthority, issueConfirmationReceipt, redeemConfirmationReceipt, subjectFromBinding
 } from './handles.mjs';
-import { validateArguments } from './argument-schemas.mjs';
+import { validateArguments, validateHostAction } from './argument-schemas.mjs';
 import { DEFAULT_GATEWAY_POLICY, operationPermission, resolveGatewayPolicy } from './policy.mjs';
 import { gatewayRegistry } from './operations.mjs';
 import { catalogued } from './catalog.mjs';
@@ -66,7 +66,9 @@ export const KERNEL_MESSAGES = Object.freeze([
  * the question a host asks when it decides how to route a result.
  */
 export const KERNEL_OPERATIONS = Object.freeze([
-  'gateway.resolve', 'gateway.read', 'gateway.next', 'gateway.run'
+  'gateway.resolve', 'gateway.read', 'gateway.next', 'gateway.run',
+  /** A receiving host refusing a host action it was handed `[INT:CON-131]`; see executor.mjs. */
+  'gateway.host-action'
 ]);
 
 /**
@@ -239,7 +241,8 @@ export function createGatewayKernel({
   function sealPlannerNavigation(result, issuedAgainst) {
     if (!(result.next ?? []).length) return result;
     const next = result.next.map((action, index) => {
-      if (action.confirmation === 'ceremony' || action.executable === true) return action;
+      // A host action is opened by the host and has no operation to sign `[INT:CON-130]`.
+      if (action.confirmation === 'ceremony' || action.executable === true || action.kind === 'host-action') return action;
       const target = plannerNavigationTarget(action);
       if (!target?.operationId) {
         throw new SingularityFlowError(
@@ -287,6 +290,49 @@ export function createGatewayKernel({
     : plannerContext);
 
   /**
+   * Every host action a result names, checked before the result leaves the kernel.
+   * `[INT:IFC-061]` `[INT:CON-130]` `[INT:CON-131]` `[INT:IFC-063]`
+   *
+   * Against the allowlist and the action's typed argument schema `[INT:CON-130]`, and — since a view
+   * link must say what to do where it cannot open `[INT:IFC-001]` — against having a fallback. An
+   * invalid one is never executed and never a failed read: the action loses its host action and the
+   * result gains a warning naming the action and the reason, so the record says what was withheld.
+   * An entry that existed only to open a view goes with it; any other entry (a ceremony with its
+   * terminal fallback) stays.
+   *
+   * A valid action this host did not declare is a capability gap, not a fault, and is degraded
+   * rather than reported: the link is withheld and the entry keeps its terminal continuation, so an
+   * MCP client gets the same outcome, reasons, warnings and next actions as the editor `[INT:REQ-130]`.
+   */
+  function sealHostActions(result) {
+    const named = (result.next ?? []).filter((action) => action.hostAction != null || action.kind === 'host-action');
+    if (!named.length) return result;
+    const declared = Array.isArray(hostCapabilities?.hostActions) ? hostCapabilities.hostActions : null;
+    const dropped = [];
+    const next = [];
+    for (const action of result.next) {
+      if (!named.includes(action)) { next.push(action); continue; }
+      const validated = action.hostAction == null
+        ? { ok: false, action: 'unknown', reason: 'malformed' }
+        : validateHostAction(action.hostAction);
+      const checked = validated.ok && action.kind === 'host-action' && !action.fallback?.command
+        ? { ok: false, action: validated.hostAction.id, reason: 'fallback-missing' } : validated;
+      const { hostAction: _withheld, ...rest } = action;
+      if (checked.ok && declared && !declared.includes(checked.hostAction.id)) { next.push(rest); continue; }
+      if (checked.ok) { next.push({ ...action, hostAction: checked.hostAction }); continue; }
+      dropped.push({ code: 'gateway.host-action-dropped', source: 'deterministic', reference: action.id,
+        slots: { action: checked.action, reason: checked.reason } });
+      if (action.kind !== 'host-action') next.push(rest);
+    }
+    return sflowResult({
+      ...result,
+      next,
+      warnings: [...(result.warnings ?? []), ...dropped],
+      restState: result.restState ?? (next.length ? null : 'informational')
+    });
+  }
+
+  /**
    * Run a planner and hold its output to the same contract as everything else.
    *
    * Validating here rather than trusting the planner is the point of having one result contract: a
@@ -304,7 +350,7 @@ export function createGatewayKernel({
     const produced = validateSflowResult(
       await planner({ operation, arguments: args, subject, registry, policy, root, context: context ?? {}, session })
     );
-    return validateSflowResult(sealPlannerNavigation(produced, issuedAgainst));
+    return validateSflowResult(sealPlannerNavigation(sealHostActions(produced), issuedAgainst));
   }
 
   /**
@@ -335,7 +381,8 @@ export function createGatewayKernel({
         code: 'PLANNER_CEREMONY_INVALID'
       });
     }
-    return produced;
+    // The destination's trusted view is checked like any other host action `[INT:CON-130]`.
+    return sealHostActions(produced);
   }
 
   async function issueResolvedPlan(result, issuedAgainst) {
@@ -892,7 +939,7 @@ export function createGatewayKernel({
       }
     }
     // An executor names follow-ups the way a planner does; they leave here as signed selections.
-    return validateSflowResult(sealPlannerNavigation(produced, currentBinding()));
+    return validateSflowResult(sealPlannerNavigation(sealHostActions(produced), currentBinding()));
   }
 
   return kernel;

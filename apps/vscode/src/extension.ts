@@ -598,8 +598,9 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     const { kernel } = gatewaySession(route);
     const preview = (review.review?.preview ?? {}) as Record<string, any>;
     const subject = String(preview.subject?.id ?? preview.workspace?.id ?? preview.watchId ?? '');
-    // The kernel's text, as the MCP client shows it: what will change first, long fields cut alone.
-    const choice = await vscode.window.showWarningMessage(
+    // The kernel's text, as the MCP client shows it: what will change first, long fields cut alone. The
+    // shared presenter keeps the modal small and opens the whole text on request before consent.
+    const choice = await showCompactWarningMessage(
       review.confirmationText.title, { modal: true, detail: review.confirmationText.detail }, 'Confirm'
     );
     if (choice !== 'Confirm') return null;
@@ -615,7 +616,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       return await kernel.run({ planId: review.planId }, { confirmationReceiptId: receipt.receiptId, confirmationValue: receipt.value });
     } catch (error) {
       output.appendLine(`[gateway] the plan could not be carried out: ${(error as Error).message}`);
-      void vscode.window.showErrorMessage(`Singularity Flow did not carry that out: ${(error as Error).message}`);
+      showRefusal(error, { headline: 'Singularity Flow did not carry that out' });
       return null;
     }
   }

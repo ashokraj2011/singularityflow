@@ -353,7 +353,7 @@ export async function problemInvestigate({ arguments: args = {}, subject = null,
   }
   // `[INT:REQ-096]`: a finding may become governed work, through its own reviewed start plan.
   next.push(plannerNavigation({
-    handle: 'investigation:start', id: 'investigation:start', label: 'Start a governed bug Story from this', rank: next.length,
+    handle: 'investigation:start', id: 'investigation:start', label: 'Start a bug Story from this', rank: next.length,
     kind: 'read', reasonCode: 'investigation.start-from-finding', confirmation: 'none', interaction: 'navigation',
     emphasis: 'link', executable: false, fallback: { label: 'Start in the terminal', command: 'sflow start <WORK-ID>' }
   }, 'work.start.intake', { source: 'bug-report', summary: String(args.symptom).slice(0, 1900) }));

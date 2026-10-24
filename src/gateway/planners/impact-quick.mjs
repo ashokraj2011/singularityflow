@@ -118,7 +118,7 @@ export function impactQuickResult({
      * confirmed.
      */
     ...(paths.length ? [plannerNavigation({
-      handle: 'impact:start-from-finding', id: 'impact:start-from-finding', label: 'Start governed work from this change',
+      handle: 'impact:start-from-finding', id: 'impact:start-from-finding', label: 'Start a Story from this change',
       rank: activeWork.length, kind: 'read', reasonCode: 'impact.start-reviewed-plan', confirmation: 'none',
       interaction: 'navigation', emphasis: 'link', executable: false,
       fallback: { label: 'Start in the terminal', command: 'sflow start <WORK-ID>' }

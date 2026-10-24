@@ -193,7 +193,7 @@ test('a bisection refuses a range it would only partly walk', { timeout: 300_000
   for (let index = 1; index <= 4100; index += 1) {
     stream.push(`commit refs/heads/main\nmark :${index}\ncommitter Dev <dev@example.test> ${1_700_000_000 + index} +0000\ndata 6\nc${String(index).padStart(4, '0')}\n${index === 1 ? `from ${merged}\n` : ''}`);
   }
-  const imported = spawnSync('git', ['fast-import', '--quiet'], { cwd: root, input: `${stream.join('\n')}\n`, encoding: 'utf8', timeout: 120_000 });
+  const imported = spawnSync('git', ['fast-import', '--quiet'], { cwd: root, input: `${stream.join('\n')}\n`, encoding: 'utf8', timeout: childTimeout(120_000) });
   assert.equal(imported.status, 0, imported.stderr);
   git(root, 'reset', '-q', '--hard', 'main');
   const long = await plan(commits[0], 'HEAD');

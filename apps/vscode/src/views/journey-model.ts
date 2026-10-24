@@ -22,7 +22,7 @@ import {
 import {
   phaseSubmissionPresentation, stepActionHoldLabel, storyArtifactPublicationLabel
 } from './submission-presentation.ts';
-import { commandGuidance } from '../copilot-command.ts';
+import { routedCommandGuidance } from '../copilot-command.ts';
 
 export interface JourneyApproval {
   actor: string;
@@ -257,20 +257,20 @@ function storyJourneyOf(
   const currentPhase = workflow.currentPhase ? workflow.phases[workflow.currentPhase] ?? null : null;
   const presentation = currentPhase ? phaseSubmissionPresentation(currentPhase, readiness) : null;
   const actionRoutes = presentation?.kind === 'ready-to-submit' && readiness?.nextCommand
-    ? commandGuidance({ command: readiness.nextCommand, skill: '/sf-submit' })
+    ? routedCommandGuidance({ command: readiness.nextCommand, skill: '/sf-submit' })
     : presentation?.kind === 'generation-required' && presentation.skill && readiness?.nextCommand
-      ? commandGuidance({ command: readiness.nextCommand, skill: presentation.skill })
+      ? routedCommandGuidance({ command: readiness.nextCommand, skill: presentation.skill })
       : presentation?.kind === 'source-review-required' && presentation.skill && readiness?.nextCommand
-        ? commandGuidance({ command: readiness.nextCommand, skill: presentation.skill })
+        ? routedCommandGuidance({ command: readiness.nextCommand, skill: presentation.skill })
       : presentation?.kind === 'step-action-required' && readiness?.nextCommand
-        ? commandGuidance({ command: readiness.nextCommand, skill: readiness.nextSkill ?? '/sf-integrations' })
+        ? routedCommandGuidance({ command: readiness.nextCommand, skill: readiness.nextSkill ?? '/sf-integrations' })
       : null;
   // A waiting decision is the next action, before anything about submitting: the approved phase
   // has nothing left to do until a person chooses.
   const decisionView = snapshot.decisions ?? null;
   const pending: PendingDecisionView | null = workflow.pendingDecision ? decisionView?.pending ?? null : null;
   const decisionRoutes = pending
-    ? commandGuidance({ command: `singularity-flow decision show ${workflow.workItem.id}`, skill: '/sf-decide' })
+    ? routedCommandGuidance({ command: `singularity-flow decision show ${workflow.workItem.id}`, skill: '/sf-decide' })
     : null;
   const ahead = decisionView?.ahead ?? null;
   const decisionAhead = !pending && ahead && ahead.after === workflow.currentPhase
@@ -282,7 +282,7 @@ function storyJourneyOf(
   const decisionInputs: DecisionInputSpec[] = readiness?.decisionInputs ?? [];
   // Decisions the approval would be refused for: the decision list is the next action, never an approval.
   const held = currentPhase && readiness?.phaseId === currentPhase.id && readiness.classification === 'decisions-required'
-    && readiness.nextCommand ? commandGuidance({ command: readiness.nextCommand, skill: '/sf-decide' }) : null;
+    && readiness.nextCommand ? routedCommandGuidance({ command: readiness.nextCommand, skill: '/sf-decide' }) : null;
   return {
     kind: 'story',
     id: workflow.workItem.id,
@@ -475,7 +475,7 @@ function initiativeJourneyOf(initiative: InitiativeSnapshot, selectedStageId: st
   // Initiative next actions also arrive from serialized engine state. Do not expose or execute one
   // until the shared command boundary proves the shell command and any supplied Copilot route are
   // the same registered journey.
-  const nextRoutes = next ? commandGuidance(next) : null;
+  const nextRoutes = next ? routedCommandGuidance(next) : null;
 
   return {
     kind: 'initiative',

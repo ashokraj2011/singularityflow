@@ -10,26 +10,25 @@
  * show and on the VS Code approval page; none of them stops the review.
  */
 import assert from 'node:assert/strict';
-import { spawnSync } from 'node:child_process';
-import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
-import os from 'node:os';
+import { readFile, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import test from 'node:test';
 import { fileURLToPath } from 'node:url';
-import YAML from 'yaml';
 
-import { refusalDetails, refusalRemediationPlan, renderRefusalPlan } from '../src/refusal-remediation.mjs';
+import { refusalDetails, refusalEnvelope, refusalRemediationPlan, renderRefusalPlan } from '../src/refusal-remediation.mjs';
 import { blockingCommitLines } from '../src/owed-decisions.mjs';
+import { actionCommandLines, copilotAction, copilotCommandForCommand } from '../src/copilot-guidance.mjs';
+import { safeCommandGuidance } from '../src/safe-command-guidance.mjs';
 import { SingularityFlowError } from '../src/util.mjs';
-import { childTimeout } from './helpers/child-timeout.mjs';
+import { CLI, specification, submittedPlanningStory } from './helpers/submitted-planning-story.mjs';
 
 const PACKAGE = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
-const CLI = path.join(PACKAGE, 'bin/singularity-flow.mjs');
 const WORK = 'HEX-2018';
 const APPROVE = ['approve', 'planning', '--work-id', WORK];
 const STATUS = `singularity-flow story intent-amendment status --work-id ${WORK} --json`;
 const DECIDE = `singularity-flow story intent-amendment decide AMD-001 --decision <approve|reject> --confirm AMD-001 --work-id ${WORK}`;
 const EXISTING_ROUTES = ['inspect-current-phase', 'leave-approval-turn', 'inspect-current-phase-evidence'];
+const NO_ROUTE = 'no verified Copilot equivalent; use the Shell command';
 
 function refusal(details) {
   return new SingularityFlowError('history changed', { code: 'STORY_REVIEW_INTERVENING_COMMIT',
@@ -61,6 +60,64 @@ test('an undecided amendment after the submission is seen and decided before any
   const rendered = renderRefusalPlan(plan);
   assert.match(rendered, /an intent amendment proposed after its submission waits for a person's decision/u);
   assert.ok(rendered.indexOf(STATUS) < rendered.indexOf('End this approval-only turn'), rendered);
+});
+
+/**
+ * Seen live (2026-10-24, hex-2018): both commands of this plan printed `Copilot: /sf-reject`. The
+ * crosswalk sent the whole `story intent-amendment` family to /sf-reject, which returns the phase:
+ * a different decision, and one its approval-only turn may not record for the amendment. Each step
+ * now carries its own routes, and neither the read nor the person's decision has a Copilot one.
+ */
+test('each step of the pending-amendment plan carries its own routes, and none of them is /sf-reject', async () => {
+  const plan = refusalRemediationPlan(refusal(pendingDetails), APPROVE);
+  const routes = plan.steps.map(({ id, command, skill, copilotCommand, copilotReason = null }) => ({ id, command, skill, copilotCommand, copilotReason }));
+  assert.deepEqual(routes, [
+    { id: 'inspect-intent-amendment', command: STATUS, skill: null, copilotCommand: null, copilotReason: null },
+    { id: 'decide-intent-amendment', command: DECIDE, skill: null, copilotCommand: null, copilotReason: 'no verified equivalent: decide it in your terminal' },
+    { id: 'leave-approval-turn', command: null, skill: null, copilotCommand: null, copilotReason: null }
+  ]);
+  const rendered = renderRefusalPlan(plan).split('\n');
+  const routesOf = (command) => rendered.slice(rendered.indexOf(`     Shell: ${command}`) - 1, rendered.indexOf(`     Shell: ${command}`) + 2);
+  assert.deepEqual(routesOf(STATUS), [`     Copilot: ${NO_ROUTE}`, `     Shell: ${STATUS}`, '     VS Code (model-free): not available for this action']);
+  assert.deepEqual(routesOf(DECIDE), ['     Copilot: no verified equivalent: decide it in your terminal', `     Shell: ${DECIDE}`,
+    '     VS Code (model-free): not available for this action']);
+  assert.doesNotMatch(rendered.join('\n'), /Copilot: \/sf-/u);
+  // Returning the phase is named as what it is, and as not deciding the amendment.
+  assert.match(plan.steps[1].label, /a person returns planning with \/sf-reject in a new turn; that does not decide AMD-001/u);
+
+  // VS Code rebuilds every route from the command, so it reaches the same answer.
+  const envelope = JSON.parse(JSON.stringify(refusalEnvelope(refusal(pendingDetails), APPROVE)));
+  const { refusalFor } = await import('../apps/vscode/src/views/refusal.ts');
+  const { resultCardHtml } = await import('../apps/vscode/src/views/result-card-page.ts');
+  const { commandGuidanceText } = await import('../apps/vscode/src/views/command-guidance.ts');
+  const { view: card } = refusalFor({ message: 'history changed', result: envelope });
+  assert.deepEqual(card.actions.map(({ command, skill, copilotCommand }) => ({ command, skill, copilotCommand })),
+    [{ command: STATUS, skill: null, copilotCommand: null }, { command: DECIDE, skill: null, copilotCommand: null }]);
+  const html = resultCardHtml(card);
+  assert.equal(html.split('Copilot: no verified equivalent; use the Shell command').length - 1, 2, html);
+  assert.doesNotMatch(html, /\/sf-reject<\/code>|Copilot: <code>/u);
+  assert.equal(commandGuidanceText(STATUS), `Copilot: no verified equivalent; use the Shell command\nShell: ${STATUS}\nVS Code (model-free): not available for this action`);
+});
+
+test('the intent-amendment crosswalk routes only drafting and proposing to /sf-reject', () => {
+  for (const command of [STATUS, DECIDE, `singularity-flow story intent-amendment --work-id ${WORK}`,
+    `singularity-flow story intent-amendment acknowledge AMD-001 --work-id ${WORK}`]) {
+    const guidance = safeCommandGuidance(command);
+    assert.equal(guidance?.command, command, command);
+    assert.equal(guidance.skill, null, command);
+    assert.equal(guidance.copilotCommand, null, command);
+    assert.equal(copilotCommandForCommand(command, '/sf-reject'), null, `a supplied skill is no route either: ${command}`);
+    // A producer asserting the old route is contradicted, never shown.
+    assert.equal(safeCommandGuidance({ command, skill: '/sf-reject' }), null, command);
+    assert.equal(safeCommandGuidance({ command, copilotCommand: '/sf-reject' }), null, command);
+    const action = copilotAction({ skill: '/sf-reject', command, reason: 'x' });
+    assert.deepEqual([action.skill, action.copilotCommand], [null, null], command);
+    assert.equal(actionCommandLines({ skill: '/sf-reject', command })[1], 'Copilot: no verified equivalent; use the Shell command');
+  }
+  for (const command of [`singularity-flow story intent-amendment draft --work-id ${WORK}`,
+    `singularity-flow story intent-amendment propose --work-id ${WORK} --file amended.md --reason x`]) {
+    assert.equal(safeCommandGuidance(command)?.copilotCommand, '/sf-reject', command);
+  }
 });
 
 test('commits of any other kind keep the existing recover and new-turn reject routes', () => {
@@ -107,7 +164,9 @@ test('the advisory prints as warning lines with every route, and the approval pa
   const lines = blockingCommitLines(advisory);
   assert.equal(lines[0], `${advisory.statement} (Advisory; the approval gate decides.)`);
   assert.ok(lines.includes(`    Shell: ${STATUS}`) && lines.includes(`    Shell: ${DECIDE}`), lines.join('\n'));
-  assert.ok(lines.includes('    Copilot: /sf-reject'), lines.join('\n'));
+  // Neither the read nor the person's decision is /sf-reject's: that skill returns the phase.
+  assert.equal(lines.filter((line) => line === `    Copilot: ${NO_ROUTE}`).length, 2, lines.join('\n'));
+  assert.ok(!lines.some((line) => line.includes('/sf-reject')), lines.join('\n'));
   assert.deepEqual(blockingCommitLines(null), []);
   const { approvalBlockingCommits, approvalBlockingCommitsHtml } = await import('../apps/vscode/src/views/webview.ts');
   const page = approvalBlockingCommits(advisory);
@@ -124,97 +183,9 @@ test('the advisory prints as warning lines with every route, and the approval pa
   assert.match(reviewPage, /\.approval-held pre \{ white-space:pre-wrap; overflow-wrap:anywhere; \}/u);
 });
 
-function specification(value) {
-  return [
-    `# ${WORK} — Specification`, '',
-    '## Agent brief', '', `The exported value must be ${value}, with a matching executable test.`, '',
-    '## Actors', '', 'A user reads the value.', '',
-    '## User scenarios', '', '### S1 — Read the value', '',
-    '- **Given** a ready application', '  **When** a user reads the value', `  **Then** ${value} is displayed.`, '',
-    '## Failure and empty states', '', 'A missing value is rejected without inventing data.', '',
-    '## Permissions', '', 'A user may read the value without special privileges.', '',
-    '## Boundary conditions', '', 'Only the approved integer value is exposed.', '',
-    '## Requirements', '',
-    `- The user sees the value ${value}. [${WORK}:AC-001]`,
-    `- The application returns the value ${value}. [${WORK}:REQ-002]`, '',
-    '## Scenario coverage', '',
-    '| Clause | Scenario | Outcome |', '|---|---|---|',
-    `| \`${WORK}:AC-001\` | S1 | success |`, `| \`${WORK}:REQ-002\` | S1 | success |`, '',
-    '## Boundary and non-functional requirements', '', 'Do not expose private data; invalid input is rejected deterministically.', '',
-    '## Non-functional requirements', '', 'A local read returns deterministically without a network call.', '',
-    '## Assumptions', '', 'The value is available in the local application.', '',
-    '## Planned implementation evidence', '',
-    '| Clause | Expected paths | Planned tests |', '|---|---|---|',
-    `| \`${WORK}:AC-001\` | \`src/value.mjs\` | \`test/value.test.mjs\` |`,
-    `| \`${WORK}:REQ-002\` | \`src/value.mjs\` | \`test/value.test.mjs\` |`, '',
-    '## Evidence and assumptions', '', 'The pinned repository is the implementation source.', '',
-    '## Out of scope', '', 'No unrelated application changes.'
-  ].join('\n');
-}
-
-/** A Story whose planning was submitted and awaits approval, in a repository of its own. */
-async function submittedPlanningStory(t) {
-  const directory = await mkdtemp(path.join(os.tmpdir(), 'sflow-approval-history-'));
-  const root = path.join(directory, 'repository');
-  const remote = path.join(directory, 'origin.git');
-  t.after(() => rm(directory, { recursive: true, force: true }));
-  const run = (command, args, { allowFailure = false, cwd = root } = {}) => {
-    const result = spawnSync(command, args, { cwd, encoding: 'utf8', timeout: childTimeout(60_000),
-      env: { ...process.env, NODE_ENV: 'test', SINGULARITY_FLOW_TEST_IDENTITY: 'History Tester' } });
-    if (!allowFailure) assert.equal(result.status, 0, `${command} ${args.join(' ')}\n${result.stdout}\n${result.stderr}`);
-    return result;
-  };
-  run('git', ['init', '-q', '-b', 'main', root], { cwd: directory });
-  const git = (...args) => run('git', args).stdout.trim();
-  const cli = (...args) => run(process.execPath, [CLI, '--no-model', ...args]);
-  git('config', 'user.name', 'History Tester');
-  git('config', 'user.email', 'history@example.test');
-  await writeFile(path.join(root, 'package.json'), JSON.stringify({ type: 'module', private: true, scripts: { test: 'node --test' } }));
-  cli('init');
-  const configurationPath = path.join(root, 'singularity/workflow.yml');
-  const configuration = YAML.parse(await readFile(configurationPath, 'utf8'));
-  configuration.worldModel.grounding = 'off';
-  configuration.approvalSecurity = { profile: 'poc' };
-  configuration.repositoryReadiness = { ...(configuration.repositoryReadiness ?? {}), requiredBeforeStory: false };
-  for (const authority of Object.values(configuration.approvalAuthorities)) authority.allowAnyGitIdentity = true;
-  configuration.workTypes['spec-driven-standard'].sourceReview = { mode: 'off' };
-  await writeFile(configurationPath, YAML.stringify(configuration));
-  git('add', '.');
-  git('commit', '-qm', 'Initialize approval history fixture');
-  run('git', ['init', '--bare', '-b', 'main', remote]);
-  git('remote', 'add', 'origin', remote);
-  git('push', '-q', '-u', 'origin', 'main');
-
-  cli('start', WORK, '--from-branch', 'main', '--work-type', 'spec-driven-standard',
-    '--title', 'Validate a value', '--description', 'Return an approved value.');
-  const item = path.join(root, 'singularity/work-items', WORK);
-  await writeFile(path.join(item, 'artifacts/specification/spec.md'), specification(1));
-  cli('artifact', 'scan', '--phase', 'specification');
-  cli('phase', 'publish', 'specification', '--authored', 'human', '--channel', 'manual-in-place');
-  cli('submit', 'specification', '--skip-checks');
-  cli('approve', 'specification', '--yes');
-  cli('prepare', 'planning');
-  await writeFile(path.join(item, 'artifacts/planning/plan.md'), [
-    `# ${WORK} — Implementation plan`, '',
-    '## Agent brief', '', 'Return the approved value and prove both clauses with one focused test.', '',
-    '## Approach', '', 'Export a constant from the value module and assert it in a unit test.', '',
-    '## Affected surfaces', '', '| Surface | Change | Serves |', '|---|---|---|',
-    `| \`src/value.mjs\` | exported value | ${WORK}:REQ-002 |`, '',
-    '## Test strategy', '', '| Clause | Expected paths | Planned tests |', '|---|---|---|',
-    `| \`${WORK}:AC-001\` | \`src/value.mjs\` | \`test/value.test.mjs\` |`,
-    `| \`${WORK}:REQ-002\` | \`src/value.mjs\` | \`test/value.test.mjs\` |`, '',
-    '## Risks and rollback', '', 'Risk is a wrong constant; rollback restores the previous module.', ''
-  ].join('\n'));
-  cli('artifact', 'scan', '--phase', 'planning');
-  cli('phase', 'publish', 'planning', '--authored', 'human', '--channel', 'manual-in-place');
-  cli('submit', 'planning', '--skip-checks');
-  const submitted = git('rev-parse', 'HEAD');
-  const candidate = path.join(directory, 'amended-spec.md');
-  return { run, git, cli, item, submitted, candidate };
-}
 
 test('approving a submitted phase names each later commit and leads with an undecided amendment', async (t) => {
-  const { run, git, cli, submitted, candidate } = await submittedPlanningStory(t);
+  const { run, git, cli, submitted, candidate } = await submittedPlanningStory(t, WORK);
   assert.equal(JSON.parse(cli('status', WORK, '--submission-readiness', '--json').stdout).blockingCommits, undefined,
     'nothing is named while nothing blocks');
   const refuse = () => {
@@ -241,7 +212,7 @@ test('approving a submitted phase names each later commit and leads with an unde
   git('reset', '-q', '--hard', submitted);
 
   // An amendment proposed while planning waits for review.
-  await writeFile(candidate, specification(2));
+  await writeFile(candidate, specification(WORK, 2));
   cli('story', 'intent-amendment', 'propose', '--file', candidate, '--reason', 'Review showed that value 2 is required.');
   const proposal = git('rev-parse', '--short=12', 'HEAD');
   // Named before the review too, as an advisory that changes no route and stops nothing.
@@ -254,6 +225,16 @@ test('approving a submitted phase names each later commit and leads with an unde
     [[proposal, `[${WORK}][intent-amendment:propose] AMD-001`, 'intent-amendment-proposal']]);
   assert.deepEqual(readiness.blockingCommits.pendingIntentAmendments.map((entry) => entry.id), ['AMD-001']);
   assert.deepEqual(readiness.blockingCommits.actions.map((action) => action.command), [STATUS, DECIDE]);
+  // SPEC-OAP M1: the gate's own preview names the same hold, who clears it and its route, and next
+  // steps offer that route where they offered the approval.
+  assert.equal(readiness.approvalCheck.ready, false);
+  assert.deepEqual(readiness.approvalCheck.holds.map((hold) => [hold.code, hold.owner, hold.action?.command]),
+    [['STORY_REVIEW_INTERVENING_COMMIT', 'someone-decides', STATUS]]);
+  const next = JSON.parse(cli('nextsteps', WORK, '--json').stdout);
+  const nowActions = (next.actions ?? next.data?.actions ?? []).filter((entry) => entry.timing === 'now');
+  assert.equal(nowActions[0]?.command, STATUS, JSON.stringify(nowActions.map((entry) => entry.command)));
+  assert.ok(!(next.actions ?? next.data?.actions ?? []).some((entry) => entry.command?.startsWith('singularity-flow approve planning ')),
+    'no approval is offered into a refusal');
   const packet = JSON.parse(cli('choices', 'begin', 'approve', WORK, '--json', '--review-packet').stdout);
   assert.equal(packet.ready, false, 'the receipt is begun as before; nothing is answered');
   assert.deepEqual(packet.approvalPacket.readiness.blockingCommits, readiness.blockingCommits);
@@ -291,11 +272,11 @@ test('approving a submitted phase names each later commit and leads with an unde
 });
 
 test('approving an amendment reopens the step awaiting approval, so its acknowledgement precedes a fresh submission', async (t) => {
-  const { cli, item, candidate } = await submittedPlanningStory(t);
+  const { cli, item, candidate } = await submittedPlanningStory(t, WORK);
   // SPEC-OAP D4 did not reproduce: approving an amendment reopens the step awaiting approval, even one
   // that only adds a clause nothing cites, so its acknowledgement always precedes a fresh submission
   // and never sits between a submission and its approval.
-  await writeFile(candidate, specification(1).replace('## Scenario coverage', `- The value is logged once. [${WORK}:REQ-009]\n\n## Scenario coverage`));
+  await writeFile(candidate, specification(WORK, 1).replace('## Scenario coverage', `- The value is logged once. [${WORK}:REQ-009]\n\n## Scenario coverage`));
   cli('story', 'intent-amendment', 'propose', '--file', candidate, '--reason', 'Review showed the value must be logged.');
   cli('story', 'intent-amendment', 'decide', 'AMD-001', '--decision', 'approve', '--confirm', 'AMD-001');
   const reopened = JSON.parse(await readFile(path.join(item, 'workflow.json'), 'utf8'));

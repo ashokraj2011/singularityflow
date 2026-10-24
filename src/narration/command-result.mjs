@@ -87,13 +87,15 @@ export function because(code, source, { ref = null, slots = {}, topic = null } =
 
 /** One valid continuation. */
 export function action({ id, label, command, skill = null, rank = 'NOW', kind = 'workflow', modelPolicy = 'never' }) {
-  const skillId = directCopilotSkillId(skill) ?? copilotSkillForCommand(command);
+  const copilotCommand = copilotCommandForCommand(command, skill ?? copilotSkillForCommand(command));
+  // A command no skill carries out has no Copilot route, so it names no skill either.
+  const skillId = copilotCommand === null ? null : directCopilotSkillId(skill) ?? copilotSkillForCommand(command);
   return {
     id,
     label,
     command,
     skill: skillId,
-    copilotCommand: copilotCommandForCommand(command, skill ?? skillId),
+    copilotCommand,
     modelFreeCommand: safeCommandGuidance({ command, skill: skillId })?.modelFreeCommand ?? null,
     rank,
     kind,

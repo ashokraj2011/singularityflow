@@ -159,7 +159,8 @@ export type ResultCardView = {
   readonly guidance: {
     readonly context: { readonly workspace: string | null; readonly workId: string | null; readonly phase: string | null };
     readonly recommendation: {
-      readonly command: string; readonly skill: string; readonly copilotCommand: string;
+      /** Both null for a command no packaged skill carries out (an amendment's decision). */
+      readonly command: string; readonly skill: string | null; readonly copilotCommand: string | null;
       readonly modelFreeCommand?: string;
       readonly copyable: boolean;
       readonly reason: string | null;

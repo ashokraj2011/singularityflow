@@ -12,8 +12,9 @@ export type CommandGuidance = Readonly<{
   command: string;
   executable: 'singularity-flow';
   argv: readonly string[];
-  skill: string;
-  copilotCommand: string;
+  /** Null, with `copilotCommand`, for a command no packaged skill carries out. */
+  skill: string | null;
+  copilotCommand: string | null;
   modelFreeCommand: string | null;
   copyable: boolean;
   platformCommands: Readonly<{ darwin: string; linux: string; win32: string }> | null;
@@ -38,6 +39,20 @@ export function commandGuidance(value: unknown): CommandGuidance | null {
     copyable: guidance.copyable,
     platformCommands: guidance.platformCommands
   });
+}
+
+/** Guidance for a command a packaged skill carries out, so both Copilot fields are present. */
+export type RoutedCommandGuidance = CommandGuidance & Readonly<{ skill: string; copilotCommand: string }>;
+
+/** `commandGuidance` for surfaces that only offer actions with a Copilot route; null otherwise. */
+export function routedCommandGuidance(value: unknown): RoutedCommandGuidance | null {
+  const guidance = commandGuidance(value);
+  return guidance?.skill && guidance.copilotCommand ? guidance as RoutedCommandGuidance : null;
+}
+
+/** The value after a "Copilot:" label: the route, or the contract's words when no skill carries it out. */
+export function copilotRouteText(command: string | null | undefined): string {
+  return command || 'no verified equivalent; use the Shell command';
 }
 
 /**

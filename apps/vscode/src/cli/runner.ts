@@ -19,7 +19,7 @@ import { StringDecoder } from 'node:string_decoder';
 import { executeGalAsyncRead } from '../../../../src/gal-async-read.mjs';
 import { gitHostChildEnvironment, gitHostSearchDirectories, isAppleDeveloperGit } from '../../../../src/git-host-selection.mjs';
 import { recordHostCliProcessCompleted, recordHostCliProcessStarted } from '../host-performance.ts';
-import { commandGuidance, modelFreeRouteText } from '../copilot-command.ts';
+import { commandGuidance, copilotRouteText, modelFreeRouteText } from '../copilot-command.ts';
 import { ProgressLineSplitter } from './progress.ts';
 
 /** Lifecycle snapshots include branch cataloguing and deterministic governance checks. */
@@ -1742,7 +1742,7 @@ export function humanError(stderr: string): string {
       const safeHeadline = safeDisplayDiagnosticText(headline);
       if (guidance) return [
         safeHeadline,
-        `Copilot: ${safeDisplayDiagnosticText(guidance.copilotCommand)}`,
+        `Copilot: ${safeDisplayDiagnosticText(copilotRouteText(guidance.copilotCommand))}`,
         `Shell: ${safeDisplayDiagnosticText(guidance.command)}`,
         `VS Code (model-free): ${safeDisplayDiagnosticText(modelFreeRouteText(guidance.modelFreeCommand))}`
       ].join('\n');

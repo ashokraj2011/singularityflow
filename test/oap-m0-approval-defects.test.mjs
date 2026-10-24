@@ -23,11 +23,13 @@ const TOMORROW = new Date(Date.now() + 86_400_000).toISOString().slice(0, 10);
 async function approvalPage() {
   const source = await readFile(new URL('../apps/vscode/src/views/approval-review.ts', import.meta.url), 'utf8');
   const exports = {};
+  const approvalsModel = await import('../apps/vscode/src/views/approvals-model.ts');
   const context = vm.createContext({ exports, Date, require(name) {
     if (name === 'vscode') return {};
     if (name === './messages.ts') return messages;
     if (name === './webview.ts') return webview;
     if (name === './navigate.ts') return { navigateTo() {} };
+    if (name === './approvals-model.ts') return approvalsModel;
     throw new Error(`Unexpected dependency: ${name}`);
   } });
   vm.runInContext(ts.transpileModule(source, { compilerOptions: {

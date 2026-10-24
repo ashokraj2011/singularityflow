@@ -12,8 +12,9 @@ import {
   registerMessageRouter, stringField, type InboundMessage
 } from './messages.ts';
 import { navigateTo } from './navigate.ts';
-import { approvalBlockingCommits, approvalBlockingCommitsHtml, contentSecurityPolicy, escape, evidenceConsistencyHtml, navigationTarget,
-  nonce, page, type EvidenceConsistencyPresentation } from './webview.ts';
+import { approvalBlockingCommits, approvalBlockingCommitsHtml, approvalHoldsHtml, contentSecurityPolicy, escape, evidenceConsistencyHtml,
+  navigationTarget, nonce, page, type EvidenceConsistencyPresentation } from './webview.ts';
+import { approvalHolds } from './approvals-model.ts';
 
 export const APPROVAL_DECISIONS = ['satisfied', 'exception', 'not-applicable'] as const;
 export type ApprovalChecklistDecision = {
@@ -76,6 +77,8 @@ export interface ApprovalReviewRequest {
    * readiness), read beside the bundle as returned. Advisory: the approval gate checks again.
    */
   blockingCommits?: unknown;
+  /** Whether approval would pass (`approvalCheck` of submission readiness), read the same way. Advisory. */
+  approvalCheck?: unknown;
   /** The step's test run (`tests summary --json`), when one is recorded: its label and totals. */
   testRun?: { label: string; totals: string } | null;
   priorExceptions: Array<{ article?: string; decision?: string; reason?: string; actor?: string }>;
@@ -353,7 +356,7 @@ export function approvalReviewBody(request: ApprovalReviewRequest, errors: strin
       <p class="meta">Review the exact generation, record every required decision, then type the phase confirmation.</p>
     </header>
     <div class="review-binding approval-binding">${binding}</div>
-    ${held}${approvalBlockingCommitsHtml(approvalBlockingCommits(request.blockingCommits))}${tests}${findings}${witnessed}${prior}${selfApproval}${evidenceConsistencyHtml(request.evidenceConsistency)}
+    ${held}${approvalHoldsHtml(approvalHolds(request.approvalCheck), { except: ['STORY_REVIEW_INTERVENING_COMMIT'] })}${approvalBlockingCommitsHtml(approvalBlockingCommits(request.blockingCommits))}${tests}${findings}${witnessed}${prior}${selfApproval}${evidenceConsistencyHtml(request.evidenceConsistency)}
       ${checklist}${witnessReview}
       <section class="approval-confirmation">
         <h2>Confirm your decision</h2>

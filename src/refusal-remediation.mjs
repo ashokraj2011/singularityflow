@@ -617,12 +617,12 @@ function pendingAmendmentSteps(_argv, error) {
       `See intent amendment ${amendment.id}, proposed${commit ? ` in ${commit}` : ''} after ${phase} was submitted`
         + `${clauses.length ? `; it changes ${clauses.join(', ')}` : ''}. It is still waiting for a decision, and ${phase} cannot be approved until it has one.`,
       `singularity-flow story intent-amendment status --work-id ${workId} --json`, 'remediation'),
-    step('decide-intent-amendment',
+    personTerminalStep(step('decide-intent-amendment',
       `A person who approves ${scope} decides ${amendment.id} in their own terminal; an agent cannot. `
         + `Approving it changes ${clauses.length ? 'those clauses' : 'the approved clauses'}, so ${phase} reopens to be revised and submitted again. `
-        + `Rejecting it keeps the approved clauses, but ${phase} still needs a fresh submission before approval (return it with /sf-reject in a new turn).`,
+        + `Rejecting it keeps the approved clauses, but ${phase} still needs a fresh submission before approval (a person returns ${phase} with /sf-reject in a new turn; that does not decide ${amendment.id}).`,
       `singularity-flow story intent-amendment decide ${amendment.id} --decision <approve|reject> --confirm ${amendment.id} --work-id ${workId}`,
-      'remediation')
+      'remediation'))
   ];
 }
 
@@ -643,6 +643,12 @@ function approvalChecklistSteps(argv, error) {
       null, 'remediation'),
     phase ? step('read-approval-checklist', 'Read the articles and their questions.', `singularity-flow phase show ${phase} --json`, 'diagnostic') : null
   ].filter(Boolean);
+}
+
+/** A person's own decision: no skill carries it out, so its Copilot line says to decide it in a terminal. */
+function personTerminalStep(entry) {
+  return entry && !entry.copilotCommand
+    ? Object.freeze({ ...entry, copilotReason: 'no verified equivalent: decide it in your terminal' }) : entry;
 }
 
 function localSyncSteps(argv, error) {

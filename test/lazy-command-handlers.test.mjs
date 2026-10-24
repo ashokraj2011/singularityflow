@@ -97,7 +97,16 @@ test('frequent lifecycle handlers do not reach the legacy dispatcher and stay un
     // +873 (approvalChecklistPrompt, the checklist articles phase show and the refusal name so Copilot can approve a
     // checklist phase) and state.mjs +512 (APPROVAL_CHECKLIST_INCOMPLETE with the unanswered articles): 9,075,033.
     // No new file.
-    assert.ok(closure.bytes <= 9_080_000, `${file} exceeds the 9 MB eager-source budget (${closure.bytes} bytes)`);
+    // 9,085,000 (next 5,000 boundary): SPEC-OAP M1 adds 8,684 to 9,075,033: state.mjs +7,440 (the approval gate
+    // as evaluateApproval's named stages, their shared facts and the record step that reuses them, so the preview
+    // and the gate are one code path) and nextsteps.mjs +1,244 (the approval holds take the approval's place):
+    // 9,083,717. approval-check.mjs loads lazily. No new file.
+    // 9,090,000 (next 5,000 boundary): an amendment's read, decision and acknowledgement name no Copilot skill,
+    // adding 2,153 to main 4a4a73e6's 9,083,994: command-skills.mjs +756 (null exact routes and
+    // commandLineWithoutSkill), safe-command-guidance.mjs +666 (no-skill guidance and its unavailable status),
+    // copilot-guidance.mjs +417, narration/command-result.mjs +169, phase-governance-routing.mjs +86 and
+    // shared/print-command-routes.mjs +59: 9,086,147. No new file.
+    assert.ok(closure.bytes <= 9_090_000, `${file} exceeds the 9 MB eager-source budget (${closure.bytes} bytes)`);
   }
 });
 

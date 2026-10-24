@@ -655,6 +655,25 @@ test('no agent turn accepts that a step\'s tests cannot run here or decides spec
   }
 });
 
+test('no agent turn decides an intent amendment; reading and acknowledging it stay where they were', async t => {
+  const f = await fixture(t);
+  const decide = 'singularity-flow story intent-amendment decide AMD-001 --decision reject --confirm AMD-001 --work-id PMC-1';
+  for (const [skill, session] of [['/sf-phase', 'author'], ['/sf-code', 'code'], ['/sf-recover', 'kernel'], ['/sf-reject', 'reject'], ['/sf-decide PMC-1', 'decider']]) {
+    const payload = await f.enter(skill, session);
+    const shell = command => mutationToolGuard({ ...payload, toolName: 'bash', toolArgs: { command, cwd: f.root } });
+    assert.deepEqual(await shell('singularity-flow story intent-amendment status --work-id PMC-1 --json'), {}, `${skill}: reading is allowed`);
+    for (const command of [decide, decide.replace('reject', 'approve')]) {
+      const denied = await shell(command);
+      assert.equal(denied.permissionDecision, 'deny', `${skill}: ${command}`);
+      assert.match(denied.permissionDecisionReason, /an intent amendment is decided by a person who approves the scope, in their own terminal, not by this turn/u, skill);
+    }
+  }
+  // An authoring turn may still acknowledge an approved amendment at the contributor's explicit choice.
+  const author = await f.enter('/sf-phase', 'author-ack');
+  assert.deepEqual(await mutationToolGuard({ ...author, toolName: 'bash', toolArgs: {
+    command: 'singularity-flow story intent-amendment acknowledge AMD-001 --work-id PMC-1', cwd: f.root } }), {});
+});
+
 test('no agent turn confirms what a business rule means or reviews a knowledge item; listing and drafting stay allowed', async t => {
   const f = await fixture(t);
   for (const [skill, session] of [['/sf-phase', 'author'], ['/sf-recover', 'kernel'], ['/sf-worldmodel', 'wm']]) {

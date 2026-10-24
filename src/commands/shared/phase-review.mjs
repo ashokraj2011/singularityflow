@@ -22,7 +22,7 @@ async function reusedTestEvidence(root, config, workflow, phase) {
   return { reusedTestEvidence: [...reuse.active, ...reuse.lapsed] };
 }
 
-export async function phaseReview(root, config, workflow, phase, { includeContinuation = false, includeBlockingCommits = true } = {}) {
+export async function phaseReview(root, config, workflow, phase, { includeContinuation = false, includeApprovalCheck = true } = {}) {
   const documentRead = await measureCommandSpan('phase.document-catalog', () => createDocumentReadSession(root, config, workflow));
   const records = documentRead.records
     .filter((record) => ['artifact', 'agent-brief'].includes(record.type)
@@ -172,9 +172,8 @@ export async function phaseReview(root, config, workflow, phase, { includeContin
       const prompt = approvalChecklistPrompt(resolvedSpecificationQualityPolicy(config, workflow, phase));
       return prompt ? { approvalChecklist: prompt } : {};
     }) : {}),
-    // Commits after the submission that approval would refuse for; advisory, the gate decides.
-    ...(includeBlockingCommits ? await (await import('../../review-intervening-commits.mjs'))
-      .approvalBlockingCommits(root, config, workflow, phase).then((blocking) => (blocking ? { blockingCommits: blocking } : {})) : {}),
+    // Whether approval would pass, and the commits it would refuse for; advisory, the gate decides.
+    ...(includeApprovalCheck ? await (await import('../../approval-check.mjs')).approvalAdvisories(root, config, workflow, phase) ?? {} : {}),
     documents,
     upstreamDiscrepancies: phaseUpstreamDiscrepancies(documents, workflow, phase.id),
     upstreamIssues: openUpstreamIssues(workflow).map(({ issue, status, supersededBy }) => ({ id: issue.id, phase: issue.phase, about: issue.about,

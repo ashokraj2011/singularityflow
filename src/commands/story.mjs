@@ -133,7 +133,7 @@ function printCommandRoutes(command, { skill = null, indent = '', label = null }
     console.log(`${indent}VS Code (model-free): not available for this action`);
     return;
   }
-  console.log(`${indent}Copilot: ${guidance.copilotCommand}`);
+  console.log(`${indent}Copilot: ${guidance.copilotCommand ?? 'no verified Copilot equivalent; use the Shell command'}`);
   console.log(`${indent}Shell: ${guidance.command}`);
   console.log(`${indent}VS Code (model-free): ${guidance.modelFreeCommand ?? 'not available for this action'}`);
 }

@@ -17,12 +17,13 @@ import { gatewayPlanners } from '../src/gateway/planners/index.mjs';
 import { createHostGateway, hostBinding } from '../src/gateway/host.mjs';
 import { createActionExecutor } from '../src/gateway/executor.mjs';
 import { gatewayRegistry } from '../src/gateway/operations.mjs';
-import { noEffects, sflowResult } from '../src/gateway/result.mjs';
+import { noEffects, repositoryReference, sflowResult } from '../src/gateway/result.mjs';
 import { planDescriptor } from '../src/gateway/plan-descriptor.mjs';
 import {
   assertModelInvocationAllowed, operationContext, withOperationContext
 } from '../src/operation-context.mjs';
 import { run } from '../src/util.mjs';
+import { assertNoCheckoutPath, readEach, repositoryReads, standaloneCheckout } from './helpers/standalone-checkout.mjs';
 
 // The local presentation profile outranks the Git name (311c5b5a). Redirect it so a developer's own
 // ~/.singularity-flow profile never decides which greeting source these tests observe.
@@ -477,4 +478,27 @@ test('editing bytes inside an already-dirty path invalidates an issued read hand
   const refused = await kernel.read({ resolutionId: issued });
   assert.equal(refused.kind, 'refusal');
   assert.equal(refused.why[0].code, 'gateway.handle-drifted');
+});
+
+test('a CLI host with no workspace names its checkout, and no result carries the checkout path', async (t) => {
+  const checkout = await standaloneCheckout(t);
+  // What `gateway serve` supplies outside a workspace, and what `story return` supplies: no repository ID.
+  const contexts = [{ workspace: null, repositoryId: null, storyId: null, workId: null, workKind: null }, { storyId: null }];
+  for (const [index, plannerContext] of contexts.entries()) {
+    const { kernel } = createHostGateway({
+      root: checkout, hostSessionId: `sess-standalone-${index}`, workspaceId: null, planners: gatewayPlanners(), plannerContext
+    });
+    assertNoCheckoutPath(await readEach(kernel, repositoryReads(path.basename(checkout))), checkout);
+  }
+});
+
+test('a checkout is named by its last segment in the identifier alphabet, so it can come back as an argument', () => {
+  assert.equal(repositoryReference('/work/payments-api'), 'payments-api');
+  assert.equal(repositoryReference('/work/My Repo (copy)/'), 'My-Repo-copy-');
+  assert.equal(repositoryReference('C:\\work\\.hidden'), 'hidden');
+  assert.equal(repositoryReference('/'), 'this-repository');
+  assert.equal(repositoryReference(null), null, 'a rootless host has no repository to name');
+  for (const root of ['/work/payments-api', '/work/My Repo (copy)/', 'C:\\work\\.hidden', '/']) {
+    assert.match(repositoryReference(root), /^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$/u, root);
+  }
 });

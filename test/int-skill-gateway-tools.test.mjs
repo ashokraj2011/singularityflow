@@ -208,7 +208,8 @@ test('through the MCP tool layer the two calls answer with every field the switc
   for (const field of ['workspace', 'repository', 'currentWork', 'attentionWork', 'personalization', 'today', 'yesterday']) {
     assert.ok(Object.hasOwn(answer.data, field), `data.${field}`);
   }
-  assert.equal(answer.data.repository.path, directory);
+  // The tool answer names the repository; its location stays off what the model reads.
+  assert.deepEqual([answer.data.repository.id, answer.data.repository.path], [path.basename(directory), null]);
   assert.equal(answer.data.currentWork.id, 'hex-1');
   // With no workspace there is no repository, and the answer says so with its `bootstrap` field.
   const { kernel: rootless } = createHostGateway({ root: null, hostSessionId: 'skill-tools-rootless', planners: gatewayPlanners() });

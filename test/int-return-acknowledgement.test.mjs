@@ -77,8 +77,9 @@ test('a value the host puts in plannerContext reaches the planner', async (t) =>
   assert.equal(seen[0].acknowledgedAt, '2026-08-16T09:00:00.000Z',
     'the supplied context reaches the planner rather than being replaced by the host defaults');
   // The host's own facts survive alongside it; supplying one key must not drop the rest.
-  assert.equal(seen[0].repositoryId, directory);
-  assert.ok(seen[0].workspace, 'the host still supplies its own context');
+  // A checkout no workspace registers is named by its last segment, never by its machine path.
+  assert.equal(seen[0].repositoryId, path.basename(directory));
+  assert.equal(seen[0].branch, 'main', 'the host still supplies its own context');
 });
 
 test('a thunk is re-read per call, so a later acknowledgement is the one used', async (t) => {

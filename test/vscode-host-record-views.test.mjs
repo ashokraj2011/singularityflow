@@ -226,10 +226,16 @@ test('the Investigation view shows the kept report, and says plainly when this w
   assert.equal(model.state, 'ready');
   assert.equal(model.choice, null, 'one report needs no choice');
   assert.deepEqual(model.facts.find(([label]) => label === 'Repository'), ['Repository', 'payments-api']);
-  // A window with no workspace repository ID passes its checkout root; the page names it, not the path.
-  const rooted = investigationView({ record: { ...kept, result: { ...result, data: { ...result.data, repository: { ...result.data.repository, id: repo } } } } });
+  // A window with no workspace repository ID: the report names the checkout, so the page never shows its path.
+  const editorSession = await import(pathToFileURL(path.join(root, 'apps', 'vscode', 'src', 'gateway-session.ts')).href);
+  t.after(() => editorSession.resetGatewaySession());
+  const session = editorSession.gatewaySession({ root: repo, workspaceId: null, workspaceName: null, repositoryId: null, origin: 'test' });
+  const resolved = await session.kernel.resolve({ utterance: 'investigate this bug', arguments: { symptom: 'postal check fails' } });
+  const unregistered = resolved.kind === 'read' && resolved.next.length === 1
+    ? await session.kernel.read({ resolutionId: resolved.next[0].handle }) : resolved;
+  const rooted = investigationView({ record: session.investigations.get(unregistered.data.investigationId) });
   assert.deepEqual(rooted.facts.find(([label]) => label === 'Repository'), ['Repository', path.basename(repo)]);
-  assert.doesNotMatch(hostRecordHtml(rooted, 'r0'), new RegExp(repo.replaceAll('/', '\\/'), 'u'));
+  assert.equal(hostRecordHtml(rooted, 'r0').includes(repo), false, 'the checkout path reached the page');
   const steps = model.sections.find((section) => section.heading === 'Evidence sequence');
   assert.deepEqual(steps.table.rows.map((row) => row[0]), EVIDENCE_SEQUENCE.map((step) => step.replaceAll('-', ' ')));
   const asked = model.sections.find((section) => section.heading === 'What was asked');

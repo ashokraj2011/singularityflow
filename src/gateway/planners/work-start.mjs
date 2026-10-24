@@ -19,7 +19,7 @@ import { randomUUID } from 'node:crypto';
 import { SingularityFlowError } from '../../util.mjs';
 import { gatewayStoreEntries, updateGatewayStore } from '../local-store.mjs';
 import { planDescriptor, plannerActor } from '../plan-descriptor.mjs';
-import { effects, noEffects, plannerNavigation, preservedAll, sflowResult } from '../result.mjs';
+import { effects, noEffects, plannerNavigation, preservedAll, repositoryReference, sflowResult } from '../result.mjs';
 import { resolveWorkRecord, workRecords } from '../work-records.mjs';
 
 /** The only shape a gateway can start in this build; the others stay on their explicit commands. */
@@ -87,7 +87,7 @@ export async function workStartPlan({ arguments: args = {}, root = null, context
     action: 'start-work',
     subject: { kind: 'story', id: intake.workId, title: intake.title ?? null },
     workspace: context.workspace?.id ?? null,
-    repository: context.repositoryId ?? root,
+    repository: context.repositoryId ?? repositoryReference(root),
     workProfile: { workType: workType.id, label: workType.label, phases: workType.phases },
     branch: { name: branch, base: intake.baseBranch ?? null, isolatedWorktree: true },
     source: tracker === 'none'

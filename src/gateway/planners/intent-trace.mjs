@@ -2,11 +2,11 @@
 import { buildChangeRegionManifest } from '../../comprehension/contracts.mjs';
 import { buildRepositoryChangeSet } from '../../repository-change-set.mjs';
 import { SingularityFlowError } from '../../util.mjs';
-import { noEffects, preservedAll, sflowResult } from '../result.mjs';
+import { noEffects, preservedAll, repositoryReference, sflowResult } from '../result.mjs';
 
 function repositoryMatches(root, requested, context) {
   const known = new Set([
-    root,
+    repositoryReference(root),
     context.repositoryId,
     context.repository?.id,
     context.repository?.name

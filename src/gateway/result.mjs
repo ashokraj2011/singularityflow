@@ -475,6 +475,20 @@ export function preservedAll(code, { source = 'deterministic', reference = null,
   return [{ code, source, scope: 'all', reference, slots }];
 }
 
+/**
+ * The repository ID a result carries when no workspace registered one. Never the checkout path.
+ *
+ * A machine path is not evidence: it names a person's home directory, and everything a result
+ * carries reaches a card, a log or a model's context. The checkout's last segment is what a reader
+ * recognizes, reduced to the identifier alphabet so it can come back as a `repositoryId` argument.
+ * The root itself stays the planner's `root` argument, where the file system needs it.
+ */
+export function repositoryReference(root) {
+  if (!root) return null;
+  const name = String(root).split(/[\\/]+/u).filter(Boolean).at(-1) ?? '';
+  return name.replace(/[^A-Za-z0-9._-]+/gu, '-').replace(/^[^A-Za-z0-9]+/u, '').slice(0, 128) || 'this-repository';
+}
+
 /** No effect at all. The only correct effects record for a refusal `[INT:CON-041]`. */
 export function noEffects() {
   return Object.fromEntries(EFFECT_KEYS.map((key) => [key, false]));

@@ -10,7 +10,7 @@
  * partial answer and a wrong one.
  */
 import { SingularityFlowError } from '../../util.mjs';
-import { noEffects, plannerNavigation, sflowResult } from '../result.mjs';
+import { noEffects, plannerNavigation, repositoryReference, sflowResult } from '../result.mjs';
 import { WORK_GROUP_ORDER, workRecords } from '../work-records.mjs';
 
 export function workListResult(records, { subject = null, group = null, repositoryScope = null } = {}) {
@@ -74,5 +74,5 @@ export async function workList({ arguments: args = {}, subject = null, root = nu
    */
   if (!root) throw new SingularityFlowError('work.list requires the repository root it should read.', { code: 'WORK_LIST_NO_ROOT' });
   const records = await workRecords(root, { includeCompleted: Boolean(args.includeCompleted), ...context });
-  return workListResult(records, { subject, group: args.group ?? null, repositoryScope: root });
+  return workListResult(records, { subject, group: args.group ?? null, repositoryScope: context.repositoryId ?? repositoryReference(root) });
 }

@@ -370,7 +370,8 @@ export function gatewaySession(context: GatewayRepositoryContext): GatewaySessio
       acknowledgedAt: acknowledgedAtProvider(),
       lens: homeLensProvider(),
       replyProfileName: chatProfileNameProvider(),
-      repositoryId: repositoryId ?? root,
+      // Null without a workspace: the host then names the checkout, never by its path.
+      repositoryId,
       leadRepositoryPath,
       bootstrap,
       ...(workspaceId ? {

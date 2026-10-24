@@ -13,6 +13,7 @@
 import { buildRepositorySubjectIndex } from '../repository-subject-index.mjs';
 import { approvalRequirementsMet, matchApprovalAuthority } from '../approval-authority.mjs';
 import { subjectKey, validateSubjectKey } from '../subject-ref.mjs';
+import { LIFECYCLE_EVENT } from '../vocabularies/catalog.mjs';
 
 /** In render order. A reader scans top-down and should hit their own work first. */
 export const WORK_GROUP_ORDER = Object.freeze([
@@ -71,11 +72,71 @@ export function phaseRail(workflow) {
  * History carries bookkeeping entries as well as material ones, and "last updated 2 minutes ago"
  * because a projection was rebuilt is the kind of freshness signal that teaches people to distrust
  * every timestamp on the screen.
+ *
+ * What is material is decided per lifecycle event, and every member of the lifecycle vocabulary
+ * has an entry: the history spellings of that event a person would call "what happened", or null
+ * for none. History spells one event several ways — an approval by the person who submitted is
+ * `phase_self_approved`, an Initiative's is `initiative_approved` — and a list of spellings kept
+ * apart from the vocabulary missed exactly those, so a Story submitted and then approved by its
+ * submitter still read "phase submitted". A spelling is filed under the event it records, which is
+ * not always the type its commit carries: an Initiative restart is committed as a configuration
+ * change. test/int-material-events.test.mjs fails on a member with no entry and on a spelling
+ * nothing writes.
  */
-const MATERIAL_EVENTS = new Set([
-  'phase_submitted', 'phase_approved', 'phase_rejected', 'phase_reopened',
-  'work_started', 'work_cancelled', 'publication_completed', 'publication_failed', 'rework_requested'
-]);
+export const MATERIAL_HISTORY_EVENTS = Object.freeze({
+  [LIFECYCLE_EVENT.BINDING]: ['work_started', 'initiative_started'],
+  [LIFECYCLE_EVENT.CONFIGURATION_CHANGED]: null,
+  [LIFECYCLE_EVENT.TEST_COMMAND_AMENDED]: null,
+  [LIFECYCLE_EVENT.TEST_SELECTION_CONFIRMED]: null,
+  [LIFECYCLE_EVENT.TEST_READINESS_REPAIRED]: null,
+  [LIFECYCLE_EVENT.TEST_RISK_ATTESTED]: null,
+  [LIFECYCLE_EVENT.TEST_RISK_ACCEPTED]: null,
+  [LIFECYCLE_EVENT.TEST_RISK_REVOKED]: null,
+  [LIFECYCLE_EVENT.ARTIFACT_GENERATED]: ['phase_generated', 'initiative_phase_published'],
+  // Including a submission whose checks failed, and one the step's approval mode or a waiver
+  // policy completes at once.
+  [LIFECYCLE_EVENT.APPROVAL_REQUESTED]: [
+    'phase_submitted', 'phase_validation_failed', 'phase_completed_without_approval', 'phase-approval-waived'
+  ],
+  [LIFECYCLE_EVENT.PHASE_APPROVED]: [
+    'phase_approved', 'phase_self_approved', 'initiative_approved', 'initiative_self_approved', 'epic_intake_completed'
+  ],
+  [LIFECYCLE_EVENT.PHASE_REJECTED]: ['phase_rejected', 'initiative_rejected'],
+  // A proposal holds the approval until a person decides it, so it is news even before then.
+  [LIFECYCLE_EVENT.INTENT_AMENDMENT_PROPOSED]: ['intent_amendment_proposed'],
+  [LIFECYCLE_EVENT.INTENT_AMENDMENT_APPROVED]: ['intent_amendment_approved'],
+  [LIFECYCLE_EVENT.INTENT_AMENDMENT_REJECTED]: ['intent_amendment_rejected'],
+  [LIFECYCLE_EVENT.INTENT_AMENDMENT_ACKNOWLEDGED]: null,
+  [LIFECYCLE_EVENT.SKILL_AMENDMENT_PROPOSED]: null,
+  [LIFECYCLE_EVENT.SKILL_AMENDMENT_APPROVED]: null,
+  [LIFECYCLE_EVENT.SKILL_AMENDMENT_REJECTED]: null,
+  [LIFECYCLE_EVENT.WORKFLOW_REOPENED]: ['workflow_reopened', 'initiative_restarted'],
+  [LIFECYCLE_EVENT.REWORK_ROLLED_FORWARD]: ['rework_rolled_forward'],
+  // A person's choice at a workflow decision, or on an appeal of a step's verdict. The review-safe
+  // decision lists change nothing a reviewer saw, and a route a rule chose is recorded just before
+  // the approval that reached it.
+  [LIFECYCLE_EVENT.DECISION_MADE]: ['decision_made', 'phase_appeal_decided'],
+  [LIFECYCLE_EVENT.SEQUENCE_OVERRIDE]: ['sequence_gate_overridden'],
+  [LIFECYCLE_EVENT.EVIDENCE_RECORDED]: null,
+  [LIFECYCLE_EVENT.EXTERNAL_SYNCHRONIZED]: null,
+  [LIFECYCLE_EVENT.BRANCH_LINKED]: null,
+  [LIFECYCLE_EVENT.TELEMETRY_RECORDED]: null,
+  [LIFECYCLE_EVENT.PROJECTION_RECONCILED]: null,
+  [LIFECYCLE_EVENT.IMPACT_CLASSIFIED]: null,
+  [LIFECYCLE_EVENT.IMPACT_OPTED_OUT]: null,
+  [LIFECYCLE_EVENT.IMPACT_EXPOSURE_RECORDED]: null,
+  [LIFECYCLE_EVENT.IMPACT_EVIDENCE_COLLECTED]: null,
+  [LIFECYCLE_EVENT.IMPACT_EVIDENCE_IMPORTED]: null,
+  [LIFECYCLE_EVENT.IMPACT_FINALIZED]: null,
+  [LIFECYCLE_EVENT.WORK_CANCELLED]: ['work_cancelled'],
+  [LIFECYCLE_EVENT.WORK_COMPLETED]: ['story_finalized_for_review', 'epic_publication_completed', 'epic_delivery_completed'],
+  // An ad hoc landing is a subject of its own, never a Story or Initiative in this view.
+  [LIFECYCLE_EVENT.ADHOC_LANDED]: null,
+  // A promotion reopens the capture step, as a reopen does.
+  [LIFECYCLE_EVENT.DESIGN_SOURCE_PROMOTED]: ['design_source_promoted']
+});
+
+const MATERIAL_EVENTS = new Set(Object.values(MATERIAL_HISTORY_EVENTS).flatMap((spellings) => spellings ?? []));
 
 export function lastMaterialEvent(workflow) {
   const history = Array.isArray(workflow?.history) ? workflow.history : [];

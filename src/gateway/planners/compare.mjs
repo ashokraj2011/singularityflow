@@ -16,7 +16,7 @@ import {
 } from '../../git-access.mjs';
 import { isGitRefName, SingularityFlowError } from '../../util.mjs';
 import { subjectWith } from '../handles.mjs';
-import { noEffects, plannerNavigation, preservedAll, sflowResult } from '../result.mjs';
+import { noEffects, plannerNavigation, preservedAll, repositoryReference, sflowResult } from '../result.mjs';
 
 /** The comparison kinds this planner answers from Git. The rest of `COMPARISON_SUBJECTS` refuse. */
 export const GIT_COMPARISONS = Object.freeze(['commit', 'branch', 'release', 'worktree']);
@@ -124,7 +124,7 @@ export async function comparePlanner({ arguments: args = {}, subject = null, roo
     mergeBase: rightCommit ? typedMergeBase(root, leftCommit, rightCommit) : null,
     counts: rightCommit ? typedAheadBehind(root, leftCommit, rightCommit) : { leftOnly: 0, rightOnly: 0 },
     changed: typedChangedPaths(root, leftCommit, rightCommit, { max: MAX_PATHS }),
-    repositoryId: context.repositoryId ?? context.repository?.id ?? root,
+    repositoryId: context.repositoryId ?? context.repository?.id ?? repositoryReference(root),
     subject
   });
 }

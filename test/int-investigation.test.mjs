@@ -6,7 +6,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
-import { mkdtemp, readdir, readFile, realpath, rm, writeFile } from 'node:fs/promises';
+import { mkdtemp, readdir, readFile, realpath, rename, rm, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -197,4 +197,37 @@ test('a bisection refuses a range it would only partly walk', { timeout: 300_000
   git(root, 'reset', '-q', '--hard', 'main');
   const long = await plan(commits[0], 'HEAD');
   assert.deepEqual([long.kind, long.why[0].slots.code], ['refusal', 'BISECT_RANGE_TOO_LONG']);
+});
+
+test('a bisection step removes only its own worktree, and an unsafe location leaves nothing behind', async (t) => {
+  const root = await realpath(await mkdtemp(path.join(os.tmpdir(), 'sflow-int-worktrees-')));
+  t.after(() => rm(root, { recursive: true, force: true }));
+  const repository = path.join(root, 'repo');
+  git(root, 'init', '-q', '-b', 'main', repository);
+  git(repository, 'config', 'user.email', 'dev@example.test');
+  git(repository, 'config', 'user.name', 'Dev');
+  git(repository, 'commit', '-q', '--allow-empty', '-m', 'first');
+  // The developer's own worktree, whose directory is briefly missing (an unmounted volume, a move).
+  const mine = path.join(root, 'mine');
+  git(repository, 'worktree', 'add', '-q', '-b', 'mine', mine);
+  const away = path.join(root, 'mine-away');
+  await rename(mine, away);
+  const { addCandidateWorktree, removeCandidateWorktree } = await import('../src/git.mjs');
+  const candidate = path.join(root, 'candidate');
+  assert.equal(addCandidateWorktree(repository, candidate, 'HEAD'), true);
+  removeCandidateWorktree(repository, candidate);
+  await rename(away, mine);
+  const listed = git(repository, 'worktree', 'list', '--porcelain');
+  assert.match(listed, new RegExp(`worktree ${mine.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\n`), 'the developer\'s worktree registration was pruned');
+  assert.doesNotMatch(listed, /candidate/);
+
+  // A temporary directory inside the repository is refused, and the directory made for it is removed.
+  const { investigationBisectExecute } = await import('../src/gateway/planners/investigation-bisect.mjs');
+  const before = new Set(await readdir(os.tmpdir()));
+  const unsafe = await investigationBisectExecute({ root: os.tmpdir(), plan: { review: { preview: {
+    repository: os.tmpdir(), good: { commit: 'a'.repeat(40) }, bad: { commit: 'b'.repeat(40) }, maxSteps: 4,
+    testCommand: { id: 'checkout-contract', argv: [process.execPath, '-e', '0'], workingDirectory: '.' }
+  } } } });
+  assert.deepEqual([unsafe.data.verdict, unsafe.data.stopped, unsafe.data.observations.length], ['unknown', 'BISECT_WORKTREE_UNSAFE', 0]);
+  assert.deepEqual((await readdir(os.tmpdir())).filter((name) => name.startsWith('sflow-bisect-') && !before.has(name)), []);
 });

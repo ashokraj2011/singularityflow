@@ -96,9 +96,6 @@ export async function investigationBisectExecute({ plan, root }) {
     import('../../git.mjs'), import('../../quality-command-runner.mjs'), import('../../git-access.mjs')
   ]);
   const base = await mkdtemp(path.join(os.tmpdir(), 'sflow-bisect-'));
-  if (path.resolve(base).startsWith(`${path.resolve(root)}${path.sep}`)) {
-    throw new SingularityFlowError('A disposable worktree must be outside the repository.', { code: 'BISECT_WORKTREE_UNSAFE' });
-  }
   const observations = [];
   let steps = 0;
   const testAt = async (commit) => {
@@ -122,6 +119,10 @@ export async function investigationBisectExecute({ plan, root }) {
   };
   let verdict;
   try {
+    // Inside the try, so the directory just made is removed by the same `finally` as every other run.
+    if (path.resolve(base).startsWith(`${path.resolve(root)}${path.sep}`)) {
+      throw new SingularityFlowError('A disposable worktree must be outside the repository.', { code: 'BISECT_WORKTREE_UNSAFE' });
+    }
     // Checked again here, before any commit is tested: a plan made any other way gets no verdict either.
     const range = exactRange(typedFirstParentRange, root, preview.good.commit, preview.bad.commit);
     const goodPasses = await testAt(preview.good.commit);

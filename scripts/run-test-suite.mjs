@@ -52,6 +52,8 @@ const receiptOption = option('receipt') ?? process.env.SINGULARITY_FLOW_TEST_REC
 // Beside its receipt, a shard records how long each file's tests took (scripts/test-duration-reporter.mjs),
 // which balances later runs' shards. Two reporters need a destination each; TAP stays on stdout.
 const durationsFile = receiptOption ? `${path.resolve(root, receiptOption)}.durations.json` : null;
+// Node opens a reporter's destination before any test runs, and a missing folder fails the whole shard.
+if (durationsFile) mkdirSync(path.dirname(durationsFile), { recursive: true, mode: 0o700 });
 const reporterFlags = durationsFile
   ? [...(releaseReporterFlags.length ? releaseReporterFlags : ['--test-reporter', 'tap']), '--test-reporter-destination', 'stdout',
     '--test-reporter', pathToFileURL(path.join(root, 'scripts', 'test-duration-reporter.mjs')).href, '--test-reporter-destination', durationsFile]

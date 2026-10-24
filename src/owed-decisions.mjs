@@ -175,8 +175,9 @@ export function blockingCommitLines(advisory) {
 
 /**
  * Whether approval would pass (`approvalCheck`, src/approval-check.mjs) as the lines an approver is
- * shown: the statement, then each hold with who clears it and its route. The commits after the
- * submission are left to blockingCommitLines, which names each one.
+ * shown: the statement, each hold with who clears it and its route, then what was decided after the
+ * submission without stopping it. The commits approval would refuse for are left to
+ * blockingCommitLines, which names each one.
  */
 export function approvalCheckLines(check) {
   if (!check?.holds) return [];
@@ -189,6 +190,7 @@ export function approvalCheckLines(check) {
       const guidance = hold.action && !shared ? safeCommandGuidance({ command: hold.action.command }) : null;
       return [`  ${hold.who}: ${hold.summary}`, ...(guidance ? commandRouteLines(guidance, '    ') : [])];
     }),
+    ...(check.notes ?? []).map((line) => `  ${line}`),
     ...(check.warnings ?? []).map((line) => `  Warning: ${line}`)
   ];
 }

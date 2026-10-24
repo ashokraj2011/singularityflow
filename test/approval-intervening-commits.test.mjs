@@ -16,7 +16,7 @@ import test from 'node:test';
 import { fileURLToPath } from 'node:url';
 
 import { refusalDetails, refusalEnvelope, refusalRemediationPlan, renderRefusalPlan } from '../src/refusal-remediation.mjs';
-import { blockingCommitLines } from '../src/owed-decisions.mjs';
+import { approvalCheckLines, blockingCommitLines } from '../src/owed-decisions.mjs';
 import { actionCommandLines, copilotAction, copilotCommandForCommand } from '../src/copilot-guidance.mjs';
 import { safeCommandGuidance } from '../src/safe-command-guidance.mjs';
 import { SingularityFlowError } from '../src/util.mjs';
@@ -52,7 +52,8 @@ test('an undecided amendment after the submission is seen and decided before any
   // A person decides; the outcome of each decision is stated, and neither one makes this approval pass.
   assert.match(plan.steps[1].label, /A person who approves specification decides AMD-001 in their own terminal; an agent cannot/u);
   assert.match(plan.steps[1].label, /Approving it changes those clauses, so planning reopens to be revised and submitted again/u);
-  assert.match(plan.steps[1].label, /Rejecting it keeps the approved clauses, but planning still needs a fresh submission before approval/u);
+  // Rejecting keeps the submission valid [SPEC-OAP decision 1]: planning is approved as submitted.
+  assert.match(plan.steps[1].label, /Rejecting it keeps the approved clauses, and planning can then be approved as submitted, with no fresh submission/u);
   assert.equal(plan.context.strategy, 'person-decides-intent-amendment');
   assert.equal(plan.context.turn, 'new-turn');
   assert.equal(plan.retry.command, null);
@@ -83,7 +84,7 @@ test('each step of the pending-amendment plan carries its own routes, and none o
     '     VS Code (model-free): not available for this action']);
   assert.doesNotMatch(rendered.join('\n'), /Copilot: \/sf-/u);
   // Returning the phase is named as what it is, and as not deciding the amendment.
-  assert.match(plan.steps[1].label, /a person returns planning with \/sf-reject in a new turn; that does not decide AMD-001/u);
+  assert.match(plan.steps[1].label, /Returning planning instead \(a person, with \/sf-reject in a new turn\) does not decide AMD-001/u);
 
   // VS Code rebuilds every route from the command, so it reaches the same answer.
   const envelope = JSON.parse(JSON.stringify(refusalEnvelope(refusal(pendingDetails), APPROVE)));
@@ -123,7 +124,8 @@ test('the intent-amendment crosswalk routes only drafting and proposing to /sf-r
 test('commits of any other kind keep the existing recover and new-turn reject routes', () => {
   for (const details of [
     { blockingCommitCount: 1, blockingCommits: [{ commit: '2555541e97d0', subject: 'Unrelated empty commit', kind: 'commit' }] },
-    // A decided amendment no longer waits for anyone: the phase needs a fresh submission.
+    // A decided amendment whose commits record more than its proposal and rejection waits for no one:
+    // the phase needs a fresh submission. (An exact rejected pair never blocks.)
     { blockingCommitCount: 2, blockingCommits: [
       { commit: '1b3bf2703ebb', subject: `[${WORK}][intent-amendment:propose] AMD-001`, kind: 'intent-amendment-proposal',
         amendment: { id: 'AMD-001', action: 'propose', status: 'rejected' } },
@@ -246,7 +248,7 @@ test('approving a submitted phase names each later commit and leads with an unde
   const subject = `[${WORK}][intent-amendment:propose] AMD-001`;
   assert.ok(pending.error.message.includes(`- ${proposal} ${subject} (intent amendment AMD-001, still waiting for a decision).`), pending.error.message);
   assert.match(pending.error.message, new RegExp(`Intent amendment AMD-001 changes ${WORK}:AC-001 and ${WORK}:REQ-002 and is still waiting for a decision by a person who approves specification`, 'u'));
-  assert.match(pending.error.message, /rejecting it keeps them, but planning still needs a fresh submission before it can be approved/u);
+  assert.match(pending.error.message, /rejecting it keeps them, and planning can then be approved as submitted/u);
   assert.deepEqual(pending.error.details.pendingIntentAmendments, [{ id: 'AMD-001', commit: proposal, changedClauses: [`${WORK}:AC-001`, `${WORK}:REQ-002`] }]);
   assert.equal(pending.error.details.blockingCommits[0].kind, 'intent-amendment-proposal');
   assert.equal(pending.error.details.nextAction, STATUS);
@@ -259,16 +261,45 @@ test('approving a submitted phase names each later commit and leads with an unde
   assert.equal(view.actions[0].emphasis, 'primary');
   assert.match(view.why[0].label, new RegExp(`${proposal} \\[${WORK}\\]\\[intent-amendment:propose\\] AMD-001`, 'u'));
   assert.ok(view.warnings.some((warning) => /End this approval-only turn/u.test(warning.label)));
+  // Rejecting it is the next test's journey.
+});
 
-  // Rejected, the amendment waits for no one; planning still needs a fresh submission.
+/**
+ * SPEC-OAP decision 1 (accepted 2026-10-24): a rejected amendment changes no clause, specification
+ * generation, artifact or source, so the inputs planning was reviewed on are identical and the
+ * submission stays valid. Before, the history rule alone forced a fresh submission. The pair is
+ * still named, and approval records it; the test in oap-m1-approval-check.test.mjs pins what does
+ * not count as one.
+ */
+test('rejecting the amendment keeps the submission: planning is approved as submitted, and the pair is still named', async (t) => {
+  const { run, git, cli, item, candidate } = await submittedPlanningStory(t, WORK);
+  await writeFile(candidate, specification(WORK, 2));
+  cli('story', 'intent-amendment', 'propose', '--file', candidate, '--reason', 'Review showed that value 2 is required.');
+  const proposal = git('rev-parse', 'HEAD');
   cli('story', 'intent-amendment', 'decide', 'AMD-001', '--decision', 'reject', '--confirm', 'AMD-001');
-  const decided = refuse();
-  assert.match(decided.error.message, /These 2 commits after the submission/u);
-  assert.match(decided.error.message, /AMD-001 \(intent amendment AMD-001, now rejected\);/u);
-  assert.match(decided.error.message, /\[intent-amendment:reject\] AMD-001 \(decision on intent amendment AMD-001\)\./u);
-  assert.match(decided.error.message, /Decided after the submission: intent amendment AMD-001 \(rejected\)\. Phase 'planning' still needs a fresh submission/u);
-  assert.equal(decided.error.details.pendingIntentAmendments, undefined);
-  assert.deepEqual(decided.remediationPlan.steps.map((step) => step.id), EXISTING_ROUTES);
+  const rejection = git('rev-parse', 'HEAD');
+  const note = `Decided after the submission: AMD-001 rejected (proposal ${proposal.slice(0, 12)}, rejection ${rejection.slice(0, 12)}); the reviewed inputs are unchanged.`;
+
+  // The approval packet and phase show list it beside a check that passes, as an advisory.
+  const packet = JSON.parse(cli('choices', 'begin', 'approve', WORK, '--json', '--review-packet').stdout).approvalPacket;
+  for (const check of [packet.readiness.approvalCheck, packet.review.approvalCheck]) {
+    assert.equal(check.ready, true, JSON.stringify(check));
+    assert.deepEqual(check.holds, []);
+    assert.deepEqual(check.notes, [note]);
+    assert.deepEqual(check.decidedAfterSubmission, [{ id: 'AMD-001', status: 'rejected',
+      proposalCommit: proposal.slice(0, 12), rejectionCommit: rejection.slice(0, 12) }]);
+  }
+  assert.equal(packet.readiness.blockingCommits, undefined, 'nothing blocks');
+  // The packet's review is what phase show prints, through these lines.
+  assert.deepEqual(approvalCheckLines(packet.review.approvalCheck), ['Approving planning would pass every check.', `  ${note}`]);
+
+  // Approved as submitted; the decision names the rejected amendment's commits for audit.
+  const approved = run(process.execPath, [CLI, '--no-model', ...APPROVE, '--yes', '--json'], { allowFailure: true });
+  assert.equal(approved.status, 0, approved.stdout + approved.stderr);
+  const planning = JSON.parse(await readFile(path.join(item, 'workflow.json'), 'utf8')).phases.planning;
+  assert.equal(planning.status, 'approved');
+  assert.deepEqual(planning.approvals.at(-1).rejectedIntentAmendments,
+    [{ id: 'AMD-001', status: 'rejected', proposalCommit: proposal, rejectionCommit: rejection }]);
 });
 
 test('approving an amendment reopens the step awaiting approval, so its acknowledgement precedes a fresh submission', async (t) => {

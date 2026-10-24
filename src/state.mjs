@@ -510,37 +510,58 @@ function phaseState(definition, index) {
  */
 
 /**
- * Whether a commit is exactly one applicability decision [E2G-005]: a person recording why a
- * left-out responsibility does not apply changes nothing a review saw, so it may sit between a
- * phase's submission and its approval. Anything more in the commit fails closed.
+ * One single-parent governed commit's Story state on either side of it, or null when it is not one
+ * or cannot be read. `ownPaths` are the files every such commit writes: workflow.json, STATUS.md and,
+ * with the ledger on, the ledger intent of its own event, which must be new and exact.
  */
-function applicabilityDecisionCommit(root, config, workflow, commit) {
+export function governedStateChange(root, config, workflow, commit) {
   const identity = governedCommitIdentity(root, commit);
-  if (identity?.parents.length !== 1 || !identity.eventSha256) return false;
+  if (identity?.parents.length !== 1 || !identity.eventSha256) return null;
   const [parent] = identity.parents;
   const item = workDirRelative(config, workflow.workItem.id);
   const stateFile = `${item}/workflow.json`;
   let changed;
-  try { changed = exactChangedPathsBetweenObjects(root, parent, identity.commit); } catch { return false; }
-  if (!changed.includes(stateFile)) return false;
+  try { changed = exactChangedPathsBetweenObjects(root, parent, identity.commit); } catch { return null; }
+  if (!changed.includes(stateFile)) return null;
   let before;
   let after;
   try {
     before = JSON.parse(exactFileAtObject(root, parent, stateFile)?.toString('utf8') ?? 'null');
     after = JSON.parse(exactFileAtObject(root, identity.commit, stateFile)?.toString('utf8') ?? 'null');
-  } catch { return false; }
-  if (!before || !after) return false;
-  // With the ledger on, the decision also adds the ledger intent of its own event.
+  } catch { return null; }
+  if (!before || !after) return null;
   const intentFile = projectedLedgerIntentFile(item, after.publicationProjections?.at(-1));
-  const allowedPaths = new Set([stateFile, `${item}/STATUS.md`, ...(intentFile ? [intentFile.path] : [])]);
-  if (changed.some((file) => !allowedPaths.has(file))) return false;
   if (intentFile && changed.includes(intentFile.path)) {
     try {
       if (exactFileAtObject(root, parent, intentFile.path)
         || recordSha256(JSON.parse(exactFileAtObject(root, identity.commit, intentFile.path)?.toString('utf8') ?? 'null'))
-          !== recordSha256(intentFile.intent)) return false;
-    } catch { return false; }
+          !== recordSha256(intentFile.intent)) return null;
+    } catch { return null; }
   }
+  return {
+    identity, parent, item, changed, before, after,
+    ownPaths: [stateFile, `${item}/STATUS.md`, ...(intentFile ? [intentFile.path] : [])],
+    event: after.publicationProjections?.at(-1)?.event ?? null
+  };
+}
+
+/** Whether a state change touches no top-level key but `keys`. */
+export function stateChangesOnly({ before, after }, keys) {
+  return [...new Set([...Object.keys(before), ...Object.keys(after)])].every((key) =>
+    keys.includes(key) || recordSha256(before[key] ?? null) === recordSha256(after[key] ?? null));
+}
+
+/**
+ * Whether a commit is exactly one applicability decision [E2G-005]: a person recording why a
+ * left-out responsibility does not apply changes nothing a review saw, so it may sit between a
+ * phase's submission and its approval. Anything more in the commit fails closed.
+ */
+function applicabilityDecisionCommit(root, config, workflow, commit) {
+  const change = governedStateChange(root, config, workflow, commit);
+  if (!change) return false;
+  const { identity, before, after } = change;
+  // With the ledger on, the decision also adds the ledger intent of its own event.
+  if (change.changed.some((file) => !change.ownPaths.includes(file))) return false;
   // An applicability decision or a scope disposition: each appends to its own list only.
   const changedList = (key) => recordSha256(before[key] ?? null) !== recordSha256(after[key] ?? null);
   const kind = changedList('scopeDispositions') ? { list: 'scopeDispositions', event: 'scope_decided', decision: 'scope' }
@@ -559,10 +580,7 @@ function applicabilityDecisionCommit(root, config, workflow, commit) {
     : changedList('upstreamIssueDecisions') ? { list: 'upstreamIssueDecisions', event: 'upstream_issue_decided', decision: 'upstream-issue' }
     : changedList('amendmentRevalidations') ? { list: 'amendmentRevalidations', event: 'amendment_revalidated', decision: 'forward-amendment' }
       : { list: 'applicability', event: 'applicability_decided', decision: 'applicability' };
-  const DECISION_KEYS = new Set([kind.list, 'history', 'publicationProjections']);
-  for (const key of new Set([...Object.keys(before), ...Object.keys(after)])) {
-    if (!DECISION_KEYS.has(key) && recordSha256(before[key] ?? null) !== recordSha256(after[key] ?? null)) return false;
-  }
+  if (!stateChangesOnly(change, [kind.list, 'history', 'publicationProjections'])) return false;
   // Each list keeps what it had and gains exactly one entry; earlier decisions only gain a withdrawal.
   const appendsOne = (key) => {
     const prior = before[key] ?? [];
@@ -5746,12 +5764,13 @@ async function writeDecision(root, config, workflow, phase, decision) {
  *
  * A receipt intentionally binds HEAD when review begins, so receipt freshness alone cannot tell
  * whether an unrelated commit was inserted *before* that point. Permit prior partial approvals,
- * verified test-risk reviews, applicability decisions and the exact Auto human-boundary checkpoint
- * for this submitted phase. Auto records that checkpoint immediately after submission so a human
- * can resume the flight after approval; it is observational evidence, not a new generation.
- * Approval refuses on every other commit (`blocking`); the approval packet and phase show name the
- * same commits beforehand, so all three read this one classification. `reviewedRisks` is read only
- * when a commit is not already a prior approval.
+ * verified test-risk reviews, applicability decisions, the proposal and rejection of a rejected
+ * intent amendment (`rejectedIntentAmendments` in approval-check.mjs; approval records them) and
+ * the exact Auto human-boundary checkpoint for this submitted phase. Auto records that checkpoint
+ * immediately after submission so a human can resume the flight after approval; it is
+ * observational evidence, not a new generation. Approval refuses on every other commit (`blocking`); the approval packet and phase
+ * show name the same commits beforehand, so all three read this one classification. `reviewedRisks`
+ * is read only when a commit is not already a prior approval.
  */
 export async function reviewHistoryCommits(root, config, workflow, phase, submittedReview, { reviewedRisks = async () => [] } = {}) {
   const reviewRange = `${submittedReview.evidenceCommit}..${head(root)}`;
@@ -5798,7 +5817,18 @@ export async function reviewHistoryCommits(root, config, workflow, phase, submit
   for (const commit of unallowed()) {
     if (applicabilityDecisionCommit(root, config, workflow, commit)) allowedReviewCommits.add(commit);
   }
-  return { interveningCommits, priorApprovalCommits, allowedReviewCommits: [...allowedReviewCommits], blocking: unallowed() };
+  const rejectedAmendments = unallowed().length
+    ? await (await import('./approval-check.mjs')).rejectedIntentAmendments(root, config, workflow, unallowed(), {
+      evidenceCommit: submittedReview.evidenceCommit, interveningCommits })
+    : [];
+  for (const { proposalCommit, rejectionCommit } of rejectedAmendments) {
+    allowedReviewCommits.add(rejectionCommit);
+    if (interveningCommits.includes(proposalCommit)) allowedReviewCommits.add(proposalCommit);
+  }
+  return {
+    interveningCommits, priorApprovalCommits, allowedReviewCommits: [...allowedReviewCommits], blocking: unallowed(),
+    rejectedIntentAmendments: rejectedAmendments
+  };
 }
 
 /** Thrown inside evaluateApproval to end a preview whose foundation failed; it never escapes. */
@@ -5861,6 +5891,7 @@ export async function evaluateApproval(root, config, workflow, {
   let review = null;
   let submittedWitnessMappings = [];
   let reviewedWitnessMappings = [];
+  let rejectedAmendments = [];
   let decision = null;
   let reached = false;
   let approvalOutcome = null;
@@ -6044,6 +6075,7 @@ export async function evaluateApproval(root, config, workflow, {
     await stage('history', async () => {
       const history = await reviewHistoryCommits(root, config, workflow, phase, submittedReview, {
         reviewedRisks: async () => [approvalRisk, ...documentRisks] });
+      rejectedAmendments = history.rejectedIntentAmendments;
       if (history.blocking.length) {
         // Name each commit and route an undecided intent amendment among them to its decision first.
         const { interveningCommitRefusal } = await import('./approval-check.mjs');
@@ -6392,6 +6424,8 @@ export async function evaluateApproval(root, config, workflow, {
         ] } : {}),
         ...(skillApprovalEvidence ? { skillEvidenceSha256: skillApprovalEvidence.evidenceSha256 } : {}),
         evidenceCommit: submittedReview.evidenceCommit,
+        // Rejected amendments decided while the step waited: their commits changed nothing it reviewed.
+        ...(rejectedAmendments.length ? { rejectedIntentAmendments: structuredClone(rejectedAmendments) } : {}),
         artifactSetSha256: submittedReview.submissionEvidence.artifactSetSha256,
         architectureIntent: structuredClone(architectureIntentBinding),
         architectureDecision: structuredClone(submittedArchitectureDecision),
@@ -6429,7 +6463,8 @@ export async function evaluateApproval(root, config, workflow, {
   } catch (error) {
     if (error !== APPROVAL_PREVIEW_STOP) throw error;
   }
-  return { holds, warnings, ready: !holds.length, config, phase, session, key, decision, reached, approvalOutcome };
+  return { holds, warnings, ready: !holds.length, config, phase, session, key, decision, reached, approvalOutcome,
+    rejectedIntentAmendments: rejectedAmendments };
 }
 
 /**

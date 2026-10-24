@@ -73,7 +73,10 @@ export function agentOutputBudget(env = process.env) {
 /** Bounded agent output applies to the outermost command only: a composed step reads its result whole. */
 export function agentOutputGoverned(env = process.env) {
   return env.SINGULARITY_FLOW_AGENT_OUTPUT !== 'full' && env.SINGULARITY_FLOW_AGENT_OUTPUT !== 'raw'
-    && !(globalThis.__SINGULARITY_FLOW_CLI_STEP_DEPTH > 0);
+    && !(globalThis.__SINGULARITY_FLOW_CLI_STEP_DEPTH > 0)
+    // A command whose action a person reviewed at the terminal (action-authorization.mjs) is read
+    // there by that person, whole: its preview, their answer and its result.
+    && globalThis.__SINGULARITY_FLOW_PERSON_AT_TERMINAL !== true;
 }
 
 /** The three routes of one engine-returned action, exactly as its own guidance gives them. */

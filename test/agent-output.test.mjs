@@ -168,6 +168,15 @@ test('a composed step reads its result whole; only the command a person or agent
   finally { globalThis.__SINGULARITY_FLOW_CLI_STEP_DEPTH = 0; }
 });
 
+test('a command whose action a person reviewed at the terminal reaches that person whole [OUT:REQ-014]', () => {
+  // workflow author submit --json writes a review card, asks the person, then its result: the
+  // literal envelope must not stand between them and it (wca-submission's terminal routes).
+  globalThis.__SINGULARITY_FLOW_PERSON_AT_TERMINAL = true;
+  try { assert.equal(agentOutputGoverned({}), false); }
+  finally { delete globalThis.__SINGULARITY_FLOW_PERSON_AT_TERMINAL; }
+  assert.equal(agentOutputGoverned({}), true);
+});
+
 test('a small result keeps every field with act first; a large one is written whole and its view fits', async (t) => {
   const root = await mkdtemp(path.join(os.tmpdir(), 'sflow-agent-output-'));
   t.after(() => rm(root, { recursive: true, force: true }));

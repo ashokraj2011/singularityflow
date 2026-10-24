@@ -117,6 +117,8 @@ export async function captureTerminalActionAuthorization(root, plan, action, { l
   // while that buffer flushes only after it returns. stderr remains a real, visible terminal.
   stderr.write(`${JSON.stringify({ plan: reviewedPlan, action: reviewedAction }, null, 2)}\n`);
   const terminal = readline.createInterface({ input: stdin, output: stderr });
+  // A person reads this terminal: the command's --json result reaches them whole (agent-output.mjs).
+  globalThis.__SINGULARITY_FLOW_PERSON_AT_TERMINAL = true;
   let confirmed = false;
   try {
     for (let attempt = 0; attempt < 3; attempt += 1) {

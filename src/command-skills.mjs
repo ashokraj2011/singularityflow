@@ -11,6 +11,7 @@
  * command must be present, and every named skill must be packaged.
  */
 import { canonicalCommand, COMMAND_REGISTRY } from './command-registry.mjs';
+import { isTransportIntentId } from './util.mjs';
 
 const entries = {
   pause: ['sf-pause'],
@@ -135,7 +136,8 @@ const entries = {
   'upstream-issue': ['sf-decide'],
   reopen: ['sf-reject'],
   cancel: ['sf-cancel'],
-  sync: ['sf-next'],
+  // `sync <INTENT-ID>` retries one saved push, the step /sf-push explains and runs.
+  sync: ['sf-next', 'sf-push'],
   ledger: ['sf-ledger'],
   capabilities: ['sf-capabilities', 'sf-capability-doctor'],
   state: ['sf-admin'],
@@ -214,6 +216,8 @@ export const COMMAND_LINE_SKILL_ROUTES = Object.freeze({
     '--subject': 'sf-explain'
   }),
   precheck: route('sf-ready'),
+  // `sync <INTENT-ID>` goes to /sf-push by the ID's shape (skillForCommandLine); a Work ID stays here.
+  sync: route('sf-next'),
   app: route('sf-run-app'),
   tests: route('sf-test'),
   choices: route('sf-start', {
@@ -419,6 +423,8 @@ function exactRoute(routeEntry, commandArguments) {
 export function skillForCommandLine(commandLine) {
   const parsed = commandLineHead(commandLine);
   if (!parsed) return null;
+  // The operand is an ID no fixed prefix can name: `sync <INTENT-ID>` retries one saved push.
+  if (parsed.command === 'sync' && isTransportIntentId(parsed.arguments[0])) return 'sf-push';
   const exact = COMMAND_LINE_SKILL_ROUTES[parsed.command];
   const match = exactRoute(exact, parsed.arguments);
   if (match?.skill === null) return null;

@@ -146,7 +146,10 @@ test('root dispatch stays small and orchestration entrypoints load their handler
   // names it); no new file. Both together at the merge (main 24466a14 + work-turns): 799,406.
   // 805,000: the 2026-10-24 round takes main 4a72b80f's 799,730 to 802,311: command-registry.mjs +1,958 (the new wm,
   // explain and gateway entries) and util.mjs +623 (free-text options and new flags); no new file.
-  assert.ok(root.bytes <= 805_000, `root dispatch loads ${root.bytes} source bytes`);
+  // 810,000: main a2719813's 804,965 grows to 805,409 with `sync <INTENT-ID>` (SPEC-OAP M3): util.mjs +220
+  // (isTransportIntentId), cli-entry.mjs +193 (its routing exclusion) and command-registry.mjs +31 (the sync
+  // module); no new file.
+  assert.ok(root.bytes <= 810_000, `root dispatch loads ${root.bytes} source bytes`);
   assert.equal(root.files.has(path.join(sourceRoot, 'git.mjs')), false);
   assert.equal(root.files.has(path.join(sourceRoot, 'config.mjs')), false);
   for (const entry of ['commands/session-entry.mjs', 'commands/choices-entry.mjs']) {

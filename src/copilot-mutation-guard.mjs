@@ -801,7 +801,7 @@ const NO_STORY_COMMANDS = Object.freeze({
   'initiative-phase': ['initiative'], 'initiative-start': ['initiative'], 'jira-initiative': ['initiative'],
   'jira-update': ['jira'], integrations: ['integrations'], journal: ['journal'], knowledge: ['knowledge'], learn: ['learn'],
   ledger: ['ledger'], local: ['local'], 'local-reset': ['local-reset'], mcp: ['mcp'], plugin: ['plugin'],
-  product: ['product'], 'prompt-log': ['prompt-log'], push: ['push'], quickstart: ['quickstart'],
+  product: ['product'], 'prompt-log': ['prompt-log'], push: ['push', 'sync'], quickstart: ['quickstart'],
   ready: ['precheck'], reinstall: ['reinstall'],
   'refresh-configuration': ['workspace'], 'reset-all': ['reset-all'], return: ['return'], secrets: ['secrets'],
   sgos: ['intent', 'program', 'process', 'policy', 'task', 'request', 'evidence', 'candidate', 'execution-unit',

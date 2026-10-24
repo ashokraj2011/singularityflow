@@ -19,7 +19,7 @@ Use this skill when a workspace, capability, configuration, or initialization pu
 
 1. Run `singularity-flow push status --json`, or `singularity-flow push status <INTENT-ID> --json` when the user supplied an ID.
 2. Explain the preserved local commit, exact target ref, attempt budget, and classified fault. Never request a token, disable TLS, bypass hooks, or suggest force.
-3. Ask before mutation. When the user selects retry, run `singularity-flow push retry <INTENT-ID> --json` exactly once.
+3. Ask before mutation. When the user selects retry, run `singularity-flow sync <INTENT-ID> --json` exactly once.
 4. Report the returned status. `outcome-unknown` means stop: the remote could not be read, so another push is not authorized. `remote-diverged` or `needs-user` requires human reconciliation.
 
-Story publication remains owned by `singularity-flow sync`; do not substitute this outbox for a Story pending-publication record.
+Story publication remains owned by `singularity-flow sync` without an intent ID; do not substitute this outbox for a Story pending-publication record.

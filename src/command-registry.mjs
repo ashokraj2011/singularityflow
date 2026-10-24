@@ -95,6 +95,7 @@ const LAZY_MODULES = Object.freeze({
   goal: './commands/goal.mjs',
   journal: './commands/journal.mjs',
   push: './commands/push.mjs',
+  sync: './commands/sync.mjs',
   workflow: './commands/workflow.mjs',
   integrations: './commands/integrations.mjs',
   auto: './commands/auto.mjs',

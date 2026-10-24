@@ -118,9 +118,9 @@ async function visualProfiles(root, config, workflow, phase) {
 const FAILED_UPLOAD = Object.freeze(['needs-user', 'attempt-budget-exhausted', 'outcome-unknown']);
 
 /**
- * This repository's uploads whose automatic attempt failed and wait for `sync` (what `push retry`
- * did). The machine's intent store is read first; only a failed upload costs the repository match,
- * which asks Git for the push remote.
+ * This repository's uploads whose automatic attempt failed and wait for the person's
+ * `sync <INTENT-ID>`. The machine's intent store is read first; only a failed upload costs the
+ * repository match, which asks Git for the push remote.
  */
 async function failedUploads(root) {
   const { listTransportIntents, transportFaultSummary, transportIntentsForRepository } = await import('./transport-intents.mjs');

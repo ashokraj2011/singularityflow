@@ -846,6 +846,7 @@ Usage:
   singularity-flow reopen [WORK-ID] [--fetch] --reason TEXT --to PHASE
   singularity-flow cancel [WORK-ID] [--fetch] --reason TEXT --confirm WORK-ID
   singularity-flow sync [WORK-ID] [--replay [--dry-run]] [--rebind-remote sha256:...] [--json]
+  singularity-flow sync <INTENT-ID> [--json]
   singularity-flow validate [--strict]
   singularity-flow gate [--terminal] [--json]
   singularity-flow wm compose [--agent ID] [--phase ID] [--work-id ID] [--task TEXT] [--evidence] [--dry-run|--render-only] [--out FILE]

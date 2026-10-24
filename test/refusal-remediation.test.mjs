@@ -32,8 +32,8 @@ test('a refused enrollment push names its cause and the retry, and a moved branc
     evidence: { diagnostic: 'husky - pre-push hook exited with code 1 (npm run lint)  ' } });
   assert.equal(hook.message, 'Your Git identity was not added to the approval groups on sflow/config; until it is, approvals need someone already in them.'
     + ' Git refused the push to sflow/config (local-hook-failed): "husky - pre-push hook exited with code 1 (npm run lint)". Review the local Git hook output.'
-    + ` After fixing that, run: singularity-flow push retry ${intent}.`);
-  assert.deepEqual(hook.nextAction, { command: `singularity-flow push retry ${intent}`, skill: '/sf-push' });
+    + ` After fixing that, run: singularity-flow sync ${intent}.`);
+  assert.deepEqual(hook.nextAction, { command: `singularity-flow sync ${intent}`, skill: '/sf-push' });
   const moved = notice('remote-diverged', { classification: 'remote-diverged' });
   assert.equal(moved.nextAction, null, 'a retry of a commit the branch moved past can only fail');
   assert.match(moved.message, /sflow\/config moved before the push landed, so the next Story start adds you again\.$/u);
@@ -43,9 +43,9 @@ test('a local pre-push hook refusal that retained its publication ends at that e
   const intent = 'psh_7e94aa00-1111-2222-3333-444455556666';
   const refusal = Object.assign(new Error('Publication is pending. Git refused it: "husky - pre-push hook exited with code 1".'), {
     code: 'CONFIGURATION_PROPOSAL_PUBLICATION_PENDING',
-    details: { nextAction: { command: `singularity-flow push retry ${intent}`, skill: '/sf-push' } }
+    details: { nextAction: { command: `singularity-flow sync ${intent}`, skill: '/sf-push' } }
   });
-  assert.equal(refusalRemediationPlan(refusal, ['workflow', 'import']).steps.at(-1).command, `singularity-flow push retry ${intent}`);
+  assert.equal(refusalRemediationPlan(refusal, ['workflow', 'import']).steps.at(-1).command, `singularity-flow sync ${intent}`);
 });
 
 test('refusals that name their way out route it, instead of --help, doctor or a step that meets the same refusal', async () => {

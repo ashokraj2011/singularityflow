@@ -7511,7 +7511,7 @@ For Playwright, honor the repository or corporate `.npmrc`; do not override the 
           <span class="pill">mutation</span>
           <span class="pill">story boundary</span>
           <span class="pill">model: conditional</span>
-          <span class="pill">~1410 body tokens</span>
+          <span class="pill">~1415 body tokens</span>
         </div>
         <dl>
           <div><dt>Command</dt><dd><code>/sflow-next</code></dd></div>
@@ -7541,7 +7541,7 @@ First run `singularity-flow nextsteps --for-agent --json` once. It checks pause 
 
 1. Read `contextBoundary` first: an earlier-phase chat relays its ordered reset commands and stops; a fresh chat continues. Chat resets have no Shell/model-free equivalent. Use binding/phase/first `NOW`; refuse `ACTIVE_SUBJECT_MISMATCH`. No duplicate pause/session/status or inferred `--task`/Story. `preparation` delegates composition to the entry-capable author; never waive grounding or rebuild.
 2. Never run `singularity-flow next`. Load one returned SFlow skill route (any `/sf-*` or `/sflow-*` route), use its configured producer/channel, complete its preflight, execute at most its one authorized action, and stop. Relay, never run, human-decision routes (`/sf-approve`, `/sf-confirm`, `/sf-decide`, `/sf-review-decide`, `/sf-reject`, any approval or decision): the person types them; a route&#39;s arguments are never their answer.
-3. Sole no-skill exception: when snapshot `state=publication_pending` and its first `NOW` command equals `singularity-flow sync`, show it and explain it retries only the retained commit. Run `singularity-flow sync &lt;WORK-ID&gt;` once in the verified cwd, then stop; never follow `THEN`, invoke `/sf-nextsteps` or `/sf-next`, or retry.
+3. Sole no-skill exception: when snapshot `state=publication_pending` and its first `NOW` command equals `singularity-flow sync`, show it and explain it retries only the retained commit and saved pushes. Run `singularity-flow sync &lt;WORK-ID&gt;` once in the verified cwd, then stop; never follow `THEN`, invoke `/sf-nextsteps` or `/sf-next`, or retry.
 4. Follow the selected skill; never rewrite it to `/sf-phase`. Pass only this invocation&#39;s verified packet and its input preview to the selected skill; do not repeat its boundary lookup. If the selected action is `/sf-code` or any `singularity-flow prepare &lt;phase&gt;` authoring route, do not imitate or inline it, nor run it: report `Next in Copilot: /sf-code` or its skill and stop; preserve `/sflow-code` likewise. Never publish a delegated action or chain another lifecycle action.
 5. On failure follow `remediationPlan`&#39;s first read-only step. Never add `--apply` without the reviewed plan and exact confirmation. `ARTIFACT_AUTHORING_INCOMPLETE` permits one recheck and correction handoff, not a retry loop.
 6. Input/audit actions use returned metadata, not phase show or marker searches. Read exact returned paths only when needed; no broad repository/skill searches.
@@ -8200,7 +8200,7 @@ Reuse a verified pause-aware entry supplied in this invocation before any mutati
           <span class="pill">mutation</span>
           <span class="pill">machine boundary</span>
           <span class="pill">model: never</span>
-          <span class="pill">~640 body tokens</span>
+          <span class="pill">~644 body tokens</span>
         </div>
         <dl>
           <div><dt>Command</dt><dd><code>/sflow-push</code></dd></div>
@@ -8233,10 +8233,10 @@ Use this skill when a workspace, capability, configuration, or initialization pu
 
 1. Run `singularity-flow push status --json`, or `singularity-flow push status &lt;INTENT-ID&gt; --json` when the user supplied an ID.
 2. Explain the preserved local commit, exact target ref, attempt budget, and classified fault. Never request a token, disable TLS, bypass hooks, or suggest force.
-3. Ask before mutation. When the user selects retry, run `singularity-flow push retry &lt;INTENT-ID&gt; --json` exactly once.
+3. Ask before mutation. When the user selects retry, run `singularity-flow sync &lt;INTENT-ID&gt; --json` exactly once.
 4. Report the returned status. `outcome-unknown` means stop: the remote could not be read, so another push is not authorized. `remote-diverged` or `needs-user` requires human reconciliation.
 
-Story publication remains owned by `singularity-flow sync`; do not substitute this outbox for a Story pending-publication record.
+Story publication remains owned by `singularity-flow sync` without an intent ID; do not substitute this outbox for a Story pending-publication record.
 </code></pre>
       </div>
     </details>

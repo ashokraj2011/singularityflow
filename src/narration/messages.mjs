@@ -982,6 +982,15 @@ export const MESSAGES = Object.freeze({
   'transport.retry-completed': {
     headline: (s) => `Transport ${slot(s.intentId)} is ${slot(s.status)} after the authorized retry.${transportFault(s)}`
   },
+  // `sync`: the Story's retained commit, then every saved push of the repository [SPEC-OAP M3].
+  'sync.completed': {
+    headline: (s) => `${{
+      pushed: `Pushed ${slot(s.workId)} at ${slot(s.commit)}.`,
+      'rolled-back': `Rolled back the interrupted pre-commit publication for ${slot(s.workId)}.`,
+      cleared: `Cleared the interrupted pre-commit publication for ${slot(s.workId)}.`,
+      'no-op': `Story ${slot(s.workId)} has no pending publication.`
+    }[s.story] ?? 'No Story publication is pending here.'} Retried ${slot(s.retried, '0')} saved push(es): ${slot(s.published, '0')} published, ${slot(s.unpublished, '0')} not.`
+  },
   'goal.listed': {
     headline: (s) => `Found ${slot(s.count, '0')} Goal(s) in ${slot(s.workspace)}.`,
     preserves: true

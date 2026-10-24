@@ -2434,6 +2434,8 @@ singularity-flow sync
 
 After the commit boundary, sync retries the existing history without rebasing, resetting, or force-pushing. A normal non-fast-forward rejection protects concurrent terminal decisions from overwriting one another.
 
+Then sync retries every push this repository saved outside a Story that can still land: workflow proposals, approval-group enrollment, configuration and setup pushes. It prints one line for each, with what it was, its commit and the outcome; one that does not land names its one cause and the fix. A push that waits for you (`needs-user`, or its attempt budget used up) is named with its cause and not pushed again: only `singularity-flow sync <INTENT-ID>`, after you fix the cause, retries it. Run outside a Story, sync does only this and says no Story publication is pending. `singularity-flow sync <INTENT-ID>` retries exactly one (`singularity-flow push status` lists them); `push retry <INTENT-ID>` is the same command under its older name.
+
 When the rejection means another clone published to the same Story first and the retained commit is a document upload, sync says so. `singularity-flow sync --replay` (preview it with `--dry-run`) adds the same files, names, phases and storage again on top of the published Story, so they take the next free document IDs, and publishes that as a new commit. The retained commit stays reachable under `refs/sflow-replayed/<WORK-ID>/<commit>`; if the replayed upload cannot be recorded, the branch and its pending marker are put back as they were. Any other retained commit is left for a person to reconcile.
 
 ## World model
@@ -3141,7 +3143,7 @@ before starting a bounded background upload. It is supported by workflow proposa
 terminal-confirmed `workflow author submit --background-sync`), Studio change
 sets and `configuration save --propose`. A returned `pushed: false` / `syncStatus: saved-locally` is
 not publication, review or activation. Inspect `singularity-flow push status <INTENT-ID> --json`;
-after interruptions, explicitly resume with `singularity-flow push retry <INTENT-ID>`. Upload only
+after interruptions, explicitly resume with `singularity-flow sync <INTENT-ID>`. Upload only
 creates the proposal branch. It never approves, activates or updates an application branch.
 
 Workflow import/review failures show the actual redacted Git stdout and stderr, exit code,
@@ -3581,7 +3583,7 @@ singularity-flow goal pause <GEX-ID> --reason TEXT [--json]
 singularity-flow goal resume|sync <GEX-ID> [--json]
 singularity-flow goal abandon <GEX-ID> --confirm GEX-ID --reason TEXT [--json]
 singularity-flow push status [INTENT-ID] [--all] [--json]
-singularity-flow push retry <INTENT-ID> [--json]
+singularity-flow push retry <INTENT-ID> [--json]   # the same as sync <INTENT-ID>
 singularity-flow integrations list [--work-id ID] [--json]
 singularity-flow integrations status [--work-id ID] [--all] [--json]
 singularity-flow integrations retry <DELIVERY-KEY...>|--all [--json]
@@ -3897,6 +3899,7 @@ singularity-flow cancel [WORK-ID] [--fetch] --reason TEXT --confirm WORK-ID
 singularity-flow cancel WORK-ID --release [--apply --confirm WORK-ID] [--json]
 singularity-flow pr [WORK-ID] [--create] [--yes] [--json]
 singularity-flow sync [WORK-ID] [--replay [--dry-run]] [--json]
+singularity-flow sync <INTENT-ID> [--json]
 singularity-flow spec index [FILE] [--out FILE] [--dry-run]|claims|coverage|acceptance|trace ...
 singularity-flow comprehension regions [--work-id WORK-ID] [--phase PHASE] [--base REVISION] [--json]
 singularity-flow comprehension check [--work-id WORK-ID] [--phase PHASE] [--base REVISION] [--json]

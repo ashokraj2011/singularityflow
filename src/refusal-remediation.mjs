@@ -1207,9 +1207,9 @@ export function refusalRemediationPlan(error, argv = []) {
     retry: Object.freeze({ label: 'Do not retry until the compiler/build has been repaired or aligned and a fresh designer handoff is available.', automatic: false })
   });
   const hookFailure = error?.details?.remoteFailure?.hook ?? localGitHookFailure({ stderr: error?.message });
-  // A refusal that retained its publication names the exact retry (push retry, sync, initiative or
-  // goal sync, a branch promotion); after the repair that is the way out, where a diagnosis would
-  // only describe the hook again.
+  // A refusal that retained its publication names the exact retry (sync, a saved push's
+  // `sync <INTENT-ID>` or its older push-subcommand alias, initiative or goal sync, a branch
+  // promotion); after the repair that is the way out, where a diagnosis would only describe the hook again.
   const retainedRetry = hookFailure
     ? explicitCommands(error).find((entry) => RETAINED_RETRIES.some((form) => form.every((word, index) => entry.argv?.[index] === word))) ?? null
     : null;

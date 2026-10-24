@@ -216,6 +216,22 @@ Built in M3 (2026-10-24):
   - One planning fixture with a pending amendment checks the order and the holds. `decisions`,
     readiness, `nextsteps`, the Inbox, the badge and the journey all report 2 open; after the
     rejection, all report 1.
+- `sync` absorbs `push retry` (owner decision 5):
+  - `singularity-flow sync [WORK-ID]` publishes the Story's retained commit as before. It then
+    retries every push this repository saved outside a Story that an automatic retry may land:
+    `pending`, `pushing` and `outcome-unknown`.
+  - A push in `needs-user` or `attempt-budget-exhausted` waits for the person: `sync` names its one
+    cause and `singularity-flow sync <INTENT-ID>`. Running `sync <INTENT-ID>` is the person's own
+    retry after fixing the cause, the authority `push retry` carried. So an agent that runs `sync`
+    for a pending publication never re-pushes what only a person can clear.
+  - Run where no Story is checked out, `sync` retries only the saved pushes and says that no Story
+    publication is pending.
+  - `sync <INTENT-ID>` retries exactly one push, from any folder. `push retry <INTENT-ID>` still
+    works as the same command, but every message, next action, help page, VS Code message and skill
+    names `sync <INTENT-ID>`.
+  - When `next` runs `sync` for the person, it publishes only the Story.
+  
+  Tests: `test/oap-m3-sync.test.mjs`.
 
 ### 4. One approval ceremony
 

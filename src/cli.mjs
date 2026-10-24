@@ -1,5 +1,5 @@
 import { capabilityDoctorStoryPin, resumeCommand } from './commands/shared/start-context.mjs';
-import { checkoutStoryBranch, workIdForBranch } from './story-branch-name.mjs';
+import { checkoutStoryBranch } from './story-branch-name.mjs';
 import { withReadScope } from './read-scope.mjs';
 import { preparedPhaseNextActions } from './commands/shared/prepared-phase-next-actions.mjs';
 import { acceptedStoryExecutionIfPresent } from './commands/shared/accepted-story-execution-if-present.mjs';
@@ -13,7 +13,6 @@ import { storyDraftTransaction } from './commands/shared/story-draft-transaction
 import { convergencePreparationState } from './commands/shared/convergence-preparation-state.mjs';
 import { prepareConfiguredPhase } from './commands/shared/prepare-configured-phase.mjs';
 import { completionContinuation } from './commands/shared/completion-continuation.mjs';
-import { recordRequiredReceiptsAfterTransition } from './commands/shared/record-required-receipts-after-transition.mjs';
 import { withRefusalMemory } from './commands/shared/with-refusal-memory.mjs';
 import { checklistDecisions } from './commands/shared/checklist-decisions.mjs';
 import { decisionWorkflow } from './commands/shared/decision-workflow.mjs';
@@ -43,7 +42,7 @@ import { buildRepositorySubjectIndexFromRefs, resolveContext } from './repositor
 
 import { currentPhase } from './phase-generation.mjs';
 import { workflowBranchAllowed, workDir } from './story-paths.mjs';
-import { actorKey, assertNoPendingPublication, cancelWorkflow, commitAndPublish, completionPhaseOf, CONFIG_PATH, decideStory, loadConfig, preparePhaseInputs, promoteDesignSource, registerArtifact, rejectPhase, reopenWorkflow, saveStoryDraft, transactStory, scanArtifacts, storyPublicationPending, storyWelEnrollmentStatus, syncPublication, validateId, workflowPublicationBranch } from './state-stores.mjs';
+import { actorKey, assertNoPendingPublication, cancelWorkflow, commitAndPublish, completionPhaseOf, CONFIG_PATH, decideStory, loadConfig, preparePhaseInputs, promoteDesignSource, registerArtifact, rejectPhase, reopenWorkflow, saveStoryDraft, transactStory, scanArtifacts, storyPublicationPending, storyWelEnrollmentStatus, validateId, workflowPublicationBranch } from './state-stores.mjs';
 import { generationSkillForPhase, workflowAuthoringRoutes } from './code-delivery-policy.mjs';
 import { phasePreparationCommandLines } from './phase-preparation-guidance.mjs';
 import { renderChangeDirectoryCommand, renderPlatformCommand, safeCommandGuidance } from './safe-command-guidance.mjs';
@@ -1977,7 +1976,7 @@ async function nextCommand(options) {
   if (await storyPublicationPending(root, config, workflow.workItem.id)) {
     printCommandRoutes('singularity-flow sync', { label: 'Publish the retained local commit' });
     console.log('Publish the retained local commit.');
-    return syncCommand();
+    return syncCommand([], {}, { retryTransports: false });
   }
   let phase = currentPhase(workflow);
   if (workflow.pendingDecision) {
@@ -4915,99 +4914,9 @@ async function cancelCommand(positionals, options) {
   }
 }
 
-async function syncCommand(positionals = [], options = {}) {
-  const root = repoRoot();
-  const config = await loadConfig(root);
-  const requestedId = positionals[1] ?? await workIdForBranch(root, config, branch(root)) ?? branch(root);
-  if (optionBoolean(options, 'replay')) return syncReplayCommand(root, config, requestedId, options);
-  const direct = await recoverPreparedPublicationBySubject(root, { kind: 'story', id: requestedId });
-  if (direct.status === 'active') {
-    throw new SingularityFlowError(
-      `Story '${requestedId}' has an active publication command (PID ${direct.active.pid}). `
-      + 'Return to that terminal and complete or interrupt it; recovery never rolls back a live owner.'
-    );
-  }
-  if (direct.status === 'recovered') {
-    console.log(`Rolled back the interrupted pre-commit publication for ${requestedId} to its exact durable pre-transaction state.`);
-    if (direct.rescuePath) console.log(`Preserved the interrupted partial bytes at ${direct.rescuePath}.`);
-    printCommandRoutes(`singularity-flow nextsteps ${requestedId}`, { label: 'Before retrying' });
-    return direct;
-  }
-  if (direct.status === 'manual') {
-    throw new SingularityFlowError(
-      `Story '${requestedId}' has an interrupted pre-commit publication that cannot be restored automatically. `
-      + 'Its journal was retained; run singularity-flow doctor --json and inspect the reported recovery evidence.'
-    );
-  }
-  const workflow = await loadStoryAggregate(root, config, requestedId);
-  let result;
-  try {
-    result = await syncPublication(root, config, workflow, { rebindRemote: optionString(options, 'rebind-remote') });
-  } catch (error) {
-    throw await explainLostPublicationRace(root, config, workflow, error);
-  }
-  if (result.recoveredPrepared && result.restoredPrepared) {
-    console.log(`Rolled back the interrupted pre-commit publication for ${workflow.workItem.id} to its exact durable pre-transaction state.`);
-    if (result.rescuePath) console.log(`Preserved the interrupted partial bytes at ${result.rescuePath}.`);
-    printCommandRoutes(`singularity-flow nextsteps ${workflow.workItem.id}`, { label: 'Before retrying' });
-  } else if (result.recoveredPrepared) {
-    console.log(`Cleared the interrupted pre-commit publication for ${workflow.workItem.id}; HEAD and the working tree already matched its exact baseline. Retry the original command.`);
-  } else if (result.noOp) {
-    console.log(`Story ${workflow.workItem.id} has no pending publication; nothing was pushed.`);
-  } else console.log(`Pushed ${result.pushed.slice(0, 8)} to ${result.remote}/${result.branch}.`);
-  if (result.stepActions?.delivered?.length) {
-    const receiptsLine = await recordRequiredReceiptsAfterTransition(root, workflow);
-    if (receiptsLine) console.log(receiptsLine);
-  }
-}
-
-/**
- * A push refused because another clone published to the Story first leaves a retained commit that
- * sync can only retry. When that commit is a document upload, say how to replay it.
- */
-async function explainLostPublicationRace(root, config, workflow, error) {
-  let plan = null;
-  try {
-    const { planDocumentReplay } = await import('./document-replay.mjs');
-    plan = await planDocumentReplay(root, config, workflow);
-  } catch { return error; }
-  if (plan?.replayable) {
-    return new SingularityFlowError(
-      `Another clone published to ${workflow.workItem.id} first, so its retained document upload (commit ${plan.commit.slice(0, 8)}) cannot be pushed as it is. `
-      + 'Replay it onto the published Story with singularity-flow sync --replay (preview with --dry-run): the same documents are added again and take the next free IDs. Nothing was changed.',
-      { code: 'STORY_PUBLICATION_RACE_LOST', details: { commit: plan.commit, remoteTip: plan.remoteTip, documents: plan.documents, nextAction: 'singularity-flow sync --replay --dry-run' } }
-    );
-  }
-  if (plan?.reason === 'name-taken') {
-    const { documentReplayReason } = await import('./document-replay.mjs');
-    return new SingularityFlowError(
-      `Another clone published to ${workflow.workItem.id} first, and its retained document upload cannot be replayed: ${documentReplayReason(plan)}. `
-      + 'Nothing was changed.', { code: 'STORY_PUBLICATION_RACE_LOST', details: { commit: plan.commit, collisions: plan.collisions } }
-    );
-  }
-  return error;
-}
-
-async function syncReplayCommand(root, config, requestedId, options) {
-  const { documentReplayReason, replayPendingDocumentUpload } = await import('./document-replay.mjs');
-  const workflow = await loadStoryAggregate(root, config, requestedId);
-  const dryRun = optionBoolean(options, 'dry-run');
-  const result = await replayPendingDocumentUpload(root, config, workflow, { dryRun });
-  if (optionBoolean(options, 'json')) return console.log(JSON.stringify(result, null, 2));
-  if (dryRun) {
-    if (!result.replayable) {
-      console.log(`Nothing to replay: ${documentReplayReason(result)}.`);
-      return;
-    }
-    console.log(`Would replay commit ${result.commit.slice(0, 8)} onto ${result.remote}/${result.branch} at ${result.remoteTip.slice(0, 8)}:`);
-    for (const document of result.documents) console.log(`  ${document.id} — ${document.name} (gets the next free ID)`);
-    console.log('Dry run: no state changed.');
-    return;
-  }
-  console.log(`Replayed commit ${result.from.slice(0, 8)} onto the published Story; it is kept at ${result.preservedRef}.`);
-  for (const document of result.documents) console.log(`  ${document.previousId} → ${document.id ?? '?'} — ${document.name}`);
-  console.log(`Commit: ${result.publication.sha.slice(0, 8)}${result.publication.pushed ? ' pushed' : ' retained locally'}`);
-  if (!result.publication.pushed) printCommandRoutes('singularity-flow sync', { label: 'Publish the retained commit' });
+/** `sync` lives in commands/sync.mjs; `next` publishes only the Story through it. */
+async function syncCommand(positionals = [], options = {}, settings = {}) {
+  return (await import('./commands/sync.mjs')).syncCommand(positionals, options, settings);
 }
 
 async function ledgerCommand(positionals, options) {

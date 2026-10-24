@@ -1,9 +1,9 @@
 {
   "schemaVersion": 2,
   "generatedFrom": "docs/topics",
-  "sourceCommit": "a2719813453c2543c51493b31f1273bff4651fe4",
+  "sourceCommit": "42793be28f7e862c3789f6340bff8f467a635396",
   "topicCount": 85,
-  "contentSha256": "21ca5c36a7ab497dcb33b781eb69ce983d85382054c86ec87070453d46353087",
+  "contentSha256": "539b123fbb8416ffe3d62b0591b05854ebcabfd9b2fead04f8e99d0c1d6bf2d7",
   "topics": [
     {
       "id": "activity-and-prompt-audit",
@@ -640,8 +640,8 @@
     {
       "id": "workflow-authoring",
       "title": "Workflow and configuration authoring",
-      "version": 88,
-      "sha256": "b4b2f1bd47fab32080e5b9aac811ea09ac423b41316aa6f8022c4249135283b3",
+      "version": 89,
+      "sha256": "b1471aed6de355993fc19f99043276dbf8eb796fecd4ad7bb1d78998a5b8c448",
       "routingSha256": "be98a071d40a55c131a7558d42e420e145bd1da91ab66d7e4c15e1924ffe1797",
       "file": "workflow-authoring.md"
     },
@@ -672,8 +672,8 @@
     {
       "id": "workspaces-and-sessions",
       "title": "Workspaces, sessions, and current selection",
-      "version": 19,
-      "sha256": "3561457138ce5a60ab4f9b4d1952c25fe002a5fa0301c99fc4336b9fb8a799e3",
+      "version": 20,
+      "sha256": "dd16e3569f664c8fcd5d7cf0001872bd9864146f8b1daf613cf692618b5a345f",
       "routingSha256": "5c112c0653f816dd58697fe7898162ae44cb1679460dc56dece3daa01073e94a",
       "file": "workspaces-and-sessions.md"
     },

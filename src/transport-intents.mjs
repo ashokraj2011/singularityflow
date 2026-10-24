@@ -11,7 +11,7 @@ import {
 } from './git-remote-diagnostics.mjs';
 import { withoutGitProcessOverrides } from './git-enterprise-environment.mjs';
 import { workspaceRegistryFile } from './workspace-context.mjs';
-import { run, SingularityFlowError, writeAtomic } from './util.mjs';
+import { isTransportIntentId, run, SingularityFlowError, writeAtomic } from './util.mjs';
 import { healerReceipt } from './workspace-healers.mjs';
 import { currentSchemaVersion, readRecord } from './schema-migrations.mjs';
 import {
@@ -82,10 +82,13 @@ export function transportCheckoutMissing(intent) {
 export const CHECKOUT_MISSING_ADVICE = 'The checkout this push was saved in no longer exists, so it cannot be retried. '
   + 'Repeat the operation that made the commit; a Story start adds you to the approval groups again.';
 
-/** The retry that publishes a retained commit, while one can still land it. */
+/**
+ * The retry that publishes a retained commit, while one can still land it. `sync <INTENT-ID>` is the
+ * one command for whatever was not published [SPEC-OAP M3]; the older push subcommand is its alias.
+ */
 export function transportRetryAction(intent) {
   return intent?.intentId && !['succeeded', 'remote-diverged'].includes(intent.status) && !transportCheckoutMissing(intent)
-    ? { command: `singularity-flow push retry ${intent.intentId}`, skill: '/sf-push' } : null;
+    ? { command: `singularity-flow sync ${intent.intentId}`, skill: '/sf-push' } : null;
 }
 const TRANSPORT_DIAGNOSTIC_MAX_BYTES = 4096;
 const TRANSPORT_PUSH_MAX_BYTES = 1024 * 1024;
@@ -134,7 +137,7 @@ export function transportOutboxRoot(env = process.env, home = os.homedir()) {
 
 function intentFile(root, intentId) {
   const id = String(intentId ?? '').trim();
-  if (!/^psh_[a-f0-9-]{20,64}$/.test(id)) {
+  if (!isTransportIntentId(id)) {
     throw new SingularityFlowError(`Invalid transport intent ID '${id}'.`, { code: 'TRANSPORT_INTENT_ID_INVALID' });
   }
   return path.join(root, 'intents', `${id}.json`);
@@ -334,7 +337,7 @@ export async function createTransportIntent({
     attemptBudget: { used: 0, maximum: 2 },
     circuit: { key: null, consecutiveFailures: 0, openedAt: null },
     healers: [],
-    nextAction: { command: `singularity-flow push retry ${intentId}`, skill: '/sf-push' }
+    nextAction: { command: `singularity-flow sync ${intentId}`, skill: '/sf-push' }
   });
 }
 
@@ -548,7 +551,7 @@ export async function retryTransportIntent(intentId, {
     if (intent.status === 'succeeded') return intent;
     if (intent.status === 'remote-diverged' || (intent.status === 'needs-user' && !allowNeedsUser)) {
       const why = intent.status === 'remote-diverged' ? ` ${REMOTE_DIVERGED_ADVICE}` : transportFaultSentence(intent);
-      // The person's own `push retry` is the way out once the cause is fixed; an automatic caller
+      // The person's own `sync <INTENT-ID>` is the way out once the cause is fixed; an automatic caller
       // (a resumed workspace setup) routes it instead of starting over into the same refusal.
       const retry = intent.status === 'needs-user' ? transportRetryAction(intent) : null;
       throw new SingularityFlowError(`Transport intent '${intentId}' requires human reconciliation.${why}`, {

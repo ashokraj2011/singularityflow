@@ -40,7 +40,7 @@ related:
   - agents-and-routing
   - artifacts-and-generation
   - workflow-markup
-version: 88
+version: 89
 ---
 Author work types, ordered phases, gates, artifacts, inputs, and approval policy through approved configuration. Existing work remains pinned to the resolution it started with.
 
@@ -167,7 +167,7 @@ attempt and never answers a sign-in prompt, so where Git needs a sign-in, a prox
 can stop; the proposal is then in no review list. Studio says so as soon as it happens, and **Changes**
 lists it under **Saved on this computer — not uploaded yet** with the reason, **Retry upload**, and
 **Sign in to Git** when the reason is a sign-in. `singularity-flow workflow proposals` names it too,
-with the `singularity-flow push retry <ID>` command. A retry you ask for always gets one more attempt.
+with the `singularity-flow sync <ID>` command. A retry you ask for always gets one more attempt.
 
 On **Your workflows**, **Export…** saves the chosen published workflows and everything they depend on
 (steps, templates, artifact sets, agents) as one bundle, and **Import…** previews a bundle's plan

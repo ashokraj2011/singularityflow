@@ -1207,8 +1207,8 @@ exit 0
     });
     assert.equal(refused.workflow.workItem.id, 'WORK-CAP-REFUSED');
     assert.equal(refused.approvalEnrollment.pushed, false);
-    assert.match(refused.approvalEnrollment.pending.message, /^Your Git identity was not added to the approval groups on sflow\/config; .* Git refused the push to sflow\/config \([a-z-]+\): "remote: configuration enrollment rejected"\. .* After fixing that, run: singularity-flow push retry psh_[0-9a-f-]+\.$/u);
-    assert.match(refused.approvalEnrollment.pending.nextAction.command, /^singularity-flow push retry psh_[0-9a-f-]+$/u);
+    assert.match(refused.approvalEnrollment.pending.message, /^Your Git identity was not added to the approval groups on sflow\/config; .* Git refused the push to sflow\/config \([a-z-]+\): "remote: configuration enrollment rejected"\. .* After fixing that, run: singularity-flow sync psh_[0-9a-f-]+\.$/u);
+    assert.match(refused.approvalEnrollment.pending.nextAction.command, /^singularity-flow sync psh_[0-9a-f-]+$/u);
     await rm(rejectConfigurationHook);
     if (run('git', ['branch', '--show-current'], lead.source).stdout.trim() !== launchBranch) run('git', ['switch', '-q', launchBranch], lead.source);
 

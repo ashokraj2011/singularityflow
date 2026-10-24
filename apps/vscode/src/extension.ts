@@ -7793,7 +7793,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
         }>(args);
         if (result.changed && !result.pushed) {
           const next = commandGuidanceText(result.nextAction);
-          return `Configuration commit ${result.commit.slice(0, 8)} is retained, but publication is ${result.transportStatus ?? 'pending'}. ${next ? `Continue with:\n${next}` : `Retry it from Workflow Studio → Changes, or run: singularity-flow push retry ${result.transportIntent ?? '<ID>'}`}`;
+          return `Configuration commit ${result.commit.slice(0, 8)} is retained, but publication is ${result.transportStatus ?? 'pending'}. ${next ? `Continue with:\n${next}` : `Retry it from Workflow Studio → Changes, or run: singularity-flow sync ${result.transportIntent ?? '<INTENT-ID>'}`}`;
         }
         await refreshAfterKnownMutation();
         if (!result.changed) {
@@ -8199,7 +8199,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
             `Unconfirmed upload: ${branch}`,
             intent.fault?.advice, lazyPanels().configurationGitFailureText(intent.fault),
             `Inspect: singularity-flow push status ${intentId} --json`,
-            `Retry after repair: singularity-flow push retry ${intentId} --json`
+            `Retry after repair: singularity-flow sync ${intentId} --json`
           ].filter(Boolean).join('\n\n'));
           const choice = await showCompactWarningMessage(
             `Proposal ${branch} is saved locally. Git details opened; repair the error, then retry in Changes.`,

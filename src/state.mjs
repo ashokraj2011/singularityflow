@@ -510,6 +510,97 @@ function phaseState(definition, index) {
  */
 
 /**
+ * What each lifecycle commit does to a step awaiting approval [SPEC-OAP M2], keyed by its event
+ * type, and for a person's decision by `decision-made:<kind>`:
+ * - `review-safe`: may sit between the submission and its approval once its commit verifies as
+ *   exactly that kind (reviewHistoryCommits), because it changes nothing the review saw;
+ * - `returns-step`: returns the step itself, so no submission is left to make stale;
+ * - `refused-during-review`: refused while the step awaits approval, naming the way round;
+ * - `stales-submission`: recorded, and approval then needs a fresh submission; the approval
+ *   refusal names the commit.
+ * A review-safe decision names each list it appends to, with that list's history event; a command
+ * that records the same decision kind into any other list fails verification and stales the
+ * submission. A decision kind no entry names is a workflow decision, which only follows an
+ * approved step. Every event type and decision kind has one entry: the guard in
+ * test/oap-m2-review-effects.test.mjs fails on a new one.
+ */
+export const REVIEW_EFFECTS = Object.freeze({
+  [LIFECYCLE_EVENT.BINDING]: 'stales-submission',
+  [LIFECYCLE_EVENT.CONFIGURATION_CHANGED]: 'stales-submission',
+  [LIFECYCLE_EVENT.TEST_COMMAND_AMENDED]: 'stales-submission',
+  [LIFECYCLE_EVENT.TEST_SELECTION_CONFIRMED]: 'stales-submission',
+  [LIFECYCLE_EVENT.TEST_READINESS_REPAIRED]: 'stales-submission',
+  // A verified review of the risk the approval relies on (verifiedStoryTestRiskReviewCommits).
+  [LIFECYCLE_EVENT.TEST_RISK_ATTESTED]: 'review-safe',
+  [LIFECYCLE_EVENT.TEST_RISK_ACCEPTED]: 'review-safe',
+  [LIFECYCLE_EVENT.TEST_RISK_REVOKED]: 'review-safe',
+  [LIFECYCLE_EVENT.ARTIFACT_GENERATED]: 'stales-submission',
+  [LIFECYCLE_EVENT.APPROVAL_REQUESTED]: 'stales-submission',
+  // Another approver's approval of the same submission.
+  [LIFECYCLE_EVENT.PHASE_APPROVED]: 'review-safe',
+  [LIFECYCLE_EVENT.PHASE_REJECTED]: 'returns-step',
+  // Proposing, rejecting and acknowledging only add amendment records (approval-check.mjs): an
+  // undecided proposal holds the approval until a person decides it, a rejected one passes with its
+  // rejection as one pair, and an acknowledgement passes on its own. The approval that installs an
+  // amendment reopens the step awaiting approval.
+  [LIFECYCLE_EVENT.INTENT_AMENDMENT_PROPOSED]: 'review-safe',
+  [LIFECYCLE_EVENT.INTENT_AMENDMENT_APPROVED]: 'returns-step',
+  [LIFECYCLE_EVENT.INTENT_AMENDMENT_REJECTED]: 'review-safe',
+  [LIFECYCLE_EVENT.INTENT_AMENDMENT_ACKNOWLEDGED]: 'review-safe',
+  [LIFECYCLE_EVENT.SKILL_AMENDMENT_PROPOSED]: 'stales-submission',
+  [LIFECYCLE_EVENT.SKILL_AMENDMENT_APPROVED]: 'stales-submission',
+  [LIFECYCLE_EVENT.SKILL_AMENDMENT_REJECTED]: 'stales-submission',
+  [LIFECYCLE_EVENT.WORKFLOW_REOPENED]: 'stales-submission',
+  [LIFECYCLE_EVENT.REWORK_ROLLED_FORWARD]: 'stales-submission',
+  [LIFECYCLE_EVENT.SEQUENCE_OVERRIDE]: 'stales-submission',
+  // Only the exact Auto human-boundary checkpoint of this submission verifies; other evidence stales it.
+  [LIFECYCLE_EVENT.EVIDENCE_RECORDED]: 'review-safe',
+  [LIFECYCLE_EVENT.EXTERNAL_SYNCHRONIZED]: 'stales-submission',
+  [LIFECYCLE_EVENT.BRANCH_LINKED]: 'stales-submission',
+  [LIFECYCLE_EVENT.TELEMETRY_RECORDED]: 'stales-submission',
+  [LIFECYCLE_EVENT.PROJECTION_RECONCILED]: 'stales-submission',
+  [LIFECYCLE_EVENT.IMPACT_CLASSIFIED]: 'stales-submission',
+  [LIFECYCLE_EVENT.IMPACT_OPTED_OUT]: 'stales-submission',
+  [LIFECYCLE_EVENT.IMPACT_EXPOSURE_RECORDED]: 'stales-submission',
+  [LIFECYCLE_EVENT.IMPACT_EVIDENCE_COLLECTED]: 'stales-submission',
+  [LIFECYCLE_EVENT.IMPACT_EVIDENCE_IMPORTED]: 'stales-submission',
+  [LIFECYCLE_EVENT.IMPACT_FINALIZED]: 'stales-submission',
+  [LIFECYCLE_EVENT.WORK_CANCELLED]: 'stales-submission',
+  [LIFECYCLE_EVENT.WORK_COMPLETED]: 'stales-submission',
+  [LIFECYCLE_EVENT.ADHOC_LANDED]: 'stales-submission',
+  [LIFECYCLE_EVENT.DESIGN_SOURCE_PROMOTED]: 'stales-submission',
+  'decision-made:applicability': { effect: 'review-safe', lists: { applicability: 'applicability_decided' } },
+  'decision-made:scope': { effect: 'review-safe', lists: { scopeDispositions: 'scope_decided' } },
+  'decision-made:completeness': { effect: 'review-safe', lists: { completenessReviews: 'completeness_reviewed' } },
+  'decision-made:plan': { effect: 'review-safe', lists: { planAmendments: 'plan_amended' } },
+  'decision-made:risk': { effect: 'review-safe', lists: { riskDecisions: 'risk_decided' } },
+  // A step approver's test-run risk decision, revocation or renewal (`decision test-risk`).
+  'decision-made:test-risk': { effect: 'review-safe', lists: { testRunRisks: 'risk_decided' } },
+  // A step approver's reuse of an earlier step's recorded test run, or its revocation (`decision evidence-reuse`).
+  'decision-made:evidence-reuse': { effect: 'review-safe', lists: { evidenceReuses: 'evidence_reuse_decided' } },
+  // A visual step approver's decision that one of its screen sizes does not apply, or its revocation (`decision visual-profile`).
+  'decision-made:visual-profile': { effect: 'review-safe', lists: { visualProfileDecisions: 'visual_profile_decided' } },
+  'decision-made:quality-risk': { effect: 'review-safe', lists: { qualityRiskDecisions: 'quality_risk_decided' } },
+  'decision-made:witness': { effect: 'review-safe', lists: { witnessRecords: 'witness_recorded' } },
+  'decision-made:upstream-issue': { effect: 'review-safe',
+    lists: { upstreamIssues: 'upstream_issue_raised', upstreamIssueDecisions: 'upstream_issue_decided' } },
+  'decision-made:forward-amendment': { effect: 'review-safe', lists: { amendmentRevalidations: 'amendment_revalidated' } },
+  // It changes what the submitted review ran (TEST_COMMAND_DECISION_DURING_REVIEW names returning the step).
+  'decision-made:test-command': 'refused-during-review',
+  'decision-made:phase-appeal': 'stales-submission',
+  'decision-made:evidence-contract-correction': 'stales-submission',
+  'decision-made:target-origin': 'stales-submission',
+  'decision-made:workflow': 'refused-during-review'
+});
+
+/** Each list a review-safe decision appends to, with its history event and decision kind. */
+const REVIEW_SAFE_DECISION_LISTS = Object.freeze(Object.entries(REVIEW_EFFECTS)
+  .filter(([key, entry]) => key.startsWith('decision-made:') && entry?.effect === 'review-safe')
+  .flatMap(([key, entry]) => Object.entries(entry.lists).map(([list, event]) => Object.freeze({
+    list, event, decision: key.slice('decision-made:'.length)
+  }))));
+
+/**
  * One single-parent governed commit's Story state on either side of it, or null when it is not one
  * or cannot be read. `ownPaths` are the files every such commit writes: workflow.json, STATUS.md and,
  * with the ledger on, the ledger intent of its own event, which must be new and exact.
@@ -552,9 +643,10 @@ export function stateChangesOnly({ before, after }, keys) {
 }
 
 /**
- * Whether a commit is exactly one applicability decision [E2G-005]: a person recording why a
- * left-out responsibility does not apply changes nothing a review saw, so it may sit between a
- * phase's submission and its approval. Anything more in the commit fails closed.
+ * Whether a commit is exactly one review-safe decision (REVIEW_EFFECTS), such as an applicability
+ * decision [E2G-005]: a person recording why a left-out responsibility does not apply changes
+ * nothing a review saw, so it may sit between a phase's submission and its approval. Anything more
+ * in the commit fails closed.
  */
 function applicabilityDecisionCommit(root, config, workflow, commit) {
   const change = governedStateChange(root, config, workflow, commit);
@@ -562,25 +654,9 @@ function applicabilityDecisionCommit(root, config, workflow, commit) {
   const { identity, before, after } = change;
   // With the ledger on, the decision also adds the ledger intent of its own event.
   if (change.changed.some((file) => !change.ownPaths.includes(file))) return false;
-  // An applicability decision or a scope disposition: each appends to its own list only.
-  const changedList = (key) => recordSha256(before[key] ?? null) !== recordSha256(after[key] ?? null);
-  const kind = changedList('scopeDispositions') ? { list: 'scopeDispositions', event: 'scope_decided', decision: 'scope' }
-    : changedList('completenessReviews') ? { list: 'completenessReviews', event: 'completeness_reviewed', decision: 'completeness' }
-    : changedList('planAmendments') ? { list: 'planAmendments', event: 'plan_amended', decision: 'plan' }
-    : changedList('riskDecisions') ? { list: 'riskDecisions', event: 'risk_decided', decision: 'risk' }
-    // A step approver's test-run risk decision, revocation or renewal (`decision test-risk`).
-    : changedList('testRunRisks') ? { list: 'testRunRisks', event: 'risk_decided', decision: 'test-risk' }
-    // A step approver's reuse of an earlier step's recorded test run, or its revocation (`decision evidence-reuse`).
-    : changedList('evidenceReuses') ? { list: 'evidenceReuses', event: 'evidence_reuse_decided', decision: 'evidence-reuse' }
-    // A visual step approver's decision that one of its screen sizes does not apply, or its revocation (`decision visual-profile`).
-    : changedList('visualProfileDecisions') ? { list: 'visualProfileDecisions', event: 'visual_profile_decided', decision: 'visual-profile' }
-    : changedList('qualityRiskDecisions') ? { list: 'qualityRiskDecisions', event: 'quality_risk_decided', decision: 'quality-risk' }
-    : changedList('witnessRecords') ? { list: 'witnessRecords', event: 'witness_recorded', decision: 'witness' }
-    : changedList('upstreamIssues') ? { list: 'upstreamIssues', event: 'upstream_issue_raised', decision: 'upstream-issue' }
-    : changedList('upstreamIssueDecisions') ? { list: 'upstreamIssueDecisions', event: 'upstream_issue_decided', decision: 'upstream-issue' }
-    : changedList('amendmentRevalidations') ? { list: 'amendmentRevalidations', event: 'amendment_revalidated', decision: 'forward-amendment' }
-      : { list: 'applicability', event: 'applicability_decided', decision: 'applicability' };
-  if (!stateChangesOnly(change, [kind.list, 'history', 'publicationProjections'])) return false;
+  // Each review-safe decision appends to its own list only.
+  const kind = REVIEW_SAFE_DECISION_LISTS.find(({ list }) => recordSha256(before[list] ?? null) !== recordSha256(after[list] ?? null));
+  if (!kind || !stateChangesOnly(change, [kind.list, 'history', 'publicationProjections'])) return false;
   // Each list keeps what it had and gains exactly one entry; earlier decisions only gain a withdrawal.
   const appendsOne = (key) => {
     const prior = before[key] ?? [];
@@ -5764,13 +5840,15 @@ async function writeDecision(root, config, workflow, phase, decision) {
  *
  * A receipt intentionally binds HEAD when review begins, so receipt freshness alone cannot tell
  * whether an unrelated commit was inserted *before* that point. Permit prior partial approvals,
- * verified test-risk reviews, applicability decisions, the proposal and rejection of a rejected
- * intent amendment (`rejectedIntentAmendments` in approval-check.mjs; approval records them) and
- * the exact Auto human-boundary checkpoint for this submitted phase. Auto records that checkpoint
- * immediately after submission so a human can resume the flight after approval; it is
- * observational evidence, not a new generation. Approval refuses on every other commit (`blocking`); the approval packet and phase
- * show name the same commits beforehand, so all three read this one classification. `reviewedRisks`
- * is read only when a commit is not already a prior approval.
+ * verified test-risk reviews, recorded decisions (REVIEW_EFFECTS), the proposal and rejection of
+ * a rejected intent amendment (`rejectedIntentAmendments` in approval-check.mjs; approval records
+ * them), an undecided proposal (`pendingIntentAmendmentProposals`; approval waits for its
+ * decision), an acknowledgement, and the exact Auto human-boundary checkpoint for this submitted
+ * phase. Auto records that checkpoint immediately after submission so a human can resume the
+ * flight after approval; it is observational evidence, not a new generation. Approval refuses on
+ * every other commit (`blocking`); the approval packet and phase show name the same commits
+ * beforehand, so all three read this one classification. `reviewedRisks` is read only when a
+ * commit is not already a prior approval.
  */
 export async function reviewHistoryCommits(root, config, workflow, phase, submittedReview, { reviewedRisks = async () => [] } = {}) {
   const reviewRange = `${submittedReview.evidenceCommit}..${head(root)}`;
@@ -5817,17 +5895,24 @@ export async function reviewHistoryCommits(root, config, workflow, phase, submit
   for (const commit of unallowed()) {
     if (applicabilityDecisionCommit(root, config, workflow, commit)) allowedReviewCommits.add(commit);
   }
-  const rejectedAmendments = unallowed().length
-    ? await (await import('./approval-check.mjs')).rejectedIntentAmendments(root, config, workflow, unallowed(), {
-      evidenceCommit: submittedReview.evidenceCommit, interveningCommits })
-    : [];
+  // Intent-amendment records (approval-check.mjs): a rejected amendment's proposal and rejection as
+  // one pair, an undecided proposal (approval waits for its decision) and an acknowledgement.
+  const amendments = unallowed().length ? await import('./approval-check.mjs') : null;
+  const rejectedAmendments = amendments ? await amendments.rejectedIntentAmendments(root, config, workflow, unallowed(), {
+    evidenceCommit: submittedReview.evidenceCommit, interveningCommits }) : [];
   for (const { proposalCommit, rejectionCommit } of rejectedAmendments) {
     allowedReviewCommits.add(rejectionCommit);
     if (interveningCommits.includes(proposalCommit)) allowedReviewCommits.add(proposalCommit);
   }
+  const pendingProposals = amendments && unallowed().length
+    ? await amendments.pendingIntentAmendmentProposals(root, config, workflow, unallowed()) : [];
+  for (const { proposalCommit } of pendingProposals) allowedReviewCommits.add(proposalCommit);
+  const acknowledgements = amendments && unallowed().length
+    ? await amendments.intentAmendmentAcknowledgements(root, config, workflow, unallowed()) : [];
+  for (const { acknowledgementCommit } of acknowledgements) allowedReviewCommits.add(acknowledgementCommit);
   return {
     interveningCommits, priorApprovalCommits, allowedReviewCommits: [...allowedReviewCommits], blocking: unallowed(),
-    rejectedIntentAmendments: rejectedAmendments
+    rejectedIntentAmendments: rejectedAmendments, pendingIntentAmendmentProposals: pendingProposals
   };
 }
 
@@ -5891,6 +5976,7 @@ export async function evaluateApproval(root, config, workflow, {
   let review = null;
   let submittedWitnessMappings = [];
   let reviewedWitnessMappings = [];
+  let reviewHistory = null;
   let rejectedAmendments = [];
   let decision = null;
   let reached = false;
@@ -6073,17 +6159,25 @@ export async function evaluateApproval(root, config, workflow, {
         observationSha256: riskReference.observationSha256, evidenceCommit: submittedReview.evidenceCommit }) : null;
     });
     await stage('history', async () => {
-      const history = await reviewHistoryCommits(root, config, workflow, phase, submittedReview, {
+      reviewHistory = await reviewHistoryCommits(root, config, workflow, phase, submittedReview, {
         reviewedRisks: async () => [approvalRisk, ...documentRisks] });
-      rejectedAmendments = history.rejectedIntentAmendments;
-      if (history.blocking.length) {
+      rejectedAmendments = reviewHistory.rejectedIntentAmendments;
+    }, { needs: ['document-risks', 'test-risk'] });
+    await stage('amendment-decision', async () => {
+      // An amendment proposed after the submission is decided first; rejecting it keeps the submission.
+      if (reviewHistory.pendingIntentAmendmentProposals.length) {
+        throw (await import('./approval-check.mjs')).pendingAmendmentRefusal(workflow, phase, reviewHistory.pendingIntentAmendmentProposals);
+      }
+    }, { needs: ['history'] });
+    await stage('history-commits', async () => {
+      if (reviewHistory.blocking.length) {
         // Name each commit and route an undecided intent amendment among them to its decision first.
         const { interveningCommitRefusal } = await import('./approval-check.mjs');
         throw interveningCommitRefusal(root, workflow, phase, {
-          ...history, evidenceCommit: submittedReview.evidenceCommit, currentHead: head(root)
+          ...reviewHistory, evidenceCommit: submittedReview.evidenceCommit, currentHead: head(root)
         });
       }
-    }, { needs: ['document-risks', 'test-risk'] });
+    }, { needs: ['history'] });
     await stage('architecture', async () => {
       // Architecture intent was removed; a binding recorded before then is compared as recorded, never re-resolved.
       architectureIntentBinding = (phase?.generationPublications ?? []).find((entry) =>

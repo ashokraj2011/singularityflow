@@ -113,6 +113,44 @@ Built in M1 (2026-10-24):
 - `decision test-command` changes what the checks run, so it becomes `returns-step` while the step
   awaits approval. The decision list labels that option "returns <step> for a fresh run".
 
+Built in M2 (2026-10-24):
+
+- `REVIEW_EFFECTS` (src/state.mjs) gives every lifecycle event type, and every decision kind a
+  command records (`decision-made:<kind>`), one effect. It has a fourth value beside the three
+  above: `stales-submission`, for the kinds that still need a fresh submission. Those are named now
+  instead of being stale by default, and the approval refusal names each such commit. A review-safe
+  decision names each state list it appends to with that list's history event.
+  `applicabilityDecisionCommit` reads those lists from the registry and no longer keeps its own.
+  Auto resumes a stopped flight over exactly those decisions, as before.
+- Intent amendments (approval-check.mjs). Each case is verified exactly: an exact path allowlist,
+  an exact `workflow.json` key diff and the commit's own event hash. Anything more fails closed and
+  stales the submission as before.
+  - A rejected amendment's proposal and rejection pass as one verified pair
+    (`rejectedIntentAmendments`, bdd4049e). Approval records the pair, and the approval check notes
+    it.
+  - A proposal still waiting for a decision is checked the same way
+    (`pendingIntentAmendmentProposals`). It makes nothing stale. It holds the approval as
+    `someone-decides` (`APPROVAL_INTENT_AMENDMENT_PENDING`): rejecting it keeps the submission, and
+    approving it reopens the step. An amendment proposed before the submission holds nothing, as
+    before.
+  - An acknowledgement may also stamp the steps the amendment reopened
+    (`intentAmendmentAcknowledgements`).
+  - An approval below the amendment's threshold is not verified, so it still stales the submission.
+  - The approval that installs an amendment is `returns-step`, because it reopens the step awaiting
+    approval (the M0 D4 test).
+- `decision test-command` stays `refused-during-review`, as M0 built it
+  (`TEST_COMMAND_DECISION_DURING_REVIEW`, with the route that returns the step first), rather than
+  returning the step itself.
+- Tests:
+  - `test/approval-intervening-commits.test.mjs`: a pending proposal holds approval, and propose,
+    reject, approve needs no resubmission;
+  - `test/oap-m1-approval-check.test.mjs`: pairs that are not exactly one rejection still block;
+  - `test/oap-m2-review-effects.test.mjs`: every event type and recorded decision kind has one
+    entry, and a proposal with a file of its own stales the submission.
+  - Checked in real VS Code 1.143: with the proposal pending, Reviews showed "Someone else decides:
+    Approving planning waits for intent amendment AMD-001 to be decided" and no Approve. After the
+    rejection, Approve was offered and recorded the approval of generation 1 with no new submission.
+
 ### 3. One pending list
 
 - The decision list (`singularity-flow decisions <WORK-ID>`, `/sf-decide`, VS Code Decide) becomes
@@ -174,7 +212,7 @@ Each milestone ends with a real VS Code walk over CDP and, once Copilot is invol
 |---|---|---|
 | M0 Defects (done 2026-10-24) | The eight reported defects above, each with a failing test first | seven fixed, one did not reproduce and is pinned by a test; checked in the real extension |
 | M1 One check (done 2026-10-24) | `evaluateApproval` and the record step; owner classes; readiness, packet, phase show, Reviews, Approvals, the approval page and `nextsteps` read it | guard test: no refusal is found only at approve time; "Approve" is not offered on a held step; checked in the real extension |
-| M2 Review effects | `REVIEW_EFFECTS` registry; intent-amendment propose/reject/acknowledge are review-safe; `decision test-command` returns the step | the amendment-after-submission fixture (test/approval-intervening-commits.test.mjs): propose, then reject the amendment, then approve planning with no resubmission |
+| M2 Review effects (done 2026-10-24) | `REVIEW_EFFECTS` registry; intent-amendment propose/reject/acknowledge are review-safe; `decision test-command` stays refused during review (M0) | the amendment-after-submission fixture (test/approval-intervening-commits.test.mjs): propose, then reject the amendment, then approve planning with no resubmission |
 | M3 One list | The decision list holds every pending kind and the approval; all surfaces count from it; `sync` and `push retry` unify | equal counts across surfaces (test); no pending kind is missing from the list (registry test) |
 | M4 One ceremony | Decisions recorded in the approval commit; digest-bound receipt; phase typed once; `/sf-decide` continues to approval | simplest approval: one review plus one confirmation on every surface; a 40-minute review still approves |
 | M5 Next step in place | Result and next action on the approving surface; one context-reset suggestion for Copilot | VS Code and terminal approvals never send the person to Copilot to continue |
@@ -185,7 +223,8 @@ it. M2 and M3 can run in parallel after M1; they touch different files. M4 and M
 ## Guards that keep it standard
 
 - `test/gate-parity.test.mjs` (extended): `evaluateApproval` produces every approval refusal.
-- A `REVIEW_EFFECTS` registry test: every committing command has one entry.
+- A `REVIEW_EFFECTS` registry test (`test/oap-m2-review-effects.test.mjs`): every lifecycle event
+  type and every decision kind a command records has one entry.
 - A pending-kinds registry test: every pending concept named in the table above has a decision-list
   item kind or is a `machine` item.
 - A surface-count test: inbox, Reviews, badge, `nextsteps` and journey report the same open count

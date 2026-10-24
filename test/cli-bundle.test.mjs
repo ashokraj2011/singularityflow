@@ -142,14 +142,17 @@ test('the bundled CLI answers exactly like the sources while opening a handful o
   // +773 and cold-hook-context +731. M1's one approval check (merge a1b1709c; 7,386,336 before it): cold-hook-context
   // +4,097 and cold-narrow-reads +1,389. The explain state answer adds nothing here: its modules stay in the lazily
   // loaded gateway.
-  // 7,400,000 (next 5,000 boundary): main bdd4049e measures 7,394,862. The Story index adds 4,750 for 7,399,612:
-  // cold-core +4,756 (1,302,446 to 1,307,202) and the other chunks -6. In cold-core: cli-entry.mjs +1,423 (Work ID
+  // 7,400,000 (next 5,000 boundary): 7,398,878 after SPEC-OAP M2 (main bdd4049e: 7,394,862): cold-hook-context
+  // +3,433 and cold-core +583, from the REVIEW_EFFECTS registry in state.mjs and the approval stage that holds
+  // an undecided intent amendment.
+  // 7,405,000 (next 5,000 boundary): main 951e4122 measures 7,398,878. The Story index adds 4,750 for 7,403,628:
+  // cold-core +4,756 (1,303,081 to 1,307,837) and the other chunks -6. In cold-core: cli-entry.mjs +1,423 (Work ID
   // routing, its command list and the index refresh after a mutation), help-pages.mjs +772 and help-text.mjs +260
   // (workspace stories), refusal-remediation.mjs +753 (the storyCheckout projection), util.mjs +466 (samePlatformPath,
   // moved from story-worktree.mjs so the index stays light), cli-json-output.mjs +447 (storyRoute),
   // schema-migrations.mjs +285 (the story-index family), workspace.mjs +203 and command-registry.mjs +22.
   // story-index.mjs and story-routing.mjs live in cold-light, outside these reads.
-  assert.ok(closure('cold-hook-context.mjs').reduce((sum, item) => sum + item.bytes, 0) < 7_400_000,
+  assert.ok(closure('cold-hook-context.mjs').reduce((sum, item) => sum + item.bytes, 0) < 7_405_000,
     'phase-review reads retain their existing byte ceiling after moving families');
   assert.match(await readFile(path.join(outdir, 'cold-light.mjs'), 'utf8'), /function enterPhase\b/u,
     'phase binding must not fall through to the compatibility/admin bundle');

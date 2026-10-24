@@ -7,7 +7,9 @@
  * and its first route was a recover command that finds nothing to recover. The person could not tell
  * that the amendment had to be decided before planning could be revised or resubmitted. The same
  * commits are now named beforehand, as an advisory, in the approval packet's readiness, in phase
- * show and on the VS Code approval page; none of them stops the review.
+ * show and on the VS Code approval page; none of them stops the review. Since SPEC-OAP M2 the
+ * proposal itself makes nothing stale: it holds the approval until a person decides it, and a
+ * rejection leaves planning approvable as submitted.
  */
 import assert from 'node:assert/strict';
 import { readFile, writeFile } from 'node:fs/promises';
@@ -30,8 +32,8 @@ const DECIDE = `singularity-flow story intent-amendment decide AMD-001 --decisio
 const EXISTING_ROUTES = ['inspect-current-phase', 'leave-approval-turn', 'inspect-current-phase-evidence'];
 const NO_ROUTE = 'no verified Copilot equivalent; use the Shell command';
 
-function refusal(details) {
-  return new SingularityFlowError('history changed', { code: 'STORY_REVIEW_INTERVENING_COMMIT',
+function refusal(details, code = 'STORY_REVIEW_INTERVENING_COMMIT') {
+  return new SingularityFlowError('history changed', { code,
     details: { workId: WORK, phase: 'planning', generation: 1, ...details } });
 }
 
@@ -44,7 +46,9 @@ const pendingDetails = {
 };
 
 test('an undecided amendment after the submission is seen and decided before any phase repair', () => {
-  const plan = refusalRemediationPlan(refusal(pendingDetails), APPROVE);
+  // SPEC-OAP M2: the proposal holds the approval (APPROVAL_INTENT_AMENDMENT_PENDING) and makes nothing stale.
+  const { blockingCommits, blockingCommitCount, ...held } = pendingDetails;
+  const plan = refusalRemediationPlan(refusal(held, 'APPROVAL_INTENT_AMENDMENT_PENDING'), APPROVE);
   assert.deepEqual(plan.steps.map((step) => step.id), ['inspect-intent-amendment', 'decide-intent-amendment', 'leave-approval-turn']);
   assert.equal(plan.steps[0].command, STATUS);
   assert.match(plan.steps[0].label, /AMD-001, proposed in 1b3bf2703ebb after planning was submitted; it changes HEX-2018:AC-001, HEX-2018:REQ-002/u);
@@ -54,6 +58,10 @@ test('an undecided amendment after the submission is seen and decided before any
   assert.match(plan.steps[1].label, /Approving it changes those clauses, so planning reopens to be revised and submitted again/u);
   // Rejecting keeps the submission valid [SPEC-OAP decision 1]: planning is approved as submitted.
   assert.match(plan.steps[1].label, /Rejecting it keeps the approved clauses, and planning can then be approved as submitted, with no fresh submission/u);
+  assert.match(plan.retry.label, /this submission as it is once the amendment is rejected/u);
+  // Only commits that record more than the amendment still need a fresh submission after a rejection.
+  assert.match(refusalRemediationPlan(refusal(pendingDetails), APPROVE).steps[1].label,
+    /Rejecting it keeps the approved clauses, but these commits record more than its proposal and rejection, so planning still needs a fresh submission/u);
   assert.equal(plan.context.strategy, 'person-decides-intent-amendment');
   assert.equal(plan.context.turn, 'new-turn');
   assert.equal(plan.retry.command, null);
@@ -186,15 +194,15 @@ test('the advisory prints as warning lines with every route, and the approval pa
 });
 
 
-test('approving a submitted phase names each later commit and leads with an undecided amendment', async (t) => {
+test('approving a submitted phase names each later commit, and an undecided amendment holds it until decided', async (t) => {
   const { run, git, cli, submitted, candidate } = await submittedPlanningStory(t, WORK);
   assert.equal(JSON.parse(cli('status', WORK, '--submission-readiness', '--json').stdout).blockingCommits, undefined,
     'nothing is named while nothing blocks');
-  const refuse = () => {
+  const refuse = (code = 'STORY_REVIEW_INTERVENING_COMMIT') => {
     const result = run(process.execPath, [CLI, '--no-model', ...APPROVE, '--yes', '--json'], { allowFailure: true });
     assert.notEqual(result.status, 0, result.stdout + result.stderr);
     const envelope = JSON.parse(result.stdout);
-    assert.equal(envelope.error.code, 'STORY_REVIEW_INTERVENING_COMMIT', result.stdout);
+    assert.equal(envelope.error.code, code, result.stdout);
     return envelope;
   };
 
@@ -217,21 +225,16 @@ test('approving a submitted phase names each later commit and leads with an unde
   await writeFile(candidate, specification(WORK, 2));
   cli('story', 'intent-amendment', 'propose', '--file', candidate, '--reason', 'Review showed that value 2 is required.');
   const proposal = git('rev-parse', '--short=12', 'HEAD');
-  // Named before the review too, as an advisory that changes no route and stops nothing.
+  // SPEC-OAP M2: the proposal makes nothing stale. It holds the approval until a person who approves
+  // the scope decides it, seen before the review with who decides and its route.
   const readiness = JSON.parse(cli('status', WORK, '--submission-readiness', '--json').stdout);
   assert.equal(readiness.classification, 'already-submitted');
   assert.equal(readiness.nextCommand, `singularity-flow approve planning --work-id ${WORK} --fetch`);
-  assert.equal(readiness.blockingCommits.advisory, true);
-  assert.equal(readiness.blockingCommits.statement, 'Approving planning now would be refused: a commit after its submission may not precede approval.');
-  assert.deepEqual(readiness.blockingCommits.commits.map((entry) => [entry.commit, entry.subject, entry.kind]),
-    [[proposal, `[${WORK}][intent-amendment:propose] AMD-001`, 'intent-amendment-proposal']]);
-  assert.deepEqual(readiness.blockingCommits.pendingIntentAmendments.map((entry) => entry.id), ['AMD-001']);
-  assert.deepEqual(readiness.blockingCommits.actions.map((action) => action.command), [STATUS, DECIDE]);
-  // SPEC-OAP M1: the gate's own preview names the same hold, who clears it and its route, and next
-  // steps offer that route where they offered the approval.
+  assert.equal(readiness.blockingCommits, undefined, 'no commit is named as stale');
   assert.equal(readiness.approvalCheck.ready, false);
-  assert.deepEqual(readiness.approvalCheck.holds.map((hold) => [hold.code, hold.owner, hold.action?.command]),
-    [['STORY_REVIEW_INTERVENING_COMMIT', 'someone-decides', STATUS]]);
+  assert.deepEqual(readiness.approvalCheck.holds.map((hold) => [hold.code, hold.owner, hold.action?.command, hold.summary]),
+    [['APPROVAL_INTENT_AMENDMENT_PENDING', 'someone-decides', STATUS, 'Approving planning waits for intent amendment AMD-001 to be decided.']]);
+  // Next steps offer that route where they offered the approval.
   const next = JSON.parse(cli('nextsteps', WORK, '--json').stdout);
   const nowActions = (next.actions ?? next.data?.actions ?? []).filter((entry) => entry.timing === 'now');
   assert.equal(nowActions[0]?.command, STATUS, JSON.stringify(nowActions.map((entry) => entry.command)));
@@ -239,27 +242,25 @@ test('approving a submitted phase names each later commit and leads with an unde
     'no approval is offered into a refusal');
   const packet = JSON.parse(cli('choices', 'begin', 'approve', WORK, '--json', '--review-packet').stdout);
   assert.equal(packet.ready, false, 'the receipt is begun as before; nothing is answered');
-  assert.deepEqual(packet.approvalPacket.readiness.blockingCommits, readiness.blockingCommits);
-  assert.deepEqual(packet.approvalPacket.review.blockingCommits, readiness.blockingCommits);
+  assert.deepEqual(packet.approvalPacket.readiness.approvalCheck.holds, readiness.approvalCheck.holds);
   const shown = cli('phase', 'show', 'planning');
-  assert.match(shown.stderr, /Approving planning now would be refused: a commit after its submission may not precede approval\. \(Advisory; the approval gate decides\.\)/u);
+  assert.ok(shown.stderr.includes('Someone else decides: Approving planning waits for intent amendment AMD-001 to be decided.'), shown.stderr);
   assert.ok(shown.stderr.includes(`Shell: ${STATUS}`), shown.stderr);
-  const pending = refuse();
-  const subject = `[${WORK}][intent-amendment:propose] AMD-001`;
-  assert.ok(pending.error.message.includes(`- ${proposal} ${subject} (intent amendment AMD-001, still waiting for a decision).`), pending.error.message);
-  assert.match(pending.error.message, new RegExp(`Intent amendment AMD-001 changes ${WORK}:AC-001 and ${WORK}:REQ-002 and is still waiting for a decision by a person who approves specification`, 'u'));
-  assert.match(pending.error.message, /rejecting it keeps them, and planning can then be approved as submitted/u);
+  const pending = refuse('APPROVAL_INTENT_AMENDMENT_PENDING');
+  assert.equal(pending.error.message, [
+    'Approving planning waits for intent amendment AMD-001 to be decided.',
+    `Intent amendment AMD-001 changes ${WORK}:AC-001 and ${WORK}:REQ-002 and was proposed after planning was submitted (${proposal}); a person who approves specification decides it.`,
+    'Rejecting it keeps this submission, and planning can then be approved as it is; approving it changes the approved clauses, so planning reopens to be revised and submitted again.'
+  ].join(' '), 'one sentence per line in a terminal; the JSON envelope joins them');
   assert.deepEqual(pending.error.details.pendingIntentAmendments, [{ id: 'AMD-001', commit: proposal, changedClauses: [`${WORK}:AC-001`, `${WORK}:REQ-002`] }]);
-  assert.equal(pending.error.details.blockingCommits[0].kind, 'intent-amendment-proposal');
   assert.equal(pending.error.details.nextAction, STATUS);
   assert.deepEqual(pending.remediationPlan.steps.map((step) => step.id), ['inspect-intent-amendment', 'decide-intent-amendment', 'leave-approval-turn']);
   assert.deepEqual(pending.remediationPlan.steps.slice(0, 2).map((step) => step.command), [STATUS, DECIDE]);
-  // The VS Code card leads with the same route and names the amendment.
+  // The VS Code card leads with the same route.
   const { refusalFor } = await import('../apps/vscode/src/views/refusal.ts');
   const { view } = refusalFor({ result: pending, message: pending.error.message });
   assert.deepEqual(view.actions.map((action) => action.command), [STATUS, DECIDE]);
   assert.equal(view.actions[0].emphasis, 'primary');
-  assert.match(view.why[0].label, new RegExp(`${proposal} \\[${WORK}\\]\\[intent-amendment:propose\\] AMD-001`, 'u'));
   assert.ok(view.warnings.some((warning) => /End this approval-only turn/u.test(warning.label)));
   // Rejecting it is the next test's journey.
 });
@@ -303,7 +304,7 @@ test('rejecting the amendment keeps the submission: planning is approved as subm
 });
 
 test('approving an amendment reopens the step awaiting approval, so its acknowledgement precedes a fresh submission', async (t) => {
-  const { cli, item, candidate } = await submittedPlanningStory(t, WORK);
+  const { git, cli, item, candidate } = await submittedPlanningStory(t, WORK);
   // SPEC-OAP D4 did not reproduce: approving an amendment reopens the step awaiting approval, even one
   // that only adds a clause nothing cites, so its acknowledgement always precedes a fresh submission
   // and never sits between a submission and its approval.
@@ -313,4 +314,13 @@ test('approving an amendment reopens the step awaiting approval, so its acknowle
   const reopened = JSON.parse(await readFile(path.join(item, 'workflow.json'), 'utf8'));
   assert.equal(reopened.phases.planning.status, 'in_progress');
   assert.equal(JSON.parse(cli('status', WORK, '--submission-readiness', '--json').stdout).classification, 'amendment-acknowledgement-required');
+  // Its acknowledgement adds amendment records only, so it is review-safe too (REVIEW_EFFECTS, SPEC-OAP M2).
+  const approved = git('rev-parse', 'HEAD');
+  cli('story', 'intent-amendment', 'acknowledge', 'AMD-001');
+  const acknowledgement = git('rev-parse', 'HEAD');
+  const { loadConfig, reviewHistoryCommits } = await import('../src/state.mjs');
+  const root = path.resolve(item, '../../..');
+  const workflow = JSON.parse(await readFile(path.join(item, 'workflow.json'), 'utf8'));
+  const history = await reviewHistoryCommits(root, await loadConfig(root), workflow, workflow.phases.planning, { evidenceCommit: approved });
+  assert.deepEqual([history.blocking, history.allowedReviewCommits], [[], [acknowledgement]]);
 });

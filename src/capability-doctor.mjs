@@ -18,9 +18,13 @@ export async function capabilityDoctor(root, { capabilityId = null, offline = fa
   let capability = null;
   try {
     capability = await resolveLifecycleCapability(root, { capabilityId, required: Boolean(capabilityId), offline });
-    checks.push(capability
-      ? check('binding', 'pass', `Lifecycle binds to ${capability.path.join(' → ')}.`, capability.map.sha256)
-      : check('binding', 'warn', 'No unambiguous capability owns this repository.', 'Select an active capability workspace or pass --capability <id>.'));
+    checks.push(!capability
+      ? check('binding', 'warn', 'No unambiguous capability owns this repository.', 'Select an active capability workspace or pass --capability <id>.')
+      : capability.mode === 'implicit'
+      ? check('binding', 'pass',
+        `Lifecycle binds to the implicit '${capability.id}' capability; no capability map is configured, so this repository owns every path.`,
+        capability.resolutionSha256)
+      : check('binding', 'pass', `Lifecycle binds to ${capability.path.join(' → ')}.`, capability.map.sha256));
   } catch (error) {
     checks.push(check('binding', 'fail', error.message));
   }
@@ -63,7 +67,8 @@ export async function capabilityDoctor(root, { capabilityId = null, offline = fa
     }
   }
 
-  if (capability) {
+  // An implicit capability has no map (map.path is null), so there are no map bytes to compare.
+  if (capability?.map.path) {
     // A read-only authority overlay keeps application Git operations on `root` while redirecting
     // governed configuration paths to the verified snapshot. Compare the same selected bytes that
     // capability resolution parsed, not a stale branch-local map beneath the overlay.
@@ -85,12 +90,11 @@ export async function capabilityDoctor(root, { capabilityId = null, offline = fa
   const storyId = definition ? await workIdForBranch(root, definition, current) ?? current : current;
   const story = definition ? path.join(root, definition.workItemRoot ?? 'singularity/work-items', storyId, 'workflow.json') : null;
   const portfolio = await loadPortfolio(root, { required: false }).catch(() => null);
-  const initiative = path.join(
-    root,
-    portfolio ? initiativeRelative(portfolio, current) : path.posix.join('singularity/initiatives', current),
-    'state.json'
-  );
-  const stateFile = story && existsSync(story) ? story : existsSync(initiative) ? initiative : null;
+  // A branch that cannot be an initiative ID (a Story branch such as feature/x, or a detached HEAD)
+  // has no initiative state to read.
+  let initiative = null;
+  try { initiative = path.join(root, initiativeRelative(portfolio ?? {}, current), 'state.json'); } catch { /* not an initiative */ }
+  const stateFile = story && existsSync(story) ? story : initiative && existsSync(initiative) ? initiative : null;
   if (stateFile) {
     const state = readRecord(stateFile === story ? 'story-workflow' : 'initiative-state', await readFile(stateFile)).record;
     lifecycle = state.workItem

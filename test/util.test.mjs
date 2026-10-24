@@ -121,6 +121,8 @@ test('a command that reaches the network gets a bound, and a timeout is not a re
 test('every untyped Git launch is bounded and noninteractive without losing transport settings', () => {
   const env = { ...process.env, GIT_TERMINAL_PROMPT: '1', GCM_INTERACTIVE: 'Always', HTTPS_PROXY: 'proxy',
     GIT_SSL_CAINFO: '/approved/ca.pem' };
+  // The product default; the suite runner gives local reads a longer one under load.
+  delete env.SINGULARITY_FLOW_GIT_LOCAL_TIMEOUT_MS;
   for (const timeoutMs of [undefined, null, 0, 1234]) {
     run('git', ['status'], { env, timeoutMs, spawnSyncCommand(_command, _args, options) {
       assert.equal(options.timeout, timeoutMs || 30_000);

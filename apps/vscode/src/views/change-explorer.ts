@@ -369,9 +369,9 @@ function comparedUnits(view: Xpl2Explanation) {
 }
 
 function comparedSources(view: Xpl2Explanation) {
-  return new Map([
-    ...(view?.sources ?? []).map((source) => [source.id, JSON.stringify([source.digest, source.properties])]),
-    ...(view?.observations ?? []).map((observation) => [observation.id, JSON.stringify([observation.reason, observation.completeness])])
+  return new Map<string, string>([
+    ...(view?.sources ?? []).map((source): [string, string] => [source.id, JSON.stringify([source.digest, source.properties])]),
+    ...(view?.observations ?? []).map((observation): [string, string] => [observation.id, JSON.stringify([observation.reason, observation.completeness])])
   ]);
 }
 

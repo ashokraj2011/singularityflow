@@ -152,7 +152,15 @@ test('the bundled CLI answers exactly like the sources while opening a handful o
   // moved from story-worktree.mjs so the index stays light), cli-json-output.mjs +447 (storyRoute),
   // schema-migrations.mjs +285 (the story-index family), workspace.mjs +203 and command-registry.mjs +22.
   // story-index.mjs and story-routing.mjs live in cold-light, outside these reads.
-  assert.ok(closure('cold-hook-context.mjs').reduce((sum, item) => sum + item.bytes, 0) < 7_405_000,
+  // 7,410,000 (next 5,000 boundary): 7,408,083 after SPEC-OAP M3 (main 9b13d66f: 7,404,171): cold-core +1,243,
+  // cold-narrow-reads +1,166, cold-hook-context +1,142, cold-worker-protocol +372, cold-hooks +7 and cold-catalogs
+  // -18. By module: submission-readiness.mjs +857 (the pending list summary and its lines), commands/nextsteps.mjs
+  // +552 and nextsteps.mjs +197 (the list read and its line), narration/messages.mjs +492 (sync's saved-push
+  // lines), transport-intents.mjs +296 (the person's retry), command-skills.mjs +117, util.mjs +105
+  // (isTransportIntentId), command-loaders.mjs +92, cli-entry.mjs +51, command-registry.mjs +27 and
+  // status-details.mjs +15; the other 1,122 are bindings between chunks. decision-list.mjs and
+  // decision-list-reads.mjs load lazily, outside these reads.
+  assert.ok(closure('cold-hook-context.mjs').reduce((sum, item) => sum + item.bytes, 0) < 7_410_000,
     'phase-review reads retain their existing byte ceiling after moving families');
   assert.match(await readFile(path.join(outdir, 'cold-light.mjs'), 'utf8'), /function enterPhase\b/u,
     'phase binding must not fall through to the compatibility/admin bundle');

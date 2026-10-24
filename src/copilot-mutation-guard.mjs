@@ -10,7 +10,7 @@ import { copilotModeFile, readCopilotMode } from './copilot-mode.mjs';
 // or a staging refusal is written, never on the per-call path.
 const stagingPaths = () => import('./phase-staging-paths.mjs');
 import { parseArgs } from './util.mjs';
-import { resolveOperation } from './command-registry.mjs';
+import { canonicalCommand, resolveOperation } from './command-registry.mjs';
 import { currentSchemaVersion, readRecord } from './schema-migrations.mjs';
 import { CLI_PATH_REFERENCE, safeCommandGuidance, validateSflowExecutionCommand } from './safe-command-guidance.mjs';
 
@@ -477,10 +477,34 @@ function plannedActionArgv(positionals, options, value) {
   } catch { return null; }
 }
 
-function argvAllowed(argv, mode, value) {
+/** The registered command a word reaches, through its aliases; the word itself when none is registered. */
+function canonicalName(word) {
+  try { return canonicalCommand(word); } catch { return word; }
+}
+
+/**
+ * The parsed argv with its command canonical, so every rule below names the command the CLI will run
+ * and an alias cannot step around one.
+ */
+function canonicalArgv(argv) {
   const { positionals, options } = parseArgs(argv);
-  // A lifecycle hook records host decisions (a turn's own boundary among them): the host runs it, never a turn.
-  if (['hook', 'exec'].includes(positionals[0])) return false;
+  return { positionals: positionals.length ? [canonicalName(positionals[0]), ...positionals.slice(1)] : positionals, options };
+}
+
+/**
+ * Commands only a host runs. A lifecycle hook records host decisions (a turn's own boundary among
+ * them). The gateway server carries out plans a person confirms in its client's own UI: started from
+ * a turn, the agent would be that client, claim the UI at initialize and answer the confirmation
+ * itself. Only its reads (`tools`, `events`) are a turn's.
+ */
+function hostOnlyCommand(positionals) {
+  return ['hook', 'exec'].includes(positionals[0])
+    || (positionals[0] === 'gateway' && !['tools', 'events'].includes(positionals[1] ?? 'tools'));
+}
+
+function argvAllowed(argv, mode, value) {
+  const { positionals, options } = canonicalArgv(argv);
+  if (hostOnlyCommand(positionals)) return false;
   // `run --repair-on-fault` runs the command it wraps unchecked; the guided `run` is `next` and `submit`.
   if (positionals[0] === 'run' && (positionals.length > 1 || options['repair-on-fault'] !== undefined)) return false;
   // `action execute` runs its plan's stored command in this process: a turn admits it only when it
@@ -655,12 +679,15 @@ function plannedActionExecution(call, value) {
   const { positionals } = parseArgs(safe.argv);
   return positionals[0] === 'action' && positionals[1] === 'execute';
 }
-/** A verified `hook`: a host integration point no turn runs. */
-function hookInvocation(call, value) {
-  const safe = verifiedShellForm(call, value);
-  return Boolean(safe) && parseArgs(safe.argv).positionals[0] === 'hook';
-}
 const HOOK_DENIAL = 'PHASE_MUTATION_OPERATION_NOT_ALLOWED: a lifecycle hook records the host\'s own decisions (a turn\'s boundary among them), so only the host runs it, or the person in their own terminal with the exact payload. Give them the command; do not retry it';
+const GATEWAY_SERVER_DENIAL = 'PHASE_MUTATION_OPERATION_NOT_ALLOWED: the gateway server carries out plans a person confirms in their own client\'s UI, so only that client starts it (from its MCP configuration), never a turn. Use the SFlow tools the host already offers; do not retry it';
+/** A verified host-only command (a hook, or the gateway server), as the refusal that names why. */
+function hostOnlyDenial(call, value) {
+  const safe = verifiedShellForm(call, value);
+  const { positionals } = safe ? canonicalArgv(safe.argv) : { positionals: [] };
+  if (!hostOnlyCommand(positionals)) return null;
+  return { gateway: GATEWAY_SERVER_DENIAL, hook: HOOK_DENIAL }[positionals[0]] ?? null;
+}
 const PLANNED_ACTION_DENIAL = 'PHASE_MUTATION_OPERATION_NOT_ALLOWED: action execute runs its planned command in this process, and this turn may not run that command itself (an approval or rejection, a person\'s own decision, or a plan this checkout does not hold). Show the user the planned command and its own route; do not retry it';
 
 /** A verified `recover --set-aside`: a person's decision about changes held for review. */
@@ -1009,8 +1036,9 @@ export async function mutationToolGuard(payload = {}) {
     if (guarded.some(call => TERMINALS.has(call.name) && targetOriginPinCall(call, bootstrap))) {
       return { permissionDecision: 'deny', next: [], permissionDecisionReason: TARGET_ORIGIN_PIN_DENIAL };
     }
-    if (guarded.some(call => TERMINALS.has(call.name) && hookInvocation(call, bootstrap))) {
-      return { permissionDecision: 'deny', next: [], permissionDecisionReason: HOOK_DENIAL };
+    const hostOnly = guarded.map(call => TERMINALS.has(call.name) && hostOnlyDenial(call, bootstrap)).find(Boolean);
+    if (hostOnly) {
+      return { permissionDecision: 'deny', next: [], permissionDecisionReason: hostOnly };
     }
     if (turnExpired(record)) return turnExpiredDenial(record);
     if (draftKind(record.skill) && guarded.some(call => isEdit(call.name))) return { permissionDecision: 'deny', next: [],
@@ -1036,7 +1064,8 @@ export async function mutationToolGuard(payload = {}) {
       if (!kernel) {
         if (environmentBinding(call, value)) return mutationDenial(contract, ENVIRONMENT_BINDING_DENIAL);
         if (plannedActionExecution(call, value)) return mutationDenial(contract, PLANNED_ACTION_DENIAL);
-        if (hookInvocation(call, value)) return mutationDenial(contract, HOOK_DENIAL);
+        const hostOnly = hostOnlyDenial(call, value);
+        if (hostOnly) return mutationDenial(contract, hostOnly);
         if (setAsideDecision(call, value)) return mutationDenial(contract,
           'PHASE_MUTATION_OPERATION_NOT_ALLOWED: setting held changes aside removes them from the checkout (after a private recovery copy); the person who looked at them runs it in their own terminal. Show the user the listed files and the command, and stop; do not retry it');
         if (workflowDeleteConfirmation(call, value)) return mutationDenial(contract, WORKFLOW_DELETE_CONFIRMATION_DENIAL);

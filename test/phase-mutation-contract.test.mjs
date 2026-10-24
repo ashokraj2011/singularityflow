@@ -1212,6 +1212,14 @@ test('guided run, documentation of changed code and the reinstall preview get th
       assert.equal(refusal.permissionDecision, 'deny', `${skill}: ${command}`);
       assert.match(refusal.permissionDecisionReason, /^PHASE_MUTATION_OPERATION_NOT_ALLOWED: a lifecycle hook records the host's own decisions/u, `${skill}: ${command}`);
     }
+    // The gateway server carries out plans a person confirms in their host's own UI; started from a
+    // turn, the agent would claim that UI and answer the confirmation itself. No turn starts it.
+    for (const command of ['singularity-flow gateway serve', 'sflow gateway serve --transport stdio', 'singularity-flow gateway serve --transport=stdio']) {
+      const refusal = await shell(payload, command);
+      assert.equal(refusal.permissionDecision, 'deny', `${skill}: ${command}`);
+      assert.match(refusal.permissionDecisionReason, /^PHASE_MUTATION_OPERATION_NOT_ALLOWED: the gateway server carries out plans/u, `${skill}: ${command}`);
+    }
+    assert.deepEqual(await shell(payload, 'singularity-flow gateway tools --json'), {}, `${skill}: gateway tools`);
   }
   const reinstall = { cwd: f.root, sessionId: 'reinstall-bare', prompt: '/sf-reinstall' };
   await recordRepositoryBoundaryTurn(reinstall, { captureMutation: (value, record) => captureMutationTurn(value, record,
@@ -1221,6 +1229,10 @@ test('guided run, documentation of changed code and the reinstall preview get th
   for (const command of ['sf-reinstall --checkout /tmp/source --dry-run', 'singularity-flow factory-reset --confirm RESET']) {
     assert.equal((await shell(reinstall, command)).permissionDecision, 'deny', command);
   }
+  // Before any Story is bound too: a kernel-only turn with no contract never starts the gateway server.
+  const unbound = await shell(reinstall, 'singularity-flow gateway serve --transport stdio');
+  assert.equal(unbound.permissionDecision, 'deny');
+  assert.match(unbound.permissionDecisionReason, /^PHASE_MUTATION_OPERATION_NOT_ALLOWED: the gateway server carries out plans/u);
 });
 
 test('local verification does not widen review, publication, decision, read or kernel-only turns', async t => {

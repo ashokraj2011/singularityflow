@@ -29,6 +29,44 @@ export function evidenceConsistencyHtml(snapshot?: EvidenceConsistencyPresentati
   return snapshot ? `<details class="approval-evidence" open><summary>Evidence consistency</summary><code>${escape(snapshot.projectionSha256)}</code><ul>${snapshot.summary.map((line) => `<li>${escape(line)}</li>`).join('')}</ul></details>` : '';
 }
 
+/**
+ * Commits after a submission that approval would refuse for (`blockingCommits` in submission
+ * readiness), with any undecided intent amendment's commands. Advisory: the page stays usable and
+ * the approval gate checks again; the commands are shown for a person to run, never run from here.
+ */
+export interface ApprovalBlockingCommits {
+  statement: string;
+  lines: string[];
+  actions: Array<{ label: string; command: string }>;
+}
+
+/** The advisory from an untrusted CLI result, bounded; null when it names nothing. */
+export function approvalBlockingCommits(value: unknown): ApprovalBlockingCommits | null {
+  const advisory = value && typeof value === 'object' ? value as Record<string, unknown> : null;
+  const text = (entry: unknown) => (typeof entry === 'string' && entry.trim() ? entry.slice(0, 2000) : null);
+  const statement = text(advisory?.statement);
+  const lines = (Array.isArray(advisory?.lines) ? advisory.lines : []).slice(0, 20).map(text).filter((line): line is string => Boolean(line));
+  if (!statement || !lines.length) return null;
+  const actions = (Array.isArray(advisory?.actions) ? advisory.actions : []).slice(0, 4).flatMap((entry) => {
+    const action = entry && typeof entry === 'object' ? entry as Record<string, unknown> : null;
+    const label = text(action?.label);
+    const command = text(action?.command);
+    return label && command?.startsWith('singularity-flow ') ? [{ label, command }] : [];
+  });
+  return { statement, lines, actions };
+}
+
+export function approvalBlockingCommitsHtml(advisory?: ApprovalBlockingCommits | null): string {
+  if (!advisory) return '';
+  return `<section class="approval-held" aria-label="Commits that block this approval">
+    <h2>Approval would be refused</h2>
+    <p>${escape(advisory.statement)}</p>
+    ${advisory.lines.map((line) => `<p>${escape(line)}</p>`).join('')}
+    ${advisory.actions.map((action) => `<p class="muted">${escape(action.label)}</p><pre><code>${escape(action.command)}</code></pre>`).join('')}
+    <p class="muted">Advisory: you can still review this step; the approval gate checks again when you record approval.</p>
+  </section>`;
+}
+
 /** Not a secret — a CSP nonce only has to be unpredictable per render. */
 export function nonce(): string {
   let value = '';

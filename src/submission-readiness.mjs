@@ -10,7 +10,7 @@ import { storyRequiresStepActions } from './step-actions.mjs';
 import { phaseGovernanceHold } from './phase-governance-routing.mjs';
 import { completionPhaseOf } from './lifecycle-transitions.mjs';
 import { phaseAuthoringProgress, readPhaseDraftEvidence } from './phase-authoring-progress.mjs';
-import { owedDecisionLines, owedDecisions, stepsThrough } from './owed-decisions.mjs';
+import { blockingCommitLines, owedDecisionLines, owedDecisions, stepsThrough } from './owed-decisions.mjs';
 
 function currentPublication(phase) {
   const generation = Number(phase?.generation ?? 0);
@@ -102,7 +102,17 @@ async function submissionDraftEvidence(root, config, workflow, phaseId, changedP
  * Build the host-facing readiness contract from verified lifecycle and filesystem evidence.
  * This is the shared entry point for CLI and editor surfaces; it never mutates Story state.
  */
-export async function submissionReadiness(root, config, workflow, {
+export async function submissionReadiness(root, config, workflow, options = {}) {
+  const readiness = await phaseReadiness(root, config, workflow, options);
+  // Commits after the submission that approval would refuse for, named while the step is
+  // reviewed rather than first by the refusal. Advisory: classification and routes are unchanged.
+  const phase = readiness.phaseId ? workflow?.phases?.[readiness.phaseId] : null;
+  if (phase?.status !== 'awaiting_approval') return readiness;
+  const blocking = await (await import('./review-intervening-commits.mjs')).approvalBlockingCommits(root, config, workflow, phase);
+  return blocking ? { ...readiness, blockingCommits: blocking } : readiness;
+}
+
+async function phaseReadiness(root, config, workflow, {
   phaseId = workflow?.currentPhase ?? null,
   pendingSynchronization = false,
   changedPaths = null
@@ -444,6 +454,7 @@ export function submissionReadinessText(snapshot) {
     snapshot.reason ?? null,
     ...(snapshot.terminal?.blockers ?? []).slice(0, 5).map((blocker) => `Open obligation: ${blocker}`),
     ...owedDecisionLines(snapshot.owedDecisions),
+    ...blockingCommitLines(snapshot.blockingCommits),
     `Full artifact, test, policy, and evidence validation: ${snapshot.validation}`,
     snapshot.nextSkill ? `Copilot: ${snapshot.nextSkill}` : null,
     snapshot.nextCommand ? `Shell: ${snapshot.nextCommand}` : null,

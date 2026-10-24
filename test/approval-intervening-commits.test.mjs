@@ -5,7 +5,9 @@
  * was proposed six hours later, and approving planning refused with "repository history changed
  * after its immutable review evidence was recorded". It named neither the commit nor the amendment,
  * and its first route was a recover command that finds nothing to recover. The person could not tell
- * that the amendment had to be decided before planning could be revised or resubmitted.
+ * that the amendment had to be decided before planning could be revised or resubmitted. The same
+ * commits are now named beforehand, as an advisory, in the approval packet's readiness, in phase
+ * show and on the VS Code approval page; none of them stops the review.
  */
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
@@ -17,6 +19,7 @@ import { fileURLToPath } from 'node:url';
 import YAML from 'yaml';
 
 import { refusalDetails, refusalRemediationPlan, renderRefusalPlan } from '../src/refusal-remediation.mjs';
+import { blockingCommitLines } from '../src/owed-decisions.mjs';
 import { SingularityFlowError } from '../src/util.mjs';
 import { childTimeout } from './helpers/child-timeout.mjs';
 
@@ -86,6 +89,36 @@ test('the blocking commits and the undecided amendment cross the process boundar
   assert.deepEqual(projected.pendingIntentAmendments, [{ id: 'AMD-001', commit: '1b3bf2703ebb',
     changedClauses: [`${WORK}:AC-001`, `${WORK}:REQ-002`] }]);
   assert.equal(refusalDetails({ blockingCommits: [{ commit: 'not a commit', subject: 'x' }] }), null, 'only commit names cross');
+});
+
+const advisory = {
+  advisory: true, count: 1,
+  statement: 'Approving planning now would be refused: a commit after its submission may not precede approval.',
+  commits: pendingDetails.blockingCommits,
+  lines: ['This commit after the submission (evidence 0123456789ab) may not precede approval:',
+    `- 1b3bf2703ebb [${WORK}][intent-amendment:propose] AMD-001 (intent amendment AMD-001, still waiting for a decision).`],
+  pendingIntentAmendments: pendingDetails.pendingIntentAmendments,
+  actions: [{ label: 'See intent amendment AMD-001.', command: STATUS },
+    { label: 'A person who approves specification decides AMD-001 in their own terminal; an agent cannot.', command: DECIDE },
+    { label: 'Not a Singularity Flow command.', command: 'rm -rf /' }]
+};
+
+test('the advisory prints as warning lines with every route, and the approval page shows it without running anything', async () => {
+  const lines = blockingCommitLines(advisory);
+  assert.equal(lines[0], `${advisory.statement} (Advisory; the approval gate decides.)`);
+  assert.ok(lines.includes(`    Shell: ${STATUS}`) && lines.includes(`    Shell: ${DECIDE}`), lines.join('\n'));
+  assert.ok(lines.includes('    Copilot: /sf-reject'), lines.join('\n'));
+  assert.deepEqual(blockingCommitLines(null), []);
+  const { approvalBlockingCommits, approvalBlockingCommitsHtml } = await import('../apps/vscode/src/views/webview.ts');
+  const page = approvalBlockingCommits(advisory);
+  assert.deepEqual(page.actions.map((action) => action.command), [STATUS, DECIDE], 'only Singularity Flow commands are shown');
+  const html = approvalBlockingCommitsHtml(page);
+  assert.match(html, /<h2>Approval would be refused<\/h2>/u);
+  assert.ok(html.includes('1b3bf2703ebb [HEX-2018][intent-amendment:propose] AMD-001'), html);
+  assert.ok(html.includes('&lt;approve|reject&gt;'), 'commands are escaped');
+  assert.doesNotMatch(html, /<button|data-command/u, 'nothing on the page runs a command');
+  assert.equal(approvalBlockingCommits({ statement: 'x', lines: [] }), null);
+  assert.equal(approvalBlockingCommitsHtml(null), '');
 });
 
 function specification(value) {
@@ -172,6 +205,8 @@ test('approving a submitted phase names each later commit and leads with an unde
   cli('phase', 'publish', 'planning', '--authored', 'human', '--channel', 'manual-in-place');
   cli('submit', 'planning', '--skip-checks');
   const submitted = git('rev-parse', 'HEAD');
+  assert.equal(JSON.parse(cli('status', WORK, '--submission-readiness', '--json').stdout).blockingCommits, undefined,
+    'nothing is named while nothing blocks');
   const refuse = () => {
     const result = run(process.execPath, [CLI, '--no-model', ...APPROVE, '--yes', '--json'], { allowFailure: true });
     assert.notEqual(result.status, 0, result.stdout + result.stderr);
@@ -189,6 +224,9 @@ test('approving a submitted phase names each later commit and leads with an unde
   assert.equal(ordinary.error.details.pendingIntentAmendments, undefined);
   assert.equal(ordinary.error.details.nextAction, undefined);
   assert.deepEqual(ordinary.remediationPlan.steps.map((step) => step.id), EXISTING_ROUTES);
+  const ordinaryAdvisory = JSON.parse(cli('phase', 'show', 'planning', '--json').stdout).blockingCommits;
+  assert.deepEqual(ordinaryAdvisory.commits, [{ commit: unrelated, subject: 'Unrelated empty commit', kind: 'commit' }]);
+  assert.equal(ordinaryAdvisory.actions, undefined, 'only an undecided amendment carries commands');
   // Only this fixture drops the unpublished commit; a real Story would return planning for a fresh submission.
   git('reset', '-q', '--hard', submitted);
 
@@ -197,6 +235,23 @@ test('approving a submitted phase names each later commit and leads with an unde
   await writeFile(candidate, specification(2));
   cli('story', 'intent-amendment', 'propose', '--file', candidate, '--reason', 'Review showed that value 2 is required.');
   const proposal = git('rev-parse', '--short=12', 'HEAD');
+  // Named before the review too, as an advisory that changes no route and stops nothing.
+  const readiness = JSON.parse(cli('status', WORK, '--submission-readiness', '--json').stdout);
+  assert.equal(readiness.classification, 'already-submitted');
+  assert.equal(readiness.nextCommand, `singularity-flow approve planning --work-id ${WORK} --fetch`);
+  assert.equal(readiness.blockingCommits.advisory, true);
+  assert.equal(readiness.blockingCommits.statement, 'Approving planning now would be refused: a commit after its submission may not precede approval.');
+  assert.deepEqual(readiness.blockingCommits.commits.map((entry) => [entry.commit, entry.subject, entry.kind]),
+    [[proposal, `[${WORK}][intent-amendment:propose] AMD-001`, 'intent-amendment-proposal']]);
+  assert.deepEqual(readiness.blockingCommits.pendingIntentAmendments.map((entry) => entry.id), ['AMD-001']);
+  assert.deepEqual(readiness.blockingCommits.actions.map((action) => action.command), [STATUS, DECIDE]);
+  const packet = JSON.parse(cli('choices', 'begin', 'approve', WORK, '--json', '--review-packet').stdout);
+  assert.equal(packet.ready, false, 'the receipt is begun as before; nothing is answered');
+  assert.deepEqual(packet.approvalPacket.readiness.blockingCommits, readiness.blockingCommits);
+  assert.deepEqual(packet.approvalPacket.review.blockingCommits, readiness.blockingCommits);
+  const shown = cli('phase', 'show', 'planning');
+  assert.match(shown.stderr, /Approving planning now would be refused: a commit after its submission may not precede approval\. \(Advisory; the approval gate decides\.\)/u);
+  assert.ok(shown.stderr.includes(`Shell: ${STATUS}`), shown.stderr);
   const pending = refuse();
   const subject = `[${WORK}][intent-amendment:propose] AMD-001`;
   assert.ok(pending.error.message.includes(`- ${proposal} ${subject} (intent amendment AMD-001, still waiting for a decision).`), pending.error.message);

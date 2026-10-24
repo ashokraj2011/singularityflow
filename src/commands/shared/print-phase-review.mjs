@@ -1,6 +1,6 @@
 /** Extracted command implementation; governance remains in the existing kernel APIs. */
 import * as style from '../../style.mjs';
-import { owedDecisionLines } from '../../owed-decisions.mjs';
+import { blockingCommitLines, owedDecisionLines } from '../../owed-decisions.mjs';
 import { printCommandRoutes } from './print-command-routes.mjs';
 
 /**
@@ -63,6 +63,7 @@ export function printPhaseReview(review, { showArtifact = false } = {}) {
     console.log(`    Exact clause:\n${safe(mapping.clauseText).split('\n').map((line) => `      ${line}`).join('\n')}`);
   }
   owedDecisionLines(review.owedDecisions).forEach((line) => console.log(line));
+  blockingCommitLines(review.blockingCommits).forEach((line) => console.warn(line));
   if (!review.documents.length) {
     console.log('No generated documents are registered for this phase.');
     return;

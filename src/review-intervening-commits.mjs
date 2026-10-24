@@ -73,13 +73,11 @@ function commitNote(entry) {
 }
 
 /**
- * The refusal for commits that may not precede approval: each one named (short commit and
- * subject, bounded), and an undecided amendment among them routed to its decision first.
+ * What the refusal and the advisory both say about the blocking commits: each one named (short
+ * commit and subject, bounded), the undecided amendments among them, and what deciding them means.
  */
-export function interveningCommitRefusal(root, workflow, phase, {
-  blocking, interveningCommits, priorApprovalCommits, allowedReviewCommits, evidenceCommit, currentHead
-}) {
-  // Naming only explains the refusal; a failed read of the subjects must not replace it with another.
+function blockingCommitFacts(root, workflow, phase, blocking, evidenceCommit) {
+  // Naming only explains; a failed read of the subjects must not replace the refusal with another.
   let described;
   try { described = describeBlockingCommits(root, workflow, blocking); }
   catch { described = [...blocking].reverse().map((commit) => ({ commit: shortCommit(commit), subject: '(subject unavailable)', kind: 'commit' })); }
@@ -89,15 +87,12 @@ export function interveningCommitRefusal(root, workflow, phase, {
   const decided = [...new Set(described.filter((entry) => entry.kind === 'intent-amendment-proposal'
     && entry.amendment.status !== 'proposed').map((entry) => `${entry.amendment.id} (${entry.amendment.status})`))];
   const scopePhase = scopeStepOf(workflow)?.id ?? null;
-  const workId = workflow.workItem.id;
   // One item per line in a terminal; JSON flattens the lines, so each item ends its own clause.
   const items = [
     ...shown.map((entry) => `${entry.commit} ${entry.subject || '(no subject)'}${commitNote(entry)}`),
     ...(blocking.length > shown.length ? [`… and ${blocking.length - shown.length} more`] : [])
   ];
   const lines = [
-    `Phase '${phase.id}' repository history changed after its immutable review evidence was recorded. `
-      + 'Only prior approvals, applicability decisions or an exact Auto human-boundary checkpoint for this submitted phase may precede another approval; submit fresh evidence for every other commit.',
     `${blocking.length === 1 ? 'This commit' : `These ${blocking.length} commits`} after the submission (evidence ${shortCommit(evidenceCommit)}) may not precede approval:`,
     ...items.map((item, index) => `- ${item}${index === items.length - 1 ? '.' : ';'}`)
   ];
@@ -110,11 +105,33 @@ export function interveningCommitRefusal(root, workflow, phase, {
   if (decided.length) {
     lines.push(`Decided after the submission: intent amendment ${decided.join(', ')}. Phase '${phase.id}' still needs a fresh submission before it can be approved.`);
   }
-  const [first] = pending;
-  return new SingularityFlowError(lines.join('\n'), {
+  return {
+    shown, scopePhase, lines,
+    pendingIntentAmendments: pending.map((entry) => ({
+      id: entry.amendment.id, commit: entry.commit, changedClauses: entry.amendment.changedClauses
+    }))
+  };
+}
+
+const amendmentStatusCommand = (workId) => `singularity-flow story intent-amendment status --work-id ${workId} --json`;
+
+/**
+ * The refusal for commits that may not precede approval, with an undecided amendment among them
+ * routed to its decision first.
+ */
+export function interveningCommitRefusal(root, workflow, phase, {
+  blocking, interveningCommits, priorApprovalCommits, allowedReviewCommits, evidenceCommit, currentHead
+}) {
+  const facts = blockingCommitFacts(root, workflow, phase, blocking, evidenceCommit);
+  const [first] = facts.pendingIntentAmendments;
+  return new SingularityFlowError([
+    `Phase '${phase.id}' repository history changed after its immutable review evidence was recorded. `
+      + 'Only prior approvals, applicability decisions or an exact Auto human-boundary checkpoint for this submitted phase may precede another approval; submit fresh evidence for every other commit.',
+    ...facts.lines
+  ].join('\n'), {
     code: 'STORY_REVIEW_INTERVENING_COMMIT',
     details: {
-      workId,
+      workId: workflow.workItem.id,
       phase: phase.id,
       generation: phase.generation,
       evidenceCommit,
@@ -123,17 +140,71 @@ export function interveningCommitRefusal(root, workflow, phase, {
       priorApprovalCommits,
       allowedReviewCommits,
       blockingCommitCount: blocking.length,
-      blockingCommits: shown,
-      ...(scopePhase ? { scopePhase } : {}),
-      ...(pending.length ? {
-        pendingIntentAmendments: pending.map((entry) => ({
-          id: entry.amendment.id, commit: entry.commit, changedClauses: entry.amendment.changedClauses
-        })),
+      blockingCommits: facts.shown,
+      ...(facts.scopePhase ? { scopePhase: facts.scopePhase } : {}),
+      ...(first ? {
+        pendingIntentAmendments: facts.pendingIntentAmendments,
         nextAction: {
-          command: `singularity-flow story intent-amendment status --work-id ${workId} --json`,
-          label: `See intent amendment ${first.amendment.id}, which a person decides before ${phase.id} can be approved.`
+          command: amendmentStatusCommand(workflow.workItem.id),
+          label: `See intent amendment ${first.id}, which a person decides before ${phase.id} can be approved.`
         }
       } : {})
     }
   });
+}
+
+/**
+ * The commits approval would refuse for, named while the step is reviewed: in the approval packet's
+ * readiness and in phase show. Advisory only. It refuses nothing and changes no route; the approval
+ * gate still decides, from the same classification (reviewHistoryCommits). Null when nothing blocks
+ * or the history cannot be read here.
+ */
+export async function approvalBlockingCommits(root, config, workflow, phase) {
+  if (!config || phase?.status !== 'awaiting_approval' || phase.id !== workflow?.currentPhase) return null;
+  try {
+    const entry = [...(workflow.lineage?.submissions ?? [])].reverse().find((submission) =>
+      submission.phase === phase.id && Number(submission.generation) === Number(phase.generation));
+    if (!entry) return null;
+    const { readStoryReviewPacket } = await import('./story-lineage.mjs');
+    const submittedReview = await readStoryReviewPacket(root, config, workflow, entry.packetSha256);
+    if (!/^[0-9a-f]{40,64}$/u.test(String(submittedReview.evidenceCommit ?? ''))) return null;
+    const { reviewHistoryCommits } = await import('./state.mjs');
+    const history = await reviewHistoryCommits(root, config, workflow, phase, submittedReview, {
+      // The risk reviews approval would read. A gate that refuses verifies no review commit here.
+      reviewedRisks: async () => {
+        const risks = [];
+        const reference = phase.deliveryEvidence?.testRecovery;
+        if (reference) {
+          try {
+            risks.push(await (await import('./test-recovery-runtime.mjs')).assertStoryTestRiskGate(root, config, workflow, {
+              phaseId: phase.id, operation: 'approve', generation: phase.generation,
+              observationSha256: reference.observationSha256, evidenceCommit: submittedReview.evidenceCommit }));
+          } catch { /* approval refuses at that gate first */ }
+        }
+        try {
+          risks.push(...await (await import('./trp-document-runtime.mjs')).assertStoryDocumentRiskGates(root, config, workflow, phase, 'approve'));
+        } catch { /* approval refuses at that gate first */ }
+        return risks;
+      }
+    });
+    if (!history.blocking.length) return null;
+    const facts = blockingCommitFacts(root, workflow, phase, history.blocking, submittedReview.evidenceCommit);
+    const [first] = facts.pendingIntentAmendments;
+    const workId = workflow.workItem.id;
+    return {
+      advisory: true,
+      count: history.blocking.length,
+      statement: `Approving ${phase.id} now would be refused: ${history.blocking.length === 1 ? 'a commit' : `${history.blocking.length} commits`} after its submission may not precede approval.`,
+      commits: facts.shown,
+      lines: facts.lines,
+      ...(first ? {
+        pendingIntentAmendments: facts.pendingIntentAmendments,
+        actions: [
+          { label: `See intent amendment ${first.id}.`, command: amendmentStatusCommand(workId) },
+          { label: `A person who approves ${facts.scopePhase ?? 'the scope'} decides ${first.id} in their own terminal; an agent cannot.`,
+            command: `singularity-flow story intent-amendment decide ${first.id} --decision <approve|reject> --confirm ${first.id} --work-id ${workId}` }
+        ]
+      } : {})
+    };
+  } catch { return null; }
 }

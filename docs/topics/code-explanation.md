@@ -26,7 +26,7 @@ related:
   - delivery-and-proof
   - model-independence
   - world-model
-version: 13
+version: 14
 ---
 ## Purpose and prerequisites
 
@@ -169,19 +169,19 @@ baseline's history), and
 the entries the prompt log's retention removed (it keeps a text-free note of each), recorded writes
 and test attempts for that generation.
 
-**Who wrote a line.** In an explicit SFlow Copilot turn, every successful file edit is recorded on
-this machine: the path, the SHA-256 of its bytes before and after, the lines it changed, and the
-turn, skill and Copilot session that made it (never content or arguments). A write is checked
-against the tool's own arguments; one that cannot be checked is kept but never credited.
-`--subject line` names the turn whose write changed the line last only when the recorded writes
-explain the file exactly, from the bytes before the change that holds the line (the baseline, or
-the commit `git blame` names) to the bytes that hold it now. Otherwise it stays
+**Who wrote a line.** In an explicit SFlow Copilot turn, every file edit the guard allows is noted
+before it runs and read again at the session's next tool call: the path, the SHA-256 of its bytes
+before and after, only the lines those differ in, the turn, skill and Copilot session that made it,
+and the commit it was made on (never content or arguments). Lines the tool's own arguments explain
+are checked; any other changed line is kept but never credited. `--subject line` names the turn
+whose checked write changed the line last, following the line back through each write's changed
+lines, and only from records made on this line's history. Otherwise it stays
 `origin-unestablished` and says why: no recorded write, bytes no write left (someone or something
-unrecorded changed the file), an unrecorded change in between, an unchecked write, or more than one
+unrecorded changed the file), an unrecorded change in between, an unchecked line, or more than one
 writer. Terminal commands and edits outside explicit turns are not recorded. Records are kept for 14
 days and are this machine's only.
 
-**Compare with an earlier view.** Every change view is retained on this machine (only what a
+**Compare with an earlier view.** The Change Explorer and `explain --subject change` keep their view on this machine (only what a
 comparison needs: no statement text or file bytes; 64 views, 14 days). `explain --subject change
 --compare previous` compares the current change with the previous view of the same Story, unit by
 unit, the way the Change Explorer's *Snapshot changed* banner does; `--compare SNAPSHOT-ID` names

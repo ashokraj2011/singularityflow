@@ -41,7 +41,7 @@ XPL2 is a *subject view* layer over the existing comprehension capture (`CMP`), 
 |---|---|
 | Engine | `src/comprehension/xpl2/` — `reasons`, `templates`, `vocabulary`, `model`, `change-subject`, `subjects`, `clause-sources`, `narration`, `command` |
 | Records | `src/comprehension/xpl2/clause-sources.mjs` (clauses, and attempts, witnesses, reuse decisions and implementation bindings in the slice; invocations, prompts, prompt removal notes and observed writes for `--subject generation`), `lineCommitAt` and `committedFilesAtRevisions` in `src/git.mjs` |
-| Observed writes | `observed-write-recorder.mjs` (run by the post-tool hook in `src/copilot-mutation-guard.mjs`, in the hook bundle chunk), `observed-writes.mjs` (the store's reader), `writer-attribution.mjs` (pure chain by digest), `line-writer.mjs` (which change holds a line) |
+| Observed writes | `observed-write-recorder.mjs` (driven by the pre-tool guard and the prompt and session-end hooks in `src/copilot-mutation-guard.mjs` and `src/copilot-repository-boundary.mjs`; the hook bundle loads it from source), `observed-writes.mjs` (the store's reader), `writer-attribution.mjs` (pure chain by digest), `line-writer.mjs` (which change holds a line) |
 | Comparison | `compare.mjs` (import-free; the Change Explorer imports it), `snapshots.mjs` (retained in `src/comprehension/ide-slice.mjs`, read only by `--compare`) |
 | Terminal text | `src/narration/render-explanation-subject.mjs`, registered by the explain handler (narration, comparison, record view) |
 | Narration | `src/comprehension/xpl2/narration.mjs` (pure input projection, prompt and validation, and `narrateXpl2Explanation`, the one model call, loaded only for `--narrate`) |
@@ -232,28 +232,41 @@ change**, and **Copy summary** copies it.
   file says so and points to the before side or the new path. The commit's author
   is quoted as what the commit records, never as who produced the line; no share of model-written
   lines is estimated anywhere.
-- **Observed writes.** The post-tool hook of an explicit SFlow Copilot turn records every file edit
-  the host reports successful: the tool's own arguments and the file's bytes right after it. A write
-  is *verified* only when the arguments explain the bytes exactly: a whole-file write equal to the
-  file, or replacements (`edit`, `replace_string_in_file`, `multi_replace_string_in_file`, the update
-  hunks of an `apply_patch`) that, undone on the file last first, each at its one exact place, give
-  the bytes before them. A record keeps the path, SHA-256 before and after, the whole lines each step
-  changed, and the writer (turn, skill, hashed Copilot session, agent) with the Story, step and open
-  generation; never content, arguments or commands. A failed call is not recorded; an ambiguous,
-  moved or unknown edit is kept unverified, so it can block a claim but never make one. Records live in
-  `<git dir>/singularity-flow/xpl2/observed-writes/` (one JSONL segment per UTC day, 1 MiB a day, 14
-  days), are discardable and are read only by explain commands.
+- **Observed writes.** No hook of their own: the pre-tool guard that already runs in an explicit SFlow
+  Copilot turn *notes* each edit it allows before it runs (target paths, the SHA-256 of their bytes,
+  salted hashes of their lines, and what the tool's own arguments say the bytes become: that digest
+  and the lines it changes), and the session's next pre-tool call, or its next prompt or its end,
+  *settles* the note by reading the files again. A file that has not changed yet stays noted. A
+  record keeps, per file, the SHA-256 before and after and only the lines those two versions differ
+  in; it is *verified* when the after bytes are exactly what the arguments say (`edit` and
+  `str_replace` with an empty `new_str` included, `insert`, `replace_string_in_file`, VS Code's
+  `multi_replace_string_in_file` `replacements[]`, `create`/`create_file`, `apply_patch`; LF arguments
+  match a CRLF file). Otherwise its changed lines are kept unverified: they can never be credited,
+  and they leave every other line traceable. A record also keeps the writer (turn, skill, hashed
+  Copilot session, agent), the Story step and open generation, and the HEAD commit and branch it was
+  made on; never content, arguments or commands (the line hashes live only in the note, which
+  settling deletes). Records live in `<git dir>/singularity-flow/xpl2/observed-writes/` (one JSONL
+  segment per UTC day, 1 MiB a day, 14 days; a full day leaves a marker created exclusively, never
+  through a link), are discardable and are read only by explain commands. Measured added cost per
+  pre-tool call: one `lstat` when nothing is noted; about 0.7 ms to note an edit of a 300-line file
+  (3 ms at 3,000 lines) and 0.3 to 0.4 ms to settle it, plus about 2 ms to load the recorder in that
+  hook process. No process is started.
 - **Who left a line.** `--subject line` takes the change that holds the line: this capture for an
   added or changed after-side line (baseline bytes to the captured bytes, by the capture's own
-  digest), otherwise the commit `git blame` named (its parent's bytes to its own, two blobs read in
-  one batch, only when a record names the path). The line is attributed only when the verified writes
-  chain by digest from those starting bytes, or from a whole-file write, to the bytes that hold it,
-  and every history the digests allow, followed back through each write's changed lines, names the
-  same writer. Recorded time order is never used. The statement names the write(s), the tool, the
-  turn and session, and the Story step; it is this machine's record of what a tool did, not of who
-  designed the line. Otherwise the view keeps `origin-unestablished` and states the basis: no
-  recorded write, bytes no recorded write left, an unrecorded change in between, an unverifiable
-  write, several writers or histories, the line unchanged by the writes, or unreadable records.
+  digest), otherwise the commit `git blame` named (paths unquoted; its parent's bytes to its own,
+  read as a checkout writes them with `git cat-file --filters`, so line-end conversion and filters
+  still match bytes read from disk). Only records made on a commit the line's history descends from
+  take part (one ancestry check per recorded commit), so another branch's identical change is never
+  credited. Starting from the bytes that hold the line, the writes that left exactly those bytes are
+  found: the line is credited when it lies in a verified changed range of theirs; a line outside
+  their changed ranges is followed back to the bytes before them, and so on. Recorded time order is
+  never used; writes by different writers that left the same bytes are ambiguous. The statement
+  names the write(s), the tool, the turn and session, and the Story step; it is this machine's record
+  of what a tool did, not of who designed the line. Otherwise the view keeps `origin-unestablished`
+  and states the basis: no recorded write on this history, bytes no recorded write left, an
+  unrecorded change in between, an unverified write, several writers or histories, the line
+  unchanged by the writes, or unreadable records. Identical bytes re-created by an unrecorded writer
+  (a revert and a hand re-apply) cannot be told apart from the recorded write.
 - **Sources that do not record writes.** Terminal commands: the guard sees their changes only
   against a baseline shared across tool calls, so a command's change cannot be told from an edit or
   a person in the same window. Kernel model invocations: their records keep a content-free tool
@@ -275,15 +288,18 @@ change**, and **Copy summary** copies it.
   observed writes are listed with their writer and files. An unreadable store, a listing cut at its bound
   and records missing their identity are each reported, never read as none. Reading enables no
   capture.
-- **Retained snapshots.** Every stable change view the comprehension slice builds (for VS Code and
-  for every CLI subject) is retained in `<git dir>/singularity-flow/xpl2/snapshots/` under its
+- **Retained snapshots.** The Comprehension Center's change view (the Change Explorer) and
+  `explain --subject change` keep their view on this machine, and say so (the explain headline: kept
+  this view for a later --compare); it is retained in `<git dir>/singularity-flow/xpl2/snapshots/` under its
   explanation-set digest: its comparison projection only (unit IDs, paths, unit and unit-content
   digests, source and observation states, the statement count). At most 64 snapshots, 512 KiB each
   and 8 MiB in all, each kept until 14 days unseen; an entry whose content does not match its name is
   not read. Each view reports its own snapshot ID (`data.snapshot`).
 - **CLI comparison.** `explain --subject change --compare previous|SNAPSHOT-ID` (a digest or a prefix of
   at least 12 hex digits) compares the current view with a retained snapshot using the explorer's own
-  comparison (`compare.mjs`); `previous` is the most recently seen other snapshot of the same Story.
+  comparison (`compare.mjs`) over the whole change view, never a bounded page; a view that holds only
+  part of the change is not compared unit by unit. `previous` is the most recently seen other
+  snapshot of the same Story.
   The result (`data.comparison`) and the terminal say how many change units are new, gone and
   unchanged, which files they are in and which sources changed, and never change the view.
 - **Comparison.** When a newer snapshot raises *Snapshot changed*, the banner counts the change units
@@ -387,11 +403,11 @@ open.
 - WEL contents are never read; the WEL state is reported only. Of PE, only content-free metadata is
   read (model invocation records and prompt-log entries without their text), and only for
   `--subject generation`.
-- Observed writes come only from explicit SFlow Copilot turns' checked file edits on this machine.
-  The hook sees the file right after the tool, so a write by another process inside the tool's own
-  run is part of what it observes; the arguments check rejects any write the tool's replacements do
-  not explain, and an edit left unsaved in an editor buffer is seen as no change. Native chat,
-  terminal commands, kernel model invocations and other machines are not observed (§6).
+- Observed writes come only from explicit SFlow Copilot turns' file edits on this machine. The
+  bytes after an edit are read at the session's next hook call, so a change by someone else in
+  between is part of what is observed; such lines are kept unverified and never credited. An edit
+  left unsaved in an editor buffer is seen as no change. Native chat, terminal commands, kernel model
+  invocations and other machines are not observed (§6).
 - Prompt-log entries removed before removal notes existed, or past the newest 2,000 notes, still
   cannot be told from entries never kept; the view states the retention window and marks the notes
   partial at their bound.
@@ -414,7 +430,7 @@ rest is open), **open** (not implemented in this release).
 | 008 | No lexical entailment shortcut | tested | `test/xpl2-narration.test.mjs` (60 adversarial cases) |
 | 009 | Narration cannot mutate results | tested | `test/xpl2-narration.test.mjs` (no PR integration exists; the copied summary is the computed tour) |
 | 010 | Explicit model and capture choice | tested | `test/xpl2-narration.test.mjs` (local stand-in provider through the real runner; no provider is called) |
-| 011 | Line origin not inferred | tested | `test/xpl2-provenance.test.mjs` (invocation records never name a writer), `test/xpl2-observed-writes.test.mjs` (through the real post-tool hook: a line is attributed only when the writes explain the file exactly, line by line across two turns and through `git blame`; failed, unrecorded, ambiguous and forked histories stay unestablished with their basis) |
+| 011 | Line origin not inferred | tested | `test/xpl2-provenance.test.mjs` (invocation records never name a writer), `test/xpl2-observed-writes.test.mjs` (through the real pre-tool guard: a line is credited only for lines a checked write changed, line by line across two turns and through `git blame`; a person's line kept by a rewrite, unchecked lines, another branch's identical change and two writers of the same bytes stay unestablished with their basis; CRLF and non-ASCII paths) |
 | 012 | Disjoint footprint is insufficient | tested | `test/xpl2-applicability.test.mjs` (the reuse owner's rule; XPL2 computes no overlap) |
 | 013 | Reference performance qualification | open | Local measurements in §6; installed-host qualification open |
 | 014 | Impact producer readiness | tested | Named unavailability (`test/xpl2-engine.test.mjs`, `test/xpl2-exact-links.test.mjs`); no producer keyed to an exact change set exists |

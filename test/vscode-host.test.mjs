@@ -12345,3 +12345,28 @@ test('in a workspace, a run also needs the workspace\'s own files: a missing roo
   await page.post({ type: 'envFiles.action', action: 'link', key: JSON.stringify(['#workspace', 'dev', '.env']) });
   await eventually(async () => (await cli.envLog()).some((argv) => argv.join(' ') === `env files link dev .env --to ${registered.pickedFile} --workspace --json`));
 });
+
+test('What this phase sees reads each Story\'s brief, even for a phase of the same name', async (t) => {
+  if (!requireBundle(t)) return;
+  const { api, registered } = stubVscode(); loadExtension(api);
+  const { PhaseBriefPanel } = hostRequire(path.join(packageRoot, 'apps/vscode/dist/lazy-panels-runtime.cjs'));
+  const calls = [];
+  const client = { run: async (args) => {
+    calls.push(args);
+    const story = args[args.indexOf('--work-id') + 1];
+    return { status: 'ok', phase: 'intake', bytes: 60, budget: 2048, profile: 'intake', saved: false, composed: true, note: null,
+      phrasing: { by: 'template' }, records: ['R-000000000001'], omitted: 0,
+      text: `# Repository brief: ${story}\n\n## Rules that apply\n- The ${story} rule (A.java:1)` };
+  } };
+  const phases = [{ id: 'intake', label: 'Intake' }];
+  PhaseBriefPanel.show(client, 'STORY-A', 'intake', phases);
+  const view = registered.panels.find((entry) => entry.id === 'singularityFlow.phaseBrief');
+  t.after(() => view.dispose());
+  await until(() => view.webview.html.includes('The STORY-A rule') ? true : null, { what: 'Story A\'s brief' });
+  PhaseBriefPanel.show(client, 'STORY-B', 'intake', phases);
+  await until(() => view.webview.html.includes('The STORY-B rule') ? true : null, { what: 'Story B\'s brief in the same panel' });
+  assert.match(view.webview.html, /Intake · Story STORY-B/);
+  assert.deepEqual(calls.map((args) => args[args.indexOf('--work-id') + 1]), ['STORY-A', 'STORY-B']);
+  PhaseBriefPanel.show(client, 'STORY-B', 'intake', phases);
+  assert.equal(calls.length, 2, 'the same Story and phase shown again is not read again');
+});

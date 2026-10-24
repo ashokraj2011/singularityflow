@@ -18,6 +18,8 @@ export class PhaseBriefPanel {
   private readonly panel: vscode.WebviewPanel;
   private readonly client: SingularityFlowClient;
   private result: PhaseBriefResult | null = null;
+  /** The Story and phase `result` was read for: a phase of the same name in another Story is another brief. */
+  private resultFor: string | null = null;
   private state: PhaseBriefState;
   private request = 0;
   private disposed = false;
@@ -26,8 +28,7 @@ export class PhaseBriefPanel {
     const existing = PhaseBriefPanel.current;
     if (existing) {
       existing.panel.reveal(vscode.ViewColumn.Active);
-      existing.state = { ...existing.state, workId, phases };
-      existing.select(phase);
+      existing.open(workId, phase, phases);
       return existing;
     }
     const panel = vscode.window.createWebviewPanel('singularityFlow.phaseBrief', 'What this phase sees', vscode.ViewColumn.Active,
@@ -55,10 +56,16 @@ export class PhaseBriefPanel {
     void this.load(false);
   }
 
+  /** Show a Story's phase; the brief already shown is kept only when it is that Story's and that phase's. */
+  private open(workId: string, phase: string, phases: PhaseBriefState['phases']): void {
+    this.state = { ...this.state, workId, phases };
+    this.select(phase);
+  }
+
   /** Only a phase of this Story: a message cannot name another. */
   private select(phase: string): void {
     if (!this.state.phases.some((entry) => entry.id === phase)) return;
-    if (phase === this.state.phase && this.result) return;
+    if (this.resultFor === `${this.state.workId}\u0000${phase}`) return;
     this.state = { ...this.state, phase };
     this.result = null;
     void this.load(false);
@@ -74,8 +81,11 @@ export class PhaseBriefPanel {
       const result = await this.client.run<PhaseBriefResult>(args);
       if (request !== this.request || this.disposed) return;
       this.result = result;
+      this.resultFor = `${this.state.workId}\u0000${this.state.phase}`;
     } catch (error) {
       if (request !== this.request || this.disposed) return;
+      this.result = null;
+      this.resultFor = null;
       this.state = { ...this.state, error: `What this phase sees could not be read: ${error instanceof Error ? error.message : String(error)}` };
     } finally {
       if (request === this.request && !this.disposed) {

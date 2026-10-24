@@ -313,7 +313,7 @@ const SKILL_SEMANTIC_CONTRACTS = Object.freeze({
       /positional argument selects \*\*PHASE-ID\*\*, never Work ID/i,
       /Review outside chat against the exact binding/i,
       // Commits approval would refuse for are shown, never a reason to stop the review.
-      /`blockingCommits` \(advisory: show it, then continue\)/,
+      /`approvalCheck`\/`blockingCommits` \(advisory: show them, then continue\)/,
       // A checklist phase is approved from Copilot too: the person's answers travel with the approval.
       /`approvalChecklist` lists articles, ask for one answer per article[^.]*--article <ID>=<DECISION>/,
       /exactly matching non-null `displayBinding`/,

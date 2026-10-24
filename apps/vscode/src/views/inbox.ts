@@ -4,7 +4,7 @@ import {
   buildInbox, type Inbox, type InboxArtifact, type InboxRepositoryBinding, type WorkspaceStoryCatalogRow
 } from './inbox-model.ts';
 import { buildApprovals, type PendingApproval } from './approvals-model.ts';
-import { contentSecurityPolicy, escape, icon, navigationTarget, nonce, page } from './webview.ts';
+import { approvalHoldsHtml, contentSecurityPolicy, escape, icon, navigationTarget, nonce, page } from './webview.ts';
 import { navigateTo } from './navigate.ts';
 import { registerMessageRouter, stringField, type InboundMessage } from './messages.ts';
 import { decisionTargetText } from '../decisions.ts';
@@ -63,12 +63,13 @@ function decisionCards(inbox: Inbox): string {
       ${approval.sha256 ? `<code>${escape(approval.sha256.slice(0, 16))}</code>` : ''}
       ${approval.selfApproval ? '<p class="warning-text">You generated this; approval will not count as independent review.</p>' : ''}
       ${approval.heldBy ? `<p class="warning-text">${escape(approval.heldBy.headline)}</p>` : ''}
+      ${!approval.heldBy && approval.approvalHolds?.length ? approvalHoldsHtml(approval.approvalHolds) : ''}
       <div class="card-foot">
         ${approval.kind === 'output' || approval.artifactPath
     ? `<button class="secondary" data-open-approval="${escape(approval.id)}">Open artifact</button>` : ''}
         ${approval.heldBy
     ? `<button data-decide-list="${escape(approval.id)}">Decide what blocks this step</button>`
-    : `<button data-approve="${escape(approval.id)}">Approve…</button>`}
+    : approval.approvalHolds?.length ? '' : `<button data-approve="${escape(approval.id)}">Approve…</button>`}
         <button class="secondary" data-reject="${escape(approval.id)}">Request changes…</button>
       </div>
     </article>`).join('')}</div>`;

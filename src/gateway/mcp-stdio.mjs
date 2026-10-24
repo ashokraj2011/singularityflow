@@ -93,7 +93,7 @@ export function serveMcp({ input, output, createKernel, serverInfo, log = () => 
     if (name === 'sflow_read') return kernel.read({ resolutionId: args.resolutionId });
     if (name === 'sflow_next') return kernel.next({ scope: args.scope, subject: args.subject ?? null });
     if (name === 'sflow_run') return confirmAndRun(args.planId);
-    if (name === 'sflow_explain') return kernel.explain({ question: args.question, topic: args.topic });
+    if (name === 'sflow_explain') return kernel.explain({ question: args.question, topic: args.topic, subject: args.subject ?? null });
     return null;
   }
 

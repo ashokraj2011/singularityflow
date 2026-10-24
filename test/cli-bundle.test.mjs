@@ -137,11 +137,12 @@ test('the bundled CLI answers exactly like the sources while opening a handful o
   // closure (main 1ecccc54: 7,379,841): cold-catalogs +3,148, cold-narrow-reads +442 and cold-hook-context +29, from
   // the closure materialization and its re-derived check in configuration-branch.mjs and the shared pinned
   // initialization status in config.mjs. story-configuration-closure.mjs stays out of these reads.
-  // 7,390,000 (next 5,000 boundary): 7,388,165 after an amendment's read, decision and acknowledgement name no
-  // Copilot skill (main 20279010 was already over at 7,386,336): cold-core +1,149 (the crosswalk's no-skill routes
-  // in command-skills, copilot-guidance and safe-command-guidance), cold-hooks +642 (the guard's amendment-decision
-  // denial) and cold-narrow-reads +38.
-  assert.ok(closure('cold-hook-context.mjs').reduce((sum, item) => sum + item.bytes, 0) < 7_390_000,
+  // 7,395,000 (next 5,000 boundary): 7,391,822 after SPEC-OAP M0 and M1, which crossed it unrun in the slow lane.
+  // M0's approval defect fixes (merge 8b257b5c; 445e65b7 before it: 7,383,460): cold-core +1,372, cold-narrow-reads
+  // +773 and cold-hook-context +731. M1's one approval check (merge a1b1709c; 7,386,336 before it): cold-hook-context
+  // +4,097 and cold-narrow-reads +1,389. The explain state answer adds nothing here: its modules stay in the lazily
+  // loaded gateway.
+  assert.ok(closure('cold-hook-context.mjs').reduce((sum, item) => sum + item.bytes, 0) < 7_395_000,
     'phase-review reads retain their existing byte ceiling after moving families');
   assert.match(await readFile(path.join(outdir, 'cold-light.mjs'), 'utf8'), /function enterPhase\b/u,
     'phase binding must not fall through to the compatibility/admin bundle');

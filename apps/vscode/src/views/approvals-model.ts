@@ -62,6 +62,8 @@ export interface PendingApproval {
    * the card offers the decision list first instead of an approval the engine would refuse.
    */
   heldBy?: { count: number; headline: string } | null;
+  /** What else the approval would be refused for, and who clears it (submission readiness `approvalCheck`). */
+  approvalHolds?: ApprovalHoldView[];
 }
 
 export interface Approvals {
@@ -216,6 +218,28 @@ export function buildApprovals(snapshot: RepositorySnapshot | null): Approvals {
   return approvalsOf(snapshot, initiative);
 }
 
+/** One reason approval would be refused, and who clears it (`approvalCheck.holds` from the CLI). */
+export interface ApprovalHoldView { code: string; owner: string; who: string; summary: string; action: { label: string; command: string } | null }
+
+/**
+ * The holds an approval would be refused for that someone other than the approver clears, from an
+ * untrusted CLI result, bounded. The approver's own answers (`you-decide`) are the form's business.
+ */
+export function approvalHolds(value: unknown): ApprovalHoldView[] {
+  const check = value && typeof value === 'object' ? value as Record<string, unknown> : null;
+  const text = (entry: unknown, limit = 400) => (typeof entry === 'string' && entry.trim() ? entry.slice(0, limit) : null);
+  return (Array.isArray(check?.holds) ? check.holds : []).slice(0, 20).flatMap((entry) => {
+    const hold = entry && typeof entry === 'object' ? entry as Record<string, unknown> : null;
+    const owner = text(hold?.owner, 40);
+    const summary = text(hold?.summary);
+    if (!hold || !owner || owner === 'you-decide' || !summary) return [];
+    const action = hold.action && typeof hold.action === 'object' ? hold.action as Record<string, unknown> : null;
+    const command = text(action?.command, 2000);
+    return [{ code: text(hold.code, 80) ?? 'unknown', owner, who: text(hold.who, 80) ?? owner, summary,
+      action: command?.startsWith('singularity-flow ') ? { label: text(action?.label, 2000) ?? '', command } : null }];
+  });
+}
+
 /** One person per decision, keyed as the engine keys them: GitHub login, then email, then name. */
 function identityOf(value: unknown): string {
   if (typeof value === 'string') return lower(value);
@@ -328,7 +352,8 @@ function storyApprovalsOf(snapshot: RepositorySnapshot, workflow: StoryWorkflow)
       reviewPacketSha256: packet,
       submittedSourceCommit: sourceCommit,
       afterApproval: afterApprovalText(snapshot, workflow, phase.id),
-      heldBy: heldByDecisions(snapshot, phase.id)
+      heldBy: heldByDecisions(snapshot, phase.id),
+      approvalHolds: snapshot.submissionReadiness?.phaseId === phase.id ? approvalHolds(snapshot.submissionReadiness.approvalCheck) : []
     }],
     obstacles: [],
     empty: null

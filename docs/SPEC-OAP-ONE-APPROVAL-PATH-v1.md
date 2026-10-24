@@ -64,24 +64,36 @@ would pass, and one form that records the approver's decisions and the approval 
 
 ### 1. One approval check
 
-- `approvePhase` is split into `evaluateApproval` (read-only, returns every hold) and
-  `recordApproval` (the transaction). `recordApproval` calls `evaluateApproval` first, so the gate
-  and the preview cannot disagree. `reviewHistoryCommits` (c669bf3a) is the first piece already
-  shared this way.
-- Each hold is returned with one owner class and one route:
+Built in M1 (2026-10-24):
+
+- `evaluateApproval` (src/state.mjs) holds every check approval makes, in the order it always made
+  them, as named stages over shared facts. `approvePhase` records: it calls `evaluateApproval` and
+  throws its first refusal unchanged, then makes the transition. A preview (`preview: true`) runs
+  every stage. It keeps each refusal as a hold and skips only a stage whose inputs a failed stage did
+  not establish (`needs`, or a `foundation` stage such as the phase sequence or the review packet).
+  It never writes, publishes or prints; a commit still to publish is a `machine` hold. The gate and
+  the preview cannot disagree because they are the same code.
+- `src/approval-check.mjs` gives each hold one owner class (`APPROVAL_HOLD_OWNERS`) and one route.
+  The route is the one the refusal names for itself; otherwise work the author revises is returned
+  for changes and what Singularity Flow finishes is inspected with `recover`:
 
   | Owner class | Meaning | Shown as |
   |---|---|---|
-  | `you-decide` | this approver can clear it now (checklist, witness mapping, renewal of a lapsed test-run risk, an `approve`-operation risk acceptance they hold authority for) | a field in the approval form |
-  | `someone-decides` | another group decides (scope approvers for an intent amendment, TRP risk authority, an earlier step's approvers) | "Waiting for <group>: <item>", with the item's own route |
-  | `author-repairs` | the work has to change and be submitted again (source changed, evidence stale, artifact incomplete) | one "Request changes" action that returns the step |
-  | `machine` | Singularity Flow fixes it itself (unpushed commit, stale index, receipt refresh) | nothing, unless the automatic fix fails |
+  | `you-decide` | this approver can clear it now (checklist answers, witness or binding flags) | a field in the approval form; Approve stays |
+  | `someone-decides` | another person or group decides (scope approvers for a pending intent amendment, TRP risk authority, a decision list, another approver) | the hold with its route; no Approve |
+  | `author-repairs` | the work has to change and be submitted again (source changed, evidence stale, artifact incomplete) | the hold with the return-for-changes route; no Approve |
+  | `machine` | Singularity Flow finishes it itself (a commit still to publish, a changed publication snapshot) | the hold with its route; no Approve |
 
-- Submission readiness, the `/sf-approve` packet, `phase show`, the inbox, Reviews, `nextsteps` and
-  the journey all read this one result. "Approve" is offered only when nothing outside
-  `you-decide` remains.
-- A guard test extends `test/gate-parity.test.mjs`: every refusal `recordApproval` can raise must be
-  produced by `evaluateApproval`, so no hold can be found only at approve time again.
+- Submission readiness (and so the `/sf-approve` packet), `phase show`, `nextsteps`, VS Code
+  Reviews and Approvals, and the VS Code approval page read this one result as `approvalCheck`.
+  "Approve" is offered only when nothing outside `you-decide` remains; `nextsteps` puts the first
+  hold's route where it offered the approval. The CLI inbox reads remote state only, so it shows
+  submitted steps as before and `/sf-approve` reads the check.
+- Guard (`test/oap-m1-approval-check.test.mjs`): every code the check throws has an owner class.
+  Nothing in `evaluateApproval` runs outside a stage, and the record step throws nothing of its
+  own. On a real Story, the preview's first hold is the code recording refuses with.
+- Measured cost: readiness on a step awaiting approval took 1.6 s against 1.5 s before (one
+  planning fixture). A code step's preview also replays its delivery receipt.
 
 ### 2. Decisions never make a submission stale by accident
 
@@ -161,7 +173,7 @@ Each milestone ends with a real VS Code walk over CDP and, once Copilot is invol
 | Milestone | Scope | Done when |
 |---|---|---|
 | M0 Defects (done 2026-10-24) | The eight reported defects above, each with a failing test first | seven fixed, one did not reproduce and is pinned by a test; checked in the real extension |
-| M1 One check | `evaluateApproval` / `recordApproval`; owner classes; readiness, packet, phase show, inbox, Reviews, `nextsteps` and journey read it | gate-parity guard: no refusal is found only at approve time; "Approve" is not offered on a held step |
+| M1 One check (done 2026-10-24) | `evaluateApproval` and the record step; owner classes; readiness, packet, phase show, Reviews, Approvals, the approval page and `nextsteps` read it | guard test: no refusal is found only at approve time; "Approve" is not offered on a held step; checked in the real extension |
 | M2 Review effects | `REVIEW_EFFECTS` registry; intent-amendment propose/reject/acknowledge are review-safe; `decision test-command` returns the step | the amendment-after-submission fixture (test/approval-intervening-commits.test.mjs): propose, then reject the amendment, then approve planning with no resubmission |
 | M3 One list | The decision list holds every pending kind and the approval; all surfaces count from it; `sync` and `push retry` unify | equal counts across surfaces (test); no pending kind is missing from the list (registry test) |
 | M4 One ceremony | Decisions recorded in the approval commit; digest-bound receipt; phase typed once; `/sf-decide` continues to approval | simplest approval: one review plus one confirmation on every surface; a 40-minute review still approves |

@@ -304,3 +304,64 @@ export function planDeveloperConversation(utterance) {
     effects: EFFECTS_NONE
   });
 }
+
+/** "this", "that", "it" and their kin, when they point at a piece of work rather than at the repository. */
+const DEICTIC = /\b(?:it|this|that|these|those)\b(?! (?:repository|repo|codebase|code|workspace|branch|machine|file|files|change|changes)\b)/;
+const WORK_ID = /\b[A-Za-z][A-Za-z0-9]*-[0-9]+\b/g;
+
+/**
+ * Which visible subject a conversational reference means, or that it is not clear. `[INT:REQ-100]`
+ *
+ * "Continue it" while one piece of work is on screen means that work; while two are, it means
+ * nothing yet, and the guide asks rather than picking the first. A request that names a visible
+ * subject's ID means that subject whatever else is shown. The answer is a proposal for the kernel
+ * to resolve — never authority, and never read from anywhere but what the reader can see.
+ */
+export function referencedSubject(utterance, visibleSubjects = []) {
+  const seen = new Set();
+  const visible = (Array.isArray(visibleSubjects) ? visibleSubjects : [])
+    .filter((entry) => entry?.id && !seen.has(entry.id) && seen.add(entry.id));
+  const raw = String(utterance ?? '');
+  const ids = [...new Set([...raw.matchAll(WORK_ID)].map(([id]) => id.toUpperCase()))];
+  const named = ids.map((id) => visible.find((entry) => String(entry.id).toUpperCase() === id)).filter(Boolean);
+  // An ID written the way work IDs are written, and not on screen, is still the subject asked about.
+  const unseen = [...new Set([...raw.matchAll(/\b[A-Z][A-Z0-9]*-[0-9]+\b/g)].map(([id]) => id))]
+    .filter((id) => !named.some((entry) => String(entry.id).toUpperCase() === id));
+  if (!named.length && unseen.length === 1) {
+    return Object.freeze({ status: 'named', subject: Object.freeze({ kind: null, id: unseen[0] }), choices: Object.freeze([]) });
+  }
+  if (named.length === 1) return Object.freeze({ status: 'named', subject: named[0], choices: Object.freeze([]) });
+  if (named.length > 1) return Object.freeze({ status: 'ambiguous', subject: null, choices: Object.freeze(named) });
+  if (!DEICTIC.test(normalize(raw)) || !visible.length) {
+    return Object.freeze({ status: 'none', subject: null, choices: Object.freeze([]) });
+  }
+  return visible.length === 1
+    ? Object.freeze({ status: 'single', subject: visible[0], choices: Object.freeze([]) })
+    : Object.freeze({ status: 'ambiguous', subject: null, choices: Object.freeze(visible) });
+}
+
+/**
+ * The work subjects a result put in front of the reader, in the order it showed them. `[INT:REQ-100]`
+ *
+ * What "this" can refer to is what is on screen, so this reads only the fields a card renders: the
+ * result's own subject, the active work and the attention rows of a home. Never a record lookup —
+ * a subject the reader has not been shown is not one their words can point at.
+ */
+export function visibleSubjects(result) {
+  const data = result?.data ?? {};
+  const home = data.homeProjection?.resultType === 'my-work-home' ? data.homeProjection : {};
+  const work = (entry, kind = entry?.kind) => typeof entry?.id === 'string' && entry.id
+    ? { kind: ['story', 'initiative'].includes(kind) ? kind : 'work', id: entry.id } : null;
+  const candidates = [
+    ['story', 'initiative'].includes(result?.subject?.kind) ? work(result.subject) : null,
+    work(data.currentWork), work(data.activeWork), work(home.activeWork),
+    ...[...(home.needsUser ?? []), ...(home.worthChecking ?? [])].map((entry) => work({ id: entry?.workId }))
+  ];
+  const seen = new Map();
+  for (const entry of candidates) {
+    if (!entry) continue;
+    const known = seen.get(entry.id);
+    if (!known || (known.kind === 'work' && entry.kind !== 'work')) seen.set(entry.id, entry);
+  }
+  return Object.freeze([...seen.values()].map((entry) => Object.freeze(entry)));
+}

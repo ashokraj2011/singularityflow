@@ -82,7 +82,14 @@ export const KERNEL_CODES = Object.freeze([
   'gateway.handle-invalid',
   'gateway.fingerprint-algorithm-stale',
   /** A handle failed for a reason this build has no name for. See the module note. */
-  'gateway.handle-unrecognised'
+  'gateway.handle-unrecognised',
+  /**
+   * Host actions `[INT:CON-130]` `[INT:CON-131]`: one withheld at emission (a warning), one refused by
+   * the receiving host, and the terminal continuation such a refusal offers instead.
+   */
+  'gateway.host-action-dropped',
+  'gateway.host-action-refused',
+  'gateway.host-action-fallback'
 ]);
 
 /** The home planner: what leads, why it leads, and when nothing does. */
@@ -250,6 +257,7 @@ export const SURFACE_CODES = Object.freeze([
   'impact.tests-by-path-convention',
   'impact.work-in-the-same-area',
   'impact.start-reviewed-plan',
+  'impact.open-impact-view',
   'impact.revision-unresolved',
   'explain.cited',
   'explain.ambiguous',
@@ -458,6 +466,8 @@ export const WARNING_CODES = Object.freeze([
   'work.local-changes-present',
   /** A repeated run answered with the recorded result of the first; nothing ran again. */
   'gateway.result-replayed',
+  /** A host action this result named failed validation or this host cannot open it; it was withheld. */
+  'gateway.host-action-dropped',
   /** A comparison shows the first paths only; the total is in the slots. */
   'compare.paths-truncated',
   /** A working-tree comparison reads tracked files; untracked ones are in neither side. */

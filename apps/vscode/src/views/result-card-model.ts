@@ -62,6 +62,14 @@ export type CardAction = {
   /** The exact `@sflow` route, present only when one is equivalent to the command. */
   readonly modelFreeCommand?: string;
   readonly copyable: boolean;
+  /**
+   * The trusted view this action opens, kept in the model and never in the markup. `[INT:CON-130]`
+   *
+   * Like the handle, it stays on the host side of the webview boundary: a click names an action
+   * id, and the host opens only the host action it already holds for that id — after validating it
+   * again `[INT:CON-131]`. The webview cannot name a view of its own.
+   */
+  readonly hostAction?: { readonly id: unknown; readonly arguments?: unknown } | null;
 };
 
 export type HomeAttentionView = {
@@ -268,7 +276,8 @@ function actionOf(entry: any): CardAction {
     skill: routes?.skill ?? null,
     copilotCommand: routes?.copilotCommand ?? null,
     ...(routes?.modelFreeCommand ? { modelFreeCommand: routes.modelFreeCommand } : {}),
-    copyable: routes?.copyable ?? false
+    copyable: routes?.copyable ?? false,
+    ...(entry.hostAction != null ? { hostAction: entry.hostAction } : {})
   };
 }
 

@@ -18,8 +18,13 @@
  * planner instead of a CLI fallback while preserving the registry-versus-map refusal for anything
  * this build genuinely does not contain.
  */
-import { createActionExecutor } from '../../../src/gateway/executor.mjs';
-import { createHostGateway } from '../../../src/gateway/host.mjs';
+import { createActionExecutor, hostActionRefusal, receiveHostAction } from '../../../src/gateway/executor.mjs';
+import { hostActionFromLink } from '../../../src/gateway/argument-schemas.mjs';
+import { visibleSubjects } from '../../../src/gateway/conversation.mjs';
+import {
+  guideSessionScope, readGuideSession, rememberGuideSession, resetGuideSession
+} from '../../../src/gateway/local-store.mjs';
+import { bindingActorId, createHostGateway } from '../../../src/gateway/host.mjs';
 import {
   astContextPlanner, astQueryPlanner, astStatusPlanner
 } from '../../../src/gateway/planners/ast-intelligence.mjs';
@@ -130,7 +135,61 @@ export type GatewaySession = {
    */
   readonly binding: () => { readonly actorId: string | null; readonly workspaceId: string | null };
   readonly executor: { execute(action: any): Promise<any>; executeById(result: any, id: string): Promise<any> };
+  /**
+   * The host actions this editor opens, checked again on receipt. `[INT:CON-130]` `[INT:CON-131]`
+   *
+   * `receive` validates against the shared allowlist and typed schema and then against this build's
+   * views, and names the command to run only when every check passed. Opening the view is all a
+   * host action ever does; the view does its own work behind its own confirmation.
+   */
+  readonly hostActions: {
+    receive(candidate: unknown, options?: { fallback?: { label?: string; command?: string } | null }):
+      { accepted: true; hostAction: { id: string; arguments: Record<string, unknown> }; command: string }
+      | { accepted: false; reason: string; result: any };
+    refuse(action: string, reason: string, fallback?: { label?: string; command?: string } | null): any;
+    fromLink(query: string): unknown;
+  };
+  /**
+   * What the conversation remembers for this person and workspace. `[INT:CON-100]` `[INT:REQ-101]`
+   *
+   * Never authority: the kernel never reads it. `reset` forgets it without touching this session's
+   * kernel, so pending plans, the handle authority and the selected workspace all survive.
+   */
+  readonly guide: {
+    read(): Promise<any | null>;
+    rememberResult(result: any): Promise<unknown>;
+    reset(): Promise<{ cleared: boolean }>;
+  };
 };
+
+/**
+ * The trusted view each allowlisted host action opens in this build. `[INT:IFC-061]` `[INT:IFC-060]`
+ *
+ * Every allowlisted ID is listed, so a gap is a stated `null` rather than an omission: an action
+ * with no view here is refused on receipt as not available in this build, with its terminal
+ * fallback, never ignored. Only the ones with a view are declared to the kernel as this host's
+ * capability `[INT:IFC-063]`, so a result for this editor does not offer a button that cannot open.
+ */
+export const EDITOR_HOST_ACTION_COMMANDS: Readonly<Record<string, string | null>> = Object.freeze({
+  // Opens the Workspaces page; switching is that page's own confirmed act, never this link's.
+  'vscode.selectWorkspace': 'singularityFlow.openWorkspaces',
+  // Opens "Use an Existing Clone as a Workspace", which asks for the clone and confirms itself.
+  'vscode.attachRepository': 'singularityFlow.adoptWorkspace',
+  'vscode.openArtifact': 'singularityFlow.openPhaseArtifacts',
+  // The decision is made in the Approvals page from records, never from this link's arguments.
+  'vscode.openReviewCeremony': 'singularityFlow.openApprovals',
+  'vscode.openJourney': 'singularityFlow.openJourney',
+  'vscode.openImpact': 'singularityFlow.openImpact',
+  'vscode.openInvestigation': null,
+  'vscode.openContextReceipt': null,
+  'vscode.openHandoff': null,
+  'vscode.openProgress': null,
+  // Focus only: no prompt is prefilled and nothing is sent.
+  'vscode.focusCopilot': 'workbench.action.chat.open'
+});
+
+const EDITOR_HOST_ACTIONS = Object.freeze(Object.keys(EDITOR_HOST_ACTION_COMMANDS)
+  .filter((id) => EDITOR_HOST_ACTION_COMMANDS[id]));
 
 let session: GatewaySession | null = null;
 let sessionRoot: string | null = null;
@@ -220,6 +279,9 @@ export function gatewaySession(context: GatewayRepositoryContext): GatewaySessio
     && sessionWorkspaceName === workspaceName && sessionRepositoryId === repositoryId
     && sessionLeadRepositoryPath === leadRepositoryPath
     && sessionBootstrapId === bootstrapId) return session;
+  // One entry per person and workspace; the actor is the one the handle binding names, without
+  // fingerprinting the worktree just to learn who that is.
+  const guideOwner = () => ({ actorId: bindingActorId(root), scope: guideSessionScope({ workspaceId, root }) });
   const host = createHostGateway({
     root,
     hostSessionId: HOST_SESSION_ID,
@@ -256,7 +318,7 @@ export function gatewaySession(context: GatewayRepositoryContext): GatewaySessio
      * the planners above only plan them.
      */
     readOnly: false,
-    hostCapabilities: { confirmationChannel: 'native' },
+    hostCapabilities: { confirmationChannel: 'native', hostActions: EDITOR_HOST_ACTIONS },
     mutationExecutors: gatewayMutationExecutors({ runStart: startRouteProvider })
   });
   session = {
@@ -265,7 +327,31 @@ export function gatewaySession(context: GatewayRepositoryContext): GatewaySessio
     kernel: auditedKernel(host.kernel, { host: 'vscode', modelSelected: false }),
     /** `host.mjs` is untyped JavaScript; the shape asserted here is `hostBinding`'s return. */
     binding: host.binding as GatewaySession['binding'],
-    executor: createActionExecutor({ gateway: host })
+    executor: createActionExecutor({ gateway: host }),
+    hostActions: {
+      receive(candidate, { fallback = null } = {}) {
+        const received = receiveHostAction(candidate, { available: EDITOR_HOST_ACTIONS, fallback });
+        return received.accepted
+          ? { ...received, command: EDITOR_HOST_ACTION_COMMANDS[received.hostAction.id] as string }
+          : received;
+      },
+      refuse: (action, reason, fallback = null) => hostActionRefusal({ action, reason }, { fallback }),
+      fromLink: (query) => hostActionFromLink(query)
+    },
+    guide: {
+      read: async () => readGuideSession(guideOwner()),
+      rememberResult: async (result) => rememberGuideSession(guideOwner(), {
+        presentationWorkspaceId: workspaceId,
+        subject: result?.subject?.id ? { kind: result.subject.kind, id: result.subject.id } : null,
+        visibleSubjects: visibleSubjects(result),
+        pending: ['candidates', 'clarification'].includes(result?.kind)
+          ? { kind: result.kind, handle: result.next?.[0]?.handle ?? null } : null,
+        // The store keeps read and selection handles only; a plan handle stays in the kernel.
+        lastResultHandles: (result?.next ?? []).map((action: { handle?: string }) => action.handle),
+        lastMenu: (result?.next ?? []).map((action: { id?: string }) => action.id)
+      }),
+      reset: async () => resetGuideSession(guideOwner())
+    }
   };
   sessionRoot = root;
   sessionWorkspaceId = workspaceId;

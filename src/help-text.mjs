@@ -833,6 +833,7 @@ Usage:
   singularity-flow gateway serve --transport stdio [--workspace WORKSPACE]
   singularity-flow gateway tools [--json]
   singularity-flow gateway events [--json] [--host HOST] [--operation ID] [--outcome STATUS] [--reason CODE] [--subject ID] [--correlation ID]
+  singularity-flow gateway session [show|reset] [--workspace WORKSPACE] [--json]
   singularity-flow call add FOLDER [--name ID] [--label TEXT] [--main FILE] [--output code|document] [--approval-group ID] [--replace] [--confirm sha256:PLAN] [--json]
   singularity-flow call list|show NAME [--json]
   singularity-flow upstream-issue raise --phase EARLIER --about ID|SECTION --problem TEXT [--assumption TEXT] [--impact TEXT] [--proposed KIND] [--authored human|governed-agent] [--supersedes UPI-ID] [--work-id WORK-ID] [--json]

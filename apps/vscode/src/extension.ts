@@ -454,15 +454,35 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     const generation = ++homeRequestGeneration;
     const requestedHome = lastHome;
     try {
-      const { kernel } = gatewaySession(requestedHome.route);
-      const { planDeveloperConversation } = await import('../../../src/gateway/conversation.mjs');
+      const { kernel, guide } = gatewaySession(requestedHome.route);
+      const {
+        planDeveloperConversation, referencedSubject, visibleSubjects
+      } = await import('../../../src/gateway/conversation.mjs');
       const conversation = planDeveloperConversation(request);
-      const currentWork = requestedHome.envelope.data?.currentWork ?? requestedHome.envelope.data?.activeWork ?? null;
+      let currentWork: { id: string; kind?: string | null } | null = requestedHome.envelope.data?.currentWork
+        ?? requestedHome.envelope.data?.activeWork ?? null;
       const workOperations = new Set(['work.continue', 'work.return', 'work.readiness', 'review.packet']);
+      /**
+       * "Continue it" with two pieces of work on screen asks which one. `[INT:REQ-100]`
+       *
+       * Only what this home showed counts, and the choice is a proposal: the kernel still resolves
+       * the work ID against records, so picking here authorizes nothing.
+       */
+      if (conversation.route && workOperations.has(conversation.route.operationId)) {
+        const reference = referencedSubject(request, visibleSubjects(requestedHome.envelope));
+        if (reference.status === 'ambiguous') {
+          const picked = await vscode.window.showQuickPick(reference.choices.map((choice) => ({
+            label: choice.id, description: choice.kind === 'work' ? undefined : choice.kind ?? undefined, choice
+          })), { title: 'Which one do you mean?', placeHolder: `More than one piece of work is on screen`, ignoreFocusOut: true });
+          if (!picked || generation !== homeRequestGeneration || lastHome !== requestedHome) return;
+          currentWork = picked.choice;
+        } else if (reference.subject) currentWork = reference.subject;
+      }
+      const workKind = ['story', 'initiative'].includes(String(currentWork?.kind)) ? currentWork?.kind : null;
       const argumentsForRequest = conversation.route?.operationId === 'impact.what-if'
         ? { proposal: request }
         : conversation.route && currentWork && workOperations.has(conversation.route.operationId)
-          ? { workId: currentWork.id, ...(currentWork.kind ? { workKind: currentWork.kind } : {}) }
+          ? { workId: currentWork.id, ...(workKind ? { workKind } : {}) }
           : {};
       const resolution = await kernel.resolve({
         utterance: request,
@@ -479,6 +499,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
         return;
       }
       showResultCard(buildResultCard(envelope), { origin: 'gateway', historyMode: 'push' });
+      rememberGuide(guide, envelope);
     } catch (error) {
       if (generation !== homeRequestGeneration || lastHome !== requestedHome) return;
       showRefusal(error, { headline: 'Could not answer from My Work' });
@@ -526,7 +547,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
           await vscode.commands.executeCommand('singularityFlow.myWork');
           return;
         }
-        const { executor } = gatewaySession(route);
+        const { executor, guide } = gatewaySession(route);
         /**
          * The action as the envelope described it, not as this host assumed.
          *
@@ -538,7 +559,10 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
         const outcome = await executor.execute(action);
         if (outcome.outcome === 'confirm' && outcome.review) {
           const ran = await confirmPlanOutOfBand(route, outcome.review);
-          if (ran) showResultCard(buildResultCard(ran), { origin: 'gateway', historyMode: 'push' });
+          if (ran) {
+            showResultCard(buildResultCard(ran), { origin: 'gateway', historyMode: 'push' });
+            rememberGuide(guide, ran);
+          }
           if (ran?.operation.id === 'workspace.switch' && ran.outcome.status === 'succeeded') {
             await vscode.commands.executeCommand('singularityFlow.myWork');
           }
@@ -549,9 +573,22 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
           await vscode.commands.executeCommand(destination.command, ...destination.args);
           return;
         }
-        if (outcome.result) showResultCard(buildResultCard(outcome.result), {
-          origin: 'gateway', historyMode: 'push'
-        });
+        if (outcome.result) {
+          showResultCard(buildResultCard(outcome.result), { origin: 'gateway', historyMode: 'push' });
+          rememberGuide(guide, outcome.result);
+        }
+        /**
+         * A host action opens its trusted view, and nothing else. `[INT:CON-130]`
+         *
+         * Handed back by the executor without touching the kernel, and validated again here before
+         * anything opens. A ceremony that names one opens the review surface instead of a terminal.
+         */
+        if (outcome.outcome === 'host-action' || (outcome.outcome === 'ceremony' && action.hostAction)) {
+          await openHostAction(action.hostAction ?? null, {
+            route, via: 'card', fallback: action.command ? { label: action.label, command: action.command } : null
+          });
+          return;
+        }
         /**
          * A ceremony is a destination, not a gateway mutation. The executor deliberately hands it
          * back to the host, so returning here without opening that destination made approval and
@@ -581,6 +618,97 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     terminal.show(true);
     terminal.sendText(action.command, false);
   });
+
+  /**
+   * What the conversation remembers, written after a gateway card is shown. `[INT:CON-100]`
+   *
+   * Fire and forget: a convenience that fails to save loses nothing, so it never delays or fails
+   * the card. Nothing it stores is read back by the kernel.
+   */
+  function rememberGuide(guide: { rememberResult(result: unknown): Promise<unknown> }, result: unknown): void {
+    void guide.rememberResult(result).catch((error: Error) => output.appendLine(`[guide] not remembered: ${error.message}`));
+  }
+
+  const ROOTLESS_ROUTE: GatewayRepositoryContext = {
+    root: null, workspaceId: null, workspaceName: null, repositoryId: null, origin: 'machine-local'
+  };
+  /** The context the shown card belongs to, the same one result actions dispatch through. */
+  const currentGuideRoute = (): GatewayRepositoryContext => lastHome?.route ?? activeRepositoryContext() ?? ROOTLESS_ROUTE;
+
+  /**
+   * Open the trusted view a host action names, after checking it again here.
+   * `[INT:IFC-061]` `[INT:CON-130]` `[INT:CON-131]`
+   *
+   * The receiving side of the contract: the same allowlist and typed schema the kernel applied on
+   * the way out, then whether this build has the view, then whether the card's repository is still
+   * the active one. Any failure is a refusal card that says what was refused and why, with the
+   * terminal continuation when the action had one — never a silent no-op, and never the action run
+   * anyway. Opening the view is the whole effect: no plan, receipt or publication is reachable here.
+   */
+  async function openHostAction(candidate: unknown, { route, via, fallback = null }: {
+    route: GatewayRepositoryContext | null; via: 'card' | 'link';
+    fallback?: { label?: string; command?: string } | null;
+  }): Promise<boolean> {
+    const active = activeRepositoryContext();
+    // The session the card came from, never a second one: building another would retire this one's
+    // handles and the plans its kernel holds.
+    const { hostActions } = gatewaySession(route ?? currentGuideRoute());
+    const received = hostActions.receive(candidate, { fallback });
+    let refusal: { reason: string; result: unknown } | null = received.accepted ? null : received;
+    if (received.accepted && route && active && path.resolve(route.root ?? '') !== path.resolve(active.root)) {
+      refusal = { reason: 'context-changed', result: hostActions.refuse(received.hostAction.id, 'context-changed', fallback) };
+    }
+    if (!received.accepted || refusal) {
+      const reason = refusal?.reason ?? 'malformed';
+      output.appendLine(`[host-action] refused from a ${via}: ${reason}`);
+      showRefusal({ message: `That view was not opened (${reason}).`, result: refusal?.result }, { headline: 'That view was not opened' });
+      return false;
+    }
+    output.appendLine(`[host-action] ${received.hostAction.id} opens ${received.command} (from a ${via})`);
+    try {
+      await vscode.commands.executeCommand(received.command);
+      return true;
+    } catch (error) {
+      output.appendLine(`[host-action] ${received.hostAction.id} could not open: ${(error as Error).message}`);
+      const result = hostActions.refuse(received.hostAction.id, 'not-available-in-this-build', fallback);
+      showRefusal({ message: 'That view is not available in this build.', result }, { headline: 'That view was not opened' });
+      return false;
+    }
+  }
+
+  /**
+   * Deep links: `vscode://singularityflow.singularity-flow-vscode/host-action?action=ID&ARGUMENT=VALUE`.
+   * `[INT:CON-131]`
+   *
+   * Opaque identifiers only, reauthorized here exactly as a card's host action is: the same
+   * allowlist, typed schema and refusal card. A link names a view; it is never a command line.
+   */
+  if (typeof vscode.window.registerUriHandler === 'function') {
+    context.subscriptions.push(vscode.window.registerUriHandler({
+      handleUri: (uri: vscode.Uri) => {
+        const { hostActions } = gatewaySession(currentGuideRoute());
+        const candidate = uri.path === '/host-action' ? hostActions.fromLink(uri.query) : { malformed: uri.path.slice(0, 64) };
+        void openHostAction(candidate, { route: null, via: 'link' });
+      }
+    }));
+  }
+
+  /**
+   * Forget what the conversation remembers for this workspace, and nothing else. `[INT:REQ-101]`
+   *
+   * The gateway session is deliberately kept: pending plans live in its kernel `[INT:CON-102]`, so
+   * resetting it would delete them. Work, the selected workspace and every lifecycle record are
+   * outside the guide-session store and are not touched.
+   */
+  context.subscriptions.push(vscode.commands.registerCommand('singularityFlow.resetGuideSession', async () => {
+    try {
+      const { cleared } = await gatewaySession(currentGuideRoute()).guide.reset();
+      void showCompactInformationMessage(`${cleared ? 'Conversation context reset' : 'No conversation context was remembered'}. `
+        + 'Your work, pending plans and selected workspace are unchanged.');
+    } catch (error) {
+      showRefusal(error, { headline: 'Could not reset the conversation context' });
+    }
+  }));
 
   /**
    * Confirm a gateway plan in trusted native UI and carry it out with a receipt. `[INT:CON-039]` `[INT:CON-111]`
@@ -716,6 +844,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       );
       const acknowledgement = context.globalState.get<HomeAcknowledgement>(key) ?? null;
       lastHome = { envelope, key, route };
+      rememberGuide(gatewaySession(route).guide, envelope);
       showResultCard(buildResultCard(envelope, { acknowledgement }), {
         origin: 'gateway', reveal: options.reveal !== false, preserveFocus: options.reveal === false
       });

@@ -84,5 +84,54 @@ export async function run(_argv, { positionals = [], options = {} } = {}) {
     else for (const event of events) console.log(`${event.at}  ${event.host}  ${event.tool}  ${event.operation ?? '-'}  ${event.outcome ?? '-'}${event.reason ? ` (${event.reason})` : ''}  ${event.correlationId}`);
     return {};
   }
-  throw new SingularityFlowError(`'gateway ${action}' is not a gateway action. Use serve, tools or events.`, { code: 'GATEWAY_ACTION_UNKNOWN' });
+  if (action === 'session') return guideSession(positionals[2] ?? 'show', options);
+  throw new SingularityFlowError(`'gateway ${action}' is not a gateway action. Use serve, tools, events or session.`, {
+    code: 'GATEWAY_ACTION_UNKNOWN', details: { nextAction: 'singularity-flow gateway tools' }
+  });
+}
+
+/**
+ * `gateway session [show|reset]`: the guide session for this person and workspace. `[INT:CON-100]` `[INT:REQ-101]`
+ *
+ * `show` prints what the conversation remembers — never anything that can act. `reset` forgets it
+ * and nothing else: work, pending plans, the selected workspace and every lifecycle record stay
+ * exactly as they were, which is why an agent turn may run it.
+ */
+async function guideSession(subaction, options) {
+  if (!['show', 'reset'].includes(subaction)) {
+    throw new SingularityFlowError(`'gateway session ${subaction}' is not a session action. Use show or reset.`, {
+      code: 'GATEWAY_SESSION_ACTION_UNKNOWN', details: { nextAction: 'singularity-flow gateway session show' }
+    });
+  }
+  const [{ guideSessionScope, readGuideSession, resetGuideSession }, { homeRepository }, { repoRoot }, { bindingActorId }] = await Promise.all([
+    import('../gateway/local-store.mjs'), import('../gateway/home-context.mjs'), import('../git.mjs'), import('../gateway/host.mjs')
+  ]);
+  const selection = await homeRepository(optionString(options, 'workspace'), { allowMissing: true }).catch(() => null);
+  let root = selection?.root ?? null;
+  if (!root) { try { root = repoRoot(); } catch { root = null; } }
+  // The same actor the editor's host binding names, so both surfaces read and reset one entry.
+  const owner = {
+    actorId: bindingActorId(root),
+    scope: guideSessionScope({ workspaceId: selection?.context?.workspaceId ?? null, root })
+  };
+  const json = optionBoolean(options, 'json');
+  if (subaction === 'show') {
+    const session = await readGuideSession(owner);
+    if (json) console.log(JSON.stringify({ scope: owner.scope, session }, null, 2));
+    else if (!session) console.log('No conversational context is remembered for this workspace.');
+    else {
+      console.log(`Conversational context for ${owner.scope} (expires ${session.expiresAt}):`);
+      console.log(`  subject: ${session.subject ? `${session.subject.kind}:${session.subject.id}` : 'none'}`);
+      console.log(`  on screen: ${session.visibleSubjects.map((entry) => entry.id).join(', ') || 'nothing'}`);
+      console.log(`  last menu: ${session.lastMenu.join(', ') || 'none'}`);
+      console.log('  None of this can approve, confirm or carry out anything.');
+    }
+    return {};
+  }
+  const { cleared } = await resetGuideSession(owner);
+  const preserved = ['work', 'pending plans', 'selected workspace', 'lifecycle records'];
+  if (json) console.log(JSON.stringify({ reset: true, cleared, scope: owner.scope, preserved }, null, 2));
+  else console.log(`${cleared ? 'Conversational context was reset' : 'There was no conversational context to reset'}. `
+    + 'Your work, pending plans and selected workspace are unchanged.');
+  return {};
 }

@@ -23,11 +23,13 @@ declare module '*/gateway/host.mjs' {
     mutationExecutors?: Map<string, unknown>;
     plannerContext?: Record<string, unknown> | (() => Record<string, unknown>);
     readOnly?: boolean;
-    hostCapabilities?: { confirmationChannel: 'native' | 'terminal' | 'none' };
+    hostCapabilities?: { confirmationChannel: 'native' | 'terminal' | 'none'; hostActions?: readonly string[] };
     now?: () => number;
-  }): { root: string | null; binding: () => unknown; kernel: GatewayKernel };
+  }): { root: string | null; binding: () => { readonly actorId: string | null }; kernel: GatewayKernel };
 
   export function hostBinding(root: string | null, options: Record<string, unknown>): Record<string, unknown>;
+  /** The person a binding, and the guide session, are keyed to. */
+  export function bindingActorId(root: string | null): string | null;
 }
 
 declare module '*/personalization.mjs' {
@@ -106,6 +108,25 @@ declare module '*/gateway/executor.mjs' {
     execute(action: unknown): Promise<{ outcome: string; result?: SflowResult; action?: unknown; review?: PlanReview }>;
     executeById(result: unknown, actionId: string): Promise<{ outcome: string; result?: SflowResult; action?: unknown; review?: PlanReview }>;
   };
+  type HostActionFallback = { label?: string; command?: string } | null;
+  /** The receiving host's own check of a host action `[INT:CON-131]`. */
+  export function receiveHostAction(candidate: unknown, options?: { available?: readonly string[]; fallback?: HostActionFallback }):
+    { readonly accepted: true; readonly hostAction: { id: string; arguments: Record<string, unknown> } }
+    | { readonly accepted: false; readonly reason: string; readonly result: SflowResult };
+  export function hostActionRefusal(refused: { action?: string; reason?: string }, options?: { fallback?: HostActionFallback }): SflowResult;
+}
+
+declare module '*/gateway/argument-schemas.mjs' {
+  export const HOST_ACTIONS: readonly string[];
+  export function hostActionFromLink(query: string): unknown;
+}
+
+declare module '*/gateway/local-store.mjs' {
+  type GuideOwner = { actorId: string | null; scope: string };
+  export function guideSessionScope(options: { workspaceId?: string | null; root?: string | null }): string;
+  export function readGuideSession(owner: GuideOwner): Promise<any | null>;
+  export function rememberGuideSession(owner: GuideOwner, patch: Record<string, unknown>): Promise<unknown>;
+  export function resetGuideSession(owner: GuideOwner): Promise<{ cleared: boolean }>;
 }
 
 /**
@@ -206,6 +227,14 @@ declare module '*/schema-migrations.mjs' {
 declare module '*/gateway/conversation.mjs' {
   export function planDeveloperConversation(request: string): {
     readonly route: { readonly operationId: string; readonly automatic: boolean } | null;
+  };
+  type VisibleSubject = { readonly kind: string | null; readonly id: string };
+  /** What a result put in front of the reader, for "this" and "that" `[INT:REQ-100]`. */
+  export function visibleSubjects(result: unknown): readonly VisibleSubject[];
+  export function referencedSubject(utterance: string, visible: readonly VisibleSubject[]): {
+    readonly status: 'none' | 'named' | 'single' | 'ambiguous';
+    readonly subject: VisibleSubject | null;
+    readonly choices: readonly VisibleSubject[];
   };
 }
 

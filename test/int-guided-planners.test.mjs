@@ -329,7 +329,13 @@ test('opening a review resolves to its destination and never to an executable ve
   assert.equal(destination.next[0].executable, false);
   assert.equal(destination.next[0].confirmation, 'ceremony');
   assert.equal(destination.next[0].fallback.command, 'sflow approve design --work-id WRK-2 --fetch');
-  assert.equal(destination.data.ceremony.hostAction, 'vscode.openReviewCeremony');
+  // The trusted review surface, typed and checked by the kernel on the way out `[INT:CON-130]`.
+  assert.deepEqual(destination.next[0].hostAction, {
+    id: 'vscode.openReviewCeremony',
+    arguments: { workId: 'WRK-2', workKind: 'story', phase: 'design', generation: destination.next[0].hostAction.arguments.generation }
+  });
+  assert.ok(Number.isInteger(destination.next[0].hostAction.arguments.generation));
+  assert.deepEqual(destination.warnings, [], 'a valid host action is not withheld');
   assert.ok(Object.values(destination.effects).every((value) => value === false));
   assert.equal(destination.data.plan, undefined, 'an authorization has no plan');
 

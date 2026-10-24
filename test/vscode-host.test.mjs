@@ -1198,6 +1198,53 @@ test('My Work resolves an active workspace when no editor folder is open', async
   assert.doesNotMatch(result.webview.html, /No work interval is open/);
 });
 
+test('a card opens only the view its host action names, a tampered link is refused, and a reset keeps the work', async (t) => {
+  // `[INT:CON-130]` `[INT:CON-131]` `[INT:REQ-101]`, through the packaged extension.
+  if (!requireBundle(t)) return;
+  const root = await demoRepository();
+  await writeFile(path.join(root, 'README.md'), '# Checkout\n\nuncommitted work\n');
+  const { api, registered } = stubVscode();
+  api.workspace.workspaceFolders = [{ uri: { fsPath: root } }];
+  let links = null;
+  api.window.registerUriHandler = (handler) => { links = handler; return { dispose() {} }; };
+  const extension = loadExtension(api);
+  await extension.activate(context());
+  await registered.commands.get('singularityFlow.myWork')();
+  const result = await until(() => registered.panels.find((entry) => entry.id === 'singularityFlow.result'));
+  // My Work's own "Run a quick impact analysis", selected and read the way a person presses it.
+  await until(() => /data-action-id="home:impact\.quick"/.test(result.webview.html) ? true : null);
+  await result.post({ type: 'sflow.action', actionId: 'home:impact.quick' });
+  await until(() => /data-action-id="resolved:impact\.quick"/.test(result.webview.html) ? true : null);
+  await result.post({ type: 'sflow.action', actionId: 'resolved:impact.quick' });
+  await until(() => /data-action-id="impact:open-view"/.test(result.webview.html) ? true : null);
+  assert.doesNotMatch(result.webview.html, /vscode\.openImpact/, 'the host action never reaches the markup');
+  const before = registered.executedCommands.length;
+  await result.post({ type: 'sflow.action', actionId: 'impact:open-view' });
+  await until(() => registered.executedCommands.slice(before).some((entry) => entry.id === 'singularityFlow.openImpact') ? true : null);
+  assert.ok(registered.output.some((line) => /\[host-action\] vscode\.openImpact opens singularityFlow\.openImpact/.test(line)));
+
+  // A deep link is reauthorized here: an unknown action and command text are refused, and nothing opens.
+  assert.equal(typeof links?.handleUri, 'function', 'the extension receives deep links');
+  const quiet = registered.executedCommands.length;
+  links.handleUri({ path: '/host-action', query: 'action=vscode.runTerminal&text=whoami' });
+  await until(() => /That view was not opened/.test(result.webview.html) && /not-allowlisted/.test(result.webview.html) ? true : null);
+  links.handleUri({ path: '/host-action', query: 'action=vscode.openJourney&workId=WRK-1%3Bwhoami' });
+  await until(() => /command-text/.test(result.webview.html) ? true : null);
+  links.handleUri({ path: '/host-action', query: 'action=vscode.openInvestigation' });
+  await until(() => /not-available-in-this-build/.test(result.webview.html) ? true : null);
+  assert.deepEqual(registered.executedCommands.slice(quiet).filter((entry) => /^singularityFlow\.|^workbench\./.test(entry.id)), [],
+    'no refused link opened anything');
+
+  // Resetting the conversation forgets what the guide remembered and keeps work and the selection.
+  const store = path.join(path.dirname(process.env.SINGULARITY_FLOW_ACTIVE_WORKSPACE), 'gateway-guide-session.json');
+  await until(() => existsSync(store) && JSON.parse(readFileSync(store, 'utf8')).entries.length ? true : null);
+  const head = run('git', ['rev-parse', 'HEAD'], { cwd: root }).stdout.trim();
+  await registered.commands.get('singularityFlow.resetGuideSession')();
+  assert.ok(registered.infos.some((line) => /^Conversation context reset\. Your work, pending plans and selected workspace are unchanged\./.test(line)));
+  assert.equal(run('git', ['rev-parse', 'HEAD'], { cwd: root }).stdout.trim(), head);
+  assert.equal(await readFile(path.join(root, 'README.md'), 'utf8'), '# Checkout\n\nuncommitted work\n');
+});
+
 test('a selected workspace with a missing lead repository offers repair instead of claiming no workspace is active', async (t) => {
   if (!requireBundle(t)) return;
   // A folder that is not a Flow repository is no selection of its own, so the profile default

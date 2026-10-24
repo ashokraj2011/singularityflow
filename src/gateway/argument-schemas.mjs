@@ -388,8 +388,132 @@ export const ARGUMENT_SCHEMAS = Object.freeze([
   }),
   schema('watch-create-v1', { subjectId: required('identifier'), predicate: required('identifier') }),
   schema('watch-revoke-v1', { watchId: required('identifier') }),
-  schema('help-explain-v1', { question: required('text'), topic: optional('identifier') })
+  schema('help-explain-v1', { question: required('text'), topic: optional('identifier') }),
+  ...hostActionSchemas()
 ]);
+
+/**
+ * The host actions a result may name, and nothing else. `[INT:IFC-061]` `[INT:CON-130]`
+ *
+ * One list for every host: the kernel validates against it when a result is emitted, and the
+ * receiving editor validates against it again before it opens anything, so the two checks cannot
+ * disagree about what an action is. A host action opens a trusted view; it is never a command line,
+ * never a lifecycle step, and never part of a publication — the view it opens does its own work
+ * behind its own confirmation, exactly as if the person had opened it from the menu.
+ *
+ * Every argument is an opaque identifier, an enum or a bounded integer `[INT:CON-131]`: there is no
+ * text, path or ref type here, so a deep link has nowhere to carry a command even before the
+ * command-text check below looks for one.
+ */
+export const HOST_ACTIONS = Object.freeze([
+  'vscode.selectWorkspace', 'vscode.attachRepository', 'vscode.openArtifact', 'vscode.openReviewCeremony',
+  'vscode.openJourney', 'vscode.openImpact', 'vscode.openInvestigation', 'vscode.openContextReceipt',
+  'vscode.openHandoff', 'vscode.openProgress', 'vscode.focusCopilot'
+]);
+
+/** Why a host action was dropped or refused: a slot value, never prose. */
+export const HOST_ACTION_REFUSALS = Object.freeze([
+  'malformed', 'not-allowlisted', 'argument-unknown', 'argument-missing', 'argument-invalid', 'command-text',
+  'fallback-missing', 'not-available-in-this-build', 'context-changed'
+]);
+
+function hostActionSchemas() {
+  const work = { workId: optional('identifier'), workKind: optional('enum', { values: ['story', 'initiative'] }) };
+  const fields = {
+    'vscode.selectWorkspace': { workspaceId: optional('identifier') },
+    'vscode.attachRepository': { workspaceId: optional('identifier'), repositoryId: optional('identifier') },
+    'vscode.openArtifact': { workId: required('identifier'), phase: optional('identifier'), artifactId: optional('identifier') },
+    'vscode.openReviewCeremony': {
+      workId: required('identifier'), workKind: optional('enum', { values: ['story', 'initiative'] }),
+      phase: optional('identifier'), generation: optional('integer', { min: 0, max: 1_000_000 })
+    },
+    'vscode.openJourney': work,
+    'vscode.openImpact': { ...work, flightPlanId: optional('identifier') },
+    'vscode.openInvestigation': { investigationId: optional('identifier'), workId: optional('identifier') },
+    'vscode.openContextReceipt': { receiptId: optional('identifier'), workId: optional('identifier') },
+    'vscode.openHandoff': { workId: required('identifier'), workKind: optional('enum', { values: ['story', 'initiative'] }) },
+    'vscode.openProgress': { jobId: optional('identifier'), workId: optional('identifier') },
+    'vscode.focusCopilot': {}
+  };
+  return Object.entries(fields).map(([id, entry]) => schema(hostActionSchemaId(id), entry));
+}
+
+/** `vscode.openReviewCeremony` → `host-action-vscode-open-review-ceremony-v1`. */
+export function hostActionSchemaId(id) {
+  return `host-action-${String(id).replace(/\./g, '-').replace(/[A-Z]/g, (letter) => `-${letter.toLowerCase()}`)}-v1`;
+}
+
+/**
+ * Text that reads as something to run rather than something to look up. `[INT:CON-131]`
+ *
+ * Whitespace, shell metacharacters, a URI scheme and a leading option dash: none can appear in an
+ * identifier, so this only changes *which* reason a rejected value is recorded under — and "this
+ * argument carried a command" is the reason a reviewer of the record needs to see.
+ */
+function looksLikeCommandText(value) {
+  return typeof value === 'string'
+    && (/[\s;|&`$<>(){}\\'"]/.test(value) || /^[A-Za-z][A-Za-z0-9+.-]*:/.test(value) || value.startsWith('-'));
+}
+
+const ARGUMENT_REFUSALS = Object.freeze({
+  UNKNOWN_OPERATION_ARGUMENT: 'argument-unknown',
+  MISSING_OPERATION_ARGUMENT: 'argument-missing',
+  INVALID_OPERATION_ARGUMENT: 'argument-invalid'
+});
+
+const isRecord = (value) => value !== null && typeof value === 'object' && !Array.isArray(value)
+  && Object.getPrototypeOf(value) === Object.prototype;
+
+/**
+ * Validate one host action against the allowlist and its typed schema. Never throws.
+ * `[INT:IFC-061]` `[INT:CON-130]` `[INT:CON-131]`
+ *
+ * Returns the accepted action — the allowlisted ID and exactly the arguments its schema accepted —
+ * or the reason it was refused. The refused record names the action only when the name is itself a
+ * plain dotted identifier, so a tampered action cannot smuggle its payload into the reason.
+ */
+export function validateHostAction(candidate) {
+  const refused = (reason, action = 'unknown', field = null) => Object.freeze({ ok: false, action, reason, field });
+  if (!isRecord(candidate)) return refused('malformed');
+  const named = typeof candidate.id === 'string' && /^[A-Za-z][A-Za-z0-9.]{0,63}$/.test(candidate.id) ? candidate.id : 'unknown';
+  const extra = Object.keys(candidate).find((key) => !['id', 'arguments'].includes(key));
+  if (extra) return refused('malformed', named, extra.slice(0, 64));
+  if (!HOST_ACTIONS.includes(candidate.id)) return refused('not-allowlisted', named);
+  const args = candidate.arguments === undefined ? {} : candidate.arguments;
+  if (!isRecord(args)) return refused('malformed', named, 'arguments');
+  for (const [field, value] of Object.entries(args)) {
+    if (looksLikeCommandText(value)) return refused('command-text', named, field.slice(0, 64));
+  }
+  try {
+    const accepted = validateArguments(hostActionSchemaId(candidate.id), args);
+    return Object.freeze({ ok: true, hostAction: Object.freeze({ id: candidate.id, arguments: accepted }) });
+  } catch (error) {
+    const field = typeof error?.details?.field === 'string' ? error.details.field.slice(0, 64) : null;
+    return refused(ARGUMENT_REFUSALS[error?.code] ?? 'argument-invalid', named, field);
+  }
+}
+
+/**
+ * A deep link's query, as the host action it names. `[INT:CON-131]`
+ *
+ * `?action=vscode.openJourney&workId=WRK-1` — the action and its arguments, nothing else. Every
+ * query value is a string, so an integer field is converted only when its schema says it is one and
+ * the digits say so; a repeated key is malformed rather than resolved by picking one. The result
+ * still goes through {@link validateHostAction}: parsing a link is not accepting it.
+ */
+export function hostActionFromLink(query) {
+  const params = new URLSearchParams(String(query ?? ''));
+  const keys = [...params.keys()];
+  if (keys.length !== new Set(keys).size || !params.has('action')) return { malformed: true };
+  const id = params.get('action');
+  const fields = argumentSchema(hostActionSchemaId(id))?.fields ?? {};
+  const args = {};
+  for (const [key, value] of params) {
+    if (key === 'action') continue;
+    args[key] = fields[key]?.type === 'integer' && /^[0-9]{1,9}$/.test(value) ? Number(value) : value;
+  }
+  return { id, arguments: args };
+}
 
 const BY_ID = new Map(ARGUMENT_SCHEMAS.map((entry) => [entry.id, entry]));
 

@@ -61,7 +61,11 @@ export const KERNEL_CODES = Object.freeze([
   'gateway.not-a-read',
   'gateway.not-a-mutation',
   'gateway.read-only',
-  'gateway.not-implemented',
+  'gateway.run-in-progress',
+  'gateway.confirmation-channel-unavailable',
+  'gateway.confirmation-declined',
+  'gateway.run-outcome-unknown',
+  'gateway.result-replayed',
   'gateway.executor-unavailable',
   'gateway.confirmation-required',
   'gateway.confirmation-invalid',
@@ -246,10 +250,15 @@ export const SURFACE_CODES = Object.freeze([
   'impact.tests-by-path-convention',
   'impact.work-in-the-same-area',
   'impact.start-reviewed-plan',
+  'impact.revision-unresolved',
   'explain.cited',
   'explain.ambiguous',
   'explain.no-match',
   'explain.unstamped-docs',
+  'explain.index',
+  'explain.situation-from-state',
+  'explain.subject-unresolved',
+  'explain.nothing-was-carried-out',
   'approval.open-the-packet',
   'approval.waiting',
   'approval.you-submitted-it',
@@ -281,14 +290,73 @@ export const GOLDEN_JOURNEY_CODES = Object.freeze([
   'investigation.deterministic-triage',
   'investigation.assistance-not-invoked',
   'investigation.wrong-repository',
-  'investigation.nothing-was-carried-out'
+  'investigation.nothing-was-carried-out',
+  'investigation.boundary-verified',
+  'investigation.boundary-candidate',
+  'investigation.boundary-unknown',
+  'investigation.evidence-sequence',
+  'investigation.step-incomplete',
+  'investigation.unknown-input',
+  'investigation.record.observation',
+  'investigation.record.reproduction',
+  'investigation.record.correlation',
+  'investigation.record.hypothesis',
+  'investigation.record.conclusion',
+  'investigation.record.contradiction',
+  'investigation.record.unknown',
+  'investigation.bisect-available',
+  'investigation.start-from-finding'
+]);
+
+/** Comparison, watches, ceremony destinations and the local records a confirmed plan writes. */
+export const GUIDED_CODES = Object.freeze([
+  'compare.exact-revisions',
+  'compare.side-unresolved',
+  'compare.subject-unavailable',
+  'compare.paths-truncated',
+  'compare.untracked-not-compared',
+  'compare.impact-of-this-range',
+  'compare.nothing-was-carried-out',
+  'watch.from-local-store',
+  'watch.subject-not-visible',
+  'watch.fired',
+  'watch.revocable',
+  'watch.no-actor',
+  'watch.local-store-changed',
+  'watch.governed-state-untouched',
+  'watch.nothing-was-carried-out',
+  'review.ceremony-destination',
+  'review.nothing-awaiting-decision',
+  'review.no-decision-was-recorded',
+  'work.draft-saved-locally',
+  'work.started',
+  'work.start-refused',
+  'work.start-recovery-record-kept',
+  'work.intake-recorded',
+  'work.no-governed-record-created',
+  'workspace.selection-changed',
+  'workspace.governed-state-untouched',
+  'impact.assistance-not-invoked',
+  'build.from-provider',
+  'repository.query.typed-read',
+  'repository.query.revision-unresolved',
+  'repository.query.needs',
+  'repository.query.version-unmapped',
+  'repository.query.switch-to-repository',
+  'repository.query.not-registered',
+  'repository.query.build-provider-unavailable',
+  'repository.query.build-unmapped',
+  'repository.query.truncated',
+  'repository.query.submodules-not-descended',
+  'repository.query.large-files-skipped',
+  'repository.query.no-workspace-selected'
 ]);
 
 /** Every code, in one frozen set, which is the thing a surface actually needs. */
 export const REASON_CODES = Object.freeze([
   ...RESOLUTION_CODES, ...KERNEL_CODES, ...HOME_CODES, ...DEVELOPER_CODES,
   ...WORKSPACE_RECOVERY_CODES, ...FAULT_CODES, ...WORK_CODES, ...READINESS_CODES, ...RETURN_CODES,
-  ...SURFACE_CODES, ...GOLDEN_JOURNEY_CODES
+  ...SURFACE_CODES, ...GOLDEN_JOURNEY_CODES, ...GUIDED_CODES
 ]);
 
 /**
@@ -385,7 +453,29 @@ export const WARNING_CODES = Object.freeze([
    * A disclosure rather than a problem: the reader's local changes are real and the result is still
    * correct, but anything derived from the committed tree does not account for them.
    */
-  'work.local-changes-present'
+  'work.local-changes-present',
+  /** A repeated run answered with the recorded result of the first; nothing ran again. */
+  'gateway.result-replayed',
+  /** A comparison shows the first paths only; the total is in the slots. */
+  'compare.paths-truncated',
+  /** A working-tree comparison reads tracked files; untracked ones are in neither side. */
+  'compare.untracked-not-compared',
+  /** A watch whose subject this repository cannot see is unknown, never quiet. */
+  'watch.subject-not-visible',
+  /** An assisted operation returned its deterministic facts with no interpretation. */
+  'impact.assistance-not-invoked',
+  /** A typed repository read showed the first facts only. */
+  'repository.query.truncated',
+  /** A read stopped at submodule boundaries; their contents were not read. */
+  'repository.query.submodules-not-descended',
+  /** Search matched files too large to return a preview from. */
+  'repository.query.large-files-skipped',
+  /** An investigation step did not complete; what it would have read is not in the report. */
+  'investigation.step-incomplete',
+  /** An input the person did not give stays unknown rather than being filled in. */
+  'investigation.unknown-input',
+  /** No workspace is selected, so only this repository is known. */
+  'repository.query.no-workspace-selected'
 ]);
 
 const CODES = new Set(REASON_CODES);

@@ -18,6 +18,7 @@ import { createHostGateway, hostBinding } from '../src/gateway/host.mjs';
 import { createActionExecutor } from '../src/gateway/executor.mjs';
 import { gatewayRegistry } from '../src/gateway/operations.mjs';
 import { noEffects, sflowResult } from '../src/gateway/result.mjs';
+import { planDescriptor } from '../src/gateway/plan-descriptor.mjs';
 import {
   assertModelInvocationAllowed, operationContext, withOperationContext
 } from '../src/operation-context.mjs';
@@ -42,14 +43,10 @@ async function repository() {
 }
 
 function worldModelPlan(seed = '1') {
-  const nextSeed = ((Number.parseInt(seed, 16) + 1) % 16).toString(16);
-  return {
-    effects: noEffects(), externalTargets: [], idempotencyKey: `test:host-operation-context:${seed}`,
-    review: {
-      requestSha256: `sha256:${seed.repeat(64)}`,
-      planSha256: `sha256:${nextSeed.repeat(64)}`
-    }
-  };
+  return planDescriptor({
+    effects: noEffects(), idempotencyKey: `test:host-operation-context:${seed}`,
+    preview: { action: 'test-mutation', seed }
+  });
 }
 
 function completedWorldModelResult({ operation, subject }) {
@@ -65,10 +62,9 @@ async function reviewedWorldModelExecution(kernel) {
     utterance: 'create the work item',
     arguments: { intakeId: 'INTAKE-1' }
   });
+  const review = kernel.planReview(planned.data.plan.handle);
   const receipt = kernel.confirmPlan({
-    planId: planned.data.plan.handle,
-    requestSha256: planned.data.plan.review.requestSha256,
-    planSha256: planned.data.plan.review.planSha256
+    planId: review.planId, planHash: review.planHash, reviewDigest: review.review.digest
   });
   return () => kernel.run(
     { planId: planned.data.plan.handle },

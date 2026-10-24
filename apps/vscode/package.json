@@ -73,6 +73,206 @@
             "questions": { "type": "array", "maxItems": 8, "items": { "type": "object" } }
           }
         }
+      },
+      {
+        "name": "sflow_resolve",
+        "displayName": "SFlow resolve",
+        "toolReferenceName": "sflow_resolve",
+        "canBeReferencedInPrompt": true,
+        "userDescription": "Turn a request into one resolved operation, a bounded choice, a question, or a refusal.",
+        "modelDescription": "Turn a request into one resolved operation, a bounded choice, a question, or a refusal. One of SFlow's five gateway tools: the SFlow kernel decides what is legal, and sflow_run carries out only a plan the person confirms in VS Code's own dialog.",
+        "inputSchema": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "utterance"
+          ],
+          "properties": {
+            "utterance": {
+              "type": "string",
+              "maxLength": 2000,
+              "description": "What the user actually said."
+            },
+            "goalHint": {
+              "type": "string",
+              "enum": [
+                "home",
+                "work.list",
+                "work.continue",
+                "work.start",
+                "work.ready",
+                "workspace.switch",
+                "impact.quick",
+                "impact.what-if",
+                "repository.explore",
+                "problem.investigate",
+                "intent.trace",
+                "compare",
+                "watch",
+                "review.open",
+                "help"
+              ],
+              "description": "Roughly what the user seems to want."
+            },
+            "arguments": {
+              "type": "object",
+              "description": "Proposed typed arguments; validated against the operation schema."
+            },
+            "subject": {
+              "type": "object",
+              "additionalProperties": false,
+              "properties": {
+                "workspaceId": {
+                  "type": "string",
+                  "maxLength": 128
+                },
+                "repositoryId": {
+                  "type": "string",
+                  "maxLength": 128
+                },
+                "workId": {
+                  "type": "string",
+                  "maxLength": 128
+                }
+              }
+            },
+            "selectionHandle": {
+              "type": "string",
+              "maxLength": 128,
+              "description": "A choice the kernel previously offered."
+            }
+          }
+        }
+      },
+      {
+        "name": "sflow_read",
+        "displayName": "SFlow read",
+        "toolReferenceName": "sflow_read",
+        "canBeReferencedInPrompt": true,
+        "userDescription": "Execute a read the kernel already resolved.",
+        "modelDescription": "Execute a read the kernel already resolved. One of SFlow's five gateway tools: the SFlow kernel decides what is legal, and sflow_run carries out only a plan the person confirms in VS Code's own dialog.",
+        "inputSchema": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "resolutionId"
+          ],
+          "properties": {
+            "resolutionId": {
+              "type": "string",
+              "maxLength": 128,
+              "description": "A read handle from sflow_resolve."
+            }
+          }
+        }
+      },
+      {
+        "name": "sflow_next",
+        "displayName": "SFlow next",
+        "toolReferenceName": "sflow_next",
+        "canBeReferencedInPrompt": true,
+        "userDescription": "Ask the kernel which actions are currently legal.",
+        "modelDescription": "Ask the kernel which actions are currently legal. One of SFlow's five gateway tools: the SFlow kernel decides what is legal, and sflow_run carries out only a plan the person confirms in VS Code's own dialog.",
+        "inputSchema": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "scope"
+          ],
+          "properties": {
+            "scope": {
+              "type": "string",
+              "enum": [
+                "home",
+                "subject",
+                "investigation"
+              ]
+            },
+            "subject": {
+              "type": "object",
+              "additionalProperties": false,
+              "properties": {
+                "workspaceId": {
+                  "type": "string",
+                  "maxLength": 128
+                },
+                "repositoryId": {
+                  "type": "string",
+                  "maxLength": 128
+                },
+                "workId": {
+                  "type": "string",
+                  "maxLength": 128
+                }
+              }
+            }
+          }
+        }
+      },
+      {
+        "name": "sflow_run",
+        "displayName": "SFlow run",
+        "toolReferenceName": "sflow_run",
+        "canBeReferencedInPrompt": true,
+        "userDescription": "Carry out one plan the kernel created and the user confirmed.",
+        "modelDescription": "Carry out one plan the kernel created and the user confirmed. One of SFlow's five gateway tools: the SFlow kernel decides what is legal, and sflow_run carries out only a plan the person confirms in VS Code's own dialog.",
+        "inputSchema": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "planId"
+          ],
+          "properties": {
+            "planId": {
+              "type": "string",
+              "maxLength": 128,
+              "description": "A plan handle from sflow_resolve."
+            }
+          }
+        }
+      },
+      {
+        "name": "sflow_explain",
+        "displayName": "SFlow explain",
+        "toolReferenceName": "sflow_explain",
+        "canBeReferencedInPrompt": true,
+        "userDescription": "Answer a question about the product, the current state, or the evidence, with citations.",
+        "modelDescription": "Answer a question about the product, the current state, or the evidence, with citations. One of SFlow's five gateway tools: the SFlow kernel decides what is legal, and sflow_run carries out only a plan the person confirms in VS Code's own dialog.",
+        "inputSchema": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "question"
+          ],
+          "properties": {
+            "question": {
+              "type": "string",
+              "maxLength": 2000
+            },
+            "topic": {
+              "type": "string",
+              "maxLength": 128
+            },
+            "subject": {
+              "type": "object",
+              "additionalProperties": false,
+              "properties": {
+                "workspaceId": {
+                  "type": "string",
+                  "maxLength": 128
+                },
+                "repositoryId": {
+                  "type": "string",
+                  "maxLength": 128
+                },
+                "workId": {
+                  "type": "string",
+                  "maxLength": 128
+                }
+              }
+            }
+          }
+        }
       }
     ],
     "themes": [

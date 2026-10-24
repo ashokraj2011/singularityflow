@@ -1,0 +1,88 @@
+/**
+ * `sflow gateway` — the five-tool gateway as a local process. `[INT:IFC-062]` `[INT:REQ-031]` `[INT:REQ-141]`
+ *
+ * - `serve --transport stdio`: an MCP server over stdin/stdout for Copilot CLI and other approved
+ *   hosts. Same tools, same kernel, same results as the editor `[INT:CON-020]`; stdout carries only
+ *   protocol messages, and diagnostics go to stderr.
+ * - `tools [--json]`: the five serialized schemas and their measured size, for the release report.
+ * - `events [--json]`: recent gateway events on this machine, filtered.
+ */
+import { randomUUID } from 'node:crypto';
+
+import { optionBoolean, optionNumber, optionString, SingularityFlowError } from '../util.mjs';
+
+async function gatewayHost(options, capabilities) {
+  const [{ createHostGateway }, { gatewayPlanners }, { cliMutationExecutors }, { auditedKernel }, { homeRepository }] = await Promise.all([
+    import('../gateway/host.mjs'), import('../gateway/planners/index.mjs'), import('../gateway/planners/executors.mjs'),
+    import('../gateway/audit.mjs'), import('../gateway/home-context.mjs')
+  ]);
+  const selection = await homeRepository(optionString(options, 'workspace'), { allowMissing: true }).catch(() => null);
+  let root = selection?.root ?? null;
+  if (!root) {
+    const { repoRoot } = await import('../git.mjs');
+    try { root = repoRoot(); } catch { root = null; }
+  }
+  const context = selection?.context ?? null;
+  const { kernel } = createHostGateway({
+    root,
+    hostSessionId: `mcp_${randomUUID()}`,
+    workspaceId: context?.workspaceId ?? null,
+    planners: gatewayPlanners(),
+    // Plans are carried out only when the client can confirm in its own UI `[INT:CON-133]`.
+    mutationExecutors: cliMutationExecutors(),
+    readOnly: capabilities.confirmationChannel !== 'native',
+    hostCapabilities: capabilities,
+    plannerContext: {
+      workspace: context?.workspaceId ? { id: context.workspaceId, name: context.workspaceName } : null,
+      repositoryId: selection?.selected?.id ?? null,
+      storyId: context?.storyId ?? null,
+      workId: context?.storyId ?? null,
+      workKind: context?.storyId ? 'story' : null
+    }
+  });
+  return auditedKernel(kernel, { host: 'mcp', modelSelected: true });
+}
+
+export async function run(_argv, { positionals = [], options = {} } = {}) {
+  const action = positionals[1] ?? 'tools';
+  if (action === 'serve') {
+    const transport = optionString(options, 'transport', 'stdio');
+    if (transport !== 'stdio') {
+      throw new SingularityFlowError(`The gateway serves over stdio only, not '${transport}'.`, { code: 'GATEWAY_TRANSPORT_UNSUPPORTED' });
+    }
+    const [{ serveMcp }, { VERSION }] = await Promise.all([import('../gateway/mcp-stdio.mjs'), import('../version.mjs')]);
+    await serveMcp({
+      input: process.stdin, output: process.stdout,
+      serverInfo: { name: 'singularity-flow', version: VERSION },
+      createKernel: (capabilities) => gatewayHost(options, capabilities),
+      log: (line) => process.stderr.write(`${line}\n`)
+    });
+    return {};
+  }
+  if (action === 'tools') {
+    const { SFLOW_TOOLS, toolSchemaMeasurement } = await import('../gateway/tools.mjs');
+    const report = { tools: SFLOW_TOOLS.map((tool) => ({ name: tool.name, description: tool.description, inputSchema: tool.inputSchema })), measurement: toolSchemaMeasurement() };
+    if (optionBoolean(options, 'json')) console.log(JSON.stringify(report, null, 2));
+    else {
+      for (const tool of report.tools) console.log(`${tool.name}  ${tool.description}`);
+      const m = report.measurement;
+      console.log(`\n${m.tools} tools · ${m.bytes} bytes (${m.serialization}) · ${m.tokens} tokens (${m.tokenizer}) · budget ${m.budget}`);
+    }
+    return {};
+  }
+  if (action === 'events') {
+    const { readGatewayEvents } = await import('../gateway/audit.mjs');
+    const modelRouting = optionString(options, 'model-routing');
+    const events = await readGatewayEvents({
+      subject: optionString(options, 'subject'), host: optionString(options, 'host'), operation: optionString(options, 'operation'),
+      outcome: optionString(options, 'outcome'), reason: optionString(options, 'reason'),
+      modelSelected: modelRouting == null ? null : modelRouting === 'yes', correlationId: optionString(options, 'correlation'),
+      limit: optionNumber(options, 'limit') ?? 200
+    });
+    if (optionBoolean(options, 'json')) console.log(JSON.stringify({ events }, null, 2));
+    else if (!events.length) console.log('No gateway events match.');
+    else for (const event of events) console.log(`${event.at}  ${event.host}  ${event.tool}  ${event.operation ?? '-'}  ${event.outcome ?? '-'}${event.reason ? ` (${event.reason})` : ''}  ${event.correlationId}`);
+    return {};
+  }
+  throw new SingularityFlowError(`'gateway ${action}' is not a gateway action. Use serve, tools or events.`, { code: 'GATEWAY_ACTION_UNKNOWN' });
+}

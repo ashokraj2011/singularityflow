@@ -45,6 +45,14 @@ import { workReadiness } from '../../../src/gateway/planners/work-readiness.mjs'
 import { workReturn } from '../../../src/gateway/planners/work-return.mjs';
 import { workStartIntake } from '../../../src/gateway/planners/work-start-intake.mjs';
 import { workspaceList } from '../../../src/gateway/planners/workspace-list.mjs';
+import { watchCreatePlan, watchList, watchRevokePlan } from '../../../src/gateway/planners/watches.mjs';
+import { workDraftSavePlan, workStartPlan } from '../../../src/gateway/planners/work-start.mjs';
+import { workspaceSwitchPlan } from '../../../src/gateway/planners/workspace-switch.mjs';
+import { reviewOpen } from '../../../src/gateway/planners/review-open.mjs';
+import { gatewayMutationExecutors } from '../../../src/gateway/planners/executors.mjs';
+import { comparePlanner } from '../../../src/gateway/planners/compare.mjs';
+import { repositoryQuery } from '../../../src/gateway/planners/repository-query.mjs';
+import { auditedKernel } from '../../../src/gateway/audit.mjs';
 import {
   repositoryOpenGuide, workspaceBootstrapStatus, workspaceDoctorGuide, workspaceExploreGuide,
   workspacePrepareGuide
@@ -82,8 +90,31 @@ export function editorPlanners(): Map<string, unknown> {
     ['problem-investigate', problemInvestigate],
     ['problem-investigate-assisted', problemInvestigateAssisted],
     ['repository-explore', repositoryExplore],
-    ['review-packet', reviewPacket]
+    ['review-packet', reviewPacket],
+    ['review-open', reviewOpen],
+    // The typed reads MCP has, so the two hosts answer the same corpus the same way `[INT:AC-016]`.
+    ['compare', comparePlanner],
+    ['repository-query', repositoryQuery],
+    // Mutation planners: each returns the exact plan a person confirms in native UI `[INT:IFC-060]`.
+    ['watch-list', watchList],
+    ['watch-create', watchCreatePlan],
+    ['watch-revoke', watchRevokePlan],
+    ['work-start', workStartPlan],
+    ['work-draft-save', workDraftSavePlan],
+    ['workspace-switch', workspaceSwitchPlan]
   ]);
+}
+
+/**
+ * The editor's route to the `start` operation: its own CLI client, supplied by the extension host.
+ * Absent until activation provides it, and `work.start` plans are then shown but not carried out.
+ */
+type StartRoute = (argv: string[], options: { cwd: string | null }) => Promise<{ status: number | null; json: unknown }>;
+let startRouteProvider: StartRoute | null = null;
+
+export function provideStartRoute(route: StartRoute): void {
+  startRouteProvider = route;
+  resetGatewaySession();
 }
 
 export type GatewaySession = {
@@ -219,12 +250,19 @@ export function gatewaySession(context: GatewayRepositoryContext): GatewaySessio
         workspaceName: workspaceName ?? workspaceId
       } : {})
     }),
-    // Every implemented planner is a read, and `run()` refuses unconditionally `[INT:CON-033]`.
-    readOnly: true
+    /**
+     * Mutations are carried out here only after a receipt redeems, and the receipt only exists once a
+     * person confirms in native UI the extension draws `[INT:CON-111]`. The executors are the acts;
+     * the planners above only plan them.
+     */
+    readOnly: false,
+    hostCapabilities: { confirmationChannel: 'native' },
+    mutationExecutors: gatewayMutationExecutors({ runStart: startRouteProvider })
   });
   session = {
     root: host.root,
-    kernel: host.kernel,
+    // Every call is recorded for the Logs view, without what anyone typed `[INT:IFC-070]`.
+    kernel: auditedKernel(host.kernel, { host: 'vscode', modelSelected: false }),
     /** `host.mjs` is untyped JavaScript; the shape asserted here is `hostBinding`'s return. */
     binding: host.binding as GatewaySession['binding'],
     executor: createActionExecutor({ gateway: host })

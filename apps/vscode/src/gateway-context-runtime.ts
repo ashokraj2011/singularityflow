@@ -22,6 +22,7 @@ let activeContext: ActiveRepositoryContext | null = null;
 let acknowledgedAtProvider: () => string | null = () => null;
 let homeLensProvider: () => string = () => 'developer';
 let chatProfileNameProvider: (() => string) | null = null;
+let startRoute: Parameters<Runtime['provideStartRoute']>[0] | null = null;
 
 function loadRuntime(): Runtime {
   if (runtime) return runtime;
@@ -29,6 +30,7 @@ function loadRuntime(): Runtime {
   loaded.provideAcknowledgedAt(acknowledgedAtProvider);
   loaded.provideHomeLens(homeLensProvider);
   if (chatProfileNameProvider) loaded.provideChatProfileName(chatProfileNameProvider);
+  if (startRoute) loaded.provideStartRoute(startRoute);
   loaded.setActiveRepositoryContext(activeContext);
   runtime = loaded;
   return loaded;
@@ -51,6 +53,12 @@ export function provideHomeLens(provider: () => string): void {
 export function provideChatProfileName(provider: () => string): void {
   chatProfileNameProvider = provider;
   runtime?.provideChatProfileName(provider);
+}
+
+/** The extension's own CLI route to `start`, for the gateway's work.start executor. */
+export function provideStartRoute(route: Parameters<Runtime['provideStartRoute']>[0]): void {
+  startRoute = route;
+  runtime?.provideStartRoute(route);
 }
 
 export function setActiveRepositoryContext(next: ActiveRepositoryContext | null): void {

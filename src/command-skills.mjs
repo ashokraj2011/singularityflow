@@ -88,6 +88,7 @@ const entries = {
   memory: ['sf-sgos'],
   'meta-tool': ['sf-sgos'],
   home: ['sf-home'],
+  gateway: ['sf-home'],
   recommend: ['sf-recommend'],
   logs: ['sf-logs'],
   doctor: ['sf-doctor'],

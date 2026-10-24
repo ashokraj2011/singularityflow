@@ -41,6 +41,19 @@ function ghJson(root, args, runCommand = run) {
   try { return JSON.parse(result.stdout); } catch { throw new SingularityFlowError('GitHub CLI returned invalid JSON.'); }
 }
 
+/**
+ * Recent GitHub Actions runs for a repository, read-only. `[INT:IFC-041]` `[INT:CON-094]`
+ *
+ * The reference build-provider read: `gh run list` and nothing that reruns, cancels, approves or
+ * deploys. Authentication stays in gh's own store; nothing here takes or stores a credential.
+ */
+export function githubActionsRuns(root, remote, { branch = null, commit = null, limit = 30, runCommand = run } = {}) {
+  const target = parseGitHubRemote(remote);
+  const fields = 'databaseId,headSha,headBranch,workflowName,conclusion,status,createdAt,updatedAt,url,displayTitle,event';
+  return ghJson(root, ['run', 'list', '--repo', target.slug, '--limit', String(Math.max(1, Math.min(Number(limit) || 30, 100))),
+    '--json', fields, ...(branch ? ['--branch', branch] : []), ...(commit ? ['--commit', commit] : [])], runCommand);
+}
+
 export function githubAuthStatus(root, remote, { runCommand = run } = {}) {
   if (runCommand === run && !commandExists('gh')) throw new SingularityFlowError('GitHub review requires the GitHub CLI. Install gh and run gh auth login.');
   const target = parseGitHubRemote(remote);

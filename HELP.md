@@ -3868,6 +3868,10 @@ singularity-flow decisions record [WORK-ID] --choose ITEM=OPTION [--reason ITEM=
 # Your own agent folder as a user-defined agent: previewed, then proposed by its plan digest; start <WORK-ID> --agent NAME runs it.
 singularity-flow call add FOLDER [--name ID] [--main FILE] [--output code|document] [--replace] [--confirm sha256:PLAN] [--json]
 singularity-flow call list|show NAME [--json]
+# The five-tool gateway as a local MCP server (a plan runs only after the MCP client's own confirmation), its schemas, and its event log.
+singularity-flow gateway serve --transport stdio [--workspace WORKSPACE]
+singularity-flow gateway tools [--json]
+singularity-flow gateway events [--json] [--host HOST] [--operation ID] [--outcome STATUS] [--reason CODE] [--subject ID] [--correlation ID]
 singularity-flow upstream-issue raise --phase EARLIER --about ID|SECTION --problem TEXT [--supersedes UPI-ID] [--from-artifact] [--json]
 singularity-flow upstream-issue list [--open] [--json]
 singularity-flow upstream-issue decide UPI-ID --outcome plan-correction|amend|return|accept-risk|dismiss --reason TEXT [--link PRC-ID|FAM-ID] [--expires YYYY-MM-DD]

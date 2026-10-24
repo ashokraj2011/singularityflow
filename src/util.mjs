@@ -698,6 +698,14 @@ function waitOutIndexLock(result, args, { cwd, env, spawnAgain }) {
   return { ...result, stderr };
 }
 
+/** This package's CLI as a bounded child: exit status and parsed JSON. `[INT:CON-066]` */
+export async function runSingularityFlowCli(args, { cwd, env = process.env, timeoutMs = 600_000 } = {}) {
+  const { PACKAGE_ROOT } = await import('./package-root.mjs');
+  const result = run(process.execPath, [path.join(PACKAGE_ROOT, 'bin', 'singularity-flow.mjs'), ...args],
+    { cwd, env, allowFailure: true, timeoutMs, maxBuffer: 1 << 25 });
+  try { return { status: result.status, json: JSON.parse(result.stdout) }; } catch { return { status: result.status, json: null }; }
+}
+
 export function run(command, args = [], {
   cwd = process.cwd(),
   env = process.env,

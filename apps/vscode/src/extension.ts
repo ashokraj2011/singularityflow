@@ -124,7 +124,7 @@ import {
 } from './views/home-acknowledgement.ts';
 import {
   activeRepositoryContext, gatewaySession, provideAcknowledgedAt, provideHomeLens, provideChatProfileName,
-  latestWorkspaceBootstrap, resetGatewaySession, setActiveRepositoryContext as setGatewayRepositoryContext,
+  provideStartRoute, latestWorkspaceBootstrap, resetGatewaySession, setActiveRepositoryContext as setGatewayRepositoryContext,
   type ActiveRepositoryContext, type GatewayRepositoryContext
 } from './gateway-runtime-client.ts';
 import { menuResource, repositoryRelativePath } from './explain-target.ts';
@@ -431,6 +431,23 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   };
   provideHomeLens(currentHomeLens);
   provideChatProfileName(() => vscode.workspace.getConfiguration('singularityFlow').get<string>('userName', ''));
+  /**
+   * The gateway's route to `start`: this extension's own CLI client, exactly as the Start form
+   * uses it `[INT:CON-066]`. A non-zero exit hands back the engine's structured result so the
+   * executor can tell a refusal from an interrupted publication.
+   */
+  provideStartRoute(async (argv, { cwd }) => {
+    const location = resolveCli({ extensionPath: context.extensionPath });
+    try {
+      const json = await new SingularityFlowClient({
+        location, repository: cwd ?? process.cwd(), onOutput: (text) => output.append(text)
+      }).run(argv);
+      return { status: 0, json };
+    } catch (error) {
+      if (error instanceof CliError) return { status: error.exitCode, json: error.result };
+      throw error;
+    }
+  });
 
   onHomeRequest(async ({ request }) => {
     if (!lastHome) return;
@@ -519,6 +536,14 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
          * to do with each; it only needed to be told which one this is.
          */
         const outcome = await executor.execute(action);
+        if (outcome.outcome === 'confirm' && outcome.review) {
+          const ran = await confirmPlanOutOfBand(route, outcome.review);
+          if (ran) showResultCard(buildResultCard(ran), { origin: 'gateway', historyMode: 'push' });
+          if (ran?.operation.id === 'workspace.switch' && ran.outcome.status === 'succeeded') {
+            await vscode.commands.executeCommand('singularityFlow.myWork');
+          }
+          return;
+        }
         const destination = gatewayDestinationRequest(outcome.result);
         if (destination) {
           await vscode.commands.executeCommand(destination.command, ...destination.args);
@@ -556,6 +581,83 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     terminal.show(true);
     terminal.sendText(action.command, false);
   });
+
+  /**
+   * Confirm a gateway plan in trusted native UI and carry it out with a receipt. `[INT:CON-039]` `[INT:CON-111]`
+   *
+   * The preview shown is the exact one the plan hash covers. A host-confirm plan takes one modal
+   * choice; an exact-confirm plan also asks the person to type the subject it names, so the
+   * confirmation is of that record and not of a button. The receipt goes from `confirmPlan` straight
+   * into `run` and is never shown, logged, stored, or put in a chat message.
+   */
+  async function confirmPlanOutOfBand(route: GatewayRepositoryContext, review: {
+    planId: string; planHash: string; confirmation: string; effects: Readonly<Record<string, boolean>>;
+    review: { digest: string; preview: Readonly<Record<string, unknown>> } | null;
+  }) {
+    const { kernel } = gatewaySession(route);
+    const preview = (review.review?.preview ?? {}) as Record<string, any>;
+    const changes = Object.entries(review.effects).filter(([, value]) => value).map(([key]) => key);
+    const subject = String(preview.subject?.id ?? preview.workspace?.id ?? preview.watchId ?? '');
+    const detail = [
+      ...Object.entries(preview).filter(([key]) => key !== 'action')
+        .map(([key, value]) => `${key}: ${typeof value === 'string' ? value : JSON.stringify(value)}`),
+      '', `This will change: ${changes.length ? changes.join(', ') : 'nothing'}`
+    ].join('\n').slice(0, 4000);
+    const choice = await vscode.window.showWarningMessage(
+      `Confirm: ${String(preview.action ?? review.planId).replaceAll('-', ' ')}`, { modal: true, detail }, 'Confirm'
+    );
+    if (choice !== 'Confirm') return null;
+    if (review.confirmation === 'exact-confirm') {
+      const typed = await vscode.window.showInputBox({
+        title: 'Exact confirmation', prompt: `Type ${subject} to confirm exactly this record`, ignoreFocusOut: true,
+        validateInput: (value) => (value === subject ? null : `Type ${subject} exactly`)
+      });
+      if (typed !== subject) return null;
+    }
+    try {
+      const receipt = kernel.confirmPlan({ planId: review.planId, planHash: review.planHash, reviewDigest: review.review?.digest ?? null });
+      return await kernel.run({ planId: review.planId }, { confirmationReceiptId: receipt.receiptId, confirmationValue: receipt.value });
+    } catch (error) {
+      output.appendLine(`[gateway] the plan could not be carried out: ${(error as Error).message}`);
+      void vscode.window.showErrorMessage(`Singularity Flow did not carry that out: ${(error as Error).message}`);
+      return null;
+    }
+  }
+
+  /**
+   * The five gateway tools, registered for Copilot in this window. `[INT:IFC-060]` `[INT:IFC-010]`
+   *
+   * Each forwards to the same in-process kernel the result cards use, so a tool answer and a card
+   * are one answer. `sflow_run` takes only a plan ID: the confirmation is the native dialog above,
+   * and its receipt never enters the tool result `[INT:CON-039]`.
+   */
+  const lm = (vscode as unknown as { lm?: { registerTool?: (name: string, tool: unknown) => vscode.Disposable } }).lm;
+  // The installed @types/vscode predates the tool result classes; the host has them at runtime.
+  const parts = vscode as unknown as {
+    LanguageModelToolResult: new (content: unknown[]) => unknown; LanguageModelTextPart: new (text: string) => unknown;
+  };
+  if (typeof lm?.registerTool === 'function' && typeof parts.LanguageModelToolResult === 'function') {
+    const toolRoute = (): GatewayRepositoryContext => activeRepositoryContext()
+      ?? { root: null, workspaceId: null, workspaceName: null, repositoryId: null, origin: 'machine-local' };
+    const answer = async (name: string, input: Record<string, any>) => {
+      const route = toolRoute();
+      const { kernel } = gatewaySession(route);
+      if (name === 'sflow_resolve') return kernel.resolve(input as never);
+      if (name === 'sflow_read') return kernel.read({ resolutionId: String(input.resolutionId ?? '') });
+      if (name === 'sflow_next') return kernel.next({ scope: input.scope, subject: input.subject ?? null });
+      if (name === 'sflow_explain') return kernel.explain?.({ question: input.question, topic: input.topic });
+      let review;
+      try { review = kernel.planReview(String(input.planId ?? '')); } catch { return kernel.run({ planId: String(input.planId ?? '') }); }
+      return (await confirmPlanOutOfBand(route, review)) ?? kernel.run({ planId: String(input.planId ?? '') });
+    };
+    for (const name of ['sflow_resolve', 'sflow_read', 'sflow_next', 'sflow_run', 'sflow_explain']) {
+      context.subscriptions.push(lm.registerTool(name, {
+        invoke: async (options: { input?: Record<string, any> }) => new parts.LanguageModelToolResult([
+          new parts.LanguageModelTextPart(JSON.stringify(await answer(name, options.input ?? {})))
+        ])
+      }));
+    }
+  }
 
   onAutoResultAction(async ({ command, repositoryRoot }) => {
     const activeRoot = activeRepositoryContext()?.root;

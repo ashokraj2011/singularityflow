@@ -222,9 +222,37 @@ export const ARGUMENT_SCHEMAS = Object.freeze([
     workspaceId: optional('identifier'),
     repositoryId: optional('identifier'),
     workType: optional('identifier'),
-    summary: optional('text')
+    summary: optional('text'),
+    // A complete proposal: the kernel records it as session data and plans its start `[INT:CON-064]`.
+    workId: optional('identifier'),
+    title: optional('string'),
+    description: optional('text'),
+    acceptanceCriteria: optional('text'),
+    baseBranch: optional('ref'),
+    tracker: optional('enum', { values: ['none', 'jira', 'github'] }),
+    trackerKey: optional('string')
   }),
   schema('work-start-v1', { intakeId: required('identifier') }),
+  /**
+   * The typed intake a host form hands `kernel.recordIntake` `[INT:REQ-066]` `[INT:CON-065]`.
+   *
+   * Not an operation argument: no model-facing tool accepts it. It is the record the work-start
+   * planner normalizes into the exact preview a person confirms, and it lives only in the session.
+   */
+  schema('work-intake-record-v1', {
+    workId: required('identifier'),
+    shape: optional('enum', { values: ['initiative', 'epic', 'story'] }),
+    workType: required('identifier'),
+    tracker: optional('enum', { values: ['none', 'jira', 'github'] }),
+    trackerKey: optional('string'),
+    title: optional('string'),
+    description: optional('text'),
+    acceptanceCriteria: optional('text'),
+    baseBranch: optional('ref'),
+    source: optional('enum', { values: [
+      'jira', 'github-issue', 'manual', 'initiative', 'story', 'bug-report', 'idea', 'repository-observation', 'finding'
+    ] })
+  }),
   schema('work-draft-save-v1', { intakeId: required('identifier'), label: required('string') }),
   schema('workspace-switch-v1', { workspaceId: required('identifier') }),
   schema('workspace-bootstrap-status-v1', { bootstrapId: required('identifier') }),
@@ -235,13 +263,31 @@ export const ARGUMENT_SCHEMAS = Object.freeze([
   schema('impact-quick-v1', {
     baseRef: optional('ref'),
     targetRef: optional('ref'),
-    includeWorktree: optional('boolean')
+    includeWorktree: optional('boolean'),
+    // A host model's answer to the assisted relay; validated against the facts, never trusted.
+    interpretation: optional('text', { maxLength: 8000 })
   }),
   schema('impact-what-if-v1', { proposal: required('text'), scope: optional('relative-path') }),
   schema('repository-explore-v1', {
     repositoryId: optional('identifier'),
     path: optional('relative-path'),
     question: optional('text')
+  }),
+  schema('repository-query-v1', {
+    query: required('enum', { values: [
+      'repositories', 'status', 'branches', 'tags', 'log', 'commit', 'path-history', 'blame', 'diff',
+      'merge-base', 'contains', 'search', 'version-commit', 'build-commit'
+    ] }),
+    repositoryId: optional('identifier'),
+    revision: optional('ref'),
+    base: optional('ref'),
+    path: optional('relative-path'),
+    text: optional('string', { maxLength: 500 }),
+    lineStart: optional('integer', { min: 1 }),
+    lineEnd: optional('integer', { min: 1 }),
+    version: optional('string', { maxLength: 128 }),
+    buildId: optional('identifier'),
+    max: optional('integer', { min: 1, max: 500 })
   }),
   schema('ast-context-v1', {
     path: optional('relative-path'),
@@ -318,7 +364,27 @@ export const ARGUMENT_SCHEMAS = Object.freeze([
   schema('problem-investigate-v1', {
     symptom: required('text'),
     repositoryId: optional('identifier'),
-    sinceRef: optional('ref')
+    sinceRef: optional('ref'),
+    // §10.1's other inputs: missing ones stay unknown, never filled in `[INT:CON-091]`.
+    expected: optional('text'),
+    environment: optional('string'),
+    observedVersion: optional('string', { maxLength: 128 }),
+    observedBuildId: optional('identifier'),
+    since: optional('string', { maxLength: 64 }),
+    reproduction: optional('text'),
+    lastKnownGood: optional('ref'),
+    stopAfter: optional('enum', { values: [
+      'incident-facts', 'build-provenance', 'repository-state', 'change-range', 'tests', 'ownership-and-active-work', 'deterministic-impact'
+    ] }),
+    interpretation: optional('text', { maxLength: 8000 })
+  }),
+  schema('build-read-v1', { branch: optional('ref'), limit: optional('integer', { min: 1, max: 100 }) }),
+  schema('investigation-bisect-v1', {
+    good: required('ref'),
+    bad: optional('ref'),
+    testCommandId: required('identifier'),
+    maxSteps: optional('integer', { min: 3, max: 32 }),
+    repositoryId: optional('identifier')
   }),
   schema('watch-create-v1', { subjectId: required('identifier'), predicate: required('identifier') }),
   schema('watch-revoke-v1', { watchId: required('identifier') }),

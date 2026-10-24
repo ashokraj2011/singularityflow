@@ -71,6 +71,8 @@ export const DEFAULT_GATEWAY_POLICY = Object.freeze({
     'work.start.intake': 'none',
     'workspace.list': 'none',
     'repository.explore': 'none',
+    'repository.query': 'none',
+    'build.read': 'none',
     'intent.trace': 'none',
     'compare': 'none',
     'impact.quick': 'none',
@@ -88,6 +90,7 @@ export const DEFAULT_GATEWAY_POLICY = Object.freeze({
     'watch.create': 'host-confirm',
     'watch.revoke': 'host-confirm',
     'work.draft.save': 'host-confirm',
+    'investigation.bisect': 'host-confirm',
 
     'work.start': 'exact-confirm',
     'review.open': 'ceremony'

@@ -35,6 +35,10 @@ export function provideChatProfileName(provider: () => string): void {
   sharedRuntime().provideChatProfileName(provider);
 }
 
+export function provideStartRoute(route: Parameters<ContextRuntime['provideStartRoute']>[0]): void {
+  sharedRuntime().provideStartRoute(route);
+}
+
 export function setActiveRepositoryContext(next: ActiveRepositoryContext | null): void {
   sharedRuntime().setActiveRepositoryContext(next);
 }

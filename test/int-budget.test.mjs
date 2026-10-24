@@ -94,3 +94,14 @@ test('every tool input is a closed object', () => {
   }
   assert.deepEqual([...NEXT_SCOPES], ['home', 'subject', 'investigation']);
 });
+
+test('the editor and the stdio server expose the same five schemas the budget measures', async () => {
+  // `[INT:AC-020]` `[INT:IFC-060]` `[INT:IFC-062]`: the measured schemas are the ones each host serves.
+  const { readFile } = await import('node:fs/promises');
+  const manifest = JSON.parse(await readFile(new URL('../apps/vscode/package.json', import.meta.url), 'utf8'));
+  const contributed = manifest.contributes.languageModelTools.filter((tool) => tool.name.startsWith('sflow_'));
+  assert.deepEqual(contributed.map((tool) => tool.name), SFLOW_TOOLS.map((tool) => tool.name));
+  for (const tool of contributed) {
+    assert.deepEqual(tool.inputSchema, JSON.parse(JSON.stringify(SFLOW_TOOLS.find((entry) => entry.name === tool.name).inputSchema)), tool.name);
+  }
+});

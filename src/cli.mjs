@@ -11815,7 +11815,7 @@ async function dispatch(command, positionals, options, argv) {
     watch: () => watchCommand(positionals, options),
     recover: () => recoverCommand(positionals, options),
     appeal: async () => (await import('./commands/appeal.mjs')).run(positionals, { options }),
-    'upstream-issue': async () => (await import('./commands/upstream-issue.mjs')).run(positionals, { options }), decisions: async () => (await import('./commands/decisions.mjs')).run(positionals, { positionals, options }), app: async () => (await import('./commands/app.mjs')).run(argv, { positionals, options }), tests: async () => (await import('./commands/tests.mjs')).run(argv, { positionals, options }), call: async () => (await import('./commands/call.mjs')).run(argv, { positionals, options }),
+    'upstream-issue': async () => (await import('./commands/upstream-issue.mjs')).run(positionals, { options }), decisions: async () => (await import('./commands/decisions.mjs')).run(positionals, { positionals, options }), app: async () => (await import('./commands/app.mjs')).run(argv, { positionals, options }), tests: async () => (await import('./commands/tests.mjs')).run(argv, { positionals, options }), call: async () => (await import('./commands/call.mjs')).run(argv, { positionals, options }), gateway: async () => (await import('./commands/gateway.mjs')).run(argv, { positionals, options }),
     explain: async () => (await import('./commands/explain.mjs')).run(argv, { positionals, options }),
     why: async () => (await import('./commands/why.mjs')).run(argv, { positionals, options }),
     // The five verbs. Each dispatches into the same router; the registry keeps them distinct

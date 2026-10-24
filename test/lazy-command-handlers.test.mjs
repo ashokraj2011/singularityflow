@@ -85,7 +85,11 @@ test('frequent lifecycle handlers do not reach the legacy dispatcher and stay un
     // main ed71e5e6's 9,059,694: code-delivery-tests.mjs +1,160 (an Nx project as a module and its lazy loader),
     // narration/messages.mjs +399 and command-registry.mjs +308. nx-test-targets.mjs and test-setup-proposal.mjs
     // load lazily. No new file.
-    assert.ok(closure.bytes <= 9_065_000, `${file} exceeds the 9 MB eager-source budget (${closure.bytes} bytes)`);
+    // 9,070,000 (next 5,000 boundary): the 2026-10-24 round (World Model v5 M4-M5, XPL2 M2-M4, INT P1-P4, SPEC-OUT
+    // REQ-014, their review fixes and the free-text option parser) adds 3,729 to main 4a72b80f's 9,063,836:
+    // command-registry.mjs +1,958 (wm rules, wm brief --polish, explain --narrate and the gateway command), git.mjs +897
+    // (XPL2's lineCommitAt), util.mjs +623 (free-text options, commentary and polish flags), inject.mjs +192. No new file.
+    assert.ok(closure.bytes <= 9_070_000, `${file} exceeds the 9 MB eager-source budget (${closure.bytes} bytes)`);
   }
 });
 

@@ -93,21 +93,6 @@ export async function planTestCommandProposal(root, { step: phase, workflow = nu
   }, { preferAuthority: true });
 }
 
-/**
- * Test commands the activated configuration now gives a Story's step that its pinned policy lacks:
- * what `story test-policy amend` would adopt. Empty when there are none or the authority cannot be read.
- */
-export async function activatedTestCommandsFor(root, workflow, phaseId) {
-  try {
-    return await withApprovedConfigurationRead(root, async () => {
-      const raw = YAML.parse(await readFile(path.join(configurationReadRoot(root), WORKFLOW_PATH), 'utf8')) ?? {};
-      const commands = raw.workTypes?.[workflow.workItem?.workType]?.phaseOverrides?.[phaseId]?.qualityCommands
-        ?? raw.phases?.[phaseId]?.qualityCommands ?? [];
-      const pinned = (workflow.resolution?.phases?.find((entry) => entry.id === phaseId)?.qualityCommands ?? []).map(canonicalJson);
-      return commands.filter((entry) => entry?.kind === 'test' && !pinned.includes(canonicalJson(entry)));
-    }, { preferAuthority: true });
-  } catch { return []; }
-}
 
 /** The test command the options name: an inspected suggestion (--use), or the one given in full. */
 export async function requestedCommand(root, options) {

@@ -134,7 +134,7 @@ export async function repositoryBriefPrompt(root, {
         const { changedRanges } = changedPaths.length
           ? await readChange(root, workflow?.workItem?.baseCommit ?? workflow?.workItem?.baseBranch ?? null, { paths: changedPaths, keep: (file) => known.has(file) })
           : { changedRanges: null };
-        impact = buildImpactRecords(knowledge, { changedPaths, changedRanges, plannedPaths });
+        impact = buildImpactRecords(knowledge, { changedPaths, changedRanges, plannedPaths, focus: focus || null });
         changeSha256 = sha256({ changedPaths, changedRanges, plannedPaths });
         risks = buildRiskRecords(knowledge, { focus: focus || null, changedPaths, changedSymbols: changedRanges ? impactSymbols(impact) : null });
       } else {

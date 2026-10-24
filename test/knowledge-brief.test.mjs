@@ -346,7 +346,8 @@ test('rules are shown with their docs, code and tests, and the phase brief carri
   assert.match(shown, /refuses "An order needs at least one line" \(HTTP 400\)\. Documented, enforced, tested\. \(\S+OrderService\.java:\d+; README\.md › Business rules\)/u);
   assert.match(shown, /refuses "Orders under 10\.00 are not accepted" \(HTTP 400\)\. Documented, enforced, tested\./u, 'the docs sentence is the code message, unquoted');
   assert.match(shown, /VIP_DISCOUNT_RATE\)\)`\. Documented, enforced, tested\./u, '5% in the docs meets VIP_DISCOUNT_RATE = 0.05');
-  assert.match(shown, /422 — the order fails validation\. Conflict: the docs promise HTTP 422; the code's refusals return HTTP 400, 409\./u);
+  assert.match(shown, /422 — the order fails validation\. Conflict: the docs promise HTTP 422; the code's refusals return HTTP 400, 404, 409\./u,
+    'the 404 an exception handler maps for a lookup counts as returned');
   assert.match(shown, /refuses "Only placed orders can be cancelled" \(HTTP 409\)\. Not documented, enforced, no test reaches it\./u);
   const json = JSON.parse(await quiet(() => knowledgeCommand(repository, ['show', 'rules'], { json: true })));
   assert.deepEqual([...new Set(json.records.map((record) => record.status))].sort(), ['agreed', 'conflict', 'enforced-only']);

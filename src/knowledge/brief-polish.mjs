@@ -4,8 +4,9 @@
  * Records stay deterministic: the model sees only the lines a brief selected, with what each record
  * says, and rewrites them into plain sentences, naming the intent of a rule or a flow and merging
  * lines that say the same thing. It never adds, removes or changes a record. Every sentence must cite
- * the records it covers, from one section; its code names, numbers, paths, capitalised names and
- * quoted text must appear in those records; it may not judge; it is length-capped. A sentence that
+ * the records it covers, from one section; its code names, numbers (single digits too), paths,
+ * capitalised names and quoted text must appear in those records; it may not claim what a record says
+ * is missing ("tested" where no test reaches it); it may not judge; it is length-capped. A sentence that
  * fails is dropped, and its records keep their fixed wording. A rule's status is never left to the
  * model: the brief adds it after the sentence.
  *
@@ -24,7 +25,7 @@ export const BRIEF_POLISH_VERSION = 1;
 export const POLISH_LIMITS = Object.freeze({ wordsPerSentence: 45, characters: 300, records: 40 });
 const PRAISE = /\b(?:good|bad|great|robust|elegant|clean|nice|well[- ]tested)\b/iu;
 // Words a plain sentence may capitalise without a record naming them.
-const COMMON_NAMES = new Set(['HTTP', 'HTTPS', 'API', 'APIs', 'JSON', 'ID', 'IDs', 'URL', 'UI', 'OK', 'I', 'YAML', 'SQL', 'REST']);
+const COMMON_NAMES = new Set(['HTTP', 'HTTPS', 'API', 'APIs', 'JSON', 'ID', 'IDs', 'URL', 'UI', 'OK', 'I', 'YAML', 'SQL', 'REST', 'Story', 'Stories']);
 
 function digest(value) {
   return createHash('sha256').update(value).digest('hex');
@@ -74,7 +75,7 @@ function capitalisedNames(text) {
 
 /** Paths and routes a sentence names (`/orders/{id}`, `src/rules.ts`). */
 function pathsNamed(text) {
-  return [...String(text).matchAll(/(?:^|[\s(])((?:\/[\w{}.:-]+)+\/?|[\w.-]+(?:\/[\w{}.-]+)+)/gu)].map((match) => match[1]);
+  return [...String(text).matchAll(/(?:^|[\s(])((?:\/[\w{}.:-]+)+\/?|[\w.-]+(?:\/[\w{}.-]+)+)/gu)].map((match) => match[1].replace(/[.,;:]+$/u, ''));
 }
 
 /**
@@ -85,6 +86,26 @@ export function ungrounded(text, haystack) {
   const lowered = haystack.toLowerCase();
   return [...new Set([...groundedTokens(text), ...pathsNamed(text), ...capitalisedNames(text)])]
     .filter((token) => !haystack.includes(token) && !lowered.includes(token.toLowerCase()));
+}
+
+/** Every number a text states, single digits too, must stand as a number in `plain` (records, not their line labels). */
+export function numbersMissing(text, plain) {
+  const stated = String(text).replace(/`[^`]*`|["“][^"”]*["”]/gu, ' ').match(/(?<![\w.])\d+(?:\.\d+)?(?![\w]|\.\d)/gu) ?? [];
+  return [...new Set(stated)].filter((number) => !new RegExp(`(?<![\\w.])${number.replace('.', '\\.')}(?![\\w]|\\.\\d)`, 'u').test(plain));
+}
+
+// A record that says something is missing, and the claim a sentence would make if it dropped the "no".
+const CONTRADICTIONS = Object.freeze([
+  [/\bno test reaches\b/iu, /\btest(?:ed|s)?\b/iu],
+  [/\bnot documented\b/iu, /\bdocumented\b/iu],
+  [/\bno code enforcing\b/iu, /\benforc/iu],
+  [/\bno endpoint validates\b/iu, /\bvalidat/iu]
+]);
+const NEGATION = /\b(?:no|not|never|without|none|nothing|untested|undocumented)\b|n't\b/iu;
+
+/** Whether a text claims what its record says is missing ("is tested" where no test reaches it). */
+export function contradicts(text, recordText) {
+  return !NEGATION.test(text) && CONTRADICTIONS.some(([said, claim]) => said.test(recordText) && claim.test(text));
 }
 
 /** Judgement, praise or an unbalanced code span or quotation: the reason a text is refused, or null. */
@@ -121,8 +142,10 @@ export function validatePolish(output, selection, { limits = POLISH_LIMITS } = {
     if (again.length) { reject(`cites a record another sentence already covers: ${again.join(', ')}`); continue; }
     const unfit = unfitWording(text);
     if (unfit) { reject(unfit); continue; }
-    const missing = ungrounded(text, entries.map((entry) => `${entry.text} ${entry.facts ?? ''} ${entry.label ?? ''}`).join('\n'));
+    const plain = entries.map((entry) => `${entry.text} ${entry.facts ?? ''}`).join('\n');
+    const missing = [...new Set([...ungrounded(text, entries.map((entry) => `${entry.text} ${entry.facts ?? ''} ${entry.label ?? ''}`).join('\n')), ...numbersMissing(text, plain)])];
     if (missing.length) { reject(`names what its records do not contain: ${missing.join(', ')}`); continue; }
+    if (entries.some((entry) => contradicts(text, `${entry.text} ${entry.facts ?? ''}`))) { reject('says the opposite of what its records say'); continue; }
     for (const id of cites) covered.add(id);
     accepted.push({ text, cites, section: entries[0].section });
   }

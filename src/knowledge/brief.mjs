@@ -57,7 +57,8 @@ export const BRIEF_LIMITS = Object.freeze({
   templateStatementsPerView: 8
 });
 
-const DOCUMENT_PATH = /(?:^|\/)(?:readme[^/]*\.(?:md|markdown|mdx)|docs?\/.+\.(?:md|markdown|mdx)|(?:adrs?|decisions|architecture)\/.+\.(?:md|markdown|mdx))$/iu;
+// README files, docs, decision records, and Markdown kept in rule folders (`rules/`, `policies/`, …, as rule files are).
+const DOCUMENT_PATH = /(?:^|\/)(?:readme[^/]*\.(?:md|markdown|mdx)|docs?\/.+\.(?:md|markdown|mdx)|(?:adrs?|decisions|architecture|rules?|rulesets?|business-rules|polic(?:y|ies)|decision-tables?)\/.+\.(?:md|markdown|mdx))$/iu;
 const SKIPPED_PATH = /(?:^|\/)(?:node_modules|vendor|dist|build|target|out|\.git|\.github|singularity|third[_-]?party)\/|(?:^|\/)(?:changelog|history|license|licence|code_of_conduct|contributing|security)[^/]*$/iu;
 
 /** A README, docs page or decision record the brief reads. */
@@ -93,7 +94,7 @@ function stems(text) {
 /**
  * Rule-like statements from one Markdown document: list items, table rows and sentences that use
  * normative wording, carry a value or a status, or sit under a heading about rules, errors or the
- * API. Fenced code is skipped. Each statement keeps its heading path and line.
+ * API. Fenced code and lead-ins ending in a colon are skipped. Each statement keeps its heading path and line.
  */
 export function documentStatements(relative, text, { limits = BRIEF_LIMITS } = {}) {
   const statements = [];
@@ -103,7 +104,8 @@ export function documentStatements(relative, text, { limits = BRIEF_LIMITS } = {
   let overview = null;
   const push = (raw, line, inList) => {
     const clean = plainText(raw);
-    if (clean.split(/\s+/u).length < 4) return;
+    // A lead-in ("in list of values:", "The rule language supports:") introduces a list or an example; it states nothing.
+    if (clean.split(/\s+/u).length < 4 || /:\s*$/u.test(clean)) return;
     const heading = headings.filter(Boolean).join(' › ');
     const ruleish = RULE_HEADING.test(heading);
     const normative = NORMATIVE.test(clean);
@@ -316,7 +318,7 @@ export function briefEvidence(knowledge, documentation, { focus = null, limits =
       case 'impact': {
         const callers = statement.callers?.length ? `called by ${statement.callers.slice(0, 4).join(', ')}` : 'no caller in the repository';
         const tests = statement.tests?.length ? `tests ${statement.tests.slice(0, 3).map((test) => path.posix.basename(test)).join(', ')}` : statement.testedThrough ? `tested through ${statement.testedThrough}` : 'no test reaches it';
-        add('impact', 'impact', `${shortSymbol(item.subject?.symbol)}: ${callers}; ${tests}; ${statement.rules ?? 0} rules${statement.changesWith?.length ? `; changes with ${statement.changesWith.slice(0, 2).join(', ')}` : ''}`, source, { weight: 3 + (statement.rules ?? 0) });
+        add('impact', 'impact', `${shortSymbol(item.subject?.symbol)}: ${callers}; ${tests}; ${statement.rules ?? 0} ${statement.rules === 1 ? 'rule' : 'rules'}${statement.changesWith?.length ? `; changes with ${statement.changesWith.slice(0, 2).join(', ')}` : ''}`, source, { weight: 3 + (statement.rules ?? 0) });
         break;
       }
       case 'co-change':

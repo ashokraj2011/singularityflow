@@ -10,7 +10,7 @@ import path from 'node:path';
 import test from 'node:test';
 import { fileURLToPath } from 'node:url';
 
-import { readDocumentation } from '../src/knowledge/brief.mjs';
+import { isDocumentationPath, readDocumentation } from '../src/knowledge/brief.mjs';
 import { buildRuleRecords, ruleStatusWords } from '../src/knowledge/records/rules.mjs';
 import { isRuleFile, ruleFileRules } from '../src/knowledge/rule-files.mjs';
 import { buildKnowledge } from '../src/knowledge/store.mjs';
@@ -23,6 +23,11 @@ test('rule files are recognised by folder or name, and their rule objects read i
   assert.ok(isRuleFile('config/policies/access/admin.json'));
   assert.ok(isRuleFile('src/main/resources/pricing-rules.yaml'));
   assert.ok(!isRuleFile('package.json') && !isRuleFile('rules/tsconfig.json') && !isRuleFile('src/rules/engine.ts'));
+  // Rules written in Markdown are read by folder too, as documentation the code is compared with.
+  for (const document of ['rules/refunds.md', 'policies/returns.md', 'config/business-rules/pricing.md', 'decision-tables/eligibility.md']) {
+    assert.ok(isDocumentationPath(document), document);
+  }
+  assert.ok(!isDocumentationPath('src/rules/engine.ts') && !isDocumentationPath('notes/rules.txt'));
   const yaml = ruleFileRules(file('rules/discounts.yml', [
     'rules:', '  - name: loyal-customer-discount', '    when:', '      all:', '        - field: customer.years', '          op: gte', '          value: 3',
     '        - field: order.total', '          op: gt', '          value: 100', '    then:', '      discount: 0.1'

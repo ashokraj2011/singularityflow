@@ -86,7 +86,8 @@ function sourceLabeler(sources) {
     byName.get(name).add(source.path);
   }
   const one = (source) => {
-    if (!source?.path) return '';
+    // A statement about the whole commit (the repository's counts) cites the commit.
+    if (!source?.path) return source?.commit ? `commit ${String(source.commit).slice(0, 12)}` : '';
     const name = path.posix.basename(source.path);
     const shown = byName.get(name)?.size > 1 ? source.path : name;
     if (source.heading) return `${shown} › ${String(source.heading).split(' › ').pop()}`;
@@ -99,6 +100,24 @@ function sourceLabeler(sources) {
 function clip(text) {
   const value = String(text ?? '').replace(/\s+/gu, ' ').trim();
   return value.length > BULLET_CHARACTERS ? `${value.slice(0, BULLET_CHARACTERS - 1)}…` : value;
+}
+
+/**
+ * The sections a "Not known" entry is about. A phase whose brief reads none of them is not told what
+ * they lack: an intake brief has no flows, so how calls were matched is not its concern.
+ */
+const NOT_KNOWN_SECTIONS = Object.freeze([
+  [/README or docs/u, ['overview', 'rules', 'questions']],
+  [/calls are matched by name/u, ['flows', 'impact']],
+  [/change history/u, ['risks', 'impact']],
+  [/runtime or incident/u, ['risks']]
+]);
+
+function relevantNotKnown(entries, order) {
+  return entries.filter((entry) => {
+    const about = NOT_KNOWN_SECTIONS.find(([pattern]) => pattern.test(entry))?.[1];
+    return !about || about.some((id) => order.includes(id));
+  });
 }
 
 /**
@@ -154,7 +173,9 @@ function applyPhrasing(sections, sentences) {
  * Render the brief. `template` is `templateBrief(briefEvidence(…))` (null when knowledge is off or
  * unavailable); `explanations` are accepted plain-language sentences; `phrasing` is a model's
  * checked sentences over the lines a template render selected (see brief-polish.mjs). The text never
- * exceeds `profile.budget` bytes except for its header and closing lines. `records` are the IDs of
+ * exceeds `profile.budget` bytes except for its header and closing lines, and every line cites its
+ * source (a file and line, a docs heading, or the commit for the repository's counts) or begins with
+ * the file it is about; a line that cites nothing is left out. `records` are the IDs of
  * the lines it includes, for the prompt receipt; `selection` is those lines, for a model to phrase.
  */
 export function renderPhaseBrief({
@@ -166,10 +187,12 @@ export function renderPhaseBrief({
   const sections = new Map(Object.keys(SECTION_TITLES).map((id) => [id, []]));
   const shown = new Set();
   // `facts` is what a model phrasing this line may draw on; `status` is a rule's, which stays the brief's own words.
-  const push = (section, text, source, { id = null, facts = null, status = null } = {}) => {
+  // A line that cites nothing is not shown, unless it begins with the file it is about.
+  const cites = (source) => [source].flat().some((entry) => entry?.path || entry?.commit);
+  const push = (section, text, source, { id = null, facts = null, status = null, pathLeads = false } = {}) => {
     const value = clip(text);
     const key = value.toLowerCase();
-    if (!value || shown.has(key)) return;
+    if (!value || shown.has(key) || !(pathLeads || cites(source))) return;
     shown.add(key);
     sections.get(section)?.push({ section, text: value, source, id: id ?? templateId(section, value), facts: facts ?? value, status });
   };
@@ -195,22 +218,23 @@ export function renderPhaseBrief({
   // planned file, the template's impact (what depends on the functions the Story names) stays.
   for (const record of flows ?? []) push('flows', record.text, record.sources.code, { id: record.id });
   // A file-level record begins with its path, so it needs no citation after it.
-  for (const record of impact ?? []) push('impact', record.text, record.scope === 'file' ? null : record.sources.code, { id: record.id });
-  for (const record of risks ?? []) push('risks', `${record.change === 2 ? '(changed by this Story) ' : ''}${record.text}`, record.scope === 'file' ? null : record.sources.code, { id: record.id });
+  for (const record of impact ?? []) push('impact', record.text, record.scope === 'file' ? null : record.sources.code, { id: record.id, pathLeads: record.scope === 'file' });
+  for (const record of risks ?? []) push('risks', `${record.change === 2 ? '(changed by this Story) ' : ''}${record.text}`, record.scope === 'file' ? null : record.sources.code, { id: record.id, pathLeads: record.scope === 'file' });
   const replaced = { rules, questions, contracts, flows: flows?.length ? flows : null, impact: impact?.length ? impact : null, risks: risks?.length ? risks : null };
   for (const id of Object.keys(SECTION_TITLES)) {
     if (replaced[id]) continue;
     for (const statement of template?.views?.[id] ?? []) {
       const source = statement.sources?.[0] ?? null;
       const heading = source?.label?.includes(' › ') ? source.label.split(' › ').slice(1).join(' › ') : null;
-      push(id, statement.text, source ? { path: source.path, line: source.line ?? null, heading } : null);
+      // The repository's own counts are the one overview line with no file: they are read from the commit.
+      push(id, statement.text, source ? { path: source.path, line: source.line ?? null, heading } : id === 'overview' && commit ? { commit } : null);
     }
   }
   const phrased = phrasing?.sentences?.length ? applyPhrasing(sections, phrasing.sentences) : 0;
   const order = profile.reader === 'product' ? profile.order : profile.order.filter((id) => id !== 'questions');
   const label = sourceLabeler([...sections.values()].flat().map((entry) => entry.source));
   const header = `# Repository brief: ${repository}${commit ? ` at ${String(commit).slice(0, 12)}` : ''} (for ${profile.id}${focusWords.size ? ', focused on this Story' : ''}${phrased ? '; phrased by a model' : ''})`;
-  const unknown = collapseNotKnown(notKnown);
+  const unknown = collapseNotKnown(relevantNotKnown(notKnown, order));
   const footer = [
     ...(unknown.length ? [`Not known: ${unknown.join('; ')}.`] : []),
     phrased

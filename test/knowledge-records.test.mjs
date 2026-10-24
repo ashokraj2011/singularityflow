@@ -97,3 +97,24 @@ test('a validation constraint carries the status the repository maps validation 
   assert.equal(record.status, 'conflict');
   assert.equal(record.conflict, 'the docs say HTTP 422; the code returns HTTP 400');
 });
+
+test('a status table row the code returns agrees, and a status any exception handler maps is one the code returns', () => {
+  const knowledge = { items: [
+    rule('K-1', 'OrderService.cancel', ['order.getStatus() != OrderStatus.PLACED'], { kind: 'refuses', text: 'Only placed orders can be cancelled' }, { line: 43 }),
+    { id: 'K-e1', kind: 'error-path', statement: { message: 'Only placed orders can be cancelled', status: 'CONFLICT' }, citations: [{ path: 'src/OrderService.java', lines: [44, 44], spanSha256: 'sha256:a' }] },
+    { id: 'K-e2', kind: 'error-path', subject: { path: 'src/OrderService.java' }, statement: { exception: 'OrderNotFoundException', message: null, status: 'NOT_FOUND' },
+      citations: [{ path: 'src/OrderService.java', lines: [42, 42], spanSha256: 'sha256:b' }] }
+  ] };
+  const documentation = { statements: [
+    { path: 'README.md', line: 18, heading: 'Error responses', text: '404 — the order does not exist' },
+    { path: 'README.md', line: 19, heading: 'Error responses', text: '422 — the order fails validation' },
+    { path: 'README.md', line: 22, heading: 'Notes', text: 'Unknown coupons return 404 and are never stored.' }
+  ] };
+  const records = buildRuleRecords(knowledge, documentation);
+  const notFound = records.find((record) => record.text.startsWith('404'));
+  assert.deepEqual([notFound.status, notFound.enforced, notFound.tested], ['agreed', true, null]);
+  assert.deepEqual(notFound.sources.code, [{ path: 'src/OrderService.java', line: 42, symbol: null }]);
+  assert.equal(ruleStatusWords(notFound), 'Documented, enforced.');
+  assert.equal(records.find((record) => record.text.startsWith('422')).conflict, 'the docs promise HTTP 422; the code\'s refusals return HTTP 404, 409');
+  assert.equal(records.find((record) => /coupons/u.test(record.text)).status, 'documented-only', 'a rule that mentions a status is not a status row');
+});

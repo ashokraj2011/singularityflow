@@ -313,13 +313,23 @@ export function buildRuleRecords(knowledge, documentation = null, { focus = null
       weight: 3, words: doc.anchors.words
     });
   }
-  // A status the docs promise that no code refusal returns: one repository-wide conflict.
-  const codeStatuses = new Set(codeRules.map((code) => code.anchors.status).filter(Boolean));
+  // A status the docs promise that the code never returns: one repository-wide conflict. The code
+  // returns its refusals' statuses and every status an exception handler maps (a lookup that throws
+  // "not found" has no condition to read as a rule).
+  const errorPaths = items.filter((item) => item.kind === 'error-path' && statusNumber(item.statement?.status) && item.citations?.[0]);
+  const codeStatuses = new Set([...codeRules.map((code) => code.anchors.status), ...errorPaths.map((item) => statusNumber(item.statement.status))].filter(Boolean));
   for (const record of records.filter((entry) => entry.origin === 'docs')) {
     const promised = (record.parts.statuses ?? []).filter((code) => code >= 400);
-    if (codeStatuses.size && promised.length && !promised.some((code) => codeStatuses.has(code))) {
+    if (!codeStatuses.size || !promised.length) continue;
+    if (!promised.some((code) => codeStatuses.has(code))) {
       record.status = 'conflict';
       record.conflict = `the docs promise HTTP ${promised.join(' or ')}; the code's refusals return HTTP ${[...codeStatuses].sort().join(', ')}`;
+    } else if (/^[1-5]\d\d\b/u.test(record.text)) {
+      // A row of a status table ("404 — the order does not exist") names a status the code returns.
+      const returning = errorPaths.filter((item) => promised.includes(statusNumber(item.statement.status))).slice(0, 1);
+      Object.assign(record, { status: 'agreed', enforced: true, tested: null });
+      record.sources.code = returning.map((item) => ({ path: item.citations[0].path, line: item.citations[0].lines?.[0] ?? null, symbol: item.subject?.symbol ?? null }));
+      record.anchors.push(...returning.flatMap((item) => codeAnchor(item.citations[0])));
     }
   }
   const focusWords = subjectWords(focus);

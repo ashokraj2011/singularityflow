@@ -23,7 +23,7 @@ import { gitCommitIdentity } from '../git.mjs';
 import { scanText } from '../secrets.mjs';
 import { SingularityFlowError } from '../util.mjs';
 import { parseBriefOutput } from './brief.mjs';
-import { ungrounded, unfitWording } from './brief-polish.mjs';
+import { numbersMissing, ungrounded, unfitWording } from './brief-polish.mjs';
 export { meaningText } from './records/rules.mjs';
 
 export const RULE_MEANINGS_PATH = 'docs/knowledge/rule-meanings.yml';
@@ -120,7 +120,8 @@ export function validateMeanings(output, evidence, { limits = MEANING_LIMITS } =
       || (meaning.intent && meaning.intent.split(/\s+/u).length > limits.intentWords)) { reject('too long'); continue; }
     const unfit = [meaning.condition, meaning.outcome, meaning.intent].filter(Boolean).map(unfitWording).find(Boolean);
     if (unfit) { reject(unfit); continue; }
-    const missing = ungrounded([meaning.condition, meaning.outcome, meaning.intent].filter(Boolean).join(' '), evidence.get(rule));
+    const said = [meaning.condition, meaning.outcome, meaning.intent].filter(Boolean).join(' ');
+    const missing = [...new Set([...ungrounded(said, evidence.get(rule)), ...numbersMissing(said, evidence.get(rule))])];
     if (missing.length) { reject(`names what its rule does not contain: ${missing.join(', ')}`); continue; }
     seen.add(rule);
     accepted.push({ rule, ...meaning });

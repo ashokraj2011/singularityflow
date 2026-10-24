@@ -1,0 +1,108 @@
+{
+  "name": "orders",
+  "fixture": "orders-spring",
+  "overlay": {
+    "README.md": "# Orders Service\n\nTakes customer orders, checks them and stores them.\n\n## Business rules\n\n- An order needs at least one line.\n- An order can have at most 20 lines.\n- Orders under 10.00 are not accepted.\n- VIP customers get a discount of 5%.\n- Only placed orders can be cancelled.\n\n## Error responses\n\n| Status | When |\n| --- | --- |\n| 400 | the order is invalid |\n| 404 | the order does not exist |\n| 409 | the order cannot be cancelled in its state |\n\n## Running\n\nRun `mvn spring-boot:run` and open the service on port 8080.\nThe service is written in Java and keeps orders in memory.\n"
+  },
+  "story": {
+    "title": "Let customers cancel a placed order",
+    "description": "Cancelling an order that is already paid or shipped must still be refused with a clear message.",
+    "acceptanceCriteria": [
+      "A placed order can be cancelled.",
+      "A paid order cannot be cancelled."
+    ]
+  },
+  "phases": [
+    "intake",
+    "design",
+    "implementation-spec",
+    "reproduction",
+    "implementation",
+    "verification",
+    "conformance",
+    "release"
+  ],
+  "golden": [
+    "intake",
+    "design",
+    "implementation",
+    "verification"
+  ],
+  "change": {
+    "paths": [
+      "src/main/java/com/acme/orders/service/OrderService.java"
+    ],
+    "edits": [
+      {
+        "file": "src/main/java/com/acme/orders/service/OrderService.java",
+        "find": "throw new IllegalStateException(\"Only placed orders can be cancelled\");",
+        "replace": "throw new IllegalStateException(\"Only placed orders can be cancelled, not \" + order.getStatus());"
+      },
+      {
+        "file": "src/main/java/com/acme/orders/service/OrderService.java",
+        "find": "if (order.getLines().size() > MAX_ITEMS) {",
+        "replace": "if (order.getLines().size() >= MAX_ITEMS + 1) {"
+      }
+    ]
+  },
+  "labels": {
+    "links": [
+      {
+        "docs": "An order needs at least one line",
+        "code": "order.getLines().isEmpty()"
+      },
+      {
+        "docs": "An order can have at most 20 lines",
+        "code": "MAX_ITEMS"
+      },
+      {
+        "docs": "Orders under 10.00 are not accepted",
+        "code": "MINIMUM_ORDER_TOTAL"
+      },
+      {
+        "docs": "VIP customers get a discount of 5%",
+        "code": "VIP_DISCOUNT_RATE"
+      },
+      {
+        "docs": "Only placed orders can be cancelled",
+        "code": "OrderStatus.PLACED"
+      },
+      {
+        "docs": "400 —",
+        "code": "OrderService.java"
+      },
+      {
+        "docs": "404 —",
+        "code": "OrderService.java:42"
+      },
+      {
+        "docs": "409 —",
+        "code": "OrderService.java:44"
+      }
+    ],
+    "statements": [
+      "at least one line",
+      "at most 20 lines",
+      "Orders under 10.00",
+      "VIP customers",
+      "Only placed orders",
+      "400 —",
+      "404 —",
+      "409 —"
+    ],
+    "impact": [
+      "OrderService.cancel",
+      "OrderController.cancel",
+      "POST /orders/{id}/cancel",
+      "OrderService.place",
+      "OrderController.place",
+      "OrderServiceTest"
+    ],
+    "relevant": [
+      "cancel",
+      "OrderStatus",
+      "PLACED",
+      "409"
+    ]
+  }
+}

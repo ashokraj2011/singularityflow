@@ -1,0 +1,57 @@
+{
+  "phase": "intake",
+  "model": "recorded",
+  "sentences": [
+    {
+      "text": "A refund must be at least 1.",
+      "cites": [
+        "R-634b08786e21"
+      ],
+      "bad": "changes a value: more than 0"
+    },
+    {
+      "text": "Refunds are paid out through StripeGateway.",
+      "cites": [
+        "C-8ea881ed60c5"
+      ],
+      "bad": "adds a name this record does not hold"
+    },
+    {
+      "text": "POST /refunds is tested and checks every refund.",
+      "cites": [
+        "C-8ea881ed60c5",
+        "C-ef7c92e37bff"
+      ],
+      "bad": "drops a \"no\": no test reaches it"
+    },
+    {
+      "text": "An order total must be at least 100.",
+      "cites": [
+        "R-df855c2ecdcc"
+      ],
+      "bad": "changes a value: at least 10"
+    },
+    {
+      "text": "A refund's amount must be more than 0, as the docs say refund amounts must be positive.",
+      "cites": [
+        "R-634b08786e21"
+      ],
+      "bad": null
+    },
+    {
+      "text": "Should Refund be validated (@Valid), since no endpoint validates its reason or its amount?",
+      "cites": [
+        "Q-634b08786e21",
+        "Q-2adc0c3b6ccb"
+      ],
+      "bad": null
+    },
+    {
+      "text": "Refunds arrive at POST /refunds with a reason and an amount.",
+      "cites": [
+        "C-8ea881ed60c5"
+      ],
+      "bad": null
+    }
+  ]
+}

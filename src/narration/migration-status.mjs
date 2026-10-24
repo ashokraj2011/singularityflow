@@ -17,12 +17,14 @@ export const MIGRATED_NARRATION_COMMANDS = Object.freeze([
   'reinstall', 'reject', 'repair', 'request', 'resume', 'return', 'revise', 'revision', 'review-source', 'secrets', 'specify', 'precheck',
   'instruction', 'skill', 'start', 'submit', 'task', 'tokens', 'upstream-issue', 'decisions', 'verify', 'why',
   // Like env: model-free commands whose --json is their own structured result (sflow-app-*, sflow-test-*).
-  'app', 'tests', 'call'
+  'app', 'tests', 'call',
+  // Emits the sflow-result v2 envelope the gateway serves, which is a structured result too [INT:IFC-020].
+  'home'
 ]);
 
 export const LEGACY_NARRATION_COMMANDS = Object.freeze([
   'about', 'action', 'agents', 'artifact', 'assign', 'bootstrap', 'cancel',
-  'capabilities', 'capability', 'choices', 'configuration', 'doctor', 'home',
+  'capabilities', 'capability', 'choices', 'configuration', 'doctor',
   'documents', 'epic', 'factory-reset', 'finalize', 'fresh-install', 'gate', 'guide',
   'harness', 'help', 'hook', 'impact', 'inbox', 'init', 'initiative', 'inputs', 'jira',
   'knowledge', 'ledger', 'logs', 'mcp', 'next', 'nextsteps', 'phase', 'plugin', 'pr',
@@ -35,7 +37,7 @@ export const LEGACY_NARRATION_COMMANDS = Object.freeze([
 // This is a ratchet, not a target. New commands must use CommandResult from day one. Lower this
 // ceiling whenever another legacy command is converted so the unstructured-output surface can
 // only shrink.
-export const MAX_LEGACY_NARRATION_COMMANDS = 64;
+export const MAX_LEGACY_NARRATION_COMMANDS = 63;
 
 export function validateNarrationMigrationStatus() {
   const registered = new Set(COMMAND_REGISTRY.map((entry) => entry.name));

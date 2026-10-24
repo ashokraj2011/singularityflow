@@ -19,13 +19,11 @@ import { actionCommandLines, copilotAction } from '../copilot-guidance.mjs';
 export { citationLine, docsHandle, parseDocsHandle, servedBody } from '../help-service.mjs';
 import { citationLine, docsHandle, servedBody } from '../help-service.mjs';
 import {
-  action, because, commandResult, noEffects, refused, succeeded
-} from '../narration/command-result.mjs';
-import { emitCommandResult } from '../narration/emit.mjs';
-import { operationById } from '../command-registry.mjs';
+  explainClarificationResult, explainIndexResult, explainServedResult
+} from '../gateway/planners/help-explain.mjs';
+import { message } from '../gateway/messages.mjs';
+import { markCommandFeedback } from '../dx-timing-context.mjs';
 import { optionBoolean, optionNumber, optionString } from '../util.mjs';
-
-const OPERATION = 'explain';
 
 async function recordResolutionMetric(resolution) {
   try {
@@ -130,7 +128,6 @@ export async function run(argv, {
     const { runCodeExplanation } = await import('../comprehension/code-explanation-command.mjs');
     return runCodeExplanation(argv, { positionals, options, operation: suppliedOperation });
   }
-  const operation = suppliedOperation ?? operationById(OPERATION);
   const json = optionBoolean(options, 'json');
   const query = positionals[1];
   const resolution = await resolveHelp(query, {
@@ -139,169 +136,82 @@ export async function run(argv, {
   });
   await recordResolutionMetric(resolution);
 
-  if (resolution.status === 'index') return emitList(resolution.topics, resolution, { json, operation });
+  if (resolution.status === 'index') return emitList(resolution.topics, resolution, { json });
 
-  const helpIntent = resolution.helpIntent;
-
-  if (resolution.status === 'ambiguous') {
-    // Never a guess `[DOC:CON-006]`. The candidates are the answer.
-    const result = commandResult({
-      operation,
-      outcome: refused('docs.topic-ambiguous', { query: resolution.query, count: resolution.candidates.length }),
-      effects: noEffects(),
-      why: [because('docs.prefix-ambiguous', 'docs',
-        { ref: 'docs/topics', slots: { query: resolution.query, count: resolution.candidates.length } })],
-      next: resolution.candidates.slice(0, 5).map((topic) => action({
-        id: `explain.${topic.id}`, label: `Read ${topic.id}`, command: `sflow explain ${topic.id}`, kind: 'informational'
-      })),
-      data: { query: resolution.query, candidates: resolution.candidates.map((topic) => topic.id), helpIntent }
-    });
-    emitCommandResult(result, { json, restStateWhenIdle: null });
+  if (resolution.status === 'ambiguous' || resolution.status === 'not-found') {
+    // Never a guess `[DOC:CON-006]`, and never a dead end `[DOC:REQ-013]`: the candidates are the answer.
+    emit(explainClarificationResult(resolution), { json });
     // A refusal is a refusal at the shell too: a script that pipes `explain` must be able to tell
     // "here is the topic" from "there is no such topic" without parsing the prose.
     process.exitCode = 2;
     return {};
   }
 
-  if (resolution.status === 'not-found') {
-    // The no-dead-ends rule binds here as everywhere `[DOC:REQ-013]`: even "I don't have that" has
-    // to leave the reader somewhere they can go.
-    const fallback = resolution.candidates.map((topic) => topic.id);
-    const result = commandResult({
-      operation,
-      outcome: refused('docs.topic-not-found', { query: resolution.query }),
-      effects: noEffects(),
-      why: [because('docs.no-such-topic', 'docs',
-        { ref: 'docs/topics', slots: { query: resolution.query }, topic: 'help-and-docs' })],
-      next: [
-        ...fallback.map((id) => action({
-          id: `explain.${id}`, label: `Read ${id}`, command: `sflow explain ${id}`, kind: 'informational'
-        })),
-        action({ id: 'explain.list', label: 'List every topic', command: 'sflow explain', rank: 'LATER', kind: 'informational' })
-      ],
-      data: { query: resolution.query, nearest: fallback, helpIntent }
-    });
-    emitCommandResult(result, { json, restStateWhenIdle: null });
-    // A refusal is a refusal at the shell too: a script that pipes `explain` must be able to tell
-    // "here is the topic" from "there is no such topic" without parsing the prose.
-    process.exitCode = 2;
-    return {};
-  }
-
-  const topic = resolution.topic;
   const provenance = resolution.provenance;
   const served = resolution.served;
 
   const wantsHere = optionBoolean(options, 'here');
   const situation = wantsHere ? await situationHere() : null;
   const here = situation?.resolved ? situation : null;
+  const result = explainServedResult(resolution, { wantsHere, here, situation });
 
-  // A topic that names no related reading is a genuine rest state, not a dead end: the reader asked
-  // a question and got the whole answer.
-  const related = resolution.related.map((entry) => action({
-    id: `explain.${entry.id}`,
-    label: `Read ${entry.id}`,
-    command: `sflow explain ${entry.id}`,
-    rank: 'LATER',
-    kind: 'informational'
-  }));
-  const result = commandResult({
-    operation,
-    outcome: here
-      ? succeeded('docs.served-with-state', {
-        topic: topic.id, title: topic.title, version: topic.version, subject: here.subject
-      })
-      : succeeded('docs.served', { topic: topic.id, title: topic.title, version: topic.version }),
-    effects: noEffects(),
-    // Degrading is explained, not silent: the reader asked for their situation and did not get it.
-    why: wantsHere && !here
-      ? [because('docs.subject-unresolved', 'docs', { ref: 'docs/topics' })]
-      : [],
-    next: related,
-    restState: related.length ? null : 'informational',
-    data: {
-      resolvedBy: resolution.matchedBy,
-      helpIntent,
-      provenance,
-      citation: citationLine(provenance),
-      topic: {
-        id: topic.id, title: topic.title, version: topic.version, sha256: topic.sha256,
-        commands: [...topic.commands], related: [...topic.related], aliases: [...topic.aliases]
-      },
-      served: {
-        text: served.text, bytes: served.bytes, truncated: served.truncated,
-        sha256: served.sha256, handle: served.handle
-      },
-      // Two planes, two citations, never blended `[DOC:REQ-022]`. The concept cites a topic version;
-      // the situation cites a revision. A reader can always tell which sentence came from where.
-      here: here
-        ? {
-          plane: 'state', subject: here.subject, phase: here.phase, status: here.status,
-          revision: here.revision, branch: here.branch, lines: here.lines
-        }
-        : null,
-      // Why the state plane is absent, when it was asked for. `unreadable` is not the same as "you
-      // are not in a story", and collapsing the two is what hid this feature being dead.
-      hereUnavailable: wantsHere && !here
-        ? { reason: situation?.reason ?? 'unknown', detail: situation?.detail ?? null }
-        : null
-    }
-  });
-
-  if (json) {
-    emitCommandResult(result, { json: true });
-  } else {
-    // Text form leads with the bytes, because that is what was asked for, and closes with the
-    // citation on its own line so a reader — or a checker — can find it without parsing prose.
-    console.log('Concept');
-    console.log(served.text);
-    if (served.truncated) {
-      console.log(`\n[truncated at ${served.bytes} bytes]`);
-      for (const line of actionCommandLines(copilotAction({
-        command: `sflow show ${served.handle} --section <heading>`
-      }), 'Expand')) console.log(line);
-    }
-    console.log(citationLine(provenance));
-    if (here) {
-      console.log('\nHere');
-      for (const line of here.lines) console.log(line);
-      // The state plane cites a revision, never a topic version. That is the whole point of keeping
-      // the two labelled `[DOC:REQ-022]`: a reader can tell which sentence came from which plane.
-      console.log(`— ${here.subject} at revision ${here.revision ? here.revision.slice(0, 7) : 'unknown'}`);
-    } else if (wantsHere) {
-      console.log(`\nHere\n${situation?.reason === 'unreadable'
-        ? `The lifecycle could not be read here (${situation.detail}), so only the concept is shown.`
-        : 'No work item resolves in this directory, so only the concept is shown.'}`);
-    }
-    emitCommandResult(result, { json: false, restStateWhenIdle: null });
+  if (json) return emit(result, { json: true });
+  // Text form leads with the bytes, because that is what was asked for, and closes with the
+  // citation on its own line so a reader — or a checker — can find it without parsing prose.
+  console.log('Concept');
+  console.log(served.text);
+  if (served.truncated) {
+    console.log(`\n[truncated at ${served.bytes} bytes]`);
+    for (const line of actionCommandLines(copilotAction({
+      command: `sflow show ${served.handle} --section <heading>`
+    }), 'Expand')) console.log(line);
   }
+  console.log(citationLine(provenance));
+  if (here) {
+    console.log('\nHere');
+    for (const line of here.lines) console.log(line);
+    // The state plane cites a revision, never a topic version. That is the whole point of keeping
+    // the two labelled `[DOC:REQ-022]`: a reader can tell which sentence came from which plane.
+    console.log(`— ${here.subject} at revision ${here.revision ? here.revision.slice(0, 7) : 'unknown'}`);
+  } else if (wantsHere) {
+    console.log(`\nHere\n${situation?.reason === 'unreadable'
+      ? `The lifecycle could not be read here (${situation.detail}), so only the concept is shown.`
+      : 'No work item resolves in this directory, so only the concept is shown.'}`);
+  }
+  emit(result, { json: false, headline: false });
+  return {};
+}
+
+/**
+ * One output boundary for the v2 envelope. `[INT:IFC-020]`
+ *
+ * JSON is the result itself. Text is the catalogued headline and reasons, then each offered action
+ * with its terminal route — the same four channels a host renders, in the order a reader needs them.
+ */
+function emit(result, { json, headline = true }) {
+  markCommandFeedback();
+  if (json) {
+    console.log(JSON.stringify(result, null, 2));
+    return {};
+  }
+  const lines = [];
+  if (headline) lines.push(message(result.outcome.messageId, result.outcome.slots).label);
+  for (const reason of result.why) {
+    if (reason.code !== 'explain.cited' && reason.code !== 'explain.index') lines.push(`- ${message(reason.code, reason.slots).label}`);
+  }
+  if (result.next.length) {
+    lines.push('', 'Next:');
+    for (const action of result.next) lines.push(`  ${action.label}${action.fallback?.command ? `  (${action.fallback.command})` : ''}`);
+  }
+  if (lines.length) console.log(lines.join('\n'));
   return {};
 }
 
 /** With no argument, `explain` is the table of contents. */
-function emitList(topics, resolution, { json, operation }) {
-  const result = commandResult({
-    operation,
-    outcome: succeeded('docs.served', { topic: 'index', title: 'Documentation topics', version: 1 }),
-    effects: noEffects(),
-    next: topics.slice(0, 3).map((topic) => action({
-      id: `explain.${topic.id}`, label: `Read ${topic.id}`, command: `sflow explain ${topic.id}`, kind: 'informational'
-    })),
-    data: {
-      provenance: {
-        topic: 'index', topicVersion: 1,
-        docsSourceCommit: resolution.provenance?.docsSourceCommit ?? null,
-        docsContentSha256: resolution.provenance?.docsContentSha256 ?? null
-      },
-      topics: topics.map((topic) => ({ id: topic.id, title: topic.title, version: topic.version }))
-    }
-  });
-  if (json) {
-    emitCommandResult(result, { json: true });
-  } else {
-    const width = Math.max(...topics.map((topic) => topic.id.length));
-    for (const topic of topics) console.log(`  ${topic.id.padEnd(width)}  ${topic.title}`);
-    emitCommandResult(result, { json: false });
-  }
-  return {};
+function emitList(topics, resolution, { json }) {
+  const result = explainIndexResult(topics, resolution.provenance);
+  if (json) return emit(result, { json: true });
+  const width = Math.max(...topics.map((topic) => topic.id.length));
+  for (const topic of topics) console.log(`  ${topic.id.padEnd(width)}  ${topic.title}`);
+  return emit(result, { json: false, headline: false });
 }

@@ -2766,7 +2766,7 @@ Blocked: relay `resolution.issues[].choices` too. Eligible risk needs reason/exp
           <span class="pill">echo</span>
           <span class="pill">machine boundary</span>
           <span class="pill">model: never</span>
-          <span class="pill">~828 body tokens</span>
+          <span class="pill">~827 body tokens</span>
         </div>
         <dl>
           <div><dt>Command</dt><dd><code>/sflow-docs</code></dd></div>
@@ -2799,7 +2799,7 @@ Before any boundary lookup or SFlow action, run `singularity-flow pause status -
 2. Read the served bytes from `data.served.text` and preserve `data.helpIntent`, provenance, and warnings.
 3. Answer using that content. The substance of the reply must come from the served bytes — if the topic does not say it, do not say it.
 4. End with the citation from `data.citation`, verbatim. It names the topic id, its version, and the docs commit.
-5. If `explain` refuses with `docs.topic-not-found`, say so and offer the nearest topic ids it returned. Do not answer the question from memory instead — a fluent wrong answer about governance is worse than none.
+5. If `explain` refuses with `explain.no-match`, say so and offer the nearest topic ids it returned. Do not answer the question from memory instead — a fluent wrong answer about governance is worse than none.
 6. If the question is ambiguous between topics, present the returned choices. Do not pick one or blend their answers.
 7. For &quot;what should I do here&quot;, &quot;should I escalate&quot;, or any decision, do not answer. Point to `singularity-flow nextsteps` for the deterministic action set, and to the human approval authorities the pinned configuration names.
 8. When the reader wants repository context, first run `singularity-flow workspace current --json`.

@@ -419,3 +419,24 @@ test('no producer emits a model-consent interaction in v1', () => {
   // journey there is somewhere to ask; until then the silence is asserted, not assumed.
   assert.ok(INTERACTION_CLASSES.includes('model-consent'));
 });
+
+test('one-canonical-result-contract', async () => {
+  // `[INT:AC-003]` `[INT:CON-042]`: the touched producers emit v2, and nothing among them emits v1.
+  const { spawnSync } = await import('node:child_process');
+  const { mkdtemp, rm } = await import('node:fs/promises');
+  const os = await import('node:os');
+  const path = await import('node:path');
+  const cli = new URL('../bin/singularity-flow.mjs', import.meta.url).pathname;
+  const directory = await mkdtemp(path.join(os.tmpdir(), 'sflow-v2-producers-'));
+  try {
+    for (const argv of [['explain', '--json'], ['explain', 'approvals', '--json'], ['explain', 'aproovals', '--json'], ['home', '--json']]) {
+      const ran = spawnSync(process.execPath, [cli, ...argv], { cwd: directory, encoding: 'utf8', timeout: 60_000 });
+      const payload = JSON.parse(ran.stdout);
+      assert.notEqual(payload.resultType, 'command-result', `${argv.join(' ')} still emits v1`);
+      validateSflowResult(payload);
+      assert.equal(payload.schemaVersion, 2, argv.join(' '));
+    }
+  } finally {
+    await rm(directory, { recursive: true, force: true });
+  }
+});

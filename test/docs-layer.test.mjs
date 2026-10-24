@@ -88,13 +88,16 @@ test('not-found-lists-nearest-and-next: a miss is never a dead end', async () =>
   const result = runOutsideRepository(['explain', 'aproovals', '--json'], directory);
   assert.equal(result.status, 2, `expected a refusal exit code, got ${result.status}: ${result.stderr}`);
   const payload = JSON.parse(result.stdout);
-  assert.equal(payload.outcome.messageId, 'docs.topic-not-found');
+  // The v2 envelope [INT:CON-042]: a question back, refused as asked, with nothing carried out.
+  assert.deepEqual([payload.schemaVersion, payload.resultType, payload.kind], [2, 'sflow-result', 'clarification']);
+  assert.equal(payload.outcome.status, 'refused');
+  assert.equal(payload.why[0].code, 'explain.no-match');
   // NCL-006 binds here as everywhere: even "I do not have that" has to offer somewhere to go.
   assert.ok(payload.next.length > 0, 'a not-found response offered no next action');
-  assert.ok(payload.next.some((entry) => entry.command === 'sflow explain approvals'));
+  assert.ok(payload.next.some((entry) => entry.fallback?.command === 'sflow explain approvals'));
   assert.equal(payload.data.nearest[0], 'approvals');
-  // And the WHY deep-links the topic that explains the docs layer itself.
-  assert.equal(payload.why[0].topic, 'help-and-docs');
+  // And the WHY references the topic that explains the docs layer itself.
+  assert.equal(payload.why[0].reference, 'help-and-docs');
 });
 
 test('natural questions resolve only with strong authored metadata', async () => {
@@ -225,8 +228,8 @@ test('--here renders both planes with distinct citations, and degrades without a
 
   // No subject resolves here, so the concept is served alone — and the degradation is stated.
   assert.equal(payload.data.here, null);
-  assert.equal(payload.outcome.messageId, 'docs.served');
-  assert.ok(payload.why.some((entry) => entry.code === 'docs.subject-unresolved'),
+  assert.equal(payload.outcome.messageId, 'gateway.explained');
+  assert.ok(payload.why.some((entry) => entry.code === 'explain.subject-unresolved'),
     'degrading to the concept alone was not explained');
 
   // The concept half always cites a topic version; that is the citation the state half must not
@@ -291,7 +294,8 @@ test('--here actually renders the state plane in a governed repository', async (
   assert.equal(payload.data.here.phase, 'intake');
   assert.ok(payload.data.here.revision, 'the state plane cites no revision');
   assert.equal(payload.data.hereUnavailable, null);
-  assert.equal(payload.outcome.messageId, 'docs.served-with-state');
+  assert.equal(payload.outcome.messageId, 'gateway.explained');
+  assert.ok(payload.why.some((entry) => entry.code === 'explain.situation-from-state' && entry.source === 'lifecycle'));
 
   // Two planes, two citations `[DOC:REQ-022]`: the concept cites a topic version, the situation a
   // revision, and neither borrows the other's provenance.

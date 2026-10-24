@@ -8,13 +8,14 @@ import test from 'node:test';
 import { completeAgentResult } from '../src/agent-output.mjs';
 import { scopedUtilityRead } from '../src/utility-entry.mjs';
 import { publishedSpecificationStory, reviewReport } from './helpers/source-review-fixture.mjs';
+import { childTimeout } from './helpers/child-timeout.mjs';
 
 const engine = fileURLToPath(new URL('..', import.meta.url));
 
 test('paired measurement requires a baseline and balanced sample order before starting any fixture', () => {
   const script = path.join(engine, 'scripts/source-review-paired-benchmark.mjs');
   for (const args of [[], ['--baseline-engine=.', '--samples=3'], ['--baseline-engine=.', '--samples=0']]) {
-    const result = spawnSync(process.execPath, [script, ...args], { encoding: 'utf8', timeout: 10_000 });
+    const result = spawnSync(process.execPath, [script, ...args], { encoding: 'utf8', timeout: childTimeout(10_000) });
     assert.notEqual(result.status, 0);
     assert.match(result.stderr, /baseline-engine|even sample count/u);
   }
@@ -63,7 +64,7 @@ test('native review context/check/status avoid full catalog accounting and reten
   function invoke(action, flags = []) {
     const result = spawnSync(process.execPath, [path.join(engine, 'bin/singularity-flow.mjs'),
       'review-source', action, phaseId, ...flags, '--json', '--timings'], {
-      cwd: root, env, encoding: 'utf8', maxBuffer: 16 * 1024 * 1024, timeout: 90_000
+      cwd: root, env, encoding: 'utf8', maxBuffer: 16 * 1024 * 1024, timeout: childTimeout(90_000)
     });
     assert.equal(result.status, 0, result.stderr || result.stdout);
     const counter = name => Number(result.stderr.match(new RegExp(`(?:^|\\s)${name.replaceAll('.', '\\.')}=([0-9]+)(?=\\s|$)`))?.[1] ?? 0);

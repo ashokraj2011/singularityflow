@@ -17,6 +17,7 @@ import { readWorkspace, rememberWorkspace } from '../src/workspace.mjs';
 import { activateWorkspaceContext, readActiveWorkspaceContext, workspaceMemberContextForRepository } from '../src/workspace-context.mjs';
 import { automaticStoryCheckoutRequest, automaticWorkspaceStoryCheckout, automaticStorySelection, withAutomaticStoryCheckout } from '../src/workspace-story-checkout.mjs';
 import { beginCustomSelectionReceipt, answerSelectionReceipt, selectionReceiptStatus } from '../src/choices.mjs';
+import { childTimeout } from './helpers/child-timeout.mjs';
 
 const git = (cwd, ...args) => run('git', args, { cwd }).stdout.trim();
 const packageRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
@@ -297,7 +298,7 @@ test('workspace prepare-branch is available from the narrow CLI without an old o
   await mkdir(path.join(f.original, '.git/objects'));
   const execution = spawnSync(process.execPath, [path.join(packageRoot, 'bin/singularity-flow.mjs'),
     'workspace', 'prepare-branch', '--repository', 'app', '--repository-path', oldStory, '--from-branch', 'main', '--json'], {
-    cwd: f.workspace.path, encoding: 'utf8', timeout: 60_000,
+    cwd: f.workspace.path, encoding: 'utf8', timeout: childTimeout(60_000),
     env: { ...process.env, SINGULARITY_FLOW_ACTIVE_WORKSPACE: f.selection, SINGULARITY_FLOW_WORKSPACE_REGISTRY: f.registry }
   });
   assert.equal(execution.status, 0, execution.stderr || execution.stdout);
@@ -331,7 +332,7 @@ test('readiness is metadata-only and Start reuses workspace objects directly, pr
     SINGULARITY_FLOW_LEAD_REGISTRY: path.join(f.root, 'leads.json') };
   const cli = (args) => {
     const executed = spawnSync(process.execPath, [path.join(packageRoot, 'bin/singularity-flow.mjs'), ...args], {
-      cwd: f.original, env, encoding: 'utf8', timeout: 90_000, maxBuffer: 16 * 1024 * 1024
+      cwd: f.original, env, encoding: 'utf8', timeout: childTimeout(90_000), maxBuffer: 16 * 1024 * 1024
     });
     assert.equal(executed.status, 0, `${executed.stderr}\n${executed.stdout}`);
     return JSON.parse(executed.stdout);
@@ -437,7 +438,7 @@ test('receipt-only Start creates the worktree directly from its signed base, not
     '--description', 'Use the exact human-selected application tree', '--json'], {
     cwd: f.original, env: { ...process.env, NODE_ENV: 'test', SINGULARITY_FLOW_TEST_IDENTITY: 'Fixture',
       SINGULARITY_FLOW_ACTIVE_WORKSPACE: f.selection, SINGULARITY_FLOW_WORKSPACE_REGISTRY: f.registry,
-      SINGULARITY_FLOW_LEAD_REGISTRY: path.join(f.root, 'leads.json') }, encoding: 'utf8', timeout: 90000, maxBuffer: 16 * 1024 * 1024
+      SINGULARITY_FLOW_LEAD_REGISTRY: path.join(f.root, 'leads.json') }, encoding: 'utf8', timeout: childTimeout(90000), maxBuffer: 16 * 1024 * 1024
   });
   assert.equal(result.status, 0, `${result.stderr}\n${result.stdout}`);
   const payload = JSON.parse(result.stdout).data ?? JSON.parse(result.stdout);

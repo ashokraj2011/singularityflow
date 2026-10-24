@@ -7,6 +7,7 @@ import test from 'node:test';
 
 import { initializeDefinition } from '../src/config.mjs';
 import { run } from '../src/util.mjs';
+import { childTimeout } from './helpers/child-timeout.mjs';
 
 const commandUrl = new URL('../src/commands/capability.mjs', import.meta.url).href;
 const legacyUrl = new URL('../src/cli.mjs', import.meta.url).href;
@@ -101,7 +102,7 @@ function invoke(f, context, { legacy = false, loadOnly = false, missingOperand =
     ...(!legacy ? ['--experimental-loader', f.loader] : []),
     '--input-type=module', '-e', code
   ], { cwd: f.base, env: { ...f.env, NODE_NO_WARNINGS: '1' }, encoding: 'utf8',
-    timeout: 30_000, maxBuffer: 8 * 1024 * 1024 });
+    timeout: childTimeout(30_000), maxBuffer: 8 * 1024 * 1024 });
   assert.equal(child.error, undefined, child.error?.message);
   assert.equal(child.status, 0, child.stderr);
   return JSON.parse(child.stdout);

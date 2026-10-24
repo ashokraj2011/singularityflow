@@ -11,6 +11,7 @@ import { agentNextSteps } from '../src/commands/nextsteps.mjs';
 import { authoringSkillCatalog } from '../src/authoring-skills.mjs';
 import { loadSkillPolicy } from '../scripts/skill-policy.mjs';
 import { copilotPauseGuardForSkill, SESSION_ENTRY_PAUSE_GUARD, SESSION_OPEN_PAUSE_GUARD } from '../src/copilot-mode.mjs';
+import { childTimeout } from './helpers/child-timeout.mjs';
 
 test('session setup uses its pause-aware entry without an extra host lookup', async () => {
   assert.equal(copilotPauseGuardForSkill('sflow-session', 'repository'), SESSION_OPEN_PAUSE_GUARD);
@@ -131,7 +132,7 @@ test('trace reads use only the selected bounded regular file', async t => {
   assert.deepEqual(await readNativeCopilotTrace(file), data);
   const packageRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
   const cli = spawnSync(process.execPath, [path.join(packageRoot, 'scripts/native-copilot-audit.mjs'), '--trace', file],
-    { cwd: root, encoding: 'utf8', timeout: 15000 });
+    { cwd: root, encoding: 'utf8', timeout: childTimeout(15000) });
   assert.equal(cli.status, 0, cli.stderr);
   const result = JSON.parse(cli.stdout);
   assert.equal(result.skillCount, Object.keys((await loadSkillPolicy(packageRoot)).policy.skills).length);
@@ -142,11 +143,11 @@ test('trace reads use only the selected bounded regular file', async t => {
   assert.equal(result.trace.providerUsage, null);
   assert.deepEqual(result.errors, []);
   const detailed = spawnSync(process.execPath, [path.join(packageRoot, 'scripts/native-copilot-audit.mjs'), '--details'],
-    { cwd: root, encoding: 'utf8', timeout: 15000 });
+    { cwd: root, encoding: 'utf8', timeout: childTimeout(15000) });
   assert.equal(detailed.status, 0, detailed.stderr);
   assert.equal(JSON.parse(detailed.stdout).skills.length, result.skillCount);
   const invalid = spawnSync(process.execPath, [path.join(packageRoot, 'scripts/native-copilot-audit.mjs'), '--unknown', file],
-    { cwd: root, encoding: 'utf8', timeout: 15000 });
+    { cwd: root, encoding: 'utf8', timeout: childTimeout(15000) });
   assert.notEqual(invalid.status, 0);
   assert.equal(invalid.stdout, '');
   await assert.rejects(readNativeCopilotTrace(root));

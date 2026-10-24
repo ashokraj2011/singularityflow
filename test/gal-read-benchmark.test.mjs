@@ -1,10 +1,11 @@
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
 import test from 'node:test';
+import { childTimeout } from './helpers/child-timeout.mjs';
 
 function run(...args) {
   return spawnSync(process.execPath, ['scripts/gal-read-benchmark.mjs', ...args], {
-    cwd: process.cwd(), encoding: 'utf8', timeout: 30_000,
+    cwd: process.cwd(), encoding: 'utf8', timeout: childTimeout(30_000),
     maxBuffer: 1024 * 1024, windowsHide: true
   });
 }

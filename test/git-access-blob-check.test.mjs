@@ -7,9 +7,10 @@ import test from 'node:test';
 
 import { createGitRuntime } from '../src/git-access.mjs';
 import { checkLocalGitBlobsAsync } from '../src/git-local-blob-async.mjs';
+import { childTimeout } from './helpers/child-timeout.mjs';
 
 function git(cwd, args, input = undefined, allowFailure = false) {
-  const result = spawnSync('git', args, { cwd, input, encoding: 'utf8', timeout: 10_000 });
+  const result = spawnSync('git', args, { cwd, input, encoding: 'utf8', timeout: childTimeout(10_000) });
   if (!allowFailure) assert.equal(result.status, 0, String(result.stderr || result.error));
   return result;
 }

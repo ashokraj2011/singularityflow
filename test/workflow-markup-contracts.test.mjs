@@ -12,6 +12,7 @@ import { normalizeApprovalPolicy } from '../src/approval-authority.mjs';
 import { refusalEnvelope } from '../src/refusal-remediation.mjs';
 import * as patterns from '../src/workflow-intent-patterns.mjs';
 import { workflowMarkupCandidate } from './helpers/workflow-markup-candidate.mjs';
+import { childTimeout } from './helpers/child-timeout.mjs';
 
 const CLI = fileURLToPath(new URL('../bin/singularity-flow.mjs', import.meta.url));
 
@@ -72,7 +73,7 @@ test('publication authority correction reaches native design review without losi
 test('sequential native compilation works through CLI JSON, text and phase inspection', async () => {
   const source = await withWorkflowIntentCatalog(null, { source: 'installed' }, catalog => workflowMarkupCandidate(catalog, 'poc-workflow'));
   for (const flags of [[], ['--json'], ['--design-review', '--json'], ['--inspect-phase', 'candidate-poc-workflow-step-6', '--json']]) {
-    const result = spawnSync(process.execPath, [CLI, 'workflow', 'markup', 'compile', '-', ...flags], { input: source, encoding: 'utf8', timeout: 60000 });
+    const result = spawnSync(process.execPath, [CLI, 'workflow', 'markup', 'compile', '-', ...flags], { input: source, encoding: 'utf8', timeout: childTimeout(60000) });
     assert.equal(result.status, 0, result.stderr || result.stdout);
     if (flags.includes('--json')) {
       const value = JSON.parse(result.stdout);

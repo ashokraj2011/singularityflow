@@ -30,6 +30,7 @@ import {
 } from '../src/harness-imports.mjs';
 import { citesTopic, docsGrounded, groundedOverlap } from '../src/docs-conformance.mjs';
 import { docsHandle, servedBody } from '../src/commands/explain.mjs';
+import { childTimeout } from './helpers/child-timeout.mjs';
 
 const packageRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const cli = path.join(packageRoot, 'bin', 'singularity-flow.mjs');
@@ -37,7 +38,7 @@ const cli = path.join(packageRoot, 'bin', 'singularity-flow.mjs');
 /** Run the CLI somewhere that is deliberately not a repository. */
 function runOutsideRepository(args, cwd) {
   return spawnSync(process.execPath, [cli, ...args], {
-    cwd, encoding: 'utf8', timeout: 60_000,
+    cwd, encoding: 'utf8', timeout: childTimeout(60_000),
     env: {
       ...process.env,
       SINGULARITY_FLOW_WORKSPACE_REGISTRY: path.join(cwd, 'workspaces.json'),
@@ -200,7 +201,7 @@ test('tripwire: explain answers with models disabled and no repository at all', 
   // is exactly the person most likely to be asking what something means.
   const directory = await mkdtemp(path.join(os.tmpdir(), 'sflow-docs-norepo-'));
   const result = spawnSync(process.execPath, [cli, 'explain', 'pins'], {
-    cwd: directory, encoding: 'utf8', timeout: 60_000,
+    cwd: directory, encoding: 'utf8', timeout: childTimeout(60_000),
     env: {
       ...process.env,
       SINGULARITY_FLOW_NO_MODEL: '1',
@@ -265,7 +266,7 @@ test('--here actually renders the state plane in a governed repository', async (
   };
   const git = (...args) => spawnSync('git', args, { cwd: directory, encoding: 'utf8' });
   const sflow = (...args) => spawnSync(process.execPath, [cli, ...args], {
-    cwd: directory, encoding: 'utf8', env, timeout: 120_000
+    cwd: directory, encoding: 'utf8', env, timeout: childTimeout(120_000)
   });
 
   git('init', '-b', 'main');

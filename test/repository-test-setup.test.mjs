@@ -8,6 +8,7 @@ import test from 'node:test';
 import { inspectRepositoryTestSetup } from '../src/repository-test-setup.mjs';
 import { resolveOperation } from '../src/command-registry.mjs';
 import { skillForCommandLine } from '../src/command-skills.mjs';
+import { childTimeout } from './helpers/child-timeout.mjs';
 
 async function fixture(t) {
   const root = await mkdtemp(path.join(os.tmpdir(), 'sflow-test-setup-'));
@@ -89,7 +90,7 @@ test('the new CLI inspection is model-free, read-only and has a packaged Copilot
   assert.equal(git.status, 0);
   const binary = fileURLToPath(new URL('../bin/singularity-flow.mjs', import.meta.url));
   const result = spawnSync(process.execPath, [binary, 'capability', 'test-setup', '--json'], {
-    cwd: root, encoding: 'utf8', timeout: 30000,
+    cwd: root, encoding: 'utf8', timeout: childTimeout(30000),
     env: { ...process.env, NODE_ENV: 'test', SINGULARITY_FLOW_PROMPT_LOG: 'off' }
   });
   assert.equal(result.status, 0, result.stderr);

@@ -6,6 +6,7 @@ import path from 'node:path';
 import test from 'node:test';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { summarizeSamples } from '../src/dx-performance.mjs';
+import { childTimeout } from './helpers/child-timeout.mjs';
 
 const cli = fileURLToPath(new URL('../bin/singularity-flow.mjs', import.meta.url));
 const legacy = new URL('../src/commands/legacy.mjs', import.meta.url).href;
@@ -25,7 +26,7 @@ test('isolated logs entry retains legacy results without loading the general dis
       + `await (await import(${JSON.stringify(legacy)})).run(${JSON.stringify(args)});`];
   const invoke = (mode, hook = []) => {
     const started = performance.now();
-    const result = spawnSync(process.execPath, [...hook, ...command(mode)], { cwd: directory, env, encoding: 'utf8', timeout: 30_000 });
+    const result = spawnSync(process.execPath, [...hook, ...command(mode)], { cwd: directory, env, encoding: 'utf8', timeout: childTimeout(30_000) });
     assert.equal(result.status, 0, result.stderr || result.stdout);
     return { stdout: result.stdout, durationMs: performance.now() - started };
   };
@@ -74,7 +75,7 @@ test('reading the activity log never writes its own invocation into it', { timeo
   delete env.SINGULARITY_FLOW_LOG_LEVEL; delete env.SINGULARITY_FLOW_LOG_CONSOLE;
   assert.equal(spawnSync('git', ['init', '-q', '-b', 'main'], { cwd: directory, env }).status, 0);
   const logs = (...args) => {
-    const result = spawnSync(process.execPath, [cli, 'logs', ...args], { cwd: directory, env, encoding: 'utf8', timeout: 30_000 });
+    const result = spawnSync(process.execPath, [cli, 'logs', ...args], { cwd: directory, env, encoding: 'utf8', timeout: childTimeout(30_000) });
     assert.equal(result.status, 0, result.stderr || result.stdout);
     return result.stdout;
   };

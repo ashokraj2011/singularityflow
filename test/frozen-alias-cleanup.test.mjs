@@ -9,6 +9,7 @@ import { pathToFileURL } from 'node:url';
 import { fetchRemote, remoteNames } from '../src/git.mjs';
 import { runRemoteGit } from '../src/git-execution.mjs';
 import { frozenRemoteTransport } from '../src/git-remote-diagnostics.mjs';
+import { childTimeout } from './helpers/child-timeout.mjs';
 
 // Two leftovers from an older version: each Story command that fetched into a blobless checkout
 // registered its one-shot alias as another promisor remote.
@@ -18,7 +19,7 @@ const LEAKED = [
 ];
 
 function git(root, args) {
-  const child = spawnSync('git', args, { cwd: root, encoding: 'utf8', timeout: 20_000 });
+  const child = spawnSync('git', args, { cwd: root, encoding: 'utf8', timeout: childTimeout(20_000) });
   assert.equal(child.status, 0, child.stderr || child.error?.message);
   return child.stdout.trim();
 }

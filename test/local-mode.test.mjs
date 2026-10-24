@@ -19,6 +19,7 @@ import {
 import {
   createLocalStory, freezeLocalCandidate, openLocalStory, verifyLocalCandidate
 } from '../src/local-mode/store.mjs';
+import { childTimeout } from './helpers/child-timeout.mjs';
 
 const repository = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 
@@ -192,7 +193,7 @@ test('local CLI starts outside Git without workspace, model, or remote discovery
     cwd: env.root,
     env: env.options.env,
     encoding: 'utf8',
-    timeout: 20_000
+    timeout: childTimeout(20_000)
   });
   assert.equal(result.status, 0, result.stderr || result.stdout);
   const value = JSON.parse(result.stdout);

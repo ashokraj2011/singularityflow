@@ -9,6 +9,7 @@ import { initializeDefinition } from '../src/config.mjs';
 import {
   approveProposal, authorChange, describeChange, discardDrafts, draftLines, draftsPath, proposeDrafts, readDrafts
 } from '../src/configuration-drafts.mjs';
+import { childTimeout } from './helpers/child-timeout.mjs';
 
 const cli = fileURLToPath(new URL('../bin/singularity-flow.mjs', import.meta.url));
 const SET = 'sflow-studio-change-set@1';
@@ -152,7 +153,7 @@ test('end to end: three dependent changes become one proposal, approved with one
     GIT_CONFIG_COUNT: '2', GIT_CONFIG_KEY_0: 'user.name', GIT_CONFIG_VALUE_0: 'Draft Author',
     GIT_CONFIG_KEY_1: 'user.email', GIT_CONFIG_VALUE_1: 'draft.author@example.invalid' };
   const flow = (cwd, args, status = 0) => {
-    const result = spawnSync(process.execPath, [cli, ...args], { cwd, env, encoding: 'utf8', timeout: 180_000 });
+    const result = spawnSync(process.execPath, [cli, ...args], { cwd, env, encoding: 'utf8', timeout: childTimeout(180_000) });
     assert.equal(result.status, status, `singularity-flow ${args.join(' ')}\n${result.stdout}\n${result.stderr}`);
     return result;
   };

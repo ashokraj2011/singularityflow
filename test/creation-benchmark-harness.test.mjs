@@ -6,6 +6,7 @@ import path from 'node:path';
 import test from 'node:test';
 import { createWarmReadFixture } from '../scripts/warm-read-fixture.mjs';
 import { seedBenchmarkRepository } from '../scripts/benchmark-git-seed.mjs';
+import { childTimeout } from './helpers/child-timeout.mjs';
 
 test('installed creation fixtures include managed runtime resolution inputs', async t => {
   const f = await createWarmReadFixture({ files: 0 });
@@ -17,7 +18,7 @@ test('packed fixture setup preserves unique contents and never overwrites existi
   const root = await mkdtemp(path.join(os.tmpdir(), 'sflow-seed-fixture-'));
   t.after(() => rm(root, { recursive: true, force: true }));
   const git = (args, options = {}) => {
-    const result = spawnSync('git', args, { cwd: root, encoding: 'utf8', timeout: 30_000, ...options });
+    const result = spawnSync('git', args, { cwd: root, encoding: 'utf8', timeout: childTimeout(30_000), ...options });
     assert.equal(result.status, 0, result.stderr);
     return result.stdout;
   };
@@ -44,7 +45,7 @@ test('benchmark probe counts sync and direct async Git without retaining argumen
       import { once } from 'node:events';
       spawnSync('git', ['config', '--global', '--get', 'secret.private-benchmark-sentinel']);
       await once(spawn('git', ['--version'], { stdio: 'ignore' }), 'close');`], {
-    env: { ...process.env, SFLOW_BENCHMARK_GIT_COUNTS: output }, encoding: 'utf8', timeout: 30_000
+    env: { ...process.env, SFLOW_BENCHMARK_GIT_COUNTS: output }, encoding: 'utf8', timeout: childTimeout(30_000)
   });
   assert.equal(result.status, 0, result.stderr);
   const text = await readFile(output, 'utf8'), record = JSON.parse(text);

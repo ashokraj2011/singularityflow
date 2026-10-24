@@ -5,9 +5,10 @@ import os from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
 import { exactChangedPathsBetweenObjects } from '../src/git.mjs';
+import { childTimeout } from './helpers/child-timeout.mjs';
 
 function git(root, args) {
-  const result = spawnSync('git', args, { cwd: root, encoding: 'utf8', timeout: 10_000 });
+  const result = spawnSync('git', args, { cwd: root, encoding: 'utf8', timeout: childTimeout(10_000) });
   assert.equal(result.status, 0, result.stderr || result.error?.message);
   return result.stdout.trim();
 }

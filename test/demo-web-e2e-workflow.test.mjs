@@ -15,6 +15,7 @@ import { installWorkflow, simulateWorkflow, workflowCatalog } from '../src/workf
 import { exportWorkflowBundle, applyWorkflowImport, planWorkflowImport } from '../src/workflow-transfer.mjs';
 import { librarySkillPath, loadSkillLibrary, parseSkillAttachments, SKILL_ATTACHMENTS_PATH, skillAttachmentsText } from '../src/skill-library.mjs';
 import { packagedWorkflowSkills } from '../src/packaged-workflow-skills.mjs';
+import { childTimeout } from './helpers/child-timeout.mjs';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const ID = 'demo-web-e2e-testing';
@@ -193,7 +194,7 @@ test('CLI starts a real demo Story and retains custom skills in the accepted wor
     SINGULARITY_FLOW_TEST_SELECTION: JSON.stringify({ workType: ID, agent: AGENTS[0] }) };
   delete env.NODE_TEST_CONTEXT;
   const run = (command, args) => {
-    const result = spawnSync(command, args, { cwd: root, env, encoding: 'utf8', timeout: 120000 });
+    const result = spawnSync(command, args, { cwd: root, env, encoding: 'utf8', timeout: childTimeout(120000) });
     assert.equal(result.status, 0, `${command} ${args.join(' ')}\n${result.stdout}\n${result.stderr}`);
     return result.stdout;
   };

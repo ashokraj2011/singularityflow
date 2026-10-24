@@ -9,9 +9,10 @@ import { classifyVariable, looksSecretValue, withoutSecretArguments } from '../s
 import { parseJsonc, resolveIdePath, splitCommandLine } from '../src/app-suggestion-sources.mjs';
 import { normalizeCapabilityApplication } from '../src/capabilities.mjs';
 import { FAKE_SECRETS, ideRepository, springBootRun } from './helpers/ide-run-configurations.mjs';
+import { childTimeout } from './helpers/child-timeout.mjs';
 
 const CLI = path.resolve('bin/singularity-flow.mjs');
-const cli = (root, args) => spawnSync(process.execPath, [CLI, ...args], { cwd: root, encoding: 'utf8', timeout: 60_000 });
+const cli = (root, args) => spawnSync(process.execPath, [CLI, ...args], { cwd: root, encoding: 'utf8', timeout: childTimeout(60_000) });
 const suggest = (root) => {
   const result = cli(root, ['app', 'suggest', '--json']);
   assert.equal(result.status, 0, result.stderr);

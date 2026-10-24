@@ -6,9 +6,10 @@ import path from 'node:path';
 import test from 'node:test';
 
 import { createGitRuntime } from '../src/git-access.mjs';
+import { childTimeout } from './helpers/child-timeout.mjs';
 
 function git(cwd, args, input = undefined) {
-  const result = spawnSync('git', args, { cwd, input, encoding: 'utf8', timeout: 10_000 });
+  const result = spawnSync('git', args, { cwd, input, encoding: 'utf8', timeout: childTimeout(10_000) });
   assert.equal(result.status, 0, String(result.stderr || result.error || args.join(' ')));
   return result.stdout.trim();
 }
@@ -33,7 +34,7 @@ function makeTree(root, rows) {
   const result = spawnSync('git', ['mktree', '-z'], {
     cwd: root, input: Buffer.concat(rows.map(({ mode, type, oid, name }) => Buffer.concat([
       Buffer.from(`${mode} ${type} ${oid}\t`, 'ascii'), Buffer.from(name), Buffer.from([0])
-    ]))), encoding: 'utf8', timeout: 10_000
+    ]))), encoding: 'utf8', timeout: childTimeout(10_000)
   });
   assert.equal(result.status, 0, String(result.stderr || result.error));
   return result.stdout.trim();
@@ -176,7 +177,7 @@ test('GAL tree and refs enforce the repository SHA-256 object format', async (t)
   const root = await mkdtemp(path.join(os.tmpdir(), 'sflow-gal-typed-sha256-'));
   t.after(() => rm(root, { recursive: true, force: true }));
   const initialized = spawnSync('git', ['init', '-q', '--object-format=sha256', '-b', 'main'], {
-    cwd: root, encoding: 'utf8', timeout: 10_000
+    cwd: root, encoding: 'utf8', timeout: childTimeout(10_000)
   });
   if (initialized.status !== 0) {
     t.diagnostic('This Git does not support SHA-256 repositories.');

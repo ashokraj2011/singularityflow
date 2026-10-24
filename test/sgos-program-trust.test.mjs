@@ -25,6 +25,7 @@ import {
   verifySgosProgramRegistry
 } from '../src/sgos/program-trust.mjs';
 import { publishSgosProgramAuthority } from './helpers/sgos-authority.mjs';
+import { childTimeout } from './helpers/child-timeout.mjs';
 
 const POLICY_SHA = `sha256:${'1'.repeat(64)}`;
 const STORAGE_SHA = `sha256:${'2'.repeat(64)}`;
@@ -557,7 +558,7 @@ test('static safety remains bounded at installed graph and resource ceilings', {
       fileURLToPath(import.meta.url)
     ], {
       encoding: 'utf8',
-      timeout: 10_000,
+      timeout: childTimeout(10_000),
       env: probeEnv
     });
     assert.notEqual(probe.error?.code, 'ETIMEDOUT',

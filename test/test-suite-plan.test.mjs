@@ -10,6 +10,7 @@ import {
   discoverTestSuite, needsTypeStripping, parsePositiveInteger, parseShard, partitionTestFiles, SLOW_LANE_IMPORT,
   summarizeTestShardReceipts, testRunId, testSelectionSha256, testShardReceiptMatches
 } from '../scripts/test-suite-plan.mjs';
+import { childTimeout } from './helpers/child-timeout.mjs';
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 
@@ -146,7 +147,7 @@ test('a shard deadline writes a retryable receipt and terminates the expensive c
     const result = spawnSync(process.execPath, [
       path.join(root, 'scripts/run-test-suite.mjs'), 'all', '--shard=1/64',
       '--deadline-ms=1000', `--receipt=${receiptPath}`
-    ], { cwd: root, encoding: 'utf8', timeout: 10_000 });
+    ], { cwd: root, encoding: 'utf8', timeout: childTimeout(10_000) });
     const output = `${result.stdout ?? ''}${result.stderr ?? ''}`;
     assert.notEqual(result.status, 0, output);
     assert.match(output, /exceeded its 1000 ms deadline/);

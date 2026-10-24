@@ -6,10 +6,11 @@ import path from 'node:path';
 import test from 'node:test';
 
 import { createGitRuntime } from '../src/git-access.mjs';
+import { childTimeout } from './helpers/child-timeout.mjs';
 
 function git(cwd, args, input = undefined) {
   const result = spawnSync('git', args, {
-    cwd, input, encoding: 'utf8', timeout: 10_000
+    cwd, input, encoding: 'utf8', timeout: childTimeout(10_000)
   });
   assert.equal(result.status, 0, String(result.stderr || result.error || args.join(' ')));
   return result.stdout.trim();
@@ -376,7 +377,7 @@ test('GAL opens bare repositories and validates SHA-256 OIDs by storage format',
   const shaRoot = await mkdtemp(path.join(os.tmpdir(), 'sflow-gal-sha256-'));
   t.after(() => rm(shaRoot, { recursive: true, force: true }));
   const initialized = spawnSync('git', ['init', '-q', '--object-format=sha256'], {
-    cwd: shaRoot, encoding: 'utf8', timeout: 10_000
+    cwd: shaRoot, encoding: 'utf8', timeout: childTimeout(10_000)
   });
   if (initialized.status !== 0) {
     t.diagnostic('This Git does not support SHA-256 repositories.');

@@ -8,6 +8,7 @@ import v8 from 'node:v8';
 import YAML from 'yaml';
 
 import { parseYamlText } from '../src/yaml-parse-cache.mjs';
+import { childTimeout } from './helpers/child-timeout.mjs';
 
 test('identical text is parsed once but every caller gets its own copy', () => {
   const text = 'phases:\n  intake:\n    label: Intake\nlist: [a, b]\n';
@@ -47,7 +48,7 @@ const warnings = []; process.on('warning', (warning) => warnings.push(warning.me
 const results = JSON.parse(process.argv[1]).map((text) => parseYamlText(text));
 setImmediate(() => console.log(JSON.stringify({ results, warnings })));`;
   const result = spawnSync(process.execPath, ['--input-type=module', '-e', script, JSON.stringify(texts)], {
-    encoding: 'utf8', env: { ...process.env, ...env }, timeout: 30_000
+    encoding: 'utf8', env: { ...process.env, ...env }, timeout: childTimeout(30_000)
   });
   assert.equal(result.status, 0, result.stderr);
   return JSON.parse(result.stdout);
@@ -102,7 +103,7 @@ test('warned-about texts, parse errors and a disabled or relative cache leave no
   const failing = spawnSync(process.execPath, ['--input-type=module', '-e',
     `import { parseYamlText } from ${JSON.stringify(new URL('../src/yaml-parse-cache.mjs', import.meta.url).href)};
 try { parseYamlText('value: [unclosed\\n'); } catch { process.exit(0); } process.exit(1);`],
-  { env: { ...process.env, SINGULARITY_FLOW_YAML_CACHE: directory }, timeout: 30_000 });
+  { env: { ...process.env, SINGULARITY_FLOW_YAML_CACHE: directory }, timeout: childTimeout(30_000) });
   assert.equal(failing.status, 0);
   assert.deepEqual(storedFiles(directory), []);
 

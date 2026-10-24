@@ -7,6 +7,7 @@ import test from 'node:test';
 import { explicitSflowSkill, recordRepositoryBoundaryTurn as recordTurn, endRepositoryBoundaryTurn,
   repositoryDiscoveryGuard, resolveCopilotHookRoot, resolveCopilotDiscoveryRoot } from '../src/copilot-repository-boundary.mjs';
 import { setCopilotPaused } from '../src/copilot-mode.mjs';
+import { childTimeout } from './helpers/child-timeout.mjs';
 const recordRepositoryBoundaryTurn = (payload, options = {}) => recordTurn(payload, { ...options,
   captureMutation: async () => {} });
 
@@ -186,7 +187,7 @@ test('CLI hooks work from a neutral SDK cwd without touching a repository or req
     SINGULARITY_FLOW_WORKSPACE_REGISTRY: path.join(item.directory, 'no-registry.json') };
   const invoke = (event, payload) => {
     const result = spawnSync(process.execPath, [path.resolve('bin/singularity-flow.mjs'), 'hook', event], {
-      cwd: item.scratch, env, input: JSON.stringify(payload), encoding: 'utf8', timeout: 15_000
+      cwd: item.scratch, env, input: JSON.stringify(payload), encoding: 'utf8', timeout: childTimeout(15_000)
     });
     assert.equal(result.status, 0, result.stderr);
     return JSON.parse(result.stdout);

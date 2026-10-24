@@ -10,6 +10,7 @@ import {
   assertDebugToolsAvailable, debugPortAccepts, executableOnPath, gradleDebugInitScript, jdwpListeningLine, resolveDebugLaunch
 } from '../src/application-debug.mjs';
 import { normalizeCapabilityApplication, validateCapabilities } from '../src/capabilities.mjs';
+import { childTimeout } from './helpers/child-timeout.mjs';
 
 const CLI = path.resolve('bin/singularity-flow.mjs');
 const PATHS = { gradleInitScript: '/private/app/web.debug.init.gradle', goBinary: '/private/app/web.debug-bin' };
@@ -249,7 +250,7 @@ async function repository(t, start, { files = {}, policy = null } = {}) {
   return root;
 }
 
-const cli = (root, args, env = process.env) => spawnSync(process.execPath, [CLI, ...args], { cwd: root, encoding: 'utf8', timeout: 60_000, env });
+const cli = (root, args, env = process.env) => spawnSync(process.execPath, [CLI, ...args], { cwd: root, encoding: 'utf8', timeout: childTimeout(60_000), env });
 
 function startDebug(root, env = process.env, args = []) {
   const child = spawn(process.execPath, [CLI, 'app', 'start', '--debug', ...args], { cwd: root, env, stdio: ['ignore', 'pipe', 'pipe'] });
@@ -431,7 +432,7 @@ test('real debugpy and dlv starts (skipped where they are not installed)', async
   // These run only on a machine with the tools; the stand-ins above cover the rewriting here.
   const has = (command, args) => {
     if (process.env.SFLOW_TEST_NO_PYTHON === '1' && command.startsWith('python')) return false;
-    const result = spawnSync(command, args, { encoding: 'utf8', timeout: 20_000 });
+    const result = spawnSync(command, args, { encoding: 'utf8', timeout: childTimeout(20_000) });
     return result.status === 0;
   };
   const debugpy = has('python3', ['-c', 'import debugpy']);

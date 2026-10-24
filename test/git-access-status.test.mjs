@@ -8,9 +8,10 @@ import test from 'node:test';
 import { createGitRuntime } from '../src/git-access.mjs';
 import { createGitStatusReadFacade } from '../src/git-access-status.mjs';
 import { runRemoteGitAsync } from '../src/git-execution.mjs';
+import { childTimeout } from './helpers/child-timeout.mjs';
 
 function git(cwd, argv) {
-  const result = spawnSync('git', argv, { cwd, encoding: 'utf8', timeout: 10_000 });
+  const result = spawnSync('git', argv, { cwd, encoding: 'utf8', timeout: childTimeout(10_000) });
   assert.equal(result.status, 0, String(result.stderr || result.error || argv.join(' ')));
   return result.stdout.trim();
 }

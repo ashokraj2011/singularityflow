@@ -16,18 +16,19 @@ import { compileConfirmedSkillPhase, configurationPhaseFromCompiledSkill,
 import { inspectSkillPackageContents } from '../src/skp-package.mjs';
 import { lookupApprovedSkillUsage, SKP_USAGE_LIMITS } from '../src/skp-usage.mjs';
 import { parseArgs } from '../src/util.mjs';
+import { childTimeout } from './helpers/child-timeout.mjs';
 
 const CLI = fileURLToPath(new URL('../bin/singularity-flow.mjs', import.meta.url));
 const SKILL = 'criteria-skill';
 const H = (digit) => `sha256:${digit.repeat(64)}`;
 const ORDER = ['intake', 'team-criteria', 'team-plan', 'team-code', 'conformance'];
 function git(root, ...args) {
-  const result = spawnSync('git', args, { cwd: root, encoding: 'utf8', timeout: 30_000 });
+  const result = spawnSync('git', args, { cwd: root, encoding: 'utf8', timeout: childTimeout(30_000) });
   assert.equal(result.status, 0, result.stderr.slice(0, 2000)); return result.stdout.trim();
 }
 function flow(root, ...args) {
   return spawnSync(process.execPath, [CLI, 'workflow', 'author', 'where-used', ...args, '--json'],
-    { cwd: root, encoding: 'utf8', timeout: 60_000, env: { ...process.env, NODE_ENV: 'test',
+    { cwd: root, encoding: 'utf8', timeout: childTimeout(60_000), env: { ...process.env, NODE_ENV: 'test',
       SINGULARITY_FLOW_DISABLE_MODELS: '1',
       SINGULARITY_FLOW_WORKSPACE_REGISTRY: path.join(root, '.test-workspaces.json'),
       SINGULARITY_FLOW_ACTIVE_WORKSPACE: path.join(root, '.test-active-workspace.json'),

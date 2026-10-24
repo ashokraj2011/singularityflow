@@ -7,11 +7,12 @@ import path from 'node:path';
 import os from 'node:os';
 import { proposeConfigurationChange } from '../src/configuration-proposal.mjs';
 import { removeTemporaryTree } from '../src/util.mjs';
+import { childTimeout } from './helpers/child-timeout.mjs';
 
 const bytesSha = (value) => `sha256:${createHash('sha256').update(value).digest('hex')}`;
 const manifest = (relative, bytes, mode = '100644') => ({ path: relative, mode, bytes: bytes.length, sha256: bytesSha(bytes) });
 const git = (cwd, ...args) => {
-  const result = spawnSync('git', args, { cwd, encoding: 'utf8', timeout: 30_000 });
+  const result = spawnSync('git', args, { cwd, encoding: 'utf8', timeout: childTimeout(30_000) });
   assert.equal(result.status, 0, result.stderr); return result.stdout.trim();
 };
 async function fixture(t, { attributes = null, executableWorkflow = false, templatesRoot = 'singularity/templates', runtimeRoot = null, portfolioTemplatesRoot = null } = {}) {

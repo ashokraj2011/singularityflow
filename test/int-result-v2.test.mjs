@@ -7,6 +7,7 @@ import {
   checklistSummary, effects, noEffects, preservedAll, preservedEverything, primaryAction,
   resultHash, sflowResult, SFLOW_RESULT_SCHEMA_VERSION, validateSflowResult
 } from '../src/gateway/result.mjs';
+import { childTimeout } from './helpers/child-timeout.mjs';
 
 const read = (over = {}) => sflowResult({
   kind: 'read',
@@ -430,7 +431,7 @@ test('one-canonical-result-contract', async () => {
   const directory = await mkdtemp(path.join(os.tmpdir(), 'sflow-v2-producers-'));
   try {
     for (const argv of [['explain', '--json'], ['explain', 'approvals', '--json'], ['explain', 'aproovals', '--json'], ['home', '--json']]) {
-      const ran = spawnSync(process.execPath, [cli, ...argv], { cwd: directory, encoding: 'utf8', timeout: 60_000 });
+      const ran = spawnSync(process.execPath, [cli, ...argv], { cwd: directory, encoding: 'utf8', timeout: childTimeout(60_000) });
       const payload = JSON.parse(ran.stdout);
       assert.notEqual(payload.resultType, 'command-result', `${argv.join(' ')} still emits v1`);
       validateSflowResult(payload);

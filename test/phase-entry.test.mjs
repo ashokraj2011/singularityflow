@@ -23,6 +23,7 @@ import { readCopilotStoryFollow, copilotStoryFollowDirectory } from '../src/copi
 import { REQUIREMENT_AUTHORING_PROTOCOL } from '../src/requirement-coverage.mjs';
 import { captureMutationTurn, mutationToolGuard } from '../src/copilot-mutation-guard.mjs';
 import { recordRepositoryBoundaryTurn } from '../src/copilot-repository-boundary.mjs';
+import { childTimeout } from './helpers/child-timeout.mjs';
 
 // The agent view names a recovery action that repeats one of its next actions by `sameAs`.
 const recoveryAction = (entry, id) => {
@@ -142,7 +143,7 @@ test('CLI phase entry grants its exact clarification staging file in a linked St
   await recordRepositoryBoundaryTurn(payload, { captureMutation: (payload, record) => captureMutationTurn(payload, record,
     { resolveRoot: async () => checkout }) });
   const result = spawnSync(process.execPath, [cli, 'phase', 'enter', '--compose', '--for-agent', '--json'], {
-    cwd: checkout, env: item.env, encoding: 'utf8', timeout: 180_000
+    cwd: checkout, env: item.env, encoding: 'utf8', timeout: childTimeout(180_000)
   });
   assert.equal(result.status, 0, result.stdout + result.stderr);
   const entry = completeAgentResult(result.stdout);
@@ -167,7 +168,7 @@ test('phase entry preserves the original launch folder across explicit checkout 
   const origin = await mkdtemp(path.join(os.tmpdir(), 'sflow-copilot-host-'));
   t.after(() => rm(origin, { recursive: true, force: true }));
   const args = [cli, 'phase', 'enter', '--context-root', item.root, '--for-agent', '--json'];
-  const result = spawnSync(process.execPath, args, { cwd: origin, env: item.env, encoding: 'utf8', timeout: 30_000 });
+  const result = spawnSync(process.execPath, args, { cwd: origin, env: item.env, encoding: 'utf8', timeout: childTimeout(30_000) });
   assert.equal(result.status, 0, result.stdout + result.stderr);
   const packet = completeAgentResult(result.stdout);
   assert.equal(packet.ready, true);
@@ -177,7 +178,7 @@ test('phase entry preserves the original launch folder across explicit checkout 
   const canonicalCheckout = await realpath(packet.repositoryPath);
   assert.equal(follow?.repositoryPath, process.platform === 'win32' ? canonicalCheckout.toLowerCase() : canonicalCheckout);
   const refused = spawnSync(process.execPath, [...args, '--work-id', 'OTHER-1'], {
-    cwd: origin, env: item.env, encoding: 'utf8', timeout: 30_000 });
+    cwd: origin, env: item.env, encoding: 'utf8', timeout: childTimeout(30_000) });
   assert.notEqual(refused.status, 0);
   assert.equal((await readCopilotStoryFollow(origin, options))?.eventId, follow.eventId,
     'a refused binding cannot overwrite the last verified notification');

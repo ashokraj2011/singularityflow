@@ -12,6 +12,7 @@ import { setAgentSession } from '../src/session.mjs';
 import { snapshot } from '../src/util.mjs';
 import { resolveOperation } from '../src/command-registry.mjs';
 import { inputRestorePlan } from '../src/commands/input-restore.mjs';
+import { childTimeout } from './helpers/child-timeout.mjs';
 
 const packageRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const cli = path.join(packageRoot, 'bin/singularity-flow.mjs');
@@ -70,7 +71,7 @@ async function fixture(t, { approved = true } = {}) {
     SINGULARITY_FLOW_ACTIVE_WORKSPACE: path.join(root, '.git/no-workspace.json'),
     SINGULARITY_FLOW_WORKSPACE_REGISTRY: path.join(root, '.git/no-registry.json') };
   const invoke = (...args) => spawnSync(process.execPath, [cli, ...args], {
-    cwd: root, env, encoding: 'utf8', timeout: 60_000
+    cwd: root, env, encoding: 'utf8', timeout: childTimeout(60_000)
   });
   const json = (...args) => {
     const result = invoke(...args, '--json');

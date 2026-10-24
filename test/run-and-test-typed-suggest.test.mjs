@@ -6,9 +6,10 @@ import test from 'node:test';
 import YAML from 'yaml';
 
 import { FAKE_SECRETS, ideRepository } from './helpers/ide-run-configurations.mjs';
+import { childTimeout } from './helpers/child-timeout.mjs';
 
 const CLI = path.resolve('bin/singularity-flow.mjs');
-const cli = (root, args) => spawnSync(process.execPath, [CLI, ...args], { cwd: root, encoding: 'utf8', timeout: 60_000 });
+const cli = (root, args) => spawnSync(process.execPath, [CLI, ...args], { cwd: root, encoding: 'utf8', timeout: childTimeout(60_000) });
 const json = (root, args) => {
   const result = cli(root, args);
   assert.equal(result.status, 0, result.stderr);

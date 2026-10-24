@@ -14,6 +14,7 @@ import {
 import {
   readPendingPublication, verifyPendingPublicationCommit
 } from '../src/publication-pending.mjs';
+import { childTimeout } from './helpers/child-timeout.mjs';
 
 function git(root, ...args) {
   return execFileSync('git', args, { cwd: root, encoding: 'utf8' }).trim();
@@ -208,7 +209,7 @@ test('killed Goal writers recover before commit, after ref advance, and after pu
     })}\n`);
     const child = spawnSync(process.execPath, [
       path.join(testDirectory, 'fixtures/governed-goal-crash-child.mjs'), control
-    ], { encoding: 'utf8', timeout: 20_000 });
+    ], { encoding: 'utf8', timeout: childTimeout(20_000) });
     assert.equal(child.signal, 'SIGKILL', child.stderr || child.stdout);
     assert.equal(git(repository, 'branch', '--show-current'), 'main');
     assert.equal(git(repository, 'status', '--porcelain'), '');
@@ -247,7 +248,7 @@ test('local-only Goal sync restores a killed pre-commit transaction', async () =
   })}\n`);
   const child = spawnSync(process.execPath, [
     path.join(testDirectory, 'fixtures/governed-goal-crash-child.mjs'), control
-  ], { encoding: 'utf8', timeout: 20_000 });
+  ], { encoding: 'utf8', timeout: childTimeout(20_000) });
   assert.equal(child.signal, 'SIGKILL', child.stderr || child.stdout);
 
   const recovered = await syncGovernedGoal(context, id, { config: localPolicy });

@@ -5,6 +5,7 @@ import { mkdir, mkdtemp, realpath, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { childTimeout } from './child-timeout.mjs';
 
 export const CLI = fileURLToPath(new URL('../../bin/singularity-flow.mjs', import.meta.url));
 
@@ -46,7 +47,7 @@ export function machineEnvironment(base, extra = {}) {
 
 export function cliRunner(env, cwd) {
   const sflow = (args, options = {}) => spawnSync(process.execPath, [CLI, ...args], {
-    cwd: options.cwd ?? cwd, env: options.env ?? env, encoding: 'utf8', timeout: 120_000, input: options.input
+    cwd: options.cwd ?? cwd, env: options.env ?? env, encoding: 'utf8', timeout: childTimeout(120_000), input: options.input
   });
   const json = (args, options = {}) => {
     const result = sflow([...args, '--json'], options);

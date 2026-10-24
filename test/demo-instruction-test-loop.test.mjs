@@ -19,6 +19,7 @@ import { createWorkflow, loadConfig } from '../src/state.mjs';
 import { resolveStoryExecutionContext } from '../src/story-execution-context.mjs';
 import { planStudioChangeSet, STUDIO_CHANGE_SET_SCHEMA } from '../src/workflow-studio.mjs';
 import { composePhasePrompt } from '../src/worldmodel.mjs';
+import { childTimeout } from './helpers/child-timeout.mjs';
 
 const ID = 'demo-instruction-test-loop';
 const PHASES = ['demo-instruction-intake', 'demo-instruction-test', 'demo-instruction-repair', 'demo-instruction-close'];
@@ -40,7 +41,7 @@ async function withoutInstructionDemo(root) {
   for (const id of REFERENCES) await rm(path.join(root, instructionPath(id)));
 }
 function git(root, ...args) {
-  const result = spawnSync('git', args, { cwd: root, encoding: 'utf8', timeout: 30000 });
+  const result = spawnSync('git', args, { cwd: root, encoding: 'utf8', timeout: childTimeout(30000) });
   assert.equal(result.status, 0, result.stderr); return result.stdout.trim();
 }
 
@@ -208,7 +209,7 @@ test('a real Story snapshot pins placed instructions offline and protects seed d
   git(root, 'add', '.'); git(root, 'commit', '-qm', 'fixture authority'); git(root, 'switch', '-c', 'DEMO-INS-1');
   const beforePreview = git(root, 'status', '--porcelain');
   const preview = spawnSync(process.execPath, [fileURLToPath(new URL('../bin/singularity-flow.mjs', import.meta.url)),
-    'skill', 'show', SKILLS[1], '--json'], { cwd: root, encoding: 'utf8', timeout: 30000,
+    'skill', 'show', SKILLS[1], '--json'], { cwd: root, encoding: 'utf8', timeout: childTimeout(30000),
     env: { ...process.env, NODE_ENV: 'test' } });
   assert.equal(preview.status, 0, preview.stdout + preview.stderr);
   const shown = JSON.parse(preview.stdout).skill;

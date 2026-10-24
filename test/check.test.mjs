@@ -6,13 +6,14 @@ import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { isModelRoutingSource, portableCheckPath, sourceReferenceGrepArgs } from '../scripts/check-path-policy.mjs';
+import { childTimeout } from './helpers/child-timeout.mjs';
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 
 test('reference lint catches new source before staging while excluding ignored output', async t => {
   const directory = await mkdtemp(path.join(os.tmpdir(), 'sflow-check-references-'));
   t.after(() => rm(directory, { recursive: true, force: true }));
-  const git = args => spawnSync('git', args, { cwd: directory, encoding: 'utf8', timeout: 10_000 });
+  const git = args => spawnSync('git', args, { cwd: directory, encoding: 'utf8', timeout: childTimeout(10_000) });
   assert.equal(git(['init', '--quiet']).status, 0);
   const marker = 'forbidden-fixture-reference';
   await writeFile(path.join(directory, '.gitignore'), 'generated/\n');

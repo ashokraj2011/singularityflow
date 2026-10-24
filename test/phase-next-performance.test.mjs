@@ -6,6 +6,7 @@ import { pathToFileURL } from 'node:url';
 import test from 'node:test';
 import { createWarmReadFixture, bindPhaseReadFixture } from '../scripts/warm-read-fixture.mjs';
 import { buildCliBundle } from '../scripts/build-cli-bundle.mjs';
+import { childTimeout } from './helpers/child-timeout.mjs';
 
 for (const storyMode of ['legacy', 'pinned', 'amended']) {
   test(`bound ${storyMode} phase entry composes context and worker guidance observes the same binding`, { timeout: 180_000 }, async t => {
@@ -31,7 +32,7 @@ for (const storyMode of ['legacy', 'pinned', 'amended']) {
       assert.equal(value.effects.committed, false); assert.equal(value.effects.pushed, false);
     }
     const composed = spawnSync(process.execPath, [f.cli, 'phase', 'enter', '--compose', '--for-agent', '--json', '--timings'],
-      { cwd: f.repository, env: f.env, encoding: 'utf8', timeout: 90_000, maxBuffer: 40 * 1024 * 1024 });
+      { cwd: f.repository, env: f.env, encoding: 'utf8', timeout: childTimeout(90_000), maxBuffer: 40 * 1024 * 1024 });
     assert.equal(composed.status, 0, composed.stderr);
     assert.equal(JSON.parse(composed.stdout).contextAdmission.allowed, true);
     assert.match(composed.stderr, /story\.context-load=2(?:\s|$)/u,
@@ -105,7 +106,7 @@ test('installed bound phase, composition and nextsteps do not load compatibility
     const result = spawnSync(process.execPath, [f.cli, ...args], { cwd: f.repository,
       env: { ...f.env, SINGULARITY_FLOW_BUNDLE: 'on', SINGULARITY_FLOW_AGENT_OUTPUT: 'raw',
         SFLOW_MODULE_ROSTER: log, NODE_OPTIONS: `--import=${pathToFileURL(hook).href}` },
-      encoding: 'utf8', timeout: 90_000, maxBuffer: 40 * 1024 * 1024 });
+      encoding: 'utf8', timeout: childTimeout(90_000), maxBuffer: 40 * 1024 * 1024 });
     assert.equal(result.status, 0, result.stderr); assert.equal(JSON.parse(result.stdout).ready, true);
     assert.doesNotMatch(await readFile(log, 'utf8'), /\/(?:cold-compatibility|cold-models)\.mjs(?:\n|$)/u,
       `${args.join(' ')} imported an unrelated installed command domain`);

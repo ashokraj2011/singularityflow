@@ -21,6 +21,7 @@ import { slowLane } from './helpers/slow-lane.mjs';
 import { fileURLToPath } from 'node:url';
 import YAML from 'yaml';
 import { encodePngRgba8 } from '../src/png-rgba8.mjs';
+import { childTimeout } from './helpers/child-timeout.mjs';
 
 const bin = fileURLToPath(new URL('../bin/singularity-flow.mjs', import.meta.url));
 const REVIEWER = 'Mobile Reviewer One';
@@ -28,7 +29,7 @@ const REVIEWER = 'Mobile Reviewer One';
 function execute(command, args, cwd, { allowFailure = false, selection, actor = 'Singularity Flow Test' } = {}) {
   const env = { ...process.env, NODE_ENV: 'test', SINGULARITY_FLOW_TEST_IDENTITY: actor };
   if (selection) env.SINGULARITY_FLOW_TEST_SELECTION = JSON.stringify(selection);
-  const result = spawnSync(command, args, { cwd, encoding: 'utf8', env, timeout: 180_000 });
+  const result = spawnSync(command, args, { cwd, encoding: 'utf8', env, timeout: childTimeout(180_000) });
   if (!allowFailure && result.status !== 0) throw new Error(`${command} ${args.join(' ')} failed\nSTDOUT:\n${result.stdout}\nSTDERR:\n${result.stderr}`);
   return result;
 }

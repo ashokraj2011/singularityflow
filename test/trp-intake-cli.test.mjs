@@ -6,6 +6,7 @@ import { spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import test from 'node:test';
 import YAML from 'yaml';
+import { childTimeout } from './helpers/child-timeout.mjs';
 
 const bin = fileURLToPath(new URL('../bin/singularity-flow.mjs', import.meta.url));
 
@@ -21,7 +22,7 @@ async function fixture(t, { enabled = true, baselinePolicy = 'choice' } = {}) {
     SINGULARITY_FLOW_LEAD_REGISTRY: path.join(base, 'leads.json'),
     SINGULARITY_FLOW_STORY_CONFIGURATION_CACHE: path.join(root, '.git', 'fixture-config-cache') };
   function invoke(command, argv, { allowFailure = false, cwd = root } = {}) {
-    const result = spawnSync(command, argv, { cwd, encoding: 'utf8', env: environment, timeout: 30_000 });
+    const result = spawnSync(command, argv, { cwd, encoding: 'utf8', env: environment, timeout: childTimeout(30_000) });
     assert.ifError(result.error);
     if (!allowFailure) assert.equal(result.status, 0, `${command} ${argv.join(' ')}\n${result.stderr}\n${result.stdout}`);
     return result;

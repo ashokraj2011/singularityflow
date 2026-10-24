@@ -24,6 +24,7 @@ import { WCA_SKP_LOCAL_PRODUCER_PROFILE, validateWorkflowSkillFinalizationRecord
 const OMITS = ['scope', 'plan', 'implement', 'verify', 'review'].map((responsibility) => ({ responsibility, reason: 'A configuration-authoring fixture that exercises no delivery.', authority: 'reviewers' }));
 import { createWorkflowDraftReviewProposal, validateWorkflowDraftSkillSubmissionSnapshot,
   validateWorkflowDraftSubmissionSnapshot, workflowDraftSubmissionPlan } from '../src/wca-submission.mjs';
+import { childTimeout } from './helpers/child-timeout.mjs';
 
 const CLI = fileURLToPath(new URL('../bin/singularity-flow.mjs', import.meta.url));
 const DRAFT_ID = 'WFD-SKPSUBMIT1';
@@ -86,7 +87,7 @@ function changedAgentEvidence(snapshot, { resealAgentIdentity = false } = {}) {
   return changed;
 }
 function git(root, ...args) {
-  const result = spawnSync('git', args, { cwd: root, encoding: 'utf8', timeout: 30_000 });
+  const result = spawnSync('git', args, { cwd: root, encoding: 'utf8', timeout: childTimeout(30_000) });
   assert.equal(result.status, 0, `git ${args.join(' ')}: ${result.stderr}`);
   return result.stdout.trim();
 }
@@ -255,19 +256,19 @@ test('SKP pre-consent/headless route is review-needed with no files, grants or a
   assert.throws(() => workflowDraftPackageProposalFiles(f.preview), { code: 'WCA_PACKAGE_NOT_SUBMITTABLE' });
   assert.throws(() => workflowDraftSubmissionPlan(structuredClone(f.preview)), { code: 'WCA_PACKAGE_NOT_SUBMITTABLE' });
   const cli = spawnSync(process.execPath, [CLI, 'workflow', 'author', 'submit', DRAFT_ID, '--revision', '1', '--json'],
-    { cwd: f.first, env: environment(f.first), encoding: 'utf8', timeout: 30_000 });
+    { cwd: f.first, env: environment(f.first), encoding: 'utf8', timeout: childTimeout(30_000) });
   assert.equal(cli.status, 0, cli.stderr); const response = JSON.parse(cli.stdout);
   assert.equal(response.status, 'needs-human-input'); assert.equal(response.data.code, 'WCA_NEEDS_HUMAN_INPUT');
   assert.equal(response.data.nativeConfirmation, 'unavailable'); assert.deepEqual(response.data.review, review);
   assert.ok(Object.values(response.effects).every((value) => value === false));
   const latest = spawnSync(process.execPath, [CLI, 'workflow', 'author', 'submit', DRAFT_ID, '--json'],
-    { cwd: f.first, env: environment(f.first), encoding: 'utf8', timeout: 30_000 });
+    { cwd: f.first, env: environment(f.first), encoding: 'utf8', timeout: childTimeout(30_000) });
   assert.equal(latest.status, 1, latest.stdout);
   assert.equal(JSON.parse(latest.stdout).error.code, 'WCA_AUTHOR_REQUEST_INVALID');
   assert.deepEqual(response.data.handoff.argv,
     ['workflow', 'author', 'submit', DRAFT_ID, '--revision', '1']);
   const show = spawnSync(process.execPath, [CLI, 'workflow', 'author', 'show', DRAFT_ID, '--revision', '1', '--json'],
-    { cwd: f.first, env: environment(f.first), encoding: 'utf8', timeout: 30_000 });
+    { cwd: f.first, env: environment(f.first), encoding: 'utf8', timeout: childTimeout(30_000) });
   assert.equal(show.status, 0, show.stderr); const view = JSON.parse(show.stdout).data.view;
   assert.equal(view.assessment.status, 'review-required'); assert.equal(view.assessment.definitionGapCount, 0);
   assert.equal(view.primaryAction.operationId, 'workflow.author.submit');
@@ -350,7 +351,7 @@ test('actual terminal SKP consent creates exactly one inert proposal and histori
   assert.deepEqual(git(f.base, '--git-dir', f.remote, 'diff-tree', '--no-commit-id', '--name-only', '-r', proposal.commit).split('\n').sort(),
     [...retained.files.map((file) => file.path), proposal.snapshotPath].sort());
   for (const file of retained.files) {
-    const actual = spawnSync('git', ['--git-dir', f.remote, 'show', `${proposal.commit}:${file.path}`], { cwd: f.base, timeout: 30_000 });
+    const actual = spawnSync('git', ['--git-dir', f.remote, 'show', `${proposal.commit}:${file.path}`], { cwd: f.base, timeout: childTimeout(30_000) });
     assert.equal(actual.status, 0); assert.equal(byteHash(actual.stdout), file.sha256); assert.equal(actual.stdout.toString('base64'), file.contentBase64);
   }
   assert.throws(() => workflowDraftPackageProposalFiles(retained.preview), { code: 'WCA_COMPILER_SOURCE_UNAVAILABLE' });

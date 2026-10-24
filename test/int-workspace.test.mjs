@@ -14,11 +14,12 @@ import { createHostGateway } from '../src/gateway/host.mjs';
 import { gatewayMutationExecutors } from '../src/gateway/planners/executors.mjs';
 import { gatewayPlanners } from '../src/gateway/planners/index.mjs';
 import { readActiveWorkspaceContext } from '../src/workspace-context.mjs';
+import { childTimeout } from './helpers/child-timeout.mjs';
 
 const cli = fileURLToPath(new URL('../bin/singularity-flow.mjs', import.meta.url));
 
 function git(cwd, ...args) {
-  const result = spawnSync('git', args, { cwd, encoding: 'utf8', timeout: 60_000 });
+  const result = spawnSync('git', args, { cwd, encoding: 'utf8', timeout: childTimeout(60_000) });
   assert.equal(result.status, 0, `${args.join(' ')}: ${result.stderr}`);
   return result.stdout;
 }
@@ -44,7 +45,7 @@ async function twoWorkspaces(t) {
   }));
   git(source, 'add', '-A');
   git(source, 'commit', '-q', '-m', 'seed');
-  const sflow = (...args) => spawnSync(process.execPath, [cli, ...args], { cwd: base, env, encoding: 'utf8', timeout: 120_000 });
+  const sflow = (...args) => spawnSync(process.execPath, [cli, ...args], { cwd: base, env, encoding: 'utf8', timeout: childTimeout(120_000) });
   for (const id of ['payments', 'identity']) {
     const created = sflow('workspace', 'create', '--local', '--id', id, '--base', path.join(base, 'ws'), '--lead', 'app',
       '--repository', `app=${source}`, '--clone', '--confirm', id, '--json');

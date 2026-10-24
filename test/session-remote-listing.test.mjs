@@ -7,6 +7,7 @@ import path from 'node:path';
 import test from 'node:test';
 import { fileURLToPath } from 'node:url';
 import { bootstrapRepository } from '../src/bootstrap.mjs';
+import { childTimeout } from './helpers/child-timeout.mjs';
 
 /**
  * When the local clone's own Git files cannot be read (macOS had evicted them to iCloud
@@ -18,7 +19,7 @@ const bin = fileURLToPath(new URL('../bin/singularity-flow.mjs', import.meta.url
 const posix = process.platform !== 'win32';
 
 function run(command, args, cwd, env = process.env) {
-  const result = spawnSync(command, args, { cwd, encoding: 'utf8', env, timeout: 180_000 });
+  const result = spawnSync(command, args, { cwd, encoding: 'utf8', env, timeout: childTimeout(180_000) });
   if (result.status !== 0) throw new Error(`${command} ${args.join(' ')} failed\n${result.stdout}\n${result.stderr}`);
   return result;
 }
@@ -83,7 +84,7 @@ test('a clone whose Git files cannot be read still lists its Stories from the re
     const unreadable = { ...env, SINGULARITY_FLOW_GIT_STORAGE_CHECK: 'always', SINGULARITY_FLOW_GIT_STORAGE_DOWNLOAD_TIMEOUT_MS: '500' };
     const sflow = (args, extra = unreadable) => {
       const started = performance.now();
-      const result = spawnSync(process.execPath, [bin, ...args], { cwd: boot.root, env: extra, encoding: 'utf8', timeout: 120_000 });
+      const result = spawnSync(process.execPath, [bin, ...args], { cwd: boot.root, env: extra, encoding: 'utf8', timeout: childTimeout(120_000) });
       return { ...result, elapsedMs: performance.now() - started };
     };
     const restore = evict(path.join(boot.root, '.git'));

@@ -10,6 +10,7 @@ import { readFileSync } from 'node:fs';
 import { summarizeSamples } from '../src/dx-performance.mjs';
 import { physicalProcessProbe } from './helpers/physical-process-probe.mjs';
 import { readCopilotStoryFollow, copilotStoryFollowDirectory } from '../src/copilot-story-follow.mjs';
+import { childTimeout } from './helpers/child-timeout.mjs';
 
 function completeAgentResult(text) {
   const result = JSON.parse(text);
@@ -39,7 +40,7 @@ test('session open lists the Stories without an ID and opens one with its status
     GIT_CONFIG_COUNT: '2', GIT_CONFIG_KEY_0: 'user.name', GIT_CONFIG_VALUE_0: 'Session Opener',
     GIT_CONFIG_KEY_1: 'user.email', GIT_CONFIG_VALUE_1: 'session.opener@example.invalid' };
   const run = (command, args, cwd = root) => {
-    const result = spawnSync(command, args, { cwd, env, encoding: 'utf8', timeout: 180_000 });
+    const result = spawnSync(command, args, { cwd, env, encoding: 'utf8', timeout: childTimeout(180_000) });
     return result;
   };
   const must = (command, args, cwd) => {
@@ -88,7 +89,7 @@ test('session open lists the Stories without an ID and opens one with its status
   assert.ok(opened.repositoryPath);
 
   const legacy = spawnSync(process.execPath, [cli, 'session', 'open', 'OPEN-1', '--json'], {
-    cwd: root, env: { ...env, SINGULARITY_FLOW_SESSION_READS: 'legacy' }, encoding: 'utf8', timeout: 180_000
+    cwd: root, env: { ...env, SINGULARITY_FLOW_SESSION_READS: 'legacy' }, encoding: 'utf8', timeout: childTimeout(180_000)
   });
   assert.equal(legacy.status, 0, legacy.stderr);
   const reference = JSON.parse(legacy.stdout);
@@ -104,7 +105,7 @@ test('session open lists the Stories without an ID and opens one with its status
     const physical = await physicalProcessProbe(base), physicalProcesses = {};
     for (const mode of ['legacy', 'shared']) {
       const measured = spawnSync(process.execPath, [mode === 'legacy' ? baselineCli : cli, 'session', 'open', 'OPEN-1', '--json'], {
-        cwd: root, env: await physical.environment({ ...env, SINGULARITY_FLOW_SESSION_READS: mode }), encoding: 'utf8', timeout: 180_000
+        cwd: root, env: await physical.environment({ ...env, SINGULARITY_FLOW_SESSION_READS: mode }), encoding: 'utf8', timeout: childTimeout(180_000)
       });
       assert.equal(measured.status, 0, measured.stdout + measured.stderr);
       assert.equal(JSON.parse(measured.stdout).localOnly, true);
@@ -117,7 +118,7 @@ test('session open lists the Stories without an ID and opens one with its status
       const started = performance.now();
       const measured = spawnSync(process.execPath, [mode === 'legacy' ? baselineCli : cli, 'session', 'open', 'OPEN-1', '--json',
         ...(baselineCli === cli ? ['--timings'] : [])], {
-        cwd: root, env: { ...env, SINGULARITY_FLOW_SESSION_READS: mode, SINGULARITY_FLOW_SUBPROCESS_PROBE: '1' }, encoding: 'utf8', timeout: 180_000
+        cwd: root, env: { ...env, SINGULARITY_FLOW_SESSION_READS: mode, SINGULARITY_FLOW_SUBPROCESS_PROBE: '1' }, encoding: 'utf8', timeout: childTimeout(180_000)
       });
       const elapsed = performance.now() - started;
       assert.equal(measured.status, 0, measured.stdout + measured.stderr);
@@ -170,7 +171,7 @@ test('session open lists the Stories without an ID and opens one with its status
 
   // The brief reads only the local Story: no network round trip to look for sflow/config.
   const traced = spawnSync(process.execPath, [cli, 'session', 'context', '--work-id', 'OPEN-1', '--slice', 'brief', '--json'], {
-    cwd: opened.repositoryPath, env: { ...env, SINGULARITY_FLOW_DISABLE_TIMING_LOG: '0' }, encoding: 'utf8', timeout: 180_000 });
+    cwd: opened.repositoryPath, env: { ...env, SINGULARITY_FLOW_DISABLE_TIMING_LOG: '0' }, encoding: 'utf8', timeout: childTimeout(180_000) });
   assert.equal(traced.status, 0, traced.stderr);
   assert.equal(JSON.parse(traced.stdout).work.id, 'OPEN-1');
   const gitDir = must('git', ['rev-parse', '--absolute-git-dir'], opened.repositoryPath).stdout.trim();

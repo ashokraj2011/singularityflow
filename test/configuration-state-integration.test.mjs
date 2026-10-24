@@ -17,6 +17,7 @@ import { openConfigurationStateService } from '../src/configuration-state-servic
 import { configurationReadFromWorker } from '../src/configuration-read-worker-client.mjs';
 import { readTransportIntent } from '../src/transport-intents.mjs';
 import { syncConfigurationProposal } from '../src/configuration-proposal-sync.mjs';
+import { childTimeout } from './helpers/child-timeout.mjs';
 
 const cli = fileURLToPath(new URL('../bin/singularity-flow.mjs', import.meta.url));
 async function fixture() {
@@ -223,7 +224,7 @@ process.exit(result.status == null ? 1 : result.status);
       const interrupted = spawnSync(process.execPath, [cli, 'workflow', 'activate', proposal.branch, '--confirm', proposal.commit, '--acknowledge-unprotected', '--json'],
         // Bound the whole fixture, including Node-wrapper startup on a loaded host; individual
         // production Git operations retain their own short deadlines.
-        { cwd: f.story, encoding: 'utf8', timeout: 90_000, env: { ...f.env, PATH: `${wrappers}${path.delimiter}${f.env.PATH}` } });
+        { cwd: f.story, encoding: 'utf8', timeout: childTimeout(90_000), env: { ...f.env, PATH: `${wrappers}${path.delimiter}${f.env.PATH}` } });
       assert.equal(interrupted.signal, 'SIGKILL', interrupted.stderr);
       const journal = await configurationTransactions(f.story);
       assert.equal(journal.transactions.length, 1);
@@ -266,7 +267,7 @@ process.exit(result.status == null ? 1 : result.status);
 `);
     await chmod(wrapper, 0o755);
     const completed = spawnSync(process.execPath, [cli, 'workflow', 'activate', proposal.branch, '--confirm', proposal.commit, '--acknowledge-unprotected', '--json'],
-      { cwd: f.story, encoding: 'utf8', timeout: 90_000, env: { ...f.env, PATH: `${wrappers}${path.delimiter}${f.env.PATH}` } });
+      { cwd: f.story, encoding: 'utf8', timeout: childTimeout(90_000), env: { ...f.env, PATH: `${wrappers}${path.delimiter}${f.env.PATH}` } });
     assert.equal(completed.status, 0, completed.stderr);
     const result = JSON.parse(completed.stdout);
     assert.equal(result.activated, true);

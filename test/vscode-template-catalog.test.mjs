@@ -14,6 +14,7 @@ import path from 'node:path';
 import test from 'node:test';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { nodeTypeScriptFlags } from '../scripts/typescript-runtime.mjs';
+import { childTimeout } from './helpers/child-timeout.mjs';
 
 const packageRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const treeModule = pathToFileURL(path.join(packageRoot, 'apps/vscode/src/views/tree-model.ts')).href;
@@ -37,7 +38,7 @@ function rows(templates) {
     }))));
   `;
   const result = spawnSync(process.execPath, [...nodeTypeScriptFlags(packageRoot), '--input-type=module', '-e', source], {
-    encoding: 'utf8', cwd: packageRoot, timeout: 60_000
+    encoding: 'utf8', cwd: packageRoot, timeout: childTimeout(60_000)
   });
   assert.equal(result.status, 0, `child failed: ${result.stderr}`);
   return JSON.parse(result.stdout);

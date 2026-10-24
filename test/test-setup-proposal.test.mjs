@@ -7,6 +7,7 @@ import path from 'node:path';
 import test from 'node:test';
 import { fileURLToPath } from 'node:url';
 import YAML from 'yaml';
+import { childTimeout } from './helpers/child-timeout.mjs';
 
 const cli = fileURLToPath(new URL('../bin/singularity-flow.mjs', import.meta.url));
 const sha = (text) => `sha256:${createHash('sha256').update(text).digest('hex')}`;
@@ -21,7 +22,7 @@ test('a test command chosen in /sf-test-setup is previewed, proposed by its dige
     GIT_CONFIG_COUNT: '2', GIT_CONFIG_KEY_0: 'user.name', GIT_CONFIG_VALUE_0: 'Setup Tester', GIT_CONFIG_KEY_1: 'user.email', GIT_CONFIG_VALUE_1: 'setup.tester@example.invalid' };
   delete env.NODE_TEST_CONTEXT;
   const run = (command, args, { allowFailure = false } = {}) => {
-    const result = spawnSync(command, args, { cwd: root, env, encoding: 'utf8', timeout: 300_000 });
+    const result = spawnSync(command, args, { cwd: root, env, encoding: 'utf8', timeout: childTimeout(300_000) });
     if (!allowFailure) assert.equal(result.status, 0, `${command} ${args.join(' ')}\n${result.stdout}\n${result.stderr}`);
     return result;
   };

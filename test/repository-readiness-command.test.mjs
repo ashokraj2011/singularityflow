@@ -6,6 +6,7 @@ import { spawnSync } from 'node:child_process';
 import test from 'node:test';
 
 import { run } from '../src/util.mjs';
+import { childTimeout } from './helpers/child-timeout.mjs';
 
 const cli = path.resolve('bin/singularity-flow.mjs');
 
@@ -79,7 +80,7 @@ test('selected-base CLI plans and executes exact tests without using dirty open-
   await writeFile(path.join(root, 'sample.test.mjs'), 'throw new Error("dirty Story test must not run");\n');
   const runBaseline = args => {
     const result = spawnSync(process.execPath, [cli, 'precheck', '--run', '--base-commit', base,
-      '--scope', 'dependency-test', '--json', ...args], { cwd: root, encoding: 'utf8', timeout: 60_000 });
+      '--scope', 'dependency-test', '--json', ...args], { cwd: root, encoding: 'utf8', timeout: childTimeout(60_000) });
     assert.equal(result.status, 0, result.stdout + result.stderr);
     return JSON.parse(result.stdout);
   };

@@ -11,6 +11,7 @@ import { DEFAULT_WORKSPACE_RETENTION, normalizeWorkspaceRetention, workspaceRete
 import { prepareWorkspaceBranch } from '../src/workspace-branch-checkout.mjs';
 import { readWorkspace, rememberWorkspace } from '../src/workspace.mjs';
 import { withRepositoryMutationLease } from '../src/subject-lock.mjs';
+import { childTimeout } from './helpers/child-timeout.mjs';
 
 const cli = fileURLToPath(new URL('../bin/singularity-flow.mjs', import.meta.url));
 const git = (root, args) => {
@@ -33,7 +34,7 @@ async function fixture(t) {
     SINGULARITY_FLOW_ACTIVE_WORKSPACE: path.join(base, 'active.json'),
     SINGULARITY_FLOW_LEAD_REGISTRY: path.join(base, 'leads.json') };
   const flow = (args, { cwd = root, fail = false } = {}) => {
-    const result = spawnSync(process.execPath, [cli, ...args], { cwd, env, encoding: 'utf8', timeout: 120000, maxBuffer: 32 * 1024 * 1024 });
+    const result = spawnSync(process.execPath, [cli, ...args], { cwd, env, encoding: 'utf8', timeout: childTimeout(120000), maxBuffer: 32 * 1024 * 1024 });
     if (!fail) assert.equal(result.status, 0, `${result.stderr}\n${result.stdout}`);
     return result;
   };
@@ -206,7 +207,7 @@ test('the background worker refuses to start without a valid launch packet', asy
     JSON.stringify({ workspacePath: base, protect: Array.from({ length: 33 }, (_, index) => path.join(base, String(index))) })]) {
     const env = { ...process.env };
     if (packet === undefined) delete env[RETENTION_WORKER_PACKET]; else env[RETENTION_WORKER_PACKET] = packet;
-    const result = spawnSync(process.execPath, [worker], { cwd: base, env, encoding: 'utf8', timeout: 30000 });
+    const result = spawnSync(process.execPath, [worker], { cwd: base, env, encoding: 'utf8', timeout: childTimeout(30000) });
     assert.equal(result.status, 1, `${packet}: ${result.stderr}`);
   }
   assert.deepEqual(await readdir(base), [], 'a refused launch writes nothing');

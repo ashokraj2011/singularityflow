@@ -12,6 +12,7 @@ import { prepareWorkspaceBranch } from '../src/workspace-branch-checkout.mjs';
 import { workspaceCheckoutInventory, planWorkspaceCheckoutCleanup, applyWorkspaceCheckoutCleanup } from '../src/workspace-checkout-inventory.mjs';
 import { readWorkspace, rememberWorkspace } from '../src/workspace.mjs';
 import { withRepositoryMutationLease } from '../src/subject-lock.mjs';
+import { childTimeout } from './helpers/child-timeout.mjs';
 
 const cli = fileURLToPath(new URL('../bin/singularity-flow.mjs', import.meta.url));
 const git = (root, args) => {
@@ -33,7 +34,7 @@ async function fixture(t, { governed = false } = {}) {
     SINGULARITY_FLOW_LEAD_REGISTRY: path.join(base, 'leads.json'),
     SINGULARITY_FLOW_REPOSITORY_CHECK_MODE: 'always' };
   const flow = (args, { cwd = root, environment = env, fail = false } = {}) => {
-    const result = spawnSync(process.execPath, [cli, ...args], { cwd, env: environment, encoding: 'utf8', timeout: 120000, maxBuffer: 64 * 1024 * 1024 });
+    const result = spawnSync(process.execPath, [cli, ...args], { cwd, env: environment, encoding: 'utf8', timeout: childTimeout(120000), maxBuffer: 64 * 1024 * 1024 });
     if (!fail) assert.equal(result.status, 0, `${result.stderr}\n${result.stdout}`);
     return result;
   };
@@ -240,7 +241,7 @@ test('explicit takeover uses a published custom branch and returns the accepted 
   }
   const hook = spawnSync(process.execPath, ['--input-type=module', '-e',
     `const m = await import(${JSON.stringify(new URL('../src/copilot-repository-boundary.mjs', import.meta.url).href)}); console.log(await m.resolveCopilotDiscoveryRoot({cwd: process.argv[1]}));`,
-    taken.repositoryPath], { cwd: f.root, env: f.env, encoding: 'utf8', timeout: 30000 });
+    taken.repositoryPath], { cwd: f.root, env: f.env, encoding: 'utf8', timeout: childTimeout(30000) });
   assert.equal(hook.status, 0, hook.stderr);
   assert.equal(hook.stdout.trim(), taken.repositoryPath, 'Copilot hooks must not retarget this session to another window’s profile');
   const snapshot = JSON.parse(f.flow(['snapshot', '--include', 'executionContext', '--json'], { cwd: taken.repositoryPath }).stdout);

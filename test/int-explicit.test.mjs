@@ -11,6 +11,7 @@ import { fileURLToPath } from 'node:url';
 
 import { createGatewayKernel } from '../src/gateway/kernel.mjs';
 import { gatewayPlanners } from '../src/gateway/planners/index.mjs';
+import { childTimeout } from './helpers/child-timeout.mjs';
 
 const cli = fileURLToPath(new URL('../bin/singularity-flow.mjs', import.meta.url));
 const binding = {
@@ -22,7 +23,7 @@ const binding = {
 test('explicit-path-is-direct-but-equivalent', async (t) => {
   const directory = await mkdtemp(path.join(os.tmpdir(), 'sflow-int-explicit-'));
   t.after(() => rm(directory, { recursive: true, force: true }));
-  const sflow = (...args) => JSON.parse(spawnSync(process.execPath, [cli, ...args], { cwd: directory, encoding: 'utf8', timeout: 60_000 }).stdout);
+  const sflow = (...args) => JSON.parse(spawnSync(process.execPath, [cli, ...args], { cwd: directory, encoding: 'utf8', timeout: childTimeout(60_000) }).stdout);
   const kernel = createGatewayKernel({ binding, planners: gatewayPlanners() });
 
   // The CLI never resolves words: no resolution reason, straight to the documentation service.

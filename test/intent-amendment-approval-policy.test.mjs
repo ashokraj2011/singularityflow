@@ -10,6 +10,7 @@ import YAML from 'yaml';
 import { approvalRequirementsMet } from '../src/approval-authority.mjs';
 import { recordSha256 } from '../src/records.mjs';
 import { publishedGenerationCommit } from '../src/generation-publication-store.mjs';
+import { childTimeout } from './helpers/child-timeout.mjs';
 
 const CLI = fileURLToPath(new URL('../bin/singularity-flow.mjs', import.meta.url));
 const WORK = 'AMEND-POLICY-1';
@@ -51,7 +52,7 @@ test('amendments honor required groups, retain all reviewers and let a prior rev
   let actor = 'a';
   const run = (command, args, { allowFailure = false, cwd = root } = {}) => {
     const result = spawnSync(command, args, {
-      cwd, encoding: 'utf8', timeout: 45_000,
+      cwd, encoding: 'utf8', timeout: childTimeout(45_000),
       env: { ...process.env, NODE_ENV: 'test', SINGULARITY_FLOW_TEST_IDENTITY: actor,
         SINGULARITY_FLOW_NO_MODEL: '1', SINGULARITY_FLOW_DISABLE_TIMING_LOG: '1' }
     });

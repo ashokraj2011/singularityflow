@@ -7,9 +7,10 @@ import path from 'node:path';
 import test from 'node:test';
 
 import { createGitRuntime } from '../src/git-access.mjs';
+import { childTimeout } from './helpers/child-timeout.mjs';
 
 function git(cwd, args) {
-  const result = spawnSync('git', args, { cwd, encoding: 'utf8', timeout: 10_000 });
+  const result = spawnSync('git', args, { cwd, encoding: 'utf8', timeout: childTimeout(10_000) });
   assert.equal(result.status, 0, String(result.stderr || result.error || args.join(' ')));
   return result.stdout.trim();
 }
@@ -56,7 +57,7 @@ test('GAL remoteRef observes the exact pinned origin/ref without fetching local 
   assert.equal(observed.classification, 'remote-observational');
   assert.match(observed.observedAt, /^\d{4}-\d\d-\d\dT/u);
   assert.equal(spawnSync('git', ['show-ref', '--verify', '--quiet', 'refs/remotes/origin/main'], {
-    cwd: work, encoding: 'utf8', timeout: 10_000
+    cwd: work, encoding: 'utf8', timeout: childTimeout(10_000)
   }).status, 1);
 
   const other = path.join(base, 'other');
@@ -68,7 +69,7 @@ test('GAL remoteRef observes the exact pinned origin/ref without fetching local 
   assert.equal((await invocation.remoteRef({ pin, ref: 'refs/heads/remote-only' }))
     .value.oid, remoteOnly);
   assert.notEqual(spawnSync('git', ['cat-file', '-e', remoteOnly], {
-    cwd: work, encoding: 'utf8', timeout: 10_000
+    cwd: work, encoding: 'utf8', timeout: childTimeout(10_000)
   }).status, 0);
 
   const captured = await invocation.remoteRef({ ...request, freshness: 'captured', captureKey: 'first' });

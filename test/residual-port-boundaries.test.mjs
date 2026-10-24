@@ -13,9 +13,10 @@ import { analyzeTestFileSignals, evaluateCornerCaseObligationMatrix, extractCorn
   inspectCornerCaseObligations } from '../src/verification/corner-case-obligations.mjs';
 import { clearVerificationGraphCache, getCachedVerificationFact, loadPersistentVerificationCache,
   savePersistentVerificationCache, verificationFactCacheKey } from '../src/verification/incremental-verification-graph.mjs';
+import { childTimeout } from './helpers/child-timeout.mjs';
 
 function git(root, ...args) {
-  const result = spawnSync('git', args, { cwd: root, encoding: 'utf8', timeout: 30000 });
+  const result = spawnSync('git', args, { cwd: root, encoding: 'utf8', timeout: childTimeout(30000) });
   assert.equal(result.status, 0, result.stderr);
   return result.stdout.trim();
 }

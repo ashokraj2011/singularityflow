@@ -14,6 +14,7 @@ import { discoverRemoteStoryCandidatesByUrl } from '../src/session-remote-url-di
 import { removeTemporaryTree } from '../src/util.mjs';
 import { appendLedgerIntent, createLedgerIntent, initializeLedger } from '../src/ledger.mjs';
 import { commandTimer, withCommandTiming } from '../src/dx-command-timing.mjs';
+import { childTimeout } from './helpers/child-timeout.mjs';
 
 function workflow(statuses = ['approved', 'in_progress', 'not_started'], extra = {}) {
   const phaseOrder = statuses.map((_, index) => `phase-${index}`);
@@ -229,7 +230,7 @@ test('large rosters either render all rows within the explicit bound or refuse w
 });
 
 function git(root, args) {
-  const child = spawnSync('git', args, { cwd: root, encoding: 'utf8', timeout: 15_000 });
+  const child = spawnSync('git', args, { cwd: root, encoding: 'utf8', timeout: childTimeout(15_000) });
   assert.equal(child.status, 0, `${args.join(' ')}\n${child.stderr || child.error}`);
   return child.stdout.trim();
 }

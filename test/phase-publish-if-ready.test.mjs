@@ -11,6 +11,7 @@ import { resolveOperation } from '../src/command-registry.mjs';
 import { publicationArguments } from '../src/commands/phase-publish-if-ready.mjs';
 import { submitArguments } from '../src/commands/submit-if-ready.mjs';
 import { completeAgentResult, withAgentRoutes } from '../src/agent-output.mjs';
+import { childTimeout } from './helpers/child-timeout.mjs';
 
 const cli = fileURLToPath(new URL('../bin/singularity-flow.mjs', import.meta.url));
 
@@ -53,7 +54,7 @@ test('prepublish --publish-if-ready returns the unchanged check, and publishes w
     SINGULARITY_FLOW_LEAD_REGISTRY: path.join(base, 'leads.json'), SINGULARITY_FLOW_COPILOT_MODE_FILE: path.join(base, 'copilot-mode.json'),
     GIT_CONFIG_COUNT: '2', GIT_CONFIG_KEY_0: 'user.name', GIT_CONFIG_VALUE_0: 'Publish Tester',
     GIT_CONFIG_KEY_1: 'user.email', GIT_CONFIG_VALUE_1: 'publish.tester@example.invalid' };
-  const run = (command, args, cwd = root) => spawnSync(command, args, { cwd, env, encoding: 'utf8', timeout: 180_000 });
+  const run = (command, args, cwd = root) => spawnSync(command, args, { cwd, env, encoding: 'utf8', timeout: childTimeout(180_000) });
   const must = (command, args, cwd) => {
     const result = run(command, args, cwd);
     assert.equal(result.status, 0, `${command} ${args.join(' ')}\n${result.stdout}\n${result.stderr}`);

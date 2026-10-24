@@ -12,6 +12,7 @@ import YAML from 'yaml';
 
 import { runFirstRunGuide } from '../src/first-run-guide.mjs';
 import { parseZeroContextPatch, rangeTouches } from '../src/spec-drift.mjs';
+import { childTimeout } from './helpers/child-timeout.mjs';
 
 const cli = fileURLToPath(new URL('../bin/singularity-flow.mjs', import.meta.url));
 
@@ -38,7 +39,7 @@ test('a closed Story reads in sync, drifted or orphaned as its code changes, and
   const root = guide.repository;
   t.after(() => rm(path.dirname(root), { recursive: true, force: true }));
   const env = { ...process.env, HOME: path.join(path.dirname(root), 'home'), NODE_ENV: 'production', NO_COLOR: '1', SINGULARITY_FLOW_NO_MODEL: '1' };
-  const run = (args) => spawnSync(process.execPath, [cli, ...args], { cwd: root, env, encoding: 'utf8', timeout: 180_000 });
+  const run = (args) => spawnSync(process.execPath, [cli, ...args], { cwd: root, env, encoding: 'utf8', timeout: childTimeout(180_000) });
   const sflow = (...args) => {
     const result = run(args);
     assert.equal(result.status, 0, `${args.join(' ')}\n${result.stdout}\n${result.stderr}`);

@@ -55,6 +55,7 @@ import {
   canonicalJson as ledgerCanonicalJson, sha256 as ledgerSha256
 } from '../src/ledger.mjs';
 import { changedLines, foldYamlFile, LONG_DESCRIPTION } from './helpers/folded-yaml.mjs';
+import { childTimeout } from './helpers/child-timeout.mjs';
 
 // These tests read configuration through the clone path unless one names its own pool. The
 // default pool lives in the running checkout's .git, so its contents would come from whatever
@@ -7367,7 +7368,7 @@ test('an unreachable capability authority reaches its deadline without blocking 
   await chmod(fakeGit, 0o755);
   // Newly written executables can incur a one-time macOS security scan. Warm the fixture outside
   // the measured operation so this test measures the remote deadline, not executable inspection.
-  assert.equal(spawnSync(fakeGit, ['config'], { timeout: 10_000 }).status, 1);
+  assert.equal(spawnSync(fakeGit, ['config'], { timeout: childTimeout(10_000) }).status, 1);
 
   const keys = [
     'PATH',

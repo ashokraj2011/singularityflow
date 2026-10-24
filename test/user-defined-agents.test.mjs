@@ -13,6 +13,7 @@ import {
 } from '../src/user-defined-agents.mjs';
 import { userDefinedAgentWorkType } from '../src/user-defined-agent-identity.mjs';
 import { refusalEnvelope } from '../src/refusal-remediation.mjs';
+import { childTimeout } from './helpers/child-timeout.mjs';
 
 const cli = fileURLToPath(new URL('../bin/singularity-flow.mjs', import.meta.url));
 const sha = (text) => `sha256:${createHash('sha256').update(text).digest('hex')}`;
@@ -177,7 +178,7 @@ test('a real folder is proposed, activated, started with --agent and finished as
     GIT_CONFIG_COUNT: '2', GIT_CONFIG_KEY_0: 'user.name', GIT_CONFIG_VALUE_0: 'Call Tester', GIT_CONFIG_KEY_1: 'user.email', GIT_CONFIG_VALUE_1: 'call.tester@example.invalid' };
   delete env.NODE_TEST_CONTEXT;
   const run = (command, args, { cwd = root, allowFailure = false } = {}) => {
-    const result = spawnSync(command, args, { cwd, env, encoding: 'utf8', timeout: 300_000 });
+    const result = spawnSync(command, args, { cwd, env, encoding: 'utf8', timeout: childTimeout(300_000) });
     if (!allowFailure) assert.equal(result.status, 0, `${command} ${args.join(' ')}\n${result.stdout}\n${result.stderr}`);
     return result;
   };

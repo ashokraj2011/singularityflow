@@ -8,6 +8,7 @@ import test from 'node:test';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { runCopilotHook } from '../src/copilot-hook-runtime.mjs';
 import { operationContext } from '../src/operation-context.mjs';
+import { childTimeout } from './helpers/child-timeout.mjs';
 
 const root = fileURLToPath(new URL('..', import.meta.url));
 const launcher = path.join(root, 'plugin/hook-launcher.mjs');
@@ -28,7 +29,7 @@ async function fixture(t) {
     GIT_CONFIG_KEY_1: 'user.email', GIT_CONFIG_VALUE_1: 'hook@example.invalid' };
   const invoke = (mode, action, payload = {}) => {
     const result = spawnSync(process.execPath, [launcher, action, cli], { cwd, env: { ...env, SINGULARITY_FLOW_HOOK_RUNTIME: mode },
-      input: typeof payload === 'string' ? payload : JSON.stringify(payload), encoding: 'utf8', timeout: 30000 });
+      input: typeof payload === 'string' ? payload : JSON.stringify(payload), encoding: 'utf8', timeout: childTimeout(30000) });
     assert.equal(result.status, 0, `${mode} ${action}: ${result.stderr}`);
     return JSON.parse(result.stdout);
   };
@@ -83,7 +84,7 @@ test('governed agent selection retains the existing authority, trust and session
   const repo = path.join(item.directory, 'repository');
   const git = spawnSync('git', ['init', '-q', '-b', 'main', repo], { env: item.env, encoding: 'utf8' });
   assert.equal(git.status, 0, git.stderr);
-  const init = spawnSync(process.execPath, [cli, '--no-model', 'init'], { cwd: repo, env: item.env, encoding: 'utf8', timeout: 30000 });
+  const init = spawnSync(process.execPath, [cli, '--no-model', 'init'], { cwd: repo, env: item.env, encoding: 'utf8', timeout: childTimeout(30000) });
   assert.equal(init.status, 0, init.stderr);
   const selected = item.same('agent-start', { cwd: repo, sessionId: 'agent-session', agentName: 'product-owner' });
   assert.match(selected.additionalContext, /Working repository:/);
@@ -102,7 +103,7 @@ test('governed agent selection retains the existing authority, trust and session
     const bytes = Buffer.from(${JSON.stringify(JSON.stringify(payload))});
     const at = bytes.indexOf(Buffer.from('é')) + 1;
     await runCopilotHook('agent-start', Readable.from([bytes.subarray(0, at), bytes.subarray(at)]));
-  `], { cwd: item.cwd, env: item.env, encoding: 'utf8', timeout: 30000 });
+  `], { cwd: item.cwd, env: item.env, encoding: 'utf8', timeout: childTimeout(30000) });
   assert.equal(fragmented.status, 0, fragmented.stderr);
   assert.match(JSON.parse(fragmented.stdout).additionalContext, /réviewer/);
   const retained = JSON.parse(await readFile(path.join(repo, '.git/singularity-flow/session.json'), 'utf8'));

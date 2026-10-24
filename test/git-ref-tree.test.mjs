@@ -9,6 +9,7 @@ import { pathToFileURL } from 'node:url';
 
 import { readObjectsBatch, readRefTree, readRefTreeResult } from '../src/git-ref-tree.mjs';
 import { run } from '../src/util.mjs';
+import { childTimeout } from './helpers/child-timeout.mjs';
 
 const TREE_OID = 'a'.repeat(40);
 
@@ -45,7 +46,7 @@ function fakeRepository(files, { corruptAfter = null, algorithm = 'sha1' } = {})
 }
 
 function git(root, args, input = undefined) {
-  const child = spawnSync('git', args, { cwd: root, input, encoding: 'utf8', timeout: 10_000 });
+  const child = spawnSync('git', args, { cwd: root, input, encoding: 'utf8', timeout: childTimeout(10_000) });
   assert.equal(child.status, 0, child.stderr || child.error?.message);
   return child.stdout.trim();
 }

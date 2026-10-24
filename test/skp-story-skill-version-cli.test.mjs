@@ -5,12 +5,13 @@ import os from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
 import { fileURLToPath } from 'node:url';
+import { childTimeout } from './helpers/child-timeout.mjs';
 
 const CLI = fileURLToPath(new URL('../bin/singularity-flow.mjs', import.meta.url));
 
 function invoke(executable, argv, cwd, { allowFailure = false } = {}) {
   const result = spawnSync(executable, argv, {
-    cwd, encoding: 'utf8', timeout: 30_000,
+    cwd, encoding: 'utf8', timeout: childTimeout(30_000),
     env: { ...process.env, NODE_ENV: 'test', SINGULARITY_FLOW_TEST_IDENTITY: 'Skill CLI Tester' }
   });
   if (!allowFailure) assert.equal(result.status, 0,

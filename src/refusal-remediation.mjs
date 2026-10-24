@@ -620,7 +620,8 @@ function pendingAmendmentSteps(_argv, error) {
     personTerminalStep(step('decide-intent-amendment',
       `A person who approves ${scope} decides ${amendment.id} in their own terminal; an agent cannot. `
         + `Approving it changes ${clauses.length ? 'those clauses' : 'the approved clauses'}, so ${phase} reopens to be revised and submitted again. `
-        + `Rejecting it keeps the approved clauses, but ${phase} still needs a fresh submission before approval (a person returns ${phase} with /sf-reject in a new turn; that does not decide ${amendment.id}).`,
+        + `Rejecting it keeps the approved clauses, and ${phase} can then be approved as submitted, with no fresh submission. `
+        + `Returning ${phase} instead (a person, with /sf-reject in a new turn) does not decide ${amendment.id}.`,
       `singularity-flow story intent-amendment decide ${amendment.id} --decision <approve|reject> --confirm ${amendment.id} --work-id ${workId}`,
       'remediation'))
   ];
@@ -1698,7 +1699,7 @@ export function renderRefusalPlan(plan) {
         : plan.context.strategy === 'person-decides-conformance-gap'
           ? `  Scope: phase ${plan.context.phaseId} — people decide what is open; nothing about the report needs repairing. Open the decision list now.`
         : plan.context.strategy === 'person-decides-intent-amendment'
-          ? `  Scope: phase ${plan.context.phaseId} — an intent amendment proposed after its submission waits for a person's decision; decide it before revising or resubmitting this phase.`
+          ? `  Scope: phase ${plan.context.phaseId} — an intent amendment proposed after its submission waits for a person's decision; rejecting it lets this phase be approved as submitted, approving it reopens the phase.`
         : plan.context.strategy === 'approval-identity'
           ? `  Scope: phase ${plan.context.phaseId} — who decides, not what is decided; nothing about the work needs repairing.`
         : plan.context.strategy === 'upstream-input'

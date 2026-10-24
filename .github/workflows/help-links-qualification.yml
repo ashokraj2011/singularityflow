@@ -1,0 +1,75 @@
+name: Help links native qualification
+on:
+  push:
+    branches: [codex/ci-help-links-20261024-mrk21f]
+permissions:
+  contents: read
+concurrency:
+  group: help-links-${{ github.ref }}
+  cancel-in-progress: true
+jobs:
+  qualify:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [macos-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 20
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          # Test the exact product commit, not this CI-only workflow commit.
+          ref: 96c47fc8630b86eb69779c8ad37043a9d8de360f
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '26'
+      - name: Verify candidate identity and install locked dependencies
+        run: |
+          git rev-parse HEAD
+          node --version
+          npm ci --no-audit --no-fund
+      - name: Validate, typecheck, build and enforce unchanged bundle budgets
+        run: |
+          npm run check
+          npm run vscode:typecheck
+          npm run vscode:build
+          npm run vscode:bundle-budget
+      - name: Help, source-path, sidebar and navigation regressions
+        run: >-
+          node --test --test-concurrency=2
+          --test-reporter=spec --test-reporter-destination=stdout
+          --test-reporter=tap --test-reporter-destination=help-links-unit.tap
+          test/vscode-help-links.test.mjs
+          test/vscode-sidebar-navigation-model.test.mjs
+          test/vscode-navigation.test.mjs
+          test/vscode-navigation-wiring.test.mjs
+          test/vscode-navigation-guard.test.mjs
+          test/vscode-webview-scripts.test.mjs
+          test/vscode-sidebar-task-navigation.test.mjs
+          test/help-coverage.test.mjs
+          test/help.test.mjs
+          test/help-service.test.mjs
+          test/docs-layer.test.mjs
+          test/docs-packaging.test.mjs
+          test/command-skills.test.mjs
+          test/vscode-command-presentation.test.mjs
+          test/vscode-extension.test.mjs
+          test/vscode-message-schema.test.mjs
+      - name: Built-extension Help clicks and independent answer links
+        run: >-
+          node --test
+          --test-reporter=spec --test-reporter-destination=stdout
+          --test-reporter=tap --test-reporter-destination=help-links-host.tap
+          --test-name-pattern='Help Center clicks|Help Center question-answer|clicking an offline topic|Help is available|every shared screen|failing shared destination|@sflow and Help Center'
+          test/vscode-host.test.mjs
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: help-links-${{ matrix.os }}
+          path: help-links-*.tap
+          if-no-files-found: warn
+          retention-days: 5

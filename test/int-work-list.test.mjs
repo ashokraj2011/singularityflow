@@ -236,7 +236,9 @@ test('the planner discloses that it read one repository', async () => {
   validateSflowResult(result);
   assert.equal(result.kind, 'read');
   assert.equal(result.operation.id, 'work.list');
-  assert.equal(result.data.repositoryScope, root);
+  // Named by its checkout, never by its machine path: the scope reaches cards and model context.
+  assert.equal(result.data.repositoryScope, path.basename(root));
+  assert.equal(JSON.stringify(result).includes(root), false, 'the checkout path reached the result');
   assert.ok(result.warnings.some((entry) => entry.code === 'work.single-repository-scope'));
   assert.equal(result.next[0].executable, false, 'a row rendered ten minutes ago cannot stand in for resolution');
 });

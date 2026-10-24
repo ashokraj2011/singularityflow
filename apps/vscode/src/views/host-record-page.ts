@@ -116,14 +116,6 @@ const words = (value: unknown): string => text(value).replaceAll('_', ' ').repla
 const record = (value: unknown): Record<string, any> => (value && typeof value === 'object' && !Array.isArray(value) ? value as Record<string, any> : {});
 const list = (value: unknown): any[] => (Array.isArray(value) ? value : []);
 const count = (value: unknown): string => (Number.isFinite(value) ? Number(value).toLocaleString('en-US') : 'unknown');
-/**
- * A repository named by its last path segment when the record carries a machine path: a window
- * with no workspace repository ID passes its checkout root, and a page is no place for that path.
- */
-const repositoryLabel = (value: unknown): string => {
-  const raw = text(value, 'this repository');
-  return /[\\/]/u.test(raw) ? raw.split(/[\\/]+/u).filter(Boolean).at(-1) ?? 'this repository' : raw;
-};
 
 function view(action: HostRecordAction, fields: Partial<HostRecordView> & Pick<HostRecordView, 'subtitle' | 'source'>): HostRecordView {
   return Object.freeze({
@@ -220,12 +212,12 @@ export function investigationView({ request = {}, record: kept = null, kept: all
   const bisectOffered = list(result.next).some((entry) => entry?.id === 'investigation:bisect');
   const assisted = record(data.assisted);
   return view(action, {
-    subtitle: `${kept.investigationId} · ${repositoryLabel(repository.id)}`,
+    subtitle: `${kept.investigationId} · ${text(repository.id, 'this repository')}`,
     choice,
     facts: [
       ['Investigation', kept.investigationId],
       ['Operation', text(result.operation?.id)],
-      ['Repository', repositoryLabel(repository.id)],
+      ['Repository', text(repository.id, 'this repository')],
       ['HEAD', short(repository.head)],
       ['Branch', text(repository.branch, 'detached HEAD')],
       ['Since', text(record(report.evidenceScope).since, 'not given')],

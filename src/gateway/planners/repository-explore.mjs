@@ -9,7 +9,7 @@ import { loadDefinition } from '../../config.mjs';
 import { worldModelSourceSnapshot } from '../../grounding.mjs';
 import { deriveRepositoryFacts } from '../../repository-facts.mjs';
 import { SingularityFlowError } from '../../util.mjs';
-import { noEffects, preservedAll, sflowResult } from '../result.mjs';
+import { noEffects, preservedAll, repositoryReference, sflowResult } from '../result.mjs';
 
 const startsWithPath = (candidate, prefix) => candidate === prefix || candidate.startsWith(`${prefix}/`);
 
@@ -26,7 +26,7 @@ function scopedSource(source, requestedPath) {
 function repositoryMatches(root, requested, context) {
   if (!requested) return true;
   const known = new Set([
-    root,
+    repositoryReference(root),
     context.repositoryId,
     context.repository?.id,
     context.repository?.name

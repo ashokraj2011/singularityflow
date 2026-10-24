@@ -5,13 +5,12 @@
  * a cause: causation still requires a reproducer or equivalent governed evidence.
  */
 import { createHash } from 'node:crypto';
-import path from 'node:path';
 
 import { branch, head } from '../../git.mjs';
 import { analyzeRegression } from '../../regression-analysis.mjs';
 import { SingularityFlowError, run } from '../../util.mjs';
 import { relayFacts, relayRequest, validateInterpretation } from '../assisted-relay.mjs';
-import { noEffects, plannerNavigation, preservedAll, sflowResult } from '../result.mjs';
+import { noEffects, plannerNavigation, preservedAll, repositoryReference, sflowResult } from '../result.mjs';
 
 const MAX_MATCHES = 80;
 const MAX_COMMITS = 20;
@@ -67,7 +66,7 @@ function recentCommits(root) {
 
 function repositoryMatches(root, requested, context) {
   if (!requested) return true;
-  return [root, context.repositoryId, context.repository?.id]
+  return [repositoryReference(root), context.repositoryId, context.repository?.id]
     .filter(Boolean).map(String).includes(String(requested));
 }
 
@@ -391,7 +390,7 @@ export async function problemInvestigate({ arguments: args = {}, subject = null,
   });
   return problemInvestigationResult({
     symptom: args.symptom,
-    repositoryId: args.repositoryId ?? context.repositoryId ?? path.basename(root),
+    repositoryId: args.repositoryId ?? context.repositoryId ?? repositoryReference(root),
     repository, ...observed, subject, assistedRequested, report, assisted, next, investigationId
   });
 }

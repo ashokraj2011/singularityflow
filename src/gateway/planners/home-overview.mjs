@@ -15,7 +15,7 @@ import { createHash } from 'node:crypto';
 import { readWorkspaceRegistry } from '../../workspace.mjs';
 import { workspaceRegistryFile } from '../../workspace-context.mjs';
 import { subjectWith } from '../handles.mjs';
-import { noEffects, plannerNavigation, sflowResult } from '../result.mjs';
+import { noEffects, plannerNavigation, repositoryReference, sflowResult } from '../result.mjs';
 import { localChangesFor } from './work-continue.mjs';
 import { deriveHomeState } from '../home-work-projection.mjs';
 import { WORK_GROUP_ORDER, workRecords } from '../work-records.mjs';
@@ -697,7 +697,7 @@ export async function homeOverview({ subject = null, root = null, context = {} }
     bootstrap: context.bootstrap ?? null,
     lens: context.lens ?? 'developer'
   });
-  const repositoryId = context.repositoryId ?? root;
+  const repositoryId = context.repositoryId ?? repositoryReference(root);
   let currentBranch = context.branch ?? null;
   if (!currentBranch && (context.repositoryId || context.workspace)) {
     try { currentBranch = gitBranch(root); } catch { /* The binding still reports the unreadable repository. */ }
@@ -777,10 +777,12 @@ export async function homeOverview({ subject = null, root = null, context = {} }
     ? context.auto
     : await autoHomeSummary(root, { workId: homeState.currentWork?.id ?? null });
   return homeOverviewResult({
-    workspace: context.workspace ?? { id: root, name: context.workspaceName ?? root },
+    // A standalone repository is its own workspace here, named and never by its path.
+    workspace: context.workspace ?? { id: repositoryId, name: context.workspaceName ?? repositoryId },
     repository: context.repository ?? {
       id: repositoryId,
-      path: root,
+      // The planner reads the root; the result names the repository and keeps its location off cards.
+      path: null,
       branch: currentBranch,
       head: subject?.revision?.sourceCommit ?? null,
       resolvedFrom: context.repositoryResolvedFrom ?? null

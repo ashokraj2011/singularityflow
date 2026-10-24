@@ -33,7 +33,7 @@ import {
 import { canonicalJson } from '../../specifications.mjs';
 import { SingularityFlowError } from '../../util.mjs';
 import { subjectWith } from '../handles.mjs';
-import { noEffects, preservedAll, sflowResult } from '../result.mjs';
+import { noEffects, preservedAll, repositoryReference, sflowResult } from '../result.mjs';
 
 export const REPOSITORY_QUERIES = Object.freeze([
   'repositories', 'status', 'branches', 'tags', 'log', 'commit', 'path-history', 'blame', 'diff',
@@ -88,7 +88,7 @@ async function registeredRepositories(context, env) {
 
 function identifiesRoot(root, requested, context) {
   if (!requested) return true;
-  return [root, context.repositoryId, context.repository?.id].filter(Boolean).map(String).includes(String(requested));
+  return [repositoryReference(root), context.repositoryId, context.repository?.id].filter(Boolean).map(String).includes(String(requested));
 }
 
 function exact(root, revision, label) {
@@ -171,7 +171,7 @@ export async function repositoryQuery({ arguments: args = {}, subject = null, ro
   const retrievedAt = now().toISOString();
   if (args.query === 'repositories') {
     const registered = await registeredRepositories(context, env);
-    const facts = registered ?? [{ id: context.repositoryId ?? 'this-repository', capabilities: [], onThisMachine: true }];
+    const facts = registered ?? [{ id: context.repositoryId ?? repositoryReference(root), capabilities: [], onThisMachine: true }];
     return result({ args, root, context, subject, retrievedAt, tree: 'workspace-manifest', facts,
       warnings: registered ? [] : [{ code: 'repository.query.no-workspace-selected', source: 'unavailable', slots: {} }] });
   }
@@ -208,7 +208,7 @@ export async function repositoryQuery({ arguments: args = {}, subject = null, ro
 }
 
 function result({ args, root, context, subject, retrievedAt, tree, commit = null, facts, extra = {}, submodules = [], warnings = [] }) {
-  const repositoryId = args.repositoryId ?? context.repositoryId ?? root;
+  const repositoryId = args.repositoryId ?? context.repositoryId ?? repositoryReference(root);
   const evidence = { repository: repositoryId, query: args.query, commit, tree, facts };
   const handle = evidenceHandle(evidence);
   return sflowResult({

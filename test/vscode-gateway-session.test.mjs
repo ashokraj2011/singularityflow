@@ -16,6 +16,7 @@ import path from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 
 import { codeOnly } from './source-text.mjs';
+import { assertNoCheckoutPath, readEach, repositoryReads, standaloneCheckout } from './helpers/standalone-checkout.mjs';
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const extension = path.join(root, 'apps', 'vscode');
@@ -249,4 +250,15 @@ test('changing the Goal-owning lead repository retires handles even when the sel
   gateway.setActiveRepositoryContext(second);
   assert.notEqual(gateway.gatewaySession(second), original,
     'a Goal branch must never be read through handles bound to the previous lead repository');
+});
+
+test('a window with no workspace names its checkout, and no result carries the checkout path', async (t) => {
+  const checkout = await standaloneCheckout(t);
+  const gateway = await import(pathToFileURL(path.join(root, 'apps', 'vscode', 'src', 'gateway-session.ts')).href);
+  t.after(() => gateway.resetGatewaySession());
+  const session = gateway.gatewaySession({ root: checkout, workspaceId: null, workspaceName: null, repositoryId: null, origin: 'test' });
+  const results = await readEach(session.kernel, repositoryReads(path.basename(checkout)));
+  const investigation = results.find((result) => result.operation?.id === 'problem.investigate' && result.data?.repository);
+  assert.equal(investigation.data.repository.id, path.basename(checkout), 'the Investigation card names the checkout');
+  assertNoCheckoutPath(results, checkout);
 });

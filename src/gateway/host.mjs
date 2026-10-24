@@ -31,7 +31,7 @@ import { createGatewayKernel } from './kernel.mjs';
 import { createHandleAuthority } from './handles.mjs';
 import { gatewayRegistry } from './operations.mjs';
 import { DEFAULT_GATEWAY_POLICY, resolveGatewayPolicy } from './policy.mjs';
-import { noEffects, preservedAll, sflowResult } from './result.mjs';
+import { noEffects, preservedAll, repositoryReference, sflowResult } from './result.mjs';
 import { copilotModePresentation, readCopilotMode } from '../copilot-mode.mjs';
 import { branch, head, identity, localGitDisplayName, repoRoot } from '../git.mjs';
 import { operationContext, withOperationContext } from '../operation-context.mjs';
@@ -262,13 +262,18 @@ export function createHostGateway({
         email: actor.email ?? (current.actorId?.includes('@') ? current.actorId : null),
         login: actor.login ?? (!current.actorId?.includes('@') ? current.actorId : null)
       },
-      workspace: current.workspaceId || root ? { id: current.workspaceId ?? root, name: current.workspaceId ?? root } : null,
-      repositoryId: root ?? null,
+      // A standalone repository has no workspace, and its checkout path is not an ID for one.
+      workspace: current.workspaceId ? { id: current.workspaceId, name: current.workspaceId } : null,
       branch: current.branch,
       storyId: current.subjectId,
       workId: current.subjectId,
       workKind: current.subjectKind,
       ...(supplied ?? {}),
+      /**
+       * Planners echo this into results, so a host without a registered ID still gets a name
+       * rather than the root. It follows the supplied context, which may say null.
+       */
+      repositoryId: supplied?.repositoryId ?? repositoryReference(root),
       personalization: resolvePersonalization({ actor: { name: gitName },
         profileName: supplied?.replyProfileName, allowGit: false })
     };

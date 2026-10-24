@@ -17,7 +17,7 @@ import { createHash } from 'node:crypto';
 import { canonicalJson } from '../../specifications.mjs';
 import { SingularityFlowError } from '../../util.mjs';
 import { relayFacts, relayRequest, validateInterpretation } from '../assisted-relay.mjs';
-import { noEffects, plannerNavigation, preservedAll, sflowResult } from '../result.mjs';
+import { noEffects, plannerNavigation, preservedAll, repositoryReference, sflowResult } from '../result.mjs';
 import { workRecords } from '../work-records.mjs';
 
 /** Everything §8.5 asks for that changed paths alone cannot answer. Named, so the absence is visible. */
@@ -238,7 +238,7 @@ async function deterministicImpact({ arguments: args = {}, subject = null, root 
   const activeWork = records.items.filter((item) => !item.capabilityId || touched.has(item.capabilityId));
   return {
     baseRef: args.baseRef ?? null, targetRef: args.targetRef ?? null, includeWorktree: args.includeWorktree ?? false,
-    paths, capabilities, activeWork, subject, repositoryScope: root, revisions, owners, builds, gaps,
+    paths, capabilities, activeWork, subject, repositoryScope: context.repositoryId ?? repositoryReference(root), revisions, owners, builds, gaps,
     generatedAt: now().toISOString(), policyHash: subject?.revision?.policyHash ?? null, registryHash: subject?.revision?.registryHash ?? null
   };
 }

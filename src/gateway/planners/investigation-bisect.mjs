@@ -20,7 +20,7 @@ import path from 'node:path';
 
 import { SingularityFlowError } from '../../util.mjs';
 import { planDescriptor } from '../plan-descriptor.mjs';
-import { effects, plannerNavigation, sflowResult } from '../result.mjs';
+import { effects, plannerNavigation, repositoryReference, sflowResult } from '../result.mjs';
 import { configuredTestCommands } from './problem-investigate.mjs';
 
 export { configuredTestCommands };
@@ -52,7 +52,7 @@ function exactRange(typedFirstParentRange, root, good, bad) {
   return range.commits;
 }
 
-export async function investigationBisectPlan({ arguments: args = {}, root = null } = {}) {
+export async function investigationBisectPlan({ arguments: args = {}, root = null, context = {} } = {}) {
   if (!root) throw new SingularityFlowError('Bisection needs the repository it runs against.', { code: 'BISECT_NO_ROOT' });
   const [{ loadDefinition }, { typedFirstParentRange, typedRevision }] = await Promise.all([
     import('../../config.mjs'), import('../../git-access.mjs')
@@ -74,7 +74,7 @@ export async function investigationBisectPlan({ arguments: args = {}, root = nul
     idempotencyKey: `investigation.bisect:${root}:${good}:${bad}:${command.id}`,
     preview: {
       action: 'bisect',
-      repository: root,
+      repository: context.repositoryId ?? repositoryReference(root),
       good: { revision: String(args.good), commit: good },
       bad: { revision: String(args.bad ?? 'HEAD'), commit: bad },
       commitsInRange: range.length,

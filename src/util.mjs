@@ -698,12 +698,45 @@ function waitOutIndexLock(result, args, { cwd, env, spawnAgain }) {
   return { ...result, stderr };
 }
 
-/** This package's CLI as a bounded child: exit status and parsed JSON. `[INT:CON-066]` */
-export async function runSingularityFlowCli(args, { cwd, env = process.env, timeoutMs = 600_000 } = {}) {
+/**
+ * This package's CLI as a bounded child: exit status and parsed JSON. `[INT:CON-066]`
+ *
+ * Asynchronous on purpose. The stdio gateway runs `start --fetch` through here, and a synchronous
+ * child held its event loop for as long as the start took, so pings, cancellations and the replies
+ * to its own confirmation requests went unanswered. A child still running at `timeoutMs` is stopped
+ * with its process tree, and `timedOut` says so: what it had done by then is not known.
+ */
+export async function runSingularityFlowCli(args, { cwd, env = process.env, timeoutMs = 600_000, spawnCommand = spawn } = {}) {
   const { PACKAGE_ROOT } = await import('./package-root.mjs');
-  const result = run(process.execPath, [path.join(PACKAGE_ROOT, 'bin', 'singularity-flow.mjs'), ...args],
-    { cwd, env, allowFailure: true, timeoutMs, maxBuffer: 1 << 25 });
-  try { return { status: result.status, json: JSON.parse(result.stdout) }; } catch { return { status: result.status, json: null }; }
+  const maxBytes = 1 << 25;
+  return new Promise((resolve) => {
+    const posix = process.platform !== 'win32';
+    let child;
+    try {
+      child = spawnCommand(process.execPath, [path.join(PACKAGE_ROOT, 'bin', 'singularity-flow.mjs'), ...args],
+        { cwd, env, stdio: ['ignore', 'pipe', 'ignore'], detached: posix, windowsHide: true });
+    } catch { resolve({ status: null, signal: null, json: null, timedOut: false }); return; }
+    const chunks = [];
+    let bytes = 0;
+    let timedOut = false;
+    let settled = false;
+    child.stdout?.on('data', (chunk) => { bytes += chunk.length; if (bytes <= maxBytes) chunks.push(chunk); });
+    const timer = setTimeout(() => {
+      timedOut = true;
+      void signalProcessTree(child, 'SIGTERM');
+      setTimeout(() => { if (!settled) void signalProcessTree(child, 'SIGKILL'); }, 5_000).unref?.();
+    }, timeoutMs);
+    const settle = (status, signal) => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timer);
+      let json = null;
+      if (bytes <= maxBytes) { try { json = JSON.parse(Buffer.concat(chunks).toString('utf8')); } catch { json = null; } }
+      resolve({ status, signal: signal ?? null, json: timedOut ? null : json, timedOut });
+    };
+    child.once('error', () => settle(null, null));
+    child.once('close', (code, signal) => settle(code, signal));
+  });
 }
 
 export function run(command, args = [], {

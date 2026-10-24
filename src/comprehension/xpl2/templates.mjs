@@ -143,6 +143,9 @@ const STORE_LABELS = Object.freeze({
   'prompt-log': 'the prompt log', invocations: 'the model invocation records', attempts: 'the test attempt records'
 });
 
+// Why the prompt log removed an entry it once kept (src/prompt-audit.mjs removal notes).
+const REMOVAL_REASONS = Object.freeze({ expired: 'retention window', size: 'size limit' });
+
 const CAPTURE_STATES = Object.freeze({
   on: 'is readable', off: 'is off', unreadable: 'could not be read'
 });
@@ -384,6 +387,19 @@ const TEMPLATES = [
       + `${a.invocation === 'none' ? '' : `; it names invocation ${a.invocation}`}.`
   },
   {
+    id: 'xpl2.prompt-entries-removed@1',
+    arguments: { records: 'count', reason: 'removal-reason', earliest: 'text', latest: 'text' },
+    render: (a) => `${plural(a.records, 'prompt-log entry', 'prompt-log entries')} of this generation, recorded `
+      + `${a.earliest === a.latest ? a.earliest : `${a.earliest} to ${a.latest}`}, ${a.records === 1 ? 'was' : 'were'} removed by the log's `
+      + `${REMOVAL_REASONS[a.reason]}; the log keeps only a note of the removal, never the text.`
+  },
+  {
+    id: 'xpl2.prompt-log-cleared@1',
+    arguments: { clearedAt: 'text', records: 'count' },
+    render: (a) => `The prompt log on this machine was cleared at ${a.clearedAt} (${plural(a.records, 'entry', 'entries')}); `
+      + 'an entry kept before then cannot be told apart from one never kept.'
+  },
+  {
     id: 'xpl2.capture-state@1',
     arguments: { capture: 'capture', state: 'capture-state', records: 'count', retentionDays: 'count', reason: 'reason' },
     render: (a) => a.state === 'unreadable'
@@ -466,6 +482,7 @@ function validArgument(kind, value) {
     case 'line-placement': return Object.hasOwn(LINE_PLACEMENTS, value);
     case 'binding-decision': return Object.hasOwn(BINDING_DECISIONS, value);
     case 'file-gone': return value === 'deleted' || value === 'renamed';
+    case 'removal-reason': return Object.hasOwn(REMOVAL_REASONS, value);
     case 'reason':
       try { xpl2ReasonText(value); return true; } catch { return false; }
     default: return false;

@@ -101,8 +101,9 @@ const TOUR_STEPS = Object.freeze([
   ['links', ['exact-cause', 'binding-not-joined', 'line-binding', 'clause-tag', 'region-association', 'acceptance-tag', 'test-tag']],
   ['checks', ['witness-result', 'test-result', 'test-attempt', 'evidence-reuse', 'binding-decision', 'clause-untagged', 'gap-observed']],
   ['attention', ['no-complete-evaluation', 'admission-unavailable', 'feature-state', 'source-state', 'provenance-unavailable',
-    'cause-not-recorded', 'capture-state', 'records-unreadable']],
-  ['history', ['generation-recorded', 'generation-invocation', 'generation-prompt', 'generation-attempt', 'invocation-overlap']]
+    'cause-not-recorded', 'capture-state', 'records-unreadable', 'line-writer-unestablished']],
+  ['history', ['line-writer', 'generation-recorded', 'generation-invocation', 'generation-prompt', 'generation-attempt', 'invocation-overlap',
+    'generation-write', 'prompt-entries-removed', 'prompt-log-cleared']]
 ]);
 
 function readingTour(statements, attentionStatements, next) {
@@ -426,6 +427,25 @@ function generationStatements(b, derived, query, sources) {
       } catch { malformed += 1; }
     }
     unreadable('prompt-log', malformed);
+    // Entries retention removed are named from the log's own removal notes [XPL2-AC-043]; an entry
+    // removed before notes were kept, or past their bound, still cannot be told from one never kept.
+    const removed = prompts.removed?.status === 'available' ? prompts.removed : null;
+    for (const reason of ['expired', 'size']) {
+      const group = (removed?.entries ?? []).filter((entry) => entry.reason === reason);
+      if (!group.length) continue;
+      const times = group.map((entry) => recordText(entry.recordedAt, '')).filter(Boolean).sort();
+      derived.push(b.derivedStatement({
+        about: 'generation', template: 'xpl2.prompt-entries-removed@1', cites: ['SRC-PROMPTS'],
+        arguments: { records: group.length, reason, earliest: times[0] ?? 'an unrecorded time', latest: times.at(-1) ?? 'an unrecorded time' },
+        limitations: ['source-expired', ...(removed.complete ? [] : ['partial-inventory'])]
+      }));
+    }
+    for (const clear of (removed?.cleared ?? []).slice(-3)) {
+      derived.push(b.derivedStatement({
+        about: 'generation', template: 'xpl2.prompt-log-cleared@1', cites: ['SRC-PROMPTS'],
+        arguments: { clearedAt: recordText(clear.removedAt, 'an unrecorded time'), records: Number.isSafeInteger(clear.records) && clear.records >= 0 ? clear.records : 0 }
+      }));
+    }
   } else if (prompts) {
     inaccessible('prompt-log', 'OBS-PROMPTS', 'prompt-audit', 'prompt log on this machine', prompts.status);
   }

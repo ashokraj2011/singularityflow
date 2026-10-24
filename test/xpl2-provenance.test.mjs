@@ -16,7 +16,8 @@ import { explainXpl2Subject, xpl2LineHistoryRequest } from '../src/comprehension
 import { lineCommitAt } from '../src/git.mjs';
 import { invokeModel } from '../src/model-runner.mjs';
 import { withOperationContext } from '../src/operation-context.mjs';
-import { promptAuditStatus, recordPromptAudit, setPromptAudit } from '../src/prompt-audit.mjs';
+import { clearPromptAudits, promptAuditStatus, recordPromptAudit, setPromptAudit, setPromptAuditRetention } from '../src/prompt-audit.mjs';
+import { createHash } from 'node:crypto';
 import { comprehensionSlice, createChangeRepository, createXpl2Fixture, xpl2InputFor } from './helpers/xpl2-fixture.mjs';
 import { renderExplorer } from './helpers/xpl2-html.mjs';
 import { compareXpl2Views } from '../apps/vscode/src/views/change-explorer.ts';
@@ -143,6 +144,38 @@ test('XPL2-AC-043 prepared, handed-off, redacted, disabled and machine-local cap
   assert.match(texts(view), /The prompt log on this machine is readable \(it keeps \d+ days\): 4 records for this generation\. Only records kept on this machine are visible/u);
   // Prompt text never enters the view.
   assert.doesNotMatch(JSON.stringify(view), /prepared prompt|handed prompt|ghp_x|write the export filter/u);
+});
+
+test('XPL2-AC-043 an entry retention removed is named from the log\'s removal note, and a clear is stated, never read as never kept', async (t) => {
+  const fixture = await createXpl2Fixture(t);
+  const enabled = await setPromptAudit(fixture.root, true);
+  // An entry of this generation recorded long ago: the retention window removes it.
+  await writeFile(enabled.logFile, `${JSON.stringify({
+    schemaVersion: 1, id: 'expired-entry', recordedAt: '2020-01-01T00:00:00.000Z', repositoryPath: fixture.root,
+    workId: 'ORD-418', phase: 'implementation', generation: 2, agent: 'developer', prompt: 'old prompt text',
+    promptSha256: createHash('sha256').update('old prompt text').digest('hex'), bytes: 15, redactions: 0
+  })}\n`);
+  await setPromptAuditRetention(fixture.root, 7);
+  await recordPromptAudit(fixture.root, { workId: 'ORD-418', phase: 'implementation', generation: 2, agent: 'developer', source: 'wm-compose', prompt: 'kept' });
+  const sources = await readGenerationSources(fixture.root, fixture.workflow, { phase: 'implementation', generation: 2 });
+  assert.equal(sources.prompts.records.length, 1);
+  assert.deepEqual(sources.prompts.removed.entries.map((entry) => [entry.reason, entry.recordedAt]), [['expired', '2020-01-01T00:00:00.000Z']]);
+  const view = explainXpl2Subject(fixture.input, GENERATION, { generationSources: sources });
+  const removed = view.derived.find((entry) => entry.kind === 'prompt-entries-removed');
+  assert.equal(removed.text, '1 prompt-log entry of this generation, recorded 2020-01-01T00:00:00.000Z, was removed by the log\'s retention window; '
+    + 'the log keeps only a note of the removal, never the text.');
+  assert.deepEqual(removed.limitations, ['source-expired']);
+  assert.doesNotMatch(JSON.stringify(view), /old prompt text|expired-entry/u, 'neither the text nor the removed identity is shown');
+  // Another generation's removal is not this one's.
+  const other = await readGenerationSources(fixture.root, fixture.workflow, { phase: 'implementation', generation: 1 });
+  assert.deepEqual(other.prompts.removed.entries, []);
+
+  // A clear removes the notes too and is stated as a clear.
+  await clearPromptAudits(fixture.root);
+  const after = await readGenerationSources(fixture.root, fixture.workflow, { phase: 'implementation', generation: 2 });
+  assert.deepEqual(after.prompts.removed.entries, []);
+  const cleared = explainXpl2Subject(fixture.input, GENERATION, { generationSources: after }).derived.find((entry) => entry.kind === 'prompt-log-cleared');
+  assert.match(cleared.text, /^The prompt log on this machine was cleared at \S+ \(1 entry\); an entry kept before then cannot be told apart from one never kept\.$/u);
 });
 
 test('XPL2-AC-044 missing events are not zero actions or a success', async (t) => {

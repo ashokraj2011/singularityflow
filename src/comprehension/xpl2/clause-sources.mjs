@@ -263,8 +263,10 @@ export async function readGenerationSources(root, workflow, { phase, generation 
     result.invocations = { status: String(error?.code ?? '').startsWith('SCHEMA_') ? 'unsupported' : 'inaccessible', records: [], omitted: 0 };
   }
   try {
-    const { listPromptAudits } = await import('../../prompt-audit.mjs');
+    const { listPromptAuditRemovals, listPromptAudits } = await import('../../prompt-audit.mjs');
     const listing = await listPromptAudits(root, { workId, phase, limit: PROMPT_LISTING_LIMIT });
+    // What retention or a clear removed is noted without text, so it is not read as never kept.
+    const removals = await listPromptAuditRemovals(root, { workId, phase }).catch(() => null);
     const records = (listing.records ?? []).filter((record) => Number(record.generation) === Number(generation));
     result.prompts = {
       status: 'available',
@@ -280,7 +282,14 @@ export async function readGenerationSources(root, workflow, { phase, generation 
       omitted: Math.max(0, records.length - XPL2_RECORD_LIMITS.prompts),
       // The log lists at most this many entries of the Story's phase, newest first, before the
       // generation is chosen; a full listing may have left older entries of this generation out.
-      truncated: (listing.records?.length ?? 0) >= PROMPT_LISTING_LIMIT
+      truncated: (listing.records?.length ?? 0) >= PROMPT_LISTING_LIMIT,
+      removed: removals ? {
+        status: 'available',
+        entries: removals.entries.filter((entry) => Number(entry.generation) === Number(generation))
+          .map((entry) => ({ reason: entry.reason, recordedAt: entry.recordedAt, removedAt: entry.removedAt })),
+        cleared: removals.cleared.map((entry) => ({ removedAt: entry.removedAt, records: entry.records })),
+        complete: removals.complete && removals.unreadable === 0
+      } : { status: 'inaccessible', entries: [], cleared: [], complete: false }
     };
   } catch {
     result.prompts = { status: 'inaccessible', enabled: null, retentionDays: null, integrity: null, records: [], omitted: 0 };

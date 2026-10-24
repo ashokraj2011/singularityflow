@@ -125,7 +125,7 @@ async function loadComprehensionIdeSliceOnce(root, {
     bindingSources = await readStoryBindingSources(selectedWorkflow).catch(() => ({ status: 'unavailable' }));
     explanationView = explainXpl2Subject({
       context, manifest, codeExplanation, evidence, workflow: selectedWorkflow,
-      clauseSources, replay, sourceReferences, codeScope: { hidden }, sourceTags, recordSources, bindingSources
+      clauseSources, replay, sourceReferences, codeScope: { hidden }, sourceTags, recordSources, bindingSources, diff
     }, { subject: 'change' });
   } catch (error) {
     explanationViewUnavailableReason = error?.code ?? 'XPL2_VIEW_UNAVAILABLE';
@@ -171,6 +171,8 @@ async function loadComprehensionIdeSliceOnce(root, {
     codeExplanation,
     explanationView,
     explanationViewUnavailableReason,
+    // The exact commit the capture compared against, whatever revision text selected it.
+    baselineCommit: changeSet.base?.commit ?? null,
     walkthrough: {
       draft,
       unavailableReason: draft ? null : draftUnavailableReason

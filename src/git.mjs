@@ -2194,7 +2194,7 @@ export function commitsChangingSince(root, base, paths, { target = 'HEAD', limit
   }).filter((entry) => /^[0-9a-f]{40,64}$/u.test(entry.commit));
 }
 
-/** One line's `git blame` at the exact commit `revision`, or null; the author is what the commit records. */
+/** `git blame` of one line at commit `revision`, or null. */
 export function lineCommitAt(root, revision, file, line) {
   if (!/^[0-9a-f]{40}(?:[0-9a-f]{24})?$/u.test(String(revision)) || !(line >= 1)) return null;
   const result = git(['blame', '--porcelain', '-L', `${line},${line}`, revision, '--', file],

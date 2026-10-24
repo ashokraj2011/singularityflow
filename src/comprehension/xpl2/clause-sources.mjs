@@ -264,7 +264,7 @@ export async function readGenerationSources(root, workflow, { phase, generation 
   }
   try {
     const { listPromptAudits } = await import('../../prompt-audit.mjs');
-    const listing = await listPromptAudits(root, { workId, phase, limit: 1000 });
+    const listing = await listPromptAudits(root, { workId, phase, limit: PROMPT_LISTING_LIMIT });
     const records = (listing.records ?? []).filter((record) => Number(record.generation) === Number(generation));
     result.prompts = {
       status: 'available',
@@ -277,7 +277,10 @@ export async function readGenerationSources(root, workflow, { phase, generation 
         redactions: Number.isSafeInteger(record.redactions) ? record.redactions : 0,
         invocationId: (record.supportingEvidence ?? []).find((entry) => entry?.kind === 'model-invocation-audit')?.id ?? null
       })),
-      omitted: Math.max(0, records.length - XPL2_RECORD_LIMITS.prompts)
+      omitted: Math.max(0, records.length - XPL2_RECORD_LIMITS.prompts),
+      // The log lists at most this many entries of the Story's phase, newest first, before the
+      // generation is chosen; a full listing may have left older entries of this generation out.
+      truncated: (listing.records?.length ?? 0) >= PROMPT_LISTING_LIMIT
     };
   } catch {
     result.prompts = { status: 'inaccessible', enabled: null, retentionDays: null, integrity: null, records: [], omitted: 0 };
@@ -294,6 +297,7 @@ export async function readGenerationSources(root, workflow, { phase, generation 
 }
 
 const MAXIMUM_BINDING_PHASES = 8;
+const PROMPT_LISTING_LIMIT = 1000;
 const MAXIMUM_BINDINGS = 500;
 
 /**

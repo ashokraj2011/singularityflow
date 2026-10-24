@@ -89,8 +89,8 @@ export interface Xpl2Unit {
   opaqueReason?: string | null;
   regionSha256: string;
   explanationUnitSha256: string;
-  /** The change content this unit holds, independent of the snapshot; absent in older views. */
-  changeContentSha256?: string;
+  /** The change this unit holds, independent of the snapshot and its position; absent in older views. */
+  unitContentSha256?: string;
 }
 
 export interface Xpl2File {
@@ -151,6 +151,8 @@ export interface TourStep {
   step: 'purpose' | 'changes' | 'links' | 'checks' | 'attention' | 'history' | 'next';
   statements: string[];
   omitted: number;
+  /** On the last step: statements of kinds no step lists, counted so nothing is silently left out. */
+  unlisted?: number;
   action?: { id: string; kind: string; about: string; label: string } | null;
 }
 
@@ -336,7 +338,10 @@ export function explorerSummary(view: Xpl2Explanation): string {
   const tour = view.presentation.tour;
   const body = tour?.length
     ? tour.flatMap((step) => {
-      if (step.step === 'next') return step.action ? ['', `${TOUR_HEADINGS.next}:`, `- ${visibleText(step.action.label)}`] : [];
+      if (step.step === 'next') {
+        return [...(step.action ? ['', `${TOUR_HEADINGS.next}:`, `- ${visibleText(step.action.label)}`] : []),
+          ...(step.unlisted ? ['', `${step.unlisted} more statements are in the explorer.`] : [])];
+      }
       const lines = step.statements.map(line).filter((entry): entry is string => Boolean(entry));
       if (!lines.length) return [];
       return ['', `${TOUR_HEADINGS[step.step]}:`, ...lines, ...(step.omitted ? [`- ${step.omitted} more in the explorer`] : [])];
@@ -357,7 +362,7 @@ export function explorerSummary(view: Xpl2Explanation): string {
  */
 export const XPL2_COMPARISON_LIMIT = 20;
 
-const contentKey = (unit: Xpl2Unit) => unit.changeContentSha256 ?? unit.explanationUnitSha256;
+const contentKey = (unit: Xpl2Unit) => unit.unitContentSha256 ?? '';
 
 function comparedUnits(view: Xpl2Explanation) {
   return new Map((view?.inventory?.units ?? []).map((unit) => [contentKey(unit), unit]));
@@ -373,20 +378,31 @@ function comparedSources(view: Xpl2Explanation) {
 const brief = (unit: Xpl2Unit) => ({ unitId: unit.unitId, path: unit.path, digest: unit.explanationUnitSha256 });
 
 /** What differs between two views; null when either is missing or they are of different repositories. */
-export function compareXpl2Views(older: Xpl2Explanation | null, newer: Xpl2Explanation | null) {
+export interface Xpl2Comparison {
+  sameSet: boolean;
+  units: { kept: number; added: Array<{ unitId: string; path: string; digest: string }>; removed: Array<{ unitId: string; path: string; digest: string }>;
+    addedCount: number; removedCount: number } | null;
+  sources: { changed: string[]; changedCount: number };
+  statements: { older: number; newer: number };
+}
+
+export function compareXpl2Views(older: Xpl2Explanation | null, newer: Xpl2Explanation | null): Xpl2Comparison | null {
   if (!older || !newer || older.kind !== 'xpl2-explanation' || newer.kind !== 'xpl2-explanation') return null;
+  const olderSources = comparedSources(older);
+  const newerSources = comparedSources(newer);
+  const changedSources = [...new Set([...olderSources.keys(), ...newerSources.keys()])]
+    .filter((id) => olderSources.get(id) !== newerSources.get(id)).sort();
+  // A view built before units carried their own content cannot be compared unit by unit: its unit
+  // digests are bound to its snapshot, so every unit would read as new and gone.
+  const comparable = [older, newer].every((view) => view.inventory.units.every((unit) => Boolean(unit.unitContentSha256)));
   const before = comparedUnits(older);
   const after = comparedUnits(newer);
   const added = [...after.values()].filter((unit) => !before.has(contentKey(unit)));
   const removed = [...before.values()].filter((unit) => !after.has(contentKey(unit)));
   const kept = [...after.keys()].filter((digest) => before.has(digest)).length;
-  const olderSources = comparedSources(older);
-  const newerSources = comparedSources(newer);
-  const changedSources = [...new Set([...olderSources.keys(), ...newerSources.keys()])]
-    .filter((id) => olderSources.get(id) !== newerSources.get(id)).sort();
   return {
     sameSet: older.explanationSetSha256 === newer.explanationSetSha256,
-    units: {
+    units: !comparable ? null : {
       kept,
       added: added.slice(0, XPL2_COMPARISON_LIMIT).map(brief),
       removed: removed.slice(0, XPL2_COMPARISON_LIMIT).map(brief),
@@ -596,7 +612,7 @@ function tourHtml(view: Xpl2Explanation): string {
     if (step.step === 'next') {
       return `<li class="xpl-tour-step"><h3>${escape(TOUR_HEADINGS.next)}</h3>${step.action
         ? `<p>${escape(step.action.label)} <button type="button" class="secondary" data-next-attention>Next attention item →</button></p>`
-        : '<p class="xpl-empty">No attention item was reported.</p>'}</li>`;
+        : '<p class="xpl-empty">No attention item was reported.</p>'}${step.unlisted ? `<p class="xpl-note">${step.unlisted} more statement${step.unlisted === 1 ? '' : 's'} fit no step here; the map and the Relationships table show ${step.unlisted === 1 ? 'it' : 'them'}.</p>` : ''}</li>`;
     }
     const items = step.statements.map(item).join('');
     return `<li class="xpl-tour-step"><h3>${escape(TOUR_HEADINGS[step.step] ?? step.step)}</h3>${items ? `<ul class="xpl-statements">${items}</ul>` : '<p class="xpl-empty">Nothing is recorded for this step.</p>'}${step.omitted ? `<p class="xpl-note">${step.omitted} more in this step — counted, and shown in the map and the Relationships table.</p>` : ''}</li>`;
@@ -790,15 +806,23 @@ export interface ExplorerRenderInput {
  * "Snapshot changed", with what moved when the newer view is at hand: units compared by full digest,
  * never by display ID, and the sources whose identity or state differs [XPL2 5.1].
  */
-function snapshotBanner(view: Xpl2Explanation, newer: Xpl2Explanation | null): string {
-  const comparison = compareXpl2Views(view, newer);
+/** What the banner says moved, as escaped HTML text; empty when there is nothing to compare. */
+export function renderExplorerComparisonNote(comparison: Xpl2Comparison | null): string {
+  if (!comparison) return '';
   const plural = (count: number, word: string) => `${count} ${word}${count === 1 ? '' : 's'}`;
-  const moved = comparison
-    ? ` Since this view: ${plural(comparison.units.addedCount, 'change unit')} new, ${comparison.units.removedCount} gone, ${comparison.units.kept} unchanged${comparison.sources.changedCount ? `; ${plural(comparison.sources.changedCount, 'source')} changed (${comparison.sources.changed.map((id) => escape(id)).join(', ')}${comparison.sources.changedCount > comparison.sources.changed.length ? ', …' : ''})` : ''}.`
-      // Files, not display IDs: the newer view numbers its units afresh, so its H-001 may be another change.
-      + `${comparison.units.added.length ? ` New changes in ${[...new Set(comparison.units.added.map((unit) => unit.path))].map((file) => escape(file)).join(', ')}.` : ''}`
-      + `${comparison.units.removed.length ? ` Changes gone from ${[...new Set(comparison.units.removed.map((unit) => unit.path))].map((file) => escape(file)).join(', ')}.` : ''}`
-    : '';
+  const sources = comparison.sources.changedCount
+    ? `${plural(comparison.sources.changedCount, 'source')} changed (${comparison.sources.changed.map((id) => escape(id)).join(', ')}${comparison.sources.changedCount > comparison.sources.changed.length ? ', …' : ''})`
+    : 'no source changed';
+  const units = comparison.units;
+  if (!units) return ` This view predates change comparison, so its change units cannot be compared unit by unit; ${sources}.`;
+  return ` Since this view: ${plural(units.addedCount, 'change unit')} new, ${units.removedCount} gone, ${units.kept} unchanged; ${sources}.`
+    // Files, not display IDs: the newer view numbers its units afresh, so its H-001 may be another change.
+    + `${units.added.length ? ` New changes in ${[...new Set(units.added.map((unit) => unit.path))].map((file) => escape(file)).join(', ')}.` : ''}`
+    + `${units.removed.length ? ` Changes gone from ${[...new Set(units.removed.map((unit) => unit.path))].map((file) => escape(file)).join(', ')}.` : ''}`;
+}
+
+function snapshotBanner(view: Xpl2Explanation, newer: Xpl2Explanation | null): string {
+  const moved = renderExplorerComparisonNote(compareXpl2Views(view, newer));
   return `<div class="xpl-banner" role="status"><strong>Snapshot changed.</strong> The repository moved since this view was built.${moved} You are still looking at the earlier snapshot. <button type="button" class="secondary" data-message="refresh">Refresh to the new snapshot</button></div>`;
 }
 
@@ -1282,3 +1306,4 @@ export function resolveExplorerUnit(view: Xpl2Explanation | null, set: unknown, 
   if (typeof unitDigest !== 'string' || !/^sha256:[a-f0-9]{64}$/u.test(unitDigest)) return null;
   return view.inventory.units.find((unit) => unit.explanationUnitSha256 === unitDigest) ?? null;
 }
+

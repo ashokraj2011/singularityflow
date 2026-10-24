@@ -170,8 +170,10 @@ its tags and records name plus one citation step either way. A file or test whos
 **Reading tour.** Every view's `presentation.tour` lists, in a fixed order, the statements for
 *purpose* (clause text), *changes* (inventory and units), *links* (tags, region associations),
 *checks* (recorded results), *attention* (every attention statement, then visibility limits),
-*history* (generation records), and one safe *next* inspection action. Each step shows at most
-twelve statements and counts the rest; every statement stays in the view. It is presentation only:
+*history* (generation records), and one safe *next* inspection action. Every attention statement
+is always shown, whatever its kind; any other step shows at most twelve statements and counts the
+rest, and statements of kinds no step lists are counted on the last step, so every statement is
+shown or counted exactly once and stays in the view. It is presentation only:
 the same for every audience and outside both hashes. The Change Explorer shows it under **Read this
 change**, and **Copy summary** copies it.
 
@@ -190,12 +192,15 @@ change**, and **Copy summary** copies it.
   appended under *What needs attention (always shown)*, outside the word budget.
 - *Commentary* (`--commentary`). Free text labelled `AI commentary — semantic support unverified`,
   always `semanticSupport: unverified` (valid IDs are citation syntax only). It is withheld, with
-  each reason, for markup or links, control or escape characters, secret-shaped text, over-length
-  text, no citation, or citations that are not statements of the view.
+  each reason, for any URL, address, link, code, entity or Markdown structure, control or escape
+  characters, secret-shaped text (also inside quotes or brackets), over-length text, no citation,
+  or citations that are not statements of the view.
 - *Boundary.* The call goes through the model runner with its usual audit and the existing prompt
   capture setting (never switched on here), under channel `xpl2-narration-advisory` with no tools.
   Any failure reports the narration unavailable with its code. The narration is never stored and
-  never changes `data.explanation` or either hash.
+  never changes `data.explanation` or either hash. `--max-bytes` bounds the explanation and the
+  narration together (`wire.explanationBytes`, `wire.narrationBytes`); a narration that would not fit
+  is replaced by its notice (`bounded-delivery`).
 
 ## 6. Records, history and comparison (M3)
 
@@ -211,10 +216,12 @@ change**, and **Copy summary** copies it.
   revoked or superseded decision, an unobserved source or a record missing what its rule binds each
   read as not applying, with `revalidation-unestablished`. A reused run keeps its own step and attempt
   and is never shown as a run of the reusing step.
-- **Line.** `--subject line` asks `git blame` once, at the exact baseline commit: a before-side line
+- **Line.** `--subject line` asks `git blame` once, at the exact commit the capture resolved (never
+  the revision text, so it works outside a Story too): a before-side line
   directly, an unchanged after-side line mapped across the size change of the hunks above it, a
   context line inside a hunk through the patch. An added or changed line is not in the baseline's
-  history, and no later commit is read. The commit's author
+  history, and no later commit is read. An after-side question about a deleted or renamed-away
+  file says so and points to the before side or the new path. The commit's author
   is quoted as what the commit records. Who or what produced the captured content is
   `origin-unestablished`; no share of model-written lines is estimated anywhere.
 - **Generation.** `--subject generation` lists this machine's model invocations for that exact
@@ -222,10 +229,14 @@ change**, and **Copy summary** copies it.
   ordered; requested and provider-reported models are separate, and a missing outcome or tool
   observation is said, never counted as zero. Prompt-log entries say whether they were prepared,
   handed to the Copilot host or sent through the runner, and how many secret-shaped values were
-  redacted; the prompt text never enters the view. Reading enables no capture.
+  redacted; the prompt text never enters the view. An unreadable store, a listing cut at its bound
+  and records missing their identity are each reported, never read as none. Reading enables no
+  capture.
 - **Comparison.** When a newer snapshot raises *Snapshot changed*, the banner counts the change units
-  that are new, gone and unchanged, compared by the content of the change they hold (the file
-  change's content identity, unit kind and ranges), and names the sources and files that changed;
+  that are new, gone and unchanged, compared unit by unit by the change each holds
+  (`unitContentSha256`: its own hunk text with its paths, independent of position; the file change
+  and ranges when the patch was not projected), and names the sources and files that changed. A
+  view from before units carried this says it cannot be compared unit by unit;
   it names files rather than the newer view's display IDs, which are numbered afresh. A unit digest
   stays bound to its snapshot, so no link from one view opens a unit of the other.
 
@@ -239,9 +250,11 @@ change**, and **Copy summary** copies it.
   read as exact.
 - **Join.** A binding joins a captured unit only when the capture holds the very file change the
   receipt delivered: same status, paths, modes, before object and after content, compared field by
-  field (never by display ID, change-set digest or capture subject). Each delivered interval lies in
+  field (never by display ID, change-set digest or capture subject); a submodule pointer or other
+  entry with no content digest must also have the same after object. Each delivered interval lies in
   exactly one captured unit, because both describe the same bytes; an insertion point counts as
-  inside a unit when it falls between its lines. A binding with no hunks stays a region association.
+  inside a unit when it falls between its lines. A whole added file binds as one interval of its
+  real line count (receipts recorded before that count was corrected still join as the whole file). A binding with no hunks stays a region association.
 - **Stale and missing.** A bound file whose bytes differ now is reported *not joined* with
   `source-scope-mismatch` (worth a reader's attention), a bound file not in the capture with
   `outside-change-set`; staleness is per file change, never global.

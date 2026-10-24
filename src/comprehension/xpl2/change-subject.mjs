@@ -94,18 +94,44 @@ export function deliveredContent(entry) {
     modeBefore: entry?.oldMode ?? null,
     modeAfter: entry?.newMode ?? null,
     objectBefore: entry?.oldObject ?? null,
+    objectAfter: entry?.newObject ?? null,
     contentAfterSha256: entry?.newContent?.sha256 ?? null
   };
 }
 
 /** The capture's file change equals the delivered one when every content field matches. */
-function sameDeliveredContent(delivered, region) {
+export function sameDeliveredContent(delivered, region) {
   const location = region?.location ?? {};
   return Boolean(delivered) && delivered.status === region.operation
     && delivered.pathBefore === (location.pathBefore ?? null) && delivered.pathAfter === (location.pathAfter ?? null)
     && delivered.modeBefore === (location.modeBefore ?? null) && delivered.modeAfter === (location.modeAfter ?? null)
     && delivered.objectBefore === (location.gitObjectBefore ?? null)
-    && delivered.contentAfterSha256 === (location.contentAfterSha256 ?? null);
+    && delivered.contentAfterSha256 === (location.contentAfterSha256 ?? null)
+    // A submodule pointer or other non-regular entry has no content digest: its after-side object
+    // must then match exactly, and two unknown after sides are not the same change. A deletion has
+    // no after side at all.
+    && (delivered.contentAfterSha256 != null || delivered.status === 'deleted'
+      || (delivered.objectAfter != null && delivered.objectAfter === (location.gitObjectAfter ?? null)));
+}
+
+/**
+ * The text of each hunk in the capture's bounded patch, keyed by file paths and hunk header. A
+ * unit's own text identifies the change it holds independent of where it sits in the file.
+ */
+function hunkBodies(diff) {
+  const bodies = new Map();
+  if (diff?.status !== 'available' || typeof diff.patch !== 'string') return bodies;
+  for (const file of diff.files ?? []) {
+    let header = null;
+    let body = [];
+    const flush = () => { if (header) bodies.set(`${file.pathBefore}\u0000${file.pathAfter}\u0000${header}`, body.join('\n')); };
+    for (const row of diff.patch.slice(file.patchStart, file.patchEnd).split('\n')) {
+      if (row.startsWith('@@ ')) { flush(); header = row.replace(/\r$/u, ''); body = []; }
+      else if (header && /^[ +\\-]/u.test(row)) body.push(row);
+    }
+    flush();
+  }
+  return bodies;
 }
 
 function rangeText(hunks) {
@@ -156,7 +182,8 @@ export function buildChangeExplanationUniverse({
   codeScope = null,
   sourceTags = null,
   recordSources = null,
-  bindingSources = null
+  bindingSources = null,
+  diff = null
 }) {
   const b = createXpl2Builder();
   const truth = manifest.sourceKind === 'repository-change-set'
@@ -397,6 +424,24 @@ export function buildChangeExplanationUniverse({
 
   const unitStatements = new Map();
   const inventoryUnits = [];
+  const bodies = hunkBodies(diff);
+  const bodyOccurrences = new Map();
+  const unitContent = (unit) => {
+    const body = unit.hunk ? bodies.get(`${unit.location?.pathBefore ?? null}\u0000${unit.location?.pathAfter ?? null}\u0000${String(unit.hunk.header).replace(/\r$/u, '')}`) : undefined;
+    if (body === undefined) {
+      return `sha256:${recordSha256({
+        basis: 'file-change', change: regionBySha.get(unit.regionSha256)?.sourceChangeId ?? null,
+        kind: unit.unitKind, before: unit.hunk?.before ?? null, after: unit.hunk?.after ?? null
+      })}`;
+    }
+    const key = `${unit.regionSha256}\u0000${body}`;
+    const occurrence = (bodyOccurrences.get(key) ?? 0) + 1;
+    bodyOccurrences.set(key, occurrence);
+    return `sha256:${recordSha256({
+      basis: 'hunk-text', pathBefore: unit.location?.pathBefore ?? null, pathAfter: unit.location?.pathAfter ?? null,
+      kind: unit.unitKind, body, occurrence
+    })}`;
+  };
   for (const unit of units) {
     const file = fileByRegion.get(unit.regionSha256);
     const nodeId = `unit:${unit.unitId}`;
@@ -450,13 +495,11 @@ export function buildChangeExplanationUniverse({
       })),
       regionSha256: unit.regionSha256,
       explanationUnitSha256: unit.explanationUnitSha256,
-      // The change's own content, independent of which snapshot captured it: the file change's
-      // content identity plus this unit's kind and ranges. Used only to say what moved between two
-      // snapshots; a link still binds the full unit digest of one snapshot.
-      changeContentSha256: `sha256:${recordSha256({
-        change: regionBySha.get(unit.regionSha256)?.sourceChangeId ?? null,
-        kind: unit.unitKind, before: unit.hunk?.before ?? null, after: unit.hunk?.after ?? null
-      })}`
+      // The change this unit holds, independent of which snapshot captured it and of where it sits:
+      // its own hunk text (with its paths and a count for identical hunks in one file), or for an
+      // opaque unit or an unprojected patch the file change's content identity and ranges. Used
+      // only to say what moved between two snapshots; a link still binds the full unit digest.
+      unitContentSha256: unitContent(unit)
     });
   }
 
@@ -746,13 +789,17 @@ export function buildChangeExplanationUniverse({
         for (const hunk of hunks) {
           const before = { start: Number(hunk.beforeStart), lines: hunk.beforeLines == null ? null : Number(hunk.beforeLines) };
           const after = { start: Number(hunk.afterStart), lines: hunk.afterLines == null ? null : Number(hunk.afterLines) };
+          // A whole added file is bound as one interval from line 1; receipts recorded before the line
+          // count was corrected end one line past the file, so the whole-file shape is what joins.
+          const wholeAdded = region.change === 'added' && before.start === 0 && before.lines === 0 && after.start === 1;
           const unit = fileUnits.find((candidate) => candidate.hunk
-            ? within(before, candidate.hunk.before) && within(after, candidate.hunk.after)
+            ? (wholeAdded ? candidate.hunk.before.lines === 0 && candidate.hunk.before.start === 0 && candidate.hunk.after.start === 1
+              : within(before, candidate.hunk.before) && within(after, candidate.hunk.after))
             // An untracked new file is one opaque unit; a binding of the whole added file covers it.
             : region.change === 'added' && before.lines === 0);
           if (!unit) { missed += 1; continue; }
           const bucket = joined.get(unit.nodeId) ?? [];
-          bucket.push({ afterStart: after.start, afterLines: after.lines ?? 0, beforeStart: before.start, beforeLines: before.lines });
+          bucket.push({ afterStart: after.start, afterLines: wholeAdded && unit.hunk ? unit.hunk.after.lines : after.lines ?? 0, beforeStart: before.start, beforeLines: before.lines });
           joined.set(unit.nodeId, bucket);
         }
         if (missed) notJoined('text-projection-unavailable');

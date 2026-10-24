@@ -16,11 +16,14 @@ const suite = argv.find((argument) => !argument.startsWith('--')) ?? 'all';
 if (!TEST_SUITES.includes(suite)) throw new Error(`Test suite must be one of: ${TEST_SUITES.join(', ')}.`);
 const option = (name) => argv.find((argument) => argument.startsWith(`--${name}=`))?.slice(name.length + 3);
 const requestedShards = parsePositiveInteger(
-  option('shards') ?? process.env.SINGULARITY_FLOW_TEST_SHARDS ?? 8,
+  option('shards') ?? process.env.SINGULARITY_FLOW_TEST_SHARDS ?? 16,
   'Test aggregate shard count', { maximum: 64 }
 );
 const workers = parsePositiveInteger(
-  option('workers') ?? process.env.SINGULARITY_FLOW_TEST_SHARD_WORKERS ?? Math.min(2, requestedShards),
+  // Four shards at once since each child's deadline survives load (test/helpers/child-timeout.mjs) and
+  // shards are balanced by measured time: 16 x 4 ran 12,101 tests in 82 minutes on 2026-10-24 with no
+  // timeout, against 165 minutes for 8 x 2 on byte-balanced shards the day before.
+  option('workers') ?? process.env.SINGULARITY_FLOW_TEST_SHARD_WORKERS ?? Math.min(4, requestedShards),
   'Test aggregate worker count', { maximum: requestedShards }
 );
 const deadlineMs = parsePositiveInteger(

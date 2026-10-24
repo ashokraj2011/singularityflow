@@ -462,9 +462,10 @@ headroom means unrelated bundle growth still fails the gate.
 
 ## Bounded aggregate verification
 
-`npm test` and `npm run test:cli` no longer start one unbounded all-files process. They create eight
-deterministic, largest-first shards for the selected suite, run at most two shards concurrently with
-one Node test file per shard, and give each shard a 30-minute wall-clock deadline. The process-tree
+`npm test` and `npm run test:cli` no longer start one unbounded all-files process. They create sixteen
+deterministic, longest-first shards for the selected suite, run at most four shards concurrently with
+one Node test file per shard, and give each shard a 30-minute wall-clock deadline. (Eight shards and
+two workers until 2026-10-24: four ran only once child-process deadlines stopped failing under load.) The process-tree
 supervisor terminates the Node runner and its CLI, Git, extension-host, and model-provider
 descendants after a deadline or bounded output overflow. The unusually expensive Auto fixture is
 assigned a dedicated scheduling weight so its measured 17-minute local runtime is not hidden behind
@@ -487,11 +488,11 @@ npm run test:cli
 npm run test:release:aggregate
 
 # Tune execution without removing its bounds.
-node scripts/run-test-aggregate.mjs all --shards=8 --workers=2 --deadline-ms=1800000
+node scripts/run-test-aggregate.mjs all --shards=16 --workers=4 --deadline-ms=1800000
 
 # Inspect or retry one exact shard.
-node scripts/run-test-suite.mjs all --shard=3/8 --list
-node scripts/run-test-suite.mjs all --shard=3/8 --deadline-ms=1800000
+node scripts/run-test-suite.mjs all --shard=3/16 --list
+node scripts/run-test-suite.mjs all --shard=3/16 --deadline-ms=1800000
 ```
 
 The aggregate prints a standard Node test summary, so existing verification-receipt parsing remains
@@ -516,7 +517,8 @@ the product's 30 seconds, so files running side by side cannot fail each other's
 
 ### Slow lane
 
-A test that takes over a minute on a quiet machine opts into the slow lane with
+A test that takes 30 s or more on a quiet machine, or declares a timeout of 120 s or more (a
+whole-Story journey), opts into the slow lane with
 `slowLane()` from `test/helpers/slow-lane.mjs`. `npm test`, the suite shards and a single file under
 `node --test` skip it with a reason that names the lane, so the default run stays fast. `npm run
 test:slow` runs every file that holds one, and release verification, which forbids skipped tests,

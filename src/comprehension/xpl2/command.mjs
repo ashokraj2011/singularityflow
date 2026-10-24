@@ -8,14 +8,14 @@
  */
 import path from 'node:path';
 
-import { repoRoot } from '../../git.mjs';
+import { lineCommitAt, repoRoot } from '../../git.mjs';
 import {
   action, commandResult, noEffects, succeeded
 } from '../../narration/command-result.mjs';
 import { emitCommandResult } from '../../narration/emit.mjs';
 import { optionBoolean, optionNumber, optionString, SingularityFlowError } from '../../util.mjs';
 import { loadComprehensionIdeSlice } from '../ide-slice.mjs';
-import { explainXpl2Subject, normalizeXpl2Query } from './subjects.mjs';
+import { explainXpl2Subject, normalizeXpl2Query, xpl2LineHistoryRequest } from './subjects.mjs';
 
 /**
  * The initial wire payload goal [XPL2 18]: a bounded, labelled page rather than a silently truncated
@@ -28,7 +28,20 @@ const MAXIMUM_BYTES = 8 * 1024 * 1024;
 
 const USAGE = 'Usage: singularity-flow explain --subject change|clause|test|line|gap|generation '
   + '[--id ID] [--path PATH --line N [--side before|after]] [--phase PHASE --gen N] '
-  + '[--since REVISION] [--work-id ID] [--for reviewer|auditor|developer] [--max-bytes N] [--json]';
+  + '[--since REVISION] [--work-id ID] [--for reviewer|auditor|developer] [--max-bytes N] '
+  + '[--narrate [--length brief|standard|long] [--commentary]] [--json]';
+const NARRATION_LENGTHS = ['brief', 'standard', 'long'];
+
+/** The exact follow-up that asks for optional narration of this same question. */
+function narrationFollowup(options) {
+  const argv = ['singularity-flow', 'explain', '--subject', optionString(options, 'subject')];
+  for (const name of ['id', 'path', 'line', 'side', 'phase', 'gen', 'since', 'work-id', 'for']) {
+    const value = optionString(options, name);
+    if (value != null) argv.push(`--${name}`, value);
+  }
+  argv.push('--narrate', '--json');
+  return argv.map((word) => /^[A-Za-z0-9_./:@%+=,-]+$/u.test(word) ? word : `'${String(word).replaceAll("'", `'"'"'`)}'`).join(' ');
+}
 
 function refuse(message, code = 'XPL2_SUBJECT_INVALID') {
   throw new SingularityFlowError(message, { code });
@@ -69,10 +82,10 @@ async function readProofGaps(root, workId) {
   }
 }
 
-function boundedModel(input, query, proof, maximumBytes) {
+function boundedModel(input, query, extra, maximumBytes) {
   let maximumUnits = null;
   for (let attempt = 0; attempt < 12; attempt += 1) {
-    const model = explainXpl2Subject(input, query, { proof, maximumUnits });
+    const model = explainXpl2Subject(input, query, { ...extra, maximumUnits });
     const bytes = Buffer.byteLength(JSON.stringify(model), 'utf8');
     if (bytes <= maximumBytes) return { model, bytes };
     const total = model.inventory.units.length;
@@ -80,7 +93,7 @@ function boundedModel(input, query, proof, maximumBytes) {
     if (current <= 1) return { model, bytes };
     maximumUnits = Math.max(1, Math.floor(current / 2));
   }
-  const model = explainXpl2Subject(input, query, { proof, maximumUnits: 1 });
+  const model = explainXpl2Subject(input, query, { ...extra, maximumUnits: 1 });
   return { model, bytes: Buffer.byteLength(JSON.stringify(model), 'utf8') };
 }
 
@@ -88,9 +101,14 @@ export async function runExplanationSubject(_argv, { positionals, options, opera
   if (positionals.length !== 1) {
     refuse(`Choose either a documentation topic or --subject, not both. ${USAGE}`);
   }
-  if (optionBoolean(options, 'narrate')) {
-    refuse('Narration for --subject views is not part of this release; the computed view is complete without a model. '
-      + '`singularity-flow explain code --narrate` remains available.', 'XPL2_NARRATION_UNAVAILABLE');
+  // Narration is optional and separate [XPL2 13.2]: its options are checked before any read, so a
+  // typo is a refusal, never a provider outage.
+  const wantsNarration = optionBoolean(options, 'narrate');
+  const length = optionString(options, 'length') ?? 'standard';
+  if (!wantsNarration && options.length != null) refuse('--length is valid only with --narrate.', 'XPL2_NARRATION_LENGTH_INVALID');
+  if (!wantsNarration && options.commentary != null) refuse('--commentary is valid only with --narrate.', 'XPL2_NARRATION_OPTION_INVALID');
+  if (!NARRATION_LENGTHS.includes(length)) {
+    refuse(`Narration length '${length}' is invalid. Use brief, standard or long.`, 'XPL2_NARRATION_LENGTH_INVALID');
   }
   if (optionString(options, 'snapshot') != null) {
     refuse('Retained snapshots cannot be selected in this release. Use --since REVISION for an explicit Git baseline.', 'XPL2_SNAPSHOT_UNAVAILABLE');
@@ -121,10 +139,29 @@ export async function runExplanationSubject(_argv, { positionals, options, opera
     sourceTags: slice.explanationInputs?.sourceTags ?? null,
     replay: slice.replay,
     sourceReferences: slice.sourceReferences,
-    codeScope: slice.codeScope
+    codeScope: slice.codeScope,
+    recordSources: slice.explanationInputs?.recordSources ?? null,
+    bindingSources: slice.explanationInputs?.bindingSources ?? null
   };
   const proof = query.subject === 'gap' ? await readProofGaps(root, slice.context.workId) : null;
-  const { model, bytes } = boundedModel(input, query, proof, maximumBytes);
+  // A line asks ordinary commit history once, at the exact baseline commit, after the capture is
+  // complete; a generation reads this machine's records for it. Neither is read for other subjects.
+  let lineHistory = null;
+  if (query.subject === 'line') {
+    const request = xpl2LineHistoryRequest({ codeExplanation: slice.codeExplanation, diff: slice.diff, context: slice.context }, query);
+    lineHistory = { request, result: request?.kind === 'baseline' ? lineCommitAt(root, request.revision, request.path, request.line) : null };
+  }
+  const generationSources = query.subject === 'generation' && input.workflow
+    ? await (await import('./clause-sources.mjs')).readGenerationSources(root, input.workflow, { phase: query.phase, generation: query.generation })
+    : null;
+  const { model, bytes } = boundedModel(input, query, { proof, lineHistory, generationSources }, maximumBytes);
+  // The computed view is complete before narration starts and is never changed by it [XPL2-AC-009].
+  const narration = wantsNarration
+    ? await (await import('./narration.mjs')).narrateXpl2Explanation(root, model, {
+      operation, length, commentary: optionBoolean(options, 'commentary'),
+      workId: slice.context.workId, phase: slice.context.phase
+    })
+    : null;
   const next = [
     action({
       id: 'explanation.gap',
@@ -140,6 +177,15 @@ export async function runExplanationSubject(_argv, { positionals, options, opera
       kind: 'informational'
     })
   ].filter((entry) => !(query.subject === 'gap' && entry.id === 'explanation.gap'));
+  if (!wantsNarration) {
+    next.push(action({
+      id: 'explanation.narrate',
+      label: 'Ask a model to order these recorded statements into a short reading; it adds no facts.',
+      command: narrationFollowup(options),
+      kind: 'informational',
+      modelPolicy: 'optional'
+    }));
+  }
   return emitCommandResult(commandResult({
     operation,
     subject: slice.context.workId
@@ -160,6 +206,7 @@ export async function runExplanationSubject(_argv, { positionals, options, opera
         base: slice.context.base, source: slice.context.source
       },
       explanation: model,
+      ...(narration ? { narration } : {}),
       wire: { bytes, maximumBytes, measure: 'compact-utf8-json' }
     }
   }), { json: optionBoolean(options, 'json'), restStateWhenIdle: 'informational' });

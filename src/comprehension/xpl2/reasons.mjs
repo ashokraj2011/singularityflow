@@ -41,7 +41,9 @@ export const XPL2_REASONS = Object.freeze({
   'owner-reported-failure': 'The source owner recorded a failing or unfinished result.',
   'owner-reported-gap': 'The source owner reported this gap in its own record.',
   'conflicting-sources': 'Admitted sources disagree; all of them are shown and none is preferred.',
-  'navigation-hint-only': 'Cached declarations help navigation; they do not establish ownership, coverage or behavior.'
+  'navigation-hint-only': 'Cached declarations help navigation; they do not establish ownership, coverage or behavior.',
+  'machine-local-only': 'Only records kept on this machine are visible; work recorded elsewhere, by another person or by a host that keeps its own records, is not.',
+  'outcome-unobserved': 'The record shows the work started; no outcome was recorded, which is neither a success nor a failure.'
 });
 
 export const XPL2_REASON_CODES = Object.freeze(Object.keys(XPL2_REASONS));

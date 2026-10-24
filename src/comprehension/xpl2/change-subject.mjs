@@ -11,11 +11,22 @@
  */
 import { createHash } from 'node:crypto';
 
+import { recordSha256 } from '../../records.mjs';
 import { createXpl2Builder } from './model.mjs';
 
 export const XPL2_CHANGE_ADAPTER = 'xpl2.adapter.change@1';
 
 const INITIAL_GRAPH_NODES = 40;
+
+// Witness outcomes from the verification owner, and which of them needs a reader's attention.
+const WITNESS_OUTCOME_ATTENTION = Object.freeze({
+  passed: null, 'passed-with-skips': 'advisory', failed: 'blocker', flaky: 'advisory', 'not-run': 'advisory',
+  missing: 'advisory', inconclusive: 'advisory', unavailable: 'advisory', 'unverified-skipped': 'advisory', ambiguous: 'advisory'
+});
+const ASSURANCE_RUNGS = Object.freeze(['none', 'declared', 'source-bound', 'module-observed', 'exact-local-observed', 'exact-authenticated']);
+const REUSE_STATE_SET = Object.freeze({
+  active: 1, revoked: 1, expired: 1, superseded: 1, unobserved: 1, 'source-changed': 1, 'attempt-changed': 1, unknown: 1
+});
 
 function hex12(value) {
   return createHash('sha256').update(String(value)).digest('hex').slice(0, 12);
@@ -62,11 +73,70 @@ function opaqueReason(unit) {
   return unit.opacity?.reason === 'tracked-file-has-no-text-hunks' ? 'opaque-content' : 'text-projection-unavailable';
 }
 
-/** The delivery record describes the published generation; it is current only for the same change set. */
+/**
+ * Whether a delivered interval lies inside a captured one on one side. A zero-length interval is an
+ * insertion point (after line `start`); a null length is the whole file. Both sides come from the
+ * same file content, so a delivered hunk lies inside exactly one captured unit [XPL2 M4].
+ */
+function within(bound, unit) {
+  if (bound.lines == null) return true;
+  if (unit.lines === 0) return bound.lines === 0 && bound.start === unit.start;
+  if (bound.lines === 0) return bound.start >= unit.start - 1 && bound.start <= unit.start + unit.lines - 1;
+  return bound.start >= unit.start && bound.start + bound.lines - 1 <= unit.start + unit.lines - 1;
+}
+
+/** What a delivered file change was, by content: the fields a capture's change region also carries. */
+export function deliveredContent(entry) {
+  return {
+    status: entry?.status ?? null,
+    pathBefore: entry?.oldPath ?? null,
+    pathAfter: entry?.newPath ?? null,
+    modeBefore: entry?.oldMode ?? null,
+    modeAfter: entry?.newMode ?? null,
+    objectBefore: entry?.oldObject ?? null,
+    contentAfterSha256: entry?.newContent?.sha256 ?? null
+  };
+}
+
+/** The capture's file change equals the delivered one when every content field matches. */
+function sameDeliveredContent(delivered, region) {
+  const location = region?.location ?? {};
+  return Boolean(delivered) && delivered.status === region.operation
+    && delivered.pathBefore === (location.pathBefore ?? null) && delivered.pathAfter === (location.pathAfter ?? null)
+    && delivered.modeBefore === (location.modeBefore ?? null) && delivered.modeAfter === (location.modeAfter ?? null)
+    && delivered.objectBefore === (location.gitObjectBefore ?? null)
+    && delivered.contentAfterSha256 === (location.contentAfterSha256 ?? null);
+}
+
+function rangeText(hunks) {
+  return hunks.map((hunk) => hunk.afterLines > 0
+    ? (hunk.afterLines === 1 ? `after line ${hunk.afterStart}` : `after lines ${hunk.afterStart}–${hunk.afterStart + hunk.afterLines - 1}`)
+    : `removal after line ${hunk.afterStart}`).join(', ');
+}
+
+/**
+ * The delivery record describes the published generation; it is current only for the same change.
+ * When the Story kept the delivered change set, "the same change" means the capture holds exactly
+ * the delivered application file changes, each with the same content (a later commit of the same
+ * bytes, or another capture subject, does not make it stale). Otherwise only an equal change-set
+ * digest is current.
+ */
 function deliveryApplicability(delivery, manifest) {
   const digest = delivery?.changeSet?.digest ?? null;
   if (!digest) return 'unknown';
-  return digest === manifest.changeSetSha256 ? 'current' : 'stale';
+  if (digest === manifest.changeSetSha256) return 'current';
+  const entries = Array.isArray(delivery.changeSet.entries) ? delivery.changeSet.entries : null;
+  if (!entries) return 'stale';
+  const delivered = new Set(['sourcePaths', 'deletedSourcePaths', 'testPaths', 'supportingTestPaths', 'configurationPaths']
+    .flatMap((field) => Array.isArray(delivery[field]) ? delivery[field] : []));
+  const byPath = new Map(entries.flatMap((entry) => [entry.newPath, entry.oldPath].filter(Boolean).map((candidate) => [candidate, entry])));
+  const captured = new Set();
+  for (const region of manifest.regions ?? []) {
+    const candidate = region.location?.pathAfter ?? region.location?.pathBefore;
+    captured.add(candidate);
+    if (!delivered.has(candidate) || !sameDeliveredContent(deliveredContent(byPath.get(candidate)), region)) return 'stale';
+  }
+  return [...delivered].every((candidate) => captured.has(candidate)) ? 'current' : 'stale';
 }
 
 /**
@@ -84,7 +154,9 @@ export function buildChangeExplanationUniverse({
   sourceReferences = [],
   includeAllDeclaredClauses = false,
   codeScope = null,
-  sourceTags = null
+  sourceTags = null,
+  recordSources = null,
+  bindingSources = null
 }) {
   const b = createXpl2Builder();
   const truth = manifest.sourceKind === 'repository-change-set'
@@ -146,12 +218,21 @@ export function buildChangeExplanationUniverse({
     completeness: graphDigest ? 'complete-for-scope' : 'unavailable',
     reason: referencedUnits.length ? 'region-only-association' : 'source-not-recorded'
   });
+  // The other exact-link owner: implementation bindings recorded by code-delivery phases.
+  if (bindingSources && bindingSources.status !== 'available') {
+    b.observation({
+      id: 'OBS-BINDINGS', adapter: 'story.code-delivery', scope: 'implementation bindings recorded by this Story',
+      completeness: 'unavailable', reason: 'source-inaccessible'
+    });
+  }
   b.observation({
     id: 'OBS-ADMISSION', adapter: 'none', scope: 'admission evaluation for this subject',
     completeness: 'unavailable', reason: 'evaluation-unavailable'
   });
+  // The impact preview (change flight plans) is keyed by intent and baseline, not by a change set,
+  // and the world-model blast projection is a draft: neither is an exact-subject impact source.
   b.observation({
-    id: 'OBS-IMPACT', adapter: 'none', scope: 'repository impact for this subject',
+    id: 'OBS-IMPACT', adapter: 'none', scope: 'repository impact keyed to this exact change set',
     completeness: 'unavailable', reason: 'adapter-unavailable'
   });
   b.observation({
@@ -368,7 +449,14 @@ export function buildChangeExplanationUniverse({
         name: symbol.qualifiedName ?? symbol.name, line: symbol.line, assurance: symbol.assurance
       })),
       regionSha256: unit.regionSha256,
-      explanationUnitSha256: unit.explanationUnitSha256
+      explanationUnitSha256: unit.explanationUnitSha256,
+      // The change's own content, independent of which snapshot captured it: the file change's
+      // content identity plus this unit's kind and ranges. Used only to say what moved between two
+      // snapshots; a link still binds the full unit digest of one snapshot.
+      changeContentSha256: `sha256:${recordSha256({
+        change: regionBySha.get(unit.regionSha256)?.sourceChangeId ?? null,
+        kind: unit.unitKind, before: unit.hunk?.before ?? null, after: unit.hunk?.after ?? null
+      })}`
     });
   }
 
@@ -581,6 +669,247 @@ export function buildChangeExplanationUniverse({
     }
   }
 
+  // ---- Exact links: implementation bindings joined to captured units [XPL2 M4] ----------------
+  // A binding joins a unit only when the capture holds the very file change the receipt delivered
+  // (same before object, after content, modes and paths) and the delivered hunk lies inside the
+  // unit. A region association is never upgraded, and nothing is joined by display ID.
+  const boundUnits = new Map();
+  const bindingIntervals = new Map();
+  let bindingEdges = 0;
+  const bindingPhases = bindingSources?.status === 'available' ? bindingSources.phases : [];
+  const regionByAfterPath = new Map(manifest.regions.map((region) => [region.location?.pathAfter ?? region.location?.pathBefore, region]));
+  for (const [index, entry] of bindingPhases.entries()) {
+    const sourceId = `SRC-BINDINGS-${String(index + 1).padStart(2, '0')}`;
+    const phaseLabel = identifier(entry.phaseId, 'phase');
+    const generation = String(entry.generation ?? 'unknown');
+    if (entry.integrity !== 'verified') {
+      b.observation({
+        id: `OBS-BINDINGS-${String(index + 1).padStart(2, '0')}`, adapter: 'story.code-delivery',
+        scope: `implementation bindings of the ${phaseLabel} delivery`, completeness: 'unavailable', reason: 'integrity-failed'
+      });
+      continue;
+    }
+    b.source({
+      id: sourceId, label: `${phaseLabel} implementation bindings`, owner: 'story.code-delivery', family: 'implementation-bindings',
+      recordId: `${identifier(context.workId, 'story')}:${phaseLabel}:gen${generation}`, digest: entry.bindingsSha256,
+      integrity: 'self-hashed', origin: 'recorded-local', applicability: 'unknown', availability: 'present',
+      coverage: { scope: `${phaseLabel} generation ${generation}`, complete: !entry.omitted, bindings: entry.bindings.length }
+    });
+    const decisionNode = entry.decisions ? `decision:approval:${phaseLabel}:${identifier(entry.decisions.generation, 'gen')}` : null;
+    if (decisionNode) {
+      b.node({ id: decisionNode, kind: 'decision', label: `${phaseLabel} approval`, status: 'recorded', cites: [sourceId, 'SRC-STORY'].filter((id) => b.sourceIds().includes(id)) });
+    }
+    for (const binding of entry.bindings) {
+      if (typeof binding?.clauseId !== 'string') continue;
+      const clauseNodeId = clauseNode(binding.clauseId, [sourceId]);
+      const decided = entry.decisions?.clauses?.[binding.clauseId] ?? null;
+      const decision = ['accepted', 'accepted-with-exception'].includes(decided?.decision) ? decided.decision : 'not-reviewed';
+      if (decisionNode && decided) {
+        b.relationship({ type: 'decision-covers-binding', from: decisionNode, to: clauseNodeId, scope: 'implementation binding set', qualifier: decision, cites: [sourceId] });
+        b.statement({
+          about: decisionNode, template: 'xpl2.binding-decision@1', cites: [sourceId],
+          arguments: { phase: phaseLabel, generation: String(entry.decisions.generation ?? generation), clauseId: binding.clauseId, decision, reason: String(decided.reason ?? '') }
+        });
+      }
+      for (const region of binding.regions ?? []) {
+        if (typeof region?.path !== 'string') continue;
+        const captured = regionByAfterPath.get(region.path) ?? null;
+        const file = captured ? fileByRegion.get(captured.regionSha256) ?? null : null;
+        const notJoined = (reason) => {
+          const statement = b.statement({
+            about: clauseNodeId, template: 'xpl2.binding-not-joined@1', cites: [sourceId, 'SRC-MANIFEST'],
+            arguments: { clauseId: binding.clauseId, phase: phaseLabel, generation, path: region.path, reason }
+          });
+          if (reason === 'source-scope-mismatch') b.attention({ category: 'visibility', about: clauseNodeId, reason, statement });
+        };
+        if (!captured || !file) { notJoined('outside-change-set'); continue; }
+        // The same path with other bytes is another change: the binding is stale, not this one's.
+        if (!sameDeliveredContent(entry.files?.[region.path], captured)) { notJoined('source-scope-mismatch'); continue; }
+        const hunks = Array.isArray(region.hunks) ? region.hunks : [];
+        if (!hunks.length) {
+          // A binding with no hunks is a whole-region association, never a hunk link.
+          const edge = b.relationship({
+            type: 'region-associated-with-clause', from: clauseNodeId, to: file.fileId, scope: 'change-region',
+            qualifier: 'implementation-binding', cites: [sourceId]
+          });
+          if (edge) {
+            b.statement({
+              about: file.fileId, template: 'xpl2.region-association@1', cites: [sourceId],
+              arguments: { clauseId: binding.clauseId, causeKind: 'implementation-binding', path: file.path }, limitations: ['region-only-association']
+            });
+          }
+          continue;
+        }
+        const fileUnits = inventoryUnits.filter((unit) => unit.fileId === file.fileId);
+        const joined = new Map();
+        let missed = 0;
+        for (const hunk of hunks) {
+          const before = { start: Number(hunk.beforeStart), lines: hunk.beforeLines == null ? null : Number(hunk.beforeLines) };
+          const after = { start: Number(hunk.afterStart), lines: hunk.afterLines == null ? null : Number(hunk.afterLines) };
+          const unit = fileUnits.find((candidate) => candidate.hunk
+            ? within(before, candidate.hunk.before) && within(after, candidate.hunk.after)
+            // An untracked new file is one opaque unit; a binding of the whole added file covers it.
+            : region.change === 'added' && before.lines === 0);
+          if (!unit) { missed += 1; continue; }
+          const bucket = joined.get(unit.nodeId) ?? [];
+          bucket.push({ afterStart: after.start, afterLines: after.lines ?? 0, beforeStart: before.start, beforeLines: before.lines });
+          joined.set(unit.nodeId, bucket);
+        }
+        if (missed) notJoined('text-projection-unavailable');
+        for (const [unitNodeId, intervals] of joined) {
+          const unit = inventoryUnits.find((candidate) => candidate.nodeId === unitNodeId);
+          const edge = b.relationship({
+            type: 'binding-covers-unit', from: clauseNodeId, to: unitNodeId, scope: `${phaseLabel} generation ${generation} receipt`,
+            qualifier: decision, cites: [sourceId, ...unitCites]
+          });
+          if (!edge) continue;
+          bindingEdges += 1;
+          b.statement({
+            about: unitNodeId, template: 'xpl2.exact-cause@1', cites: [sourceId, ...unitCites],
+            arguments: {
+              unitId: unit.unitId, clauseId: binding.clauseId, phase: phaseLabel, generation, lines: rangeText(intervals) || 'whole file',
+              path: region.path, note: String(binding.explanation?.text ?? ''), decision
+            }
+          });
+          const units = boundUnits.get(unitNodeId) ?? new Set();
+          units.add(binding.clauseId);
+          boundUnits.set(unitNodeId, units);
+          const known = bindingIntervals.get(unitNodeId) ?? [];
+          known.push(...intervals.map((interval) => ({ ...interval, clauseId: binding.clauseId, phase: phaseLabel, generation })));
+          bindingIntervals.set(unitNodeId, known);
+        }
+      }
+    }
+  }
+
+  // ---- Recorded runs, criterion witnesses and evidence reuse [XPL2 M3] -------------------------
+  const records = recordSources?.status === 'available' ? recordSources : null;
+  const runCitations = new Map();
+  const attemptNodes = new Map();
+  let attemptCount = 0;
+  let witnessCount = 0;
+  let reuseCount = 0;
+  if (records) {
+    for (const [index, entry] of records.attempts.entries()) {
+      const id = `SRC-RUN-${String(index + 1).padStart(2, '0')}`;
+      const attemptId = identifier(entry.binding.attemptId ?? entry.record?.attemptId, `attempt-${index + 1}`);
+      if (entry.status === 'verified') {
+        b.source({
+          id, label: `Test attempt ${attemptId}`, owner: 'verification.test-attempts', family: 'test-execution',
+          recordId: attemptId, digest: entry.sha256, integrity: 'verified', origin: 'recorded-local',
+          applicability: deliveryLimits.length ? 'stale' : 'current', availability: 'present',
+          coverage: { scope: `${identifier(records.phase, 'phase')} ${records.submitted ? 'submitted' : 'preflight'} run`, complete: true }
+        });
+        runCitations.set(entry.binding.commandId, id);
+        const record = entry.record;
+        const nodeId = `run:${attemptId}`;
+        attemptNodes.set(attemptId, nodeId);
+        const status = identifier(record.status, 'unavailable');
+        b.node({ id: nodeId, kind: 'run', label: attemptId, status, cites: [id], detail: { commandId: record.commandId, purpose: record.purpose } });
+        const tests = record.tests && typeof record.tests === 'object' ? record.tests : null;
+        const count = (value) => Number.isSafeInteger(value) && value >= 0 ? value : 0;
+        const statement = b.statement({
+          about: nodeId, template: 'xpl2.test-attempt@1', cites: [id],
+          arguments: {
+            attemptId, commandId: String(record.commandId ?? 'unknown command'), purpose: identifier(record.purpose, 'unknown'),
+            status, completedAt: String(record.process?.completedAt ?? 'not recorded'),
+            countsKnown: Boolean(tests), passed: count(tests?.passed), failed: count(tests?.failed), skipped: count(tests?.skipped),
+            previous: String(record.parentAttemptId ?? 'none')
+          },
+          limitations: ['origin-unestablished', ...deliveryLimits]
+        });
+        attemptCount += 1;
+        if (['failed', 'blocked'].includes(status)) {
+          b.attention({ category: 'blocker', about: nodeId, reason: 'owner-reported-failure', statement });
+        }
+      } else {
+        // A tampered, unreadable or not-yet-admitted attempt contributes no fact [XPL2-AC-007].
+        const reason = entry.status === 'integrity-failed' ? 'integrity-failed' : entry.status === 'not-recorded' ? 'source-not-recorded'
+          : entry.status === 'unsupported' ? 'unsupported-source-version' : 'source-inaccessible';
+        b.observation({
+          id: `OBS-RUN-${String(index + 1).padStart(2, '0')}`, adapter: 'verification.test-attempts',
+          scope: `attempt bound by the ${identifier(records.phase, 'phase')} delivery record`, completeness: 'unavailable', reason
+        });
+      }
+    }
+    for (const entry of records.witnesses) {
+      const { witness, result } = entry;
+      if (typeof witness?.clauseId !== 'string' || typeof witness?.testSource !== 'string' || !deliveryCitation) continue;
+      const exact = Boolean(result.identityKey);
+      const testKey = exact ? `witness:${result.identityKey}` : witness.testSource;
+      let testId = testNodes.get(testKey);
+      if (!testId) {
+        testId = `test:${hex12(testKey)}`;
+        testNodes.set(testKey, testId);
+        b.node({ id: testId, kind: 'test', label: exact ? result.label : witness.testSource, status: exact ? 'exact-declaration' : null, cites: [deliveryCitation] });
+      }
+      const clauseNodeId = clauseNode(witness.clauseId, [deliveryCitation]);
+      b.relationship({
+        type: 'test-source-tags-clause', from: testId, to: clauseNodeId, scope: 'declared-tag', qualifier: 'witness', cites: [deliveryCitation]
+      });
+      const run = runCitations.get(entry.commandId) ?? null;
+      const runNode = result.attemptId ? attemptNodes.get(result.attemptId) ?? null : null;
+      // An occurrence edge only when the verification owner observed this test's own occurrence.
+      if (run && runNode && result.execution === 'exact-local-observed') {
+        b.relationship({ type: 'test-occurrence-in-run', from: testId, to: runNode, scope: 'exact-occurrence', cites: [run, deliveryCitation] });
+      }
+      const outcome = Object.hasOwn(WITNESS_OUTCOME_ATTENTION, result.outcome) ? result.outcome : 'inconclusive';
+      const statement = b.statement({
+        about: testId, template: 'xpl2.witness-result@1', cites: [deliveryCitation, ...(run ? [run] : [])],
+        arguments: {
+          label: String(result.label ?? witness.testSource), clauseId: witness.clauseId, outcome,
+          identity: result.identity === 'source-bound' ? 'source-bound' : 'declared',
+          assurance: ASSURANCE_RUNGS.includes(result.assurance) ? result.assurance : 'none',
+          requiredAssurance: ASSURANCE_RUNGS.includes(result.requiredAssurance) ? result.requiredAssurance : 'none',
+          attempt: String(result.attemptId ?? 'none'), commandId: String(entry.commandId ?? 'no command'), shortfall: result.shortfall === true
+        },
+        limitations: [...(entry.attemptUsable ? [] : ['integrity-failed']), ...deliveryLimits]
+      });
+      witnessCount += 1;
+      const category = WITNESS_OUTCOME_ATTENTION[outcome];
+      if (category) {
+        b.attention({ category, about: testId, reason: category === 'blocker' ? 'owner-reported-failure' : 'owner-reported-gap', statement });
+      }
+    }
+    if (records.reuses.length) {
+      b.source({
+        id: 'SRC-REUSE', label: 'Evidence-reuse decisions', owner: 'story.evidence-reuse', family: 'evidence-reuse-decision',
+        recordId: identifier(context.workId, 'story'), digest: `sha256:${recordSha256(records.reuses.map((entry) => entry.digest))}`,
+        integrity: 'unverified', origin: 'recorded-local', applicability: 'unknown', availability: 'present',
+        coverage: { scope: 'selected Story', complete: !records.omitted?.reuses, decisions: records.reuses.length }
+      });
+      for (const { decision, state } of records.reuses) {
+        const reuseId = identifier(decision.id, 'ERU');
+        const nodeId = `decision:${reuseId}`;
+        const reuseState = Object.hasOwn(REUSE_STATE_SET, state) ? state : 'unknown';
+        b.node({ id: nodeId, kind: 'decision', label: reuseId, status: reuseState, cites: ['SRC-REUSE'] });
+        const attemptId = identifier(decision.attempt?.id, 'attempt');
+        const runNode = attemptNodes.get(attemptId) ?? `run:${attemptId}`;
+        if (!attemptNodes.has(attemptId)) {
+          b.node({ id: runNode, kind: 'run', label: attemptId, status: 'recorded-elsewhere', cites: ['SRC-REUSE'] });
+        }
+        b.relationship({ type: 'reuse-decision-cites-run', from: nodeId, to: runNode, scope: 'owner-decision', qualifier: reuseState, cites: ['SRC-REUSE'] });
+        const statement = b.statement({
+          about: nodeId, template: 'xpl2.evidence-reuse@1', cites: ['SRC-REUSE'],
+          arguments: {
+            reuseId, phase: identifier(decision.phase, 'phase'), attemptId,
+            sourcePhase: String(decision.attempt?.phase ?? 'an earlier step'), commit: String(decision.source?.commit ?? 'an unrecorded commit').slice(0, 12),
+            state: reuseState, actor: String(decision.actor ?? 'someone')
+          },
+          // A reuse decision never says the run happened on this change [XPL2-AC-039].
+          limitations: reuseState === 'active' ? [] : ['revalidation-unestablished']
+        });
+        reuseCount += 1;
+        if (reuseState !== 'active') b.attention({ category: 'visibility', about: nodeId, reason: 'revalidation-unestablished', statement });
+      }
+    }
+  } else if (recordSources) {
+    b.observation({
+      id: 'OBS-RECORDS', adapter: 'verification.test-attempts', scope: 'recorded test attempts and witnesses for the selected phase',
+      completeness: 'unavailable', reason: 'source-inaccessible'
+    });
+  }
+
   // ---- Declared links in the changed files: @clause tags in code, @ac tags in tests -------------
   const fileByPath = new Map(files.filter((file) => file.pathAfter).map((file) => [file.pathAfter, file]));
   const explainedFiles = new Set();
@@ -635,7 +964,7 @@ export function buildChangeExplanationUniverse({
   // edge, that its hunks are not individually linked.
   const causeGapId = 'gap:cause-not-recorded';
   for (const file of files) {
-    const bucket = unexplainedByFile.get(file.fileId) ?? [];
+    const bucket = (unexplainedByFile.get(file.fileId) ?? []).filter((unit) => !boundUnits.has(unit.nodeId));
     if (!bucket.length) continue;
     const associated = referencedUnits.some((unit) => unit.regionSha256 === file.regionSha256);
     const gapStatements = bucket.map((unit) => b.statement({
@@ -722,20 +1051,25 @@ export function buildChangeExplanationUniverse({
     textHunks: hunkCount,
     opaqueUnits: opaqueCount,
     changeUnits: inventoryUnits.length,
-    causeBoundUnits: 0,
+    causeBoundUnits: boundUnits.size,
     regionAssociatedUnits,
-    unexplainedUnits: hunkCount,
+    unexplainedUnits: inventoryUnits.filter((unit) => unit.unitKind === 'diff-hunk' && !boundUnits.has(unit.nodeId)).length,
+    exactLinks: bindingEdges,
     clauses: clauseNodes.size,
     clauseTags: shownTags.filter((tag) => tag.tag === 'clause').length,
     acceptanceTags: shownTags.filter((tag) => tag.tag === 'ac').length,
     clauseCitations,
     testBindings: bindings.length,
-    testResults: evidence?.testExecutions?.length ?? 0
+    testResults: evidence?.testExecutions?.length ?? 0,
+    testAttempts: attemptCount,
+    witnesses: witnessCount,
+    evidenceReuses: reuseCount
   };
   const availability = {
     diff: diffAvailable ? 'available' : 'unavailable',
     structure: structureDigest ? 'available' : 'unavailable',
-    cause: referencedUnits.length ? 'partial' : 'unavailable',
+    cause: boundUnits.size && boundUnits.size === inventoryUnits.length ? 'available'
+      : boundUnits.size || referencedUnits.length ? 'partial' : 'unavailable',
     clauses: declaredClauses.size ? 'available' : (clauseSources?.status === 'available' ? 'partial' : 'unavailable'),
     delivery: deliveryCitation ? 'available' : 'unavailable',
     tags: tagsRead ? (sourceTags.complete ? 'available' : 'partial') : sourceTags ? 'not-applicable' : 'unavailable',
@@ -744,7 +1078,10 @@ export function buildChangeExplanationUniverse({
     pe: 'unavailable',
     impact: 'unavailable',
     provenance: 'unavailable',
-    replay: replay ? 'available' : 'unavailable'
+    replay: replay ? 'available' : 'unavailable',
+    attempts: records ? (records.attempts.length ? (attemptCount === records.attempts.length ? 'available' : 'partial') : 'not-applicable') : 'unavailable',
+    witnesses: records ? (records.witnesses.length ? 'available' : 'not-applicable') : 'unavailable',
+    reuse: records ? (records.reuses.length ? 'available' : 'not-applicable') : 'unavailable'
   };
   const snapshot = {
     truth,
@@ -775,7 +1112,8 @@ export function buildChangeExplanationUniverse({
       unitStatements,
       clauseStatements,
       featureStatements: [admission, wel, pe, impact, structure],
-      truth
+      truth,
+      bindingIntervals
     }
   };
 }

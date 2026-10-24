@@ -24,7 +24,7 @@ related:
   - delivery-and-proof
   - model-independence
   - world-model
-version: 9
+version: 12
 ---
 ## Purpose and prerequisites
 
@@ -136,7 +136,42 @@ and the code and tests that tag it. A tag is the author's declaration, not proof
 meets the clause. `--for reviewer|auditor|developer`
 reorders and folds statements without changing the set or its hashes. Output is bounded to 64 KiB by
 default; a bounded page says so and keeps the full counts. Unknown subjects are refused, never sent
-to the documentation search. `--narrate` is not offered for subjects in this release.
+to the documentation search.
+
+Every subject view carries a fixed reading tour, the same for every audience: what it is for, what
+changed, why it is linked, what was checked, what needs attention or is unknown, how it was
+produced, and one safe thing to inspect next. The VS Code Change Explorer shows it under **Read this
+change**, and **Copy summary** copies it. No model is involved.
+
+`--narrate [--length brief|standard|long]` asks a model to order the same computed statements into a
+short reading. It is a separate optional operation (`explain.subject.narrate`): the model sees only
+the statements, their citations and the attention list, may only choose statement IDs under fixed
+headings, and any text it writes is discarded. Attention statements are always shown, and the
+summary says how many statements it did not cover. It is labelled
+`AI-organized summary — record-derived, advisory`, is never stored, and never changes the computed
+view or its hashes. `--commentary` additionally allows free text labelled
+`AI commentary — semantic support unverified`; it is withheld, with the reason, when it carries
+markup, links, control characters, secret-shaped or oversized text, or cites IDs that are not
+statements. With models off the narration is reported unavailable and the computed view is
+unchanged.
+
+Recorded checks come from their owners: the test attempts a phase's delivery bound (each checked
+against its recorded digest), each acceptance criterion's witness as the verification owner judges
+it, and evidence-reuse decisions with their owner's state. A reused run is never shown as a new run,
+and nothing is carried forward unless that owner says it still applies. `--subject line` adds the
+commit that last changed the line at the baseline (an added or changed line is not in the
+baseline's history), and
+`--subject generation` lists this machine's model invocations, prompt-log entries (never their text)
+and test attempts for that generation. Neither says who or what wrote a line: that stays
+`origin-unestablished`. When the Change Explorer says the snapshot changed, it also counts the
+change units that are new, gone and unchanged since the view on screen.
+
+Exact links come from the implementation bindings a code-delivery step records: each clause bound
+to the exact changed lines of its planned paths, with the author's explanation and the approval's
+decision about it. A binding joins a change unit only while the file holds exactly the delivered
+bytes; after a later edit it is reported as not joined. Several clauses can bind one unit, which is
+still counted once. A binding is a mapping a person reviewed, not proof that the code meets the
+clause. Repository impact remains unavailable: no impact producer is keyed to an exact change.
 
 ## State and safety
 

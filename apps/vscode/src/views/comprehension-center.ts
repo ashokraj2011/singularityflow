@@ -270,6 +270,8 @@ export class ComprehensionCenterPanel {
    */
   private pinned: ComprehensionIdeSnapshot | null = null;
   private newerSnapshot = false;
+  /** The newer computed view behind "Snapshot changed"; compared with the pinned one, never shown in its place. */
+  private newerView: Xpl2Explanation | null = null;
   private audience: ExplorerAudience = 'reviewer';
   private diffController: AbortController | null = null;
   /** The explorer render on screen and the highest request number accepted from it. */
@@ -398,13 +400,16 @@ export class ComprehensionCenterPanel {
         || path.resolve(latest.context.repository) !== path.resolve(this.pinned.context.repository)) {
       this.pinned = latest;
       this.newerSnapshot = false;
+      this.newerView = null;
       return;
     }
     if (next.explanationSetSha256 === current.explanationSetSha256) {
       this.pinned = latest;
       this.newerSnapshot = false;
+      this.newerView = null;
     } else {
       this.newerSnapshot = true;
+      this.newerView = next;
     }
   }
 
@@ -547,6 +552,7 @@ export class ComprehensionCenterPanel {
     this.diffController = null;
     this.pinned = null;
     this.newerSnapshot = false;
+    this.newerView = null;
   }
 
   private async refresh(): Promise<void> {
@@ -688,6 +694,7 @@ export class ComprehensionCenterPanel {
       timeline: slice.replay?.events ?? null,
       audience: this.audience,
       newerSnapshot: this.newerSnapshot,
+      newerView: this.newerSnapshot ? this.newerView : null,
       token,
       focus
     };

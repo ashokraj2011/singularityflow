@@ -1,14 +1,20 @@
 # Explain for humans (`XPL2`) — decision record and implementation status
 
 **Implemented boundary (this release):** M0 (decision, compatibility, transient schema), M1
-(`explain --subject` for all six subjects at their actual source availability) and the early M5
-graphical release (the VS Code **Change Explorer**: map, inventory, inspector, exact native diff).
-Nothing here approves, verifies, publishes or gates. Every view is read-only, model-free and
-grants no authority.
+(`explain --subject` for all six subjects at their actual source availability), the early M5
+graphical release (the VS Code **Change Explorer**: map, inventory, inspector, exact native diff),
+M2 (a deterministic reading tour in every view, and optional structured narration with a separate,
+labelled commentary mode) and M3 (recorded test attempts, criterion witnesses and evidence-reuse
+applicability from their owners, ordinary commit history for a line, this machine's invocation and
+prompt records for a generation, and snapshot comparison in the explorer) and M4 (exact links: the
+implementation bindings a code-delivery receipt records, joined to captured units by file content,
+with the approval's decision about them; structural impact stays a named unavailability). Nothing here approves, verifies, publishes or gates. Every view is
+read-only and grants no authority; only an explicit `--narrate` calls a model.
 
-**Not in this release:** subject narration (M2), line provenance and proof carry-forward (M3), exact
-hunk-level cause producers (M4), PR rendering and export, retained historical snapshots, and
-installed-host qualification. Each is reported as a named unavailability, never approximated.
+**Not in this release:** a structural impact producer (none is keyed to an exact change set), observed writes (no recorder exists, so
+who or what wrote a line stays `origin-unestablished`), PR rendering and export, retained historical
+snapshots, and installed-host qualification. Each is reported as a named unavailability, never
+approximated.
 
 ## 1. Decision
 
@@ -31,7 +37,9 @@ XPL2 is a *subject view* layer over the existing comprehension capture (`CMP`), 
 
 | Surface | Owner |
 |---|---|
-| Engine | `src/comprehension/xpl2/` — `reasons`, `templates`, `vocabulary`, `model`, `change-subject`, `subjects`, `clause-sources`, `command` |
+| Engine | `src/comprehension/xpl2/` — `reasons`, `templates`, `vocabulary`, `model`, `change-subject`, `subjects`, `clause-sources`, `narration`, `command` |
+| Records | `src/comprehension/xpl2/clause-sources.mjs` (clauses, and attempts, witnesses, reuse decisions and implementation bindings in the slice; invocations and prompts for `--subject generation`), `compareXpl2Views` in `apps/vscode/src/views/change-explorer.ts` (snapshot comparison), `lineCommitAt` in `src/git.mjs` |
+| Narration | `src/comprehension/xpl2/narration.mjs` (pure input projection, prompt and validation, and `narrateXpl2Explanation`, the one model call, loaded only for `--narrate`) |
 | Capture | `src/comprehension/ide-slice.mjs` (adds `explanationView`; `explanationInputs` only on request) |
 | CLI | `singularity-flow explain --subject …`, operation `explain.subject` in `src/command-registry.mjs` |
 | Copilot | `/sf-explain` (`plugin/skills/sflow-explain`), conversational, relays the same command |
@@ -46,7 +54,8 @@ XPL2 is a *subject view* layer over the existing comprehension capture (`CMP`), 
 | `explain code --narrate` | Unchanged. |
 | `explain --subject S …` | New operation `explain.subject`. |
 | `explain TOPIC --subject S` | Refused: a topic and a subject are never combined silently. |
-| `explain --subject S --narrate` | Refused with `XPL2_NARRATION_UNAVAILABLE`; narration remains on `explain code`. |
+| `explain --subject S --narrate` | Optional operation `explain.subject.narrate`; with models off it falls back to `explain.subject` and reports the narration unavailable (`model-disabled-fallback`). |
+| `--length` or `--commentary` without `--narrate` | Refused (`XPL2_NARRATION_LENGTH_INVALID`, `XPL2_NARRATION_OPTION_INVALID`). |
 | `explain --subject S --snapshot …` | Refused with `XPL2_SNAPSHOT_UNAVAILABLE`; use `--since REVISION` for an explicit baseline. |
 
 The subject view is `kind: "xpl2-explanation"` at schema version 1, marked transient: it is a
@@ -59,10 +68,10 @@ future version rather than guess (tested by `XPL2-AC-061`).
 |---|---|---|
 | `change` | none | Inventory, relationships, attention, and every source's state |
 | `clause` | `--id NAMESPACE:ID` | Declarations (all of them, conflicts kept), the clauses its text names and those naming it, delivery requirement, region associations, `@clause` tags in changed code with the author's note, declared test tags |
-| `test` | `--id` | Declared tags, exact-path presence in the change, recorded results with their scope |
-| `line` | `--path P --line N [--side before\|after]` | The unit that contains the line, or `outside-change-set` / opaque |
+| `test` | `--id` | Declared tags, exact-path presence in the change, recorded results with their scope, the criterion witness the verification owner judged, and recorded attempts (`--id TA-…`) |
+| `line` | `--path P --line N [--side before\|after]` | The unit that contains the line, or `outside-change-set` / opaque; ordinary commit history at the exact baseline commit (an unchanged after-side line is mapped across the hunks above it); `origin-unestablished` for who or what produced it |
 | `gap` | none | The owner's gap register when readable; otherwise the named unavailability |
-| `generation` | `--phase P --gen N` | Recorded phase/generation history; provenance is named unavailable |
+| `generation` | `--phase P --gen N` | Recorded phase/generation history, and this machine's model invocations, prompt-log entries and test attempts for that generation; authorship is `origin-unestablished` |
 
 `--path` is repository-relative and portable: absolute paths, drive letters and `..` escapes are
 refused; spaces, colons and non-ASCII names are accepted. `--for reviewer|auditor|developer`
@@ -79,6 +88,7 @@ indented by the common emitter and is outside this bound). A bounded page sets
 | `SRC-DIFF` | Bounded Git patch | `cmp.diff-preview` | Available when the preview projects; otherwise `OBS-DIFF` names why |
 | `SRC-STRUCTURE` | Cached AST symbols | `ast.cached-symbols` | Navigation hints only when cached; `OBS-STRUCTURE` otherwise |
 | `SRC-GRAPH` | Comprehension cause graph | `cmp.intent-graph` | Region-level associations only; `OBS-CAUSE` records absence |
+| `SRC-BINDINGS-NN` / `OBS-BINDINGS-NN` | Implementation bindings of each code-delivery phase, with the delivered change set and the phase approval's decisions | `story.code-delivery` | Bindings checked against their recorded digest and the delivered change set against its own; a failure of either contributes nothing (at most 8 phases, 500 bindings each) |
 | `SRC-DELIVERY` | Phase delivery record | `story.delivery-evidence` | Self-hashed; applicability `current` only for the same change set |
 | `SRC-SPEC-NN` | Specification artifacts | `story.specification-artifact` | Bounded read (8 artifacts, 1 MiB each, 500 clauses); inaccessible reveals no content or digest. A citation of a clause another artifact declares is kept as a citation, never a parse failure |
 | `SRC-TAGS` | `@clause` and `@ac` comments in the changed files | `xpl2.source-tags` | Verified against the capture's content digests; bounded (400 files, 1 MiB each, 2,000 tags); `OBS-TAGS` when no changed file can carry one |
@@ -86,8 +96,13 @@ indented by the common emitter and is outside this bound). A bounded page sets
 | `SRC-REPLAY` | Normalized Story history | `cmp.story-replay` | Recorded order only; not a provenance timeline |
 | `SRC-PROOF` | Shadow proof observation | `gdp.shadow-proof` | `gap` subject only, when the owner answers |
 | `OBS-WEL`, `OBS-PE` | Witness insights, prompt/tool-trace capture | enrollment / none | Named state (`observe`, `off`, `not read by this release`) |
-| `OBS-IMPACT`, `OBS-PROVENANCE`, `OBS-ADMISSION` | Impact, provenance, admission | none | Named `adapter-unavailable` / `evaluation-unavailable` |
+| `OBS-IMPACT`, `OBS-PROVENANCE`, `OBS-ADMISSION` | Impact, provenance, admission | none | Named `adapter-unavailable` / `evaluation-unavailable`. The impact preview (change flight plans) is keyed by intent and baseline, not a change set, and the world-model blast projection is a draft, so neither is admitted as exact-subject impact |
 | `OBS-LINE` | Line locator | `xpl2.line-locator` | Subject-scoped |
+| `SRC-RUN-NN` / `OBS-RUN-NN` | Test attempts the phase's delivery bound (submitted runs, or preflight runs before submission) | `verification.test-attempts` | Each record's digest checked against the delivery's binding; a tampered, unreadable or not-yet-admitted record contributes no fact |
+| (witnesses) | Criterion witnesses | `verification.witness-results` | Judged by the verification owner's `witnessResult` against those attempts; cites `SRC-DELIVERY` and the run |
+| `SRC-REUSE` | Evidence-reuse decisions | `story.evidence-reuse` | State from the owner's `evidenceReuseState`; the current source is observed only when a decision exists; the evaluation instant is not hashed |
+| `SRC-LINE-HISTORY` / `OBS-LINE-HISTORY` | Commit history of the baseline for one line | `git.commit-history` | `--subject line` only: one `git blame --porcelain` at the exact baseline commit |
+| `SRC-INVOCATIONS`, `SRC-PROMPTS`, `SRC-GENERATION-ATTEMPTS` | This machine's model invocation records, prompt log and test attempts | `model-runner.invocation-audit`, `prompt-audit`, `verification.test-attempts` | `--subject generation` only; never prompt text; `machine-local-only`, `recording-disabled` and `outcome-unobserved` stay visible |
 
 Every source carries integrity (`verified`, `self-hashed`, `unverified`, `failed`, `unavailable`),
 origin, applicability (`current`, `stale`, `unknown`) and availability. A digest is never invented
@@ -100,11 +115,14 @@ for an unavailable or inaccessible source.
 `cause-not-recorded`, `clause-declared`, `clause-cites`, `clause-required`, `clause-untagged`,
 `clause-tag`, `acceptance-tag`, `test-tag`, `test-result`, `admission-unavailable`, `feature-state`,
 `gap-observed`, `no-complete-evaluation`, `line-in-unit`, `line-outside`, `line-opaque`,
-`generation-recorded`, `provenance-unavailable`, `source-state`. Text arguments are
+`generation-recorded`, `provenance-unavailable`, `source-state`, and for M3 `witness-result`,
+`test-attempt`, `evidence-reuse`, `line-commit`, `line-changed`, `line-commit-unavailable`,
+`generation-invocation`, `invocation-overlap`, `generation-prompt`, `capture-state`, and for M4 `exact-cause`,
+`binding-not-joined`, `binding-decision`, `line-binding`. Text arguments are
 display-sanitized (controls, format and bidirectional characters removed and bounded); identities
 are compared on untouched values.
 
-**Reasons** (34): `subject-ambiguous`, `subject-unknown`, `subject-not-found`, `source-moved`,
+**Reasons** (36): `subject-ambiguous`, `subject-unknown`, `subject-not-found`, `source-moved`,
 `source-inaccessible`, `source-not-recorded`, `recording-disabled`, `source-expired`,
 `snapshot-kind-mismatch`, `evaluation-unavailable`, `evaluation-incomplete`, `source-scope-mismatch`,
 `region-only-association`, `origin-unestablished`, `narrative-semantic-support-unverified`,
@@ -112,7 +130,8 @@ are compared on untouched values.
 `revalidation-unestablished`, `adapter-unavailable`, `feature-disabled`, `integrity-failed`,
 `not-applicable`, `complete-empty`, `opaque-content`, `text-projection-unavailable`,
 `untracked-content-excluded`, `no-active-story`, `outside-change-set`, `bounded-delivery`,
-`owner-reported-failure`, `owner-reported-gap`, `conflicting-sources`, `navigation-hint-only`.
+`owner-reported-failure`, `owner-reported-gap`, `conflicting-sources`, `navigation-hint-only`,
+`machine-local-only`, `outcome-unobserved`.
 
 **Relationships** — each states what it means and what it does not imply, and both appear in the
 Change Explorer:
@@ -126,6 +145,10 @@ Change Explorer:
 | `clause-cites-clause` | specification text | that either clause is met, or that work on one covers the other |
 | `test-source-tags-clause` | declared mapping | that the test ran, passed or covers the changed code |
 | `test-source-in-change` | exact path | that the test exercises the other changed files |
+| `test-occurrence-in-run` | exact occurrence | that every test in the run passed, that the run was authenticated, or that the test covers the changed code |
+| `binding-covers-unit` | exact interval | that the lines implement or meet the clause, or serve only this clause: every changed hunk of a planned path is bound, and a person decides |
+| `decision-covers-binding` | owner decision | that the code meets the clause, or that any later revision is approved |
+| `reuse-decision-cites-run` | owner decision | that the run happened on this change; a reused run is not a new execution |
 | `observation-gap` | diagnostic | that the item has no reason or evidence elsewhere; a gap is not a failed test |
 
 No test-to-clause-to-code join is ever inferred. Attention is ordered: reported failure (only when
@@ -142,7 +165,97 @@ links to another only through its specification text naming it; the change view 
 its tags and records name plus one citation step either way. A file or test whose change wrote a tag
 (with a note, for `@clause`) is not reported as a change with no recorded reason.
 
-## 5. Change Explorer (VS Code)
+## 5. Reading tour and narration (M2)
+
+**Reading tour.** Every view's `presentation.tour` lists, in a fixed order, the statements for
+*purpose* (clause text), *changes* (inventory and units), *links* (tags, region associations),
+*checks* (recorded results), *attention* (every attention statement, then visibility limits),
+*history* (generation records), and one safe *next* inspection action. Each step shows at most
+twelve statements and counts the rest; every statement stays in the view. It is presentation only:
+the same for every audience and outside both hashes. The Change Explorer shows it under **Read this
+change**, and **Copy summary** copies it.
+
+**Structured narration** (`--narrate [--length brief|standard|long]`, 100/250/500 words):
+
+- *Input.* Only the delivered statements' IDs, kinds, computed text, citations and limits, the
+  attention list, counts and the closed connective list. Attention statements first, then the tour
+  order, bounded to 160 statements; the number left out is reported. No source, patch, paths beyond
+  what statements say, or tools.
+- *Output.* `{"sections":[{"connective":"…","statements":["S-…"]}]}` with the connectives `start`,
+  `changes`, `links`, `checks`, `attention`, `unknown`, `next`. Any other field is discarded as
+  prose and counted; unknown connectives, IDs and duplicates are dropped and counted; a verdict or
+  other top-level field, a non-JSON answer or an oversized answer makes the narration unavailable.
+- *Display.* The computed text of each chosen ID under the connective's fixed heading, labelled
+  `AI-organized summary — record-derived, advisory`. Attention statements the model left out are
+  appended under *What needs attention (always shown)*, outside the word budget.
+- *Commentary* (`--commentary`). Free text labelled `AI commentary — semantic support unverified`,
+  always `semanticSupport: unverified` (valid IDs are citation syntax only). It is withheld, with
+  each reason, for markup or links, control or escape characters, secret-shaped text, over-length
+  text, no citation, or citations that are not statements of the view.
+- *Boundary.* The call goes through the model runner with its usual audit and the existing prompt
+  capture setting (never switched on here), under channel `xpl2-narration-advisory` with no tools.
+  Any failure reports the narration unavailable with its code. The narration is never stored and
+  never changes `data.explanation` or either hash.
+
+## 6. Records, history and comparison (M3)
+
+- **Tests.** A phase's bound attempts are read from the Story and each is checked against the digest
+  its delivery bound. Every criterion witness is judged by the verification owner's own function, as
+  the phase review does; the statement gives the result, how the witness is bound (by tag or to one
+  exact declaration), the assurance reached and any shortfall, and always says it is a local run.
+  An *exact occurrence* edge to the run is drawn only when the owner observed that test's own
+  occurrence. A failed attempt or witness is a reported failure; a missing or inconclusive one is
+  worth inspecting.
+- **Applicability.** Only an evidence-reuse decision's own owner says whether earlier evidence
+  applies. XPL2 computes no footprint, overlap or carry-forward: a changed source, an expired,
+  revoked or superseded decision, an unobserved source or a record missing what its rule binds each
+  read as not applying, with `revalidation-unestablished`. A reused run keeps its own step and attempt
+  and is never shown as a run of the reusing step.
+- **Line.** `--subject line` asks `git blame` once, at the exact baseline commit: a before-side line
+  directly, an unchanged after-side line mapped across the size change of the hunks above it, a
+  context line inside a hunk through the patch. An added or changed line is not in the baseline's
+  history, and no later commit is read. The commit's author
+  is quoted as what the commit records. Who or what produced the captured content is
+  `origin-unestablished`; no share of model-written lines is estimated anywhere.
+- **Generation.** `--subject generation` lists this machine's model invocations for that exact
+  Story, phase and generation, in their own recorded start order, with overlaps named and never
+  ordered; requested and provider-reported models are separate, and a missing outcome or tool
+  observation is said, never counted as zero. Prompt-log entries say whether they were prepared,
+  handed to the Copilot host or sent through the runner, and how many secret-shaped values were
+  redacted; the prompt text never enters the view. Reading enables no capture.
+- **Comparison.** When a newer snapshot raises *Snapshot changed*, the banner counts the change units
+  that are new, gone and unchanged, compared by the content of the change they hold (the file
+  change's content identity, unit kind and ranges), and names the sources and files that changed;
+  it names files rather than the newer view's display IDs, which are numbered afresh. A unit digest
+  stays bound to its snapshot, so no link from one view opens a unit of the other.
+
+## 7. Exact links (M4)
+
+- **Producer.** The only exact, owner-verified link between a clause and changed lines is the
+  implementation binding a code-delivery phase records [E2G-011]: each clause bound to the delivered
+  hunks (zero-context, exact line intervals) of its planned paths, with the author's explanation, and
+  the phase approval's decision about that exact binding set. The CMP cause graph remains
+  region-level, and the revision hunk-claim set has no producer that writes claims, so neither is
+  read as exact.
+- **Join.** A binding joins a captured unit only when the capture holds the very file change the
+  receipt delivered: same status, paths, modes, before object and after content, compared field by
+  field (never by display ID, change-set digest or capture subject). Each delivered interval lies in
+  exactly one captured unit, because both describe the same bytes; an insertion point counts as
+  inside a unit when it falls between its lines. A binding with no hunks stays a region association.
+- **Stale and missing.** A bound file whose bytes differ now is reported *not joined* with
+  `source-scope-mismatch` (worth a reader's attention), a bound file not in the capture with
+  `outside-change-set`; staleness is per file change, never global.
+- **Counts.** Several bindings may name one unit; it is counted once in `causeBoundUnits`, and
+  `exactLinks` counts the links. A bound unit is no longer reported as having no recorded reason.
+- **Delivery applicability.** When the Story kept the delivered change set, the delivery record is
+  `current` exactly when the capture holds the delivered application file changes with the same
+  content, so a later commit of the same bytes no longer reads as stale.
+- **Explorer.** An exact link is drawn from the clause to the unit's file card, as a solid heavy line
+  labelled *exact lines* and the unit; the file's card, pane and the Relationships table name the
+  unit itself. Relationships that join the same two cards (a tag and a binding) each get their own
+  lane and label row, so neither hides the other.
+
+## 8. Change Explorer (VS Code)
 
 - **Layout.** Inventory rail (search, counts, attention), a map of *Intent → Changed code →
   Recorded results* with an *Also changed* group, a Relationships table and a Timeline, the selected
@@ -176,7 +289,7 @@ its tags and records name plus one citation step either way. A file or test whos
   under a nonce CSP with `default-src 'none'`. Colours come only from theme variables, with narrow
   layouts and reduced motion supported.
 
-## 6. Measured performance (local, not qualified)
+## 9. Measured performance (local, not qualified)
 
 Measured on the development machine with the source CLI, cold process per call:
 
@@ -194,16 +307,23 @@ spawns needs a warm retained capture, which this release does not have (V13: no 
 omitted to meet a spawn count). Installed-host p50/p95 qualification (`XPL2-AC-013`, `-064`) remains
 open.
 
-## 7. Known limits
+## 10. Known limits
 
 - A path the diff preview cannot project (for example one Git must quote) leaves every unit opaque
   for that capture. XPL2 says so with `text-projection-unavailable` rather than calling a text file
   non-text; the limit is inherited from the preview owner.
 - Retained historical snapshots do not exist yet, so an exact diff can be opened only while the
   capture is current. An already-open diff keeps its captured bytes.
-- WEL and PE contents are never read by this release; their state is reported only.
+- WEL contents are never read; the WEL state is reported only. Of PE, only content-free metadata is
+  read (model invocation records and prompt-log entries without their text), and only for
+  `--subject generation`.
+- No recorder of observed file writes exists, and model invocation records carry no file paths, so a
+  line's producer stays `origin-unestablished`. The prompt log keeps no tombstones, so an entry that
+  retention removed cannot be told apart from one never kept; the view states the retention window.
+- Historical snapshots are not retained: `--snapshot` is refused, and comparison is between the
+  snapshot on screen and the newer one that raised *Snapshot changed*.
 
-## 8. Acceptance traceability
+## 11. Acceptance traceability
 
 State: **tested** (witness passes in this repository), **partial** (the part named is tested; the
 rest is open), **open** (not implemented in this release).
@@ -217,13 +337,13 @@ rest is open), **open** (not implemented in this release).
 | 005 | Audience parity | tested | `test/xpl2-engine.test.mjs` |
 | 006 | Semantic determinism | tested | `test/xpl2-engine.test.mjs` |
 | 007 | Corrupt source isolation | tested | `test/xpl2-engine.test.mjs` |
-| 008 | No lexical entailment shortcut | open | M2 narration is not offered for subjects |
-| 009 | Narration cannot mutate results | open | M2 |
-| 010 | Explicit model and capture choice | open | M2 |
-| 011 | Line origin not inferred | partial | Provenance named unavailable (`test/xpl2-routing.test.mjs`); M3 producer open |
-| 012 | Disjoint footprint is insufficient | open | M3 |
+| 008 | No lexical entailment shortcut | tested | `test/xpl2-narration.test.mjs` (60 adversarial cases) |
+| 009 | Narration cannot mutate results | tested | `test/xpl2-narration.test.mjs` (no PR integration exists; the copied summary is the computed tour) |
+| 010 | Explicit model and capture choice | tested | `test/xpl2-narration.test.mjs` (local stand-in provider through the real runner; no provider is called) |
+| 011 | Line origin not inferred | tested | `test/xpl2-provenance.test.mjs` (real invocation records through the runner with a local stand-in) |
+| 012 | Disjoint footprint is insufficient | tested | `test/xpl2-applicability.test.mjs` (the reuse owner's rule; XPL2 computes no overlap) |
 | 013 | Reference performance qualification | open | Local measurements in §6; installed-host qualification open |
-| 014 | Impact producer readiness | tested | Named unavailability (`test/xpl2-engine.test.mjs`) |
+| 014 | Impact producer readiness | tested | Named unavailability (`test/xpl2-engine.test.mjs`, `test/xpl2-exact-links.test.mjs`); no producer keyed to an exact change set exists |
 | 015 | Shared snapshot and safe PR update | open | PR integration not in this release |
 | 016 | Existing routes remain working | tested | `test/xpl2-routing.test.mjs` |
 | 017 | Six explicit subjects | tested | `test/xpl2-routing.test.mjs` |
@@ -241,16 +361,22 @@ rest is open), **open** (not implemented in this release).
 | 029 | Absolute times remain canonical | tested | `test/xpl2-engine.test.mjs` |
 | 030 | Hidden records do not leak | tested | `test/xpl2-engine.test.mjs` |
 | 031 | Conflicting admitted sources | tested | `test/xpl2-engine.test.mjs` |
-| 032 | Region is not hunk cause | tested | `test/xpl2-engine.test.mjs` |
+| 032 | Region is not hunk cause | tested | `test/xpl2-engine.test.mjs`, `test/xpl2-exact-links.test.mjs` (with exact bindings beside it) |
 | 033 | Test association is not cause or coverage | tested | `test/xpl2-relations.test.mjs` |
-| 034 | Multiple exact causes | open | M4 exact cause producer |
-| 035 | Unit identity cannot be reused | open | M4 |
+| 034 | Multiple exact causes | tested | `test/xpl2-exact-links.test.mjs`, real Story in `test/xpl2-exact-links-story.test.mjs` |
+| 035 | Unit identity cannot be reused | tested | `test/xpl2-exact-links.test.mjs` (same display IDs, other bytes: not joined), `test/xpl2-provenance.test.mjs` (comparison) |
 | 036 | Existing unchanged test can be inspected | tested | `test/xpl2-engine.test.mjs` |
 | 037 | Suite and witness limits displayed | tested | `test/xpl2-engine.test.mjs` |
 | 038 | Action prerequisites retained | tested | `test/xpl2-engine.test.mjs` |
-| 039–044 | Reuse, dependency coverage, line share, event order, capture privacy, missing events | open | M3 producers |
+| 039 | Reuse is not a new execution | tested | `test/xpl2-applicability.test.mjs` |
+| 040 | Unknown dependency coverage | tested | `test/xpl2-applicability.test.mjs` |
+| 041 | No AI line-share fabrication | tested | `test/xpl2-provenance.test.mjs` (no feature telemetry is emitted) |
+| 042 | Parallel and reordered events | tested | `test/xpl2-provenance.test.mjs` |
+| 043 | Capture boundary and privacy | partial | Prepared, handed-off, redacted, capture-off and machine-local states and no capture enablement tested (`test/xpl2-provenance.test.mjs`); an expired entry cannot be told from one never kept, because the prompt log keeps no tombstones, so the retention window is stated instead |
+| 044 | Missing events are not zero actions | tested | `test/xpl2-provenance.test.mjs` |
 | 045 | Read has no mutation | tested | `test/xpl2-routing.test.mjs` |
-| 046, 047 | Unsafe prose, computed-only narration input | open | M2 |
+| 046 | Unsafe prose can be withheld | tested | `test/xpl2-narration.test.mjs` |
+| 047 | Computed-only input and bounded output | tested | `test/xpl2-narration.test.mjs` |
 | 048 | Click routes, not executes | tested | `test/vscode-xpl2-ui.test.mjs` |
 | 049 | Linked selection | tested | `test/vscode-xpl2-graph.test.mjs` |
 | 050 | First release without WEL and PE | tested | `test/vscode-xpl2-graph.test.mjs` |

@@ -48,6 +48,26 @@ export const XPL2_RELATIONSHIPS = Object.freeze({
     means: 'The tagged test source is one of the changed files in this interval.',
     notImplied: 'That the test exercises the other changed files.'
   }),
+  'test-occurrence-in-run': Object.freeze({
+    granularity: 'exact-occurrence', style: 'occurrence',
+    means: 'The verification owner found this exact test declaration\'s own occurrence in the recorded run.',
+    notImplied: 'That every test in the run passed, that the run was authenticated, or that the test covers the changed code.'
+  }),
+  'reuse-decision-cites-run': Object.freeze({
+    granularity: 'owner-decision', style: 'decision',
+    means: 'A recorded evidence-reuse decision names this earlier run; its owner states whether it still applies.',
+    notImplied: 'That the run happened on this change; a reused run is not a new execution.'
+  }),
+  'binding-covers-unit': Object.freeze({
+    granularity: 'exact-interval', style: 'exact-cause',
+    means: 'A code-delivery receipt binds the clause to exact changed lines inside this unit: the delivered hunks of the clause\'s planned path, whose file content this capture matches.',
+    notImplied: 'That the lines implement or meet the clause, or that they serve only this clause; every changed hunk of a planned path is bound, and a person decides.'
+  }),
+  'decision-covers-binding': Object.freeze({
+    granularity: 'owner-decision', style: 'decision',
+    means: 'A phase approval recorded a decision about the exact binding set that holds this clause\'s binding.',
+    notImplied: 'That the code meets the clause, or that any later revision is approved.'
+  }),
   'observation-gap': Object.freeze({
     granularity: 'diagnostic', style: 'diagnostic',
     means: 'The owner or this reader reported no admitted record of this kind for the item.',

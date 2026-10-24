@@ -106,9 +106,11 @@ test('XPL2-AC-016 existing explain routes, schemas and skills are unchanged', as
   assert.equal(skillForCommandLine('singularity-flow explain --subject gap --json'), 'sf-explain');
   const combined = cli(fixture, 'explain', 'code', '--subject', 'change', '--json');
   assert.notEqual(combined.status, 0, 'a topic and a subject are never combined silently');
-  const narrated = cli(fixture, 'explain', '--subject', 'change', '--narrate', '--json');
-  assert.notEqual(narrated.status, 0);
-  assert.match(narrated.stdout + narrated.stderr, /explain code --narrate/u);
+  // Subject narration is its own optional operation; with models off it falls back to the subject view.
+  assert.equal(resolveOperation({ requestedCommand: 'explain', positionals: ['explain'], options: { subject: 'change', narrate: true } }).id, 'explain.subject.narrate');
+  const narrated = json(cli(fixture, 'explain', '--subject', 'change', '--narrate', '--json'));
+  assert.equal(narrated.operation.id, 'explain.subject');
+  assert.equal(narrated.data.narration.status, 'unavailable');
 });
 
 test('XPL2-AC-045 reading every subject changes no repository, ref, index or Story state', async (t) => {

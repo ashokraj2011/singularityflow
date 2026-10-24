@@ -230,11 +230,10 @@ async function investigationReport({ args, root, context, repository, terms, mat
     for (const field of unknown) records.push(record('unknown', field));
   });
   await step('build-provenance', async () => {
-    const { buildRelation, readBuilds } = await import('../build-provenance.mjs');
+    const { buildRelation, gitAncestry, readBuilds } = await import('../build-provenance.mjs');
     const read = await readBuilds(root, { repositoryId: context.repositoryId ?? null, env, runs });
     if (read.gap) { missingEvidence.push(read.gap); return 'unavailable'; }
-    const { typedMergeBase } = await import('../../git-access.mjs');
-    const isAncestor = (older, newer) => typedMergeBase(root, older, newer) === older;
+    const isAncestor = await gitAncestry(root);
     buildMappings = read.builds.slice(0, 20).map((build) => ({
       buildId: build.buildId, pipeline: build.pipeline, result: build.result, sourceCommit: build.sourceCommit,
       providerReference: build.providerReference, ...buildRelation(build, repository.head, { isAncestor })

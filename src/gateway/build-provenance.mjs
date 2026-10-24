@@ -67,7 +67,8 @@ export function normalizeBuild(provider, raw, retrievedAt) {
 }
 
 /**
- * What one build can be said to show about one commit. `isAncestor(older, newer)` is Git's answer.
+ * What one build can be said to show about one commit. `isAncestor(older, newer)` is Git's answer:
+ * true, false, or null when Git cannot say here (see `gitAncestry`).
  *
  * The language is part of the result, so no surface has to decide how strongly to phrase it.
  */
@@ -76,8 +77,32 @@ export function buildRelation(build, commit, { isAncestor }) {
     return { relation: build?.startedAt ? 'observed-near' : 'mapping-unavailable', language: build?.startedAt ? 'observed near' : 'mapping unavailable' };
   }
   if (build.sourceCommit === commit) return { relation: 'built-from', language: 'built from this commit' };
-  if (isAncestor(commit, build.sourceCommit)) return { relation: 'contains', language: 'contains this commit' };
+  const ancestor = isAncestor(commit, build.sourceCommit);
+  if (ancestor == null) return { relation: 'mapping-unavailable', language: 'mapping unavailable (its commit is not in this clone)' };
+  if (ancestor) return { relation: 'contains', language: 'contains this commit' };
   return { relation: 'does-not-contain', language: 'does not contain this commit' };
+}
+
+/**
+ * Git's ancestry answer for build relations in one repository.
+ *
+ * A provider reports the commit it built, and nothing says this clone has it — a fork, a force-push,
+ * a stale or shallow clone — and `merge-base` on a missing object fails outright, which took a whole
+ * build.read, impact.quick or investigation down with one build. So each commit's presence is read
+ * first, through the typed read that resolves any revision, and Git's answer for an absent one is
+ * null: that build's mapping is unavailable, and every other build still relates.
+ */
+export async function gitAncestry(root) {
+  const { typedMergeBase, typedRevision } = await import('../git-access.mjs');
+  const present = new Map();
+  const has = (commit) => {
+    if (!present.has(commit)) present.set(commit, typedRevision(root, commit) === commit);
+    return present.get(commit);
+  };
+  return (older, newer) => {
+    if (!has(older) || !has(newer)) return null;
+    try { return typedMergeBase(root, older, newer) === older; } catch { return null; }
+  };
 }
 
 /**

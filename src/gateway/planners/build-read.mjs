@@ -11,12 +11,12 @@ import { noEffects, sflowResult } from '../result.mjs';
 
 export async function buildRead({ arguments: args = {}, subject = null, root = null, context = {}, env = process.env, runs = null } = {}) {
   if (!root) throw new SingularityFlowError('build.read requires the repository root it should read.', { code: 'BUILD_READ_NO_ROOT' });
-  const [{ buildBoundary, buildRelation, readBuilds }, { typedMergeBase, typedRevision }] = await Promise.all([
+  const [{ buildBoundary, buildRelation, gitAncestry, readBuilds }, { typedRevision }] = await Promise.all([
     import('../build-provenance.mjs'), import('../../git-access.mjs')
   ]);
   const read = await readBuilds(root, { repositoryId: context.repositoryId ?? null, branch: args.branch ?? null, limit: args.limit ?? 30, env, runs });
   const head = typedRevision(root, 'HEAD');
-  const isAncestor = (older, newer) => typedMergeBase(root, older, newer) === older;
+  const isAncestor = await gitAncestry(root);
   const builds = read.builds.map((build) => ({ ...build, ...(head ? buildRelation(build, head, { isAncestor }) : { relation: 'mapping-unavailable', language: 'mapping unavailable' }) }));
   return sflowResult({
     kind: 'read',

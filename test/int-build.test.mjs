@@ -104,3 +104,28 @@ test('build.read is a reachable automatic read with an honest gap', async (t) =>
   assert.deepEqual(read.data.builds.map((build) => build.relation), ['built-from', 'does-not-contain']);
   assert.ok(Object.values(read.effects).every((value) => value === false));
 });
+
+test('a build whose commit this clone lacks is mapping-unavailable, and every other build still relates', async (t) => {
+  const { root, env, commits } = await repository(t);
+  await writeFile(buildProviderFile(env), JSON.stringify({ repositories: { checkout: { kind: 'github-actions', remote: 'https://git.example.test/acme/checkout.git' } } }));
+  // A provider reports the commit it built; a fork, a force-push or a shallow clone can leave it unfetched here.
+  const absent = 'f'.repeat(40);
+  const runs = async () => [run8398(absent, 'failure', 8401), run8398(commits[2]), run8398(commits[0], 'success', 8391)];
+  const context = { repositoryId: 'checkout' };
+  const relations = (builds) => builds.map((build) => [build.buildId, build.relation]);
+  const expected = [['8401', 'mapping-unavailable'], ['8398', 'built-from'], ['8391', 'does-not-contain']];
+
+  const { buildRead } = await import('../src/gateway/planners/build-read.mjs');
+  const read = await buildRead({ root, env, context, runs });
+  assert.deepEqual(relations(read.data.builds), expected);
+  assert.match(read.data.builds[0].language, /^mapping unavailable \(its commit is not in this clone\)/);
+
+  const { impactQuick } = await import('../src/gateway/planners/impact-quick.mjs');
+  const impact = await impactQuick({ root, env, context, runs, arguments: { baseRef: commits[0], targetRef: commits[2] } });
+  assert.deepEqual(relations(impact.data.builds.associations), expected);
+
+  const { problemInvestigate } = await import('../src/gateway/planners/problem-investigate.mjs');
+  const report = (await problemInvestigate({ root, env, context, runs, arguments: { symptom: 'checkout fails' } })).data.report;
+  assert.equal(report.steps.find((step) => step.id === 'build-provenance').status, 'completed');
+  assert.deepEqual(relations(report.buildMappings), expected);
+});

@@ -167,6 +167,11 @@ export async function phaseReview(root, config, workflow, phase, { includeContin
     evidenceConsistency,
     witnessReview,
     owedDecisions: reviewBinding ? await owedDecisions(root, config, workflow, stepsThrough(workflow, phase.id)) : null,
+    // The checklist articles the approver answers, so every surface can ask for them up front.
+    ...(reviewBinding ? await import('../../specification-gate.mjs').then(({ approvalChecklistPrompt, resolvedSpecificationQualityPolicy }) => {
+      const prompt = approvalChecklistPrompt(resolvedSpecificationQualityPolicy(config, workflow, phase));
+      return prompt ? { approvalChecklist: prompt } : {};
+    }) : {}),
     // Commits after the submission that approval would refuse for; advisory, the gate decides.
     ...(includeBlockingCommits ? await (await import('../../review-intervening-commits.mjs'))
       .approvalBlockingCommits(root, config, workflow, phase).then((blocking) => (blocking ? { blockingCommits: blocking } : {})) : {}),

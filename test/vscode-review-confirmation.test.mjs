@@ -142,12 +142,14 @@ test('migration and long approval callers use the scrollable review and retain s
   const actions = await source('actions.ts');
   assert.match(actions, /collectReviewConfirmation\([\s\S]*expected: confirmation\.expected/);
   assert.match(actions, /client\.repository !== reviewedRepository/);
-  assert.match(actions, /acknowledgeSelfApproval = review\.acknowledgeSelfApproval/);
-  assert.match(actions, /request\.kind === 'story' && acknowledgeSelfApproval\) argv\.push\('--acknowledge-self-approval'\)/,
-    'an acknowledgement explicitly collected in the approval form is not requested a second time');
+  // SPEC-OAP D2: Story approval records self-approval from the identity; the typed phase is the one
+  // deliberate act, so the form states the self-approval and asks for no second tick.
+  assert.doesNotMatch(actions, /acknowledgeSelfApproval/);
+  assert.match(actions, /storyApprovalArguments\(\{ workId: request\.workId/);
   const approval = await source('views/approval-review.ts');
   assert.match(approval, /return `<form class="approval-form"[\s\S]*\$\{selfApproval\}/,
-    'the self-approval checkbox must be inside the form inspected by its script');
+    'the self-approval warning is part of the reviewed form');
+  assert.doesNotMatch(approval, /data-self-approval/);
   assert.match(approval, /\.approval-review-content[^}]*overflow:auto/);
   assert.match(approval, /grid-template-rows:minmax\(0,1fr\) auto/);
   const studio = await source('views/workflow-studio.ts');

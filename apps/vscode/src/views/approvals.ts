@@ -61,8 +61,10 @@ function cardHtml(approval: PendingApproval): string {
     : ''}
     ${approval.reason ? `<p class="muted">${escape(approval.reason)}</p>` : ''}
     <div class="card-foot">
+    ${approval.heldBy ? `<p class="muted">${escape(approval.heldBy.headline)}</p>` : ''}
       ${approval.standing === 'yours'
-    ? `<button data-approve="${escape(approval.id)}">Approve…</button>
+    ? `${approval.heldBy ? `<button data-decide-list="${escape(approval.id)}">Decide what blocks this step</button>`
+      : `<button data-approve="${escape(approval.id)}">Approve…</button>`}
          <button class="secondary" data-reject="${escape(approval.id)}">Request changes…</button>`
     : ''}
       ${approval.kind === 'output' || approval.artifactPath
@@ -110,9 +112,10 @@ function bodyHtml(approvals: Approvals): string {
 const SCRIPT = `
   const vscode = window.__sfVscode;
   document.addEventListener('click', (event) => {
-    const target = event.target.closest('[data-approve],[data-reject],[data-open]');
+    const target = event.target.closest('[data-approve],[data-reject],[data-open],[data-decide-list]');
     if (!target) return;
     if (target.dataset.approve) vscode.postMessage({ type: 'approve', id: target.dataset.approve });
+    else if (target.dataset.decideList) vscode.postMessage({ type: 'decide-list', id: target.dataset.decideList });
     else if (target.dataset.reject) vscode.postMessage({ type: 'reject', id: target.dataset.reject });
     else if (target.dataset.open) vscode.postMessage({ type: 'open', id: target.dataset.open });
   });
@@ -121,7 +124,8 @@ const SCRIPT = `
 export type ApprovalsMessage =
   | { type: 'approve'; approval: PendingApproval }
   | { type: 'reject'; approval: PendingApproval }
-  | { type: 'open'; approval: PendingApproval };
+  | { type: 'open'; approval: PendingApproval }
+  | { type: 'decide-list'; approval: PendingApproval };
 
 export class ApprovalsPanel {
   private static current: ApprovalsPanel | null = null;
@@ -173,7 +177,8 @@ export class ApprovalsPanel {
     const router = registerMessageRouter('singularityFlow.approvals', {
       approve: (message) => { const approval = approvalFor(message); if (approval) onMessage({ type: 'approve', approval }); },
       reject: (message) => { const approval = approvalFor(message); if (approval) onMessage({ type: 'reject', approval }); },
-      open: (message) => { const approval = approvalFor(message); if (approval) onMessage({ type: 'open', approval }); }
+      open: (message) => { const approval = approvalFor(message); if (approval) onMessage({ type: 'open', approval }); },
+      'decide-list': (message) => { const approval = approvalFor(message); if (approval?.heldBy) onMessage({ type: 'decide-list', approval }); }
     });
     this.panel.webview.onDidReceiveMessage((raw: unknown) => {
       // The shared footer is the one way out of a full-page view. Handled here rather than through

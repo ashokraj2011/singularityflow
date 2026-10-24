@@ -1,9 +1,9 @@
 # One approval path (OAP) — v1
 
 Status: owner request 2026-10-24 ("all these approvals, pending commits should be seamless … too many
-clicks and ceremonies … one standard way and easy"). Plan only; nothing here is built yet. The
-recommended answers in [Decisions for the owner](#decisions-for-the-owner) are the defaults the
-milestones assume.
+clicks and ceremonies … one standard way and easy"). The owner accepted all five recommended
+answers in [Decisions for the owner](#decisions-for-the-owner) on 2026-10-24 and asked for M0
+first, each defect reproduced by a failing test before it is fixed.
 
 The trigger was a real Story (2026-10-24): planning was submitted, an intent amendment was proposed
 six hours later, and approval refused with a sentence that named neither the commit nor the amendment.
@@ -24,25 +24,38 @@ From a code reading on 2026-10-24 (three inventories: ceremony, holds, pending s
 | Simplest approval (one approver, no checklist) | terminal: command + typed phase (phase often typed twice); Copilot: 2 turns; VS Code: 3 clicks + typed phase; then every surface sends the person to Copilot for `/clear` and `/sf-next` |
 | A decision recorded while the step waits | some kinds are allowed between submission and approval; others (intent-amendment propose/decide/acknowledge, forward amendments, `decision test-command`) silently make the submission stale, so approval later demands a fresh submission |
 
-Reported defects found by that reading. Each one gets a failing test before it is fixed (M0):
+Defects found by that reading, each reproduced by a failing test before it was fixed in M0
+(`test/oap-m0-approval-defects.test.mjs`, `test/approval-intervening-commits.test.mjs`):
 
-1. VS Code sends `--witness-mapping <sha>=exception`; the CLI requires `exception:<facet>`, so a
-   witness exception recorded in VS Code is refused (`apps/vscode/src/actions.ts:555`,
-   `src/commands/approve.mjs:59`).
-2. VS Code's self-approval checkbox passes `--acknowledge-self-approval`, which Story approval never
-   reads, and its self-approval retry dialog can never appear (`actions.ts:577`).
-3. The decision list offers `decision test-command` while the step awaits approval. Recording it
-   commits to `testCommandDecisions`, which the approval gate does not allow, so the decision list
-   itself makes the approval stale (`src/story-test-commands.mjs:88`).
-4. An approved intent amendment must be acknowledged before approval (governance hold), and the
-   acknowledgement commit is itself a commit approval refuses. After submission the only way out
-   is reject and resubmit.
-5. The decision-list count shown by `nextsteps` and readiness leaves out visual, test-risk and
-   test-command items, so it can be lower than the list (`src/decision-list-facts.mjs:154`).
-6. The CLI inbox and VS Code Reviews offer "Approve" on a step that decisions hold.
-7. VS Code drops the approval's result text, including the next action (`actions.ts:567`).
-8. `/sf-approve` never passes `--article`, so a phase with a checklist cannot be approved from
-   Copilot at all.
+1. **Fixed.** VS Code sent `--witness-mapping <sha>=exception`; the CLI requires
+   `exception:<facet>`, so a witness exception recorded in VS Code was refused. The form now asks
+   which part of the test falls short, and one builder (`storyApprovalArguments`) writes the
+   arguments the CLI parses.
+2. **Fixed.** VS Code demanded a self-approval tick and passed `--acknowledge-self-approval`, which
+   Story approval never reads. The form now states the self-approval, as the terminal and Copilot
+   do; the typed phase stays the one deliberate act (decision 4).
+3. **Fixed.** A Story-only test command could be requested, accepted or revoked while its step
+   awaited approval. The commit made the approval stale, and accepting it changed what the
+   submitted review ran. It is now refused while the step awaits approval
+   (`TEST_COMMAND_DECISION_DURING_REVIEW`), naming the route to return the step first; the decision
+   list offers that route instead of a record.
+4. **Did not reproduce.** Approving an intent amendment reopens the step awaiting approval, even
+   one that only adds a clause the step does not cite, so its acknowledgement always comes before a
+   fresh submission. A test pins this.
+5. **Fixed.** At a step awaiting approval, the decision list's headline counted every item while
+   readiness, next steps and the refusal counted only the ones approval waits for. Each item now
+   says whether it holds the approval (`holdsApproval`), the packet carries `holding`, the headline
+   counts those, and the VS Code approval page reads `holding`.
+6. **Fixed in VS Code.** Reviews and Approvals offered "Approve…" on a step the decision list held.
+   The card now leads with "Decide what blocks this step". The CLI inbox never offered Approve, and
+   `/sf-approve` already routes a held step to `/sf-decide`.
+7. **Fixed.** VS Code discarded the approval's result. It now shows the CLI's headline and next step
+   and keeps the full result in the output channel.
+8. **Fixed.** Copilot could not approve a phase whose policy requires the approval checklist:
+   `phase show` listed no articles and `/sf-approve` passed no `--article`. `phase show` now carries
+   `approvalChecklist`. `/sf-approve` asks for one answer per article with the confirmation and
+   passes them. The refusal for unanswered articles (`APPROVAL_CHECKLIST_INCOMPLETE`) now routes to
+   answering them, where before it routed to recover or reject.
 
 ## The standard way
 
@@ -82,10 +95,9 @@ would pass, and one form that records the approver's decisions and the approval 
   command that commits has no entry.
 - Intent amendments: propose, reject and acknowledge only add amendment records and never change an
   approved artifact, so they become `review-safe`. A rejected amendment then leaves the submission
-  valid, and the person approves with no resubmission. An approved amendment reopens the steps
-  whose clauses it changes (M2 verifies this for a step awaiting approval), so the reopen is what
-  makes the submission stale, not the history rule. This removes defect 4 and the detour that
-  started this plan.
+  valid, and the person approves with no resubmission. An approved amendment already reopens the
+  step awaiting approval (M0 test), so the reopen is what makes the submission stale, not the
+  history rule. This removes the detour that started this plan.
 - `decision test-command` changes what the checks run, so it becomes `returns-step` while the step
   awaits approval. The decision list labels that option "returns <step> for a fresh run".
 
@@ -148,7 +160,7 @@ Each milestone ends with a real VS Code walk over CDP and, once Copilot is invol
 
 | Milestone | Scope | Done when |
 |---|---|---|
-| M0 Defects | The eight reported defects above, each with a failing test first | the tests pass; VS Code witness exception and self-approval work in the real extension |
+| M0 Defects (done 2026-10-24) | The eight reported defects above, each with a failing test first | seven fixed, one did not reproduce and is pinned by a test; checked in the real extension |
 | M1 One check | `evaluateApproval` / `recordApproval`; owner classes; readiness, packet, phase show, inbox, Reviews, `nextsteps` and journey read it | gate-parity guard: no refusal is found only at approve time; "Approve" is not offered on a held step |
 | M2 Review effects | `REVIEW_EFFECTS` registry; intent-amendment propose/reject/acknowledge are review-safe; `decision test-command` returns the step | the amendment-after-submission fixture (test/approval-intervening-commits.test.mjs): propose, then reject the amendment, then approve planning with no resubmission |
 | M3 One list | The decision list holds every pending kind and the approval; all surfaces count from it; `sync` and `push retry` unify | equal counts across surfaces (test); no pending kind is missing from the list (registry test) |
@@ -170,6 +182,8 @@ it. M2 and M3 can run in parallel after M1; they touch different files. M4 and M
   (`scripts/skill-policy.mjs`).
 
 ## Decisions for the owner
+
+All five accepted as recommended (2026-10-24).
 
 1. **A rejected intent amendment keeps the step's submission valid.** Recommended: yes. It changed
    no approved clause, so approval absorbs nothing unreviewed.

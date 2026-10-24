@@ -626,6 +626,25 @@ function pendingAmendmentSteps(_argv, error) {
   ];
 }
 
+/**
+ * An approval checklist left unanswered: the approver answers each article and approves again. The
+ * work is fine as submitted, so nothing is recovered or rejected.
+ */
+function approvalChecklistSteps(argv, error) {
+  const details = error?.details ?? {};
+  const phase = lowerKebab(details.phase) ?? artifactAuthoringPhase(argv, error);
+  const articles = (Array.isArray(details.articles) ? details.articles : []).map(lowerKebab).filter(Boolean).slice(0, 20);
+  if (details.mode === 'off') return [step('remove-checklist-answers',
+    `${phase ?? 'This phase'} records no checklist: approve again without --article or --checklist.`, null, 'remediation')];
+  return [
+    step('answer-approval-checklist',
+      `Answer each checklist article${articles.length ? ` (${articles.join(', ')})` : ''}: satisfied, exception or not-applicable, with a reason for the last two. `
+        + `Then approve again with them (/sf-approve${phase ? ` ${phase}` : ''} asks for them; in a terminal, --article <id>=<decision>). Nothing about the work needs repairing.`,
+      null, 'remediation'),
+    phase ? step('read-approval-checklist', 'Read the articles and their questions.', `singularity-flow phase show ${phase} --json`, 'diagnostic') : null
+  ].filter(Boolean);
+}
+
 function localSyncSteps(argv, error) {
   const retry = safeCommandGuidance({ argv });
   return [step('preserve-local-story-work', error?.message ?? 'Preserve the local work yourself; nothing was changed.', null, 'remediation'),
@@ -635,6 +654,7 @@ function localSyncSteps(argv, error) {
 const KNOWN = Object.freeze({
   // Commits after a submission: an undecided intent amendment among them is decided first.
   STORY_REVIEW_INTERVENING_COMMIT: pendingAmendmentSteps,
+  APPROVAL_CHECKLIST_INCOMPLETE: approvalChecklistSteps,
   SESSION_STATE_REFRESH_UNAVAILABLE: (argv, error) => {
     const { options } = parseArgs(argv);
     const selectors = ['workspace', 'repository', 'repository-url', 'configuration-url']
@@ -1231,8 +1251,9 @@ export function refusalRemediationPlan(error, argv = []) {
   const selfGuidedBlocked = ['CONFIGURATION_APPROVE_CONFIRMATION_REQUIRED', 'CONFIGURATION_APPROVE_PROPOSAL_REQUIRED',
     'CONFIGURATION_APPROVE_NOTHING', 'CONFIGURATION_DRAFTS_EMPTY'].includes(code);
   const unknownRecoveryPhase = code === 'RECOVERY_PHASE_UNKNOWN';
-  // Refused for who decides, not for what is decided: no phase repair, rejection or diagnostics.
-  const identityBlocked = APPROVAL_IDENTITY_CODES.includes(code) || code === 'CLARIFICATION_AUTHORITY_REQUIRED';
+  // Refused for who decides, or for an answer the approver still owes: no phase repair, rejection or diagnostics.
+  const identityBlocked = APPROVAL_IDENTITY_CODES.includes(code) || code === 'CLARIFICATION_AUTHORITY_REQUIRED'
+    || code === 'APPROVAL_CHECKLIST_INCOMPLETE';
   const pinnedTestPolicyBlocked = ['CODE_TEST_RESULT_REQUIRED', 'CODE_TEST_SUPPRESSED'].includes(code)
     && error?.details?.configurationDependency === true;
   const requiredTestBlocked = /^CODE_TEST_[A-Z0-9_]+$/u.test(code)
@@ -1333,6 +1354,8 @@ export function refusalRemediationPlan(error, argv = []) {
     ? 'Do not retry unchanged publication. Preview a reviewed test-command amendment from corrected approved configuration for the active current code phase. Retain any existing publication and follow the returned preparation or fresh-validation route.'
     : code === 'CLARIFICATION_AUTHORITY_REQUIRED'
     ? 'Record the answer only in this checkout, as a listed member; the author never records it for them.'
+    : code === 'APPROVAL_CHECKLIST_INCOMPLETE'
+    ? 'Approve again with one answer for every checklist article. Nothing was recorded, and nothing needs rejecting.'
     : identityBlocked
     ? 'Run the same command again only when this checkout decides as a listed member, or let another listed member decide. Nothing was recorded, and nothing needs rejecting.'
     : conformanceGapBlocked
@@ -1452,6 +1475,9 @@ export function refusalDetails(details) {
   if (upstreamPhases.length) projected.upstreamPhases = upstreamPhases;
   const authorities = list(details.authorities, text);
   if (authorities.length) projected.authorities = authorities;
+  // The approval checklist articles the approver has not answered yet.
+  const articles = list(details.articles, (value) => (typeof value === 'string' && /^[a-z0-9][a-z0-9-]{0,63}$/u.test(value) ? value : null));
+  if (articles.length) projected.articles = articles;
   // Retiring a workflow: the live workflows a new default may be, and the Stories that block a delete.
   const workflowId = (value) => (typeof value === 'string' && /^[a-z0-9][a-z0-9-]{0,63}$/u.test(value) ? value : null);
   const live = list(details.live, workflowId);

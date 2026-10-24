@@ -83,7 +83,7 @@ import {
   citedArticleIds, constitutionIndex, constitutionPin, loadConstitution, validateCitations
 } from './constitution.mjs';
 import {
-  evaluateApprovalChecklist, evaluateSpecificationGate, markerSummary,
+  approvalChecklistPrompt, evaluateApprovalChecklist, evaluateSpecificationGate, markerSummary,
   resolvedSpecificationQualityPolicy, specificationGateDiagnostics
 } from './specification-gate.mjs';
 import {
@@ -6190,11 +6190,16 @@ export async function approvePhase(root, config, workflow, {
   });
   review.warnings.forEach((warning) => console.warn(`Warning: ${warning}`));
   if (review.errors.length) {
+    const answered = new Set(checklist.map((entry) => entry.article));
     throw new SingularityFlowError(
       `Phase ${phase.id} approval is incomplete:\n- ${review.errors.join('\n- ')}\n`
       + (review.mode === 'off'
         ? `Remove --article and --checklist decisions, then retry singularity-flow approve ${phase.id}.`
-        : `Record one decision for every article with singularity-flow approve ${phase.id} --article <id>=satisfied|exception|not-applicable [--article-reason TEXT], or --checklist <file.json>.`)
+        : `Record one decision for every article with singularity-flow approve ${phase.id} --article <id>=satisfied|exception|not-applicable [--article-reason TEXT], or --checklist <file.json>.`),
+      // Who decides and what, not what is decided: nothing about the work needs repairing.
+      { code: 'APPROVAL_CHECKLIST_INCOMPLETE', details: { workId: workflow.workItem.id, phase: phase.id, mode: review.mode,
+        articles: (approvalChecklistPrompt(resolvedSpecificationQualityPolicy(config, workflow, phase))?.articles ?? [])
+          .map((article) => article.id).filter((id) => !answered.has(id)) } }
     );
   }
   const submittedWitnessMappings = submittedReview.witnessReview?.clauseMappings ?? [];

@@ -152,7 +152,8 @@ function specification(value) {
   ].join('\n');
 }
 
-test('approving a submitted phase names each later commit and leads with an undecided amendment', async (t) => {
+/** A Story whose planning was submitted and awaits approval, in a repository of its own. */
+async function submittedPlanningStory(t) {
   const directory = await mkdtemp(path.join(os.tmpdir(), 'sflow-approval-history-'));
   const root = path.join(directory, 'repository');
   const remote = path.join(directory, 'origin.git');
@@ -208,6 +209,12 @@ test('approving a submitted phase names each later commit and leads with an unde
   cli('phase', 'publish', 'planning', '--authored', 'human', '--channel', 'manual-in-place');
   cli('submit', 'planning', '--skip-checks');
   const submitted = git('rev-parse', 'HEAD');
+  const candidate = path.join(directory, 'amended-spec.md');
+  return { run, git, cli, item, submitted, candidate };
+}
+
+test('approving a submitted phase names each later commit and leads with an undecided amendment', async (t) => {
+  const { run, git, cli, submitted, candidate } = await submittedPlanningStory(t);
   assert.equal(JSON.parse(cli('status', WORK, '--submission-readiness', '--json').stdout).blockingCommits, undefined,
     'nothing is named while nothing blocks');
   const refuse = () => {
@@ -234,7 +241,6 @@ test('approving a submitted phase names each later commit and leads with an unde
   git('reset', '-q', '--hard', submitted);
 
   // An amendment proposed while planning waits for review.
-  const candidate = path.join(directory, 'amended-spec.md');
   await writeFile(candidate, specification(2));
   cli('story', 'intent-amendment', 'propose', '--file', candidate, '--reason', 'Review showed that value 2 is required.');
   const proposal = git('rev-parse', '--short=12', 'HEAD');
@@ -272,9 +278,6 @@ test('approving a submitted phase names each later commit and leads with an unde
   assert.equal(view.actions[0].emphasis, 'primary');
   assert.match(view.why[0].label, new RegExp(`${proposal} \\[${WORK}\\]\\[intent-amendment:propose\\] AMD-001`, 'u'));
   assert.ok(view.warnings.some((warning) => /End this approval-only turn/u.test(warning.label)));
-  const text = run(process.execPath, [CLI, '--no-model', ...APPROVE, '--yes'], { allowFailure: true }).stderr;
-  assert.ok(text.indexOf(`Shell: ${STATUS}`) > text.indexOf('Recovery plan:'), text);
-  assert.ok(text.indexOf(`Shell: ${STATUS}`) < text.indexOf('End this approval-only turn'), text);
 
   // Rejected, the amendment waits for no one; planning still needs a fresh submission.
   cli('story', 'intent-amendment', 'decide', 'AMD-001', '--decision', 'reject', '--confirm', 'AMD-001');
@@ -285,4 +288,17 @@ test('approving a submitted phase names each later commit and leads with an unde
   assert.match(decided.error.message, /Decided after the submission: intent amendment AMD-001 \(rejected\)\. Phase 'planning' still needs a fresh submission/u);
   assert.equal(decided.error.details.pendingIntentAmendments, undefined);
   assert.deepEqual(decided.remediationPlan.steps.map((step) => step.id), EXISTING_ROUTES);
+});
+
+test('approving an amendment reopens the step awaiting approval, so its acknowledgement precedes a fresh submission', async (t) => {
+  const { cli, item, candidate } = await submittedPlanningStory(t);
+  // SPEC-OAP D4 did not reproduce: approving an amendment reopens the step awaiting approval, even one
+  // that only adds a clause nothing cites, so its acknowledgement always precedes a fresh submission
+  // and never sits between a submission and its approval.
+  await writeFile(candidate, specification(1).replace('## Scenario coverage', `- The value is logged once. [${WORK}:REQ-009]\n\n## Scenario coverage`));
+  cli('story', 'intent-amendment', 'propose', '--file', candidate, '--reason', 'Review showed the value must be logged.');
+  cli('story', 'intent-amendment', 'decide', 'AMD-001', '--decision', 'approve', '--confirm', 'AMD-001');
+  const reopened = JSON.parse(await readFile(path.join(item, 'workflow.json'), 'utf8'));
+  assert.equal(reopened.phases.planning.status, 'in_progress');
+  assert.equal(JSON.parse(cli('status', WORK, '--submission-readiness', '--json').stdout).classification, 'amendment-acknowledgement-required');
 });

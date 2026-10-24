@@ -51,8 +51,7 @@ test('the approval form keeps decisions across a hidden tab but never the confir
   const script = review.slice(review.indexOf('const REVIEW_SCRIPT = `'), review.indexOf('`;', review.indexOf('const REVIEW_SCRIPT = `')));
   const remember = script.slice(script.indexOf('function remember()'), script.indexOf('const restored'));
   assert.match(remember, /api\.setState\(\{ decisions: saved \}\)/);
-  assert.doesNotMatch(remember, /data-confirmation|data-self-approval/,
-    'the typed confirmation and self-approval acknowledgement are made fresh every time');
+  assert.doesNotMatch(remember, /data-confirmation/, 'the typed confirmation is made fresh every time');
   assert.match(script, /api\.getState\(\)/, 'a re-rendered or re-shown form restores the reviewer\'s decisions');
   assert.doesNotMatch(review, /data-confirmation[^>]*placeholder=/,
     'a placeholder holding the expected value makes the field look already filled in');

@@ -17,6 +17,7 @@
  */
 import { matchApprovalAuthority, normalizeApprovalAuthorities } from './approval-authority.mjs';
 import { recordSha256 } from './records.mjs';
+import { testCommandReviewHold } from './story-test-commands.mjs';
 import { testRunRiskAuthorities } from './test-run-risk.mjs';
 import { decisionGroups, decisionRefusalLead } from './decision-list-facts.mjs';
 import { CONFORMANCE_GAP_RULE, decisionHeadline, issueNamesClause, stepName } from './upstream-routes.mjs';
@@ -373,20 +374,30 @@ function testRiskItem(workflow, context, risk) {
 function testCommandItem(workflow, context, request) {
   const name = stepName(workflow, request.phase);
   const { command } = request;
+  const hold = testCommandReviewHold(workflow, request.phase);
   return {
     kind: 'test-command',
     title: `Run ${command.id} as ${name}'s tests for this Story`,
     why: `${request.requestedBy} asked that ${name} run ${JSON.stringify(command.argv)} from ${command.workingDirectory}, reading ${command.result.adapter} ${command.result.path}, `
       + `covering ${listWords(command.affectedRoots)}: ${request.reason} Once accepted it runs at every publication and submission of ${name}, and its tests must pass.`,
-    options: [option(workflow, context, {
-      id: 'accept-test-command', label: 'Accept this command for this Story',
-      words: 'The repository configuration is unchanged; propose it there with /sf-test-setup for later Stories.',
-      effects: [{ kind: 'test-command', phase: request.phase, request: request.id }],
-      needs: { reason: textNeed(`${command.id} runs ${name}'s tests for this Story.`, { minimum: 0, maximum: REASON.maximum }) }
-    })],
+    // Accepting it while the step awaits approval would make that review stale: return the step first.
+    options: [hold ? personalStep({ id: 'return-step-first', label: `Return ${name} for changes first`, command: hold.command, words: hold.words })
+      : option(workflow, context, {
+        id: 'accept-test-command', label: 'Accept this command for this Story',
+        words: 'The repository configuration is unchanged; propose it there with /sf-test-setup for later Stories.',
+        effects: [{ kind: 'test-command', phase: request.phase, request: request.id }],
+        needs: { reason: textNeed(`${command.id} runs ${name}'s tests for this Story.`, { minimum: 0, maximum: REASON.maximum }) }
+      })],
     details: { phase: request.phase, request: request.id, command, commands: [`singularity-flow decision test-command ${workflow.workItem.id} --accept ${request.id}`] }
   };
 }
+
+/**
+ * The item kinds approval refuses for while they are open (CONFORMANCE_BLOCKING_VERDICTS, the
+ * Story's final evaluation): the ones pendingDecisionSummary counts. Screen sizes, test-run risks
+ * and test-command requests are decided while a step is open, never at its approval.
+ */
+export const APPROVAL_HOLDING_KINDS = Object.freeze(['conformance-gap', 'upstream-issue', 'evidence-obligation']);
 
 /** The commands a person or script uses to record, with the packet digest. */
 export function decisionRecordCommand(workId, { phaseId = null, choices = [], digest, values = {} } = {}) {
@@ -417,8 +428,12 @@ export function decisionPacket(workflow, facts, { authorities, actor, at, reques
   const items = built.map((item, index) => {
     // Recommended first, then in the order built.
     const options = [...item.options].sort((left, right) => Number(right.recommended) - Number(left.recommended));
-    return { id: `d${index + 1}`, ...item, options, decidedBy: itemDecidedBy(workflow, options) };
+    return { id: `d${index + 1}`, ...item, options, decidedBy: itemDecidedBy(workflow, options),
+      holdsApproval: APPROVAL_HOLDING_KINDS.includes(item.kind) };
   });
+  // The decisions approval refuses for: what pendingDecisionSummary counts for readiness, next steps
+  // and the refusal, so every surface says the same number.
+  const holding = items.filter((item) => item.holdsApproval).length;
   const workId = workflow.workItem.id;
   const phaseId = facts.phaseId;
   const bound = {
@@ -431,12 +446,16 @@ export function decisionPacket(workflow, facts, { authorities, actor, at, reques
   const phaseOption = requestedPhase && requestedPhase !== workflow.currentPhase ? phaseId : null;
   const recommended = items.filter((item) => item.decidedBy.allowed).map((item) => [item.id, item.options.find((entry) => entry.recommended && entry.decidedBy.allowed)?.id])
     .filter(([, chosen]) => chosen);
-  const headline = decisionHeadline(workflow, phaseId, items.length);
+  const others = items.length - holding;
+  const awaiting = workflow.phases?.[phaseId]?.status === 'awaiting_approval';
+  const headline = !awaiting || !others ? decisionHeadline(workflow, phaseId, items.length)
+    : holding ? `${decisionHeadline(workflow, phaseId, holding)} ${others === 1 ? '1 other decision does' : `${others} other decisions do`} not hold its approval.`
+      : `${stepName(workflow, phaseId)} has ${others === 1 ? '1 open decision' : `${others} open decisions`}; none holds its approval.`;
   return {
     schemaVersion: 1, resultType: 'sflow-decisions', revision: DECISION_LIST_REVISION,
     workId, phase: phaseId, phaseLabel: stepName(workflow, phaseId), status: items.length ? 'decisions-needed' : 'nothing-to-decide',
     headline, rule: CONFORMANCE_GAP_RULE,
-    items,
+    items, holding,
     packetSha256: digest,
     record: {
       form: `singularity-flow decisions record ${workId}${phaseOption ? ` --phase ${phaseOption}` : ''} --choose <ITEM>=<OPTION> [--reason <ITEM>=TEXT] [--expires <ITEM>=YYYY-MM-DD] [--cause <ITEM>=TEXT] --confirm ${digest}`,
@@ -505,7 +524,9 @@ export function decisionRecordPlan(packet, answers, { at }) {
     }
     if (selected.recordable === false) {
       refused(selected.action
-        ? `${item.id}=${chosen} is your action, not a recorded decision: take the screenshot and run ${selected.action.command}`
+        ? item.kind === 'visual-profile'
+          ? `${item.id}=${chosen} is your action, not a recorded decision: take the screenshot and run ${selected.action.command}`
+          : `${item.id}=${chosen} is your own step, not a recorded decision: ${selected.words} Run: ${selected.action.command}`
         : `${item.id}=${chosen} is not available: ${selected.words}`, 'DECISIONS_OPTION_NOT_RECORDABLE', { item: item.id, option: chosen, command: selected.action?.command ?? null });
     }
     if (!selected.decidedBy.allowed) {

@@ -60,7 +60,20 @@ export const XPL2_COMMENTARY_WITHHELD = Object.freeze({
   'commentary-unknown-citation': 'The commentary cited IDs that are not statements of this explanation.'
 });
 
-const MARKUP = /<\s*[A-Za-z!/?]|\]\s*\(|```|&#?[A-Za-z0-9]+;|\b(?:javascript|data|vbscript|file):|\[[^\]]*\]:/iu;
+// Commentary is plain prose: any link, URL, address, code, entity or Markdown structure withholds it.
+const MARKUP = new RegExp([
+  String.raw`<\s*[A-Za-z!/?]`, String.raw`\]\s*\(`, String.raw`\[[^\]]*\]:`, '`', String.raw`&#?[A-Za-z0-9]+;?`,
+  String.raw`\b[a-z][a-z0-9+.-]*:\/\/`, String.raw`\bwww\.`, String.raw`\b(?:mailto|javascript|data|vbscript|file|tel):`,
+  String.raw`(?:^|\n)[ \t]*(?:#{1,6}[ \t]|>|[-*+][ \t]|\d+[.)][ \t])`, String.raw`\*\*|__|~~`
+].join('|'), 'iu');
+
+/** Secret-shaped anywhere: the whole text, or any word once quotes, brackets and punctuation around it go. */
+function secretShaped(text) {
+  return looksSecretValue(text) || text.split(/\s+/u)
+    .map((word) => word.replace(/^[\p{P}\p{S}]+|[\p{P}\p{S}]+$/gu, ''))
+    .some((word) => word.length >= 8 && looksSecretValue(word));
+}
+
 const CONTROL = /[\p{Cc}\p{Cf}\u2028\u2029]/u;
 const STATEMENT_ID = /^[SD]-\d{3,}$/u;
 
@@ -179,7 +192,7 @@ function judgeCommentary(raw, known, maximumWords) {
     if (words(raw.text) > maximumWords || raw.text.length > XPL2_NARRATION_LIMITS.commentaryCharacters) reasons.push('commentary-oversized');
     if (CONTROL.test(raw.text.replace(/[\n\t]/gu, ' '))) reasons.push('commentary-control-characters');
     if (MARKUP.test(raw.text)) reasons.push('commentary-markup');
-    if (looksSecretValue(raw.text)) reasons.push('commentary-secret-shaped');
+    if (secretShaped(raw.text)) reasons.push('commentary-secret-shaped');
     if (!raw.citations.length) reasons.push('commentary-uncited');
     if (raw.citations.some((id) => !known.has(id))) reasons.push('commentary-unknown-citation');
   }

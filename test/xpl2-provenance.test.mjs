@@ -216,7 +216,7 @@ test('snapshot comparison names new, gone and unchanged units by full digest, an
   assert.ok(comparison.sources.changed.includes('SRC-MANIFEST'));
   // Equal display IDs are not equal changes: only the change content counts.
   const relabelled = structuredClone(newer);
-  for (const unit of relabelled.inventory.units) unit.changeContentSha256 = `sha256:${'0'.repeat(63)}${unit.unitId.slice(-1)}`;
+  for (const unit of relabelled.inventory.units) unit.unitContentSha256 = `sha256:${'0'.repeat(63)}${unit.unitId.slice(-1)}`;
   assert.equal(compareXpl2Views(older, relabelled).units.kept, 0);
   assert.equal(compareXpl2Views(older, null), null);
   const html = renderExplorer(older, { newerSnapshot: true, newerView: newer });

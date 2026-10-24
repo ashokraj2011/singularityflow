@@ -139,6 +139,10 @@ const BINDING_DECISION_WORDS = Object.freeze({
   accepted: 'accepted', 'accepted-with-exception': 'accepted with an exception', 'not-reviewed': 'not yet decided'
 });
 
+const STORE_LABELS = Object.freeze({
+  'prompt-log': 'the prompt log', invocations: 'the model invocation records', attempts: 'the test attempt records'
+});
+
 const CAPTURE_STATES = Object.freeze({
   on: 'is readable', off: 'is off', unreadable: 'could not be read'
 });
@@ -382,8 +386,10 @@ const TEMPLATES = [
   {
     id: 'xpl2.capture-state@1',
     arguments: { capture: 'capture', state: 'capture-state', records: 'count', retentionDays: 'count', reason: 'reason' },
-    render: (a) => `${CAPTURE_LABELS[a.capture]} on this machine ${CAPTURE_STATES[a.state]}${a.retentionDays ? ` (it keeps ${a.retentionDays} days)` : ''}: `
-      + `${plural(a.records, 'record')} for this generation. ${xpl2ReasonText(a.reason)}`
+    render: (a) => a.state === 'unreadable'
+      ? `${CAPTURE_LABELS[a.capture]} on this machine could not be read, so nothing is known about its records for this generation. ${xpl2ReasonText(a.reason)}`
+      : `${CAPTURE_LABELS[a.capture]} on this machine ${CAPTURE_STATES[a.state]}${a.retentionDays ? ` (it keeps ${a.retentionDays} days)` : ''}: `
+        + `${plural(a.records, 'record')} for this generation. ${xpl2ReasonText(a.reason)}`
   },
   {
     id: 'xpl2.exact-cause@1',
@@ -413,6 +419,19 @@ const TEMPLATES = [
     arguments: { side: 'side', path: 'text', line: 'count', unitId: 'identifier', clauses: 'text', phase: 'identifier', generation: 'text' },
     render: (a) => `${sideLabel(a.side)}-side line ${a.line} of ${a.path} is one of the changed lines in ${a.unitId} that the ${a.phase} `
       + `code-delivery receipt (generation ${a.generation}) binds to ${a.clauses}. A binding maps lines to a clause; it does not say who or what wrote them.`
+  },
+  {
+    id: 'xpl2.records-unreadable@1',
+    arguments: { capture: 'capture', records: 'count' },
+    render: (a) => `${plural(a.records, 'record')} in ${STORE_LABELS[a.capture]} could not be read and `
+      + `${a.records === 1 ? 'contributes' : 'contribute'} nothing. ${xpl2ReasonText('unsupported-source-version')}`
+  },
+  {
+    id: 'xpl2.line-file-gone@1',
+    arguments: { path: 'text', line: 'count', change: 'file-gone', newPath: 'text' },
+    render: (a) => a.change === 'deleted'
+      ? `${a.path} is deleted in this captured change, so it has no after-side line ${a.line}; ask about the before side.`
+      : `${a.path} is renamed to ${a.newPath} in this captured change; ask about after-side line ${a.line} of ${a.newPath}.`
   },
   {
     id: 'xpl2.source-state@1',
@@ -446,6 +465,7 @@ function validArgument(kind, value) {
     case 'capture-state': return Object.hasOwn(CAPTURE_STATES, value);
     case 'line-placement': return Object.hasOwn(LINE_PLACEMENTS, value);
     case 'binding-decision': return Object.hasOwn(BINDING_DECISIONS, value);
+    case 'file-gone': return value === 'deleted' || value === 'renamed';
     case 'reason':
       try { xpl2ReasonText(value); return true; } catch { return false; }
     default: return false;

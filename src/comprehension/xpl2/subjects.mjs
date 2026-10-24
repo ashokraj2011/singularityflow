@@ -96,28 +96,34 @@ export const TOUR_STEP_LIMIT = 12;
 const TOUR_STEPS = Object.freeze([
   ['purpose', ['clause-declared', 'clause-cites', 'clause-required']],
   ['changes', ['change-inventory', 'singularity-files-hidden', 'file-type', 'mode-change', 'hunk', 'opaque-unit',
-    'line-in-unit', 'line-outside', 'line-opaque', 'line-commit', 'line-changed', 'line-commit-unavailable']],
+    'declaration-overlap', 'line-file-gone', 'line-in-unit', 'line-outside', 'line-opaque', 'line-commit', 'line-changed',
+    'line-commit-unavailable']],
   ['links', ['exact-cause', 'binding-not-joined', 'line-binding', 'clause-tag', 'region-association', 'acceptance-tag', 'test-tag']],
-  ['checks', ['witness-result', 'test-result', 'test-attempt', 'evidence-reuse', 'binding-decision', 'gap-observed']],
+  ['checks', ['witness-result', 'test-result', 'test-attempt', 'evidence-reuse', 'binding-decision', 'clause-untagged', 'gap-observed']],
   ['attention', ['no-complete-evaluation', 'admission-unavailable', 'feature-state', 'source-state', 'provenance-unavailable',
-    'capture-state']],
+    'cause-not-recorded', 'capture-state', 'records-unreadable']],
   ['history', ['generation-recorded', 'generation-invocation', 'generation-prompt', 'generation-attempt', 'invocation-overlap']]
 ]);
 
 function readingTour(statements, attentionStatements, next) {
-  const placed = new Set();
+  const present = new Set(statements.map((entry) => entry.id));
+  // Attention items are always shown, whatever their kind, and never limited.
+  const mandatory = [...new Set(attentionStatements)].filter((id) => present.has(id));
+  const accounted = new Set(mandatory);
   const steps = TOUR_STEPS.map(([step, kinds]) => {
-    const ids = [
-      ...(step === 'attention' ? attentionStatements : []),
-      // Within a step, statements follow the step's kind order (the inventory before its units).
-      ...statements.filter((entry) => kinds.includes(entry.kind))
-        .sort((left, right) => kinds.indexOf(left.kind) - kinds.indexOf(right.kind)).map((entry) => entry.id)
-    ].filter((id) => !placed.has(id));
-    const unique = [...new Set(ids)];
-    for (const id of unique) placed.add(id);
-    return { step, statements: unique.slice(0, TOUR_STEP_LIMIT), omitted: Math.max(0, unique.length - TOUR_STEP_LIMIT) };
+    // Within a step, statements follow the step's kind order (the inventory before its units).
+    const candidates = statements.filter((entry) => kinds.includes(entry.kind) && !accounted.has(entry.id))
+      .sort((left, right) => kinds.indexOf(left.kind) - kinds.indexOf(right.kind)).map((entry) => entry.id);
+    // Shown or counted, never both and never neither: past the limit a statement is counted here.
+    for (const id of candidates) accounted.add(id);
+    const shown = candidates.slice(0, TOUR_STEP_LIMIT);
+    return {
+      step, statements: step === 'attention' ? [...mandatory, ...shown] : shown,
+      omitted: candidates.length - shown.length
+    };
   });
-  return [...steps, { step: 'next', statements: [], omitted: 0, action: next[0] ?? null }];
+  const unlisted = statements.filter((entry) => !accounted.has(entry.id)).length;
+  return [...steps, { step: 'next', statements: [], omitted: 0, unlisted, action: next[0] ?? null }];
 }
 
 function presentationFor(model, selection, next = []) {
@@ -198,8 +204,16 @@ export function xpl2LineHistoryRequest({ codeExplanation, diff = null, context =
   const query = normalizeXpl2Query(rawQuery);
   if (query.subject !== 'line') return null;
   const revision = String(context?.base ?? '');
-  const units = (codeExplanation?.whyEachChange ?? []).filter((unit) =>
+  const all = codeExplanation?.whyEachChange ?? [];
+  const units = all.filter((unit) =>
     (query.side === 'before' ? unit.location?.pathBefore : unit.location?.pathAfter) === query.path);
+  // On the after side, a path that only exists before the change was deleted or renamed away: it
+  // has no after-side line to ask history about.
+  const gone = query.side === 'after' && !units.length ? all.find((unit) => unit.location?.pathBefore === query.path) : null;
+  if (gone) {
+    const newPath = gone.location?.pathAfter ?? null;
+    return { kind: 'file-gone', change: newPath ? 'renamed' : 'deleted', path: query.path, newPath };
+  }
   if (units.some((unit) => unit.unitKind === 'untracked-region-opaque') && query.side === 'after') {
     return { kind: 'captured-change', unitId: units[0].unitId };
   }
@@ -231,7 +245,8 @@ export function xpl2LineHistoryRequest({ codeExplanation, diff = null, context =
 /** Admit what the line history read returned: a commit, the change unit, or the reason there is none. */
 function lineHistoryStatements(b, derived, query, history) {
   const request = history?.request ?? null;
-  if (!request) return;
+  // A deleted or renamed-away file is stated by the line locator itself.
+  if (!request || request.kind === 'file-gone') return;
   if (request.kind === 'captured-change') {
     derived.push(b.derivedStatement({
       about: 'line', template: 'xpl2.line-changed@1', cites: ['SRC-MANIFEST'],
@@ -276,21 +291,52 @@ function instant(value) {
   return Number.isFinite(time) ? time : null;
 }
 
+const IDENTIFIER = /^[A-Za-z0-9][A-Za-z0-9:._@/+-]{0,199}$/u;
+
+/** A record string as template text: trimmed, bounded and never empty. */
+function recordText(value, fallback) {
+  const text = typeof value === 'string' || typeof value === 'number' ? String(value).trim() : '';
+  return text ? text.slice(0, 300) : fallback;
+}
+
+/** A record value as a template identifier, or the fallback when it is not one. */
+function recordIdentifier(value, fallback) {
+  const text = recordText(value, '');
+  return IDENTIFIER.test(text) ? text : fallback;
+}
+
 /**
  * Admit one generation's machine-local records [XPL2 12.1]: invocations in their own recorded
  * order with overlaps named rather than ordered, prompt-log entries by what they say they were,
- * and the phase's test attempts of that generation. Missing outcomes, tool observations and
- * disabled capture stay visible as such; none is read as zero.
+ * and the phase's test attempts of that generation. Missing outcomes, tool observations, disabled
+ * capture and unreadable stores stay visible as such; none is read as zero. A record without the
+ * identity its statement needs is counted as unreadable and contributes nothing.
  */
 function generationStatements(b, derived, query, sources) {
+  const unreadable = (capture, records) => {
+    if (records) {
+      derived.push(b.derivedStatement({
+        about: 'generation', template: 'xpl2.records-unreadable@1', cites: [CAPTURE_SOURCES[capture]],
+        arguments: { capture, records }
+      }));
+    }
+  };
+  const inaccessible = (capture, id, adapter, scope, status) => {
+    const reason = status === 'unsupported' ? 'unsupported-source-version' : 'source-inaccessible';
+    b.observation({ id, adapter, scope, completeness: 'unavailable', reason, subject: true });
+    derived.push(b.derivedStatement({
+      about: 'generation', template: 'xpl2.capture-state@1', cites: [id],
+      arguments: { capture, state: 'unreadable', records: 0, retentionDays: 0, reason }
+    }));
+  };
   const invocations = sources?.invocations ?? null;
   if (invocations?.status === 'available') {
-    const records = [...invocations.records].sort((left, right) => String(left.startedAt ?? '').localeCompare(String(right.startedAt ?? ''))
-      || String(left.id).localeCompare(String(right.id)));
+    const records = [...invocations.records].sort((left, right) => String(left?.startedAt ?? '').localeCompare(String(right?.startedAt ?? ''))
+      || String(left?.id).localeCompare(String(right?.id)));
     b.source({
       id: 'SRC-INVOCATIONS', label: 'Model invocation records on this machine', owner: 'model-runner.invocation-audit',
       family: 'model-invocation-audit',
-      integrity: records.length && records.every((record) => record.observationIntegrity === 'machine-local-mac') ? 'self-hashed' : 'unverified',
+      integrity: records.length && records.every((record) => record?.observationIntegrity === 'machine-local-mac') ? 'self-hashed' : 'unverified',
       origin: 'observed-local', applicability: 'current', availability: 'present',
       coverage: { scope: 'this machine', complete: !invocations.omitted, records: records.length }, subject: true
     });
@@ -299,28 +345,36 @@ function generationStatements(b, derived, query, sources) {
       arguments: { capture: 'invocations', state: 'on', records: records.length, retentionDays: 0, reason: 'machine-local-only' },
       limitations: invocations.omitted ? ['partial-inventory'] : []
     }));
+    const readable = [];
+    let malformed = 0;
     for (const record of records) {
+      const invocationId = recordText(record?.id, '');
+      if (!invocationId) { malformed += 1; continue; }
       const status = INVOCATION_STATES.has(record.status) ? record.status : 'started';
       const calls = Array.isArray(record.toolObservation?.calls) ? record.toolObservation.calls : null;
-      derived.push(b.derivedStatement({
-        about: 'generation', template: 'xpl2.generation-invocation@1', cites: ['SRC-INVOCATIONS'],
-        arguments: {
-          invocationId: String(record.id ?? 'unidentified'), status,
-          requestedModel: String(record.requestedModel ?? 'not recorded'),
-          reportedModel: String(record.modelSelection?.providerSelectedModel ?? 'unreported'),
-          startedAt: String(record.startedAt ?? 'not recorded'),
-          completedAt: status === 'started' ? 'not recorded' : String(record.completedAt ?? 'not recorded'),
-          toolsObserved: Boolean(calls), toolCalls: calls?.length ?? 0,
-          integrity: record.observationIntegrity === 'machine-local-mac' ? 'machine-local-mac' : 'unverified-local'
-        },
-        limitations: [...(status === 'started' ? ['outcome-unobserved'] : []), 'origin-unestablished']
-      }));
+      try {
+        derived.push(b.derivedStatement({
+          about: 'generation', template: 'xpl2.generation-invocation@1', cites: ['SRC-INVOCATIONS'],
+          arguments: {
+            invocationId, status,
+            requestedModel: recordText(record.requestedModel, 'not recorded'),
+            reportedModel: recordText(record.modelSelection?.providerSelectedModel, 'unreported'),
+            startedAt: recordText(record.startedAt, 'not recorded'),
+            completedAt: status === 'started' ? 'not recorded' : recordText(record.completedAt, 'not recorded'),
+            toolsObserved: Boolean(calls), toolCalls: calls?.length ?? 0,
+            integrity: record.observationIntegrity === 'machine-local-mac' ? 'machine-local-mac' : 'unverified-local'
+          },
+          limitations: [...(status === 'started' ? ['outcome-unobserved'] : []), 'origin-unestablished']
+        }));
+        readable.push({ ...record, id: invocationId });
+      } catch { malformed += 1; }
     }
+    unreadable('invocations', malformed);
     // Concurrent invocations keep their own IDs; arrival order is not a causal order [XPL2-AC-042].
     let overlaps = 0;
-    for (let left = 0; left < records.length && overlaps < MAXIMUM_OVERLAPS; left += 1) {
-      for (let right = left + 1; right < records.length && overlaps < MAXIMUM_OVERLAPS; right += 1) {
-        const [a, c] = [records[left], records[right]];
+    for (let left = 0; left < readable.length && overlaps < MAXIMUM_OVERLAPS; left += 1) {
+      for (let right = left + 1; right < readable.length && overlaps < MAXIMUM_OVERLAPS; right += 1) {
+        const [a, c] = [readable[left], readable[right]];
         const aStart = instant(a.startedAt); const cStart = instant(c.startedAt);
         if (aStart == null || cStart == null) continue;
         const aEnd = instant(a.completedAt) ?? Infinity; const cEnd = instant(c.completedAt) ?? Infinity;
@@ -328,22 +382,23 @@ function generationStatements(b, derived, query, sources) {
           overlaps += 1;
           derived.push(b.derivedStatement({
             about: 'generation', template: 'xpl2.invocation-overlap@1', cites: ['SRC-INVOCATIONS'],
-            arguments: { first: String(a.id), second: String(c.id) }
+            arguments: { first: a.id, second: c.id }
           }));
         }
       }
     }
   } else if (invocations) {
-    b.observation({ id: 'OBS-INVOCATIONS', adapter: 'model-runner.invocation-audit', scope: 'model invocation records on this machine',
-      completeness: 'unavailable', reason: invocations.status === 'unsupported' ? 'unsupported-source-version' : 'source-inaccessible', subject: true });
+    inaccessible('invocations', 'OBS-INVOCATIONS', 'model-runner.invocation-audit', 'model invocation records on this machine', invocations.status);
   }
   const prompts = sources?.prompts ?? null;
   if (prompts?.status === 'available') {
+    // The prompt log is listed newest first up to its own bound before the generation is chosen.
+    const partial = Boolean(prompts.omitted || prompts.truncated);
     b.source({
       id: 'SRC-PROMPTS', label: 'Prompt log on this machine', owner: 'prompt-audit', family: 'prompt-audit-record',
       integrity: prompts.integrity === 'verified' ? 'verified' : 'unverified', origin: 'recorded-local', applicability: 'current',
       availability: prompts.enabled ? 'present' : 'disabled',
-      coverage: { scope: 'this machine', complete: !prompts.omitted, records: prompts.records.length, retentionDays: prompts.retentionDays }, subject: true
+      coverage: { scope: 'this machine', complete: !partial, records: prompts.records.length, retentionDays: prompts.retentionDays }, subject: true
     });
     derived.push(b.derivedStatement({
       about: 'generation', template: 'xpl2.capture-state@1', cites: ['SRC-PROMPTS'],
@@ -351,47 +406,70 @@ function generationStatements(b, derived, query, sources) {
         capture: 'prompt-log', state: prompts.enabled ? 'on' : 'off', records: prompts.records.length,
         retentionDays: prompts.enabled && Number.isSafeInteger(prompts.retentionDays) ? prompts.retentionDays : 0,
         reason: prompts.enabled ? 'machine-local-only' : 'recording-disabled'
-      }
+      },
+      limitations: partial ? ['partial-inventory'] : []
     }));
+    let malformed = 0;
     for (const record of prompts.records) {
-      derived.push(b.derivedStatement({
-        about: 'generation', template: 'xpl2.generation-prompt@1', cites: ['SRC-PROMPTS'],
-        arguments: {
-          recordId: String(record.id ?? 'unidentified'), source: PROMPT_SOURCE_KINDS.has(record.source) ? record.source : 'other',
-          recordedAt: String(record.recordedAt ?? 'an unrecorded time'), redactions: record.redactions,
-          invocation: String(record.invocationId ?? 'none')
-        }
-      }));
+      const recordId = recordText(record?.id, '');
+      if (!recordId) { malformed += 1; continue; }
+      try {
+        derived.push(b.derivedStatement({
+          about: 'generation', template: 'xpl2.generation-prompt@1', cites: ['SRC-PROMPTS'],
+          arguments: {
+            recordId, source: PROMPT_SOURCE_KINDS.has(record.source) ? record.source : 'other',
+            recordedAt: recordText(record.recordedAt, 'an unrecorded time'),
+            redactions: Number.isSafeInteger(record.redactions) && record.redactions >= 0 ? record.redactions : 0,
+            invocation: recordText(record.invocationId, 'none')
+          }
+        }));
+      } catch { malformed += 1; }
     }
+    unreadable('prompt-log', malformed);
   } else if (prompts) {
-    b.observation({ id: 'OBS-PROMPTS', adapter: 'prompt-audit', scope: 'prompt log on this machine',
-      completeness: 'unavailable', reason: 'source-inaccessible', subject: true });
+    inaccessible('prompt-log', 'OBS-PROMPTS', 'prompt-audit', 'prompt log on this machine', prompts.status);
   }
   const attempts = sources?.attempts ?? null;
-  if (attempts?.status === 'available' && attempts.records.length) {
+  if (attempts?.status === 'available') {
     b.source({
       id: 'SRC-GENERATION-ATTEMPTS', label: 'Test attempts of this generation', owner: 'verification.test-attempts', family: 'test-execution',
       integrity: 'unverified', origin: 'recorded-local', applicability: 'current', availability: 'present',
       coverage: { scope: 'admitted and kept attempts on this machine', complete: !attempts.omitted, records: attempts.records.length }, subject: true
     });
+    derived.push(b.derivedStatement({
+      about: 'generation', template: 'xpl2.capture-state@1', cites: ['SRC-GENERATION-ATTEMPTS'],
+      arguments: {
+        capture: 'attempts', state: 'on', records: attempts.records.length, retentionDays: 0,
+        reason: attempts.records.length ? 'machine-local-only' : 'source-not-recorded'
+      },
+      limitations: attempts.omitted ? ['partial-inventory'] : []
+    }));
+    let malformed = 0;
     for (const record of attempts.records) {
+      const attemptId = recordIdentifier(record?.attemptId, '');
+      if (!attemptId) { malformed += 1; continue; }
       const tests = record.tests && typeof record.tests === 'object' ? record.tests : null;
       const count = (value) => Number.isSafeInteger(value) && value >= 0 ? value : 0;
-      derived.push(b.derivedStatement({
-        about: 'generation', template: 'xpl2.test-attempt@1', cites: ['SRC-GENERATION-ATTEMPTS'],
-        arguments: {
-          attemptId: String(record.attemptId ?? 'attempt').replace(/[^A-Za-z0-9:._@/+-]/gu, '_') || 'attempt',
-          commandId: String(record.commandId ?? 'unknown command'),
-          purpose: String(record.purpose ?? 'unknown').replace(/[^A-Za-z0-9:._@/+-]/gu, '_') || 'unknown',
-          status: String(record.status ?? 'unavailable').replace(/[^A-Za-z0-9:._@/+-]/gu, '_') || 'unavailable',
-          completedAt: String(record.process?.completedAt ?? 'not recorded'),
-          countsKnown: Boolean(tests), passed: count(tests?.passed), failed: count(tests?.failed), skipped: count(tests?.skipped),
-          previous: String(record.parentAttemptId ?? 'none')
-        }
-      }));
+      try {
+        derived.push(b.derivedStatement({
+          about: 'generation', template: 'xpl2.test-attempt@1', cites: ['SRC-GENERATION-ATTEMPTS'],
+          arguments: {
+            attemptId, commandId: recordText(record.commandId, 'an unrecorded command'),
+            purpose: recordIdentifier(record.purpose, 'unknown'), status: recordIdentifier(record.status, 'unavailable'),
+            completedAt: recordText(record.process?.completedAt, 'not recorded'),
+            countsKnown: Boolean(tests), passed: count(tests?.passed), failed: count(tests?.failed), skipped: count(tests?.skipped),
+            previous: recordText(record.parentAttemptId, 'none')
+          }
+        }));
+      } catch { malformed += 1; }
     }
+    unreadable('attempts', malformed);
+  } else if (attempts) {
+    inaccessible('attempts', 'OBS-GENERATION-ATTEMPTS', 'verification.test-attempts', 'test attempts of this generation on this machine', attempts.status);
   }
 }
+
+const CAPTURE_SOURCES = Object.freeze({ invocations: 'SRC-INVOCATIONS', 'prompt-log': 'SRC-PROMPTS', attempts: 'SRC-GENERATION-ATTEMPTS' });
 
 function nextActions(model) {
   const first = model.attention[0] ?? null;
@@ -457,6 +535,8 @@ export function explainXpl2Subject(input, rawQuery = {}, {
     });
     const textual = matches.filter((unit) => unit.hunk);
     const opaque = matches.filter((unit) => !unit.hunk);
+    const gone = query.side === 'after' && !universe.inventory.units.some((unit) => unit.pathAfter === query.path)
+      ? universe.inventory.units.filter((unit) => unit.pathBefore === query.path) : [];
     const citeLine = universe.availability.diff === 'available' ? ['SRC-DIFF', 'SRC-MANIFEST'] : ['SRC-MANIFEST'];
     if (textual.length) {
       seeds = textual.map((unit) => unit.nodeId);
@@ -486,6 +566,15 @@ export function explainXpl2Subject(input, rawQuery = {}, {
       derived.push(b.derivedStatement({
         about: opaque[0].nodeId, template: 'xpl2.line-opaque@1', cites: ['SRC-MANIFEST'],
         arguments: { side: query.side, path: query.path, line: query.line, unitId: opaque[0].unitId }
+      }));
+    } else if (gone.length) {
+      // The path exists only before the change: it was deleted or renamed away, and has no after side.
+      seeds = gone.map((unit) => unit.nodeId);
+      status = 'unavailable';
+      reason = 'not-applicable';
+      derived.push(b.derivedStatement({
+        about: gone[0].nodeId, template: 'xpl2.line-file-gone@1', cites: ['SRC-MANIFEST'],
+        arguments: { path: query.path, line: query.line, change: gone[0].pathAfter ? 'renamed' : 'deleted', newPath: gone[0].pathAfter ?? 'none' }
       }));
     } else {
       b.observation({

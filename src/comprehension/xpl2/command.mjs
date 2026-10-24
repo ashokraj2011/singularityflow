@@ -24,6 +24,7 @@ import { explainXpl2Subject, normalizeXpl2Query, xpl2LineHistoryRequest } from '
  */
 export const XPL2_DEFAULT_MAXIMUM_BYTES = 64 * 1024;
 const MINIMUM_BYTES = 8 * 1024;
+const NARRATION_RESERVE_BYTES = 1024;
 const MAXIMUM_BYTES = 8 * 1024 * 1024;
 
 const USAGE = 'Usage: singularity-flow explain --subject change|clause|test|line|gap|generation '
@@ -141,27 +142,42 @@ export async function runExplanationSubject(_argv, { positionals, options, opera
     sourceReferences: slice.sourceReferences,
     codeScope: slice.codeScope,
     recordSources: slice.explanationInputs?.recordSources ?? null,
-    bindingSources: slice.explanationInputs?.bindingSources ?? null
+    bindingSources: slice.explanationInputs?.bindingSources ?? null,
+    diff: slice.diff
   };
   const proof = query.subject === 'gap' ? await readProofGaps(root, slice.context.workId) : null;
   // A line asks ordinary commit history once, at the exact baseline commit, after the capture is
   // complete; a generation reads this machine's records for it. Neither is read for other subjects.
   let lineHistory = null;
   if (query.subject === 'line') {
-    const request = xpl2LineHistoryRequest({ codeExplanation: slice.codeExplanation, diff: slice.diff, context: slice.context }, query);
+    // History is asked at the exact commit the capture resolved, never at the revision text
+    // (`HEAD` outside a Story, or whatever --since named).
+    const request = xpl2LineHistoryRequest({
+      codeExplanation: slice.codeExplanation, diff: slice.diff,
+      context: { ...slice.context, base: slice.baselineCommit ?? slice.context.base }
+    }, query);
     lineHistory = { request, result: request?.kind === 'baseline' ? lineCommitAt(root, request.revision, request.path, request.line) : null };
   }
   const generationSources = query.subject === 'generation' && input.workflow
     ? await (await import('./clause-sources.mjs')).readGenerationSources(root, input.workflow, { phase: query.phase, generation: query.generation })
     : null;
-  const { model, bytes } = boundedModel(input, query, { proof, lineHistory, generationSources }, maximumBytes);
+  // --max-bytes bounds what is delivered: the explanation and, when asked for, its narration. A
+  // narration keeps a small reserve for its own notice; one that would not fit is replaced by it.
+  const reserve = wantsNarration ? NARRATION_RESERVE_BYTES : 0;
+  const { model, bytes } = boundedModel(input, query, { proof, lineHistory, generationSources }, maximumBytes - reserve);
   // The computed view is complete before narration starts and is never changed by it [XPL2-AC-009].
-  const narration = wantsNarration
-    ? await (await import('./narration.mjs')).narrateXpl2Explanation(root, model, {
+  let narration = null;
+  if (wantsNarration) {
+    const narrationModule = await import('./narration.mjs');
+    narration = await narrationModule.narrateXpl2Explanation(root, model, {
       operation, length, commentary: optionBoolean(options, 'commentary'),
       workId: slice.context.workId, phase: slice.context.phase
-    })
-    : null;
+    });
+    if (bytes + Buffer.byteLength(JSON.stringify(narration), 'utf8') > maximumBytes) {
+      narration = narrationModule.unavailableXpl2Narration('bounded-delivery', model);
+    }
+  }
+  const narrationBytes = narration ? Buffer.byteLength(JSON.stringify(narration), 'utf8') : 0;
   const next = [
     action({
       id: 'explanation.gap',
@@ -207,7 +223,9 @@ export async function runExplanationSubject(_argv, { positionals, options, opera
       },
       explanation: model,
       ...(narration ? { narration } : {}),
-      wire: { bytes, maximumBytes, measure: 'compact-utf8-json' }
+      wire: {
+        bytes: bytes + narrationBytes, explanationBytes: bytes, narrationBytes, maximumBytes, measure: 'compact-utf8-json'
+      }
     }
   }), { json: optionBoolean(options, 'json'), restStateWhenIdle: 'informational' });
 }

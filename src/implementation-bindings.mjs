@@ -86,7 +86,7 @@ export async function implementationBindings(root, { changeSet, required = [], t
       const whole = entry.untracked || entry.status === 'added';
       const regionHunks = entry.status === 'deleted'
         ? [{ beforeStart: 1, beforeLines: null, afterStart: 0, afterLines: 0 }]
-        : whole ? [{ beforeStart: 0, beforeLines: 0, afterStart: 1, afterLines: lines.length }]
+        : whole ? [{ beforeStart: 0, beforeLines: 0, afterStart: 1, afterLines: source ? lines.length - /\n$/u.test(source) : 0 }]
           : hunks.get(relative) ?? [];
       const language = documentationLanguage(relative);
       const changedLines = new Set(regionHunks.flatMap((hunk) =>

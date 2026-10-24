@@ -592,6 +592,7 @@ export async function inspectPhaseRecovery(root, config, workflow, phase, {
         }));
         if (missingRepositoryRunner) {
           // An activated command the pin predates is adopted; otherwise a person accepts a Story-only one.
+          const { activatedTestCommandsFor } = await import('./activated-test-commands.mjs');
           const activated = await activatedTestCommandsFor(root, workflow, phase.id);
           const workId = workflow.workItem.id;
           actions.push(activated.length ? action({
@@ -646,28 +647,4 @@ export async function inspectPhaseRecovery(root, config, workflow, phase, {
       published: phase.generationIntent?.status === 'consumed'
     }) }
   };
-}
-
-/**
- * Test commands the activated configuration gives a Story's step that its pinned policy lacks: what
- * `story test-policy amend` would adopt. Empty when there are none or the authority cannot be read.
- *
- * Here, beside its one caller, rather than in `test-setup-proposal.mjs`: that module reaches the
- * configuration-save CLI path, and the editor bundles every module a read path can reach — importing
- * it from here pulled the CLI's installer, and its top-level await, into the VS Code build.
- */
-export async function activatedTestCommandsFor(root, workflow, phaseId) {
-  try {
-    const [YAML, { withApprovedConfigurationRead }, { WORKFLOW_PATH }, { configurationReadRoot }, { canonicalJson }] = await Promise.all([
-      import('yaml').then((module) => module.default), import('./approved-configuration-reader.mjs'), import('./config.mjs'),
-      import('./configuration-read-scope.mjs'), import('./records.mjs')
-    ]);
-    return await withApprovedConfigurationRead(root, async () => {
-      const raw = YAML.parse(await readFile(path.join(configurationReadRoot(root), WORKFLOW_PATH), 'utf8')) ?? {};
-      const commands = raw.workTypes?.[workflow.workItem?.workType]?.phaseOverrides?.[phaseId]?.qualityCommands
-        ?? raw.phases?.[phaseId]?.qualityCommands ?? [];
-      const pinned = (workflow.resolution?.phases?.find((entry) => entry.id === phaseId)?.qualityCommands ?? []).map(canonicalJson);
-      return commands.filter((entry) => entry?.kind === 'test' && !pinned.includes(canonicalJson(entry)));
-    }, { preferAuthority: true });
-  } catch { return []; }
 }

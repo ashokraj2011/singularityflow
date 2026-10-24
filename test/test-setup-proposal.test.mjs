@@ -93,7 +93,7 @@ test('a test command chosen in /sf-test-setup is previewed, proposed by its dige
   const approved = YAML.parse(run('git', ['--git-dir', remote, 'show', 'sflow/config:singularity/workflow.yml']).stdout);
   assert.equal(approved.phases.implementation.qualityCommands.at(-1).id, 'shop-e2e-junit');
   // A Story pinned before activation is offered the activated command to adopt; one pinned after is not.
-  const { activatedTestCommandsFor } = await import('../src/recovery-plan.mjs');
+  const { activatedTestCommandsFor } = await import('../src/test-setup-proposal.mjs');
   const pinnedBefore = { workItem: { workType: 'feature' }, resolution: { phases: [{ id: 'implementation', qualityCommands: [] }] } };
   assert.deepEqual((await activatedTestCommandsFor(root, pinnedBefore, 'implementation')).map((entry) => entry.id), ['shop-e2e-junit']);
   const pinnedAfter = { ...pinnedBefore, resolution: { phases: [{ id: 'implementation', qualityCommands: approved.phases.implementation.qualityCommands }] } };

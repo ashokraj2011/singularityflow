@@ -127,6 +127,28 @@ function withDecisionList(workflow, phase, actions, held) {
   return [...actions.slice(0, index), decide, ...actions.slice(index + 1).filter((entry) => !blocked(entry))];
 }
 
+/**
+ * Parity with the approval gate's own preview (`approvalCheck`, SPEC-OAP M1): while a hold someone
+ * other than the approver clears stands, the way through it takes the approval's place.
+ */
+function withApprovalHolds(workflow, phase, actions, check) {
+  const holds = (check?.ready === false ? check.holds ?? [] : []).filter((hold) => hold.owner !== 'you-decide');
+  if (!holds.length) return actions;
+  const blocked = (entry) => entry.command?.startsWith(`singularity-flow approve ${phase.id} `);
+  const index = actions.findIndex(blocked);
+  if (index < 0) return actions;
+  // One action per way through: holds that share a route are named together in it.
+  const byCommand = new Map();
+  for (const hold of holds) {
+    const command = hold.action?.command ?? `singularity-flow phase show ${phase.id} --json`;
+    byCommand.set(command, [...(byCommand.get(command) ?? []), hold]);
+  }
+  const routes = [...byCommand].slice(0, 3).map(([command, shared], at) => action(at ? 'alternative' : actions[index].timing,
+    copilotSkillForCommand(command), command,
+    `${shared.map((hold) => `${hold.who}: ${hold.summary}`).join(' ')}${shared[0].action?.label ? ` ${shared[0].action.label}` : ''}`, { route: 'approval-hold' }));
+  return [...actions.slice(0, index), ...routes, ...actions.slice(index + 1).filter((entry) => !blocked(entry))];
+}
+
 function cancellationActions(workflow) {
   return [
     action('now', '/sflow-documents', `singularity-flow documents list ${workflow.workItem.id}`, 'Review the preserved artifacts for this archived Story.'),
@@ -168,7 +190,7 @@ function visualCoverageActions(hold, timing) {
 
 export function workflowNextSteps(workflow, {
   publicationPending = false, recovery = null, prerequisites = [], modelMode = ambientModelMode(), stepActionHold = null, sourceReviewEvidence = null, authoringProgress = null,
-  repositoryHost = null, pendingDecisions = undefined, visualCoverageHold = null, mcpHold = null
+  repositoryHost = null, pendingDecisions = undefined, visualCoverageHold = null, mcpHold = null, approvalCheck = null
 } = {}) {
   const workId = workflow.workItem.id;
   const phase = workflow.currentPhase ? workflow.phases[workflow.currentPhase] : null;
@@ -215,7 +237,10 @@ export function workflowNextSteps(workflow, {
     item.reason, item.authoringStage ? { authoringStage: item.authoringStage, preserveExistingWork: true } : {}
   ));
   const held = decisionHold(workflow, phase, pendingDecisions);
-  if (phase.status === 'awaiting_approval') return withDecisionList(workflow, phase, [...undecided, ...immediate, ...afterCompletionActions(workflow, phase, { repositoryHost })], held);
+  if (phase.status === 'awaiting_approval') {
+    const actions = [...undecided, ...immediate, ...afterCompletionActions(workflow, phase, { repositoryHost })];
+    return held ? withDecisionList(workflow, phase, actions, held) : withApprovalHolds(workflow, phase, actions, approvalCheck);
+  }
 
   // A required after-step action of an earlier step holds this one until its approved delivery has
   // a receipt, so that delivery comes first and the step's own work follows it.
@@ -352,7 +377,7 @@ export function workflowNextSteps(workflow, {
   return withDecisionList(workflow, phase, actions, held);
 }
 
-export function nextStepsSnapshot({ initialized = true, branch = null, requestedWorkId = null, workflow = null, publicationPending = false, recovery = null, prerequisites = [], modelMode = ambientModelMode(), stepActionHold = null, sourceReviewEvidence = null, authoringProgress = null, repositoryHost = null, pendingDecisions = undefined, visualCoverageHold = null, mcpHold = null } = {}) {
+export function nextStepsSnapshot({ initialized = true, branch = null, requestedWorkId = null, workflow = null, publicationPending = false, recovery = null, prerequisites = [], modelMode = ambientModelMode(), stepActionHold = null, sourceReviewEvidence = null, authoringProgress = null, repositoryHost = null, pendingDecisions = undefined, visualCoverageHold = null, mcpHold = null, approvalCheck = null } = {}) {
   if (!initialized) return {
     schemaVersion: 1,
     state: 'not_initialized',
@@ -381,7 +406,7 @@ export function nextStepsSnapshot({ initialized = true, branch = null, requested
   };
   const contextBoundary = !publicationPending && !recovery?.requiresRecovery && !workflow.pendingDecision
     && !stepActionHold?.missing?.length ? contextBoundaryPresentation(pendingContextBoundary(workflow)) : null;
-  const actions = workflowNextSteps(workflow, { publicationPending, recovery, prerequisites, modelMode, stepActionHold, sourceReviewEvidence, authoringProgress, repositoryHost, pendingDecisions, visualCoverageHold, mcpHold });
+  const actions = workflowNextSteps(workflow, { publicationPending, recovery, prerequisites, modelMode, stepActionHold, sourceReviewEvidence, authoringProgress, repositoryHost, pendingDecisions, visualCoverageHold, mcpHold, approvalCheck });
   return {
     schemaVersion: 1,
     state: publicationPending ? 'publication_pending' : recovery?.requiresRecovery ? 'recovery_required' : workflow.status,

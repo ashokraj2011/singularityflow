@@ -157,7 +157,7 @@ export function owedDecisionLines(owed) {
 }
 
 /**
- * Commits approval would refuse for (`blockingCommits`, src/review-intervening-commits.mjs) as
+ * Commits approval would refuse for (`blockingCommits`, src/approval-check.mjs) as
  * the warning lines an approver is shown beside the owed decisions, each action with its routes.
  * Kept here, where both printers already look, so neither loads the history reader to print.
  */
@@ -170,5 +170,25 @@ export function blockingCommitLines(advisory) {
       const guidance = safeCommandGuidance({ command: action.command });
       return [`  ${action.label}`, ...(guidance ? commandRouteLines(guidance, '    ') : [`    ${action.command}`])];
     })
+  ];
+}
+
+/**
+ * Whether approval would pass (`approvalCheck`, src/approval-check.mjs) as the lines an approver is
+ * shown: the statement, then each hold with who clears it and its route. The commits after the
+ * submission are left to blockingCommitLines, which names each one.
+ */
+export function approvalCheckLines(check) {
+  if (!check?.holds) return [];
+  const holds = check.holds.filter((hold) => hold.code !== 'STORY_REVIEW_INTERVENING_COMMIT');
+  return [
+    `${check.statement}${check.ready ? '' : ' (Advisory; the approval gate decides.)'}`,
+    // Holds that share a way through show it once, under the last of them.
+    ...holds.flatMap((hold, index) => {
+      const shared = hold.action && holds[index + 1]?.action?.command === hold.action.command;
+      const guidance = hold.action && !shared ? safeCommandGuidance({ command: hold.action.command }) : null;
+      return [`  ${hold.who}: ${hold.summary}`, ...(guidance ? commandRouteLines(guidance, '    ') : [])];
+    }),
+    ...(check.warnings ?? []).map((line) => `  Warning: ${line}`)
   ];
 }

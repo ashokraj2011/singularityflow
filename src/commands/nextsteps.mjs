@@ -216,6 +216,10 @@ export async function resolveStorySnapshot(root, { workflow, definition, executi
   // Decisions approval would refuse for: the list replaces that approval (parity with the engine).
   const pendingDecisions = active ? await measureCommandSpan('nextsteps.pending-decisions', async () =>
     (await import('../decision-list-facts.mjs')).pendingDecisionSummary(root, definition, workflow, active)).catch(() => undefined) : undefined;
+  // What else approval would be refused for: the gate's own preview (SPEC-OAP M1), only while it waits.
+  const approvalCheck = active?.status === 'awaiting_approval' && !pendingDecisions?.count
+    ? await measureCommandSpan('nextsteps.approval-check', async () =>
+      (await (await import('../approval-check.mjs')).approvalAdvisories(root, definition, workflow, active))?.approvalCheck ?? null).catch(() => null) : null;
   // Receipts are read from this checkout, so only the Story checked out here can be held by one.
   let stepActionHold = null;
   if (storyRequiresStepActions(workflow) && workflow.workItem?.branch === branch(root)) {
@@ -254,6 +258,7 @@ export async function resolveStorySnapshot(root, { workflow, definition, executi
       }))),
       recovery,
       pendingDecisions,
+      approvalCheck,
       visualCoverageHold,
       // Landing routes depend on the host: the GitHub CLI cannot open another host's merge request.
       repositoryHost: classifyGitHost(remoteUrl(root, definition.git?.remote ?? 'origin')),

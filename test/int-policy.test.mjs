@@ -68,7 +68,7 @@ test('a missing or unusable policy degrades to deterministic reads, and does not
 test('a rule for an operation that does not exist is reported, not silently kept', () => {
   const policy = resolveGatewayPolicy([
     DEFAULT_GATEWAY_POLICY,
-    { layer: 'organization', confirmation: { 'documents.list': 'host-confirm' }, denied: ['build.read'] }
+    { layer: 'organization', confirmation: { 'documents.list': 'host-confirm' }, denied: ['release.promote'] }
   ]);
   assert.equal(problem(policy, 'POLICY_UNKNOWN_OPERATION').length, 2);
   assert.deepEqual([...policy.denied], []);

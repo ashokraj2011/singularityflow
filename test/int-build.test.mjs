@@ -89,3 +89,18 @@ test('build-claims-require-provenance', async (t) => {
   assert.deepEqual(seen[0].slice(0, 5), ['gh', 'run', 'list', '--repo', 'acme/checkout']);
   assert.ok(!seen.flat().some((word) => ['rerun', 'cancel', 'delete', 'approve', 'deploy'].includes(word)));
 });
+
+test('build.read is a reachable automatic read with an honest gap', async (t) => {
+  const { root, env, commits } = await repository(t);
+  const { buildRead } = await import('../src/gateway/planners/build-read.mjs');
+  const { gatewayOperation } = await import('../src/gateway/operations.mjs');
+  const { operationPermission, resolveGatewayPolicy } = await import('../src/gateway/policy.mjs');
+  assert.equal(gatewayOperation('build.read').classification, 'read');
+  assert.equal(operationPermission(resolveGatewayPolicy(), 'build.read').confirmation, 'none');
+  const unconfigured = await buildRead({ root, env, context: { repositoryId: 'checkout' } });
+  assert.deepEqual([unconfigured.data.gap, unconfigured.warnings[0].slots.field], ['build-provider-not-configured', 'build-provider-not-configured']);
+  await writeFile(buildProviderFile(env), JSON.stringify({ repositories: { checkout: { kind: 'github-actions', remote: 'https://git.example.test/acme/checkout.git' } } }));
+  const read = await buildRead({ root, env, context: { repositoryId: 'checkout' }, runs: async () => [run8398(commits[2]), run8398(commits[0], 'success', 8391)] });
+  assert.deepEqual(read.data.builds.map((build) => build.relation), ['built-from', 'does-not-contain']);
+  assert.ok(Object.values(read.effects).every((value) => value === false));
+});

@@ -36,7 +36,7 @@ export const GATEWAY_PLANNERS = Object.freeze([
   'workspace-bootstrap-status', 'workspace-prepare-guide', 'repository-open-guide',
   'workspace-doctor-guide', 'workspace-explore-guide',
   'impact-quick', 'impact-quick-assisted', 'impact-what-if', 'impact-what-if-assisted',
-  'problem-investigate', 'problem-investigate-assisted', 'investigation-bisect', 'repository-explore', 'repository-query', 'intent-trace',
+  'problem-investigate', 'problem-investigate-assisted', 'investigation-bisect', 'build-read', 'repository-explore', 'repository-query', 'intent-trace',
   'compare', 'watch-list', 'watch-create', 'watch-revoke', 'review-packet', 'review-open', 'help-explain'
 ].map((name) => Object.freeze({ name, run: null })));
 
@@ -599,6 +599,19 @@ export const GATEWAY_DECLARATIONS = Object.freeze([
     argumentSchema: 'investigation-bisect-v1',
     planner: 'investigation-bisect',
     noModelFixture: 'investigation-bisect-model-free'
+  },
+
+  // §13 build.read: recent builds from the configured read-only provider `[INT:IFC-041]`.
+  {
+    ...READ,
+    id: 'build.read',
+    modelPolicy: 'never',
+    goals: ['problem.investigate', 'impact.quick'],
+    aliases: en('show recent builds', 'which build has this commit'),
+    subjects: ['repository'],
+    argumentSchema: 'build-read-v1',
+    planner: 'build-read',
+    noModelFixture: 'build-read-model-free'
   },
 
   // §9 Exploration reads the repository the workspace already knows about.

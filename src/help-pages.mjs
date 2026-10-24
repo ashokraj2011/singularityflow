@@ -1370,6 +1370,33 @@ const PAGES = Object.freeze({
     ],
     seeAlso: ['approve', 'upstream-issue', 'decision']
   },
+  gateway: {
+    summary: 'The five-tool gateway as a local MCP server, with its tool schemas and event log.',
+    description: [
+      'gateway serve --transport stdio runs an MCP server over stdin and stdout with exactly five tools: sflow_resolve,',
+      'sflow_read, sflow_next, sflow_run and sflow_explain. The kernel decides what is legal; a plan runs only after the',
+      'person confirms it in the MCP client\'s own UI (elicitation), and a client that cannot ask gets plans to read and',
+      'the explicit command instead. The MCP configuration holds no credentials. gateway tools prints the schemas and',
+      'their measured size; gateway events lists recent gateway calls on this machine without what anyone typed.'
+    ],
+    options: [
+      ['--transport stdio', 'serve: the only transport.'],
+      ['--workspace WORKSPACE', 'serve: the workspace to serve; the active one by default.'],
+      ['--host HOST', 'events: only this host (mcp, vscode).'],
+      ['--operation ID', 'events: only this operation.'],
+      ['--outcome STATUS', 'events: only succeeded, refused, failed or noop.'],
+      ['--reason CODE', 'events: only refusals with this reason.'],
+      ['--model-routing yes|no', 'events: only calls a model did, or did not, select.'],
+      ['--subject ID', 'events: only this subject.'],
+      ['--correlation ID', 'events: one call.']
+    ],
+    examples: [
+      ['singularity-flow gateway serve --transport stdio', 'Serve the gateway to an MCP host.'],
+      ['singularity-flow gateway tools --json', 'Print the five schemas and their measured size.'],
+      ['singularity-flow gateway events --host mcp --outcome refused', 'List refused MCP calls.']
+    ],
+    seeAlso: ['home', 'explain']
+  },
   call: {
     summary: 'Add your own agent folder (a main agent and the skills it uses) and run it as a Story\'s one step.',
     description: [

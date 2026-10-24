@@ -50,6 +50,9 @@ import { workDraftSavePlan, workStartPlan } from '../../../src/gateway/planners/
 import { workspaceSwitchPlan } from '../../../src/gateway/planners/workspace-switch.mjs';
 import { reviewOpen } from '../../../src/gateway/planners/review-open.mjs';
 import { gatewayMutationExecutors } from '../../../src/gateway/planners/executors.mjs';
+import { comparePlanner } from '../../../src/gateway/planners/compare.mjs';
+import { repositoryQuery } from '../../../src/gateway/planners/repository-query.mjs';
+import { auditedKernel } from '../../../src/gateway/audit.mjs';
 import {
   repositoryOpenGuide, workspaceBootstrapStatus, workspaceDoctorGuide, workspaceExploreGuide,
   workspacePrepareGuide
@@ -89,6 +92,9 @@ export function editorPlanners(): Map<string, unknown> {
     ['repository-explore', repositoryExplore],
     ['review-packet', reviewPacket],
     ['review-open', reviewOpen],
+    // The typed reads MCP has, so the two hosts answer the same corpus the same way `[INT:AC-016]`.
+    ['compare', comparePlanner],
+    ['repository-query', repositoryQuery],
     // Mutation planners: each returns the exact plan a person confirms in native UI `[INT:IFC-060]`.
     ['watch-list', watchList],
     ['watch-create', watchCreatePlan],
@@ -255,7 +261,8 @@ export function gatewaySession(context: GatewayRepositoryContext): GatewaySessio
   });
   session = {
     root: host.root,
-    kernel: host.kernel,
+    // Every call is recorded for the Logs view, without what anyone typed `[INT:IFC-070]`.
+    kernel: auditedKernel(host.kernel, { host: 'vscode', modelSelected: false }),
     /** `host.mjs` is untyped JavaScript; the shape asserted here is `hostBinding`'s return. */
     binding: host.binding as GatewaySession['binding'],
     executor: createActionExecutor({ gateway: host })

@@ -437,6 +437,8 @@ export function commandClass(args: string[]): 'read' | 'mutation' | 'unknown' {
   // The decision list and a preview of choices read; only `decisions record` writes.
   if (args[0] === 'decisions') return args[1] === 'record' ? 'mutation' : 'read';
   // A user-defined agent folder is proposed only by a confirmed `call add`.
+  // The gateway's stdio server hosts confirmed mutations; its schema and event listings only read.
+  if (args[0] === 'gateway') return args[1] === 'serve' ? 'mutation' : 'read';
   if (args[0] === 'call') return args[1] === 'add' && args.includes('--confirm') ? 'mutation' : 'read';
   // Environment files: the list, a file's location and the suggestions read; every other files
   // action creates, links, moves or records a file on this computer. [ENVF]

@@ -88,6 +88,8 @@ const entries = {
   memory: ['sf-sgos'],
   'meta-tool': ['sf-sgos'],
   home: ['sf-home'],
+  // A host reaches the gateway through its five tools; the conversational start is still Home.
+  gateway: ['sf-home'],
   recommend: ['sf-recommend'],
   logs: ['sf-logs'],
   doctor: ['sf-doctor'],

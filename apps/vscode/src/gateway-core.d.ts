@@ -54,6 +54,7 @@ interface GatewayKernel {
     context?: { subject?: unknown }): Promise<SflowResult> | SflowResult;
   read(request: { resolutionId: string }): Promise<SflowResult>;
   next(request?: { scope?: string; subject?: unknown }): SflowResult;
+  explain?(request: { question?: string; topic?: string }): Promise<SflowResult>;
   /** Host-only: the exact preview, effects and hash a confirmation is about. */
   planReview(planId: string): PlanReview;
   /** Host-only: exchange a confirmation collected in native UI for a one-time receipt. */
@@ -163,6 +164,11 @@ declare module '*/gateway/planners/watches.mjs' {
 declare module '*/gateway/planners/work-start.mjs' { export const workStartPlan: unknown; export const workDraftSavePlan: unknown; }
 declare module '*/gateway/planners/workspace-switch.mjs' { export const workspaceSwitchPlan: unknown; }
 declare module '*/gateway/planners/review-open.mjs' { export const reviewOpen: unknown; }
+declare module '*/gateway/planners/compare.mjs' { export const comparePlanner: unknown; }
+declare module '*/gateway/planners/repository-query.mjs' { export const repositoryQuery: unknown; }
+declare module '*/gateway/audit.mjs' {
+  export function auditedKernel<T>(kernel: T, options: { host: string; modelSelected?: boolean }): T;
+}
 declare module '*/gateway/planners/executors.mjs' {
   export function gatewayMutationExecutors(options?: {
     runStart?: ((argv: string[], options: { cwd: string | null }) => Promise<{ status: number | null; json: unknown }>) | null;

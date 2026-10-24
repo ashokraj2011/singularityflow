@@ -378,6 +378,7 @@ export const ARGUMENT_SCHEMAS = Object.freeze([
     ] }),
     interpretation: optional('text', { maxLength: 8000 })
   }),
+  schema('build-read-v1', { branch: optional('ref'), limit: optional('integer', { min: 1, max: 100 }) }),
   schema('investigation-bisect-v1', {
     good: required('ref'),
     bad: optional('ref'),

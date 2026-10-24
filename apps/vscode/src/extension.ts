@@ -624,6 +624,41 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     }
   }
 
+  /**
+   * The five gateway tools, registered for Copilot in this window. `[INT:IFC-060]` `[INT:IFC-010]`
+   *
+   * Each forwards to the same in-process kernel the result cards use, so a tool answer and a card
+   * are one answer. `sflow_run` takes only a plan ID: the confirmation is the native dialog above,
+   * and its receipt never enters the tool result `[INT:CON-039]`.
+   */
+  const lm = (vscode as unknown as { lm?: { registerTool?: (name: string, tool: unknown) => vscode.Disposable } }).lm;
+  // The installed @types/vscode predates the tool result classes; the host has them at runtime.
+  const parts = vscode as unknown as {
+    LanguageModelToolResult: new (content: unknown[]) => unknown; LanguageModelTextPart: new (text: string) => unknown;
+  };
+  if (typeof lm?.registerTool === 'function' && typeof parts.LanguageModelToolResult === 'function') {
+    const toolRoute = (): GatewayRepositoryContext => activeRepositoryContext()
+      ?? { root: null, workspaceId: null, workspaceName: null, repositoryId: null, origin: 'machine-local' };
+    const answer = async (name: string, input: Record<string, any>) => {
+      const route = toolRoute();
+      const { kernel } = gatewaySession(route);
+      if (name === 'sflow_resolve') return kernel.resolve(input as never);
+      if (name === 'sflow_read') return kernel.read({ resolutionId: String(input.resolutionId ?? '') });
+      if (name === 'sflow_next') return kernel.next({ scope: input.scope, subject: input.subject ?? null });
+      if (name === 'sflow_explain') return kernel.explain?.({ question: input.question, topic: input.topic });
+      let review;
+      try { review = kernel.planReview(String(input.planId ?? '')); } catch { return kernel.run({ planId: String(input.planId ?? '') }); }
+      return (await confirmPlanOutOfBand(route, review)) ?? kernel.run({ planId: String(input.planId ?? '') });
+    };
+    for (const name of ['sflow_resolve', 'sflow_read', 'sflow_next', 'sflow_run', 'sflow_explain']) {
+      context.subscriptions.push(lm.registerTool(name, {
+        invoke: async (options: { input?: Record<string, any> }) => new parts.LanguageModelToolResult([
+          new parts.LanguageModelTextPart(JSON.stringify(await answer(name, options.input ?? {})))
+        ])
+      }));
+    }
+  }
+
   onAutoResultAction(async ({ command, repositoryRoot }) => {
     const activeRoot = activeRepositoryContext()?.root;
     if (!activeRoot || path.resolve(activeRoot) !== path.resolve(repositoryRoot)) return;

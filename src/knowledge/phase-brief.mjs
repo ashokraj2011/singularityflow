@@ -153,7 +153,7 @@ function applyPhrasing(sections, sentences) {
     const replaced = new Map();
     for (const sentence of sentences.filter((entry) => entry.section === id)) {
       const indexes = sentence.cites.map((cite) => at.get(cite));
-      if (!indexes.length || indexes.some((index) => index == null || replaced.has(index))) continue;
+      if (!indexes.length || indexes.some((index) => index == null || replaced.has(index) || entries[index].fixed)) continue;
       const covered = indexes.map((index) => entries[index]);
       const status = covered[0].status;
       const text = status ? `${sentence.text.replace(/[.\s]+$/u, '')}. ${status}` : sentence.text;
@@ -189,12 +189,13 @@ export function renderPhaseBrief({
   // `facts` is what a model phrasing this line may draw on; `status` is a rule's, which stays the brief's own words.
   // A line that cites nothing is not shown, unless it begins with the file it is about.
   const cites = (source) => [source].flat().some((entry) => entry?.path || entry?.commit);
-  const push = (section, text, source, { id = null, facts = null, status = null, pathLeads = false } = {}) => {
+  // `fixed` marks a person's words (a confirmed meaning): shown as written, never offered to a model.
+  const push = (section, text, source, { id = null, facts = null, status = null, pathLeads = false, fixed = false } = {}) => {
     const value = clip(text);
     const key = value.toLowerCase();
     if (!value || shown.has(key) || !(pathLeads || cites(source))) return;
     shown.add(key);
-    sections.get(section)?.push({ section, text: value, source, id: id ?? templateId(section, value), facts: facts ?? value, status });
+    sections.get(section)?.push({ section, text: value, source, id: id ?? templateId(section, value), facts: facts ?? value, status, fixed });
   };
   // Rule records (docs, code and tests linked, each with its status) replace the template's rules and questions.
   if (rules) {
@@ -204,7 +205,8 @@ export function renderPhaseBrief({
       // A person's confirmed meaning replaces the code's wording while its lines are the ones confirmed.
       const confirmed = record.meaning?.current ? `${meaningText(record.meaning)}. Meaning confirmed by a person.` : null;
       push('rules', `${confirmed ?? `${record.text.replace(/[.\s]+$/u, '')}.`} ${status}`, [...record.sources.code, ...record.sources.docs], {
-        id: record.id, status, facts: [confirmed ? record.text : null, ...said, record.conflict ? `conflict: ${record.conflict}` : null].filter(Boolean).join(' | ') || null
+        id: record.id, status, facts: [confirmed ? record.text : null, ...said, record.conflict ? `conflict: ${record.conflict}` : null].filter(Boolean).join(' | ') || null,
+        fixed: Boolean(confirmed)
       });
     }
   }
@@ -230,12 +232,14 @@ export function renderPhaseBrief({
       push(id, statement.text, source ? { path: source.path, line: source.line ?? null, heading } : id === 'overview' && commit ? { commit } : null);
     }
   }
-  const phrased = phrasing?.sentences?.length ? applyPhrasing(sections, phrasing.sentences) : 0;
+  const applied = phrasing?.sentences?.length ? applyPhrasing(sections, phrasing.sentences) : 0;
   const order = profile.reader === 'product' ? profile.order : profile.order.filter((id) => id !== 'questions');
   const label = sourceLabeler([...sections.values()].flat().map((entry) => entry.source));
-  const header = `# Repository brief: ${repository}${commit ? ` at ${String(commit).slice(0, 12)}` : ''} (for ${profile.id}${focusWords.size ? ', focused on this Story' : ''}${phrased ? '; phrased by a model' : ''})`;
+  // Header and closing lines name how many phrased lines the brief shows, which is known only after
+  // the budget is applied: room is set aside for the longest form, and the final one is no longer.
+  const header = (phrased) => `# Repository brief: ${repository}${commit ? ` at ${String(commit).slice(0, 12)}` : ''} (for ${profile.id}${focusWords.size ? ', focused on this Story' : ''}${phrased ? '; phrased by a model' : ''})`;
   const unknown = collapseNotKnown(relevantNotKnown(notKnown, order));
-  const footer = [
+  const footer = (phrased) => [
     ...(unknown.length ? [`Not known: ${unknown.join('; ')}.`] : []),
     phrased
       ? `Read from the committed source; ${phrased} ${phrased === 1 ? 'line was' : 'lines were'} phrased by ${phrasing.model ?? 'a model'}, each checked against the records it cites. Open the cited lines before relying on a detail.`
@@ -244,7 +248,7 @@ export function renderPhaseBrief({
   const body = [];
   const pointer = (count) => `- … ${count} more: singularity-flow wm brief${phase ? ` --phase ${phase}` : ''}`;
   // The whole brief fits the budget: header, closing lines and the "more" pointer are set aside first.
-  let remaining = profile.budget - Buffer.byteLength(`${header}\n\n${footer.join('\n')}\n${pointer(99)}\n\n`);
+  let remaining = profile.budget - Buffer.byteLength(`${header(applied)}\n\n${footer(applied).join('\n')}\n${pointer(99)}\n\n`);
   let omitted = 0;
   const kept = [];
   // Sections share what is left: the first may take more than an even share, so one long list
@@ -275,10 +279,11 @@ export function renderPhaseBrief({
   filled.forEach((id, index) => addSection(SECTION_TITLES[id], sections.get(id), filled.length - index, index === 0));
   if (omitted) body.push(pointer(omitted), '');
   const lines = kept.filter((entry) => entry.id);
+  const phrased = lines.filter((entry) => entry.phrased).length;
   return {
-    text: [header, '', ...body, ...footer].join('\n').trimEnd(), omitted, included: kept.length, phrased,
+    text: [header(phrased), '', ...body, ...footer(phrased)].join('\n').trimEnd(), omitted, included: kept.length, phrased,
     records: lines.flatMap((entry) => entry.ids ?? [entry.id]),
-    // Explanations are model-written already, and a phrased line is phrased; neither is offered again.
-    selection: lines.filter((entry) => !entry.phrased).map(({ id, section, text, facts, status, label: cited }) => ({ id, section, text, facts, status, label: cited }))
+    // Explanations are model-written already, a phrased line is phrased, and a person's words stay theirs; none is offered.
+    selection: lines.filter((entry) => !entry.phrased && !entry.fixed).map(({ id, section, text, facts, status, label: cited }) => ({ id, section, text, facts, status, label: cited }))
   };
 }

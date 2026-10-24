@@ -147,15 +147,37 @@ export async function writeProposals(root, proposals) {
   await rename(temporary, file);
 }
 
-export async function readRuleMeanings(root) {
+/** A confirmed meaning as `wm rules confirm` writes it: text where text belongs, anchors as {path, sha256}. */
+function validMeaning(entry) {
+  const text = (value) => typeof value === 'string' && value.trim().length > 0;
+  const optional = (value) => value == null || typeof value === 'string';
+  return Boolean(entry) && typeof entry === 'object' && text(entry.rule) && text(entry.condition) && text(entry.outcome)
+    && ['intent', 'about', 'proposedBy', 'model', 'by', 'on'].every((name) => optional(entry[name]))
+    && (entry.typedByPerson == null || (Array.isArray(entry.typedByPerson) && entry.typedByPerson.every((name) => typeof name === 'string')))
+    && Array.isArray(entry.anchors) && entry.anchors.every((anchor) => anchor && typeof anchor.path === 'string' && typeof anchor.sha256 === 'string');
+}
+
+/** The file's entries as written, valid or not; an unreadable file refuses. */
+async function readMeaningEntries(root) {
   const text = await readFile(path.join(root, ...RULE_MEANINGS_PATH.split('/')), 'utf8').catch(() => null);
   if (text == null) return [];
   let parsed;
   try { parsed = YAML.parse(text); } catch (error) {
     throw new SingularityFlowError(`${RULE_MEANINGS_PATH} is not valid YAML: ${error.message}`, { code: 'KNOWLEDGE_RULE_MEANINGS_INVALID' });
   }
-  return (Array.isArray(parsed?.rules) ? parsed.rules : [])
-    .filter((entry) => entry && typeof entry.rule === 'string' && typeof entry.condition === 'string' && typeof entry.outcome === 'string');
+  return Array.isArray(parsed?.rules) ? parsed.rules : [];
+}
+
+/**
+ * The confirmed meanings. An entry of the wrong shape (a hand edit) is ignored and, when `warnings`
+ * is given, named there; it never reaches a brief.
+ */
+export async function readRuleMeanings(root, { warnings = null } = {}) {
+  const entries = await readMeaningEntries(root);
+  const valid = entries.filter(validMeaning);
+  const ignored = entries.length - valid.length;
+  if (ignored) warnings?.push(`${RULE_MEANINGS_PATH}: ${ignored} ${ignored === 1 ? 'entry is' : 'entries are'} not a confirmed meaning and ${ignored === 1 ? 'was' : 'were'} ignored; fix or remove ${ignored === 1 ? 'it' : 'them'}.`);
+  return valid;
 }
 
 /**
@@ -178,8 +200,11 @@ export function applyRuleMeanings(records, meanings = [], proposals = {}) {
   });
 }
 
-/** Record a person's confirmation in the working tree. Returns the entry and the file to commit. */
-export async function confirmRuleMeaning(root, record, meaning, { proposedBy = 'person', model = null, now = new Date() } = {}) {
+/**
+ * Record a person's confirmation in the working tree. `proposedBy` and `model` say who drafted the
+ * words the person did not type; `typedByPerson` names the fields they typed when they kept the rest.
+ */
+export async function confirmRuleMeaning(root, record, meaning, { proposedBy = 'person', model = null, typedByPerson = [], now = new Date() } = {}) {
   if (!(record.anchors ?? []).length) {
     throw new SingularityFlowError(`Rule ${record.id} cites no line, so a meaning could not be bound to one.`, { code: 'KNOWLEDGE_RULE_UNANCHORED' });
   }
@@ -193,13 +218,15 @@ export async function confirmRuleMeaning(root, record, meaning, { proposedBy = '
     anchors: record.anchors.map((anchor) => ({ path: anchor.path, line: anchor.line, sha256: anchor.sha256 })),
     proposedBy,
     ...(model ? { model } : {}),
+    ...(typedByPerson.length ? { typedByPerson } : {}),
     by: identity?.email ?? identity?.name ?? null,
     on: now.toISOString().slice(0, 10)
   };
-  const rules = (await readRuleMeanings(root)).filter((existing) => existing.rule !== record.id);
+  // Every other entry is kept as written, a hand-edited one too: this writes one rule's meaning only.
+  const rules = (await readMeaningEntries(root)).filter((existing) => existing?.rule !== record.id);
   rules.push(entry);
   rules.sort((a, b) => String(a.anchors?.[0]?.path ?? '').localeCompare(String(b.anchors?.[0]?.path ?? ''), 'en')
-    || (a.anchors?.[0]?.line ?? 0) - (b.anchors?.[0]?.line ?? 0) || a.rule.localeCompare(b.rule, 'en'));
+    || (a.anchors?.[0]?.line ?? 0) - (b.anchors?.[0]?.line ?? 0) || String(a.rule).localeCompare(String(b.rule), 'en'));
   const file = path.join(root, ...RULE_MEANINGS_PATH.split('/'));
   await mkdir(path.dirname(file), { recursive: true });
   await writeFile(file, `# What business rules mean, confirmed by a person (singularity-flow wm rules confirm).\n# Each meaning is bound to the lines it was confirmed against. Commit this file with the code it describes.\n${YAML.stringify({ rules })}`);

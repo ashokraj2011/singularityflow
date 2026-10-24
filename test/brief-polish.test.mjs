@@ -157,3 +157,45 @@ test('composing reuses a phrasing saved for exactly these records while model us
   assert.equal(failing.text, fixed.text, 'a failing model leaves the fixed wording');
   assert.match(failing.warnings.join('\n'), /keeps its fixed wording: the model could not phrase it \(model unavailable\)/u);
 });
+
+test('a claim is checked where it is made, and a name at the start of a sentence must be in the records too', () => {
+  const brief = renderPhaseBrief({ repository: 'orders', profile: phaseBriefProfile('implementation'), ...records() });
+  const cancel = 'R-000000000003';
+  const reasons = (text, cites = [cancel]) => validatePolish({ sentences: [{ text, cites }] }, brief.selection).rejected.map((entry) => entry.reason);
+  // A "no" elsewhere in the sentence does not license a claim the record contradicts.
+  assert.deepEqual(reasons('An order with no placed status is refused; this is tested.'), ['says the opposite of what its records say']);
+  assert.deepEqual(reasons('Only placed orders can be cancelled, and no test reaches this refusal.'), [], 'a claim kept negative where it is made stands');
+  // A claim the records do not make at all is not a fact the sentence may add.
+  assert.deepEqual(reasons('POST /orders is documented.', ['C-000000000001']), ['states a test, docs or enforcement fact its records do not']);
+  // The first word of a sentence, and the first after a full stop or a colon, is checked like any other name.
+  assert.deepEqual(reasons('Stripe refunds the payment when an order is not placed.'), ['names what its records do not contain: Stripe']);
+  assert.deepEqual(reasons('Cancelling needs a placed order. Billing refunds it.'), ['names what its records do not contain: Billing']);
+  assert.deepEqual(reasons('Cancelling is refused with "Only placed orders can be cancelled" unless the status is `OrderStatus.PLACED`.'), [],
+    'an ordinary word the records use (cancelled) may start a sentence');
+});
+
+test('a person\'s confirmed meaning is never offered to the model, and a phrasing the budget cut does not count', () => {
+  const profile = phaseBriefProfile('implementation');
+  const confirmed = records();
+  confirmed.rules[0] = { ...confirmed.rules[0], meaning: { condition: 'an order has no lines', outcome: 'it is refused', intent: null, current: true } };
+  const brief = renderPhaseBrief({ repository: 'orders', profile, ...confirmed });
+  assert.match(brief.text, /^- When an order has no lines: it is refused\. Meaning confirmed by a person\. Documented, enforced, tested\./mu);
+  assert.ok(!brief.selection.some((entry) => entry.id === 'R-000000000001'), 'the person\'s words are not the model\'s to rephrase');
+  assert.ok(brief.records.includes('R-000000000001'), 'the receipt still names the record');
+  const rephrased = renderPhaseBrief({ repository: 'orders', profile, ...confirmed, phrasing: { model: 'recorded', sentences: [
+    { text: 'An order with no lines is refused.', cites: ['R-000000000001'], section: 'rules' }
+  ] } });
+  assert.equal(rephrased.text, brief.text, 'a saved phrasing of a confirmed line is not applied');
+  assert.equal(rephrased.phrased, 0);
+
+  // A phrased line too long for the budget is left out: the brief does not claim a model phrased it.
+  const tight = phaseBriefProfile('implementation', { maxBytes: 700 });
+  const long = 'Cancelling is refused with "Only placed orders can be cancelled" (HTTP 409) unless the order status is `OrderStatus.PLACED`, so an order that is paid, shipped or cancelled stays as it is.';
+  const cut = renderPhaseBrief({ repository: 'orders', profile: tight, ...records(), phrasing: { model: 'recorded', sentences: [
+    { text: long, cites: ['R-000000000003'], section: 'rules' }
+  ] } });
+  assert.doesNotMatch(cut.text, /Cancelling is refused/u, 'the phrased line did not fit');
+  assert.equal(cut.phrased, 0);
+  assert.doesNotMatch(cut.text, /phrased by/u);
+  assert.match(cut.text, /Read without a model from the committed source\./u);
+});

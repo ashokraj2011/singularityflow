@@ -12,7 +12,7 @@ import path from 'node:path';
 import test from 'node:test';
 import { fileURLToPath } from 'node:url';
 
-import { draftMeaning, meaningCurrent, meaningPrompt, RULE_MEANINGS_PATH, validateMeanings } from '../src/knowledge/rule-meaning.mjs';
+import { draftMeaning, meaningCurrent, meaningPrompt, RULE_MEANINGS_PATH, validateMeanings, writeProposals } from '../src/knowledge/rule-meaning.mjs';
 import { repositoryBriefPrompt } from '../src/knowledge/prompt.mjs';
 import { rulesCommand } from '../src/knowledge/rules-command.mjs';
 
@@ -102,7 +102,8 @@ test('a person confirms a rule\'s meaning, briefs use it while its lines are unc
     condition: 'an order has no lines', outcome: 'it is refused with "An order needs at least one line"', intent: 'every order has something to ship'
   }));
   assert.equal(confirmed.file, RULE_MEANINGS_PATH);
-  assert.deepEqual(confirmed.entry.anchors.map((anchor) => anchor.path).sort(), ['README.md', 'src/main/java/com/acme/orders/service/OrderService.java']);
+  assert.deepEqual(confirmed.entry.anchors.map((anchor) => anchor.path).sort(), ['README.md', 'src/main/java/com/acme/orders/service/OrderService.java',
+    'src/main/java/com/acme/orders/web/GlobalExceptionHandler.java'], 'the refusal, its HTTP status mapping and the docs statement');
   assert.equal(confirmed.entry.by, 'rules@example.invalid');
   assert.equal(confirmed.entry.proposedBy, 'person');
   assert.match(await readFile(path.join(repository, RULE_MEANINGS_PATH), 'utf8'), /Commit this file with the code it describes/u);
@@ -169,4 +170,68 @@ test('with a model, wm rules propose keeps the drafts grounded in their rule and
   const listed = JSON.parse(off.stdout).rules.find((entry) => entry.id === byModel[0].rule);
   assert.equal(listed.proposal.by, 'model', 'the model draft stays as a proposal until a person confirms it');
   assert.equal(listed.meaning, undefined);
+});
+
+test('a meaning that names an HTTP status goes out of date when the handler maps the exception to another one', async () => {
+  const { buildRuleRecords } = await import('../src/knowledge/records/rules.mjs');
+  const knowledge = (status) => ({ items: [
+    { id: 'K-1', kind: 'rule', subject: { symbol: 'OrderService.place', path: 'src/OrderService.java' }, citations: [{ path: 'src/OrderService.java', lines: [23, 23], spanSha256: 'sha256:a' }],
+      statement: { kind: 'refusal', when: ['order.getLines().isEmpty()'], then: { kind: 'refuses', text: 'An order needs at least one line' }, values: { constants: [] } }, relations: [] },
+    { id: 'K-e1', kind: 'error-path', subject: { symbol: 'OrderService.place', path: 'src/OrderService.java' }, citations: [{ path: 'src/OrderService.java', lines: [24, 24], spanSha256: 'sha256:b' }],
+      statement: { exception: 'IllegalArgumentException', message: 'An order needs at least one line', status, handler: 'src/web/GlobalExceptionHandler.java' } }
+  ] });
+  const [before] = buildRuleRecords(knowledge('BAD_REQUEST'), null);
+  assert.match(before.text, /\(HTTP 400\)$/u);
+  assert.deepEqual(draftMeaning(before).outcome, 'refuses "An order needs at least one line" (HTTP 400)');
+  const [after] = buildRuleRecords(knowledge('UNPROCESSABLE_ENTITY'), null);
+  assert.equal(after.id, before.id, 'the same rule');
+  assert.equal(meaningCurrent(after, before.anchors), false, 'the status it was confirmed with changed');
+  assert.equal(meaningCurrent(buildRuleRecords(knowledge('BAD_REQUEST'), null)[0], before.anchors), true);
+});
+
+test('a meaning whose rule is gone is listed as out of date, a line added above keeps a docs rule, and a bad entry is ignored with a warning', async (t) => {
+  const repository = await ordersRepository(t);
+  const listed = await quietly(() => rulesCommand(repository, ['list'], {}));
+  const docsRule = listed.rules.find((entry) => entry.origin === 'docs' && /Discount codes/u.test(entry.text));
+  await quietly(() => rulesCommand(repository, ['confirm', docsRule.id], { condition: 'a discount code is entered', outcome: 'it must be ten characters long' }));
+  // A line added above the statement moves it, and the rule keeps its ID and its meaning.
+  const readme = path.join(repository, 'README.md');
+  await writeFile(readme, (await readFile(readme, 'utf8')).replace('## Business rules\n', '## Business rules\n\nRules for every order.\n'));
+  git(repository, 'commit', '-qam', 'Introduce the rules');
+  const moved = (await quietly(() => rulesCommand(repository, ['list'], { json: true }))).rules.find((entry) => entry.id === docsRule.id);
+  assert.equal(moved?.meaning?.current, true, 'moving a statement down a line keeps its confirmed meaning');
+  // The statement is reworded: no rule has that ID any more, and the meaning is listed as out of date.
+  await writeFile(readme, (await readFile(readme, 'utf8')).replace('Discount codes must be ten characters long.', 'Discount codes must be twelve characters long.'));
+  git(repository, 'commit', '-qam', 'Longer codes');
+  const lines = [];
+  const log = console.log;
+  console.log = (...args) => lines.push(args.join(' '));
+  let after;
+  try { after = await rulesCommand(repository, ['list'], {}); } finally { console.log = log; }
+  assert.deepEqual(after.orphaned.map((entry) => entry.rule), [docsRule.id]);
+  assert.match(lines.join('\n'), new RegExp(`${docsRule.id}.*no rule has this ID any more.*docs/knowledge/rule-meanings\\.yml`, 'su'));
+
+  // A hand-edited entry of the wrong shape, for a rule whose lines are unchanged, is ignored with a
+  // warning; it never breaks a brief.
+  const file = path.join(repository, RULE_MEANINGS_PATH);
+  const coded = after.rules.find((entry) => entry.origin === 'code' && /An order needs at least one line/u.test(entry.text));
+  const anchors = coded.anchors.map((anchor) => `      - path: ${anchor.path}\n        sha256: "${anchor.sha256}"\n`).join('');
+  await writeFile(file, `${await readFile(file, 'utf8')}  - rule: ${coded.id}\n    condition: an order has no lines\n    outcome: it is refused\n    intent: 42\n    anchors:\n${anchors}`);
+  const brief = await repositoryBriefPrompt(repository, { definition: null, phase: 'intake', workflow: { workItem: { title: 'Discount codes' } }, polish: 'off' });
+  assert.match(brief.warnings.join('\n'), /rule-meanings\.yml: 1 entry is not a confirmed meaning and was ignored/u);
+  const kept = await quietly(() => rulesCommand(repository, ['list'], { json: true }));
+  assert.equal(kept.orphaned.length, 1, 'the ignored entry is not listed as a meaning');
+});
+
+test('a person who types only some fields is recorded for those, and the draft\'s model for the rest', async (t) => {
+  const repository = await ordersRepository(t);
+  const listed = await quietly(() => rulesCommand(repository, ['list'], {}));
+  const rule = listed.rules.find((entry) => /An order needs at least one line/u.test(entry.text) && entry.origin === 'code');
+  await writeProposals(repository, { [rule.id]: { condition: 'an order has no lines', outcome: 'it is refused with "An order needs at least one line"', intent: null,
+    by: 'model', model: 'recorded-model', anchors: rule.anchors, createdAt: '2026-10-24T00:00:00.000Z' } });
+  const partly = await quietly(() => rulesCommand(repository, ['confirm', rule.id], { intent: 'every order has something to ship' }));
+  assert.deepEqual([partly.entry.proposedBy, partly.entry.model, partly.entry.typedByPerson], ['model', 'recorded-model', ['intent']]);
+  assert.equal(partly.entry.condition, 'an order has no lines');
+  const wholly = await quietly(() => rulesCommand(repository, ['confirm', rule.id], { condition: 'no lines', outcome: 'refused', intent: 'something to ship' }));
+  assert.deepEqual([wholly.entry.proposedBy, wholly.entry.model ?? null, wholly.entry.typedByPerson ?? null], ['person', null, null]);
 });

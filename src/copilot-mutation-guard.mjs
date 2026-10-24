@@ -10,7 +10,7 @@ import { copilotModeFile, readCopilotMode } from './copilot-mode.mjs';
 // or a staging refusal is written, never on the per-call path.
 const stagingPaths = () => import('./phase-staging-paths.mjs');
 import { parseArgs } from './util.mjs';
-import { resolveOperation } from './command-registry.mjs';
+import { canonicalCommand, resolveOperation } from './command-registry.mjs';
 import { currentSchemaVersion, readRecord } from './schema-migrations.mjs';
 import { CLI_PATH_REFERENCE, safeCommandGuidance, validateSflowExecutionCommand } from './safe-command-guidance.mjs';
 
@@ -44,7 +44,7 @@ function unissuedDraftOption(call, scope, mode, field, pick) {
   if ((scope[field] ?? []).length) return null;
   const safe = verifiedShellForm(call, scope);
   if (!safe) return null;
-  const { positionals, options } = parseArgs(safe.argv);
+  const { positionals, options } = parseCli(safe.argv);
   const file = pick(positionals, options);
   if (typeof file !== 'string' || !path.isAbsolute(file) || (scope[field] ?? []).includes(path.resolve(file))) return null;
   return shellAllowed(call, mode, { ...scope, [field]: [...(scope[field] ?? []), path.resolve(file)] }) ? file : null;
@@ -438,6 +438,17 @@ function scopedShellCommand(call, value) {
   return command;
 }
 
+/**
+ * A verified argv as the guard reads it: the command under its canonical name, so an alias the CLI
+ * accepts (`world-model` for `wm`, `config` for `configuration`) meets every check below the same way.
+ * A removed or unknown command keeps its spelling; the CLI refuses it.
+ */
+function parseCli(argv) {
+  const parsed = parseArgs(argv);
+  try { parsed.positionals[0] = canonicalCommand(parsed.positionals[0]); } catch { /* removed or unknown: read as written */ }
+  return parsed;
+}
+
 function verifiedShellForm(call, value) {
   const command = scopedShellCommand(call, value);
   if (typeof command !== 'string') return null;
@@ -478,7 +489,7 @@ function plannedActionArgv(positionals, options, value) {
 }
 
 function argvAllowed(argv, mode, value) {
-  const { positionals, options } = parseArgs(argv);
+  const { positionals, options } = parseCli(argv);
   // A lifecycle hook records host decisions (a turn's own boundary among them): the host runs it, never a turn.
   if (['hook', 'exec'].includes(positionals[0])) return false;
   // `run --repair-on-fault` runs the command it wraps unchecked; the guided `run` is `next` and `submit`.
@@ -619,7 +630,7 @@ function decisionListChatRecord(positionals, options, workId) {
 function workflowDeleteConfirmation(call, value) {
   const safe = verifiedShellForm(call, value);
   if (!safe) return false;
-  const { positionals, options } = parseArgs(safe.argv);
+  const { positionals, options } = parseCli(safe.argv);
   return positionals[0] === 'workflow' && positionals[1] === 'delete' && options.confirm !== undefined;
 }
 const WORKFLOW_DELETE_CONFIRMATION_DENIAL = 'PHASE_MUTATION_OPERATION_NOT_ALLOWED: confirming a workflow delete is the person\'s own step. '
@@ -629,7 +640,7 @@ const WORKFLOW_DELETE_CONFIRMATION_DENIAL = 'PHASE_MUTATION_OPERATION_NOT_ALLOWE
 function decisionListRecord(call, value) {
   const safe = verifiedShellForm(call, value);
   if (!safe) return false;
-  const { positionals } = parseArgs(safe.argv);
+  const { positionals } = parseCli(safe.argv);
   return positionals[0] === 'decisions' && positionals[1] === 'record';
 }
 
@@ -637,7 +648,7 @@ function decisionListRecord(call, value) {
 function upstreamIssueDecision(call, value) {
   const safe = verifiedShellForm(call, value);
   if (!safe) return false;
-  const { positionals } = parseArgs(safe.argv);
+  const { positionals } = parseCli(safe.argv);
   return positionals[0] === 'upstream-issue' && UPSTREAM_ISSUE_DECISIONS.includes(positionals[1]);
 }
 
@@ -645,7 +656,7 @@ function upstreamIssueDecision(call, value) {
 function environmentBinding(call, value) {
   const safe = verifiedShellForm(call, value);
   if (!safe) return false;
-  const { positionals } = parseArgs(safe.argv);
+  const { positionals } = parseCli(safe.argv);
   return positionals[0] === 'env' && ['bind', 'unbind'].includes(positionals[1]);
 }
 const ENVIRONMENT_BINDING_DENIAL = 'PHASE_MUTATION_OPERATION_NOT_ALLOWED: environment values are bound and removed only by the person: they pipe their own secret helper into `singularity-flow env bind <ENV> --stdin`, or run `singularity-flow env unbind <ENV> --json`, in their own terminal. Give them that command; never ask for, type or pipe a value';
@@ -654,13 +665,13 @@ const ENVIRONMENT_BINDING_DENIAL = 'PHASE_MUTATION_OPERATION_NOT_ALLOWED: enviro
 function plannedActionExecution(call, value) {
   const safe = verifiedShellForm(call, value);
   if (!safe) return false;
-  const { positionals } = parseArgs(safe.argv);
+  const { positionals } = parseCli(safe.argv);
   return positionals[0] === 'action' && positionals[1] === 'execute';
 }
 /** A verified `hook`: a host integration point no turn runs. */
 function hookInvocation(call, value) {
   const safe = verifiedShellForm(call, value);
-  return Boolean(safe) && parseArgs(safe.argv).positionals[0] === 'hook';
+  return Boolean(safe) && parseCli(safe.argv).positionals[0] === 'hook';
 }
 const HOOK_DENIAL = 'PHASE_MUTATION_OPERATION_NOT_ALLOWED: a lifecycle hook records the host\'s own decisions (a turn\'s boundary among them), so only the host runs it, or the person in their own terminal with the exact payload. Give them the command; do not retry it';
 const PLANNED_ACTION_DENIAL = 'PHASE_MUTATION_OPERATION_NOT_ALLOWED: action execute runs its planned command in this process, and this turn may not run that command itself (an approval or rejection, a person\'s own decision, or a plan this checkout does not hold). Show the user the planned command and its own route; do not retry it';
@@ -669,7 +680,7 @@ const PLANNED_ACTION_DENIAL = 'PHASE_MUTATION_OPERATION_NOT_ALLOWED: action exec
 function setAsideDecision(call, value) {
   const safe = verifiedShellForm(call, value);
   if (!safe) return false;
-  const { positionals, options } = parseArgs(safe.argv);
+  const { positionals, options } = parseCli(safe.argv);
   return positionals[0] === 'recover' && options['set-aside'] === true;
 }
 
@@ -682,7 +693,7 @@ function setAsideDecision(call, value) {
 function testRunRiskDecision(call, value) {
   const safe = verifiedShellForm(call, value);
   if (!safe) return false;
-  const { positionals, options } = parseArgs(safe.argv);
+  const { positionals, options } = parseCli(safe.argv);
   return (positionals[0] === 'decision' && ['test-risk', 'evidence-reuse', 'visual-profile'].includes(positionals[1]))
     || storyTestCommandDecision(positionals, options)
     || (positionals[0] === 'spec' && positionals[1] === 'drift' && positionals[2] === 'decide');
@@ -700,7 +711,7 @@ function knowledgeConfirmation(positionals) {
 }
 function knowledgeConfirmationCall(call, value) {
   const safe = verifiedShellForm(call, value);
-  return Boolean(safe) && knowledgeConfirmation(parseArgs(safe.argv).positionals);
+  return Boolean(safe) && knowledgeConfirmation(parseCli(safe.argv).positionals);
 }
 const KNOWLEDGE_CONFIRMATION_DENIAL = 'PHASE_MUTATION_OPERATION_NOT_ALLOWED: what a business rule means, and whether a repository '
   + 'knowledge item is right, is confirmed by a person who knows the code, in their own terminal (singularity-flow wm rules confirm '
@@ -714,7 +725,7 @@ function targetOriginPin(positionals, options) {
 function targetOriginPinCall(call, value) {
   const safe = verifiedShellForm(call, value);
   if (!safe) return false;
-  const { positionals, options } = parseArgs(safe.argv);
+  const { positionals, options } = parseCli(safe.argv);
   return targetOriginPin(positionals, options);
 }
 const TARGET_ORIGIN_PIN_DENIAL = 'PHASE_MUTATION_OPERATION_NOT_ALLOWED: a Story\'s authorized browser target origin is a security boundary; '
@@ -785,7 +796,7 @@ function bootstrapAllowed(call, record) {
     && shellAllowed(call, 'kernel-only', record)) return true;
   const families = mode === 'kernel-only' ? NO_STORY_COMMANDS[name] : null;
   const safe = families ? verifiedShellForm(call, record) : null;
-  return Boolean(safe) && families.includes(parseArgs(safe.argv).positionals[0]) && shellAllowed(call, 'kernel-only', record);
+  return Boolean(safe) && families.includes(parseCli(safe.argv).positionals[0]) && shellAllowed(call, 'kernel-only', record);
 }
 
 async function currentContract(payload, record) {

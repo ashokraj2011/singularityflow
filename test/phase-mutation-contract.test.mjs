@@ -665,7 +665,9 @@ test('no agent turn confirms what a business rule means or reviews a knowledge i
     }
     for (const command of ['singularity-flow wm rules confirm R-0123456789ab --json',
       'singularity-flow wm rules confirm R-0123456789ab --condition "an order has no lines" --outcome "it is refused"',
-      'singularity-flow wm knowledge confirm K-rule-0123456789abcdef', 'singularity-flow wm knowledge reject K-rule-0123456789abcdef --note "Not a rule."']) {
+      'singularity-flow wm knowledge confirm K-rule-0123456789abcdef', 'singularity-flow wm knowledge reject K-rule-0123456789abcdef --note "Not a rule."',
+      // The registry's alias for wm reaches the same command; the guard reads it under its canonical name.
+      'singularity-flow world-model rules confirm R-0123456789ab --json', 'singularity-flow world-model knowledge confirm K-rule-0123456789abcdef']) {
       const denied = await shell(command);
       assert.equal(denied.permissionDecision, 'deny', `${skill}: ${command}`);
       assert.match(denied.permissionDecisionReason, /confirmed by a person who knows the code, in their own terminal/u, `${skill}: ${command}`);

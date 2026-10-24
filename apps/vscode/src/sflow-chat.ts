@@ -9,7 +9,7 @@ import { recordHelpMetric } from './support-runtime-client.ts';
 import { PACKAGE_ROOT } from '../../../src/package-root.mjs';
 import { planDeveloperConversation } from '../../../src/gateway/conversation.mjs';
 import { activeRepositoryContext, gatewaySession, type GatewayRepositoryContext } from './gateway-runtime-client.ts';
-import { commandGuidance, setChatModelsAvailable } from './copilot-command.ts';
+import { commandGuidance, copilotRouteText, setChatModelsAvailable } from './copilot-command.ts';
 import { commandClass, resolveCli, SingularityFlowClient } from './cli/client.ts';
 import { CliError } from './cli/runner.ts';
 import {
@@ -924,7 +924,7 @@ function renderedCommand(value: unknown): Pick<ParticipantRendered, 'shell' | 's
   return guidance
     ? {
         shell: bounded(guidance.command, 1200), shellCopyable: guidance.copyable,
-        copilot: bounded(guidance.copilotCommand, 200)
+        copilot: guidance.copilotCommand ? bounded(guidance.copilotCommand, 200) : null
       }
     : { shell: null, shellCopyable: false, copilot: null };
 }
@@ -932,9 +932,9 @@ function renderedCommand(value: unknown): Pick<ParticipantRendered, 'shell' | 's
 /** Copilot, Shell, then the model-free VS Code route: the order every returned action reads in. */
 function routeMarkdown(value: unknown): string {
   const commands = renderedCommand(value);
-  if (!commands.shell || !commands.copilot) return '';
+  if (!commands.shell) return '';
   const modelFree = commandGuidance(value)?.modelFreeCommand;
-  return `\n**Copilot:** ${inlineCode(commands.copilot)}\n\n**Shell:** ${inlineCode(commands.shell)}\n`
+  return `\n**Copilot:** ${commands.copilot ? inlineCode(commands.copilot) : copilotRouteText(null)}\n\n**Shell:** ${inlineCode(commands.shell)}\n`
     + `\n**VS Code (model-free):** ${modelFree ? inlineCode(modelFree) : 'not available for this action'}\n`;
 }
 
@@ -1127,7 +1127,7 @@ function renderParticipantRefusal(error: unknown): ParticipantRendered {
   for (const step of steps.slice(0, 3)) {
     markdown += `- ${markdownValue(step.label ?? step.id ?? 'Review the blocker.', 800)}\n`;
     const commands = renderedCommand(step);
-    if (commands.copilot) markdown += `  - Copilot: ${inlineCode(commands.copilot)}\n`;
+    if (commands.shell) markdown += `  - Copilot: ${commands.copilot ? inlineCode(commands.copilot) : copilotRouteText(null)}\n`;
     if (commands.shell) {
       const modelFree = commandGuidance(step)?.modelFreeCommand;
       markdown += `  - Shell: ${inlineCode(commands.shell)}\n`

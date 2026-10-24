@@ -137,7 +137,11 @@ test('the bundled CLI answers exactly like the sources while opening a handful o
   // closure (main 1ecccc54: 7,379,841): cold-catalogs +3,148, cold-narrow-reads +442 and cold-hook-context +29, from
   // the closure materialization and its re-derived check in configuration-branch.mjs and the shared pinned
   // initialization status in config.mjs. story-configuration-closure.mjs stays out of these reads.
-  assert.ok(closure('cold-hook-context.mjs').reduce((sum, item) => sum + item.bytes, 0) < 7_385_000,
+  // 7,390,000 (next 5,000 boundary): 7,388,165 after an amendment's read, decision and acknowledgement name no
+  // Copilot skill (main 20279010 was already over at 7,386,336): cold-core +1,149 (the crosswalk's no-skill routes
+  // in command-skills, copilot-guidance and safe-command-guidance), cold-hooks +642 (the guard's amendment-decision
+  // denial) and cold-narrow-reads +38.
+  assert.ok(closure('cold-hook-context.mjs').reduce((sum, item) => sum + item.bytes, 0) < 7_390_000,
     'phase-review reads retain their existing byte ceiling after moving families');
   assert.match(await readFile(path.join(outdir, 'cold-light.mjs'), 'utf8'), /function enterPhase\b/u,
     'phase binding must not fall through to the compatibility/admin bundle');

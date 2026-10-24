@@ -333,7 +333,7 @@ class SgosWorkflowCreatePanel {
       );
       await vscode.env.clipboard.writeText(command);
       await showCompactInformationMessage('Copied the read-only ratification-packet command for review.');
-    } else if (action === 'Copy Copilot preview' && guidance?.copyable) {
+    } else if (action === 'Copy Copilot preview' && guidance?.copyable && guidance.copilotCommand) {
       await vscode.env.clipboard.writeText(guidance.copilotCommand);
       await showCompactInformationMessage('Copied the Copilot ratification-packet preview command.');
     } else if (action === 'Open Command Center') {

@@ -94,9 +94,10 @@ class SharedWorkflowDraftsPanel {
             if (issue) throw new Error(issue);
           }
           const guidance = commandGuidance({ executable: 'singularity-flow', argv });
-          if (!guidance?.copyable) throw new Error('No safe paired Shell/Copilot handoff is available for this draft.');
-          await vscode.env.clipboard.writeText(surface === 'shell'
-            ? terminalCommand(repository, guidance.argv) : guidance.copilotCommand);
+          const copied = !guidance?.copyable ? null
+            : surface === 'shell' ? terminalCommand(repository, guidance.argv) : guidance.copilotCommand;
+          if (!copied) throw new Error('No safe paired Shell/Copilot handoff is available for this draft.');
+          await vscode.env.clipboard.writeText(copied);
         }
       }, undefined, recovery);
     const handle = (raw: unknown) => this.controller.receive(raw);

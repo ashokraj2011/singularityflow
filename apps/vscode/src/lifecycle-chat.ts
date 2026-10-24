@@ -1,7 +1,7 @@
 /** Model-free lifecycle UI: one exact engine plan, one human-confirmed action, no routing loop. */
 import * as vscode from 'vscode';
 import { approveWithReceipt } from './actions.ts';
-import { commandGuidance } from './copilot-command.ts';
+import { commandGuidance, copilotRouteText } from './copilot-command.ts';
 import type { SingularityFlowClient } from './cli/client.ts';
 import type { DecisionInputSpec, SubmissionReadiness } from './cli/snapshot.ts';
 import { decisionInputPrompt } from './decisions.ts';
@@ -140,14 +140,14 @@ export async function runLifecycleChat(
       }
       for (const name of ['next', 'recheck', 'recover']) {
         const guidance = commandGuidance(plan.publicationReadiness.commands?.[name]);
-        if (guidance) stream.markdown(`- Repair/check — Copilot: ${inline(guidance.copilotCommand)} · Shell: ${inline(guidance.command)} · Model-free: ${inline(guidance.modelFreeCommand ?? 'not available for this action')}\n`);
+        if (guidance) stream.markdown(`- Repair/check — Copilot: ${inline(copilotRouteText(guidance.copilotCommand))} · Shell: ${inline(guidance.command)} · Model-free: ${inline(guidance.modelFreeCommand ?? 'not available for this action')}\n`);
       }
       return;
     }
     const next = await active.client.run<{ actions?: unknown[] }>(['nextsteps', active.workId, '--json'], signal);
     for (const item of (next.actions ?? []).slice(0, 3)) {
       const guidance = commandGuidance(item);
-      if (guidance) stream.markdown(`- Copilot: ${inline(guidance.copilotCommand)} · Shell: ${inline(guidance.command)} · Model-free: ${inline(guidance.modelFreeCommand ?? 'not available for this action')}\n`);
+      if (guidance) stream.markdown(`- Copilot: ${inline(copilotRouteText(guidance.copilotCommand))} · Shell: ${inline(guidance.command)} · Model-free: ${inline(guidance.modelFreeCommand ?? 'not available for this action')}\n`);
     }
     return;
   }
@@ -210,7 +210,7 @@ export async function runLifecycleChat(
     const next = await active.client.run<{ actions?: unknown[] }>(['nextsteps', active.workId, '--json'], signal);
     for (const item of (next.actions ?? []).slice(0, 3)) {
       const guidance = commandGuidance(item);
-      if (guidance) stream.markdown(`- Next — Copilot: ${inline(guidance.copilotCommand)} · Shell: ${inline(guidance.command)} · Model-free: ${inline(guidance.modelFreeCommand ?? 'not available for this action')}\n`);
+      if (guidance) stream.markdown(`- Next — Copilot: ${inline(copilotRouteText(guidance.copilotCommand))} · Shell: ${inline(guidance.command)} · Model-free: ${inline(guidance.modelFreeCommand ?? 'not available for this action')}\n`);
     }
   } catch { stream.markdown('The command completed, but next-action refresh is unavailable. Run `@sflow /next`; do not repeat the mutation.\n'); }
 }

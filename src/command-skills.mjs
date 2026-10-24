@@ -351,7 +351,11 @@ export const COMMAND_LINE_SKILL_ROUTES = Object.freeze({
     interval: 'sf-work-interval',
     return: 'sf-return',
     rework: 'sf-reject',
-    'intent-amendment': 'sf-reject',
+    // /sf-reject drafts and proposes an amendment. Its bare form returns a phase and its turn may not
+    // decide or acknowledge one, so the amendment's read, decision and acknowledgement name no skill.
+    'intent-amendment': null,
+    'intent-amendment draft': 'sf-reject',
+    'intent-amendment propose': 'sf-reject',
     'skill-version': 'sf-story-skill-version',
     'target-origin': 'sf-mcp',
     adjudicate: 'sf-converge',
@@ -396,7 +400,7 @@ function commandLineHead(commandLine) {
   }
 }
 
-function exactRouteSkill(routeEntry, commandArguments) {
+function exactRoute(routeEntry, commandArguments) {
   if (!routeEntry) return null;
   const candidates = Object.entries(routeEntry.subcommands)
     .map(([commandPrefix, skill]) => ({
@@ -408,7 +412,7 @@ function exactRouteSkill(routeEntry, commandArguments) {
       || left.commandPrefix.localeCompare(right.commandPrefix));
   return candidates.find(({ tokens }) => tokens.every(
     (token, index) => commandArguments[index] === token
-  ))?.skill ?? routeEntry.defaultSkill;
+  )) ?? null;
 }
 
 /** Resolve one complete CLI invocation to the packaged skill that owns the same command family. */
@@ -416,7 +420,18 @@ export function skillForCommandLine(commandLine) {
   const parsed = commandLineHead(commandLine);
   if (!parsed) return null;
   const exact = COMMAND_LINE_SKILL_ROUTES[parsed.command];
-  return exactRouteSkill(exact, parsed.arguments) ?? primarySkillForCommand(parsed.command);
+  const match = exactRoute(exact, parsed.arguments);
+  if (match?.skill === null) return null;
+  return match?.skill ?? exact?.defaultSkill ?? primarySkillForCommand(parsed.command);
+}
+
+/**
+ * True when an exact route names no skill (`null` above): a registered command that no packaged
+ * skill carries out, so every surface says it has no verified Copilot equivalent.
+ */
+export function commandLineWithoutSkill(commandLine) {
+  const parsed = commandLineHead(commandLine);
+  return Boolean(parsed) && exactRoute(COMMAND_LINE_SKILL_ROUTES[parsed.command], parsed.arguments)?.skill === null;
 }
 
 export function skillsForCommand(name) {

@@ -38,7 +38,9 @@ test('every eligible seeded downstream step routes pending acknowledgement befor
           const readiness = submissionReadinessSnapshot(workflow);
           assert.equal(readiness.lifecycleReady, false, `${id}/${phaseId}/${status}`);
           assert.equal(readiness.nextCommand, hold.actions[0].command);
-          assert.equal(readiness.nextSkill, '/sf-reject');
+          // No skill acknowledges an amendment (/sf-reject's turn may not), so the hold names none.
+          assert.equal(readiness.nextSkill, null);
+          assert.deepEqual([hold.actions[0].skill, hold.actions[0].copilotCommand], [null, null]);
           assert.equal(workflowGuide(workflow).nextActions[0].command, hold.actions[0].command);
           assert.throws(() => assertIntentAmendmentAcknowledged(workflow), { code: hold.code });
           assert.throws(() => assertPhaseGovernanceMayAdvance(workflow, phase), { code: hold.code });

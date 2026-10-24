@@ -1,5 +1,5 @@
 /** Shared, fail-closed presentation for an engine-supplied SFlow continuation. */
-import { chatModelsMissing, commandGuidance, modelFreeRouteHtml, modelFreeRouteText, type CommandGuidance } from '../copilot-command.ts';
+import { chatModelsMissing, commandGuidance, copilotRouteText, modelFreeRouteHtml, modelFreeRouteText, type CommandGuidance } from '../copilot-command.ts';
 import { escape } from './webview.ts';
 
 export function safeCommandPair(value: unknown): CommandGuidance | null {
@@ -17,10 +17,11 @@ export function commandGuidanceHtml(value: unknown, options: {
   const shellCopy = options.shellCopy ?? guidance.command;
   const shellButton = guidance.copyable
     ? `<button type="button" class="secondary" data-copy-command="${escape(shellCopy)}">Copy Shell</button>` : '';
-  const copilotButton = guidance.copyable
+  const copilotButton = guidance.copyable && guidance.copilotCommand
     ? `<button type="button" class="secondary" data-copy-command="${escape(guidance.copilotCommand)}">Copy Copilot</button>` : '';
   return `<div class="command-guidance">
-    <p><strong>${escape(options.copilotLabel ?? 'Copilot')}:</strong> <code>${escape(guidance.copilotCommand)}</code>
+    <p><strong>${escape(options.copilotLabel ?? 'Copilot')}:</strong> ${guidance.copilotCommand
+    ? `<code>${escape(guidance.copilotCommand)}</code>` : escape(copilotRouteText(null))}
       ${copilotButton}</p>
     <p><strong>${escape(options.shellLabel ?? 'Shell')}:</strong> <code>${escape(guidance.command)}</code>
       ${shellButton}</p>
@@ -34,7 +35,7 @@ export function commandGuidanceHtml(value: unknown, options: {
 export function commandGuidanceText(value: unknown): string | null {
   const guidance = safeCommandPair(value);
   return guidance
-    ? `Copilot: ${guidance.copilotCommand}\nShell: ${guidance.command}\nVS Code (model-free): ${modelFreeRouteText(guidance.modelFreeCommand)}`
+    ? `Copilot: ${copilotRouteText(guidance.copilotCommand)}\nShell: ${guidance.command}\nVS Code (model-free): ${modelFreeRouteText(guidance.modelFreeCommand)}`
     : null;
 }
 

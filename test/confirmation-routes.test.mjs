@@ -48,6 +48,11 @@ test('every reviewed-digest confirmation route carries its digest, through the e
     if (!command.includes(digest) || /[<>|]/u.test(command)) continue;
     const guidance = safeCommandGuidance({ command });
     if (!guidance) continue;
+    // Only a command no skill carries out has no route at all, so it drops no digest: an amendment's decision.
+    if (guidance.copilotCommand === null) {
+      assert.match(command, /^singularity-flow story intent-amendment decide /u, `${file}: ${command} has no Copilot route`);
+      continue;
+    }
     checked.push(command);
     assert.ok(guidance.copilotCommand.includes(digest), `${file}: ${command}\n  routes to ${guidance.copilotCommand}`);
   }

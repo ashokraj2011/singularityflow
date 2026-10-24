@@ -7,6 +7,7 @@ import { safeCommandGuidance } from '../src/safe-command-guidance.mjs';
 import { parseModelFreeTarget } from '../src/model-free-commands.mjs';
 import { decisionInputPrompt } from '../apps/vscode/src/decisions.ts';
 import { unsavedRepositoryPaths } from '../apps/vscode/src/generation-guards.ts';
+import { copilotRouteText } from '../apps/vscode/src/copilot-command.ts';
 
 const source = await readFile(new URL('../apps/vscode/src/lifecycle-chat.ts', import.meta.url), 'utf8');
 function action(argv, overrides = {}) {
@@ -52,7 +53,7 @@ function host({ kind = 'submit', cancel = false, moved = false, paused = false, 
       approvalRequests.push(request); confirmed = true;
       return !cancel && await canContinue();
     } };
-    if (name === './copilot-command.ts') return { commandGuidance: safeCommandGuidance };
+    if (name === './copilot-command.ts') return { commandGuidance: safeCommandGuidance, copilotRouteText };
     if (name === './decisions.ts') return { decisionInputPrompt };
     if (name === './generation-guards.ts') return { unsavedRepositoryPaths };
     if (name === '../../../src/model-free-commands.mjs') return { parseModelFreeTarget };

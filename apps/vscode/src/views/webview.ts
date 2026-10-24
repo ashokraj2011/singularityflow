@@ -6,6 +6,7 @@
  * matters — and there is no reason for two panels in the same extension to disagree about this.
  */
 import type * as vscode from 'vscode';
+import type { ApprovalHoldView } from './approvals-model.ts';
 import { THEME_STYLE } from './theme.ts';
 import { WORKFLOW_GRAPH_STYLES } from './workflow-graph-svg.ts';
 import { SGOS_GRAPH_STYLES } from './sgos-process-graph-svg.ts';
@@ -64,6 +65,20 @@ export function approvalBlockingCommitsHtml(advisory?: ApprovalBlockingCommits |
     ${advisory.lines.map((line) => `<p>${escape(line)}</p>`).join('')}
     ${advisory.actions.map((action) => `<p class="muted">${escape(action.label)}</p><pre><code>${escape(action.command)}</code></pre>`).join('')}
     <p class="muted">Advisory: you can still review this step; the approval gate checks again when you record approval.</p>
+  </section>`;
+}
+
+/** The holds someone other than the approver clears (`approvalHolds` in approvals-model.ts). */
+export function approvalHoldsHtml(holds: readonly ApprovalHoldView[], { except = [] as readonly string[] } = {}): string {
+  const shown = holds.filter((hold) => !except.includes(hold.code));
+  if (!shown.length) return '';
+  // Holds that share a way through show it once, under the last of them.
+  const routeHtml = (hold: ApprovalHoldView, index: number) => hold.action && shown[index + 1]?.action?.command !== hold.action.command
+    ? `<p class="muted">${escape(hold.action.label)}</p><pre><code>${escape(hold.action.command)}</code></pre>` : '';
+  return `<section class="approval-held" aria-label="Holds on this approval">
+    <h2>Approval would be refused</h2>
+    ${shown.map((hold, index) => `<p><strong>${escape(hold.who)}:</strong> ${escape(hold.summary)}</p>${routeHtml(hold, index)}`).join('')}
+    <p class="muted">Advisory: the approval gate checks again when approval is recorded.</p>
   </section>`;
 }
 

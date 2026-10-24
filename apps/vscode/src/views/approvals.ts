@@ -10,7 +10,7 @@
  */
 import * as vscode from 'vscode';
 import { buildApprovals, type Approvals, type PendingApproval } from './approvals-model.ts';
-import { contentSecurityPolicy, escape, navigationTarget, nonce, page, icon } from './webview.ts';
+import { approvalHoldsHtml, contentSecurityPolicy, escape, navigationTarget, nonce, page, icon } from './webview.ts';
 import { navigateTo } from './navigate.ts';
 import { registerMessageRouter, stringField, type InboundMessage } from './messages.ts';
 import type { WorkspaceStore } from '../state.ts';
@@ -62,9 +62,10 @@ function cardHtml(approval: PendingApproval): string {
     ${approval.reason ? `<p class="muted">${escape(approval.reason)}</p>` : ''}
     <div class="card-foot">
     ${approval.heldBy ? `<p class="muted">${escape(approval.heldBy.headline)}</p>` : ''}
+    ${!approval.heldBy && approval.approvalHolds?.length ? approvalHoldsHtml(approval.approvalHolds) : ''}
       ${approval.standing === 'yours'
     ? `${approval.heldBy ? `<button data-decide-list="${escape(approval.id)}">Decide what blocks this step</button>`
-      : `<button data-approve="${escape(approval.id)}">Approve…</button>`}
+      : approval.approvalHolds?.length ? '' : `<button data-approve="${escape(approval.id)}">Approve…</button>`}
          <button class="secondary" data-reject="${escape(approval.id)}">Request changes…</button>`
     : ''}
       ${approval.kind === 'output' || approval.artifactPath

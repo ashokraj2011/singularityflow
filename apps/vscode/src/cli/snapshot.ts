@@ -468,6 +468,8 @@ export interface SubmissionReadiness {
   decision?: PendingDecisionView;
   /** What the decision list holds, when `classification` is `decisions-required`. */
   decisions?: { count: number; headline: string; copilotCommand?: string };
+  /** Whether approving the step awaiting approval would pass, and who clears each hold (SPEC-OAP M1). */
+  approvalCheck?: unknown;
   reason?: string;
   /** Values the decision after this phase reads; a host asks for them before submitting. */
   decisionInputs?: DecisionInputSpec[];

@@ -438,6 +438,7 @@ export async function approveWithReceipt(
   let storyReview: StoryReviewBundle | null = null;
   let pendingDecisions: { count: number; headline: string } | null = null;
   let blockingCommits: unknown = null;
+  let approvalCheck: unknown = null;
   let testRun: { label: string; totals: string } | null = null;
   if (request.kind === 'story') {
     try {
@@ -450,7 +451,7 @@ export async function approveWithReceipt(
         ['decisions', request.workId, '--phase', request.phaseId, '--json']).catch(() => null);
       // Commits after the submission that approval would refuse for (an undecided intent amendment
       // among them), named on the page before the person reviews. Advisory, read the same way.
-      const readiness = client.run<{ blockingCommits?: unknown }>(
+      const readiness = client.run<{ blockingCommits?: unknown; approvalCheck?: unknown }>(
         ['status', request.workId, '--submission-readiness', '--json']).catch(() => null);
       // The step's test run, when there is one, so the page can open its summary beside the review.
       type Totals = { passed?: number; failed?: number; discovered?: number };
@@ -463,7 +464,9 @@ export async function approveWithReceipt(
       // Only the decisions approval refuses for hold the page (SPEC-OAP D5); the list may hold others.
       const holding = typeof listed?.holding === 'number' ? listed.holding : Array.isArray(listed?.items) ? listed.items.length : 0;
       pendingDecisions = holding && typeof listed?.headline === 'string' ? { count: holding, headline: listed.headline } : null;
-      blockingCommits = (await readiness)?.blockingCommits ?? null;
+      const read = await readiness;
+      blockingCommits = read?.blockingCommits ?? null;
+      approvalCheck = read?.approvalCheck ?? null;
       const answered = await tests;
       const summary = answered?.resultType === 'sflow-test-summary' ? answered : answered?.data;
       testRun = summary?.resultType === 'sflow-test-summary' && summary.run ? { label: summary.run.label ?? '',
@@ -505,6 +508,7 @@ export async function approveWithReceipt(
       evidenceConsistency: storyReview?.evidenceConsistency ?? null,
       pendingDecisions,
       blockingCommits,
+      approvalCheck,
       testRun,
       priorExceptions: (storyReview?.priorExceptions ?? []).map((entry) => ({
         article: entry.article,

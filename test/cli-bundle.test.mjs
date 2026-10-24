@@ -142,7 +142,10 @@ test('the bundled CLI answers exactly like the sources while opening a handful o
   // +773 and cold-hook-context +731. M1's one approval check (merge a1b1709c; 7,386,336 before it): cold-hook-context
   // +4,097 and cold-narrow-reads +1,389. The explain state answer adds nothing here: its modules stay in the lazily
   // loaded gateway.
-  assert.ok(closure('cold-hook-context.mjs').reduce((sum, item) => sum + item.bytes, 0) < 7_395_000,
+  // 7,400,000 (next 5,000 boundary): 7,398,878 after SPEC-OAP M2 (main bdd4049e: 7,394,862): cold-hook-context
+  // +3,433 and cold-core +583, from the REVIEW_EFFECTS registry in state.mjs and the approval stage that holds
+  // an undecided intent amendment.
+  assert.ok(closure('cold-hook-context.mjs').reduce((sum, item) => sum + item.bytes, 0) < 7_400_000,
     'phase-review reads retain their existing byte ceiling after moving families');
   assert.match(await readFile(path.join(outdir, 'cold-light.mjs'), 'utf8'), /function enterPhase\b/u,
     'phase binding must not fall through to the compatibility/admin bundle');

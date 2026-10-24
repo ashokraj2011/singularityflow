@@ -597,9 +597,11 @@ function clarificationAuthoritySteps(argv, error) {
 
 /**
  * An intent amendment proposed after the phase was submitted and still undecided. Its decision
- * comes first: approving it changes the clauses the submission cited, and rejecting it still leaves
- * the submission older than the proposal. A person who approves the scope decides it; an agent's
- * decision turn is refused it, so the route shows the command rather than doing it.
+ * comes first: approving it changes the clauses the submission cited. Rejecting it keeps the
+ * submission when the proposal holds the approval (APPROVAL_INTENT_AMENDMENT_PENDING, SPEC-OAP M2);
+ * when its commits record more than the amendment (STORY_REVIEW_INTERVENING_COMMIT), the phase
+ * still needs a fresh submission. A person who approves the scope decides it; an agent's decision
+ * turn is refused it, so the route shows the command rather than doing it.
  */
 function pendingAmendmentSteps(_argv, error) {
   const details = error?.details ?? {};
@@ -612,6 +614,7 @@ function pendingAmendmentSteps(_argv, error) {
     .filter((clause) => typeof clause === 'string' && /^[A-Za-z0-9._:-]{1,128}$/u.test(clause)).slice(0, 5);
   const commit = /^[0-9a-f]{7,64}$/u.test(amendment.commit ?? '') ? amendment.commit : null;
   const scope = lowerKebab(details.scopePhase) ?? 'the scope';
+  const keepsSubmission = error?.code === 'APPROVAL_INTENT_AMENDMENT_PENDING';
   return [
     step('inspect-intent-amendment',
       `See intent amendment ${amendment.id}, proposed${commit ? ` in ${commit}` : ''} after ${phase} was submitted`
@@ -620,7 +623,8 @@ function pendingAmendmentSteps(_argv, error) {
     personTerminalStep(step('decide-intent-amendment',
       `A person who approves ${scope} decides ${amendment.id} in their own terminal; an agent cannot. `
         + `Approving it changes ${clauses.length ? 'those clauses' : 'the approved clauses'}, so ${phase} reopens to be revised and submitted again. `
-        + `Rejecting it keeps the approved clauses, and ${phase} can then be approved as submitted, with no fresh submission. `
+        + (keepsSubmission ? `Rejecting it keeps the approved clauses, and ${phase} can then be approved as submitted, with no fresh submission. `
+          : `Rejecting it keeps the approved clauses, but these commits record more than its proposal and rejection, so ${phase} still needs a fresh submission. `)
         + `Returning ${phase} instead (a person, with /sf-reject in a new turn) does not decide ${amendment.id}.`,
       `singularity-flow story intent-amendment decide ${amendment.id} --decision <approve|reject> --confirm ${amendment.id} --work-id ${workId}`,
       'remediation'))
@@ -661,6 +665,8 @@ function localSyncSteps(argv, error) {
 const KNOWN = Object.freeze({
   // Commits after a submission: an undecided intent amendment among them is decided first.
   STORY_REVIEW_INTERVENING_COMMIT: pendingAmendmentSteps,
+  // An amendment proposed after the submission holds the approval until a person decides it [SPEC-OAP M2].
+  APPROVAL_INTENT_AMENDMENT_PENDING: pendingAmendmentSteps,
   APPROVAL_CHECKLIST_INCOMPLETE: approvalChecklistSteps,
   SESSION_STATE_REFRESH_UNAVAILABLE: (argv, error) => {
     const { options } = parseArgs(argv);
@@ -1270,7 +1276,8 @@ export function refusalRemediationPlan(error, argv = []) {
   const upstreamInputBlocked = UPSTREAM_INPUT_CODES.has(code);
   const gapSteps = code === 'CONFORMANCE_BLOCKING_VERDICTS' ? conformanceGapSteps(error) : [];
   // An intent amendment proposed after the submission waits for a person: decide it before the phase.
-  const amendmentPending = code === 'STORY_REVIEW_INTERVENING_COMMIT' && pendingAmendmentSteps(argv, error).length > 0;
+  const amendmentPending = ['STORY_REVIEW_INTERVENING_COMMIT', 'APPROVAL_INTENT_AMENDMENT_PENDING'].includes(code)
+    && pendingAmendmentSteps(argv, error).length > 0;
   const conformanceGapBlocked = gapSteps.length > 0;
   const rawPhaseContext = phaseRemediationContext(argv, error);
   const phaseContext = pinnedTestPolicyBlocked && rawPhaseContext
@@ -1367,6 +1374,8 @@ export function refusalRemediationPlan(error, argv = []) {
     ? 'Run the same command again only when this checkout decides as a listed member, or let another listed member decide. Nothing was recorded, and nothing needs rejecting.'
     : conformanceGapBlocked
     ? 'Never edit the verdict to clear this check. Approve again once a person has decided each gap on its upstream issue (an accepted risk with an expiry, or a dismissal); a return sends the work back instead. Accepting existing evidence never certifies a run that was not recorded.'
+    : amendmentPending && code === 'APPROVAL_INTENT_AMENDMENT_PENDING'
+    ? 'Do not retry approval in this turn. Approve once the amendment is decided: this submission as it is once the amendment is rejected, or a revised submission once it is approved.'
     : amendmentPending
     ? 'Do not retry approval in this turn. Approval needs a submission made after the amendment is decided: a revised one once it is approved, or a fresh one once it is rejected.'
     : riskReviewBlocked

@@ -1,12 +1,13 @@
 /**
  * The commits that stop a submitted phase's approval, named and routed by kind.
  *
- * Approval binds the exact history that was submitted: only prior approvals, applicability
- * decisions, a rejected intent amendment and an exact Auto checkpoint may follow the review
- * evidence. The refusal used to say only that history changed, so a person could not tell which
- * commit, or why. The common case is an intent amendment proposed while the phase waited for review:
- * the person's next step is deciding that amendment, not repairing the phase, and nothing in the
- * refusal said so. Rejecting it lets the phase be approved as submitted.
+ * Approval binds the exact history that was submitted: only the review-safe kinds (REVIEW_EFFECTS
+ * in state.mjs: prior approvals, recorded decisions, intent-amendment records and an exact Auto
+ * checkpoint) may follow the review evidence. The refusal used to say only that history changed, so
+ * a person could not tell which commit, or why. The common case was an intent amendment proposed
+ * while the phase waited for review: the person's next step is deciding that amendment, not
+ * repairing the phase. Since SPEC-OAP M2 the proposal holds the approval until a person decides it,
+ * and rejecting it lets the phase be approved as submitted.
  */
 import { commitIsAncestor, exactFileAtObject, governedCommitIdentity, head } from './git.mjs';
 import { LIFECYCLE_EVENT } from './lifecycle-event.mjs';
@@ -66,6 +67,42 @@ export function describeBlockingCommits(root, workflow, commits) {
   });
 }
 
+/** The Story state keys an intent-amendment record commit may change. */
+const AMENDMENT_KEYS = Object.freeze(['intentAmendments', 'history', 'publicationProjections']);
+const appendsOne = ({ before, after }, key) => Array.isArray(after[key]) && after[key].length === (before[key] ?? []).length + 1
+  && recordSha256(after[key].slice(0, (before[key] ?? []).length)) === recordSha256(before[key] ?? []);
+const amendmentFile = (config, workflow, id, suffix) => `${workDirRelative(config, workflow.workItem.id)}/context/intent-amendments/${id}${suffix}`;
+const recordAt = (root, object, recordPath) => JSON.parse(exactFileAtObject(root, object, recordPath)?.toString('utf8') ?? 'null');
+
+/** The commits that wrote an amendment's record, newest first, as [commit, subject]; null when Git could not say. */
+function amendmentRecordWriters(root, id, recordPath) {
+  try {
+    return storyHistoryCommits(root, ['log', '--first-parent', '--format=%H%x1f%s', head(root), '--', recordPath],
+      `Intent amendment ${id} record history`).map((line) => line.split('\u001f'));
+  } catch { return null; }
+}
+
+/** Whether a commit's event is this amendment's, of `type`, and is the event its commit names. */
+const amendmentEventMatches = ({ event, identity }, type, workflow, id, summary) => event?.type === type
+  && event.subject?.id === workflow.workItem.id
+  && event.payload?.proposalId === id
+  && event.payload?.proposalSha256 === summary.proposalSha256
+  && identity.eventSha256 === `sha256:${recordSha256(event)}`;
+
+/** The intent-amendment commits of one action among `commits`, as [commit, amendment ID]; empty when Git could not say. */
+function amendmentCommits(root, workflow, commits, action) {
+  let subjects;
+  try {
+    subjects = storyHistoryCommits(root, ['log', '--no-walk=unsorted', '--format=%H%x1f%s', ...commits],
+      'Subjects of the commits after the review evidence');
+  } catch { return []; }
+  return subjects.flatMap((line) => {
+    const [commit, subject = ''] = line.split('\u001f');
+    const match = AMENDMENT_SUBJECT.exec(subject);
+    return match?.[1] === workflow.workItem.id && match[2] === action ? [[commit, match[3]]] : [];
+  });
+}
+
 /**
  * The rejected intent amendments among the commits after a submission, each with the proposal and
  * rejection commits that may precede its approval [SPEC-OAP decision 1]. reviewHistoryCommits
@@ -79,81 +116,99 @@ export function describeBlockingCommits(root, workflow, commits) {
  */
 export async function rejectedIntentAmendments(root, config, workflow, commits, range) {
   if (!commits.length || !(workflow.intentAmendments ?? []).some((entry) => entry.status === 'rejected')) return [];
-  let subjects;
-  try {
-    subjects = storyHistoryCommits(root, ['log', '--no-walk=unsorted', '--format=%H%x1f%s', ...commits],
-      'Subjects of the commits after the review evidence');
-  } catch { return []; }
   const state = await import('./state.mjs');
-  return subjects.flatMap((line) => {
-    const [commit, subject = ''] = line.split('\u001f');
-    const match = AMENDMENT_SUBJECT.exec(subject);
-    const pair = match?.[1] === workflow.workItem.id && match[2] === 'reject' && match[3] !== 'latest'
-      ? rejectedIntentAmendmentPair(root, config, workflow, match[3], commit, range, state) : null;
+  return amendmentCommits(root, workflow, commits, 'reject').flatMap(([commit, id]) => {
+    const pair = id !== 'latest' ? rejectedIntentAmendmentPair(root, config, workflow, id, commit, range, state) : null;
     return pair ? [pair] : [];
   });
 }
 
 /**
- * Whether `rejectionCommit` and the proposal before it are exactly one rejected amendment, checked
- * as applicabilityDecisionCommit (state.mjs) checks a decision: an exact path allowlist, an exact
- * workflow.json key diff and each commit's event hash. Leaving `phases` and the specification's path
- * out of both lists keeps the scope step's generation and bytes as they were. Anything more fails
- * closed; a pending or approved amendment, or a proposal that changed other state, is never one.
+ * The undecided intent amendments proposed among the commits after a submission, each with its
+ * proposal commit [SPEC-OAP M2]. A proposal adds only its own amendment records, so it makes
+ * nothing stale: reviewHistoryCommits allows it, and evaluateApproval holds the approval until a
+ * person decides it (pendingAmendmentRefusal). Each is verified as the proposal half of a rejected
+ * pair is, and no later commit may have touched its record: a partial approval still stales the
+ * submission.
  */
-function rejectedIntentAmendmentPair(root, config, workflow, id, rejectionCommit, { evidenceCommit, interveningCommits },
-  { governedStateChange, stateChangesOnly }) {
+export async function pendingIntentAmendmentProposals(root, config, workflow, commits) {
+  if (!commits.length || !(workflow.intentAmendments ?? []).some((entry) => entry.status === 'proposed')) return [];
+  const state = await import('./state.mjs');
+  return amendmentCommits(root, workflow, commits, 'propose').flatMap(([proposalCommit, id]) => {
+    const summary = (workflow.intentAmendments ?? []).find((entry) => entry.id === id);
+    const recordPath = amendmentFile(config, workflow, id, '.json');
+    if (summary?.status !== 'proposed' || summary.recordPath !== recordPath) return [];
+    const writers = amendmentRecordWriters(root, id, recordPath);
+    if (writers?.length !== 1 || writers[0][0] !== proposalCommit) return [];
+    return verifiedProposal(root, config, workflow, id, proposalCommit, summary, state)
+      ? [{ id, status: 'proposed', proposalCommit }] : [];
+  }).reverse();
+}
+
+/**
+ * Whether `proposalCommit` is exactly the proposal of amendment `id`, checked as
+ * applicabilityDecisionCommit (state.mjs) checks a decision: an exact path allowlist (the
+ * amendment's own new files), an exact workflow.json key diff and the commit's event hash. Returns
+ * the proposed record, or null.
+ */
+function verifiedProposal(root, config, workflow, id, proposalCommit, summary, { governedStateChange, stateChangesOnly }) {
+  const recordPath = amendmentFile(config, workflow, id, '.json');
+  const proposal = governedStateChange(root, config, workflow, proposalCommit);
+  if (!proposal) return null;
+  const amendmentFiles = [amendmentFile(config, workflow, id, '-before.md'), amendmentFile(config, workflow, id, '-proposed.md'), recordPath];
+  let proposedRecord;
+  try {
+    if (proposal.changed.some((file) => !proposal.ownPaths.includes(file) && !amendmentFiles.includes(file))
+        || amendmentFiles.some((file) => !proposal.changed.includes(file) || exactFileAtObject(root, proposal.parent, file))) return null;
+    proposedRecord = recordAt(root, proposalCommit, recordPath);
+  } catch { return null; }
+  if (proposedRecord?.id !== id || proposedRecord.status !== 'proposed'
+      || proposedRecord.proposalSha256 !== summary.proposalSha256) return null;
+  if (!stateChangesOnly(proposal, AMENDMENT_KEYS) || !AMENDMENT_KEYS.every((key) => appendsOne(proposal, key))
+      || proposal.after.history.at(-1)?.event !== 'intent_amendment_proposed') return null;
+  const added = proposal.after.intentAmendments.at(-1);
+  if (added?.id !== id || added.status !== 'proposed' || added.proposalSha256 !== summary.proposalSha256
+      || added.recordPath !== recordPath) return null;
+  return amendmentEventMatches(proposal, LIFECYCLE_EVENT.INTENT_AMENDMENT_PROPOSED, workflow, id, summary) ? proposedRecord : null;
+}
+
+/**
+ * Whether `rejectionCommit` and the proposal before it are exactly one rejected amendment: the
+ * proposal verified on its own (verifiedProposal), the rejection by the same rules. Leaving
+ * `phases` and the specification's path out of both lists keeps the scope step's generation and
+ * bytes as they were. Anything more fails closed; a pending or approved amendment, or a proposal
+ * that changed other state, is never one.
+ */
+function rejectedIntentAmendmentPair(root, config, workflow, id, rejectionCommit, { evidenceCommit, interveningCommits }, state) {
   const workId = workflow.workItem.id;
   const summary = (workflow.intentAmendments ?? []).find((entry) => entry.id === id);
-  const amendmentFile = (suffix) => `${workDirRelative(config, workId)}/context/intent-amendments/${id}${suffix}`;
-  const recordPath = amendmentFile('.json');
+  const recordPath = amendmentFile(config, workflow, id, '.json');
   if (summary?.status !== 'rejected' || summary.recordPath !== recordPath) return null;
   // The proposal created the record and the rejection decided it; no other commit touched it, so the
   // record the rejection started from is the one proposed.
-  let touched;
-  try {
-    touched = storyHistoryCommits(root, ['log', '--first-parent', '--format=%H%x1f%s', head(root), '--', recordPath],
-      `Intent amendment ${id} record history`).map((line) => line.split('\u001f'));
-  } catch { return null; }
-  const [decided, proposed, ...more] = touched;
+  const [decided, proposed, ...more] = amendmentRecordWriters(root, id, recordPath) ?? [];
   if (more.length || decided?.[0] !== rejectionCommit
       || proposed?.[1] !== `[${workId}][intent-amendment:propose] ${id}`) return null;
   const proposalCommit = proposed[0];
   // After the submission, or before its evidence commit: the proposal may also precede it.
   if (!interveningCommits.includes(proposalCommit) && !commitIsAncestor(root, proposalCommit, evidenceCommit)) return null;
-  const proposal = governedStateChange(root, config, workflow, proposalCommit);
-  const rejection = governedStateChange(root, config, workflow, rejectionCommit);
-  if (!proposal || !rejection) return null;
-  const amendmentFiles = [amendmentFile('-before.md'), amendmentFile('-proposed.md'), recordPath];
-  const record = (object) => JSON.parse(exactFileAtObject(root, object, recordPath)?.toString('utf8') ?? 'null');
-  let proposedRecord;
+  const proposedRecord = verifiedProposal(root, config, workflow, id, proposalCommit, summary, state);
+  const rejection = state.governedStateChange(root, config, workflow, rejectionCommit);
+  if (!proposedRecord || !rejection) return null;
   let decidedRecord;
   try {
-    if (proposal.changed.some((file) => !proposal.ownPaths.includes(file) && !amendmentFiles.includes(file))
-        || amendmentFiles.some((file) => !proposal.changed.includes(file) || exactFileAtObject(root, proposal.parent, file))
-        || rejection.changed.some((file) => !rejection.ownPaths.includes(file) && file !== recordPath)
+    if (rejection.changed.some((file) => !rejection.ownPaths.includes(file) && file !== recordPath)
         || !rejection.changed.includes(recordPath)) return null;
-    proposedRecord = record(proposalCommit);
-    decidedRecord = record(rejectionCommit);
+    decidedRecord = recordAt(root, rejectionCommit, recordPath);
   } catch { return null; }
   // The record keeps its proposal and gains only the rejection.
-  if (proposedRecord?.id !== id || proposedRecord.status !== 'proposed'
-      || proposedRecord.proposalSha256 !== summary.proposalSha256
-      || decidedRecord?.status !== 'rejected' || decidedRecord.decision?.decision !== 'rejected'
+  if (decidedRecord?.status !== 'rejected' || decidedRecord.decision?.decision !== 'rejected'
       || recordSha256(decidedRecord.decisions) !== recordSha256([...(proposedRecord.decisions ?? []), decidedRecord.decision])
       || recordSha256({ ...decidedRecord, status: 'proposed', decidedAt: undefined, decision: undefined, decisions: undefined })
         !== recordSha256({ ...proposedRecord, decisions: undefined })) return null;
-  const AMENDMENT_KEYS = ['intentAmendments', 'history', 'publicationProjections'];
-  const appendsOne = ({ before, after }, key) => Array.isArray(after[key]) && after[key].length === (before[key] ?? []).length + 1
-    && recordSha256(after[key].slice(0, (before[key] ?? []).length)) === recordSha256(before[key] ?? []);
-  if (!stateChangesOnly(proposal, AMENDMENT_KEYS) || !stateChangesOnly(rejection, AMENDMENT_KEYS)
-      || !AMENDMENT_KEYS.every((key) => appendsOne(proposal, key))
+  if (!state.stateChangesOnly(rejection, AMENDMENT_KEYS)
       || !['history', 'publicationProjections'].every((key) => appendsOne(rejection, key))
-      || proposal.after.history.at(-1)?.event !== 'intent_amendment_proposed'
       || rejection.after.history.at(-1)?.event !== 'intent_amendment_rejected') return null;
-  const added = proposal.after.intentAmendments.at(-1);
-  if (added?.id !== id || added.status !== 'proposed' || added.proposalSha256 !== summary.proposalSha256
-      || added.recordPath !== recordPath) return null;
   // The rejection sets that entry's status, decision and decision time, and changes nothing else.
   const undecidedList = rejection.before.intentAmendments ?? [];
   const decidedList = rejection.after.intentAmendments;
@@ -162,15 +217,68 @@ function rejectedIntentAmendmentPair(root, config, workflow, id, rejectionCommit
       || recordSha256(decidedList.map((entry) => (entry === decidedEntry
         ? { ...entry, status: 'proposed', decidedAt: undefined, decision: undefined } : entry)))
         !== recordSha256(undecidedList)) return null;
-  const eventMatches = ({ event, identity }, type) => event?.type === type
-    && event.subject?.id === workId
-    && event.payload?.proposalId === id
-    && event.payload?.proposalSha256 === summary.proposalSha256
-    && identity.eventSha256 === `sha256:${recordSha256(event)}`;
-  if (!eventMatches(proposal, LIFECYCLE_EVENT.INTENT_AMENDMENT_PROPOSED)
-      || !eventMatches(rejection, LIFECYCLE_EVENT.INTENT_AMENDMENT_REJECTED)
+  if (!amendmentEventMatches(rejection, LIFECYCLE_EVENT.INTENT_AMENDMENT_REJECTED, workflow, id, summary)
       || rejection.event.payload.decision !== 'reject') return null;
   return { id, status: 'rejected', proposalCommit, rejectionCommit };
+}
+
+/**
+ * The acknowledgements of approved intent amendments among the commits after a submission
+ * [SPEC-OAP M2]. An acknowledgement adds amendment records only: who acknowledged it, on the
+ * amendment's summary and record, and the stamp on the steps the amendment reopened. Approving an
+ * amendment reopens the step awaiting approval, so an acknowledgement normally precedes the next
+ * submission; one that follows it changes nothing that submission's review saw.
+ */
+export async function intentAmendmentAcknowledgements(root, config, workflow, commits) {
+  if (!commits.length || !(workflow.intentAmendments ?? []).some((entry) => entry.acknowledgedAt)) return [];
+  const state = await import('./state.mjs');
+  return amendmentCommits(root, workflow, commits, 'acknowledge').flatMap(([commit]) => {
+    const acknowledged = verifiedAcknowledgement(root, config, workflow, commit, state);
+    return acknowledged ? [acknowledged] : [];
+  });
+}
+
+const WHO_ACKNOWLEDGED = Object.freeze({ acknowledgedAt: undefined, acknowledgedBy: undefined, acknowledgementRequired: undefined });
+
+function verifiedAcknowledgement(root, config, workflow, commit, { governedStateChange, stateChangesOnly }) {
+  const change = governedStateChange(root, config, workflow, commit);
+  const prior = change?.before.intentAmendments ?? [];
+  const next = change?.after.intentAmendments ?? [];
+  if (!change || !Array.isArray(prior) || !Array.isArray(next) || prior.length !== next.length) return null;
+  // The one summary it changes gains who acknowledged it, and nothing else.
+  const index = next.findIndex((entry, at) => recordSha256(entry) !== recordSha256(prior[at]));
+  const was = prior[index];
+  const now = next[index];
+  const id = now?.id;
+  const recordPath = amendmentFile(config, workflow, id, '.json');
+  if (index < 0 || !/^AMD-\d{3,}$/u.test(id ?? '') || was?.id !== id || was.status !== 'approved' || was.acknowledgedAt
+      || typeof now.acknowledgedAt !== 'string' || now.recordPath !== recordPath
+      || recordSha256({ ...now, ...WHO_ACKNOWLEDGED }) !== recordSha256({ ...was, ...WHO_ACKNOWLEDGED })
+      || recordSha256(next.filter((_, at) => at !== index)) !== recordSha256(prior.filter((_, at) => at !== index))) return null;
+  try {
+    if (!change.changed.includes(recordPath) || change.changed.some((file) => !change.ownPaths.includes(file) && file !== recordPath)
+        || recordSha256({ ...recordAt(root, commit, recordPath), ...WHO_ACKNOWLEDGED })
+          !== recordSha256({ ...recordAt(root, change.parent, recordPath), ...WHO_ACKNOWLEDGED })) return null;
+  } catch { return null; }
+  // The steps the amendment reopened gain the stamp; nothing else about any step changes.
+  const { before, after } = change;
+  for (const phaseId of new Set([...Object.keys(before.phases ?? {}), ...Object.keys(after.phases ?? {})])) {
+    const step = before.phases?.[phaseId];
+    const stamped = after.phases?.[phaseId];
+    if (recordSha256(step ?? null) === recordSha256(stamped ?? null)) continue;
+    const revalidation = stamped?.intentAmendmentRevalidation;
+    if (!step || step.intentAmendmentRevalidation?.id !== id || step.intentAmendmentRevalidation.acknowledgedAt
+        || typeof revalidation?.acknowledgedAt !== 'string'
+        || recordSha256({ ...stamped, intentAmendmentRevalidation: { ...revalidation, acknowledgedAt: step.intentAmendmentRevalidation.acknowledgedAt } })
+          !== recordSha256(step)) return null;
+  }
+  const { event, identity } = change;
+  if (!stateChangesOnly(change, [...AMENDMENT_KEYS, 'phases'])
+      || !['history', 'publicationProjections'].every((key) => appendsOne(change, key))
+      || after.history.at(-1)?.event !== 'intent_amendment_acknowledged'
+      || event?.type !== LIFECYCLE_EVENT.INTENT_AMENDMENT_ACKNOWLEDGED || event.subject?.id !== workflow.workItem.id
+      || (event.payload?.proposalId ?? id) !== id || identity.eventSha256 !== `sha256:${recordSha256(event)}`) return null;
+  return { id, status: 'approved', acknowledgementCommit: commit };
 }
 
 function commitNote(entry) {
@@ -212,7 +320,7 @@ function blockingCommitFacts(root, workflow, phase, blocking, evidenceCommit) {
     const clauses = entry.amendment.changedClauses;
     lines.push(`Intent amendment ${entry.amendment.id}${clauses.length ? ` changes ${clauseList(clauses)} and` : ''} is still waiting for a decision by a person who approves ${scopePhase ?? 'the scope'}. `
       + `Approving it changes ${clauses.length ? 'those clauses' : 'the approved clauses'}, so ${phase.id} must be revised and submitted again; `
-      + `rejecting it keeps them, and ${phase.id} can then be approved as submitted.`);
+      + `rejecting it keeps them, but these commits record more than its proposal and rejection, so ${phase.id} still needs a fresh submission before it can be approved.`);
   }
   if (decided.length) {
     // A rejection whose commits are exactly propose and reject is allowed (rejectedIntentAmendments), so one named here recorded more.
@@ -240,7 +348,7 @@ export function interveningCommitRefusal(root, workflow, phase, {
   const [first] = facts.pendingIntentAmendments;
   return new SingularityFlowError([
     `Phase '${phase.id}' repository history changed after its immutable review evidence was recorded. `
-      + 'Only prior approvals, applicability decisions, a rejected intent amendment or an exact Auto human-boundary checkpoint for this submitted phase may precede another approval; submit fresh evidence for every other commit.',
+      + 'Only prior approvals, recorded decisions, intent-amendment proposals, rejections and acknowledgements, or an exact Auto human-boundary checkpoint for this submitted phase may precede another approval; submit fresh evidence for every other commit.',
     ...facts.lines
   ].join('\n'), {
     code: 'STORY_REVIEW_INTERVENING_COMMIT',
@@ -263,6 +371,43 @@ export function interveningCommitRefusal(root, workflow, phase, {
           label: `See intent amendment ${first.id}, which a person decides before ${phase.id} can be approved.`
         }
       } : {})
+    }
+  });
+}
+
+/**
+ * The hold for intent amendments proposed after the submission and still undecided [SPEC-OAP M2]:
+ * a person who approves the scope decides each one first. Rejecting it keeps this submission, so
+ * the step is then approved as it is; approving it changes the clauses and reopens the step.
+ * `proposals` are the verified proposals (pendingIntentAmendmentProposals), oldest first.
+ */
+export function pendingAmendmentRefusal(workflow, phase, proposals) {
+  const scopePhase = scopeStepOf(workflow)?.id ?? null;
+  const pending = proposals.map(({ proposalCommit: commit, id }) => {
+    const summary = (workflow.intentAmendments ?? []).find((entry) => entry.id === id);
+    return { id, commit: shortCommit(commit),
+      changedClauses: Array.isArray(summary?.changedClauses) ? summary.changedClauses.slice(0, 50) : [] };
+  });
+  const [first] = pending;
+  const one = pending.length === 1;
+  return new SingularityFlowError([
+    `Approving ${phase.id} waits for ${one ? `intent amendment ${first.id}` : `${pending.length} intent amendments`} to be decided.`,
+    ...pending.map((entry) => `Intent amendment ${entry.id}${entry.changedClauses.length ? ` changes ${clauseList(entry.changedClauses)} and` : ''} was proposed after ${phase.id} was submitted (${entry.commit}); `
+      + `a person who approves ${scopePhase ?? 'the scope'} decides it.`),
+    `Rejecting ${one ? 'it' : 'them'} keeps this submission, and ${phase.id} can then be approved as it is; `
+      + `approving ${one ? 'it' : 'one'} changes the approved clauses, so ${phase.id} reopens to be revised and submitted again.`
+  ].join('\n'), {
+    code: 'APPROVAL_INTENT_AMENDMENT_PENDING',
+    details: {
+      workId: workflow.workItem.id,
+      phase: phase.id,
+      generation: phase.generation,
+      ...(scopePhase ? { scopePhase } : {}),
+      pendingIntentAmendments: pending,
+      nextAction: {
+        command: amendmentStatusCommand(workflow.workItem.id),
+        label: `See intent amendment ${first.id}, which a person decides before ${phase.id} can be approved.`
+      }
     }
   });
 }
@@ -319,6 +464,7 @@ export const APPROVAL_HOLD_OWNERS = Object.freeze({
   WEL_WITNESS_MAPPING_STALE: 'author-repairs',
   WEL_WITNESS_MAPPING_UNREVIEWED: 'you-decide',
   APPROVAL_SELF_APPROVAL_PROHIBITED: 'someone-decides',
+  APPROVAL_INTENT_AMENDMENT_PENDING: 'someone-decides',
   SPEC_PLANNED_CLAIM_MAP_REQUIRED: 'author-repairs'
 });
 const OWNER_PREFIXES = Object.freeze([['IMPLEMENTATION_BINDING_', 'you-decide'], ['CONVERGENCE_', 'machine']]);

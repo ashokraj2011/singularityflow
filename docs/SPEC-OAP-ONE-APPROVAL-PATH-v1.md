@@ -168,6 +168,55 @@ Built in M2 (2026-10-24):
   and `push retry` folds into `sync`. A person sees them only when the automatic attempt fails,
   with the one failing cause.
 
+Built in M3 (2026-10-24):
+
+- `decisionPacket` (src/decision-list.mjs) builds one list in this order:
+  1. the Story's retained commit;
+  2. the routing decision;
+  3. intent amendments: decide a proposed one, acknowledge an approved one;
+  4. forward amendments and the revalidations they ask for;
+  5. appeals of the step;
+  6. the kinds the list always had;
+  7. sign-offs and scope items owed to the ending;
+  8. each refusal the approval check names that no item above carries, such as a TRP or quality
+     risk, a lapsed test-run risk or the repair journal;
+  9. this repository's failed uploads;
+  10. last, the step's approval itself.
+  
+  The facts come from the readers each command already uses (decision-list-reads.mjs, `readPendingList`).
+- The approval item names the items that hold it (`heldBy`) and the answers the approver gives in
+  the approval itself (`youDecide`). An approval-check hold another item carries is not repeated, so
+  the list and the approval check cannot disagree.
+- Each new item is the person's own step with its exact command; nothing new is recordable from the
+  list. An item for another group names the group, up to five of its members and the line to share
+  (`/sf-decide <WORK-ID>`).
+- The packet carries `open` (every item, the approval included) and `next` (the first item and its
+  command). `pendingSummary` is what every surface reads:
+  - readiness, as `pending` in `status --submission-readiness` and the editor snapshot;
+  - `nextsteps`, as `pending` and its "Open on the decision list" line;
+  - the VS Code Inbox and Reviews, through a decision-list card;
+  - the Navigator badge, which counts the list for a Story;
+  - the journey.
+  
+  VS Code reads it only through `pendingListOf` (apps/vscode/src/decisions.ts). `holding` keeps its
+  M0 meaning: the decisions approval refuses for.
+- Machine items appear only after the automatic attempt failed, and `sync` is their route: a
+  retained Story commit, and an upload in `needs-user`, `attempt-budget-exhausted` or
+  `outcome-unknown`.
+- The CLI `inbox` is a roster of every Story, read from remote state with no checkout. It counts no
+  items, and each row names its Story's list (`commands.decisions`).
+- `/sf-decide`:
+  - a list holding only the person's own steps is relayed, and the turn continues to the routing
+    decision, never ending there;
+  - it names a listed approval's `/sf-approve` route;
+  - continuing straight into the approval is M4.
+- Guard: `test/oap-m3-one-list.test.mjs`.
+  - Every concept in the table above has an item kind or is a machine item (`PENDING_CONCEPTS`).
+  - Every approval-check hold code lands on an item (`holdItemKind`).
+  - One planning fixture with a pending amendment checks the order and the holds. `decisions`,
+    readiness, `nextsteps`, the Inbox, the badge and the journey all report 2 open; after the
+    rejection, all report 1.
+
 ### 4. One approval ceremony
 
 The same three moments on every surface: **review → decide → confirm once.**
@@ -213,7 +262,7 @@ Each milestone ends with a real VS Code walk over CDP and, once Copilot is invol
 | M0 Defects (done 2026-10-24) | The eight reported defects above, each with a failing test first | seven fixed, one did not reproduce and is pinned by a test; checked in the real extension |
 | M1 One check (done 2026-10-24) | `evaluateApproval` and the record step; owner classes; readiness, packet, phase show, Reviews, Approvals, the approval page and `nextsteps` read it | guard test: no refusal is found only at approve time; "Approve" is not offered on a held step; checked in the real extension |
 | M2 Review effects (done 2026-10-24) | `REVIEW_EFFECTS` registry; intent-amendment propose/reject/acknowledge are review-safe; `decision test-command` stays refused during review (M0) | the amendment-after-submission fixture (test/approval-intervening-commits.test.mjs): propose, then reject the amendment, then approve planning with no resubmission |
-| M3 One list | The decision list holds every pending kind and the approval; all surfaces count from it; `sync` and `push retry` unify | equal counts across surfaces (test); no pending kind is missing from the list (registry test) |
+| M3 One list (done 2026-10-24) | The decision list holds every pending kind and the approval; all surfaces count from it; `sync` and `push retry` unify | equal counts across surfaces (test/oap-m3-one-list.test.mjs); no pending kind is missing from the list (`PENDING_CONCEPTS`, `holdItemKind`) |
 | M4 One ceremony | Decisions recorded in the approval commit; digest-bound receipt; phase typed once; `/sf-decide` continues to approval | simplest approval: one review plus one confirmation on every surface; a 40-minute review still approves |
 | M5 Next step in place | Result and next action on the approving surface; one context-reset suggestion for Copilot | VS Code and terminal approvals never send the person to Copilot to continue |
 
@@ -225,10 +274,10 @@ it. M2 and M3 can run in parallel after M1; they touch different files. M4 and M
 - `test/gate-parity.test.mjs` (extended): `evaluateApproval` produces every approval refusal.
 - A `REVIEW_EFFECTS` registry test (`test/oap-m2-review-effects.test.mjs`): every lifecycle event
   type and every decision kind a command records has one entry.
-- A pending-kinds registry test: every pending concept named in the table above has a decision-list
-  item kind or is a `machine` item.
-- A surface-count test: inbox, Reviews, badge, `nextsteps` and journey report the same open count
-  for one fixture Story.
+- A pending-kinds registry test (`test/oap-m3-one-list.test.mjs`): every pending concept named in
+  the table above has a decision-list item kind or is a `machine` item.
+- A surface-count test (the same file): `decisions`, readiness, `nextsteps`, the VS Code inbox and
+  Reviews, the badge and the journey report the same open count for one fixture Story.
 - A skill pin: `/sf-approve` and `/sf-decide` keep their "continue" sentences
   (`scripts/skill-policy.mjs`).
 

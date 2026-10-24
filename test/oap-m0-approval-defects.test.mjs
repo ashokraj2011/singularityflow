@@ -147,11 +147,12 @@ test('D5: the decision list and readiness count the same decisions as holding an
   const workflow = releaseStory();
   const facts = releaseFacts();
   const packet = decisionPacket(workflow, facts, { authorities: workflow.resolution.approvalAuthorities, actor: releaseActor, at: AT });
-  assert.equal(packet.items.length, 2);
+  // The step's approval is the list's last item since SPEC-OAP M3; it holds nothing itself.
+  assert.deepEqual(packet.items.map((entry) => entry.kind), ['conformance-gap', 'test-command', 'approval']);
   // pendingDecisionSummary (readiness, nextsteps, the refusal) counts decisionGroups plus evidence decisions.
   const holding = decisionGroups(workflow, { gaps: facts.gaps, issues: facts.issues, includeAllIssues: true }).length;
   assert.equal(packet.holding, holding);
-  assert.deepEqual(packet.items.map((entry) => entry.holdsApproval), [true, false]);
+  assert.deepEqual(packet.items.map((entry) => entry.holdsApproval), [true, false, false]);
   assert.match(packet.headline, /^Release can't be approved yet: 1 decision needed\./u);
 });
 

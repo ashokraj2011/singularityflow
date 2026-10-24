@@ -563,7 +563,7 @@ async function storySubmissionReadiness(root, definition, workflow, changedPaths
   const pendingSynchronization = await storyPublicationPending(
     root, definition, workflow.workItem.id, { migrate: false }
   );
-  return submissionReadiness(root, definition, workflow, { pendingSynchronization, changedPaths });
+  return submissionReadiness(root, definition, workflow, { pendingSynchronization, changedPaths, pendingList: true });
 }
 
 async function fullRepositorySnapshot(root, requestedWorkId = null, requestedInitiativeId = null, revision = null) {

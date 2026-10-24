@@ -17,8 +17,9 @@ import {
   packsWithMembers, phasesInOrder, storiesByRepository,
   type RepositorySnapshot, type InitiativeSnapshot, type PhaseStatus, type StoryWorkflow,
   type StoryArtifact, type StoryApproval, type SubmissionReadiness,
-  type DecisionInputSpec, type PendingDecisionView
+  type DecisionInputSpec, type PendingDecisionView, type PendingListView
 } from '../cli/snapshot.ts';
+import { pendingListOf } from '../decisions.ts';
 import {
   phaseSubmissionPresentation, stepActionHoldLabel, storyArtifactPublicationLabel
 } from './submission-presentation.ts';
@@ -103,6 +104,8 @@ export interface Journey {
   decision: PendingDecisionView | null;
   /** What happens after the current phase, when a decision follows it. */
   decisionAhead: { label: string; text: string } | null;
+  /** The Story's one decision list (SPEC-OAP M3): the count Reviews, the Navigator and nextsteps show. */
+  pending?: PendingListView | null;
   /** Set when there is nothing to render, with the reason. */
   empty: string | null;
   /** A Story's base Story and Epic, when it has either. */
@@ -374,6 +377,7 @@ function storyJourneyOf(
         : null,
     decision: pending,
     decisionAhead,
+    pending: pendingListOf(snapshot),
     empty: null
   };
 }

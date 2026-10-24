@@ -139,6 +139,7 @@ export class SidebarViewProvider implements vscode.WebviewViewProvider, vscode.D
   private awaitingFirstRead = false;
   private navigation: SidebarNavigation = { workspace: null, next: null };
   private pendingApprovals: number | null = null;
+  private pendingLabel: string | undefined;
   private promptLog: PromptLogState | undefined = undefined;
   private activeDestination: string | null = null;
   private renderedBody: string | null = null;
@@ -273,10 +274,12 @@ export class SidebarViewProvider implements vscode.WebviewViewProvider, vscode.D
     this.renders.request();
   }
 
-  setPendingApprovals(count: number | null): void {
+  /** `label` says what the count is when it is not phase approvals: the decision list's open items. */
+  setPendingApprovals(count: number | null, label?: string): void {
     const normalized = count === null ? null : Number.isSafeInteger(count) && count > 0 ? count : 0;
-    if (normalized === this.pendingApprovals) return;
+    if (normalized === this.pendingApprovals && label === this.pendingLabel) return;
     this.pendingApprovals = normalized;
+    this.pendingLabel = label;
     this.renders.request();
   }
 
@@ -450,7 +453,7 @@ export class SidebarViewProvider implements vscode.WebviewViewProvider, vscode.D
     this.roots.favorites.forEach((node, index) => this.nodeIndex.set(`favorites:${index}`, node));
     const body = sidebarBody({
         navigation: this.navigation, freshness: this.freshness, loading: this.awaitingFirstRead,
-        active: this.activeDestination, pending: this.pendingApprovals,
+        active: this.activeDestination, pending: this.pendingApprovals, pendingLabel: this.pendingLabel,
         menuCollapsed: this.menuCollapsed,
         promptLog: this.promptLog,
         favorites: this.favoriteIds.flatMap(id => {

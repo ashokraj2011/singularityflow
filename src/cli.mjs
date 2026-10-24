@@ -1486,7 +1486,7 @@ export async function statusCommand(positionals, options) {
     const pendingSynchronization = await storyPublicationPending(
       root, config, workflow.workItem.id, { migrate: false }
     );
-    const readiness = await submissionReadiness(root, config, workflow, { pendingSynchronization });
+    const readiness = await submissionReadiness(root, config, workflow, { pendingSynchronization, pendingList: true });
     if (optionBoolean(options, 'json')) console.log(JSON.stringify(readiness, null, 2));
     else console.log(submissionReadinessText(readiness));
     return;

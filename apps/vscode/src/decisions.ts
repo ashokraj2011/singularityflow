@@ -6,7 +6,26 @@
  * this module only turns the engine's decision view into choices and argv, so the tests can pin
  * exactly what each control would run without an extension host.
  */
-import type { DecisionInputSpec, DecisionOptionView, PendingDecisionView } from './cli/snapshot.ts';
+import type { DecisionInputSpec, DecisionOptionView, PendingDecisionView, PendingListView, RepositorySnapshot } from './cli/snapshot.ts';
+
+/**
+ * The checked-out Story's one decision list, as the CLI counted it for its current step (SPEC-OAP
+ * M3). The inbox, Reviews, the Navigator badge and the journey all read this, so they show the same
+ * number; null when the snapshot carries none (an Initiative, or an older CLI).
+ */
+export function pendingListOf(snapshot: Pick<RepositorySnapshot, 'workflow' | 'submissionReadiness'> | null | undefined): PendingListView | null {
+  const readiness = snapshot?.submissionReadiness;
+  const pending = readiness?.pending;
+  if (!snapshot?.workflow || !pending || readiness.phaseId !== snapshot.workflow.currentPhase) return null;
+  if (!Number.isSafeInteger(pending.open) || pending.open < 0 || !Array.isArray(pending.items) || pending.items.length !== pending.open) return null;
+  return pending;
+}
+
+/** "3 open on the decision list; first: Decide intent amendment AMD-001." */
+export function pendingListSentence(pending: PendingListView): string {
+  if (!pending.open) return 'Nothing is open on the decision list.';
+  return `${pending.open} open on the decision list; first: ${pending.next?.title ?? pending.items[0]?.title ?? ''}.`;
+}
 
 export interface DecisionChoiceItem {
   label: string;

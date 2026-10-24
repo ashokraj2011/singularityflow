@@ -58,13 +58,7 @@ async function storyContext(root, workId, { record, fetch }) {
 
 /** The list as it stands now, for the current Git identity. */
 export async function readDecisionPacket(root, config, workflow, { phaseId = null, at = nowIso() } = {}) {
-  const [{ decisionListFacts }, { decisionPacket }, { actionActor }] = await Promise.all([
-    import('../decision-list-reads.mjs'), import('../decision-list.mjs'), import('./kernel.mjs')]);
-  const facts = await decisionListFacts(root, config, workflow, { phaseId: phaseId ?? workflow.currentPhase, at });
-  return decisionPacket(workflow, facts, {
-    authorities: workflow.resolution?.approvalAuthorities ?? config.approvalAuthorities,
-    actor: actionActor(root), at, requestedPhase: phaseId
-  });
+  return (await import('../decision-list-reads.mjs')).readPendingList(root, config, workflow, { phaseId, at });
 }
 
 async function answersFrom(options) {
@@ -134,10 +128,12 @@ function packetText(packet) {
   if (!packet.items.length) return `${lines.join('\n')}\n`;
   lines.push('');
   for (const [index, item] of packet.items.entries()) lines.push(...itemLines(item, index), '');
-  lines.push(packet.rule);
-  lines.push(`Decide them in this terminal: ${packet.record.interactive}`);
-  if (packet.record.recommended) lines.push(`Or record the recommended choices: ${packet.record.recommended}`);
-  lines.push(`In Copilot: ${packet.record.share}`);
+  if (packet.items.some((item) => ['conformance-gap', 'upstream-issue'].includes(item.kind))) lines.push(packet.rule);
+  if (packet.items.some((item) => item.options.some((option) => option.recordable !== false))) {
+    lines.push(`Decide them in this terminal: ${packet.record.interactive}`);
+    if (packet.record.recommended) lines.push(`Or record the recommended choices: ${packet.record.recommended}`);
+  } else if (packet.next) lines.push(`Next: ${packet.next.command}`);
+  lines.push(`In Copilot: ${packet.next?.copilotCommand ?? packet.record.share}`);
   return `${lines.join('\n')}\n`;
 }
 
@@ -147,7 +143,7 @@ function emitShow(packet, options, workflow, extra = {}) {
     operation: { id: 'decisions.show', classification: 'read' },
     subject: { kind: 'story', id: packet.workId },
     outcome: succeeded(preview ? 'decisions.preview.succeeded' : 'decisions.show.succeeded',
-      { headline: packet.headline, count: String(packet.items.length), chosen: String(preview?.steps.length ?? 0) }),
+      { headline: packet.headline, count: String(packet.open ?? packet.items.length), chosen: String(preview?.steps.length ?? 0) }),
     effects: noEffects(),
     next: [],
     restState: 'informational',
@@ -192,6 +188,11 @@ export async function promptDecisionAnswers(packet, { input = processInput, outp
       say('');
       for (const line of itemLines(item, index, { numbered: true })) say(line);
       if (!item.decidedBy.allowed) continue;
+      // Only the person's own steps: nothing to choose here, so each command is shown, not asked.
+      if (item.options.every((option) => option.recordable === false)) {
+        for (const option of item.options.filter((entry) => entry.action)) say(`   Run it yourself: ${option.action.command}`);
+        continue;
+      }
       const skip = item.options.length + 1;
       say(`   ${skip}) Not now`);
       const preferred = item.options.findIndex((entry) => entry.recommended && entry.decidedBy.allowed) + 1 || skip;

@@ -2638,7 +2638,7 @@ Reuse a verified pause-aware entry supplied in this invocation before any mutati
           <span class="pill">review</span>
           <span class="pill">story boundary</span>
           <span class="pill">model: never</span>
-          <span class="pill">~1619 body tokens</span>
+          <span class="pill">~1663 body tokens</span>
         </div>
         <dl>
           <div><dt>Command</dt><dd><code>/sflow-decide</code></dd></div>
@@ -2670,7 +2670,7 @@ Reuse a verified pause-aware entry supplied in this invocation before any mutati
 &lt;!-- sflow-turn-boundary: decision-only --&gt;
 **Turn boundary — decision-only:** `singularity-flow decision choose|applicability|scope|completeness|plan`, `singularity-flow upstream-issue decide` and `singularity-flow decisions record` (issue options, after an explicit yes) are the only permitted mutations. Never edit files, run tests or builds, raw `git`, submit, approve, reject or `next`. The person types every choice and reason; never supply, infer or default one. List answers come from `ask_user`; the person accepts or replaces each default. Any refusal ends this turn.
 
-1. Run `singularity-flow decisions &lt;WORK-ID&gt; --for-agent --json`. Non-empty `data.items`: do 11-14, then stop; use the linked issue/owner, never duplicate it. Else run `singularity-flow decision show &lt;WORK-ID&gt; --json`. Empty routing `decisions` is not approval readiness. Check `pending` (2), unsatisfied `applicability` (6), unlisted `upstreamIssues` (10), routed scope/completeness/plan (7-9). Only if clear, say nothing is waiting, show `ahead`, stop.
+1. Run `singularity-flow decisions &lt;WORK-ID&gt; --for-agent --json`. An option without `action`: do 11-14, then stop; use the linked issue/owner, never duplicate it. Else give each item&#39;s `action.command` (11-12), then run `singularity-flow decision show &lt;WORK-ID&gt; --json` (a `routing-decision` item is answered at 2-5). Empty routing `decisions` is not approval readiness. Check `pending` (2), unsatisfied `applicability` (6), unlisted `upstreamIssues` (10), routed scope/completeness/plan (7-9). Only if clear, say nothing else is waiting, give `data.next.copilotCommand` when `data.next.kind` is `approval`, show `ahead`, stop.
 2. Show `pending.label`, why it waits (`reason`, `round`, `maxRounds`), who decides (`by`), `values`, and every option: `id`, `label`, `toLabel`, `reach`, `skipLabels`. With `anyStep`, a step ID or `end` may be named instead.
 3. Ask for the option ID, or a step, and a reason.
 4. Run `singularity-flow decision choose &lt;WORK-ID&gt; --fetch --option &lt;ID&gt; --reason &quot;&lt;REASON&gt;&quot; --expected &lt;pending.key&gt;`, or `--to &lt;STEP&gt;` in place of `--option`.

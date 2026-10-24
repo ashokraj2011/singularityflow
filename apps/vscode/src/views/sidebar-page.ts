@@ -27,6 +27,8 @@ export interface SidebarPage {
   freshness: string | null;
   loading: boolean;
   pending: number | null;
+  /** What `pending` counts, for its spoken label: the decision list's open items, or approvals. */
+  pendingLabel?: string;
   active: string | null;
   favorites: ReadonlyArray<{ id: string; label: string; icon: IconName }>;
   menuCollapsed?: boolean;
@@ -71,7 +73,7 @@ export function sidebarBody(view: SidebarPage): string {
       <nav aria-label="Singularity Flow">
       ${PRIMARY_NAVIGATION.map((item) => link(item.id, item.label, item.icon, view.active,
         item.id === 'reviews' && view.pending != null && view.pending > 0
-          ? `<span class="badge" aria-label="${view.pending} pending phase approvals">${view.pending}</span>` : '')).join('')}
+          ? `<span class="badge" aria-label="${view.pending} ${escape(view.pendingLabel ?? 'pending phase approvals')}">${view.pending}</span>` : '')).join('')}
       ${promptLogSwitch(view.promptLog)}
       </nav>
       </details>

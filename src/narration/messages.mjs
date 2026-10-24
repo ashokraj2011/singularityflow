@@ -304,7 +304,7 @@ export const MESSAGES = Object.freeze({
     preserves: false
   },
   'decisions.show.succeeded': {
-    headline: (s) => (Number(s.count) ? `${slot(s.count)} decision(s) listed; nothing was recorded.` : 'Nothing is waiting for a decision.'),
+    headline: (s) => (Number(s.count) ? `${slot(s.count)} open item(s) listed; nothing was recorded.` : 'Nothing is waiting for a decision.'),
     preserves: true
   },
   'decisions.preview.succeeded': {

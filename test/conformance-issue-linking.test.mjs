@@ -42,6 +42,8 @@ function fixture(ids = ['specification', 'implementation', 'verification', 'rele
 }
 const gapsOf = (f) => conformanceVerdictGaps(f.markdown, f);
 const resolved = (f, at = AT) => conformanceGapDecisions(f.workflow, f.phaseId, gapsOf(f), { now: at });
+// The step's approval is the list's last item (SPEC-OAP M3); these tests count the decisions before it.
+const decisionsOf = (packet) => packet.items.filter((item) => item.kind !== 'approval');
 function packetOf(f) {
   return decisionPacket(f.workflow, { phaseId: f.phaseId, gaps: resolved(f).map((gap) => ({ ...gap, report: f.phaseId })),
     issues: upstreamIssueStates(f.workflow, AT), endsStory: true, candidates: [] },
@@ -54,7 +56,7 @@ for (const ids of [undefined, ['intent', 'build', 'qa-check', 'close'], ['intake
     assert.deepEqual(resolved(f).map((gap) => [gap.clauseId, gap.owner, gap.issue, gap.status]),
       C.map((id) => [id, f.verify, 'UPI-001', 'undecided']));
     const packet = packetOf(f);
-    assert.equal(packet.items.length, 1);
+    assert.equal(decisionsOf(packet).length, 1);
     const [item] = packet.items;
     assert.deepEqual([item.details.issue, item.details.owner], ['UPI-001', f.verify]);
     assert.deepEqual(item.details.clauses, C);
@@ -126,8 +128,8 @@ test('multiple real issues stay separate, and an unrelated decided clause issue 
   f.markdown = f.markdown.replace('verification: missing', 'UPI-001 and UPI-002: missing');
   f.workflow.upstreamIssueDecisions = [];
   const packet = packetOf(f);
-  assert.equal(packet.items.length, 2);
-  assert.deepEqual(packet.items.map((item) => item.details.issue).sort(), ['UPI-001', 'UPI-002']);
+  assert.equal(decisionsOf(packet).length, 2);
+  assert.deepEqual(decisionsOf(packet).map((item) => item.details.issue).sort(), ['UPI-001', 'UPI-002']);
   const advisories = inspectConformanceVerdictAdvisories(f.markdown, { ...f, now: AT });
   const projection = phaseResolutionProjection(f.workflow, f.workflow.phases[f.phaseId], [], { advisories });
   for (const [index, item] of projection.advisories.entries()) {
@@ -143,7 +145,7 @@ test('a superseding record carries explicit references to its predecessor withou
   f.markdown = f.markdown.replace('verification: missing', 'UPI-001: missing');
   f.workflow.upstreamIssues.push({ ...f.workflow.upstreamIssues[0], id: 'UPI-002', supersedes: 'UPI-001' });
   assert.ok(resolved(f).every((gap) => gap.issue === 'UPI-002'));
-  assert.equal(packetOf(f).items.length, 1);
+  assert.equal(decisionsOf(packetOf(f)).length, 1);
 });
 
 test('file-backed next-step counts use the same single problem and do not change the report', async (t) => {
@@ -154,7 +156,7 @@ test('file-backed next-step counts use the same single problem and do not change
   await mkdir(path.dirname(file), { recursive: true }); await writeFile(file, f.markdown);
   const config = { workItemRoot: 'team/work-items' };
   const facts = await blockingDecisionFacts(root, config, f.workflow, { phaseId: f.phaseId, at: AT });
-  assert.equal(decisionPacket(f.workflow, facts, { authorities: f.workflow.resolution.approvalAuthorities, actor, at: AT }).items.length, 1);
+  assert.equal(decisionsOf(decisionPacket(f.workflow, facts, { authorities: f.workflow.resolution.approvalAuthorities, actor, at: AT })).length, 1);
   const summary = await pendingDecisionSummary(root, config, f.workflow, f.workflow.phases[f.phaseId], { at: AT });
   assert.equal(summary.count, 1);
   assert.equal(summary.command, `singularity-flow decisions ${W}`);
@@ -180,6 +182,6 @@ test('the actual defect owner may be any earlier phase, never just a fixed Verif
     Object.assign(f.workflow.upstreamIssues[0], { phase: owner, problem: item,
       source: { path: f.reportPath, itemSha256: discrepancyItemSha256(owner, item) } });
     assert.ok(resolved(f).every((gap) => gap.owner === owner && gap.issue === 'UPI-001'));
-    assert.equal(packetOf(f).items.length, 1);
+    assert.equal(decisionsOf(packetOf(f)).length, 1);
   }
 });

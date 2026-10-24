@@ -84,7 +84,8 @@ export function decisionListHtml(view: DecisionListView): string {
   const items = view.nothingToDecide
     ? `<div class="empty-state dl-empty">${icon('ok')}<strong>Nothing is waiting for a decision.</strong><p>Refresh after someone records a choice, or continue with the step.</p></div>`
     : view.items.map(itemHtml).join('');
-  const yours = view.items.some((item) => item.allowed);
+  // Review is offered when something here can be recorded; a person's own steps are copied, not reviewed.
+  const yours = view.items.some((item) => item.allowed && item.options.some((option) => option.choosable));
   return `<form class="dl-list" data-digest="${escape(view.digest ?? '')}">
     <header class="inbox-header dl-header"><div>${brandLockup()}<p class="eyebrow">Decide · ${escape(view.phaseLabel ?? '')}</p>
       <h1>${icon('approval', { size: 24 })}Decisions · ${escape(view.workId)}</h1><p class="meta">${escape(view.headline)}</p></div>

@@ -7,7 +7,8 @@ import { buildApprovals, type PendingApproval } from './approvals-model.ts';
 import { approvalHoldsHtml, contentSecurityPolicy, escape, icon, navigationTarget, nonce, page } from './webview.ts';
 import { navigateTo } from './navigate.ts';
 import { registerMessageRouter, stringField, type InboundMessage } from './messages.ts';
-import { decisionTargetText } from '../decisions.ts';
+import { decisionTargetText, pendingListOf, pendingListSentence } from '../decisions.ts';
+import type { PendingListView } from '../cli/snapshot.ts';
 import type { WorkspaceStore } from '../state.ts';
 import { workspaceStoriesHtml, storyCreatedDateHtml, STORY_FILTER_SCRIPT, STORY_CATALOG_STYLE } from './workspace-stories-page.ts';
 import { capabilityProposalCheck, type CapabilityProposalCheck } from './setup-review-repositories.ts';
@@ -51,11 +52,27 @@ function workflowDecisionCard(inbox: Inbox): string {
     </article>`;
 }
 
-function decisionCards(inbox: Inbox): string {
+/**
+ * The checked-out Story's one decision list (SPEC-OAP M3): the same count and first item the
+ * Navigator badge, the journey and `nextsteps` show, never a count of this page's own.
+ */
+function pendingListCard(pending: PendingListView | null, workId: string): string {
+  if (!pending?.open) return '';
+  return `
+    <article class="decision-card" data-pending-open="${pending.open}">
+      <div><span class="eyebrow">decision list</span><h3>${escape(workId)} — ${pending.open} open</h3></div>
+      <p class="muted">${escape(pendingListSentence(pending))}</p>
+      <ol class="muted">${pending.items.map((item) => `<li>${escape(item.title)}${item.holdsApproval ? ' · holds the approval' : ''}${item.yours ? '' : ' · someone else decides'}</li>`).join('')}</ol>
+      <div class="card-foot"><button data-review-route="decisions">Open the decision list</button></div>
+    </article>`;
+}
+
+function decisionCards(inbox: Inbox, pending: PendingListView | null = null): string {
   const decisions = inbox.approvals.pending.filter((approval) => approval.standing === 'yours');
   const waiting = workflowDecisionCard(inbox);
-  if (!decisions.length && !waiting) return `<p class="ok-text">${icon('ok')}Nothing is waiting for your decision.</p>`;
-  return `<div class="decision-cards">${waiting}${decisions.map((approval) => `
+  const listed = pendingListCard(pending, inbox.subjectId);
+  if (!decisions.length && !waiting && !listed) return `<p class="ok-text">${icon('ok')}Nothing is waiting for your decision.</p>`;
+  return `<div class="decision-cards">${listed}${waiting}${decisions.map((approval) => `
     <article class="decision-card">
       <div><span class="eyebrow">${escape(approval.kind)}</span><h3>${escape(approval.label)}</h3></div>
       <p class="muted">${escape(approval.detail)}</p>
@@ -151,7 +168,7 @@ function refreshStoriesControl({ refreshing, error }: InboxRefreshState): string
   </div>`;
 }
 
-export function inboxHtml(inbox: Inbox, refresh: InboxRefreshState = { refreshing: false, error: null }): string {
+export function inboxHtml(inbox: Inbox, refresh: InboxRefreshState = { refreshing: false, error: null }, pending: PendingListView | null = null): string {
   if (inbox.empty) return `<div class="brand-lockup"><strong>SINGULARITY</strong><span>FLOW</span></div>
     <header class="inbox-header"><h1>${icon('approval', { size: 20 })}Inbox</h1>${refreshStoriesControl(refresh)}</header>
     <div class="empty"><p>${refresh.error ? 'No Stories are confirmed yet. Use Refresh Stories to retry discovery.' : escape(inbox.empty)}</p></div>`;
@@ -172,7 +189,7 @@ export function inboxHtml(inbox: Inbox, refresh: InboxRefreshState = { refreshin
       <div class="summary-card"><strong>${other}</strong><span>With other reviewers</span></div>
     </div>
     ${storyCards(inbox)}
-    <section><div class="section-heading"><h2>${icon('approval')}Needs your attention</h2><span class="count-badge">${yours}</span></div>${decisionCards(inbox)}</section>
+    <section><div class="section-heading"><h2>${icon('approval')}Needs your attention</h2><span class="count-badge">${yours}</span></div>${decisionCards(inbox, pending)}</section>
     <section><div class="section-heading"><h2>${icon('document')}Everything generated</h2><span class="count-badge">${inbox.artifacts.length}</span></div>
       <p class="muted">Every existing output across every phase. Open any card to inspect the exact committed file.</p>${artifactRows(inbox)}</section>`;
 }
@@ -281,7 +298,7 @@ export class InboxPanel {
         const commands: Record<string, string> = {
           proposals: 'singularityFlow.reviewCapabilityProposals', visual: 'singularityFlow.openVisualAssurance',
           'workflow-proposals': 'singularityFlow.openConfigurationApprovals',
-          approvals: 'singularityFlow.openApprovals',
+          approvals: 'singularityFlow.openApprovals', decisions: 'singularityFlow.decisions',
           appeals: 'singularityFlow.resolvePhaseIssues'
         };
         const route = stringField(message, 'route');
@@ -413,10 +430,10 @@ export class InboxPanel {
     const body = this.mode === 'stories' ? workspaceStoriesHtml(inbox, refreshStoriesControl(refresh))
       : this.mode === 'reviews' ? `<header><h1>${icon('approval')}Reviews</h1><p class="meta">Decisions and evidence. No action is approved simply by opening this screen.</p></header>
         <label>Review category<select id="review-filter"><option value="all">All categories</option><option value="phases">Phase approvals &amp; workflow decisions</option><option value="proposals">Configuration &amp; capability changes</option><option value="visual">Visual evidence</option></select></label>
-        <section data-review-group="phases"><h2>Phase approvals &amp; decisions</h2>${state.snapshot && !state.error && !state.stale && (!state.snapshot.included || state.snapshot.included.includes('lifecycle')) ? decisionCards(inbox) : '<p>Current approval state is not confirmed.</p>'}<button class="secondary" data-review-route="approvals">Open all phase reviews</button><button class="secondary" data-review-route="appeals">Appeals and phase issues</button></section>
+        <section data-review-group="phases"><h2>Phase approvals &amp; decisions</h2>${state.snapshot && !state.error && !state.stale && (!state.snapshot.included || state.snapshot.included.includes('lifecycle')) ? decisionCards(inbox, pendingListOf(state.snapshot)) : '<p>Current approval state is not confirmed.</p>'}<button class="secondary" data-review-route="approvals">Open all phase reviews</button><button class="secondary" data-review-route="appeals">Appeals and phase issues</button></section>
         ${reviewProposalsHtml(this.configurationCount, this.preferences ? capabilityProposalCheck(this.preferences) : null)}
         <section data-review-group="visual"><h2>Visual evidence</h2><p class="muted">Inspect screenshots and comparison evidence for the current work.</p><button class="secondary" data-review-route="visual">Review visual evidence</button></section>`
-      : inboxHtml(inbox, refresh);
+      : inboxHtml(inbox, refresh, state.snapshot && !state.error && !state.stale ? pendingListOf(state.snapshot) : null);
     const styles = this.mode === 'stories' ? `<style nonce="${token}">${STORY_CATALOG_STYLE}</style>` : '';
     this.panel.webview.html = page(title, styles + warning + body,
       contentSecurityPolicy(this.panel.webview, token), token, SCRIPT);

@@ -217,9 +217,10 @@ export async function resolveStorySnapshot(root, { workflow, definition, executi
   const pendingDecisions = active ? await measureCommandSpan('nextsteps.pending-decisions', async () =>
     (await import('../decision-list-facts.mjs')).pendingDecisionSummary(root, definition, workflow, active)).catch(() => undefined) : undefined;
   // What else approval would be refused for: the gate's own preview (SPEC-OAP M1), only while it waits.
-  const approvalCheck = active?.status === 'awaiting_approval' && !pendingDecisions?.count
+  const checked = active?.status === 'awaiting_approval'
     ? await measureCommandSpan('nextsteps.approval-check', async () =>
       (await (await import('../approval-check.mjs')).approvalAdvisories(root, definition, workflow, active))?.approvalCheck ?? null).catch(() => null) : null;
+  const approvalCheck = pendingDecisions?.count ? null : checked;
   // Receipts are read from this checkout, so only the Story checked out here can be held by one.
   let stepActionHold = null;
   if (storyRequiresStepActions(workflow) && workflow.workItem?.branch === branch(root)) {
@@ -245,6 +246,14 @@ export async function resolveStorySnapshot(root, { workflow, definition, executi
       () => inspectMcpPhaseReadiness(root, workflow, active)).catch(() => null);
     if (readiness && !readiness.ready) mcpHold = { phase: active.id, errors: readiness.errors, actions: readiness.actions };
   }
+  // The one list's count and first item, read the way readiness reads them [SPEC-OAP M3].
+  const listPublication = publicationPending ?? Boolean(await readPendingPublication(root, { kind: 'story', id: selected.id, migrate: false,
+    roots: { workItemRoot: path.dirname(path.dirname(selected.location.path)) } }).catch(() => null));
+  const pending = active && active.id === workflow.currentPhase ? await measureCommandSpan('nextsteps.pending-list', async () => {
+    const [{ readPendingList }, { pendingSummary }] = await Promise.all([import('../decision-list-reads.mjs'), import('../decision-list.mjs')]);
+    return pendingSummary(await readPendingList(root, definition, workflow, { phaseId: active.id, reuse: false, offline: true, publication: listPublication,
+      ...(active.status === 'awaiting_approval' ? { approvalCheck: checked } : {}) }));
+  }).catch(() => null) : null;
   const snapshot = {
     ...nextStepsSnapshot({
       branch: branch(root),
@@ -252,10 +261,7 @@ export async function resolveStorySnapshot(root, { workflow, definition, executi
       authoringProgress,
       sourceReviewEvidence,
       stepActionHold,
-      publicationPending: publicationPending ?? Boolean(await measureCommandSpan('nextsteps.pending-publication', () => readPendingPublication(root, {
-        kind: 'story', id: selected.id, migrate: false,
-        roots: { workItemRoot: path.dirname(path.dirname(selected.location.path)) }
-      }))),
+      publicationPending: listPublication,
       recovery,
       pendingDecisions,
       approvalCheck,
@@ -264,7 +270,8 @@ export async function resolveStorySnapshot(root, { workflow, definition, executi
       repositoryHost: classifyGitHost(remoteUrl(root, definition.git?.remote ?? 'origin')),
       prerequisites: await measureCommandSpan('nextsteps.prerequisites', () => storyPrerequisites(root, workflow, selected, modelMode, { definition, executionCatalog, observeFile })),
       modelMode,
-      mcpHold
+      mcpHold,
+      pending
     }),
     evidence: evidenceSummary(workflow),
     repositoryChecks: repositoryCheckStatus(root)

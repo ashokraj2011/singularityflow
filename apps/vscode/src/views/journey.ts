@@ -16,7 +16,7 @@ import { contentSecurityPolicy, escape, navigationTarget, nonce, page, icon } fr
 import { modelFreeRouteHtml } from '../copilot-command.ts';
 import { navigateTo } from './navigate.ts';
 import { registerMessageRouter, stringField } from './messages.ts';
-import { decisionTargetText } from '../decisions.ts';
+import { decisionTargetText, pendingListSentence } from '../decisions.ts';
 import type { WorkspaceStore } from '../state.ts';
 import { deliveryState, heldBy, isDeliveryKey, pinnedStepActions, type StepActionDeliveryMonitor } from '../step-action-deliveries.ts';
 import { deliveriesHtml, type JourneyDeliveries } from './journey-deliveries.ts';
@@ -200,6 +200,13 @@ export function journeyBodyHtml(journey: Journey, deliveries: JourneyDeliveries 
       ${journeyLineageHtml(journey)}
     </header>
 
+    ${journey.pending?.open ? `
+    <section class="next" data-pending-open="${journey.pending.open}">
+      <h2>${icon('approval')}Decision list</h2>
+      <p>${escape(pendingListSentence(journey.pending))}</p>
+      <button type="button" class="secondary" data-decisions>Open the decision list</button>
+    </section>` : ''}
+
     ${journey.nextAction ? `
     <section class="next">
       <h2>${icon('ok')}Next</h2>
@@ -246,7 +253,7 @@ export function journeyBodyHtml(journey: Journey, deliveries: JourneyDeliveries 
 export const JOURNEY_SCRIPT = `
   const vscode = window.__sfVscode;
   document.addEventListener('click', (event) => {
-    const target = event.target.closest('[data-phase],[data-open],[data-approve],[data-run],[data-pin],[data-copy-route],[data-decide],[data-retry],[data-retry-all],[data-record-receipts]');
+    const target = event.target.closest('[data-phase],[data-open],[data-approve],[data-run],[data-pin],[data-copy-route],[data-decide],[data-retry],[data-retry-all],[data-record-receipts],[data-decisions]');
     if (!target) return;
     event.preventDefault();
     if (target.dataset.copyRoute) navigator.clipboard.writeText(target.dataset.copyRoute).catch(() => {});
@@ -257,6 +264,7 @@ export const JOURNEY_SCRIPT = `
     else if (target.dataset.open) vscode.postMessage({ type: 'open', id: target.dataset.open });
     else if (target.dataset.approve) vscode.postMessage({ type: 'approve', id: target.dataset.approve });
     else if (target.dataset.run) vscode.postMessage({ type: 'run' });
+    else if (target.hasAttribute('data-decisions')) vscode.postMessage({ type: 'decisions' });
     else if (target.dataset.decide) vscode.postMessage({ type: 'decide', option: target.dataset.decide });
     else if (target.dataset.pin) vscode.postMessage({ type: 'pin' });
   });
@@ -325,6 +333,8 @@ export class JourneyPanel {
         this.render();
       },
       run: () => onMessage({ type: 'run' }),
+      // The checked-out Story's one list (SPEC-OAP M3); the command reads the Story itself.
+      decisions: () => void navigateTo('singularityFlow.decisions'),
       decide: (message) => onMessage({ type: 'decide', option: stringField(message, 'option') }),
       pin: () => onMessage({ type: 'pin' }),
       open: (message) => {

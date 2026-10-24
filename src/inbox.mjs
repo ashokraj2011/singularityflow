@@ -74,6 +74,7 @@ export async function approvalInbox(root, definition, { fetch = true, now = new 
           commands: {
             attach: `singularity-flow session attach ${subject.id}`,
             review: `singularity-flow decision show ${subject.id}`,
+            decisions: `singularity-flow decisions ${subject.id}`,
             choose: `singularity-flow decision choose ${subject.id} --fetch --option <OPTION> --reason <REASON> --expected ${pending.key}`
           }
         });
@@ -109,6 +110,8 @@ export async function approvalInbox(root, definition, { fetch = true, now = new 
         commands: {
           attach: `singularity-flow session attach ${subject.id}`,
           review: `singularity-flow phase show ${phaseId}`,
+          // The Story's one list, with the approval as its last item (SPEC-OAP M3); this roster reads remote state only.
+          decisions: `singularity-flow decisions ${subject.id}`,
           approve: `singularity-flow approve ${phaseId} --work-id ${subject.id} --fetch`,
           reject: `singularity-flow reject ${phaseId} --work-id ${subject.id} --fetch --reason <REASON>`
         }

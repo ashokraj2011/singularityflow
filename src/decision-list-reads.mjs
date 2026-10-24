@@ -8,10 +8,14 @@
  *   any test executed, as `decision test-risk` sees them.
  * - Screen sizes: each verification profile enforced coverage still lacks at the visual step that
  *   holds this one, as visualProfileDecisionOptions words it.
+ * - Everything else that waits for a person (SPEC-OAP M3): the routing decision, intent and forward
+ *   amendments, appeals of the step, sign-offs and scope items owed to the ending, what did not
+ *   publish, and, while the step awaits approval, the approval check itself.
  *
- * Reads only; loaded by the list alone, never on a hot path.
+ * Reads only. `decisions` reads all of it; readiness and next steps read it for the list's count
+ * and first item, without reusable runs (readPendingList).
  */
-import { blockingDecisionFacts, evidenceDecisionFacts } from './decision-list-facts.mjs';
+import { blockingDecisionFacts, evidenceDecisionFacts, phaseEndsStory } from './decision-list-facts.mjs';
 import { workDir } from './story-paths.mjs';
 import { SingularityFlowError } from './util.mjs';
 
@@ -111,15 +115,93 @@ async function visualProfiles(root, config, workflow, phase) {
   return visualProfileDecisionOptions(workflow, coverage.phase, coverage);
 }
 
+const FAILED_UPLOAD = Object.freeze(['needs-user', 'attempt-budget-exhausted', 'outcome-unknown']);
+
+/**
+ * This repository's uploads whose automatic attempt failed and wait for `sync` (what `push retry`
+ * did). The machine's intent store is read first; only a failed upload costs the repository match,
+ * which asks Git for the push remote.
+ */
+async function failedUploads(root) {
+  const { listTransportIntents, transportFaultSummary, transportIntentsForRepository } = await import('./transport-intents.mjs');
+  if (!(await listTransportIntents()).some((intent) => FAILED_UPLOAD.includes(intent.status))) return [];
+  return (await transportIntentsForRepository(root)).filter((intent) => FAILED_UPLOAD.includes(intent.status))
+    .map((intent) => {
+      const fault = transportFaultSummary(intent);
+      return { intentId: intent.intentId, status: intent.status, cause: fault ? `Git refused it (${fault.reason}).${fault.advice ? ` ${fault.advice}` : ''}` : null };
+    });
+}
+
+/**
+ * What else waits for a person on this Story [SPEC-OAP M3], each from the reader its own command
+ * uses. A source that cannot be read is named in `unavailable`, never read as nothing pending.
+ * `approvalCheck`, `owed` and `publication` may arrive already read (readiness has them).
+ */
+async function pendingStateFacts(root, config, workflow, phase, { approvalCheck, owed, publication, unavailable }) {
+  const workId = workflow.workItem.id;
+  const awaiting = phase.status === 'awaiting_approval' && phase.id === workflow.currentPhase;
+  const intentAmendments = (workflow.intentAmendments ?? [])
+    .filter((entry) => entry.status === 'proposed' || (entry.status === 'approved' && entry.acknowledgementRequired === true && !entry.acknowledgedAt));
+  let forwardAmendments = [];
+  if ((workflow.forwardAmendments ?? []).length) {
+    const { pendingAmendmentRevalidations, pendingForwardAmendments, revalidateCommand } = await import('./forward-amendments.mjs');
+    forwardAmendments = [
+      ...pendingForwardAmendments(workflow).map((proposal) => ({ code: 'FORWARD_AMENDMENT_PENDING', amendment: proposal.id, phase: proposal.phase,
+        message: `${proposal.id} proposes a corrected ${proposal.phase}; ${proposal.phase}'s approvers have not decided it.`,
+        command: `singularity-flow upstream-issue decide-amendment ${proposal.id} --work-id ${workId} --decision approve|reject --reason "<why>" --confirm ${proposal.id}` })),
+      ...pendingAmendmentRevalidations(workflow).map((entry) => ({ code: 'AMENDMENT_REVALIDATION_REQUIRED', amendment: entry.amendment, phase: entry.phase,
+        message: `${entry.phase} read ${entry.producer} before ${entry.amendment} amended it; ${entry.phase}'s approvers have not revalidated it.`,
+        command: revalidateCommand(workId, entry) }))
+    ];
+  }
+  let appeals = [];
+  if ((workflow.phaseAppeals ?? []).length) {
+    try {
+      const { phaseAppealStatus } = await import('./phase-appeals.mjs');
+      appeals = (await phaseAppealStatus(root, config, workflow, phase)).items
+        .filter((entry) => entry.relevant && ['needs-human', 'correction-required', 'needs-reattestation'].includes(entry.status));
+    } catch (error) { unavailable.push({ phase: phase.id, reason: error.code ?? 'appeals-unreadable' }); }
+  }
+  let owedEntries = [];
+  const owedRead = owed !== undefined ? owed : awaiting && !phaseEndsStory(workflow, phase)
+    ? await (async () => { const { owedDecisions, stepsThrough } = await import('./owed-decisions.mjs'); return owedDecisions(root, config, workflow, stepsThrough(workflow, phase.id)); })()
+    : null;
+  if (owedRead?.status === 'owed') {
+    owedEntries = [...(owedRead.witnesses ?? []).map((entry) => ({ kind: 'witness', ...entry })), ...(owedRead.scopeItems ?? []).map((entry) => ({ kind: 'scope', ...entry }))];
+  }
+  const check = approvalCheck !== undefined ? approvalCheck : awaiting
+    ? (await (await import('./approval-check.mjs')).approvalAdvisories(root, config, workflow, phase))?.approvalCheck ?? null : null;
+  let retained = publication ?? null;
+  if (retained === null) {
+    const { storyPublicationPending } = await import('./story-publication-read.mjs');
+    retained = await storyPublicationPending(root, config, workId, { migrate: false }).catch(() => false);
+  }
+  const transport = await failedUploads(root).catch(() => []);
+  const { scopeStepOf } = await import('./phase-roles.mjs');
+  return {
+    scopePhase: scopeStepOf(workflow)?.id ?? null,
+    approvalCheck: check,
+    pending: {
+      ...(retained ? { publication: { commit: null, cause: 'A commit was recorded here but its publication did not land.' } } : {}),
+      ...(workflow.pendingDecision ? { routing: workflow.pendingDecision } : {}),
+      intentAmendments, forwardAmendments, appeals, owed: owedEntries, transport
+    }
+  };
+}
+
 /** Everything the decision list of `phaseId` is built from: what blocks it, plus the readers above. */
-export async function decisionListFacts(root, config, workflow, { phaseId = workflow?.currentPhase ?? null, at = new Date().toISOString() } = {}) {
+export async function decisionListFacts(root, config, workflow, { phaseId = workflow?.currentPhase ?? null, at = new Date().toISOString(),
+  reuse: offerReuse = true, ...known } = {}) {
   const { phase, reports, ...blocking } = await blockingDecisionFacts(root, config, workflow, { phaseId, at });
-  const reuse = await reuseCandidates(root, config, workflow, reports);
+  // Reusable runs change an item's options, never how many items there are: a count skips them.
+  const reuse = offerReuse ? await reuseCandidates(root, config, workflow, reports) : { candidates: [], problems: [] };
+  const state = await pendingStateFacts(root, config, workflow, phase, { ...known, unavailable: blocking.unavailable });
   let evidence = [];
   try { evidence = await evidenceDecisionFacts(root, config, workflow, phase); }
   catch (error) { blocking.unavailable = [...(blocking.unavailable ?? []), { phase: phase.id, reason: error.code ?? 'evidence-unavailable' }]; }
   return {
     ...blocking,
+    ...state,
     evidence,
     candidates: reuse.candidates, reuseProblems: reuse.problems,
     testRisks: await testRisks(root, config, workflow, phase, at),
@@ -134,8 +216,27 @@ export async function decisionListFacts(root, config, workflow, { phaseId = work
       visualProfileDecisions: (workflow.visualProfileDecisions ?? []).length,
       evidence: evidence.map((entry) => `${entry.criterion}:${entry.result}:${entry.witnesses.map((witness) => witness.slot).join(',')}:${entry.risks.length}`),
       reports: Object.fromEntries(reports.map((entry) => [entry.step.id, entry.digest])),
+      intentAmendments: (workflow.intentAmendments ?? []).map((entry) => `${entry.id}:${entry.status}:${entry.acknowledgedAt ? 1 : 0}`),
+      forwardAmendments: (workflow.forwardAmendmentDecisions ?? []).length + (workflow.amendmentRevalidations ?? []).length,
+      pendingDecision: workflow.pendingDecision?.key ?? null,
       runs: reuse.candidates.map((entry) => `${entry.attemptId}:${entry.consumer}:${entry.treeSha256}`)
     }
   };
 }
 
+/**
+ * The one list as it stands now, for the current Git identity [SPEC-OAP M3]: what `decisions`
+ * prints, and what readiness, next steps and every editor surface count from. `known` passes facts
+ * a caller already read (`approvalCheck`, `owed`, `publication`); `reuse: false` skips reusable runs,
+ * which change options but never the count. `offline: true` (readiness, next steps) names the
+ * identity from what this machine knows, never dialling GitHub on a read path.
+ */
+export async function readPendingList(root, config, workflow, { phaseId = null, at = new Date().toISOString(), requestedPhase = phaseId,
+  offline = false, ...known } = {}) {
+  const [{ decisionPacket }, { actionActor }, { identity }] = await Promise.all([import('./decision-list.mjs'), import('./commands/kernel.mjs'), import('./git.mjs')]);
+  const facts = await decisionListFacts(root, config, workflow, { phaseId: phaseId ?? workflow.currentPhase, at, ...known });
+  const actor = offline && !process.env.SINGULARITY_FLOW_GITHUB_ACTOR ? identity(root, { offline: true }) : actionActor(root);
+  return decisionPacket(workflow, facts, {
+    authorities: workflow.resolution?.approvalAuthorities ?? config.approvalAuthorities, actor, at, requestedPhase
+  });
+}

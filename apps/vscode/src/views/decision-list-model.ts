@@ -181,7 +181,8 @@ export function buildDecisionListView(packet: DecisionPacket | null, {
   }
   const items = packet.items.map((item): DecisionItemRow => {
     const options = ordered(item.options).map(optionRow);
-    const allowed = item.decidedBy?.allowed === true && options.some((option) => option.choosable);
+    // Theirs when they may choose an option here or take one of its steps themselves (a command to run).
+    const allowed = item.decidedBy?.allowed === true && options.some((option) => option.choosable || option.yours !== null);
     return {
       id: item.id, kind: item.kind, title: item.title, why: item.why,
       who: item.decidedBy?.words ?? '', allowed,
@@ -192,7 +193,8 @@ export function buildDecisionListView(packet: DecisionPacket | null, {
   return {
     available: true, workId: packet.workId, phase: packet.phase, phaseLabel: packet.phaseLabel,
     headline: packet.items.length ? packet.headline : `${packet.phaseLabel} has nothing left waiting for a decision.`,
-    rule: packet.items.length ? packet.rule ?? null : null, digest: packet.packetSha256,
+    // The verdict rule is about conformance verdicts: shown only beside them.
+    rule: packet.items.some((item) => ['conformance-gap', 'upstream-issue'].includes(item.kind)) ? packet.rule ?? null : null, digest: packet.packetSha256,
     nothingToDecide: packet.items.length === 0,
     items,
     unavailable: (packet.unavailable ?? []).map((entry) => `${entry.phase ?? 'A step'}'s report could not be read (${entry.reason ?? 'unreadable'}).`),

@@ -440,6 +440,19 @@ export interface StoryWorkflow {
 }
 
 /**
+ * What every surface shows of a Story's one decision list (SPEC-OAP M3): how many items are open,
+ * the approval included, and the first one. Read only through `pendingListOf` (decisions.ts).
+ */
+export interface PendingListView {
+  open: number;
+  headline: string;
+  next: { item: string; kind: string; title: string; command: string; copilotCommand?: string } | null;
+  items: Array<{ id: string; kind: string; title: string; holdsApproval: boolean; machine?: boolean; yours: boolean }>;
+  command: string;
+  copilotCommand: string;
+}
+
+/**
  * The engine-owned answer to "may this exact phase generation be submitted?".
  *
  * Hosts must read `lifecycleReady` as an explicit boolean. A document on disk or a positive
@@ -470,6 +483,8 @@ export interface SubmissionReadiness {
   decisions?: { count: number; headline: string; copilotCommand?: string };
   /** Whether approving the step awaiting approval would pass, and who clears each hold (SPEC-OAP M1). */
   approvalCheck?: unknown;
+  /** The one decision list's count and first item (SPEC-OAP M3); every surface shows these. */
+  pending?: PendingListView;
   reason?: string;
   /** Values the decision after this phase reads; a host asks for them before submitting. */
   decisionInputs?: DecisionInputSpec[];

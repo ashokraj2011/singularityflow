@@ -69,6 +69,8 @@ function facts(workflow, overrides = {}) {
     activeReuse: [], candidates: [candidate], reuseProblems: [], testRisks: [], unavailable: [], state: { upstreamIssues: 2 }, ...overrides };
 }
 const actor = { name: 'Release Person', email: 'release@example.invalid', login: null };
+// The step's approval is the list's last item (SPEC-OAP M3); counts here are of the decisions before it.
+const decisionsOf = (packet) => packet.items.filter((item) => item.kind !== 'approval');
 const packetOf = (workflow, extra = {}, who = actor) => decisionPacket(workflow, facts(workflow, extra),
   { authorities: workflow.resolution.approvalAuthorities, actor: who, at: AT });
 
@@ -79,7 +81,7 @@ test('a gap and the issue that names it are one item; the superseded original ne
   assert.equal(groups[0].issue.id, 'UPI-002');
   const packet = packetOf(workflow);
   assert.equal(packet.headline, 'Release can\'t be approved yet: 1 decision needed.');
-  assert.equal(packet.items.length, 1);
+  assert.equal(decisionsOf(packet).length, 1);
   const [item] = packet.items;
   assert.equal(item.title, 'REQ-001 is partial in the Release report');
   assert.equal(item.why, 'The Release report marks REQ-001 partial; Implementation owns the linked upstream problem. No run by Verification is recorded, and the code '
@@ -136,7 +138,7 @@ test('an unraised gap is reported against its owning step first, then decided by
 
 test('an open issue no gap names is listed at the Story\'s end; accepting it is recommended only when a reused run covers it', () => {
   const workflow = story();
-  const lonely = packetOf(workflow, { gaps: [] }).items;
+  const lonely = decisionsOf(packetOf(workflow, { gaps: [] }));
   assert.equal(lonely.length, 1);
   assert.equal(lonely[0].kind, 'upstream-issue');
   assert.equal(lonely[0].title, 'REQ-001: a problem reported in Implementation');
@@ -144,10 +146,10 @@ test('an open issue no gap names is listed at the Story\'s end; accepting it is 
   const covered = packetOf(workflow, { gaps: [], activeReuse: [{ id: 'ERU-001', phase: 'verification', clauses: ['BIN-501:REQ-001'] }] }).items[0];
   assert.deepEqual(covered.options.map((entry) => [entry.id, entry.recommended]).slice(0, 1), [['accept-risk', true]]);
   assert.match(covered.why, /The recorded run accepted for Verification already covers it\./u);
-  assert.equal(packetOf(workflow, { gaps: [], endsStory: false }).items.length, 0, 'before the end, an issue blocks nothing here');
+  assert.equal(decisionsOf(packetOf(workflow, { gaps: [], endsStory: false })).length, 0, 'before the end, an issue blocks nothing here');
   // Once the replacement is decided, nothing remains: the superseded original owes nothing.
   workflow.upstreamIssueDecisions.push({ issue: 'UPI-002', outcome: 'accept-risk', expiresAt: '2026-11-18T00:00:00.000Z', reason: 'x'.repeat(20) });
-  assert.equal(packetOf(workflow, { gaps: [] }).items.length, 0);
+  assert.equal(decisionsOf(packetOf(workflow, { gaps: [] })).length, 0);
 });
 
 test('who decides: an option needing a group the person lacks names only that group and the line to share', () => {

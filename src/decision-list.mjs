@@ -393,11 +393,208 @@ function testCommandItem(workflow, context, request) {
 }
 
 /**
+ * Who takes a person's own step: the approval groups it needs, whether this identity holds one, and,
+ * when it does not, who does (their labels and up to five members) and the line to share with them.
+ */
+function stepDecidedBy(workflow, { authorities, actor }, groups, words) {
+  if (!groups?.length) return { groups: [], labels: [], allowed: true, words };
+  let registry = null;
+  try { registry = normalizeApprovalAuthorities(authorities); } catch { registry = null; }
+  const labels = groups.map((id) => groupLabel(registry, id));
+  let allowed = false;
+  try { allowed = matchApprovalAuthority(authorities, { authorities: groups }, actor).authorized; } catch { allowed = false; }
+  if (allowed) return { groups, labels, allowed: true, words: `You may do this (${listWords(labels)}). ${words}` };
+  const people = [...new Set(groups.flatMap((id) => (registry?.[id]?.members ?? []).map((member) => member.name ?? member.email ?? member.githubLogin)))].slice(0, 5);
+  return { groups, labels, allowed: false, ...(people.length ? { people } : {}),
+    words: `The ${listWords(labels)}${people.length ? ` (${listWords(people)})` : ''} decide this; ask them.`,
+    share: `/sf-decide ${workflow?.workItem?.id ?? '<WORK-ID>'}` };
+}
+
+/** One item that is a person's own step, with who takes it. */
+function stepItem(workflow, context, { kind, title, why, groups = [], options, details }) {
+  const steps = options.map((entry) => ({ ...personalStep(entry), decidedBy: stepDecidedBy(workflow, context, groups, entry.words) }));
+  return { kind, title, why, options: steps, details: { ...details, commands: steps.map((entry) => entry.action.command) } };
+}
+
+const approvers = (workflow, phaseId) => issueGroups(workflow, phaseId);
+
+/** The workflow's own routing decision waiting after a step (`decision choose`). */
+function routingItem(workflow, context, pending) {
+  const workId = workflow.workItem.id;
+  const after = stepName(workflow, pending.after);
+  return stepItem(workflow, context, {
+    kind: 'routing-decision', title: `Choose where ${workId} goes after ${after}: ${pending.label ?? pending.decision}`,
+    why: `${pending.reason ? `${pending.reason} ` : ''}The workflow waits for this choice before it moves on.`,
+    groups: pending.by ?? [],
+    options: (pending.options ?? []).map((choice) => ({ id: `choose-${choice.id}`, label: `${choice.label ?? choice.id}${choice.to ? ` (goes to ${stepName(workflow, choice.to)})` : ''}`,
+      command: `singularity-flow decision choose ${workId} --fetch --option ${choice.id} --reason "<why>" --expected ${pending.key}`,
+      words: 'You choose in your own terminal with a reason; nothing is chosen here.' })),
+    details: { key: pending.key, decision: pending.decision, after: pending.after }
+  });
+}
+
+/**
+ * An intent amendment: one proposed and still undecided (the scope step's approvers decide it), or
+ * one approved whose changed clauses the current step has not acknowledged yet.
+ */
+function intentAmendmentItem(workflow, context, amendment) {
+  const workId = workflow.workItem.id;
+  const clauses = listWords((amendment.changedClauses ?? []).map((clause) => clauseName(workflow, clause))) || 'the approved scope';
+  const status = `singularity-flow story intent-amendment status --work-id ${workId} --json`;
+  if (amendment.status === 'approved') {
+    return stepItem(workflow, context, {
+      kind: 'intent-amendment', title: `Acknowledge intent amendment ${amendment.id}`,
+      why: `${amendment.id} was approved and changed ${clauses}. The steps it reopened revalidate after someone acknowledges it.`,
+      options: [{ id: 'acknowledge', label: `I read ${amendment.id}: acknowledge it`,
+        command: `singularity-flow story intent-amendment acknowledge ${amendment.id} --work-id ${workId}`,
+        words: 'You acknowledge it in your own terminal after reading it; nothing is recorded here.' }],
+      details: { amendment: amendment.id, status: 'approved', statusCommand: status }
+    });
+  }
+  const scope = context.facts.scopePhase ?? null;
+  const decide = (decision) => `singularity-flow story intent-amendment decide ${amendment.id} --decision ${decision} --confirm ${amendment.id} --work-id ${workId}`;
+  return stepItem(workflow, context, {
+    kind: 'intent-amendment', title: `Decide intent amendment ${amendment.id}`,
+    why: `${amendment.id} proposes changing ${clauses}. Rejecting it keeps every submission as it is; approving it changes the approved clauses, so the steps that cite them reopen.`,
+    groups: scope ? approvers(workflow, scope) : [],
+    options: [
+      { id: 'reject', label: `Reject ${amendment.id}`, command: decide('reject'), words: 'Decided in your own terminal; an agent cannot decide it.' },
+      { id: 'approve', label: `Approve ${amendment.id}`, command: decide('approve'), words: 'Decided in your own terminal; an agent cannot decide it.' }
+    ],
+    details: { amendment: amendment.id, status: 'proposed', scopePhase: scope, statusCommand: status }
+  });
+}
+
+/** A forward amendment or a revalidation it asked for, as the Story's ending reads them. */
+function forwardAmendmentItem(workflow, context, blocker) {
+  const revalidation = blocker.code === 'AMENDMENT_REVALIDATION_REQUIRED';
+  return stepItem(workflow, context, {
+    kind: 'forward-amendment', title: revalidation ? `Revalidate ${stepName(workflow, blocker.phase)} after ${blocker.amendment}` : `Decide forward amendment ${blocker.amendment}`,
+    why: blocker.message, groups: approvers(workflow, blocker.phase),
+    options: [{ id: revalidation ? 'revalidate' : 'decide', label: revalidation ? 'Revalidate it' : 'Approve or reject it',
+      command: blocker.command, words: 'Decided in your own terminal by an approver of that step.' }],
+    details: { code: blocker.code, amendment: blocker.amendment, phase: blocker.phase }
+  });
+}
+
+/** An exact-diff appeal of the current step that waits for a person. */
+function appealItem(workflow, context, appeal) {
+  return stepItem(workflow, context, {
+    kind: 'appeal', title: `Review appeal ${appeal.id} on ${stepName(workflow, appeal.phaseId)}`,
+    why: `The appeal is ${String(appeal.status).replaceAll('-', ' ')}. An approver reviews the exact diff and accounts for the scope or requests changes; no check is waived.`,
+    groups: approvers(workflow, appeal.phaseId),
+    options: [{ id: 'review', label: 'Review the appeal', command: appeal.command, words: 'Reviewed in your own terminal (/sf-appeal shows it).' }],
+    details: { appeal: appeal.id, phase: appeal.phaseId, status: appeal.status }
+  });
+}
+
+/** A sign-off or scope disposition an approved step owes the Story's ending; it does not hold this step. */
+function owedItem(workflow, context, entry) {
+  const witness = entry.kind === 'witness';
+  return stepItem(workflow, context, {
+    kind: 'owed-decision', title: witness ? `Sign off ${clauseName(workflow, entry.clauseId)} (${entry.method})` : `Decide scope item ${entry.id}`,
+    why: witness ? `An approver of ${listWords(entry.owners.map((id) => stepName(workflow, id)))} inspects ${listWords(entry.files)} and signs it off; the Story cannot end without it.`
+      : `${entry.text ? `"${entry.text}" ` : ''}needs a link or a disposition from an approver of the step that defines the scope before the Story ends.`,
+    groups: witness ? [...new Set(entry.owners.flatMap((id) => approvers(workflow, id)))] : [],
+    options: [{ id: witness ? 'witness' : 'disposition', label: witness ? 'Sign it off after inspecting it' : 'Link or disposition it',
+      command: entry.command ?? `singularity-flow evidence matrix ${workflow.workItem.id} --json`, words: 'Only a person records it; an agent never answers it.' }],
+    details: witness ? { clause: entry.clauseId, slot: entry.slot } : { scopeItem: entry.id }
+  });
+}
+
+/** What Singularity Flow finishes itself and could not: shown only after the automatic attempt failed. */
+function machineItem(workflow, entry) {
+  const sync = entry.intentId ? `singularity-flow sync ${entry.intentId}` : `singularity-flow sync ${workflow.workItem.id}`;
+  return {
+    kind: entry.intentId ? 'transport-intent' : 'story-publication', machine: true,
+    title: entry.intentId ? `Publish the retained upload ${entry.intentId}` : `Publish ${workflow.workItem.id}'s retained commit`,
+    why: `${entry.cause ?? 'The automatic publication did not land.'} Singularity Flow retries it with sync once the cause is fixed.`,
+    options: [{ ...personalStep({ id: 'sync', label: 'Publish it', command: sync, words: 'sync publishes what was not published; nothing is decided here.' }) }],
+    details: { ...(entry.intentId ? { intent: entry.intentId, status: entry.status } : { commit: entry.commit ?? null }), commands: [sync] }
+  };
+}
+
+/** A refusal approval names that no other item carries, with the route the approval check gives it. */
+function holdItem(workflow, kind, hold) {
+  const command = hold.action?.command ?? `singularity-flow phase show ${workflow.currentPhase} --work-id ${workflow.workItem.id} --json`;
+  return {
+    kind, title: hold.summary.split(/(?<=[.!?])\s/u)[0].slice(0, 200), why: `${hold.who}: ${hold.summary}`,
+    options: [{ ...personalStep({ id: 'route', label: hold.action?.label || hold.who, command, words: hold.who }) }],
+    details: { code: hold.code, owner: hold.owner, commands: [command] }
+  };
+}
+
+/** The step's approval itself: always the list's last item, so the first open item is what to do next. */
+function approvalItem(workflow, context, phase, { heldBy, youDecide }) {
+  const workId = workflow.workItem.id;
+  const name = stepName(workflow, phase.id);
+  const approvals = (phase.approvals ?? []).filter((entry) => !entry.invalidatedAt && entry.decision === 'approved').length;
+  const minimum = phase.approvalPolicy?.minimum ?? 1;
+  const waiting = heldBy.length ? `It waits for ${listWords(heldBy)} first.` : 'Nothing above holds it.';
+  return {
+    kind: 'approval', title: `Approve ${name}`,
+    why: `${approvals} of ${minimum} approval${minimum === 1 ? '' : 's'} recorded. ${waiting}${youDecide.length ? ` You answer ${youDecide.length === 1 ? 'one question' : `${youDecide.length} questions`} in the approval itself.` : ''}`,
+    options: [{ ...personalStep({ id: 'approve', label: heldBy.length ? `Approve ${name} once ${listWords(heldBy)} ${heldBy.length === 1 ? 'is' : 'are'} done` : `Review and approve ${name}`,
+      command: `singularity-flow approve ${phase.id} --work-id ${workId} --fetch`, words: 'You review it and confirm once in your own terminal, in VS Code or with /sf-approve.' }),
+    decidedBy: stepDecidedBy(workflow, context, approvers(workflow, phase.id), 'You review it and confirm once.') }],
+    details: { phase: phase.id, generation: Number(phase.generation ?? 0), approvals, minimum, heldBy, youDecide, ready: !heldBy.length,
+      commands: [`singularity-flow approve ${phase.id} --work-id ${workId} --fetch`] }
+  };
+}
+
+/**
  * The item kinds approval refuses for while they are open (CONFORMANCE_BLOCKING_VERDICTS, the
  * Story's final evaluation): the ones pendingDecisionSummary counts. Screen sizes, test-run risks
  * and test-command requests are decided while a step is open, never at its approval.
  */
 export const APPROVAL_HOLDING_KINDS = Object.freeze(['conformance-gap', 'upstream-issue', 'evidence-obligation']);
+
+/**
+ * Every place that once listed pending work on its own (SPEC-OAP, "What a person meets today") and
+ * the item kinds that carry it on this one list [SPEC-OAP M3]. A `machine` concept is one Singularity
+ * Flow finishes itself; a person sees it only when the automatic attempt failed. `codes` are the
+ * approval-check holds that carry a concept with no reader of its own. Guard:
+ * test/oap-m3-one-list.test.mjs.
+ */
+export const PENDING_CONCEPTS = Object.freeze({
+  'unpushed-commits': Object.freeze({ kinds: ['story-publication'], machine: true }),
+  'transport-intents': Object.freeze({ kinds: ['transport-intent'], machine: true }),
+  'decision-list': Object.freeze({ kinds: ['conformance-gap', 'upstream-issue', 'visual-profile', 'test-run-risk', 'test-command', 'evidence-obligation'] }),
+  'routing-decision': Object.freeze({ kinds: ['routing-decision'] }),
+  'owed-witnesses-and-scope-items': Object.freeze({ kinds: ['owed-decision', 'evidence-obligation'] }),
+  'intent-amendments': Object.freeze({ kinds: ['intent-amendment'] }),
+  'forward-amendments': Object.freeze({ kinds: ['forward-amendment'] }),
+  appeals: Object.freeze({ kinds: ['appeal'] }),
+  'repair-journal': Object.freeze({ kinds: ['approval-hold'], codes: ['PHASE_REPAIR_RECHECK_REQUIRED', 'PHASE_REPAIR_JOURNAL_INVALID'] }),
+  'trp-risks': Object.freeze({ kinds: ['approval-hold'], codes: ['TRP_DOCUMENT_GATE_BLOCKED', 'TRP_PHASE_GATE_BLOCKED'] }),
+  'quality-risks': Object.freeze({ kinds: ['approval-hold'], codes: ['ARTIFACT_AUTHORING_INCOMPLETE', 'PHASE_VALIDATION_FAILED'] })
+});
+
+/** Approval-check holds another item already carries: the approval names that item instead of repeating it. */
+const HOLD_KINDS = Object.freeze({
+  APPROVAL_INTENT_AMENDMENT_PENDING: 'intent-amendment', INTENT_AMENDMENT_ACKNOWLEDGEMENT_REQUIRED: 'intent-amendment',
+  DECISION_REQUIRED: 'routing-decision', PHASE_APPEAL_REVIEW_REQUIRED: 'appeal', PHASE_APPEAL_INTEGRITY: 'appeal',
+  STORY_PUBLICATION_PENDING: 'story-publication', CONFORMANCE_BLOCKING_VERDICTS: 'conformance-gap', STORY_COMPLETION_REFUSED: 'conformance-gap'
+});
+
+/**
+ * The item kind that carries one approval-check hold: its own item kind, the approval itself for an
+ * answer this approver gives in the approval (`you-decide`), a test-run risk for a lapsed one, and
+ * otherwise a hold item of its own.
+ */
+export function holdItemKind(hold) {
+  if (hold.owner === 'you-decide') return 'approval';
+  if (HOLD_KINDS[hold.code]) return HOLD_KINDS[hold.code];
+  return /test-run risk/iu.test(hold.summary ?? '') && hold.owner === 'someone-decides' ? 'test-run-risk' : 'approval-hold';
+}
+
+// The kinds whose items are decided on this list itself; the digest binds their words and options.
+const DECIDED_HERE = new Set(['conformance-gap', 'upstream-issue', 'visual-profile', 'test-run-risk', 'test-command', 'evidence-obligation']);
+
+/** Every item kind this list builds. */
+export const PENDING_ITEM_KINDS = Object.freeze(['story-publication', 'routing-decision', 'intent-amendment', 'forward-amendment', 'appeal',
+  'conformance-gap', 'upstream-issue', 'visual-profile', 'test-run-risk', 'test-command', 'evidence-obligation', 'owed-decision',
+  'approval-hold', 'transport-intent', 'approval']);
 
 /** The commands a person or script uses to record, with the packet digest. */
 export function decisionRecordCommand(workId, { phaseId = null, choices = [], digest, values = {} } = {}) {
@@ -417,45 +614,76 @@ export function decisionRecordCommand(workId, { phaseId = null, choices = [], di
  */
 export function decisionPacket(workflow, facts, { authorities, actor, at, requestedPhase = null } = {}) {
   const context = { workflow, facts, authorities, actor, at };
+  const phase = workflow.phases?.[facts.phaseId] ?? null;
+  const awaiting = phase?.status === 'awaiting_approval';
+  const pending = facts.pending ?? {};
   const groups = decisionGroups(workflow, { gaps: facts.gaps, issues: facts.issues, includeAllIssues: facts.endsStory === true });
-  const built = [
+  const listed = [
+    ...(pending.publication ? [machineItem(workflow, pending.publication)] : []),
+    ...(pending.routing ? [routingItem(workflow, context, pending.routing)] : []),
+    ...(pending.intentAmendments ?? []).map((amendment) => intentAmendmentItem(workflow, context, amendment)),
+    ...(pending.forwardAmendments ?? []).map((blocker) => forwardAmendmentItem(workflow, context, blocker)),
+    ...(pending.appeals ?? []).map((appeal) => appealItem(workflow, context, appeal)),
     ...groups.map((group) => (group.kind === 'conformance-gap' ? gapItem(workflow, context, group) : issueItem(workflow, context, group.state))),
     ...(facts.visual ?? []).map((entry) => visualItem(workflow, context, entry)),
     ...(facts.testRisks ?? []).map((risk) => testRiskItem(workflow, context, risk)),
     ...(facts.testCommands ?? []).map((request) => testCommandItem(workflow, context, request)),
-    ...(facts.evidence ?? []).map((entry) => evidenceItem(workflow, context, entry))
+    ...(facts.evidence ?? []).map((entry) => evidenceItem(workflow, context, entry)),
+    ...(pending.owed ?? []).map((entry) => owedItem(workflow, context, entry))
   ];
+  // Each refusal approval names that no item carries becomes an item of its own; the approval itself
+  // names the rest, so the list and the approval check never disagree [SPEC-OAP M3].
+  const holds = awaiting ? (facts.approvalCheck?.holds ?? []) : [];
+  const carried = new Set(listed.map((item) => item.kind));
+  const extra = holds.filter((hold) => holdItemKind(hold) !== 'approval' && !carried.has(holdItemKind(hold)))
+    .map((hold) => holdItem(workflow, holdItemKind(hold) === 'test-run-risk' ? 'test-run-risk' : 'approval-hold', hold));
+  const heldKinds = new Set(holds.filter((hold) => hold.owner !== 'you-decide').map(holdItemKind));
+  const held = (item) => APPROVAL_HOLDING_KINDS.includes(item.kind) || extra.includes(item) || (awaiting && heldKinds.has(item.kind)
+    && (!item.details?.amendment || holds.some((hold) => String(hold.summary).includes(item.details.amendment))));
+  const built = [...listed, ...extra, ...(pending.transport ?? []).map((entry) => machineItem(workflow, entry))];
   const items = built.map((item, index) => {
     // Recommended first, then in the order built.
     const options = [...item.options].sort((left, right) => Number(right.recommended) - Number(left.recommended));
-    return { id: `d${index + 1}`, ...item, options, decidedBy: itemDecidedBy(workflow, options),
-      holdsApproval: APPROVAL_HOLDING_KINDS.includes(item.kind) };
+    return { id: `d${index + 1}`, ...item, options, decidedBy: itemDecidedBy(workflow, options), holdsApproval: held(item) };
   });
-  // The decisions approval refuses for: what pendingDecisionSummary counts for readiness, next steps
-  // and the refusal, so every surface says the same number.
-  const holding = items.filter((item) => item.holdsApproval).length;
+  if (awaiting) {
+    const approval = approvalItem(workflow, context, phase, { heldBy: items.filter((item) => item.holdsApproval).map((item) => item.id),
+      youDecide: holds.filter((hold) => hold.owner === 'you-decide').map((hold) => hold.summary) });
+    items.push({ id: `d${items.length + 1}`, ...approval, decidedBy: itemDecidedBy(workflow, approval.options), holdsApproval: false });
+  }
+  // The decisions approval refuses for: what pendingDecisionSummary counts for readiness and the
+  // refusal (SPEC-OAP D5). `open` counts every item, the approval included: what every surface shows.
+  const holding = items.filter((item) => APPROVAL_HOLDING_KINDS.includes(item.kind)).length;
   const workId = workflow.workItem.id;
   const phaseId = facts.phaseId;
   const bound = {
     revision: DECISION_LIST_REVISION, workId, phase: phaseId, at: String(at).slice(0, 10),
-    items: items.map(({ id, kind, title, why, options, details }) => ({ id, kind, title, why, details,
-      options: options.map(({ id: optionId, label, recommended, effects, needs, decidedBy: who }) => ({ id: optionId, label, recommended, effects, needs, groups: who.groups })) })),
+    // A person's own step and a refusal's words are not confirmed here: bound by what they are, not their prose.
+    items: items.map(({ id, kind, title, why, options, details }) => (DECIDED_HERE.has(kind) && !details?.code ? { id, kind, title, why, details,
+      options: options.map(({ id: optionId, label, recommended, effects, needs, decidedBy: who }) => ({ id: optionId, label, recommended, effects, needs, groups: who.groups })) }
+      : { id, kind, details: Object.fromEntries(Object.entries(details ?? {}).filter(([key]) => key !== 'commands')) })),
     state: facts.state ?? null
   };
   const digest = `sha256:${recordSha256(bound)}`;
   const phaseOption = requestedPhase && requestedPhase !== workflow.currentPhase ? phaseId : null;
   const recommended = items.filter((item) => item.decidedBy.allowed).map((item) => [item.id, item.options.find((entry) => entry.recommended && entry.decidedBy.allowed)?.id])
     .filter(([, chosen]) => chosen);
-  const others = items.length - holding;
-  const awaiting = workflow.phases?.[phaseId]?.status === 'awaiting_approval';
-  const headline = !awaiting || !others ? decisionHeadline(workflow, phaseId, items.length)
-    : holding ? `${decisionHeadline(workflow, phaseId, holding)} ${others === 1 ? '1 other decision does' : `${others} other decisions do`} not hold its approval.`
-      : `${stepName(workflow, phaseId)} has ${others === 1 ? '1 open decision' : `${others} open decisions`}; none holds its approval.`;
+  const decisions = items.filter((item) => item.kind !== 'approval' && !item.machine);
+  const holdingAll = decisions.filter((item) => item.holdsApproval).length;
+  const others = decisions.length - holdingAll;
+  const headline = !decisions.length && awaiting ? `${stepName(workflow, phaseId)} has nothing left to decide; its approval is next.`
+    : !awaiting || !others ? decisionHeadline(workflow, phaseId, decisions.length)
+      : holdingAll ? `${decisionHeadline(workflow, phaseId, holdingAll)} ${others === 1 ? '1 other decision does' : `${others} other decisions do`} not hold its approval.`
+        : `${stepName(workflow, phaseId)} has ${others === 1 ? '1 open decision' : `${others} open decisions`}; none holds its approval.`;
+  const [first] = items;
   return {
     schemaVersion: 1, resultType: 'sflow-decisions', revision: DECISION_LIST_REVISION,
-    workId, phase: phaseId, phaseLabel: stepName(workflow, phaseId), status: items.length ? 'decisions-needed' : 'nothing-to-decide',
+    workId, phase: phaseId, phaseLabel: stepName(workflow, phaseId), status: decisions.length ? 'decisions-needed' : 'nothing-to-decide',
     headline, rule: CONFORMANCE_GAP_RULE,
-    items, holding,
+    items, holding, open: items.length,
+    // What to do next: the first open item, with its first route.
+    next: first ? { item: first.id, kind: first.kind, title: first.title, command: first.options[0]?.action?.command ?? `singularity-flow decisions ${workId}`,
+      copilotCommand: first.kind === 'approval' ? `/sf-approve ${phaseId} --work-id ${workId}` : `/sf-decide ${workId}` } : null,
     packetSha256: digest,
     record: {
       form: `singularity-flow decisions record ${workId}${phaseOption ? ` --phase ${phaseOption}` : ''} --choose <ITEM>=<OPTION> [--reason <ITEM>=TEXT] [--expires <ITEM>=YYYY-MM-DD] [--cause <ITEM>=TEXT] --confirm ${digest}`,
@@ -464,6 +692,21 @@ export function decisionPacket(workflow, facts, { authorities, actor, at, reques
       share: `/sf-decide ${workId}`
     },
     ...(facts.unavailable?.length ? { unavailable: facts.unavailable } : {})
+  };
+}
+
+/**
+ * What every surface shows of the list [SPEC-OAP M3]: how many items are open (the approval
+ * included), the first one, and each item's kind, title and whether it holds the approval. The
+ * inbox, Reviews, the Navigator, next steps and the journey count from this, never from a reader
+ * of their own.
+ */
+export function pendingSummary(packet) {
+  return {
+    open: packet.open, headline: packet.headline, next: packet.next,
+    items: packet.items.map(({ id, kind, title, holdsApproval, machine, decidedBy }) => ({ id, kind, title, holdsApproval,
+      ...(machine ? { machine: true } : {}), yours: decidedBy?.allowed === true })),
+    command: `singularity-flow decisions ${packet.workId}`, copilotCommand: `/sf-decide ${packet.workId}`
   };
 }
 

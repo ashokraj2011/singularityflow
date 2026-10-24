@@ -377,7 +377,7 @@ export function workflowNextSteps(workflow, {
   return withDecisionList(workflow, phase, actions, held);
 }
 
-export function nextStepsSnapshot({ initialized = true, branch = null, requestedWorkId = null, workflow = null, publicationPending = false, recovery = null, prerequisites = [], modelMode = ambientModelMode(), stepActionHold = null, sourceReviewEvidence = null, authoringProgress = null, repositoryHost = null, pendingDecisions = undefined, visualCoverageHold = null, mcpHold = null, approvalCheck = null } = {}) {
+export function nextStepsSnapshot({ initialized = true, branch = null, requestedWorkId = null, workflow = null, publicationPending = false, recovery = null, prerequisites = [], modelMode = ambientModelMode(), stepActionHold = null, sourceReviewEvidence = null, authoringProgress = null, repositoryHost = null, pendingDecisions = undefined, visualCoverageHold = null, mcpHold = null, approvalCheck = null, pending = null } = {}) {
   if (!initialized) return {
     schemaVersion: 1,
     state: 'not_initialized',
@@ -420,6 +420,7 @@ export function nextStepsSnapshot({ initialized = true, branch = null, requested
     ...(contextBoundary ? { contextBoundary } : {}),
     ...(stepActionHold?.missing?.length ? { stepActionHold } : {}),
     ...(mcpHold?.actions?.length ? { mcpHold } : {}),
+    ...(pending ? { pending } : {}),
     actions: contextBoundary ? actions.map(entry => ({ ...entry,
       ...(entry.timing === 'now' ? { copilotTiming: 'after-context-boundary' } : {}) })) : actions
   };
@@ -432,6 +433,7 @@ export function nextStepsText(snapshot) {
     snapshot.branch ? `Branch: ${snapshot.branch}` : null,
     snapshot.currentPhase ? `Current phase: ${snapshot.currentPhase}` : null,
     snapshot.workId ? 'Guided router: Copilot /sf-next · Shell singularity-flow next' : null,
+    ...(snapshot.pending?.open ? [`Open on the decision list: ${snapshot.pending.open} — first: ${snapshot.pending.next.title} (${snapshot.pending.command})`] : []),
     ''
   ].filter((line) => line !== null);
   if (snapshot.contextBoundary) lines.push(...formatContextBoundaryHandoff(snapshot.contextBoundary),

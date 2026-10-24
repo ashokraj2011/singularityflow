@@ -108,9 +108,20 @@ export async function submissionReadiness(root, config, workflow, options = {}) 
   // while the step is reviewed rather than first by the refusal [SPEC-OAP M1]. Advisory:
   // classification and routes are unchanged.
   const phase = readiness.phaseId ? workflow?.phases?.[readiness.phaseId] : null;
-  if (phase?.status !== 'awaiting_approval') return readiness;
-  const advisories = await (await import('./approval-check.mjs')).approvalAdvisories(root, config, workflow, phase);
-  return advisories ? { ...readiness, ...advisories } : readiness;
+  const advisories = phase?.status === 'awaiting_approval'
+    ? await (await import('./approval-check.mjs')).approvalAdvisories(root, config, workflow, phase) : null;
+  const result = advisories ? { ...readiness, ...advisories } : readiness;
+  // The one list's count and first item, which every editor surface shows [SPEC-OAP M3]. Asked for
+  // by the surfaces that show it, never by publish or submit.
+  if (!options.pendingList || !phase || phase.id !== workflow.currentPhase) return result;
+  try {
+    const [{ readPendingList }, { pendingSummary }] = await Promise.all([import('./decision-list-reads.mjs'), import('./decision-list.mjs')]);
+    const packet = await readPendingList(root, config, workflow, { phaseId: phase.id, reuse: false, offline: true,
+      ...(phase.status === 'awaiting_approval' ? { approvalCheck: advisories?.approvalCheck ?? null } : {}),
+      ...(readiness.owedDecisions !== undefined ? { owed: readiness.owedDecisions } : {}),
+      publication: options.pendingSynchronization === true });
+    return { ...result, pending: pendingSummary(packet) };
+  } catch { return result; }
 }
 
 async function phaseReadiness(root, config, workflow, {
@@ -428,6 +439,12 @@ export function submissionReadinessSnapshot(workflow, {
   });
 }
 
+/** The one list in two lines: how many items are open and the first one [SPEC-OAP M3]. */
+export function pendingListLines(pending) {
+  if (!pending?.open) return [];
+  return [`Open on the decision list: ${pending.open} (${pending.command}).`, `First: ${pending.next.title} — ${pending.next.command}`];
+}
+
 export function submissionReadinessText(snapshot) {
   const state = snapshot.lifecycleReady ? 'ready' : 'not ready';
   const artifactState = !snapshot.publicationRecorded
@@ -457,6 +474,7 @@ export function submissionReadinessText(snapshot) {
     ...owedDecisionLines(snapshot.owedDecisions),
     ...approvalCheckLines(snapshot.approvalCheck),
     ...blockingCommitLines(snapshot.blockingCommits),
+    ...pendingListLines(snapshot.pending),
     `Full artifact, test, policy, and evidence validation: ${snapshot.validation}`,
     snapshot.nextSkill ? `Copilot: ${snapshot.nextSkill}` : null,
     snapshot.nextCommand ? `Shell: ${snapshot.nextCommand}` : null,

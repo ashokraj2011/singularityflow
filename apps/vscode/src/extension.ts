@@ -33,7 +33,7 @@ import { IntakeCatalogCache } from './intake-catalog-cache.ts';
 import { BackgroundWorkGovernor } from './background-governor.ts';
 import type { CapabilityNode, DecisionInputSpec, RepositorySnapshot, StoryDecisionView } from './cli/snapshot.ts';
 import {
-  decisionChoiceItems, decisionChooseArgv, decisionInputPrompt, pendingDecisionSummary, submitArgvWithDecisionValues
+  decisionChoiceItems, decisionChooseArgv, decisionInputPrompt, pendingDecisionSummary, pendingListOf, submitArgvWithDecisionValues
 } from './decisions.ts';
 import { ConfigurationValidator } from './validation.ts';
 import { ConfigurationSyncAction, configurationSyncConfirmation, configurationSyncInterruptedMessage } from './views/configuration-sync-model.ts';
@@ -5161,8 +5161,10 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       : state.stale ? 'Showing the last known state — checking the repository…' : null);
     sidebar.setNavigation(deriveSidebarNavigation(workspaceEntries, state.stale || state.error ? null : state.snapshot,
       { loading: state.loading, verifiedContext: activeRepositoryContext() }));
+    // A Story's badge is its decision list's open count, as Reviews, the journey and nextsteps show it (SPEC-OAP M3).
+    const listed = state.stale || state.error ? null : pendingListOf(state.snapshot);
     sidebar.setPendingApprovals(state.stale || state.error || !state.snapshot || state.snapshot.included && !state.snapshot.included.includes('lifecycle') ? null
-      : buildApprovals(state.snapshot).pending.filter((approval) => approval.standing === 'yours').length);
+      : listed ? listed.open : buildApprovals(state.snapshot).pending.filter((approval) => approval.standing === 'yours').length, listed ? 'open on the decision list' : undefined);
     /**
      * The first read specifically, which is the one with nothing behind it.
      *

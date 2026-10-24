@@ -981,7 +981,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     'singularityFlow.approve', 'singularityFlow.openJourney', 'singularityFlow.openCommandCenter',
     'singularityFlow.openComprehensionCenter', 'singularityFlow.openChangeExplorer',
     'singularityFlow.openCodeExplanation', 'singularityFlow.explainFileChanges', 'singularityFlow.explainChangeAtCursor',
-    'singularityFlow.openCodeExplainer', 'singularityFlow.explainCodeAtCursor', 'singularityFlow.openRepositoryKnowledge',
+    'singularityFlow.openCodeExplainer', 'singularityFlow.explainCodeAtCursor', 'singularityFlow.openRepositoryKnowledge', 'singularityFlow.showPhaseBrief',
     'singularityFlow.reviewRepositoryKnowledge',
     'singularityFlow.createSgosWorkflow', 'singularityFlow.reviewSgosMetaTool',
     'singularityFlow.reviewLocalRunner',
@@ -8783,6 +8783,19 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       await reconcileActiveWorkspaceSelection();
       const { RepositoryBriefPanel } = lazyPanels();
       return RepositoryBriefPanel.show(context, store, client);
+    },
+    // What a Story phase's prompt carries: the phase a lifecycle row names, otherwise the current one.
+    'singularityFlow.showPhaseBrief': async (node?: TreeNode) => {
+      const workflow = store.current.snapshot?.workflow;
+      if (!workflow) {
+        void showCompactWarningMessage('Start or open a Story first: a phase\'s Repository brief is read for a Story. For the whole repository, open the Repository Brief.');
+        return;
+      }
+      const phases = workflow.phaseOrder.map((id) => ({ id, label: workflow.phases[id]?.label ?? id }));
+      const phase = node?.id.match(/^story-phase:(.+):brief$/u)?.[1] ?? workflow.currentPhase ?? phases[0]?.id;
+      if (!phase) return;
+      const { PhaseBriefPanel } = lazyPanels();
+      return PhaseBriefPanel.show(client, workflow.workItem.id, phase, phases);
     },
     'singularityFlow.explainCodeAtCursor': () => showCodeExplainer(true),
     'singularityFlow.createSgosWorkflow': async () => {

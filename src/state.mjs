@@ -4601,6 +4601,7 @@ function stdoutReportCaptured(policy) {
   return policy.kind === 'test' && Array.isArray(policy.argv) && (policy.result?.adapter === 'go-test-json'
     || policy.result?.adapter === 'node-tap'
     || policy.result?.adapter === 'karma-text'
+    || (policy.result?.adapter === 'cargo-json' && /^cargo(?:\.exe)?$/iu.test(path.basename(policy.argv[0])))
     || (policy.result?.adapter === 'junit-xml'
       && policy.argv.some((argument) => argument === '--test-reporter=junit')));
 }
@@ -5581,8 +5582,10 @@ async function submitPhaseTransition(root, config, workflow, {
     const deliveryReceipt = await readJson(path.join(root, phase.deliveryEvidence.receiptPath));
     const traceabilityBindings = [];
     for (const binding of deliveryReceipt.traceability?.bindings ?? []) {
-      const execution = testExecutions.find((candidate) => testCommandCoversPath(
-        requiredTestCommands.find((command) => command.id === candidate.commandId) ?? candidate, binding.testSource));
+      // The command publication tied the test to (a package's end-to-end run, not its unit run) while it covers it.
+      const tied = deliveryReceipt.traceability?.witnesses?.find((witness) => witness.clauseId === binding.clauseId && witness.testSource === binding.testSource)?.commandId;
+      const covers = (candidate) => testCommandCoversPath(requiredTestCommands.find((command) => command.id === candidate.commandId) ?? candidate, binding.testSource);
+      const execution = testExecutions.find((candidate) => candidate.commandId === tied && covers(candidate)) ?? testExecutions.find(covers);
       if (!execution) {
         throw new SingularityFlowError(
           `Acceptance clause '${binding.clauseId}' is not bound to a passing command for '${binding.testSource}'.`,

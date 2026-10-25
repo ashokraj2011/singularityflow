@@ -88,12 +88,14 @@ export async function discoverDeclarations(root, id, files, { signal = null, run
     const parsed = await parseJunitTestSources(root, unique, { signal, runParser });
     return { profile: id, declarations: parsed.declarations, unattachedTags: parsed.unattachedTags, fileGaps: parsed.fileGaps };
   }
+  // pytest tests are read by their own scanner, loaded only for them (src/test-module-markers.mjs).
+  const scan = profile.language === 'python' ? (await import('../test-module-markers.mjs')).pytestDeclarations : scanJavaScriptDeclarations;
   const { results } = await runBoundedTaskPool(
     unique,
     async (file) => {
       const source = await readTestSource(root, file);
       if (source.error) return { file, error: source.error, scanned: null };
-      const scanned = scanJavaScriptDeclarations(source.text, { sourcePath: file, framework: profile.framework, root });
+      const scanned = scan(source.text, { sourcePath: file, framework: profile.framework, root });
       return { file, error: null, scanned };
     },
     { maxConcurrency, signal }

@@ -2,7 +2,7 @@ import path from 'node:path';
 import { recordSha256 } from '../records.mjs';
 import { SingularityFlowError } from '../util.mjs';
 import { isDotnetManifest, selectDotnetManifest } from '../dotnet-manifests.mjs';
-import { gradleBuildKind, GRADLE_TEST_TARGET_REASON } from '../gradle-manifests.mjs';
+import { androidTestVariant, gradleBuildKind, GRADLE_TEST_TARGET_REASON } from '../gradle-manifests.mjs';
 import { isXcodeManifest, SWIFT_TEST_ARGUMENTS } from '../swift-manifests.mjs';
 
 const VERSION = '1.2.0';
@@ -290,7 +290,10 @@ function detectGradle(snapshot, files) {
   const facts = []; const commands = []; const ambiguities = [];
   for (const source of roots) {
     const directory = moduleDirectory(source.path);
-    const { stack, requiresTestTarget } = gradleBuildKind(source.content);
+    const { stack, requiresTestTarget: multiplatform, android } = gradleBuildKind(source.content);
+    // An Android module's unit tests are its variant's (testDebugUnitTest), unless flavors make several.
+    const variant = android ? androidTestVariant(source.content) : null;
+    const requiresTestTarget = multiplatform || (android && !variant);
     const stackFact = fact(snapshot, 'gradle', source, '#', { kind: 'stack',
       value: stack, module: directory });
     facts.push(stackFact);
@@ -301,7 +304,7 @@ function detectGradle(snapshot, files) {
       id: `gradle-test-target:${directory}`, purpose: 'verify', scope: directory,
       candidates: [], reason: GRADLE_TEST_TARGET_REASON
     });
-    else commands.push(command(`verify-gradle-${safeId(directory)}`, 'verify', launcher, ['test'], directory, [stackFact.id], { precedence }));
+    else commands.push(command(`verify-gradle-${safeId(directory)}`, 'verify', launcher, [variant ? `test${variant}UnitTest` : 'test'], directory, [stackFact.id], { precedence }));
     commands.push(command(`build-gradle-${safeId(directory)}`, 'build', launcher, ['build'], directory, [stackFact.id], { precedence }));
   }
   return { facts, commands, ambiguities };

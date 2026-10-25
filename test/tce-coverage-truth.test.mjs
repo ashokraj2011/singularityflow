@@ -321,16 +321,18 @@ test('an Xcode project under a root package.json is refused before code is writt
     assert.notEqual(refused.status, 0, refused.text);
     assert.equal(refused.body.error.code, 'TEST_MODULE_UNCOVERED', refused.text);
     assert.match(refused.body.error.message,
-      /'ios\/App\/Value\.swift' belongs to ios\/App\.xcodeproj, an Xcode build with no supported structured test runner/u);
+      /'ios\/App\/Value\.swift' belongs to ios\/App\.xcodeproj, an Xcode project, whose tests need a scheme and a destination/u);
     assert.equal(refused.body.remediationPlan.steps[0].command, TEST_SETUP_COMMAND);
   });
 
-test('mocha tests are refused instead of being run by the node --test fallback', slowLane({ timeout: 300_000 }), async (t) => {
+test('mocha tests with no runner script are refused instead of being run by the node --test fallback', slowLane({ timeout: 300_000 }), async (t) => {
   const mocha = (AC, expected) => ["const assert = require('assert');", "const { value } = require('../lib/value.js');", '',
     "describe('value', () => {", ...(AC ? [`  // @ac:${AC}`] : []), `  it('is approved', () => assert.equal(value, ${expected}));`, '});', ''].join('\n');
   const story = await implementationStory(t, 'TCE-3', {
     files: {
-      'package.json': JSON.stringify({ private: true, scripts: { test: 'mocha' } }),
+      // A package script running mocha now infers mocha itself (test/tce-ecosystems.test.mjs); without one,
+      // only the node --test fallback is left, and it refuses a file that does not import node:test.
+      'package.json': JSON.stringify({ private: true }),
       'lib/value.js': 'exports.value = 1;\n', 'test/value.test.js': mocha(null, 1)
     },
     expected: ['lib/value.js'], tests: ['test/value.test.js'], readiness: false

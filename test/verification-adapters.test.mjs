@@ -104,8 +104,13 @@ test('test commands map to one closed adapter profile with an honest ceiling', (
   assert.equal(profileForCommand(command('junit-xml', ['./mvnw', 'test'])), 'junit5-surefire-v2');
   assert.equal(profileForCommand(command('junit-xml', ['./gradlew', 'test'])), 'junit5-gradle-v2');
   assert.equal(profileForCommand(command('node-tap', ['npm', 'test'])), 'node-test-v1');
+  // Playwright's JSON report and pytest's JUnit report name each test [TCE:REQ-071, TCE:REQ-074].
+  assert.equal(profileForCommand(command('playwright-json', ['npx', 'playwright', 'test'])), 'playwright-json-v1');
+  for (const argv of [['python3', '-m', 'pytest'], ['./.venv/bin/python3', '-B', '-m', 'pytest'], ['uv', 'run', '--locked', 'python', '-m', 'pytest']]) {
+    assert.equal(profileForCommand(command('junit-xml', argv)), 'pytest-junit-v1', argv.join(' '));
+  }
   // Other adapters without native declaration/result pairing still only count tests.
-  for (const [adapter, argv] of [['junit-xml', ['node', '--test']], ['junit-xml', ['python3', '-m', 'pytest']], ['go-test-json', ['go', 'test']], ['playwright-json', ['npx', 'playwright', 'test']]]) {
+  for (const [adapter, argv] of [['junit-xml', ['node', '--test']], ['junit-xml', ['python3', 'run_checks.py']], ['go-test-json', ['go', 'test']], ['mocha-json', ['npm', 'test']]]) {
     assert.equal(profileForCommand(command(adapter, argv)), 'module-counts-v1', adapter);
   }
   assert.equal(profileIsExact('jest-static-v2'), true);

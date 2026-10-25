@@ -10,8 +10,8 @@ const CORNER_CASE_MODULE = pathToFileURL(path.join(PACKAGE_ROOT, 'src/verificati
 import { phaseRequiresCodeDelivery } from './code-delivery-policy.mjs';
 import { nextPhaseGeneration } from './phase-generation.mjs';
 import {
-  configuredTestModuleOverrides, inferModuleTestCommand, isAllowedTestAutomationPath, isExecutableTestSourcePath,
-  isSupportingTestResourcePath, isTestSourceName, persistedOccurrences, readDurableTestObservation, replayTestReports,
+  configuredTestModuleOverrides, isAllowedTestAutomationPath, isExecutableTestSourcePath,
+  isSupportingTestResourcePath, isTestSourceName, persistedOccurrences, prepareTestReportReader, readDurableTestObservation, replayTestReports,
   resolveAffectedModule, testCommandCoversPath, testReceiptPassing
 } from './code-delivery-tests.mjs';
 import {
@@ -34,7 +34,7 @@ import {
   readBoundSpecificationClaimMap, plannedProductSourcePaths
 } from './specifications.mjs';
 import {
-  commandCovering, discoverDeclarations, profileForCommand, profileIsExact, testAdapterProfile
+  discoverDeclarations, profileForCommand, profileIsExact, testAdapterProfile
 } from './verification/adapters.mjs';
 import { normalizeQualifiedClauseId } from './traceability-ids.mjs';
 import { scanSourceClauseTags } from './source-clause-tags.mjs';
@@ -703,7 +703,7 @@ export function unknownCriterionTags(criteria, {
 }
 
 function witnessIdentity(declaration) {
-  return declaration.schema === 'junit5-method-v2'
+  return declaration.schema === 'junit5-method-v2' || declaration.framework === 'pytest'
     ? { className: declaration.className, methodName: declaration.methodName, signature: declaration.signature }
     : { framework: declaration.framework, suitePath: declaration.suitePath, name: declaration.name };
 }
@@ -732,8 +732,9 @@ export async function discoverAcceptanceWitnesses(root, phase, {
   const taggedFiles = [...new Set(bindings.map((binding) => binding.testSource))].sort();
   const groups = new Map();
   const fileProfile = new Map();
+  const { commandForTestFile } = await import('./test-module-markers.mjs');
   for (const file of taggedFiles) {
-    const command = commandCovering(commands, file);
+    const command = await commandForTestFile(root, commands, file);
     const profile = command ? profileForCommand(command) : 'module-counts-v1';
     fileProfile.set(file, { profile, commandId: command?.id ?? null, resultAdapter: command?.result?.adapter ?? null });
     const key = `${profile}\u0000${command?.id ?? ''}`;
@@ -1708,20 +1709,8 @@ export async function resolveDeliveryQualityCommands(root, phase, { executionMod
     if (module) modules.set(`${module.root}:${module.system}`, module);
   }
   for (const module of modules.values()) {
-    if (moduleCoveredByConfiguredTest(module.root)) continue;
-    const command = await inferModuleTestCommand(root, module);
-    if (command) inferred.push(command);
-    if (['node', 'nx'].includes(module.system) && command?.result?.adapter !== 'playwright-json') {
-      // A unit command is not evidence that newly authored browser tests ran. Add one unambiguous
-      // direct Playwright script (or Nx Playwright target) when the module declares it separately.
-      for (const nodeScript of ['test:e2e', 'test:playwright', 'e2e']) {
-        const browserCommand = await inferModuleTestCommand(root, module, { nodeScript });
-        if (browserCommand?.result?.adapter === 'playwright-json') {
-          inferred.push(browserCommand);
-          break;
-        }
-      }
-    }
+    // Each runner and level a module declares (unit, end-to-end, component) is its own run [TCE:REQ-071].
+    if (!moduleCoveredByConfiguredTest(module.root)) inferred.push(...await (await import('./test-module-markers.mjs')).moduleTestCommands(root, module));
   }
   // A recognized changed module with no supported runner must not borrow an unrelated root
   // manifest's passing tests as its own execution evidence.
@@ -1991,7 +1980,7 @@ export async function verifyCodeDeliveryReceipt(root, receipt, {
   // Each exact JavaScript witness is read again from the committed generation: the test, its
   // revision and its tag must still be what publication recorded [E2G-015].
   for (const witness of traceability.witnesses ?? []) {
-    if (!witness?.identity || !['jest-static-v2', 'vitest-static-v2', 'node-test-v1'].includes(witness.profile)) continue;
+    if (!witness?.identity || !['jest-static-v2', 'vitest-static-v2', 'node-test-v1', 'playwright-json-v1'].includes(witness.profile)) continue;
     const bytes = generationCommit && safeEvidencePath(witness.testSource) ? readGenerationFile(witness.testSource) : null;
     let declaration = null;
     try {
@@ -2193,11 +2182,14 @@ export async function verifyCodeDeliveryReceipt(root, receipt, {
       fail(`test receipt ${execution.commandId} has no durable raw report evidence`);
     } else if (replayable && replayReports.length) {
       try {
+        await prepareTestReportReader(testReceipt.adapter);
         const replay = replayTestReports(testReceipt.adapter, replayReports);
         if (canonicalJson(replay.tests) !== canonicalJson(testReceipt.tests)) {
           fail(`test receipt ${execution.commandId} module counts do not replay from its raw reports`);
         }
-        if (canonicalJson(persistedOccurrences(replay)) !== canonicalJson(testReceipt.occurrences ?? [])) {
+        // An older engine kept no Playwright occurrences; a receipt without them replays its counts alone.
+        if (canonicalJson(persistedOccurrences(replay)) !== canonicalJson(testReceipt.occurrences ?? [])
+            && (testReceipt.occurrences?.length || testReceipt.adapter !== 'playwright-json')) {
           fail(`test receipt ${execution.commandId} occurrences do not replay from its raw reports`);
         }
         if (replay.result.sha256 !== testReceipt.result?.sha256 || replay.result.bytes !== testReceipt.result?.bytes) {

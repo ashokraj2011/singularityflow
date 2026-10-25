@@ -14,12 +14,20 @@ export function gradleBuildKind(content) {
   // (application, library, test, dynamic-feature) or a catalog alias such as libs.plugins.android.application.
   const android = kotlinAndroid
     || /["']com\.android\.[A-Za-z][A-Za-z.-]*["']/u.test(declared)
-    || /\blibs\.plugins\.android(?:[.-][a-z]|[A-Z])/u.test(declared);
+    || /\blibs\.plugins\.android(?:[.-][a-z]|[A-Z])/u.test(declared) || /^\s*android\s*\{/mu.test(declared);
   return {
     stack: multiplatform ? 'kotlin-multiplatform' : kotlinAndroid ? 'kotlin-android' : android ? 'android-gradle'
       : has('jvm') ? 'kotlin-gradle' : 'java-gradle',
-    requiresTestTarget: multiplatform || android
+    // An Android module's unit tests run per variant (testDebugUnitTest) [TCE:REQ-075]; a multiplatform
+    // build's target (jvmTest, allTests) is a person's choice.
+    requiresTestTarget: multiplatform,
+    android: android && !multiplatform
   };
 }
 
-export const GRADLE_TEST_TARGET_REASON = 'Android and Kotlin multiplatform builds require an explicit test target (for example testDebugUnitTest); the JVM test task cannot be assumed.';
+/** The variant an Android module's tests run: Debug, or null when product flavors make several. */
+export function androidTestVariant(content) {
+  return /\b(?:productFlavors|flavorDimensions)\b/u.test(String(content ?? '')) ? null : 'Debug';
+}
+
+export const GRADLE_TEST_TARGET_REASON = 'Kotlin multiplatform builds, and Android builds with product flavors, require an explicit test target (for example jvmTest or testFreeDebugUnitTest); the JVM test task cannot be assumed.';

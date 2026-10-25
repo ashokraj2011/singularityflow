@@ -405,6 +405,27 @@ function readWorkflowChangedPaths(root, definition, workflow) {
 }
 
 /**
+ * How a step that defines no clauses writes clause IDs. Agent guidance numbers requirements wherever
+ * the agent runs (the product owner writes `REQ-nnn` in both intake and requirements), so an intake
+ * before the scope step wrote bare `REQ-001` labels: they look like clauses, bind nothing, and the
+ * scope step may number the same ID differently. A step that defines clauses has its anchored template.
+ */
+function clauseIdentityLines(definition, workflow, phase) {
+  const order = workflow?.phaseOrder ?? [];
+  const scopeIds = order.filter((id) => phaseOwnsScope(workflow, workflow.phases?.[id]));
+  if (!scopeIds.length || scopeIds.includes(phase.id)) return [];
+  const namespace = (workflow.resolution?.spec ?? definition.spec)?.namespace
+    ?? String(workflow.workItem?.id ?? '').toUpperCase();
+  const override = 'this overrides agent or skill guidance that numbers them.';
+  if (scopeIds.some((id) => order.indexOf(id) < order.indexOf(phase.id))) {
+    return [`- Clause IDs: this step defines no new clauses. Cite an approved clause by its full ID, such as \`${namespace}:REQ-001\`, never a bare \`REQ-001\`, and number no new \`REQ-\`/\`AC-\` items; ${override}`];
+  }
+  const names = scopeIds.map((id) => `${workflow.phases[id].label ?? id} (\`${id}\`)`);
+  const steps = names.length > 1 ? `${names.slice(0, -1).join(', ')} and ${names.at(-1)} define` : `${names[0]} defines`;
+  return [`- Clause IDs: this step defines no requirement clauses; ${steps} them later as \`[${namespace}:REQ-001]\` anchors. Write needs and success criteria as plain statements with no \`REQ-\`/\`AC-\` numbers; ${override}`];
+}
+
+/**
  * Which optional specification tables a scope step asks for: one its policy requires, its required
  * headings name or its rendered template carries. Null (no template known) keeps the full contract.
  */
@@ -456,6 +477,7 @@ export function phasePromptExecutionContract(definition, workflow, phase, { temp
     `- Required publication channel: \`${publication.channel}\``,
     `- Clarification mode: \`${clarification.mode}\`${clarification.mode === 'off' ? '; do not ask phase clarification questions or run `clarification record`' : ''}`,
     '- Clarification authority: this pinned mode overrides generic skill, agent, and template guidance.',
+    ...(deterministicOnly ? [] : clauseIdentityLines(definition, workflow, phase)),
     `- Exact publication command: \`${command}\``,
     '- Publication boundary: Use the exact configured producer, channel, and command. Never substitute a convenient authorship route.',
     ...phaseAuthoringContractLines(phaseAuthoringContract(definition, workflow, effectivePhase), {

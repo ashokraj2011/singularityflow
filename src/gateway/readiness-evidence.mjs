@@ -8,6 +8,7 @@ import { evaluateAstLifecycleGate, verifyAstLifecycleReceipt } from '../ast-life
 import { verifyClarificationRecord } from '../clarifications.mjs';
 import { normalizeExternalCommand } from '../external-command-policy.mjs';
 import { head } from '../git.mjs';
+import { publishedGenerationCommit } from '../generation-publication-store.mjs';
 import { buildRepositorySubjectIndex } from '../repository-subject-index.mjs';
 import {
   changedRepositoryPaths, evaluateSpecCoverage, loadActiveSpecRecords
@@ -128,7 +129,7 @@ async function claimsRow(root, config, workflow) {
     }, unmet ? 'fix:unclaimed-changes' : null);
 }
 
-async function publishedArtifactsRow(root, config, workflow, phase) {
+async function publishedArtifactsRow(root, config, workflow, phase, publishedCommit) {
   const requiredPath = phase?.requiredArtifact?.path ?? null;
   if (!requiredPath) return row('published-artifacts', 'met', 'policy', 'artifact:not-required', { required: 'false' });
   const expected = path.posix.join(
@@ -138,7 +139,7 @@ async function publishedArtifactsRow(root, config, workflow, phase) {
     entry.generation == null || Number(entry.generation) === Number(phase.generation)
   );
   const required = artifacts.find((entry) => entry.path === expected || entry.relativePath === expected);
-  if (!phase.generationCommit || !required) {
+  if (!publishedCommit || !required) {
     return row('published-artifacts', 'unmet', 'lifecycle', `generation:${phase.generation ?? 0}`, {
       required: 'true', published: 'false'
     }, 'fix:published-artifacts');
@@ -149,6 +150,11 @@ async function publishedArtifactsRow(root, config, workflow, phase) {
     valid ? `${required.path}:${required.sha256}` : null,
     { required: 'true', published: 'true', current: String(valid) },
     valid ? null : 'fix:published-artifacts');
+}
+
+function publishedCommitOf(root, workflow, phase) {
+  try { return publishedGenerationCommit(root, workflow, phase); }
+  catch { return null; }
 }
 
 async function reconciliationRow(root, config, workflow, phase) {
@@ -265,8 +271,11 @@ export async function evaluateReadinessEvidence(root, item) {
     if (!workflow || !phase) return unknownRows('workflow-or-phase-unavailable');
     // Quality commands run against the immutable generation commit. Submission then adds a
     // governance-only commit, so comparing them with HEAD would make every check stale the moment
-    // it was successfully submitted.
-    const revision = phase.generationCommit ?? head(root);
+    // it was successfully submitted. Submission is also what records `generationCommit`: before it,
+    // the published generation's commit comes from its publication record, as the CLI's readiness
+    // reads it. Without that, every published step read as unpublished until it was submitted.
+    const publishedCommit = phase.generationCommit ?? publishedCommitOf(root, workflow, phase);
+    const revision = publishedCommit ?? head(root);
     const guarded = async (id, evaluate) => {
       try { return await evaluate(); }
       catch (error) {
@@ -276,7 +285,7 @@ export async function evaluateReadinessEvidence(root, item) {
       }
     };
     const results = await Promise.all([
-      guarded('published-artifacts', () => publishedArtifactsRow(root, config, workflow, phase)),
+      guarded('published-artifacts', () => publishedArtifactsRow(root, config, workflow, phase, publishedCommit)),
       guarded('tests', () => checksRow(phase, revision)),
       guarded('stale-approvals', () => approvalFreshnessRow(root, workflow)),
       guarded('clarifications', () => clarificationsRow(root, config, workflow, phase)),

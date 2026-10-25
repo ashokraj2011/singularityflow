@@ -93,9 +93,10 @@ export async function approvedSpecificationStory(t, WORK, { configure = null } =
   return { directory, root, run, git, cli, item };
 }
 
-/** A Story whose planning was submitted and awaits approval, in a repository of its own. */
-export async function submittedPlanningStory(t, WORK, options = {}) {
-  const { directory, git, cli, run, item } = await approvedSpecificationStory(t, WORK, options);
+/** A Story whose planning is published and not yet submitted, in a repository of its own. */
+export async function publishedPlanningStory(t, WORK, options = {}) {
+  const story = await approvedSpecificationStory(t, WORK, options);
+  const { cli, item } = story;
   cli('prepare', 'planning');
   await writeFile(path.join(item, 'artifacts/planning/plan.md'), [
     `# ${WORK} — Implementation plan`, '',
@@ -110,6 +111,12 @@ export async function submittedPlanningStory(t, WORK, options = {}) {
   ].join('\n'));
   cli('artifact', 'scan', '--phase', 'planning');
   cli('phase', 'publish', 'planning', '--authored', 'human', '--channel', 'manual-in-place');
+  return story;
+}
+
+/** A Story whose planning was submitted and awaits approval, in a repository of its own. */
+export async function submittedPlanningStory(t, WORK, options = {}) {
+  const { directory, git, cli, run, item } = await publishedPlanningStory(t, WORK, options);
   cli('submit', 'planning', '--skip-checks');
   const submitted = git('rev-parse', 'HEAD');
   const candidate = path.join(directory, 'amended-spec.md');

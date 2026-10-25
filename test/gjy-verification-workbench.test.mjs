@@ -9,6 +9,7 @@ import { evaluateReadinessEvidence } from '../src/gateway/readiness-evidence.mjs
 import { setAgentSession } from '../src/session.mjs';
 import { createWorkflow, loadConfig } from '../src/state.mjs';
 import { run } from '../src/util.mjs';
+import { publishedPlanningStory } from './helpers/submitted-planning-story.mjs';
 
 test('the verification workbench evaluates every deterministic authority instead of omitting it', async (t) => {
   const root = await mkdtemp(path.join(os.tmpdir(), 'sflow-gjy-readiness-'));
@@ -45,4 +46,19 @@ test('the verification workbench evaluates every deterministic authority instead
     assert.equal(rows.find((row) => row.id === id).state, 'met', id);
   }
   assert.ok(rows.every((row) => ['met', 'unmet', 'unknown'].includes(row.state)));
+});
+
+test('a published step reads as published before it is submitted, as the CLI readiness reads it', async (t) => {
+  // Submission records `generationCommit`; before it the gateway called every published step
+  // unpublished, so a Copilot /sf-submit through sflow_read stopped on "publish required artifacts"
+  // while `status --submission-readiness` said ready (fact-01, 2026-10-26).
+  const { root, cli, git } = await publishedPlanningStory(t, 'GJY-PUB-1');
+  git('commit', '-q', '--allow-empty', '-m', 'A later commit, as a retained source review adds');
+  const published = (await evaluateReadinessEvidence(root, { kind: 'story', id: 'GJY-PUB-1' }))
+    .find((row) => row.id === 'published-artifacts');
+  assert.equal(published.state, 'met', JSON.stringify(published));
+  assert.equal(published.slots.published, 'true');
+  assert.match(published.evidence, /artifacts\/planning\/plan\.md:[a-f0-9]{64}$/u);
+  const readiness = JSON.parse(cli('status', 'GJY-PUB-1', '--submission-readiness', '--json').stdout);
+  assert.equal((readiness.data ?? readiness).lifecycleReady, true, 'the CLI agrees');
 });

@@ -190,6 +190,9 @@ export const ARGUMENT_SCHEMAS = Object.freeze([
     workId: required('identifier'),
     workKind: optional('enum', { values: ['story', 'initiative'] })
   }),
+  // A Story read that, unnamed, reads the Story its CLI command would: the attached one, else the
+  // one checked out (`work.progress`, `work.nextsteps`).
+  schema('work-reference-v1', { workId: optional('identifier') }),
   schema('auto-flight-v1', { flightId: required('identifier') }),
   schema('auto-story-v1', { workId: required('identifier') }),
   schema('auto-plan-v1', { planId: required('identifier') }),
@@ -388,7 +391,8 @@ export const ARGUMENT_SCHEMAS = Object.freeze([
   }),
   schema('watch-create-v1', { subjectId: required('identifier'), predicate: required('identifier') }),
   schema('watch-revoke-v1', { watchId: required('identifier') }),
-  schema('help-explain-v1', { question: required('text'), topic: optional('identifier') }),
+  // `part`: a long topic's further part, named by the read handle the kernel issued for it.
+  schema('help-explain-v1', { question: required('text'), topic: optional('identifier'), part: optional('integer', { min: 1, max: 64 }) }),
   ...hostActionSchemas()
 ]);
 

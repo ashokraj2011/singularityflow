@@ -117,7 +117,7 @@ skills:
   sflow-configuration: { class: mutation, executionBoundary: repository }
   sflow-constitution: { class: mutation, executionBoundary: repository }
   sflow-design: { class: generative, maximumTokenOverride: 916, exception: "A step may choose this skill, so it re-reads the step's verified route and follows that step's clarification mode, inputs, artifact contract and engine-computed handoff instead of assuming its original step. It continues only on its own verified route, so a built-in step changed into code or sign-off only is relayed, with the reason when the route is withheld. It keeps the guard and anti-stall sentences a 2026-10-19 budget trim had removed; never trim those to fit." }
-  sflow-docs: { class: echo, executionBoundary: machine }
+  sflow-docs: { class: echo, executionBoundary: machine, gatewayTools: true }
   sflow-evidence: { class: echo, executionBoundary: repository }
   sflow-explain: { class: conversational }
   sflow-explain-code: { class: conversational, executionBoundary: repository, kernelModelPolicy: conditional }
@@ -172,7 +172,7 @@ skills:
   sflow-grounding: { class: conversational, executionBoundary: repository }
   sflow-journal: { class: interactive, executionBoundary: machine }
   sflow-harness: { class: echo, executionBoundary: repository }
-  sflow-help: { class: conversational, executionBoundary: machine }
+  sflow-help: { class: conversational, executionBoundary: machine, gatewayTools: true }
   sflow-home: { class: guided, executionBoundary: machine, gatewayTools: true, maximumTokenOverride: 855, exception: "It keeps the guard and anti-stall sentences a 2026-10-19 budget trim had removed; never trim those to fit. Its no-request read names the SFlow tool calls (sflow_resolve, then sflow_read) beside `recommend --json` and where their answer sits (2026-10-24, gateway tools: 851)." }
   sflow-import-team: { class: guided, executionBoundary: machine }
   sflow-build-workflow: { class: guided, executionBoundary: repository, maximumTokenOverride: 900, exception: "It changes a workflow in place, explains it by its parts before changing it, names everything a piece removes with what goes with it, and settles what the material holds that the workflow does not use, so nothing leaves a workflow or a team's material unsaid (2026-10-23); never trim those to fit." }
@@ -209,13 +209,13 @@ skills:
   sflow-logs: { class: echo, executionBoundary: repository }
   sflow-mcp: { class: mutation, executionBoundary: repository, maximumTokenOverride: 861, exception: "It keeps the guard and anti-stall sentences a 2026-10-19 budget trim had removed; never trim those to fit. It also names the target-origin preview a Story started without its authorized origin needs before any smoke-checked step." }
   sflow-next: { class: mutation, kernelModelPolicy: conditional }
-  sflow-nextsteps: { class: conversational, executionBoundary: repository }
+  sflow-nextsteps: { class: conversational, executionBoundary: repository, gatewayTools: true }
   sflow-phase: { class: generative, maximumTokenOverride: 840, exception: "It drafts every step on the automatic route, so it relays any step routed to another skill with its terminal equivalent and shows why an unverified route was withheld; a chosen skill is never bypassed." }
   sflow-phase-documents: { class: echo }
   sflow-publish: { class: mutation }
   sflow-plugin: { class: mutation, executionBoundary: machine }
   sflow-pr: { class: mutation }
-  sflow-progress: { class: echo, executionBoundary: repository }
+  sflow-progress: { class: echo, executionBoundary: repository, gatewayTools: true }
   sflow-push: { class: mutation, executionBoundary: machine }
   sflow-integrations: { class: mutation, executionBoundary: repository }
   sflow-prompt-log: { class: mutation, executionBoundary: repository }

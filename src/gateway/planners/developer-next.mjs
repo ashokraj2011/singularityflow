@@ -6,11 +6,25 @@
  * turning the displayed command into ambient execution authority.
  */
 import { previewAction } from '../../action-plans.mjs';
-import { resolveSnapshot } from '../../commands/nextsteps.mjs';
+import { agentPacketPresentation } from '../../agent-packet-presentation.mjs';
+import { agentNextSteps, agentNextStepsView, resolveSnapshot } from '../../commands/nextsteps.mjs';
+import { operationContext } from '../../operation-context.mjs';
+import { subjectWith } from '../handles.mjs';
 import {
-  noEffects, plannerNavigation, plannerNavigationTarget, primaryAction, sflowResult
+  noEffects, plannerNavigation, plannerNavigationTarget, preservedAll, primaryAction, sflowResult,
+  TOOL_ANSWER_MAX_BYTES
 } from '../result.mjs';
 import { homeOverview } from './home-overview.mjs';
+
+/**
+ * The model mode whose routes a read names: the CLI run this gateway serves, else the CLI's own
+ * default. A planner itself runs model-disabled, and `nextsteps` read that as "offer only model-free
+ * publication routes", so a tool answer named `--authored human --no-model` where the same CLI
+ * command, model on, names the governed agent's route. Routes only: no model is permitted by it.
+ */
+export function routeModelMode() {
+  return operationContext()?.routeModelMode ?? { enabled: true, source: 'default' };
+}
 
 /** `kind` is the active work's: resuming an Initiative must not call it a Story. */
 function labelFor(preview, kind = null) {
@@ -114,7 +128,7 @@ export async function developerNext(input = {}) {
   let guidanceError = null;
   if (root) {
     try {
-      guidance = await resolveSnapshot(['nextsteps', workId].filter(Boolean), { root });
+      guidance = await resolveSnapshot(['nextsteps', workId].filter(Boolean), { root, modelMode: routeModelMode() });
     } catch (error) {
       guidanceError = error?.message ?? String(error);
     }
@@ -174,4 +188,68 @@ export async function developerNext(input = {}) {
       })
     }
   });
+}
+
+// ---------------------------------------------------------------------------------------------------
+// A Story's progress and next steps, as reads: the CLI's own producers, so the tool answer and the
+// command cannot disagree. `sflow progress --json` is `readProgress`; `sflow nextsteps --for-agent`
+// is the snapshot `nextsteps --json` prints (`resolveSnapshot`) seen through the agent entry's rule
+// (`agentNextSteps`, `agentNextStepsView`, then its presentation, `agentPacketPresentation`).
+// Without a work ID each reads the Story the command would: the attached one, else the one checked
+// out here.
+// ---------------------------------------------------------------------------------------------------
+
+/** What the kernel and host add to a read (the signed subject revision, the reply name). */
+const HOST_RESERVE_BYTES = 1024;
+
+function storyRead(operationId, subject, workId, phase, data, command) {
+  /**
+   * Too long for one tool answer, it is refused rather than sent: both Copilot hosts move a longer
+   * result out of the conversation (`TOOL_ANSWER_MAX_BYTES`), and a skill then runs its CLI
+   * command, whose agent view is bounded and keeps the whole result in the repository.
+   */
+  const bytes = Buffer.byteLength(JSON.stringify(data), 'utf8') + HOST_RESERVE_BYTES;
+  if (bytes > TOOL_ANSWER_MAX_BYTES) {
+    const slots = { bytes: String(bytes), limit: String(TOOL_ANSWER_MAX_BYTES), command };
+    return sflowResult({
+      kind: 'refusal',
+      operation: { id: operationId, classification: 'read' },
+      subject,
+      outcome: { status: 'refused', messageId: 'gateway.refused', slots: { work: workId ?? 'none' } },
+      effects: noEffects(),
+      why: [{ code: 'gateway.answer-too-long', source: 'deterministic', reference: workId ?? null, slots }],
+      preserved: preservedAll('work.nothing-was-carried-out', { reference: workId ?? null }),
+      restState: 'blocked'
+    });
+  }
+  return sflowResult({
+    kind: 'read',
+    operation: { id: operationId, classification: 'read' },
+    subject: workId ? subjectWith(subject, { kind: 'story', id: workId }) : subject,
+    outcome: { status: 'succeeded', messageId: 'gateway.read', slots: { work: workId ?? 'none', phase: phase ?? 'none' } },
+    effects: noEffects(),
+    why: [{ code: 'work.from-governed-records', source: 'lifecycle', reference: workId ?? null, slots: {} }],
+    next: [],
+    restState: 'informational',
+    data
+  });
+}
+
+/** `work.progress`: what `sflow progress --json` prints, field for field. */
+export async function workProgress({ arguments: args = {}, subject = null, root = null, context = {} } = {}) {
+  if (!root) throw new TypeError('work.progress requires the repository root it should read.');
+  const { readProgress } = await import('../../story-state-read.mjs');
+  const progress = await readProgress(root, args.workId ?? context.workId ?? null);
+  return storyRead('work.progress', subject, progress.workId, progress.currentPhase, progress,
+    `singularity-flow progress ${progress.workId} --utility-entry --for-agent --json`);
+}
+
+/** `work.nextsteps`: the ordered actions `sflow nextsteps --for-agent` lists, with its `contextBoundary` and one pending list. */
+export async function workNextSteps({ arguments: args = {}, subject = null, root = null, context = {} } = {}) {
+  if (!root) throw new TypeError('work.nextsteps requires the repository root it should read.');
+  const snapshot = await resolveSnapshot(['nextsteps', args.workId ?? context.workId ?? null].filter(Boolean),
+    { root, modelMode: routeModelMode() });
+  const view = agentPacketPresentation(agentNextStepsView(agentNextSteps(snapshot)));
+  return storyRead('work.nextsteps', subject, view.workId ?? null, view.currentPhase ?? null, view,
+    ['singularity-flow nextsteps', view.workId, '--utility-entry --for-agent --json'].filter(Boolean).join(' '));
 }

@@ -36,6 +36,20 @@ import { SingularityFlowError } from '../util.mjs';
 
 export const SFLOW_RESULT_SCHEMA_VERSION = 2;
 
+/**
+ * The most one model-facing tool answer may weigh, in UTF-8 bytes of its JSON.
+ *
+ * Both Copilot hosts move a longer tool result out of the conversation. VS Code Copilot Chat
+ * (0.71) writes one over 8,192 characters to a file and gives the model only its path
+ * (`chat.agent.largeToolResultsToDisk`, on by default); Copilot CLI (1.0.95–1.0.100, recorded
+ * sessions) saves one of 8 KB or more outside the workspace with a short preview, where a skill
+ * turn cannot read it. The CLI's agent view is bounded at the same number for the same rule
+ * (agent-output.mjs `DEFAULT_AGENT_OUTPUT_BYTES`; a test keeps the two equal). A read whose text is
+ * longer is served in parts (`data.part`) that each fit, and the kernel issues one read handle per
+ * further part so the model reads them together.
+ */
+export const TOOL_ANSWER_MAX_BYTES = 7_500;
+
 /** How the host continues. Not what happened — that is `outcome.status`. `[INT:REQ-040]` */
 export const RESULT_KINDS = Object.freeze([
   'read', 'plan', 'ceremony', 'host-action', 'candidates', 'clarification', 'refusal'

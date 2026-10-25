@@ -15,7 +15,7 @@ import {
   astContextPlanner, astEvidenceReplayPlanner, astHierarchyPlanner, astModulePlanner,
   astQueryPlanner, astReferencesPlanner, astStatusPlanner, astSymbolPlanner
 } from './ast-intelligence.mjs';
-import { developerNext } from './developer-next.mjs';
+import { developerNext, workNextSteps, workProgress } from './developer-next.mjs';
 import { contextBrief } from './context-brief.mjs';
 import {
   governedGoalImpactPlanner, governedGoalInspectPlanner, governedGoalNextPlanner,
@@ -105,6 +105,8 @@ export function gatewayPlanners(overrides = {}) {
     'work-continue': workContinue,
     'work-handoff': workHandoff,
     'work-readiness': workReadiness,
+    'work-progress': workProgress,
+    'work-nextsteps': workNextSteps,
     'work-return': workReturn,
     'work-list': workList,
     'work-start-intake': workStartIntake,
@@ -125,7 +127,7 @@ export {
   contextBrief, developerNext, governedGoalImpactPlanner, governedGoalInspectPlanner, governedGoalNextPlanner,
   governedGoalTracePlanner, helpExplain, homeOverview, impactQuick, impactWhatIf, impactWhatIfAssisted, problemInvestigate,
   intentTracePlanner, problemInvestigateAssisted, repositoryExplore, reviewPacket, workContinue, workHandoff,
-  workList, workReadiness, workReturn, workStartIntake, workspaceList,
+  workList, workNextSteps, workProgress, workReadiness, workReturn, workStartIntake, workspaceList,
   repositoryOpenGuide, workspaceBootstrapStatus, workspaceDoctorGuide, workspaceExploreGuide,
   workspacePrepareGuide
 };

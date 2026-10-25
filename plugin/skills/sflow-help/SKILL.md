@@ -10,6 +10,9 @@ argument-hint: "[WORK-ID | TOPIC | QUESTION]"
 <!-- sflow-copilot-pause -->
 Before any boundary lookup or SFlow action, run `singularity-flow pause status --json` and follow its `data.agentInstruction`. If `data.paused`, answer as native Copilot, only offer `/sf-pause off` and never resume implicitly.
 
+<!-- sflow-gateway-tools -->
+**SFlow tools:** When a step names an `sflow_*` call and that tool is in your tool list, make that call once, exactly as written, instead of the step's CLI command, and use its answer as the step says; each next action's routes there are its `fallback` (`copilotCommand`, `command`), with `modelFreeCommand` from the matching `data.guidance.actions` entry when one exists. A tool call checks pause itself (its `gateway.copilot-paused` refusal carries `data.paused`), so a turn that starts with one makes no separate pause check. If the tool is absent, errors or refuses for another reason, or its answer lacks a field the step reports, run the step's CLI command once and finish the step with it. Never call `sflow_run` here.
+
 <!-- sflow-output-contract: guided-actions -->
 **Output contract:** Use read-only CLI evidence, preserve warnings and ordered actions, and change nothing unless explicitly requested. Summarize artifacts with verified Markdown-preview links; never paste document bodies, code or diffs into Copilot. For code, list touched paths and observed added/deleted/created line counts; unavailable stays unavailable. Use existing evidence, not extra calls solely for display. Summaries, links and opened previews are not human review or approval. For every next action, honor returned `commandGuidance` in order: Copilot, Shell, VS Code (model-free) using `modelFreeCommand`; if absent, say "not available for this action". Missing Copilot: "no verified equivalent". Never invent routes.
 <!-- sflow-execution-boundary -->
@@ -19,7 +22,7 @@ Packaged documentation can still be served when no workspace is registered; do n
 filesystem for a repository in that case.
 
 1. With no argument, run `singularity-flow explain --json` and show the topic index.
-2. For a topic ID or an ordinary product question, run `singularity-flow explain '$ARGUMENTS' --json`, one single-quoted argument with each inner `'` as `'\''` (PowerShell `''`) so nothing expands. Relay only `data.served.text`, its citation/provenance, warnings, and related actions. Never answer product behavior from model memory.
+2. For a topic ID or an ordinary product question, call `sflow_explain` with `{"question": "$ARGUMENTS"}`, then `sflow_read` each handle in its `data.part.read` as `resolutionId` in the same response; its `data.body` and theirs, in part order, are `data.served.text`. Or run `singularity-flow explain '$ARGUMENTS' --json`, one single-quoted argument with each inner `'` as `'\''` (PowerShell `''`) so nothing expands. Relay only `data.served.text`, its citation/provenance, warnings, and related actions. Never answer product behavior from model memory.
 3. The returned `data.helpIntent` is one of `concept`, `procedure`, `diagnose`, `compare`, `command-discovery`, or `recover`. Use it only to format the answer; it is not permission to execute a command.
 4. When resolution is ambiguous, render the returned topic choices. When it is not found, say that the packaged documentation has no grounded answer and offer its nearest topics. Never choose the closest topic yourself.
 5. For a question about why active work cannot advance, run `singularity-flow home --json

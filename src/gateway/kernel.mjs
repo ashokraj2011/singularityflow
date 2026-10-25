@@ -360,7 +360,35 @@ export function createGatewayKernel({
     const produced = validateSflowResult(
       await planner({ operation, arguments: args, subject, registry, policy, root, context: context ?? {}, session })
     );
-    return validateSflowResult(sealPlannerNavigation(sealHostActions(produced), issuedAgainst));
+    return withPartHandles(validateSflowResult(sealPlannerNavigation(sealHostActions(produced), issuedAgainst)),
+      operation, args, issuedAgainst);
+  }
+
+  /**
+   * A read served in parts: one read handle per further part, issued with the first.
+   *
+   * Both Copilot hosts move a tool answer longer than `TOOL_ANSWER_MAX_BYTES` out of the
+   * conversation, so a planner whose text is longer serves it in parts and says how many
+   * (`data.part`). Only the kernel issues handles: it signs one read per further part, with the
+   * first part's arguments and that part's number, under the checks every read handle gets, and the
+   * model reads them together with `sflow_read` as they are. Arguments the operation's schema
+   * refuses leave the list off, so the answer shows parts it cannot reach rather than inventing any.
+   */
+  function withPartHandles(result, operation, args, issuedAgainst) {
+    const part = result.kind === 'read' ? result.data?.part : null;
+    if (!part || part.index !== 1 || !(part.count > 1) || part.read) return result;
+    let read;
+    try {
+      read = Array.from({ length: part.count - 1 }, (_, offset) => handles.issueRead({
+        operationId: operation.id,
+        classification: operation.classification,
+        arguments: validateArguments(operation.gateway.argumentSchema, { ...args, part: offset + 2 }),
+        binding: issuedAgainst
+      }).reference.id);
+    } catch {
+      return result;
+    }
+    return validateSflowResult(sflowResult({ ...result, data: { ...result.data, part: { ...part, read } } }));
   }
 
   /**

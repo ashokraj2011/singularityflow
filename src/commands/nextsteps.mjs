@@ -157,13 +157,18 @@ async function composedPromptCurrent(root, definition, workflow, phase, observeF
   return prompt != null && createHash('sha256').update(prompt).digest('hex') === record.renderedSha256.replace(/^sha256:/u, '');
 }
 
-export async function resolveSnapshot(positionals, { root = repoRoot() } = {}) {
+/**
+ * `modelMode` names the routes to offer (a model-free publication route or the governed agent's);
+ * it never permits a model. Absent, the operation's own mode is used, as before. The gateway passes
+ * the mode of the CLI run it is serving, because its planners themselves run model-disabled.
+ */
+export async function resolveSnapshot(positionals, { root = repoRoot(), modelMode = null } = {}) {
   return withApprovedConfigurationRead(root, (authority) => resolveSnapshotInScope(
-    root, positionals, Boolean(authority)
+    root, positionals, Boolean(authority), modelMode
   ));
 }
 
-async function resolveSnapshotInScope(root, positionals, approvedConfigurationAvailable) {
+async function resolveSnapshotInScope(root, positionals, approvedConfigurationAvailable, modelMode = null) {
   const initialized = approvedConfigurationAvailable
     || existsSync(path.join(root, 'singularity/workflow.yml'));
   if (!initialized) return nextStepsSnapshot({ initialized: false, branch: branch(root) });
@@ -174,21 +179,21 @@ async function resolveSnapshotInScope(root, positionals, approvedConfigurationAv
   let accepted = null;
   try { accepted = await loadAcceptedStoryExecution(root, reference); }
   catch (error) { if (error?.code !== 'STORY_NOT_FOUND') throw error; }
-  if (accepted) return resolveStorySnapshot(root, accepted);
+  if (accepted) return resolveStorySnapshot(root, accepted, { modelMode });
   const { buildRepositorySubjectIndex, resolveContext } = await import('../repository-subject-index.mjs');
   const selected = resolveContext(await buildRepositorySubjectIndex(root), { reference, required: false });
   if (selected?.kind === 'initiative') return initiativeSnapshot(root, selected);
   if (selected?.kind !== 'story') return nextStepsSnapshot({ initialized: true, branch: branch(root), requestedWorkId });
-  return resolveStorySnapshot(root, await loadAcceptedStoryExecution(root, selected.id));
+  return resolveStorySnapshot(root, await loadAcceptedStoryExecution(root, selected.id), { modelMode });
 }
 
 /** Canonical prerequisites and lifecycle routing, also used by the inputs continuation. */
 export async function resolveStorySnapshot(root, { workflow, definition, executionCatalog = null }, {
-  observeFile = null, publicationPending = undefined
+  observeFile = null, publicationPending = undefined, modelMode: routeModelMode = null
 } = {}) {
   const selected = { id: workflow.workItem.id,
     location: { path: path.join(definition.workItemRoot, workflow.workItem.id, 'workflow.json') } };
-  const modelMode = operationContext()?.modelMode ?? { enabled: true, source: 'default' };
+  const modelMode = routeModelMode ?? operationContext()?.modelMode ?? { enabled: true, source: 'default' };
   const active = activePhase(workflow);
   const { phaseAuthoringProgress, readPhaseDraftEvidence } = await import('../phase-authoring-progress.mjs');
   const pendingAuthoring = phaseAuthoringProgress(workflow, active);
@@ -304,6 +309,17 @@ export function agentNextSteps(snapshot) {
       fulfilledBy: draft.copilotCommand, automaticAdvance: false } };
 }
 
+/**
+ * What `nextsteps --for-agent` shows of a snapshot: the later (`then`) steps are left to the full
+ * command it names. One rule for the CLI's agent entry and the gateway's `work.nextsteps` read, so
+ * the two cannot list different actions.
+ */
+export function agentNextStepsView(snapshot) {
+  return { ...snapshot, actions: snapshot.actions.filter(action => action.timing !== 'then'),
+    projection: { kind: 'agent', omitted: ['actions[timing=then]'],
+      fullCommand: ['singularity-flow nextsteps', snapshot.workId, '--json'].filter(Boolean).join(' ') } };
+}
+
 export function snapshotContinuation(workflow, snapshot) {
   return phaseContinuation(workflow, { snapshot });
 }
@@ -329,10 +345,9 @@ export async function nextStepsAgentPacket(workId = null, { cwd = process.cwd() 
       records: resolved.records.map(({ content, ...record }) => record) };
   }
   const { contextBoundary: entryBoundary, ...bindingPacket } = packet;
+  const view = agentNextStepsView(snapshot);
   return agentPacketPresentation({ ...bindingPacket, ...snapshot, resultType: 'sflow-nextsteps', inputs,
-    actions: snapshot.actions.filter(action => action.timing !== 'then'),
-    projection: { kind: 'agent', omitted: ['actions[timing=then]'],
-      fullCommand: `singularity-flow nextsteps ${packet.workId} --json` } });
+    actions: view.actions, projection: view.projection });
 }
 
 export async function run(_argv, { positionals, options }) {

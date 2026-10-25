@@ -146,6 +146,7 @@ import {
 import { GatewayStatusWorker } from './gateway-status-worker-client.ts';
 import { commandGuidanceText, safeCommandPair } from './views/command-guidance.ts';
 import { modelFreeRouteText } from './copilot-command.ts';
+import { createTerminalIn } from './terminal-start.ts';
 import {
   offerCopilotChatCounting, startCopilotChatCounting, turnOffCopilotChatCounting, turnOnCopilotChatCounting
 } from './copilot-chat-counting.ts';
@@ -801,9 +802,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     if (!activeRoot || path.resolve(activeRoot) !== path.resolve(repositoryRoot)) return;
     // A card click prepares the exact current CAS/hash-bound command but never presses Enter.
     // The developer can review, add a typed answer where required, or discard it safely.
-    const terminal = vscode.window.createTerminal({
-      name: 'Singularity Flow Auto review', cwd: repositoryRoot
-    });
+    const terminal = createTerminalIn({ name: 'Singularity Flow Auto review' }, repositoryRoot);
     terminal.show(true);
     terminal.sendText(command, false);
   });
@@ -8562,9 +8561,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
         if (next === 'Open Copilot') {
           await vscode.commands.executeCommand('workbench.action.chat.open', { query: '/sf-adhoc ' });
         } else if (next === 'Open terminal command') {
-          const terminal = vscode.window.createTerminal({
-            name: 'Singularity Flow · Ad Hoc', cwd: client.repository
-          });
+          const terminal = createTerminalIn({ name: 'Singularity Flow · Ad Hoc' }, client.repository);
           terminal.show(true);
           // Prefill only. The contributor reviews and submits the command.
           terminal.sendText('singularity-flow adhoc status', false);
@@ -8729,7 +8726,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
             const selected = await vscode.window.showQuickPick(witnesses.map(w => ({ label: `${w.clauseId} · ${w.slot}`, description: w.files[0], witness: w })),
               { title: 'Human witness — inspect published evidence, not its classification', ignoreFocusOut: true });
             if (!selected || !stillCurrent()) return;
-            const terminal = vscode.window.createTerminal({ name: 'Singularity Flow · Human Witness Review', cwd: checkedRepository });
+            const terminal = createTerminalIn({ name: 'Singularity Flow · Human Witness Review' }, checkedRepository);
             terminal.show(true);
             // No checklist answers are preselected. The real command enforces authority/binding.
             terminal.sendText(terminalCommand(checkedRepository, ['decision', 'witness', '--work-id', workId,
@@ -8778,7 +8775,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
             const document = await vscode.workspace.openTextDocument({ language: 'json', content: JSON.stringify(preview, null, 2) });
             await vscode.window.showTextDocument(document, { preview: true });
             if (!stillCurrent()) return;
-            const terminal = vscode.window.createTerminal({ name: 'Singularity Flow · Human Pilot Risk Review', cwd: checkedRepository });
+            const terminal = createTerminalIn({ name: 'Singularity Flow · Human Pilot Risk Review' }, checkedRepository);
             terminal.show(true);
             terminal.sendText(terminalCommand(checkedRepository, ['appeal', 'risk-accept', ...selectors, '--confirm', packet.packetSha256!],
               process.platform, client.location), false);
@@ -8797,7 +8794,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
             if (!resume && (planned.data.admission?.allowed !== true || !/^sha256:[a-f0-9]{64}$/u.test(planned.data.confirmation ?? ''))) {
               void showCompactWarningMessage('This repair needs its named human/owner route. No new attempt was started.'); return;
             }
-            const terminal = vscode.window.createTerminal({ name: 'Singularity Flow · Recorded Phase Repair', cwd: checkedRepository });
+            const terminal = createTerminalIn({ name: 'Singularity Flow · Recorded Phase Repair' }, checkedRepository);
             terminal.show(true);
             terminal.sendText(terminalCommand(checkedRepository, ['appeal', resume ? 'repair-resume' : 'repair-run',
               '--work-id', workId, '--phase', phaseId, ...(!resume ? ['--confirm', planned.data.confirmation!] : []), '--json'],
@@ -8814,7 +8811,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
           const document = await vscode.workspace.openTextDocument({ language: 'json', content: JSON.stringify(packet, null, 2) });
           await vscode.window.showTextDocument(document, { preview: true });
           if (stillCurrent() && selected.item.status === 'needs-reattestation' && /^sha256:[a-f0-9]{64}$/u.test(selected.item.decisionSha256 ?? '')) {
-            const terminal = vscode.window.createTerminal({ name: 'Singularity Flow · Appeal Re-review', cwd: checkedRepository });
+            const terminal = createTerminalIn({ name: 'Singularity Flow · Appeal Re-review' }, checkedRepository);
             terminal.show(true);
             terminal.sendText(terminalCommand(checkedRepository, ['appeal', 'attest', selected.item.id, '--work-id', workId,
               '--confirm', selected.item.decisionSha256!], process.platform, client.location), false);
@@ -8829,7 +8826,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
           const reason = await vscode.window.showInputBox({ title: 'Reason for this exact appeal decision', ignoreFocusOut: true,
             validateInput: value => value.trim().length >= 20 && value.trim().length <= 2000 && !/[\x00-\x1f\x7f]/u.test(value) ? null : 'Give a reason of 20–2000 ordinary characters.' });
           if (reason === undefined || !stillCurrent()) return;
-          const terminal = vscode.window.createTerminal({ name: 'Singularity Flow · Appeal Review', cwd: checkedRepository });
+          const terminal = createTerminalIn({ name: 'Singularity Flow · Appeal Review' }, checkedRepository);
           terminal.show(true);
           terminal.sendText(terminalCommand(checkedRepository, ['appeal', 'decide', selected.item.id, '--work-id', workId,
             '--decision', choice.decision, '--reason', reason, '--confirm', selected.item.packetSha256], process.platform, client.location), false);
@@ -8951,12 +8948,12 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
           placeHolder: 'No risk is accepted and no Story is changed by opening this terminal.'
         });
         if (!selected || !stillCurrent()) return;
-        const terminal = vscode.window.createTerminal({
-          name: `Singularity Flow · Test recovery · ${subject.workId}`, cwd: checkedRepository,
+        const terminal = createTerminalIn({
+          name: `Singularity Flow · Test recovery · ${subject.workId}`,
           // Quote for a known shell, not a user-selected Git Bash/cmd profile on Windows.
           shellPath: process.platform === 'win32' ? 'powershell.exe' : '/bin/sh',
           env: { ELECTRON_RUN_AS_NODE: '1' }
-        });
+        }, checkedRepository);
         terminal.show(true);
         terminal.sendText(terminalCommand(checkedRepository, selected.args, process.platform, client.location), false);
       } catch (error) {
@@ -9359,14 +9356,13 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
         const quote = (value: string): string => `'${value.replace(/'/g, `'\\''`)}'`;
         const args = [quote(client.location.executable), quote(client.location.cli), 'agents', 'lock', quote(message.agentId)];
         if (message.action === 'update') args.push('--update');
-        const terminal = vscode.window.createTerminal({
+        const terminal = createTerminalIn({
           name: `Singularity Flow · ${message.action === 'update' ? 'Update' : 'Trust'} ${message.agentId}`,
-          cwd: client.repository,
           // VS Code's extension host is Electron. The normal CLI runner sets this flag when it
           // invokes the bundled entrypoint; the interactive terminal must do the same or macOS
           // launches another Code process instead of Node executing the CLI.
           env: { ELECTRON_RUN_AS_NODE: '1' }
-        });
+        }, client.repository);
         terminal.show(true);
         terminal.sendText(args.join(' '), true);
         return null;
@@ -9563,10 +9559,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       }
     },
     'singularityFlow.openMeteredCopilot': async () => {
-      const terminal = vscode.window.createTerminal({
-        name: 'Singularity Flow · Copilot CLI',
-        cwd: client.repository
-      });
+      const terminal = createTerminalIn({ name: 'Singularity Flow · Copilot CLI' }, client.repository);
       terminal.show(true);
       terminal.sendText('singularity-flow copilot --host vscode-terminal --surface vscode.continue-with-copilot', true);
     },

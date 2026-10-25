@@ -13,6 +13,7 @@ import path from 'node:path';
 import {
   contentSecurityPolicy, navigationTarget, nonce, page } from './webview.ts';
 import { navigateTo } from './navigate.ts';
+import { createTerminalIn } from '../terminal-start.ts';
 import { integerField, registerMessageRouter, stringField, type InboundMessage } from './messages.ts';
 import {
   EMPTY_INTAKE_FORM, intakeCatalogFailure, intakeCommand, intakeHasInput, intakeHtml, intakeRegions, intakeIdentifier, intakePlanInputKey, intakeProblems, INTAKE_SCRIPT,
@@ -1531,12 +1532,11 @@ export class IntakePanel {
       return;
     }
     if (this.form.shape === 'story' && testRecoveryNeedsTerminalReview(this.form)) {
-      const terminal = vscode.window.createTerminal({
+      const terminal = createTerminalIn({
         name: `Singularity Flow · Baseline review · ${intakeIdentifier(this.form)}`,
-        cwd: executionClient.repository,
         shellPath: process.platform === 'win32' ? 'powershell.exe' : '/bin/sh',
         env: { ELECTRON_RUN_AS_NODE: '1' }
-      });
+      }, executionClient.repository);
       terminal.show(true);
       // UI plan confirmation is not human authority. Never submit the terminal command.
       terminal.sendText(terminalCommand(executionClient.repository, intakeCommand(this.form),

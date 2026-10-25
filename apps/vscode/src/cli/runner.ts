@@ -1118,9 +1118,16 @@ export function terminalCommand(
     : ['singularity-flow', ...args];
   const quoted = invocation.map((argument) => terminalQuote(argument, platform)).join(' ');
   if (platform === 'win32') {
-    return `Set-Location -LiteralPath ${terminalQuote(repository, platform)}; & ${quoted}`;
+    return `${changeDirectoryLine(repository, platform)}; & ${quoted}`;
   }
-  return `cd ${terminalQuote(repository, platform)} && ${quoted}`;
+  return `${changeDirectoryLine(repository, platform)} && ${quoted}`;
+}
+
+/** The shell line that moves a terminal into `repository`: PowerShell on Windows, POSIX elsewhere. */
+export function changeDirectoryLine(repository: string, platform: NodeJS.Platform = process.platform): string {
+  return platform === 'win32'
+    ? `Set-Location -LiteralPath ${terminalQuote(repository, platform)}`
+    : `cd ${terminalQuote(repository, platform)}`;
 }
 
 /** A timeout carries the exact invocation so every UI can offer deterministic recovery. */

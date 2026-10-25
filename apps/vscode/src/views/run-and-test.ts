@@ -45,6 +45,7 @@ import { RunConfigurationsPanel } from './run-configurations.ts';
 import { runAndTestHtml } from './run-and-test-page.ts';
 import { testsSummaryArgv, testSummaryFrom, totalsLine } from './test-summary-model.ts';
 import { TestSummaryPanel } from './test-summary.ts';
+import { taskStartFolder } from '../terminal-start.ts';
 import {
   envFilesArgv, environmentFilesFrom, missingAsFile, missingAtWorkspaceLevel, missingForRun, missingFromRefusal, preflightButtons, preflightMessage,
   PREFLIGHT_CREATE, PREFLIGHT_LINK, PREFLIGHT_OPEN, refusalWords, trackedForRun, trackedMessage, type EnvironmentFile, type MissingFile
@@ -443,7 +444,7 @@ export class RunAndTest implements vscode.Disposable {
     };
     // The editor's own runtime runs the CLI only as Node; a separately configured Node needs nothing.
     if (process.versions.electron && client.location.executable === process.execPath) env.ELECTRON_RUN_AS_NODE = '1';
-    const execution = new vscode.ProcessExecution(client.location.executable, [client.location.cli, ...argv], { cwd: repository, env });
+    const execution = new vscode.ProcessExecution(client.location.executable, [client.location.cli, ...argv], { cwd: taskStartFolder(repository), env });
     // Each run keeps its own terminal, named by configuration and environment, as IntelliJ's run tabs are.
     const configuration = action === 'app-start' ? this.stateOf(capability).plan?.find((item) => item.id === entry) : null;
     const label = configuration?.name ?? entry;

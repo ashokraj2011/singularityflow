@@ -15,6 +15,7 @@ import type { SingularityFlowClient } from '../cli/client.ts';
 import { formatCliArgsForDisplay } from '../cli/runner.ts';
 import { contentSecurityPolicy, navigationTarget, nonce, page } from './webview.ts';
 import { navigateTo } from './navigate.ts';
+import { createTerminalIn } from '../terminal-start.ts';
 import { collectReviewConfirmation } from './review-confirmation.ts';
 import { booleanField, enumField, integerField, registerMessageRouter, stringField, type InboundMessage } from './messages.ts';
 import { liveWorkflows, refusalOf, workflowArchiveArgs } from './workflow-delete-page.ts';
@@ -345,7 +346,7 @@ export class WorkflowStudioPanel implements vscode.Disposable {
   private checkSignIn(intentId: string | null): void {
     const upload = this.uploads.find(entry => entry.intentId === intentId);
     if (!upload || !/^[A-Za-z0-9._-]+$/.test(upload.remote) || !path.isAbsolute(upload.repositoryRoot)) return;
-    const terminal = vscode.window.createTerminal({ name: 'Git sign-in', cwd: upload.repositoryRoot });
+    const terminal = createTerminalIn({ name: 'Git sign-in' }, upload.repositoryRoot);
     terminal.show();
     terminal.sendText(`git ls-remote --exit-code ${upload.remote} HEAD`);
     this.post({ type: 'studio.uploadRetried', intentId: upload.intentId,

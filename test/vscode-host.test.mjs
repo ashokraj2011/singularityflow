@@ -2487,7 +2487,7 @@ test('the built extension leases, evicts, and reacquires exact comprehension dat
 
 test('Auto card controls only prefill the exact selected command and never execute it', async (t) => {
   if (!requireBundle(t)) return;
-  const { root, registered } = await activated();
+  const { root, api, registered } = await activated();
   const flightId = `AFL-${'A'.repeat(26)}`;
   const flight = await createAutoFlightState(root, {
     flightId, planId: `APL-${'B'.repeat(26)}`,
@@ -2519,6 +2519,19 @@ test('Auto card controls only prefill the exact selected command and never execu
   assert.equal(await realpath(terminal.options.cwd), await realpath(root));
   assert.equal((await readAutoFlightState(root, flightId)).status, 'running',
     'button dispatch prepared the command but did not mutate the flight');
+
+  // A window with no folder: VS Code 1.143 starts a terminal process only in the home folder, so
+  // the terminal starts there and its shell moves into the checkout before the prepared command.
+  api.workspace.workspaceFolders = undefined;
+  const before = registered.terminals.length;
+  await panel.post({ type: 'sflow.auto.action', actionId: pauseId });
+  const folderless = await until(() => registered.terminals.length > before ? registered.terminals.at(-1) : null);
+  assert.equal(folderless.options.cwd, os.homedir());
+  const checkout = await realpath(root);
+  assert.deepEqual(folderless.sent, [
+    { text: process.platform === 'win32' ? `Set-Location -LiteralPath '${checkout}'` : `cd '${checkout}'`, addNewLine: true },
+    { text: `singularity-flow auto pause ${flightId} --confirm ${flight.checkpointSha256}`, addNewLine: false }
+  ]);
 });
 
 test('AST Intelligence edits every policy layer through one guarded VS Code surface', async (t) => {
@@ -11121,8 +11134,11 @@ test('Run & test starts an entry as a task of the CLI argv, after trust and a fi
   assert.equal(task.execution.kind, 'process', 'a process execution, never a shell string');
   assert.equal(task.execution.process, process.execPath);
   assert.deepEqual(task.execution.args, [cli.wrapper, 'app', 'start', 'web', '--capability', 'checkout-app', '--environment', 'dev', '--expect-command', RUN_SHA]);
-  assert.equal(task.execution.options.cwd, lead);
+  // This window has no folder, where VS Code 1.143 starts a terminal process only in the home
+  // folder: the task starts there and the CLI binds the checkout its surface context names.
+  assert.equal(task.execution.options.cwd, os.homedir());
   assert.deepEqual(Object.keys(task.execution.options.env), ['SINGULARITY_FLOW_SURFACE_CONTEXT'], 'VS Code hands the task no value, only its repository');
+  assert.equal(JSON.parse(task.execution.options.env.SINGULARITY_FLOW_SURFACE_CONTEXT).repositoryPath, lead);
   assert.deepEqual(task.definition, { type: 'singularityFlow', action: 'app-start', capability: 'checkout-app', entry: 'web', environment: 'dev' });
   assert.equal(task.isBackground, true);
   assert.deepEqual(windowState.get('singularityFlow.runAndTest.confirmedCommands'), [RUN_SHA]);
@@ -11199,7 +11215,8 @@ test('Run & test runs tests as a task, shows the last run, and the Test summary 
   assert.equal(testsTask.task.execution.kind, 'process');
   assert.deepEqual(testsTask.task.execution.args, [cli.wrapper, 'tests', 'run', '--capability', 'checkout-app', '--environment', 'dev',
     '--expect-command', TESTS_SHA_MODULE, '--expect-command', TESTS_SHA_INTEGRATION]);
-  assert.equal(testsTask.task.execution.options.cwd, lead);
+  assert.equal(testsTask.task.execution.options.cwd, os.homedir(), 'a window with no folder starts its tasks at home');
+  assert.equal(JSON.parse(testsTask.task.execution.options.env.SINGULARITY_FLOW_SURFACE_CONTEXT).repositoryPath, lead);
   assert.deepEqual(testsTask.task.definition, { type: 'singularityFlow', action: 'tests-run', capability: 'checkout-app', environment: 'dev' });
   assert.equal(testsTask.task.isBackground, false);
   assert.deepEqual(windowState.get('singularityFlow.runAndTest.confirmedCommands'), [TESTS_SHA_MODULE, TESTS_SHA_INTEGRATION]);

@@ -1,9 +1,9 @@
 {
   "schemaVersion": 2,
   "generatedFrom": "docs/topics",
-  "sourceCommit": "9be3b855402502ec20e57ae8a8b640f54f900132",
+  "sourceCommit": "470f7a011db169eaccc6c470ac4d1e414604f07f",
   "topicCount": 85,
-  "contentSha256": "9ad0f073dff26b8f1496906a11529f6495e6e5a8a259eb96e17b15d257e51355",
+  "contentSha256": "ffbd610ff0b9ca91898abc2a444629a87c552b3018c1de9679152ca5949de19f",
   "topics": [
     {
       "id": "activity-and-prompt-audit",
@@ -672,8 +672,8 @@
     {
       "id": "workspaces-and-sessions",
       "title": "Workspaces, sessions, and current selection",
-      "version": 20,
-      "sha256": "dd16e3569f664c8fcd5d7cf0001872bd9864146f8b1daf613cf692618b5a345f",
+      "version": 21,
+      "sha256": "32dbaeb19514977e9828593ccef8e405e6dee33cb2ea11eaab704cc9a6270590",
       "routingSha256": "5c112c0653f816dd58697fe7898162ae44cb1679460dc56dece3daa01073e94a",
       "file": "workspaces-and-sessions.md"
     },

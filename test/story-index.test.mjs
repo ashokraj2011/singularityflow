@@ -13,6 +13,7 @@
  */
 import assert from 'node:assert/strict';
 import { spawn, spawnSync } from 'node:child_process';
+import { createHash } from 'node:crypto';
 import { existsSync, realpathSync } from 'node:fs';
 import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import os from 'node:os';
@@ -23,7 +24,8 @@ import YAML from 'yaml';
 
 import { STORY_OPERAND_COMMANDS } from '../src/cli-entry.mjs';
 import {
-  applyWorkIdOperand, namedWorkId, rebaseFileOptions, STORY_OPERAND_COMMAND_NAMES, workIdOperandIndex
+  applyWorkIdOperand, fileOperandIndexes, namedWorkId, rebaseFileOperands, rebaseFileOptions, STORY_OPERAND_COMMAND_NAMES,
+  workIdOperandIndex
 } from '../src/story-routing.mjs';
 import { childTimeout } from './helpers/child-timeout.mjs';
 import { slowLane } from './helpers/slow-lane.mjs';
@@ -85,6 +87,46 @@ test('file options are made absolute before a command moves to another checkout'
     'an input that is not where the command was run may be repository-relative');
   assert.deepEqual(argv, ['documents', 'restore', 'D-1', '--file', path.join(directory, 'draft.md'),
     `--out=${path.join(directory, 'report.md')}`, '--path', 'src/value.mjs']);
+});
+
+test('file operands are made absolute before a command moves to another checkout, as file options are', async (t) => {
+  const directory = await mkdtemp(path.join(os.tmpdir(), 'sflow-story-operands-'));
+  t.after(() => rm(directory, { recursive: true, force: true }));
+  await mkdir(path.join(directory, 'my notes'));
+  await writeFile(path.join(directory, 'my notes', 'brief one.md'), 'brief\n');
+  await writeFile(path.join(directory, 'draft.json'), '{}\n');
+  await writeFile(path.join(directory, 'previous.json'), '{}\n');
+  // Each command declares where its file operands sit; a repository path that names a Story file is not one.
+  assert.deepEqual(fileOperandIndexes('documents', ['documents', 'upload', 'a.md', 'b.md']), [2, 3]);
+  assert.deepEqual(fileOperandIndexes('impact', ['impact', 'evidence', 'collect', 'junit', 'r.xml', 'S-1']), [4]);
+  assert.deepEqual(fileOperandIndexes('comprehension', ['comprehension', 'walkthrough', 'revalidate', 'd.json', 'p.json']), [3, 4]);
+  assert.deepEqual(fileOperandIndexes('impact', ['impact', 'expansion', 'S-1', 'src/value.mjs']), []);
+  assert.deepEqual(fileOperandIndexes('artifact', ['artifact', 'add', 'src/value.mjs']), []);
+  assert.equal(workIdOperandIndex('impact', ['impact', 'evidence', 'import', 'r.json', 'S-1']), 4);
+  assert.equal(workIdOperandIndex('impact', ['impact', 'evidence', 'collect', 'junit', 'r.xml', 'S-1']), 5);
+  assert.equal(workIdOperandIndex('impact', ['impact', 'exposure', 'attest', 'S-1']), 3);
+
+  // `--name` takes a value that happens to equal an operand; only the operand moves.
+  const positionals = ['documents', 'upload', 'my notes/brief one.md', 'missing.md'];
+  const argv = ['--no-model', 'documents', 'upload', '--name', 'my notes/brief one.md', 'my notes/brief one.md', 'missing.md',
+    '--work-id', 'S-2', '--json'];
+  await rebaseFileOperands('documents', positionals, argv, directory);
+  const absolute = path.join(directory, 'my notes', 'brief one.md');
+  assert.deepEqual(positionals, ['documents', 'upload', absolute, 'missing.md'],
+    'an operand that is not where the command was run may be repository-relative');
+  assert.deepEqual(argv, ['--no-model', 'documents', 'upload', '--name', 'my notes/brief one.md', absolute, 'missing.md',
+    '--work-id', 'S-2', '--json']);
+  const revalidate = ['comprehension', 'walkthrough', 'revalidate', './draft.json', 'previous.json'];
+  const revalidateArgv = ['comprehension', 'walkthrough', 'revalidate', './draft.json', '--', 'previous.json'];
+  await rebaseFileOperands('comprehension', revalidate, revalidateArgv, directory);
+  assert.deepEqual(revalidate.slice(3), [path.join(directory, 'draft.json'), path.join(directory, 'previous.json')]);
+  assert.deepEqual(revalidateArgv.slice(3), [path.join(directory, 'draft.json'), '--', path.join(directory, 'previous.json')]);
+  const untouched = ['status', 'draft.json'];
+  await rebaseFileOperands('status', untouched, ['status', 'draft.json'], directory);
+  assert.deepEqual(untouched, ['status', 'draft.json'], 'a Work ID operand is never a file');
+  const options = { answers: 'draft.json', checklist: 'missing.json' };
+  await rebaseFileOptions(options, [], directory);
+  assert.deepEqual(options, { answers: path.join(directory, 'draft.json'), checklist: 'missing.json' });
 });
 
 function specification(workId) {
@@ -285,6 +327,18 @@ test('one Story has one checkout across workspaces, and a Work ID decides where 
       assert.match(await readFile(path.join(one.checkoutPath, 'routed-report.md'), 'utf8'), /S-2/u);
       assert.equal(existsSync(path.join(two.checkoutPath, 'routed-report.md')), false);
       await rm(path.join(one.checkoutPath, 'routed-report.md'));
+      // A file operand too, with a space in its name and from outside any repository: the upload
+      // reads the person's file, not a same-named one in S-2's checkout.
+      const launch = path.join(f.directory, 'launch dir');
+      await mkdir(launch, { recursive: true });
+      await writeFile(path.join(launch, 'my notes.md'), 'Notes written where the command was run.\n');
+      const uploaded = f.json(['--no-model', 'documents', 'upload', './my notes.md', '--name', 'Launch notes',
+        '--work-id', 'S-2'], { cwd: launch }).value;
+      assert.equal(canonical(uploaded.storyRoute.checkoutPath), canonical(two.checkoutPath));
+      const [record] = uploaded.documents;
+      assert.equal(record.sha256, createHash('sha256').update('Notes written where the command was run.\n').digest('hex'),
+        JSON.stringify(record));
+      assert.equal(f.git(two.checkoutPath, 'branch', '--show-current'), 'S-2');
     });
 
     await t.test('a Copilot turn bound to one Story cannot run a command for another', async () => {

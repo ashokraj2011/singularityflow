@@ -18,6 +18,8 @@ const { resolveTypeScript, syntaxFacts, TYPESCRIPT_SYNTAX_PACK } = await import(
 function sha256(value) { return createHash('sha256').update(value).digest('hex'); }
 
 let input = '';
+// Decoded by the stream, so a non-ASCII path split across two chunks arrives whole.
+process.stdin.setEncoding('utf8');
 for await (const chunk of process.stdin) input += chunk;
 
 try {

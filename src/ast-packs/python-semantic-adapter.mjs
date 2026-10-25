@@ -32,6 +32,8 @@ function pyrightServer() {
 }
 
 let input = '';
+// Decoded by the stream, so a non-ASCII path split across two chunks arrives whole.
+process.stdin.setEncoding('utf8');
 for await (const chunk of process.stdin) input += chunk;
 
 let server = null;

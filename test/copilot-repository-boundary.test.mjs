@@ -4,8 +4,9 @@ import { mkdir, mkdtemp, readFile, readdir, rm, writeFile } from 'node:fs/promis
 import os from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
+import { Readable } from 'node:stream';
 import { explicitSflowSkill, recordRepositoryBoundaryTurn as recordTurn, endRepositoryBoundaryTurn,
-  repositoryDiscoveryGuard, resolveCopilotHookRoot, resolveCopilotDiscoveryRoot } from '../src/copilot-repository-boundary.mjs';
+  repositoryDiscoveryGuard, resolveCopilotHookRoot, resolveCopilotDiscoveryRoot, runRepositoryBoundaryHook } from '../src/copilot-repository-boundary.mjs';
 import { setCopilotPaused } from '../src/copilot-mode.mjs';
 import { childTimeout } from './helpers/child-timeout.mjs';
 const recordRepositoryBoundaryTurn = (payload, options = {}) => recordTurn(payload, { ...options,
@@ -179,6 +180,44 @@ test('agent hook fallback is explicit-only, preserves caller roots and never sel
   assert.equal(await resolveCopilotHookRoot({ ...item.payload, agentName: 'sflow-workflow' }, {
     rootFor: () => { throw new Error('must not inspect Git'); }, resolveSelected
   }), null);
+});
+
+test('a hook payload too large or malformed to read is refused during an SFlow turn, and decoded whole', async t => {
+  const item = await fixture(t);
+  /** One hook run over the given chunks, answering as the host reads it. */
+  const hook = async (event, chunks) => {
+    const said = [];
+    const log = console.log;
+    console.log = (line) => said.push(line);
+    try { await runRepositoryBoundaryHook(event, Readable.from(chunks)); } finally { console.log = log; }
+    return JSON.parse(said.at(-1));
+  };
+  const payload = (extra = {}) => Buffer.from(JSON.stringify({ ...item.payload, toolName: 'apply_patch', toolArgs: { input: 'x' }, ...extra }));
+  await recordRepositoryBoundaryTurn({ ...item.payload, prompt: '/sf-phase' });
+  // Over 16 MB: the session is read from the start, and the unchecked call is refused.
+  const huge = payload({ toolArgs: { input: 'y'.repeat(17 * 1024 * 1024) } });
+  const refused = await hook('boundary-guard', [huge.subarray(0, 65536), huge.subarray(65536)]);
+  assert.equal(refused.permissionDecision, 'deny');
+  assert.match(refused.permissionDecisionReason, /^SFLOW_HOOK_PAYLOAD_UNREADABLE: .*one file per patch/u);
+  assert.equal((await hook('boundary-guard', [Buffer.from(`{"sessionId":"chat-1","cwd":${JSON.stringify(item.scratch)},"toolArgs":{"input":"cut`)])).permissionDecision, 'deny', 'malformed');
+  // A byte-order mark is not a reason to skip the check: this one is the discovery guard's refusal.
+  const bom = await hook('boundary-guard', [Buffer.from('\uFEFF'), payload({ toolName: 'bash', toolArgs: { command: 'find /Users' } })]);
+  assert.equal(bom.permissionDecision, 'deny');
+  assert.doesNotMatch(bom.permissionDecisionReason, /UNREADABLE/u);
+  // A character split between chunks is decoded whole, so the session still finds its turn.
+  const accented = { sessionId: 'chat-\u00e9t\u00e9', cwd: item.scratch };
+  await recordRepositoryBoundaryTurn({ ...accented, prompt: '/sf-phase' });
+  const bytes = Buffer.from(JSON.stringify({ ...accented, toolName: 'bash', toolArgs: { command: 'find /Users' } }));
+  const split = bytes.indexOf(0xc3) + 1;
+  assert.equal((await hook('boundary-guard', [bytes.subarray(0, split), bytes.subarray(split)])).permissionDecision, 'deny');
+  // Outside an SFlow turn an unreadable payload changes nothing, as before.
+  await endRepositoryBoundaryTurn(item.payload);
+  assert.deepEqual(await hook('boundary-guard', [huge]), {});
+  assert.deepEqual(await hook('boundary-guard', [Buffer.from('not json')]), {});
+});
+
+test('a long prompt after an explicit skill is still that skill\'s turn', () => {
+  assert.equal(explicitSflowSkill(`/sf-code\n${'pasted log line\n'.repeat(20_000)}`), 'sf-code');
 });
 
 test('CLI hooks work from a neutral SDK cwd without touching a repository or requiring a Story', async t => {

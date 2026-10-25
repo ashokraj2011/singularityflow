@@ -56,6 +56,7 @@
     "scripts/revision-trace-check.mjs",
     "scripts/prompt-size-audit.mjs",
     "scripts/native-copilot-audit.mjs",
+    "scripts/native-copilot-failures.mjs",
     "scripts/copilot-hook-benchmark.mjs",
     "scripts/skill-policy.mjs",
     "scripts/install-staged-artifacts.mjs",

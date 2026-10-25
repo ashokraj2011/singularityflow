@@ -794,6 +794,9 @@ export const remoteGit: RemoteGitRunner = async (args, options) => new Promise((
   const outputLimit = 1024 * 1024;
   let stdout = '';
   let stderr = '';
+  // Decoded across chunks, so a non-ASCII ref or path split between two reads arrives whole.
+  const stdoutDecoder = new StringDecoder('utf8');
+  const stderrDecoder = new StringDecoder('utf8');
   let outputBytes = 0;
   let settled = false;
   let child: ChildProcess | undefined;
@@ -827,13 +830,13 @@ export const remoteGit: RemoteGitRunner = async (args, options) => new Promise((
     if (settled || stoppingFailure) return;
     outputBytes += chunk.length;
     if (outputBytes > outputLimit) return stop('output-overflow');
-    stdout += chunk.toString('utf8');
+    stdout += stdoutDecoder.write(chunk);
   }
   function onStderr(chunk: Buffer) {
     if (settled || stoppingFailure) return;
     outputBytes += chunk.length;
     if (outputBytes > outputLimit) stop('output-overflow');
-    else stderr += chunk.toString('utf8');
+    else stderr += stderrDecoder.write(chunk);
   }
   function onError() {
     if (!stoppingFailure) finish({ status: null, stdout: '', failure: 'git-unavailable' });
@@ -841,6 +844,8 @@ export const remoteGit: RemoteGitRunner = async (args, options) => new Promise((
   function onClose(code: number | null) {
     cleanupStatus = 'closed';
     if (stoppingFailure) return;
+    stdout += stdoutDecoder.end();
+    stderr += stderrDecoder.end();
     let failure: RemoteGitFailure | null = null;
     if (code !== 0) {
       failure = /authentication failed|could not read username|terminal prompts disabled|credential/i.test(stderr)

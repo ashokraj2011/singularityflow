@@ -32,7 +32,9 @@ function recordPath(payload) {
 }
 
 export function explicitSflowSkill(prompt) {
-  if (typeof prompt !== 'string' || prompt.length > 256 * 1024) return null;
+  if (typeof prompt !== 'string') return null;
+  // A long prompt (a pasted log after /sf-code) is still that skill's turn: its start names it.
+  if (prompt.length > 256 * 1024) prompt = prompt.slice(0, 256 * 1024);
   // Host-expanded skill context is authoritative for invocation, not a substring in ordinary prose.
   return prompt.match(/<skill-context\s+name=["']((?:sf|sflow)-[a-z0-9-]+)["']/u)?.[1]
     ?? prompt.trim().match(/^\/((?:sf|sflow)-[a-z0-9-]+)(?=\s|$)/u)?.[1] ?? null;
@@ -303,16 +305,57 @@ export async function repositoryDiscoveryGuard(payload = {}, { now = Date.now(),
   return {};
 }
 
+// Larger than any real tool call. A payload past it, or one that is not JSON, is not passed unchecked.
+const HOOK_INPUT_LIMIT = 16 * 1024 * 1024;
+const IDENTITY_HEAD = 64 * 1024;
+
+/**
+ * The session and folder of a payload too large or malformed to parse, read from its start (the
+ * host writes them first), so an explicit SFlow turn is still answered for. Null when unreadable.
+ */
+function payloadIdentity(head) {
+  const text = head.toString('utf8');
+  const field = name => {
+    const match = text.match(new RegExp(`"${name}"\\s*:\\s*"((?:[^"\\\\]|\\\\.){1,4096})"`, 'u'));
+    try { return match ? JSON.parse(`"${match[1]}"`) : null; } catch { return null; }
+  };
+  const id = field('sessionId') ?? field('session_id');
+  return id ? { sessionId: id, ...(field('cwd') ? { cwd: field('cwd') } : {}) } : null;
+}
+
+/**
+ * During an explicit SFlow turn, a tool call the guard cannot read is refused rather than run
+ * unchecked, and a shell call is still compared with the turn's baseline (its command unknown, so
+ * with no baseline the turn stops). Outside such a turn nothing changes.
+ */
+async function unreadablePayload(event, identity) {
+  if (!identity || !(await hasBoundaryTurn(identity))) return {};
+  if (event === 'boundary-guard') return { permissionDecision: 'deny', permissionDecisionReason:
+    'SFLOW_HOOK_PAYLOAD_UNREADABLE: this tool call is too large or malformed for the SFlow guard to check, so it was not run. Make smaller calls: one file per patch, or split the edit.' };
+  if (event === 'boundary-after') return repositoryPostToolGuard({ ...identity, toolName: 'bash', toolArgs: { command: '' } });
+  return {};
+}
+
 /** Host hooks always answer JSON, even with malformed input; they must work outside Git. */
 export async function runRepositoryBoundaryHook(event, input = process.stdin) {
   try {
-    let text = '';
+    const chunks = [];
+    let bytes = 0;
     for await (const chunk of input) {
-      text += chunk.toString();
-      if (text.length > 1024 * 1024) return console.log('{}');
+      const buffer = Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk);
+      if (bytes <= HOOK_INPUT_LIMIT) chunks.push(buffer);
+      bytes += buffer.length;
     }
-    const payload = JSON.parse(text || '{}');
-    if (!payload || typeof payload !== 'object' || Array.isArray(payload)) return console.log('{}');
+    // Decoded once: a character split across two chunks decoded apart became U+FFFD, so a path in
+    // a command or patch no longer matched. A leading byte-order mark is not JSON.
+    const raw = Buffer.concat(chunks);
+    let payload = null;
+    if (bytes <= HOOK_INPUT_LIMIT) {
+      try { payload = JSON.parse(raw.toString('utf8').replace(/^\uFEFF/u, '') || '{}'); } catch { payload = null; }
+    }
+    if (!payload || typeof payload !== 'object' || Array.isArray(payload)) {
+      return console.log(JSON.stringify(await unreadablePayload(event, payloadIdentity(raw.subarray(0, IDENTITY_HEAD)))));
+    }
     const handler = { 'boundary-turn': recordRepositoryBoundaryTurn,
       'boundary-guard': repositoryToolGuard, 'boundary-end': endRepositoryBoundaryTurn,
       'boundary-after': repositoryPostToolGuard }[event];

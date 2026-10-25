@@ -97,6 +97,22 @@ Use `/sf-show-prompt` before authoring to see the complete skill and rendered
 prompt, including file paths and hashes. See the [glossary](docs/GLOSSARY.md) and
 [under-the-hood guide](docs/UNDER-THE-HOOD.md) for the full composition path.
 
+## What went wrong in real Copilot sessions
+
+Copilot keeps each session's log only on the machine that ran it
+(`~/.copilot/session-state`, `%USERPROFILE%\.copilot\session-state` on Windows). The offline audit
+counts what stopped or slowed SFlow turns there, by skill, step and work type: guard stops and
+denials, hook timeouts and slow hooks, failed edits and whether they recovered, JSON and
+large-output problems, turns that ended early, refusal codes and skill-tool misses. It reads only
+those logs and writes only its result. The report is content-free; `--details` adds short examples
+with the home folder, user name, emails and personal names redacted. An installed copy ships it:
+
+```bash
+node "$(npm root -g)/singularity-flow/scripts/native-copilot-audit.mjs" --sessions ~/.copilot/session-state --failures --out copilot-failures.json
+```
+
+In PowerShell: `node (Join-Path (npm root -g) 'singularity-flow/scripts/native-copilot-audit.mjs') --sessions "$env:USERPROFILE\.copilot\session-state" --failures --out copilot-failures.json`.
+
 ## Native execution performance (SPEC-NCE-001)
 
 Reuse the explicit skill's authoritative entry rather than preceding it with repeated pause,

@@ -325,6 +325,30 @@ test('packaged PowerShell launcher finds the Windows-style APPDATA runtime and f
   }
 });
 
+test('a launcher this machine\'s execution policy refuses runs again in its own PowerShell, stdin and all', {
+  skip: !powershell && 'PowerShell host unavailable'
+}, async t => {
+  const item = await fixture(t);
+  // A stand-in launcher: its first run is refused as a script file is under Restricted or AllSigned;
+  // the run in its own PowerShell (policy bypassed for that process only) answers with what it read.
+  const root = path.join(item.directory, 'plugin root');
+  await mkdir(root);
+  const marker = path.join(item.directory, 'refused-once');
+  await writeFile(path.join(root, 'hook-launcher.ps1'), [
+    'param([string]$Action)',
+    `if (-not (Test-Path -LiteralPath '${marker}')) { New-Item -ItemType File -Path '${marker}' | Out-Null; throw [System.Management.Automation.PSSecurityException]::new('running scripts is disabled on this system') }`,
+    "$read = [Console]::In.ReadToEnd(); Write-Output (ConvertTo-Json -Compress @{ action = $Action; input = $read })"
+  ].join('\n'));
+  const result = spawnSync(powershell, ['-NoLogo', '-NoProfile', '-NonInteractive', '-Command', copilotHookCommand('boundary-guard', 'powershell')], {
+    cwd: item.cwd, env: rootEnvironment(item.env, { PLUGIN_ROOT: root }), input: '{"sessionId":"refused"}',
+    encoding: 'utf8', timeout: childTimeout(20_000)
+  });
+  assert.equal(result.status, 0, result.stderr);
+  const answer = JSON.parse(result.stdout.trim().split('\n').at(-1));
+  assert.equal(answer.action, 'boundary-guard');
+  assert.equal(answer.input.trim(), '{"sessionId":"refused"}', 'the payload reaches the second run');
+});
+
 test('all shipped hook commands use the closed host-neutral command composer', async () => {
   for (const shell of ['bash', 'powershell']) for (const [action, command] of await manifestCommands(shell)) {
     assert.equal(command, copilotHookCommand(action, shell));

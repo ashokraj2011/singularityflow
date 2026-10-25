@@ -1,3 +1,4 @@
+import { writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { auditSkillPolicy } from './skill-policy.mjs';
@@ -5,26 +6,40 @@ import { PHASE_ENTRY_SKILLS, UTILITY_ENTRY_SKILLS } from '../src/copilot-mode.mj
 import { compareNativeCopilotTraces, readNativeCopilotTrace, summarizeNativeCopilotTrace } from '../src/native-copilot-efficiency.mjs';
 import { retainedPromptInventory } from '../src/retained-prompt-inventory.mjs';
 import { readCopilotSessionReport } from '../src/native-copilot-sessions.mjs';
+import { copilotFailureReport, copilotFailureSummary } from './native-copilot-failures.mjs';
 
-const USAGE = 'Use [--details] [--trace <EXPORTED-JSON> [--compare <AFTER-JSON>]] [--story-dir <EXACT-STORY-DIRECTORY>], or --sessions <COPILOT-SESSION-STATE-DIR> [--since YYYY-MM-DD] [--details].';
+const USAGE = 'Use [--details] [--trace <EXPORTED-JSON> [--compare <AFTER-JSON>]] [--story-dir <EXACT-STORY-DIRECTORY>], or --sessions <COPILOT-SESSION-STATE-DIR> [--since YYYY-MM-DD] [--details], or --sessions <COPILOT-SESSION-STATE-DIR> --failures [--details] [--out <JSON-FILE>].';
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 try {
   const options = {};
   const args = process.argv.slice(2);
   for (let index = 0; index < args.length; index++) {
     const argument = args[index];
-    if (argument === '--details' && !options[argument]) { options[argument] = true; continue; }
-    if (!['--trace', '--compare', '--story-dir', '--sessions', '--since'].includes(argument) || !args[index + 1]
+    if (['--details', '--failures'].includes(argument) && !options[argument]) { options[argument] = true; continue; }
+    if (!['--trace', '--compare', '--story-dir', '--sessions', '--since', '--out'].includes(argument) || !args[index + 1]
         || args[index + 1].startsWith('--') || options[argument]) throw new Error(USAGE);
     options[argument] = args[++index];
   }
   if (options['--compare'] && !options['--trace']) throw new Error('--compare requires --trace <BEFORE-JSON>.');
   if (options['--since'] && !options['--sessions']) throw new Error('--since requires --sessions <COPILOT-SESSION-STATE-DIR>.');
+  if ((options['--failures'] || options['--out']) && !options['--sessions']) throw new Error('--failures requires --sessions <COPILOT-SESSION-STATE-DIR>.');
+  if (options['--out'] && !options['--failures']) throw new Error('--out writes the --failures report.');
   if (options['--sessions']) {
     // Offline and read-only (SPEC-OUT CON-015): the host's own logs in, a content-free report out, nothing else.
     if (options['--trace'] || options['--story-dir']) throw new Error(USAGE);
-    const report = await readCopilotSessionReport(path.resolve(options['--sessions']), { since: options['--since'] ?? null, details: options['--details'] === true });
-    console.log(JSON.stringify(report, null, 2));
+    if (options['--failures']) {
+      // What stopped or slowed SFlow turns, by skill, step and work type; written to --out, if named,
+      // as UTF-8 (a PowerShell redirect would re-encode it), with a short summary printed instead.
+      const failures = copilotFailureReport(path.resolve(options['--sessions']), { details: options['--details'] === true });
+      if (!options['--out']) console.log(JSON.stringify(failures, null, 2));
+      else {
+        await writeFile(path.resolve(options['--out']), `${JSON.stringify(failures, null, 1)}\n`);
+        console.log([...copilotFailureSummary(failures), '', `Wrote ${path.resolve(options['--out'])}`].join('\n'));
+      }
+    } else {
+      const report = await readCopilotSessionReport(path.resolve(options['--sessions']), { since: options['--since'] ?? null, details: options['--details'] === true });
+      console.log(JSON.stringify(report, null, 2));
+    }
   } else {
     const skills = await auditSkillPolicy(root);
     const rows = skills.rows.map(row => ({ name: row.name, estimatedBodyTokens: row.bodyTokens,

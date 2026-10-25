@@ -136,6 +136,7 @@ export function unreadableGitFiles({ gitDirectory, commonDirectory }, {
 const DOWNLOAD_SCRIPT = `
 const fs = require('node:fs/promises');
 let input = '';
+process.stdin.setEncoding('utf8');
 process.stdin.on('data', (chunk) => { input += chunk; });
 process.stdin.on('end', async () => {
   const files = JSON.parse(input);

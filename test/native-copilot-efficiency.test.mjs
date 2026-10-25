@@ -10,11 +10,12 @@ import { agentPacketPresentation, phaseEntryAgentPresentation } from '../src/age
 import { agentNextSteps } from '../src/commands/nextsteps.mjs';
 import { authoringSkillCatalog } from '../src/authoring-skills.mjs';
 import { loadSkillPolicy } from '../scripts/skill-policy.mjs';
-import { copilotPauseGuardForSkill, SESSION_ENTRY_PAUSE_GUARD, SESSION_OPEN_PAUSE_GUARD } from '../src/copilot-mode.mjs';
+import { copilotPauseGuardForSkill, SESSION_ENTRY_PAUSE_GUARD, SESSION_OPEN_PAUSE_GUARD, SKILL_LOADED_CONTINUE } from '../src/copilot-mode.mjs';
 import { childTimeout } from './helpers/child-timeout.mjs';
 
 test('session setup uses its pause-aware entry without an extra host lookup', async () => {
-  assert.equal(copilotPauseGuardForSkill('sflow-session', 'repository'), SESSION_OPEN_PAUSE_GUARD);
+  // Every first-command rule ends by saying the skill is loaded and the turn goes on.
+  assert.equal(copilotPauseGuardForSkill('sflow-session', 'repository'), `${SESSION_OPEN_PAUSE_GUARD} ${SKILL_LOADED_CONTINUE}`);
   // Pins the rule (no separate pause/workspace/session lookups), not one phrasing of it: skill text gets compressed.
   assert.match(SESSION_OPEN_PAUSE_GUARD, /\b(?:no|not|never)\b[^.]*\bseparate pause\/workspace\/session lookups/i);
   const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');

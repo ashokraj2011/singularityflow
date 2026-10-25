@@ -29,7 +29,19 @@ export const UTILITY_ENTRY_SKILLS = Object.freeze({
   'sflow-skill': 'skill list', 'sflow-instructions': 'instruction list'
 });
 
+/**
+ * Said at the end of every skill's first-command rule. A typed /sf-* skill arrives already loaded,
+ * and the skill tool cannot load it (model invocation is off), so asking for it again was a wasted
+ * round trip on most turns; and a first command whose result has nothing to act on ended turns
+ * that had not started their work.
+ */
+export const SKILL_LOADED_CONTINUE = 'This skill is already loaded; never call the skill tool for it. Unless paused, continue below in this turn.';
+
 export function copilotPauseGuardForSkill(name, boundary = 'story') {
+  return `${firstCommandRule(name, boundary)} ${SKILL_LOADED_CONTINUE}`;
+}
+
+function firstCommandRule(name, boundary) {
   if (Object.hasOwn(UTILITY_ENTRY_SKILLS, name)) {
     return `Read-only utility: run the requested read once with \`--utility-entry --for-agent --json\` (default \`singularity-flow ${UTILITY_ENTRY_SKILLS[name]} --utility-entry --for-agent --json\`). Keep explicit Work IDs/filters; do not replace requested edits with a list. Eligible forms: status, progress, nextsteps, logs, agents list/mappings/status, workflow list, skill/instruction list/show without retained selectors. It checks pause before Git and returns verified \`repositoryPath\` plus \`data\`; no separate pause/session/workspace lookup or STATUS.md read. If paused, native Copilot; only offer \`/sf-pause off\`, never resume implicitly. Other forms: ${COPILOT_PAUSE_GUARD} Reads never authorize mutations; preserve later gates. If unsupported, stop with the compatibility error, never retry blindly.`;
   }

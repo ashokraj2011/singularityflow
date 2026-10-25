@@ -116,7 +116,9 @@ test('a runner called directly reports exactly as inference makes it report', as
     DIRECT_RUNNER_REPORTERS.playwright.arguments());
   endsWith(await tail('python', { 'pyproject.toml': '[project]\nname = "x"\n' }, 'python'), DIRECT_RUNNER_REPORTERS.pytest.arguments('.sflow/results/python-tests.xml'));
   endsWith(await tail('go', { 'go.mod': 'module x\n' }, 'go'), [...DIRECT_RUNNER_REPORTERS.go.arguments(), './...']);
-  endsWith(await tail('dotnet', { 'App.csproj': '<Project/>' }, 'dotnet'), DIRECT_RUNNER_REPORTERS.dotnet.arguments('TestResults'));
+  // A test project: a product project is tested through the test projects that reference it [TCE:REQ-072].
+  endsWith(await tail('dotnet', { 'App.Tests.csproj': '<Project Sdk="Microsoft.NET.Sdk"><ItemGroup><PackageReference Include="Microsoft.NET.Test.Sdk" Version="17.11.0" /></ItemGroup></Project>' }, 'dotnet'),
+    DIRECT_RUNNER_REPORTERS.dotnet.arguments('TestResults'));
 });
 
 test('test commands in AGENTS.md, copilot-instructions, a CI workflow and a Makefile are completed with their file and line [TCE:REQ-061 REQ-062]', async (t) => {

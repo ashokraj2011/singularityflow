@@ -35,7 +35,7 @@ export function automaticActionApplies(name, rule) {
  * skills: a skill whose returned route waits on a person (a capture, registration, decision or
  * confirmation) must never run it for them, so the clause names what a person must still supply.
  */
-export const AUTHORING_TURN_CONTRACT = 'When a result\'s `act.state` is `author`, or it routes back to this skill with nothing for a person to answer, edit, review or confirm, that is this turn\'s own work: do it, never relay it. A file edit that does not match is not a refusal: read the file again and redo the edit.';
+export const AUTHORING_TURN_CONTRACT = 'When a result\'s `act.state` is `author`, or it routes back to this skill with nothing for a person to answer, edit, review or confirm, that is this turn\'s own work: do it, never relay it. Copy the text an edit replaces from the file as it is now, read after your last edit of it, never from memory, a finding or a search result. A file edit that does not match is not a refusal: read those lines again and redo the edit.';
 
 /**
  * Every Story skill acts on what the engine returned, never on its own reading of a step's name,

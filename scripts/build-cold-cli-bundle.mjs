@@ -14,8 +14,10 @@ export const LIVE_SOURCE_FILES = Object.freeze(['build-info.mjs', 'version.mjs',
 const LIVE_SOURCE = /\/(?:build-info|version|observed-write-recorder)\.mjs$/u;
 
 const FAMILIES = Object.freeze([
+  // cli-entry.mjs imports the pause check and the Story creation context lazily; claimed here, they
+  // stay in the startup chunk instead of moving a --for-agent read into another family.
   ['core', ['cli-bundle-entry.mjs', 'command-loaders.mjs', 'deferred-index-refresh.mjs', 'build-stamp-reader.mjs',
-    'commands/skill-request.mjs', 'commands/instruction-request.mjs']],
+    'commands/skill-request.mjs', 'commands/instruction-request.mjs', 'copilot-mode.mjs', 'creation-context.mjs']],
   ['status', ['commands/status.mjs', 'commands/progress.mjs', 'commands/report.mjs',
     'command-observability.mjs', 'logging.mjs', 'accounting-projection.mjs', 'read-worker-service.mjs']],
   ['hooks', ['copilot-hook-runtime.mjs', 'copilot-repository-boundary.mjs', 'copilot-mutation-guard.mjs',

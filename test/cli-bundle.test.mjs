@@ -93,6 +93,9 @@ test('the bundled CLI answers exactly like the sources while opening a handful o
   const startupCode = await readFile(path.join(outdir, 'cold-core.mjs'), 'utf8');
   assert.match(startupCode, /validateSkillRequest/u, 'early argv validation must not import the catalog chunk');
   assert.match(startupCode, /validateInstructionRequest/u, 'instruction validation must remain in the startup chunk');
+  for (const name of ['readCopilotMode', 'withCreationContext']) {
+    assert.match(startupCode, new RegExp(`function ${name}\\b`, 'u'), `cli-entry's lazy ${name} must stay in the startup chunk`);
+  }
   const statusClosure = closure('cold-status.mjs');
   const statusBytes = statusClosure.reduce((sum, item) => sum + item.bytes, 0);
   assert.ok(statusBytes < 1.5 * 1024 * 1024,

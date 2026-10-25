@@ -10,6 +10,7 @@
  * Studio's own reviewed proposal and the check runs on exactly what would be published.
  */
 import { CHECK_KINDS } from '../guidance-scan.mjs';
+import { looksSecretName, looksSecretValue } from '../secret-looking.mjs';
 import { SingularityFlowError } from '../util.mjs';
 
 const ID = /^[a-z0-9]+(?:-[a-z0-9]+)*$/u;
@@ -288,7 +289,10 @@ export function validateMoves(moves, { model, draft }) {
         if (move.id && !steps.has(move.id) && !added.step.has(move.id)) add(`${at}.id`, 'BUILD_MOVE_REFERENCE', `Step '${move.id}' is not in this workflow.`);
         if (move.requirement != null && !['required', 'advisory'].includes(move.requirement)) add(`${at}.requirement`, 'BUILD_MOVE_SHAPE', 'requirement is required or advisory.');
         if (typeof move.command !== 'string' || !move.command) add(`${at}.item`, 'BUILD_MOVE_REFERENCE', 'item names a command this build found in the material.');
-        else if (!CHECK_KINDS[move.category]) {
+        else if (secretsIn(move.command).length) {
+          // Named, never quoted: the finding itself must not carry the value into the proposal.
+          add(`${at}.item`, 'BUILD_CHECK_SECRET', `${secretsIn(move.command).join(', ')} in this command looks like a credential. Declare it in singularity/environments.yml and bind it with env bind; a check never carries its value.`);
+        } else if (!CHECK_KINDS[move.category]) {
           add(`${at}.item`, 'BUILD_CHECK_NOT_A_CHECK', `'${move.command}' is a${move.category === 'install' ? 'n' : ''} ${move.category} command: it stays with its skill or instructions for the agent, and sflow never runs it as a check.`);
         }
         break;
@@ -508,6 +512,23 @@ export function lowerDraft(draft, model) {
       phases: attachment.steps.filter((step) => draft.workflow.phases.includes(step)), use: attachment.use ?? '' });
   }
   return { schema: 'sflow-studio-change-set@1', base: model.base, changes };
+}
+
+/**
+ * The names (or the option) of every literal in a command line that reads as a secret: a `NAME=value`
+ * assignment or `--name=value` option whose name or value looks secret, or a bare token that does. A
+ * `$NAME` reference is not a literal. Copied as written, the line would carry it into workflow.yml.
+ */
+function secretsIn(command) {
+  const found = [];
+  for (const token of String(command).split(/\s+/u).filter(Boolean)) {
+    const assigned = token.match(/^(-{0,2})([A-Za-z_][A-Za-z0-9_.-]*)=(.*)$/u);
+    const value = (assigned ? assigned[3] : token).replace(/^["']|["']$/gu, '');
+    if (value.startsWith('$')) continue;
+    const name = assigned ? assigned[2].toUpperCase().replace(/[.-]/gu, '_') : null;
+    if ((name && looksSecretName(name)) || looksSecretValue(value)) found.push(assigned ? `${assigned[1]}${assigned[2]}` : 'a token');
+  }
+  return [...new Set(found)];
 }
 
 /**

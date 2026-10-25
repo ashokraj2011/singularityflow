@@ -258,9 +258,11 @@ test('a test, lint or build command in a skill becomes a step check sflow runs; 
   await writeFile(path.join(root, 'web/package.json'), JSON.stringify({ name: 'web', private: true, scripts: { 'test:unit': 'vitest run' } }));
   run('git', ['add', '-A'], root); run('git', ['commit', '-m', 'web module'], root);
   const folder = await mkdtemp(path.join(os.tmpdir(), 'sflow-build-engine-checks-'));
+  // A made-up token, built at run time so no credential-shaped literal sits in the repository.
+  const token = ['ghp', 'X1y2'.repeat(6)].join('_');
   await mkdir(path.join(folder, '.github/skills/release-checks'), { recursive: true });
   await writeFile(path.join(folder, '.github/skills/release-checks/SKILL.md'), ['---', 'name: release-checks', 'description: What to run before a release.', '---',
-    '```sh', 'cd web && CI=true npm run test:unit', 'npm run lint', './scripts/deploy.sh staging', '```', ''].join('\n'));
+    '```sh', 'cd web && CI=true npm run test:unit', 'npm run lint', `API_TOKEN=${token} npm run lint:remote`, './scripts/deploy.sh staging', '```', ''].join('\n'));
   const build = json(root, ['workflow', 'build', 'start', '--change', 'repo-feature', '--folder', folder]).build;
   const command = (name) => build.items.find((entry) => entry.kind === 'command' && entry.name === name);
   assert.deepEqual([command('CI=true npm run test:unit').category, command('CI=true npm run test:unit').directory, command('npm run lint').checkable, command('./scripts/deploy.sh staging').checkable],
@@ -269,6 +271,12 @@ test('a test, lint or build command in a skill becomes a step check sflow runs; 
   const refused = flow(root, ['workflow', 'build', 'propose', '--build', build.id, '--proposal', '-'], { allowFailure: true,
     input: JSON.stringify({ title: 'Deploy as a check', why: 'Wrong.', moves: [{ move: 'step.check', id: 'verification', item: command('./scripts/deploy.sh staging').id }] }) });
   assert.match(refused.stderr + refused.stdout, /moves\[0\]\.item: '\.\/scripts\/deploy\.sh staging' is a deploy command: it stays with its skill or instructions for the agent, and sflow never runs it as a check\./u);
+  // A check that would copy a secret into workflow.yml is refused, naming the variable and never its value.
+  const secret = build.items.find((entry) => entry.kind === 'command' && entry.name.startsWith('API_TOKEN='));
+  const leaked = flow(root, ['workflow', 'build', 'propose', '--build', build.id, '--proposal', '-'], { allowFailure: true,
+    input: JSON.stringify({ title: 'Remote lint', why: 'Wrong.', moves: [{ move: 'step.check', id: 'verification', item: secret.id }] }) });
+  assert.match(leaked.stderr + leaked.stdout, /moves\[0\]\.item: API_TOKEN in this command looks like a credential\. Declare it in singularity\/environments\.yml and bind it with env bind; a check never carries its value\./u);
+  assert.equal((leaked.stderr + leaked.stdout).includes(token), false);
   json(root, ['workflow', 'build', 'propose', '--build', build.id, '--proposal', '-', '--by', 'you', '--accept'], { input: JSON.stringify({ title: 'Checks from the skill', why: 'The skill runs them before a release.',
     moves: [{ move: 'step.check', id: 'verification', item: command('CI=true npm run test:unit').id }, { move: 'step.check', id: 'implementation', item: command('npm run lint').id, command: 'rm -rf /' }] }) });
   const checked = json(root, ['workflow', 'build', 'check', '--build', build.id]);

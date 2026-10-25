@@ -26,6 +26,33 @@ import { readTeamImportSession, updateTeamImportSession } from './session.mjs';
 import { stageCandidate } from './stage.mjs';
 
 export const TEAM_IMPORT_REPAIR_LIMIT = 3;
+
+/**
+ * The candidate's test commands completed into full records against the team directory whose
+ * instructions name them [TCE:REQ-063]: variables, folder, module and result, through the same
+ * completer `capability test-setup` uses. A command written in a nested AGENTS.md runs
+ * from that folder. One that cannot be completed stays as written, with a warning saying why: a code
+ * step needs it set up (capability test-setup) before it can publish with it.
+ */
+async function completedTestChecks(candidate, root) {
+  const completed = new Map(); const findings = [];
+  if (!root) return { completed, findings };
+  const [{ completeWrittenTestCommand }, { classifyCommand }] = await Promise.all([
+    import('../instruction-test-commands.mjs'), import('../guidance-scan.mjs')]);
+  for (const [phaseIndex, phase] of candidate.phases.entries()) {
+    for (const [index, command] of (phase.qualityCommands ?? []).entries()) {
+      if (classifyCommand(command.argv.join(' ')) !== 'test') continue;
+      const file = String(command.evidence?.[0]?.path ?? '');
+      const directory = /(?:^|\/)AGENTS\.md$/u.test(file) ? path.posix.dirname(file) : '.';
+      const result = await completeWrittenTestCommand(root, { argv: command.argv, directory });
+      if (result?.command) { completed.set(command, result.command); continue; }
+      if (!result) continue;
+      findings.push({ at: `$.phases[${phaseIndex}].qualityCommands[${index}]`, code: 'TEAM_IMPORT_TEST_COMMAND_INCOMPLETE', owner: 'person', severity: 'warning',
+        message: `'${command.argv.join(' ')}' is imported as written, without its result: ${result.reason} Set it up after importing with singularity-flow capability test-setup --step ${phase.id}.` });
+    }
+  }
+  return { completed, findings };
+}
 const PLACED_INSTRUCTION = /<instruction>\s*([a-z0-9-]+)\s*<\/instruction>|<!--\s*sflow-instruction:\s*([a-z0-9-]+)\s*-->/gu;
 
 function fail(code, message, details = undefined) {
@@ -233,7 +260,9 @@ export async function compileTeamImport(sessionId, {
   const candidateValid = candidate && !candidateFindings.length;
   if (candidateValid) {
     const staging = path.join(path.dirname(session.candidatePath), 'stage');
-    const { baseline } = await stageCandidate(staging, candidate);
+    const checks = await completedTestChecks(candidate, session.capture.roots[0]?.path ?? null);
+    findings.push(...checks.findings);
+    const { baseline } = await stageCandidate(staging, candidate, { completed: checks.completed });
     findings.push(...crossReferences(candidate, baseline));
     const covered = coverage(candidate, session);
     findings.push(...covered.findings);

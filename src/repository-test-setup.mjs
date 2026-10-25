@@ -82,6 +82,15 @@ export async function inspectRepositoryTestSetup(root, { sourceRoots = ['.'], pl
       diagnostics.push({ path: directory, code: error.code, message: error.message });
     }
   }
-  return { repositoryPath: path.resolve(root), sourceRoots: roots, suggestions, diagnostics,
-    testsExecuted: false, baseline: 'not-observed', status: suggestions.length ? 'suggestions-available' : 'pending-configuration' };
+  // Test commands the team wrote down, completed and kept with their file and line [TCE:REQ-061..063];
+  // one that is the same as an inferred suggestion is that suggestion.
+  const { readInstructionTestCommands } = await import('./instruction-test-commands.mjs');
+  const written = await readInstructionTestCommands(root, { sourceRoots: roots, platform });
+  const same = (left, right) => JSON.stringify([left.argv, left.env ?? {}, left.workingDirectory]) === JSON.stringify([right.argv, right.env ?? {}, right.workingDirectory]);
+  const instructionCandidates = written.candidates.filter(entry => !entry.command || !suggestions.some(suggestion => same(suggestion, entry.command)))
+    .map(entry => (suggestions.some(suggestion => suggestion.id === entry.id) ? { ...entry, id: `${entry.id}-written`, ...(entry.command ? { command: { ...entry.command, id: `${entry.id}-written` } } : {}) } : entry));
+  const proposable = suggestions.length || instructionCandidates.some(entry => entry.status === 'complete');
+  return { repositoryPath: path.resolve(root), sourceRoots: roots, suggestions, instructionCandidates,
+    instructionSources: written.sources, ...(written.truncated ? { instructionSourcesTruncated: true } : {}), diagnostics,
+    testsExecuted: false, baseline: 'not-observed', status: proposable ? 'suggestions-available' : 'pending-configuration' };
 }

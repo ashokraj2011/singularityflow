@@ -1132,7 +1132,11 @@
                       "type": "string", "maxLength": 64,
                       "pattern": "^[a-z][a-z0-9]*(?:-[a-z0-9]+)*$"
                     },
-                    "timeoutMs": { "type": "integer", "minimum": 1000, "maximum": 7200000 }
+                    "timeoutMs": { "type": "integer", "minimum": 1000, "maximum": 7200000 },
+                    "env": {
+                      "type": "object", "maxProperties": 64, "propertyNames": { "pattern": "^[A-Z_][A-Z0-9_]{0,127}$" },
+                      "additionalProperties": { "type": "string" }
+                    }
                   },
                   "oneOf": [
                     { "required": ["command"], "not": { "required": ["argv"] } },

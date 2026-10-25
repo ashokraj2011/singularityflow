@@ -10,7 +10,7 @@ related:
   - pins
   - quick-fix
   - escalation
-version: 10
+version: 11
 commands:
   - configuration
   - workflow
@@ -73,10 +73,38 @@ it, with `--json --outputFile=<report>` or `--run --reporter=json --outputFile=<
 path written relative to the directory the runner resolves it against; publication runs both for a
 changed application. The `@nx/vite:test` executor is not inferred and needs an approved command.
 
+Inspection also reads the test commands the team already wrote down: `AGENTS.md`, a coding tool's
+root instruction file (`<TOOL>.md` beside its `.<tool>/` folder), `.github/copilot-instructions.md`,
+`.github/instructions/*.md`, skills (`SKILL.md` under `.github/skills`, `skills/` and any
+`.<tool>/skills`), the `run:` steps of
+`.github/workflows/*.yml`, Makefile test targets, `scripts/test*` and package scripts, at the root and
+in each `--source-root`. Each line is parsed by fixed rules, never by a model, and completed into a
+full command, listed under `instructionCandidates` with its file and line: `VAR=x` prefixes become
+`env`, `cd dir &&` becomes the working directory, the runner is found under its wrapper (`npx`,
+`pnpm exec`, `yarn`, `./mvnw`, `./gradlew`, `python -m`), the affected root is the module that folder
+belongs to, and the runner's reporter arguments and result adapter are added the way publication
+infers them. So `BASE_URL=http://localhost:3000 npx playwright test --project=chromium` in AGENTS.md
+becomes `npx playwright test --project=chromium --reporter=json` with `env: { BASE_URL: … }` and the
+`playwright-json` adapter. A secret-looking variable is never read: the candidate names it, for
+`singularity/environments.yml`. A line that cannot be completed (a pipe, a shell variable, a runner SFlow
+does not complete yet) is listed with the reason. Nothing is used until a person proposes it with
+`--use <ID>` and an approver activates it; the proposed `workflow.yml` keeps a comment naming the file
+and line. Team import and Build with Copilot complete the test commands they write the same way.
+
+A test command may carry `env`: literal, non-secret variables it always runs with
+(`env: { BASE_URL: http://localhost:3000 }`), applied at every run of it (publication and
+submission gates, `tests run`, test recovery) after the base environment and before
+environment-bound values. Names are UPPER_CASE; reserved names (`PATH`, `HOME`, `NODE_*`, `GIT_*`,
+proxies) and names that read like a secret are refused, and a secret-looking value given to
+`--env` is too: declare those in `singularity/environments.yml`. The variables are part of the
+command, so a changed value is a changed command. An engine older than this key reads the workflow
+and ignores `env`, as it ignores every command key it does not know, so a repository that relies on
+`env` needs every runner on a version that knows it.
+
 To save a chosen command from Copilot or a terminal, preview it with `singularity-flow capability
 test-setup --step <STEP> [--workflow <WORKFLOW>]` and either `--use <SUGGESTION-ID>` or the command in
 full (`--id`, `--argv '<JSON ARRAY>'`, `--working-directory`, `--affected-root`, `--adapter`,
-`--report`). The preview shows the `singularity/workflow.yml` diff and changes nothing; its printed
+`--report`, and `--env NAME=VALUE` for each variable). The preview shows the `singularity/workflow.yml` diff and changes nothing; its printed
 `--confirm <digest>` command proposes exactly that change through the same reviewed save as the
 Test setup page. A command with the same ID is replaced; every other check is kept. Run from a
 Story's checkout, it also names the Story's adoption once the proposal is activated. For a command one

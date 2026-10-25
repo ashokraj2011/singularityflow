@@ -870,6 +870,12 @@ export async function run(argv, context = {}) {
     else {
       console.log(`Test setup: ${result.status} (${result.repositoryPath})`);
       for (const command of result.suggestions) console.log(`  ${JSON.stringify(command.argv)} · cwd=${command.workingDirectory} · ${command.result.adapter} · ${command.result.path}`);
+      // Commands the team wrote down, with where (instruction-test-commands.mjs); --use <ID> proposes one.
+      for (const entry of result.instructionCandidates ?? []) {
+        console.log(`  ${entry.id} (${entry.source.file}:${entry.source.line}): ${entry.command
+          ? `${JSON.stringify(entry.command.argv)} · cwd=${entry.command.workingDirectory} · ${entry.command.result.adapter}${entry.command.env ? ` · env ${Object.keys(entry.command.env).join(', ')}` : ''}`
+          : `not proposable: ${entry.reason}`}${entry.secrets ? ` · secret ${entry.secrets.join(', ')} for environments.yml` : ''}`);
+      }
       for (const diagnostic of result.diagnostics) console.log(`  ${diagnostic.path}: ${diagnostic.message}`);
       console.log('Suggestions only. No tests ran; the existing-failure baseline is unverified.');
       console.log('Copilot: /sf-test-setup');

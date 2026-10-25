@@ -3,7 +3,7 @@
  *
  *   singularity-flow capability test-setup --step S [--workflow W] --use <SUGGESTION-ID> [--source-root DIR]...
  *   singularity-flow capability test-setup --step S [--workflow W] --id ID --argv '["tool","arg"]'
- *     --working-directory DIR --affected-root DIR... --adapter ADAPTER --report PATH
+ *     --working-directory DIR --affected-root DIR... --adapter ADAPTER --report PATH [--env NAME=VALUE]...
  *   ... --confirm sha256:PLAN [--json]
  *
  * /sf-test-setup could suggest a runner but not save the one a person chose: its Copilot turn edits
@@ -13,6 +13,12 @@
  * --propose`, the transaction VS Code's Test setup uses, so a packaged step takes a test command here
  * just as it does there. Nothing applies until the proposal is activated, and Stories already
  * started keep their pinned test policy.
+ *
+ * `--use` also takes a test command the team wrote down (an instruction candidate the inspection
+ * lists, instruction-test-commands.mjs). Its confirmation names it by `--use` again: the plan digest
+ * binds the command and the file and line it was read from, which the proposed workflow.yml keeps as a
+ * comment above the command, so the approver sees where it came from [TCE:REQ-063]. (Spelled out, its
+ * `--env NAME_X=…` words would read as placeholders to the Copilot guard's command grammar.)
  */
 import { createHash } from 'node:crypto';
 import { readFile } from 'node:fs/promises';
@@ -31,9 +37,9 @@ import { renderPreservingFormatting } from './yaml-formatting.mjs';
 
 const DIGEST = /^sha256:[0-9a-f]{64}$/u;
 const STEP_ID = /^[a-z0-9]+(?:-[a-z0-9]+)*$/u;
-const PROPOSAL_OPTIONS = ['step', 'workflow', 'use', 'id', 'argv', 'working-directory', 'affected-root', 'adapter', 'report', 'confirm'];
+const PROPOSAL_OPTIONS = ['step', 'workflow', 'use', 'id', 'argv', 'working-directory', 'affected-root', 'adapter', 'report', 'env', 'confirm'];
 const USAGE = 'Use: singularity-flow capability test-setup --step <STEP> [--workflow <WORKFLOW>] (--use <SUGGESTION-ID> [--source-root <DIRECTORY>]... '
-  + '| --id <ID> --argv \'["<COMMAND>","<ARGUMENT>"]\' --working-directory <DIRECTORY> --affected-root <DIRECTORY>... --adapter <ADAPTER> --report <PATH>) '
+  + '| --id <ID> --argv \'["<COMMAND>","<ARGUMENT>"]\' --working-directory <DIRECTORY> --affected-root <DIRECTORY>... --adapter <ADAPTER> --report <PATH> [--env <NAME>=<VALUE>]...) '
   + '[--confirm sha256:PLAN] [--json]';
 // A workflow step's configuration is refused, never a Story phase to recover.
 const usage = (message = USAGE) => new SingularityFlowError(message, { code: 'TEST_SETUP_PROPOSAL_USAGE', details: { subjectKind: 'configuration' } });
@@ -44,16 +50,21 @@ export function proposesTestCommand(options = {}) {
   return PROPOSAL_OPTIONS.some((key) => options[key] !== undefined);
 }
 
-/** The exact command line that proposes `command` for the step: no inference runs again on confirm. */
-function proposalCommandLine({ step, workflow, command }) {
-  return ['singularity-flow', 'capability', 'test-setup', '--step', step, ...(workflow ? ['--workflow', workflow] : []),
-    '--id', command.id, '--argv', JSON.stringify(command.argv), '--working-directory', command.workingDirectory,
+/**
+ * The exact command line that proposes `command` for the step: spelled out, so no inference runs again
+ * on confirm; an instruction candidate by `--use`, its digest binding what was read.
+ */
+function proposalCommandLine({ step, workflow, command, source = null }, sourceRoots = []) {
+  const target = ['singularity-flow', 'capability', 'test-setup', '--step', step, ...(workflow ? ['--workflow', workflow] : [])];
+  if (source) return [...target, '--use', command.id, ...sourceRoots.flatMap((root) => ['--source-root', root])].map(quote).join(' ');
+  return [...target, '--id', command.id, '--argv', JSON.stringify(command.argv), '--working-directory', command.workingDirectory,
     ...command.affectedRoots.flatMap((root) => ['--affected-root', root]),
-    '--adapter', command.result.adapter, '--report', command.result.path].map(quote).join(' ');
+    '--adapter', command.result.adapter, '--report', command.result.path,
+    ...Object.entries(command.env ?? {}).flatMap(([name, value]) => ['--env', `${name}=${value}`])].map(quote).join(' ');
 }
 
 /** The step's checks with `command` added, or replacing the test command with its ID. */
-export async function planTestCommandProposal(root, { step: phase, workflow = null, command }) {
+export async function planTestCommandProposal(root, { step: phase, workflow = null, command, source = null }) {
   if (!STEP_ID.test(String(phase ?? ''))) throw usage('Name the workflow step the tests run in with --step <STEP>.');
   if (workflow != null && !STEP_ID.test(String(workflow))) throw usage('--workflow takes a workflow ID.');
   // The same contract publication holds the command to: argv, a structured report, nothing suppressed.
@@ -77,14 +88,16 @@ export async function planTestCommandProposal(root, { step: phase, workflow = nu
     if (index >= 0 && current[index].kind !== 'test') {
       throw usage(`${stepDefinition.label ?? phase} already has a check called '${command.id}' that is not a test; choose another --id.`);
     }
-    document.setIn([...scope, 'qualityCommands'], document.createNode(index >= 0
-      ? current.map((entry, at) => (at === index ? command : entry)) : [...current, command]));
+    const list = document.createNode(index >= 0 ? current.map((entry, at) => (at === index ? command : entry)) : [...current, command]);
+    // Where an instruction candidate was read stays beside it for the approver.
+    if (source) list.items[index >= 0 ? index : current.length].commentBefore = ` Read from ${source.file}:${source.line} by capability test-setup.`;
+    document.setIn([...scope, 'qualityCommands'], list);
     const candidate = renderPreservingFormatting(text, document);
     const problems = [];
     try { validateDefinition(YAML.parse(candidate)); } catch (error) { problems.push(error.message); }
     const { unifiedDiff } = await import('./workflow-studio.mjs');
     const plan = {
-      step: phase, workflow, label: stepDefinition.label ?? phase, command, replaces: index >= 0 ? current[index] : null,
+      step: phase, workflow, label: stepDefinition.label ?? phase, command, ...(source ? { source } : {}), replaces: index >= 0 ? current[index] : null,
       kept: current.filter((_entry, at) => at !== index).map((entry) => (typeof entry === 'string' ? entry : entry?.id ?? null)),
       workflowSha256: createHash('sha256').update(text).digest('hex')
     };
@@ -95,7 +108,10 @@ export async function planTestCommandProposal(root, { step: phase, workflow = nu
 
 export { activatedTestCommandsFor } from './activated-test-commands.mjs';
 
-/** The test command the options name: an inspected suggestion (--use), or the one given in full. */
+/**
+ * The test command the options name: an inspected suggestion or instruction candidate (--use), or the
+ * one given in full. An instruction candidate's command carries its `source` (file and line).
+ */
 export async function requestedCommand(root, options) {
   const use = optionString(options, 'use');
   if (use) {
@@ -103,11 +119,14 @@ export async function requestedCommand(root, options) {
     const selected = optionStrings(options, 'source-root');
     const inspection = await inspectRepositoryTestSetup(root, { sourceRoots: selected.length ? selected : ['.'] });
     const suggestion = inspection.suggestions.find((entry) => entry.id === use);
-    if (!suggestion) {
-      throw usage(`No suggestion is called '${use}'${inspection.suggestions.length ? `; inspection suggested ${inspection.suggestions.map((entry) => entry.id).join(', ')}` : ''}. `
-        + 'Inspect with singularity-flow capability test-setup --source-root <DIRECTORY> --json, or give the command in full.');
-    }
-    return suggestion;
+    if (suggestion) return suggestion;
+    const written = inspection.instructionCandidates.find((entry) => entry.id === use);
+    // Provenance `instruction`, with the file and line it was read from.
+    if (written?.command) return { ...written.command, source: { kind: 'instruction', file: written.source.file, line: written.source.line } };
+    if (written) throw usage(`'${use}' (${written.source.file}:${written.source.line}) cannot be proposed as written: ${written.reason} Give the command in full.`);
+    const ids = [...inspection.suggestions, ...inspection.instructionCandidates.filter((entry) => entry.command)].map((entry) => entry.id);
+    throw usage(`No suggestion is called '${use}'${ids.length ? `; inspection suggested ${ids.join(', ')}` : ''}. `
+      + 'Inspect with singularity-flow capability test-setup --source-root <DIRECTORY> --json, or give the command in full.');
   }
   const missing = ['id', 'argv', 'working-directory', 'adapter', 'report'].filter((key) => !optionString(options, key));
   if (missing.length || !optionStrings(options, 'affected-root').length) {
@@ -119,8 +138,22 @@ export async function requestedCommand(root, options) {
   if (!Array.isArray(commandArgv) || !commandArgv.length || commandArgv.some((part) => typeof part !== 'string' || !part)) {
     throw usage('--argv takes the command as a JSON array of strings, for example \'["npx","nx","run","shop-e2e:e2e"]\'.');
   }
+  // Literal variables: a secret-looking name or value is never written into workflow.yml.
+  const env = {};
+  for (const entry of optionStrings(options, 'env')) {
+    const assignment = /^([A-Za-z_][A-Za-z0-9_]*)=(.*)$/su.exec(entry);
+    if (!assignment) throw usage('--env takes NAME=VALUE, for example --env BASE_URL=http://localhost:3000.');
+    const { classifyVariable } = await import('./secret-looking.mjs');
+    if (classifyVariable(assignment[1], assignment[2]).kind === 'secret') {
+      throw new SingularityFlowError(`--env ${assignment[1]} looks like it carries a secret, and workflow.yml never holds one. Declare it as a secret in `
+        + 'singularity/environments.yml, bind it on the machine that runs the tests, and link the command to that environment.',
+      { code: 'QUALITY_COMMAND_ENV_SECRET', details: { subjectKind: 'configuration', name: assignment[1] } });
+    }
+    env[assignment[1]] = assignment[2];
+  }
   return {
     id: optionString(options, 'id'), kind: 'test', argv: commandArgv,
+    ...(Object.keys(env).length ? { env: Object.fromEntries(Object.keys(env).sort().map((name) => [name, env[name]])) } : {}),
     workingDirectory: optionString(options, 'working-directory'), affectedRoots: optionStrings(options, 'affected-root'), modelPolicy: 'never',
     result: { adapter: optionString(options, 'adapter'), path: optionString(options, 'report'), minimumDiscovered: 1 }
   };
@@ -137,13 +170,14 @@ export async function runTestCommandProposal(options) {
   const root = repoRoot();
   const step = optionString(options, 'step');
   const workflow = optionString(options, 'workflow') ?? null;
-  const command = await requestedCommand(root, options);
-  const { plan, candidate, problems, diff } = await planTestCommandProposal(root, { step, workflow, command });
-  const confirmCommand = `${proposalCommandLine(plan)} --confirm ${plan.planSha256}`;
+  const { source = null, ...command } = await requestedCommand(root, options);
+  const { plan, candidate, problems, diff } = await planTestCommandProposal(root, { step, workflow, command, source });
+  const confirmCommand = `${proposalCommandLine(plan, optionStrings(options, 'source-root'))} --confirm ${plan.planSha256}`;
   if (!confirm) {
     if (!json) {
       console.log(`${plan.replaces ? 'Replace' : 'Add'} test command '${command.id}' ${plan.replaces ? 'in' : 'to'} ${plan.label}${workflow ? ` (workflow ${workflow})` : ''}:`);
-      console.log(`  ${JSON.stringify(command.argv)} · cwd=${command.workingDirectory} · covers ${command.affectedRoots.join(', ')} · ${command.result.adapter} ${command.result.path}`);
+      console.log(`  ${JSON.stringify(command.argv)} · cwd=${command.workingDirectory} · covers ${command.affectedRoots.join(', ')} · ${command.result.adapter} ${command.result.path}`
+        + `${command.env ? ` · env ${Object.entries(command.env).map(([name, value]) => `${name}=${value}`).join(' ')}` : ''}${source ? ` · read from ${source.file}:${source.line}` : ''}`);
       if (diff) console.log(diff);
       for (const problem of problems) console.log(`  Problem: ${problem}`);
       console.log(problems.length ? 'Nothing can be proposed until these are fixed.' : `Plan: ${plan.planSha256}\nPropose it: ${confirmCommand}`);

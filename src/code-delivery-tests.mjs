@@ -1733,7 +1733,8 @@ export function buildTestExecutionReceipt(command, check, parsed, {
             || parsed.tests.passed < parsed.minimumPassed || parsed.tests.failed) ? 'failed' : 'passed';
   const commandCore = {
     argv: command.argv, workingDirectory: command.workingDirectory, affectedRoots: command.affectedRoots,
-    result: { adapter: command.result?.adapter ?? null, path: command.result?.path ?? null }
+    result: { adapter: command.result?.adapter ?? null, path: command.result?.path ?? null },
+    ...(command.env ? { env: command.env } : {})
   };
   // What shaped the run [TCE:REQ-033]; the digest covers all of it but the CLI's own Node.
   const ran = { platform: process.platform, arch: process.arch, ...check?.runEnvironment };

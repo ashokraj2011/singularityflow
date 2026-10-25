@@ -17,6 +17,7 @@ import { appendLedgerIntent, createLedgerIntent, initializeLedger } from '../src
 import { storyLifecycleProgress } from '../src/session-roster.mjs';
 import { copilotStoryFollowDirectory, copilotStoryFollowFile, recordCopilotStoryFollow } from '../src/copilot-story-follow.mjs';
 import assert from 'node:assert/strict';
+import { TOOL_ANSWER_MAX_BYTES } from '../src/gateway/result.mjs';
 import { createRequire } from 'node:module';
 import { spawnSync } from 'node:child_process';
 import { existsSync, mkdtempSync, readdirSync, readFileSync, statSync } from 'node:fs';
@@ -1746,7 +1747,12 @@ test('the five SFlow language-model tools answer through the gateway, and a paus
   await extension.activate(hostContext);
   const names = ['sflow_resolve', 'sflow_read', 'sflow_next', 'sflow_run', 'sflow_explain'];
   assert.deepEqual([...tools.keys()].filter((name) => name.startsWith('sflow_')), names);
-  const call = async (name, input) => JSON.parse((await tools.get(name).invoke({ input })).content[0].value);
+  // Every answer fits one tool result, as the model reads it (host.mjs boundedToolAnswer).
+  const call = async (name, input) => {
+    const text = (await tools.get(name).invoke({ input })).content[0].value;
+    assert.ok(Buffer.byteLength(text, 'utf8') <= TOOL_ANSWER_MAX_BYTES, `${name}: ${Buffer.byteLength(text, 'utf8')} bytes`);
+    return JSON.parse(text);
+  };
 
   const resolved = await call('sflow_resolve', { utterance: 'what should I do next' });
   assert.deepEqual([resolved.kind, resolved.operation.id, resolved.next.length], ['read', 'developer.next', 1]);

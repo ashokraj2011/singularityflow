@@ -123,7 +123,7 @@ import {
   ACKNOWLEDGE_ACTION_ID, acknowledgementKey, homeAcknowledgementFor, type HomeAcknowledgement
 } from './views/home-acknowledgement.ts';
 import {
-  activeRepositoryContext, gatewaySession, provideAcknowledgedAt, provideHomeLens, provideChatProfileName,
+  activeRepositoryContext, gatewaySession, provideAcknowledgedAt, provideHomeLens, provideChatProfileName, provideModelMode,
   provideStartRoute, latestWorkspaceBootstrap, resetGatewaySession, setActiveRepositoryContext as setGatewayRepositoryContext,
   type ActiveRepositoryContext, type GatewayRepositoryContext
 } from './gateway-runtime-client.ts';
@@ -431,6 +431,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   };
   provideHomeLens(currentHomeLens);
   provideChatProfileName(() => vscode.workspace.getConfiguration('singularityFlow').get<string>('userName', ''));
+  provideModelMode(() => vscode.workspace.getConfiguration('singularityFlow').get<string>('modelMode', 'auto'));
   /**
    * The gateway's route to `start`: this extension's own CLI client, exactly as the Start form
    * uses it `[INT:CON-066]`. A non-zero exit hands back the engine's structured result so the
@@ -765,12 +766,8 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   if (typeof lm?.registerTool === 'function' && typeof parts.LanguageModelToolResult === 'function') {
     const toolRoute = (): GatewayRepositoryContext => activeRepositoryContext()
       ?? { root: null, workspaceId: null, workspaceName: null, repositoryId: null, origin: 'machine-local' };
-    const answer = async (name: string, input: Record<string, any>) => {
-      const route = toolRoute();
-      const session = gatewaySession(route);
-      // Paused SFlow guidance answers before the kernel, a binding or Git, as `gateway serve` does.
-      const paused = session.pausedToolAnswer(name);
-      if (paused) return paused;
+    const kernelAnswer = async (route: GatewayRepositoryContext, session: ReturnType<typeof gatewaySession>,
+      name: string, input: Record<string, any>) => {
       const { kernel } = session;
       if (name === 'sflow_resolve') return kernel.resolve(input as never);
       if (name === 'sflow_read') return kernel.read({ resolutionId: String(input.resolutionId ?? '') });
@@ -779,6 +776,16 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       let review;
       try { review = kernel.planReview(String(input.planId ?? '')); } catch { return kernel.run({ planId: String(input.planId ?? '') }); }
       return (await confirmPlanOutOfBand(route, review)) ?? kernel.run({ planId: String(input.planId ?? '') });
+    };
+    const answer = async (name: string, input: Record<string, any>) => {
+      const route = toolRoute();
+      const session = gatewaySession(route);
+      // Paused SFlow guidance answers before the kernel, a binding or Git, as `gateway serve` does.
+      const paused = session.pausedToolAnswer(name);
+      if (paused) return paused;
+      // Last, what fits one tool answer, as `gateway serve` asks too.
+      const answered = await kernelAnswer(route, session, name, input);
+      return answered && session.boundedToolAnswer(name, answered);
     };
     for (const name of ['sflow_resolve', 'sflow_read', 'sflow_next', 'sflow_run', 'sflow_explain']) {
       context.subscriptions.push(lm.registerTool(name, {

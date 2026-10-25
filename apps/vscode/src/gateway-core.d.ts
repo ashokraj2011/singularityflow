@@ -24,6 +24,7 @@ declare module '*/gateway/host.mjs' {
     plannerContext?: Record<string, unknown> | (() => Record<string, unknown>);
     readOnly?: boolean;
     hostCapabilities?: { confirmationChannel: 'native' | 'terminal' | 'none'; hostActions?: readonly string[] };
+    routeModelMode?: ModelMode | null | (() => ModelMode | null);
     now?: () => number;
   }): { root: string | null; binding: () => { readonly actorId: string | null }; kernel: GatewayKernel };
 
@@ -32,6 +33,10 @@ declare module '*/gateway/host.mjs' {
   export function bindingActorId(root: string | null): string | null;
   /** A model's tool call while SFlow guidance is paused: the refusal, or null when not paused. */
   export function pausedToolAnswer(tool: string): SflowResult | null;
+  /** What a model reads from one tool call: the answer, its tool view, or a too-long refusal. */
+  export function boundedToolAnswer(tool: string, answer: SflowResult): SflowResult;
+  /** `resolveModelMode`'s answer: whether a model may run, and what decided it. */
+  type ModelMode = { readonly enabled: boolean; readonly source: string };
 }
 
 declare module '*/personalization.mjs' {

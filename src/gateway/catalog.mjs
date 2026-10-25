@@ -65,6 +65,8 @@ export const KERNEL_CODES = Object.freeze([
   'gateway.copilot-paused',
   /** A read too long for one tool answer (`TOOL_ANSWER_MAX_BYTES`); its CLI command serves it. */
   'gateway.answer-too-long',
+  /** Any other answer that, even as its tool view, does not fit one tool answer; the skill's command serves it. */
+  'gateway.tool-answer-too-long',
   'gateway.run-in-progress',
   'gateway.confirmation-channel-unavailable',
   'gateway.confirmation-declined',

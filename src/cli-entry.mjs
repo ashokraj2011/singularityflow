@@ -22,11 +22,12 @@ import { installFileLeaseSignalHandlers } from './file-lease.mjs';
 import { configurationReviewRetryDue, firstRunPassDue } from './product-alignment-gate.mjs';
 import { productRequirementDue } from './product-requirement-gate.mjs';
 import { agentViewRequested, interpretsForAgent, withCliJsonOutput, withoutAgentFlag } from './cli-json-output.mjs';
-import { copilotModeFile, copilotModePresentation, readCopilotMode } from './copilot-mode.mjs';
 import { scopedUtilityRead, validateUtilityEntry, withoutUtilityEntry } from './utility-entry.mjs';
 import { withCommandReadScope } from './read-scope.mjs';
 import { executionContextArguments, surfaceContext, withExecutionContextScope } from './execution-context-scope.mjs';
-import { withCreationContext } from './creation-context.mjs';
+// copilot-mode.mjs (the pause check, with personalization and the skill catalog) and
+// creation-context.mjs (Story creation only) load where they are read, not in root dispatch.
+// The bundled CLI keeps both in cold-core (build-cold-cli-bundle.mjs), so no chunk is added.
 
 // These commands promise to remove machine-local Singularity state. Recording their own duration
 // after they finish would immediately recreate `.git/singularity-flow/` and make that promise false.
@@ -150,12 +151,20 @@ function askPublicationTipEarly(root) {
     }).catch(() => { /* the command asks at publication */ });
 }
 
+/** The paused answer for the entries that check pause before Git, or null; paused, it reads no personalization. */
+async function copilotPause() {
+  const { copilotModePresentation, readCopilotMode } = await import('./copilot-mode.mjs');
+  const mode = readCopilotMode();
+  return mode.paused ? copilotModePresentation(mode) : null;
+}
+
 /**
  * Whether any Copilot turn holds a mutation contract on this machine. Only then can a command's
  * result change one, so only then is the guard (and, when stale, the whole Story) loaded after it.
  */
-function hasMutationContracts() {
+async function hasMutationContracts() {
   try {
+    const { copilotModeFile } = await import('./copilot-mode.mjs');
     return readdirSync(path.join(path.dirname(copilotModeFile()), 'copilot-boundaries'))
       .some(name => name.endsWith('.mutation.json'));
   } catch { return false; }
@@ -586,11 +595,8 @@ export async function main(argv) {
     const agentFlag = options['for-agent'] !== undefined;
     const ownsFlag = interpretsForAgent(positionals);
     if ((utilityEntry || agentFlag && !ownsFlag) && !['pause', 'hook'].includes(positionals[0])) {
-      const mode = readCopilotMode();
-      if (mode.paused) {
-        const result = copilotModePresentation(mode);
-        return console.log(optionBoolean(options, 'json') ? JSON.stringify(result, null, 2) : result.message);
-      }
+      const paused = await copilotPause();
+      if (paused) return console.log(optionBoolean(options, 'json') ? JSON.stringify(paused, null, 2) : paused.message);
     }
     const commandArgv = utilityEntry ? withoutUtilityEntry(argv) : argv;
     const invoke = () => withCliJsonOutput(optionBoolean(options, 'json'),
@@ -601,7 +607,8 @@ export async function main(argv) {
     return await (positionals[0] === 'start'
       || positionals[0] === 'workspace' && positionals[1] === 'branches'
       || positionals[0] === 'story' && positionals[1] === 'prepare-worktree'
-      ? withCreationContext(invoke, { configurationTransfers: positionals[0] === 'start' }) : invoke());
+      ? (await import('./creation-context.mjs')).withCreationContext(invoke, { configurationTransfers: positionals[0] === 'start' })
+      : invoke());
   }
   finally { uninstall(); }
 }
@@ -698,18 +705,18 @@ async function runMain(argv, utilityEntry = null, explicitContextRoot = null) {
   // /sf-session uses this composed entry instead of a separate pause/workspace preflight. Serve
   // pause before root discovery or product gates, including a broken or absent Git installation.
   if (definition.name === 'workspace' && positionals[1] === 'branches' && options.entry === true) {
-    const mode = readCopilotMode();
-    if (mode.paused) return console.log(JSON.stringify({
+    const paused = await copilotPause();
+    if (paused) return console.log(JSON.stringify({
       resultType: 'intake-entry', status: 'paused', paused: true,
-      agentInstruction: copilotModePresentation(mode).agentInstruction
+      agentInstruction: paused.agentInstruction
     }));
   }
   if (definition.name === 'session' && positionals[1] === 'open') {
     const { validateSessionOpenRequest, pausedSessionOpenResult } = await import('./commands/session-open.mjs');
     validateSessionOpenRequest({ positionals, options });
-    const mode = readCopilotMode();
-    if (mode.paused) {
-      const result = pausedSessionOpenResult(copilotModePresentation(mode).agentInstruction);
+    const paused = await copilotPause();
+    if (paused) {
+      const result = pausedSessionOpenResult(paused.agentInstruction);
       return console.log(options.json ? JSON.stringify(result, null, 2)
         : 'Singularity Flow guidance is paused. Resume it with /sf-pause off.');
     }
@@ -723,7 +730,7 @@ async function runMain(argv, utilityEntry = null, explicitContextRoot = null) {
       if (['boundary-turn', 'boundary-guard', 'boundary-after', 'boundary-end'].includes(positionals[1])) {
         return (await import('./copilot-repository-boundary.mjs')).runRepositoryBoundaryHook(positionals[1]);
       }
-      if (readCopilotMode().paused) return console.log('{}');
+      if (await copilotPause()) return console.log('{}');
       return (await import('./commands/legacy.mjs')).run(effectiveArgv, { positionals, options });
     });
   }
@@ -731,7 +738,8 @@ async function runMain(argv, utilityEntry = null, explicitContextRoot = null) {
   if (phaseEntry) (await import('./agent-entry-options.mjs')).validatePhaseEntryRequest({ positionals, options });
   if (definition.name === 'session' && positionals[1] === 'takeover') {
     (await import('./commands/session-takeover.mjs')).validateSessionTakeoverRequest({ positionals, options });
-    if (options['for-agent'] && readCopilotMode().paused) return console.log(JSON.stringify(copilotModePresentation(readCopilotMode())));
+    const paused = options['for-agent'] ? await copilotPause() : null;
+    if (paused) return console.log(JSON.stringify(paused));
   }
   if (definition.name === 'session' && !['open', 'takeover'].includes(positionals[1]) && options['for-agent'] !== undefined) {
     const paused = (await import('./session-agent-entry.mjs')).sessionAgentEntryGuard(positionals, options);
@@ -740,11 +748,10 @@ async function runMain(argv, utilityEntry = null, explicitContextRoot = null) {
   const agentEntry = ['inputs', 'nextsteps', 'review-source'].includes(definition.name) && options['for-agent'] !== undefined;
   if (agentEntry) (await import('./agent-entry-options.mjs')).validateAgentEntryRequest(definition.name, { positionals, options });
   if (['hook', 'home', 'check'].includes(definition.name) || phaseEntry || agentEntry) {
-    const mode = readCopilotMode();
-    if (mode.paused) {
+    const paused = await copilotPause();
+    if (paused) {
       if (definition.name === 'hook') return console.log('{}');
-      const result = copilotModePresentation(mode);
-      return console.log(optionBoolean(options, 'json') ? JSON.stringify(result, null, 2) : result.message);
+      return console.log(optionBoolean(options, 'json') ? JSON.stringify(paused, null, 2) : paused.message);
     }
   }
   // Skill option errors must precede repository discovery/routing. In particular, a diagnostic
@@ -1018,7 +1025,7 @@ async function runMain(argv, utilityEntry = null, explicitContextRoot = null) {
     timer.feedback();
     // A private refresh cannot turn a successful publication into a replayable failure.
     if (!LOCAL_STATE_RESET_COMMANDS.has(definition.name) && definition.name !== 'hook' && root
-        && hasMutationContracts()) {
+        && await hasMutationContracts()) {
       await import('./copilot-mutation-guard.mjs').then(module => module.refreshMutationContracts(root, null, {
         decisionEnded: ['approve', 'reject'].includes(definition.name)
           || definition.name === 'review-source' && positionals[1] === 'decide',

@@ -156,6 +156,10 @@ test('root dispatch stays small and orchestration entrypoints load their handler
   assert.ok(root.bytes <= 810_000, `root dispatch loads ${root.bytes} source bytes`);
   assert.equal(root.files.has(path.join(sourceRoot, 'git.mjs')), false);
   assert.equal(root.files.has(path.join(sourceRoot, 'config.mjs')), false);
+  // Only the pause-checking entries and Story creation read these; most commands never do.
+  for (const file of ['copilot-mode.mjs', 'creation-context.mjs']) {
+    assert.equal(root.files.has(path.join(sourceRoot, file)), false, `root dispatch eagerly loads ${file}`);
+  }
   for (const entry of ['commands/session-entry.mjs', 'commands/choices-entry.mjs']) {
     assert.equal((await graph(entry)).files.size, 1, `${entry} eagerly imported an implementation`);
   }

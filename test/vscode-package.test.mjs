@@ -1014,7 +1014,7 @@ test('a sealed reinstall source manifest admits Git-less VSIX inputs and detects
   );
 });
 
-test('pinned VSCE output is stable across locale, timezone, and host file modes', async (t) => {
+test('pinned VSCE output without a product license is stable across locale, timezone, and host file modes', async (t) => {
   const fixture = await mkdtemp(path.join(os.tmpdir(), 'sflow-vsce-reproducible-'));
   t.after(() => rm(fixture, { recursive: true, force: true }));
   const manifest = {
@@ -1023,6 +1023,7 @@ test('pinned VSCE output is stable across locale, timezone, and host file modes'
     version: '1.0.0',
     publisher: 'singularityflow',
     description: 'Exercises deterministic VSCE packaging.',
+    license: 'UNLICENSED',
     engines: { vscode: '^1.90.0' }
   };
   const regular = path.join(fixture, 'I-one.txt');
@@ -1030,7 +1031,6 @@ test('pinned VSCE output is stable across locale, timezone, and host file modes'
   await Promise.all([
     writeFile(path.join(fixture, 'package.json'), `${JSON.stringify(manifest, null, 2)}\n`),
     writeFile(path.join(fixture, 'README.md'), '# Reproducibility fixture\n'),
-    writeFile(path.join(fixture, 'LICENSE'), 'MIT\n'),
     writeFile(regular, 'same bytes\n'),
     writeFile(path.join(fixture, 'i-two.txt'), 'same bytes\n'),
     writeFile(path.join(fixture, 'İ-three.txt'), 'same bytes\n'),

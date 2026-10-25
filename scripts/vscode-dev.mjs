@@ -1255,7 +1255,9 @@ export function vscodePackagingEnvironment({
 export function vscePackageArguments(entry, { rootDir = root } = {}) {
   return [
     '--require', path.join(rootDir, 'scripts', 'vsce-reproducible-preload.cjs'),
-    entry, 'package', '--no-dependencies', '--allow-missing-repository'
+    // The product intentionally has no first-party license file. Suppress only that prompt;
+    // repository, source-manifest, secret and dependency checks keep their existing contracts.
+    entry, 'package', '--no-dependencies', '--allow-missing-repository', '--skip-license'
   ];
 }
 

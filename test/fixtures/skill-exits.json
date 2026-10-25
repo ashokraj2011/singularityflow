@@ -1,0 +1,493 @@
+{
+  "sflow-agents": [
+    "If unsupported, stop with the compatibility error, never retry blindly."
+  ],
+  "sflow-appeal": [
+    "Stop unchanged failures at the owner route.",
+    "Exhaustion stops automation, not manual repair."
+  ],
+  "sflow-approve": [
+    "on `approvalPacket.readiness` `terminal-obligations-required`, relay blockers/actions and stop without choices or generic recovery.",
+    "mismatch or missing binding stops.",
+    "stop.",
+    "End this turn before next-phase authoring."
+  ],
+  "sflow-auto": [
+    "argument-hint: \"plan <requirement> [--until <phase>] | plan --story <STORY-ID> | --goal <GOAL-ID> | adopt --from-adhoc <AHS-ID> | start <PLAN-ID> | list | continue <STORY-ID> | status|report|compare|needs-you|repair|respond|switch-unit|pause|stop|takeover|resume|discard <FLIGHT-ID>\"",
+    "otherwise stop, and halt after a second failure;",
+    "After showing the complete checkpoint SHA-256, control with `singularity-flow auto pause|takeover|stop <FLIGHT-ID> --confirm <HASH> --json`;",
+    "`halt` aliases stop."
+  ],
+  "sflow-call": [
+    "**Output contract:** Run the canonical skill once and preserve its result and handoff;",
+    "Stop when the canonical skill returns, preserving its evidence,",
+    "limitations and exact Copilot/Shell handoff."
+  ],
+  "sflow-call-add": [
+    "relay and stop."
+  ],
+  "sflow-cancel": [
+    "Explain that cancellation stops the lifecycle but preserves the Story branch, state, artifacts, approvals, telemetry, and Git history.",
+    "Stop on a stale/diverged branch, pending publication, closed Story, already-cancelled Story, or confirmation mismatch."
+  ],
+  "sflow-capability-add": [
+    "Stop;"
+  ],
+  "sflow-capability-depend": [
+    "Stop."
+  ],
+  "sflow-capability-map": [
+    "Stop on other refusals.",
+    "Stop on moved, merged, missing, or unverifiable refs;",
+    "Stop for explicit approval."
+  ],
+  "sflow-capability-protect": [
+    "Stop;"
+  ],
+  "sflow-code": [
+    "unavailable: `/sf-session` or `/sf-workspaces`, stop.",
+    "Review `recovery`, `intent`, test handoff and exact diffs/untracked bytes including `workflow.json`.",
+    "Otherwise stop on protected/unrelated/unowned edits or lifecycle/authority blockers.",
+    "unchanged publication: relay `next`, stop.",
+    "`not-admitted`: relay blockers/next, stop.",
+    "ask only unanswered/changed questions with `ask_user` (unavailable: show them and stop;",
+    "Follow `toolProtocol.localVerification` for tests/app start/stop and exact `mutationContract.artifacts` evidence.",
+    "Follow `testExecution.handoff`;",
+    "stop unchanged.",
+    "Absent: relay `commands.next`, stop."
+  ],
+  "sflow-code-docs": [
+    "Otherwise stop: this skill documents code steps only.",
+    "If `documentation.status` is `complete` or `not-applicable`, report that and stop.",
+    "Recheck once with `singularity-flow phase draft-check <phase> --json`, then stop."
+  ],
+  "sflow-confirm": [
+    "Refuse and stop on anything else: no digest, a `<placeholder>` or `a|b` choice still to fill, or shell operators.",
+    "A refusal that the digest is stale: show the fresh review it returns and stop;",
+    "A refusal that needs a live terminal: give its Shell command for the person's own terminal and stop."
+  ],
+  "sflow-converge": [
+    "`not-routed`: relay `next[]`, stop.",
+    "At `approval`, stop: only an authorized human Git identity approves.",
+    "Do not stop after merely displaying the route;",
+    "In its `next[]`, for adjudication, rework, intent amendment, or inspection, relay the action and stop for the human decision.",
+    "absent: relay `commands.next`, stop.",
+    "Stop immediately after publication;",
+    "Report the handoff/document view from `publishIfReady.review`.",
+    "absent: relay `commands.next`, stop.",
+    "stop unchanged.",
+    "open blockers stop advancement."
+  ],
+  "sflow-decide": [
+    "An option without `action`: do 11-14, then stop;",
+    "stop.",
+    "stop.",
+    "stop."
+  ],
+  "sflow-design": [
+    "unavailable: `/sf-session` or `/sf-workspaces`, stop.",
+    "stop.",
+    "`retained-generation`: relay `next`, stop.",
+    "stop for protected/unowned edits or required human decisions.",
+    "Not admitted: relay blockers/next, stop.",
+    "Unavailable: show questions and stop;",
+    "stop unchanged.",
+    "absent: relay `commands.next`, stop.",
+    "Relay each `handoff`: `Next in Copilot: /sf-…` from `copilotCommand`, then `Terminal equivalent: singularity-flow …` from `command`."
+  ],
+  "sflow-document-intake": [
+    "unavailable: `/sf-session` or `/sf-workspaces`, stop.",
+    "False `policyVerified`: show `policyReason`, offer `/sf-validate` then `/sf-recover`, stop.",
+    "`retained-generation`: relay `next`, stop.",
+    "stop for protected/unowned edits or required human decisions.",
+    "Not admitted: relay blockers/next, stop.",
+    "Stop for human confirmation or protected/unowned edits.",
+    "stop unchanged.",
+    "absent: relay `commands.next`, stop.",
+    "Relay each `handoff` using its `copilotCommand` and `command`."
+  ],
+  "sflow-documents": [
+    "Stop on `Out of sequence`;"
+  ],
+  "sflow-epic-complete": [
+    "If any Story is not ready, stop and give its next corrective action."
+  ],
+  "sflow-epic-journey": [
+    "description: Explain the configured Epic lifecycle, current stage, governed artifacts, approval boundaries, and developer handoff as a business-readable journey."
+  ],
+  "sflow-epic-planning": [
+    "**Output contract:** Run the canonical skill once and preserve its result and handoff;",
+    "Run `/sf-epic-story-draft` once with the supplied arguments and stop when it returns.",
+    "That canonical skill owns repository resolution, preparation, authoring, publication, validation, and the business-review handoff."
+  ],
+  "sflow-epic-requirements": [
+    "If `ask_user` is unavailable, display the questions and stop before authoring or publication.",
+    "If unready, act only on its `findings` and `correction`, rerun its `commands.recheck` at most twice, and stop on an unchanged fingerprint.",
+    "Only when `status` is `ready`, run `singularity-flow epic requirements publish`, summarize every output with verified preview/file links and hashes, and stop for human review of the complete bound documents outside chat.",
+    "After explicit approval, hand off to `/sf-initiative-approve <EPIC-KEY> phase` for its receipt and self-approval flow."
+  ],
+  "sflow-epic-resume": [
+    "Stop only on a CLI refusal (it checks the checkout itself);"
+  ],
+  "sflow-epic-review-decision": [
+    "Reviewer not authorized: show `approval.reviewerAuthority.reason` and stop for an authorized reviewer;"
+  ],
+  "sflow-epic-story-draft": [
+    "description: Create the governed, repository-owned User Story package from approved Epic requirements and impact analysis, then stop for business review in the Singularity Flow UI before any Jira or Git Story publication.",
+    "continue only when it routes to Planning preparation, otherwise relay its action and stop.",
+    "If questions cannot be asked or persisted, stop rather than infer Story boundaries.",
+    "then relay the remaining failures and stop.",
+    "Stop."
+  ],
+  "sflow-epic-sync": [
+    "Stop only on a returned failing `results[].status`, showing that repository;"
+  ],
+  "sflow-explain": [
+    "Stop."
+  ],
+  "sflow-explain-code": [
+    "Stop."
+  ],
+  "sflow-finalize": [
+    "On refusal relay its findings or `Incomplete:` list with its `Recover:` commands, and stop."
+  ],
+  "sflow-fix": [
+    "Render the status, attempt evidence, stop reason, preserved state, and exact next actions."
+  ],
+  "sflow-fix-workflow": [
+    "If `valid`, say so in two lines from `roles` (which step defines the clauses, plans each code step, carries the tags, reviews) and stop.",
+    "For each `problem` in `workflows[].findings` and `repository.findings`: what is wrong (`title`, `location`), why it stops a Story (`blocksStart`: Story start refuses it;"
+  ],
+  "sflow-fresh-install": [
+    "With only a promoted release directory, say so and stop;",
+    "Stop for a separate explicit confirmation."
+  ],
+  "sflow-goal": [
+    "Stop for active/unavailable links.",
+    "show generation, steps, stops, write set, and full `planSha256`."
+  ],
+  "sflow-governance-rebuild": [
+    "If `blockers` is not empty, stop: the plan cannot be confirmed.",
+    "refuses, relay its code and repair and stop."
+  ],
+  "sflow-grounding": [
+    "compact, evidence-based handoff (the kernel binds the downstream copy);",
+    "On `Out of sequence`, stop and relay its full state, reason and required next command."
+  ],
+  "sflow-home": [
+    "“Catch me up”, “where did I stop?”, “yesterday”, and “what changed while I was away?” are reads."
+  ],
+  "sflow-implement": [
+    "**Output contract:** Run the canonical skill once and preserve its result and handoff;",
+    "Run `/sflow-code` once with the supplied focus and stop when it returns.",
+    "Preserve its final result and Copilot/Shell handoff unchanged;"
+  ],
+  "sflow-import-team": [
+    "stop when `repair.stop` is true."
+  ],
+  "sflow-inbox": [
+    "Stop."
+  ],
+  "sflow-initiative-approve": [
+    "For `new`, stop and ask the contributor to run `/clear` followed by `/sf-initiative-next`;",
+    "Report what it invalidated and its commit/push result, then hand off to the phase's authoring skill: `/sf-epic-requirements` or `/sf-epic-story-draft` for Epic stages, otherwise `/sf-initiative-phase`."
+  ],
+  "sflow-initiative-materialize": [
+    "continue only when its review `phaseStatus` is `approved`, otherwise relay it and stop."
+  ],
+  "sflow-initiative-phase": [
+    "Recheck up to three changed fingerprints and stop on an unchanged fingerprint, relaying the actions of `singularity-flow initiative recover <INIT-ID> --json`."
+  ],
+  "sflow-inputs": [
+    "unavailable: `/sf-session` or `/sf-workspaces`, stop.",
+    "On `Out of sequence`, stop immediately and relay the error.",
+    "`matchesRendered: false`: stop and relay the mismatch."
+  ],
+  "sflow-inspect": [
+    "if selection is ambiguous, show candidates and stop."
+  ],
+  "sflow-instructions": [
+    "If unsupported, stop with the compatibility error, never retry blindly."
+  ],
+  "sflow-jira-status": [
+    "- If the command fails, report that failure and stop."
+  ],
+  "sflow-jira-update": [
+    "- If Jira rejects a transition because it requires additional screen fields, stop and tell the user to complete that transition in Jira."
+  ],
+  "sflow-learn": [
+    "digest, and stop for explicit confirmation."
+  ],
+  "sflow-local": [
+    "Stop on remote-device, rerun, repository-adoption, or external-verifier requests: those levels are not implemented and must not be advertised as available."
+  ],
+  "sflow-logs": [
+    "If unsupported, stop with the compatibility error, never retry blindly.",
+    "singularity-flow logs --event copilot        # what a native Copilot handoff did",
+    "- `copilot.turn-complete` carries the stop reason."
+  ],
+  "sflow-next": [
+    "unavailable: `/sf-session` or `/sf-workspaces`, stop.",
+    "Read `contextBoundary` first: an earlier-phase chat relays its ordered reset commands and stops;",
+    "Load one returned SFlow skill route (any `/sf-*` or `/sflow-*` route), use its configured producer/channel, complete its preflight, execute at most its one authorized action, and stop.",
+    "Run `singularity-flow sync <WORK-ID>` once in the verified cwd, then stop;",
+    "If the selected action is `/sf-code` or any `singularity-flow prepare <phase>` authoring route, do not imitate or inline it, nor run it: report `Next in Copilot: /sf-code` or its skill and stop;",
+    "`ARTIFACT_AUTHORING_INCOMPLETE` permits one recheck and correction handoff, not a retry loop."
+  ],
+  "sflow-nextsteps": [
+    "If unsupported, stop with the compatibility error, never retry blindly.",
+    "If this chat already worked on an earlier phase, show its ordered `commandGuidance.copilotCommand` (`/clear`, then `/sf-next`, or `/compact`, then `/sf-next`) and stop;"
+  ],
+  "sflow-phase": [
+    "unavailable: `/sf-session` or `/sf-workspaces`, stop.",
+    "false `policyVerified`: show `policyReason`, offer `/sf-validate` then `/sf-recover`, stop.",
+    "If `effectiveAuthoringSkill` is not `/sf-phase`, relay it and `Terminal equivalent: singularity-flow prepare <phase>`, stop;",
+    "`retained-generation`: relay `next`, stop.",
+    "Otherwise stop for human/protected/unowned edits.",
+    "`not-admitted`: relay blockers/next, stop;",
+    "ask only unanswered/changed questions with `ask_user` (unavailable: show them and stop;",
+    "never stop there.",
+    "stop unchanged.",
+    "Absent: relay `commands.next`, stop.",
+    "Relay `handoff`'s `copilotCommand`/`command`."
+  ],
+  "sflow-phase-documents": [
+    "Stop if its Story or phase differs from the selected session, policy is unverified, or a document reports an error.",
+    "`handoff` describes what follows publication, not what an unpublished draft can do now;"
+  ],
+  "sflow-plan": [
+    "`not-routed`: relay `next[]`, stop.",
+    "If the checkpoint is `approval`, stop: only an authorized human Git identity approves.",
+    "Otherwise relay the route and stop;",
+    "absent: relay `commands.next`, stop.",
+    "stop unchanged."
+  ],
+  "sflow-progress": [
+    "If unsupported, stop with the compatibility error, never retry blindly."
+  ],
+  "sflow-publish": [
+    "mismatch: stop with the returned selection route.",
+    "Unless `status: ready` and `commands.publish` is present, relay exact blockers and author/repair actions, then stop."
+  ],
+  "sflow-push": [
+    "`outcome-unknown` means stop: the remote could not be read, so another push is not authorized."
+  ],
+  "sflow-ready": [
+    "otherwise stop with Copilot `/sf-ready` and Shell",
+    "Without `--repair`, stop."
+  ],
+  "sflow-receipt": [
+    "`status: unavailable` means not yet submitted: say there is no receipt yet and stop."
+  ],
+  "sflow-recover": [
+    "Follow action classifications, not blanket dirty-tree stops.",
+    "follow `testExecution.handoff`.",
+    "Stop on unchanged conditions or three distinct repairs: automation only, not manual correction."
+  ],
+  "sflow-refresh-branch": [
+    "If it diverged, stop and show the exact message."
+  ],
+  "sflow-refresh-configuration": [
+    "If the plan is stale, stop and preview again;"
+  ],
+  "sflow-reject": [
+    "Stop after the requested action."
+  ],
+  "sflow-release": [
+    "unavailable: `/sf-session` or `/sf-workspaces`, stop.",
+    "stop.",
+    "`retained-generation`: relay `next`, stop.",
+    "stop for protected/unowned edits or required human decisions.",
+    "Not admitted: relay blockers/next, stop.",
+    "stop unchanged.",
+    "absent: relay `commands.next`, stop.",
+    "Relay each `handoff`: `Next in Copilot: /sf-…` from `copilotCommand`, then `Terminal equivalent: singularity-flow …` from `command`."
+  ],
+  "sflow-repositories": [
+    "Stop after listing or preparing a selected action."
+  ],
+  "sflow-requirements": [
+    "unavailable: `/sf-session` or `/sf-workspaces`, stop.",
+    "stop.",
+    "`retained-generation`: relay `next`, stop.",
+    "stop for protected/unowned edits or human decisions.",
+    "Not admitted: relay blockers/next, stop.",
+    "Unavailable: show questions and stop;",
+    "stop unchanged.",
+    "absent: relay `commands.next`, stop.",
+    "End with each returned `handoff`: `Next in Copilot: /sf-…` from its `copilotCommand`, then `Terminal equivalent: singularity-flow …` from its `command`;"
+  ],
+  "sflow-reset-all": [
+    "Stop for explicit confirmation."
+  ],
+  "sflow-resume": [
+    "A returned `data.contextBoundary`: relay its `commands` in order (such as `/clear`, then `/sf-next`) and stop before any authoring in this chat."
+  ],
+  "sflow-return": [
+    "If it is dirty, stop;"
+  ],
+  "sflow-review": [
+    "return its exact lifecycle handoff.",
+    "Otherwise perform inspection steps 3–6 and handoff 10;",
+    "stop unchanged.",
+    "absent: relay `commands.next`, stop."
+  ],
+  "sflow-review-decide": [
+    "A missing/stale finding or unauthorized identity stops.",
+    "Stop on refusal;",
+    "End this turn."
+  ],
+  "sflow-review-source": [
+    "unavailable: `/sf-session` or `/sf-workspaces`, stop.",
+    "hand off to `/sf-review-decide` in a new turn.",
+    "Unknown: help, stop.",
+    "`canReview: false`: relay `continuation.actions`, stop;",
+    "Unavailable/truncated sources: name their IDs and stop;",
+    "If `retentionReady` is false afterward, stop without commit/push;"
+  ],
+  "sflow-revise": [
+    "Stop on recovery, publication, terminal, wrong phase, or stale Candidate.",
+    "stop.",
+    "Stop at local precheck evidence."
+  ],
+  "sflow-revision": [
+    "If no repository is selected, report that exact prerequisite and stop;",
+    "Relay the result and stop."
+  ],
+  "sflow-revision-attachments": [
+    "On changed bytes, phase, or plan, stop and preview again."
+  ],
+  "sflow-run": [
+    "If the returned result already published or submitted, report it and stop.",
+    "Stop at human approval."
+  ],
+  "sflow-run-app": [
+    "description: Start, check or stop this capability's application with the start command its capability declares, in the environment the person picks.",
+    "argument-hint: \"[start|status|stop|suggest] [START-ID] [--environment ENV] [--debug]\"",
+    "To stop: `singularity-flow app stop <ID>`;",
+    "it stops only what `singularity-flow app start` recorded.",
+    "Report the entry, environment, URL and state, and the next action (run the tests with `/sf-test`, or stop it)."
+  ],
+  "sflow-scenario-check": [
+    "unavailable: `/sf-session` or `/sf-workspaces`, stop.",
+    "false `policyVerified`: show `policyReason`, offer `/sf-validate` then `/sf-recover`, stop.",
+    "`retained-generation`: relay `next`, stop.",
+    "stop for protected/unowned edits or human decisions.",
+    "Not admitted: relay blockers/next, stop.",
+    "blocked for unavailable/inconclusive evidence, a verdict to record and publish, not a stop (then name the missing tool/environment and offer `/sf-test-setup`);",
+    "Stop for confirmation/protected edits.",
+    "stop unchanged.",
+    "absent: relay `commands.next`, stop.",
+    "Relay each `handoff` with its `copilotCommand` and `command`;"
+  ],
+  "sflow-scenario-repair": [
+    "**Output contract:** Run the canonical skill once and preserve its result and handoff;",
+    "Stop when the canonical skill returns, preserving its evidence,",
+    "limitations and exact Copilot/Shell handoff."
+  ],
+  "sflow-session": [
+    "Stop if no choice.",
+    "Relay refusals and stop;",
+    "End the turn;"
+  ],
+  "sflow-sgos": [
+    "Show a returned preview, plan, confirmation digest, or next command with its effects and stop."
+  ],
+  "sflow-sgos-create": [
+    "Stop on refusal or no compatible pair.",
+    "On refusal, relay it and stop;",
+    "Stop."
+  ],
+  "sflow-show": [
+    "A failed hash, stale revision, ambiguous section, human-only visibility, or unknown handle is a hard stop."
+  ],
+  "sflow-show-prompt": [
+    "`--record-audit` may create the immutable local generation-prompt receipt and prompt-audit entry used for a real Copilot handoff.",
+    "If the command reports a missing session, work item, phase, or governed agent, report that exact prerequisite and stop.",
+    "If it reports unavailable World-Model context, preserve that status and continue the handoff;"
+  ],
+  "sflow-skill": [
+    "If unsupported, stop with the compatibility error, never retry blindly.",
+    "If the CLI refuses a path, size, collision, or unstable capture, report the exact refusal and stop."
+  ],
+  "sflow-specify": [
+    "`not-routed`: relay `next[]`, stop.",
+    "If the checkpoint is `approval`, stop: only an authorized human Git identity approves.",
+    "If the action differs, stop and relay the returned route;",
+    "absent: relay `commands.next`, stop.",
+    "stop unchanged."
+  ],
+  "sflow-stack": [
+    "say so and stop."
+  ],
+  "sflow-start": [
+    "Without `ask_user`, use step 8 or stop;"
+  ],
+  "sflow-status": [
+    "If unsupported, stop with the compatibility error, never retry blindly."
+  ],
+  "sflow-stories": [
+    "if unresolved, ask for `/sf-workspace` and stop.",
+    "Stop after session setup."
+  ],
+  "sflow-story-branch": [
+    "If no parent is registered, stop generation and submission with the CLI's exact guidance."
+  ],
+  "sflow-story-skill-version": [
+    "Stop if the CLI reports an unknown dependency, changed policy outside the selected package, unavailable approved bytes, or unsupported snapshot shape."
+  ],
+  "sflow-story-start": [
+    "list unrelated changes it reports and stop until the person lands (`/sf-adhoc`) or moves them.",
+    "stop if a remote fails."
+  ],
+  "sflow-submit": [
+    "`Out of sequence`: stop;",
+    "For `terminal-obligations-required`, relay blockers/actions and stop—no submit or generic recovery.",
+    "show review/digest, stop on unresolved dispositions.",
+    "Stop on an unchanged condition or after three distinct repairs."
+  ],
+  "sflow-upload": [
+    "**Output contract:** Run the canonical skill once and preserve its result and handoff;",
+    "Stop when it returns;"
+  ],
+  "sflow-validate": [
+    "Stop after the read-only result."
+  ],
+  "sflow-verify": [
+    "Stop at recovery, pending publication, approval, completion or cancellation.",
+    "otherwise relay the nextsteps route and stop.",
+    "stop.",
+    "If `effectiveAuthoringSkill` is not `/sf-phase` (a release step returns `/sf-release`), relay it and stop.",
+    "stop unchanged.",
+    "absent: relay `commands.next`, stop.",
+    "End with each `handoff` from step 11: `Next in Copilot: /sf-…` from its `copilotCommand`, then `Terminal equivalent: singularity-flow …` from its `command`."
+  ],
+  "sflow-work-interval": [
+    "Hand off to `/sf-start` for a new Story whose workflow is the plan's `toWorkType`."
+  ],
+  "sflow-workflow-rules": [
+    "stop after its report.",
+    "absent: relay `commands.next`, stop;",
+    "stop unchanged.",
+    "For `/sf-next`, run `singularity-flow nextsteps <WORK-ID> --for-agent --json`, load the first `NOW` returned SFlow skill route, complete its preflight, execute at most one authorized action, and stop."
+  ],
+  "sflow-workflows": [
+    "If unsupported, stop with the compatibility error, never retry blindly.",
+    "Headless `author submit <WFD-ID> --revision N` or `author delete` only hands off:",
+    "new Stories stop being offered it, running Stories continue:"
+  ],
+  "sflow-workspace-impact": [
+    "If no workspace is active, stop and use `/sf-workspace` to let the contributor select one;"
+  ],
+  "sflow-workspace-session": [
+    "When no Story is selected, stop after reporting that the workspace is active.",
+    "End the turn."
+  ],
+  "sflow-workspaces": [
+    "Preserve that exact CLI handoff;"
+  ],
+  "sflow-worldmodel": [
+    "unknown forms stop with help.",
+    "Relay its handoff;"
+  ]
+}

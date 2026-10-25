@@ -279,8 +279,8 @@ async function sessionCommandUncached(positionals, options, renderCandidates = p
   const selectedRepositoryId = optionString(options, 'repository');
   if (subcommand !== 'workspace'
       && (workspaceReference != null || selectedRepositoryId != null)
-      && !['candidates', 'attach', 'open-local'].includes(subcommand)) throw new SingularityFlowError(
-    '--workspace and --repository are supported by session candidates, attach, and open-local.',
+      && !['candidates', 'attach', 'open-local', 'current'].includes(subcommand)) throw new SingularityFlowError(
+    '--workspace and --repository are supported by session candidates, attach, open-local and current.',
     { code: 'SESSION_WORKSPACE_SELECTION_INVALID' }
   );
   if (repositoryUrl != null && workspaceReference != null) throw new SingularityFlowError(

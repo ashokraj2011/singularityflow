@@ -293,6 +293,21 @@ test('a chat with no folder open attaches the chosen Story with the returned sel
   assert.equal(full.workId, 'CTX-CHAT');
   assert.equal(git(full.repositoryPath, ['branch', '--show-current']), 'CTX-CHAT');
   assert.deepEqual(hook('boundary-after', { toolName: 'bash', toolArgs: { command: `${verified} ${renderPlatformCommand(argv, 'linux')}` } }), {});
+  // Every later skill starts with `session current --for-agent --json`. From the chat folder the agent
+  // carries the same selectors; that read once refused them, and /sf-submit stopped (2026-10-26).
+  const current = (...selectors) => spawnSync(process.execPath, [cli, 'session', 'current', ...selectors, '--for-agent', '--json'],
+    { cwd: chat, env: environment, encoding: 'utf8', timeout: childTimeout(120000) });
+  const read = (child) => { assert.equal(child.status, 0, child.stdout + child.stderr); return JSON.parse(child.stdout); };
+  const bare = read(current());
+  const carried = read(current(...listed.selectors));
+  assert.deepEqual([carried.workId, carried.repositoryPath, carried.ready], [bare.workId, bare.repositoryPath, bare.ready]);
+  assert.equal(carried.workId, 'CTX-CHAT');
+  assert.deepEqual(hook('boundary-guard', { toolName: 'bash', toolArgs: {
+    command: renderPlatformCommand(['singularity-flow', 'session', 'current', ...listed.selectors, '--for-agent', '--json'], 'linux') } }), {});
+  // Selectors name the binding; they never pick another one.
+  const other = current('--workspace', listed.selectors[1], '--repository', 'not-this-one');
+  assert.notEqual(other.status, 0);
+  assert.match(other.stdout + other.stderr, /SESSION_SELECTORS_MISMATCH/);
 });
 
 test('branch downloads honor the approved partial and sparse clone policy', async t => {

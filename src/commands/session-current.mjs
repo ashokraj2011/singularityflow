@@ -1,6 +1,7 @@
 /** The existing current-session projection, without attach/materialization/publication handlers. */
 import path from 'node:path';
-import { SingularityFlowError, optionBoolean } from '../util.mjs';
+import { realpath } from 'node:fs/promises';
+import { SingularityFlowError, optionBoolean, optionString } from '../util.mjs';
 import { activeWorkspaceFile, workspaceRegistryFile, resolveWorkspaceExecutionContext } from '../workspace-context.mjs';
 import { branch, head, gitDir, gitCommonDir } from '../git.mjs';
 import { loadStoryAggregate } from '../story-aggregate-read.mjs';
@@ -22,6 +23,26 @@ export async function run(argv, { positionals, options }) {
       if (paused) return console.log(JSON.stringify(paused));
       return sessionCurrent(options, { agentEntry });
     })));
+}
+
+/**
+ * Selectors carried from `session open` name the binding this read reports; they never choose
+ * another one. A workspace is named by its ID or its folder, a repository by its ID.
+ */
+async function assertSelectorsNameBinding(options, context) {
+  const workspace = optionString(options, 'workspace');
+  const repository = optionString(options, 'repository');
+  if (!workspace && !repository) return;
+  const real = (value) => realpath(path.resolve(value)).catch(() => path.resolve(value));
+  const workspaceNamed = !workspace || workspace === context.workspaceId
+    || Boolean(context.workspacePath) && await real(workspace) === await real(context.workspacePath);
+  if (workspaceNamed && (!repository || repository === context.repositoryId)) return;
+  throw new SingularityFlowError(`The current session is workspace ${context.workspaceId ?? 'none'}, repository ${context.repositoryId ?? 'none'}, not the ones named. Nothing was changed.`, {
+    code: 'SESSION_SELECTORS_MISMATCH',
+    details: { workspaceId: context.workspaceId ?? null, repositoryId: context.repositoryId ?? null,
+      requested: { workspace: workspace ?? null, repository: repository ?? null },
+      nextCommand: 'singularity-flow session open --for-agent --json' }
+  });
 }
 
 export async function sessionCurrent(options, { agentEntry = null } = {}) {
@@ -69,6 +90,7 @@ export async function sessionCurrent(options, { agentEntry = null } = {}) {
       storyWorktree: gitDir(resolved.root) !== gitCommonDir(resolved.root)
     };
   }
+  await assertSelectorsNameBinding(options, context);
   const executionRoot = path.resolve(context.repositoryPath);
   const authority = discoveryAuthority ?? await sessionRepositoryAuthority(executionRoot);
   const discovery = await sessionDiscoveryConfiguration(executionRoot, authority, { storyBootstrap: true });

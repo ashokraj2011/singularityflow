@@ -4,11 +4,14 @@ import { SingularityFlowError } from './util.mjs';
 
 /** Validate the read-only form before checking pause; never resolve Git while paused. */
 export function sessionAgentEntryGuard(positionals, options) {
-  const allowed = new Set(['for-agent', 'json', 'no-model', 'timings', 'timing']);
+  // The `--workspace`/`--repository` selectors `session open` returns may ride along: a chat outside
+  // the checkout carries them. They only name the binding to read (session-current.mjs checks it).
+  const allowed = new Set(['for-agent', 'json', 'no-model', 'timings', 'timing', 'workspace', 'repository']);
   if (options['for-agent'] !== true || options.json !== true
       || positionals.length !== 2 || positionals[1] !== 'current'
-      || Object.keys(options).some(key => !allowed.has(key))) {
-    throw new SingularityFlowError('Use session current --for-agent --json without mutation or selection options.', {
+      || Object.keys(options).some(key => !allowed.has(key))
+      || ['workspace', 'repository'].some(key => key in options && typeof options[key] !== 'string')) {
+    throw new SingularityFlowError('Use session current --for-agent --json, with only the returned --workspace and --repository, without mutation or other selection options.', {
       code: 'SESSION_AGENT_OPTIONS_INVALID'
     });
   }

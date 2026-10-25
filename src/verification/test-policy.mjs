@@ -18,7 +18,7 @@ import { MAX_RISK_DAYS, RISK_CATEGORIES } from '../evidence/risk-decisions.mjs';
 import { loadRepositoryReadinessReceipt, loadRepositoryTestBaseline } from '../initialization/runtime-readiness.mjs';
 import { recordSha256 } from '../records.mjs';
 import { SingularityFlowError } from '../util.mjs';
-import { resolveDeliveryQualityCommands } from '../delivery-evidence.mjs';
+import { resolveDeliveryQualityCommands, testCommandProvenance } from '../delivery-evidence.mjs';
 import { ASSURANCE } from '../evidence/vocabulary.mjs';
 import { normalizeExternalCommand } from '../external-command-policy.mjs';
 import { commandCovering } from './adapters.mjs';
@@ -138,7 +138,7 @@ export async function assertPlannedTestsRunnable(root, workflow, { subject, code
       commands = (await resolveDeliveryQualityCommands(root, {
         ...phase, deliveryEvidence: { ...(phase.deliveryEvidence ?? {}), sourcePaths: [], testPaths: [...new Set(slots.map((entry) => entry.testPath))] }
       }, { executionMode: workflow.resolution?.testExecutionMode })).flatMap((command, index) => {
-        try { return [normalizeExternalCommand(command, index)]; } catch { return []; }
+        try { return [{ ...normalizeExternalCommand(command, index), provenance: testCommandProvenance(phase, command) }]; } catch { return []; }
       }).filter((command) => command.kind === 'test');
     } catch (error) {
       const setupMissing = ['CODE_TEST_RESULT_REQUIRED', 'RUST_TEST_ADAPTER_REQUIRED',

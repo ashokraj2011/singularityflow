@@ -342,6 +342,26 @@ test('a destination preview binds the plan; a destination that changes is refuse
   assert.equal(again.counts.add, 0, JSON.stringify(again.operations?.add ?? []));
 });
 
+test('a test command the team names is completed against its directory into the record a code step publishes with [TCE:REQ-063]', async (t) => {
+  const f = await teamFixture(t, { 'package.json': JSON.stringify({ name: 'delivery', private: true, scripts: { test: 'vitest run' } }) });
+  const inspection = await inspectTeamDirectory(f.team, { env: f.env, issue: f.issue, entries: [] });
+  await writeCandidate(inspection, fixtureCandidate(inspection));
+  const result = await compileTeamImport(inspection.session.id, { env: f.env, dryRun: true });
+  assert.equal(result.state, 'portable-ready', JSON.stringify(result.findings, null, 2));
+  assert.equal(result.findings.some((finding) => finding.code === 'TEAM_IMPORT_TEST_COMMAND_INCOMPLETE'), false);
+  const staged = YAML.parse(await readFile(path.join(path.dirname(inspection.session.candidatePath), 'stage', 'singularity', 'workflow.yml'), 'utf8'));
+  const [check] = staged.phases['delivery-build'].qualityCommands;
+  assert.deepEqual(check, { id: 'npm-test', kind: 'test', argv: ['npm', 'test', '--', '--reporter=json', '--outputFile=.sflow/results/node-tests.json'],
+    workingDirectory: '.', affectedRoots: ['.'], modelPolicy: 'never', result: { adapter: 'vitest-json', path: '.sflow/results/node-tests.json', minimumDiscovered: 1 } });
+  const { normalizeRequiredTestCommand } = await import('../src/code-delivery-tests.mjs');
+  assert.doesNotThrow(() => normalizeRequiredTestCommand(check), 'publication accepts it as a structured test command');
+  // Without a package.json the command is imported as written, and the warning says how to set it up.
+  const bare = await compiled(t);
+  const warning = bare.result.findings.find((finding) => finding.code === 'TEAM_IMPORT_TEST_COMMAND_INCOMPLETE');
+  assert.deepEqual([warning.at, warning.severity, warning.owner], ['$.phases[1].qualityCommands[0]', 'warning', 'person']);
+  assert.match(warning.message, /capability test-setup --step delivery-build/u);
+});
+
 test('the CLI runs inspect, compile and status with closed options and machine-local state', async (t) => {
   const f = await teamFixture(t);
   const run = (...args) => spawnSync(process.execPath, [path.join(root, 'bin', 'singularity-flow.mjs'), 'workflow', 'import-team', ...args], {

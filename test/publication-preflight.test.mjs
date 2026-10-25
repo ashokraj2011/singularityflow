@@ -214,8 +214,10 @@ async function codeFixture(name, {
       "import { writeFileSync } from 'node:fs';",
       "if (!process.argv.includes('--reporter=json')) process.exit(31);",
       "if (!process.env.PLAYWRIGHT_JSON_OUTPUT_FILE) process.exit(32);",
+      // Each test is reported by its file, describe path and title [TCE:REQ-071].
+      "const file = 'src/app/filter.component.spec.ts';",
       "writeFileSync(process.env.PLAYWRIGHT_JSON_OUTPUT_FILE, JSON.stringify({",
-      "  suites: [{ specs: [{ tests: [{ status: 'expected', results: [{ status: 'passed' }] }] }] }],",
+      "  suites: [{ title: file, file, specs: [{ title: 'keeps truthy values', file, line: 3, tests: [{ projectName: 'chromium', status: 'expected', results: [{ status: 'passed' }] }] }] }],",
       "  stats: { expected: 1, unexpected: 0, flaky: 0, skipped: 0 }",
       "}));",
       ''
@@ -250,8 +252,9 @@ async function codeFixture(name, {
       "if (JSON.stringify(process.argv.slice(2)) !== JSON.stringify(['run', 'shop-e2e:e2e', '--skip-nx-cache', '--reporter=json'])) process.exit(31);",
       "if (!process.env.PLAYWRIGHT_JSON_OUTPUT_FILE) process.exit(32);",
       "process.stdout.write('> nx run shop-e2e:e2e\\n');",
+      "const file = 'src/filter.spec.ts';",
       "writeFileSync(process.env.PLAYWRIGHT_JSON_OUTPUT_FILE, JSON.stringify({",
-      "  suites: [{ specs: [{ tests: [{ status: 'expected', results: [{ status: 'passed' }] }] }] }],",
+      "  suites: [{ title: file, file, specs: [{ title: 'keeps truthy values', file, line: 3, tests: [{ projectName: 'chromium', status: 'expected', results: [{ status: 'passed' }] }] }] }],",
       "  stats: { expected: 1, unexpected: 0, flaky: 0, skipped: 0 }",
       "}));",
       ''
@@ -2689,7 +2692,15 @@ test('an Nx project\'s Playwright target is inferred, published and submitted wi
   await mkdir(path.join(context.root, 'apps', 'shop', 'src'), { recursive: true });
   await mkdir(path.join(context.root, 'apps', 'shop-e2e', 'src'), { recursive: true });
   await writeFile(path.join(context.root, 'apps', 'shop', 'src', 'filter.ts'), 'export const filter = (values) => values.filter(Boolean);\n');
-  await writeFile(path.join(context.root, 'apps', 'shop-e2e', 'src', 'filter.spec.ts'), '/** @ac:DELIVERY-1:AC-001 */\nexport const covered = true;\n');
+  // A Playwright report names each test, so the tag sits on the test it credits, of an indexed criterion [TCE:REQ-071].
+  const itemRelative = 'singularity/work-items/DELIVERY-1';
+  await buildSpecIndex(context.root, `${itemRelative}/artifacts/requirements/requirements.md`, {
+    workId: 'DELIVERY-1', phase: 'requirements', generation: 1,
+    outputPath: `${itemRelative}/context/spec-indexes/requirements-gen1.json`,
+    policy: { mode: 'enforce', coverage: 'enforce', acceptance: 'presence' }
+  });
+  await writeFile(path.join(context.root, 'apps', 'shop-e2e', 'src', 'filter.spec.ts'), ["import { test } from '@playwright/test';", '',
+    '// @ac:DELIVERY-1:AC-001', "test('keeps truthy values', async () => {});", ''].join('\n'));
 
   const checked = await phasePrepublish(context.root, context.config, context.workflow, context.phase, {
     session: { workId: 'DELIVERY-1', phaseId: 'implementation', agent: 'developer' }
@@ -2757,8 +2768,15 @@ test('Playwright publication infers a report and submission reads fresh governed
   await mkdir(path.join(context.root, 'src', 'app'), { recursive: true });
   await writeFile(path.join(context.root, 'src', 'app', 'filter.component.ts'),
     'export const filter = (values) => values.filter(Boolean);\n');
-  await writeFile(path.join(context.root, 'src', 'app', 'filter.component.spec.ts'),
-    '/** @ac:DELIVERY-1:AC-001 */\nexport const covered = true;\n');
+  // A Playwright report names each test, so the tag sits on the test it credits, of an indexed criterion [TCE:REQ-071].
+  const itemRelative = 'singularity/work-items/DELIVERY-1';
+  await buildSpecIndex(context.root, `${itemRelative}/artifacts/requirements/requirements.md`, {
+    workId: 'DELIVERY-1', phase: 'requirements', generation: 1,
+    outputPath: `${itemRelative}/context/spec-indexes/requirements-gen1.json`,
+    policy: { mode: 'enforce', coverage: 'enforce', acceptance: 'presence' }
+  });
+  await writeFile(path.join(context.root, 'src', 'app', 'filter.component.spec.ts'), ["import { test } from '@playwright/test';", '',
+    '// @ac:DELIVERY-1:AC-001', "test('keeps truthy values', async () => {});", ''].join('\n'));
 
   const checked = await phasePrepublish(context.root, context.config, context.workflow, context.phase, {
     session: { workId: 'DELIVERY-1', phaseId: 'implementation', agent: 'developer' }

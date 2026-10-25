@@ -18,6 +18,7 @@
 import { matchApprovalAuthority, normalizeApprovalAuthorities } from './approval-authority.mjs';
 import { recordSha256 } from './records.mjs';
 import { testCommandReviewHold } from './story-test-commands.mjs';
+import { testRunCauseWords } from './test-run-cause.mjs';
 import { testRunRiskAuthorities } from './test-run-risk.mjs';
 import { decisionGroups, decisionRefusalLead } from './decision-list-facts.mjs';
 import { CONFORMANCE_GAP_RULE, decisionHeadline, issueNamesClause, stepName } from './upstream-routes.mjs';
@@ -31,7 +32,7 @@ export const DEFAULT_RISK_DAYS = 30;
 const MAX_RISK_DAYS = 90;
 const DAY = 24 * 60 * 60 * 1000;
 // The order a chosen option's records are written in: an issue exists before it is decided.
-const EFFECT_ORDER = Object.freeze(['upstream-issue', 'evidence-reuse', 'test-run-risk', 'test-command', 'visual-profile', 'upstream-issue-decision']);
+const EFFECT_ORDER = Object.freeze(['upstream-issue', 'evidence-reuse', 'test-run-risk', 'test-narrowing', 'test-command', 'visual-profile', 'upstream-issue-decision']);
 const REASON = Object.freeze({ minimum: 20, maximum: 1000 });
 const CAUSE = Object.freeze({ minimum: 10, maximum: 300 });
 
@@ -346,27 +347,49 @@ function evidenceItem(workflow, context, entry) {
   };
 }
 
-/** One item for a test command of a step whose latest run stopped before any test executed. */
+/** One item for a test command of a step whose latest run the environment stopped, by its classified cause. */
 function testRiskItem(workflow, context, risk) {
   const name = stepName(workflow, risk.phase);
   const stopped = risk.status === 'blocked' ? 'was blocked' : 'failed';
   const exit = Number.isInteger(risk.exitCode) ? ` (exit code ${risk.exitCode})` : '';
+  const because = risk.causeClass ? `: ${testRunCauseWords(risk.causeClass)} (${risk.causeClass})` : '';
   return {
     kind: 'test-run-risk',
     title: `${name}'s tests could not run here (${risk.commandId})`,
-    why: `The latest run of ${risk.commandId} ${stopped} before any test ran${exit}, so it says nothing about the change.`
+    why: `The latest run of ${risk.commandId} ${stopped}${exit} from the environment${because}, so it says nothing about the change.`
       + `${risk.lapsed ? ` An earlier acceptance ${risk.lapsed === 'expired' ? 'expired' : 'was revoked'}.` : ''}`
-      + ' Fix the environment and run it again, or accept the risk until a date: the tests still run every time, and a run in which tests fail is never covered.',
+      + ' Fix the environment and run it again, or accept the risk until a date: the tests still run every time, and only a run with this same cause is covered.',
     options: [option(workflow, context, {
       id: 'accept-test-risk', label: 'Accept that these tests cannot run here, until a date',
       words: 'The run stays failed; it is never counted as a pass.',
-      effects: [{ kind: 'test-run-risk', phase: risk.phase, commandId: risk.commandId, argvSha256: risk.argvSha256 ?? null, attemptId: risk.attemptId ?? null }],
-      needs: { cause: textNeed(`No test ran: the latest run of ${risk.commandId} ${stopped} before any test executed${exit}.`, CAUSE),
+      effects: [{ kind: 'test-run-risk', phase: risk.phase, commandId: risk.commandId, argvSha256: risk.argvSha256 ?? null, attemptId: risk.attemptId ?? null,
+        causeClass: risk.causeClass ?? null }],
+      needs: { cause: textNeed(`The environment stopped the latest run of ${risk.commandId}${exit}${because}.`, CAUSE),
         reason: textNeed(`The tests of ${risk.commandId} run again at every publication and submission; this environment cannot run them now.`, REASON),
         expires: expiryNeed(context.at, { endOfDay: true }) }
     })],
     details: { phase: risk.phase, commandId: risk.commandId, attemptId: risk.attemptId ?? null, status: risk.status, exitCode: risk.exitCode ?? null,
-      commands: [`singularity-flow decision test-risk ${workflow.workItem.id} --phase ${risk.phase} --command ${risk.commandId} --cause "<what stops it>" --reason "<why>" --expires <YYYY-MM-DD>`] }
+      causeClass: risk.causeClass ?? null,
+      commands: [`singularity-flow decision test-risk ${workflow.workItem.id} --phase ${risk.phase} --command ${risk.commandId}${risk.causeClass ? ` --cause-class ${risk.causeClass}` : ''} --cause "<what stops it>" --reason "<why>" --expires <YYYY-MM-DD>`] }
+  };
+}
+
+/** One item for a test command of a step whose latest run passed narrowed, with no acceptance covering it. */
+function testNarrowingItem(workflow, context, entry) {
+  const name = stepName(workflow, entry.phase);
+  return {
+    kind: 'test-narrowing',
+    title: `${name}'s tests ran narrowed (${entry.commandId})`,
+    why: `The latest run of ${entry.commandId} passed narrowed: ${entry.words}. A narrowed run does not prove the module, so the gate refuses it. `
+      + 'Remove the narrowing and run it again, or accept it with a reason: the acceptance covers runs of the same pin narrowed the same or less.',
+    options: [option(workflow, context, {
+      id: 'accept-test-narrowing', label: 'Accept this narrowed run for this step',
+      words: 'A run narrowed further, or under a changed pin, is refused again.',
+      effects: [{ kind: 'test-narrowing', phase: entry.phase, commandId: entry.commandId, attemptId: entry.attemptId ?? null }],
+      needs: { reason: textNeed(`The narrowed run of ${entry.commandId} is enough for ${name}: ${entry.words}.`.slice(0, REASON.maximum), REASON) }
+    })],
+    details: { phase: entry.phase, commandId: entry.commandId, attemptId: entry.attemptId ?? null, reasons: entry.reasons,
+      commands: [`singularity-flow decision test-narrowing ${workflow.workItem.id} --phase ${entry.phase} --command ${entry.commandId} --reason "<why the narrowed run is enough for this step>"`] }
   };
 }
 
@@ -375,16 +398,22 @@ function testCommandItem(workflow, context, request) {
   const name = stepName(workflow, request.phase);
   const { command } = request;
   const hold = testCommandReviewHold(workflow, request.phase);
+  // A re-pin: the command changed since it was pinned for this Story [TCE:REQ-012].
+  const changed = request.repin ? listWords(request.repin.changes ?? []) : null;
   return {
     kind: 'test-command',
-    title: `Run ${command.id} as ${name}'s tests for this Story`,
-    why: `${request.requestedBy} asked that ${name} run ${JSON.stringify(command.argv)} from ${command.workingDirectory}, reading ${command.result.adapter} ${command.result.path}, `
-      + `covering ${listWords(command.affectedRoots)}: ${request.reason} Once accepted it runs at every publication and submission of ${name}, and its tests must pass.`,
+    title: request.repin ? `Re-pin ${command.id}, ${name}'s changed test command` : `Run ${command.id} as ${name}'s tests for this Story`,
+    why: request.repin
+      ? `${command.id} changed since it was pinned for this Story (${changed}), so the gate refuses it. ${request.requestedBy} asked that it now run `
+        + `${JSON.stringify(command.argv)} from ${command.workingDirectory}: ${request.reason} Once accepted, the next gate run records this as its pin; its tests must still pass.`
+      : `${request.requestedBy} asked that ${name} run ${JSON.stringify(command.argv)} from ${command.workingDirectory}, reading ${command.result.adapter} ${command.result.path}, `
+        + `covering ${listWords(command.affectedRoots)}: ${request.reason} Once accepted it runs at every publication and submission of ${name}, and its tests must pass.`,
     // Accepting it while the step awaits approval would make that review stale: return the step first.
     options: [hold ? personalStep({ id: 'return-step-first', label: `Return ${name} for changes first`, command: hold.command, words: hold.words })
       : option(workflow, context, {
-        id: 'accept-test-command', label: 'Accept this command for this Story',
-        words: 'The repository configuration is unchanged; propose it there with /sf-test-setup for later Stories.',
+        id: 'accept-test-command', label: request.repin ? 'Accept the changed command as its pin' : 'Accept this command for this Story',
+        words: request.repin ? 'Only this Story\'s pin changes; the repository configuration is unchanged.'
+          : 'The repository configuration is unchanged; propose it there with /sf-test-setup for later Stories.',
         effects: [{ kind: 'test-command', phase: request.phase, request: request.id }],
         needs: { reason: textNeed(`${command.id} runs ${name}'s tests for this Story.`, { minimum: 0, maximum: REASON.maximum }) }
       })],
@@ -559,7 +588,7 @@ export const APPROVAL_HOLDING_KINDS = Object.freeze(['conformance-gap', 'upstrea
 export const PENDING_CONCEPTS = Object.freeze({
   'unpushed-commits': Object.freeze({ kinds: ['story-publication'], machine: true }),
   'transport-intents': Object.freeze({ kinds: ['transport-intent'], machine: true }),
-  'decision-list': Object.freeze({ kinds: ['conformance-gap', 'upstream-issue', 'visual-profile', 'test-run-risk', 'test-command', 'evidence-obligation'] }),
+  'decision-list': Object.freeze({ kinds: ['conformance-gap', 'upstream-issue', 'visual-profile', 'test-run-risk', 'test-narrowing', 'test-command', 'evidence-obligation'] }),
   'routing-decision': Object.freeze({ kinds: ['routing-decision'] }),
   'owed-witnesses-and-scope-items': Object.freeze({ kinds: ['owed-decision', 'evidence-obligation'] }),
   'intent-amendments': Object.freeze({ kinds: ['intent-amendment'] }),
@@ -589,11 +618,11 @@ export function holdItemKind(hold) {
 }
 
 // The kinds whose items are decided on this list itself; the digest binds their words and options.
-const DECIDED_HERE = new Set(['conformance-gap', 'upstream-issue', 'visual-profile', 'test-run-risk', 'test-command', 'evidence-obligation']);
+const DECIDED_HERE = new Set(['conformance-gap', 'upstream-issue', 'visual-profile', 'test-run-risk', 'test-narrowing', 'test-command', 'evidence-obligation']);
 
 /** Every item kind this list builds. */
 export const PENDING_ITEM_KINDS = Object.freeze(['story-publication', 'routing-decision', 'intent-amendment', 'forward-amendment', 'appeal',
-  'conformance-gap', 'upstream-issue', 'visual-profile', 'test-run-risk', 'test-command', 'evidence-obligation', 'owed-decision',
+  'conformance-gap', 'upstream-issue', 'visual-profile', 'test-run-risk', 'test-narrowing', 'test-command', 'evidence-obligation', 'owed-decision',
   'approval-hold', 'transport-intent', 'approval']);
 
 /** The commands a person or script uses to record, with the packet digest. */
@@ -636,6 +665,7 @@ export function decisionPacket(workflow, facts, { authorities, actor, at, reques
     ...groups.map((group) => (group.kind === 'conformance-gap' ? gapItem(workflow, context, group) : issueItem(workflow, context, group.state))),
     ...(facts.visual ?? []).map((entry) => visualItem(workflow, context, entry)),
     ...(facts.testRisks ?? []).map((risk) => testRiskItem(workflow, context, risk)),
+    ...(facts.testNarrowings ?? []).map((entry) => testNarrowingItem(workflow, context, entry)),
     ...(facts.testCommands ?? []).map((request) => testCommandItem(workflow, context, request)),
     ...(facts.evidence ?? []).map((entry) => evidenceItem(workflow, context, entry)),
     ...(pending.owed ?? []).map((entry) => owedItem(workflow, context, entry))
@@ -822,6 +852,7 @@ export function effectWords(workflow, effect, values = {}) {
   }
   if (effect.kind === 'upstream-issue') return `report the gap against ${stepName(workflow, effect.phase)} (new upstream issue about ${effect.about})`;
   if (effect.kind === 'test-run-risk') return `accept that ${effect.commandId} cannot run here until ${values.expires} (test-run risk)`;
+  if (effect.kind === 'test-narrowing') return `accept that ${effect.commandId} ran narrowed for ${stepName(workflow, effect.phase)} (test-narrowing decision)`;
   if (effect.kind === 'test-command') return `run ${effect.request}'s command as ${stepName(workflow, effect.phase)}'s tests for this Story (test-command decision)`;
   if (effect.kind === 'visual-profile') return `record that screen size ${effect.profileId} does not apply to this Story (visual-profile decision)`;
   const what = { 'accept-risk': `accept it as a risk until ${values.expires}`, dismiss: 'dismiss it', return: `return the work to ${stepName(workflow, effect.issuePhase)}` }[effect.outcome] ?? effect.outcome;

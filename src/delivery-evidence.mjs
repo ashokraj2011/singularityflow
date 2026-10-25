@@ -10,9 +10,9 @@ const CORNER_CASE_MODULE = pathToFileURL(path.join(PACKAGE_ROOT, 'src/verificati
 import { phaseRequiresCodeDelivery } from './code-delivery-policy.mjs';
 import { nextPhaseGeneration } from './phase-generation.mjs';
 import {
-  configuredTestModuleOverrides, inferModuleTestCommand, isAllowedTestAutomationPath, isExecutableTestSourcePath,
-  isSupportingTestResourcePath, isTestSourceName, persistedOccurrences, readDurableTestObservation, replayTestReports,
-  resolveAffectedModule, testReceiptPassing
+  configuredTestModuleOverrides, isAllowedTestAutomationPath, isExecutableTestSourcePath,
+  isSupportingTestResourcePath, isTestSourceName, persistedOccurrences, prepareTestReportReader, readDurableTestObservation, replayTestReports,
+  resolveAffectedModule, testCommandCoversPath, testReceiptPassing
 } from './code-delivery-tests.mjs';
 import {
   buildRepositoryChangeSet, buildRepositoryTreeChangeSet, evaluateSourceBoundary,
@@ -34,7 +34,7 @@ import {
   readBoundSpecificationClaimMap, plannedProductSourcePaths
 } from './specifications.mjs';
 import {
-  commandCovering, discoverDeclarations, profileForCommand, profileIsExact, testAdapterProfile
+  discoverDeclarations, profileForCommand, profileIsExact, testAdapterProfile
 } from './verification/adapters.mjs';
 import { normalizeQualifiedClauseId } from './traceability-ids.mjs';
 import { scanSourceClauseTags } from './source-clause-tags.mjs';
@@ -77,11 +77,10 @@ export function testCoverageDeliveryPaths(delivery = {}, sourceBoundary = 'unres
   return affectedDeliveryPaths(delivery, sourceBoundary).filter((candidate) => !testCoverageExemptPath(candidate));
 }
 
-/** The affected paths no command's affected roots cover, in order. */
+/** The affected paths no command covers, in order: an inferred one covers only its own ecosystem's files. */
 export function uncoveredTestDeliveryPaths(delivery, sourceBoundary, commands = []) {
-  return testCoverageDeliveryPaths(delivery, sourceBoundary).filter((candidate) => !commands.some((command) =>
-    (command?.affectedRoots ?? []).some((affectedRoot) => affectedRoot === '.' || candidate === affectedRoot
-      || candidate.startsWith(`${String(affectedRoot).replace(/\/$/u, '')}/`))));
+  return testCoverageDeliveryPaths(delivery, sourceBoundary).filter((candidate) =>
+    !commands.some((command) => testCommandCoversPath(command, candidate)));
 }
 
 function pinnedTestEvidenceSource(workflow, phase) {
@@ -704,7 +703,7 @@ export function unknownCriterionTags(criteria, {
 }
 
 function witnessIdentity(declaration) {
-  return declaration.schema === 'junit5-method-v2'
+  return declaration.schema === 'junit5-method-v2' || declaration.framework === 'pytest'
     ? { className: declaration.className, methodName: declaration.methodName, signature: declaration.signature }
     : { framework: declaration.framework, suitePath: declaration.suitePath, name: declaration.name };
 }
@@ -727,13 +726,15 @@ export async function discoverAcceptanceWitnesses(root, phase, {
     ...phase, deliveryEvidence: { ...(phase.deliveryEvidence ?? {}), sourcePaths, testPaths }
   }, { executionMode }).catch(() => [])).entries()) {
     if (!command || typeof command !== 'object' || Array.isArray(command) || command.kind !== 'test') continue;
-    try { commands.push(normalizeExternalCommand(command, index)); } catch { /* the test preflight reports it */ }
+    try { commands.push({ ...normalizeExternalCommand(command, index), provenance: testCommandProvenance(phase, command) }); }
+    catch { /* the test preflight reports it */ }
   }
   const taggedFiles = [...new Set(bindings.map((binding) => binding.testSource))].sort();
   const groups = new Map();
   const fileProfile = new Map();
+  const { commandForTestFile } = await import('./test-module-markers.mjs');
   for (const file of taggedFiles) {
-    const command = commandCovering(commands, file);
+    const command = await commandForTestFile(root, commands, file);
     const profile = command ? profileForCommand(command) : 'module-counts-v1';
     fileProfile.set(file, { profile, commandId: command?.id ?? null, resultAdapter: command?.result?.adapter ?? null });
     const key = `${profile}\u0000${command?.id ?? ''}`;
@@ -1708,20 +1709,8 @@ export async function resolveDeliveryQualityCommands(root, phase, { executionMod
     if (module) modules.set(`${module.root}:${module.system}`, module);
   }
   for (const module of modules.values()) {
-    if (moduleCoveredByConfiguredTest(module.root)) continue;
-    const command = await inferModuleTestCommand(root, module);
-    if (command) inferred.push(command);
-    if (['node', 'nx'].includes(module.system) && command?.result?.adapter !== 'playwright-json') {
-      // A unit command is not evidence that newly authored browser tests ran. Add one unambiguous
-      // direct Playwright script (or Nx Playwright target) when the module declares it separately.
-      for (const nodeScript of ['test:e2e', 'test:playwright', 'e2e']) {
-        const browserCommand = await inferModuleTestCommand(root, module, { nodeScript });
-        if (browserCommand?.result?.adapter === 'playwright-json') {
-          inferred.push(browserCommand);
-          break;
-        }
-      }
-    }
+    // Each runner and level a module declares (unit, end-to-end, component) is its own run [TCE:REQ-071].
+    if (!moduleCoveredByConfiguredTest(module.root)) inferred.push(...await (await import('./test-module-markers.mjs')).moduleTestCommands(root, module));
   }
   // A recognized changed module with no supported runner must not borrow an unrelated root
   // manifest's passing tests as its own execution evidence.
@@ -1731,6 +1720,8 @@ export async function resolveDeliveryQualityCommands(root, phase, { executionMod
   if (!inferred.length && !configuredTests.length) {
     const tests = phase.deliveryEvidence?.testPaths ?? [];
     if (tests.length && tests.every((candidate) => /\.(?:c|m)?js$/i.test(candidate))) {
+      // `node --test` is evidence only for node:test files [TCE:REQ-054].
+      await (await import('./test-module-markers.mjs')).assertNodeTestFiles(root, tests);
       inferred.push({
         id: 'node-tests', kind: 'test',
         argv: ['node', '--test', ...tests],
@@ -1750,11 +1741,6 @@ export async function resolveDeliveryQualityCommands(root, phase, { executionMod
 
 function receiptDigest(record) {
   return createHash('sha256').update(canonicalJson(record)).digest('hex');
-}
-
-function pathCoveredByRoots(candidate, roots = []) {
-  return roots.some((root) => root === '.' || candidate === root
-    || candidate.startsWith(`${root.replace(/\/$/, '')}/`));
 }
 
 function safeEvidencePath(value) {
@@ -1826,6 +1812,7 @@ export async function verifyCodeDeliveryReceipt(root, receipt, {
   evidenceCommit = null,
   pathContext = null,
   testRecovery = null,
+  // { workflow, at }: the Story, for test-run risks and the pins its attempts ran under.
   testRunRisks = null
 } = {}) {
   const errors = [];
@@ -1994,7 +1981,7 @@ export async function verifyCodeDeliveryReceipt(root, receipt, {
   // Each exact JavaScript witness is read again from the committed generation: the test, its
   // revision and its tag must still be what publication recorded [E2G-015].
   for (const witness of traceability.witnesses ?? []) {
-    if (!witness?.identity || !['jest-static-v2', 'vitest-static-v2', 'node-test-v1'].includes(witness.profile)) continue;
+    if (!witness?.identity || !['jest-static-v2', 'vitest-static-v2', 'node-test-v1', 'playwright-json-v1'].includes(witness.profile)) continue;
     const bytes = generationCommit && safeEvidencePath(witness.testSource) ? readGenerationFile(witness.testSource) : null;
     let declaration = null;
     try {
@@ -2196,11 +2183,14 @@ export async function verifyCodeDeliveryReceipt(root, receipt, {
       fail(`test receipt ${execution.commandId} has no durable raw report evidence`);
     } else if (replayable && replayReports.length) {
       try {
+        await prepareTestReportReader(testReceipt.adapter);
         const replay = replayTestReports(testReceipt.adapter, replayReports);
         if (canonicalJson(replay.tests) !== canonicalJson(testReceipt.tests)) {
           fail(`test receipt ${execution.commandId} module counts do not replay from its raw reports`);
         }
-        if (canonicalJson(persistedOccurrences(replay)) !== canonicalJson(testReceipt.occurrences ?? [])) {
+        // An older engine kept no Playwright occurrences; a receipt without them replays its counts alone.
+        if (canonicalJson(persistedOccurrences(replay)) !== canonicalJson(testReceipt.occurrences ?? [])
+            && (testReceipt.occurrences?.length || testReceipt.adapter !== 'playwright-json')) {
           fail(`test receipt ${execution.commandId} occurrences do not replay from its raw reports`);
         }
         if (replay.result.sha256 !== testReceipt.result?.sha256 || replay.result.bytes !== testReceipt.result?.bytes) {
@@ -2209,6 +2199,10 @@ export async function verifyCodeDeliveryReceipt(root, receipt, {
       } catch (error) {
         fail(`test receipt ${execution.commandId} raw report replay failed: ${error.message}`);
       }
+    }
+    // The pin an attempt ran under replays with it [TCE:REQ-014], and so does its accepted narrowing.
+    if (testReceipt.pin) for (const problem of await (await import('./test-command-pins.mjs')).attemptReplayProblems(testRunRisks, receipt, execution, testReceipt)) {
+      fail(`test receipt ${execution.commandId}: ${problem}`);
     }
     if (execution.testRunRisk) {
       // A run a step approver accepted could not execute any test: it covers its command's modules
@@ -2228,13 +2222,13 @@ export async function verifyCodeDeliveryReceipt(root, receipt, {
   if (!executions.size) fail('no passing test-execution receipt is bound');
   for (const binding of bindings) {
     const execution = executions.get(binding.commandId);
-    if (!execution || !pathCoveredByRoots(binding.testSource, execution.affectedRoots)) {
+    if (!execution || !testCommandCoversPath(execution, binding.testSource)) {
       fail(`acceptance clause ${binding.clauseId} is not covered by its bound test command`);
     }
   }
   if (requireAffectedModuleCoverage) {
     for (const sourcePath of testCoverageDeliveryPaths(receipt.changeSet)) {
-      if (![...executions.values()].some((execution) => pathCoveredByRoots(sourcePath, execution.affectedRoots))) {
+      if (![...executions.values()].some((execution) => testCommandCoversPath(execution, sourcePath))) {
         fail(`affected ${isConfigurationPath(sourcePath) ? 'configuration' : 'source'} path ${sourcePath} has no passing module test receipt`);
       }
     }

@@ -4,8 +4,10 @@
  * Maven that cannot reach its repository, a missing JDK or Docker: the run fails before a single
  * test executes, and until now publication refused it with no way out but fixing the machine. A
  * person who approves the step may accept that risk (`decision test-risk`); the tests still run
- * every time, only a run in which no test executed is let through, and the acceptance carries the
- * step through approval and is shown as an exception in the evidence matrix.
+ * every time, and the acceptance carries the step through approval and is shown as an exception in
+ * the evidence matrix. It covers only a later run with the same environment cause [TCE:REQ-042]: a
+ * compile error the change introduces is refused, and a database that refuses every test's
+ * connection is a cause of its own, which a person may accept too [TCE:REQ-043].
  */
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
@@ -20,11 +22,12 @@ import { slowLane } from './helpers/slow-lane.mjs';
 
 const cli = fileURLToPath(new URL('../bin/singularity-flow.mjs', import.meta.url));
 
-test('a step approver accepts that the environment cannot run its tests, and the Story carries on', slowLane({ timeout: 300_000 }), async (t) => {
+test('a step approver accepts that the environment cannot run its tests, and the Story carries on', slowLane({ timeout: 360_000 }), async (t) => {
   const base = await mkdtemp(path.join(os.tmpdir(), 'sflow-test-run-risk-'));
   t.after(() => rm(base, { recursive: true, force: true }));
   const root = path.join(base, 'repo');
   const offline = path.join(base, 'repository-unreachable.flag');
+  const databaseDown = path.join(base, 'database-down.flag');
   const env = { ...process.env, NODE_ENV: 'test', SINGULARITY_FLOW_NO_MODEL: '1', SINGULARITY_FLOW_TEST_IDENTITY: 'Env Risk Tester',
     SINGULARITY_FLOW_AGENT_OUTPUT: 'full',
     SINGULARITY_FLOW_WORKSPACE_REGISTRY: path.join(base, 'workspaces.json'), SINGULARITY_FLOW_ACTIVE_WORKSPACE: path.join(base, 'active.json'),
@@ -46,13 +49,20 @@ test('a step approver accepts that the environment cannot run its tests, and the
   const writeTest = (expected) => writeFile(path.join(root, 'test/value.test.mjs'), "import test from 'node:test';\n"
     + "import assert from 'node:assert/strict';\nimport { value } from '../src/value.mjs';\n// @ac:QF-1:AC-001\n"
     + `test('value', () => assert.equal(value, ${expected}));\n`);
+  // While the flag exists the test first connects to a database that is not running here.
+  const writeDatabaseTest = () => writeFile(path.join(root, 'test/value.test.mjs'), "import test from 'node:test';\n"
+    + "import assert from 'node:assert/strict';\nimport { existsSync } from 'node:fs';\nimport net from 'node:net';\nimport { value } from '../src/value.mjs';\n"
+    + "async function connect() {\n  const server = net.createServer();\n  await new Promise((resolve) => server.listen(0, '127.0.0.1', resolve));\n"
+    + "  const { port } = server.address();\n  await new Promise((resolve) => server.close(resolve));\n"
+    + "  await new Promise((resolve, reject) => net.connect(port, '127.0.0.1', resolve).on('error', reject));\n}\n"
+    + `// @ac:QF-1:AC-001\ntest('value', async () => { if (existsSync(${JSON.stringify(databaseDown)})) await connect(); assert.equal(value, 2); });\n`);
 
   must('git', ['init', '-q', '-b', 'main', root], base);
   await mkdir(path.join(root, 'src')); await mkdir(path.join(root, 'test'));
   // npm runs `pretest` first; while the flag exists it fails like a build that cannot resolve its
-  // dependencies, before any test runs.
+  // dependencies, before any test runs. Then it checks the source compiles, as a build would.
   await writeFile(path.join(root, 'package.json'), JSON.stringify({ type: 'module', private: true, scripts: {
-    pretest: `node -e "if (require('node:fs').existsSync(process.argv[1])) { console.error('Could not resolve dependencies: the repository is unreachable'); process.exit(1); }" ${JSON.stringify(offline)}`,
+    pretest: `node -e "if (require('node:fs').existsSync(process.argv[1])) { console.error('Could not resolve dependencies: the repository is unreachable'); process.exit(1); }" ${JSON.stringify(offline)} && node --check src/value.mjs`,
     test: 'node --test'
   } }));
   await writeFile(path.join(root, 'src/value.mjs'), 'export const value = 1;\n');
@@ -91,8 +101,10 @@ test('a step approver accepts that the environment cannot run its tests, and the
   const blocked = refused('phase', 'publish', 'implement');
   assert.equal(blocked.code, 'CODE_TEST_FAILED');
   assert.match(blocked.message, /No test executed in this run, so the environment may be what stopped it/u);
+  assert.match(blocked.message, /a dependency the tests need is not installed \(dependency-missing, missing package\)/u);
   assert.equal(blocked.details.testRunRisk.eligible, true);
-  assert.match(blocked.details.testRunRisk.command, /^singularity-flow decision test-risk QF-1 --phase implement --command /u);
+  assert.equal(blocked.details.testRunRisk.causeClass, 'dependency-missing');
+  assert.match(blocked.details.testRunRisk.command, /^singularity-flow decision test-risk QF-1 --phase implement --command \S+ --cause-class dependency-missing /u);
   const commandId = blocked.details.testRunRisk.commandId;
 
   // Nothing can be accepted without a cause, or for a step with no such run.
@@ -105,6 +117,7 @@ test('a step approver accepts that the environment cannot run its tests, and the
     '--cause', 'The Maven repository is unreachable from this laptop.',
     '--reason', 'CI runs the same tests against the repository before merge.', '--expires', inDays(30), '--json'));
   assert.equal(accepted.data.record.id, 'TRR-001');
+  assert.equal(accepted.data.record.causeClass, 'dependency-missing', 'the decision records the cause it accepted');
   assert.equal(accepted.data.record.observation.testsExecuted, 0);
 
   // Tests that run and fail are never covered, decision or not.
@@ -113,11 +126,40 @@ test('a step approver accepts that the environment cannot run its tests, and the
   const failing = refused('phase', 'publish', 'implement');
   assert.equal(failing.code, 'CODE_TEST_FAILED');
   assert.equal(failing.details?.testRunRisk, undefined, 'a run in which tests executed gets no risk route');
+  assert.match(failing.message, /This run stopped on a code cause, tests ran and failed \(assertion-failure/u);
 
-  // Offline again: the tests run, none executes, and the decision lets the step through.
+  // A compile error the change introduces stops the run before any test, like the unreachable
+  // repository did, but it is the code's: the accepted risk does not cover it [TCE:REQ-042].
   await writeTest(2);
-  await writeFile(offline, 'offline\n');
+  await writeFile(path.join(root, 'src/value.mjs'), '// @clause:QF-1:AC-001 the exported value is the approved 2\nexport const value = ;\n');
+  const compileError = refused('phase', 'publish', 'implement');
+  assert.equal(compileError.code, 'CODE_TEST_FAILED');
+  assert.equal(compileError.details?.testRunRisk, undefined, 'a code cause gets no risk route');
+  assert.match(compileError.message, /This run stopped on a code cause, a syntax error in src\/value\.mjs \(syntax-error, SyntaxError\)/u);
+  assert.equal(refused('decision', 'test-risk', '--phase', 'implement', '--command', commandId, '--cause', 'The Maven repository is unreachable from this laptop.',
+    '--reason', 'CI runs the same tests against the repository before merge.', '--expires', inDays(30)).code, 'TEST_RUN_RISK_NOT_ELIGIBLE');
+  await writeFile(path.join(root, 'src/value.mjs'), '// @clause:QF-1:AC-001 the exported value is the approved 2\nexport const value = 2;\n');
+
+  // The database refuses every test's connection: tests ran, and each failure is the environment's.
+  // That is another cause than TRR-001 accepted, so it is refused, and it can be accepted on its own [TCE:REQ-043].
+  await writeDatabaseTest();
+  await writeFile(databaseDown, 'down\n');
+  const unreachable = refused('phase', 'publish', 'implement');
+  assert.equal(unreachable.code, 'CODE_TEST_FAILED');
+  assert.match(unreachable.message, /Every failed test of this run failed from the environment: a service the tests connect to is not reachable \(service-unreachable, ECONNREFUSED\)/u);
+  assert.equal(unreachable.details.testRunRisk.eligible, true);
+  assert.equal(unreachable.details.testRunRisk.causeClass, 'service-unreachable');
+  const database = JSON.parse(sflow('decision', 'test-risk', '--phase', 'implement', '--command', commandId, '--cause-class', 'service-unreachable',
+    '--cause', 'The integration database is not running on this laptop.',
+    '--reason', 'CI runs the same tests against a database before merge.', '--expires', inDays(30), '--json'));
+  assert.equal(database.data.record.id, 'TRR-002');
+  assert.equal(database.data.record.causeClass, 'service-unreachable');
+  assert.equal(database.data.record.observation.testsExecuted, 1);
   sflow('phase', 'publish', 'implement');
+
+  // Offline again: the tests run, none executes, and TRR-001, beside TRR-002, lets the step through.
+  await rm(databaseDown);
+  await writeFile(offline, 'offline\n');
   sflow('submit', 'implement');
   const workflowPath = path.join(root, 'singularity/work-items/QF-1/workflow.json');
   const submitted = JSON.parse(await readFile(workflowPath, 'utf8'));

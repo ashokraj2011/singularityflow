@@ -1,9 +1,9 @@
 {
   "schemaVersion": 2,
   "generatedFrom": "docs/topics",
-  "sourceCommit": "470f7a011db169eaccc6c470ac4d1e414604f07f",
+  "sourceCommit": "fa8c6d34a1ecb564efe59e20df9bb5029b998f80",
   "topicCount": 85,
-  "contentSha256": "c547c763b9265f18a78d6cbfaf5a47926140deb99973034c78e864f7169cdcdb",
+  "contentSha256": "e74258fdc3477510f5025c7cd8c65eed9c67886dce70a5a34401cd54ae8d7236",
   "topics": [
     {
       "id": "activity-and-prompt-audit",
@@ -112,8 +112,8 @@
     {
       "id": "configuration",
       "title": "Configuration, capabilities, and the policy fold",
-      "version": 10,
-      "sha256": "73dc376ce78755093a53d648f604e991a7ecfd7ba21d6faeefe7a2e27ce4e66b",
+      "version": 12,
+      "sha256": "b82237cf0f29adda18e33bbd6209cd3f24fb096a438c84b7a43578c8a775c81a",
       "routingSha256": "2d2fa1c092e101abe3c2074545597f9ed25b38d2627aeaa9e9d89c3c24c15c58",
       "file": "configuration.md"
     },
@@ -208,8 +208,8 @@
     {
       "id": "evidence-matrix",
       "title": "Evidence matrix for requirements and acceptance criteria",
-      "version": 30,
-      "sha256": "d0577566c4c48655677b1a740b9a90b4c8351df7d5f305ef8478f32357942ad3",
+      "version": 31,
+      "sha256": "72f2b94406e4e73d7b73495cb0e76b890b79b503e03854240eb44db4c5bc7773",
       "routingSha256": "1ac630e7dfdfbe2a92bf3ce0b059e2e77bbcee7d68307e9575047cac45b60332",
       "file": "evidence-matrix.md"
     },
@@ -240,8 +240,8 @@
     {
       "id": "findings",
       "title": "Findings — what a blocking finding means and how to recover",
-      "version": 8,
-      "sha256": "f2ca0e86bfdc1fb25ab8f96b72f4f6aff0992652c6945ecd95a36a5ecfe99708",
+      "version": 11,
+      "sha256": "19452ca95624543ee972c88cf27b07843bedc9652375c060f7134d53d1607503",
       "routingSha256": "63e669eb5eb939fd7ee9a8f6447d098138d7e424eac2ee4ff55901d902118539",
       "file": "findings.md"
     },
@@ -600,8 +600,8 @@
     {
       "id": "test-recovery",
       "title": "Story test policy and recovery pilot",
-      "version": 22,
-      "sha256": "1984d7816cae6a40f6c476458dd29e7db8d825aa1f6f136bca72cff36c40dc43",
+      "version": 25,
+      "sha256": "95bf24d7ab5d89a31352e54feddef86df5c2936ffe0e0cb2bbbeb1072578d170",
       "routingSha256": "8330286140e41b11c99e24d5b83150c155d7563d24f240c9c9df28418d6a2ea2",
       "file": "test-recovery.md"
     },
@@ -672,8 +672,8 @@
     {
       "id": "workspaces-and-sessions",
       "title": "Workspaces, sessions, and current selection",
-      "version": 20,
-      "sha256": "dd16e3569f664c8fcd5d7cf0001872bd9864146f8b1daf613cf692618b5a345f",
+      "version": 24,
+      "sha256": "8ea85433ce848db5b38b4a94339dc5189d46d14604fcbc6a91521e42fa527f72",
       "routingSha256": "5c112c0653f816dd58697fe7898162ae44cb1679460dc56dece3daa01073e94a",
       "file": "workspaces-and-sessions.md"
     },

@@ -4,7 +4,9 @@
  * a secret) and a start entry's literal `env` (which refuses one) judge a value the same way.
  * Pure: nothing is read or written.
  */
-const SECRET_NAME = /pass|secret|token|key|credential|private|auth/iu;
+import { looksSecretName } from './environment-declaration.mjs';
+
+export { looksSecretName };
 
 function entropy(value) {
   const counts = new Map();
@@ -37,10 +39,6 @@ export function looksSecretValue(raw) {
     if ((upper && lower && digit && score >= 3.5) || ((upper || lower) && digit && score >= 4.2)) return true;
   }
   return false;
-}
-
-export function looksSecretName(name) {
-  return SECRET_NAME.test(String(name ?? ''));
 }
 
 /** A variable as environments.yml would declare it: a secret has a name only. */

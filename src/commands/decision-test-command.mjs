@@ -3,8 +3,12 @@
  *
  *   singularity-flow decision test-command [WORK-ID] --phase PHASE --reason TEXT (--use SUGGESTION-ID [--source-root DIR]...
  *     | --id ID --argv '<JSON ARRAY>' --working-directory DIR --affected-root DIR... --adapter ADAPTER --report PATH)
+ *   singularity-flow decision test-command [WORK-ID] --phase PHASE --repin COMMAND-ID --reason TEXT
  *   singularity-flow decision test-command [WORK-ID] --accept TCD-001 [--reason TEXT]
  *   singularity-flow decision test-command [WORK-ID] --revoke TCD-001 --reason TEXT
+ *
+ * `--repin` asks that a pinned command's changed form (src/test-command-pins.mjs), as the gate
+ * resolves it now, replace its pin; its acceptance lets the next gate run record it.
  *
  * Anyone working on the Story, its agent included, may request the exact command that ran. Accepting
  * or revoking it is the call of a person in the group that approves the step (the next approving
@@ -28,7 +32,7 @@ import { actionActor } from './kernel.mjs';
 const fail = (message, code = 'TEST_COMMAND_DECISION_INVALID') => { throw new SingularityFlowError(message, { code }); };
 const COMMAND_OPTIONS = ['use', 'id', 'argv', 'working-directory', 'affected-root', 'adapter', 'report', 'source-root'];
 const USAGE = 'Use: singularity-flow decision test-command [WORK-ID] --phase PHASE --reason TEXT (--use SUGGESTION-ID [--source-root DIR]... '
-  + "| --id ID --argv '<JSON ARRAY>' --working-directory DIR --affected-root DIR... --adapter ADAPTER --report PATH), "
+  + "| --id ID --argv '<JSON ARRAY>' --working-directory DIR --affected-root DIR... --adapter ADAPTER --report PATH | --repin COMMAND-ID), "
   + 'or --accept TCD-… / --revoke TCD-… --reason TEXT.';
 
 /** The step whose approvers decide: the step itself, else the next one on the route that has approvers. */
@@ -51,7 +55,7 @@ export function storyTestCommandAcceptCommand(workflow, id) {
  * Record a request, or a person's acceptance or revocation of one, and commit it. The command and
  * the decision list both record through this, so authority, the record and its commit are the same.
  */
-export async function recordStoryTestCommand(root, config, workflow, { phaseId = null, command = null, accept = null, revoke = null, reason = '' }, { actor, agent = null }) {
+export async function recordStoryTestCommand(root, config, workflow, { phaseId = null, command = null, repin = null, accept = null, revoke = null, reason = '' }, { actor, agent = null }) {
   const id = workflow.workItem.id;
   const target = accept ?? revoke;
   const requested = target ? storyTestCommandState(workflow, target)?.request : null;
@@ -69,7 +73,7 @@ export async function recordStoryTestCommand(root, config, workflow, { phaseId =
     ? recordStoryTestCommandDecision(aggregate, { id: target, outcome: accept ? 'accept' : 'revoke', reason, ...common,
       authorityGroup: authority.authorityGroup, identityAssurance: authority.identityAssurance ?? null,
       selfApproval: aggregate.phases?.[decidingStep(aggregate, phase)]?.approvalPolicy?.allowSelfApproval !== false })
-    : recordStoryTestCommandRequest(aggregate, { phaseId, command, reason, ...common });
+    : recordStoryTestCommandRequest(aggregate, { phaseId, command, repin, reason, ...common });
   decide(structuredClone(workflow));
   const verb = accept ? 'accept' : revoke ? 'revoke' : 'request';
   const { value: record, publication } = await transactStory(
@@ -83,7 +87,7 @@ export async function recordStoryTestCommand(root, config, workflow, { phaseId =
       aggregate.history.push({
         at: recorded.at, actor: recorded.actor ?? recorded.requestedBy, agent, event: 'test_command_decided', phase,
         detail: recorded.id
-          ? `${recorded.id} requests that ${phase} run test command ${recorded.command.id} for this Story. ${recorded.reason}`
+          ? `${recorded.id} requests that ${phase} ${recorded.repin ? `re-pin test command ${recorded.command.id} (${recorded.repin.changes.join('; ')})` : `run test command ${recorded.command.id}`} for this Story. ${recorded.reason}`
           : `${target} ${accept ? 'accepted' : 'revoked'} through ${recorded.authorityGroup}.${recorded.reason ? ` ${recorded.reason}` : ''}`
       });
       return recorded;
@@ -115,8 +119,21 @@ export async function decisionTestCommandCommand(positionals, options) {
     fail(`Request a command for a step with --phase PHASE, or decide a request with --accept or --revoke. ${USAGE}`);
   }
   if ((accept || revoke) && COMMAND_OPTIONS.some((key) => options[key] !== undefined)) fail('--accept and --revoke decide the requested command as it was asked; they take no command options.');
+  const repinId = optionString(options, 'repin') ?? null;
+  if (repinId && (!phaseId || COMMAND_OPTIONS.some((key) => options[key] !== undefined))) {
+    fail(`--repin takes the command as the gate resolves it now, with --phase PHASE and no command options. ${USAGE}`);
+  }
   let command = null;
-  if (phaseId) {
+  let repin = null;
+  if (phaseId && repinId) {
+    const [{ resolveStoryLocalTestCommands }, { repinRequest }] = await Promise.all([import('../local-test-runs.mjs'), import('../test-command-pins.mjs')]);
+    const { phase, commands } = await resolveStoryLocalTestCommands(root, config, workflow, { phaseId });
+    const current = commands.find((entry) => entry.id === repinId);
+    if (!current) fail(`Step ${phaseId} runs no test command ${repinId} now (it runs ${commands.map((entry) => entry.id).join(', ') || 'none'}).`);
+    repin = await repinRequest(root, config, workflow, phase, current);
+    command = { id: current.id, kind: 'test', argv: current.argv, workingDirectory: current.workingDirectory,
+      affectedRoots: current.affectedRoots, modelPolicy: 'never', result: current.result };
+  } else if (phaseId) {
     const [{ requestedCommand }, { normalizeRequiredTestCommand }, { phaseRequiresCodeDelivery }] = await Promise.all([
       import('../test-setup-proposal.mjs'), import('../code-delivery-tests.mjs'), import('../delivery-evidence.mjs')]);
     if (!workflow.phases?.[phaseId]) fail(`Story ${id} has no step ${phaseId}.`);
@@ -126,20 +143,24 @@ export async function decisionTestCommandCommand(positionals, options) {
     try { requested = await requestedCommand(root, options); }
     catch (error) { if (error?.code === 'TEST_SETUP_PROPOSAL_USAGE') fail(`${error.message.replace(/ Use: [\s\S]*$/u, '')} ${USAGE}`); throw error; }
     try { normalizeRequiredTestCommand(requested); } catch (error) { fail(`Test command '${requested.id}' cannot be requested: ${error.message}`); }
-    command = { id: requested.id, kind: 'test', argv: requested.argv, workingDirectory: requested.workingDirectory,
-      affectedRoots: requested.affectedRoots, modelPolicy: 'never', result: requested.result };
+    command = { id: requested.id, kind: 'test', argv: requested.argv, ...(requested.env ? { env: requested.env } : {}),
+      workingDirectory: requested.workingDirectory, affectedRoots: requested.affectedRoots, modelPolicy: 'never', result: requested.result };
   }
   const actor = actionActor(root);
   const session = await loadSession(root, { required: false });
   const agent = session?.workId === id ? session.agent ?? null : null;
   const { record, publication } = await recordStoryTestCommand(root, config, workflow,
-    { phaseId, command, accept, revoke, reason: optionString(options, 'reason') ?? '' }, { actor, agent });
+    { phaseId, command, repin, accept, revoke, reason: optionString(options, 'reason') ?? '' }, { actor, agent });
   const recordId = record.id ?? accept ?? revoke;
+  const repinned = accept ? storyTestCommandState(workflow, accept)?.request?.repin ?? null : null;
   if (!optionBoolean(options, 'json')) {
-    console.log(record.id
-      ? `Requested ${record.id}: ${record.phase} runs ${JSON.stringify(record.command.argv)} (${record.command.result.adapter} ${record.command.result.path}) for this Story once a person who approves it accepts: ${storyTestCommandAcceptCommand(workflow, record.id)}, or from the decision list (/sf-decide ${id}).`
-      : accept ? `Accepted ${accept}: it runs at every publication and submission of ${record.phase}, and its tests must pass. Publish the step again.`
-        : `Revoked ${revoke}: ${record.phase} no longer runs it.`);
+    console.log(record.repin
+      ? `Requested ${record.id}: ${record.phase} re-pins ${record.command.id} (${record.repin.changes.join('; ')}) once a person who approves it accepts: ${storyTestCommandAcceptCommand(workflow, record.id)}, or from the decision list (/sf-decide ${id}).`
+      : record.id
+        ? `Requested ${record.id}: ${record.phase} runs ${JSON.stringify(record.command.argv)} (${record.command.result.adapter} ${record.command.result.path}) for this Story once a person who approves it accepts: ${storyTestCommandAcceptCommand(workflow, record.id)}, or from the decision list (/sf-decide ${id}).`
+        : repinned ? `Accepted ${accept}: the next gate run of ${repinned.commandId} records it as the Story's pin. Publish the step again.`
+          : accept ? `Accepted ${accept}: it runs at every publication and submission of ${record.phase}, and its tests must pass. Publish the step again.`
+            : `Revoked ${revoke}: ${record.phase} no longer runs it.`);
     console.log(publication.pushed ? `Decision committed ${publication.sha.slice(0, 8)} and pushed.`
       : `Decision committed ${publication.sha.slice(0, 8)} locally; push is disabled by git.publish: off.`);
   }

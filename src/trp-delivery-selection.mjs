@@ -162,8 +162,9 @@ export function normalizeTrpDeliveryCommands(workflow, phase, commands) {
       || /--?(?:password|passwd|token|secret|credential|authorization|cookie|api[-_]?key|access[-_]?key)\s+\S+/iu.test(command.id)) {
       throw error('TRP_TEST_COMMAND_ID_REQUIRED', 'Test commands containing sensitive arguments require an explicit credential-free command ID.');
     }
+    // A Story-only command keeps the roots its approver accepted, like a configured one [TCE:REQ-052].
     return { ...command,
-      provenance: configured.some((value) => value.id === command.id && value.workingDirectory === command.workingDirectory
+      provenance: entry.storyDecision ? 'story-decision' : configured.some((value) => value.id === command.id && value.workingDirectory === command.workingDirectory
         && JSON.stringify(value.argv) === JSON.stringify(command.argv)) ? 'configured' : 'inferred',
       result: { ...command.result,
         minimumDiscovered: Math.max(command.result.minimumDiscovered, workflow.resolution?.codeDelivery?.tests?.minimumDiscovered ?? 1),

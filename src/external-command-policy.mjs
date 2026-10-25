@@ -1,6 +1,6 @@
 import path from 'node:path';
 import { SingularityFlowError } from './util.mjs';
-import { ENVIRONMENT_IDENTIFIER } from './environment-declaration.mjs';
+import { declarableEnvironmentVariable, ENVIRONMENT_DECLARATION_PATH, ENVIRONMENT_IDENTIFIER, looksSecretName } from './environment-declaration.mjs';
 
 export const EXTERNAL_MODEL_POLICIES = Object.freeze(['never', 'required', 'unknown']);
 export const QUALITY_COMMAND_KINDS = Object.freeze([
@@ -10,8 +10,40 @@ export const QUALITY_COMMAND_REQUIREMENTS = Object.freeze(['required', 'advisory
 export const ENVIRONMENT_ID_PATTERN = ENVIRONMENT_IDENTIFIER;
 export const TEST_RESULT_ADAPTERS = Object.freeze([
   'junit-xml', 'jest-json', 'vitest-json', 'playwright-json', 'go-test-json', 'node-tap',
-  'karma-text', 'dotnet-trx', 'cargo-json', 'sflow-test-result-v1'
+  'karma-text', 'dotnet-trx', 'cargo-json', 'sflow-test-result-v1', 'mocha-json'
 ]);
+
+/**
+ * A command's literal `env` [TCE]: unreserved UPPER_CASE names, none secret-like (environments.yml holds
+ * those), short values, in name order. An older engine ignores it, like any key unknown here.
+ */
+function normalizeCommandEnv(value, index) {
+  const at = `qualityCommands[${index}].env`;
+  if (!value || typeof value !== 'object' || Array.isArray(value) || Object.keys(value).length > 64) {
+    throw new SingularityFlowError(`${at} must map at most 64 names to literal values.`, { code: 'QUALITY_COMMAND_ENV_INVALID' });
+  }
+  const entries = Object.keys(value).sort().map((name) => {
+    const raw = value[name];
+    const secret = looksSecretName(name);
+    // `_X` is checked as `X_X`: the reserved rule is environments.yml's, whose names start with a letter.
+    if (secret || !/^[A-Z_][A-Z0-9_]{0,127}$/u.test(name) || !declarableEnvironmentVariable(name.replace(/^_/u, 'X_'))
+        || !['string', 'number', 'boolean'].includes(typeof raw)
+        || String(raw).length > 4_096 || /[\u0000-\u001f\u007f]/u.test(String(raw))) {
+      throw new SingularityFlowError(secret ? `${at}.${name} names a secret: declare it in ${ENVIRONMENT_DECLARATION_PATH}, never in workflow.yml.`
+        : `${at}.${name} must be an unreserved UPPER_CASE name (not PATH, HOME, NODE_*, GIT_*) with short literal text.`,
+      { code: secret ? 'QUALITY_COMMAND_ENV_SECRET' : 'QUALITY_COMMAND_ENV_INVALID' });
+    }
+    return [name, String(raw)];
+  });
+  return entries.length ? Object.fromEntries(entries) : null;
+}
+
+/** Every run merges a command's `env` here: after the base environment, before bound values; any case of a name is replaced. */
+export function withCommandLiteralEnvironment(environment, { env } = {}) {
+  const names = new Set(Object.keys(env ?? {}).map((name) => name.toUpperCase()));
+  if (!names.size) return environment;
+  return Object.assign(Object.fromEntries(Object.entries(environment).filter(([key]) => !names.has(key.toUpperCase()))), env);
+}
 
 function relativePath(value, label, { allowDot = false } = {}) {
   const proposed = String(value ?? '').replaceAll('\\', '/');
@@ -72,6 +104,7 @@ export function normalizeExternalCommand(value, index = 0) {
       `qualityCommands[${index}] uses environment '${environment}' and must use argv instead of a shell command.`
     );
   }
+  const env = value.env == null ? null : normalizeCommandEnv(value.env, index);
   const workingDirectory = value.workingDirectory == null
     ? null
     : relativePath(value.workingDirectory, `qualityCommands[${index}].workingDirectory`, { allowDot: true });
@@ -113,6 +146,7 @@ export function normalizeExternalCommand(value, index = 0) {
     id, command, argv, modelPolicy, requirement, timeoutMs,
     ...(value.kind != null ? { kind } : {}),
     ...(environment != null ? { environment } : {}),
+    ...(env ? { env } : {}),
     ...(value.workingDirectory != null ? { workingDirectory } : {}),
     ...(value.affectedRoots != null ? { affectedRoots: normalizedRoots } : {}),
     ...(value.result != null ? { result } : {})

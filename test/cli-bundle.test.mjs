@@ -173,7 +173,17 @@ test('the bundled CLI answers exactly like the sources while opening a handful o
   // cold-hooks +59, from agent-output.mjs +4,029 (a result that cannot be written is shown, never refused; cleanup
   // removes whole results past a day), code-page-safe-json.mjs +980, cli-json-output.mjs +566, cli-failure.mjs +377
   // and copilot-repository-boundary.mjs +144.
-  assert.ok(closure('cold-hook-context.mjs').reduce((sum, item) => sum + item.bytes, 0) < 7_420_000,
+  // 7,425,000 (next 5,000 boundary): SPEC-TCE (test commands and evidence) adds 4,364 to main 3bd739a8's 7,418,002
+  // for 7,422,366: cold-hook-context +3,075 (state.mjs +2,753: pins, narrowing, run causes and the clean test
+  // environment at the gates; verification/attempts.mjs +672, test-recovery-runtime.mjs +426, Android readiness in
+  // initialization/detectors.mjs +311, candidate-isolation.mjs +277), cold-narrow-reads +625 (external-command-policy.mjs
+  // +2,086 for the command `env` key, quality-command-runner.mjs +1,616 for the process-group reaper and the adb device
+  // check, verification/join.mjs +955 and profiles.mjs +599 for the Playwright and pytest exact profiles,
+  // repository-test-command-inference.mjs +611, gradle-manifests.mjs +522, javascript-declarations.mjs +504;
+  // code-delivery-tests.mjs -5,001 as Node inference moved to the lazily loaded test-module-markers.mjs), cold-core +614
+  // (refusal-remediation.mjs +595 for the new refusal details, environment-declaration.mjs +220) and cold-hooks +50
+  // (copilot-mutation-guard.mjs, the person-only decisions).
+  assert.ok(closure('cold-hook-context.mjs').reduce((sum, item) => sum + item.bytes, 0) < 7_425_000,
     'phase-review reads retain their existing byte ceiling after moving families');
   assert.match(await readFile(path.join(outdir, 'cold-light.mjs'), 'utf8'), /function enterPhase\b/u,
     'phase binding must not fall through to the compatibility/admin bundle');
@@ -184,7 +194,13 @@ test('the bundled CLI answers exactly like the sources while opening a handful o
   for (const name of ['readPendingList', 'pendingSummary', 'approvalAdvisories']) {
     assert.match(phaseCode, new RegExp(`function ${name}\\b`, 'u'), `nextsteps' ${name} must not fall through to the compatibility/admin bundle`);
   }
-  assert.ok(catalogClosure.reduce((sum, item) => sum + item.bytes, 0) < 5 * 1024 * 1024,
+  // 5,245,000 (next 5,000 boundary over 5 MiB): main 3bd739a8 measures 5,241,916. A test command's literal `env`
+  // (SPEC-TCE M6) adds 1,741 for 5,243,657, because every configuration read validates its commands:
+  // cold-narrow-reads +1,593 (external-command-policy.mjs: the env check in normalizeExternalCommand 1,031 and
+  // withCommandLiteralEnvironment 283, the env field and the receipt digest's env) and cold-core +148
+  // (environment-declaration.mjs looksSecretName, which secret-looking.mjs now re-exports). The instruction
+  // extractor and completer load lazily, outside these reads.
+  assert.ok(catalogClosure.reduce((sum, item) => sum + item.bytes, 0) < 5_245_000,
     'catalog parsing stays bounded instead of pulling in the entire administration bundle');
   for (const name of ['cold-compatibility.mjs', 'cold-models.mjs', 'cold-intake.mjs', 'cold-phases.mjs', 'cold-hook-context.mjs']) {
     assert.ok(!catalogClosure.some(item => item.file === name), `catalogs must not statically reach ${name}`);

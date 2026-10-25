@@ -55,8 +55,11 @@ const FAMILIES = Object.freeze([
   ['publication', ['story-publication-store.mjs', 'story-publication-service.mjs', 'product-requirement.mjs']],
   ['hook-context', ['commands/phase-show.mjs', 'commands/shared/session-repository-authority.mjs', 'agent-hooks.mjs',
     'accepted-story-execution.mjs', 'delivery-evidence.mjs', 'worktree-fingerprint.mjs']],
+  // The test-module walk's other-ecosystem build files and the node --test fallback's runner check load
+  // only where a gate maps a changed path to its command, which already loads every static import of this
+  // slot; claimed here they stay outside every ceilinged closure instead of falling into compatibility.
   ['session', ['commands/session-entry.mjs', 'commands/session-open.mjs', 'commands/session-open-local.mjs',
-    'commands/session.mjs', 'session-agent-entry.mjs', 'session-read-service.mjs']],
+    'commands/session.mjs', 'session-agent-entry.mjs', 'session-read-service.mjs', 'test-module-markers.mjs']],
   ['intake', ['commands/start.mjs', 'commands/workspace-branches.mjs', 'commands/intake-entry.mjs',
     'commands/story-entry.mjs', 'story-worktree-preparation.mjs',
     'local-work-journal.mjs', 'history-index.mjs']],
@@ -72,7 +75,10 @@ const FAMILIES = Object.freeze([
     'commands/submit.mjs', 'commands/approve.mjs', 'commands/nextsteps-deferred.mjs',
     // The one pending list that nextsteps and readiness count from, and the approval check it
     // previews. Unclaimed, they fell into compatibility, so nextsteps on an open step loaded it and models.
-    'decision-list-reads.mjs', 'decision-list.mjs', 'approval-check.mjs', 'visual-profile-decisions.mjs']],
+    'decision-list-reads.mjs', 'decision-list.mjs', 'approval-check.mjs', 'visual-profile-decisions.mjs',
+    // A gate's test run environment and toolchain record, loaded by publication and submission; test command
+    // pins and narrowed runs, read at every gate run, receipt replay and decision list [TCE:REQ-010, REQ-020, REQ-030].
+    'test-run-environment.mjs', 'test-toolchain.mjs', 'test-command-pins.mjs', 'test-narrowing.mjs']],
   ['models', ['commands/wm.mjs', 'commands/comprehension.mjs']]
 ]);
 

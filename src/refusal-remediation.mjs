@@ -256,16 +256,16 @@ function requiredTestFailureSteps(argv, error) {
 }
 
 /**
- * A run in which no test executed may be the environment's doing. Only a person who approves the
- * step can accept that risk, in their own terminal; the agent is refused, so it shows the command.
+ * A run whose classified cause is the environment. Only a person who approves the step can accept
+ * that risk, in their own terminal; the agent is refused, so it shows the command.
  */
 function testRunRiskStep(error) {
   const route = error?.details?.testRunRisk;
   const phase = lowerKebab(route?.phase);
   if (!route?.eligible || !phase || typeof route.command !== 'string') return null;
   return step('accept-test-run-risk',
-    `If this environment cannot run the tests (no test executed), a person who approves ${phase} can accept the risk in their own terminal; an agent cannot. `
-      + `They name the cause, why it is acceptable and an expiry; the tests still run every time and only a run in which no test executed is let through: ${redactDiagnosticText(route.command).slice(0, 600)}`,
+    `If the environment stopped this run, a person who approves ${phase} can accept the risk in their own terminal; an agent cannot. `
+      + `They name the cause, why it is acceptable and an expiry; the tests still run every time and only a run with the same environment cause is let through: ${redactDiagnosticText(route.command).slice(0, 600)}`,
     null, 'remediation');
 }
 
@@ -1553,8 +1553,15 @@ export function refusalDetails(details) {
   }) : null));
   if (conformanceGaps.length) projected.conformanceGaps = conformanceGaps;
   if (runRisk?.eligible === true && text(runRisk.phase) && text(runRisk.commandId)) {
-    projected.testRunRisk = compact({ eligible: true, phase: text(runRisk.phase), commandId: text(runRisk.commandId),
+    projected.testRunRisk = compact({ eligible: true, phase: text(runRisk.phase), commandId: text(runRisk.commandId), causeClass: text(runRisk.causeClass),
       decision: text(runRisk.decision), lapsed: text(runRisk.lapsed), command: text(runRisk.command) });
+  }
+  // A pinned test command that changed, or a narrowed run [TCE:REQ-012, REQ-022]: why, and the route.
+  for (const key of ['testCommandPin', 'testNarrowing']) {
+    const entry = details[key];
+    const words = (value) => (list(value, text).length ? list(value, text).slice(0, 20) : null);
+    if (text(entry?.phase) && text(entry.commandId)) projected[key] = compact({ phase: text(entry.phase), commandId: text(entry.commandId),
+      pin: text(entry.pin), changes: words(entry.changes), reasons: words(entry.reasons), decision: text(entry.decision), command: text(entry.command) });
   }
   // Located workflow.yml problems, so every surface can point at the exact line and its fix.
   const position = (value) => (Number.isSafeInteger(value) && value > 0 ? value : null);

@@ -214,7 +214,7 @@ test('the last day an option offers is one its own record command accepts, at an
   const argvSha256 = 'b'.repeat(64);
   for (const at of [AT, '2026-10-19T00:00:00.000Z', '2026-10-19T23:59:59.000Z']) {
     const workflow = story();
-    const packet = decisionPacket(workflow, facts(workflow, { testRisks: [{ phase: 'release', commandId: 'unit', attemptId: null, status: 'blocked', exitCode: 1, argvSha256 }] }),
+    const packet = decisionPacket(workflow, facts(workflow, { testRisks: [{ phase: 'release', commandId: 'unit', attemptId: null, status: 'blocked', exitCode: 1, argvSha256, causeClass: 'browser-missing' }] }),
       { authorities: workflow.resolution.approvalAuthorities, actor, at });
     const gapItem = packet.items.find((item) => item.kind === 'conformance-gap');
     const riskItem = packet.items.find((item) => item.kind === 'test-run-risk');
@@ -234,7 +234,7 @@ test('the last day an option offers is one its own record command accepts, at an
     // Each writer accepts the last day the list offered for it.
     decideUpstreamIssue(structuredClone(workflow), { issue: 'UPI-002', outcome: 'accept-risk', reason: 'Accepted until the follow-up records its run.',
       expiresAt: accept.needs.expires.latest, actor: 'reviewer@example.test', authorityGroup: 'engineering-reviewers', at });
-    recordTestRunRisk(structuredClone(workflow), { phaseId: 'release', attempt: null, commandId: 'unit', argvSha256,
+    recordTestRunRisk(structuredClone(workflow), { phaseId: 'release', attempt: null, commandId: 'unit', argvSha256, causeClass: 'browser-missing',
       cause: 'The runner image has no browser.', reason: 'The tests run again at every publication and submission.',
       expires: risk.needs.expires.latest, actor: 'reviewer@example.test', authorityGroup: 'engineering-reviewers', at });
   }

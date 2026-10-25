@@ -29,7 +29,7 @@ import { reservePreparedDocumentSuccessor } from './prepared-document-successor.
 import { copyFile, cp, lstat, mkdir, mkdtemp, readFile, readdir, readlink, rm, writeFile } from 'node:fs/promises';
 import { existsSync } from 'node:fs';
 import { createHash } from 'node:crypto';
-import { normalizeTestRuntime, testRuntimeEnvironment, testRuntimeIdentity } from './test-runtime.mjs';
+import { gateTestEnvironmentModule, normalizeTestRuntime, testRuntimeEnvironment, testRuntimeIdentity } from './test-runtime.mjs';
 import { baselineDeferralAllowed, baselineObservationPending, intakeBaselineChoice } from './intake-baseline.mjs';
 import os from 'node:os';
 import path from 'node:path';
@@ -214,7 +214,7 @@ import {
 import { operationContext } from './operation-context.mjs';
 import { normalizeQualityGateMode, qualityRiskStatus } from './phase-quality-risk.mjs';
 import {
-  evaluateExternalCommandForModelMode, externalCommandText, normalizeExternalCommand
+  evaluateExternalCommandForModelMode, externalCommandText, normalizeExternalCommand, withCommandLiteralEnvironment
 } from './external-command-policy.mjs';
 import { assertProducerAllowed, buildGenerationAuthorship, normalizeAuthorshipOptions, phasePublicationCommand } from './manual-authorship.mjs';
 import { consumeRepairAttempt, repairBudgetPhaseForRejection } from './repair-budget.mjs';
@@ -255,7 +255,7 @@ import {
 } from './auto/auto-candidate.mjs';
 import {
   configuredTestModuleOverrides, normalizeRequiredTestCommand, parseTestResult,
-  resolveAffectedModule, structuredTestCommandRequiredError, testReceiptPassing
+  resolveAffectedModule, structuredTestCommandRequiredError, testCommandCoversPath, testReceiptPassing
 } from './code-delivery-tests.mjs';
 import { admitTestAttempts, recordTestAttempt } from './verification/attempts.mjs';
 import { describeWitnessResult, witnessResult } from './verification/witness-results.mjs';
@@ -576,6 +576,8 @@ export const REVIEW_EFFECTS = Object.freeze({
   'decision-made:risk': { effect: 'review-safe', lists: { riskDecisions: 'risk_decided' } },
   // A step approver's test-run risk decision, revocation or renewal (`decision test-risk`).
   'decision-made:test-risk': { effect: 'review-safe', lists: { testRunRisks: 'risk_decided' } },
+  // A step approver's acceptance of a narrowed test run, or its revocation (`decision test-narrowing`).
+  'decision-made:test-narrowing': { effect: 'review-safe', lists: { testNarrowings: 'narrowing_decided' } },
   // A step approver's reuse of an earlier step's recorded test run, or its revocation (`decision evidence-reuse`).
   'decision-made:evidence-reuse': { effect: 'review-safe', lists: { evidenceReuses: 'evidence_reuse_decided' } },
   // A visual step approver's decision that one of its screen sizes does not apply, or its revocation (`decision visual-profile`).
@@ -4190,7 +4192,7 @@ async function attachRequiredTestExecution(error, root, command, check) {
     const exit = Number.isInteger(check?.exitCode) ? ` (exit ${check.exitCode})` : '';
     refusal.message = `Required test command '${command.id}' ${outcome}${stage}${exit}. `
       + 'See error.requiredTestExecution in --json for the command and bounded output.'
-      + (refusal.details?.testRunRisk?.guidance ? ` ${refusal.details.testRunRisk.guidance}` : '');
+      + ((refusal.details?.testRunRisk ?? refusal.details?.testRunCause)?.guidance ? ` ${(refusal.details.testRunRisk ?? refusal.details.testRunCause).guidance}` : '');
   }
   return refusal;
 }
@@ -4601,6 +4603,7 @@ function stdoutReportCaptured(policy) {
   return policy.kind === 'test' && Array.isArray(policy.argv) && (policy.result?.adapter === 'go-test-json'
     || policy.result?.adapter === 'node-tap'
     || policy.result?.adapter === 'karma-text'
+    || (policy.result?.adapter === 'cargo-json' && /^cargo(?:\.exe)?$/iu.test(path.basename(policy.argv[0])))
     || (policy.result?.adapter === 'junit-xml'
       && policy.argv.some((argument) => argument === '--test-reporter=junit')));
 }
@@ -4755,7 +4758,10 @@ async function qualityChecks(root, phase, config, workflow, commands = phase.qua
     const failedRiskCommand = workflow?.resolution?.testRecovery?.enabledRiskCategories?.some(category => ['new-test-failure', 'known-test-failure', 'reduced-coverage'].includes(category))
       && workflow.resolution.testRecovery.caseInventory?.some(entry => entry.phaseId === phase.id && entry.commandId === policy.id);
     const riskDeclaration = failedRiskCommand ? trpCaseInventoryDeclaration(workflow, phase, policy) : null;
-    let commandEnvironment = failedRiskCommand ? trpExecutionEnvironment(riskDeclaration, process.env, { cwd: commandRoot }) : { ...process.env };
+    // CI=1, and no inherited variable that narrows the run unseen [TCE:REQ-030].
+    const gateRun = policy.kind === 'test' ? (await gateTestEnvironmentModule()).gateTestEnvironment(process.env, { declared: policy.env ?? null }) : null;
+    const inherited = gateRun?.environment ?? process.env;
+    let commandEnvironment = failedRiskCommand ? trpExecutionEnvironment(riskDeclaration, inherited, { cwd: commandRoot }) : { ...inherited };
     if (policy.kind === 'test') commandEnvironment = testRuntimeEnvironment(workflow?.resolution?.testRuntime, commandEnvironment);
     if (policy.kind === 'test' && policy.result?.adapter === 'node-tap') {
       commandEnvironment = nodeTestReporterEnvironment(commandEnvironment, isolation?.root ?? root, { argv: policy.argv, cwd: executionRoot });
@@ -4764,6 +4770,7 @@ async function qualityChecks(root, phase, config, workflow, commands = phase.qua
     // Variables a host sets to run the CLI itself (VS Code's ELECTRON_RUN_AS_NODE) are not the
     // tests' environment, in a local run or at publication and submission alike.
     commandEnvironment = withoutHostSurfaceVariables(commandEnvironment);
+    commandEnvironment = withCommandLiteralEnvironment(commandEnvironment, policy);
     if (materialized) commandEnvironment = materialized.childEnvironment(commandEnvironment);
     if (policy.kind === 'test' && policy.result?.adapter === 'playwright-json'
         && structuredResultTarget) {
@@ -4776,6 +4783,7 @@ async function qualityChecks(root, phase, config, workflow, commands = phase.qua
       }
       commandEnvironment.PLAYWRIGHT_JSON_OUTPUT_FILE = structuredResultTarget;
     }
+    gateRun?.observe(policy, { cwd: executionRoot, environment: commandEnvironment, bound: materialized?.environment });
     const result = policy.argv
       ? await runQualityCommand(policy.argv[0], policy.argv.slice(1), {
         cwd: executionRoot,
@@ -4851,6 +4859,7 @@ async function qualityChecks(root, phase, config, workflow, commands = phase.qua
           ...policy, provenance: commandProvenance.get(value) ?? 'configured'
         }, check) : error;
     }
+    await gateRun?.attach(check);
     if (restoreTransientResult) transientQualityResultRestorers.set(check, restoreTransientResult);
     qualityCommandResults.set(check, result);
     checks.push(check);
@@ -4913,6 +4922,8 @@ async function preflightCodeDeliveryTests(root, config, workflow, phase, deliver
       evaluationSha256: retainedRisk.evaluation.recordSha256 };
     return { commands, checks: [], testRecovery: retainedRisk };
   }
+  // A guessed command is pinned for the Story at first use; a changed one waits for a person [TCE:REQ-010].
+  const pins = await (await import('./test-command-pins.mjs')).gateTestCommandPins(root, config, workflow, phase, commands, deliveryEvidence);
   const riskRun = await beginStoryTestRiskRun(root, config, workflow, phase, { commands, selection: trpSelection?.selection });
   const checks = await qualityChecks(root, phase, config, workflow, commands, {
     commandProvenance: new Map(commands.map((command) => [command, command.provenance]))
@@ -4927,7 +4938,7 @@ async function preflightCodeDeliveryTests(root, config, workflow, phase, deliver
       // Every run is one immutable attempt, recorded before its result is judged [E2G-016].
       const recorded = check ? await recordTestAttempt(root, workDirRelative(config, workflow.workItem.id), {
         command, check, purpose: 'preflight', workId: workflow.workItem.id, phaseId: phase.id,
-        generation: nextPhaseGeneration(phase)
+        generation: nextPhaseGeneration(phase), delivery: deliveryEvidence, ...pins.attempt(command.id)
       }) : null;
       if (recorded) {
         attempts.push({ commandId: command.id, attemptId: recorded.attempt.attemptId, receiptPath: recorded.path,
@@ -4993,6 +5004,8 @@ async function preflightCodeDeliveryTests(root, config, workflow, phase, deliver
           throw await testRunRiskRefusal(workflow, phase, receipt,
             new SingularityFlowError(`Required test command '${command.id}' did not produce passing executable-test evidence before publication.`, { code: 'CODE_TEST_FAILED' }));
         }
+        const narrowed = pins.narrowed(receipt, 'publish'); // refused unless a step approver accepted it [TCE:REQ-022]
+        if (narrowed) attempts.at(-1).testNarrowing = narrowed;
         passing.push(command);
       } catch (error) {
         throw isolatedRunHint(await attachRequiredTestExecution(error, root, command, check), check);
@@ -5012,6 +5025,7 @@ async function preflightCodeDeliveryTests(root, config, workflow, phase, deliver
     }
   }
   if (runRisks.length) deliveryEvidence.testRunRisks = runRisks;
+  await pins.record(workflow, attempts.map((attempt) => attempt.commandId), { at: nowIso() });
   // The publication commits this preflight and every earlier kept attempt of the step [E2G-016].
   await admitTestAttempts(root, workDirRelative(config, workflow.workItem.id), workflow.workItem.id, phase.id);
   return { commands, checks };
@@ -5038,12 +5052,11 @@ async function testRunRiskCover(workflow, phase, attempt) {
   return decision ? testRunRiskBinding(decision) : null;
 }
 
-/** A refused run in which no test executed names the environment and the step approvers' route. */
+/** A refused run names what stopped it: an environment cause with the step approvers' route, or a code cause. */
 async function testRunRiskRefusal(workflow, phase, attempt, error) {
   if (!attempt) return error;
-  const { testRunRiskRoute } = await import('./test-run-risk.mjs');
-  const route = testRunRiskRoute(workflow, { phaseId: phase.id, attempt, at: nowIso() });
-  if (route) error.details = { ...(error.details ?? {}), testRunRisk: route };
+  const { testRunRiskRefusalDetails } = await import('./test-run-risk.mjs');
+  error.details = { ...(error.details ?? {}), ...testRunRiskRefusalDetails(workflow, { phaseId: phase.id, attempt, at: nowIso() }) };
   return error;
 }
 
@@ -5375,6 +5388,8 @@ async function submitPhaseTransition(root, config, workflow, {
     ? await (await import('./verification/repository-tests.mjs')).verificationRepositoryTests(root, config, workflow, phase, deliveryCommands)
     : null;
   if (repositoryTests?.commands.length) deliveryCommands = [...deliveryCommands, ...repositoryTests.commands];
+  const pins = codeDeliveryRequired && !retainedRisk && runChecks
+    ? await (await import('./test-command-pins.mjs')).gateTestCommandPins(root, config, workflow, phase, requiredTestCommands, phase.deliveryEvidence) : null;
   phase.checks = runChecks ? await qualityChecks(root, phase, config, workflow,
     retainedRisk ? deliveryCommands.filter(command => command?.kind !== 'test') : deliveryCommands, {
     // Assign provenance from trusted resolution identity, never a field supplied by configuration.
@@ -5418,7 +5433,7 @@ async function submitPhaseTransition(root, config, workflow, {
         let receipt;
         const recorded = check ? await recordTestAttempt(root, workDirRelative(config, workflow.workItem.id), {
           command, check, purpose: testCommandEpochRun ? 'epoch' : 'submission', workId: workflow.workItem.id,
-          phaseId: phase.id, generation: phase.generation, epoch: testCommandEpochRun?.suffix ?? null
+          phaseId: phase.id, generation: phase.generation, epoch: testCommandEpochRun?.suffix ?? null, delivery: phase.deliveryEvidence, ...pins?.attempt(command.id)
         }) : null;
         if (recorded) attemptHistory.push({ commandId: command.id, attemptId: recorded.attempt.attemptId, status: recorded.attempt.status });
         let runRisk = null;
@@ -5465,6 +5480,9 @@ async function submitPhaseTransition(root, config, workflow, {
               // The run exited 0 yet no test ran: it is recorded as not passing, carried by the decision.
               check.testRunRisk = runRisk;
               check.status = 'failed';
+            } else {
+              const narrowed = pins?.narrowed(receipt, 'submit');
+              if (narrowed) check.testNarrowing = narrowed;
             }
           }
         } catch (error) {
@@ -5481,7 +5499,8 @@ async function submitPhaseTransition(root, config, workflow, {
           commandId: command.id, attemptId: receipt.attemptId, receiptPath: recorded.path,
           receiptSha256: recorded.sha256,
           status: receipt.status,
-          affectedRoots: command.affectedRoots
+          affectedRoots: command.affectedRoots,
+          ...(check.testNarrowing ? { testNarrowing: check.testNarrowing } : {})
         });
         submittedAttempts.set(command.id, receipt);
       }
@@ -5492,11 +5511,14 @@ async function submitPhaseTransition(root, config, workflow, {
       });
     }
     if (workflow.resolution?.codeDelivery?.tests?.requireAffectedModuleCoverage !== false) {
-      const uncovered = uncoveredTestDeliveryPaths(phase.deliveryEvidence, phase.sourceBoundary, testExecutions);
+      // Judged by the commands that ran, with their provenance [TCE:REQ-052].
+      const uncovered = uncoveredTestDeliveryPaths(phase.deliveryEvidence, phase.sourceBoundary,
+        requiredTestCommands.filter((command) => testExecutions.some((execution) => execution.commandId === command.id)));
       if (uncovered.length) {
         throw uncoveredTestPathsError(`No passing test command covers affected paths: ${uncovered.join(', ')}`, uncovered);
       }
     }
+    await pins?.record(workflow, testExecutions.map((execution) => execution.commandId), { at: nowIso() });
     // The submission commits these attempts and every earlier kept attempt of the step, failed
     // ones included, so a later failure can never hide behind the pass it was retried into [E2G-016].
     attemptHistory.splice(0, attemptHistory.length,
@@ -5579,9 +5601,10 @@ async function submitPhaseTransition(root, config, workflow, {
     const deliveryReceipt = await readJson(path.join(root, phase.deliveryEvidence.receiptPath));
     const traceabilityBindings = [];
     for (const binding of deliveryReceipt.traceability?.bindings ?? []) {
-      const execution = testExecutions.find((candidate) => candidate.affectedRoots.some((affectedRoot) =>
-        affectedRoot === '.' || binding.testSource === affectedRoot
-          || binding.testSource.startsWith(`${affectedRoot.replace(/\/$/, '')}/`)));
+      // The command publication tied the test to (a package's end-to-end run, not its unit run) while it covers it.
+      const tied = deliveryReceipt.traceability?.witnesses?.find((witness) => witness.clauseId === binding.clauseId && witness.testSource === binding.testSource)?.commandId;
+      const covers = (candidate) => testCommandCoversPath(requiredTestCommands.find((command) => command.id === candidate.commandId) ?? candidate, binding.testSource);
+      const execution = testExecutions.find((candidate) => candidate.commandId === tied && covers(candidate)) ?? testExecutions.find(covers);
       if (!execution) {
         throw new SingularityFlowError(
           `Acceptance clause '${binding.clauseId}' is not bound to a passing command for '${binding.testSource}'.`,
@@ -5590,7 +5613,7 @@ async function submitPhaseTransition(root, config, workflow, {
       }
       // The approved configured test commands own their affected roots, as they did at resolution.
       const module = await resolveAffectedModule(root, binding.testSource, {
-        overrides: configuredTestModuleOverrides(phase.qualityCommands)
+        overrides: configuredTestModuleOverrides([...(phase.qualityCommands ?? []), ...(phase.storyTestCommands ?? [])])
       }).catch((error) => {
         // The deterministic direct-node fallback is an explicit root-module adapter for
         // repositories that intentionally have executable .mjs tests but no package manifest.

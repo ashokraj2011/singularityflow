@@ -660,11 +660,14 @@ test('an authoring turn may raise an upstream issue but never decide one', async
   assert.equal(kernelDecide.permissionDecision, 'deny');
 });
 
-test('no agent turn accepts that a step\'s tests cannot run here or decides spec drift; the refusal says whose decision it is', async t => {
+test('no agent turn accepts that a step\'s tests cannot run here or ran narrowed, or decides spec drift; the refusal says whose decision it is', async t => {
   const f = await fixture(t);
   const accept = 'singularity-flow decision test-risk PMC-1 --phase custom-step --command module-tests --cause "The Maven repository is unreachable." --reason "CI runs these tests before merge." --expires 2026-11-01';
   const revoke = 'singularity-flow decision test-risk PMC-1 --revoke TRR-001 --reason "The repository is reachable again from here."';
   const drift = 'singularity-flow spec drift decide TOY-001:AC-001 --accept --reason "The louder greeting is intended."';
+  // So is accepting that a step's tests ran narrowed [TCE:REQ-023].
+  const narrowed = 'singularity-flow decision test-narrowing PMC-1 --phase custom-step --command module-tests --reason "The skipped case needs a device this team lacks."';
+  const unnarrowed = 'singularity-flow decision test-narrowing PMC-1 --revoke TNR-001 --reason "The device case runs on CI again."';
   // Reusing an earlier step's recorded run for a step is that step's approvers' decision too.
   const reuse = 'singularity-flow decision evidence-reuse PMC-1 --phase custom-step --from-attempt TA-0123456789abcdef0123 --reason "Implementation recorded this run on the same source."';
   const unreuse = 'singularity-flow decision evidence-reuse PMC-1 --revoke ERU-001 --reason "Verification records its own run now."';
@@ -675,7 +678,7 @@ test('no agent turn accepts that a step\'s tests cannot run here or decides spec
     const payload = await f.enter(skill, mode ?? undefined);
     assert.deepEqual(await mutationToolGuard({ ...payload, toolName: 'bash', toolArgs: { command: 'singularity-flow spec drift --json', cwd: f.root } }), {},
       'reading drift is allowed');
-    for (const command of [accept, revoke, drift, reuse, unreuse, notApplicable, applicable]) {
+    for (const command of [accept, revoke, drift, reuse, unreuse, notApplicable, applicable, narrowed, unnarrowed]) {
       const denied = await mutationToolGuard({ ...payload, toolName: 'bash', toolArgs: { command, cwd: f.root } });
       assert.equal(denied.permissionDecision, 'deny', `${skill}: ${command}`);
       assert.match(denied.permissionDecisionReason, /decided by a person who approves that step, in their own terminal, not by this turn/u, skill);
@@ -1123,9 +1126,13 @@ test('/sf-test-setup may propose the exact test command it previewed, its JSON a
   // The line `capability test-setup` prints as its confirmCommand, with --json added.
   const command = `singularity-flow capability test-setup --step implementation --id shop-e2e-junit --argv '["npx","nx","run","shop-e2e:e2e"]' `
     + `--working-directory . --affected-root apps/shop-e2e --adapter junit-xml --report coverage/e2e/shop-e2e/junit-results.xml --confirm sha256:${'a'.repeat(64)} --json`;
-  for (const payload of [bare, bound]) {
-    const decision = await mutationToolGuard({ ...payload, toolName: 'bash', toolArgs: { command, cwd: f.root } });
+  // A command read from the team's instructions is confirmed by its candidate ID [TCE:REQ-063].
+  const written = `singularity-flow capability test-setup --step implementation --use npx-playwright-test-project-chromium --confirm sha256:${'a'.repeat(64)} --json`;
+  for (const payload of [bare, bound]) for (const line of [command, written]) {
+    const decision = await mutationToolGuard({ ...payload, toolName: 'bash', toolArgs: { command: line, cwd: f.root } });
     assert.notEqual(decision.permissionDecision, 'deny', `${payload.sessionId}: ${decision.permissionDecisionReason}`);
+  }
+  for (const payload of [bare, bound]) {
     // The same turn still edits no file itself.
     const edit = await mutationToolGuard({ ...payload, toolName: 'bash', toolArgs: { command: 'printf x > singularity/workflow.yml', cwd: f.root } });
     assert.equal(edit.permissionDecision, 'deny', payload.sessionId);

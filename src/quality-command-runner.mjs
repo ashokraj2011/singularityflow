@@ -7,7 +7,10 @@ import { createHash } from 'node:crypto';
 import { resolvePlatformProcess, tryWindowsTaskkill } from './platform-process.mjs';
 
 const DEFAULT_CAPTURE_BYTES = 128 * 1024;
+// How long what a command started may hold its output open once it exited [TCE:REQ-034].
+const OUTPUT_GRACE_MS = 2_000;
 export const MAX_DEFAULT_SUBPROCESS_CONCURRENCY = 4;
+let groupsModule = null;
 const unavailableLaunches = new WeakMap();
 const completedLaunches = new WeakMap();
 
@@ -128,14 +131,18 @@ export async function runQualityCommand(command, args = [], {
   // bounded, hashed, written or returned.
   redactor = null
 } = {}) {
+  let refused = null;
   if (reportCapture) {
     try {
       const { assertTestReportTargetEmpty } = await import('./code-delivery-tests.mjs');
       await assertTestReportTargetEmpty(reportCapture.root, reportCapture.command);
-    } catch (error) {
-      return { status: 1, signal: null, error, timedOut: false, aborted: false, stdout: '', stderr: '', stdoutBytes: 0,
-        stderrBytes: 0, stdoutTruncated: false, stderrTruncated: false };
-    }
+    } catch (error) { refused = error; }
+  }
+  // A connected Android test run needs an attached device; without one it never starts [TCE:REQ-075].
+  if (!refused && /(?:^|:)connected\w*AndroidTest$/u.test(args.at(-1) ?? '')) refused = await (await import('./test-module-markers.mjs')).androidDeviceUnavailable(env);
+  if (refused) {
+    return { status: 1, signal: null, error: refused, timedOut: false, aborted: false, stdout: '', stderr: '', stdoutBytes: 0,
+      stderrBytes: 0, stdoutTruncated: false, stderrTruncated: false };
   }
   return new Promise((resolve) => {
     const startedAt = new Date().toISOString();
@@ -157,6 +164,9 @@ export async function runQualityCommand(command, args = [], {
     let aborted = signal?.aborted === true;
     let error = null;
     let settled = false;
+    let exited = false;
+    let lingerTimer = null;
+    let groupTracking = null;
     let hardKillTimer = null;
     let timer = null;
     let timeoutDecisionTimer = null;
@@ -202,6 +212,12 @@ export async function runQualityCommand(command, args = [], {
         detached: killTree && platform !== 'win32',
         stdio: [input == null ? 'ignore' : 'pipe', 'pipe', 'pipe']
       });
+      // A real group ends with the CLI, on exit or interrupt; tracking never delays the launch.
+      const pid = child.pid;
+      if (pid && killTree && platform !== 'win32' && spawnCommand === spawn) {
+        groupTracking = (groupsModule ??= import('./git-child-groups.mjs'))
+          .then((groups) => (settled ? null : groups.trackProcessGroup(pid)), () => null);
+      }
     } catch (caught) {
       resolve({ status: 1, signal: null, error: caught, timedOut: false, aborted: false, stdout: '', stderr: '', stdoutBytes: 0, stderrBytes: 0, stdoutTruncated: false, stderrTruncated: false });
       return;
@@ -213,6 +229,17 @@ export async function runQualityCommand(command, args = [], {
     });
     if (input != null) child.stdin?.end(Buffer.isBuffer(input) ? input : Buffer.from(String(input), 'utf8'));
     child.on('error', (caught) => { error = caught; });
+    // The command ended, and its deadline with it: what still holds its output after a grace is ended
+    // with the group and the output closed (Windows has no group; an exited ID may name another process).
+    child.on('exit', () => {
+      exited = true;
+      clearTimeout(timer);
+      clearTimeout(timeoutDecisionTimer);
+      if (killTree) lingerTimer = setTimeout(() => {
+        if (platform !== 'win32') terminate('SIGKILL');
+        child.stdout?.destroy(); child.stderr?.destroy();
+      }, OUTPUT_GRACE_MS);
+    });
     timer = timeoutMs == null ? null : setTimeout(() => {
       timer = null;
       // Timers are checked before child-process close callbacks. If the host event loop was
@@ -222,7 +249,7 @@ export async function runQualityCommand(command, args = [], {
       // the same bounded deadline plus only this scheduling grace turn.
       timeoutDecisionTimer = setTimeout(() => {
         timeoutDecisionTimer = null;
-        if (settled) return;
+        if (settled || exited) return;
         timedOut = true;
         terminate('SIGTERM');
         hardKillTimer = setTimeout(() => terminate('SIGKILL'), 2_000);
@@ -244,6 +271,8 @@ export async function runQualityCommand(command, args = [], {
       if (timer) clearTimeout(timer);
       if (timeoutDecisionTimer) clearTimeout(timeoutDecisionTimer);
       if (hardKillTimer) clearTimeout(hardKillTimer);
+      clearTimeout(lingerTimer);
+      groupTracking?.then((untrack) => untrack?.());
       signal?.removeEventListener?.('abort', onAbort);
       if (stdoutRedactor) emitStdout(Buffer.from(stdoutRedactor.end()));
       if (stderrRedactor) {

@@ -207,6 +207,7 @@ Every public operation is classified before its implementation module is importe
 | decision.scope | mutation | never | — | — |
 | decision.show | read | never | — | — |
 | decision.test-command | mutation | never | — | — |
+| decision.test-narrowing | mutation | never | — | — |
 | decision.test-risk | mutation | never | — | — |
 | decision.visual-profile | mutation | never | — | — |
 | decision.witness | mutation | never | — | — |
@@ -931,6 +932,8 @@ Every public operation is classified before its implementation module is importe
 | workspace.checkouts | read | never | — | — |
 | workspace.cleanup | mutation | never | — | — |
 | workspace.cleanup.preview | read | never | — | — |
+| workspace.consolidate | mutation | never | — | — |
+| workspace.consolidate.preview | read | never | — | — |
 | workspace.context | read | never | — | — |
 | workspace.copilot | mutation | required | — | copilot-cli |
 | workspace.copilot.preview | read | never | — | — |

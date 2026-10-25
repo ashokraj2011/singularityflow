@@ -13,7 +13,7 @@ related:
   - recovery
   - approvals
   - configuration
-version: 22
+version: 25
 ---
 Test and Recovery (TRP) is an explicitly enabled pilot for a Story's test policy, baseline repair and phase issues. It keeps what a check observed separate from the decision about whether work may continue. A failed test remains failed even when a current, authorized exception permits a named transition. Normal phase approval remains separate.
 
@@ -217,20 +217,74 @@ Use the same inspection, delegated terminal review, revocation and transition-sp
 
 ### When the environment cannot run the tests
 
-Sometimes a required test command cannot run on the machine doing the work: Maven or Gradle cannot reach the dependency repository, the JDK is missing, a proxy refuses the connection, or Docker is not available for Testcontainers. The run fails or is blocked before a single test executes. Publication and submission refuse it with `CODE_TEST_FAILED`, and when no test executed the refusal says so and names the way out in `error.details.testRunRisk`.
+Sometimes a required test command cannot run on the machine doing the work: Maven or Gradle cannot reach the dependency repository, the JDK is missing, a proxy refuses the connection, Docker is not available for Testcontainers, or a database the tests connect to is not running. Publication and submission refuse the run with `CODE_TEST_FAILED`.
 
-Fix the environment and run it again where you can. Where you cannot, a person who approves the step accepts the risk in their own terminal:
+Every failed or blocked run is classified by what stopped it, read from its exit, the error its launch gave, its output and the failure message of each failed test:
+
+| Cause | Class | Read from |
+|---|---|---|
+| Launcher missing or not executable | `launcher-unavailable` | spawn `ENOENT`/`EACCES`, `command not found` |
+| Dependency not installed | `dependency-missing` | `npm ERR! missing`, `Cannot find module 'x'` from an unchanged file, `No module named`, Maven `Could not resolve dependencies` |
+| Registry, network or proxy | `registry-unreachable` | `Could not transfer artifact`, `ENOTFOUND`, proxy and certificate errors |
+| Toolchain version | `toolchain-version` | `UnsupportedClassVersionError`, `invalid target release`, engine requirements |
+| Browser missing | `browser-missing` | Playwright `Executable doesn't exist … npx playwright install`, Cypress binary missing |
+| No emulator, simulator or device | `device-unavailable` | Android `No connected devices!` / `DeviceException`, `adb: no devices/emulators found`, Xcode `Unable to find a destination matching`; SFlow never starts one |
+| Service unreachable | `service-unreachable` | `ECONNREFUSED`, `Connection refused` |
+| Docker | `docker-unavailable` | `Cannot connect to the Docker daemon`, `Could not find a valid Docker environment` |
+| Permission | `permission-denied` | `EACCES: permission denied`, `PermissionError` |
+| Every discovered test skipped | `all-tests-skipped` | the report |
+| Compile error (code) | `compile-error` | `error TS…`, javac, kotlinc, rustc, `error CS…`, Go `[build failed]` |
+| Syntax error (code) | `syntax-error` | `SyntaxError`, `IndentationError` |
+| Import error (code) | `import-error` | a missing repository path, a package imported from a file the Story changed, a missing export |
+| Tests ran and failed (code) | `assertion-failure` | a failed test whose message is not an environment cause |
+| Timed out, or nothing recognised | `timeout`, `unrecognised` | neither is known to be the environment |
+
+A code marker wins over an environment one. A run in which tests executed is an environment cause only when every failed test failed from one; a suite whose every test hit a refused database connection is `service-unreachable`. The class is recorded as `cause` on the run's attempt, and the refusal names it: an environment cause with the way out in `error.details.testRunRisk` (with `causeClass`), a code cause as never covered.
+
+Fix the environment and run it again where you can. Where you cannot, a person who approves the step accepts that cause in their own terminal:
 
 ```text
-singularity-flow decision test-risk <WORK-ID> --phase <PHASE> --command <COMMAND-ID> --cause "<what in the environment stops it>" --reason "<why the risk is acceptable>" --expires YYYY-MM-DD
+singularity-flow decision test-risk <WORK-ID> --phase <PHASE> --command <COMMAND-ID> --cause-class <CLASS> --cause "<what in the environment stops it>" --reason "<why the risk is acceptable>" --expires YYYY-MM-DD
 ```
 
 - **Who:** someone in an approval group of that step. A step nobody approves (quick-fix's implement) is answered for by the next step on the route that has approvers. An agent turn is refused; it shows the command and stops.
-- **What it needs:** a recorded run of that command that failed or was blocked with no test executed. The cause is 10 to 300 characters, the reason 20 to 1000, and the expiry at most 90 days ahead.
-- **What it allows:** the tests still run at every publication and submission. Only a run of the same command in which no test executed is let through. A run in which tests execute and fail is never covered, and a changed command needs a new decision.
-- **How long:** the step then carries through approval, later steps and Story completion while the decision is active. The evidence matrix shows its criteria as satisfied with an exception, never as passed. Once the decision expires or is revoked (`decision test-risk --revoke TRR-001 --reason TEXT`), the next gate refuses again; a new decision on the same command carries the runs an earlier one let through.
+- **What it needs:** a recorded run of that command that failed or was blocked from an environment cause. `--cause-class` is taken from that run, and must match it when given; an approver whose checkout has no record of the run names the class and the `--argv-sha256` digest the refusal gave. The cause is 10 to 300 characters, the reason 20 to 1000, and the expiry at most 90 days ahead.
+- **What it allows:** the tests still run at every publication and submission. Only a later run of the same command whose cause is the same class is let through. A compile, syntax or import error the change introduces, a failed assertion, a timeout or another environment cause is never covered, and a changed command needs a new decision. Decisions on different classes of one command stand side by side.
+- **How long:** the step then carries through approval, later steps and Story completion while the decision is active. The evidence matrix shows its criteria as satisfied with an exception, never as passed. Once the decision expires or is revoked (`decision test-risk --revoke TRR-001 --reason TEXT`), the next gate refuses again; a new decision on the same command and class carries the runs an earlier one let through.
+- **Decisions recorded before causes were classified** (no `causeClass`) stay valid until they expire, for runs in which no test executed and whose cause is the environment.
 
 This needs no test-policy agreement at intake and works on any Story. The test-policy exception below is narrower and stricter: it covers only a missing executable, needs an agreement and named risk reviewers, and takes a decision for each transition.
+
+### When a pinned test command changes
+
+A test command Singularity Flow guessed for a module is pinned for the Story the first time a gate runs it: its argv, working directory, affected roots, result adapter, and the digests of what it resolves through, which are the package script chain (`pretest`, `test`, `posttest` and every `npm run`/`yarn`/`pnpm` script they reach), the module's runner configuration (`jest.config.*`, `vitest.config.*`, `playwright.config.*`, `.mocharc.*`, the package's `jest` key, `pytest.ini`, `[tool.pytest]`, `tox.ini`, `conftest.py`, the POM's surefire/failsafe plugins and `.mvn/maven.config`, Gradle `test` blocks) and any repository script the command runs. A configured or Story-only command records its definition the same way. The pin is written to `workflow.testCommandPins` when the gate commits; until then the step's first recorded run stands for it.
+
+A later gate whose command differs (an edited `"test": "jest src/one"`, a new runner config, other argv) is refused with `TEST_COMMAND_PIN_CHANGED` before it runs, naming each change. Restore what was pinned, or request the new pin:
+
+```text
+singularity-flow decision test-command <WORK-ID> --phase <PHASE> --repin <COMMAND-ID> --reason "<why the test command changed>"
+singularity-flow decision test-command <WORK-ID> --accept TCD-001        (a person who approves the step; or from /sf-decide)
+```
+
+The request records the exact new pin by digest and what changed. Anyone working on the Story may request it; only a person who approves the step accepts it (an agent is refused). The next gate run records it as the command's pin, naming the pin it replaces and the request. Each test attempt carries the pin it ran under, and the receipt replays only against a pin recorded on the Story. Line endings and the per-platform wrapper spelling (`./mvnw` or `.\mvnw.cmd`, `python3` or `py -3`) are not changes.
+
+### When a run is narrowed
+
+A gate run proves a module only when it ran the module's tests. Each gate run records on its attempt what narrowed it, and a run that passed narrowed is refused with `CODE_TEST_NARROWED`, naming each reason:
+
+- **filter:** a test-selecting option in the command or in the pinned script behind it: `-Dtest`, `-Dit.test`, `-k`, `-m` (pytest), `--grep`/`-g`, `-t`/`--testNamePattern`, `--testPathPattern`, `--shard`, `--only`, `--tests` (Gradle), `-run` (Go), `--filter` (.NET), `--test-name-pattern` and `--test-only` (Node), and `--project` in a guessed command;
+- **focused:** `.only`, `fit` or `fdescribe` in a changed test file the command covers;
+- **skipped:** any skipped test (a test-policy agreement's accepted reduced coverage is judged by that agreement);
+- **below-baseline:** fewer tests discovered than the first passing run of the same pin in this Story.
+
+Remove the narrowing and run it again, or a person who approves the step accepts it with a reason, in their own terminal or from the decision list:
+
+```text
+singularity-flow decision test-narrowing <WORK-ID> --phase <PHASE> [--command <COMMAND-ID>] --reason "<why the narrowed run is enough for this step>" [--expires YYYY-MM-DD]
+singularity-flow decision test-narrowing <WORK-ID> --revoke TNR-001 --reason "<why>"
+```
+
+It needs a recorded run of that command that passed narrowed. The decision is bound to the command's pin and to the narrowing it saw, and covers later runs of the same pin whose narrowing is the same or smaller: no new filter or focused test, no more skipped tests, no larger shortfall. Without `--expires` it lasts until the Story ends. An agent is refused; it shows the command and stops. The review (`Accepted narrowing: …`) and `tests summary` (`Narrowed: …; accepted as TNR-001: …`) show an accepted narrowing with its reason, and receipt replay checks the decision still covers the run.
 
 ### When no runner is found: a command for this Story only
 

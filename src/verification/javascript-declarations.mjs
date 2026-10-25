@@ -26,7 +26,7 @@ const MAX_TOKENS = 400_000;
 const TEST_FUNCTIONS = new Set(['test', 'it', 'xit', 'xtest', 'fit']);
 const SUITE_FUNCTIONS = new Set(['describe', 'suite', 'xdescribe', 'fdescribe']);
 const MODIFIERS = new Set([
-  'only', 'skip', 'todo', 'concurrent', 'sequential', 'each', 'for', 'failing', 'fails', 'skipIf', 'runIf'
+  'only', 'skip', 'todo', 'concurrent', 'sequential', 'each', 'for', 'failing', 'fails', 'skipIf', 'runIf', 'fixme', 'fail'
 ]);
 const REGEX_AFTER_KEYWORD = new Set([
   'return', 'typeof', 'instanceof', 'in', 'of', 'new', 'delete', 'void', 'throw', 'case', 'do', 'else',
@@ -615,8 +615,16 @@ function analyzeJavaScriptDeclarations(text, { sourcePath, framework }) {
     let table = null;
     let cursor = index + 1;
     let malformed = false;
+    let suiteCall = false;
     while (tokens[cursor]?.type === 'punct' && tokens[cursor].value === '.' && tokens[cursor + 1]?.type === 'identifier') {
       const modifier = tokens[cursor + 1].value;
+      // Playwright's suites are test.describe(...), optionally .serial or .parallel.
+      if (framework === 'playwright' && token.value === 'test'
+          && (modifier === 'describe' ? !modifiers.length && !suiteCall : suiteCall && ['serial', 'parallel'].includes(modifier))) {
+        suiteCall = true;
+        cursor += 2;
+        continue;
+      }
       if (!MODIFIERS.has(modifier)) { malformed = true; break; }
       modifiers.push(modifier);
       cursor += 2;
@@ -643,7 +651,7 @@ function analyzeJavaScriptDeclarations(text, { sourcePath, framework }) {
     const literalTitle = titleToken && (titleToken.type === 'string' || (titleToken.type === 'template' && titleToken.substitutions === false))
       && [',', ')'].includes(tokens[callOpen + 2]?.value);
     const title = literalTitle ? titleToken.value : null;
-    const isSuite = SUITE_FUNCTIONS.has(token.value);
+    const isSuite = SUITE_FUNCTIONS.has(token.value) || suiteCall;
     // Static only at the top level or directly in a describe body: every open frame is either a
     // literal describe call's parentheses or its body.
     const dynamicContext = position.controlled || frames.some((frame) => !frame.suite && !frame.suiteCall);
@@ -662,7 +670,7 @@ function analyzeJavaScriptDeclarations(text, { sourcePath, framework }) {
             dynamic: !literalTitle || modifiers.includes('each') || modifiers.includes('for') || dynamicContext
               || enclosingSuites.some((suite) => suite.dynamic),
             path: [...enclosingSuites.map((suite) => suite.title), title],
-            skipped: token.value === 'xdescribe' || modifiers.includes('skip') || enclosingSuites.some((suite) => suite.skipped),
+            skipped: token.value === 'xdescribe' || modifiers.includes('skip') || modifiers.includes('fixme') || enclosingSuites.some((suite) => suite.skipped),
             focused: token.value === 'fdescribe' || modifiers.includes('only')
           });
           break;
@@ -690,7 +698,7 @@ function analyzeJavaScriptDeclarations(text, { sourcePath, framework }) {
     if (!literalTitle) gaps.push(gap('DYNAMIC_TITLE', 'the test title is not a string literal'));
     if (dynamicContext) gaps.push(gap('DECLARATION_IN_DYNAMIC_CONTEXT', 'the test is declared inside a loop, condition, function or expression rather than at the top level or directly in a describe body'));
     if (enclosingSuites.some((suite) => suite.dynamic)) gaps.push(gap('DYNAMIC_SUITE', 'an enclosing describe has a dynamic title or is parameterized'));
-    if (modifiers.includes('failing') || modifiers.includes('fails')) gaps.push(gap('INVERTED_TEST', 'the test is expected to fail, so a pass would mean its body failed'));
+    if (modifiers.includes('failing') || modifiers.includes('fails') || modifiers.includes('fail')) gaps.push(gap('INVERTED_TEST', 'the test is expected to fail, so a pass would mean its body failed'));
     const parameterized = modifiers.includes('each') || modifiers.includes('for');
     let parameters = null;
     if (parameterized) {
@@ -711,7 +719,7 @@ function analyzeJavaScriptDeclarations(text, { sourcePath, framework }) {
       span: { start, end },
       declarationSha256: `sha256:${sha256(Buffer.from(text.slice(start, end), 'utf8'))}`,
       modifiers,
-      skipped: ['xit', 'xtest'].includes(token.value) || modifiers.includes('skip') || modifiers.includes('todo')
+      skipped: ['xit', 'xtest'].includes(token.value) || modifiers.includes('skip') || modifiers.includes('todo') || modifiers.includes('fixme')
         || enclosingSuites.some((suite) => suite.skipped),
       focused: token.value === 'fit' || modifiers.includes('only') || enclosingSuites.some((suite) => suite.focused),
       parameters,

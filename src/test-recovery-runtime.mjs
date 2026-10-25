@@ -15,9 +15,10 @@ import { runQualityCommand, verifyCompletedQualityLaunch, verifyUnavailableQuali
 import { readTrpCaseInventory, matchTrpReports, snapshotTrpDeclaredRuntime, trpCaseInventoryDeclaration,
   trpExecutionEnvironment, trpNativeReportCapture, verifyTrpCaseInventorySources } from './test-recovery-adapters.mjs';
 import { assertTestReportTargetEmpty, parseTestResult } from './code-delivery-tests.mjs';
+import { withCommandLiteralEnvironment } from './external-command-policy.mjs';
 import { applicationPathContext } from './application-paths.mjs';
 import { nodeTestReporterEnvironment } from './verification/node-test-observation.mjs';
-import { testRuntimeEnvironment } from './test-runtime.mjs';
+import { gateTestEnvironmentModule, testRuntimeEnvironment } from './test-runtime.mjs';
 
 const MAX_BYTES = 4 * 1024 * 1024;
 const unsupported = (message, details = {}) => new SingularityFlowError(message, { code: 'TRP_RISK_ADAPTER_UNAVAILABLE', details });
@@ -318,8 +319,11 @@ export async function beginStoryTestRiskRun(root, config, workflow, phase, { com
   const candidate = await candidateContext(root, config, workflow, selection);
   const witness = Object.freeze({});
   const cwd = await realpath(path.resolve(root, tests[0].workingDirectory ?? '.'));
-  let environment = caseInventory ? trpExecutionEnvironment(caseInventory.declaration, process.env, { cwd }) : { ...process.env };
+  // The environment the gate gives this run (state.mjs qualityChecks).
+  const inherited = (await gateTestEnvironmentModule()).gateTestEnvironment(process.env, { declared: tests[0].env ?? null }).environment;
+  let environment = caseInventory ? trpExecutionEnvironment(caseInventory.declaration, inherited, { cwd }) : { ...inherited };
   environment = testRuntimeEnvironment(workflow.resolution?.testRuntime, environment);
+  environment = withCommandLiteralEnvironment(environment, tests[0]);
   if (tests[0].result?.adapter === 'node-tap') environment = nodeTestReporterEnvironment(environment, root, { argv: tests[0].argv, cwd });
   delete environment.NODE_TEST_CONTEXT;
   if (tests[0].result?.adapter === 'playwright-json') {
@@ -679,8 +683,9 @@ export async function captureTrpIntakeBaseline(root, definition, { workId, workT
     sourceCommit: baseCommit, sourceTreeSha256: before.sourceManifestSha256, startedAt: nowIso() });
   if (environmentBlock) throw unsupported('The baseline requires its approved isolated environment runner; no command was executed.', { errorCode: environmentBlock.errorCode });
   const cwd = await realpath(path.resolve(root, command.workingDirectory));
-  const environment = testRuntimeEnvironment(workflow.resolution?.testRuntime,
-    trpExecutionEnvironment(inventory.declaration, process.env, { cwd }));
+  const environment = withCommandLiteralEnvironment(testRuntimeEnvironment(workflow.resolution?.testRuntime,
+    trpExecutionEnvironment(inventory.declaration, (await gateTestEnvironmentModule()).gateTestEnvironment(process.env, { declared: command.env ?? null }).environment,
+      { cwd })), command);
   const stdoutFile = inventory.adapter === 'node-test-junit-v1' ? path.resolve(cwd, command.result.path) : null;
   const reportCapture = trpNativeReportCapture(root, command, inventory.declaration);
   const result = await runQualityCommand(command.argv[0], command.argv.slice(1), {

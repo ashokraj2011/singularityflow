@@ -172,5 +172,9 @@ export async function importIsolatedReport(isolatedCommandRoot, commandRoot, res
       await copyFile(source, destination);
     } else throw new Error('Isolated reports must contain only regular files and directories');
   }
-  await copyReport(path.resolve(isolatedCommandRoot, resultPath), path.resolve(commandRoot, resultPath));
+  for (const report of [resultPath, ...(adapter === 'junit-xml' && path.basename(resultPath) === 'failsafe-reports'
+    ? [path.join(resultPath, '..', 'surefire-reports')] : [])]) {
+    // A failsafe-reports result reads the surefire-reports beside it (code-delivery-tests.mjs).
+    await copyReport(path.resolve(isolatedCommandRoot, report), path.resolve(commandRoot, report));
+  }
 }

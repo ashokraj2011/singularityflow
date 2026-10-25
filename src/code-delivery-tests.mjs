@@ -11,7 +11,7 @@ import { isTestAutomationPath } from './source-boundary.mjs';
 import { isConfigurationPath } from './configuration-paths.mjs';
 import { exists, posix, secureRepositoryPath, SingularityFlowError } from './util.mjs';
 import { isDotnetManifest, selectDotnetManifest } from './dotnet-manifests.mjs';
-import { gradleBuildKind, GRADLE_TEST_TARGET_REASON } from './gradle-manifests.mjs';
+import { gradleBuildKind } from './gradle-manifests.mjs';
 import { SWIFT_TEST_ARGUMENTS, SWIFT_TEST_REPORT_DIRECTORY } from './swift-manifests.mjs';
 import { readRepositoryManifest, repositoryManifestExists } from './repository-manifest.mjs';
 
@@ -24,6 +24,7 @@ const SUPPORTING_EXTENSIONS = /\.(?:snap|snapshot|golden|md|mdx|txt|csv|tsv|json
 const TEST_SOURCE_NAMES = [
   /(?:^|[._-])(?:test|tests|spec|e2e)(?:[._-]|$)/i,
   /(?:Test|Tests|Spec)\.(?:java|kt|kts|scala|cs|fs|vb|swift)$/,
+  /[a-z\d]IT(?:Case)?\.(?:java|kt|groovy|scala)$/,
   /^(?:test_.+|.+_test)\.py$/i,
   /_test\.go$/i,
   /(?:^|_)tests?\.rs$/i
@@ -47,15 +48,6 @@ const MANIFESTS = Object.freeze({
   'pyproject.toml': 'python', 'pytest.ini': 'python', 'tox.ini': 'python',
   'go.mod': 'go', 'Cargo.toml': 'rust', 'Package.swift': 'swift'
 });
-// Build files of ecosystems with no structured test adapter. Alone in a directory they own
-// everything below it; beside a supported manifest they own their language's files. Either way the
-// walk stops there, so an unrelated root manifest's tests never count as their coverage.
-const NATIVE_MANIFESTS = Object.freeze({
-  Podfile: { system: 'cocoapods', label: 'CocoaPods', extensions: ['.swift', '.m', '.mm'] },
-  Gemfile: { system: 'ruby', label: 'Ruby', extensions: ['.rb', '.erb', '.rake'] },
-  'composer.json': { system: 'php', label: 'PHP Composer', extensions: ['.php'] },
-  'pubspec.yaml': { system: 'dart', label: 'Dart/Flutter', extensions: ['.dart'] }
-});
 export const TEST_SETUP_COMMAND = 'singularity-flow capability test-setup --json';
 const TEST_POLICY_AMEND_COMMAND = 'singularity-flow story test-policy amend --reason <why>';
 
@@ -72,6 +64,51 @@ export function isTestSourceName(candidate) {
   const basename = path.posix.basename(normalized(candidate));
   return TEST_SOURCE_EXTENSIONS.has(path.posix.extname(basename).toLowerCase())
     && TEST_SOURCE_NAMES.some((pattern) => pattern.test(basename));
+}
+
+/**
+ * Which changed paths a test command is evidence for [TCE:REQ-052, TCE:REQ-053].
+ *
+ * A command a person configured or accepted covers the affected roots they gave it. A command
+ * Singularity Flow inferred runs one ecosystem's tests, so below its roots (the whole repository
+ * included) it covers only that ecosystem's source and files of no language (configuration,
+ * documents, assets, C and C++ that a package builds): `npm test` is never evidence for a `.py` or
+ * `.swift` file, and pytest never for a `.ts` one. Publication, submission, recovery and witness
+ * discovery all ask this one question. A record that does not say where its command came from (an
+ * older receipt) keeps its roots.
+ */
+const LANGUAGE = /\.(?:([cm]?[jt]sx?|vue|svelte)|(pyx?|pyi)|(java|kts?|scala|groovy)|(cs|fsx?|vb)|(go)|(rs)|(swift|mm?)|(rb|erb|rake)|(php)|(dart))$/iu;
+const ECOSYSTEMS = ['node', 'python', 'jvm', 'dotnet', 'go', 'rust', 'swift', 'ruby', 'php', 'dart'];
+const ADAPTERS = { 'jest-json': 'node', 'vitest-json': 'node', 'playwright-json': 'node', 'node-tap': 'node', 'karma-text': 'node',
+  'mocha-json': 'node', 'go-test-json': 'go', 'dotnet-trx': 'dotnet', 'cargo-json': 'rust' };
+// A JUnit report's ecosystem is its launcher's: a package manager or Node, a Python interpreter or project tool, and so on.
+const LAUNCHERS = [[/^(?:npm|npx|pnpm|yarn|bunx?|node)$/u, 'node'], [/^(?:py(?:thon[\d.]*)?|uv|poetry)$/u, 'python'], [/^(?:mvnw?|gradlew?)$/u, 'jvm'],
+  [/^swift$/u, 'swift'], [/^dotnet$/u, 'dotnet'], [/^cargo$/u, 'rust'], [/^go$/u, 'go']];
+const lastSegment = (value) => String(value ?? '').split(/[\\/]/u).at(-1);
+
+/** The ecosystem whose source a file is, by its extension, or null for a file of no language. */
+export function sourceEcosystem(candidate) {
+  const match = LANGUAGE.exec(lastSegment(candidate));
+  return match ? ECOSYSTEMS[match.slice(1).findIndex(Boolean)] : null;
+}
+
+/** The ecosystem an inferred command's runner tests: its report adapter, else its launcher. */
+export function testCommandEcosystem(command) {
+  const launcher = lastSegment(command?.argv?.[0]).toLowerCase().replace(/\.(?:exe|cmd|bat)$/u, '');
+  return ADAPTERS[command?.result?.adapter] ?? LAUNCHERS.find(([pattern]) => pattern.test(launcher))?.[1] ?? null;
+}
+
+/** Whether `command` (with its `provenance`) covers a changed repository path. */
+export function testCommandCoversPath(command, candidate) {
+  const relative = String(candidate).replace(/^\.\//u, '');
+  const below = (command?.affectedRoots ?? []).some((root) => {
+    const prefix = String(root).replaceAll('\\', '/').replace(/^\.\/|\/+$/gu, '') || '.';
+    return prefix === '.' || relative === prefix || relative.startsWith(`${prefix}/`);
+  });
+  const ecosystem = command?.provenance === 'inferred' && testCommandEcosystem(command);
+  // An Android device test is run only by a connected (device) command [TCE:REQ-075].
+  return below && (ecosystem === false || ([null, ecosystem].includes(sourceEcosystem(relative))
+    && !(ecosystem === 'jvm' && /(?:^|\/)src\/androidTest\//u.test(relative) && !/AndroidTest$/u.test(command.argv?.at(-1)))));
 }
 
 export function isAllowedTestAutomationPath(candidate) {
@@ -114,31 +151,20 @@ function parentDirectories(candidate) {
   return directories;
 }
 
+/** The supported build manifests in a directory, and its listing. */
 async function manifestsAt(root, directory) {
   const found = [];
   for (const [name, system] of Object.entries(MANIFESTS)) {
     if (await exists(path.join(root, directory, name))) found.push({ name, system });
   }
-  const dotnet = [];
-  try {
-    const { readdir } = await import('node:fs/promises');
-    for (const name of await readdir(path.join(root, directory || '.'))) {
-      if (isDotnetManifest(name)) dotnet.push({ name, system: 'dotnet' });
-    }
-  } catch { /* Missing directory is handled by the caller's changed-path validation. */ }
-  return [...found, ...dotnet];
-}
-
-async function nativeManifestsAt(root, directory) {
-  const found = [];
-  for (const [name, entry] of Object.entries(NATIVE_MANIFESTS)) {
-    if (await exists(path.join(root, directory, name))) found.push({ name, ...entry });
-  }
-  return found;
+  let names = [];
+  try { names = (await readdir(path.join(root, directory || '.'))).sort(); }
+  catch { /* Missing directory is handled by the caller's changed-path validation. */ }
+  return { manifests: [...found, ...names.filter(isDotnetManifest).map((name) => ({ name, system: 'dotnet' }))], names };
 }
 
 /** Where a test-configuration refusal goes next: inspect runner suggestions, then a reviewed amendment. */
-function testSetupRoute(extra = {}) {
+export function testSetupRoute(extra = {}) {
   return { ...extra, nextAction: { command: TEST_SETUP_COMMAND }, recoveryCommands: [TEST_SETUP_COMMAND, TEST_POLICY_AMEND_COMMAND] };
 }
 
@@ -172,20 +198,11 @@ export async function resolveAffectedModule(root, candidate, { overrides = {} } 
   const relative = normalized(candidate);
   const explicit = overrideFor(relative, overrides);
   if (explicit) return { root: explicit[1].root ?? explicit[0], system: explicit[1].system, manifest: explicit[1].manifest ?? null, configured: true };
-  const extension = path.posix.extname(relative).toLowerCase();
   for (const directory of parentDirectories(relative)) {
-    const manifests = await manifestsAt(root, directory);
-    const native = (await nativeManifestsAt(root, directory))
-      .find((entry) => !manifests.length || entry.extensions.includes(extension));
-    if (native) {
-      const manifest = directory ? `${directory}/${native.name}` : native.name;
-      throw new SingularityFlowError(
-        `Changed path '${relative}' belongs to ${manifest}, a ${native.label} build with no supported structured test runner, `
-        + 'so no inferred test command covers it; an unrelated manifest\'s tests never count as its coverage. '
-        + 'Configure an approved test command for it (kind: test, argv, workingDirectory, affectedRoots and a result adapter).',
-        { code: 'TEST_MODULE_UNCOVERED', details: testSetupRoute({ path: relative, manifest, nativeManifest: native.name, system: native.system }) }
-      );
-    }
+    const { manifests, names } = await manifestsAt(root, directory);
+    // Another ecosystem's build file stops the walk: its Python module, or a refusal [TCE:REQ-051].
+    const foreign = await (await import('./test-module-markers.mjs')).foreignBuildModule(root, directory, relative, names, manifests);
+    if (foreign) return foreign;
     if (!manifests.length) {
       // An Nx project keeps its targets in project.json. One with a Jest or Vitest target, or tested by a
       // Playwright target (its own, or the e2e project's beside it), is a module; any other keeps the one above.
@@ -290,7 +307,7 @@ async function nxTestCommand(root, moduleRoot, options) {
   });
 }
 
-async function nodePackageManager(root, moduleRoot, manifest) {
+export async function nodePackageManager(root, moduleRoot, manifest) {
   const declared = String(manifest.packageManager ?? '').split('@')[0].toLowerCase();
   if (['npm', 'pnpm', 'yarn', 'bun'].includes(declared)) return declared;
   let current = moduleRoot === '.' ? '' : normalized(moduleRoot);
@@ -307,103 +324,8 @@ async function nodePackageManager(root, moduleRoot, manifest) {
   return 'npm';
 }
 
-function packageScriptReferences(script) {
-  const references = [];
-  const pattern = /(?:^|&&|\|\||;)\s*(?:npm|pnpm|yarn|bun)\s+(?:run\s+)?([A-Za-z0-9:_-]+)(?=\s|$|&&|\|\||;)/g;
-  for (const match of String(script ?? '').matchAll(pattern)) references.push(match[1]);
-  return [...new Set(references)];
-}
-
-const MAX_NODE_SCRIPT_GRAPH_NODES = 256;
-const MAX_NODE_SCRIPT_GRAPH_DEPTH = 32;
-const MAX_NODE_SCRIPT_GRAPH_BYTES = 256 * 1024;
-
-function containsNodeTestRunner(script) {
-  return /\bnode\b[^\n]*(?:^|\s)--test(?:\s|=|$)/i.test(String(script ?? ''));
-}
-
-/** Inspect only bounded, explicit package-manager edges; never interpret arbitrary shell text. */
-function packageRunnerReachableFromScripts(scripts, predicate, entry = 'test') {
-  const visiting = new Set();
-  const visited = new Set();
-  let nodes = 0;
-  let bytes = 0;
-  const visit = (name, depth = 0) => {
-    if (depth > MAX_NODE_SCRIPT_GRAPH_DEPTH) {
-      throw new SingularityFlowError(
-        `Node test script graph exceeds depth ${MAX_NODE_SCRIPT_GRAPH_DEPTH}.`,
-        { code: 'CODE_TEST_RESULT_REQUIRED' }
-      );
-    }
-    if (visited.has(name) || visiting.has(name)) return false;
-    const script = scripts?.[name];
-    if (typeof script !== 'string') return false;
-    nodes += 1;
-    bytes += Buffer.byteLength(script);
-    if (nodes > MAX_NODE_SCRIPT_GRAPH_NODES || bytes > MAX_NODE_SCRIPT_GRAPH_BYTES) {
-      throw new SingularityFlowError(
-        `Node test script graph exceeds ${MAX_NODE_SCRIPT_GRAPH_NODES} scripts or ${MAX_NODE_SCRIPT_GRAPH_BYTES} bytes.`,
-        { code: 'CODE_TEST_RESULT_REQUIRED' }
-      );
-    }
-    visiting.add(name);
-    let found = predicate(script);
-    for (const reference of packageScriptReferences(script)) found = visit(reference, depth + 1) || found;
-    visiting.delete(name);
-    visited.add(name);
-    return found;
-  };
-  return visit(entry);
-}
-
-export function nodeTestReachableFromPackageScripts(scripts, entry = 'test') {
-  return packageRunnerReachableFromScripts(scripts, containsNodeTestRunner, entry);
-}
-
-function safeUnitNodeScript(script) {
-  const value = String(script ?? '').trim();
-  if (!value || /(?:^|[^a-z])(playwright|cypress|e2e|acceptance|integration)(?:[^a-z]|$)/iu.test(value)) {
-    return false;
-  }
-  // Readiness may invoke one known unit-test runner, never an opaque shell pipeline that can hide
-  // builds, browser suites, or unrelated follow-on commands behind a familiar script name.
-  if (/[;&|]/u.test(value)) return false;
-  return /(?:^|\s)(?:jest|vitest)(?:\s|$)/iu.test(value)
-    || /^ng(?:\.cmd)?\s+test(?:\s|$)/iu.test(value)
-    || containsNodeTestRunner(value);
-}
-
-function angularKarmaReachableFromPackageScripts(manifest, scriptName = 'test') {
-  const dependencies = {
-    ...(manifest.dependencies ?? {}),
-    ...(manifest.devDependencies ?? {}),
-    ...(manifest.peerDependencies ?? {})
-  };
-  const hasKarma = Object.hasOwn(dependencies, 'karma');
-  const script = String(manifest.scripts?.[scriptName] ?? '').trim();
-  // Appended npm arguments are guaranteed to reach Angular only for a direct top-level invocation.
-  // Composite and nested scripts stay unsupported rather than risking a watch-mode publication hang.
-  return hasKarma
-    && /^ng(?:\.cmd)?[ \t]+test(?:[ \t]+[-A-Za-z0-9_./:=]+)*[ \t]*$/i.test(script);
-}
-
-function directPlaywrightScript(manifest, scriptName = 'test') {
-  const dependencies = {
-    ...(manifest.dependencies ?? {}),
-    ...(manifest.devDependencies ?? {}),
-    ...(manifest.peerDependencies ?? {})
-  };
-  if (!Object.hasOwn(dependencies, '@playwright/test')
-      && !Object.hasOwn(dependencies, 'playwright')) return false;
-  const script = String(manifest.scripts?.[scriptName] ?? '').trim();
-  // npm/pnpm/yarn append arguments to a direct script. Shell composition, variable expansion,
-  // redirection, and interactive/list-only modes do not provide trustworthy execution evidence.
-  if (!script || /[\r\n;&|<>`$'"\\]/u.test(script)) return false;
-  return /^(?:playwright|npx --no-install playwright) test(?: --config(?:=[A-Za-z0-9_./-]+| [A-Za-z0-9_./-]+))?$/u.test(script);
-}
-
 /** The nearest directory from a module up to the repository root that holds this wrapper, or null. */
-async function nearestWrapper(root, moduleRoot, name) {
+export async function nearestWrapper(root, moduleRoot, name) {
   let current = moduleRoot === '.' ? '' : normalized(moduleRoot);
   while (true) {
     if (await repositoryManifestExists(root, path.posix.join(current, name))) return current || '.';
@@ -455,23 +377,28 @@ export async function inferModuleTestCommand(root, module, {
       const launcher = ancestor && !reactor
         ? wrapperFrom(platform, path.posix.relative(module.root, wrapperRoot === '.' ? '' : wrapperRoot), 'mvnw', 'mvnw.cmd')
         : executable(platform, './mvnw', '.\\mvnw.cmd');
+      // With the failsafe plugin, `verify` runs the integration tests and its reports sit beside surefire's.
+      const goal = await (await import('./test-module-markers.mjs')).mavenRunsIntegrationTests(root, module.root) ? 'verify' : 'test';
+      const reports = `target/${goal === 'verify' ? 'failsafe' : 'surefire'}-reports`;
       return {
         id: `${module.root}-maven-tests`, kind: 'test',
-        argv: wrapperRoot === null ? ['mvn', 'test'] : reactor ? [launcher, '-pl', below, '-am', 'test'] : [launcher, 'test'],
+        argv: wrapperRoot === null ? ['mvn', goal] : reactor ? [launcher, '-pl', below, '-am', goal] : [launcher, goal],
         workingDirectory: reactor ? wrapperRoot : module.root, affectedRoots: [module.root], modelPolicy: 'never',
-        result: { adapter: 'junit-xml', path: reactor ? `${below}/target/surefire-reports` : 'target/surefire-reports', minimumDiscovered: 1 }
+        result: { adapter: 'junit-xml', path: reactor ? `${below}/${reports}` : reports, minimumDiscovered: 1 }
       };
     }
     case 'gradle': {
-      for (const name of ['build.gradle', 'build.gradle.kts']) {
-        if (!await at(name)) continue;
-        const manifest = await readRepositoryManifest(root, path.posix.join(cwd, name));
-        if (gradleBuildKind(manifest.bytes.toString('utf8')).requiresTestTarget) throw new SingularityFlowError(
-          GRADLE_TEST_TARGET_REASON, { code: 'GRADLE_TEST_TARGET_REQUIRED', details: { root: module.root, manifest: name } }
-        );
-      }
       // A multi-project build keeps one wrapper at its root; `-p` runs this module's test task.
       const wrapperRoot = await nearestWrapper(root, module.root, platform === 'win32' ? 'gradlew.bat' : 'gradlew');
+      for (const name of ['build.gradle', 'build.gradle.kts']) {
+        if (!await at(name)) continue;
+        const text = (await readRepositoryManifest(root, path.posix.join(cwd, name))).bytes.toString('utf8');
+        const kind = gradleBuildKind(text);
+        // An Android module runs its variant's unit tests, and its device tests (src/test-module-markers.mjs).
+        if (kind.android || kind.requiresTestTarget) {
+          return (await (await import('./test-module-markers.mjs')).androidTestCommands(root, module, { text, name, kind, wrapperRoot, platform }))[0];
+        }
+      }
       const ancestor = wrapperRoot !== null && wrapperRoot !== module.root;
       const below = ancestor ? path.posix.relative(wrapperRoot === '.' ? '' : wrapperRoot, module.root) : null;
       const launcher = executable(platform, './gradlew', '.\\gradlew.bat');
@@ -483,66 +410,21 @@ export async function inferModuleTestCommand(root, module, {
       };
     }
     case 'node': {
+      // A package's scripts name several runners (src/test-module-markers.mjs); this is its first command.
       const manifest = JSON.parse((await readRepositoryManifest(root, path.posix.join(cwd, 'package.json'))).bytes.toString('utf8'));
-      const script = String(manifest.scripts?.[nodeScript] ?? '');
-      if (unitOnly && !safeUnitNodeScript(script)) return null;
-      const manager = await nodePackageManager(root, module.root, manifest);
-      const testCommand = manager === 'npm' && nodeScript === 'test' ? ['npm', 'test']
-        : manager === 'npm' ? ['npm', 'run', nodeScript]
-          : manager === 'yarn' ? ['yarn', nodeScript]
-            : manager === 'pnpm' ? ['pnpm', nodeScript] : ['bun', 'run', nodeScript];
-      const testArgv = ['npm', 'pnpm', 'bun'].includes(manager)
-        ? [...testCommand, '--'] : testCommand;
-      if (/\bjest\b/i.test(script)) return {
-        id: `${module.root}-node-tests`, kind: 'test',
-        argv: [...testArgv, '--json', '--outputFile', `${resultBase}.json`],
-        workingDirectory: module.root, affectedRoots: [module.root], modelPolicy: 'never',
-        result: { adapter: 'jest-json', path: `${resultBase}.json`, minimumDiscovered: 1 }
-      };
-      if (/\bvitest\b/i.test(script)) return {
-        id: `${module.root}-node-tests`, kind: 'test',
-        argv: [...testArgv, '--reporter=json', `--outputFile=${resultBase}.json`],
-        workingDirectory: module.root, affectedRoots: [module.root], modelPolicy: 'never',
-        result: { adapter: 'vitest-json', path: `${resultBase}.json`, minimumDiscovered: 1 }
-      };
-      // Angular CLI's default Karma runner has no machine-readable reporter without adding a
-      // repository dependency. Capture its bounded final TOTAL summary instead, so ordinary
-      // Angular repositories gain structured execution evidence without a Story editing protected
-      // workflow configuration or committing a one-off wrapper script.
-      if (angularKarmaReachableFromPackageScripts(manifest, nodeScript)) return {
-        id: module.root === '.' ? 'angular-tests' : `${module.root}-angular-tests`, kind: 'test',
-        argv: [...testArgv, '--watch=false', '--browsers=ChromeHeadless', '--no-progress'],
-        workingDirectory: module.root, affectedRoots: [module.root], modelPolicy: 'never',
-        result: { adapter: 'karma-text', path: `${resultBase}.karma.txt`, minimumDiscovered: 1 }
-      };
-      if (!unitOnly && directPlaywrightScript(manifest, nodeScript)) {
-        const playwrightResult = '.sflow/results/playwright-tests.json';
-        return {
-          id: module.root === '.' ? 'playwright-tests' : `${module.root}-playwright-tests`,
-          kind: 'test', argv: [...testArgv, '--reporter=json'],
-          workingDirectory: module.root, affectedRoots: [module.root], modelPolicy: 'never',
-          result: { adapter: 'playwright-json', path: playwrightResult, minimumDiscovered: 1 }
-        };
-      }
-      // Preserve the exact top-level repository test command. Following only explicit package
-      // script references lets a composite `npm test` expose nested `node --test` evidence while
-      // its exit status still covers every later stage (for example Playwright).
-      if (nodeTestReachableFromPackageScripts(manifest.scripts ?? {}, nodeScript)) return {
-        id: `${module.root}-node-tests`, kind: 'test',
-        argv: testCommand,
-        workingDirectory: module.root, affectedRoots: [module.root], modelPolicy: 'never',
-        result: { adapter: 'node-tap', path: `${resultBase}.tap`, minimumDiscovered: 1 }
-      };
+      const [command] = await (await import('./test-module-markers.mjs')).nodeTestCommands(root, module, {
+        manager: await nodePackageManager(root, module.root, manifest), unitOnly, nodeScript
+      });
       // An Nx project with a package.json of its own still runs its tests through Nx.
-      if (await exists(path.join(root, cwd, 'project.json'))) return nxTestCommand(root, module.root, { unitOnly, nodeScript });
-      return null;
+      return command ?? (await exists(path.join(root, cwd, 'project.json')) ? nxTestCommand(root, module.root, { unitOnly, nodeScript }) : null);
     }
     case 'nx': return nxTestCommand(root, module.root, { unitOnly, nodeScript });
     case 'python': {
-      const projectPython = await projectPythonLauncher(root, module.root, platform);
+      const tool = await (await import('./test-module-markers.mjs')).pythonProjectLauncher(root, module.root);
+      const projectPython = !tool && await projectPythonLauncher(root, module.root, platform);
       return {
         id: `${module.root}-python-tests`, kind: 'test',
-        argv: projectPython
+        argv: tool ? [...tool, '-B', '-m', 'pytest', '-p', 'no:cacheprovider', `--junitxml=${resultBase}.xml`] : projectPython
           ? [projectPython, '-B', '-m', 'pytest', '-p', 'no:cacheprovider', `--junitxml=${resultBase}.xml`]
           : platform === 'win32'
             ? ['py', '-3', '-B', '-m', 'pytest', '-p', 'no:cacheprovider', `--junitxml=${resultBase}.xml`]
@@ -564,7 +446,9 @@ export async function inferModuleTestCommand(root, module, {
       if (module.manifest && !await at(module.manifest)) throw new SingularityFlowError(
         `The selected .NET build manifest is missing: ${module.manifest}.`, { code: 'TEST_MODULE_UNCOVERED' }
       );
-      return {
+      // A project's tests are its own, or the test projects that reference it (src/test-module-markers.mjs).
+      const [tests] = await (await import('./test-module-markers.mjs')).dotnetTestCommands(root, module) ?? [];
+      return tests ?? {
         id: `${module.root}-dotnet-tests`, kind: 'test', argv: ['dotnet', 'test', ...(module.manifest ? [module.manifest] : []), '--logger', 'trx', '--results-directory', 'TestResults'], workingDirectory: module.root,
         affectedRoots: [module.root], modelPolicy: 'never',
         result: { adapter: 'dotnet-trx', path: 'TestResults', minimumDiscovered: 1 }
@@ -949,6 +833,15 @@ function trxCounts(xml) {
   return { discovered, passed, failed, skipped };
 }
 
+// Playwright, mocha and cargo reports are read by src/test-module-markers.mjs, loaded before a report is read.
+let lazyReports = null;
+const LAZY_REPORTS = new Set(['playwright-json', 'mocha-json', 'cargo-json']);
+
+/** Load the reader a report of `adapter` needs, so a later synchronous replay of it can run. */
+export async function prepareTestReportReader(adapter) {
+  if (LAZY_REPORTS.has(adapter)) lazyReports ??= await import('./test-module-markers.mjs');
+}
+
 function countsFromJson(adapter, parsed) {
   if (adapter === 'sflow-test-result-v1') return {
     discovered: number(parsed.tests?.discovered), passed: number(parsed.tests?.passed),
@@ -958,46 +851,6 @@ function countsFromJson(adapter, parsed) {
     discovered: number(parsed.numTotalTests ?? parsed.testResults?.flatMap((suite) => suite.assertionResults ?? []).length),
     passed: number(parsed.numPassedTests), failed: number(parsed.numFailedTests), skipped: number(parsed.numPendingTests)
   };
-  if (adapter === 'playwright-json') {
-    const tests = [];
-    const visitSuite = (suite, depth = 0) => {
-      if (depth > 128) throw new SingularityFlowError('Playwright result suite depth exceeds 128.', { code: 'CODE_TEST_RESULT_REQUIRED' });
-      for (const spec of suite?.specs ?? []) tests.push(...(spec.tests ?? []));
-      for (const child of suite?.suites ?? []) visitSuite(child, depth + 1);
-    };
-    for (const suite of parsed.suites ?? []) visitSuite(suite);
-    const outcomes = tests.map((test) => {
-      const outcome = test.status;
-      const execution = test.results?.at(-1)?.status ?? null;
-      if (outcome === 'skipped' || execution === 'skipped') return 'skipped';
-      if (outcome === 'unexpected' || ['failed', 'timedOut', 'interrupted'].includes(execution)) return 'failed';
-      if (outcome === 'flaky' || outcome === 'expected' || execution === 'passed') return 'passed';
-      throw new SingularityFlowError(`Playwright result contains unknown outcome '${outcome ?? execution ?? 'absent'}'.`, {
-        code: 'CODE_TEST_RESULT_REQUIRED'
-      });
-    });
-    const counts = {
-      discovered: tests.length,
-      passed: outcomes.filter((status) => status === 'passed').length,
-      failed: outcomes.filter((status) => status === 'failed').length,
-      skipped: outcomes.filter((status) => status === 'skipped').length
-    };
-    const stats = parsed.stats;
-    if (stats && ['expected', 'unexpected', 'flaky', 'skipped'].every((key) => Number.isInteger(stats[key]))) {
-      const declared = {
-        discovered: stats.expected + stats.unexpected + stats.flaky + stats.skipped,
-        passed: stats.expected + stats.flaky,
-        failed: stats.unexpected,
-        skipped: stats.skipped
-      };
-      if (Object.keys(declared).some((key) => declared[key] !== counts[key])) {
-        throw new SingularityFlowError('Playwright reporter statistics differ from recursively traversed test outcomes.', {
-          code: 'CODE_TEST_RESULT_REQUIRED'
-        });
-      }
-    }
-    return counts;
-  }
   if (adapter === 'go-test-json') {
     const events = Array.isArray(parsed) ? parsed : parsed.events ?? [];
     const tests = events.filter((event) => event.Test && ['pass', 'fail', 'skip'].includes(event.Action));
@@ -1195,8 +1048,11 @@ async function resultFiles(absolute, adapter, state = { files: 0 }, depth = 0) {
   if (depth > MAX_RESULT_DEPTH) {
     throw new SingularityFlowError(`Structured test result directory exceeds depth ${MAX_RESULT_DEPTH}.`, { code: 'CODE_TEST_RESULT_REQUIRED' });
   }
+  // Maven's verify writes unit reports beside the integration ones: a failsafe-reports result reads both [TCE:REQ-073].
+  const beside = !depth && adapter === 'junit-xml' && path.basename(absolute) === 'failsafe-reports'
+    ? await resultFiles(path.join(path.dirname(absolute), 'surefire-reports'), adapter, state, 1) : [];
   const info = await lstat(absolute).catch((error) => error?.code === 'ENOENT' ? null : Promise.reject(error));
-  if (!info || info.isSymbolicLink()) return [];
+  if (!info || info.isSymbolicLink()) return beside;
   if (info.isFile()) {
     if (++state.files > MAX_RESULT_FILES) throw new SingularityFlowError(`Structured test results exceed ${MAX_RESULT_FILES} files.`, { code: 'CODE_TEST_RESULT_REQUIRED' });
     return [{ absolute, info }];
@@ -1207,12 +1063,12 @@ async function resultFiles(absolute, adapter, state = { files: 0 }, depth = 0) {
   for (const entry of await readdir(absolute, { withFileTypes: true })) {
     const target = path.join(absolute, entry.name);
     if (entry.isDirectory()) output.push(...await resultFiles(target, adapter, state, depth + 1));
-    else if (entry.isFile() && extension.test(entry.name)) {
+    else if (entry.isFile() && extension.test(entry.name) && entry.name !== 'failsafe-summary.xml') {
       if (++state.files > MAX_RESULT_FILES) throw new SingularityFlowError(`Structured test results exceed ${MAX_RESULT_FILES} files.`, { code: 'CODE_TEST_RESULT_REQUIRED' });
       output.push({ absolute: target, info: await lstat(target) });
     }
   }
-  return output.sort((left, right) => left.absolute.localeCompare(right.absolute));
+  return [...beside, ...output].sort((left, right) => left.absolute.localeCompare(right.absolute));
 }
 
 async function boundedDescriptorRead(handle, before, { label, code }) {
@@ -1560,6 +1416,7 @@ export async function parseTestResult(root, command, { startedAt = null } = {}) 
     });
   }
   const bytes = combinedReports(contents);
+  await prepareTestReportReader(adapter);
   const { tests, testcaseObservation } = testReportFromContents(adapter, contents);
   return {
     adapter, tests, testcaseObservation,
@@ -1604,6 +1461,11 @@ function testReportFromContents(adapter, contents) {
     const events = bytes.toString('utf8').split(/\r?\n/).filter(Boolean).map((line) => JSON.parse(line));
     return { tests: countsFromJson(adapter, events), testcaseObservation: null };
   }
+  if (LAZY_REPORTS.has(adapter)) {
+    if (!lazyReports) throw new SingularityFlowError(`The ${adapter} reader is not loaded.`, { code: 'CODE_TEST_RESULT_REQUIRED' });
+    const report = lazyReports.jsonTestReport(adapter, bytes.toString('utf8'));
+    if (report) return report;
+  }
   const json = JSON.parse(bytes.toString('utf8'));
   return {
     tests: countsFromJson(adapter, json),
@@ -1647,6 +1509,8 @@ export function persistedOccurrences(parsed) {
     name: occurrence.name ?? null,
     ...(occurrence.file ? { file: occurrence.file } : {}),
     ...(Number.isInteger(occurrence.line) ? { line: occurrence.line } : {}),
+    ...(occurrence.project ? { project: occurrence.project } : {}),
+    ...(occurrence.retries ? { retries: occurrence.retries } : {}),
     outcome: occurrence.outcome,
     ...(occurrence.flaky === true ? { flaky: true } : {}),
     durationMs: occurrence.durationMs ?? null
@@ -1722,8 +1586,11 @@ export function buildTestExecutionReceipt(command, check, parsed, {
             || parsed.tests.passed < parsed.minimumPassed || parsed.tests.failed) ? 'failed' : 'passed';
   const commandCore = {
     argv: command.argv, workingDirectory: command.workingDirectory, affectedRoots: command.affectedRoots,
-    result: { adapter: command.result?.adapter ?? null, path: command.result?.path ?? null }
+    result: { adapter: command.result?.adapter ?? null, path: command.result?.path ?? null },
+    ...(command.env ? { env: command.env } : {})
   };
+  // What shaped the run [TCE:REQ-033]; the digest covers all of it but the CLI's own Node.
+  const ran = { platform: process.platform, arch: process.arch, ...check?.runEnvironment };
   return {
     schemaVersion: currentSchemaVersion('test-execution'), kind: 'test-execution',
     attemptId, nonce, parentAttemptId, purpose, workId, phase, generation, ...(epoch ? { epoch } : {}),
@@ -1733,8 +1600,8 @@ export function buildTestExecutionReceipt(command, check, parsed, {
     commandSha256: `sha256:${sha256(canonicalJson(commandCore))}`,
     argvSha256: sha256(Buffer.from(JSON.stringify(command.argv))),
     selection: selection ? { ...selection, selectionSha256: `sha256:${sha256(canonicalJson({ profile, ...selection }))}` } : null,
-    environment: { platform: process.platform, arch: process.arch, host: `node ${process.versions.node}` },
-    environmentSha256: `sha256:${sha256(canonicalJson({ platform: process.platform, arch: process.arch }))}`,
+    environment: { ...ran, host: `node ${process.versions.node}` },
+    environmentSha256: `sha256:${sha256(canonicalJson(ran))}`,
     platform: process.platform,
     workingDirectory: command.workingDirectory,
     affectedRoots: command.affectedRoots,

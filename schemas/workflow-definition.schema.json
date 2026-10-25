@@ -1342,6 +1342,11 @@
               "pattern": "^[a-z][a-z0-9]*(?:-[a-z0-9]+)*$"
             },
             "timeoutMs": { "type": ["integer", "null"], "minimum": 1000, "maximum": 7200000 },
+            "env": {
+              "description": "Literal, non-secret variables this command runs with, applied at every run and part of its digest. Names are UPPER_CASE and not reserved; a secret-looking name or value is refused: declare it in singularity/environments.yml. An engine older than this key ignores it.",
+              "type": "object", "maxProperties": 64, "propertyNames": { "pattern": "^[A-Z_][A-Z0-9_]{0,127}$" },
+              "additionalProperties": { "type": ["string", "number", "boolean"] }
+            },
             "requirement": { "enum": ["required", "advisory"] },
             "kind": { "enum": ["test", "compile", "lint", "format", "static-analysis", "security", "other"] },
             "workingDirectory": { "type": "string", "minLength": 1 },

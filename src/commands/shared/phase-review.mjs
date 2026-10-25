@@ -135,10 +135,9 @@ export async function phaseReview(root, config, workflow, phase, { includeContin
       status: phase.deliveryEvidence.status ?? 'unavailable',
       executions: phase.deliveryEvidence.testExecutions?.length ?? 0,
       attempts: phase.deliveryEvidence.attemptHistory?.length ?? 0,
-      // Runs a step approver accepted could not execute any test, shown as what they are.
-      acceptedRisks: (await import('../../test-run-risk.mjs')).acceptedTestRunSummaries(workflow, phase.id,
-        submittedDelivery ? phase.deliveryEvidence.testExecutions : phase.deliveryEvidence.testRunRisks,
-        { at: new Date().toISOString() }),
+      // Runs a step approver accepted could not execute any test, and narrowed runs one accepted with a
+      // reason [TCE:REQ-024], each shown as what it is: acceptedRisks and acceptedNarrowings.
+      ...await (await import('../../test-narrowing.mjs')).acceptedTestRunDecisions(workflow, phase, submittedDelivery),
       // What the approver is shown about acceptance criteria, stated at its real strength [E2G-017].
       acceptance: {
         criteria: criteria.map((entry) => ({

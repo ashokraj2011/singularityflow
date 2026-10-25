@@ -689,6 +689,19 @@
           "revokes": { "type": "string", "pattern": "^TCD-[0-9]{3,}$" },
           "phase": { "type": "string", "minLength": 1 },
           "command": { "type": "object" },
+          "repin": {
+            "description": "A request that the command's changed pin replace its recorded one [TCE:REQ-012]: the exact pin, by digest, a person accepts.",
+            "type": "object",
+            "required": ["commandId", "sha256", "pin"],
+            "properties": {
+              "commandId": { "type": "string", "minLength": 1 },
+              "sha256": { "type": "string", "pattern": "^sha256:[a-f0-9]{64}$" },
+              "pinned": { "type": ["string", "null"], "pattern": "^sha256:[a-f0-9]{64}$" },
+              "pin": { "type": "object" },
+              "changes": { "type": "array", "items": { "type": "string" } }
+            },
+            "additionalProperties": false
+          },
           "reason": { "type": "string", "maxLength": 1000 },
           "requestedBy": { "type": "string", "minLength": 1 },
           "actor": { "type": "string", "minLength": 1 },
@@ -699,8 +712,106 @@
         "additionalProperties": false
       }
     },
+    "testCommandPins": {
+      "description": "Test command pins [TCE:REQ-010]: what a gate first ran for a command (argv, working directory, affected roots, adapter and the digests of the scripts and runner configuration it resolves through), recorded when the gate commits. A later run that differs is refused until a person accepts a re-pin; the replacing pin names the one it replaces and the request that admitted it. Only `baseline` is ever set after a pin is recorded.",
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["id", "phase", "commandId", "source", "argv", "workingDirectory", "affectedRoots", "adapter", "definition", "sha256", "at"],
+        "properties": {
+          "id": { "type": "string", "pattern": "^TCP-[0-9]{3,}$" },
+          "phase": { "type": "string", "minLength": 1 },
+          "commandId": { "type": "string", "minLength": 1 },
+          "source": {
+            "type": "object",
+            "required": ["kind"],
+            "properties": {
+              "kind": { "enum": ["inferred", "configured", "story-decision"] },
+              "decision": { "type": "string", "pattern": "^TCD-[0-9]{3,}$" },
+              "recordSha256": { "type": "string", "pattern": "^sha256:[a-f0-9]{64}$" }
+            },
+            "additionalProperties": false
+          },
+          "argv": { "type": "array", "items": { "type": "string" } },
+          "workingDirectory": { "type": "string", "minLength": 1 },
+          "affectedRoots": { "type": "array", "items": { "type": "string" } },
+          "adapter": { "type": ["string", "null"] },
+          "definition": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "required": ["path", "selector", "sha256"],
+              "properties": {
+                "path": { "type": "string", "minLength": 1 },
+                "selector": { "type": ["string", "null"] },
+                "sha256": { "type": "string", "pattern": "^[a-f0-9]{64}$" }
+              },
+              "additionalProperties": false
+            }
+          },
+          "sha256": { "type": "string", "pattern": "^sha256:[a-f0-9]{64}$" },
+          "replaces": { "type": "string", "pattern": "^TCP-[0-9]{3,}$" },
+          "acceptedBy": { "type": "string", "pattern": "^TCD-[0-9]{3,}$" },
+          "baseline": {
+            "type": ["object", "null"],
+            "required": ["discovered", "attemptId"],
+            "properties": {
+              "discovered": { "type": "integer", "minimum": 0 },
+              "skipped": { "type": "integer", "minimum": 0 },
+              "attemptId": { "type": "string", "pattern": "^TA-[a-f0-9]{20}$" }
+            },
+            "additionalProperties": false
+          },
+          "at": { "type": "string", "format": "date-time" }
+        },
+        "additionalProperties": false
+      }
+    },
+    "testNarrowings": {
+      "description": "Append-only decisions by a step's approvers that a narrowed run of one of its test commands (filters, focused tests, skipped tests, fewer tests than the pin's baseline) is enough, and their revocations [TCE:REQ-023]. A decision is bound to the command's pin and the narrowing it saw, and covers later runs whose narrowing is the same or smaller, until it expires or is revoked.",
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["phase", "commandId", "reason", "actor", "authorityGroup", "at"],
+        "properties": {
+          "id": { "type": "string", "pattern": "^TNR-[0-9]{3,}$" },
+          "revokes": { "type": "string", "pattern": "^TNR-[0-9]{3,}$" },
+          "phase": { "type": "string", "minLength": 1 },
+          "commandId": { "type": "string", "minLength": 1 },
+          "pinSha256": { "type": "string", "pattern": "^sha256:[a-f0-9]{64}$" },
+          "narrowing": {
+            "type": "object",
+            "required": ["reasons", "filters", "focused", "skipped", "shortfall"],
+            "properties": {
+              "reasons": { "type": "array", "items": { "enum": ["filter", "focused", "skipped", "below-baseline"] } },
+              "filters": { "type": "array", "items": { "type": "object" } },
+              "focused": { "type": "array", "items": { "type": "object" } },
+              "skipped": { "type": "integer", "minimum": 0 },
+              "discovered": { "type": ["integer", "null"] },
+              "baseline": { "type": ["integer", "null"] },
+              "shortfall": { "type": "integer", "minimum": 0 }
+            },
+            "additionalProperties": false
+          },
+          "fingerprint": { "type": "string", "pattern": "^sha256:[a-f0-9]{64}$" },
+          "observation": {
+            "type": "object",
+            "required": ["attemptId"],
+            "properties": { "attemptId": { "type": "string", "pattern": "^TA-[a-f0-9]{20}$" } },
+            "additionalProperties": false
+          },
+          "reason": { "type": "string", "minLength": 20, "maxLength": 1000 },
+          "expiresAt": { "type": ["string", "null"], "format": "date-time" },
+          "actor": { "type": "string", "minLength": 1 },
+          "authorityGroup": { "type": "string", "minLength": 1 },
+          "identityAssurance": { "type": ["string", "null"] },
+          "at": { "type": "string", "format": "date-time" }
+        },
+        "additionalProperties": false
+      }
+    },
     "testRunRisks": {
-      "description": "Append-only decisions by a step's approvers that one of its test commands cannot run in this environment, and their revocations. A decision lets through only a run of the same command in which no test executed, until it expires or is revoked.",
+      "description": "Append-only decisions by a step's approvers that one of its test commands cannot run in this environment, and their revocations. A decision lets through only a run of the same command whose classified cause is the environment class it accepted, until it expires or is revoked; a decision without a class (recorded before causes were classified) covers only environment-classified runs in which no test executed.",
       "type": "array",
       "items": {
         "type": "object",
@@ -711,11 +822,16 @@
           "phase": { "type": "string", "minLength": 1 },
           "commandId": { "type": "string", "minLength": 1 },
           "argvSha256": { "type": "string", "pattern": "^[a-f0-9]{64}$" },
+          "causeClass": {
+            "type": "string",
+            "pattern": "^[a-z]+(?:-[a-z]+)*(?:\\+[a-z]+(?:-[a-z]+)*)*$",
+            "description": "The environment cause class the decision accepted (src/test-run-cause.mjs), or several joined by + in sorted order when the failed tests of the accepted run failed from more than one."
+          },
           "cause": { "type": "string", "minLength": 10, "maxLength": 300 },
           "expiresAt": { "type": "string", "format": "date-time" },
           "boundBy": {
             "const": "command-digest",
-            "description": "The decision names the command by its ID and argv digest because no run of it was recorded in the approver's checkout; it has no observation, and every run it lets through is checked for no executed test."
+            "description": "The decision names the command by its ID, argv digest and cause class because no run of it was recorded in the approver's checkout; it has no observation, and every run it lets through is checked for that cause."
           },
           "observation": {
             "type": "object",
@@ -724,7 +840,7 @@
               "attemptId": { "type": "string", "pattern": "^TA-[a-f0-9]{20}$" },
               "status": { "enum": ["failed", "blocked"] },
               "exitCode": { "type": ["integer", "null"] },
-              "testsExecuted": { "const": 0 }
+              "testsExecuted": { "type": "integer", "minimum": 0 }
             },
             "additionalProperties": false
           },
@@ -1127,7 +1243,11 @@
                       "type": "string", "maxLength": 64,
                       "pattern": "^[a-z][a-z0-9]*(?:-[a-z0-9]+)*$"
                     },
-                    "timeoutMs": { "type": "integer", "minimum": 1000, "maximum": 7200000 }
+                    "timeoutMs": { "type": "integer", "minimum": 1000, "maximum": 7200000 },
+                    "env": {
+                      "type": "object", "maxProperties": 64, "propertyNames": { "pattern": "^[A-Z_][A-Z0-9_]{0,127}$" },
+                      "additionalProperties": { "type": "string" }
+                    }
                   },
                   "oneOf": [
                     { "required": ["command"], "not": { "required": ["argv"] } },

@@ -23,7 +23,7 @@ related:
   - story-lifecycle
   - workflow-decisions
   - rejection-and-rework
-version: 30
+version: 31
 ---
 The evidence matrix shows every requirement and acceptance criterion of a Story as one row: whether the approved plan names it, whether a delivered change implements it, which tagged test verifies it and what that test's run proved. It reads committed records only, so it runs no test and makes no network call.
 
@@ -96,7 +96,7 @@ When an obligation failed, is missing or is inconclusive and the Story must clos
 
 A decision covers only what it accepted. It counts for nothing once it expires, is revoked with `decision risk --revoke <RISK-ID> --reason TEXT`, does not permit the transition at hand, or the evidence it accepted changes, including a rerun of the criterion's test, which is a new attempt; the matrix then says to renew it. Closing a Story re-evaluates decisions at that moment, so one that expired after approval blocks completion. Some failures are never accepted: stale evidence is run again, records that do not verify are repaired, a review is given by approving the step, and the scope has its own decisions.
 
-A step whose test command could not run in its environment is shown the same way once a person who approves that step accepts it with `decision test-risk` (see the test-recovery topic): its criteria read satisfied with an exception, and the run itself stays failed or blocked.
+A step whose test command the environment stopped is shown the same way once a person who approves that step accepts that cause with `decision test-risk` (see the test-recovery topic): its criteria read satisfied with an exception, and the run itself stays failed or blocked. The decision covers only later runs whose classified cause is the one it accepted; a compile, syntax or import error, a failed assertion or a timeout is never covered.
 
 ### Plan amendments
 

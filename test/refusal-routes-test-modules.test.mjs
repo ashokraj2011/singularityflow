@@ -118,7 +118,7 @@ test('a native build with no structured runner owns its files instead of borrowi
   assert.equal(setup.diagnostics[0].code, 'TEST_MODULE_UNCOVERED');
 });
 
-test('Android builds need an explicit test target however the plugin is applied', async (t) => {
+test('Android builds are recognised however the plugin is applied, and run their variant\'s unit tests', async (t) => {
   const builds = [
     ['plugins {\n  alias(libs.plugins.android.application)\n  alias(libs.plugins.kotlin.android)\n}\n', 'kotlin-android'],
     ['plugins { alias(libs.plugins.androidLibrary) }\n', 'android-gradle'],
@@ -127,20 +127,24 @@ test('Android builds need an explicit test target however the plugin is applied'
     ['plugins { id("com.android.library") }\n', 'android-gradle'],
     ['plugins {\n  alias(libs.plugins.android.application) apply false\n}\n', 'android-gradle']
   ];
+  // [TCE:REQ-075] An Android module's unit tests run per variant; only Kotlin multiplatform needs a chosen target.
   for (const [build, stack] of builds) {
-    assert.deepEqual(gradleBuildKind(build), { stack, requiresTestTarget: true }, build);
+    assert.deepEqual(gradleBuildKind(build), { stack, requiresTestTarget: false, android: true }, build);
   }
+  assert.deepEqual(gradleBuildKind('plugins { kotlin("multiplatform") }\n'), { stack: 'kotlin-multiplatform', requiresTestTarget: true, android: false });
   for (const [build, stack] of [
     ['plugins { java }\n', 'java-gradle'],
     ['dependencies { implementation("com.android.tools.build:gradle:8.5.0") }\n', 'java-gradle'],
     ['plugins { alias(libs.plugins.androidx.room) ; kotlin("jvm") }\n', 'kotlin-gradle']
   ]) {
-    assert.deepEqual(gradleBuildKind(build), { stack, requiresTestTarget: false }, build);
+    assert.deepEqual(gradleBuildKind(build), { stack, requiresTestTarget: false, android: false }, build);
   }
   assert.match(GRADLE_TEST_TARGET_REASON, /explicit test target/u);
   const root = await repository(t, { 'settings.gradle.kts': '', 'app/build.gradle.kts': builds[0][0] });
+  assert.deepEqual((await inferModuleTestCommand(root, await resolveAffectedModule(root, 'app/src/main/Main.kt'))).argv, ['gradle', 'testDebugUnitTest']);
+  await writeFile(path.join(root, 'app/build.gradle.kts'), `${builds[0][0]}android { productFlavors { create("free") {} } }\n`);
   await assert.rejects(inferModuleTestCommand(root, await resolveAffectedModule(root, 'app/src/main/Main.kt')),
-    (error) => error.code === 'GRADLE_TEST_TARGET_REQUIRED' && error.details.root === 'app');
+    (error) => error.code === 'GRADLE_TEST_TARGET_REQUIRED' && error.details.root === 'app' && error.details.proposal.choices[0] === 'freeDebug');
 });
 
 test('a module without its own wrapper runs the nearest one above it, scoped to the module', async (t) => {

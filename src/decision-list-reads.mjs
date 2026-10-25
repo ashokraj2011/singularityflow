@@ -4,8 +4,9 @@
  * - Reusable runs: each retained, passed attempt of an earlier step, checked by prepareEvidenceReuse
  *   for the step that recorded no run of its own, so a reuse is offered only when the person could
  *   record it now on unchanged source.
- * - Test-run risks, while the step is in progress: its test commands whose latest run stopped before
- *   any test executed, as `decision test-risk` sees them.
+ * - Test-run risks, while the step is in progress: its test commands whose latest run the
+ *   environment stopped, by its classified cause, as `decision test-risk` sees them; and those whose
+ *   latest run passed narrowed with no acceptance covering it, as `decision test-narrowing` sees them.
  * - Screen sizes: each verification profile enforced coverage still lacks at the visual step that
  *   holds this one, as visualProfileDecisionOptions words it.
  * - Everything else that waits for a person (SPEC-OAP M3): the routing decision, intent and forward
@@ -83,20 +84,22 @@ async function reuseCandidates(root, config, workflow, reports) {
 }
 
 /**
- * The step's test commands whose latest recorded run failed or was blocked before any test executed
- * and that no active decision covers: what `decision test-risk` would accept now, read the same way.
+ * The step's test commands whose latest recorded run the environment stopped and that no active
+ * decision on its cause class covers: what `decision test-risk` would accept now, read the same way;
+ * and, from the same runs, the narrowed ones `decision test-narrowing` would accept.
  */
 async function testRisks(root, config, workflow, phase, at) {
-  if (phase?.status !== 'in_progress') return [];
-  const [{ latestStepAttempts }, { testRunRiskIneligibility, testRunRiskState }, { workDirRelative }] = await Promise.all([
-    import('./verification/attempts.mjs'), import('./test-run-risk.mjs'), import('./story-paths.mjs')]);
+  if (phase?.status !== 'in_progress') return { risks: [], narrowings: [] };
+  const [{ latestStepAttempts }, { testRunCause, testRunRiskIneligibility, testRunRiskStateFor }, { workDirRelative }, { pendingTestNarrowings }] = await Promise.all([
+    import('./verification/attempts.mjs'), import('./test-run-risk.mjs'), import('./story-paths.mjs'), import('./test-narrowing.mjs')]);
   const latest = await latestStepAttempts(root, workDirRelative(config, workflow.workItem.id), workflow.workItem.id, phase.id);
-  return [...latest.values()].map((attempt) => ({ attempt,
-    state: testRunRiskState(workflow, { phaseId: phase.id, commandId: attempt.commandId, argvSha256: attempt.argvSha256 }, { at })?.state ?? null }))
+  return { narrowings: pendingTestNarrowings(workflow, phase.id, latest.values(), { at }), risks: [...latest.values()].map((attempt) => ({ attempt,
+    state: testRunRiskStateFor(workflow, { phaseId: phase.id, attempt }, { at })?.state ?? null }))
     .filter(({ attempt, state }) => !testRunRiskIneligibility(attempt) && state !== 'active')
     .sort((left, right) => left.attempt.commandId.localeCompare(right.attempt.commandId))
     .map(({ attempt, state }) => ({ phase: phase.id, commandId: attempt.commandId, attemptId: attempt.attemptId ?? null, status: attempt.status,
-      exitCode: Number.isInteger(attempt.exitCode) ? attempt.exitCode : null, argvSha256: attempt.argvSha256 ?? null, lapsed: state }));
+      exitCode: Number.isInteger(attempt.exitCode) ? attempt.exitCode : null, argvSha256: attempt.argvSha256 ?? null, lapsed: state,
+      causeClass: testRunCause(attempt).class })) };
 }
 
 /**
@@ -197,6 +200,7 @@ export async function decisionListFacts(root, config, workflow, { phaseId = work
   const reuse = offerReuse ? await reuseCandidates(root, config, workflow, reports) : { candidates: [], problems: [] };
   const state = await pendingStateFacts(root, config, workflow, phase, { ...known, unavailable: blocking.unavailable });
   let evidence = [];
+  const tests = await testRisks(root, config, workflow, phase, at);
   try { evidence = await evidenceDecisionFacts(root, config, workflow, phase); }
   catch (error) { blocking.unavailable = [...(blocking.unavailable ?? []), { phase: phase.id, reason: error.code ?? 'evidence-unavailable' }]; }
   return {
@@ -204,7 +208,8 @@ export async function decisionListFacts(root, config, workflow, { phaseId = work
     ...state,
     evidence,
     candidates: reuse.candidates, reuseProblems: reuse.problems,
-    testRisks: await testRisks(root, config, workflow, phase, at),
+    testRisks: tests.risks,
+    testNarrowings: tests.narrowings,
     testCommands: (workflow.testCommandDecisions ?? []).length
       ? (await import('./story-test-commands.mjs')).pendingStoryTestCommands(workflow, phase.id) : [],
     visual: await visualProfiles(root, config, workflow, phase),
@@ -212,6 +217,7 @@ export async function decisionListFacts(root, config, workflow, { phaseId = work
       phases: Object.fromEntries((workflow.phaseOrder ?? []).map((id) => [id, `${workflow.phases?.[id]?.status}:${Number(workflow.phases?.[id]?.generation ?? 0)}`])),
       upstreamIssues: (workflow.upstreamIssues ?? []).length, upstreamIssueDecisions: (workflow.upstreamIssueDecisions ?? []).length,
       evidenceReuses: (workflow.evidenceReuses ?? []).length, testRunRisks: (workflow.testRunRisks ?? []).length,
+      testNarrowings: (workflow.testNarrowings ?? []).length,
       testCommandDecisions: (workflow.testCommandDecisions ?? []).length,
       visualProfileDecisions: (workflow.visualProfileDecisions ?? []).length,
       evidence: evidence.map((entry) => `${entry.criterion}:${entry.result}:${entry.witnesses.map((witness) => witness.slot).join(',')}:${entry.risks.length}`),

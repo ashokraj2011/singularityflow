@@ -11,6 +11,7 @@
 import { constants as fsConstants } from 'node:fs';
 import { lstat, open } from 'node:fs/promises';
 
+import { testCommandCoversPath } from '../code-delivery-tests.mjs';
 import { runBoundedTaskPool } from '../quality-command-runner.mjs';
 import { posix, secureRepositoryPath } from '../util.mjs';
 import { classifyJavascriptTestCommandScope } from '../wel-javascript.mjs';
@@ -41,12 +42,9 @@ export function classifyTestCommand(id, command) {
   return { selection: profile.runner === 'gradle' ? 'complete' : 'module', gaps: [] };
 }
 
-/** The command among `commands` whose affected roots cover a repository path. */
+/** The command among `commands` that covers a repository path, as publication judges it [TCE:REQ-052]. */
 export function commandCovering(commands, candidate) {
-  const covering = commands.filter((command) => (command.affectedRoots ?? []).some((root) => {
-    const normalized = posix(root ?? '').replace(/^\.\//u, '').replace(/\/$/u, '') || '.';
-    return normalized === '.' || candidate === normalized || candidate.startsWith(`${normalized}/`);
-  }));
+  const covering = commands.filter((command) => testCommandCoversPath(command, candidate));
   // The most specific root wins; equal specificity keeps configuration order.
   return covering.sort((left, right) => {
     const depth = (command) => Math.max(...(command.affectedRoots ?? ['.']).map((root) => (root === '.' ? 0 : root.split('/').length)));
@@ -90,12 +88,14 @@ export async function discoverDeclarations(root, id, files, { signal = null, run
     const parsed = await parseJunitTestSources(root, unique, { signal, runParser });
     return { profile: id, declarations: parsed.declarations, unattachedTags: parsed.unattachedTags, fileGaps: parsed.fileGaps };
   }
+  // pytest tests are read by their own scanner, loaded only for them (src/test-module-markers.mjs).
+  const scan = profile.language === 'python' ? (await import('../test-module-markers.mjs')).pytestDeclarations : scanJavaScriptDeclarations;
   const { results } = await runBoundedTaskPool(
     unique,
     async (file) => {
       const source = await readTestSource(root, file);
       if (source.error) return { file, error: source.error, scanned: null };
-      const scanned = scanJavaScriptDeclarations(source.text, { sourcePath: file, framework: profile.framework, root });
+      const scanned = scan(source.text, { sourcePath: file, framework: profile.framework, root });
       return { file, error: null, scanned };
     },
     { maxConcurrency, signal }

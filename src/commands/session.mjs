@@ -29,6 +29,7 @@ import { readRecord } from '../schema-migrations.mjs';
 import { withCommandObservability } from '../command-observability.mjs';
 import { withCommandConfirmation } from '../command-confirmation.mjs';
 import { resolveSessionRepository } from './shared/session-repository-selection.mjs';
+import { boundExecutionContextRoot } from '../execution-context-scope.mjs';
 export { resolveSessionRepository };
 
 export async function run(argv, { positionals, options }) {
@@ -547,6 +548,17 @@ async function sessionCommandUncached(positionals, options, renderCandidates = p
       reason: resolved.reason
     };
     return console.log(optionBoolean(options, 'json') ? JSON.stringify(empty, null, 2) : `No Singularity Flow repository is active. ${resolved.detail}`);
+  }
+  // `context --work-id` naming another Story reads that Story's checkout, or refuses, as every other
+  // Work ID command does (story-routing.mjs). A bound checkout still wins.
+  if (subcommand === 'context' && optionString(options, 'work-id') && !boundExecutionContextRoot()) {
+    const routed = await (await import('../story-routing.mjs')).routeNamedStory({ command: 'session', positionals, options, argv: [], root });
+    if (routed) {
+      process.chdir(root = routed.root);
+      resolved = { ...resolved, root, resolvedFrom: 'story-index', authority: await sessionRepositoryAuthority(root) };
+      globalThis.__SFLOW_STORY_ROUTE = routed.route;
+      if (!optionBoolean(options, 'json')) process.stderr.write(`${routed.route.workId} → ${root}\n`);
+    }
   }
   const discovery = await sessionDiscoveryConfiguration(root, resolved.authority, {
     storyBootstrap: ['status', 'context'].includes(subcommand)

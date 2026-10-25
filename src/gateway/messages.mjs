@@ -76,6 +76,7 @@ export const RESULT_MESSAGES = Object.freeze({
   'gateway.read-only': M('This session cannot change anything', 'The gateway is read-only.'),
   'gateway.copilot-paused': M('SFlow guidance is paused', 'Nothing was read or changed. Answer as native Copilot; /sf-pause off turns SFlow guidance back on.'),
   'gateway.answer-too-long': M('That answer is too long for a tool result', 'It is {bytes} bytes and a tool answer holds {limit}; the command {command} serves it whole.'),
+  'gateway.tool-answer-too-long': M('That answer is too long for a tool result', 'It is {bytes} bytes and a tool answer holds {limit}; run this step\'s CLI command, which serves it whole.'),
   'gateway.confirmation-channel-unavailable': M('This host cannot ask you to confirm', 'Nothing ran. Use the explicit command in a terminal instead.'),
   'gateway.confirmation-declined': M('Not confirmed', 'Nothing ran.'),
   'gateway.run-in-progress': M('That is already running', 'The first request is still in progress. Nothing was started twice.'),

@@ -24,7 +24,7 @@ import { visibleSubjects } from '../../../src/gateway/conversation.mjs';
 import {
   guideSessionScope, readGuideSession, rememberGuideSession, resetGuideSession
 } from '../../../src/gateway/local-store.mjs';
-import { bindingActorId, createHostGateway, pausedToolAnswer } from '../../../src/gateway/host.mjs';
+import { bindingActorId, boundedToolAnswer, createHostGateway, pausedToolAnswer } from '../../../src/gateway/host.mjs';
 import {
   astContextPlanner, astQueryPlanner, astStatusPlanner
 } from '../../../src/gateway/planners/ast-intelligence.mjs';
@@ -177,6 +177,12 @@ export type GatewaySession = {
    */
   readonly pausedToolAnswer: (tool: string) => any | null;
   /**
+   * What a model reads from a tool call's answer: whole when it fits one tool result, else its tool
+   * view, else a refusal that sends the skill to its CLI command (host.mjs). Asked last, as
+   * `gateway serve` asks it; the editor's own screens read the kernel's answer whole.
+   */
+  readonly boundedToolAnswer: (tool: string, answer: any) => any;
+  /**
    * Investigation reports this session's kernel produced, by `data.investigationId`. `[INT:IFC-061]`
    *
    * An investigation is a read and stores nothing `[INT:CON-090]`, so the Investigation view can
@@ -324,6 +330,7 @@ const HOST_SESSION_ID = `vscode_${Date.now().toString(36)}_${Math.random().toStr
 let acknowledgedAtProvider: () => string | null = () => null;
 let homeLensProvider: () => string = () => 'developer';
 let chatProfileNameProvider: () => string | undefined = () => undefined;
+let modelModeProvider: () => string = () => 'auto';
 
 export function provideAcknowledgedAt(provider: () => string | null): void {
   acknowledgedAtProvider = provider;
@@ -339,6 +346,19 @@ export function provideHomeLens(provider: () => string): void {
 
 export function provideChatProfileName(provider: () => string): void {
   chatProfileNameProvider = provider;
+}
+
+/**
+ * `singularityFlow.modelMode`, read on every call. A CLI command this window launches runs with
+ * `SINGULARITY_FLOW_NO_MODEL` set from it; a read answered in-process names that command's routes.
+ */
+export function provideModelMode(provider: () => string): void {
+  modelModeProvider = provider;
+}
+
+/** The mode a CLI command launched from this window resolves (`resolveModelMode`), as routes only. */
+function windowModelMode(): { enabled: boolean; source: string } {
+  return modelModeProvider() === 'disabled' ? { enabled: false, source: 'environment' } : { enabled: true, source: 'default' };
 }
 
 export function gatewaySession(context: GatewayRepositoryContext): GatewaySession {
@@ -389,6 +409,7 @@ export function gatewaySession(context: GatewayRepositoryContext): GatewaySessio
      */
     readOnly: false,
     hostCapabilities: { confirmationChannel: 'native', hostActions: EDITOR_HOST_ACTIONS },
+    routeModelMode: windowModelMode,
     mutationExecutors: gatewayMutationExecutors({ runStart: startRouteProvider })
   });
   const investigations = new Map<string, RetainedInvestigation>();
@@ -430,6 +451,7 @@ export function gatewaySession(context: GatewayRepositoryContext): GatewaySessio
       reset: async () => resetGuideSession(guideOwner())
     },
     pausedToolAnswer: (tool) => pausedToolAnswer(tool),
+    boundedToolAnswer: (tool, answer) => boundedToolAnswer(tool, answer),
     investigations: {
       get: (investigationId) => investigations.get(investigationId) ?? null,
       list: () => Object.freeze([...investigations.values()].reverse())

@@ -31,7 +31,7 @@ import { createGatewayKernel } from './kernel.mjs';
 import { createHandleAuthority } from './handles.mjs';
 import { gatewayRegistry } from './operations.mjs';
 import { DEFAULT_GATEWAY_POLICY, resolveGatewayPolicy } from './policy.mjs';
-import { noEffects, preservedAll, repositoryReference, sflowResult } from './result.mjs';
+import { noEffects, preservedAll, repositoryReference, sflowResult, TOOL_ANSWER_MAX_BYTES } from './result.mjs';
 import { copilotModePresentation, readCopilotMode } from '../copilot-mode.mjs';
 import { branch, head, identity, localGitDisplayName, repoRoot } from '../git.mjs';
 import { operationContext, withOperationContext } from '../operation-context.mjs';
@@ -47,7 +47,7 @@ import { resolvePersonalization } from '../personalization.mjs';
  * in-process transport. Keeping the wrapper here leaves the transport-neutral kernel pure while
  * ensuring a handler can never reach the model runner as an anonymous ambient callback.
  */
-function runHostOperation(root, policy, request, callback, { modelCapable = false } = {}) {
+function runHostOperation(root, policy, request, callback, { modelCapable = false, routeModelMode = () => null } = {}) {
   const operation = request?.operation;
   if (!operation?.id || !['never', 'optional', 'required'].includes(operation.modelPolicy)) {
     throw new TypeError('A host gateway handler requires its compiled registered operation.');
@@ -69,11 +69,12 @@ function runHostOperation(root, policy, request, callback, { modelCapable = fals
         : gatewayAllowsModel ? (parent?.modelMode?.source ?? 'gateway-policy') : 'gateway-policy'
     }),
     /**
-     * The mode of the CLI run this gateway serves (`recommend`, `gateway serve`), or null in a host
-     * with none. Not a permission: a planner runs model-disabled above, and a read names the routes
-     * that run would offer (`nextsteps`' publication route) from this instead of from its own mode.
+     * The mode of the CLI run this gateway serves (`recommend`, `gateway serve`), else the mode the
+     * host itself is set to (VS Code's `singularityFlow.modelMode`), else null. Not a permission: a
+     * planner runs model-disabled above, and a read names the routes that run would offer
+     * (`nextsteps`' publication route) from this instead of from its own mode.
      */
-    routeModelMode: parent?.routeModelMode ?? parent?.modelMode ?? null,
+    routeModelMode: parent?.routeModelMode ?? parent?.modelMode ?? routeModelMode() ?? null,
     // Repository selection belongs to this gateway session. An ambient CLI operation can restrict
     // model policy through the inherited stack, but it cannot redirect audit records to its root.
     root,
@@ -175,6 +176,112 @@ export function pausedToolAnswer(tool, mode = readCopilotMode()) {
   });
 }
 
+const answerBytes = (answer) => Buffer.byteLength(JSON.stringify(answer), 'utf8');
+
+/**
+ * A next action as a model follows it, still a valid next action: the handle, what it is, how it
+ * is confirmed and the routes printed without the tool. Its rank, topic, effect summary and label
+ * slots are what a card draws, and the result contract fills their defaults back in.
+ */
+function toolNextAction({ handle, id, label, kind, reasonCode, confirmation, interaction, emphasis, fallback, hostAction }) {
+  const { copyable: _copyable, ...routes } = fallback ?? {};
+  return { handle, id, label, kind, reasonCode, confirmation, interaction, emphasis,
+    ...(fallback ? { fallback: routes } : {}), ...(hostAction === undefined ? {} : { hostAction }) };
+}
+
+/**
+ * A lifecycle step's routes and why. `argv`, `executable` and the per-platform commands spell its
+ * `command` again, and `modelPolicy: 'never'` and `availability: 'available'` are every step's.
+ */
+function toolLifecycleAction({ argv: _argv, executable: _executable, platformCommands: _platform, copyable: _copyable,
+  modelPolicy, availability, ...action }) {
+  return { ...action, ...(modelPolicy === 'never' ? {} : { modelPolicy }),
+    ...(availability === 'available' ? {} : { availability }) };
+}
+
+/** The lifecycle steps a person can take from this answer; the optional and later ones are `nextsteps`' list. */
+const ACTIONABLE_TIMINGS = new Set(['now', 'blocked', 'alternative']);
+
+/**
+ * Home and the recommendation as a tool reads them. Whole, an approved Story's answer is about
+ * 15 KB: the receipt and rail only the VS Code card draws, the card's menu again (`choiceSet`), the
+ * current work twice, the worktree's hashes twice, Home's card projection (its menu, current work
+ * and rail once more), and every lifecycle step to the end of the workflow with each route spelled
+ * four ways. The view keeps what `/sf-recommend`, `/sf-home` and `/sf-advise` report and names what
+ * it left out; `recommend --json` and the card keep everything.
+ */
+function homeToolView(answer, whole) {
+  const { latestReceipt, rail, choiceSet, activeWork, guidance, localChanges, homeProjection, ...data } = answer.data ?? {};
+  const { revision: _revision, ...subject } = answer.subject ?? {};
+  const repeated = activeWork !== undefined && JSON.stringify(activeWork) === JSON.stringify(data.currentWork);
+  // What only the card has; the menu (`choiceSet`), a repeated `activeWork` and hashes are elsewhere here.
+  const leftOut = [['latestReceipt', latestReceipt], ['rail', rail]]
+    .filter(([, value]) => value !== undefined).map(([key]) => `data.${key}`);
+  const actions = Array.isArray(guidance?.actions) ? guidance.actions : null;
+  const more = actions?.filter((action) => !ACTIONABLE_TIMINGS.has(action.timing)) ?? [];
+  return {
+    ...answer,
+    // The model reads the Story, not the hashes its handles are bound to; the kernel checks those.
+    ...(answer.subject ? { subject } : {}),
+    data: {
+      ...data,
+      ...(repeated || activeWork === undefined ? {} : { activeWork }),
+      // Of the card projection, only how fresh each source is and Home's health are not repeated here.
+      ...(homeProjection && typeof homeProjection === 'object' ? {
+        homeProjection: (({ resultType, schemaVersion, asOf, sources, health }) =>
+          ({ resultType, schemaVersion, asOf, sources, health }))(homeProjection)
+      } : homeProjection === undefined ? {} : { homeProjection }),
+      ...(localChanges === undefined ? {} : {
+        localChanges: localChanges && typeof localChanges === 'object'
+          ? (({ worktreeHash: _hash, worktreeAlgorithm: _algorithm, ...rest }) => rest)(localChanges) : localChanges
+      }),
+      ...(guidance === undefined ? {} : {
+        guidance: actions ? {
+          ...guidance,
+          actions: actions.filter((action) => ACTIONABLE_TIMINGS.has(action.timing)).map(toolLifecycleAction),
+          ...(more.length ? { moreActions: { count: more.length, read: '/sf-nextsteps' } } : {})
+        } : guidance
+      }),
+      toolView: { leftOut, whole }
+    }
+  };
+}
+
+const TOOL_VIEWS = Object.freeze({
+  'home.overview': (answer) => homeToolView(answer, 'singularity-flow home --json'),
+  'developer.next': (answer) => homeToolView(answer, 'singularity-flow recommend --json')
+});
+
+/**
+ * What a model reads from one tool call: the kernel's answer whole when it fits one tool result,
+ * else its tool view, else a refusal. Both Copilot hosts move a longer result out of the
+ * conversation (`TOOL_ANSWER_MAX_BYTES`), where a skill turn cannot read it, so a refused answer
+ * sends the skill to its CLI command instead. Both hosts ask this last (`gateway serve` and VS
+ * Code's language-model tools); their own screens read the kernel's answer whole.
+ *
+ * A run's answer, and any answer that records an effect, is sent whole: a refusal would read as
+ * nothing having happened.
+ */
+export function boundedToolAnswer(tool, answer) {
+  if (tool === 'sflow_run' || !answer || typeof answer !== 'object' || answerBytes(answer) <= TOOL_ANSWER_MAX_BYTES) return answer;
+  if (Object.values(answer.effects ?? {}).some(Boolean)) return answer;
+  const compact = Array.isArray(answer.next) ? { ...answer, next: answer.next.map(toolNextAction) } : answer;
+  const view = TOOL_VIEWS[answer.operation?.id]?.(compact) ?? compact;
+  const bytes = answerBytes(view);
+  if (bytes <= TOOL_ANSWER_MAX_BYTES) return view;
+  return sflowResult({
+    kind: 'refusal',
+    operation: { id: answer.operation?.id ?? TOOL_OPERATIONS[tool] ?? 'gateway.resolve', classification: 'read' },
+    subject: answer.subject ?? null,
+    outcome: { status: 'refused', messageId: 'gateway.refused', slots: {} },
+    effects: noEffects(),
+    why: [{ code: 'gateway.tool-answer-too-long', source: 'deterministic', reference: answer.subject?.id ?? null,
+      slots: { bytes: String(bytes), limit: String(TOOL_ANSWER_MAX_BYTES) } }],
+    preserved: preservedAll('gateway.nothing-was-carried-out'),
+    restState: 'blocked'
+  });
+}
+
 /**
  * Who a binding is for: email before login, and never a display name.
  *
@@ -220,6 +327,11 @@ export function createHostGateway({
   readOnly = true,
   /** How this host collects confirmations; see createGatewayKernel `[INT:IFC-063]`. */
   hostCapabilities = { confirmationChannel: 'native' },
+  /**
+   * The model mode this host is set to, as `resolveModelMode` returns it, or a thunk for one: the
+   * routes a read offers when no CLI run is serving it (VS Code's `singularityFlow.modelMode`).
+   */
+  routeModelMode = null,
   now = () => Date.now()
 } = {}) {
   if (!hostSessionId) {
@@ -230,7 +342,9 @@ export function createHostGateway({
   }
   const registry = gatewayRegistry();
   const policy = resolveGatewayPolicy(policyLayers, { registry });
-  const contextualPlanners = contextualHandlers(planners, root, policy, { presentation: true });
+  const hostRouteModelMode = typeof routeModelMode === 'function' ? routeModelMode : () => routeModelMode;
+  const contextualPlanners = contextualHandlers(planners, root, policy,
+    { presentation: true, routeModelMode: hostRouteModelMode });
   const contextualPlanBuilders = contextualHandlers(planBuilders, root, policy);
   // Only execution occurs after the exact confirmation receipt has redeemed. Planning stages get
   // the registered identity for provenance, but remain model-disabled even under a permissive

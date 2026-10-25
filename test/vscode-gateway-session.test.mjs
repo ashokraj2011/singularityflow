@@ -219,6 +219,38 @@ test('every gateway surface uses the validated active repository context', async
     'the empty-state message describes both supported resolution paths');
 });
 
+test('the window\'s model mode names the routes its in-process reads offer, and a tool answer fits', { timeout: 300_000 }, async (t) => {
+  // `singularityFlow.modelMode`: a command this window launches runs with SINGULARITY_FLOW_NO_MODEL
+  // set from it, and a read answered in-process names that command's routes.
+  const gateway = await import(pathToFileURL(path.join(root, 'apps', 'vscode', 'src', 'gateway-session.ts')).href);
+  const { approvedSpecificationStory } = await import('./helpers/submitted-planning-story.mjs');
+  const { TOOL_ANSWER_MAX_BYTES } = await import('../src/gateway/result.mjs');
+  const { root: story } = await approvedSpecificationStory(t, 'HEX-4105');
+  let mode = 'disabled';
+  gateway.provideModelMode(() => mode);
+  t.after(() => gateway.provideModelMode(() => 'auto'));
+  const context = { root: story, workspaceId: null, workspaceName: null, repositoryId: null, origin: 'test' };
+  gateway.setActiveRepositoryContext(context);
+  t.after(() => gateway.setActiveRepositoryContext(null));
+  const session = gateway.gatewaySession(context);
+  const recommend = async () => {
+    const resolved = await session.kernel.resolve({ utterance: 'what should I do next' });
+    return session.kernel.read({ resolutionId: resolved.next[0].handle });
+  };
+  const off = JSON.stringify((await recommend()).data.guidance.actions);
+  assert.match(off, /--no-model/u);
+  assert.doesNotMatch(off, /--authored governed-agent/u);
+  // Read on every call: changing the setting needs no new session.
+  mode = 'auto';
+  const read = await recommend();
+  assert.match(JSON.stringify(read.data.guidance.actions), /--authored governed-agent --channel copilot-host/u);
+  // The card reads the whole answer; a language-model tool reads what fits one tool answer.
+  assert.ok(Buffer.byteLength(JSON.stringify(read)) > TOOL_ANSWER_MAX_BYTES);
+  const tool = session.boundedToolAnswer('sflow_read', read);
+  assert.deepEqual([tool.kind, tool.operation.id], ['read', 'developer.next']);
+  assert.ok(Buffer.byteLength(JSON.stringify(tool)) <= TOOL_ANSWER_MAX_BYTES);
+});
+
 test('changing workspace identity retires the previous gateway session', async () => {
   const gateway = await import(pathToFileURL(path.join(root, 'apps', 'vscode', 'src', 'gateway-session.ts')).href);
   const first = {

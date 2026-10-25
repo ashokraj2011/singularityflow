@@ -10,17 +10,35 @@
  * question becomes a clarification with the nearest topic IDs, never the closest topic served as if
  * it were the answer.
  */
+import { DOCS_DEFAULT_PREVIEW_BYTES } from '../../docs-topics.mjs';
 import { resolveHelp } from '../../help-service.mjs';
 import { classifyHelpIntent } from '../../help-intents.mjs';
 import { catalogued } from '../catalog.mjs';
-import { noEffects, plannerNavigation, preservedAll, sflowResult } from '../result.mjs';
+import { noEffects, plannerNavigation, preservedAll, sflowResult, TOOL_ANSWER_MAX_BYTES } from '../result.mjs';
 
-/** The ceiling on a served body. Beyond it the reader gets a preview and a handle `[INT:CON-037]`. */
-export const EXPLAIN_PREVIEW_BYTES = 4000;
+/**
+ * The ceiling on a served body, and the CLI's own: `sflow explain --json` serves `data.served.text`
+ * at this bound, so the tool answer carries the same bytes. Beyond it the reader gets the handle
+ * `[INT:CON-037]` (`expandHandle`, `sflow show <handle> --section`).
+ */
+export const EXPLAIN_PREVIEW_BYTES = DOCS_DEFAULT_PREVIEW_BYTES;
+
+/**
+ * What the kernel adds to a planner's answer before a host sees it: the signed subject revision
+ * and issued handles in place of display placeholders. Held back from every part, so the answer a
+ * model reads stays inside `TOOL_ANSWER_MAX_BYTES`.
+ */
+const KERNEL_RESERVE_BYTES = 1024;
+/** The smallest body a part carries, so an unusually heavy envelope still makes progress. */
+const MINIMUM_PART_BYTES = 1024;
+
+const jsonBytes = (value) => Buffer.byteLength(JSON.stringify(value), 'utf8');
+/** What a string adds to an answer once JSON-escaped, its quotes excluded. */
+const escapedBytes = (text) => jsonBytes(text) - 2;
 
 const FALLBACK = Object.freeze({ label: 'List every topic', command: 'sflow explain' });
 
-function suggestion(topicId, index, reasonCode) {
+function suggestion(topicId, index, reasonCode, fallback = FALLBACK) {
   return plannerNavigation({
     handle: `topic:${topicId}`,
     id: `topic:${topicId}`,
@@ -33,11 +51,11 @@ function suggestion(topicId, index, reasonCode) {
     /** The topic this suggestion would open, named where every other surface reads topics from. */
     topic: topicId,
     executable: false,
-    fallback: FALLBACK
+    fallback
   }, 'help.explain', { question: topicId, topic: topicId });
 }
 
-function ask(messageSlots, topicIds, reasonCode, why, helpIntent) {
+function ask(messageSlots, topicIds, reasonCode, why, data) {
   return sflowResult({
     kind: 'clarification',
     operation: { id: 'help.explain', classification: 'read' },
@@ -46,42 +64,62 @@ function ask(messageSlots, topicIds, reasonCode, why, helpIntent) {
     why,
     next: topicIds.map((topicId, index) => suggestion(topicId, index, reasonCode)),
     restState: topicIds.length ? null : 'informational',
-    data: { helpIntent }
+    data
   });
 }
 
-export async function helpExplain({ arguments: args = {}, subject = null } = {}) {
-  const query = args.topic ?? args.question ?? '';
-  const resolved = await resolveHelp(query, { maxBytes: EXPLAIN_PREVIEW_BYTES });
-  const helpIntent = resolved.helpIntent;
+/**
+ * What a question back carries, on every surface: the query, and the candidate or nearest topic IDs
+ * (`sflow explain --json` prints these; the tool answer carries the same).
+ */
+export function clarificationData(resolution) {
+  const ids = resolution.candidates.map((topic) => topic.id);
+  return resolution.status === 'ambiguous'
+    ? { query: resolution.query, candidates: ids, helpIntent: resolution.helpIntent }
+    : { query: resolution.query, nearest: ids, helpIntent: resolution.helpIntent };
+}
 
-  if (resolved.status === 'ambiguous') {
-    return ask({ query }, resolved.candidates.map((topic) => topic.id), 'explain.ambiguous', [
-      { code: 'explain.ambiguous', source: 'registry', slots: { count: resolved.candidates.length } }
-    ], helpIntent);
+/**
+ * The served text cut into parts whose answers each fit the inline bound.
+ *
+ * At line ends where it can, and inside a line only when that line alone is longer than a part, at
+ * a character boundary, so the parts joined in order are the served text byte for byte. The first
+ * part's budget is smaller: it carries the citation, provenance and related topics.
+ */
+export function servedParts(text, { first, rest }) {
+  const parts = [];
+  let current = '';
+  let used = 0;
+  const budget = () => Math.max(parts.length ? rest : first, MINIMUM_PART_BYTES);
+  const close = () => { parts.push(current); current = ''; used = 0; };
+  for (const line of String(text).split(/(?<=\n)/u)) {
+    let remaining = line;
+    while (remaining) {
+      const room = budget() - used;
+      const size = escapedBytes(remaining);
+      if (size <= room) { current += remaining; used += size; break; }
+      if (used > 0 && size <= budget()) { close(); continue; }
+      let cut = '';
+      let cutSize = 0;
+      for (const character of remaining) {
+        const characterSize = escapedBytes(character);
+        if (cutSize + characterSize > room) break;
+        cut += character;
+        cutSize += characterSize;
+      }
+      current += cut;
+      used += cutSize;
+      remaining = remaining.slice(cut.length);
+      close();
+    }
   }
+  if (current || !parts.length) parts.push(current);
+  return parts;
+}
 
-  if (resolved.status !== 'resolved') {
-    /**
-     * A question the documentation does not answer is answered as such.
-     *
-     * Serving the nearest topic would be the friendlier-looking behaviour and the more dangerous
-     * one: a cited answer to a question nobody asked reads exactly like a cited answer to the
-     * question they did ask.
-     */
-    return ask({ query }, resolved.candidates.map((topic) => topic.id), 'explain.no-match', [
-      { code: 'explain.no-match', source: 'unavailable', slots: { query } }
-    ], helpIntent);
-  }
-
-  const topic = resolved.topic;
-  const served = resolved.served;
-  const handle = resolved.handle;
-
-  // The shared resolver refuses before returning if the topic tree and stamped manifest differ.
-  // Reaching this line therefore means the citation is bound to this packaged catalog.
-  const stamped = resolved.provenance.docsContentSha256;
-
+/** The first part: everything the CLI's `explain --json` carries beside the text, and the first of it. */
+function servedAnswer(resolved, { subject, body, count }) {
+  const { topic, served, handle } = resolved;
   return sflowResult({
     kind: 'read',
     operation: { id: 'help.explain', classification: 'read' },
@@ -94,29 +132,121 @@ export async function helpExplain({ arguments: args = {}, subject = null } = {})
       reference: handle,
       slots: { topic: topic.id, version: String(topic.version), matchedBy: resolved.matchedBy }
     }],
-    next: [suggestion(topic.id, 0, 'explain.cited')],
-    restState: 'informational',
+    // The related topics, each with the route `sflow explain --json` gives it (`topicAction`).
+    next: resolved.related.map((entry, index) => suggestion(entry.id, index, 'explain.cited',
+      { label: `Read ${entry.id}`, command: `sflow explain ${entry.id}` })),
+    restState: resolved.related.length ? null : 'informational',
     data: {
       topic: topic.id,
       title: topic.title,
       handle,
       matchedBy: resolved.matchedBy,
-      helpIntent,
-      // Bounded by construction: a truncated body says so, and the handle expands it on request.
-      body: served.text,
+      helpIntent: resolved.helpIntent,
+      // This part of the served text. `bytes`, `bodySha256` and `truncated` describe the whole of
+      // it, the CLI's `data.served`; a truncated body says so, and the handle expands it on request.
+      body,
       bytes: served.bytes,
       bodySha256: served.sha256,
       truncated: Boolean(served.truncated),
-      // Only present when there is more to fetch, which is when the preview stopped short.
+      // `read` (one handle per further part) is the kernel's to add: a planner issues no handles.
+      part: { index: 1, count },
+      // Only present when there is more to fetch, which is when the served text stopped short.
       expandHandle: served.handle ?? null,
       sections: Object.freeze([...served.sections]),
       docsSourceCommit: resolved.provenance.docsSourceCommit,
-      docsContentSha256: stamped,
+      // The shared resolver refuses before returning if the topic tree and stamped manifest differ,
+      // so the citation is bound to this packaged catalog.
+      docsContentSha256: resolved.provenance.docsContentSha256,
+      provenance: resolved.provenance,
       citation: resolved.citation,
-      related: resolved.related,
+      related: resolved.related.map((entry) => ({ id: entry.id, title: entry.title })),
       handoff: resolved.handoff
     }
   });
+}
+
+/** A further part: its text, and which part of which topic it is. Read only through its handle. */
+function servedContinuation(resolved, { subject, body, index, count }) {
+  const { topic, served, handle } = resolved;
+  return sflowResult({
+    kind: 'read',
+    operation: { id: 'help.explain', classification: 'read' },
+    subject,
+    outcome: { status: 'succeeded', messageId: 'gateway.explained', slots: { topic: topic.id, title: topic.title } },
+    effects: noEffects(),
+    why: [{
+      code: 'explain.cited',
+      source: 'evidence',
+      reference: handle,
+      slots: { topic: topic.id, version: String(topic.version), part: String(index), parts: String(count) }
+    }],
+    next: [],
+    restState: 'informational',
+    data: {
+      topic: topic.id, handle, part: { index, count }, body,
+      bytes: served.bytes, bodySha256: served.sha256, truncated: Boolean(served.truncated),
+      citation: resolved.citation
+    }
+  });
+}
+
+/** Where the served text is cut, from each part's envelope: the same for every call on a topic. */
+function partsOf(resolved) {
+  const widest = 99;
+  const first = TOOL_ANSWER_MAX_BYTES - KERNEL_RESERVE_BYTES
+    - jsonBytes(servedAnswer(resolved, { subject: null, body: '', count: widest }));
+  const rest = TOOL_ANSWER_MAX_BYTES - KERNEL_RESERVE_BYTES
+    - jsonBytes(servedContinuation(resolved, { subject: null, body: '', index: widest, count: widest }));
+  return servedParts(resolved.served.text, { first, rest });
+}
+
+export async function helpExplain({ arguments: args = {}, subject = null } = {}) {
+  const query = args.topic ?? args.question ?? '';
+  const resolved = await resolveHelp(query, { maxBytes: EXPLAIN_PREVIEW_BYTES });
+  const helpIntent = resolved.helpIntent;
+
+  if (resolved.status === 'ambiguous') {
+    return ask({ query }, resolved.candidates.map((topic) => topic.id), 'explain.ambiguous', [
+      { code: 'explain.ambiguous', source: 'registry', slots: { count: resolved.candidates.length } }
+    ], clarificationData(resolved));
+  }
+
+  if (resolved.status !== 'resolved') {
+    /**
+     * A question the documentation does not answer is answered as such.
+     *
+     * Serving the nearest topic would be the friendlier-looking behaviour and the more dangerous
+     * one: a cited answer to a question nobody asked reads exactly like a cited answer to the
+     * question they did ask.
+     */
+    return ask({ query }, resolved.candidates.map((topic) => topic.id), 'explain.no-match', [
+      { code: 'explain.no-match', source: 'unavailable', slots: { query } }
+    ], clarificationData(resolved));
+  }
+
+  /**
+   * The CLI's whole served text, in as many parts as the hosts' inline bound needs. A single part is
+   * the common case; a long topic's later parts are read through the handles the kernel issues on
+   * the first (`data.part.read`), all in one response.
+   */
+  const parts = partsOf(resolved);
+  const index = args.part ?? 1;
+  if (index > parts.length) {
+    return sflowResult({
+      kind: 'refusal',
+      operation: { id: 'help.explain', classification: 'read' },
+      subject,
+      outcome: { status: 'refused', messageId: 'gateway.refused', slots: { topic: resolved.topic.id } },
+      effects: noEffects(),
+      why: [{ code: 'resolution.arguments.invalid', source: 'deterministic', reference: resolved.topic.id,
+        slots: { detail: `Topic '${resolved.topic.id}' is served in ${parts.length} part(s).` } }],
+      preserved: preservedAll('explain.nothing-was-carried-out'),
+      restState: 'blocked'
+    });
+  }
+  return index === 1
+    ? servedAnswer(resolved, { subject, body: parts[0], count: parts.length })
+    : servedContinuation(resolved, { subject, body: parts[index - 1], index, count: parts.length });
 }
 
 // ---------------------------------------------------------------------------------------------------
@@ -296,9 +426,7 @@ export function explainClarificationResult(resolution) {
       ...ids.map((id, index) => topicAction(id, index, ambiguous ? 'explain.ambiguous' : 'explain.no-match')),
       ...(ambiguous ? [] : [topicAction('index', ids.length, 'explain.no-match', { label: 'List every topic' })])
     ],
-    data: ambiguous
-      ? { query: resolution.query, candidates: resolution.candidates.map((topic) => topic.id), helpIntent: resolution.helpIntent }
-      : { query: resolution.query, nearest: ids, helpIntent: resolution.helpIntent }
+    data: clarificationData(resolution)
   });
 }
 

@@ -42,11 +42,22 @@ const AUTHORITIES = {
   }
 };
 
-/** The skills whose step names a tool call, and the one call each makes there. */
+const RECOMMEND_CALL = /Call `sflow_resolve` with `\{"utterance": "what should I do next"\}`, then `sflow_read` its one\s+read handle \(`next\[0\]\.handle`\) as `resolutionId`|call `sflow_resolve` with `\{"utterance": "what should I do next"\}`, then `sflow_read` its one read handle \(`next\[0\]\.handle`\) as `resolutionId`/u;
+const EXPLAIN_CALL = /call `sflow_explain` with `\{"question": "\$ARGUMENTS"\}`, then `sflow_read` each handle in its `data\.part\.read` as `resolutionId` in the same response; its `data\.body` and theirs, in part order, are `data\.served\.text`\./u;
+
+/**
+ * The skills whose step names a tool call: the call (exact), the CLI command it stands beside, and
+ * what that step said before that must still be there. The answers are held to the CLI's JSON here
+ * (recommend) and in int-skill-gateway-reads.test.mjs (docs, help).
+ */
 const SWITCHED = Object.freeze({
-  'sflow-recommend': 'singularity-flow recommend --json',
-  'sflow-home': 'singularity-flow recommend --json',
-  'sflow-advise': 'singularity-flow recommend --json'
+  'sflow-recommend': { call: RECOMMEND_CALL, command: 'singularity-flow recommend --json', kept: [] },
+  'sflow-home': { call: RECOMMEND_CALL, command: 'singularity-flow recommend --json', kept: ["singularity-flow home --json --request '$ARGUMENTS'"] },
+  'sflow-advise': { call: RECOMMEND_CALL, command: 'singularity-flow recommend --json', kept: ["singularity-flow home --json --request '$ARGUMENTS'"] },
+  'sflow-docs': { call: EXPLAIN_CALL, command: "singularity-flow explain '$ARGUMENTS' --json",
+    kept: ["each inner `'` as `'\\''` (PowerShell `''`) so nothing expands", 'run `singularity-flow explain --json` for the topic catalog', 'Do not map the question to a topic from model memory.'] },
+  'sflow-help': { call: EXPLAIN_CALL, command: "singularity-flow explain '$ARGUMENTS' --json",
+    kept: ["each inner `'` as `'\\''` (PowerShell `''`) so nothing expands", 'Relay only `data.served.text`, its citation/provenance, warnings, and related actions.', 'Never answer product behavior from model memory.'] }
 });
 
 async function skillBody(name) {
@@ -84,7 +95,7 @@ test('tool first, the same CLI command otherwise, and no new reason to stop', as
   ]) assert.ok(GATEWAY_TOOLS_CLAUSE.includes(required), required);
   // The clause adds no stop, relay, hand-off or question: every way a tool can fail runs the CLI read.
   assert.doesNotMatch(GATEWAY_TOOLS_CLAUSE, /\b(?:stop|stops|relay|hand(?:s)? off|hand-off|ask(?:s)?|wait)\b/iu);
-  for (const [name, command] of Object.entries(SWITCHED)) {
+  for (const [name, { call, command, kept }] of Object.entries(SWITCHED)) {
     const body = await skillBody(name);
     const pause = body.indexOf(COPILOT_PAUSE_MARKER);
     const pauseLineEnd = body.indexOf('\n', body.indexOf('\n', pause) + 1);
@@ -93,11 +104,11 @@ test('tool first, the same CLI command otherwise, and no new reason to stop', as
     assert.equal(steps.length, 1, `${name}: one step names its tool calls`);
     const [step] = steps;
     // The tool call, exactly, and the CLI command it replaces in the same step as its fallback.
-    assert.match(step, /Call `sflow_resolve` with `\{"utterance": "what should I do next"\}`, then `sflow_read` its one\s+read handle \(`next\[0\]\.handle`\) as `resolutionId`|call `sflow_resolve` with `\{"utterance": "what should I do next"\}`, then `sflow_read` its one read handle \(`next\[0\]\.handle`\) as `resolutionId`/u, name);
+    assert.match(step, call, name);
     assert.ok(step.includes(`\`${command}\``), `${name}: the CLI command stays in the step`);
-    assert.ok(step.indexOf('sflow_resolve') < step.indexOf(command), `${name}: the tool comes first`);
-    // Nothing the step said before was lost: the requested-text path keeps its exact quoting.
-    if (name !== 'sflow-recommend') assert.ok(step.includes("singularity-flow home --json --request '$ARGUMENTS'"), name);
+    assert.ok(step.search(/`sflow_(?:resolve|explain)`/u) < step.indexOf(command), `${name}: the tool comes first`);
+    // Nothing the step said before was lost: the CLI path keeps its exact quoting and rules.
+    for (const sentence of kept) assert.ok(step.includes(sentence), `${name}: ${sentence}`);
   }
 });
 

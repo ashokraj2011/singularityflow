@@ -388,7 +388,8 @@ export const ARGUMENT_SCHEMAS = Object.freeze([
   }),
   schema('watch-create-v1', { subjectId: required('identifier'), predicate: required('identifier') }),
   schema('watch-revoke-v1', { watchId: required('identifier') }),
-  schema('help-explain-v1', { question: required('text'), topic: optional('identifier') }),
+  // `part`: a long topic's further part, named by the read handle the kernel issued for it.
+  schema('help-explain-v1', { question: required('text'), topic: optional('identifier'), part: optional('integer', { min: 1, max: 64 }) }),
   ...hostActionSchemas()
 ]);
 

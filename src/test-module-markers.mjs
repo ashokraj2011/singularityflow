@@ -353,7 +353,11 @@ export async function nodeTestCommands(root, module, { manager, unitOnly = false
     }
   }
   const candidates = [];
+  // npm runs pre<name> and post<name> with <name>: a hook's runner is part of that script's run (and of its
+  // pin), never a command of its own.
+  const hook = (name) => { const of = /^(?:pre|post)(.+)$/u.exec(name ?? '')?.[1]; return Boolean(of) && Object.hasOwn(scripts, of); };
   for (const step of byStep.values()) {
+    if (hook(step.script)) continue;
     const candidate = await nodeCandidate(root, cwd, step, { manager, dependencies });
     if (candidate && candidate.build('_')) candidates.push(candidate);
   }

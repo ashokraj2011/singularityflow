@@ -18,6 +18,7 @@
  */
 import { escape } from './webview.ts';
 import { commandGuidance, modelFreeRouteHtml } from '../copilot-command.ts';
+import { identifierWords } from '../../../../src/gateway/argument-schemas.mjs';
 
 /** The shape `formModel()` returns. Declared here so the page can be typed against the model. */
 export type FormField = {
@@ -70,7 +71,8 @@ const id = (schemaId: string, name: string) => `sf-${schemaId}-${name}`;
  */
 function control(schemaId: string, field: FormField, problem: string | null): string {
   const fieldId = id(schemaId, field.name);
-  const label = `<label for="${escape(fieldId)}">${escape(field.label ?? field.name)}${
+  // Never the wire name: a field that somehow arrives without a label still reads as words.
+  const label = `<label for="${escape(fieldId)}">${escape(field.label || identifierWords(field.name))}${
     field.required ? '<span class="sf-required" aria-hidden="true">*</span>' : ''}</label>`;
   const note = problem ? `<p class="sf-form-problem">${escape(problem)}</p>` : '';
   const common = `id="${escape(fieldId)}" name="${escape(field.name)}"${field.required ? ' required' : ''}`;
@@ -141,7 +143,8 @@ export function formHtml(view: FormView, {
 
   const gap = view.unrenderable.length
     ? `<p class="sf-form-gap">${escape(
-      `This build has no input for: ${view.unrenderable.join(', ')}. Use the terminal equivalent below.`)}</p>`
+      `This build has no input for: ${view.unrenderable.map((name) => view.fields.find((field) => field.name === name)?.label
+        || identifierWords(name)).join(', ')}. Use the terminal equivalent below.`)}</p>`
     : '';
 
   /**

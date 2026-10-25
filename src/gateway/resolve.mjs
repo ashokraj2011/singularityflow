@@ -18,7 +18,7 @@
  * arrive as arguments, which is what makes the kernel transport-independent `[INT:CON-032]` and
  * makes the same inputs produce the same resolution every time `[INT:REQ-030]`.
  */
-import { validateArguments } from './argument-schemas.mjs';
+import { fieldLabel, validateArguments } from './argument-schemas.mjs';
 import { planDeveloperConversation } from './conversation.mjs';
 import { BROAD_GOALS, isBroadGoal } from './goals.mjs';
 import { normalizeAlias } from './registry.mjs';
@@ -183,6 +183,9 @@ function clarification(utterance, why, context) {
  */
 function missingArguments(incomplete, context) {
   const entries = [...incomplete.entries()];
+  const operationOf = (operationId) => context.registry.operations.find((entry) => entry.id === operationId);
+  // `fields` keeps the argument names a caller sends back; `labels` is what a person is asked for.
+  const labels = (operationId, fields) => fields.map((field) => fieldLabel(operationOf(operationId)?.gateway?.argumentSchema, field)).join(', ');
   return sflowResult({
     kind: 'clarification',
     operation: { id: entries.length === 1 ? entries[0][0] : 'gateway.resolve', classification: 'read' },
@@ -197,10 +200,10 @@ function missingArguments(incomplete, context) {
       code: 'resolution.arguments.missing',
       source: 'deterministic',
       reference: operationId,
-      slots: { fields: fields.join(', ') }
+      slots: { fields: fields.join(', '), labels: labels(operationId, fields) }
     })),
     next: entries.map(([operationId, fields], index) => {
-      const operation = context.registry.operations.find((entry) => entry.id === operationId);
+      const operation = operationOf(operationId);
       const { reference } = context.handles.issueSelection({
         operationId,
         classification: operation.classification,
@@ -210,7 +213,7 @@ function missingArguments(incomplete, context) {
       return {
         handle: reference.id,
         id: `needs:${operationId}`,
-        label: `${operationId} — needs ${fields.join(', ')}`,
+        label: `${operationId} — needs ${labels(operationId, fields)}`,
         rank: index,
         kind: 'clarification',
         reasonCode: 'resolution.arguments.missing',

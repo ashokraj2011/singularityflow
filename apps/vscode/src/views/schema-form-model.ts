@@ -20,12 +20,15 @@
  * it, which is where a refusal can be rendered as a card.
  */
 import type { InboundMessage } from './messages.ts';
+import { identifierWords } from '../../../../src/gateway/argument-schemas.mjs';
 
 /** The control a field is drawn as. Derived from the schema's type, never chosen per panel. */
 export type FieldControl = 'text' | 'multiline' | 'select' | 'checkbox' | 'path' | 'confirmation';
 
 export type FormField = {
   readonly name: string;
+  /** What the field is called on screen: the schema's label, never the wire name. */
+  readonly label: string;
   readonly control: FieldControl;
   readonly required: boolean;
   /** Present only for `select`; the schema's own enum values, in the order it declares them. */
@@ -86,7 +89,7 @@ const HINTS: Readonly<Record<string, string>> = Object.freeze({
  * *operation* — an authorization asks for it, a read does not — so the caller names which field
  * carries it. That keeps `argument-schemas.mjs` describing arguments rather than ceremony.
  */
-export function schemaForm(schema: { id: string; fields: Record<string, { type: string; required?: boolean; values?: readonly string[] }> },
+export function schemaForm(schema: { id: string; fields: Record<string, { type: string; required?: boolean; values?: readonly string[]; label?: string }> },
   { confirmationField = null, confirmationExample = null }: {
     confirmationField?: string | null; confirmationExample?: string | null;
   } = {}): SchemaForm {
@@ -95,6 +98,7 @@ export function schemaForm(schema: { id: string; fields: Record<string, { type: 
     const control: FieldControl = isConfirmation ? 'confirmation' : CONTROLS[spec.type] ?? 'text';
     return Object.freeze({
       name,
+      label: spec.label || identifierWords(name),
       control,
       required: Boolean(spec.required) || isConfirmation,
       options: control === 'select' ? Object.freeze([...(spec.values ?? [])]) : Object.freeze([]),

@@ -239,8 +239,14 @@ test('the Investigation view shows the kept report, and says plainly when this w
   const steps = model.sections.find((section) => section.heading === 'Evidence sequence');
   assert.deepEqual(steps.table.rows.map((row) => row[0]), EVIDENCE_SEQUENCE.map((step) => step.replaceAll('-', ' ')));
   const asked = model.sections.find((section) => section.heading === 'What was asked');
-  assert.deepEqual(asked.facts.find(([label]) => label === 'expected'), ['expected', 'given (its words are not kept in the report)']);
-  assert.match(asked.facts.find(([label]) => label === 'environment')[1], /^unknown/u, 'a missing input stays unknown');
+  // Each input under its schema label, never its argument name.
+  assert.deepEqual(asked.facts.map(([label]) => label), ['Symptom', 'Expected result', 'Environment', 'Observed version',
+    'Observed build ID', 'Failing since', 'Reproduction steps', 'Last known good revision']);
+  assert.deepEqual(asked.facts.find(([label]) => label === 'Expected result'), ['Expected result', 'given (its words are not kept in the report)']);
+  assert.match(asked.facts.find(([label]) => label === 'Environment')[1], /^unknown/u, 'a missing input stays unknown');
+  assert.ok(model.sections.find((section) => section.heading.startsWith('Missing, unknown')).items.includes('Unknown: Last known good revision'));
+  assert.ok(model.sections.find((section) => section.heading === 'Observations and correlations').table.rows
+    .some((row) => row[3] === 'Observed version: not given'), 'an unknown input is recorded in words');
   assert.match(text(hostRecordHtml(model, 'r1')), /None recorded — a person concludes/u);
   assert.match(model.sections.find((section) => section.heading === 'Change range and bisection').note, /No bisection was offered/u);
 

@@ -57,7 +57,7 @@ export const RESULT_MESSAGES = Object.freeze({
   'resolution.no-match': M('Nothing matched that', 'Pick one of the goals below, or ask what SFlow can do.'),
   'resolution.not-legal-now': M('Not available in this state'),
   'resolution.arguments.invalid': M('One of the values is not valid'),
-  'resolution.arguments.missing': M('Something is missing', 'Supply {fields} and this can be resolved.'),
+  'resolution.arguments.missing': M('Something is missing', 'Supply {labels} and this can be resolved.'),
   'resolution.denied-by-policy': M('Policy does not allow this'),
   'resolution.goal-alone-cannot-write': M('A goal alone cannot change anything', 'One candidate is still a candidate. Choose it and it will be resolved.'),
   'resolution.ambiguous': M('More than one thing matches'),

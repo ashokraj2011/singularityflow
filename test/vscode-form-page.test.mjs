@@ -71,7 +71,8 @@ test('a partial form says so rather than submitting fewer arguments', () => {
   // Otherwise the operation refuses it and the reader has no clue why.
   const html = formHtml({ schemaId: 'test-v1', unrenderable: ['targetPath'], fields: [] },
     { terminal: 'sflow workspace materialize --target-path ...' });
-  assert.match(html, /no input for: targetPath/);
+  // Named in words, as the field would have been labelled, not as the argument.
+  assert.match(html, /no input for: Target path\./);
   assert.match(html, /Terminal equivalent/);
   assert.match(html, /<strong>Shell<\/strong>/);
   assert.match(html, /<strong>Copilot<\/strong>/);

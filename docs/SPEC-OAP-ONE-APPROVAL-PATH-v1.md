@@ -209,7 +209,7 @@ Built in M3 (2026-10-24):
   - a list holding only the person's own steps is relayed, and the turn continues to the routing
     decision, never ending there;
   - it names a listed approval's `/sf-approve` route;
-  - continuing straight into the approval is M4.
+  - continuing straight into the approval came in M4.
 - Guard: `test/oap-m3-one-list.test.mjs`.
   - Every concept in the table above has an item kind or is a machine item (`PENDING_CONCEPTS`).
   - Every approval-check hold code lands on an item (`holdItemKind`).
@@ -260,6 +260,65 @@ The same three moments on every surface: **review → decide → confirm once.**
   form. Their own fields carry forward any decisions already recorded, so they answer only what is
   theirs.
 
+Built in M4 (2026-10-25):
+
+- **The receipt binds the review.** An approval receipt (`choices begin approve`) has no expiry and
+  is not bound to HEAD (`binding: review-digest`, src/choices.mjs). It holds the review it was
+  opened for: the submitted packet, generation, artifacts and briefs. A changed review refuses it
+  (`APPROVAL_REVIEW_CHANGED`), naming what changed and routing to the current review. Commits after
+  the submission stay the approval gate's to judge, by name. Opening a new review of the Story
+  removes this checkout's receipts for older reviews, and an approval removes the other receipts for
+  the review it approved. Story-start receipts keep their 15 minutes.
+- **One commit.** `approve` records the approver's own decisions with the approval: `--choose
+  ITEM=OPTION` (with `--reason`, `--expires`, `--cause`) and the list's `--decisions sha256:DIGEST`.
+  - Each answer is checked as `decisions record` checks it: the list's digest, the option and the
+    person's approval group (src/approval-decisions.mjs).
+  - Each record is written through the function its own command uses. The test-risk, evidence-reuse,
+    visual-profile and upstream-issue recorders each expose a checked "part" that their own commit
+    and the approval's transaction both write.
+  - The decisions are written into the approval's aggregate before the approval is evaluated. So
+    the approval sees them, and they never count as commits after the submission.
+  - The approval commit's subject says how many decision records it carries. Its `phase-approved`
+    event lists them (`payload.decisions`).
+  - A return (it rejects instead of approving) or a Story test command (it changes what the review
+    ran) is refused with the list as its route (`APPROVAL_DECISION_NOT_IN_APPROVAL`). Nothing is
+    written when any answer is refused.
+  - `decisions` names the route when every decision holding the approval is one the approver can
+    answer in it (`inApproval`). Its preview carries `withApproval`: the flags, the terminal command
+    and whether a chat turn may record them.
+- **The phase is typed once.** In an interactive terminal, `phase show` (and `approve` itself,
+  before its prompt) records that this terminal showed the review (src/terminal-review.mjs). The
+  record is bound to the Story, step, generation, submitted packet, Git identity and the shell that
+  ran the command. `approve <PHASE>` from the same shell for the same review is then the
+  confirmation; anything else asks for the phase as before.
+  - Decisions that hold the step and that the approver may make are asked in place, before the typed
+    phase, and recorded in the same commit.
+  - When those decisions are asked after an `approve <PHASE>` that counted as the confirmation, the
+    phase is asked once to confirm them.
+- **VS Code** shows those decisions in the approval form ("Decide in this approval"), each with only
+  the options an approval records and their defaults. The answers become the same flags
+  (`storyApprovalArguments`, `inApprovalOf` in apps/vscode/src/decisions.ts). The "Decide what
+  blocks this step first" section stays only for holds the approval cannot answer.
+- **Copilot keeps working.**
+  - `/sf-decide` continues into the approval (/sf-approve steps 1-6) in the same turn when only the
+    approval is left. When the person's choices hold the approval and a chat turn may record them,
+    they are carried into the approval with `withApproval.flags`, so the result is one commit.
+  - `/sf-approve` adds those flags.
+  - The guard lets an approval in a chat turn carry only the upstream-issue options a chat turn may
+    record, never a return, always with the list's digest. A `/sf-decide` turn may run the same
+    receipt-bound approval commands, for its own Story only.
+  - Reusing a recorded run or accepting a test-run risk stays the person's own step in their
+    terminal or the VS Code form.
+- Guard: `test/oap-m4-one-ceremony.test.mjs`.
+  - A 40-minute review still approves, with the receipt it began, after a review-safe commit.
+  - A dismissed upstream issue and the approval are one commit, named in its event. The decision
+    list is read as at the Story's last step, the only step that lists such issues.
+  - A return, a stale list and a missing digest write nothing.
+  - The terminal record answers only for its own review, identity and shell.
+  - The VS Code form's arguments are the ones the CLI parses.
+  - The chat-turn rules are pinned in `test/phase-mutation-contract.test.mjs`; the continue
+    sentences in `scripts/skill-policy.mjs`.
+
 ### 5. Request changes is one action
 
 - A step that needs `author-repairs` gets one action, "Request changes": the reason, and the target
@@ -279,7 +338,7 @@ Each milestone ends with a real VS Code walk over CDP and, once Copilot is invol
 | M1 One check (done 2026-10-24) | `evaluateApproval` and the record step; owner classes; readiness, packet, phase show, Reviews, Approvals, the approval page and `nextsteps` read it | guard test: no refusal is found only at approve time; "Approve" is not offered on a held step; checked in the real extension |
 | M2 Review effects (done 2026-10-24) | `REVIEW_EFFECTS` registry; intent-amendment propose/reject/acknowledge are review-safe; `decision test-command` stays refused during review (M0) | the amendment-after-submission fixture (test/approval-intervening-commits.test.mjs): propose, then reject the amendment, then approve planning with no resubmission |
 | M3 One list (done 2026-10-24) | The decision list holds every pending kind and the approval; all surfaces count from it; `sync` and `push retry` unify | equal counts across surfaces (test/oap-m3-one-list.test.mjs); no pending kind is missing from the list (`PENDING_CONCEPTS`, `holdItemKind`) |
-| M4 One ceremony | Decisions recorded in the approval commit; digest-bound receipt; phase typed once; `/sf-decide` continues to approval | simplest approval: one review plus one confirmation on every surface; a 40-minute review still approves |
+| M4 One ceremony (done 2026-10-25) | Decisions recorded in the approval commit; digest-bound receipt; phase typed once; `/sf-decide` continues to approval | simplest approval: one review plus one confirmation on every surface; a 40-minute review still approves |
 | M5 Next step in place | Result and next action on the approving surface; one context-reset suggestion for Copilot | VS Code and terminal approvals never send the person to Copilot to continue |
 
 Order: M0 first, because it is small and fixes real refusals. M1 next, because everything else reads

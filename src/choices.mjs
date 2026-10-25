@@ -11,6 +11,12 @@ import { agentBriefReviewDocuments, verifyAgentBriefsForReview } from './agent-b
 import { workDirRelative } from './story-paths.mjs';
 
 const RECEIPT_TTL_MS = 15 * 60 * 1000;
+/**
+ * An approval receipt is bound to what was reviewed, not to a clock or to HEAD [SPEC-OAP M4]: the
+ * review packet, generation, artifacts and briefs. A long review still approves; a changed review
+ * never does. Commits after the submission are the approval gate's to judge, by name.
+ */
+const REVIEW_BOUND = 'review-digest';
 const RECEIPT_LOCK_TIMEOUT_MS = 5 * 1000;
 const RECEIPT_LOCK_STALE_MS = 60 * 1000;
 const TOKEN_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/;
@@ -235,8 +241,14 @@ function validateReceipt(receipt, token) {
   }
   if (typeof receipt.ready !== 'boolean') throw new SingularityFlowError('The selection receipt has an invalid readiness state.');
   const createdAt = Date.parse(receipt.createdAt ?? '');
-  const expiresAt = Date.parse(receipt.expiresAt ?? '');
   if (!Number.isFinite(createdAt)) throw new SingularityFlowError('The selection receipt creation timestamp is invalid.');
+  if (receipt.binding === REVIEW_BOUND) {
+    if (receipt.action !== 'approve' || receipt.expiresAt !== null || !receipt.approvalContext?.reviewPacketSha256) {
+      throw new SingularityFlowError('The selection receipt\'s review binding is invalid.');
+    }
+    return receipt;
+  }
+  const expiresAt = Date.parse(receipt.expiresAt ?? '');
   if (!Number.isFinite(expiresAt) || expiresAt <= createdAt || expiresAt - createdAt > RECEIPT_TTL_MS) {
     throw new SingularityFlowError('The selection receipt expiry timestamp is invalid.');
   }
@@ -305,7 +317,7 @@ async function withReceiptMutation(root, token, operation) {
 }
 
 async function assertActive(root, receipt) {
-  if (Date.parse(receipt.expiresAt) <= Date.now()) throw new SingularityFlowError('The selection receipt expired. Ask the contributor to make the choices again.');
+  if (receipt.binding !== REVIEW_BOUND && Date.parse(receipt.expiresAt) <= Date.now()) throw new SingularityFlowError('The selection receipt expired. Ask the contributor to make the choices again.');
   const copilot = await loadCopilotSession(root);
   if (receipt.copilotSessionId && copilot?.sessionId !== receipt.copilotSessionId) {
     throw new SingularityFlowError('The selection receipt belongs to a different Copilot session.');
@@ -325,7 +337,7 @@ async function removeExpired(root) {
     try {
       await withReceiptMutation(root, token, async () => {
         const receipt = await readReceipt(root, token);
-        if (Date.parse(receipt.expiresAt) <= Date.now()) await unlink(receiptPath(root, token));
+        if (receipt.binding !== REVIEW_BOUND && Date.parse(receipt.expiresAt) <= Date.now()) await unlink(receiptPath(root, token));
       });
     } catch { /* Invalid local receipts remain unusable and are handled when explicitly referenced. */ }
   }));
@@ -333,12 +345,54 @@ async function removeExpired(root) {
 
 export async function beginSelectionReceipt(root, definition, { action, workId, workflow = null }) {
   if (action === 'approve') await assertApprovalBriefsReviewable(root, definition, workflow);
+  const context = action === 'approve' ? approvalContext(workflow) : null;
+  // An earlier receipt for another review of this Story can never be used again.
+  if (context) await removeApprovalReceipts(root, workId, (receipt) => !sameReview(receipt.approvalContext, context));
   return beginCustomSelectionReceipt(root, {
     action,
     workId,
-    context: action === 'approve' ? approvalContext(workflow) : null,
+    context,
     choiceSets: await choiceSets(root, definition, action, workflow)
   });
+}
+
+/** The parts of an approval context a person reviewed; a plan ID also binds the HEAD it began at. */
+function reviewed(context) {
+  if (!context) return null;
+  const { planId: ignored, ...review } = context;
+  return review;
+}
+
+function sameReview(left, right) {
+  return JSON.stringify(reviewed(left)) === JSON.stringify(reviewed(right));
+}
+
+/** What changed between the review a receipt holds and the current one, in words. */
+function reviewChanges(was, now) {
+  if (!was || !now) return ['the review'];
+  const changes = [];
+  if (was.phase !== now.phase || was.generation !== now.generation) changes.push(`${now.phase} is now generation ${now.generation}`);
+  if (was.reviewPacketSha256 !== now.reviewPacketSha256 || was.submittedSourceCommit !== now.submittedSourceCommit) changes.push('its submitted packet');
+  if (JSON.stringify(was.artifacts) !== JSON.stringify(now.artifacts)) changes.push('its artifacts');
+  if (JSON.stringify(was.agentBriefs) !== JSON.stringify(now.agentBriefs)) changes.push('its briefs');
+  return changes.length ? changes : ['the review'];
+}
+
+/** Remove this checkout's approval receipts for one Story that `drop` selects; cleanup never refuses. */
+export async function removeApprovalReceipts(root, workId, drop = () => true) {
+  let files = [];
+  try { files = await readdir(receiptDirectory(root)); }
+  catch { return; }
+  await Promise.all(files.filter((file) => file.endsWith('.json')).map(async (file) => {
+    const token = file.slice(0, -'.json'.length);
+    if (!TOKEN_PATTERN.test(token)) return;
+    try {
+      await withReceiptMutation(root, token, async () => {
+        const receipt = await readReceipt(root, token);
+        if (receipt.action === 'approve' && receipt.workId === workId && drop(receipt)) await unlink(receiptPath(root, token));
+      });
+    } catch { /* An unreadable receipt stays unusable and is reported when it is referenced. */ }
+  }));
 }
 
 export async function beginCustomSelectionReceipt(root, { action, workId, choiceSets: configuredChoices, context = null }) {
@@ -347,6 +401,7 @@ export async function beginCustomSelectionReceipt(root, { action, workId, choice
   const createdAt = new Date();
   const repositoryHead = head(root);
   const boundContext = bindActionContext(action, workId, repositoryHead, context);
+  const reviewBound = action === 'approve' && Boolean(boundContext?.reviewPacketSha256);
   const receipt = {
     schemaVersion: currentSchemaVersion('selection-receipt'),
     token: randomUUID(),
@@ -355,7 +410,8 @@ export async function beginCustomSelectionReceipt(root, { action, workId, choice
     repositoryHead,
     copilotSessionId: copilot?.sessionId ?? null,
     createdAt: createdAt.toISOString(),
-    expiresAt: new Date(createdAt.getTime() + RECEIPT_TTL_MS).toISOString(),
+    expiresAt: reviewBound ? null : new Date(createdAt.getTime() + RECEIPT_TTL_MS).toISOString(),
+    ...(reviewBound ? { binding: REVIEW_BOUND } : {}),
     ...(boundContext ? { actionContext: boundContext, ...(action === 'approve' ? { approvalContext: boundContext } : {}) } : {}),
     choiceSets: configuredChoices,
     answers: {},
@@ -402,7 +458,17 @@ export async function resolveCustomSelectionReceipt(root, token, { action, workI
   if (receipt.action !== action || receipt.workId !== workId) {
     throw new SingularityFlowError(`The selection receipt is for ${receipt.action} ${receipt.workId}, not ${action} ${workId}.`);
   }
-  if (receipt.repositoryHead !== head(root)) {
+  if (receipt.binding === REVIEW_BOUND) {
+    if (!sameReview(receipt.approvalContext, context)) {
+      const phase = context?.phase ?? receipt.approvalContext?.phase;
+      const command = `singularity-flow approve ${phase} --work-id ${workId} --fetch`;
+      throw new SingularityFlowError(
+        `The review you opened for ${workId} changed (${reviewChanges(receipt.approvalContext, context).join(', ')}), so approving would not approve what you read. `
+          + `Nothing was recorded. Open the current review: ${command}`,
+        { code: 'APPROVAL_REVIEW_CHANGED', details: { workId, phase, changed: reviewChanges(receipt.approvalContext, context),
+          nextAction: { command, skill: '/sf-approve', label: `Open the current ${phase} review.` } } });
+    }
+  } else if (receipt.repositoryHead !== head(root)) {
     throw new SingularityFlowError('The selection receipt is stale because the repository HEAD changed. Ask the contributor to review the choices again.');
   }
   const boundContext = bindActionContext(action, workId, receipt.repositoryHead, context);

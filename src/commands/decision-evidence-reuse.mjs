@@ -35,11 +35,11 @@ export function evidenceReuseAuthorities(workflow, phaseId) {
 }
 
 /**
- * Record one evidence-reuse decision for `phaseId` (the attempt verified against the current source
- * first), or the revocation named by `revoke`, and commit it. The command and the decision list
- * both record through this, so the source binding, authority and record are the same.
+ * One evidence-reuse decision for `phaseId` (the attempt verified against the current source first),
+ * or the revocation named by `revoke`, checked and ready to write into a transaction. Its own commit
+ * and an approval's both write it [SPEC-OAP M4], so the source binding, authority and record are the same.
  */
-export async function recordEvidenceReuseDecision(root, config, workflow, {
+export async function evidenceReuseDecisionPart(root, config, workflow, {
   phaseId, attemptId = null, revoke = null, reason = '', expires = null
 }, { actor, agent = null }) {
   const id = workflow.workItem.id;
@@ -60,15 +60,10 @@ export async function recordEvidenceReuseDecision(root, config, workflow, {
     ? recordEvidenceReuseRevocation(aggregate, { reuseId: revoke, ...common })
     : recordEvidenceReuse(aggregate, { phaseId, candidate: prepared, expires: expires ?? null, ...common });
   decide(structuredClone(workflow));
-  const { value: record, publication } = await transactStory(
-    root, config, workflow,
-    {
-      type: LIFECYCLE_EVENT.DECISION_MADE, phaseId, generation: null,
-      actor, agent, authorityGroup: authority.authorityGroup, payload: { decision: 'evidence-reuse' }
-    },
-    `[${id}][evidence-reuse:${revoke ? 'revoke' : 'accept'}] ${revoke ?? `${phaseId} ${attemptId}`}`,
-    async (aggregate) => {
-      await assertNoPendingPublication(root, config, aggregate, 'record an evidence-reuse decision');
+  return {
+    decision: 'evidence-reuse', phaseId, authority,
+    message: `[${id}][evidence-reuse:${revoke ? 'revoke' : 'accept'}] ${revoke ?? `${phaseId} ${attemptId}`}`,
+    write(aggregate) {
       const recorded = decide(aggregate);
       aggregate.history.push({
         at: recorded.at, actor: recorded.actor, agent, event: 'evidence_reuse_decided', phase: phaseId,
@@ -77,6 +72,28 @@ export async function recordEvidenceReuseDecision(root, config, workflow, {
           : `${recorded.id} ${evidenceReuseLabel(recorded)}${recorded.expiresAt ? `, until ${recorded.expiresAt.slice(0, 10)}` : ''}. ${recorded.reason}`
       });
       return recorded;
+    },
+    record: (recorded) => recorded.revokes ?? recorded.id
+  };
+}
+
+/**
+ * Record one evidence-reuse decision for `phaseId` (the attempt verified against the current source
+ * first), or the revocation named by `revoke`, and commit it. The command and the decision list
+ * both record through this; an approval writes the same part into its own commit [SPEC-OAP M4].
+ */
+export async function recordEvidenceReuseDecision(root, config, workflow, request, { actor, agent = null }) {
+  const part = await evidenceReuseDecisionPart(root, config, workflow, request, { actor, agent });
+  const { value: record, publication } = await transactStory(
+    root, config, workflow,
+    {
+      type: LIFECYCLE_EVENT.DECISION_MADE, phaseId: part.phaseId, generation: null,
+      actor, agent, authorityGroup: part.authority.authorityGroup, payload: { decision: 'evidence-reuse' }
+    },
+    part.message,
+    async (aggregate) => {
+      await assertNoPendingPublication(root, config, aggregate, 'record an evidence-reuse decision');
+      return part.write(aggregate);
     },
     {
       eventFromResult: (recorded) => ({

@@ -18,8 +18,9 @@ import { CliError, formatCliArgsForDisplay, softSequenceGate } from './cli/runne
 import { commandPlaceholders, fillPlaceholders, placeholderPrompt } from './commands.ts';
 import { showRefusal } from './views/result-panel.ts';
 import type {
-  ApprovalChecklistDecision, WitnessMappingDecision
+  ApprovalChecklistDecision, InApprovalDecision, InApprovalItem, WitnessMappingDecision
 } from './views/approval-review.ts';
+import { inApprovalOf } from './decisions.ts';
 import { commandGuidance, modelFreeRouteText } from './copilot-command.ts';
 import { phasePublicationSummary, phasePublicationProgressLabel } from './phase-publication.ts';
 
@@ -437,6 +438,7 @@ export async function approveWithReceipt(
 
   let storyReview: StoryReviewBundle | null = null;
   let pendingDecisions: { count: number; headline: string } | null = null;
+  let inApproval: { digest: string; items: InApprovalItem[] } | null = null;
   let blockingCommits: unknown = null;
   let approvalCheck: unknown = null;
   let testRun: { label: string; totals: string } | null = null;
@@ -447,7 +449,8 @@ export async function approveWithReceipt(
       if (!(await stillCurrent())) return false;
       // What the approval would be refused for, read beside the bundle: the page then offers the
       // decision list first. A failed read shows nothing extra; the approval gate still decides.
-      const decisions = client.run<{ data?: { items?: unknown[]; holding?: number; headline?: string } }>(
+      const decisions = client.run<{ data?: { items?: unknown[]; holding?: number; headline?: string; packetSha256?: string;
+        inApproval?: { items?: string[]; options?: Record<string, string[]> } } }>(
         ['decisions', request.workId, '--phase', request.phaseId, '--json']).catch(() => null);
       // Commits after the submission that approval would refuse for (an undecided intent amendment
       // among them), named on the page before the person reviews. Advisory, read the same way.
@@ -464,6 +467,7 @@ export async function approveWithReceipt(
       // Only the decisions approval refuses for hold the page (SPEC-OAP D5); the list may hold others.
       const holding = typeof listed?.holding === 'number' ? listed.holding : Array.isArray(listed?.items) ? listed.items.length : 0;
       pendingDecisions = holding && typeof listed?.headline === 'string' ? { count: holding, headline: listed.headline } : null;
+      inApproval = inApprovalOf(listed);
       const read = await readiness;
       blockingCommits = read?.blockingCommits ?? null;
       approvalCheck = read?.approvalCheck ?? null;
@@ -483,6 +487,7 @@ export async function approveWithReceipt(
   let confirmed: string | null = null;
   let checklist: ApprovalChecklistDecision[] = [];
   let witnessDecisions: WitnessMappingDecision[] = [];
+  let answered: InApprovalDecision[] = [];
   if (request.kind === 'story') {
     const { collectApprovalReview } = await import('./views/approval-review.ts');
     const actorLabel = (
@@ -507,6 +512,7 @@ export async function approveWithReceipt(
       witnessMappings: storyReview?.witnessReview?.mappings ?? [],
       evidenceConsistency: storyReview?.evidenceConsistency ?? null,
       pendingDecisions,
+      inApproval,
       blockingCommits,
       approvalCheck,
       testRun,
@@ -525,6 +531,7 @@ export async function approveWithReceipt(
     confirmed = review.confirmation;
     checklist = review.decisions;
     witnessDecisions = review.witnessDecisions;
+    answered = review.inApprovalDecisions ?? [];
   } else {
     confirmed = await askConfirmation({ expected: request.expected, summary: request.summary });
   }
@@ -546,7 +553,7 @@ export async function approveWithReceipt(
   // One builder for the CLI's argument forms (a witness exception carries its facets).
   const argv = request.kind === 'story'
     ? (await import('./views/approval-review.ts')).storyApprovalArguments({ workId: request.workId, phaseId: request.phaseId,
-      receiptToken: receipt.token, checklist, witnessDecisions })
+      receiptToken: receipt.token, checklist, witnessDecisions, inApprovalDecisions: answered, decisionsDigest: inApproval?.digest ?? null })
     : ['initiative', 'approve', request.subject, '--selection-receipt', receipt.token];
   const run = async (extra: string[] = []): Promise<boolean> => {
     if (!(await stillCurrent())) return false;

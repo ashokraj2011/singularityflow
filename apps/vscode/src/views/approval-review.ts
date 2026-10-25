@@ -32,6 +32,15 @@ export type WitnessMappingDecision = {
   /** For an exception: which parts of the test fall short. */
   inadequate?: Array<typeof WITNESS_FACETS[number]>;
 };
+/** One of the approver's own decisions, answered in the approval and recorded in its commit [SPEC-OAP M4]. */
+export type InApprovalDecision = { item: string; option: string; reason?: string; expires?: string; cause?: string };
+type DecisionNeed = { default?: string; latest?: string } | undefined;
+export type InApprovalItem = {
+  id: string;
+  title: string;
+  why?: string;
+  options: Array<{ id: string; label: string; recommended?: boolean; needs?: { reason?: DecisionNeed; expires?: DecisionNeed; cause?: DecisionNeed } }>;
+};
 export type WitnessMappingReview = {
   mappingSha256: string;
   clauseId: string;
@@ -73,6 +82,11 @@ export interface ApprovalReviewRequest {
    */
   pendingDecisions?: { count: number; headline: string } | null;
   /**
+   * The holding decisions this approver may answer in the approval itself (`decisions --json`
+   * `inApproval`), with the list digest they were read from; answered ones go in the approval commit.
+   */
+  inApproval?: { digest: string; items: InApprovalItem[] } | null;
+  /**
    * Commits after the submission that approval would refuse for (`blockingCommits` of submission
    * readiness), read beside the bundle as returned. Advisory: the approval gate checks again.
    */
@@ -89,6 +103,34 @@ export interface ApprovalReviewSubmission {
   confirmation: string;
   decisions: ApprovalChecklistDecision[];
   witnessDecisions: WitnessMappingDecision[];
+  /** The approver's own decisions, recorded with the approval [SPEC-OAP M4]. */
+  inApprovalDecisions?: InApprovalDecision[];
+}
+
+/** The answered in-approval decisions, checked against the request; a blank value takes its default. */
+function inApprovalDecisions(request: ApprovalReviewRequest, raw: InboundMessage, errors: string[]): InApprovalDecision[] {
+  const items = new Map((request.inApproval?.items ?? []).map((item) => [item.id, item]));
+  const entries = Array.isArray(raw.inApprovalDecisions) ? raw.inApprovalDecisions : [];
+  const answered: InApprovalDecision[] = [];
+  for (const value of entries) {
+    const entry = (value && typeof value === 'object' && !Array.isArray(value) ? value : {}) as Record<string, unknown>;
+    const item = items.get(typeof entry.item === 'string' ? entry.item : '');
+    const option = item?.options.find((candidate) => candidate.id === entry.option);
+    if (!item || !option || answered.some((decision) => decision.item === item.id)) {
+      errors.push(`Unknown or repeated decision '${String(entry.item ?? '(missing)')}'.`);
+      continue;
+    }
+    const decision: InApprovalDecision = { item: item.id, option: option.id };
+    for (const need of ['reason', 'expires', 'cause'] as const) {
+      if (!option.needs?.[need]) continue;
+      const typed = typeof entry[need] === 'string' ? (entry[need] as string).trim() : '';
+      const chosen = typed || option.needs[need]?.default || '';
+      if (!chosen) errors.push(`Give the ${need === 'expires' ? 'date' : need} for '${item.title}'.`);
+      else decision[need] = chosen;
+    }
+    answered.push(decision);
+  }
+  return answered;
 }
 
 type SubmissionCheck = {
@@ -203,9 +245,10 @@ export function validateApprovalReviewSubmission(
   }
   // The typed phase is the one deliberate act; a self-approval is stated, as the CLI and Copilot do,
   // and recorded as self-approval by the engine. A second tick the engine never read added nothing.
+  const answered = inApprovalDecisions(request, raw, errors);
   if (confirmation !== request.expected) errors.push(`Type exactly '${request.expected}' to approve.`);
   return {
-    value: errors.length ? null : { confirmation, decisions, witnessDecisions },
+    value: errors.length ? null : { confirmation, decisions, witnessDecisions, ...(answered.length ? { inApprovalDecisions: answered } : {}) },
     errors
   };
 }
@@ -226,9 +269,10 @@ export function approvalOutcome(output: string): { headline: string; next: strin
  * The `approve` arguments for the reviewer's recorded answers, in the form the CLI parses
  * (src/commands/approve.mjs): a witness exception carries its facets, `exception:<facet>[,<facet>]`.
  */
-export function storyApprovalArguments({ workId, phaseId, receiptToken, checklist, witnessDecisions }: {
+export function storyApprovalArguments({ workId, phaseId, receiptToken, checklist, witnessDecisions, inApprovalDecisions: answered = [], decisionsDigest = null }: {
   workId: string; phaseId: string; receiptToken: string;
   checklist: ApprovalChecklistDecision[]; witnessDecisions: WitnessMappingDecision[];
+  inApprovalDecisions?: InApprovalDecision[]; decisionsDigest?: string | null;
 }): string[] {
   const argv = ['approve', workId, '--fetch', '--phase', phaseId, '--selection-receipt', receiptToken];
   for (const entry of checklist) {
@@ -241,7 +285,33 @@ export function storyApprovalArguments({ workId, phaseId, receiptToken, checklis
     if (entry.decision !== 'satisfied' && entry.reason) argv.push('--witness-mapping-reason', entry.reason);
     if (entry.decision === 'exception' && entry.expiresAt) argv.push('--witness-mapping-expires', entry.expiresAt);
   }
+  // The approver's own decisions, with the list digest they were read from: one commit [SPEC-OAP M4].
+  if (answered.length && decisionsDigest) {
+    for (const entry of answered) {
+      argv.push('--choose', `${entry.item}=${entry.option}`);
+      for (const need of ['reason', 'expires', 'cause'] as const) if (entry[need]) argv.push(`--${need}`, `${entry.item}=${entry[need]}`);
+    }
+    argv.push('--decisions', decisionsDigest);
+  }
   return argv;
+}
+
+function inApprovalItemHtml(item: InApprovalItem): string {
+  const option = (entry: InApprovalItem['options'][number]) => `<option value="${escape(entry.id)}"`
+    + ` data-needs="${escape(['reason', 'expires', 'cause'].filter((need) => entry.needs?.[need as 'reason']).join(' '))}"`
+    + ` data-reason="${escape(entry.needs?.reason?.default ?? '')}" data-expires="${escape(entry.needs?.expires?.default ?? '')}"`
+    + ` data-latest="${escape(entry.needs?.expires?.latest ?? '')}" data-cause="${escape(entry.needs?.cause?.default ?? '')}">`
+    + `${escape(entry.label)}${entry.recommended ? ' (recommended)' : ''}</option>`;
+  return `<fieldset class="approval-article approval-decision" data-item="${escape(item.id)}">
+    <legend>${escape(item.title)}</legend>
+    ${item.why ? `<p>${escape(item.why)}</p>` : ''}
+    <label>Your decision
+      <select data-choice aria-label="${escape(item.title)} decision"><option value="">Not now</option>${item.options.map(option).join('')}</select>
+    </label>
+    <label class="approval-reason" data-need="expires" hidden>Until <input type="date" data-value="expires"></label>
+    <label class="approval-reason" data-need="cause" hidden>What stops the tests <textarea data-value="cause"></textarea></label>
+    <label class="approval-reason" data-need="reason" hidden>Reason <textarea data-value="reason"></textarea></label>
+  </fieldset>`;
 }
 
 const DECISION_OPTIONS = [
@@ -339,9 +409,16 @@ export function approvalReviewBody(request: ApprovalReviewRequest, errors: strin
       <p class="muted">Review semantic adequacy yourself. Exact identity and a passing local test do not prove the requirement.</p>
       <div class="approval-checklist">${witnessMappings.map(witnessMappingHtml).join('')}</div></section>`
     : '';
-  const held = request.pendingDecisions?.count ? `<section class="approval-held" aria-label="Decisions needed first">
+  const answerable = request.inApproval?.items ?? [];
+  const decideHere = answerable.length ? `<section aria-label="Decide in this approval">
+      <h2>Decide in this approval</h2>
+      <p class="muted">${answerable.length === 1 ? 'This decision holds' : 'These decisions hold'} the step. What you choose is recorded with the approval, in the same commit; the approval is refused while one stays undecided.</p>
+      <div class="approval-checklist">${answerable.map(inApprovalItemHtml).join('')}</div></section>` : '';
+  // Only what the approval cannot answer still sends the person to the decision list first.
+  const pending = request.pendingDecisions;
+  const held = pending && pending.count > answerable.length ? `<section class="approval-held" aria-label="Decisions needed first">
     <h2>Decide what blocks this step first</h2>
-    <p>${escape(request.pendingDecisions.headline)}</p>
+    <p>${escape(pending.headline)}</p>
     <p class="muted">Approval is refused until each one is decided. They are listed in one place, in plain words with their choices.</p>
     <button type="button" data-decide>Decide what blocks this step</button>
   </section>` : '';
@@ -357,7 +434,7 @@ export function approvalReviewBody(request: ApprovalReviewRequest, errors: strin
     </header>
     <div class="review-binding approval-binding">${binding}</div>
     ${held}${approvalHoldsHtml(approvalHolds(request.approvalCheck), { except: ['STORY_REVIEW_INTERVENING_COMMIT'] })}${approvalBlockingCommitsHtml(approvalBlockingCommits(request.blockingCommits))}${tests}${findings}${witnessed}${prior}${selfApproval}${evidenceConsistencyHtml(request.evidenceConsistency)}
-      ${checklist}${witnessReview}
+      ${decideHere}${checklist}${witnessReview}
       <section class="approval-confirmation">
         <h2>Confirm your decision</h2>
         <label for="approval-confirm">Type <code>${escape(request.expected)}</code></label>
@@ -391,6 +468,8 @@ body > .page-nav button { flex:none; white-space:nowrap; }
 .approval-article select, .approval-article textarea, .witness-mapping select, .witness-mapping textarea, .witness-mapping input, .approval-confirmation input { width:100%; padding:.48rem .6rem; color:var(--vscode-input-foreground); background:var(--vscode-input-background); border:1px solid var(--vscode-input-border,var(--sf-border-color)); border-radius:3px; font:inherit; }
 .approval-article textarea, .witness-mapping textarea { min-height:5rem; resize:vertical; }
 .approval-reason span { color:var(--sf-dim); font-size:.75rem; font-weight:400; }
+/* A field the chosen option does not need; the labels' own display would otherwise show it. */
+.approval-decision [data-need][hidden] { display:none; }
 .approval-reason:has(textarea:disabled) { opacity:.58; }
 .approval-self { margin:1rem 0; padding:1rem; border:1px solid var(--sf-wait); border-left:4px solid var(--sf-wait); border-radius:var(--sf-radius); background:var(--vscode-inputValidation-warningBackground,var(--sf-surface)); }
 .approval-self h2 { margin-top:0; color:var(--sf-wait); }
@@ -414,8 +493,10 @@ const REVIEW_SCRIPT = `
   if (!form) return;
   const submit = form.querySelector('button[type="submit"]');
   const error = form.querySelector('.approval-errors');
-  const rows = Array.from(form.querySelectorAll('.approval-article'));
+  // Checklist articles only: a decision in this approval shares their look, not their fields.
+  const rows = Array.from(form.querySelectorAll('.approval-article[data-article]'));
   const witnessRows = Array.from(form.querySelectorAll('.witness-mapping'));
+  const decisionRows = Array.from(form.querySelectorAll('.approval-decision'));
   const progress = form.querySelector('[data-progress]');
   const api = window.__sfVscode;
   // Decisions survive a hidden tab or a host-side error re-render. The typed confirmation is never
@@ -434,6 +515,10 @@ const REVIEW_SCRIPT = `
         facets: facets(row)
       };
     }
+    for (const row of decisionRows) {
+      saved['item:' + row.dataset.item] = { choice: row.querySelector('[data-choice]').value,
+        values: Object.fromEntries(Array.from(row.querySelectorAll('[data-value]')).map((field) => [field.dataset.value, field.value])) };
+    }
     api.setState({ decisions: saved });
   }
   const restored = (api.getState() || {}).decisions || {};
@@ -444,6 +529,34 @@ const REVIEW_SCRIPT = `
     row.querySelector('[data-reason]').value = value.reason || '';
     if (row.querySelector('[data-expiry]')) row.querySelector('[data-expiry]').value = value.expiry || '';
     for (const box of row.querySelectorAll('[data-facet]')) box.checked = (value.facets || []).includes(box.dataset.facet);
+  }
+  // The approver's own decisions: each option shows only what it needs, starting from its default.
+  function choose(row) {
+    const selected = row.querySelector('[data-choice]').selectedOptions[0];
+    const needs = (selected && selected.dataset.needs || '').split(' ').filter(Boolean);
+    for (const label of row.querySelectorAll('[data-need]')) {
+      const need = label.dataset.need;
+      const field = label.querySelector('[data-value]');
+      label.hidden = !needs.includes(need);
+      if (label.hidden) { field.value = ''; continue; }
+      if (!field.value) field.value = selected.dataset[need] || '';
+      if (need === 'expires' && selected.dataset.latest) field.max = selected.dataset.latest;
+    }
+  }
+  function inApprovalDecisions() {
+    return decisionRows.filter((row) => row.querySelector('[data-choice]').value).map((row) => {
+      const entry = { item: row.dataset.item, option: row.querySelector('[data-choice]').value };
+      for (const field of row.querySelectorAll('[data-value]')) if (!field.closest('[data-need]').hidden) entry[field.dataset.value] = field.value.trim();
+      return entry;
+    });
+  }
+  for (const row of decisionRows) {
+    row.querySelector('[data-choice]').addEventListener('change', function () { choose(row); });
+    const value = restored['item:' + row.dataset.item];
+    if (!value) continue;
+    row.querySelector('[data-choice]').value = value.choice || '';
+    for (const field of row.querySelectorAll('[data-value]')) field.value = (value.values || {})[field.dataset.value] || '';
+    choose(row);
   }
   function decisions() {
     return rows.map((row) => ({
@@ -534,7 +647,8 @@ const REVIEW_SCRIPT = `
       type: 'approval.submit',
       confirmation: form.querySelector('[data-confirmation]').value,
       decisions: decisions(),
-      witnessDecisions: witnessDecisions()
+      witnessDecisions: witnessDecisions(),
+      inApprovalDecisions: inApprovalDecisions()
     });
     submit.disabled = true;
   });

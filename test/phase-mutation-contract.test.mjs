@@ -611,6 +611,34 @@ test('a /sf-decide turn records only the decision list\'s upstream-issue options
   assert.deepEqual(await shell(approve, 'singularity-flow decisions PMC-1 --json'), {}, 'reading stays available');
 });
 
+test('an approval in a chat turn carries only the upstream-issue options a chat turn may record, and /sf-decide continues into it [SPEC-OAP M4]', async t => {
+  const f = await fixture(t);
+  const digest = `sha256:${'d'.repeat(64)}`;
+  const token = '11111111-1111-4111-8111-111111111111';
+  const shell = (payload, command) => mutationToolGuard({ ...payload, toolName: 'bash', toolArgs: { command, cwd: f.root } });
+  const approve = (extra = '') => `singularity-flow approve custom-step --work-id PMC-1 --fetch --selection-receipt ${token} --for-agent --json${extra}`;
+  const approval = await f.enter('/sf-approve', 'chat-approver');
+  for (const command of [approve(), approve(` --choose d1=dismiss --reason "d1=Not a defect in what was delivered." --decisions ${digest}`),
+    approve(` --choose d1=accept-risk --expires d1=2026-12-01 --decisions ${digest}`)]) {
+    assert.deepEqual(await shell(approval, command), {}, command);
+  }
+  for (const command of [approve(` --choose d1=reuse --decisions ${digest}`), approve(` --choose d1=return --decisions ${digest}`),
+    approve(' --choose d1=dismiss'), approve(` --decisions ${digest}`)]) {
+    assert.equal((await shell(approval, command)).permissionDecision, 'deny', command);
+  }
+  const decide = await f.enter('/sf-decide PMC-1', 'chat-decider');
+  for (const command of ['singularity-flow choices begin approve PMC-1 --fetch --for-agent --json --review-packet',
+    `singularity-flow choices answer ${token} phase-confirmation custom-step --json`, approve(),
+    approve(` --choose d1=dismiss --decisions ${digest}`)]) {
+    assert.deepEqual(await shell(decide, command), {}, command);
+  }
+  for (const command of [approve(` --choose d1=reuse --decisions ${digest}`),
+    'singularity-flow approve custom-step --work-id PMC-1 --yes', `singularity-flow approve custom-step --work-id OTHER --selection-receipt ${token}`,
+    'singularity-flow reject custom-step --work-id PMC-1 --reason "Not this one."']) {
+    assert.equal((await shell(decide, command)).permissionDecision, 'deny', command);
+  }
+});
+
 test('an authoring turn may raise an upstream issue but never decide one', async t => {
   const f = await fixture(t);
   const payload = await f.enter('/sf-phase');
@@ -816,6 +844,35 @@ test('post-shell content checks detect edits to a path that was already dirty; u
   assert.match(result.additionalContext, /Stop this SFlow authoring turn/);
   assert.equal((await mutationToolGuard(shell)).permissionDecision, 'deny');
   assert.equal(await readFile(path.join(f.root, 'src/App.jsx'), 'utf8'), 'changed again, same porcelain status');
+});
+
+test('a pre-tool hook that timed out before saving a baseline still leaves one: a change it never saw is detected, not refused for want of one', async t => {
+  const f = await fixture(t);
+  // Copilot runs a call whose pre-tool hook timed out, so no pre-tool baseline was saved for it.
+  const quiet = await f.enter('/sf-phase', 'timed-out-quiet');
+  const status = { ...quiet, toolName: 'bash', toolArgs: { command: 'git status --short && git --no-pager diff', cwd: f.root } };
+  assert.deepEqual(await mutationPostToolGuard(status), {}, 'a command that changed nothing passes');
+  const changed = await f.enter('/sf-phase', 'timed-out-changed');
+  const shell = { ...changed, toolName: 'bash', toolArgs: { command: 'sh ./outside.sh', cwd: f.root } };
+  await mkdir(path.join(f.root, 'policy'), { recursive: true });
+  await writeFile(path.join(f.root, 'policy', 'rule.txt'), 'changed outside the step');
+  const result = await mutationPostToolGuard(shell);
+  assert.equal(result.continue, false);
+  assert.match(result.stopReason, /PHASE_MUTATION_SHELL_CHANGE_DETECTED/u);
+  assert.match(result.stopReason, /policy\/rule\.txt/u);
+  assert.doesNotMatch(result.stopReason, /BASELINE_UNAVAILABLE/u);
+});
+
+test('an approval that ends its own turn is not stopped afterwards for want of a shell baseline', async t => {
+  const f = await fixture(t);
+  const payload = await f.enter('/sf-approve', 'approval-ends');
+  const approve = { ...payload, toolName: 'bash', toolArgs: { cwd: f.root,
+    command: 'singularity-flow approve custom-step --work-id PMC-1 --fetch --selection-receipt 11111111-1111-4111-8111-111111111111 --for-agent --json' } };
+  assert.deepEqual(await mutationToolGuard(approve), {});
+  // The CLI ends the decision turn at its own boundary after a successful approval.
+  await refreshMutationContracts(f.root, f.accepted, { decisionEnded: true });
+  assert.deepEqual(await mutationPostToolGuard(approve), {}, 'the approval is judged by the turn it ran in');
+  assert.equal((await mutationToolGuard(approve)).permissionDecision, 'deny', 'the ended turn runs nothing more');
 });
 
 test('every active authoring phase advertises and admits local tests and app sessions, not only SFlow commands', async t => {

@@ -69,5 +69,5 @@ export async function decisionWorkflow(positionals, options, action) {
       history.agent = session.agent;
     }
   }
-  return { root, config, workflow, phase, session, receipt, receiptToken, testingRepairPlan };
+  return { root, config, workflow, phase, session, receipt, receiptToken, testingRepairPlan, requestedPhase };
 }

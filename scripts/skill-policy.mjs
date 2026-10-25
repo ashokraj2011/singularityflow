@@ -35,7 +35,7 @@ export function automaticActionApplies(name, rule) {
  * skills: a skill whose returned route waits on a person (a capture, registration, decision or
  * confirmation) must never run it for them, so the clause names what a person must still supply.
  */
-export const AUTHORING_TURN_CONTRACT = 'When a result\'s `act.state` is `author`, or it routes back to this skill with nothing for a person to answer, edit, review or confirm, that is this turn\'s own work: do it, never relay it. A file edit that does not match is not a refusal: read the file again and redo the edit.';
+export const AUTHORING_TURN_CONTRACT = 'When a result\'s `act.state` is `author`, or it routes back to this skill with nothing for a person to answer, edit, review or confirm, that is this turn\'s own work: do it, never relay it. Copy every line a patch matches, changed or unchanged, from the file as it is now, read after your last edit of it, never from memory, a finding or a search result; one file per patch, so one stale hunk cannot reject the others. A file edit that does not match is not a refusal: read those lines again and redo the edit.';
 
 /**
  * Every Story skill acts on what the engine returned, never on its own reading of a step's name,
@@ -319,7 +319,11 @@ const SKILL_SEMANTIC_CONTRACTS = Object.freeze({
       /sflow-turn-boundary: decision-only/i,
       /are the only permitted mutations/i,
       /The person types every choice and reason; never supply, infer or default one/i,
-      /Any refusal ends this turn/i
+      /Any refusal ends this turn/i,
+      // SPEC-OAP M4: it continues into the approval instead of ending, and carries choices into its one commit.
+      /you may approve \(`decidedBy\.allowed`\): do \/sf-approve 1-6 now/,
+      /do \/sf-approve 1-6 now with `withApproval\.flags` on its approve command \(one commit\)/,
+      /if `data\.remaining` is only `approval`, do \/sf-approve 1-6 now/
     ]
   },
   'sflow-approve': {
@@ -337,6 +341,8 @@ const SKILL_SEMANTIC_CONTRACTS = Object.freeze({
       /New chat, changed\/null binding, omissions or truncation require fresh human review/i,
       /A phase supplied before a new or changed packet review is not its confirmation/i,
       /document reuse never reuses approval consent/i,
+      // SPEC-OAP M4: decisions chosen in /sf-decide land in the approval's one commit.
+      /From \/sf-decide 14, add its `withApproval\.flags` \(decisions in this commit\)/,
       /do not ask again/i,
       /Never edit repository files, run tests\/builds\/raw Git, delegate, submit, or begin\/author another phase/i,
       /failed approval ends this turn/i,

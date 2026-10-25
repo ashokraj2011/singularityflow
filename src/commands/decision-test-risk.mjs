@@ -52,11 +52,11 @@ function chooseAttempt(latest, commandId, phaseId, argvSha256 = null) {
 }
 
 /**
- * Record one test-run risk decision, or the revocation named by `revoke`, for `phaseId` and commit
- * it. The command and the decision list both record through this, so eligibility, authority, the
- * record and its commit are the same whichever surface a person used.
+ * One test-run risk decision, or the revocation named by `revoke`, for `phaseId`: checked for
+ * eligibility and authority, and ready to write into a transaction. Its own commit and an approval's
+ * both write it [SPEC-OAP M4], so the record is the same whichever surface a person used.
  */
-export async function recordTestRunRiskDecision(root, config, workflow, {
+export async function testRunRiskDecisionPart(root, config, workflow, {
   phaseId, revoke = null, commandId = null, argvSha256 = null, cause = '', reason = '', expires = null
 }, { actor, agent = null }) {
   const id = workflow.workItem.id;
@@ -80,15 +80,10 @@ export async function recordTestRunRiskDecision(root, config, workflow, {
     : recordTestRunRisk(aggregate, { phaseId, attempt, commandId: commandOption, argvSha256: argvDigest, cause: cause ?? '',
       expires: expires ?? null, ...common });
   decide(structuredClone(workflow));
-  const { value: record, publication } = await transactStory(
-    root, config, workflow,
-    {
-      type: LIFECYCLE_EVENT.DECISION_MADE, phaseId, generation: null,
-      actor, agent, authorityGroup: authority.authorityGroup, payload: { decision: 'test-risk' }
-    },
-    `[${id}][test-risk:${revoke ? 'revoke' : 'accept'}] ${revoke ?? `${phaseId} ${attempt?.commandId ?? commandOption}`}`,
-    async (aggregate) => {
-      await assertNoPendingPublication(root, config, aggregate, 'record a test-run risk decision');
+  return {
+    decision: 'test-risk', phaseId, authority,
+    message: `[${id}][test-risk:${revoke ? 'revoke' : 'accept'}] ${revoke ?? `${phaseId} ${attempt?.commandId ?? commandOption}`}`,
+    write(aggregate) {
       const recorded = decide(aggregate);
       aggregate.history.push({
         at: recorded.at, actor: recorded.actor, agent, event: 'risk_decided', phase: phaseId,
@@ -97,6 +92,27 @@ export async function recordTestRunRiskDecision(root, config, workflow, {
           : `${recorded.id} accepts that ${recorded.phase} test command ${recorded.commandId} cannot run here (${recorded.cause}) until ${recorded.expiresAt.slice(0, 10)}${recorded.boundBy === 'command-digest' ? '; bound by its argv digest, with no run of it recorded in this checkout' : ''}. ${recorded.reason}`
       });
       return recorded;
+    },
+    record: (recorded) => recorded.revokes ?? recorded.id
+  };
+}
+
+/**
+ * Record one test-run risk decision and commit it. `decision test-risk` and the decision list record
+ * through this; an approval writes the same part into its own commit [SPEC-OAP M4].
+ */
+export async function recordTestRunRiskDecision(root, config, workflow, request, { actor, agent = null }) {
+  const part = await testRunRiskDecisionPart(root, config, workflow, request, { actor, agent });
+  const { value: record, publication } = await transactStory(
+    root, config, workflow,
+    {
+      type: LIFECYCLE_EVENT.DECISION_MADE, phaseId: part.phaseId, generation: null,
+      actor, agent, authorityGroup: part.authority.authorityGroup, payload: { decision: 'test-risk' }
+    },
+    part.message,
+    async (aggregate) => {
+      await assertNoPendingPublication(root, config, aggregate, 'record a test-run risk decision');
+      return part.write(aggregate);
     },
     {
       eventFromResult: (recorded) => ({

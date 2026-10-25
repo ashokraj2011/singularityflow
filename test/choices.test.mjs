@@ -279,7 +279,7 @@ test('untracked runner reports do not block receipt preparation or approval and 
   assert.equal(run('git', ['ls-files', '--error-unmatch', '.sflow/results/node-tests.json'], root, { allowFailure: true }).status, 1);
 });
 
-test('approval receipts reject changed generation, packet, artifacts, and repository HEAD', async () => {
+test('approval receipts reject changed generation, packet and artifacts, never HEAD alone', async () => {
   const root = await repository();
   const workId = 'CHOICE-APPROVE-CONTEXT-DRIFT';
   const workflowFile = await submitIntakeForApproval(root, workId);
@@ -298,7 +298,9 @@ test('approval receipts reject changed generation, packet, artifacts, and reposi
   ]) {
     const current = structuredClone(workflow);
     mutate(current);
-    await assert.rejects(() => resolve(current), /stale because the action context changed/,
+    await assert.rejects(() => resolve(current), (error) => error.code === 'APPROVAL_REVIEW_CHANGED'
+      && /changed \(.+\), so approving would not approve what you read/u.test(error.message)
+      && error.details.nextAction.command === `singularity-flow approve intake --work-id ${workId} --fetch`,
       `${change} drift must require a fresh review`);
     await assert.rejects(() => approvalReviewBinding(root, definition, current),
       /submitted review packet|immutable Git commit/,
@@ -306,7 +308,8 @@ test('approval receipts reject changed generation, packet, artifacts, and reposi
   }
   const submittedHead = run('git', ['rev-parse', 'HEAD'], root).stdout.trim();
   run('git', ['commit', '--allow-empty', '-m', 'test review-time HEAD drift'], root);
-  await assert.rejects(() => resolve(workflow), /stale because the repository HEAD changed/);
+  // The receipt binds what was reviewed [SPEC-OAP M4]; the approval gate names a commit after the submission.
+  assert.equal((await resolve(workflow)).answers['phase-confirmation'], 'intake');
   assert.notEqual(run('git', ['rev-parse', 'HEAD'], root).stdout.trim(), submittedHead);
   const preserved = JSON.parse(await readFile(workflowFile, 'utf8'));
   assert.equal(preserved.currentPhase, 'intake');

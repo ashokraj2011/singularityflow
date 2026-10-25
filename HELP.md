@@ -3865,9 +3865,13 @@ singularity-flow status <WORK-ID> --submission-readiness --json --submit-if-read
 # /sf-submit in one command: the same readiness result; when it is ready-to-attempt with nothing to
 # confirm, the returned submit command runs once and submitIfReady.review carries the phase show result.
 singularity-flow approve [PHASE] [--work-id WORK-ID] [--fetch]
+# The phase is typed once: after this terminal showed the review, approve <PHASE> is the confirmation.
+# Decisions that hold the step are asked first, or given with --choose ITEM=OPTION and the list's
+# --decisions sha256:DIGEST, and recorded in the approval's own commit.
 singularity-flow choices begin approve <WORK-ID> [--fetch] --json --review-packet
 # What /sf-approve shows before the review: the receipt plus approvalPacket (readiness and phase show).
-# The person's typed phase, choices answer and approve stay separate.
+# The person's typed phase, choices answer and approve stay separate. The receipt holds that review with
+# no time limit; it is refused only when the review changed.
 singularity-flow reject [PHASE] [--work-id WORK-ID] [--fetch] --reason TEXT [--to PHASE]
 singularity-flow reject testing --to implementation --repair --reason TEXT [--confirm SHA256]
 singularity-flow decision show [WORK-ID] [--json]

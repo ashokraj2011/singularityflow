@@ -15,9 +15,12 @@ import { run } from '../src/util.mjs';
 
 // A Copilot stand-in over ACP: it logs each process start, counts the prompts its session has seen,
 // and reports usage as running totals the way Copilot does. A prompt containing FAIL is refused.
+// The provider's one `--help` read of its boundary options (copilot-cli.mjs) is not a provider
+// process: it exits unlogged, with no help, so every boundary option is still passed.
 const FAKE_ACP = `
 import readline from 'node:readline';
 import { appendFileSync } from 'node:fs';
+if (process.argv.includes('--help')) process.exit(0);
 appendFileSync(process.argv[2], 'start ' + process.pid + '\\n');
 const send = (value) => process.stdout.write(JSON.stringify(value) + '\\n');
 let prompts = 0; let input = 0; let output = 0; let cachedRead = 0; let cachedWrite = 0;

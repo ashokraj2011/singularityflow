@@ -13,7 +13,7 @@ related:
   - recovery
   - approvals
   - configuration
-version: 22
+version: 23
 ---
 Test and Recovery (TRP) is an explicitly enabled pilot for a Story's test policy, baseline repair and phase issues. It keeps what a check observed separate from the decision about whether work may continue. A failed test remains failed even when a current, authorized exception permits a named transition. Normal phase approval remains separate.
 
@@ -217,18 +217,40 @@ Use the same inspection, delegated terminal review, revocation and transition-sp
 
 ### When the environment cannot run the tests
 
-Sometimes a required test command cannot run on the machine doing the work: Maven or Gradle cannot reach the dependency repository, the JDK is missing, a proxy refuses the connection, or Docker is not available for Testcontainers. The run fails or is blocked before a single test executes. Publication and submission refuse it with `CODE_TEST_FAILED`, and when no test executed the refusal says so and names the way out in `error.details.testRunRisk`.
+Sometimes a required test command cannot run on the machine doing the work: Maven or Gradle cannot reach the dependency repository, the JDK is missing, a proxy refuses the connection, Docker is not available for Testcontainers, or a database the tests connect to is not running. Publication and submission refuse the run with `CODE_TEST_FAILED`.
 
-Fix the environment and run it again where you can. Where you cannot, a person who approves the step accepts the risk in their own terminal:
+Every failed or blocked run is classified by what stopped it, read from its exit, the error its launch gave, its output and the failure message of each failed test:
+
+| Cause | Class | Read from |
+|---|---|---|
+| Launcher missing or not executable | `launcher-unavailable` | spawn `ENOENT`/`EACCES`, `command not found` |
+| Dependency not installed | `dependency-missing` | `npm ERR! missing`, `Cannot find module 'x'` from an unchanged file, `No module named`, Maven `Could not resolve dependencies` |
+| Registry, network or proxy | `registry-unreachable` | `Could not transfer artifact`, `ENOTFOUND`, proxy and certificate errors |
+| Toolchain version | `toolchain-version` | `UnsupportedClassVersionError`, `invalid target release`, engine requirements |
+| Browser missing | `browser-missing` | Playwright `Executable doesn't exist … npx playwright install`, Cypress binary missing |
+| Service unreachable | `service-unreachable` | `ECONNREFUSED`, `Connection refused` |
+| Docker | `docker-unavailable` | `Cannot connect to the Docker daemon`, `Could not find a valid Docker environment` |
+| Permission | `permission-denied` | `EACCES: permission denied`, `PermissionError` |
+| Every discovered test skipped | `all-tests-skipped` | the report |
+| Compile error (code) | `compile-error` | `error TS…`, javac, kotlinc, rustc, `error CS…`, Go `[build failed]` |
+| Syntax error (code) | `syntax-error` | `SyntaxError`, `IndentationError` |
+| Import error (code) | `import-error` | a missing repository path, a package imported from a file the Story changed, a missing export |
+| Tests ran and failed (code) | `assertion-failure` | a failed test whose message is not an environment cause |
+| Timed out, or nothing recognised | `timeout`, `unrecognised` | neither is known to be the environment |
+
+A code marker wins over an environment one. A run in which tests executed is an environment cause only when every failed test failed from one; a suite whose every test hit a refused database connection is `service-unreachable`. The class is recorded as `cause` on the run's attempt, and the refusal names it: an environment cause with the way out in `error.details.testRunRisk` (with `causeClass`), a code cause as never covered.
+
+Fix the environment and run it again where you can. Where you cannot, a person who approves the step accepts that cause in their own terminal:
 
 ```text
-singularity-flow decision test-risk <WORK-ID> --phase <PHASE> --command <COMMAND-ID> --cause "<what in the environment stops it>" --reason "<why the risk is acceptable>" --expires YYYY-MM-DD
+singularity-flow decision test-risk <WORK-ID> --phase <PHASE> --command <COMMAND-ID> --cause-class <CLASS> --cause "<what in the environment stops it>" --reason "<why the risk is acceptable>" --expires YYYY-MM-DD
 ```
 
 - **Who:** someone in an approval group of that step. A step nobody approves (quick-fix's implement) is answered for by the next step on the route that has approvers. An agent turn is refused; it shows the command and stops.
-- **What it needs:** a recorded run of that command that failed or was blocked with no test executed. The cause is 10 to 300 characters, the reason 20 to 1000, and the expiry at most 90 days ahead.
-- **What it allows:** the tests still run at every publication and submission. Only a run of the same command in which no test executed is let through. A run in which tests execute and fail is never covered, and a changed command needs a new decision.
-- **How long:** the step then carries through approval, later steps and Story completion while the decision is active. The evidence matrix shows its criteria as satisfied with an exception, never as passed. Once the decision expires or is revoked (`decision test-risk --revoke TRR-001 --reason TEXT`), the next gate refuses again; a new decision on the same command carries the runs an earlier one let through.
+- **What it needs:** a recorded run of that command that failed or was blocked from an environment cause. `--cause-class` is taken from that run, and must match it when given; an approver whose checkout has no record of the run names the class and the `--argv-sha256` digest the refusal gave. The cause is 10 to 300 characters, the reason 20 to 1000, and the expiry at most 90 days ahead.
+- **What it allows:** the tests still run at every publication and submission. Only a later run of the same command whose cause is the same class is let through. A compile, syntax or import error the change introduces, a failed assertion, a timeout or another environment cause is never covered, and a changed command needs a new decision. Decisions on different classes of one command stand side by side.
+- **How long:** the step then carries through approval, later steps and Story completion while the decision is active. The evidence matrix shows its criteria as satisfied with an exception, never as passed. Once the decision expires or is revoked (`decision test-risk --revoke TRR-001 --reason TEXT`), the next gate refuses again; a new decision on the same command and class carries the runs an earlier one let through.
+- **Decisions recorded before causes were classified** (no `causeClass`) stay valid until they expire, for runs in which no test executed and whose cause is the environment.
 
 This needs no test-policy agreement at intake and works on any Story. The test-policy exception below is narrower and stricter: it covers only a missing executable, needs an agreement and named risk reviewers, and takes a decision for each transition.
 

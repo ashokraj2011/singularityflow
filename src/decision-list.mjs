@@ -18,6 +18,7 @@
 import { matchApprovalAuthority, normalizeApprovalAuthorities } from './approval-authority.mjs';
 import { recordSha256 } from './records.mjs';
 import { testCommandReviewHold } from './story-test-commands.mjs';
+import { testRunCauseWords } from './test-run-cause.mjs';
 import { testRunRiskAuthorities } from './test-run-risk.mjs';
 import { decisionGroups, decisionRefusalLead } from './decision-list-facts.mjs';
 import { CONFORMANCE_GAP_RULE, decisionHeadline, issueNamesClause, stepName } from './upstream-routes.mjs';
@@ -346,27 +347,30 @@ function evidenceItem(workflow, context, entry) {
   };
 }
 
-/** One item for a test command of a step whose latest run stopped before any test executed. */
+/** One item for a test command of a step whose latest run the environment stopped, by its classified cause. */
 function testRiskItem(workflow, context, risk) {
   const name = stepName(workflow, risk.phase);
   const stopped = risk.status === 'blocked' ? 'was blocked' : 'failed';
   const exit = Number.isInteger(risk.exitCode) ? ` (exit code ${risk.exitCode})` : '';
+  const because = risk.causeClass ? `: ${testRunCauseWords(risk.causeClass)} (${risk.causeClass})` : '';
   return {
     kind: 'test-run-risk',
     title: `${name}'s tests could not run here (${risk.commandId})`,
-    why: `The latest run of ${risk.commandId} ${stopped} before any test ran${exit}, so it says nothing about the change.`
+    why: `The latest run of ${risk.commandId} ${stopped}${exit} from the environment${because}, so it says nothing about the change.`
       + `${risk.lapsed ? ` An earlier acceptance ${risk.lapsed === 'expired' ? 'expired' : 'was revoked'}.` : ''}`
-      + ' Fix the environment and run it again, or accept the risk until a date: the tests still run every time, and a run in which tests fail is never covered.',
+      + ' Fix the environment and run it again, or accept the risk until a date: the tests still run every time, and only a run with this same cause is covered.',
     options: [option(workflow, context, {
       id: 'accept-test-risk', label: 'Accept that these tests cannot run here, until a date',
       words: 'The run stays failed; it is never counted as a pass.',
-      effects: [{ kind: 'test-run-risk', phase: risk.phase, commandId: risk.commandId, argvSha256: risk.argvSha256 ?? null, attemptId: risk.attemptId ?? null }],
-      needs: { cause: textNeed(`No test ran: the latest run of ${risk.commandId} ${stopped} before any test executed${exit}.`, CAUSE),
+      effects: [{ kind: 'test-run-risk', phase: risk.phase, commandId: risk.commandId, argvSha256: risk.argvSha256 ?? null, attemptId: risk.attemptId ?? null,
+        causeClass: risk.causeClass ?? null }],
+      needs: { cause: textNeed(`The environment stopped the latest run of ${risk.commandId}${exit}${because}.`, CAUSE),
         reason: textNeed(`The tests of ${risk.commandId} run again at every publication and submission; this environment cannot run them now.`, REASON),
         expires: expiryNeed(context.at, { endOfDay: true }) }
     })],
     details: { phase: risk.phase, commandId: risk.commandId, attemptId: risk.attemptId ?? null, status: risk.status, exitCode: risk.exitCode ?? null,
-      commands: [`singularity-flow decision test-risk ${workflow.workItem.id} --phase ${risk.phase} --command ${risk.commandId} --cause "<what stops it>" --reason "<why>" --expires <YYYY-MM-DD>`] }
+      causeClass: risk.causeClass ?? null,
+      commands: [`singularity-flow decision test-risk ${workflow.workItem.id} --phase ${risk.phase} --command ${risk.commandId}${risk.causeClass ? ` --cause-class ${risk.causeClass}` : ''} --cause "<what stops it>" --reason "<why>" --expires <YYYY-MM-DD>`] }
   };
 }
 

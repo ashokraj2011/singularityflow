@@ -4,8 +4,8 @@
  * - Reusable runs: each retained, passed attempt of an earlier step, checked by prepareEvidenceReuse
  *   for the step that recorded no run of its own, so a reuse is offered only when the person could
  *   record it now on unchanged source.
- * - Test-run risks, while the step is in progress: its test commands whose latest run stopped before
- *   any test executed, as `decision test-risk` sees them.
+ * - Test-run risks, while the step is in progress: its test commands whose latest run the
+ *   environment stopped, by its classified cause, as `decision test-risk` sees them.
  * - Screen sizes: each verification profile enforced coverage still lacks at the visual step that
  *   holds this one, as visualProfileDecisionOptions words it.
  * - Everything else that waits for a person (SPEC-OAP M3): the routing decision, intent and forward
@@ -83,20 +83,21 @@ async function reuseCandidates(root, config, workflow, reports) {
 }
 
 /**
- * The step's test commands whose latest recorded run failed or was blocked before any test executed
- * and that no active decision covers: what `decision test-risk` would accept now, read the same way.
+ * The step's test commands whose latest recorded run the environment stopped and that no active
+ * decision on its cause class covers: what `decision test-risk` would accept now, read the same way.
  */
 async function testRisks(root, config, workflow, phase, at) {
   if (phase?.status !== 'in_progress') return [];
-  const [{ latestStepAttempts }, { testRunRiskIneligibility, testRunRiskState }, { workDirRelative }] = await Promise.all([
+  const [{ latestStepAttempts }, { testRunCause, testRunRiskIneligibility, testRunRiskStateFor }, { workDirRelative }] = await Promise.all([
     import('./verification/attempts.mjs'), import('./test-run-risk.mjs'), import('./story-paths.mjs')]);
   const latest = await latestStepAttempts(root, workDirRelative(config, workflow.workItem.id), workflow.workItem.id, phase.id);
   return [...latest.values()].map((attempt) => ({ attempt,
-    state: testRunRiskState(workflow, { phaseId: phase.id, commandId: attempt.commandId, argvSha256: attempt.argvSha256 }, { at })?.state ?? null }))
+    state: testRunRiskStateFor(workflow, { phaseId: phase.id, attempt }, { at })?.state ?? null }))
     .filter(({ attempt, state }) => !testRunRiskIneligibility(attempt) && state !== 'active')
     .sort((left, right) => left.attempt.commandId.localeCompare(right.attempt.commandId))
     .map(({ attempt, state }) => ({ phase: phase.id, commandId: attempt.commandId, attemptId: attempt.attemptId ?? null, status: attempt.status,
-      exitCode: Number.isInteger(attempt.exitCode) ? attempt.exitCode : null, argvSha256: attempt.argvSha256 ?? null, lapsed: state }));
+      exitCode: Number.isInteger(attempt.exitCode) ? attempt.exitCode : null, argvSha256: attempt.argvSha256 ?? null, lapsed: state,
+      causeClass: testRunCause(attempt).class }));
 }
 
 /**

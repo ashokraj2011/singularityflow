@@ -4190,7 +4190,7 @@ async function attachRequiredTestExecution(error, root, command, check) {
     const exit = Number.isInteger(check?.exitCode) ? ` (exit ${check.exitCode})` : '';
     refusal.message = `Required test command '${command.id}' ${outcome}${stage}${exit}. `
       + 'See error.requiredTestExecution in --json for the command and bounded output.'
-      + (refusal.details?.testRunRisk?.guidance ? ` ${refusal.details.testRunRisk.guidance}` : '');
+      + ((refusal.details?.testRunRisk ?? refusal.details?.testRunCause)?.guidance ? ` ${(refusal.details.testRunRisk ?? refusal.details.testRunCause).guidance}` : '');
   }
   return refusal;
 }
@@ -4927,7 +4927,7 @@ async function preflightCodeDeliveryTests(root, config, workflow, phase, deliver
       // Every run is one immutable attempt, recorded before its result is judged [E2G-016].
       const recorded = check ? await recordTestAttempt(root, workDirRelative(config, workflow.workItem.id), {
         command, check, purpose: 'preflight', workId: workflow.workItem.id, phaseId: phase.id,
-        generation: nextPhaseGeneration(phase)
+        generation: nextPhaseGeneration(phase), delivery: deliveryEvidence
       }) : null;
       if (recorded) {
         attempts.push({ commandId: command.id, attemptId: recorded.attempt.attemptId, receiptPath: recorded.path,
@@ -5038,12 +5038,11 @@ async function testRunRiskCover(workflow, phase, attempt) {
   return decision ? testRunRiskBinding(decision) : null;
 }
 
-/** A refused run in which no test executed names the environment and the step approvers' route. */
+/** A refused run names what stopped it: an environment cause with the step approvers' route, or a code cause. */
 async function testRunRiskRefusal(workflow, phase, attempt, error) {
   if (!attempt) return error;
-  const { testRunRiskRoute } = await import('./test-run-risk.mjs');
-  const route = testRunRiskRoute(workflow, { phaseId: phase.id, attempt, at: nowIso() });
-  if (route) error.details = { ...(error.details ?? {}), testRunRisk: route };
+  const { testRunRiskRefusalDetails } = await import('./test-run-risk.mjs');
+  error.details = { ...(error.details ?? {}), ...testRunRiskRefusalDetails(workflow, { phaseId: phase.id, attempt, at: nowIso() }) };
   return error;
 }
 
@@ -5418,7 +5417,7 @@ async function submitPhaseTransition(root, config, workflow, {
         let receipt;
         const recorded = check ? await recordTestAttempt(root, workDirRelative(config, workflow.workItem.id), {
           command, check, purpose: testCommandEpochRun ? 'epoch' : 'submission', workId: workflow.workItem.id,
-          phaseId: phase.id, generation: phase.generation, epoch: testCommandEpochRun?.suffix ?? null
+          phaseId: phase.id, generation: phase.generation, epoch: testCommandEpochRun?.suffix ?? null, delivery: phase.deliveryEvidence
         }) : null;
         if (recorded) attemptHistory.push({ commandId: command.id, attemptId: recorded.attempt.attemptId, status: recorded.attempt.status });
         let runRisk = null;

@@ -824,7 +824,7 @@ Usage:
   singularity-flow decision plan [WORK-ID] [--fetch] (--add-location CLAUSE=PATH | --add-supporting PATH=CLASS [--supporting-reason TEXT])... --reason TEXT [--json]
   singularity-flow decision plan [WORK-ID] [--fetch] [--owner PHASE] (--add-row CLAUSE=PATH[,PATH] [--test PATH]... [--fulfillment KIND] [--steps STEP,...] | --add-test CLAUSE=PATH | --remove-location CLAUSE=PATH | --replace-location CLAUSE=FROM:TO)... --reason TEXT [--upstream-issue UPI-ID] [--dry-run] [--json]
   singularity-flow decision risk [WORK-ID] [--fetch] (--obligation OBL-ID --category CATEGORY --expires YYYY-MM-DD [--transition terminal] | --revoke RISK-ID) --reason TEXT [--json]
-  singularity-flow decision test-risk [WORK-ID] [--fetch] (--phase PHASE [--command ID [--argv-sha256 DIGEST]] --cause TEXT --expires YYYY-MM-DD | --revoke TRR-ID) --reason TEXT [--json]
+  singularity-flow decision test-risk [WORK-ID] [--fetch] (--phase PHASE [--command ID [--cause-class CLASS] [--argv-sha256 DIGEST]] --cause TEXT --expires YYYY-MM-DD | --revoke TRR-ID) --reason TEXT [--json]
   singularity-flow decision evidence-reuse [WORK-ID] [--fetch] (--phase PHASE --from-attempt TA-ID [--expires YYYY-MM-DD] | --revoke ERU-ID) --reason TEXT [--json]
   singularity-flow decision visual-profile [WORK-ID] [--fetch] (--phase VISUAL-STEP --profile PROFILE-ID --not-applicable | --revoke VPD-ID) --reason TEXT [--json]
   singularity-flow decision witness [WORK-ID] [--fetch] --criterion AC-ID --slot SLOT --file PATH (--confirm ITEM | --deny ITEM)... --reason TEXT [--json]

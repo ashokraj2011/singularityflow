@@ -2,14 +2,15 @@
  * `decision test-risk`: a person in the group that approves a step accepts the risk that one of its
  * test commands cannot run in this environment, or revokes such a decision. See src/test-run-risk.mjs.
  *
- *   singularity-flow decision test-risk [WORK-ID] --phase PHASE [--command ID [--argv-sha256 DIGEST]] --cause TEXT --reason TEXT --expires YYYY-MM-DD
+ *   singularity-flow decision test-risk [WORK-ID] --phase PHASE [--command ID [--cause-class CLASS] [--argv-sha256 DIGEST]] --cause TEXT --reason TEXT --expires YYYY-MM-DD
  *   singularity-flow decision test-risk [WORK-ID] --revoke TRR-001 --reason TEXT
  *
- * Only a recorded run that failed or was blocked before any test executed can be accepted. Runs
- * are kept in the private Git storage of the checkout that ran them, so an approver on another
- * machine names the command and the argv digest its refusal gave instead; each run the decision
- * lets through is still checked for no executed test. The Copilot guard refuses this command, like
- * approve: an agent may name the route, never decide it.
+ * Only a recorded run whose classified cause is the environment can be accepted, and the decision
+ * records that cause class [TCE:REQ-042]. Runs are kept in the private Git storage of the checkout
+ * that ran them, so an approver on another machine names the command, the argv digest and the cause
+ * class its refusal gave instead; each run the decision lets through is still checked for that same
+ * cause. The Copilot guard refuses this command, like approve: an agent may name the route, never
+ * decide it.
  */
 import { checkoutStoryBranch } from '../story-branch-name.mjs';
 import { loadAcceptedStoryExecution } from '../accepted-story-execution.mjs';
@@ -21,6 +22,7 @@ import { emitCommandResult } from '../narration/emit.mjs';
 import { loadSession } from '../session.mjs';
 import { workDirRelative } from '../story-paths.mjs';
 import { actorKey, assertNoPendingPublication, loadConfig, transactStory } from '../state-stores.mjs';
+import { testRunCauseCategory, testRunCauseWords } from '../test-run-cause.mjs';
 import { recordTestRunRisk, recordTestRunRiskRevocation, testRunRiskAuthorities, testRunRiskIneligibility } from '../test-run-risk.mjs';
 import { nowIso, optionBoolean, optionString, SingularityFlowError } from '../util.mjs';
 import { latestStepAttempts } from '../verification/attempts.mjs';
@@ -46,8 +48,8 @@ function chooseAttempt(latest, commandId, phaseId, argvSha256 = null) {
   throw new SingularityFlowError(candidates.length
     ? `More than one test command of ${phaseId} could not run; name one with --command (${candidates.map((entry) => entry.commandId).sort().join(', ')}).`
     : names.length
-      ? `No test command of ${phaseId} has a latest run that failed or was blocked before any test executed (${names.join(', ')}).`
-      : `No run of a test command of ${phaseId} is recorded in this checkout yet; publish or submit the step first so its failure is recorded, or name the command and digest its refusal gave with --command ID --argv-sha256 DIGEST.`,
+      ? `No test command of ${phaseId} has a latest run that the environment stopped (${names.join(', ')}).`
+      : `No run of a test command of ${phaseId} is recorded in this checkout yet; publish or submit the step first so its failure is recorded, or name the command, cause class and digest its refusal gave with --command ID --cause-class CLASS --argv-sha256 DIGEST.`,
   { code: candidates.length ? 'TEST_RUN_RISK_COMMAND_REQUIRED' : 'TEST_RUN_RISK_NOT_ELIGIBLE' });
 }
 
@@ -57,7 +59,7 @@ function chooseAttempt(latest, commandId, phaseId, argvSha256 = null) {
  * both write it [SPEC-OAP M4], so the record is the same whichever surface a person used.
  */
 export async function testRunRiskDecisionPart(root, config, workflow, {
-  phaseId, revoke = null, commandId = null, argvSha256 = null, cause = '', reason = '', expires = null
+  phaseId, revoke = null, commandId = null, argvSha256 = null, causeClass = null, cause = '', reason = '', expires = null
 }, { actor, agent = null }) {
   const id = workflow.workItem.id;
   const commandOption = commandId;
@@ -77,7 +79,7 @@ export async function testRunRiskDecisionPart(root, config, workflow, {
     identityAssurance: authority.identityAssurance ?? null, at: nowIso() };
   const decide = (aggregate) => revoke
     ? recordTestRunRiskRevocation(aggregate, { riskId: revoke, ...common })
-    : recordTestRunRisk(aggregate, { phaseId, attempt, commandId: commandOption, argvSha256: argvDigest, cause: cause ?? '',
+    : recordTestRunRisk(aggregate, { phaseId, attempt, commandId: commandOption, argvSha256: argvDigest, causeClass, cause: cause ?? '',
       expires: expires ?? null, ...common });
   decide(structuredClone(workflow));
   return {
@@ -89,7 +91,7 @@ export async function testRunRiskDecisionPart(root, config, workflow, {
         at: recorded.at, actor: recorded.actor, agent, event: 'risk_decided', phase: phaseId,
         detail: recorded.revokes
           ? `${recorded.revokes} on ${recorded.phase} ${recorded.commandId} revoked. ${recorded.reason}`
-          : `${recorded.id} accepts that ${recorded.phase} test command ${recorded.commandId} cannot run here (${recorded.cause}) until ${recorded.expiresAt.slice(0, 10)}${recorded.boundBy === 'command-digest' ? '; bound by its argv digest, with no run of it recorded in this checkout' : ''}. ${recorded.reason}`
+          : `${recorded.id} accepts that ${recorded.phase} test command ${recorded.commandId} cannot run here (${recorded.causeClass}: ${recorded.cause}) until ${recorded.expiresAt.slice(0, 10)}${recorded.boundBy === 'command-digest' ? '; bound by its argv digest, with no run of it recorded in this checkout' : ''}. ${recorded.reason}`
       });
       return recorded;
     },
@@ -153,17 +155,21 @@ export async function decisionTestRiskCommand(positionals, options) {
   if (argvDigest !== null && (revoke || !commandOption || !/^[a-f0-9]{64}$/u.test(argvDigest))) {
     throw new SingularityFlowError('--argv-sha256 takes the 64-character digest a refusal named, with --phase and --command.', { code: 'TEST_RUN_RISK_INVALID' });
   }
+  const causeClass = optionString(options, 'cause-class') ?? null;
+  if (causeClass !== null && (revoke || testRunCauseCategory(causeClass) !== 'environment')) {
+    throw new SingularityFlowError('--cause-class takes the environment cause class a refusal named, with --phase.', { code: 'TEST_RUN_RISK_INVALID' });
+  }
   const actor = actionActor(root);
   const loadedSession = await loadSession(root, { required: false });
   const agent = loadedSession?.workId === id ? loadedSession.agent ?? null : null;
   const { record, publication } = await recordTestRunRiskDecision(root, config, workflow, {
-    phaseId, revoke, commandId: commandOption, argvSha256: argvDigest, cause: optionString(options, 'cause') ?? '',
+    phaseId, revoke, commandId: commandOption, argvSha256: argvDigest, causeClass, cause: optionString(options, 'cause') ?? '',
     reason: optionString(options, 'reason') ?? '', expires: optionString(options, 'expires') ?? null
   }, { actor, agent });
   if (!optionBoolean(options, 'json')) {
     console.log(record.revokes
       ? `Revoked ${record.revokes} on ${record.phase} ${record.commandId}.`
-      : `Recorded ${record.id}: ${record.phase} test command ${record.commandId} may publish and submit without running a test until ${record.expiresAt.slice(0, 10)}, accepted through ${record.authorityGroup}. It still runs every time; a run in which tests execute and fail is never covered.`);
+      : `Recorded ${record.id}: ${record.phase} test command ${record.commandId} may publish and submit while ${testRunCauseWords(record.causeClass)} (${record.causeClass}), until ${record.expiresAt.slice(0, 10)}, accepted through ${record.authorityGroup}. It still runs every time; a run with any other cause, or a code cause, is never covered.`);
     console.log(publication.pushed
       ? `Decision committed ${publication.sha.slice(0, 8)} and pushed.`
       : `Decision committed ${publication.sha.slice(0, 8)} locally; push is disabled by git.publish: off.`);

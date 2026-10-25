@@ -283,7 +283,7 @@ export async function verifyReusableAttempt(root, config, workflow, { phaseId, a
     throw ineligible(attemptId, phaseId, `${producer.id} is ${producer.status}; only an approved step's submitted runs can be reused`);
   }
   if (execution.kind === 'phase-validation-observation') throw ineligible(attemptId, phaseId, 'it is a risk observation, not a test attempt');
-  if (execution.testRunRisk) throw ineligible(attemptId, phaseId, 'no test executed in it (a test-run risk decision let it through), so nothing passed');
+  if (execution.testRunRisk) throw ineligible(attemptId, phaseId, 'the environment stopped it (a test-run risk decision let it through), so nothing passed');
   const submission = [...(workflow.lineage?.submissions ?? [])].reverse().find((entry) =>
     entry.phase === producer.id && Number(entry.generation) === Number(producer.generation));
   if (!submission) throw ineligible(attemptId, phaseId, `${producer.id} has no retained submission at generation ${producer.generation}`);

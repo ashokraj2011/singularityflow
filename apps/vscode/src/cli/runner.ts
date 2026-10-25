@@ -1130,10 +1130,11 @@ export function changeDirectoryLine(repository: string, platform: NodeJS.Platfor
     : `cd ${terminalQuote(repository, platform)}`;
 }
 
-/** Empty windows need a known shell; the user's default profile may be Git Bash or cmd. */
+/** Select a known Windows shell; preserve POSIX default profiles and match explicit overrides. */
 export function terminalDirectorySetup(options: { shellPath?: string }, cwd: string,
-  platform: NodeJS.Platform = process.platform): { shellPath: string; command: string } {
-  const shellPath = options.shellPath ?? (platform === 'win32' ? 'powershell.exe' : '/bin/sh');
+  platform: NodeJS.Platform = process.platform): { shellPath?: string; command: string } {
+  const shellPath = options.shellPath ?? (platform === 'win32' ? 'powershell.exe' : undefined);
+  if (!shellPath) return { command: changeDirectoryLine(cwd, 'linux') };
   const shell = shellPath.split(/[\\/]/u).at(-1)?.replace(/\.exe$/iu, '').toLowerCase();
   if (shell === 'powershell' || shell === 'pwsh') return { shellPath, command: changeDirectoryLine(cwd, 'win32') };
   if (['sh', 'bash', 'zsh', 'dash', 'ksh', 'fish'].includes(shell ?? '')) {

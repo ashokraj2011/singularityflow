@@ -800,7 +800,7 @@ test('the built extension activates against a real repository and populates the 
   await registered.commands.get('singularityFlow.openMeteredCopilot')();
   const emptyWindowTerminal = registered.terminals.at(-1);
   assert.equal(emptyWindowTerminal.options.cwd, os.homedir());
-  assert.equal(emptyWindowTerminal.options.shellPath, process.platform === 'win32' ? 'powershell.exe' : '/bin/sh');
+  assert.equal(emptyWindowTerminal.options.shellPath, process.platform === 'win32' ? 'powershell.exe' : undefined);
   assert.match(emptyWindowTerminal.sent[0].text, process.platform === 'win32' ? /^Set-Location -LiteralPath /u : /^cd /u);
   assert.equal(emptyWindowTerminal.sent[1].text,
     'singularity-flow copilot --host vscode-terminal --surface vscode.continue-with-copilot');

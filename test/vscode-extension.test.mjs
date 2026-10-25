@@ -873,7 +873,7 @@ test('empty-window terminals select a known shell and use that shell to select t
     shellPath: 'pwsh', command: "Set-Location -LiteralPath 'C:\\Team''s workspace\\repo'"
   });
   assert.deepEqual(terminalDirectorySetup({}, '/team/repo', 'darwin'), {
-    shellPath: '/bin/sh', command: "cd '/team/repo'"
+    command: "cd '/team/repo'"
   });
   assert.throws(() => terminalDirectorySetup({ shellPath: 'cmd.exe' }, directory, 'win32'), /Use PowerShell, pwsh or a POSIX shell/);
 });

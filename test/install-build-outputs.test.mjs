@@ -1,10 +1,11 @@
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
-import { renameSync, symlinkSync, watch } from 'node:fs';
+import { existsSync, renameSync, symlinkSync, watch } from 'node:fs';
 import { lstat, mkdir, mkdtemp, readFile, readdir, rm, symlink, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
+import { fileURLToPath } from 'node:url';
 import { cleanInstallBuildOutputs, verifyInstallBuildOutputs } from '../scripts/install-build-outputs.mjs';
 
 const obsoleteHost = ['git', 'example', 'corp'].join('.');
@@ -121,6 +122,50 @@ test('a parent swapped after preflight cannot redirect deletion into another che
     const record = JSON.parse(await readFile(path.join(root, name, 'retained.json'), 'utf8'));
     for (const entry of record) assert.ok(entry.original.startsWith(root));
   }
+});
+
+test('capture refuses a replacement working directory before moving any of its files', async t => {
+  const root = await fixture(t);
+  const replacement = await fixture(t);
+  await put(root, 'dist/original.txt');
+  await put(replacement, 'dist/keep.txt', 'replacement checkout must survive');
+  const staging = await mkdtemp(path.join(root, 'bundle.building-cleanup-'));
+  const identity = async file => {
+    const metadata = await lstat(file, { bigint: true });
+    return `${metadata.dev}:${metadata.ino}`;
+  };
+  const request = { name: 'dist', expectedParent: await identity(root), expectedOutput: await identity(path.join(root, 'dist')),
+    staged: path.join(staging, '0'), expectedStaging: await identity(staging) };
+  const result = spawnSync(process.execPath, [fileURLToPath(new URL('../scripts/install-build-outputs.mjs', import.meta.url)), 'capture-directory'], {
+    cwd: replacement, input: JSON.stringify(request), encoding: 'utf8', timeout: 10_000
+  });
+  assert.notEqual(result.status, 0);
+  assert.match(result.stderr, /directory identity changed/);
+  assert.equal(await readFile(path.join(replacement, 'dist/keep.txt'), 'utf8'), 'replacement checkout must survive');
+  assert.equal(await readFile(path.join(root, 'dist/original.txt'), 'utf8'), 'retained fixture bytes');
+  await missing(request.staged);
+});
+
+test('an output recreated as a link during cleanup stops preparation before a build can follow it', async t => {
+  const root = await fixture(t);
+  const outside = await fixture(t);
+  await put(root, 'bundle/old.mjs');
+  await put(root, 'apps/vscode/dist/old.cjs');
+  await put(outside, 'keep.txt', 'outside checkout must survive');
+  let replaced = false;
+  let replacementError;
+  const output = path.join(root, 'bundle');
+  const watcher = watch(path.dirname(output), (_event, filename) => {
+    if (String(filename) !== 'bundle' || replaced || replacementError || existsSync(output)) return;
+    try { symlinkSync(outside, output, linkType); replaced = true; }
+    catch (error) { replacementError = error; }
+  });
+  t.after(() => watcher.close());
+  await assert.rejects(cleanInstallBuildOutputs(root), /recreated during cleanup/);
+  watcher.close();
+  assert.ifError(replacementError);
+  assert.equal(replaced, true);
+  assert.equal(await readFile(path.join(outside, 'keep.txt'), 'utf8'), 'outside checkout must survive');
 });
 
 test('freshly rebuilt bundles and maps still fail privacy validation with exact file and line', async t => {

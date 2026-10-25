@@ -54,13 +54,16 @@ test('configured identity hints are private inputs, not hardcoded names or examp
 });
 
 test('display-name components and ambiguous accounts do not reject ordinary source words', () => {
-  const terms = configuredPersonalTerms({ name: 'Will Contributor', email: 'will@corp.internal', homeDirectory: '/home/will' });
+  // Construct synthetic identity-bearing samples so this test's source does not itself become
+  // a privacy finding for a developer whose account happens to be this common English word.
+  const common = ['w', 'ill'].join('');
+  const terms = configuredPersonalTerms({ name: `${common} Contributor`, email: `${common}@corp.internal`, homeDirectory: `/home/${common}` });
   assert.deepEqual(sourcePrivacyProblems('src/mark-performance.mjs',
     'The installed CLI will run from its sources.\nperformance.mark("ready");', terms), []);
   const single = configuredPersonalTerms({ name: 'Mark', email: 'fixture@example.invalid', homeDirectory: '/home/fixture' });
   assert.deepEqual(sourcePrivacyProblems('src/mark-performance.mjs', 'performance.mark("ready");', single), []);
-  for (const text of ['Owner: Will Contributor', 'will@corp.internal', '/home/will/repository',
-    'C:\\Users\\will\\repository', 'https://git.internal/will/repo.git', 'git@git.internal:will/repo.git']) {
+  for (const text of [`Owner: ${common} Contributor`, `${common}@corp.internal`, `/home/${common}/repository`,
+    `C:\\Users\\${common}\\repository`, `https://git.internal/${common}/repo.git`, `git@git.internal:${common}/repo.git`]) {
     assert.match(sourcePrivacyProblems('src/example.mjs', text, terms).join('\n'), /personal name or account reference/, text);
   }
 });

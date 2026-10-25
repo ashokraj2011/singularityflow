@@ -225,7 +225,8 @@ Retained installation artifacts and recovery journals are preserved. Exact stage
 uses its retained packages and does not clean or rebuild them.
 
 Cleanup first moves the validated output directories into private staging beside the checkout's
-outputs, checks their filesystem identities, and deletes only those captured directories. A changed
+outputs, checks their filesystem identities from a pinned parent working directory, and deletes only
+those captured directories. A changed
 parent stops the install. If staging is interrupted, `bundle.building-cleanup-*/retained.json` names
 the captured output locations for inspection; unrelated installation recovery remains untouched.
 

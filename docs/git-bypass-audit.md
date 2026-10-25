@@ -270,3 +270,10 @@ The privacy check's existing local Git identity read moves from `scripts/check.m
 fixed arguments and ten-second deadlines, access no remote or history, and perform no Git writes.
 No process owner is exempted. Active recovery is admitted before preparation; exact staged-artifact
 recovery never enters build cleanup.
+
+Build-output capture now also uses one bounded current-Node helper launch per output directory.
+The child checks the expected parent/output identities from a pinned working directory and moves
+only the fixed `bundle` or `dist` name into this invocation's private staging. It uses no shell,
+remote, history or Git command; its input and error output are bounded and its deadline is thirty
+seconds. Renames use relative source paths so a swapped ancestor cannot redirect capture elsewhere.
+The frozen process-site baseline includes this installer-only launch; no owner is exempted.

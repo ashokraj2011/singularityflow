@@ -1792,9 +1792,9 @@
     "scripts/install-build-outputs.mjs": {
       "counts": {
         "process-import": 1,
-        "process-launch": 1
+        "process-launch": 2
       },
-      "digest": "c50dcdadd4e21592294e06d004343972011fb9c0db7fcffac236931ad83c4ed0"
+      "digest": "91d2fad3ea43aed7561d06bdd8c3adfeab63d977bd7c6039d1ac9dcd60962319"
     }
   }
 }

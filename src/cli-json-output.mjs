@@ -1,3 +1,5 @@
+import { codePageSafeJson } from './code-page-safe-json.mjs';
+
 /** Keep legacy progress/review prose from preceding a failed --json command's terminal object. */
 const MAX_OUTPUT_BYTES = 64 * 1024 * 1024;
 
@@ -77,9 +79,10 @@ export async function withCliJsonOutput(json, execute, { forAgent = false, kind 
   const serializedAt = timed ? performance.now() : 0;
   const { agentOutputGoverned, boundedAgentOutput } = forAgent ? await import('./agent-output.mjs') : {};
   const compact = forAgent && agentOutputGoverned();
-  const rendered = compact ? await boundedAgentOutput(output) : output;
+  const rendered = compact ? await agentViewOrOutput(boundedAgentOutput, output) : output;
   const renderedAt = timed ? performance.now() : 0;
-  if (compact) write.call(stream, rendered);
+  const safe = codePageSafeJson(rendered);
+  if (compact || safe !== rendered) write.call(stream, safe);
   else if (utilityEntry || route) write.call(stream, output);
   else for (const chunk of chunks) write.call(stream, chunk);
   if (timed) process.stderr.write('@@sflow-output/v1 ' + JSON.stringify({
@@ -87,6 +90,18 @@ export async function withCliJsonOutput(json, execute, { forAgent = false, kind 
     emitMs: performance.now() - renderedAt, inputBytes: bytes, outputBytes: Buffer.byteLength(rendered)
   }) + '\n');
   return value;
+}
+
+/**
+ * The agent view of output a command already produced, or that output as it is when the view
+ * cannot be made: showing a result never turns a command that ran into a refusal.
+ */
+export async function agentViewOrOutput(view, output, options) {
+  try { return await view(output, options); }
+  catch (error) {
+    process.stderr.write(`Warning: the agent view could not be made (${error?.code ?? error?.message}); the whole output follows.\n`);
+    return output;
+  }
 }
 
 /** Plain text an agent reads: whole when it fits the host, otherwise its start and the file holding it all. */
@@ -107,7 +122,7 @@ async function withAgentText(execute, kind) {
   // A refusal still prints what came before it, bounded the same way, ahead of the error.
   const flush = async () => {
     stream.write = write;
-    write.call(stream, await boundedAgentText(Buffer.concat(chunks).toString('utf8'), { kind }));
+    write.call(stream, await agentViewOrOutput(boundedAgentText, Buffer.concat(chunks).toString('utf8'), { kind }));
   };
   let value;
   try { value = await execute(); }

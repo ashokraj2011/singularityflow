@@ -438,13 +438,39 @@ function readPlan(text, ranges, fields, { chunkBytes = READ_CHUNK_BYTES, chunks 
   return plan.slice(0, chunks);
 }
 
-async function prune(directory) {
+// A result stays at least a day, so an agent still reading one never loses it to a later command's
+// cleanup; older ones stay while they are among the newest KEPT_RESULTS.
+const KEPT_RESULT_MS = 24 * 60 * 60 * 1000;
+
+/**
+ * Remove old results whole: a result is its JSON, its text files and its omitted index, all named
+ * from one base that carries the time it was written. The result just written (`keep`) is never
+ * removed, however many files it has.
+ */
+async function prune(directory, keep, now = new Date()) {
   try {
-    const names = (await readdir(directory)).filter((name) => /\.(?:json|txt)$/u.test(name));
-    const dated = await Promise.all(names.map(async (name) => ({ name, at: (await stat(path.join(directory, name))).mtimeMs })));
-    const stale = dated.sort((left, right) => right.at - left.at).slice(KEPT_RESULTS * 4);
-    await Promise.all(stale.map(({ name }) => rm(path.join(directory, name), { force: true })));
+    const results = new Map();
+    for (const name of (await readdir(directory)).filter((name) => /\.(?:json|txt)$/u.test(name))) {
+      const base = name.replace(/\..*$/u, '');
+      const entry = results.get(base) ?? { base, names: [], at: writtenAt(base) };
+      entry.names.push(name);
+      results.set(base, entry);
+    }
+    // A name without its time (not written here) is dated by the file itself.
+    await Promise.all([...results.values()].filter((entry) => entry.at == null).map(async (entry) => {
+      entry.at = Math.max(0, ...await Promise.all(entry.names.map((name) => stat(path.join(directory, name)).then(({ mtimeMs }) => mtimeMs, () => 0))));
+    }));
+    const stale = [...results.values()].sort((left, right) => right.at - left.at).slice(KEPT_RESULTS)
+      .filter((entry) => entry.base !== keep && now.getTime() - entry.at > KEPT_RESULT_MS);
+    await Promise.all(stale.flatMap((entry) => entry.names.map((name) => rm(path.join(directory, name), { force: true }))));
   } catch { /* retention is best effort */ }
+}
+
+/** The time in a result's base name (`<kind>-2026-10-25T03-51-18-671Z-<hash>`), or null. */
+function writtenAt(base) {
+  const match = /-(\d{4}-\d{2}-\d{2})T(\d{2})-(\d{2})-(\d{2})-(\d{3})Z-[0-9a-f]{8}$/u.exec(base);
+  const at = match ? Date.parse(`${match[1]}T${match[2]}:${match[3]}:${match[4]}.${match[5]}Z`) : Number.NaN;
+  return Number.isFinite(at) ? at : null;
 }
 
 async function registerReadFiles(root, files) {
@@ -562,12 +588,13 @@ function omittedList(references, index) {
  * still fits, keeps what it can, and names the fields it does not show instead of printing them all.
  * `[OUT:REQ-014]`
  */
-function unretainedView(act, ordered, budget, agentJson) {
+function unretainedView(act, ordered, budget, agentJson, unkept = null) {
   const keys = Object.keys(ordered).filter((key) => key !== 'act');
   const size = Object.fromEntries(keys.map((key) => [key, bytes(JSON.stringify(ordered[key]) ?? 'null')]));
   const reads = new Set((act?.read ?? []).map((field) => String(field).split('.')[0]));
   const agentOutput = { complete: false, retained: false, state: 'detail-unavailable', bytes: bytes(agentJson(ordered)),
-    instruction: 'No repository was found from here to keep the full result; the omitted fields are not shown. Run the command from the Story checkout to read them.' };
+    ...(unkept ? { writeError: errorCode(unkept), instruction: UNKEPT_RESULT }
+      : { instruction: 'No repository was found from here to keep the full result; the omitted fields are not shown. Run the command from the Story checkout to read them.' }) };
   const render = (kept) => agentJson({ ...(act ? { act: { ...act, complete: false } } : {}), agentOutput,
     ...omittedList(keys.filter((key) => !kept.has(key)).map((key) => ({ field: key, bytes: size[key] })), null),
     ...Object.fromEntries(keys.filter((key) => kept.has(key)).map((key) => [key, ordered[key]])) });
@@ -597,22 +624,23 @@ function headLines(text, limit) {
  * lines stays in view; without a repository to keep it in, the envelope says what is not shown.
  * `[OUT:REQ-014]`
  */
-async function literalEnvelope(text, { cwd, budget, now, literal }) {
+async function literalEnvelope(text, { cwd, budget, now, literal, unkept = null }) {
   const { agentJson } = await import('./agent-packet-presentation.mjs');
-  const target = repositoryOf({}, cwd);
+  const target = unkept ? null : repositoryOf({}, cwd);
   const said = literal === 'json-array' ? 'The command returned a JSON array, not one result object.' : 'The command returned text that is not one JSON object.';
   let agentOutput;
   if (target) {
     const file = path.join(target.directory, `literal-${now.toISOString().replace(/[:.]/gu, '-')}-${sha256(text).slice(7, 15)}.txt`);
     await writeAtomic(file, text, { mode: 0o600 });
     await registerReadFiles(target.root, [file]);
-    await prune(target.directory);
+    await prune(target.directory, path.basename(file, '.txt'), now);
     const relative = path.relative(target.root, file).split(path.sep).join('/');
     agentOutput = { complete: false, literal, path: file, relativePath: relative, bytes: bytes(text), lines: text.split('\n').length - 1,
       sha256: sha256(text), read: lineRanges(text), instruction: 'Literal output kept whole: request every agentOutput.read line range together in one response; nothing was truncated.' };
   } else {
     agentOutput = { complete: false, literal, retained: false, state: 'detail-unavailable', bytes: bytes(text),
-      instruction: 'No repository was found from here to keep this output; only the preview is shown. Run the command from the Story checkout to read all of it.' };
+      ...(unkept ? { writeError: errorCode(unkept), instruction: UNKEPT_LITERAL }
+        : { instruction: 'No repository was found from here to keep this output; only the preview is shown. Run the command from the Story checkout to read all of it.' }) };
   }
   const envelope = (preview) => agentJson({ act: { state: 'read', said, do: null, complete: false }, agentOutput, preview });
   const reserve = bytes(envelope('')) + 16;
@@ -623,8 +651,36 @@ async function literalEnvelope(text, { cwd, budget, now, literal }) {
  * The agent view of one command's JSON stdout. Small results keep every field, with `act` first;
  * larger ones are written whole and stdout keeps what fits. Other text that fits is returned
  * unchanged; larger text gets the literal envelope.
+ *
+ * The command has already run when its result is shown, so a result that cannot be written (a
+ * full disk, a file another program holds open on Windows, a read-only Git directory) never turns
+ * into a refusal: a command that committed would read as refused and be run again. The view then
+ * keeps what fits, names what it does not show, and stderr says why.
  */
-export async function boundedAgentOutput(text, { cwd = process.cwd(), budget = agentOutputBudget(), now = new Date() } = {}) {
+export async function boundedAgentOutput(text, options = {}) {
+  try { return await keptAgentOutput(text, options); }
+  catch (error) {
+    warnUnkept(error);
+    const budget = options.budget ?? agentOutputBudget();
+    let result = null;
+    try { result = JSON.parse(text); } catch { /* shown as literal text */ }
+    if (!result || typeof result !== 'object' || Array.isArray(result)) {
+      return bytes(text) <= budget ? text : literalEnvelope(text, { budget, literal: Array.isArray(result) ? 'json-array' : 'not-json', unkept: error });
+    }
+    const { agentJson } = await import('./agent-packet-presentation.mjs');
+    const act = result.act ?? agentAct(result);
+    const rest = Object.fromEntries(Object.entries(result).filter(([key]) => key !== 'act'));
+    return unretainedView(act, act ? { act, ...rest } : result, budget, agentJson, error);
+  }
+}
+
+const UNKEPT_RESULT = 'The full result could not be written here; the omitted fields are not shown. The command ran: never run it again to read them.';
+const UNKEPT_LITERAL = 'This output could not be written here; only the preview is shown. The command ran: never run it again to read the rest.';
+const errorCode = (error) => String(error?.code ?? error?.name ?? 'Error');
+const warnUnkept = (error) => console.error(`Warning: the full result could not be written (${errorCode(error)}: ${oneLine(error?.message, 200)}); `
+  + 'the command\'s effects stand and the view shows what fits.');
+
+async function keptAgentOutput(text, { cwd = process.cwd(), budget = agentOutputBudget(), now = new Date() } = {}) {
   let result;
   let literal = null;
   try { result = JSON.parse(text); } catch { literal = 'not-json'; }
@@ -672,7 +728,7 @@ export async function boundedAgentOutput(text, { cwd = process.cwd(), budget = a
     const fullText = `${JSON.stringify(value, null, 2)}\n`;
     await writeAtomic(file, fullText, { mode: 0o600 });
     await registerReadFiles(target.root, [file, ...texts.map(entry => entry.textFile)]);
-    await prune(target.directory);
+    await prune(target.directory, base, now);
     return fullText;
   };
   const describe = (fullText, instruction) => ({ complete: false, path: file,
@@ -758,18 +814,27 @@ export async function boundedAgentOutput(text, { cwd = process.cwd(), budget = a
 export async function boundedAgentText(text, { cwd = process.cwd(), budget = agentOutputBudget(), now = new Date(), kind = 'text' } = {}) {
   if (bytes(text) <= budget) return text;
   const target = repositoryOf({}, cwd);
-  if (!target) {
-    // The bounded fallback: the start that fits, and what could not be kept. `[OUT:REQ-014]`
-    const total = text.split('\n').length;
-    const footer = (shown) => `\n[Output not kept] Lines 1-${shown} of ${total} are above. No repository was found from here to keep the rest; run the command from the Story checkout to read all of it.\n`;
-    const head = headLines(text, Math.max(0, budget - bytes(footer(total))));
-    return `${head}${footer(head ? head.split('\n').length - 1 : 0)}`;
+  let unkept = null;
+  if (target) {
+    // As with a JSON result, text that cannot be written is never a refusal of a command that ran.
+    try { return await keptAgentText(text, target, { budget, now, kind }); }
+    catch (error) { unkept = error; warnUnkept(error); }
   }
+  // The bounded fallback: the start that fits, and what could not be kept. `[OUT:REQ-014]`
+  const total = text.split('\n').length;
+  const why = unkept ? 'The rest could not be written here; the command ran: never run it again to read the rest.'
+    : 'No repository was found from here to keep the rest; run the command from the Story checkout to read all of it.';
+  const footer = (shown) => `\n[Output not kept] Lines 1-${shown} of ${total} are above. ${why}\n`;
+  const head = headLines(text, Math.max(0, budget - bytes(footer(total))));
+  return `${head}${footer(head ? head.split('\n').length - 1 : 0)}`;
+}
+
+async function keptAgentText(text, target, { budget, now, kind }) {
   const name = String(kind || 'text').replace(/[^A-Za-z0-9-]/gu, '-').slice(0, 48) || 'text';
   const file = path.join(target.directory, `${name}-${now.toISOString().replace(/[:.]/gu, '-')}-${sha256(text).slice(7, 15)}.txt`);
   await writeAtomic(file, text, { mode: 0o600 });
   await registerReadFiles(target.root, [file]);
-  await prune(target.directory);
+  await prune(target.directory, path.basename(file, '.txt'), now);
   const lines = text.split('\n');
   if (lines.at(-1) === '') lines.pop();
   const relative = path.relative(target.root, file).split(path.sep).join('/');

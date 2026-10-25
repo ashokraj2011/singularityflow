@@ -2,6 +2,7 @@
 import { createHash, randomUUID } from 'node:crypto';
 import { lstat, mkdir, readFile, rename, rm, unlink, writeFile } from 'node:fs/promises';
 import path from 'node:path';
+import { codePageSafeJson } from './code-page-safe-json.mjs';
 import { copilotModeFile, readCopilotMode } from './copilot-mode.mjs';
 import { currentSchemaVersion, readRecord } from './schema-migrations.mjs';
 
@@ -354,11 +355,12 @@ export async function runRepositoryBoundaryHook(event, input = process.stdin) {
       try { payload = JSON.parse(raw.toString('utf8').replace(/^\uFEFF/u, '') || '{}'); } catch { payload = null; }
     }
     if (!payload || typeof payload !== 'object' || Array.isArray(payload)) {
-      return console.log(JSON.stringify(await unreadablePayload(event, payloadIdentity(raw.subarray(0, IDENTITY_HEAD)))));
+      return console.log(codePageSafeJson(JSON.stringify(await unreadablePayload(event, payloadIdentity(raw.subarray(0, IDENTITY_HEAD))))));
     }
     const handler = { 'boundary-turn': recordRepositoryBoundaryTurn,
       'boundary-guard': repositoryToolGuard, 'boundary-end': endRepositoryBoundaryTurn,
       'boundary-after': repositoryPostToolGuard }[event];
-    return console.log(JSON.stringify(await handler(payload)));
+    // A Windows hook launcher passes this through PowerShell, which decodes it in the console's code page.
+    return console.log(codePageSafeJson(JSON.stringify(await handler(payload))));
   } catch { return console.log('{}'); }
 }

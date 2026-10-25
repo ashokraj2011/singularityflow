@@ -160,7 +160,17 @@ test('the bundled CLI answers exactly like the sources while opening a handful o
   // (isTransportIntentId), command-loaders.mjs +92, cli-entry.mjs +51, command-registry.mjs +27 and
   // status-details.mjs +15; the other 1,122 are bindings between chunks. decision-list.mjs and
   // decision-list-reads.mjs load lazily, outside these reads.
-  assert.ok(closure('cold-hook-context.mjs').reduce((sum, item) => sum + item.bytes, 0) < 7_410_000,
+  // 7,420,000 (next 5,000 boundary): main 9be3b855 measures 7,413,078, over 7,410,000 unrun in the slow lane:
+  // cold-hooks +4,098, cold-narrow-reads +348, cold-core +263, cold-hook-context +186 and cold-status +100. By
+  // module (rendered): copilot-mutation-guard.mjs +5,061 (the shell baseline kept across a hook timeout and the
+  // read-only commands that need none), copilot-repository-boundary.mjs +2,336 (hook payloads read whole and
+  // decoded once), commands/nextsteps.mjs +877, copilot-mode.mjs +602 (the loaded-skill sentence),
+  // story-state-read.mjs +379, commands/phase-show.mjs +290 and commands/progress.mjs -199. Batch B adds 3,532 for
+  // 7,416,610: cold-worker-protocol +2,498, cold-core +975 and cold-hooks +59, from agent-output.mjs +4,029 (a
+  // result that cannot be written is shown, never refused; cleanup removes whole results past a day),
+  // code-page-safe-json.mjs +980, cli-json-output.mjs +566, cli-failure.mjs +377 and
+  // copilot-repository-boundary.mjs +144.
+  assert.ok(closure('cold-hook-context.mjs').reduce((sum, item) => sum + item.bytes, 0) < 7_420_000,
     'phase-review reads retain their existing byte ceiling after moving families');
   assert.match(await readFile(path.join(outdir, 'cold-light.mjs'), 'utf8'), /function enterPhase\b/u,
     'phase binding must not fall through to the compatibility/admin bundle');

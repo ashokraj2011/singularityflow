@@ -63,9 +63,13 @@ export async function reportCliFailure(error, argv = []) {
   // A command made of steps (cli-steps.mjs) relays the failed step's own JSON result as it is.
   const relayed = error?.relayedResult;
   // An agent's refusal is bounded and starts with `act` like any agent result (agent-output.mjs).
+  // Either way it is code-page safe: Windows PowerShell decodes captured output in the console's
+  // code page (code-page-safe-json.mjs).
   const printJson = async (text) => {
     const governed = forAgent && (await import('./agent-output.mjs'));
-    console.log(governed && governed.agentOutputGoverned() ? (await governed.boundedAgentOutput(text)).trimEnd() : text);
+    const { agentViewOrOutput } = await import('./cli-json-output.mjs');
+    const { codePageSafeJson } = await import('./code-page-safe-json.mjs');
+    console.log(codePageSafeJson(governed && governed.agentOutputGoverned() ? (await agentViewOrOutput(governed.boundedAgentOutput, text)).trimEnd() : text));
   };
   if (relayed && json) {
     await printJson(JSON.stringify(relayed, null, 2));

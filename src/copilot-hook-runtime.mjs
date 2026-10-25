@@ -1,6 +1,7 @@
 /** Plugin-only entry: the existing hook policies, without general CLI/product initialization. */
 import { createHash } from 'node:crypto';
 import { copilotAgentStartPayload } from './copilot-agent-start.mjs';
+import { codePageSafeJson } from './code-page-safe-json.mjs';
 import { resolveOperation } from './command-registry.mjs';
 import { readCopilotMode } from './copilot-mode.mjs';
 import { installFileLeaseSignalHandlers } from './file-lease.mjs';
@@ -25,7 +26,7 @@ async function runAgentStart(input) {
     }
     const payload = JSON.parse(Buffer.concat(chunks).toString('utf8') || '{}');
     if (!payload || typeof payload !== 'object' || Array.isArray(payload)) return console.log('{}');
-    return console.log(JSON.stringify(await copilotAgentStartPayload(payload)));
+    return console.log(codePageSafeJson(JSON.stringify(await copilotAgentStartPayload(payload))));
   } catch { return console.log('{}'); }
 }
 

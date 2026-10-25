@@ -34,6 +34,7 @@ export const TEST_RUN_CAUSES = Object.freeze({
   'registry-unreachable': [ENVIRONMENT, 'a package registry, the network or a proxy cannot be reached'],
   'toolchain-version': [ENVIRONMENT, 'the toolchain here is not the version the build needs'],
   'browser-missing': [ENVIRONMENT, 'the browser the tests drive is not installed'],
+  'device-unavailable': [ENVIRONMENT, 'no emulator, simulator or device is attached'],
   'service-unreachable': [ENVIRONMENT, 'a service the tests connect to is not reachable'],
   'docker-unavailable': [ENVIRONMENT, 'Docker is not available'],
   'permission-denied': [ENVIRONMENT, 'the run was denied access to a file or directory'],
@@ -53,6 +54,8 @@ const SHELL = '^(?:/bin/)?(?:sh|bash|zsh|dash)(?:: line \\d+)?: (?:\\d+: )?';
 
 /** Environment markers, most specific first: [class, marker name, pattern]. */
 const ENVIRONMENT_MARKERS = Object.freeze([
+  // Instrumented Android and Apple tests need a running emulator, simulator or device; SFlow never starts one.
+  ['device-unavailable', 'no device', /ANDROID_DEVICE_UNAVAILABLE|No connected devices!|com\.android\.builder\.testing\.api\.DeviceException|No online devices found|adb: (?:no devices\/emulators found|device offline)|error: no devices\/emulators found|Unable to find a destination matching|Unable to boot (?:the )?[Ss]imulator|No available simulators/u],
   ['docker-unavailable', 'Docker daemon', /Cannot connect to the Docker daemon|Is the docker daemon running|Could not find a valid Docker environment|Could not find a working container runtime strategy|docker\.sock[^\n]*(?:permission denied|no such file|ECONNREFUSED|ENOENT)|\bdocker: (?:command )?not found/iu],
   ['browser-missing', 'browser executable', /Executable doesn't exist at|download new browsers|npx playwright install|Could not find (?:Chrome|Chromium|Firefox)\b|Failed to launch the browser process|Cypress binary is missing|ChromeDriver only supports Chrome version/iu],
   ['toolchain-version', 'Java runtime version', /UnsupportedClassVersionError|compiled by a more recent version of the Java Runtime|Unsupported class file major version|invalid (?:target|source) release|release version \d+ not supported|No compiler is provided in this environment|JAVA_HOME is (?:not set|set to an invalid)/u],

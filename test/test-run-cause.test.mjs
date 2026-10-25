@@ -27,6 +27,9 @@ const ENVIRONMENT_OUTPUTS = [
   ['JDK older than the build', 'toolchain-version', failed('Exception in thread "main" java.lang.UnsupportedClassVersionError: com/example/Main has been compiled by a more recent version of the Java Runtime (class file version 61.0), '
     + 'this version of the Java Runtime only recognizes class file versions up to 55.0\n')],
   ['Maven compiler target the JDK lacks', 'toolchain-version', failed('[ERROR] Failed to execute goal org.apache.maven.plugins:maven-compiler-plugin:3.11.0:compile (default-compile) on project app: Fatal error compiling: error: invalid target release: 21\n')],
+  ['no Android emulator or device attached', 'device-unavailable', failed("> Task :app:connectedDebugAndroidTest FAILED\n\nFAILURE: Build failed with an exception.\n\n* What went wrong:\n"
+    + "Execution failed for task ':app:connectedDebugAndroidTest'.\n> com.android.builder.testing.api.DeviceException: No connected devices!\n")],
+  ['no iOS simulator for the destination', 'device-unavailable', failed('xcodebuild: error: Unable to find a destination matching the provided destination specifier:\n\t\t{ platform:iOS Simulator, name:iPhone 15 }\n')],
   ['Docker daemon not running', 'docker-unavailable', failed('java.lang.IllegalStateException: Could not find a valid Docker environment. Please see logs and check configuration\n')],
   ['./gradlew not executable', 'launcher-unavailable', { status: 'blocked', exitCode: null, stdout: '', stderr: 'Unable to run quality command: spawn ./gradlew EACCES' }],
   ['launcher missing', 'launcher-unavailable', { status: 'blocked', exitCode: null, stdout: '', stderr: 'Unable to run quality command: spawn mvn ENOENT', infrastructureUnavailable: true }],

@@ -13,7 +13,7 @@ related:
   - recovery
   - approvals
   - configuration
-version: 24
+version: 25
 ---
 Test and Recovery (TRP) is an explicitly enabled pilot for a Story's test policy, baseline repair and phase issues. It keeps what a check observed separate from the decision about whether work may continue. A failed test remains failed even when a current, authorized exception permits a named transition. Normal phase approval remains separate.
 
@@ -228,6 +228,7 @@ Every failed or blocked run is classified by what stopped it, read from its exit
 | Registry, network or proxy | `registry-unreachable` | `Could not transfer artifact`, `ENOTFOUND`, proxy and certificate errors |
 | Toolchain version | `toolchain-version` | `UnsupportedClassVersionError`, `invalid target release`, engine requirements |
 | Browser missing | `browser-missing` | Playwright `Executable doesn't exist … npx playwright install`, Cypress binary missing |
+| No emulator, simulator or device | `device-unavailable` | Android `No connected devices!` / `DeviceException`, `adb: no devices/emulators found`, Xcode `Unable to find a destination matching`; SFlow never starts one |
 | Service unreachable | `service-unreachable` | `ECONNREFUSED`, `Connection refused` |
 | Docker | `docker-unavailable` | `Cannot connect to the Docker daemon`, `Could not find a valid Docker environment` |
 | Permission | `permission-denied` | `EACCES: permission denied`, `PermissionError` |

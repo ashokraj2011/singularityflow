@@ -255,7 +255,7 @@ import {
 } from './auto/auto-candidate.mjs';
 import {
   configuredTestModuleOverrides, normalizeRequiredTestCommand, parseTestResult,
-  resolveAffectedModule, structuredTestCommandRequiredError, testReceiptPassing
+  resolveAffectedModule, structuredTestCommandRequiredError, testCommandCoversPath, testReceiptPassing
 } from './code-delivery-tests.mjs';
 import { admitTestAttempts, recordTestAttempt } from './verification/attempts.mjs';
 import { describeWitnessResult, witnessResult } from './verification/witness-results.mjs';
@@ -5492,7 +5492,9 @@ async function submitPhaseTransition(root, config, workflow, {
       });
     }
     if (workflow.resolution?.codeDelivery?.tests?.requireAffectedModuleCoverage !== false) {
-      const uncovered = uncoveredTestDeliveryPaths(phase.deliveryEvidence, phase.sourceBoundary, testExecutions);
+      // Judged by the commands that ran, with their provenance [TCE:REQ-052].
+      const uncovered = uncoveredTestDeliveryPaths(phase.deliveryEvidence, phase.sourceBoundary,
+        requiredTestCommands.filter((command) => testExecutions.some((execution) => execution.commandId === command.id)));
       if (uncovered.length) {
         throw uncoveredTestPathsError(`No passing test command covers affected paths: ${uncovered.join(', ')}`, uncovered);
       }
@@ -5579,9 +5581,8 @@ async function submitPhaseTransition(root, config, workflow, {
     const deliveryReceipt = await readJson(path.join(root, phase.deliveryEvidence.receiptPath));
     const traceabilityBindings = [];
     for (const binding of deliveryReceipt.traceability?.bindings ?? []) {
-      const execution = testExecutions.find((candidate) => candidate.affectedRoots.some((affectedRoot) =>
-        affectedRoot === '.' || binding.testSource === affectedRoot
-          || binding.testSource.startsWith(`${affectedRoot.replace(/\/$/, '')}/`)));
+      const execution = testExecutions.find((candidate) => testCommandCoversPath(
+        requiredTestCommands.find((command) => command.id === candidate.commandId) ?? candidate, binding.testSource));
       if (!execution) {
         throw new SingularityFlowError(
           `Acceptance clause '${binding.clauseId}' is not bound to a passing command for '${binding.testSource}'.`,
@@ -5590,7 +5591,7 @@ async function submitPhaseTransition(root, config, workflow, {
       }
       // The approved configured test commands own their affected roots, as they did at resolution.
       const module = await resolveAffectedModule(root, binding.testSource, {
-        overrides: configuredTestModuleOverrides(phase.qualityCommands)
+        overrides: configuredTestModuleOverrides([...(phase.qualityCommands ?? []), ...(phase.storyTestCommands ?? [])])
       }).catch((error) => {
         // The deterministic direct-node fallback is an explicit root-module adapter for
         // repositories that intentionally have executable .mjs tests but no package manifest.

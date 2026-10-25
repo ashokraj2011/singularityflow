@@ -12,7 +12,7 @@ import { nextPhaseGeneration } from './phase-generation.mjs';
 import {
   configuredTestModuleOverrides, inferModuleTestCommand, isAllowedTestAutomationPath, isExecutableTestSourcePath,
   isSupportingTestResourcePath, isTestSourceName, persistedOccurrences, readDurableTestObservation, replayTestReports,
-  resolveAffectedModule, testReceiptPassing
+  resolveAffectedModule, testCommandCoversPath, testReceiptPassing
 } from './code-delivery-tests.mjs';
 import {
   buildRepositoryChangeSet, buildRepositoryTreeChangeSet, evaluateSourceBoundary,
@@ -77,11 +77,10 @@ export function testCoverageDeliveryPaths(delivery = {}, sourceBoundary = 'unres
   return affectedDeliveryPaths(delivery, sourceBoundary).filter((candidate) => !testCoverageExemptPath(candidate));
 }
 
-/** The affected paths no command's affected roots cover, in order. */
+/** The affected paths no command covers, in order: an inferred one covers only its own ecosystem's files. */
 export function uncoveredTestDeliveryPaths(delivery, sourceBoundary, commands = []) {
-  return testCoverageDeliveryPaths(delivery, sourceBoundary).filter((candidate) => !commands.some((command) =>
-    (command?.affectedRoots ?? []).some((affectedRoot) => affectedRoot === '.' || candidate === affectedRoot
-      || candidate.startsWith(`${String(affectedRoot).replace(/\/$/u, '')}/`))));
+  return testCoverageDeliveryPaths(delivery, sourceBoundary).filter((candidate) =>
+    !commands.some((command) => testCommandCoversPath(command, candidate)));
 }
 
 function pinnedTestEvidenceSource(workflow, phase) {
@@ -727,7 +726,8 @@ export async function discoverAcceptanceWitnesses(root, phase, {
     ...phase, deliveryEvidence: { ...(phase.deliveryEvidence ?? {}), sourcePaths, testPaths }
   }, { executionMode }).catch(() => [])).entries()) {
     if (!command || typeof command !== 'object' || Array.isArray(command) || command.kind !== 'test') continue;
-    try { commands.push(normalizeExternalCommand(command, index)); } catch { /* the test preflight reports it */ }
+    try { commands.push({ ...normalizeExternalCommand(command, index), provenance: testCommandProvenance(phase, command) }); }
+    catch { /* the test preflight reports it */ }
   }
   const taggedFiles = [...new Set(bindings.map((binding) => binding.testSource))].sort();
   const groups = new Map();
@@ -1731,6 +1731,8 @@ export async function resolveDeliveryQualityCommands(root, phase, { executionMod
   if (!inferred.length && !configuredTests.length) {
     const tests = phase.deliveryEvidence?.testPaths ?? [];
     if (tests.length && tests.every((candidate) => /\.(?:c|m)?js$/i.test(candidate))) {
+      // `node --test` is evidence only for node:test files [TCE:REQ-054].
+      await (await import('./test-module-markers.mjs')).assertNodeTestFiles(root, tests);
       inferred.push({
         id: 'node-tests', kind: 'test',
         argv: ['node', '--test', ...tests],
@@ -1750,11 +1752,6 @@ export async function resolveDeliveryQualityCommands(root, phase, { executionMod
 
 function receiptDigest(record) {
   return createHash('sha256').update(canonicalJson(record)).digest('hex');
-}
-
-function pathCoveredByRoots(candidate, roots = []) {
-  return roots.some((root) => root === '.' || candidate === root
-    || candidate.startsWith(`${root.replace(/\/$/, '')}/`));
 }
 
 function safeEvidencePath(value) {
@@ -2228,13 +2225,13 @@ export async function verifyCodeDeliveryReceipt(root, receipt, {
   if (!executions.size) fail('no passing test-execution receipt is bound');
   for (const binding of bindings) {
     const execution = executions.get(binding.commandId);
-    if (!execution || !pathCoveredByRoots(binding.testSource, execution.affectedRoots)) {
+    if (!execution || !testCommandCoversPath(execution, binding.testSource)) {
       fail(`acceptance clause ${binding.clauseId} is not covered by its bound test command`);
     }
   }
   if (requireAffectedModuleCoverage) {
     for (const sourcePath of testCoverageDeliveryPaths(receipt.changeSet)) {
-      if (![...executions.values()].some((execution) => pathCoveredByRoots(sourcePath, execution.affectedRoots))) {
+      if (![...executions.values()].some((execution) => testCommandCoversPath(execution, sourcePath))) {
         fail(`affected ${isConfigurationPath(sourcePath) ? 'configuration' : 'source'} path ${sourcePath} has no passing module test receipt`);
       }
     }

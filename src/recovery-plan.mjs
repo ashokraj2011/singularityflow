@@ -7,7 +7,8 @@ import { exactFileAtObject, head } from './git.mjs';
 
 import { planAgentBriefs } from './agent-briefs.mjs';
 import {
-  evaluateCodeDeliveryPreflight, phaseRequiresCodeDelivery, resolveDeliveryQualityCommands, uncoveredTestDeliveryPaths
+  evaluateCodeDeliveryPreflight, phaseRequiresCodeDelivery, resolveDeliveryQualityCommands, testCommandProvenance,
+  uncoveredTestDeliveryPaths
 } from './delivery-evidence.mjs';
 import {
   normalizeRequiredTestCommand, structuredTestCommandRequiredError, TEST_SETUP_COMMAND
@@ -453,10 +454,18 @@ export async function inspectPhaseRecovery(root, config, workflow, phase, {
         const { plannedStepPaths } = await import('./candidate-scope.mjs');
         const planned = await plannedStepPaths(path.join(root, config.workItemRoot ?? 'singularity/work-items', workflow.workItem.id), workflow, phase).catch(() => null);
         if (planned?.sourcePaths.length || planned?.testPaths.length) {
+          // Judged as publication will judge them [TCE:REQ-050]: a test-configuration refusal, or a planned
+          // path no command covers (an inferred one covers only its own ecosystem), is a missing runner now.
+          let refusal = null;
           const prospective = (await resolveDeliveryQualityCommands(root, { ...phase, deliveryEvidence: planned },
-            { executionMode: workflow.resolution?.testExecutionMode }).catch(() => [])).filter(isTestCommand);
-          testExecution.planned = { runner: prospective.length ? 'available' : 'missing', commands: prospective.map((command) => command.id) };
-          if (!prospective.length) testExecution.reason = 'CODE_DELIVERY_TEST_COMMAND_REQUIRED';
+            { executionMode: workflow.resolution?.testExecutionMode }).catch((error) => { refusal = error; return []; })).filter(isTestCommand);
+          const uncovered = prospective.length && workflow.resolution?.codeDelivery?.tests?.requireAffectedModuleCoverage !== false
+            ? uncoveredTestDeliveryPaths(planned, phase.sourceBoundary, prospective.map((command) =>
+              ({ ...command, provenance: testCommandProvenance(phase, command) }))) : [];
+          testExecution.planned = { runner: prospective.length && !uncovered.length ? 'available' : 'missing',
+            commands: prospective.map((command) => command.id), ...(uncovered.length ? { uncovered } : {}) };
+          if (TEST_CONFIGURATION_DEPENDENCIES.has(refusal?.code) || uncovered.length) testExecution.reason = refusal?.code ?? 'TEST_MODULE_UNCOVERED';
+          else if (!prospective.length) testExecution.reason = 'CODE_DELIVERY_TEST_COMMAND_REQUIRED';
         }
       } else {
         testCommands = (deliveryEvidence ? await resolveDeliveryQualityCommands(root, {
@@ -474,7 +483,8 @@ export async function inspectPhaseRecovery(root, config, workflow, phase, {
         });
         // Publication refuses affected paths no command covers; say so now, not after the tests ran.
         const uncovered = deliveryEvidence && !publishedCodeGeneration && testPolicy?.requireAffectedModuleCoverage !== false
-          ? uncoveredTestDeliveryPaths(deliveryEvidence, phase.sourceBoundary, normalized) : [];
+          ? uncoveredTestDeliveryPaths(deliveryEvidence, phase.sourceBoundary, normalized.map((command, index) =>
+            ({ ...command, provenance: testCommandProvenance(phase, testCommands[index]) }))) : [];
         if (uncovered.length) {
           deliveryErrors.push(new SingularityFlowError(
             `No test command covers affected paths: ${uncovered.join(', ')}. Publication would refuse them; configure an approved test command whose affected roots cover them.`,

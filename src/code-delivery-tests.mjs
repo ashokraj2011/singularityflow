@@ -47,15 +47,6 @@ const MANIFESTS = Object.freeze({
   'pyproject.toml': 'python', 'pytest.ini': 'python', 'tox.ini': 'python',
   'go.mod': 'go', 'Cargo.toml': 'rust', 'Package.swift': 'swift'
 });
-// Build files of ecosystems with no structured test adapter. Alone in a directory they own
-// everything below it; beside a supported manifest they own their language's files. Either way the
-// walk stops there, so an unrelated root manifest's tests never count as their coverage.
-const NATIVE_MANIFESTS = Object.freeze({
-  Podfile: { system: 'cocoapods', label: 'CocoaPods', extensions: ['.swift', '.m', '.mm'] },
-  Gemfile: { system: 'ruby', label: 'Ruby', extensions: ['.rb', '.erb', '.rake'] },
-  'composer.json': { system: 'php', label: 'PHP Composer', extensions: ['.php'] },
-  'pubspec.yaml': { system: 'dart', label: 'Dart/Flutter', extensions: ['.dart'] }
-});
 export const TEST_SETUP_COMMAND = 'singularity-flow capability test-setup --json';
 const TEST_POLICY_AMEND_COMMAND = 'singularity-flow story test-policy amend --reason <why>';
 
@@ -72,6 +63,46 @@ export function isTestSourceName(candidate) {
   const basename = path.posix.basename(normalized(candidate));
   return TEST_SOURCE_EXTENSIONS.has(path.posix.extname(basename).toLowerCase())
     && TEST_SOURCE_NAMES.some((pattern) => pattern.test(basename));
+}
+
+/**
+ * Which changed paths a test command is evidence for [TCE:REQ-052, TCE:REQ-053].
+ *
+ * A command a person configured or accepted covers the affected roots they gave it. A command
+ * Singularity Flow inferred runs one ecosystem's tests, so below its roots (the whole repository
+ * included) it covers only that ecosystem's source and files of no language (configuration,
+ * documents, assets, C and C++ that a package builds): `npm test` is never evidence for a `.py` or
+ * `.swift` file, and pytest never for a `.ts` one. Publication, submission, recovery and witness
+ * discovery all ask this one question. A record that does not say where its command came from (an
+ * older receipt) keeps its roots.
+ */
+const LANGUAGE = /\.(?:([cm]?[jt]sx?|vue|svelte)|(pyx?|pyi)|(java|kts?|scala|groovy)|(cs|fsx?|vb)|(go)|(rs)|(swift|mm?)|(rb|erb|rake)|(php)|(dart))$/iu;
+const ECOSYSTEMS = ['node', 'python', 'jvm', 'dotnet', 'go', 'rust', 'swift', 'ruby', 'php', 'dart'];
+const ADAPTERS = { 'jest-json': 'node', 'vitest-json': 'node', 'playwright-json': 'node', 'node-tap': 'node', 'karma-text': 'node',
+  'go-test-json': 'go', 'dotnet-trx': 'dotnet', 'cargo-json': 'rust' };
+const lastSegment = (value) => String(value ?? '').split(/[\\/]/u).at(-1);
+
+/** The ecosystem whose source a file is, by its extension, or null for a file of no language. */
+export function sourceEcosystem(candidate) {
+  const match = LANGUAGE.exec(lastSegment(candidate));
+  return match ? ECOSYSTEMS[match.slice(1).findIndex(Boolean)] : null;
+}
+
+/** The ecosystem an inferred command's runner tests: its report adapter, else its launcher. */
+export function testCommandEcosystem(command) {
+  const launcher = lastSegment(command?.argv?.[0]).toLowerCase().replace(/\.(?:exe|cmd|bat)$/u, '');
+  return ADAPTERS[command?.result?.adapter] ?? (/^py(?:thon[\d.]*)?$/u.test(launcher) ? 'python'
+    : /^(?:mvnw?|gradlew?)$/u.test(launcher) ? 'jvm' : launcher === 'swift' ? 'swift' : null);
+}
+
+/** Whether `command` (with its `provenance`) covers a changed repository path. */
+export function testCommandCoversPath(command, candidate) {
+  const relative = String(candidate).replace(/^\.\//u, '');
+  const below = (command?.affectedRoots ?? []).some((root) => {
+    const prefix = String(root).replaceAll('\\', '/').replace(/^\.\/|\/+$/gu, '') || '.';
+    return prefix === '.' || relative === prefix || relative.startsWith(`${prefix}/`);
+  });
+  return below && (command.provenance !== 'inferred' || [null, testCommandEcosystem(command)].includes(sourceEcosystem(relative)));
 }
 
 export function isAllowedTestAutomationPath(candidate) {
@@ -114,31 +145,20 @@ function parentDirectories(candidate) {
   return directories;
 }
 
+/** The supported build manifests in a directory, and its listing. */
 async function manifestsAt(root, directory) {
   const found = [];
   for (const [name, system] of Object.entries(MANIFESTS)) {
     if (await exists(path.join(root, directory, name))) found.push({ name, system });
   }
-  const dotnet = [];
-  try {
-    const { readdir } = await import('node:fs/promises');
-    for (const name of await readdir(path.join(root, directory || '.'))) {
-      if (isDotnetManifest(name)) dotnet.push({ name, system: 'dotnet' });
-    }
-  } catch { /* Missing directory is handled by the caller's changed-path validation. */ }
-  return [...found, ...dotnet];
-}
-
-async function nativeManifestsAt(root, directory) {
-  const found = [];
-  for (const [name, entry] of Object.entries(NATIVE_MANIFESTS)) {
-    if (await exists(path.join(root, directory, name))) found.push({ name, ...entry });
-  }
-  return found;
+  let names = [];
+  try { names = (await readdir(path.join(root, directory || '.'))).sort(); }
+  catch { /* Missing directory is handled by the caller's changed-path validation. */ }
+  return { manifests: [...found, ...names.filter(isDotnetManifest).map((name) => ({ name, system: 'dotnet' }))], names };
 }
 
 /** Where a test-configuration refusal goes next: inspect runner suggestions, then a reviewed amendment. */
-function testSetupRoute(extra = {}) {
+export function testSetupRoute(extra = {}) {
   return { ...extra, nextAction: { command: TEST_SETUP_COMMAND }, recoveryCommands: [TEST_SETUP_COMMAND, TEST_POLICY_AMEND_COMMAND] };
 }
 
@@ -172,20 +192,11 @@ export async function resolveAffectedModule(root, candidate, { overrides = {} } 
   const relative = normalized(candidate);
   const explicit = overrideFor(relative, overrides);
   if (explicit) return { root: explicit[1].root ?? explicit[0], system: explicit[1].system, manifest: explicit[1].manifest ?? null, configured: true };
-  const extension = path.posix.extname(relative).toLowerCase();
   for (const directory of parentDirectories(relative)) {
-    const manifests = await manifestsAt(root, directory);
-    const native = (await nativeManifestsAt(root, directory))
-      .find((entry) => !manifests.length || entry.extensions.includes(extension));
-    if (native) {
-      const manifest = directory ? `${directory}/${native.name}` : native.name;
-      throw new SingularityFlowError(
-        `Changed path '${relative}' belongs to ${manifest}, a ${native.label} build with no supported structured test runner, `
-        + 'so no inferred test command covers it; an unrelated manifest\'s tests never count as its coverage. '
-        + 'Configure an approved test command for it (kind: test, argv, workingDirectory, affectedRoots and a result adapter).',
-        { code: 'TEST_MODULE_UNCOVERED', details: testSetupRoute({ path: relative, manifest, nativeManifest: native.name, system: native.system }) }
-      );
-    }
+    const { manifests, names } = await manifestsAt(root, directory);
+    // Another ecosystem's build file stops the walk: its Python module, or a refusal [TCE:REQ-051].
+    const foreign = await (await import('./test-module-markers.mjs')).foreignBuildModule(root, directory, relative, names, manifests);
+    if (foreign) return foreign;
     if (!manifests.length) {
       // An Nx project keeps its targets in project.json. One with a Jest or Vitest target, or tested by a
       // Playwright target (its own, or the e2e project's beside it), is a module; any other keeps the one above.

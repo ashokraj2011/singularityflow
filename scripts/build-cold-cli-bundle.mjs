@@ -55,8 +55,11 @@ const FAMILIES = Object.freeze([
   ['publication', ['story-publication-store.mjs', 'story-publication-service.mjs', 'product-requirement.mjs']],
   ['hook-context', ['commands/phase-show.mjs', 'commands/shared/session-repository-authority.mjs', 'agent-hooks.mjs',
     'accepted-story-execution.mjs', 'delivery-evidence.mjs', 'worktree-fingerprint.mjs']],
+  // The test-module walk's other-ecosystem build files and the node --test fallback's runner check load
+  // only where a gate maps a changed path to its command, which already loads every static import of this
+  // slot; claimed here they stay outside every ceilinged closure instead of falling into compatibility.
   ['session', ['commands/session-entry.mjs', 'commands/session-open.mjs', 'commands/session-open-local.mjs',
-    'commands/session.mjs', 'session-agent-entry.mjs', 'session-read-service.mjs']],
+    'commands/session.mjs', 'session-agent-entry.mjs', 'session-read-service.mjs', 'test-module-markers.mjs']],
   ['intake', ['commands/start.mjs', 'commands/workspace-branches.mjs', 'commands/intake-entry.mjs',
     'commands/story-entry.mjs', 'story-worktree-preparation.mjs',
     'local-work-journal.mjs', 'history-index.mjs']],

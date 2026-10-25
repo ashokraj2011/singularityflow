@@ -10,7 +10,7 @@ import { deriveMutationContract, mutationContractPresentation, mutationPathDecis
 import { recordRepositoryBoundaryTurn, endRepositoryBoundaryTurn } from '../src/copilot-repository-boundary.mjs';
 import { captureMutationTurn, mutationToolGuard, mutationPostToolGuard, issueMutationStaging, issueImportTeamStaging, issueBuildStaging, issueFixWorkflowStaging, issueRunAppDraftStaging, issueDraftStaging, epicSourceTextDraftPath, refreshMutationContracts, endMutationDecisionTurns } from '../src/copilot-mutation-guard.mjs';
 import { createHash } from 'node:crypto';
-import { setCopilotPaused } from '../src/copilot-mode.mjs';
+import { hookCliLine, setCopilotPaused, setHookCli } from '../src/copilot-mode.mjs';
 import { assertPhaseSequence } from '../src/sequence.mjs';
 import { readFileSync } from 'node:fs';
 import YAML from 'yaml';
@@ -1883,6 +1883,71 @@ test('literal answer punctuation and PowerShell argv do not become shell operato
     assert.match(refused.permissionDecisionReason, /PHASE_MUTATION_SHELL_COMMAND_UNVERIFIED/);
     assert.doesNotMatch(refused.permissionDecisionReason, /PHASE_MUTATION_TURN_READ_ONLY/);
   }
+});
+
+test('the launcher\'s verified Node and CLI entry, quoted for the shell, meet every guard check as the CLI; no other form does', async t => {
+  const f = await fixture(t);
+  // What a host started outside a login shell gets named when `singularity-flow` is off PATH
+  // (setHookCli in src/copilot-mode.mjs). Paths with spaces, as under Program Files.
+  const node = path.join(path.dirname(f.root), 'Node runtime', 'bin', 'node');
+  const entry = path.join(path.dirname(f.root), 'npm prefix', 'lib', 'node_modules', 'singularity-flow', 'bin', 'singularity-flow.mjs');
+  const posix = renderPlatformCommand([node, entry], 'linux'), powershell = renderPlatformCommand([node, entry], 'win32');
+  setHookCli({ node, cli: entry, onPath: false });
+  t.after(() => setHookCli(null));
+  const shell = (payload, command, toolName = 'bash') => mutationToolGuard({ ...payload, toolName, toolArgs: { command } });
+  const after = (payload, command) => mutationPostToolGuard({ ...payload, toolName: 'bash', toolArgs: { command } });
+  // The session turn bound to a Story (the 2026-10-25 chat-folder shape): its rules, then the one line.
+  const context = (await recordRepositoryBoundaryTurn({ cwd: f.root, sessionId: 'verified-cli-context', prompt: '/sf-session' },
+    { captureMutation: (payload, record) => captureMutationTurn(payload, record, { resolveRoot: async () => f.root, load: async () => f.accepted }) })).additionalContext;
+  assert.match(context, /^SFlow turn boundary \(sf-session\): session-only turn, PMC-1 step custom-step/u);
+  assert.ok(context.endsWith(` Turn rules ${context.match(/Turn rules (sha256:[a-f0-9]{16})/u)[1]}. ${hookCliLine()}`), context);
+  f.workflow.resolution.obligationGraph = { nodes: [{ id: 'custom-step', responsibilities: ['scope'] }] };
+  await writeFile(f.workflowFile, JSON.stringify(f.workflow));
+  const report = `--report-json '${JSON.stringify({ rows: [], detail: 'x'.repeat(4000) })}' --json`;
+  // Turn modes, read lists, host-only commands, decisions, `cd <root> &&` scoping and the long staging form.
+  const rests = ['session open PMC-1 --for-agent --json', 'status --json', 'approve custom-step', 'hook boundary-turn',
+    'phase publish custom-step', 'decision test-risk custom-step --work-id PMC-1', `review-source stage custom-step ${report}`];
+  for (const skill of ['/sf-session', '/sf-status', '/sf-phase', '/sf-approve', '/sf-review-source']) {
+    const payload = await f.enter(skill, `verified-cli${skill.replace('/', '-')}`);
+    for (const rest of rests) {
+      const bare = await shell(payload, `singularity-flow ${rest}`);
+      assert.deepEqual(await shell(payload, `${posix} ${rest}`), bare, `${skill}: ${rest}`);
+      assert.deepEqual(await shell(payload, `cd '${f.root}' && ${posix} ${rest}`), await shell(payload, `cd '${f.root}' && singularity-flow ${rest}`), `${skill}: cd ${rest}`);
+      assert.deepEqual(await shell(payload, `${powershell} ${rest}`, 'powershell'), await shell(payload, `& singularity-flow ${rest}`, 'powershell'), `${skill}: ${rest}`);
+    }
+  }
+  assert.deepEqual(await shell(await f.enter('/sf-review-source', 'stage'), `${posix} review-source stage custom-step ${report}`), {});
+  const session = await f.enter('/sf-session', 'verified-cli-only');
+  assert.deepEqual(await shell(session, `${posix} session open PMC-1 --for-agent --json`), {});
+  assert.deepEqual(await after(session, `${posix} session open PMC-1 --for-agent --json`), {}, 'nothing to detect after an admitted command');
+  // Exactly that pair, quoted for its shell: another Node or entry, `node <entry>`, a wrapper or a chain is not the CLI.
+  for (const command of [`'${node}' '/opt/other/singularity-flow.mjs' session open PMC-1 --for-agent --json`,
+    `'/opt/other/node' '${entry}' session open PMC-1 --for-agent --json`, `node '${entry}' session open PMC-1 --for-agent --json`,
+    `"${node}" "${entry}" session open PMC-1 --for-agent --json`, `bash -c "${posix} session open PMC-1"`,
+    `${posix} session open PMC-1 --for-agent --json && echo done`, `cd /tmp && ${posix} session open PMC-1 --for-agent --json`]) {
+    assert.equal((await shell(session, command)).permissionDecision, 'deny', command);
+  }
+  assert.equal((await shell(session, `${posix} session open PMC-1 --for-agent --json`, 'powershell')).permissionDecision, 'deny',
+    'PowerShell runs it only with its call operator');
+  assert.match((await after(session, `'/opt/other/node' '${entry}' session open PMC-1 --for-agent --json`)).additionalContext ?? '',
+    /PHASE_MUTATION_BASELINE_UNAVAILABLE/u);
+  // In an authoring turn the pair inside a chain is still the kernel, never an ordinary shell command.
+  const authoring = await f.enter('/sf-phase', 'verified-cli-chain');
+  assert.match((await shell(authoring, `echo start && ${posix} approve custom-step`)).permissionDecisionReason, /PHASE_MUTATION_SHELL_COMMAND_UNVERIFIED/u);
+  // Before a Story is bound: a setup skill's own family and a session attach, as with the bare CLI.
+  const setup = async skill => {
+    const payload = { cwd: f.root, sessionId: `verified-cli-setup-${skill}`, prompt: skill };
+    await recordRepositoryBoundaryTurn(payload, { captureMutation: (value, record) => captureMutationTurn(value, record,
+      { resolveRoot: async () => f.root, load: async () => { throw new Error('No Story yet'); } }) });
+    return payload;
+  };
+  const workflows = await setup('/sf-workflows');
+  assert.deepEqual(await shell(workflows, `${posix} workflow create custom --json`), {});
+  assert.deepEqual(await after(workflows, `${posix} workflow create custom --json`), {});
+  assert.deepEqual(await shell(await setup('/sf-session'), `${posix} session attach PMC-1 --json`), {});
+  // With no launcher pair (a terminal run, an older plugin) the absolute form is an unverified command as before.
+  setHookCli(null);
+  assert.equal((await shell(session, `${posix} session open PMC-1 --for-agent --json`)).permissionDecision, 'deny');
 });
 
 test('after a command that changed nothing, current contracts are not rebuilt and the Story is not reloaded', async t => {

@@ -5,7 +5,7 @@ import { readFileSync, realpathSync } from 'node:fs';
 import { lstat, mkdir, readFile, readdir, realpath, rename, rm, unlink, writeFile } from 'node:fs/promises';
 import { fileURLToPath } from 'node:url';
 import { deriveMutationContract, mutationContractPresentation, mutationDenial, mutationPathDecision, mutationTurnMode } from './phase-mutation-contract.mjs';
-import { copilotModeFile, readCopilotMode } from './copilot-mode.mjs';
+import { asSflowCommand, copilotModeFile, mentionsHookCli, readCopilotMode } from './copilot-mode.mjs';
 // The guard runs on every tool call: the staging-path helper loads only when a turn's record is built
 // or a staging refusal is written, never on the per-call path.
 const stagingPaths = () => import('./phase-staging-paths.mjs');
@@ -437,7 +437,8 @@ function scopedShellCommand(call, value) {
     try { if (realpathSync(target) !== root) return null; } catch { return null; }
     command = scoped[4];
   }
-  return command;
+  // The launcher's verified Node + CLI entry, which the turn names when the CLI is off PATH, is the CLI.
+  return asSflowCommand(command, call.name === 'powershell');
 }
 
 /**
@@ -799,7 +800,7 @@ function mentionsKernelExecution(call, value) {
   // Match a complete executable token, not a word boundary inside a literal path.
   // Keep rejecting unverified wrappers, substitutions and executable paths; never grant kernel authority
   // to a raw shell. Its file mutations still undergo the normal before/after path checks.
-  return /\b(?:singularity-flow|sflow)(?:\.(?:exe|cmd|bat))?(?=$|[\s'";&|`$<>()])/iu.test(command);
+  return /\b(?:singularity-flow|sflow)(?:\.(?:exe|cmd|bat))?(?=$|[\s'";&|`$<>()])/iu.test(command) || mentionsHookCli(command);
 }
 
 /**

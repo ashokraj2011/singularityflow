@@ -28,6 +28,10 @@ if [[ "$managed_root" == /* && -f "$managed_root/active" ]]; then
               printf '%s\n' '{}'; exit 0
             fi
           fi ;;
+        # The engine's PATH entry comes from a shell profile, which a GUI-started host never read.
+        # Off PATH, --cli-off-path has the turn name the verified Node and entry instead.
+        boundary-turn) command -v singularity-flow >/dev/null 2>&1 \
+          || exec "$managed_node" "$launcher_dir/hook-launcher.mjs" "$action" "$managed_cli" --cli-off-path ;;
       esac
       exec "$managed_node" "$launcher_dir/hook-launcher.mjs" "$action" "$managed_cli"
     fi
@@ -67,7 +71,8 @@ if [[ -n "$node_path" ]]; then
   esac
   cli_path=$(command -v singularity-flow 2>/dev/null || true)
   # Pass candidates as arguments, not shell text. The Node bootstrap verifies the package/entry.
-  exec "$node_path" "$launcher_dir/hook-launcher.mjs" "$action" "$cli_path" \
+  # Copilot's shell shares this PATH: off it, the marker has the turn name the verified Node and entry.
+  exec "$node_path" "$launcher_dir/hook-launcher.mjs" "$action" "${cli_path:---cli-off-path}" \
     /opt/homebrew/bin/singularity-flow /usr/local/bin/singularity-flow /opt/local/bin/singularity-flow
 fi
 if [[ "$action" == boundary-guard ]]; then

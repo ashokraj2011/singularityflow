@@ -3,7 +3,7 @@ import { createHash, randomUUID } from 'node:crypto';
 import { lstat, mkdir, readFile, rename, rm, unlink, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import { codePageSafeJson } from './code-page-safe-json.mjs';
-import { copilotModeFile, readCopilotMode } from './copilot-mode.mjs';
+import { copilotModeFile, hookCliLine, readCopilotMode } from './copilot-mode.mjs';
 import { currentSchemaVersion, readRecord } from './schema-migrations.mjs';
 
 const FAMILY = 'copilot-repository-boundary';
@@ -83,8 +83,19 @@ async function settleObservedEdits(payload) {
   }
 }
 
-/** Reset on EVERY prompt, including native turns; never retain the prompt or its attachments. */
-export async function recordRepositoryBoundaryTurn(payload = {}, { now = Date.now(), captureMutation = null } = {}) {
+/**
+ * Reset on EVERY prompt, including native turns; never retain the prompt or its attachments. A prompt
+ * naming an SFlow skill, paused or not, also gets the CLI's verified invocation while the CLI is off
+ * PATH: that skill's first command would otherwise fail with `command not found`.
+ */
+export async function recordRepositoryBoundaryTurn(payload = {}, options = {}) {
+  const answer = await recordTurn(payload, options);
+  const line = hookCliLine();
+  return line && explicitSflowSkill(payload.prompt)
+    ? { ...answer, additionalContext: answer.additionalContext ? `${answer.additionalContext} ${line}` : line } : answer;
+}
+
+async function recordTurn(payload, { now = Date.now(), captureMutation = null }) {
   await removeRecord(path.join(path.dirname(copilotModeFile()), 'copilot-boundaries', RUNTIME_UNAVAILABLE_MARKER))
     .catch(() => {});
   await settleObservedEdits(payload).catch(() => {});

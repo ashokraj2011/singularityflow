@@ -3,7 +3,7 @@ import { createHash } from 'node:crypto';
 import { copilotAgentStartPayload } from './copilot-agent-start.mjs';
 import { codePageSafeJson } from './code-page-safe-json.mjs';
 import { resolveOperation } from './command-registry.mjs';
-import { readCopilotMode } from './copilot-mode.mjs';
+import { readCopilotMode, setHookCli } from './copilot-mode.mjs';
 import { installFileLeaseSignalHandlers } from './file-lease.mjs';
 import { installGitFactStore } from './git-fact-store.mjs';
 import { resolveModelMode } from './model-mode.mjs';
@@ -30,9 +30,13 @@ async function runAgentStart(input) {
   } catch { return console.log('{}'); }
 }
 
-/** Only closed plugin actions; lifecycle commands cannot be dispatched through this entry. */
-export async function runCopilotHook(action, input = process.stdin) {
+/**
+ * Only closed plugin actions; lifecycle commands cannot be dispatched through this entry. `launch` is
+ * the launcher's verified Node and CLI entry, and whether `singularity-flow` was on its PATH.
+ */
+export async function runCopilotHook(action, input = process.stdin, launch = null) {
   if (!COPILOT_PLUGIN_HOOK_ACTIONS.includes(action)) throw new TypeError('Unsupported Copilot plugin hook action.');
+  setHookCli(launch);
   const argv = ['hook', action];
   const operation = resolveOperation({ requestedCommand: 'hook', positionals: argv, options: {} });
   const argvSha256 = createHash('sha256').update(JSON.stringify(argv)).digest('hex');

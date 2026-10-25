@@ -8,7 +8,11 @@ import { pathToFileURL } from 'node:url';
 // Enable only after resolving the selected engine below: managed foreground hooks must not
 // accidentally create a separate writable cache in the user's temporary directory.
 
-const [action, ...candidates] = process.argv.slice(2);
+const [action, ...given] = process.argv.slice(2);
+// The shell launchers add this when `singularity-flow` is not on the PATH Copilot gave them, which its
+// shell shares: the turn then names the Node and entry verified below (setHookCli in src/copilot-mode.mjs).
+const OFF_PATH = '--cli-off-path';
+const candidates = given.filter(value => value !== OFF_PATH);
 const actions = new Set(['boundary-turn', 'boundary-guard', 'boundary-after', 'boundary-end', 'agent-start']);
 // The shell launcher skips Node while no SFlow turn is recorded. A runtime that cannot load could
 // not record one either, so leave a marker (RUNTIME_UNAVAILABLE_MARKER in
@@ -71,7 +75,8 @@ try {
       if (process.env.SINGULARITY_FLOW_HOOK_RUNTIME !== 'legacy' && existsSync(hookSource)) {
         const bundled = selector?.bundledCopilotHookUrl?.(root);
         const { runCopilotHook } = await import(bundled ?? pathToFileURL(hookSource).href);
-        await runCopilotHook(action);
+        await runCopilotHook(action, process.stdin, { node: process.execPath,
+          cli: path.join(root, 'bin', 'singularity-flow.mjs'), onPath: !given.includes(OFF_PATH) });
       } else {
         const bundled = selector?.bundledCliUrl?.(root);
         const { main } = await import(bundled ?? pathToFileURL(path.join(root, 'src/cli-entry.mjs')).href);

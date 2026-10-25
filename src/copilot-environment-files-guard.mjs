@@ -9,12 +9,13 @@
  *
  * Cheap on purpose: the guard runs before every tool call of an explicit turn. A repository with no
  * `singularity/environments.yml`, no registry and no workspace-level state costs a few `lstat` calls
- * and loads nothing else.
+ * and loads nothing else (its one local import, copilot-mode.mjs, every hook has loaded already).
  */
 import { lstatSync, readFileSync, realpathSync } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { asSflowCommand } from './copilot-mode.mjs';
 
 const DECLARATION = path.join('singularity', 'environments.yml');
 const TERMINALS = new Set(['bash', 'powershell', 'run_in_terminal', 'execute', 'exec_command', 'write_stdin']);
@@ -197,7 +198,8 @@ export async function environmentFilesToolGuard(payload = {}, { env = process.en
   for (const call of callsOf(payload)) {
     const cwd = call.args?.cwd ?? payload.cwd;
     if (TERMINALS.has(call.name)) {
-      const command = call.args.command ?? call.args.cmd ?? call.args.script ?? call.args.chars;
+      // The launcher's verified Node + CLI entry reads as `singularity-flow` here too.
+      const command = asSflowCommand(call.args.command ?? call.args.cmd ?? call.args.script ?? call.args.chars, call.name === 'powershell');
       if (typeof command !== 'string' || !command) continue;
       const allowed = environmentFilesCommandVerdict(command);
       if (allowed === true) continue;

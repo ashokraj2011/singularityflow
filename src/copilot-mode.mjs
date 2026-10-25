@@ -138,3 +138,46 @@ export function copilotModePresentation(mode = readCopilotMode()) {
     }
   };
 }
+
+/**
+ * The CLI a Copilot hook process runs, as plugin/hook-launcher.mjs resolved and verified it: the Node that
+ * runs the hook and the installed package's entry. A host started outside a login shell (VS Code from
+ * the Dock, or on Windows before npm's global bin joined PATH) leaves `singularity-flow` off the PATH
+ * its hooks and its shell share. The turn then names exactly this invocation, and the guard reads
+ * exactly this invocation, quoted for its shell, as `singularity-flow`. No other path, wrapper or
+ * `node <file>` gains that standing, and nothing an agent writes sets it.
+ */
+let launched = null;
+
+/** Set once per hook from the launcher's own resolution; anything else clears it. */
+export function setHookCli(value) {
+  const usable = file => typeof file === 'string' && path.isAbsolute(file) && !/[\u0000-\u001f\u007f]/u.test(file);
+  launched = usable(value?.node) && usable(value.cli) && path.basename(value.cli) === 'singularity-flow.mjs'
+    ? { node: value.node, cli: value.cli, onPath: value.onPath !== false } : null;
+}
+
+// renderPlatformCommand's quoting (safe-command-guidance.mjs), kept here: every hook loads this module already.
+const invocation = powershell => (powershell ? '& ' : '')
+  + [launched.node, launched.cli].map(value => `'${value.replaceAll("'", powershell ? "''" : `'"'"'`)}'`).join(' ');
+
+/** The turn's one line while the CLI is off PATH, in the host shell's form (PowerShell on Windows). */
+export function hookCliLine(platform = process.platform) {
+  return launched && !launched.onPath
+    ? `If \`singularity-flow\` is not found, run each \`singularity-flow …\` command as \`${invocation(platform === 'win32')} …\`.`
+    : null;
+}
+
+/** The command with exactly the verified invocation read as `singularity-flow`; any other text unchanged. */
+export function asSflowCommand(command, powershell = false) {
+  if (!launched || typeof command !== 'string') return command;
+  const text = command.trimStart();
+  const shell = powershell || text.startsWith('&');
+  const prefix = invocation(shell);
+  if (!text.startsWith(prefix) || /\S/u.test(text[prefix.length] ?? ' ')) return command;
+  return `${shell ? '& ' : ''}singularity-flow${text.slice(prefix.length)}`;
+}
+
+/** Whether a command names the verified entry anywhere: inside a chain or wrapper it is still the kernel. */
+export function mentionsHookCli(command) {
+  return Boolean(launched) && typeof command === 'string' && command.includes(launched.cli);
+}

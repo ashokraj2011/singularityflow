@@ -3,7 +3,10 @@ $ErrorActionPreference = 'Stop'
 if ($Action -notin @('boundary-turn', 'boundary-guard', 'boundary-after', 'boundary-end', 'agent-start')) {
   Write-Output '{}'; exit 0
 }
-$managedRoot = if ($env:SINGULARITY_FLOW_ENGINE_HOME) { $env:SINGULARITY_FLOW_ENGINE_HOME } else { Join-Path $env:USERPROFILE '.singularity-flow/engine' }
+# os.homedir(): USERPROFILE on Windows, HOME elsewhere (pwsh on macOS and Linux).
+$windowsHost = $IsWindows -or $env:OS -eq 'Windows_NT'
+$homeDirectory = if ($windowsHost) { $env:USERPROFILE } else { $env:HOME }
+$managedRoot = if ($env:SINGULARITY_FLOW_ENGINE_HOME) { $env:SINGULARITY_FLOW_ENGINE_HOME } else { Join-Path $homeDirectory '.singularity-flow/engine' }
 $managedActive = Join-Path $managedRoot 'active'
 if (Test-Path -LiteralPath $managedActive -PathType Leaf) {
   $managedSelection = [IO.File]::ReadAllText($managedActive)
@@ -13,7 +16,7 @@ if (Test-Path -LiteralPath $managedActive -PathType Leaf) {
     $managedCli = Join-Path $managedRoot "releases/$managedRelease/node_modules/singularity-flow/bin/singularity-flow.mjs"
     if ((Test-Path -LiteralPath $managedNode -PathType Leaf) -and (Test-Path -LiteralPath $managedCli -PathType Leaf)) {
       if ($Action -in @('boundary-guard', 'boundary-after', 'boundary-end')) {
-        $managedMode = if ($env:SINGULARITY_FLOW_COPILOT_MODE_FILE) { $env:SINGULARITY_FLOW_COPILOT_MODE_FILE } else { Join-Path $env:USERPROFILE '.singularity-flow/copilot-mode.json' }
+        $managedMode = if ($env:SINGULARITY_FLOW_COPILOT_MODE_FILE) { $env:SINGULARITY_FLOW_COPILOT_MODE_FILE } else { Join-Path $homeDirectory '.singularity-flow/copilot-mode.json' }
         if ([IO.Path]::IsPathRooted($managedMode) -and $managedMode -notmatch '[\\/]\.\.?([\\/]|$)' -and $managedMode -notmatch '[\\/]$') {
           $managedBoundaries = Join-Path (Split-Path -Parent $managedMode) 'copilot-boundaries'
           $managedOccupied = $false
@@ -27,7 +30,11 @@ if (Test-Path -LiteralPath $managedActive -PathType Leaf) {
           if (-not $managedOccupied) { [void][Console]::In.ReadToEnd(); Write-Output '{}'; exit 0 }
         }
       }
-      & $managedNode (Join-Path $PSScriptRoot 'hook-launcher.mjs') $Action $managedCli
+      # The engine's PATH entry may be newer than this host's environment. Off PATH, --cli-off-path
+      # has the turn name the verified Node and entry instead.
+      $managedArgs = @($managedCli)
+      if ($Action -eq 'boundary-turn' -and -not (Get-Command singularity-flow -CommandType Application -ErrorAction SilentlyContinue)) { $managedArgs += '--cli-off-path' }
+      & $managedNode (Join-Path $PSScriptRoot 'hook-launcher.mjs') $Action @managedArgs
       exit $LASTEXITCODE
     }
   }
@@ -51,8 +58,6 @@ if ($nodePath) {
   # here instead of starting Node. Any entry, including the marker a runtime that failed to load
   # leaves, sends the hook to Node as before. Mirrors copilotModeFile() and hook-launcher.sh.
   if ($Action -in @('boundary-guard', 'boundary-after', 'boundary-end')) {
-    $windowsHost = $IsWindows -or $env:OS -eq 'Windows_NT'
-    $homeDirectory = if ($windowsHost) { $env:USERPROFILE } else { $env:HOME }
     $modeFile = if ($env:SINGULARITY_FLOW_COPILOT_MODE_FILE) { $env:SINGULARITY_FLOW_COPILOT_MODE_FILE }
       elseif ($homeDirectory) { Join-Path $homeDirectory '.singularity-flow/copilot-mode.json' } else { $null }
     if ($modeFile -and [System.IO.Path]::IsPathRooted($modeFile) -and $modeFile -notmatch '[\\/]\.\.?([\\/]|$)' -and $modeFile -notmatch '[\\/]$') {
@@ -77,6 +82,10 @@ if ($nodePath) {
   $candidates = @()
   if ($cli) {
     $candidates += Join-Path (Split-Path $cli.Source -Parent) 'node_modules/singularity-flow/bin/singularity-flow.mjs'
+  } else {
+    # Copilot's shell shares this PATH (a host started before npm's global bin joined it, or a stale
+    # environment): the marker has the turn name the verified node.exe and entry instead.
+    $candidates += '--cli-off-path'
   }
   if ($env:APPDATA) { $candidates += Join-Path $env:APPDATA 'npm/node_modules/singularity-flow/bin/singularity-flow.mjs' }
   $candidates += Join-Path (Split-Path $nodePath -Parent) 'node_modules/singularity-flow/bin/singularity-flow.mjs'

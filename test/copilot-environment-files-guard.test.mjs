@@ -9,6 +9,8 @@ import {
   environmentFilesToolGuard, environmentFileProtection, workspaceEnvironmentFilesBase
 } from '../src/copilot-environment-files-guard.mjs';
 import { workspaceFilesBase } from '../src/environment-files.mjs';
+import { setHookCli } from '../src/copilot-mode.mjs';
+import { renderPlatformCommand } from '../src/safe-command-guidance.mjs';
 import { git, repository, writeFiles } from './helpers/environment-files-fixture.mjs';
 
 const SPRING = 'services/api/src/main/resources/application-dev.yml';
@@ -58,6 +60,23 @@ test('file tools, searches, patches and shell commands that name an environment 
   ]) {
     assert.equal(await guard(toolName, toolArgs), null, `${toolName} ${JSON.stringify(toolArgs)}`);
   }
+});
+
+test('the launcher\'s verified Node and CLI entry, which the turn names off PATH, are the CLI here too', async (t) => {
+  const repo = await repository(t, { files: { 'services/api/src/main/resources/application-dev.example.yml': 'password: CHANGE_ME\n' } });
+  assert.equal(repo.json(['env', 'files', 'create', 'dev', SPRING, '--from-template']).status, 0);
+  const guard = (toolName, command) => environmentFilesToolGuard(call(repo.root, toolName, { command }), { env: repo.env });
+  const node = path.resolve('/opt/Node runtime/bin/node');
+  const entry = path.resolve('/opt/npm prefix/lib/node_modules/singularity-flow/bin/singularity-flow.mjs');
+  setHookCli({ node, cli: entry, onPath: false });
+  t.after(() => setHookCli(null));
+  const verified = renderPlatformCommand([node, entry], 'linux');
+  for (const rest of [' env files link dev .env --to /tmp/secret.env', ' env files root uat /tmp/uat', ' env files --json', ` env files path dev ${SPRING} --json`]) {
+    assert.deepEqual(await guard('bash', `${verified}${rest}`), await guard('bash', `singularity-flow${rest}`), rest);
+    assert.deepEqual(await guard('powershell', `${renderPlatformCommand([node, entry], 'win32')}${rest}`),
+      await guard('powershell', `& singularity-flow${rest}`), rest);
+  }
+  assert.ok(denied(await guard('bash', `${verified} env files link dev .env --to /tmp/secret.env`)));
 });
 
 test('personal files, linked files and workspace folders are protected too, and a fresh repository pays nothing', async (t) => {

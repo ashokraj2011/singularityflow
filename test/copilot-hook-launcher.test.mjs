@@ -1,13 +1,15 @@
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
-import { existsSync, readdirSync, readFileSync } from 'node:fs';
-import { mkdir, mkdtemp, readFile, rm, symlink, writeFile } from 'node:fs/promises';
+import { existsSync, readdirSync, readFileSync, realpathSync } from 'node:fs';
+import { link, mkdir, mkdtemp, readFile, rm, symlink, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import test from 'node:test';
 import { copilotHookCommand } from '../src/copilot-hook-commands.mjs';
+import { hookCliLine, setHookCli } from '../src/copilot-mode.mjs';
 import { RUNTIME_UNAVAILABLE_MARKER } from '../src/copilot-repository-boundary.mjs';
+import { renderPlatformCommand } from '../src/safe-command-guidance.mjs';
 import { childTimeout } from './helpers/child-timeout.mjs';
 
 const packageRoot = fileURLToPath(new URL('../', import.meta.url));
@@ -456,4 +458,138 @@ test('with no SFlow turn recorded, PowerShell guard, after-tool and end hooks an
   await writeFile(path.join(item.directory, 'copilot-boundaries', RUNTIME_UNAVAILABLE_MARKER), '');
   launch('boundary-guard');
   assert.equal(nodeStarts(), 1, 'the marker sends the guard to the runtime');
+});
+
+/**
+ * Off PATH (VS Code started from the Dock with launchd's PATH; on Windows started before npm's global
+ * bin joined PATH), Copilot's shell cannot run `singularity-flow` although every hook still runs. The
+ * turn of an SFlow prompt names the launcher's verified Node and entry; the guard runs exactly that.
+ */
+const offPathLine = (node, entry, platform = process.platform) => `If \`singularity-flow\` is not found, run each \`singularity-flow …\` command as \`${renderPlatformCommand([node, entry], platform)} …\`.`;
+const turnPayload = (item, prompt, sessionId = 'off-path') => JSON.stringify({ sessionId, cwd: item.cwd, prompt });
+
+test('the off-PATH line quotes the exact Node and CLI entry for each shell, never a .cmd shim', t => {
+  t.after(() => setHookCli(null));
+  const node = path.resolve('/opt/Node runtime/bin/node');
+  const entry = path.resolve("/Users/Dev O'Neil/npm/node_modules/singularity-flow/bin/singularity-flow.mjs");
+  setHookCli({ node, cli: entry, onPath: false });
+  assert.equal(hookCliLine('darwin'), `If \`singularity-flow\` is not found, run each \`singularity-flow …\` command as \`'${node}' '${entry.replace("'", `'"'"'`)}' …\`.`);
+  assert.equal(hookCliLine('win32'), `If \`singularity-flow\` is not found, run each \`singularity-flow …\` command as \`& '${node}' '${entry.replace("'", "''")}' …\`.`);
+  assert.equal(hookCliLine('linux'), offPathLine(node, entry, 'linux'), 'the same quoting as every rendered SFlow command');
+  assert.doesNotMatch(hookCliLine('win32'), /\.cmd/u);
+  setHookCli({ node, cli: entry, onPath: true });
+  assert.equal(hookCliLine(), null, 'on PATH the turn says nothing');
+  for (const value of [{ node: 'node', cli: entry }, { node, cli: path.resolve('/opt/singularity-flow.cmd') }, { node, cli: `${entry}\n` }, null]) {
+    setHookCli({ onPath: false, ...value });
+    assert.equal(hookCliLine(), null, JSON.stringify(value));
+  }
+});
+
+test('an SFlow prompt\'s turn names the verified Node and entry only while the launcher found no CLI on PATH', async t => {
+  const item = await fixture(t);
+  const line = offPathLine(process.execPath, realpathSync(cli));
+  const turn = (candidates, prompt) => JSON.parse(item.invoke('boundary-turn', candidates, turnPayload(item, prompt)).stdout);
+  assert.deepEqual(turn(['--cli-off-path', cli], '/sf-session'), { additionalContext: line });
+  assert.deepEqual(turn([cli], '/sf-session'), {}, 'on PATH: unchanged');
+  assert.deepEqual(turn(['--cli-off-path', cli], 'What does this file do?'), {}, 'native chat: unchanged');
+  // Paused, the skill's first command (it checks pause) still has to run.
+  await writeFile(item.env.SINGULARITY_FLOW_COPILOT_MODE_FILE, JSON.stringify({ schemaVersion: 1, paused: true }));
+  assert.deepEqual(turn(['--cli-off-path', cli], '/sf-pause off'), { additionalContext: line });
+  // The marker is never a candidate: alone it resolves no runtime.
+  assert.match(JSON.parse(item.invoke('boundary-guard', ['--cli-off-path']).stdout).permissionDecisionReason, /SFLOW_HOOK_RUNTIME_UNAVAILABLE/u);
+});
+
+/** A managed engine whose one release is this package, run by this Node (names as the launchers require). */
+async function managedEngine(item, runtime) {
+  const engine = path.join(item.directory, 'managed engine');
+  const release = 'a'.repeat(64);
+  const windowsLayout = runtime.includes('-win32-');
+  const node = path.join(engine, 'runtimes', runtime, ...(windowsLayout ? ['node.exe'] : ['bin', 'node']));
+  await mkdir(path.dirname(node), { recursive: true });
+  if (process.platform === 'win32') await link(process.execPath, node); else await symlink(process.execPath, node);
+  await mkdir(path.join(engine, 'releases', release, 'node_modules'), { recursive: true });
+  await symlink(packageRoot, path.join(engine, 'releases', release, 'node_modules', 'singularity-flow'), 'junction');
+  await writeFile(path.join(engine, 'active'), `1|${runtime}|${release}\n`);
+  return engine;
+}
+
+test('the bash launcher, managed engine or not, marks an off-PATH CLI, and the guard runs exactly the named invocation', {
+  skip: process.platform === 'win32'
+}, async t => {
+  const item = await fixture(t);
+  const entry = realpathSync(cli);
+  const bin = path.join(item.directory, 'host-bin');
+  await mkdir(bin);
+  await symlink(process.execPath, path.join(bin, 'node'));
+  const shim = path.join(item.directory, 'npm-bin');
+  await mkdir(shim);
+  await symlink(cli, path.join(shim, 'singularity-flow'));
+  const engine = await managedEngine(item, 'node-v26.0.0-test');
+  const launch = (action, payload, { onPath = false, managed = true } = {}) => {
+    const env = { ...item.env, PATH: [...(onPath ? [shim] : []), ...(managed ? [] : [bin]), '/usr/bin', '/bin'].join(':') };
+    if (managed) env.SINGULARITY_FLOW_ENGINE_HOME = engine; else env.SINGULARITY_FLOW_ENGINE_HOME = path.join(item.directory, 'no engine');
+    const result = spawnSync('/bin/bash', [path.join(pluginRoot, 'hook-launcher.sh'), action], {
+      cwd: item.cwd, env, input: typeof payload === 'string' ? payload : JSON.stringify(payload), encoding: 'utf8', timeout: childTimeout(30_000) });
+    assert.equal(result.status, 0, `${action}: ${result.stderr}`);
+    return JSON.parse(result.stdout);
+  };
+  const line = offPathLine(process.execPath, entry);
+  assert.deepEqual(launch('boundary-turn', turnPayload(item, '/sf-session'), { onPath: true }), {});
+  assert.deepEqual(launch('boundary-turn', turnPayload(item, '/sf-session'), { onPath: true, managed: false }), {});
+  // The managed engine's own runtime and release, through its node and package link: the verified real paths.
+  assert.deepEqual(launch('boundary-turn', turnPayload(item, '/sf-session')), { additionalContext: line });
+  const binding = { sessionId: 'off-path', cwd: item.cwd };
+  const guard = (command, options) => launch('boundary-guard', { ...binding, toolName: 'bash', toolArgs: { command } }, options);
+  const verified = renderPlatformCommand([process.execPath, entry], 'linux');
+  assert.deepEqual(guard(`${verified} session open --for-agent --json`), {});
+  assert.deepEqual(guard('singularity-flow session open --for-agent --json'), {}, 'the same answer as the bare CLI');
+  assert.deepEqual(launch('boundary-after', { ...binding, toolName: 'bash', toolArgs: { command: `${verified} session open --for-agent --json` } }), {});
+  for (const command of [
+    `'${path.join(engine, 'runtimes', 'node-v26.0.0-test', 'bin', 'node')}' '${entry}' session open --for-agent --json`,
+    `'${process.execPath}' '${path.join(engine, 'releases', 'a'.repeat(64), 'node_modules', 'singularity-flow', 'bin', 'singularity-flow.mjs')}' session open --for-agent --json`,
+    `node '${entry}' session open --for-agent --json`, `bash -c "${verified} session open --for-agent --json"`]) {
+    assert.equal(guard(command).permissionDecision, 'deny', command);
+  }
+  // Without the managed engine, the same marker; its fixed install prefixes would run an installed CLI, never this one.
+  const fixed = ['/opt/homebrew/bin', '/usr/local/bin', '/opt/local/bin'].map(directory => path.join(directory, 'singularity-flow'));
+  if (!fixed.some(file => existsSync(file))) {
+    assert.deepEqual(launch('boundary-turn', turnPayload(item, '/sf-session'), { managed: false }), {},
+      'off PATH with no installed CLI the runtime is unavailable, as before');
+  }
+});
+
+test('the PowerShell launcher, managed engine or not, marks an off-PATH CLI and names node.exe with the entry', {
+  skip: !powershell && 'PowerShell host unavailable'
+}, async t => {
+  const item = await fixture(t);
+  const entry = realpathSync(cli);
+  const nodeDirectory = path.dirname(process.execPath);
+  if (['singularity-flow', 'singularity-flow.cmd', 'singularity-flow.ps1'].some(name => existsSync(path.join(nodeDirectory, name)))) {
+    return t.skip('an installed CLI sits beside this Node');
+  }
+  // The host by its own path: the restricted PATH below cannot find it (Homebrew's is a wrapper script).
+  const host = (process.env.PATH ?? '').split(path.delimiter).flatMap(directory => [powershell, `${powershell}.exe`]
+    .map(name => path.join(directory, name))).find(file => existsSync(file));
+  const system = process.platform === 'win32' ? [path.join(process.env.SystemRoot ?? 'C:\\Windows', 'System32')] : ['/usr/bin', '/bin'];
+  const shim = path.join(item.directory, 'npm-bin');
+  await mkdir(shim);
+  await writeFile(path.join(shim, process.platform === 'win32' ? 'singularity-flow.cmd' : 'singularity-flow'),
+    process.platform === 'win32' ? '@exit /b 99\r\n' : '#!/bin/sh\nexit 99\n', { mode: 0o755 });
+  const appData = path.join(item.directory, 'Windows app data');
+  await mkdir(path.join(appData, 'npm', 'node_modules'), { recursive: true });
+  await symlink(packageRoot, path.join(appData, 'npm', 'node_modules', 'singularity-flow'), 'junction');
+  const engine = await managedEngine(item, `node-v26.0.0-win32-${process.arch === 'arm64' ? 'arm64' : 'x64'}`);
+  const turn = ({ onPath = false, managed = false } = {}) => {
+    const result = spawnSync(host, [...powershellArgs, `& '${path.join(pluginRoot, 'hook-launcher.ps1')}' boundary-turn`], {
+      cwd: item.cwd, input: turnPayload(item, '/sf-session'), encoding: 'utf8', timeout: childTimeout(30_000),
+      env: { ...item.env, APPDATA: appData, SINGULARITY_FLOW_ENGINE_HOME: managed ? engine : path.join(item.directory, 'no engine'),
+        PATH: [...(onPath ? [shim] : []), nodeDirectory, ...system].join(path.delimiter) } });
+    assert.equal(result.status, 0, result.stderr);
+    return JSON.parse(result.stdout.trim().split(/\r?\n/u).at(-1));
+  };
+  const line = offPathLine(process.execPath, entry);
+  assert.deepEqual(turn(), { additionalContext: line }, 'Node on PATH, the CLI under APPDATA\\npm');
+  assert.deepEqual(turn({ onPath: true }), {});
+  assert.deepEqual(turn({ managed: true }), { additionalContext: line });
+  assert.deepEqual(turn({ managed: true, onPath: true }), {});
 });

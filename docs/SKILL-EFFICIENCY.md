@@ -41,6 +41,19 @@ refuses execution; other hooks emit a diagnostic without inventing lifecycle sta
 After updating the installed SFlow build, run `singularity-flow plugin install`
 and reload VS Code. Existing Stories do not need recreation.
 
+The launchers find Node and the CLI themselves, so the hooks run even when
+`singularity-flow` is not on the PATH Copilot gives its hooks and its shell: VS
+Code started from the Dock or Finder gets launchd's `/usr/bin:/bin:/usr/sbin:/sbin`,
+and on Windows a VS Code started before npm's global bin joined PATH keeps the old
+one. The shell cannot run `singularity-flow` then, so the prompt hook of an SFlow
+skill adds one line: if `singularity-flow` is not found, run each command as the
+exact quoted Node and CLI entry the launcher verified (`'/abs/node'
+'/abs/…/bin/singularity-flow.mjs' …`; PowerShell `& 'C:\…\node.exe'
+'C:\…\singularity-flow.mjs' …`). The guard reads exactly that invocation as
+`singularity-flow`; any other path, wrapper or `node <file>` is judged as before.
+With the CLI on PATH nothing is added. Starting VS Code from a terminal (`code .`)
+gives it the login PATH again.
+
 Every skill also carries a generated execution boundary. Relative paths resolve
 from the root reported by Flow, Story artifacts remain under
 `singularity/work-items/<WORK-ID>/`, and filesystem-wide discovery is forbidden.

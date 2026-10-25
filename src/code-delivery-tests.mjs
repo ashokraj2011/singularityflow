@@ -1710,7 +1710,7 @@ export function attemptLocalIntegrationLabel(attempt) {
 export function buildTestExecutionReceipt(command, check, parsed, {
   attemptId, nonce, parentAttemptId = null, purpose = 'submission', workId = null, phase = null,
   generation = null, epoch = null, rawReports = [], reportError = null, profile = null, selection = null,
-  localRunId = null, uncommittedChanges = null
+  localRunId = null, uncommittedChanges = null, pin = null
 } = {}) {
   const countsValid = parsed ? consistentTestCounts(parsed.tests) : false;
   const processPassed = check?.status === 'passed' && check.exitCode === 0;
@@ -1759,6 +1759,8 @@ export function buildTestExecutionReceipt(command, check, parsed, {
     rawReports,
     occurrences: parsed ? persistedOccurrences(parsed) : [],
     reportError,
+    // The pin the gate ran this command under, which replay finds on the Story [TCE:REQ-014].
+    ...(pin ? { pin } : {}),
     assurance: 'module-executed',
     // A run given an environment's values [RUN M3]: its class, the environment's public metadata
     // (never a value), who ran it, and whether a run in that environment counts for the step.

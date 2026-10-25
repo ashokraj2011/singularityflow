@@ -100,7 +100,7 @@ export async function latestStepAttempts(root, itemRelative, workId, phaseId, { 
  */
 export async function recordTestAttempt(root, itemRelative, {
   command, check, purpose, workId, phaseId, generation, epoch = null, random = randomBytes, localRunId = null,
-  uncommittedChanges = null
+  uncommittedChanges = null, pin = null
 }) {
   let parsed = null;
   let reportError = null;
@@ -122,7 +122,7 @@ export async function recordTestAttempt(root, itemRelative, {
   const attempt = buildTestExecutionReceipt(command, check, parsed, {
     ...newAttemptIdentity(random), parentAttemptId: previous?.attemptId ?? null, purpose, workId, phase: phaseId,
     generation, epoch, rawReports, reportError, profile, selection: classifyTestCommand(profile, command), localRunId,
-    uncommittedChanges
+    uncommittedChanges, pin
   });
   await writeAtomicExclusive(path.join(staging, phaseId, `${attempt.attemptId}.json`), `${JSON.stringify(attempt, null, 2)}\n`, { mode: 0o600 });
   return {

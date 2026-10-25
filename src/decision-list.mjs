@@ -375,16 +375,22 @@ function testCommandItem(workflow, context, request) {
   const name = stepName(workflow, request.phase);
   const { command } = request;
   const hold = testCommandReviewHold(workflow, request.phase);
+  // A re-pin: the command changed since it was pinned for this Story [TCE:REQ-012].
+  const changed = request.repin ? listWords(request.repin.changes ?? []) : null;
   return {
     kind: 'test-command',
-    title: `Run ${command.id} as ${name}'s tests for this Story`,
-    why: `${request.requestedBy} asked that ${name} run ${JSON.stringify(command.argv)} from ${command.workingDirectory}, reading ${command.result.adapter} ${command.result.path}, `
-      + `covering ${listWords(command.affectedRoots)}: ${request.reason} Once accepted it runs at every publication and submission of ${name}, and its tests must pass.`,
+    title: request.repin ? `Re-pin ${command.id}, ${name}'s changed test command` : `Run ${command.id} as ${name}'s tests for this Story`,
+    why: request.repin
+      ? `${command.id} changed since it was pinned for this Story (${changed}), so the gate refuses it. ${request.requestedBy} asked that it now run `
+        + `${JSON.stringify(command.argv)} from ${command.workingDirectory}: ${request.reason} Once accepted, the next gate run records this as its pin; its tests must still pass.`
+      : `${request.requestedBy} asked that ${name} run ${JSON.stringify(command.argv)} from ${command.workingDirectory}, reading ${command.result.adapter} ${command.result.path}, `
+        + `covering ${listWords(command.affectedRoots)}: ${request.reason} Once accepted it runs at every publication and submission of ${name}, and its tests must pass.`,
     // Accepting it while the step awaits approval would make that review stale: return the step first.
     options: [hold ? personalStep({ id: 'return-step-first', label: `Return ${name} for changes first`, command: hold.command, words: hold.words })
       : option(workflow, context, {
-        id: 'accept-test-command', label: 'Accept this command for this Story',
-        words: 'The repository configuration is unchanged; propose it there with /sf-test-setup for later Stories.',
+        id: 'accept-test-command', label: request.repin ? 'Accept the changed command as its pin' : 'Accept this command for this Story',
+        words: request.repin ? 'Only this Story\'s pin changes; the repository configuration is unchanged.'
+          : 'The repository configuration is unchanged; propose it there with /sf-test-setup for later Stories.',
         effects: [{ kind: 'test-command', phase: request.phase, request: request.id }],
         needs: { reason: textNeed(`${command.id} runs ${name}'s tests for this Story.`, { minimum: 0, maximum: REASON.maximum }) }
       })],

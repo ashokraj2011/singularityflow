@@ -72,7 +72,9 @@ const FAMILIES = Object.freeze([
     'commands/submit.mjs', 'commands/approve.mjs', 'commands/nextsteps-deferred.mjs',
     // The one pending list that nextsteps and readiness count from, and the approval check it
     // previews. Unclaimed, they fell into compatibility, so nextsteps on an open step loaded it and models.
-    'decision-list-reads.mjs', 'decision-list.mjs', 'approval-check.mjs', 'visual-profile-decisions.mjs']],
+    'decision-list-reads.mjs', 'decision-list.mjs', 'approval-check.mjs', 'visual-profile-decisions.mjs',
+    // Test command pins, read at every gate run and receipt replay [TCE:REQ-010].
+    'test-command-pins.mjs']],
   ['models', ['commands/wm.mjs', 'commands/comprehension.mjs']]
 ]);
 

@@ -4913,6 +4913,8 @@ async function preflightCodeDeliveryTests(root, config, workflow, phase, deliver
       evaluationSha256: retainedRisk.evaluation.recordSha256 };
     return { commands, checks: [], testRecovery: retainedRisk };
   }
+  // A guessed command is pinned for the Story at first use; a changed one waits for a person [TCE:REQ-010].
+  const pins = await (await import('./test-command-pins.mjs')).gateTestCommandPins(root, config, workflow, phase, commands);
   const riskRun = await beginStoryTestRiskRun(root, config, workflow, phase, { commands, selection: trpSelection?.selection });
   const checks = await qualityChecks(root, phase, config, workflow, commands, {
     commandProvenance: new Map(commands.map((command) => [command, command.provenance]))
@@ -4927,7 +4929,7 @@ async function preflightCodeDeliveryTests(root, config, workflow, phase, deliver
       // Every run is one immutable attempt, recorded before its result is judged [E2G-016].
       const recorded = check ? await recordTestAttempt(root, workDirRelative(config, workflow.workItem.id), {
         command, check, purpose: 'preflight', workId: workflow.workItem.id, phaseId: phase.id,
-        generation: nextPhaseGeneration(phase)
+        generation: nextPhaseGeneration(phase), pin: pins.pin(command.id)
       }) : null;
       if (recorded) {
         attempts.push({ commandId: command.id, attemptId: recorded.attempt.attemptId, receiptPath: recorded.path,
@@ -5012,6 +5014,7 @@ async function preflightCodeDeliveryTests(root, config, workflow, phase, deliver
     }
   }
   if (runRisks.length) deliveryEvidence.testRunRisks = runRisks;
+  await pins.record(workflow, attempts.map((attempt) => attempt.commandId), { at: nowIso() });
   // The publication commits this preflight and every earlier kept attempt of the step [E2G-016].
   await admitTestAttempts(root, workDirRelative(config, workflow.workItem.id), workflow.workItem.id, phase.id);
   return { commands, checks };
@@ -5375,6 +5378,8 @@ async function submitPhaseTransition(root, config, workflow, {
     ? await (await import('./verification/repository-tests.mjs')).verificationRepositoryTests(root, config, workflow, phase, deliveryCommands)
     : null;
   if (repositoryTests?.commands.length) deliveryCommands = [...deliveryCommands, ...repositoryTests.commands];
+  const pins = codeDeliveryRequired && !retainedRisk && runChecks
+    ? await (await import('./test-command-pins.mjs')).gateTestCommandPins(root, config, workflow, phase, requiredTestCommands) : null;
   phase.checks = runChecks ? await qualityChecks(root, phase, config, workflow,
     retainedRisk ? deliveryCommands.filter(command => command?.kind !== 'test') : deliveryCommands, {
     // Assign provenance from trusted resolution identity, never a field supplied by configuration.
@@ -5418,7 +5423,7 @@ async function submitPhaseTransition(root, config, workflow, {
         let receipt;
         const recorded = check ? await recordTestAttempt(root, workDirRelative(config, workflow.workItem.id), {
           command, check, purpose: testCommandEpochRun ? 'epoch' : 'submission', workId: workflow.workItem.id,
-          phaseId: phase.id, generation: phase.generation, epoch: testCommandEpochRun?.suffix ?? null
+          phaseId: phase.id, generation: phase.generation, epoch: testCommandEpochRun?.suffix ?? null, pin: pins?.pin(command.id) ?? null
         }) : null;
         if (recorded) attemptHistory.push({ commandId: command.id, attemptId: recorded.attempt.attemptId, status: recorded.attempt.status });
         let runRisk = null;
@@ -5497,6 +5502,7 @@ async function submitPhaseTransition(root, config, workflow, {
         throw uncoveredTestPathsError(`No passing test command covers affected paths: ${uncovered.join(', ')}`, uncovered);
       }
     }
+    await pins?.record(workflow, testExecutions.map((execution) => execution.commandId), { at: nowIso() });
     // The submission commits these attempts and every earlier kept attempt of the step, failed
     // ones included, so a later failure can never hide behind the pass it was retried into [E2G-016].
     attemptHistory.splice(0, attemptHistory.length,

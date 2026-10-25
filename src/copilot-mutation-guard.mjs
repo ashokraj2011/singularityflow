@@ -228,8 +228,10 @@ export function turnBoundaryContext(value, presented = mutationContractPresentat
     'Binding readiness is not source-edit permission.',
     presented.sourceEditPrerequisite
       ? 'After the "Before source edits" operation, re-enter the phase to verify fresh permissions; never auto-adopt or discard edits.' : null,
+    // Never a stop: every kernel skill (/sf-submit, /sf-next…) gets this line, and "return the
+    // authoring skill and stop" ended those turns before their own steps ran (2026-10-26).
     contract.turnMode === 'kernel-only'
-      ? 'Do not inline /sf-code or edit files in this kernel-only turn. Return the configured authoring skill and stop; the human invokes it explicitly.' : null
+      ? 'Carry out the invoked skill\'s steps in this turn. Never inline /sf-code or edit files here; code waits for the configured authoring skill, which the human invokes.' : null
   ].filter(Boolean).join(' ');
   return { volatile, stable, digest: `sha256:${digest(stable).slice(0, 16)}` };
 }

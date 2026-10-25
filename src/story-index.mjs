@@ -148,6 +148,10 @@ async function workflowAt(checkout, relative, synced, branch = null) {
 
 const storyBranches = (state) => [state?.workItem?.branch, state?.lineage?.canonicalBranch,
   ...(state?.lineage?.childBranches ?? []).map((entry) => entry?.name)].filter(Boolean);
+// The repositories a capability Story delivers in (capability-start.mjs approvedDeliveryRepositoryIds).
+const deliveryRepositories = (state) => [...new Set((state?.resolution?.capability?.deliveries ?? [])
+  .flatMap((delivery) => delivery?.repositories ?? (delivery?.repository ? [delivery.repository] : [])))]
+  .filter((id) => typeof id === 'string');
 
 /**
  * The Story checked out in `checkout`: the workflow.json whose recorded branch is the current one.
@@ -187,7 +191,9 @@ export async function storyInCheckout(checkout, { facts = null, workId = null, w
     phaseStatus: state.phases?.[state.currentPhase]?.status ?? null,
     storyStatus: state.status ?? null,
     aliases: [...new Set([state.workItem.id, ...storyBranches(state),
-      state.lineage?.jiraIssueId, state.lineage?.initialJiraKey, state.lineage?.currentJiraKey].filter(Boolean))]
+      state.lineage?.jiraIssueId, state.lineage?.initialJiraKey, state.lineage?.currentJiraKey].filter(Boolean))],
+    branches: storyBranches(state),
+    repositories: deliveryRepositories(state)
   };
 }
 
@@ -212,7 +218,8 @@ function validEntry(entry) {
   return entry && typeof entry === 'object' && WORK_ID.test(entry.workId ?? '')
     && typeof entry.checkoutPath === 'string' && path.isAbsolute(entry.checkoutPath)
     && typeof entry.commonDir === 'string' && typeof entry.branch === 'string'
-    && typeof entry.workflowPath === 'string' && typeof entry.repository?.key === 'string';
+    && typeof entry.workflowPath === 'string' && typeof entry.repository?.key === 'string'
+    && (entry.role !== 'secondary' || typeof entry.lifecycle?.checkoutPath === 'string');
 }
 
 /** Change the index under its lock and publish it atomically; `change` returns false for no write. */
@@ -230,6 +237,18 @@ async function updateStoryIndex(change, { env = process.env, file = storyIndexFi
 
 const sameEntry = (left, right) => left.workId === right.workId && left.repository.key === right.repository.key
   && samePlatformPath(left.checkoutPath, right.checkoutPath);
+
+/**
+ * A Story that spans several repositories keeps its record in one, its lifecycle checkout; the
+ * others carry only its branch. A secondary entry holds while that checkout still holds the Story,
+ * the Story still delivers in the entry's repository, and on the entry's branch.
+ */
+async function lifecycleStory(entry) {
+  const facts = await checkoutGitFacts(entry.lifecycle.checkoutPath);
+  if (!facts?.branch) return null;
+  const story = await storyInCheckout(entry.lifecycle.checkoutPath, { facts, workId: entry.workId, workflowPath: entry.workflowPath });
+  return story?.repositories.includes(entry.repository.id) && story.branches.includes(entry.branch) ? story : null;
+}
 
 /**
  * Whether an entry still describes its checkout, read from that checkout's files.
@@ -258,9 +277,12 @@ export async function verifyStoryEntry(entry) {
     if (url && await repositoryKey(url, facts.commonDir) !== entry.repository.key) {
       return { status: 'stale', reason: 'the checkout has another remote' };
     }
-    const story = await storyInCheckout(entry.checkoutPath, { facts, workId: entry.workId, workflowPath: entry.workflowPath })
-      ?? await storyInCheckout(entry.checkoutPath, { facts, workId: entry.workId });
-    if (!story) return { status: 'stale', reason: `the checkout no longer holds ${entry.workId}` };
+    const story = entry.role === 'secondary' ? await lifecycleStory(entry)
+      : await storyInCheckout(entry.checkoutPath, { facts, workId: entry.workId, workflowPath: entry.workflowPath })
+        ?? await storyInCheckout(entry.checkoutPath, { facts, workId: entry.workId });
+    if (!story) return { status: 'stale', reason: entry.role === 'secondary'
+      ? `${entry.lifecycle.checkoutPath} no longer holds ${entry.workId} delivering in ${entry.repository.id ?? 'this repository'} on ${entry.branch}`
+      : `the checkout no longer holds ${entry.workId}` };
     return { status: 'valid', entry: { ...entry, checkoutPath: facts.checkoutPath, title: story.title ?? entry.title ?? null,
       workflowPath: story.workflowPath, phase: story.phase, phaseStatus: story.phaseStatus, storyStatus: story.storyStatus,
       aliases: story.aliases } };
@@ -347,6 +369,41 @@ async function entryFor(checkout, { workspace, repositoryId, repository, facts, 
   };
 }
 
+/** A clone's own folder and every linked worktree Git registered in it, read from its files. */
+async function cloneCheckouts(clone) {
+  const administration = path.join(clone, '.git', 'worktrees');
+  const synced = cloudSyncedFolder(clone) != null;
+  const checkouts = [clone];
+  for (const name of (await readdir(administration).catch(() => [])).slice(0, 1_000)) {
+    const pointer = (await readSmall(path.join(administration, name, 'gitdir'), { synced }).catch(() => null))?.trim();
+    if (pointer) checkouts.push(path.dirname(path.resolve(administration, name, pointer)));
+  }
+  return checkouts;
+}
+
+/**
+ * The other repositories' checkouts of a Story that delivers in several: each workspace clone of
+ * those repositories, and each worktree in it on one of the Story's branches. Files only, no Git.
+ */
+async function secondaryStoryCheckouts(lifecycle, workspace, story, source) {
+  const others = story.repositories.filter((id) => id !== lifecycle.repository.id && Object.hasOwn(workspace.repositories ?? {}, id));
+  if (!others.length) return [];
+  const found = new Map();
+  for (const { repositoryId, repository, clone } of (await workspaceClones(workspace)).filter((item) => others.includes(item.repositoryId))) {
+    for (const checkout of await cloneCheckouts(clone)) {
+      const facts = await checkoutGitFacts(checkout).catch(() => null);
+      if (!facts?.branch || !story.branches.includes(facts.branch) || found.has(facts.checkoutPath)) continue;
+      const key = await repositoryKey(repository.url, facts.commonDir);
+      const url = await originUrl(facts.commonDir, facts.synced);
+      if (url && await repositoryKey(url, facts.commonDir) !== key) continue;
+      found.set(facts.checkoutPath, { ...lifecycle, repository: { key, url: repository.url, id: repositoryId },
+        checkoutPath: facts.checkoutPath, commonDir: facts.commonDir, branch: facts.branch, role: 'secondary',
+        lifecycle: { checkoutPath: lifecycle.checkoutPath, repositoryId: lifecycle.repository.id }, recordedBy: source });
+    }
+  }
+  return [...found.values()];
+}
+
 function upsert(index, entry) {
   const at = index.entries.findIndex((item) => sameEntry(item, entry));
   if (at >= 0) index.entries[at] = { ...index.entries[at], ...entry };
@@ -392,7 +449,9 @@ export async function backfillStoryIndex({ env = process.env, force = false } = 
           const url = await originUrl(facts.commonDir, facts.synced);
           if (url && await repositoryKey(url, facts.commonDir) !== await repositoryKey(repository.url, facts.commonDir)) continue;
           const story = await storyInCheckout(worktree.path, { facts });
-          if (story) found.push(await entryFor(worktree.path, { workspace, repositoryId, repository, facts, story, source: 'backfill' }));
+          if (!story) continue;
+          const entry = await entryFor(worktree.path, { workspace, repositoryId, repository, facts, story, source: 'backfill' });
+          found.push(entry, ...await secondaryStoryCheckouts(entry, workspace, story, 'backfill').catch(() => []));
         } catch (error) {
           skipped.push({ workspace: workspace.path, clone: worktree.path, reason: error.message });
         }
@@ -423,8 +482,10 @@ export async function recordStoryCheckout(checkout, { env = process.env, source 
   const repository = member.workspace.repositories[member.repositoryId];
   const entry = await entryFor(facts.checkoutPath, { workspace: member.workspace, repositoryId: member.repositoryId,
     repository, facts, story, source });
-  await updateStoryIndex((index) => upsert(index, entry), { env });
-  return { recorded: true, entry };
+  // A Story that delivers in several repositories has a checkout in each; each is one of its own.
+  const secondaries = await secondaryStoryCheckouts(entry, member.workspace, story, source).catch(() => []);
+  await updateStoryIndex((index) => { for (const item of [entry, ...secondaries]) upsert(index, item); }, { env });
+  return { recorded: true, entry, secondaries };
 }
 
 /**
@@ -468,6 +529,19 @@ export async function listStoryIndex({ env = process.env, rebuild = false } = {}
   return { file: storyIndexFile(env), entries, dropped: results.filter((result) => result.status === 'stale')
     .map((result) => ({ workId: result.original.workId, checkoutPath: result.original.checkoutPath, reason: result.reason })),
   backfill };
+}
+
+/** An entry for the checkout that holds the Story's record, not one of its other repositories'. */
+export const isLifecycle = (entry) => entry.role !== 'secondary';
+
+/** The verified entry for one checkout, of either role, or null when the index has none. */
+export async function indexedCheckoutAt(checkout, { env = process.env } = {}) {
+  const at = await canonical(checkout);
+  for (const entry of (await readStoryIndex({ env })).entries.filter((item) => samePlatformPath(item.checkoutPath, at))) {
+    const result = await verifyStoryEntry(entry);
+    if (result.status === 'valid') return result.entry;
+  }
+  return null;
 }
 
 /** The workspace and repository a checkout belongs to, or null outside every registered workspace. */
@@ -547,7 +621,8 @@ export async function storyCheckoutForOpen(reference, {
   const workspace = member?.workspace.id ?? workspaceId;
   if (!workspace) return null;
   const key = member?.repositoryKey ?? (repositoryUrl ? await remoteKey(repositoryUrl) : null);
-  const { valid } = await lookupStoryCheckouts(reference, { env, repositoryKey: key });
+  // A Story is opened in its lifecycle checkout; its other repositories' checkouts hold no record.
+  const valid = (await lookupStoryCheckouts(reference, { env, repositoryKey: key })).valid.filter(isLifecycle);
   if (!valid.length || member && valid.some((entry) => samePlatformPath(entry.commonDir, member.facts.commonDir))) return null;
   const here = valid.filter((entry) => entry.workspace.id === workspace);
   if (here.length > 1) throw new SingularityFlowError(

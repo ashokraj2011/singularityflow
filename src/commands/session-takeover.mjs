@@ -71,6 +71,12 @@ export async function run(_argv, { positionals, options }) {
         source = (await (await import('../workspace-branch-checkout.mjs')).prepareWorkspaceBranch(
           member.workspace, repositoryId, storyRef, { reuse: true })).repositoryPath;
       }
+      // One checkout per repository of the Story: one in another clone of this workspace is used,
+      // one in another workspace refuses (story-index.mjs).
+      const index = await import('../story-index.mjs');
+      const other = await index.otherStoryCheckout(source, id);
+      if (other && !other.sameWorkspace) throw await index.storyElsewhereError(id, other.entry, { sameWorkspace: false, operation: 'session takeover' });
+      if (other) source = other.entry.checkoutPath;
       if (configuredRemoteIdentity(source, 'origin', { direction: 'fetch' }).url !== repository.url) {
         throw new SingularityFlowError(`Repository '${repositoryId}' no longer matches its approved remote.`, { code: 'WORKSPACE_REPOSITORY_IDENTITY_MISMATCH' });
       }
@@ -96,6 +102,8 @@ export async function run(_argv, { positionals, options }) {
         completed.push(target);
       });
     }
+    // The index records the Story's checkout in every repository it delivers in; never fails the takeover.
+    await import('../story-index.mjs').then((index) => index.recordStoryCheckout(root, { source: 'session-takeover' })).catch(() => {});
     const references = workflow.resolution?.referenceRepositories ?? [];
     if (references.length) await (await import('../reference-repositories.mjs')).materializeReferenceRepositories(root, references);
     const documents = await step(['documents', 'list', id, '--json'], root);

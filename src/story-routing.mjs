@@ -18,7 +18,9 @@
  */
 import { readdir, readFile, realpath } from 'node:fs/promises';
 import path from 'node:path';
-import { optionString, samePlatformPath, SingularityFlowError } from './util.mjs';
+import {
+  BOOLEAN_OPTIONS, FREE_TEXT_OPTIONS, invocationDirectory, optionString, samePlatformPath, SingularityFlowError
+} from './util.mjs';
 
 // `<command> [WORK-ID]`: the first operand names the Story (HELP.md usage).
 const FIRST_OPERAND = new Set(['status', 'nextsteps', 'report', 'approvals', 'progress', 'snapshot', 'recover', 'doctor',
@@ -43,6 +45,9 @@ export const STORY_OPERAND_COMMAND_NAMES = Object.freeze([...FIRST_OPERAND, ...O
 export function workIdOperandIndex(command, positionals) {
   if (FIRST_OPERAND.has(command)) return 1;
   if (command === 'decisions') return positionals[1] === 'record' ? 2 : 1;
+  // `impact evidence import <FILE> [WORK-ID]`, `impact evidence collect <PROVIDER> <FILE> [WORK-ID]`, `impact exposure <ACTION> [WORK-ID]`.
+  if (command === 'impact' && positionals[1] === 'evidence') return positionals[2] === 'collect' ? 5 : 4;
+  if (command === 'impact' && positionals[1] === 'exposure') return 3;
   if (command === 'story' && positionals[1] === 'test-policy') return STORY_TEST_POLICY_ACTIONS.has(positionals[2]) ? 3 : null;
   return SECOND_OPERAND[command]?.includes(positionals[1]) ? 2 : null;
 }
@@ -84,7 +89,26 @@ const CHECKOUT_STORY_COMMANDS = new Set(['phase', 'inputs', 'prepare']);
 const OUTPUT_OPTIONS = new Set(['out', 'output', 'report-file', 'report-json']);
 const INPUT_OPTIONS = new Set(['file', 'story-file', 'document', 'evidence-file', 'change-set', 'bundle',
   'application-file', 'text-file', 'tasks-file', 'response-file', 'request-file', 'patch', 'observation-file',
-  'description-file', 'runner-provider-file', 'provider-file']);
+  'description-file', 'runner-provider-file', 'provider-file', 'answers', 'checklist', 'usage-json']);
+
+// File operands, like file options: `[command, words before them, first operand, how many (all when absent)]`.
+// A repository path that names something in the Story (`impact expansion`, `artifact add`) is not one.
+const FILE_OPERANDS = Object.freeze([
+  ['documents', ['upload'], 2], ['documents', ['add'], 2],
+  ['impact', ['evidence', 'import'], 3, 1], ['impact', ['evidence', 'collect'], 4, 1],
+  ['comprehension', ['backfill', 'validate'], 3, 1], ['comprehension', ['walkthrough', 'validate'], 3, 1],
+  ['comprehension', ['walkthrough', 'revalidate'], 3, 2]
+]);
+
+/** The positions of a command's declared file operands that are present. */
+export function fileOperandIndexes(command, positionals) {
+  const declared = FILE_OPERANDS.find(([name, words]) => name === command
+    && words.every((word, at) => positionals[at + 1] === word));
+  if (!declared) return [];
+  const [, , first, count = positionals.length] = declared;
+  const end = Math.min(positionals.length, first + count);
+  return Array.from({ length: Math.max(0, end - first) }, (_, offset) => first + offset);
+}
 
 async function exists(file) { return realpath(file).then(() => true, () => false); }
 
@@ -93,6 +117,35 @@ async function rebasedValue(name, value, launchDirectory) {
   const absolute = path.resolve(launchDirectory, value);
   // An input that does not exist where the command was run may be repository-relative; keep it.
   return OUTPUT_OPTIONS.has(name) || await exists(absolute) ? absolute : value;
+}
+
+/** Where each positional sits in argv, by parseArgs' own rules (util.mjs). */
+function positionalArgvIndexes(argv) {
+  const at = [];
+  let passthrough = false;
+  for (let index = 0; index < argv.length; index += 1) {
+    const token = String(argv[index]);
+    if (passthrough) { at.push(index); continue; }
+    if (token === '--') { passthrough = true; continue; }
+    if (!token.startsWith('--')) { at.push(index); continue; }
+    if (token.startsWith('--no-') || token.indexOf('=') > 2) continue;
+    const key = token.slice(2);
+    const next = argv[index + 1];
+    if (next !== undefined && (FREE_TEXT_OPTIONS.has(key) || !String(next).startsWith('--')) && !BOOLEAN_OPTIONS.has(key)) index += 1;
+  }
+  return at;
+}
+
+/** Make relative file operands absolute, in `positionals` and in the argv a re-parsing handler reads. */
+export async function rebaseFileOperands(command, positionals, argv, launchDirectory) {
+  const indexes = fileOperandIndexes(command, positionals);
+  const at = indexes.length ? positionalArgvIndexes(argv) : [];
+  for (const index of indexes) {
+    const value = await rebasedValue(null, positionals[index], launchDirectory);
+    if (value === positionals[index]) continue;
+    if (String(argv[at[index]]) === positionals[index]) argv[at[index]] = value;
+    positionals[index] = value;
+  }
 }
 
 /** Make relative file options absolute, in `options` and in the argv a re-parsing handler reads. */
@@ -124,7 +177,7 @@ const TURN_LIFETIME_MS = 30 * 60 * 1000;
  * Explicit Copilot turns bound to a Story in `root` (copilot-mutation-guard.mjs records them). A
  * turn bound to Story A in this checkout must not reach Story B by naming it.
  */
-async function boundTurnStories(root) {
+export async function boundTurnStories(root) {
   const { copilotModeFile } = await import('./copilot-mode.mjs');
   const directory = path.join(path.dirname(copilotModeFile()), 'copilot-boundaries');
   const names = await readdir(directory).catch(() => []);
@@ -178,7 +231,10 @@ export async function routeNamedStory({ command, positionals, options, argv, roo
       'ACTIVE_SUBJECT_MISMATCH', { expectedWorkId: workId, actualWorkId: current.workId, repositoryPath: root });
     return null;
   }
-  const { valid, unavailable } = await index.lookupStoryCheckouts(workId, { env });
+  // A command runs where the Story's record is: its other repositories' checkouts are not candidates.
+  const found = await index.lookupStoryCheckouts(workId, { env });
+  const valid = found.valid.filter(index.isLifecycle);
+  const unavailable = found.unavailable.filter(index.isLifecycle);
   const active = await index.activeWorkspaceId(env);
   const here = new Set([member.workspace.id, active].filter(Boolean));
   const local = valid.filter((entry) => here.has(entry.workspace.id));
@@ -217,7 +273,9 @@ export async function routeNamedStory({ command, positionals, options, argv, roo
       'STORY_CHANGES_IN_OTHER_COPY', { workId, repositoryPath: root, paths: changes.slice(0, 20),
         storyCheckout: { workId, checkoutPath: entry.checkoutPath, branch: entry.branch, workspace: entry.workspace } });
   }
-  await rebaseFileOptions(options, argv, process.cwd());
+  // Where the person ran it: the active-workspace selection may already have moved this process.
+  await rebaseFileOptions(options, argv, invocationDirectory());
+  await rebaseFileOperands(command, positionals, argv, invocationDirectory());
   return { root: entry.checkoutPath, route: { workId, checkoutPath: entry.checkoutPath, from: root,
     workspace: entry.workspace, branch: entry.branch } };
 }

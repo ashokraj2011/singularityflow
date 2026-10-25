@@ -881,6 +881,9 @@ test('admin skill performs workspace reinitialization through an exact reviewed 
   assert.match(admin, /historical bytes remain unchanged/i);
   assert.match(admin, /require its `repositoryPath` as cwd/);
   assert.match(admin, /no home\/parent fallback/);
+  // Two clones of one workspace repository: the same preview-then-exact-plan route.
+  assert.match(admin, /singularity-flow workspace consolidate <WORKSPACE-ID> --json/);
+  assert.match(admin, /each reason a checkout stays\. Apply as in step 6 with `--confirm-plan <EXACT-PLAN-ID> --json`/);
   assert.match(advise, /`\/sf-admin reinitialize` as the Copilot route/);
   assert.match(advise, /never substitute factory reset/i);
 });

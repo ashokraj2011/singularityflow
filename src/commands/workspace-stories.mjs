@@ -14,6 +14,9 @@ function projected(entry, activeWorkspaceId) {
     workId: entry.workId, title: entry.title ?? null,
     workspace: entry.workspace, activeWorkspace: entry.workspace.id === activeWorkspaceId,
     repository: { id: entry.repository.id ?? null, url: entry.repository.url ?? null },
+    // `secondary`: the Story's checkout in another repository it delivers in; its record is in `lifecycleCheckoutPath`.
+    role: entry.role === 'secondary' ? 'secondary' : 'story',
+    ...(entry.role === 'secondary' ? { lifecycleCheckoutPath: entry.lifecycle?.checkoutPath ?? null } : {}),
     checkoutPath: entry.checkoutPath, branch: entry.branch,
     phase: entry.phase ?? null, phaseStatus: entry.phaseStatus ?? null, storyStatus: entry.storyStatus ?? null,
     availability: entry.availability, ...(entry.reason ? { reason: entry.reason } : {}),
@@ -42,8 +45,9 @@ export async function run(positionals = [], options = {}) {
     stories, dropped: listing.dropped,
     backfill: { status: listing.backfill.status, recorded: listing.backfill.recorded, skipped: listing.backfill.skipped }
   };
+  const lifecycle = stories.filter((story) => story.role === 'story');
   if (workId && stories.length) {
-    const story = stories[0];
+    const story = lifecycle[0] ?? stories[0];
     result.routes = await index.storyCheckoutRoutes(story.workId, story, { sameWorkspace: story.activeWorkspace });
   }
   if (json) return console.log(JSON.stringify(result, null, 2));
@@ -57,12 +61,13 @@ export async function run(positionals = [], options = {}) {
     for (const story of stories) {
       console.log(`${story.workId}${story.title ? ` · ${story.title}` : ''}`);
       console.log(`Workspace: ${story.workspace.name}${story.activeWorkspace ? ' (active)' : ''} · ${story.workspace.path}`);
-      console.log(`Repository: ${story.repository.id ?? '—'} · ${story.repository.url ?? '—'}`);
+      console.log(`Repository: ${story.repository.id ?? '—'} · ${story.repository.url ?? '—'}${story.role === 'secondary'
+        ? ` (another repository the Story delivers in; its record is in ${story.lifecycleCheckoutPath})` : ''}`);
       console.log(`Checkout: ${story.checkoutPath}${story.availability === 'ready' ? '' : ` (unavailable: ${story.reason})`}`);
       console.log(`Branch: ${story.branch} · phase: ${story.phase ?? '—'} (${story.phaseStatus ?? '—'}) · Story: ${story.storyStatus ?? '—'}`);
       console.log(`Updated: ${story.updatedAt ?? '—'}`);
     }
-    if (stories.length > 1) console.log('This Story has more than one checkout. Keep the one you work in; remove the other after checking it holds nothing you need.');
+    if (lifecycle.length > 1) console.log('This Story has more than one checkout. Keep the one you work in; remove the other after checking it holds nothing you need.');
     console.log(`Go there. ${result.routes.text}.`);
     return result;
   }
@@ -73,7 +78,7 @@ export async function run(positionals = [], options = {}) {
   console.log(table(stories.map((story) => ({
     workId: story.workId,
     workspace: `${story.workspace.name}${story.activeWorkspace ? ' *' : ''}`,
-    repository: story.repository.id ?? '—',
+    repository: `${story.repository.id ?? '—'}${story.role === 'secondary' ? ' +' : ''}`,
     phase: [story.phase, story.phaseStatus].filter(Boolean).join(' · ') || '—',
     status: story.availability === 'ready' ? story.storyStatus ?? '—' : 'unavailable',
     branch: story.branch,
@@ -84,6 +89,7 @@ export async function run(positionals = [], options = {}) {
     { key: 'phase', label: 'PHASE' }, { key: 'status', label: 'STATUS' }, { key: 'branch', label: 'BRANCH' },
     { key: 'updated', label: 'UPDATED' }, { key: 'checkoutPath', label: 'CHECKOUT', kind: 'path' }
   ]));
-  console.log('* the active workspace. Locate one Story with: singularity-flow workspace stories <WORK-ID>');
+  console.log(`* the active workspace${stories.some((story) => story.role === 'secondary') ? '; + another repository the Story delivers in' : ''}. `
+    + 'Locate one Story with: singularity-flow workspace stories <WORK-ID>');
   return result;
 }

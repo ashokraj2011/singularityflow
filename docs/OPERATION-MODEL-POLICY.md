@@ -931,6 +931,8 @@ Every public operation is classified before its implementation module is importe
 | workspace.checkouts | read | never | — | — |
 | workspace.cleanup | mutation | never | — | — |
 | workspace.cleanup.preview | read | never | — | — |
+| workspace.consolidate | mutation | never | — | — |
+| workspace.consolidate.preview | read | never | — | — |
 | workspace.context | read | never | — | — |
 | workspace.copilot | mutation | required | — | copilot-cli |
 | workspace.copilot.preview | read | never | — | — |

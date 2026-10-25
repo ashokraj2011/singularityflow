@@ -2,7 +2,7 @@
 name: sflow-admin
 description: Diagnose and administer Singularity Flow configuration, workspace upgrades, agents, Jira, state planes, and recovery.
 disable-model-invocation: true
-argument-hint: "[doctor|configuration|migrate-schemas|reinitialize [WORKSPACE]|agents|jira|state|recovery]"
+argument-hint: "[doctor|configuration|migrate-schemas|reinitialize [WORKSPACE]|consolidate [WORKSPACE]|agents|jira|state|recovery]"
 ---
 # Administer Singularity Flow
 
@@ -25,6 +25,7 @@ Before any boundary lookup or SFlow action, run `singularity-flow pause status -
 
 5. Show scope, plan, changes, preserved customizations, schema findings and next action. Preview changes nothing; custom assets and history are preserved. Never offer `--resolve ...=bundled` or `--accept-bundled-conflicts`; ownership transfer requires a separate `/sf-refresh-configuration` preview.
 6. Apply only after human review, explicit authorization and the exact current plan ID. Rerun the same scope/flags once, replacing `--dry-run` with `--confirm-plan <EXACT-PLAN-ID> --json`. Reject abbreviated, stale, different-scope or ownership-transfer IDs.
-7. On stale plan or partial publication, relay CLI remediation. Never blindly retry, widen scope, override conflicts, reset or hand-edit authority.
-8. Otherwise read `singularity-flow workspace current --json`; require its `repositoryPath` as cwd (none: the opened Git root) for `singularity-flow doctor --json` and `singularity-flow state planes --json`. Refuse without either; no home/parent fallback. Show authority, revision, pending publication, ledger/outbox and affected paths.
-9. Start read-only. For approved repair, run the narrowest deterministic command. Factory reset requires its own preview and exact confirmation.
+7. For two clones of one workspace repository, run `singularity-flow workspace consolidate <WORKSPACE-ID> --json` once; show the canonical clone, each move and each reason a checkout stays. Apply as in step 6 with `--confirm-plan <EXACT-PLAN-ID> --json`.
+8. On stale plan or partial publication, relay CLI remediation. Never blindly retry, widen scope, override conflicts, reset or hand-edit authority.
+9. Otherwise read `singularity-flow workspace current --json`; require its `repositoryPath` as cwd (none: the opened Git root) for `singularity-flow doctor --json` and `singularity-flow state planes --json`. Refuse without either; no home/parent fallback. Show authority, revision, pending publication, ledger/outbox and affected paths.
+10. Start read-only. For approved repair, run the narrowest deterministic command. Factory reset requires its own preview and exact confirmation.

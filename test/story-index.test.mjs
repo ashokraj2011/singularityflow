@@ -13,6 +13,7 @@
  */
 import assert from 'node:assert/strict';
 import { spawn, spawnSync } from 'node:child_process';
+import { createHash } from 'node:crypto';
 import { existsSync, realpathSync } from 'node:fs';
 import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import os from 'node:os';
@@ -23,7 +24,8 @@ import YAML from 'yaml';
 
 import { STORY_OPERAND_COMMANDS } from '../src/cli-entry.mjs';
 import {
-  applyWorkIdOperand, namedWorkId, rebaseFileOptions, STORY_OPERAND_COMMAND_NAMES, workIdOperandIndex
+  applyWorkIdOperand, fileOperandIndexes, namedWorkId, rebaseFileOperands, rebaseFileOptions, STORY_OPERAND_COMMAND_NAMES,
+  workIdOperandIndex
 } from '../src/story-routing.mjs';
 import { childTimeout } from './helpers/child-timeout.mjs';
 import { slowLane } from './helpers/slow-lane.mjs';
@@ -85,6 +87,46 @@ test('file options are made absolute before a command moves to another checkout'
     'an input that is not where the command was run may be repository-relative');
   assert.deepEqual(argv, ['documents', 'restore', 'D-1', '--file', path.join(directory, 'draft.md'),
     `--out=${path.join(directory, 'report.md')}`, '--path', 'src/value.mjs']);
+});
+
+test('file operands are made absolute before a command moves to another checkout, as file options are', async (t) => {
+  const directory = await mkdtemp(path.join(os.tmpdir(), 'sflow-story-operands-'));
+  t.after(() => rm(directory, { recursive: true, force: true }));
+  await mkdir(path.join(directory, 'my notes'));
+  await writeFile(path.join(directory, 'my notes', 'brief one.md'), 'brief\n');
+  await writeFile(path.join(directory, 'draft.json'), '{}\n');
+  await writeFile(path.join(directory, 'previous.json'), '{}\n');
+  // Each command declares where its file operands sit; a repository path that names a Story file is not one.
+  assert.deepEqual(fileOperandIndexes('documents', ['documents', 'upload', 'a.md', 'b.md']), [2, 3]);
+  assert.deepEqual(fileOperandIndexes('impact', ['impact', 'evidence', 'collect', 'junit', 'r.xml', 'S-1']), [4]);
+  assert.deepEqual(fileOperandIndexes('comprehension', ['comprehension', 'walkthrough', 'revalidate', 'd.json', 'p.json']), [3, 4]);
+  assert.deepEqual(fileOperandIndexes('impact', ['impact', 'expansion', 'S-1', 'src/value.mjs']), []);
+  assert.deepEqual(fileOperandIndexes('artifact', ['artifact', 'add', 'src/value.mjs']), []);
+  assert.equal(workIdOperandIndex('impact', ['impact', 'evidence', 'import', 'r.json', 'S-1']), 4);
+  assert.equal(workIdOperandIndex('impact', ['impact', 'evidence', 'collect', 'junit', 'r.xml', 'S-1']), 5);
+  assert.equal(workIdOperandIndex('impact', ['impact', 'exposure', 'attest', 'S-1']), 3);
+
+  // `--name` takes a value that happens to equal an operand; only the operand moves.
+  const positionals = ['documents', 'upload', 'my notes/brief one.md', 'missing.md'];
+  const argv = ['--no-model', 'documents', 'upload', '--name', 'my notes/brief one.md', 'my notes/brief one.md', 'missing.md',
+    '--work-id', 'S-2', '--json'];
+  await rebaseFileOperands('documents', positionals, argv, directory);
+  const absolute = path.join(directory, 'my notes', 'brief one.md');
+  assert.deepEqual(positionals, ['documents', 'upload', absolute, 'missing.md'],
+    'an operand that is not where the command was run may be repository-relative');
+  assert.deepEqual(argv, ['--no-model', 'documents', 'upload', '--name', 'my notes/brief one.md', absolute, 'missing.md',
+    '--work-id', 'S-2', '--json']);
+  const revalidate = ['comprehension', 'walkthrough', 'revalidate', './draft.json', 'previous.json'];
+  const revalidateArgv = ['comprehension', 'walkthrough', 'revalidate', './draft.json', '--', 'previous.json'];
+  await rebaseFileOperands('comprehension', revalidate, revalidateArgv, directory);
+  assert.deepEqual(revalidate.slice(3), [path.join(directory, 'draft.json'), path.join(directory, 'previous.json')]);
+  assert.deepEqual(revalidateArgv.slice(3), [path.join(directory, 'draft.json'), '--', path.join(directory, 'previous.json')]);
+  const untouched = ['status', 'draft.json'];
+  await rebaseFileOperands('status', untouched, ['status', 'draft.json'], directory);
+  assert.deepEqual(untouched, ['status', 'draft.json'], 'a Work ID operand is never a file');
+  const options = { answers: 'draft.json', checklist: 'missing.json' };
+  await rebaseFileOptions(options, [], directory);
+  assert.deepEqual(options, { answers: path.join(directory, 'draft.json'), checklist: 'missing.json' });
 });
 
 function specification(workId) {
@@ -264,6 +306,26 @@ test('one Story has one checkout across workspaces, and a Work ID decides where 
       // Routing reads no model: the same answer with model mode on (no Copilot is reachable here).
       const modelOn = f.json(['status', '--work-id', 'S-2'], { cwd: one.checkoutPath, extra: { SINGULARITY_FLOW_NO_MODEL: '' } });
       assert.equal(modelOn.value.workItem.id, 'S-2');
+
+      // `session context --work-id` reads the named Story's checkout and refuses the same way.
+      const context = f.json(['session', 'context', '--work-id', 'S-2'], { cwd: one.checkoutPath }).value;
+      assert.equal(context.work.id, 'S-2');
+      assert.equal(canonical(context.storyRoute.checkoutPath), canonical(two.checkoutPath));
+      assert.match(f.cli(['session', 'context', '--work-id', 'S-2'], { cwd: one.checkoutPath }).stderr, /^S-2 → /mu);
+      for (const [workId, code] of [['S-3', 'STORY_CHECKOUT_ELSEWHERE'], ['NOPE-1', 'STORY_CHECKOUT_REQUIRED']]) {
+        const refused = f.cli(['session', 'context', '--work-id', workId, '--json'], { cwd: one.checkoutPath, allowFailure: true });
+        assert.notEqual(refused.status, 0);
+        assert.equal(JSON.parse(refused.stdout).error.code, code, refused.stdout);
+      }
+      const own = f.json(['session', 'context', '--work-id', 'S-1'], { cwd: one.checkoutPath }).value;
+      assert.equal(own.work.id, 'S-1');
+      assert.equal(own.storyRoute, undefined);
+      // A bound checkout wins: it is not routed away from.
+      const bound = f.cli(['session', 'context', '--work-id', 'S-2', '--context-root', one.checkoutPath, '--json'],
+        { cwd: f.directory, allowFailure: true });
+      const boundValue = JSON.parse(bound.stdout);
+      assert.equal(boundValue.storyRoute, undefined, bound.stdout);
+      assert.notEqual(boundValue.work?.id, 'S-2', bound.stdout);
     });
 
     await t.test('a Story whose branch is not its Work ID is found through its recorded branch', async () => {
@@ -285,6 +347,18 @@ test('one Story has one checkout across workspaces, and a Work ID decides where 
       assert.match(await readFile(path.join(one.checkoutPath, 'routed-report.md'), 'utf8'), /S-2/u);
       assert.equal(existsSync(path.join(two.checkoutPath, 'routed-report.md')), false);
       await rm(path.join(one.checkoutPath, 'routed-report.md'));
+      // A file operand too, with a space in its name and from outside any repository: the upload
+      // reads the person's file, not a same-named one in S-2's checkout.
+      const launch = path.join(f.directory, 'launch dir');
+      await mkdir(launch, { recursive: true });
+      await writeFile(path.join(launch, 'my notes.md'), 'Notes written where the command was run.\n');
+      const uploaded = f.json(['--no-model', 'documents', 'upload', './my notes.md', '--name', 'Launch notes',
+        '--work-id', 'S-2'], { cwd: launch }).value;
+      assert.equal(canonical(uploaded.storyRoute.checkoutPath), canonical(two.checkoutPath));
+      const [record] = uploaded.documents;
+      assert.equal(record.sha256, createHash('sha256').update('Notes written where the command was run.\n').digest('hex'),
+        JSON.stringify(record));
+      assert.equal(f.git(two.checkoutPath, 'branch', '--show-current'), 'S-2');
     });
 
     await t.test('a Copilot turn bound to one Story cannot run a command for another', async () => {
@@ -295,11 +369,14 @@ test('one Story has one checkout across workspaces, and a Work ID decides where 
       await writeFile(record, JSON.stringify({ schemaVersion: 1, kind: 'copilot-mutation-contract', recordedAt: Date.now(),
         contract: { workId: 'S-1', repositoryRoot: canonical(one.checkoutPath) } }));
       const refused = f.cli(['status', '--work-id', 'S-2', '--json'], { cwd: one.checkoutPath, allowFailure: true });
+      const context = f.cli(['session', 'context', '--work-id', 'S-2', '--json'], { cwd: one.checkoutPath, allowFailure: true });
       await rm(record);
       assert.notEqual(refused.status, 0);
       const error = JSON.parse(refused.stdout).error;
       assert.equal(error.code, 'ACTIVE_SUBJECT_MISMATCH', refused.stdout);
       assert.match(error.message, /bound to Story S-1, so it cannot run a command for S-2/u);
+      assert.notEqual(context.status, 0);
+      assert.equal(JSON.parse(context.stdout).error.code, 'ACTIVE_SUBJECT_MISMATCH', context.stdout);
       assert.equal(f.json(['status', '--work-id', 'S-2'], { cwd: one.checkoutPath }).value.workItem.id, 'S-2', 'after the turn, it routes');
     });
 
@@ -425,3 +502,246 @@ test('attach and open reuse the Story checkout in another clone of the same work
   assert.ok(envelope.remediationPlan.steps.some((step) => step.command === 'singularity-flow session open S-4'),
     JSON.stringify(envelope.remediationPlan));
 });
+
+/**
+ * One workspace whose capability delivers in two repositories, app and api, each with its own bare
+ * remote; app carries the approved configuration that names both (as in execution-context.test.mjs).
+ */
+async function twoRepositoryWorkspace(t) {
+  const base = await mkdtemp(path.join(os.tmpdir(), 'sflow-story-index-multi-'));
+  t.after(() => rm(base, { recursive: true, force: true }));
+  const state = path.join(base, 'machine');
+  await mkdir(state);
+  const env = {
+    ...process.env, NODE_ENV: 'test', SINGULARITY_FLOW_BUNDLE: 'off', SINGULARITY_FLOW_NO_MODEL: '1',
+    SINGULARITY_FLOW_TEST_IDENTITY: 'Index Tester',
+    SINGULARITY_FLOW_TEST_SELECTION: JSON.stringify({ workType: 'feature', agent: 'product-owner' }),
+    SINGULARITY_FLOW_WORKSPACE_REGISTRY: path.join(state, 'workspaces.json'),
+    SINGULARITY_FLOW_ACTIVE_WORKSPACE: path.join(state, 'active-workspace.json'),
+    SINGULARITY_FLOW_LEAD_REGISTRY: path.join(state, 'leads.json'),
+    SINGULARITY_FLOW_COPILOT_MODE_FILE: path.join(state, 'copilot-mode.json'),
+    SINGULARITY_FLOW_AUTOMATIC_CLEANUP: 'off'
+  };
+  delete env.SINGULARITY_FLOW_STORY_INDEX;
+  const run = (command, args, { cwd = base, allowFailure = false } = {}) => {
+    const result = spawnSync(command, args, { cwd, encoding: 'utf8', env, timeout: childTimeout(180_000), maxBuffer: 64 * 1024 * 1024 });
+    if (!allowFailure) assert.equal(result.status, 0, `${command} ${args.join(' ')}\n${result.stdout}\n${result.stderr}`);
+    return result;
+  };
+  const cli = (args, options = {}) => run(process.execPath, [CLI, ...args], options);
+  const json = (args, options = {}) => JSON.parse(cli([...args, '--json'], options).stdout);
+  const git = (cwd, ...args) => run('git', ['-c', 'gc.auto=0', '-c', 'maintenance.auto=false', ...args], { cwd }).stdout.trim();
+  const workspacePath = path.join(base, 'workspace');
+  const app = path.join(workspacePath, 'repos', 'app');
+  const api = path.join(workspacePath, 'repos', 'api');
+  const remote = path.join(base, 'app.git');
+  const apiRemote = path.join(base, 'api.git');
+  await mkdir(app, { recursive: true });
+  git(app, 'init', '-q', '-b', 'main');
+  git(app, 'config', 'user.name', 'Index Tester');
+  git(app, 'config', 'user.email', 'index.tester@example.invalid');
+  await writeFile(path.join(app, 'README.md'), 'Two-repository Story index fixture\n');
+  cli(['--no-model', 'init'], { cwd: app });
+  const definitionPath = path.join(app, 'singularity/workflow.yml');
+  const definition = YAML.parse(await readFile(definitionPath, 'utf8'));
+  definition.git.publish = 'off';
+  definition.repositoryReadiness.requiredBeforeStory = false;
+  await writeFile(definitionPath, YAML.stringify(definition));
+  const portfolioPath = path.join(app, 'singularity/portfolio.yml');
+  const portfolio = YAML.parse(await readFile(portfolioPath, 'utf8'));
+  portfolio.repositories = { app: { url: remote, defaultBranch: 'main', required: true },
+    api: { url: apiRemote, defaultBranch: 'main', required: true } };
+  await writeFile(portfolioPath, YAML.stringify(portfolio));
+  await writeFile(path.join(app, 'singularity/capabilities.yml'), YAML.stringify({ version: 1, capabilities: {
+    enterprise: { kind: 'collection', parent: null, policy: {} },
+    product: { kind: 'collection', parent: 'enterprise', policy: {} },
+    delivery: { kind: 'delivery', parent: 'product', repositories: ['app', 'api'], policy: {} }
+  } }));
+  git(app, 'add', '.');
+  git(app, 'commit', '-qm', 'Approved two-repository configuration');
+  git(app, 'branch', 'sflow/config');
+  for (const bare of [remote, apiRemote]) git(base, 'init', '--bare', '-q', '-b', 'main', bare);
+  git(app, 'remote', 'add', 'origin', remote);
+  git(app, 'push', '-q', '-u', 'origin', 'main', 'sflow/config');
+  git(base, 'clone', '--no-local', '-q', remote, api);
+  git(api, 'remote', 'set-url', 'origin', apiRemote);
+  git(api, 'push', '-q', '-u', 'origin', 'main');
+  for (const clone of [app, api]) {
+    git(clone, 'config', 'user.name', 'Index Tester');
+    git(clone, 'config', 'user.email', 'index.tester@example.invalid');
+  }
+  const now = new Date().toISOString();
+  await writeFile(path.join(workspacePath, 'workspace.json'), JSON.stringify({ version: 1, id: 'multi', name: 'Multi',
+    createdAt: now, updatedAt: now, anchor: { provider: 'workspace', key: 'multi', title: 'Multi', fetchedAt: now },
+    leadRepository: 'app', capabilities: ['delivery'], repositories: {
+      app: { url: remote, path: 'repos/app', defaultBranch: 'main', required: true, capabilities: ['delivery'] },
+      api: { url: apiRemote, path: 'repos/api', defaultBranch: 'main', required: true, capabilities: ['delivery'] }
+    } }));
+  const { readWorkspace, rememberWorkspace } = await import('../src/workspace.mjs');
+  await rememberWorkspace(env.SINGULARITY_FLOW_WORKSPACE_REGISTRY, await readWorkspace(workspacePath));
+  cli(['workspace', 'use', workspacePath, '--repository', 'app', '--json']);
+  const index = async () => JSON.parse(await readFile(path.join(state, 'story-index.json'), 'utf8'));
+  const worktreeOn = (clone, branch) => git(clone, 'worktree', 'list', '--porcelain').split('\n\n')
+    .find((block) => block.includes(`branch refs/heads/${branch}`))?.split('\n')[0].slice('worktree '.length) ?? null;
+  return { base, env, run, cli, json, git, workspacePath, app, api, remote, apiRemote, index, worktreeOn, readWorkspace };
+}
+
+test('a Story that delivers in two repositories has its checkout of each in the index', slowLane({ timeout: 900_000 }), async (t) => {
+  const f = await twoRepositoryWorkspace(t);
+  const started = f.json(['start', 'MULTI-1', '--isolated-worktree', '--from-branch', 'main', '--capability', 'delivery',
+    '--work-type', 'feature', '--title', 'Shared delivery'], { cwd: f.app });
+  const lifecycle = (started.data ?? started).repositoryPath;
+  f.git(lifecycle, 'push', '-q', '-u', 'origin', 'MULTI-1');
+  if (!f.git(f.api, 'branch', '--list', 'MULTI-1')) f.git(f.api, 'branch', 'MULTI-1');
+  f.git(f.api, 'push', '-q', 'origin', 'MULTI-1');
+  const apiCheckout = f.worktreeOn(f.api, 'MULTI-1');
+  assert.ok(apiCheckout, f.git(f.api, 'worktree', 'list'));
+
+  // The start records both: the checkout holding the Story, and api's, which only carries its branch.
+  const entries = (await f.index()).entries.filter((entry) => entry.workId === 'MULTI-1');
+  assert.deepEqual(entries.map((entry) => [entry.repository.id, entry.role ?? 'story']).sort(), [['api', 'secondary'], ['app', 'story']],
+    JSON.stringify(entries, null, 2));
+  const secondary = entries.find((entry) => entry.role === 'secondary');
+  assert.equal(canonical(secondary.checkoutPath), canonical(apiCheckout));
+  assert.equal(canonical(secondary.lifecycle.checkoutPath), canonical(lifecycle));
+  const listed = f.json(['workspace', 'stories', 'MULTI-1'], { cwd: f.base });
+  assert.deepEqual(listed.stories.map((story) => story.role).sort(), ['secondary', 'story']);
+  assert.deepEqual(listed.routes.commands, ['singularity-flow session open MULTI-1']);
+  assert.doesNotMatch(f.cli(['workspace', 'stories', 'MULTI-1'], { cwd: f.base }).stdout, /more than one checkout/u);
+
+  // From api's checkout, a command for the Story runs where its record is, never in api.
+  const routed = f.json(['status', '--work-id', 'MULTI-1'], { cwd: apiCheckout });
+  assert.equal(routed.workItem.id, 'MULTI-1');
+  assert.equal(canonical(routed.storyRoute.checkoutPath), canonical(lifecycle));
+
+  // api's checkout moves to another clone of the workspace (a branch download); a rebuild finds it there.
+  const { prepareWorkspaceBranch } = await import('../src/workspace-branch-checkout.mjs');
+  const second = (await prepareWorkspaceBranch(await f.readWorkspace(f.workspacePath), 'api', 'main', { reuse: true, env: f.env })).repositoryPath;
+  f.git(f.api, 'worktree', 'remove', apiCheckout);
+  f.git(second, 'fetch', '-q', 'origin', 'MULTI-1:MULTI-1');
+  const moved = path.join(f.workspacePath, '.singularity-flow', 'story-worktrees', 'api-second');
+  f.git(second, 'worktree', 'add', '-q', moved, 'MULTI-1');
+  const rebuilt = f.json(['workspace', 'stories', 'MULTI-1', '--rebuild'], { cwd: f.base });
+  assert.deepEqual(rebuilt.stories.filter((story) => story.role === 'secondary').map((story) => canonical(story.checkoutPath)),
+    [canonical(moved)], JSON.stringify(rebuilt, null, 2));
+
+  // Takeover uses that checkout instead of checking api's branch out a second time in the declared clone.
+  const taken = f.json(['session', 'takeover', 'MULTI-1'], { cwd: f.app });
+  assert.equal(taken.ready, true, JSON.stringify(taken));
+  assert.deepEqual(taken.repositories.map((context) => context.repository.id), ['app', 'api']);
+  assert.equal(f.worktreeOn(f.api, 'MULTI-1'), null, f.git(f.api, 'worktree', 'list'));
+  assert.equal(canonical(f.worktreeOn(second, 'MULTI-1')), canonical(moved));
+  assert.equal(f.git(f.api, 'branch', '--show-current'), 'main');
+});
+
+test('workspace consolidate moves the Story checkouts a second clone owns onto the declared clone, and refuses the rest',
+  slowLane({ timeout: 1_200_000 }), async (t) => {
+    const f = await twoWorkspaces(t);
+    const { readWorkspace } = await import('../src/workspace-manifest.mjs');
+    const { prepareWorkspaceBranch } = await import('../src/workspace-branch-checkout.mjs');
+    const workspace = f.workspaces.wsa.path;
+    const declared = f.workspaces.wsa.clone;
+    // The second clone a branch download makes ("repos/main--<hash>/application"), owning three Stories.
+    const second = (await prepareWorkspaceBranch(await readWorkspace(workspace), 'application', 'main', { reuse: true, env: f.env })).repositoryPath;
+    f.git(second, 'config', 'user.name', 'Index Tester');
+    f.git(second, 'config', 'user.email', 'index.tester@example.invalid');
+    f.git(second, 'checkout', '-q', 'main');
+    for (const id of ['S-4', 'S-5', 'S-6']) f.start('wsa', id, second);
+    const checkoutOf = async (id) => (await f.entry(id))[0].checkoutPath;
+    const [four, five, six] = [await checkoutOf('S-4'), await checkoutOf('S-5'), await checkoutOf('S-6')];
+    const commonDir = (checkout) => canonical(f.git(checkout, 'rev-parse', '--path-format=absolute', '--git-common-dir'));
+    for (const checkout of [four, five, six]) assert.equal(commonDir(checkout), canonical(path.join(second, '.git')));
+    // S-6 keeps a document on this machine only (in the second clone's store), then gains a commit the remote lacks.
+    await writeFile(path.join(f.directory, 'brief.md'), 'A brief kept on this machine.\n');
+    f.cli(['--no-model', 'documents', 'upload', path.join(f.directory, 'brief.md'), '--name', 'Brief', '--store', 'local'], { cwd: six });
+    f.git(six, 'commit', '-q', '--allow-empty', '-m', 'Local only');
+    await writeFile(path.join(five, 'scratch.txt'), 'not committed\n');
+
+    const lists = () => [f.git(declared, 'worktree', 'list', '--porcelain'), f.git(second, 'worktree', 'list', '--porcelain')];
+    const before = lists();
+    const preview = f.json(['workspace', 'consolidate', workspace], { cwd: f.directory }).value;
+    assert.equal(preview.status, 'partial', JSON.stringify(preview, null, 2));
+    assert.match(preview.planId, /^wcp-[a-f0-9]{32}$/u);
+    const [repository] = preview.repositories;
+    assert.equal(canonical(repository.canonical.path), canonical(declared), 'the clone the workspace declares');
+    assert.deepEqual(repository.moves.map((move) => move.workId), ['S-4']);
+    assert.deepEqual(repository.refused.map((item) => [item.workId, item.reason]).sort(),
+      [['S-5', 'untracked-files'], ['S-6', 'unpushed-commits']]);
+    assert.deepEqual(repository.pointers, [], 'the second clone still owns checkouts, so it keeps serving its branch');
+    assert.deepEqual(lists(), before, 'the preview changed nothing');
+    const text = f.cli(['workspace', 'consolidate', workspace], { cwd: f.directory }).stdout;
+    for (const expected of [`canonical clone ${canonical(declared)}`, 'Moves S-4 on S-4', 'Stays S-5', 'it has untracked files',
+      'Stays S-6', 'not on the remote', `--confirm-plan ${preview.planId}`]) {
+      assert.ok(text.includes(expected), `${expected}\n${text}`);
+    }
+
+    // A plan ID that is not one, or that no longer matches the workspace, moves nothing.
+    const invalid = f.cli(['workspace', 'consolidate', workspace, '--confirm-plan', 'wcp-1', '--json'], { cwd: f.directory, allowFailure: true });
+    assert.equal(JSON.parse(invalid.stdout).error.code, 'WORKSPACE_CONSOLIDATE_PLAN_INVALID', invalid.stdout);
+    await writeFile(path.join(four, 'package.json'), '{"edited":"after the preview"}\n');
+    assert.deepEqual(f.json(['workspace', 'consolidate', workspace], { cwd: f.directory }).value.repositories[0].refused
+      .filter((item) => item.workId === 'S-4').map((item) => item.reason), ['local-changes']);
+    const stale = f.cli(['workspace', 'consolidate', workspace, '--confirm-plan', preview.planId, '--json'], { cwd: f.directory, allowFailure: true });
+    assert.equal(JSON.parse(stale.stdout).error.code, 'WORKSPACE_CONSOLIDATE_PLAN_STALE', stale.stdout);
+    assert.deepEqual(lists(), before, 'a stale plan moved nothing');
+    f.git(four, 'checkout', '--', 'package.json');
+
+    const applied = f.json(['workspace', 'consolidate', workspace, '--confirm-plan', preview.planId], { cwd: f.directory }).value;
+    assert.equal(applied.applied, true);
+    assert.deepEqual(applied.moved.map((move) => move.workId), ['S-4']);
+    assert.equal(commonDir(four), canonical(path.join(declared, '.git')), 'S-4 now hangs off the declared clone');
+    assert.match(f.git(declared, 'worktree', 'list', '--porcelain'), new RegExp(`branch refs/heads/S-4\\b`, 'u'));
+    assert.doesNotMatch(f.git(second, 'worktree', 'list', '--porcelain'), /refs\/heads\/S-4\b/u);
+    assert.equal(f.git(four, 'status', '--porcelain'), '');
+    assert.equal(f.git(four, 'branch', '--show-current'), 'S-4');
+    assert.equal(f.git(four, 'rev-parse', '--abbrev-ref', '--symbolic-full-name', '@{upstream}'), 'origin/S-4');
+    assert.equal(f.json(['status'], { cwd: four }).value.workItem.id, 'S-4');
+    assert.equal(canonical((await f.entry('S-4'))[0].commonDir), canonical(path.join(declared, '.git')), 'the Story index follows');
+    assert.ok(existsSync(path.join(five, 'scratch.txt')), 'a refused checkout is left exactly as it was');
+    assert.equal(commonDir(five), canonical(path.join(second, '.git')));
+
+    // A copy of the Story in the declared clone, or a bound Copilot turn, also keeps a checkout where it is.
+    await rm(path.join(five, 'scratch.txt'));
+    const duplicate = path.join(f.directory, 'duplicate S-5');
+    f.git(declared, 'fetch', '-q', 'origin', 'S-5:S-5');
+    f.git(declared, 'worktree', 'add', '-q', duplicate, 'S-5');
+    f.git(six, 'push', '-q', 'origin', 'S-6');
+    const boundaries = path.join(f.state, 'copilot-boundaries');
+    await mkdir(boundaries, { recursive: true });
+    const record = path.join(boundaries, `${'b'.repeat(64)}.mutation.json`);
+    await writeFile(record, JSON.stringify({ schemaVersion: 1, kind: 'copilot-mutation-contract', recordedAt: Date.now(),
+      contract: { workId: 'S-6', repositoryRoot: canonical(six) } }));
+    const held = f.json(['workspace', 'consolidate', workspace], { cwd: f.directory }).value;
+    assert.equal(held.status, 'blocked');
+    assert.deepEqual(held.repositories[0].refused.map((item) => [item.workId, item.reason]).sort(),
+      [['S-5', 'checked-out-in-canonical'], ['S-6', 'live-lease']]);
+    assert.equal(held.planId, null);
+    await rm(record);
+    f.git(declared, 'worktree', 'remove', duplicate);
+    // An unfinished publication the old clone records for a Story keeps it there too.
+    const pending = path.join(second, '.git', 'singularity-flow', 'pending-publication', 'story--S-6.json');
+    await mkdir(path.dirname(pending), { recursive: true });
+    await writeFile(pending, '{}\n');
+    assert.deepEqual(f.json(['workspace', 'consolidate', workspace], { cwd: f.directory }).value.repositories[0].refused
+      .map((item) => [item.workId, item.reason]), [['S-6', 'unfinished-records']]);
+    await rm(pending);
+
+    // Nothing stops them now: both move, and the second clone, owning nothing, stops serving its branch.
+    const last = f.json(['workspace', 'consolidate', workspace], { cwd: f.directory }).value;
+    assert.equal(last.status, 'ready', JSON.stringify(last, null, 2));
+    assert.deepEqual(last.repositories[0].moves.map((move) => move.workId).sort(), ['S-5', 'S-6']);
+    assert.equal(last.repositories[0].pointers.length, 1);
+    const done = f.json(['workspace', 'consolidate', workspace, '--confirm-plan', last.planId], { cwd: f.directory }).value;
+    assert.deepEqual(done.moved.map((move) => move.workId).sort(), ['S-5', 'S-6']);
+    for (const checkout of [five, six]) assert.equal(commonDir(checkout), canonical(path.join(declared, '.git')));
+    assert.equal(f.git(six, 'log', '-1', '--format=%s'), 'Local only', 'the checkout kept its history');
+    const [retired] = done.pointersRetired;
+    assert.equal(existsSync(retired.pointer), false);
+    assert.ok(existsSync(retired.retiredTo), 'the pointer is set aside, not deleted');
+    assert.ok(existsSync(path.join(second, '.git', 'objects')), 'the second clone and its objects stay');
+    assert.match(done.nextAction, /workspace cleanup/u);
+    const documents = f.json(['documents', 'list'], { cwd: six }).value;
+    const brief = (Array.isArray(documents) ? documents : documents.documents).find((document) => document.name === 'Brief');
+    assert.equal(brief.availability, 'available', 'its machine-local document came with it');
+    assert.equal(f.json(['workspace', 'consolidate', workspace], { cwd: f.directory }).value.status, 'current');
+  });

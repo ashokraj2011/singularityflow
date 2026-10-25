@@ -168,6 +168,9 @@ test('the bundled CLI answers exactly like the sources while opening a handful o
   assert.match(phaseCode, /function completePhaseEntry\b/u);
   assert.match(phaseCode, /function composePhasePrompt\b/u,
     'passive composition belongs in the existing prepared phase family, not the model/admin dispatcher');
+  for (const name of ['readPendingList', 'pendingSummary', 'approvalAdvisories']) {
+    assert.match(phaseCode, new RegExp(`function ${name}\\b`, 'u'), `nextsteps' ${name} must not fall through to the compatibility/admin bundle`);
+  }
   assert.ok(catalogClosure.reduce((sum, item) => sum + item.bytes, 0) < 5 * 1024 * 1024,
     'catalog parsing stays bounded instead of pulling in the entire administration bundle');
   for (const name of ['cold-compatibility.mjs', 'cold-models.mjs', 'cold-intake.mjs', 'cold-phases.mjs', 'cold-hook-context.mjs']) {

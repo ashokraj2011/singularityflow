@@ -20,6 +20,15 @@ const msysBash = process.platform === 'win32'
 const bash = msysBash && existsSync(msysBash) ? msysBash : selectedBash;
 
 function shellPath(value) { return String(value).replaceAll('\\', '/'); }
+async function copyBuildOutputHelpers(fixture) {
+  for (const file of ['install-build-outputs.mjs', 'documentation-privacy.mjs', 'check-path-policy.mjs']) {
+    await copyFile(path.join(root, 'scripts', file), path.join(fixture, 'scripts', file));
+  }
+  // Native Node on Windows resolves git.exe, not the Bash fixture's extensionless shell stub.
+  // Give its read-only output-ownership check real, empty repository metadata as well.
+  const initialized = nativeSpawnSync('git', ['init', '--quiet'], { cwd: fixture, encoding: 'utf8', timeout: 10_000 });
+  assert.equal(initialized.status, 0, initialized.stderr);
+}
 function spawnSync(command, args, options = {}) {
   if (command !== 'bash' || process.platform !== 'win32') return nativeSpawnSync(command, args, options);
   const env = { ...(options.env ?? process.env) };
@@ -148,6 +157,11 @@ test('local installer performs a safe ordered pull, pack, global install, and pl
   assert.match(script, /npm ci --registry="\$REGISTRY"/);
   assert.match(script, /export NPM_CONFIG_REGISTRY="\$REGISTRY"/);
   assert.match(script, /npm run vscode:build/);
+  assert.ok(script.indexOf('scripts/install-build-outputs.mjs" clean') < script.indexOf('\nnpm run check\n'),
+    'old ignored bundles must be cleared before validating the new source');
+  assert.ok(script.indexOf('scripts/install-build-outputs.mjs" verify') > script.indexOf('Building the bundled CLI'),
+    'rebuilt outputs must pass the same privacy policy before packaging');
+  assert.ok(script.indexOf('scripts/install-build-outputs.mjs" verify') < script.indexOf('npm pack --json'));
   assert.match(script, /scripts\/stamp-build-info\.mjs/);
   assert.match(script, /SOURCE_DATE_EPOCH="\$\(git show -s --format=%ct HEAD\)"/);
   assert.match(script, /export SOURCE_DATE_EPOCH/);
@@ -340,6 +354,7 @@ test('full skip-tests source install automatically hands missing receipt repair 
   await writeFile(workspace, 'preserve workspace registrations');
   await copyFile(path.join(root, 'install.sh'), path.join(fixture, 'install.sh'));
   await copyFile(path.join(root, 'scripts/install-staged-artifacts.mjs'), path.join(fixture, 'scripts/install-staged-artifacts.mjs'));
+  await copyBuildOutputHelpers(fixture);
   for (const name of ['git', 'npm', 'copilot', 'singularity-flow', 'node']) {
     const file = path.join(bin, name);
     const body = name === 'node' ? `
@@ -385,6 +400,13 @@ test('standalone install script executes the complete workflow with one invocati
     path.join(root, 'scripts', 'install-staged-artifacts.mjs'),
     path.join(fixture, 'scripts', 'install-staged-artifacts.mjs')
   );
+  await copyBuildOutputHelpers(fixture);
+  const obsoleteHost = ['git', 'example', 'corp'].join('.');
+  for (const relative of ['bundle/cold-compatibility.mjs', 'apps/vscode/dist/extension.cjs.map']) {
+    const output = path.join(fixture, relative);
+    await mkdir(path.dirname(output), { recursive: true });
+    await writeFile(output, `https://${obsoleteHost}/team/previous.git`);
+  }
   const stagedTarball = path.join(fixture, 'fixture-singularity-flow.tgz');
   const stagedVsix = path.join(fixture, 'fixture-singularity-flow.vsix');
   const tarballBytes = installTestTarball(version);
@@ -439,6 +461,13 @@ if [[ "$*" == "pack --json" || "$*" == "run vscode:package" ]]; then
   [[ "\${SOURCE_DATE_EPOCH:-}" == "946684800" ]] || { printf '%s\\n' 'missing shared source epoch' >&2; exit 91; }
 fi
 if [[ "$*" == "config get registry" ]]; then printf '%s\\n' 'https://registry.npmjs.org/'; exit 0; fi
+if [[ "$*" == "run check" ]]; then
+  [[ ! -e "$PWD/bundle/cold-compatibility.mjs" && ! -e "$PWD/apps/vscode/dist/extension.cjs.map" ]] || exit 93
+fi
+if [[ "$*" == "run vscode:build" ]]; then
+  mkdir -p "$PWD/apps/vscode/dist"
+  printf '%s\\n' "\${INSTALL_TEST_BUILD_TEXT:-current source output}" > "$PWD/apps/vscode/dist/extension.cjs"
+fi
 if [[ "$*" == "pack --json" ]]; then
   cp "$INSTALL_TEST_TARBALL" "$PWD/singularity-flow-test.tgz"
   if [[ "\${INSTALL_TEST_LARGE_PACK_JSON:-}" == "1" ]]; then
@@ -620,6 +649,22 @@ fi`;
   assert.ok(commands.indexOf('code --install-extension') < commands.indexOf('npm install --global'),
     'the globally callable CLI must be installed after the IDE surface');
   assert.ok(commands.indexOf('private-cli plugin install') < commands.indexOf('npm install --global'));
+
+  // Cleaning old output must not become an exemption for newly built invalid output. Exercise
+  // --skip-tests too: refusal precedes packaging and preserves the last installation receipt.
+  const installedReceiptPath = path.join(fixture, '.singularity-flow', 'installations', 'current.json');
+  const priorReceiptBytes = await readFile(installedReceiptPath);
+  await writeFile(log, '');
+  const invalidBuild = spawnSync('bash', [path.join(fixture, 'install.sh'), '--no-update', '--skip-tests'], {
+    cwd: fixture, encoding: 'utf8',
+    env: { ...process.env, HOME: fixture, SHELL: '/bin/zsh', PATH: `${bin}:/usr/bin:/bin`,
+      INSTALL_TEST_LOG: log, INSTALL_TEST_TARBALL: stagedTarball, INSTALL_TEST_VSIX: stagedVsix,
+      INSTALL_TEST_BUILD_TEXT: `https://${obsoleteHost}/team/project.git` }
+  });
+  assert.notEqual(invalidBuild.status, 0);
+  assert.match(invalidBuild.stderr.replaceAll('\\', '/'), /apps\/vscode\/dist\/extension.cjs:1: use the generic Git URL placeholder/);
+  assert.doesNotMatch(await readFile(log, 'utf8'), /npm pack|npm install --global|code --install-extension/);
+  assert.deepEqual(await readFile(installedReceiptPath), priorReceiptBytes);
 
   await writeFile(log, '');
   const standardEnvironment = spawnSync('bash', [path.join(fixture, 'install.sh'), '--cli-only'], {
@@ -1137,6 +1182,8 @@ fi`;
   assert.equal(resumed.status, 0, `${resumed.stdout}\n${resumed.stderr}`);
   assert.match(resumed.stdout, /source preparation and packaging are skipped/);
   const resumedCommands = await readFile(log, 'utf8');
+  assert.doesNotMatch(resumedCommands, /install-build-outputs\.mjs/,
+    'exact staged-artifact recovery must never clean or rebuild source outputs');
   assert.match(resumedCommands, /npm install --global/);
   assert.match(resumedCommands, /code --install-extension/);
   assert.match(resumedCommands, new RegExp(interruptedJournal.artifacts.tarball.path.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')));

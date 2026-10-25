@@ -860,7 +860,13 @@ else
 fi
 step_end
 
-step_begin 'Compiling and validating the project'
+step_begin 'Preparing clean build outputs'
+# A pull updates source, not ignored bundles. Never audit or package outputs left by a previous
+# revision. This runs only for source preparation; exact staged-artifact recovery bypasses it.
+node "$PROJECT_DIR/scripts/install-build-outputs.mjs" clean
+step_end
+
+step_begin 'Validating the current source'
 npm run check
 step_end
 
@@ -971,12 +977,18 @@ fi
 if [[ "$VSCODE_ONLY" != "on" ]]; then
   # The bundled CLI: one file per command where the sources are hundreds, which is what makes
   # Windows slow. It belongs to this exact stamp; without it the installed CLI runs from src/.
-  rm -rf "$PROJECT_DIR/bundle"
   if [[ -f "$PROJECT_DIR/scripts/build-cli-bundle.mjs" ]]; then
     printf '%s\n' 'Building the bundled CLI...'
     node "$PROJECT_DIR/scripts/build-cli-bundle.mjs" \
       || printf '%s\n' 'Warning: the bundled CLI could not be built; the installed CLI will run from its sources.' >&2
   fi
+fi
+
+step_begin 'Checking rebuilt CLI and VS Code outputs'
+node "$PROJECT_DIR/scripts/install-build-outputs.mjs" verify
+step_end
+
+if [[ "$VSCODE_ONLY" != "on" ]]; then
   printf '%s\n' 'Creating the distribution tarball...'
   # npm includes every packed path in its JSON response. Large production closures can make that
   # response several megabytes, so never copy it into argv or the environment: both are bounded by

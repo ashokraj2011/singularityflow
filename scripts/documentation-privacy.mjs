@@ -1,6 +1,10 @@
 import { portableCheckPath } from './check-path-policy.mjs';
+import { spawnSync } from 'node:child_process';
 import { lstat, readdir } from 'node:fs/promises';
+import { homedir } from 'node:os';
 import path from 'node:path';
+
+export const GENERATED_PRIVACY_DIRECTORIES = Object.freeze(['bundle', 'apps/vscode/dist']);
 
 /** Audit known build products even though Git correctly ignores them; never follow symlinks. */
 export async function generatedPrivacyFiles(root) {
@@ -15,7 +19,7 @@ export async function generatedPrivacyFiles(root) {
       else if (entry.isFile()) files.push(absolute);
     }
   }
-  for (const relative of ['bundle', 'apps/vscode/dist']) {
+  for (const relative of GENERATED_PRIVACY_DIRECTORIES) {
     const directory = path.join(root, relative);
     let metadata;
     try { metadata = await lstat(directory); }
@@ -49,6 +53,17 @@ export function configuredPersonalTerms({ name = '', email = '', homeDirectory =
   const account = portableCheckPath(homeDirectory).replace(/\/+$/, '').split('/').at(-1);
   if (account && !fixtureIdentity.test(account) && !genericHomeAccount.test(account)) terms.push(account);
   return [...new Set(terms.map(term => term.toLowerCase()).filter(term => term.length >= 4))];
+}
+
+/** Share the same in-memory identity inputs between source checks and post-build checks. */
+export function readConfiguredPrivacyTerms(root) {
+  const result = spawnSync('git', ['config', '--null', '--get-regexp', '^user[.](name|email)$'], {
+    cwd: root, encoding: 'utf8', timeout: 10_000, windowsHide: true
+  });
+  if (![0, 1].includes(result.status)) throw new Error('Unable to read local identity hints for source privacy checks.');
+  const fields = Object.fromEntries(String(result.stdout ?? '').split('\0').filter(Boolean)
+    .map(entry => { const separator = entry.indexOf('\n'); return [entry.slice(0, separator), entry.slice(separator + 1)]; }));
+  return configuredPersonalTerms({ name: fields['user.name'], email: fields['user.email'], homeDirectory: homedir() });
 }
 
 function personalTermPattern(terms) {

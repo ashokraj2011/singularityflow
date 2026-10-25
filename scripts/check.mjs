@@ -2,7 +2,7 @@ import { execFile, spawnSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import { readdir, readFile } from 'node:fs/promises';
 import { existsSync } from 'node:fs';
-import { availableParallelism, homedir } from 'node:os';
+import { availableParallelism } from 'node:os';
 import path from 'node:path';
 import { promisify } from 'node:util';
 import { fileURLToPath } from 'node:url';
@@ -23,7 +23,7 @@ import { MCP_SCAFFOLD_VERSIONS } from '../src/mcp-host.mjs';
 import { releaseDependencyLockProblems, workspaceDependencyLockProblems } from '../src/release-dependency-lock.mjs';
 import { isModelRoutingSource, portableCheckPath, sourceReferenceGrepArgs } from './check-path-policy.mjs';
 import {
-  configuredPersonalTerms, documentationPrivacyProblems, generatedPrivacyFiles, isDocumentationPath, sourcePrivacyProblems
+  documentationPrivacyProblems, generatedPrivacyFiles, isDocumentationPath, readConfiguredPrivacyTerms, sourcePrivacyProblems
 } from './documentation-privacy.mjs';
 import {
   CURRENT_PACKAGED_ASSET_SHA256,
@@ -211,14 +211,9 @@ if (!packageJson.files?.includes('docs/') || !existsSync(path.join(root, 'docs/h
 checked.push('DISTRIBUTION.md', 'INITIATIVE-ORCHESTRATION.md', 'docs/history/release-notes.md');
 
 const allFiles = repositoryFiles();
-const identityConfig = spawnSync('git', ['config', '--null', '--get-regexp', '^user[.](name|email)$'], {
-  cwd: root, encoding: 'utf8', timeout: 10_000
-});
-if (![0, 1].includes(identityConfig.status)) fail('Unable to read local identity hints for source privacy checks.');
-const identityFields = Object.fromEntries(String(identityConfig.stdout ?? '').split('\0').filter(Boolean)
-  .map(entry => { const separator = entry.indexOf('\n'); return [entry.slice(0, separator), entry.slice(separator + 1)]; }));
-const personalTerms = configuredPersonalTerms({ name: identityFields['user.name'],
-  email: identityFields['user.email'], homeDirectory: homedir() });
+let personalTerms = [];
+try { personalTerms = readConfiguredPrivacyTerms(root); }
+catch (error) { fail(error.message); }
 const documentationFiles = allFiles.filter(isDocumentationPath);
 const generatedFiles = await generatedPrivacyFiles(root);
 const identityFiles = [...new Set([...allFiles, ...generatedFiles])];

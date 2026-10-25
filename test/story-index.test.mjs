@@ -306,6 +306,26 @@ test('one Story has one checkout across workspaces, and a Work ID decides where 
       // Routing reads no model: the same answer with model mode on (no Copilot is reachable here).
       const modelOn = f.json(['status', '--work-id', 'S-2'], { cwd: one.checkoutPath, extra: { SINGULARITY_FLOW_NO_MODEL: '' } });
       assert.equal(modelOn.value.workItem.id, 'S-2');
+
+      // `session context --work-id` reads the named Story's checkout and refuses the same way.
+      const context = f.json(['session', 'context', '--work-id', 'S-2'], { cwd: one.checkoutPath }).value;
+      assert.equal(context.work.id, 'S-2');
+      assert.equal(canonical(context.storyRoute.checkoutPath), canonical(two.checkoutPath));
+      assert.match(f.cli(['session', 'context', '--work-id', 'S-2'], { cwd: one.checkoutPath }).stderr, /^S-2 → /mu);
+      for (const [workId, code] of [['S-3', 'STORY_CHECKOUT_ELSEWHERE'], ['NOPE-1', 'STORY_CHECKOUT_REQUIRED']]) {
+        const refused = f.cli(['session', 'context', '--work-id', workId, '--json'], { cwd: one.checkoutPath, allowFailure: true });
+        assert.notEqual(refused.status, 0);
+        assert.equal(JSON.parse(refused.stdout).error.code, code, refused.stdout);
+      }
+      const own = f.json(['session', 'context', '--work-id', 'S-1'], { cwd: one.checkoutPath }).value;
+      assert.equal(own.work.id, 'S-1');
+      assert.equal(own.storyRoute, undefined);
+      // A bound checkout wins: it is not routed away from.
+      const bound = f.cli(['session', 'context', '--work-id', 'S-2', '--context-root', one.checkoutPath, '--json'],
+        { cwd: f.directory, allowFailure: true });
+      const boundValue = JSON.parse(bound.stdout);
+      assert.equal(boundValue.storyRoute, undefined, bound.stdout);
+      assert.notEqual(boundValue.work?.id, 'S-2', bound.stdout);
     });
 
     await t.test('a Story whose branch is not its Work ID is found through its recorded branch', async () => {
@@ -349,11 +369,14 @@ test('one Story has one checkout across workspaces, and a Work ID decides where 
       await writeFile(record, JSON.stringify({ schemaVersion: 1, kind: 'copilot-mutation-contract', recordedAt: Date.now(),
         contract: { workId: 'S-1', repositoryRoot: canonical(one.checkoutPath) } }));
       const refused = f.cli(['status', '--work-id', 'S-2', '--json'], { cwd: one.checkoutPath, allowFailure: true });
+      const context = f.cli(['session', 'context', '--work-id', 'S-2', '--json'], { cwd: one.checkoutPath, allowFailure: true });
       await rm(record);
       assert.notEqual(refused.status, 0);
       const error = JSON.parse(refused.stdout).error;
       assert.equal(error.code, 'ACTIVE_SUBJECT_MISMATCH', refused.stdout);
       assert.match(error.message, /bound to Story S-1, so it cannot run a command for S-2/u);
+      assert.notEqual(context.status, 0);
+      assert.equal(JSON.parse(context.stdout).error.code, 'ACTIVE_SUBJECT_MISMATCH', context.stdout);
       assert.equal(f.json(['status', '--work-id', 'S-2'], { cwd: one.checkoutPath }).value.workItem.id, 'S-2', 'after the turn, it routes');
     });
 

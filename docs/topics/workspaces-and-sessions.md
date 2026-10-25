@@ -16,7 +16,7 @@ related:
   - developer-home
   - capability-management
   - repository-state-and-snapshots
-version: 21
+version: 22
 ---
 A workspace is the machine-local collection of capability repositories used for one delivery context. Sessions bind a contributor and selected work item without replacing repository state.
 
@@ -108,7 +108,7 @@ Before any workspace exists, use `sflow workspace prepare <REMOTE> --id <ID> --b
 A Story has one checkout on this computer, whichever workspace or clone holds it. The Story index (`story-index.json`, beside the workspace registry) records each workspace Story's repository, Work ID, workspace, checkout, branch, phase and status. Identity is the repository (its remote) plus the Work ID across every workspace, so the same Story cannot be opened in a second workspace that clones the same repository. Checkouts outside every registered workspace are not indexed.
 
 - `sflow workspace stories` lists every Story checkout across all workspaces; `sflow workspace stories <WORK-ID>` says where one Story is and gives the commands that go there. `--rebuild` reads every registered workspace's clones again (`git worktree list` per clone, no folder crawl).
-- A command that names a Story, by `--work-id` or by its Work ID operand (`status`, `nextsteps`, `report`, `approvals`, `progress` and the others), runs in that Story's checkout wherever it was started, and says so: `<WORK-ID> → <CHECKOUT>` on stderr, or `storyRoute` in `--json` output. Relative file options (`--file`, `--out` and similar) and file operands (`documents upload <FILE>`, `impact evidence import <FILE>`, the comprehension draft files) are made absolute first, against the folder the command was run from; one that is not there stays repository-relative.
+- A command that names a Story, by `--work-id` or by its Work ID operand (`status`, `nextsteps`, `report`, `approvals`, `progress` and the others, and `session context --work-id`), runs in that Story's checkout wherever it was started, and says so: `<WORK-ID> → <CHECKOUT>` on stderr, or `storyRoute` in `--json` output. Relative file options (`--file`, `--out` and similar) and file operands (`documents upload <FILE>`, `impact evidence import <FILE>`, the comprehension draft files) are made absolute first, against the folder the command was run from; one that is not there stays repository-relative.
 - A Story in another workspace is refused with `sflow workspace use <WORKSPACE>` and `sflow session open <WORK-ID>`; a Story with no checkout here, with `sflow session open <WORK-ID>` (`resume` and `return` open it here instead, as its one checkout). A command never answers about the current folder's Story instead.
 - Start, `session open`, `session open-local` and `session attach` reuse the Story's checkout (including one in another clone of the same workspace) or refuse to create a second one.
 - An explicit checkout (`--context-root`, a VS Code window binding) still wins, and a Copilot turn bound to one Story cannot run a command for another (`ACTIVE_SUBJECT_MISMATCH`). A routed change is refused while the folder you are in has uncommitted changes to that Story's files.

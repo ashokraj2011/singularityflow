@@ -160,7 +160,13 @@ test('the bundled CLI answers exactly like the sources while opening a handful o
   // (isTransportIntentId), command-loaders.mjs +92, cli-entry.mjs +51, command-registry.mjs +27 and
   // status-details.mjs +15; the other 1,122 are bindings between chunks. decision-list.mjs and
   // decision-list-reads.mjs load lazily, outside these reads.
-  assert.ok(closure('cold-hook-context.mjs').reduce((sum, item) => sum + item.bytes, 0) < 7_410_000,
+  // 7,415,000 (next 5,000 boundary): main 9be3b855 measures 7,413,078 (a599bf6c: 7,408,083), first over at 4c06a383
+  // (7,411,161). Shipped guard and read work; no module changed family. cold-hooks +4,098 from copilot-mutation-guard.mjs
+  // (790ebe42 +968, bfbfa964 +244, 4c06a383 +1,680) and copilot-repository-boundary.mjs (9be3b855 +1,206),
+  // cold-narrow-reads +348 and cold-status +100 (1bb260f9, story-state-read.mjs readProgress for the gateway),
+  // cold-core +263 (9be3b855, copilot-mode.mjs) and cold-hook-context +186 (790ebe42, commands/phase-show.mjs).
+  // The pending list's move into cold-phases measures 7,412,957 (-121 in bindings).
+  assert.ok(closure('cold-hook-context.mjs').reduce((sum, item) => sum + item.bytes, 0) < 7_415_000,
     'phase-review reads retain their existing byte ceiling after moving families');
   assert.match(await readFile(path.join(outdir, 'cold-light.mjs'), 'utf8'), /function enterPhase\b/u,
     'phase binding must not fall through to the compatibility/admin bundle');

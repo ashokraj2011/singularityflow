@@ -7,6 +7,7 @@
  * exactly what each control would run without an extension host.
  */
 import type { DecisionInputSpec, DecisionOptionView, PendingDecisionView, PendingListView, RepositorySnapshot } from './cli/snapshot.ts';
+import type { InApprovalItem } from './views/approval-review.ts';
 
 /**
  * The checked-out Story's one decision list, as the CLI counted it for its current step (SPEC-OAP
@@ -105,4 +106,26 @@ export function decisionInputPrompt(input: DecisionInputSpec): {
       return null;
     }
   };
+}
+
+/**
+ * The holding decisions this approver may answer in the approval itself [SPEC-OAP M4], from
+ * `decisions --json`: each item with only the options an approval records, and the list digest the
+ * approval binds them to. Null when there are none.
+ */
+export function inApprovalOf(listed: unknown): { digest: string; items: InApprovalItem[] } | null {
+  const packet = (listed && typeof listed === 'object' ? listed : {}) as {
+    items?: unknown; packetSha256?: unknown; inApproval?: { items?: unknown; options?: Record<string, unknown> } };
+  const ids = Array.isArray(packet.inApproval?.items) ? packet.inApproval.items.filter((id): id is string => typeof id === 'string') : [];
+  if (!ids.length || typeof packet.packetSha256 !== 'string') return null;
+  const items = (Array.isArray(packet.items) ? packet.items as InApprovalItem[] : [])
+    .filter((item) => ids.includes(item?.id))
+    .map((item) => {
+      const allowed = packet.inApproval?.options?.[item.id];
+      return { id: item.id, title: item.title, why: item.why,
+        options: (item.options ?? []).filter((option) => Array.isArray(allowed) && allowed.includes(option.id))
+          .map(({ id, label, recommended, needs }) => ({ id, label, recommended, needs })) };
+    })
+    .filter((item) => item.options.length);
+  return items.length ? { digest: packet.packetSha256, items } : null;
 }

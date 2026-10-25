@@ -543,7 +543,8 @@ function argvAllowed(argv, mode, value) {
     if (action === 'reject' && positionals[0] === 'story') return options['work-id'] === value.contract.workId && positionals.length === 3
       && (positionals[1] === 'intent-amendment' && positionals[2] === 'propose' && typeof options.file === 'string'
         || positionals[1] === 'rework' && positionals[2] === 'roll-forward' && typeof options['change-request'] === 'string');
-    return positionals[0] === action && (!positionals[1] || positionals[1] === value.originPhase);
+    return positionals[0] === action && (!positionals[1] || positionals[1] === value.originPhase)
+      && (action !== 'approve' || approvalChatDecisions(options));
   }
   if (classification === 'read') return true;
   if (mode === 'review-decision-only') return !value.decisionEnded && positionals[0] === 'review-source'
@@ -552,6 +553,12 @@ function argvAllowed(argv, mode, value) {
     && typeof options.reason === 'string' && /^[a-f0-9]{64}$/u.test(options.confirm ?? '')
     && positionals.length === 3
     && Object.keys(options).every(key => ['work-id', 'finding', 'reason', 'confirm', 'json'].includes(key));
+  // /sf-decide continues into the approval when only the approval is left [SPEC-OAP M4]: the same
+  // receipt-bound commands a /sf-approve turn runs, for the bound Story, recording only the
+  // upstream-issue options a chat turn may with the approval.
+  if (mode === 'decision-only' && (positionals[0] === 'choices' || positionals[0] === 'approve')) {
+    return !value.decisionEnded && decideTurnApproval(positionals, options, value.contract.workId);
+  }
   // A /sf-decide turn records the decision list's upstream-issue options for the bound Story, with the
   // list's digest; a reused run or a test-run risk stays the person's own terminal step.
   if (mode === 'decision-only' && positionals[0] === 'decisions') return !value.decisionEnded
@@ -638,6 +645,26 @@ function decisionListChatRecord(positionals, options, workId) {
   const chosen = [options.choose].flat().filter(entry => entry !== undefined);
   return chosen.length > 0 && chosen.every(entry => typeof entry === 'string'
     && new RegExp(`^d\\d{1,3}=(?:${DECISION_LIST_CHAT_OPTIONS.join('|')})$`, 'u').test(entry));
+}
+
+/**
+ * The decision-list answers an approval in a chat turn may carry [SPEC-OAP M4]: none, or only
+ * upstream-issue options that record (never a return), each with the list's digest. A reused run or
+ * a test-run risk is answered in the approver's own terminal or VS Code approval form.
+ */
+function approvalChatDecisions(options) {
+  const chosen = [options.choose].flat().filter(entry => entry !== undefined);
+  if (!chosen.length) return options.decisions === undefined;
+  return /^sha256:[a-f0-9]{64}$/u.test(options.decisions ?? '') && chosen.every(entry => typeof entry === 'string'
+    && new RegExp(`^d\\d{1,3}=(?:${DECISION_LIST_CHAT_OPTIONS.filter(option => option !== 'return').join('|')})$`, 'u').test(entry));
+}
+
+/** The approval commands a /sf-decide turn runs when it continues into the approval, for the bound Story. */
+function decideTurnApproval(positionals, options, workId) {
+  if (positionals[0] === 'choices') return positionals[1] === 'status' || positionals[1] === 'answer'
+    || positionals[1] === 'begin' && positionals[2] === 'approve' && positionals[3] === workId;
+  return options['work-id'] === workId && typeof options['selection-receipt'] === 'string' && options.yes === undefined
+    && positionals.length === 2 && approvalChatDecisions(options);
 }
 
 /** A verified `decisions record`: the person's own step unless a /sf-decide turn may record it. */

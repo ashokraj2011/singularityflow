@@ -1225,11 +1225,20 @@ const PAGES = Object.freeze({
       'to the next phase, and commits the decision as one transition.',
       '',
       'Approval is an outward, attributed act: it is recorded against your Git identity and the',
-      'authority group that permits it, and self-approval is reported as such.'
+      'authority group that permits it, and self-approval is reported as such.',
+      '',
+      'The phase is typed once. In a terminal, approve <PHASE> after the review was shown there',
+      '(phase show, or an earlier approve) is the confirmation; otherwise approve shows the review and',
+      'asks for the phase. Decisions that hold the step and that you may make are asked first, or given',
+      'with --choose and the decision list\'s --decisions digest, and recorded in the approval\'s own',
+      'commit. A selection receipt holds the review it was opened for, with no time limit: it is refused',
+      'only when that review changed.'
     ],
     options: [
       ['--yes', 'Skip the interactive confirmation.'],
       ['--selection-receipt TOKEN', 'Approve using a Copilot selection receipt.'],
+      ['--choose ITEM=OPTION', 'Record a decision-list choice with the approval, in its commit (repeatable).'],
+      ['--decisions sha256:DIGEST', 'The digest of the decision list the choices were made from.'],
       ['--for-agent --json', 'Emit a compact approval-only decision and new-turn handoff; authority and checks are unchanged.']
     ],
     examples: [['singularity-flow approve --yes', 'Approves the phase currently awaiting review.']],

@@ -611,6 +611,34 @@ test('a /sf-decide turn records only the decision list\'s upstream-issue options
   assert.deepEqual(await shell(approve, 'singularity-flow decisions PMC-1 --json'), {}, 'reading stays available');
 });
 
+test('an approval in a chat turn carries only the upstream-issue options a chat turn may record, and /sf-decide continues into it [SPEC-OAP M4]', async t => {
+  const f = await fixture(t);
+  const digest = `sha256:${'d'.repeat(64)}`;
+  const token = '11111111-1111-4111-8111-111111111111';
+  const shell = (payload, command) => mutationToolGuard({ ...payload, toolName: 'bash', toolArgs: { command, cwd: f.root } });
+  const approve = (extra = '') => `singularity-flow approve custom-step --work-id PMC-1 --fetch --selection-receipt ${token} --for-agent --json${extra}`;
+  const approval = await f.enter('/sf-approve', 'chat-approver');
+  for (const command of [approve(), approve(` --choose d1=dismiss --reason "d1=Not a defect in what was delivered." --decisions ${digest}`),
+    approve(` --choose d1=accept-risk --expires d1=2026-12-01 --decisions ${digest}`)]) {
+    assert.deepEqual(await shell(approval, command), {}, command);
+  }
+  for (const command of [approve(` --choose d1=reuse --decisions ${digest}`), approve(` --choose d1=return --decisions ${digest}`),
+    approve(' --choose d1=dismiss'), approve(` --decisions ${digest}`)]) {
+    assert.equal((await shell(approval, command)).permissionDecision, 'deny', command);
+  }
+  const decide = await f.enter('/sf-decide PMC-1', 'chat-decider');
+  for (const command of ['singularity-flow choices begin approve PMC-1 --fetch --for-agent --json --review-packet',
+    `singularity-flow choices answer ${token} phase-confirmation custom-step --json`, approve(),
+    approve(` --choose d1=dismiss --decisions ${digest}`)]) {
+    assert.deepEqual(await shell(decide, command), {}, command);
+  }
+  for (const command of [approve(` --choose d1=reuse --decisions ${digest}`),
+    'singularity-flow approve custom-step --work-id PMC-1 --yes', `singularity-flow approve custom-step --work-id OTHER --selection-receipt ${token}`,
+    'singularity-flow reject custom-step --work-id PMC-1 --reason "Not this one."']) {
+    assert.equal((await shell(decide, command)).permissionDecision, 'deny', command);
+  }
+});
+
 test('an authoring turn may raise an upstream issue but never decide one', async t => {
   const f = await fixture(t);
   const payload = await f.enter('/sf-phase');

@@ -319,7 +319,11 @@ const SKILL_SEMANTIC_CONTRACTS = Object.freeze({
       /sflow-turn-boundary: decision-only/i,
       /are the only permitted mutations/i,
       /The person types every choice and reason; never supply, infer or default one/i,
-      /Any refusal ends this turn/i
+      /Any refusal ends this turn/i,
+      // SPEC-OAP M4: it continues into the approval instead of ending, and carries choices into its one commit.
+      /you may approve \(`decidedBy\.allowed`\): do \/sf-approve 1-6 now/,
+      /do \/sf-approve 1-6 now with `withApproval\.flags` on its approve command \(one commit\)/,
+      /if `data\.remaining` is only `approval`, do \/sf-approve 1-6 now/
     ]
   },
   'sflow-approve': {
@@ -337,6 +341,8 @@ const SKILL_SEMANTIC_CONTRACTS = Object.freeze({
       /New chat, changed\/null binding, omissions or truncation require fresh human review/i,
       /A phase supplied before a new or changed packet review is not its confirmation/i,
       /document reuse never reuses approval consent/i,
+      // SPEC-OAP M4: decisions chosen in /sf-decide land in the approval's one commit.
+      /From \/sf-decide 14, add its `withApproval\.flags` \(decisions in this commit\)/,
       /do not ask again/i,
       /Never edit repository files, run tests\/builds\/raw Git, delegate, submit, or begin\/author another phase/i,
       /failed approval ends this turn/i,

@@ -36,11 +36,11 @@ export function visualProfileAuthorities(workflow, phaseId) {
 }
 
 /**
- * Record that one verification profile of a visual step does not apply to this Story, or the
- * revocation named by `revoke`, and commit it. The command and the decision list both record through
- * this, so the checks, authority and record are the same.
+ * That one verification profile of a visual step does not apply to this Story, or the revocation
+ * named by `revoke`, checked and ready to write into a transaction. Its own commit and an approval's
+ * both write it [SPEC-OAP M4], so the checks, authority and record are the same.
  */
-export async function recordVisualProfileDecisionFor(root, config, workflow, { phaseId, profileId = null, revoke = null, reason = '' }, { actor, agent = null }) {
+export async function visualProfileDecisionPart(root, config, workflow, { phaseId, profileId = null, revoke = null, reason = '' }, { actor, agent = null }) {
   const id = workflow.workItem.id;
   // Checked before authority, so a refusal names what is wrong with the decision first.
   if (!revoke) assertVisualProfileDecidable(workflow, { phaseId, profileId });
@@ -59,15 +59,10 @@ export async function recordVisualProfileDecisionFor(root, config, workflow, { p
     ? recordVisualProfileRevocation(aggregate, { decisionId: revoke, ...common })
     : recordVisualProfileDecision(aggregate, { phaseId, profileId, ...common });
   decide(structuredClone(workflow));
-  const { value: record, publication } = await transactStory(
-    root, config, workflow,
-    {
-      type: LIFECYCLE_EVENT.DECISION_MADE, phaseId, generation: null,
-      actor, agent, authorityGroup: authority.authorityGroup, payload: { decision: 'visual-profile' }
-    },
-    `[${id}][visual-profile:${revoke ? 'revoke' : 'not-applicable'}] ${revoke ?? `${phaseId} ${profileId}`}`,
-    async (aggregate) => {
-      await assertNoPendingPublication(root, config, aggregate, 'record a visual-profile decision');
+  return {
+    decision: 'visual-profile', phaseId, authority,
+    message: `[${id}][visual-profile:${revoke ? 'revoke' : 'not-applicable'}] ${revoke ?? `${phaseId} ${profileId}`}`,
+    write(aggregate) {
       const recorded = decide(aggregate);
       aggregate.history.push({
         at: recorded.at, actor: recorded.actor, agent, event: 'visual_profile_decided', phase: phaseId,
@@ -76,6 +71,28 @@ export async function recordVisualProfileDecisionFor(root, config, workflow, { p
           : `${recorded.id}: verification profile ${recorded.profileId} (${recorded.profileLabel}) does not apply to this Story for ${recorded.phase}. ${recorded.reason}`
       });
       return recorded;
+    },
+    record: (recorded) => recorded.revokes ?? recorded.id
+  };
+}
+
+/**
+ * Record that one verification profile of a visual step does not apply to this Story, or the
+ * revocation named by `revoke`, and commit it. The command and the decision list both record through
+ * this; an approval writes the same part into its own commit [SPEC-OAP M4].
+ */
+export async function recordVisualProfileDecisionFor(root, config, workflow, request, { actor, agent = null }) {
+  const part = await visualProfileDecisionPart(root, config, workflow, request, { actor, agent });
+  const { value: record, publication } = await transactStory(
+    root, config, workflow,
+    {
+      type: LIFECYCLE_EVENT.DECISION_MADE, phaseId: part.phaseId, generation: null,
+      actor, agent, authorityGroup: part.authority.authorityGroup, payload: { decision: 'visual-profile' }
+    },
+    part.message,
+    async (aggregate) => {
+      await assertNoPendingPublication(root, config, aggregate, 'record a visual-profile decision');
+      return part.write(aggregate);
     },
     {
       // A decision made while the step's draft and captures are still open commits only itself: the

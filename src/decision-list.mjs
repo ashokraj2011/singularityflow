@@ -598,13 +598,22 @@ export const PENDING_ITEM_KINDS = Object.freeze(['story-publication', 'routing-d
 
 /** The commands a person or script uses to record, with the packet digest. */
 export function decisionRecordCommand(workId, { phaseId = null, choices = [], digest, values = {} } = {}) {
+  return ['singularity-flow decisions record', workId, ...(phaseId ? [`--phase ${phaseId}`] : []),
+    ...choiceFlags(choices, values), `--confirm ${digest}`].join(' ');
+}
+
+/** The same choices recorded with the step's approval, in its one commit [SPEC-OAP M4]: the flags approve adds. */
+export function decisionApprovalFlags({ choices = [], digest, values = {} } = {}) {
+  return [...choiceFlags(choices, values), `--decisions ${digest}`].join(' ');
+}
+
+function choiceFlags(choices, values) {
   // POSIX single quotes, as canonicalDisplayToken in safe-command-guidance.mjs: a JSON double-quoted
   // reason would still expand `$()`, `$NAME` and backticks when the person pastes the command.
   const quote = (value) => (/^[A-Za-z0-9_./:@%+=,-]+$/u.test(value) ? value : `'${value.replaceAll("'", `'"'"'`)}'`);
   const extra = Object.entries(values).flatMap(([flag, entries]) => Object.entries(entries ?? {})
     .map(([item, value]) => `--${flag} ${quote(`${item}=${value}`)}`));
-  return ['singularity-flow decisions record', workId, ...(phaseId ? [`--phase ${phaseId}`] : []),
-    ...choices.map(([item, chosen]) => `--choose ${item}=${chosen}`), ...extra, `--confirm ${digest}`].join(' ');
+  return [...choices.map(([item, chosen]) => `--choose ${item}=${chosen}`), ...extra];
 }
 
 /**

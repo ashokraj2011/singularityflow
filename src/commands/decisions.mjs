@@ -95,21 +95,31 @@ function changedValues(packet, plan) {
 }
 
 async function previewOf(workflow, packet, plan) {
-  const { decisionRecordCommand, effectWords, ISSUE_ONLY_OPTIONS } = await import('../decision-list.mjs');
+  const [{ decisionApprovalFlags, decisionRecordCommand, effectWords, ISSUE_ONLY_OPTIONS }, { recordableInApproval }] = await Promise.all([
+    import('../decision-list.mjs'), import('../approval-decisions.mjs')]);
   const summary = plan.steps.map((step) => `${step.item}. ${packet.items.find((item) => item.id === step.item).title}: ${step.label}. `
     + `Records: ${step.effects.map((effect) => effectWords(workflow, effect, step.values)).join('; then ')}.`);
+  const chosen = { choices: plan.steps.map((step) => [step.item, step.option]), digest: packet.packetSha256, values: changedValues(packet, plan) };
   const command = plan.steps.length ? decisionRecordCommand(packet.workId, {
-    phaseId: packet.record.interactive.includes(' --phase ') ? packet.phase : null,
-    choices: plan.steps.map((step) => [step.item, step.option]), digest: packet.packetSha256, values: changedValues(packet, plan)
+    phaseId: packet.record.interactive.includes(' --phase ') ? packet.phase : null, ...chosen
   }) : null;
+  // An agent may record only options that write upstream-issue records, in a /sf-decide turn.
+  const recordInChat = plan.steps.every((step) => ISSUE_ONLY_OPTIONS.includes(step.option));
+  // Choices that each hold the step's approval, made by one of its approvers, go in the approval commit [SPEC-OAP M4].
+  const approval = packet.items.find((item) => item.kind === 'approval');
+  const withApproval = command && approval?.decidedBy?.allowed && !plan.refused.length && plan.steps.every((step) => {
+    const item = packet.items.find((entry) => entry.id === step.item);
+    return item.holdsApproval && recordableInApproval(item.options.find((option) => option.id === step.option));
+  }) ? { phase: packet.phase, flags: decisionApprovalFlags(chosen), recordInChat: recordInChat && plan.steps.every((step) => step.option !== 'return'),
+    command: `singularity-flow approve ${packet.phase} --work-id ${packet.workId} --fetch ${decisionApprovalFlags(chosen)}` } : null;
   return {
     steps: plan.steps, refused: plan.refused, summary,
     record: command ? {
       command,
-      // An agent may record only options that write upstream-issue records, in a /sf-decide turn.
-      recordInChat: plan.steps.every((step) => ISSUE_ONLY_OPTIONS.includes(step.option)),
+      recordInChat,
       terminal: 'Run it in your own terminal to record these decisions; nothing is recorded until then.'
-    } : null
+    } : null,
+    withApproval
   };
 }
 
@@ -132,9 +142,24 @@ function packetText(packet) {
   if (packet.items.some((item) => item.options.some((option) => option.recordable !== false))) {
     lines.push(`Decide them in this terminal: ${packet.record.interactive}`);
     if (packet.record.recommended) lines.push(`Or record the recommended choices: ${packet.record.recommended}`);
+    if (packet.inApproval) lines.push(`Or answer them in the approval, in one commit: ${packet.inApproval.command}`);
   } else if (packet.next) lines.push(`Next: ${packet.next.command}`);
   lines.push(`In Copilot: ${packet.next?.copilotCommand ?? packet.record.share}`);
   return `${lines.join('\n')}\n`;
+}
+
+/**
+ * When every decision holding the approval is one this approver can answer in it, the approval
+ * route that asks them in place and records them in its commit [SPEC-OAP M4]; else null.
+ */
+async function inApproval(packet) {
+  const approval = packet.items.find((item) => item.kind === 'approval');
+  if (!approval?.decidedBy?.allowed) return null;
+  const answerable = (await import('../approval-decisions.mjs')).approvalDecisionItems(packet);
+  const holding = packet.items.filter((item) => item.kind !== 'approval' && item.holdsApproval);
+  return answerable && answerable.length === holding.length ? { items: answerable.map((item) => item.id),
+    options: Object.fromEntries(answerable.map((item) => [item.id, item.options.map((option) => option.id)])),
+    command: `singularity-flow approve ${packet.phase} --work-id ${packet.workId}` } : null;
 }
 
 function emitShow(packet, options, workflow, extra = {}) {
@@ -169,9 +194,12 @@ function lineReader(input) {
  * Ask, item by item (recommended option first, Enter keeps it), for any date, cause or reason with
  * its default, then return the answers and a confirm step that shows the one-screen summary and
  * asks y/N. Items the person may not decide are shown with who decides and the line to share. Null
- * when nothing was chosen or the input ended; nothing is recorded then.
+ * when nothing was chosen or the input ended; nothing is recorded then. `ask` reads one more answer
+ * on the same input, as the approval's typed phase does [SPEC-OAP M4]; `nothingChosen` is said when
+ * no item was chosen.
  */
-export async function promptDecisionAnswers(packet, { input = processInput, output = processOutput } = {}) {
+export async function promptDecisionAnswers(packet, { input = processInput, output = processOutput,
+  nothingChosen = 'Nothing chosen; nothing was recorded.' } = {}) {
   const { parseDecisionAnswers } = await import('../decision-list.mjs');
   const reader = lineReader(input);
   const say = (line) => output.write(`${line}\n`);
@@ -234,7 +262,7 @@ export async function promptDecisionAnswers(packet, { input = processInput, outp
   }
   if (!Object.keys(values.choose).length) {
     reader.close();
-    say('\nNothing chosen; nothing was recorded.');
+    say(`\n${nothingChosen}`);
     return null;
   }
   return {
@@ -244,6 +272,10 @@ export async function promptDecisionAnswers(packet, { input = processInput, outp
       for (const line of summary) say(`  ${line}`);
       try { return /^(?:y|yes)$/iu.test(await ask('Record these decisions? [y/N]: ')); }
       catch (error) { if (error.ended) return false; throw error; }
+    },
+    ask: async (question) => {
+      try { return await ask(question); }
+      catch (error) { if (error.ended) return null; throw error; }
     },
     close: () => reader.close()
   };
@@ -374,7 +406,7 @@ async function record(root, options, workId, io) {
         refused: String(plan.refused.length) }),
       effects: effects({ stateChanged: true, filesChanged: true, publicationCreated: true }),
       next: next.map((entry) => action(entry)),
-      data: { recorded, refused: plan.refused, remaining: after?.items.map((item) => ({ id: item.id, title: item.title })) ?? null,
+      data: { recorded, refused: plan.refused, remaining: after?.items.map((item) => ({ id: item.id, kind: item.kind, title: item.title })) ?? null,
         packetSha256: after?.packetSha256 ?? null }
     }), { json: optionBoolean(options, 'json'), postState: workflow });
   } finally {
@@ -396,11 +428,14 @@ async function show(root, options, workId) {
       for (const entry of preview.refused) console.log(`Not yours to decide: ${entry.item} (${entry.title}). ${entry.words} Share this with them: ${entry.share}`);
       for (const line of preview.summary) console.log(`  ${line}`);
       if (preview.record) console.log(`Nothing was recorded. To record these decisions, run in your own terminal:\n  ${preview.record.command}`);
+      if (preview.withApproval) console.log(`Or record them with the approval, in one commit:\n  ${preview.withApproval.command}`);
     }
     return emitShow(packet, options, workflow, { preview });
   }
-  if (!optionBoolean(options, 'json')) process.stdout.write(packetText(packet));
-  return emitShow(packet, options, workflow);
+  const route = await inApproval(packet);
+  const shown = route ? { ...packet, inApproval: route } : packet;
+  if (!optionBoolean(options, 'json')) process.stdout.write(packetText(shown));
+  return emitShow(shown, options, workflow);
 }
 
 export async function run(argv, { positionals = argv, options = {}, io = { input: processInput, output: processOutput } } = {}) {

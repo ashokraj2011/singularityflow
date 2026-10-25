@@ -114,7 +114,11 @@ test('frequent lifecycle handlers do not reach the legacy dispatcher and stay un
     // util.mjs +466 (samePlatformPath, moved from story-worktree.mjs), commands/start.mjs +380 (the one-checkout
     // refusal and the index record after start), schema-migrations.mjs +285 (the story-index family) and
     // command-registry.mjs +22. story-index.mjs loads lazily. No new file.
-    assert.ok(closure.bytes <= 9_100_000, `${file} exceeds the 9 MB eager-source budget (${closure.bytes} bytes)`);
+    // 9,105,000 (next 5,000 boundary): SPEC-OAP M4 adds 3,763 to main a599bf6c's 9,096,920, all choices.mjs: an
+    // approval receipt bound to the review it holds rather than a clock or HEAD, the refusal naming what changed,
+    // and the cleanup of receipts for other reviews: 9,100,683. approval-decisions.mjs and terminal-review.mjs
+    // load with approve and phase show, never with start. No new file.
+    assert.ok(closure.bytes <= 9_105_000, `${file} exceeds the 9 MB eager-source budget (${closure.bytes} bytes)`);
   }
 });
 

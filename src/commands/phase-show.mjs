@@ -30,5 +30,8 @@ export async function phaseShowCommand(positionals, options) {
     ]);
     printPhaseReview(review, { showArtifact: optionBoolean(options, 'show-artifact') });
     if (review.continuation) console.log(`\n${phaseContinuationLines(review.continuation).join('\n')}`);
+    // `approve <PHASE>` in this terminal is then the one confirmation [SPEC-OAP M4].
+    const { recordTerminalReview, terminalReviewBinding } = await import('../terminal-review.mjs');
+    await recordTerminalReview(root, terminalReviewBinding(workflow, phase));
   }
 }

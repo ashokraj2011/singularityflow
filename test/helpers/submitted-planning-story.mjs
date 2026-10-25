@@ -46,9 +46,10 @@ export function specification(WORK, value) {
 
 /**
  * A Story whose specification was submitted and then approved by its submitter, in a repository of
- * its own. Used by test/int-material-events.test.mjs.
+ * its own. Used by test/int-material-events.test.mjs. `configure` may change the configuration
+ * before it is committed (test/oap-m4-one-ceremony.test.mjs ends the work type at planning).
  */
-export async function approvedSpecificationStory(t, WORK) {
+export async function approvedSpecificationStory(t, WORK, { configure = null } = {}) {
   const directory = await mkdtemp(path.join(os.tmpdir(), 'sflow-approval-history-'));
   const root = path.join(directory, 'repository');
   const remote = path.join(directory, 'origin.git');
@@ -73,6 +74,7 @@ export async function approvedSpecificationStory(t, WORK) {
   configuration.repositoryReadiness = { ...(configuration.repositoryReadiness ?? {}), requiredBeforeStory: false };
   for (const authority of Object.values(configuration.approvalAuthorities)) authority.allowAnyGitIdentity = true;
   configuration.workTypes['spec-driven-standard'].sourceReview = { mode: 'off' };
+  configure?.(configuration);
   await writeFile(configurationPath, YAML.stringify(configuration));
   git('add', '.');
   git('commit', '-qm', 'Initialize approval history fixture');
@@ -92,8 +94,8 @@ export async function approvedSpecificationStory(t, WORK) {
 }
 
 /** A Story whose planning was submitted and awaits approval, in a repository of its own. */
-export async function submittedPlanningStory(t, WORK) {
-  const { directory, git, cli, run, item } = await approvedSpecificationStory(t, WORK);
+export async function submittedPlanningStory(t, WORK, options = {}) {
+  const { directory, git, cli, run, item } = await approvedSpecificationStory(t, WORK, options);
   cli('prepare', 'planning');
   await writeFile(path.join(item, 'artifacts/planning/plan.md'), [
     `# ${WORK} — Implementation plan`, '',

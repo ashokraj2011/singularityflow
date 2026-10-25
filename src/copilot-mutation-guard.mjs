@@ -1042,6 +1042,7 @@ export function readsHostSavedOutput(call) {
   return /copilot-tool-output|[\\/]tool-output-[^\s'"]*\.txt/iu.test(command);
 }
 
+const OWN_ROUTE_TURNS = new Set(['read-only-review', 'review-decision-only', 'decision-only', 'publish-only']);
 const HOST_SAVED_OUTPUT_DENIAL = 'PHASE_MUTATION_TOOL_PROTOCOL: that file is the host\'s saved copy of a long result, outside the workspace; do not read it with shell tools. Run the same SFlow command again, standalone, with --for-agent --json: its result starts with act, fits the host, and names the complete copy inside the repository (agentOutput.path) for your file-read tool. This refusal does not invalidate the phase or require repeating clarification';
 
 /**
@@ -1199,9 +1200,11 @@ async function mutationToolDecision(payload, record) {
             : 'PHASE_MUTATION_OPERATION_NOT_ALLOWED: this standalone command is not permitted by the bound turn mode. Preserve work and follow the exact returned action; tool-form repair does not grant authoring or decision authority');
         }
         if (contract.turnMode !== 'authoring' && readsHostSavedOutput(call)) return mutationDenial(contract, HOST_SAVED_OUTPUT_DENIAL);
-        // A tool form is corrected in this turn; a lifecycle route (recover, phase enter) would misdirect it.
+        // A tool form is corrected in this turn. A review, decision or publish turn's route is its own
+        // work; any other turn's (recover, prepare, nextsteps) would send it elsewhere.
         if (contract.turnMode !== 'authoring')
-          return mutationDenial(contract, `PHASE_MUTATION_TOOL_PROTOCOL: use native file-read tools for output; write only exact issued staging files with a file-edit tool (source review also supports review-source stage --report-json). Run a permitted SFlow command standalone: from a non-Git folder such as a chat folder it runs as is (SFlow finds the bound checkout); otherwise set the bound cwd${contract.repositoryRoot ? ` (${contract.repositoryRoot})` : ''} with \`cd <it> && …\` or \`env -C <it> …\`. Correct the tool form in this turn; this refusal does not invalidate the phase or require repeating clarification`, [], { routes: [] });
+          return mutationDenial(contract, `PHASE_MUTATION_TOOL_PROTOCOL: use native file-read tools for output; write only exact issued staging files with a file-edit tool (source review also supports review-source stage --report-json). Run a permitted SFlow command standalone: from a non-Git folder such as a chat folder it runs as is (SFlow finds the bound checkout); otherwise set the bound cwd${contract.repositoryRoot ? ` (${contract.repositoryRoot})` : ''} with \`cd <it> && …\` or \`env -C <it> …\`. Correct the tool form in this turn; this refusal does not invalidate the phase or require repeating clarification`, [],
+            OWN_ROUTE_TURNS.has(contract.turnMode) ? {} : { routes: [] });
         if (upstreamIssueDecision(call, value)) return mutationDenial(contract,
           'PHASE_MUTATION_OPERATION_NOT_ALLOWED: an upstream issue or amendment is decided by the earlier step\'s approvers in their own terminal, not by this turn. Keep working; the Story completes once they decide it');
         if (mentionsKernelExecution(call, value)) return mutationDenial(contract,

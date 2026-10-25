@@ -1944,7 +1944,7 @@ test('the launcher\'s verified Node and CLI entry, quoted for the shell, meet ev
   const context = (await recordRepositoryBoundaryTurn({ cwd: f.root, sessionId: 'verified-cli-context', prompt: '/sf-session' },
     { captureMutation: (payload, record) => captureMutationTurn(payload, record, { resolveRoot: async () => f.root, load: async () => f.accepted }) })).additionalContext;
   assert.match(context, /^SFlow turn boundary \(sf-session\): session-only turn, PMC-1 step custom-step/u);
-  assert.ok(context.includes('with cwd=repositoryPath (one carrying returned `selectors` runs from any cwd); no pipes'), context);
+  assert.ok(context.includes('with cwd=repositoryPath, or as is from a non-Git folder such as a chat folder (SFlow finds the bound checkout; `cd <it> && …` or `env -C <it> …` also sets it); no pipes'), context);
   assert.ok(context.endsWith(` Turn rules ${context.match(/Turn rules (sha256:[a-f0-9]{16})/u)[1]}. ${hookCliLine()}`), context);
   f.workflow.resolution.obligationGraph = { nodes: [{ id: 'custom-step', responsibilities: ['scope'] }] };
   await writeFile(f.workflowFile, JSON.stringify(f.workflow));

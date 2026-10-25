@@ -183,7 +183,7 @@ test('every generated skill boundary forbids home search and uses only its decla
         assert.match(declared, /valid `phaseAgent`/, name);
         assert.match(declared, /Git-private staging paths/, name);
       } else {
-        assert.match(declared, /reuse entry `ready`\/`workId`, cwd=`repositoryPath`; CLI\/`workItemRoot` paths only/, name);
+        assert.match(declared, /reuse entry `ready`\/`workId`, cwd=`repositoryPath`, or as is from a non-Git \(chat\) folder: SFlow finds the bound checkout; never refuse or wrap for it; CLI\/`workItemRoot` paths only/, name);
         // The entry it reuses is the one pause-aware session lookup, run once per invocation.
         assert.match(content, /singularity-flow session current --for-agent --json/, `${name} resolves its Story through the verified session entry`);
       }

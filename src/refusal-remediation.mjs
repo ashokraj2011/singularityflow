@@ -1556,6 +1556,13 @@ export function refusalDetails(details) {
     projected.testRunRisk = compact({ eligible: true, phase: text(runRisk.phase), commandId: text(runRisk.commandId), causeClass: text(runRisk.causeClass),
       decision: text(runRisk.decision), lapsed: text(runRisk.lapsed), command: text(runRisk.command) });
   }
+  // A pinned test command that changed, or a narrowed run [TCE:REQ-012, REQ-022]: why, and the route.
+  for (const key of ['testCommandPin', 'testNarrowing']) {
+    const entry = details[key];
+    const words = (value) => (list(value, text).length ? list(value, text).slice(0, 20) : null);
+    if (text(entry?.phase) && text(entry.commandId)) projected[key] = compact({ phase: text(entry.phase), commandId: text(entry.commandId),
+      pin: text(entry.pin), changes: words(entry.changes), reasons: words(entry.reasons), decision: text(entry.decision), command: text(entry.command) });
+  }
   // Located workflow.yml problems, so every surface can point at the exact line and its fix.
   const position = (value) => (Number.isSafeInteger(value) && value > 0 ? value : null);
   // Stage/retain refuses the same invalid packet that check explains. Do not discard its precise

@@ -302,6 +302,11 @@ async function applyEffect(root, config, workflow, effect, step, produced, { act
     const { recordStoryTestCommand } = await import('./decision-test-command.mjs');
     return (await recordStoryTestCommand(root, config, workflow, { accept: effect.request, reason: step.values.reason ?? '' }, { actor, agent })).record;
   }
+  if (effect.kind === 'test-narrowing') {
+    const { recordTestNarrowingDecision } = await import('./decision-test-narrowing.mjs');
+    return (await recordTestNarrowingDecision(root, config, workflow, { phaseId: effect.phase, commandId: effect.commandId,
+      reason: step.values.reason }, { actor, agent })).record;
+  }
   if (effect.kind === 'test-run-risk') {
     const { recordTestRunRiskDecision } = await import('./decision-test-risk.mjs');
     return (await recordTestRunRiskDecision(root, config, workflow, { phaseId: effect.phase, commandId: effect.commandId,

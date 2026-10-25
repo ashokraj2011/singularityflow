@@ -9,7 +9,8 @@
  * configured one, covers its affected roots, and its tests must pass; nothing is waived. The
  * repository configuration is unchanged: `capability test-setup` proposes the command for later
  * Stories. Requests, acceptances and revocations are append-only (`testCommandDecisions`), and each
- * step carries its accepted commands as `storyTestCommands`, which the gates check against them. Pure.
+ * step carries its accepted commands as `storyTestCommands`, which the gates check against them.
+ * A `repin` request adds no command: it admits a pinned command's changed form (test-command-pins.mjs). Pure.
  */
 import { canonicalJson, recordSha256 } from './records.mjs';
 import { SingularityFlowError } from './util.mjs';
@@ -52,7 +53,7 @@ export function activeStoryTestCommands(workflow, phaseId) {
   for (const entry of decisions(workflow)) {
     if (!entry.accepts || entry.phase !== phaseId) continue;
     const { request, state } = storyTestCommandState(workflow, entry.accepts);
-    if (state === 'accepted') latest.set(request.command.id, request);
+    if (state === 'accepted' && !request.repin) latest.set(request.command.id, request);
   }
   return [...latest.values()].map((request) => ({
     ...structuredClone(request.command), storyDecision: { id: request.id, sha256: `sha256:${recordSha256(request)}` }
@@ -97,13 +98,14 @@ function openStep(workflow, phaseId) {
 }
 
 /** Record a request for `command` (already normalized and checked by the caller). */
-export function recordStoryTestCommandRequest(workflow, { phaseId, command, reason, actor, at }) {
+export function recordStoryTestCommandRequest(workflow, { phaseId, command, repin = null, reason, actor, at }) {
   openStep(workflow, phaseId);
   if (!command?.id || command.kind !== 'test') fail('A Story-only test command is one structured kind: test command.');
   workflow.testCommandDecisions ??= [];
   const request = {
     id: `TCD-${String(decisions(workflow).filter((entry) => entry.id).length + 1).padStart(3, '0')}`,
-    phase: phaseId, command: structuredClone(command), reason: reasonText(reason, 15, '--reason'), requestedBy: actor, at
+    phase: phaseId, command: structuredClone(command), ...(repin ? { repin: structuredClone(repin) } : {}),
+    reason: reasonText(reason, 15, '--reason'), requestedBy: actor, at
   };
   workflow.testCommandDecisions.push(request);
   return request;

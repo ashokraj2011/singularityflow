@@ -689,8 +689,118 @@
           "revokes": { "type": "string", "pattern": "^TCD-[0-9]{3,}$" },
           "phase": { "type": "string", "minLength": 1 },
           "command": { "type": "object" },
+          "repin": {
+            "description": "A request that the command's changed pin replace its recorded one [TCE:REQ-012]: the exact pin, by digest, a person accepts.",
+            "type": "object",
+            "required": ["commandId", "sha256", "pin"],
+            "properties": {
+              "commandId": { "type": "string", "minLength": 1 },
+              "sha256": { "type": "string", "pattern": "^sha256:[a-f0-9]{64}$" },
+              "pinned": { "type": ["string", "null"], "pattern": "^sha256:[a-f0-9]{64}$" },
+              "pin": { "type": "object" },
+              "changes": { "type": "array", "items": { "type": "string" } }
+            },
+            "additionalProperties": false
+          },
           "reason": { "type": "string", "maxLength": 1000 },
           "requestedBy": { "type": "string", "minLength": 1 },
+          "actor": { "type": "string", "minLength": 1 },
+          "authorityGroup": { "type": "string", "minLength": 1 },
+          "identityAssurance": { "type": ["string", "null"] },
+          "at": { "type": "string", "format": "date-time" }
+        },
+        "additionalProperties": false
+      }
+    },
+    "testCommandPins": {
+      "description": "Test command pins [TCE:REQ-010]: what a gate first ran for a command (argv, working directory, affected roots, adapter and the digests of the scripts and runner configuration it resolves through), recorded when the gate commits. A later run that differs is refused until a person accepts a re-pin; the replacing pin names the one it replaces and the request that admitted it. Only `baseline` is ever set after a pin is recorded.",
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["id", "phase", "commandId", "source", "argv", "workingDirectory", "affectedRoots", "adapter", "definition", "sha256", "at"],
+        "properties": {
+          "id": { "type": "string", "pattern": "^TCP-[0-9]{3,}$" },
+          "phase": { "type": "string", "minLength": 1 },
+          "commandId": { "type": "string", "minLength": 1 },
+          "source": {
+            "type": "object",
+            "required": ["kind"],
+            "properties": {
+              "kind": { "enum": ["inferred", "configured", "story-decision"] },
+              "decision": { "type": "string", "pattern": "^TCD-[0-9]{3,}$" },
+              "recordSha256": { "type": "string", "pattern": "^sha256:[a-f0-9]{64}$" }
+            },
+            "additionalProperties": false
+          },
+          "argv": { "type": "array", "items": { "type": "string" } },
+          "workingDirectory": { "type": "string", "minLength": 1 },
+          "affectedRoots": { "type": "array", "items": { "type": "string" } },
+          "adapter": { "type": ["string", "null"] },
+          "definition": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "required": ["path", "selector", "sha256"],
+              "properties": {
+                "path": { "type": "string", "minLength": 1 },
+                "selector": { "type": ["string", "null"] },
+                "sha256": { "type": "string", "pattern": "^[a-f0-9]{64}$" }
+              },
+              "additionalProperties": false
+            }
+          },
+          "sha256": { "type": "string", "pattern": "^sha256:[a-f0-9]{64}$" },
+          "replaces": { "type": "string", "pattern": "^TCP-[0-9]{3,}$" },
+          "acceptedBy": { "type": "string", "pattern": "^TCD-[0-9]{3,}$" },
+          "baseline": {
+            "type": ["object", "null"],
+            "required": ["discovered", "attemptId"],
+            "properties": {
+              "discovered": { "type": "integer", "minimum": 0 },
+              "attemptId": { "type": "string", "pattern": "^TA-[a-f0-9]{20}$" }
+            },
+            "additionalProperties": false
+          },
+          "at": { "type": "string", "format": "date-time" }
+        },
+        "additionalProperties": false
+      }
+    },
+    "testNarrowings": {
+      "description": "Append-only decisions by a step's approvers that a narrowed run of one of its test commands (filters, focused tests, skipped tests, fewer tests than the pin's baseline) is enough, and their revocations [TCE:REQ-023]. A decision is bound to the command's pin and the narrowing it saw, and covers later runs whose narrowing is the same or smaller, until it expires or is revoked.",
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["phase", "commandId", "reason", "actor", "authorityGroup", "at"],
+        "properties": {
+          "id": { "type": "string", "pattern": "^TNR-[0-9]{3,}$" },
+          "revokes": { "type": "string", "pattern": "^TNR-[0-9]{3,}$" },
+          "phase": { "type": "string", "minLength": 1 },
+          "commandId": { "type": "string", "minLength": 1 },
+          "pinSha256": { "type": "string", "pattern": "^sha256:[a-f0-9]{64}$" },
+          "narrowing": {
+            "type": "object",
+            "required": ["reasons", "filters", "focused", "skipped", "shortfall"],
+            "properties": {
+              "reasons": { "type": "array", "items": { "enum": ["filter", "focused", "skipped", "below-baseline"] } },
+              "filters": { "type": "array", "items": { "type": "object" } },
+              "focused": { "type": "array", "items": { "type": "object" } },
+              "skipped": { "type": "integer", "minimum": 0 },
+              "discovered": { "type": ["integer", "null"] },
+              "baseline": { "type": ["integer", "null"] },
+              "shortfall": { "type": "integer", "minimum": 0 }
+            },
+            "additionalProperties": false
+          },
+          "fingerprint": { "type": "string", "pattern": "^sha256:[a-f0-9]{64}$" },
+          "observation": {
+            "type": "object",
+            "required": ["attemptId"],
+            "properties": { "attemptId": { "type": "string", "pattern": "^TA-[a-f0-9]{20}$" } },
+            "additionalProperties": false
+          },
+          "reason": { "type": "string", "minLength": 20, "maxLength": 1000 },
+          "expiresAt": { "type": ["string", "null"], "format": "date-time" },
           "actor": { "type": "string", "minLength": 1 },
           "authorityGroup": { "type": "string", "minLength": 1 },
           "identityAssurance": { "type": ["string", "null"] },

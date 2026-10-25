@@ -615,9 +615,9 @@ function argvAllowed(argv, mode, value) {
   if (positionals[0] === 'upstream-issue' && UPSTREAM_ISSUE_DECISIONS.includes(positionals[1])) return false;
   // So is deciding an intent amendment: the scope's approvers decide it, in their own terminal.
   if (intentAmendmentDecision(positionals)) return false;
-  // Accepting that a step's tests cannot run here, reusing another step's recorded run for it, or
-  // saying one of its screen sizes does not apply, is its approvers' call too; the refusal names it.
-  if (positionals[0] === 'decision' && ['test-risk', 'evidence-reuse', 'visual-profile'].includes(positionals[1])) return false;
+  // Accepting that a step's tests cannot run here or ran narrowed, reusing another step's recorded run
+  // for it, or saying one of its screen sizes does not apply, is its approvers' call too; the refusal names it.
+  if (positionals[0] === 'decision' && ['test-risk', 'test-narrowing', 'evidence-reuse', 'visual-profile'].includes(positionals[1])) return false;
   // An agent may request a Story-only test command; accepting or revoking it is the step approvers' call.
   if (storyTestCommandDecision(positionals, options)) return false;
   // A Story's authorized browser target is a security boundary: a person pins it, in no turn (its preview is a read).
@@ -746,16 +746,16 @@ function setAsideDecision(call, value) {
 }
 
 /**
- * A verified `decision test-risk`, `decision evidence-reuse`, `decision visual-profile` or `spec drift
- * decide`: a step approver's decision, that its tests cannot run here, that an earlier step's recorded
- * run stands for it, that one of its screen sizes does not apply, or how a closed Story's drifted
- * clause is resolved.
+ * A verified `decision test-risk`, `decision test-narrowing`, `decision evidence-reuse`, `decision
+ * visual-profile` or `spec drift decide`: a step approver's decision, that its tests cannot run here,
+ * that a narrowed run of them is enough, that an earlier step's recorded run stands for it, that one
+ * of its screen sizes does not apply, or how a closed Story's drifted clause is resolved.
  */
 function testRunRiskDecision(call, value) {
   const safe = verifiedShellForm(call, value);
   if (!safe) return false;
   const { positionals, options } = parseCli(safe.argv);
-  return (positionals[0] === 'decision' && ['test-risk', 'evidence-reuse', 'visual-profile'].includes(positionals[1]))
+  return (positionals[0] === 'decision' && ['test-risk', 'test-narrowing', 'evidence-reuse', 'visual-profile'].includes(positionals[1]))
     || storyTestCommandDecision(positionals, options)
     || (positionals[0] === 'spec' && positionals[1] === 'drift' && positionals[2] === 'decide');
 }
@@ -1185,7 +1185,7 @@ async function mutationToolDecision(payload, record) {
         if (intentAmendmentDecisionCall(call, value)) return mutationDenial(contract,
           'PHASE_MUTATION_OPERATION_NOT_ALLOWED: an intent amendment is decided by a person who approves the scope, in their own terminal, not by this turn. Show the user the amendment and the decide command, and stop; do not retry it');
         if (testRunRiskDecision(call, value)) return mutationDenial(contract,
-          'PHASE_MUTATION_OPERATION_NOT_ALLOWED: accepting that a step\'s tests cannot run here, reusing an earlier step\'s recorded run for it, that one of its screen sizes does not apply, or how a closed Story\'s drifted clause is resolved, is decided by a person who approves that step, in their own terminal, not by this turn. Show the user the command and stop; do not retry it');
+          'PHASE_MUTATION_OPERATION_NOT_ALLOWED: accepting that a step\'s tests cannot run here or ran narrowed, reusing an earlier step\'s recorded run for it, that one of its screen sizes does not apply, or how a closed Story\'s drifted clause is resolved, is decided by a person who approves that step, in their own terminal, not by this turn. Show the user the command and stop; do not retry it');
         if (contract.turnMode !== 'authoring' && verifiedShellForm(call, value)) {
           return mutationDenial(contract, value.decisionEnded
             ? 'PHASE_MUTATION_DECISION_TURN_ENDED: the decision turn has ended. Preserve work and inspect the returned next action in a new turn; correcting command syntax cannot reopen approval'

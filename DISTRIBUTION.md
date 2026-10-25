@@ -224,6 +224,15 @@ applies with `--skip-tests`: old bundles cannot block an update or enter its rep
 Retained installation artifacts and recovery journals are preserved. Exact staged-artifact recovery
 uses its retained packages and does not clean or rebuild them.
 
+Cleanup first moves the validated output directories into private staging beside the checkout's
+outputs, checks their filesystem identities, and deletes only those captured directories. A changed
+parent stops the install. If staging is interrupted, `bundle.building-cleanup-*/retained.json` names
+the captured output locations for inspection; unrelated installation recovery remains untouched.
+
+Privacy validation checks full display names, email addresses and distinctive account identifiers.
+Ambiguous single-word names and accounts are checked in identity contexts such as home paths, Git
+URLs and email addresses, so ordinary source words do not depend on who runs the installer.
+
 Use `bash ./install-windows-git-bash.sh` in Git Bash on Windows; the wrapper accepts those same
 mode flags. `--vscode-only` does not change the global CLI, Copilot plugin/skills, telemetry, or
 workspace configuration and therefore cannot serve the managed Playwright MCP host on a blank

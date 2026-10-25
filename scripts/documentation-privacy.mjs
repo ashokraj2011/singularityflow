@@ -44,7 +44,8 @@ export function configuredPersonalTerms({ name = '', email = '', homeDirectory =
   const terms = [];
   const displayName = String(name).trim();
   if (displayName && !fixtureIdentity.test(displayName)) {
-    terms.push(displayName, ...displayName.split(/\s+/).filter(part => part.length >= 4));
+    // A full identity is useful; its individual words can be ordinary English or API names.
+    terms.push(displayName);
   }
   const address = String(email).trim();
   if (address && !/@(?:[^@.]+\.)*(?:example\.(?:com|org|net)|invalid|test)$/i.test(address)) {
@@ -67,8 +68,21 @@ export function readConfiguredPrivacyTerms(root) {
 }
 
 function personalTermPattern(terms) {
-  const escaped = terms.filter(Boolean).map(term => term.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'));
-  return escaped.length ? new RegExp(`(?:^|[^a-z0-9])(?:${escaped.join('|')})(?=$|[^a-z0-9])`, 'i') : null;
+  const escape = term => term.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  const strong = terms.filter(term => term && !/^[a-z]+$/iu.test(term)).map(escape);
+  const ambiguous = terms.filter(term => term && /^[a-z]+$/iu.test(term)).map(escape);
+  const patterns = [];
+  if (strong.length) patterns.push(new RegExp(`(?:^|[^a-z0-9])(?:${strong.join('|')})(?=$|[^a-z0-9])`, 'i'));
+  if (ambiguous.length) {
+    // Bare account/display-name words are evidence only in an identity-bearing context, not in
+    // comments, identifiers or filenames such as mark-performance.mjs or a sentence with "will".
+    const account = `(?:${ambiguous.join('|')})`;
+    patterns.push(new RegExp(`(?:/(?:Users|home)/|[a-z]:[\\\\/]+Users[\\\\/]+)${account}(?=[\\\\/]|$)`, 'i'));
+    patterns.push(new RegExp(`(?:https?|ssh|git)://[^\\s'"<>]*[/:]${account}(?=[/\\s'"<>]|$)`, 'i'));
+    patterns.push(new RegExp(`(?:^|[^a-z0-9_.+-])${account}@[a-z0-9.-]+`, 'i'));
+    patterns.push(new RegExp(`(?:^|\\s)[a-z0-9_.-]+@[^\\s:'"<>]+:${account}/`, 'i'));
+  }
+  return patterns.length ? { test: value => patterns.some(pattern => pattern.test(value)) } : null;
 }
 
 /** Scan all text sources and generated output using only caller-supplied local identity hints. */

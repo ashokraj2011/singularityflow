@@ -42,7 +42,7 @@ test('source privacy covers tests, code, generated bundles and source maps witho
 
 test('configured identity hints are private inputs, not hardcoded names or example identities', () => {
   assert.deepEqual(configuredPersonalTerms({ name: 'Private Contributor', email: 'private-owner@corp.invalid',
-    homeDirectory: 'C:\\Users\\private-account' }), ['private contributor', 'private', 'contributor', 'private-account']);
+    homeDirectory: 'C:\\Users\\private-account' }), ['private contributor', 'private-account']);
   assert.deepEqual(configuredPersonalTerms({ name: 'Fixture Developer', email: 'fixture@example.com',
     homeDirectory: '/home/runner' }), []);
   assert.deepEqual(configuredPersonalTerms({ name: 'GitHub Actions', email: 'bot@example.invalid' }), []);
@@ -51,6 +51,18 @@ test('configured identity hints are private inputs, not hardcoded names or examp
   }
   assert.deepEqual(configuredPersonalTerms({ email: '12345+private-owner@corp.internal' }),
     ['12345+private-owner@corp.internal', 'private-owner']);
+});
+
+test('display-name components and ambiguous accounts do not reject ordinary source words', () => {
+  const terms = configuredPersonalTerms({ name: 'Will Contributor', email: 'will@corp.internal', homeDirectory: '/home/will' });
+  assert.deepEqual(sourcePrivacyProblems('src/mark-performance.mjs',
+    'The installed CLI will run from its sources.\nperformance.mark("ready");', terms), []);
+  const single = configuredPersonalTerms({ name: 'Mark', email: 'fixture@example.invalid', homeDirectory: '/home/fixture' });
+  assert.deepEqual(sourcePrivacyProblems('src/mark-performance.mjs', 'performance.mark("ready");', single), []);
+  for (const text of ['Owner: Will Contributor', 'will@corp.internal', '/home/will/repository',
+    'C:\\Users\\will\\repository', 'https://git.internal/will/repo.git', 'git@git.internal:will/repo.git']) {
+    assert.match(sourcePrivacyProblems('src/example.mjs', text, terms).join('\n'), /personal name or account reference/, text);
+  }
 });
 
 test('generated-file audit includes ignored bundles and maps without walking unrelated directories', async t => {

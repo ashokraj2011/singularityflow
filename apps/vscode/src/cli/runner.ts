@@ -1130,6 +1130,18 @@ export function changeDirectoryLine(repository: string, platform: NodeJS.Platfor
     : `cd ${terminalQuote(repository, platform)}`;
 }
 
+/** Empty windows need a known shell; the user's default profile may be Git Bash or cmd. */
+export function terminalDirectorySetup(options: { shellPath?: string }, cwd: string,
+  platform: NodeJS.Platform = process.platform): { shellPath: string; command: string } {
+  const shellPath = options.shellPath ?? (platform === 'win32' ? 'powershell.exe' : '/bin/sh');
+  const shell = shellPath.split(/[\\/]/u).at(-1)?.replace(/\.exe$/iu, '').toLowerCase();
+  if (shell === 'powershell' || shell === 'pwsh') return { shellPath, command: changeDirectoryLine(cwd, 'win32') };
+  if (['sh', 'bash', 'zsh', 'dash', 'ksh', 'fish'].includes(shell ?? '')) {
+    return { shellPath, command: changeDirectoryLine(cwd, 'linux') };
+  }
+  throw new Error(`Cannot select this checkout with terminal shell '${shellPath}'. Use PowerShell, pwsh or a POSIX shell.`);
+}
+
 /** A timeout carries the exact invocation so every UI can offer deterministic recovery. */
 export class CliTimeoutError extends Error {
   readonly code = 'SINGULARITY_FLOW_CLI_TIMEOUT';

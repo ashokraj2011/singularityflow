@@ -25,7 +25,7 @@ const packageRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '
 const source = (name) => pathToFileURL(path.join(packageRoot, 'apps', 'vscode', 'src', name));
 
 const {
-  invokeCli, CliError, CliTimeoutError, terminalCommand,
+  invokeCli, CliError, CliTimeoutError, terminalCommand, terminalDirectorySetup,
   FACTORY_RESET_TRANSACTION_TIMEOUT_MS,
   STORY_DESCRIPTION_ENHANCEMENT_TIMEOUT_MS,
   validateFactoryResetRepositoryDirectory, validateRepositoryDirectory,
@@ -859,6 +859,23 @@ test('terminal timeout recovery is safely quoted for POSIX and PowerShell', () =
     ),
     "Set-Location -LiteralPath 'C:\\Rule Engine''s UI'; & 'C:\\Program Files\\nodejs\\node.exe' 'C:\\SFlow''s CLI\\singularity-flow.mjs' 'start' 'WRK-17'"
   );
+});
+
+test('empty-window terminals select a known shell and use that shell to select the checkout', () => {
+  const directory = "C:\\Team's workspace\\repo";
+  assert.deepEqual(terminalDirectorySetup({}, directory, 'win32'), {
+    shellPath: 'powershell.exe', command: "Set-Location -LiteralPath 'C:\\Team''s workspace\\repo'"
+  });
+  assert.deepEqual(terminalDirectorySetup({ shellPath: 'C:\\Program Files\\Git\\bin\\bash.exe' }, directory, 'win32'), {
+    shellPath: 'C:\\Program Files\\Git\\bin\\bash.exe', command: "cd 'C:\\Team'\"'\"'s workspace\\repo'"
+  });
+  assert.deepEqual(terminalDirectorySetup({ shellPath: 'pwsh' }, directory, 'win32'), {
+    shellPath: 'pwsh', command: "Set-Location -LiteralPath 'C:\\Team''s workspace\\repo'"
+  });
+  assert.deepEqual(terminalDirectorySetup({}, '/team/repo', 'darwin'), {
+    shellPath: '/bin/sh', command: "cd '/team/repo'"
+  });
+  assert.throws(() => terminalDirectorySetup({ shellPath: 'cmd.exe' }, directory, 'win32'), /Use PowerShell, pwsh or a POSIX shell/);
 });
 
 test('an aborted run is killed and reports cancellation', async () => {

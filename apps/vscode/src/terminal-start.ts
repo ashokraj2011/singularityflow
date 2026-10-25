@@ -9,7 +9,7 @@
 import os from 'node:os';
 import path from 'node:path';
 import * as vscode from 'vscode';
-import { changeDirectoryLine } from './cli/runner.ts';
+import { terminalDirectorySetup } from './cli/runner.ts';
 
 function startsIn(cwd: string): boolean {
   return Boolean(vscode.workspace.workspaceFolders?.length) || path.resolve(cwd) === path.resolve(os.homedir());
@@ -23,7 +23,8 @@ export function taskStartFolder(cwd: string): string {
 /** Open a terminal in `cwd`. In a window with no folder it starts at home, and its shell moves there first. */
 export function createTerminalIn(options: Omit<vscode.TerminalOptions, 'cwd'>, cwd: string): vscode.Terminal {
   if (startsIn(cwd)) return vscode.window.createTerminal({ ...options, cwd });
-  const terminal = vscode.window.createTerminal({ ...options, cwd: os.homedir() });
-  terminal.sendText(changeDirectoryLine(cwd), true);
+  const setup = terminalDirectorySetup(options, cwd);
+  const terminal = vscode.window.createTerminal({ ...options, shellPath: setup.shellPath, cwd: os.homedir() });
+  terminal.sendText(setup.command, true);
   return terminal;
 }

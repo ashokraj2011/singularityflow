@@ -1,13 +1,38 @@
 #!/usr/bin/env node
 /** Source-install build hygiene; exact staged-artifact recovery never enters this helper. */
 import { spawnSync } from 'node:child_process';
-import { lstat, readFile, realpath, rm } from 'node:fs/promises';
+import { lstat, mkdtemp, readFile, realpath, rename, rm, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { setTimeout as delay } from 'node:timers/promises';
 import {
   GENERATED_PRIVACY_DIRECTORIES, documentationPrivacyProblems, generatedPrivacyFiles,
   isDocumentationPath, readConfiguredPrivacyTerms, sourcePrivacyProblems
 } from './documentation-privacy.mjs';
+
+const directoryIdentity = metadata => `${metadata.dev}:${metadata.ino}`;
+async function inspectDirectory(absolute) {
+  const metadata = await lstat(absolute, { bigint: true });
+  if (metadata.isSymbolicLink() || !metadata.isDirectory()) throw new Error('a path component is linked or is not a directory');
+  return { absolute, identity: directoryIdentity(metadata) };
+}
+async function verifyDirectories(directories) {
+  for (const directory of directories) {
+    if ((await inspectDirectory(directory.absolute)).identity !== directory.identity) {
+      throw new Error(`Build-output directory identity changed: ${directory.absolute}`);
+    }
+  }
+}
+async function stageDirectory(directory) {
+  for (let attempt = 0; ; attempt++) {
+    await verifyDirectories(directory.chain);
+    try { return await rename(directory.absolute, directory.staged); }
+    catch (error) {
+      if (attempt >= 8 || !['EBUSY', 'EPERM', 'EACCES'].includes(error.code)) throw error;
+      await delay(150 * (attempt + 1));
+    }
+  }
+}
 
 /** Discard only ignored, regenerable outputs, never tracked source, links or recovery material. */
 export async function cleanInstallBuildOutputs(root) {
@@ -17,29 +42,55 @@ export async function cleanInstallBuildOutputs(root) {
   if (tracked.status !== 0) throw new Error('Cannot verify build-output ownership; previous outputs were preserved.');
   if (tracked.stdout) throw new Error('Build-output directories contain tracked files; previous outputs were preserved.');
   const directories = [];
-  // Preflight every component before removing anything. A linked apps/ or vscode/ must not let
-  // cleanup reach another checkout, even when the dist/ leaf itself is an ordinary directory.
+  const anchor = await inspectDirectory(path.resolve(root));
+  // Capture parent and output identities before moving anything. Deletion will use private,
+  // identity-checked staging paths, never these live paths whose parents another process can swap.
   for (const relative of GENERATED_PRIVACY_DIRECTORIES) {
     let current = path.resolve(root);
+    const chain = [anchor];
     let present = true;
     for (const component of relative.split('/')) {
       current = path.join(current, component);
-      const metadata = await lstat(current).catch(error => {
+      const directory = await inspectDirectory(current).catch(error => {
         if (error.code === 'ENOENT') return null;
-        throw error;
+        throw new Error(`Cannot clean ${relative}: ${error.message}; previous outputs were preserved.`);
       });
-      if (!metadata) { present = false; break; }
-      if (metadata.isSymbolicLink() || !metadata.isDirectory()) {
-        throw new Error(`Cannot clean ${relative}: a path component is linked or is not a directory; previous outputs were preserved.`);
-      }
+      if (!directory) { present = false; break; }
+      chain.push(directory);
     }
-    if (present) directories.push({ relative, absolute: current });
+    if (present) directories.push({ relative, absolute: current, chain });
   }
-  for (const directory of directories) {
-    // Antivirus and indexing can briefly hold generated files on Windows. Retry only deletion
-    // of these admitted build roots; do not broaden cleanup when a lock cannot be released.
-    await rm(directory.absolute, { recursive: true, force: true, maxRetries: 8, retryDelay: 150 });
+  if (!directories.length) return [];
+  // This existing ignored build-staging namespace is excluded from source copies and packages.
+  // Keeping it beside the outputs also permits atomic moves with a Git directory on another drive.
+  const quarantine = await mkdtemp(path.join(path.resolve(root), 'bundle.building-cleanup-'));
+  const quarantineIdentity = await inspectDirectory(quarantine);
+  const staged = directories.map((directory, index) => ({ ...directory, staged: path.join(quarantine, String(index)) }));
+  await writeFile(path.join(quarantine, 'retained.json'), JSON.stringify(staged.map(directory => ({
+    original: directory.absolute, retained: directory.staged, identity: directory.chain.at(-1).identity
+  })), null, 2), { flag: 'wx', mode: 0o600 });
+  try {
+    // Move every output before deleting any. A changed source can at worst be retained for
+    // inspection: its identity must agree after the atomic move before deletion is admitted.
+    for (const directory of staged) {
+      await verifyDirectories([quarantineIdentity]);
+      await stageDirectory(directory);
+      const captured = await inspectDirectory(directory.staged);
+      if (captured.identity !== directory.chain.at(-1).identity) throw new Error('Build output changed while being staged');
+    }
+    for (const directory of staged) {
+      await verifyDirectories([quarantineIdentity, { absolute: directory.staged, identity: directory.chain.at(-1).identity }]);
+      // Antivirus and indexing can briefly hold generated files on Windows. Retry deletion only
+      // inside this invocation's private staging directory, never through the live output paths.
+      await rm(directory.staged, { recursive: true, force: true, maxRetries: 8, retryDelay: 150 });
+    }
+    await rm(path.join(quarantine, 'retained.json'));
+    await rm(quarantine, { recursive: true });
+  } catch (error) {
+    throw new Error(`${error.message}. Build cleanup stopped; inspect retained output and its recovery record at ${quarantine}.`);
   }
+  // Do not let the subsequent build follow an ancestor replaced while deletion was in progress.
+  for (const directory of directories) await verifyDirectories(directory.chain.slice(0, -1));
   return directories.map(directory => directory.relative);
 }
 

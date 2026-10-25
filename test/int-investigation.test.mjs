@@ -109,7 +109,9 @@ test('epistemic-types-never-blur', async (t) => {
   // The evidence sequence, in order, each step accounted for.
   assert.deepEqual(report.steps.map((step) => step.id), [...EVIDENCE_SEQUENCE]);
   // Unknown inputs are recorded as unknown, never filled in.
-  assert.ok(report.unknown.includes('expected') && report.records.some((entry) => entry.type === 'unknown' && entry.statement === 'expected'));
+  // The record says it in words and names the field as its reference.
+  assert.ok(report.unknown.includes('expected') && report.records.some((entry) => entry.type === 'unknown'
+    && entry.statement === 'Expected result: not given' && entry.reference === 'expected'));
   // Every record has one of the declared types and a categorical confidence; none is a number.
   for (const entry of report.records) {
     assert.ok(INVESTIGATION_RECORD_TYPES.includes(entry.type), entry.type);

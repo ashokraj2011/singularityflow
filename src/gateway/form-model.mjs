@@ -21,7 +21,7 @@
  * and `restoreDraft` refuses to fill it. A pre-filled confirmation looks identical to a placeholder
  * in a screenshot and defeats the ceremony entirely.
  */
-import { ARGUMENT_SCHEMAS, validateArguments } from './argument-schemas.mjs';
+import { ARGUMENT_SCHEMAS, fieldLabel, identifierWords, validateArguments } from './argument-schemas.mjs';
 
 /**
  * How each declared type is asked for.
@@ -104,15 +104,11 @@ export function formModel(schemaId, { defaults = {} } = {}) {
        * What the field is called on screen, as opposed to on the wire.
        *
        * The first rendered form showed `baseRef`, `targetRef` and `includeWorktree` — the argument
-       * names, in front of a reader who is not writing a call. Derived rather than listed, so a new
-       * schema field gets a readable label without anyone remembering to add one, and `spec.label`
-       * wins when a name genuinely does not humanise (an acronym, a term of art).
+       * names, in front of a reader who is not writing a call. The schema decides every field's
+       * label (`argument-schemas.mjs`), so this form, the record views and a clarification all say
+       * the same words; a new field reads as its name in words without anyone adding one.
        */
-      label: spec.label ?? name
-        .replace(/([a-z0-9])([A-Z])/g, '$1 $2')
-        .replace(/^./, (letter) => letter.toUpperCase())
-        .toLowerCase()
-        .replace(/^./, (letter) => letter.toUpperCase()),
+      label: spec.label ?? identifierWords(name),
       type: spec.type,
       control,
       required: spec.required === true,
@@ -252,12 +248,16 @@ export function checkForm(schemaId, rawValues) {
     validateArguments(schemaId, supplied);
     return { valid: true, problems: [] };
   } catch (error) {
+    const field = error?.details?.field ?? null;
     return {
       valid: false,
       problems: [{
-        field: error?.details?.field ?? null,
+        field,
         code: 'form.invalid',
-        detail: error?.message ?? null
+        // Shown beside the field, so it names the field the way the form does, not the argument.
+        detail: field && error?.details?.requirement
+          ? `${fieldLabel(schemaId, field)} ${error.details.requirement}.`
+          : error?.message ?? null
       }]
     };
   }

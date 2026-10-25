@@ -144,7 +144,10 @@ test('local validation reports where the operation would refuse, and never throw
   const wrong = checkForm('work-list-v1', { group: 'nonsense' });
   assert.equal(wrong.valid, false);
   assert.equal(wrong.problems[0].field, 'group', 'the problem names the field it is about');
-  assert.match(wrong.problems[0].detail, /group/);
+  // Said beside the field under the form's own label, not as the argument and schema names.
+  assert.equal(wrong.problems[0].detail, 'Group must be one of active, waiting-on-you, waiting-on-others, recovery-required, recently-completed.');
+  assert.equal(checkForm('impact-what-if-v1', { proposal: 'x', scope: '/etc' }).problems[0].detail,
+    'Scope must be repository-relative, not absolute.');
 });
 
 test('an unfilled optional is omitted, not sent as null', () => {

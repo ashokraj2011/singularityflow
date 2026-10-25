@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 
 import { createHandleAuthority } from '../src/gateway/handles.mjs';
 import { createGatewayKernel } from '../src/gateway/kernel.mjs';
+import { message } from '../src/gateway/messages.mjs';
 import { gatewayRegistry } from '../src/gateway/operations.mjs';
 import { DEFAULT_GATEWAY_POLICY, resolveGatewayPolicy } from '../src/gateway/policy.mjs';
 import { resolveIntent } from '../src/gateway/resolve.mjs';
@@ -126,6 +127,10 @@ test('a missing argument is a question; a wrong one is a refusal', () => {
   assert.equal(asked.kind, 'clarification');
   assert.equal(asked.operation.id, 'review.packet');
   assert.equal(asked.outcome.slots.missing, 'workId');
+  // The argument name stays for a caller to send back; a person is asked for it by its label.
+  assert.deepEqual({ ...asked.why[0].slots }, { fields: 'workId', labels: 'Work ID' });
+  assert.equal(asked.next[0].label, 'review.packet — needs Work ID');
+  assert.equal(message(asked.why[0].code, asked.why[0].slots).detail, 'Supply Work ID and this can be resolved.');
 
   const refused = resolve({ utterance: 'show me the review packet', arguments: { workId: 'not a valid id!' } });
   assert.equal(refused.kind, 'refusal');

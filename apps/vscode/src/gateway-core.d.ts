@@ -122,6 +122,9 @@ declare module '*/gateway/executor.mjs' {
 declare module '*/gateway/argument-schemas.mjs' {
   export const HOST_ACTIONS: readonly string[];
   export function hostActionFromLink(query: string): unknown;
+  export function hostActionSchemaId(id: string): string;
+  export function identifierWords(identifier: string): string;
+  export function fieldLabel(schemaId: string | null | undefined, field: string): string;
 }
 
 declare module '*/gateway/local-store.mjs' {

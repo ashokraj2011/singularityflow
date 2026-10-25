@@ -17,9 +17,10 @@ const MAX_TEXT = 2000;
 const MAX_STRING = 200;
 
 function reject(schemaId, field, detail, value) {
+  // `requirement` is the rule alone, so a form can say it beside the field under the field's label.
   throw new SingularityFlowError(
     `Argument '${field}' for schema '${schemaId}' ${detail}.`,
-    { code: 'INVALID_OPERATION_ARGUMENT', details: { schema: schemaId, field, value } }
+    { code: 'INVALID_OPERATION_ARGUMENT', details: { schema: schemaId, field, value, requirement: detail } }
   );
 }
 
@@ -160,6 +161,65 @@ export const COMPARISON_SUBJECTS = Object.freeze([
   'build', 'branch', 'commit', 'release', 'worktree', 'artifact', 'generation', 'plan', 'provider-observation'
 ]);
 
+/** Short words an identifier spells in lower case that a person reads in capitals. */
+const ACRONYMS = Object.freeze({ id: 'ID', ids: 'IDs', url: 'URL', uri: 'URI', ast: 'AST', api: 'API', sha: 'SHA', json: 'JSON' });
+
+/**
+ * An identifier as the words a person reads: `observedVersion` → "Observed version".
+ *
+ * The one fallback for a field that has no label of its own. camelCase, PascalCase, snake_case,
+ * kebab-case and dotted names all split the same way, so a renderer handed any field name shows a
+ * phrase rather than the wire spelling — the Investigation page printed `lastKnownGood` because its
+ * renderer only knew about dashes.
+ */
+export function identifierWords(identifier) {
+  const words = String(identifier ?? '')
+    .replace(/([a-z0-9])([A-Z])/g, '$1 $2')
+    .replace(/([A-Z]+)([A-Z][a-z])/g, '$1 $2')
+    .split(/[\s_.-]+/)
+    .filter(Boolean)
+    .map((word) => ACRONYMS[word.toLowerCase()] ?? word.toLowerCase())
+    .join(' ');
+  return words.charAt(0).toUpperCase() + words.slice(1);
+}
+
+/**
+ * Labels for names whose words alone would read wrong. `[UXH:REQ-070]`
+ *
+ * Keyed by name because a name means one thing in every schema that declares it; a field that
+ * means something narrower in one schema says so with its own `label`, which wins. Everything not
+ * listed reads as {@link identifierWords} of its name.
+ */
+const FIELD_LABELS = Object.freeze({
+  all: 'All files',
+  bad: 'Bad revision',
+  base: 'Base revision',
+  baseRef: 'Base revision',
+  expandHandle: 'Expansion handle',
+  expected: 'Expected result',
+  flightPlanId: 'Flight Plan ID',
+  good: 'Good revision',
+  includeWorktree: 'Include uncommitted changes',
+  lastKnownGood: 'Last known good revision',
+  lineEnd: 'Last line',
+  lineStart: 'First line',
+  max: 'Maximum results',
+  maxFacts: 'Maximum facts',
+  maxFiles: 'Maximum files',
+  maxOutputBytes: 'Maximum output bytes',
+  maxSteps: 'Maximum steps',
+  reproduction: 'Reproduction steps',
+  since: 'Failing since',
+  sinceRef: 'Since revision',
+  stopAfter: 'Stop after step',
+  targetRef: 'Target revision',
+  text: 'Search text'
+});
+
+/**
+ * Every field carries the label a screen shows for it, decided here once. A form, a record view and
+ * a clarification all read `label`, so none of them derives its own and none can show the name.
+ */
 function schema(id, fields) {
   if (!/-v[1-9][0-9]*$/.test(id)) {
     throw new SingularityFlowError(`Argument schema '${id}' must end in a version suffix such as '-v1'.`, {
@@ -178,7 +238,9 @@ function schema(id, fields) {
       });
     }
   }
-  return Object.freeze({ id, fields: Object.freeze(fields) });
+  const labelled = Object.entries(fields).map(([field, spec]) =>
+    [field, Object.freeze({ ...spec, label: spec.label ?? FIELD_LABELS[field] ?? identifierWords(field) })]);
+  return Object.freeze({ id, fields: Object.freeze(Object.fromEntries(labelled)) });
 }
 
 const required = (type, extra = {}) => ({ type, required: true, ...extra });
@@ -527,6 +589,11 @@ export function argumentSchema(id) {
 
 export function hasArgumentSchema(id) {
   return BY_ID.has(id);
+}
+
+/** What a field is called on screen: its schema's label, or its name in words when no schema declares it. */
+export function fieldLabel(schemaId, field) {
+  return BY_ID.get(schemaId)?.fields[field]?.label ?? identifierWords(field);
 }
 
 /**

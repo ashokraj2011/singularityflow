@@ -9,6 +9,7 @@ import { createHash } from 'node:crypto';
 import { branch, head } from '../../git.mjs';
 import { analyzeRegression } from '../../regression-analysis.mjs';
 import { SingularityFlowError, run } from '../../util.mjs';
+import { fieldLabel } from '../argument-schemas.mjs';
 import { relayFacts, relayRequest, validateInterpretation } from '../assisted-relay.mjs';
 import { noEffects, plannerNavigation, preservedAll, repositoryReference, sflowResult } from '../result.mjs';
 
@@ -242,7 +243,10 @@ async function investigationReport({ args, root, context, repository, terms, mat
   await step('incident-facts', () => {
     // The person's words stay out of results and logs; that a symptom was given is the fact.
     records.push(record('observation', 'a symptom was reported', { source: 'evidence' }));
-    for (const field of unknown) records.push(record('unknown', field));
+    // Said in words; the field itself is the reference, for a reader that needs the name.
+    for (const field of unknown) {
+      records.push(record('unknown', `${fieldLabel('problem-investigate-v1', field)}: not given`, { reference: field }));
+    }
   });
   await step('build-provenance', async () => {
     const { buildRelation, gitAncestry, readBuilds } = await import('../build-provenance.mjs');

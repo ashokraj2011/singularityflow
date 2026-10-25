@@ -17,6 +17,7 @@
  */
 import { commandGuidanceHtml, COMMAND_GUIDANCE_COPY_SCRIPT } from './command-guidance.ts';
 import { escape } from './webview.ts';
+import { fieldLabel, hostActionSchemaId } from '../../../../src/gateway/argument-schemas.mjs';
 
 export const HOST_RECORD_ACTIONS = Object.freeze({
   'vscode.openInvestigation': Object.freeze({
@@ -134,7 +135,7 @@ function view(action: HostRecordAction, fields: Partial<HostRecordView> & Pick<H
 
 /** What a page shows while its read is in flight: the request it was opened with, nothing else. */
 export function loadingView(action: HostRecordAction, request: HostRecordRequest): HostRecordView {
-  const named = Object.entries(request).map(([field, value]) => `${field} ${value}`).join(' · ');
+  const named = Object.entries(request).map(([field, value]) => `${fieldLabel(hostActionSchemaId(action), field)} ${value}`).join(' · ');
   return view(action, { state: 'loading', subtitle: named || 'Reading…', source: 'Reading the record…', routes: [] });
 }
 
@@ -162,6 +163,8 @@ const noStory = (action: HostRecordAction, what: string): HostRecordView => view
 export type KeptInvestigation = Readonly<{ investigationId: string; receivedAt: string; result: any }>;
 
 const INVESTIGATION_GUIDANCE = 'singularity-flow explain investigation';
+/** The report's inputs are this schema's fields, so they are named by its labels. */
+const INVESTIGATION_SCHEMA = 'problem-investigate-v1';
 
 /** Ask for a symptom and run the read here; handled by the panel, never a command from the page. */
 const INVESTIGATE: HostRecordRoute = Object.freeze({
@@ -220,7 +223,8 @@ export function investigationView({ request = {}, record: kept = null, kept: all
       ['Repository', text(repository.id, 'this repository')],
       ['HEAD', short(repository.head)],
       ['Branch', text(repository.branch, 'detached HEAD')],
-      ['Since', text(record(report.evidenceScope).since, 'not given')],
+      // The evidence scope's start is the `sinceRef` input, not the "failing since" one below.
+      [fieldLabel(INVESTIGATION_SCHEMA, 'sinceRef'), text(record(report.evidenceScope).since, 'not given')],
       ...(report.subject?.workId ? [['Work', text(report.subject.workId)] as Fact] : []),
       ['Received', text(kept.receivedAt)]
     ],
@@ -230,7 +234,7 @@ export function investigationView({ request = {}, record: kept = null, kept: all
         note: 'Inputs not given stay unknown; nothing is assumed in their place.',
         facts: [
           ['Symptom', data.symptomProvided ? 'given (its words are not kept in the report)' : 'not given'],
-          ...Object.entries(record(report.inputs)).map(([field, value]) => [words(field), inputValue(value)] as Fact)
+          ...Object.entries(record(report.inputs)).map(([field, value]) => [fieldLabel(INVESTIGATION_SCHEMA, field), inputValue(value)] as Fact)
         ]
       },
       {
@@ -274,7 +278,7 @@ export function investigationView({ request = {}, record: kept = null, kept: all
         heading: 'Missing, unknown and contradicting evidence',
         items: [
           ...list(report.missingEvidence).map((entry) => `Missing: ${words(entry)}`),
-          ...list(report.unknown).map((entry) => `Unknown: ${words(entry)}`),
+          ...list(report.unknown).map((entry) => `Unknown: ${fieldLabel(INVESTIGATION_SCHEMA, String(entry))}`),
           ...list(report.contradictions).map((entry) => `Contradiction: ${text(typeof entry === 'string' ? entry : entry?.statement ?? JSON.stringify(entry))}`)
         ],
         empty: 'Nothing was reported missing, unknown or contradicting.'

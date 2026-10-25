@@ -47,7 +47,10 @@ files and drops one that no longer matches.
 `workspace checkouts <WORKSPACE> --json` shows the clone/worktree graph. `workspace cleanup
 <WORKSPACE> --json` previews recoverable retirement. Repeat with `--apply --confirm <DIGEST>`;
 for permanent removal, use `--purge` in both preview and application. Only verified unused owned
-branch clones qualify. See [the execution-context contract](docs/EXECUTION-CONTEXT.md).
+branch clones qualify. `workspace consolidate <WORKSPACE>` previews moving the Story checkouts
+a branch clone owns onto the clone the workspace declares, naming each move and each reason a
+checkout stays; `--confirm-plan <PLAN-ID>` applies that plan. It changes no checkout file and
+deletes nothing. See [the execution-context contract](docs/EXECUTION-CONTEXT.md).
 
 ## MCP and visual assurance
 
@@ -1158,6 +1161,7 @@ singularity-flow workspace list --json
 singularity-flow workspace use <ID|NAME|DIRECTORY>
 singularity-flow workspace current --json
 singularity-flow workspace stories [WORK-ID] [--rebuild] [--json]
+singularity-flow workspace consolidate [WORKSPACE] [--repository ID] [--confirm-plan PLAN-ID] [--json]
 singularity-flow workspace rename <DIRECTORY> --name <TEXT> --confirm <WORKSPACE-ID>
 singularity-flow workspace archive-status <DIRECTORY> --fetch
 singularity-flow workspace archive <DIRECTORY> --confirm <WORKSPACE-ID>
@@ -1405,6 +1409,7 @@ singularity-flow workspace use <ID|NAME|JIRA|DIRECTORY> [--repository ID] [--sto
 singularity-flow session workspace <ID|NAME|JIRA|DIRECTORY> [--repository ID] [--story STORY]
 singularity-flow workspace current
 singularity-flow workspace stories [WORK-ID] [--rebuild] [--json]
+singularity-flow workspace consolidate [WORKSPACE] [--repository ID] [--confirm-plan PLAN-ID] [--json]
 singularity-flow workspace prompt
 singularity-flow workspace copilot [WORKSPACE] [--repository ID] [--story STORY] [--mode plan]
 singularity-flow workspace status [DIRECTORY]

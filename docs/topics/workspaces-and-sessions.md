@@ -16,7 +16,7 @@ related:
   - developer-home
   - capability-management
   - repository-state-and-snapshots
-version: 23
+version: 24
 ---
 A workspace is the machine-local collection of capability repositories used for one delivery context. Sessions bind a contributor and selected work item without replacing repository state.
 
@@ -113,6 +113,8 @@ A Story has one checkout on this computer, whichever workspace or clone holds it
 - Start, `session open`, `session open-local` and `session attach` reuse the Story's checkout (including one in another clone of the same workspace) or refuse to create a second one.
 - A Story that delivers in several repositories has its checkout of each recorded (`role: secondary` in `workspace stories --json`, a `+` after the repository in the table). Commands for it still run in the checkout that holds its record, and `session takeover` uses its existing checkout of each repository, in any clone of the workspace, instead of making a second; one in another workspace is refused.
 - An explicit checkout (`--context-root`, a VS Code window binding) still wins, and a Copilot turn bound to one Story cannot run a command for another (`ACTIVE_SUBJECT_MISMATCH`). A routed change is refused while the folder you are in has uncommitted changes to that Story's files.
+
+One workspace can hold two clones of a repository: the one its manifest declares and a branch download (`repos/<branch>--<hash>/<repository>`) that owns some Story checkouts. `sflow workspace consolidate <WORKSPACE>` previews moving those checkouts onto the declared clone: it names that canonical clone, each checkout that moves, and why any stays (local changes, untracked files, commits not on the remote, a live lease or bound Copilot turn, an operation in progress, another copy of the same Story, an unfinished start or publication). `--confirm-plan <PLAN-ID>` applies exactly that plan after the same checks. A move changes no file in the checkout: the Story branch is fetched into the declared clone and the checkout's Git administration is moved there, then Git must report it clean, on its branch and at its commit, or the move is put back. Machine-local documents are copied. Nothing is deleted: the old clone keeps its objects and branches, a clone that then owns nothing has its branch-download pointer set aside, and `sflow workspace cleanup <WORKSPACE>` can retire it after its own preview. The Story index follows.
 
 The index is a lookup and a cache, never authority. Every read checks an entry against the checkout's own Git files (folder, branch, Git directory, remote, the Story's `workflow.json`) and drops one that no longer matches; Git stays the truth. Phase and status are refreshed after each lifecycle command; no gate reads them. A checkout whose files are cloud placeholders is reported as unavailable, not read.
 

@@ -558,7 +558,7 @@ export const RESOLVER_SUBCOMMANDS = Object.freeze({
     .map(([name, actions]) => [name, Object.freeze([...actions.read, ...actions.mutation])])),
   wm: Object.freeze([...new Set([...WM_NEVER_OPERATIONS, 'ast', 'knowledge', 'rules'])]),
   workspace: Object.freeze([
-    'copilot', 'impact', 'bootstrap', 'refresh-configuration', 'reinitialize',
+    'copilot', 'impact', 'bootstrap', 'refresh-configuration', 'reinitialize', 'consolidate',
     ...WORKSPACE_NEVER_OPERATIONS, ...WORKSPACE_SUBCOMMAND_ALIASES.keys()
   ])
 });
@@ -1308,6 +1308,10 @@ function resolveWorkspaceOperation(definition, positionals, options) {
       ? never('workspace.refresh-configuration.preview', definition, 'read')
       : never('workspace.refresh-configuration', definition, 'mutation');
   }
+  if (subcommand === 'consolidate') {
+    return options['confirm-plan'] != null ? never('workspace.consolidate', definition, 'mutation')
+      : never('workspace.consolidate.preview', definition, 'read');
+  }
   if (subcommand === 'reinitialize') {
     return optionBoolean(options, 'dry-run')
       ? never('workspace.reinitialize.preview', definition, 'read')
@@ -1714,6 +1718,8 @@ export function operationCatalog() {
   workspace.push(never('workspace.refresh-configuration.preview', commandDefinition('workspace'), 'read'));
   workspace.push(never('workspace.reinitialize', commandDefinition('workspace'), 'mutation'));
   workspace.push(never('workspace.reinitialize.preview', commandDefinition('workspace'), 'read'));
+  workspace.push(never('workspace.consolidate', commandDefinition('workspace'), 'mutation'));
+  workspace.push(never('workspace.consolidate.preview', commandDefinition('workspace'), 'read'));
   workspace.push(never('workspace.attach-capability.preview', commandDefinition('workspace'), 'read'));
   workspace.push(never('workspace.detach-capability.preview', commandDefinition('workspace'), 'read'));
   const prDefinition = commandDefinition('pr');

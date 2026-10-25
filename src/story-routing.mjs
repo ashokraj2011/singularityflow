@@ -177,7 +177,7 @@ const TURN_LIFETIME_MS = 30 * 60 * 1000;
  * Explicit Copilot turns bound to a Story in `root` (copilot-mutation-guard.mjs records them). A
  * turn bound to Story A in this checkout must not reach Story B by naming it.
  */
-async function boundTurnStories(root) {
+export async function boundTurnStories(root) {
   const { copilotModeFile } = await import('./copilot-mode.mjs');
   const directory = path.join(path.dirname(copilotModeFile()), 'copilot-boundaries');
   const names = await readdir(directory).catch(() => []);

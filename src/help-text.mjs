@@ -1244,6 +1244,9 @@ Usage:
     (--git-shadow compares the typed Git reader without changing the authoritative result or
      recording repository values; the same evidence-only option is available on status, snapshot,
      and capability show; intended for migration evidence, not ordinary use)
+  singularity-flow workspace consolidate [WORKSPACE] [--repository ID] [--confirm-plan PLAN-ID] [--json]
+    (one clone per repository: previews moving the Story checkouts a second clone owns onto the
+     declared clone; --confirm-plan applies that exact plan; nothing is deleted)
   singularity-flow workspace use [ID|NAME|JIRA|DIRECTORY] [--repository ID] [--story ID] [--json]
   singularity-flow workspace refresh-configuration [WORKSPACE] [--repository ID] [--dry-run]
     [--resolve PATH=local|bundled|merge] [--accept-bundled-conflicts]

@@ -1440,6 +1440,22 @@ export function preserveCommitRef(root, ref, commit) {
 }
 
 /**
+ * Point local branch `name` at `commit` only while it still names `expected` (null: absent), and
+ * give a branch with no upstream `remote`'s; a null `commit` deletes it, again only from `expected`.
+ */
+export function setLocalBranch(root, name, commit, expected, remote = 'origin') {
+  validBranch(root, name);
+  if (commit == null) {
+    if (expected != null) git(['update-ref', '--no-deref', '-d', `refs/heads/${name}`, expected], { cwd: root });
+    return;
+  }
+  git(['update-ref', '--no-deref', `refs/heads/${name}`, commit, expected ?? '0'.repeat(commit.length)], { cwd: root });
+  if (git(['config', '--local', '--get', `branch.${name}.merge`], { cwd: root, allowFailure: true }).status === 0) return;
+  git(['config', '--local', `branch.${name}.remote`, remote], { cwd: root });
+  git(['config', '--local', `branch.${name}.merge`, `refs/heads/${name}`], { cwd: root });
+}
+
+/**
  * Point the checked-out branch at `commit`, refusing if a local change would be lost: Git's
  * `reset --keep`. Callers prove the tree clean and preserve the commit they leave first.
  */

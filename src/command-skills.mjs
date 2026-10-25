@@ -375,6 +375,7 @@ export const COMMAND_LINE_SKILL_ROUTES = Object.freeze({
     doctor: 'sf-workspace-bootstrap',
     inspect: 'sf-workspace-bootstrap',
     reinitialize: 'sf-admin',
+    consolidate: 'sf-admin',
     'migrate-schemas': 'sf-admin',
     list: 'sf-workspaces',
     current: 'sf-workspaces',

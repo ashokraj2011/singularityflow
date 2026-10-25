@@ -633,3 +633,115 @@ test('a Story that delivers in two repositories has its checkout of each in the 
   assert.equal(canonical(f.worktreeOn(second, 'MULTI-1')), canonical(moved));
   assert.equal(f.git(f.api, 'branch', '--show-current'), 'main');
 });
+
+test('workspace consolidate moves the Story checkouts a second clone owns onto the declared clone, and refuses the rest',
+  slowLane({ timeout: 1_200_000 }), async (t) => {
+    const f = await twoWorkspaces(t);
+    const { readWorkspace } = await import('../src/workspace-manifest.mjs');
+    const { prepareWorkspaceBranch } = await import('../src/workspace-branch-checkout.mjs');
+    const workspace = f.workspaces.wsa.path;
+    const declared = f.workspaces.wsa.clone;
+    // The second clone a branch download makes ("repos/main--<hash>/application"), owning three Stories.
+    const second = (await prepareWorkspaceBranch(await readWorkspace(workspace), 'application', 'main', { reuse: true, env: f.env })).repositoryPath;
+    f.git(second, 'config', 'user.name', 'Index Tester');
+    f.git(second, 'config', 'user.email', 'index.tester@example.invalid');
+    f.git(second, 'checkout', '-q', 'main');
+    for (const id of ['S-4', 'S-5', 'S-6']) f.start('wsa', id, second);
+    const checkoutOf = async (id) => (await f.entry(id))[0].checkoutPath;
+    const [four, five, six] = [await checkoutOf('S-4'), await checkoutOf('S-5'), await checkoutOf('S-6')];
+    const commonDir = (checkout) => canonical(f.git(checkout, 'rev-parse', '--path-format=absolute', '--git-common-dir'));
+    for (const checkout of [four, five, six]) assert.equal(commonDir(checkout), canonical(path.join(second, '.git')));
+    // S-6 keeps a document on this machine only (in the second clone's store), then gains a commit the remote lacks.
+    await writeFile(path.join(f.directory, 'brief.md'), 'A brief kept on this machine.\n');
+    f.cli(['--no-model', 'documents', 'upload', path.join(f.directory, 'brief.md'), '--name', 'Brief', '--store', 'local'], { cwd: six });
+    f.git(six, 'commit', '-q', '--allow-empty', '-m', 'Local only');
+    await writeFile(path.join(five, 'scratch.txt'), 'not committed\n');
+
+    const lists = () => [f.git(declared, 'worktree', 'list', '--porcelain'), f.git(second, 'worktree', 'list', '--porcelain')];
+    const before = lists();
+    const preview = f.json(['workspace', 'consolidate', workspace], { cwd: f.directory }).value;
+    assert.equal(preview.status, 'partial', JSON.stringify(preview, null, 2));
+    assert.match(preview.planId, /^wcp-[a-f0-9]{32}$/u);
+    const [repository] = preview.repositories;
+    assert.equal(canonical(repository.canonical.path), canonical(declared), 'the clone the workspace declares');
+    assert.deepEqual(repository.moves.map((move) => move.workId), ['S-4']);
+    assert.deepEqual(repository.refused.map((item) => [item.workId, item.reason]).sort(),
+      [['S-5', 'untracked-files'], ['S-6', 'unpushed-commits']]);
+    assert.deepEqual(repository.pointers, [], 'the second clone still owns checkouts, so it keeps serving its branch');
+    assert.deepEqual(lists(), before, 'the preview changed nothing');
+    const text = f.cli(['workspace', 'consolidate', workspace], { cwd: f.directory }).stdout;
+    for (const expected of [`canonical clone ${canonical(declared)}`, 'Moves S-4 on S-4', 'Stays S-5', 'it has untracked files',
+      'Stays S-6', 'not on the remote', `--confirm-plan ${preview.planId}`]) {
+      assert.ok(text.includes(expected), `${expected}\n${text}`);
+    }
+
+    // A plan ID that is not one, or that no longer matches the workspace, moves nothing.
+    const invalid = f.cli(['workspace', 'consolidate', workspace, '--confirm-plan', 'wcp-1', '--json'], { cwd: f.directory, allowFailure: true });
+    assert.equal(JSON.parse(invalid.stdout).error.code, 'WORKSPACE_CONSOLIDATE_PLAN_INVALID', invalid.stdout);
+    await writeFile(path.join(four, 'package.json'), '{"edited":"after the preview"}\n');
+    assert.deepEqual(f.json(['workspace', 'consolidate', workspace], { cwd: f.directory }).value.repositories[0].refused
+      .filter((item) => item.workId === 'S-4').map((item) => item.reason), ['local-changes']);
+    const stale = f.cli(['workspace', 'consolidate', workspace, '--confirm-plan', preview.planId, '--json'], { cwd: f.directory, allowFailure: true });
+    assert.equal(JSON.parse(stale.stdout).error.code, 'WORKSPACE_CONSOLIDATE_PLAN_STALE', stale.stdout);
+    assert.deepEqual(lists(), before, 'a stale plan moved nothing');
+    f.git(four, 'checkout', '--', 'package.json');
+
+    const applied = f.json(['workspace', 'consolidate', workspace, '--confirm-plan', preview.planId], { cwd: f.directory }).value;
+    assert.equal(applied.applied, true);
+    assert.deepEqual(applied.moved.map((move) => move.workId), ['S-4']);
+    assert.equal(commonDir(four), canonical(path.join(declared, '.git')), 'S-4 now hangs off the declared clone');
+    assert.match(f.git(declared, 'worktree', 'list', '--porcelain'), new RegExp(`branch refs/heads/S-4\\b`, 'u'));
+    assert.doesNotMatch(f.git(second, 'worktree', 'list', '--porcelain'), /refs\/heads\/S-4\b/u);
+    assert.equal(f.git(four, 'status', '--porcelain'), '');
+    assert.equal(f.git(four, 'branch', '--show-current'), 'S-4');
+    assert.equal(f.git(four, 'rev-parse', '--abbrev-ref', '--symbolic-full-name', '@{upstream}'), 'origin/S-4');
+    assert.equal(f.json(['status'], { cwd: four }).value.workItem.id, 'S-4');
+    assert.equal(canonical((await f.entry('S-4'))[0].commonDir), canonical(path.join(declared, '.git')), 'the Story index follows');
+    assert.ok(existsSync(path.join(five, 'scratch.txt')), 'a refused checkout is left exactly as it was');
+    assert.equal(commonDir(five), canonical(path.join(second, '.git')));
+
+    // A copy of the Story in the declared clone, or a bound Copilot turn, also keeps a checkout where it is.
+    await rm(path.join(five, 'scratch.txt'));
+    const duplicate = path.join(f.directory, 'duplicate S-5');
+    f.git(declared, 'fetch', '-q', 'origin', 'S-5:S-5');
+    f.git(declared, 'worktree', 'add', '-q', duplicate, 'S-5');
+    f.git(six, 'push', '-q', 'origin', 'S-6');
+    const boundaries = path.join(f.state, 'copilot-boundaries');
+    await mkdir(boundaries, { recursive: true });
+    const record = path.join(boundaries, `${'b'.repeat(64)}.mutation.json`);
+    await writeFile(record, JSON.stringify({ schemaVersion: 1, kind: 'copilot-mutation-contract', recordedAt: Date.now(),
+      contract: { workId: 'S-6', repositoryRoot: canonical(six) } }));
+    const held = f.json(['workspace', 'consolidate', workspace], { cwd: f.directory }).value;
+    assert.equal(held.status, 'blocked');
+    assert.deepEqual(held.repositories[0].refused.map((item) => [item.workId, item.reason]).sort(),
+      [['S-5', 'checked-out-in-canonical'], ['S-6', 'live-lease']]);
+    assert.equal(held.planId, null);
+    await rm(record);
+    f.git(declared, 'worktree', 'remove', duplicate);
+    // An unfinished publication the old clone records for a Story keeps it there too.
+    const pending = path.join(second, '.git', 'singularity-flow', 'pending-publication', 'story--S-6.json');
+    await mkdir(path.dirname(pending), { recursive: true });
+    await writeFile(pending, '{}\n');
+    assert.deepEqual(f.json(['workspace', 'consolidate', workspace], { cwd: f.directory }).value.repositories[0].refused
+      .map((item) => [item.workId, item.reason]), [['S-6', 'unfinished-records']]);
+    await rm(pending);
+
+    // Nothing stops them now: both move, and the second clone, owning nothing, stops serving its branch.
+    const last = f.json(['workspace', 'consolidate', workspace], { cwd: f.directory }).value;
+    assert.equal(last.status, 'ready', JSON.stringify(last, null, 2));
+    assert.deepEqual(last.repositories[0].moves.map((move) => move.workId).sort(), ['S-5', 'S-6']);
+    assert.equal(last.repositories[0].pointers.length, 1);
+    const done = f.json(['workspace', 'consolidate', workspace, '--confirm-plan', last.planId], { cwd: f.directory }).value;
+    assert.deepEqual(done.moved.map((move) => move.workId).sort(), ['S-5', 'S-6']);
+    for (const checkout of [five, six]) assert.equal(commonDir(checkout), canonical(path.join(declared, '.git')));
+    assert.equal(f.git(six, 'log', '-1', '--format=%s'), 'Local only', 'the checkout kept its history');
+    const [retired] = done.pointersRetired;
+    assert.equal(existsSync(retired.pointer), false);
+    assert.ok(existsSync(retired.retiredTo), 'the pointer is set aside, not deleted');
+    assert.ok(existsSync(path.join(second, '.git', 'objects')), 'the second clone and its objects stay');
+    assert.match(done.nextAction, /workspace cleanup/u);
+    const documents = f.json(['documents', 'list'], { cwd: six }).value;
+    const brief = (Array.isArray(documents) ? documents : documents.documents).find((document) => document.name === 'Brief');
+    assert.equal(brief.availability, 'available', 'its machine-local document came with it');
+    assert.equal(f.json(['workspace', 'consolidate', workspace], { cwd: f.directory }).value.status, 'current');
+  });

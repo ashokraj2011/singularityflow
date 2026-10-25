@@ -19,6 +19,7 @@ import { head } from '../git.mjs';
 import { runQualityCommand } from '../quality-command-runner.mjs';
 import { canonicalJson, recordSha256 } from '../records.mjs';
 import { currentSchemaVersion, readRecord } from '../schema-migrations.mjs';
+import { gateTestEnvironmentModule } from '../test-runtime.mjs';
 import {
   createLocalAuthorityTransportSigner, loadLocalAuthorityTransportSigner
 } from '../sgos/authority-transport.mjs';
@@ -375,8 +376,10 @@ export async function executeLocalRunnerWorker(root, definition, value) {
   });
   const before = repositoryStatus(root);
   const startedAt = new Date().toISOString();
+  // A test command gets the environment a gate gives it [TCE:REQ-030].
+  const env = command.kind === 'test' ? (await gateTestEnvironmentModule()).gateTestEnvironment(process.env).environment : process.env;
   const result = await runQualityCommand(command.argv[0], command.argv.slice(1), {
-    cwd: secured.absolute, timeoutMs: command.timeoutMs, captureBytes: CAPTURE_BYTES,
+    cwd: secured.absolute, env, timeoutMs: command.timeoutMs, captureBytes: CAPTURE_BYTES,
     shell: false, killTree: true
   });
   const completedAt = new Date().toISOString();

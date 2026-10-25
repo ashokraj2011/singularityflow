@@ -29,7 +29,7 @@ import { reservePreparedDocumentSuccessor } from './prepared-document-successor.
 import { copyFile, cp, lstat, mkdir, mkdtemp, readFile, readdir, readlink, rm, writeFile } from 'node:fs/promises';
 import { existsSync } from 'node:fs';
 import { createHash } from 'node:crypto';
-import { normalizeTestRuntime, testRuntimeEnvironment, testRuntimeIdentity } from './test-runtime.mjs';
+import { gateTestEnvironmentModule, normalizeTestRuntime, testRuntimeEnvironment, testRuntimeIdentity } from './test-runtime.mjs';
 import { baselineDeferralAllowed, baselineObservationPending, intakeBaselineChoice } from './intake-baseline.mjs';
 import os from 'node:os';
 import path from 'node:path';
@@ -4755,7 +4755,10 @@ async function qualityChecks(root, phase, config, workflow, commands = phase.qua
     const failedRiskCommand = workflow?.resolution?.testRecovery?.enabledRiskCategories?.some(category => ['new-test-failure', 'known-test-failure', 'reduced-coverage'].includes(category))
       && workflow.resolution.testRecovery.caseInventory?.some(entry => entry.phaseId === phase.id && entry.commandId === policy.id);
     const riskDeclaration = failedRiskCommand ? trpCaseInventoryDeclaration(workflow, phase, policy) : null;
-    let commandEnvironment = failedRiskCommand ? trpExecutionEnvironment(riskDeclaration, process.env, { cwd: commandRoot }) : { ...process.env };
+    // CI=1, and no inherited variable that narrows the run unseen [TCE:REQ-030].
+    const gateRun = policy.kind === 'test' ? (await gateTestEnvironmentModule()).gateTestEnvironment(process.env) : null;
+    const inherited = gateRun?.environment ?? process.env;
+    let commandEnvironment = failedRiskCommand ? trpExecutionEnvironment(riskDeclaration, inherited, { cwd: commandRoot }) : { ...inherited };
     if (policy.kind === 'test') commandEnvironment = testRuntimeEnvironment(workflow?.resolution?.testRuntime, commandEnvironment);
     if (policy.kind === 'test' && policy.result?.adapter === 'node-tap') {
       commandEnvironment = nodeTestReporterEnvironment(commandEnvironment, isolation?.root ?? root, { argv: policy.argv, cwd: executionRoot });
@@ -4776,6 +4779,7 @@ async function qualityChecks(root, phase, config, workflow, commands = phase.qua
       }
       commandEnvironment.PLAYWRIGHT_JSON_OUTPUT_FILE = structuredResultTarget;
     }
+    gateRun?.observe(policy, { cwd: executionRoot, environment: commandEnvironment, bound: materialized?.environment });
     const result = policy.argv
       ? await runQualityCommand(policy.argv[0], policy.argv.slice(1), {
         cwd: executionRoot,
@@ -4851,6 +4855,7 @@ async function qualityChecks(root, phase, config, workflow, commands = phase.qua
           ...policy, provenance: commandProvenance.get(value) ?? 'configured'
         }, check) : error;
     }
+    await gateRun?.attach(check);
     if (restoreTransientResult) transientQualityResultRestorers.set(check, restoreTransientResult);
     qualityCommandResults.set(check, result);
     checks.push(check);

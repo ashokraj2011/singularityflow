@@ -1,5 +1,8 @@
 /** Approved test-only runtime settings. Never change the caller's environment. */
 import { createHash } from 'node:crypto';
+import path from 'node:path';
+import { pathToFileURL } from 'node:url';
+import { PACKAGE_ROOT } from './package-root.mjs';
 import { SingularityFlowError } from './util.mjs';
 
 const digest = value => `sha256:${createHash('sha256').update(JSON.stringify(value)).digest('hex')}`;
@@ -15,6 +18,11 @@ export function normalizeTestRuntime(value = {}) {
   }
   return { nodeOptions: [...new Set(value.nodeOptions ?? [])].sort() };
 }
+
+/** test-run-environment.mjs [TCE:REQ-030]; an editor bundle loads the staged CLI's copy by URL. */
+export const gateTestEnvironmentModule = () => (globalThis.__SFLOW_EXTENSION_HOST__ === true
+  ? import(pathToFileURL(path.join(PACKAGE_ROOT, 'src', 'test-run-environment.mjs')).href)
+  : import('./test-run-environment.mjs'));
 
 export function testRuntimeEnvironment(profile = {}, environment = process.env) {
   return runtimeEnvironment(profile, environment, true);

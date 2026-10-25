@@ -15,7 +15,7 @@ import { nextPhaseGeneration } from './phase-generation.mjs';
 import { runQualityCommand, withoutHostSurfaceVariables } from './quality-command-runner.mjs';
 import { localTestRunKernel as kernel, sourceTreeHash } from './state-stores.mjs';
 import { workDirRelative } from './story-paths.mjs';
-import { normalizeTestRuntime, testRuntimeEnvironment, testRuntimeIdentity } from './test-runtime.mjs';
+import { gateTestEnvironmentModule, normalizeTestRuntime, testRuntimeEnvironment, testRuntimeIdentity } from './test-runtime.mjs';
 import { nowIso, secureRepositoryPath, SingularityFlowError } from './util.mjs';
 import { recordTestAttempt } from './verification/attempts.mjs';
 import { nodeTestReporterEnvironment } from './verification/node-test-observation.mjs';
@@ -60,7 +60,9 @@ export async function runLocalPreviewQualityCommand(root, config, value, { index
       structuredResultTarget = resultTarget;
     }
     await prepareInferredSwiftTestReports(root, policy);
-    let commandEnvironment = { ...process.env };
+    // The environment a gate gives the same test run [TCE:REQ-030].
+    const gateRun = policy.kind === 'test' ? (await gateTestEnvironmentModule()).gateTestEnvironment(process.env) : null;
+    let commandEnvironment = { ...(gateRun?.environment ?? process.env) };
     const testRuntime = normalizeTestRuntime(config.repositoryReadiness?.testRuntime);
     if (policy.kind === 'test') commandEnvironment = testRuntimeEnvironment(testRuntime, commandEnvironment);
     if (policy.kind === 'test' && policy.result?.adapter === 'node-tap') {
@@ -75,6 +77,7 @@ export async function runLocalPreviewQualityCommand(root, config, value, { index
       commandEnvironment.PLAYWRIGHT_JSON_OUTPUT_FILE = structuredResultTarget;
     }
     if (materialized) commandEnvironment = materialized.childEnvironment(commandEnvironment);
+    gateRun?.observe(policy, { cwd: commandRoot, environment: commandEnvironment, bound: materialized?.environment });
     const timeoutMs = policy.timeoutMs ?? kernel.defaultTimeoutMs;
     const result = policy.argv
       ? await runQualityCommand(policy.argv[0], policy.argv.slice(1), {
@@ -102,6 +105,7 @@ export async function runLocalPreviewQualityCommand(root, config, value, { index
       stdoutTruncated: result.stdoutTruncated || String(result.stdout ?? '').length > 2000,
       stderrTruncated: result.stderrTruncated || String(result.stderr ?? '').length > 2000
     };
+    await gateRun?.attach(check);
     // The report is read now, while it is the fresh file this invocation wrote.
     let parsed = null;
     let reportError = null;

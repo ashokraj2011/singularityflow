@@ -533,7 +533,7 @@ async function runRemoteGitAsyncImpl(args, {
       resolve({ status: 1, stdout: '', stderr: '', error, timedOut: false });
       return;
     }
-    const untrackGroup = childWatch && platform !== 'win32' ? childWatch.trackGitGroup(child.pid) : () => {};
+    const untrackGroup = childWatch && platform !== 'win32' ? childWatch.trackProcessGroup(child.pid) : () => {};
     const stopWaitReport = childWatch && !localRead
       ? childWatch.reportGitWait({ args, cwd, env, deadlineMs: operationDeadlineAt - serviceStarted }) : () => {};
     // Local byte-exact Git descriptors can opt into raw stdout. Keep remote callers' text

@@ -11,15 +11,29 @@ const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const CLI = path.join(ROOT, 'bin/singularity-flow.mjs');
 const SHIM = path.join(ROOT, 'test', 'fixtures', 'verification', 'jest-shim.mjs');
 
-function run(command, args, cwd, { allowFailure = false } = {}) {
+function run(command, args, cwd, { allowFailure = false, env = {} } = {}) {
   const result = spawnSync(command, args, {
     cwd, encoding: 'utf8',
-    env: { ...process.env, NODE_ENV: 'test', SINGULARITY_FLOW_TEST_IDENTITY: 'Exact Verification Tester' }
+    env: { ...process.env, NODE_ENV: 'test', SINGULARITY_FLOW_TEST_IDENTITY: 'Exact Verification Tester', ...env }
   });
   if (!allowFailure && result.status !== 0) {
     throw new Error(`${command} ${args.join(' ')} failed\n${result.stdout}\n${result.stderr}`);
   }
   return result;
+}
+
+/**
+ * Skipped tests a Story adds narrow its run [TCE:REQ-021]: publication is refused until a person who
+ * approves the step accepts that narrowing, here a reviewer who is not the author.
+ */
+function acceptNarrowing(root, workId) {
+  const refused = run(process.execPath, [CLI, '--no-model', 'phase', 'publish', 'implementation', '--authored', 'human', '--channel', 'manual-in-place', '--json'],
+    root, { allowFailure: true });
+  assert.equal(JSON.parse(refused.stdout).error.code, 'CODE_TEST_NARROWED', refused.stdout);
+  run(process.execPath, [CLI, '--no-model', 'decision', 'test-narrowing', workId, '--phase', 'implementation',
+    '--reason', 'These skipped tests are the case under test: they must stay unverified.', '--json'], root, { env: {
+    SINGULARITY_FLOW_TEST_IDENTITY: 'Exact Reviewer', GIT_CONFIG_COUNT: '2', GIT_CONFIG_KEY_0: 'user.name', GIT_CONFIG_VALUE_0: 'Exact Reviewer',
+    GIT_CONFIG_KEY_1: 'user.email', GIT_CONFIG_VALUE_1: 'exact.reviewer@example.test' } });
 }
 
 async function governedRepository(t, workId, files, { executables = [] } = {}) {
@@ -144,6 +158,7 @@ test('§12 #7 and #8 through a real Story: only a criterion\'s own passing Jest 
     "test('an unrelated passing test', () => { expect(value).toBe(2); });",
     `// @ac:${workId}:AC-003`, "test.skip('the real refund test', () => { expect(value).toBe(0); });", ''
   ].join('\n'));
+  acceptNarrowing(root, workId);
   cli('phase', 'publish', 'implementation', '--authored', 'human', '--channel', 'manual-in-place');
   cli('submit', 'implementation');
 
@@ -227,6 +242,7 @@ test('§12 #8 for JUnit 5 through a real Story: skipped, filtered, missing and d
     `  // @ac:${workId}:AC-004`, '  @Test void provesTheTotal() {}', '}', ''
   ].join('\n'));
   await completeSummary(item);
+  acceptNarrowing(root, workId);
   cli('phase', 'publish', 'implementation', '--authored', 'human', '--channel', 'manual-in-place');
   cli('submit', 'implementation');
   const rows = Object.fromEntries(JSON.parse(cli('evidence', 'matrix', '--json').stdout).data.matrix.page.rows

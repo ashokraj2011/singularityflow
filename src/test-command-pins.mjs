@@ -24,6 +24,7 @@ import { createHash } from 'node:crypto';
 import { readdir } from 'node:fs/promises';
 import path from 'node:path';
 
+import { committedFilesAtRevisions } from './git.mjs';
 import { canonicalJson, recordSha256 } from './records.mjs';
 import { readRepositoryManifest } from './repository-manifest.mjs';
 import { storyTestCommandState } from './story-test-commands.mjs';
@@ -137,6 +138,14 @@ async function readText(root, relative) {
   catch { return null; }
 }
 
+/** A file as it stands on the Story's base commit, or null where it did not exist. */
+function baseText(root, baseCommit, relative) {
+  try {
+    return committedFilesAtRevisions(root, [{ key: relative, ref: baseCommit, path: relative }], { maximumObjectBytes: MAX_CONFIG_BYTES })
+      .get(relative)?.toString('utf8') ?? null;
+  } catch { return null; }
+}
+
 const join = (directory, name) => (directory === '.' || !directory ? name : path.posix.join(directory, name));
 
 /** The lines of one INI or TOML section whose header starts with `header`, or null. */
@@ -182,17 +191,17 @@ function gradleTestConfiguration(build) {
  * What a command resolves through [TCE:REQ-011]: each file and selector with its sha256, sorted,
  * and the script texts it runs (read by the narrowed-run check, never stored).
  */
-export async function commandDefinition(root, command) {
+export async function commandDefinition(root, command, { read = (relative) => readText(root, relative) } = {}) {
   const directory = command.workingDirectory ?? '.';
   const argv = (command.argv ?? []).map(String);
   const launcher = launcherName(argv[0]);
   const entries = [];
   const scripts = [];
   const add = (relative, selector, text) => { if (text != null) entries.push({ path: relative, selector, sha256: textSha256(text) }); };
-  const whole = async (relative) => add(relative, null, await readText(root, relative));
+  const whole = async (relative) => add(relative, null, await read(relative));
   if (SCRIPT_RUNNERS.has(launcher) || NODE_RUNNERS.has(launcher)) {
     const manifestPath = join(directory, 'package.json');
-    const manifestText = await readText(root, manifestPath);
+    const manifestText = await read(manifestPath);
     let manifest = null;
     try { manifest = manifestText ? JSON.parse(manifestText) : null; } catch { manifest = null; }
     const name = packageScriptName(argv);
@@ -211,19 +220,19 @@ export async function commandDefinition(root, command) {
       .filter((value) => value && !value.startsWith(':') && !value.startsWith('!'));
     for (const module of ['.', ...modules]) {
       const pom = join(module === '.' ? directory : join(directory, module), 'pom.xml');
-      add(pom, 'test-plugins', mavenTestConfiguration(await readText(root, pom)));
+      add(pom, 'test-plugins', mavenTestConfiguration(await read(pom)));
     }
     await whole(join(directory, '.mvn/maven.config'));
   } else if (['gradle', 'gradlew'].includes(launcher)) {
     const project = argv.find((_, index) => ['-p', '--project-dir'].includes(argv[index - 1]));
     const base = project ? join(directory, project) : directory;
-    for (const file of ['build.gradle', 'build.gradle.kts']) add(join(base, file), 'test-tasks', gradleTestConfiguration(await readText(root, join(base, file))));
+    for (const file of ['build.gradle', 'build.gradle.kts']) add(join(base, file), 'test-tasks', gradleTestConfiguration(await read(join(base, file))));
   } else if (PYTHON_RUNNERS.has(launcher)) {
     await whole(join(directory, 'pytest.ini'));
     await whole(join(directory, 'conftest.py'));
-    add(join(directory, 'pyproject.toml'), 'tool.pytest', iniSection(await readText(root, join(directory, 'pyproject.toml')), '[tool.pytest'));
-    add(join(directory, 'setup.cfg'), 'tool:pytest', iniSection(await readText(root, join(directory, 'setup.cfg')), '[tool:pytest]'));
-    add(join(directory, 'tox.ini'), 'pytest', iniSection(await readText(root, join(directory, 'tox.ini')), '[pytest]'));
+    add(join(directory, 'pyproject.toml'), 'tool.pytest', iniSection(await read(join(directory, 'pyproject.toml')), '[tool.pytest'));
+    add(join(directory, 'setup.cfg'), 'tool:pytest', iniSection(await read(join(directory, 'setup.cfg')), '[tool:pytest]'));
+    add(join(directory, 'tox.ini'), 'pytest', iniSection(await read(join(directory, 'tox.ini')), '[pytest]'));
   }
   // A repository script the command runs (`./scripts/test.sh`, `bash scripts/test.sh`, `node run-tests.mjs`).
   const scriptFile = ['bash', 'sh', 'zsh', 'node'].includes(launcher) ? argv.slice(1).find((value) => !value.startsWith('-')) : argv[0];
@@ -372,12 +381,16 @@ export async function gateTestCommandPins(root, config, workflow, phase, command
     const candidate = pinCandidate(phase, command, entries);
     const reference = referencePin(workflow, candidate, attempts);
     const acceptedBy = reference && reference.sha256 !== candidate.sha256 ? acceptedRepin(workflow, candidate) : null;
-    if (reference && reference.sha256 !== candidate.sha256 && !acceptedBy) throw pinChangedError(workflow, phase, reference, candidate);
+    // Back to exactly what the base commit runs is the team's own setup, never a change to decide.
+    const restoredToBase = Boolean(reference && reference.sha256 !== candidate.sha256 && !acceptedBy && baseCommit
+      && pinCandidate(phase, command, (await commandDefinition(root, command, { read: async (relative) => baseText(root, baseCommit, relative) })).entries)
+        .sha256 === candidate.sha256);
+    if (reference && reference.sha256 !== candidate.sha256 && !acceptedBy && !restoredToBase) throw pinChangedError(workflow, phase, reference, candidate);
     const recorded = storyPin(workflow, candidate);
     const baseline = (recorded?.sha256 === candidate.sha256 ? recorded.baseline : null) ?? firstPassingRun(attempts, candidate.sha256);
     // What narrows the run before it runs: filters, focused tests, and the pin's baseline [TCE:REQ-021].
     const narrowing = await narrowingFacts(root, command, { scripts, testPaths, baseline, inferred: candidate.source.kind === 'inferred', baseCommit });
-    prepared.set(command.id, { candidate, reference, acceptedBy, scripts, baseline, narrowing });
+    prepared.set(command.id, { candidate, reference, acceptedBy, restoredToBase, scripts, baseline, narrowing });
   }
   return {
     prepared,
@@ -392,9 +405,9 @@ export async function gateTestCommandPins(root, config, workflow, phase, command
 }
 
 /**
- * Write the pins of the commands a passing gate ran onto the Story: a new pin at first use or
- * after an accepted re-pin (naming the pin it replaces and the request that admitted it), and a
- * pin's baseline at its first passing run.
+ * Write the pins of the commands a passing gate ran onto the Story: a new pin at first use, after an
+ * accepted re-pin (naming the pin it replaces and the request that admitted it) or on a return to
+ * exactly the base commit's definition (`restoredToBase`), and a pin's baseline at its first passing run.
  */
 export function recordTestCommandPins(workflow, phase, prepared, { ran, at, attempts = [] }) {
   const ranIds = new Set(ran);
@@ -411,6 +424,7 @@ export function recordTestCommandPins(workflow, phase, prepared, { ran, at, atte
       id: `TCP-${String(workflow.testCommandPins.length + 1).padStart(3, '0')}`, phase: phase.id,
       ...pinIdentity(entry.candidate),
       ...(previous ? { replaces: previous.id } : {}), ...(entry.acceptedBy ? { acceptedBy: entry.acceptedBy } : {}),
+      ...(entry.restoredToBase ? { restoredToBase: true } : {}),
       baseline: firstPassingRun(attempts, entry.candidate.sha256), at
     });
   }

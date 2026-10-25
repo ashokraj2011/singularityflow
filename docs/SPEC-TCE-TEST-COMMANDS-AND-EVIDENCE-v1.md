@@ -117,6 +117,8 @@ still fill an uncovered module, and that command is pinned on first use.
   any `definition` digest is refused with `TEST_COMMAND_PIN_CHANGED`. The refusal names what changed
   and routes to a `decision test-command` request (an agent may request; a step approver accepts),
   whose acceptance replaces the pin.
+  **Amended (2026-10-25):** a definition that is exactly the Story's base commit's is the team's own
+  setup and is accepted with no decision, recorded as a new pin with `restoredToBase`.
 - `[TCE:REQ-013]` Configured and Story-decision commands also record `definition` digests at first
   run, so an edited script behind `npm test` is caught the same way.
 - `[TCE:REQ-014]` Pins are replayed with the receipt, like the attempts they bind.

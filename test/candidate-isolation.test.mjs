@@ -204,6 +204,9 @@ test('an unrelated local edit that would break the tests stays in the worktree w
   await write('test/runner.cjs', runner);
 
   cli('phase', 'publish', 'implementation', '--authored', 'human', '--channel', 'manual-in-place');
+  // Back to the committed runner after the refused run is the team's own setup: no person decides it [TCE:REQ-012].
+  const pins = JSON.parse(await readFile(path.join(item, 'workflow.json'), 'utf8')).testCommandPins;
+  assert.deepEqual(pins.map((pin) => [pin.commandId, pin.restoredToBase ?? false]), [['isolated-tests', true]]);
   cli('submit', 'implementation');
   const dirtyApproval = run(process.execPath, [CLI, '--no-model', 'approve', 'implementation', '--yes'], root, { allowFailure: true });
   assert.notEqual(dirtyApproval.status, 0, 'unrelated authoring still needs review before a local lifecycle decision');

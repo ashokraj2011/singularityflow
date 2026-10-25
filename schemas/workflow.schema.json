@@ -752,6 +752,7 @@
           "sha256": { "type": "string", "pattern": "^sha256:[a-f0-9]{64}$" },
           "replaces": { "type": "string", "pattern": "^TCP-[0-9]{3,}$" },
           "acceptedBy": { "type": "string", "pattern": "^TCD-[0-9]{3,}$" },
+          "restoredToBase": { "type": "boolean" },
           "baseline": {
             "type": ["object", "null"],
             "required": ["discovered", "attemptId"],

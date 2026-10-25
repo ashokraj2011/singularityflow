@@ -11,6 +11,7 @@
 import { constants as fsConstants } from 'node:fs';
 import { lstat, open } from 'node:fs/promises';
 
+import { testCommandCoversPath } from '../code-delivery-tests.mjs';
 import { runBoundedTaskPool } from '../quality-command-runner.mjs';
 import { posix, secureRepositoryPath } from '../util.mjs';
 import { classifyJavascriptTestCommandScope } from '../wel-javascript.mjs';
@@ -41,12 +42,9 @@ export function classifyTestCommand(id, command) {
   return { selection: profile.runner === 'gradle' ? 'complete' : 'module', gaps: [] };
 }
 
-/** The command among `commands` whose affected roots cover a repository path. */
+/** The command among `commands` that covers a repository path, as publication judges it [TCE:REQ-052]. */
 export function commandCovering(commands, candidate) {
-  const covering = commands.filter((command) => (command.affectedRoots ?? []).some((root) => {
-    const normalized = posix(root ?? '').replace(/^\.\//u, '').replace(/\/$/u, '') || '.';
-    return normalized === '.' || candidate === normalized || candidate.startsWith(`${normalized}/`);
-  }));
+  const covering = commands.filter((command) => testCommandCoversPath(command, candidate));
   // The most specific root wins; equal specificity keeps configuration order.
   return covering.sort((left, right) => {
     const depth = (command) => Math.max(...(command.affectedRoots ?? ['.']).map((root) => (root === '.' ? 0 : root.split('/').length)));

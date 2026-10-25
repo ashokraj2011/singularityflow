@@ -201,12 +201,25 @@ test('prompt submission announces the exact code prerequisite before a denied ed
   const nextPayload = { ...payload, sessionId: 'next-only', prompt: '/sf-next' };
   const next = await recordRepositoryBoundaryTurn(nextPayload, { captureMutation: capture });
   assert.match(next.additionalContext, /kernel-only.*no direct repository edits/);
-  assert.match(next.additionalContext, /Never inline \/sf-code/);
+  assert.match(next.additionalContext, /Never inline an authoring skill/);
+  assert.match(next.additionalContext, /Step author: \/sf-code\./, 'a code step names its own author');
   // The kernel skill's own steps run: a kernel turn is never told to stop (a /sf-submit that obeyed
   // "return the configured authoring skill and stop" submitted nothing, 2026-10-26).
   assert.match(next.additionalContext, /Carry out the invoked skill's steps in this turn\./);
   assert.doesNotMatch(next.additionalContext, /\bstop\b/i);
   assert.equal((await mutationToolGuard({ ...edit, sessionId: 'next-only' })).permissionDecision, 'deny');
+});
+
+test('a kernel turn on an unwritten plan names the plan\'s own author, never /sf-code', async t => {
+  // A /sf-submit on a plan step at generation 0 offered /sf-code: the only skill its turn rules
+  // named (2026-10-26). The step's author is named in every turn; code readiness only on code steps.
+  const f = await fixture(t, { id: 'planning' });
+  const capture = (payload, record) => captureMutationTurn(payload, record, { resolveRoot: async () => f.root, load: async () => f.accepted });
+  const { additionalContext } = await recordRepositoryBoundaryTurn({ cwd: f.root, sessionId: 'plan-submit', prompt: '/sf-submit' },
+    { captureMutation: capture });
+  assert.match(additionalContext, /kernel-only turn, PMC-1 step planning generation 0\. Step author: \/sf-phase\./);
+  assert.match(additionalContext, /Carry out the invoked skill's steps in this turn\./);
+  assert.doesNotMatch(additionalContext, /\/sf-code|Code authoring ready|\bstop\b/i);
 });
 
 test('prompt context sends its stable rules once per conversation and keeps the volatile part under 400 bytes', async t => {
@@ -228,10 +241,10 @@ test('prompt context sends its stable rules once per conversation and keeps the 
   assert.ok(Buffer.byteLength(volatile(again)) <= 400, `${Buffer.byteLength(volatile(again))} volatile bytes`);
   // Other rules (a kernel-only turn), a native prompt in between, or another chat: sent whole again.
   const kernel = (await turn('/sf-next')).additionalContext;
-  assert.match(kernel, /Never inline \/sf-code/);
+  assert.match(kernel, /Never inline an authoring skill/);
   assert.notEqual(rules(kernel), rules(first));
   await turn('explain this file');
-  assert.match((await turn('/sf-next')).additionalContext, /Never inline \/sf-code/);
+  assert.match((await turn('/sf-next')).additionalContext, /Never inline an authoring skill/);
   assert.match((await turn('/sf-code', 'another-chat')).additionalContext, /never auto-adopt or discard edits/);
 });
 

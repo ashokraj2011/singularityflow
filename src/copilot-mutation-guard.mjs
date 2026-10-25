@@ -217,7 +217,8 @@ export function turnBoundaryContext(value, presented = mutationContractPresentat
   const { contract } = value;
   const volatile = [
     `SFlow turn boundary (${value.skill}): ${contract.turnMode} turn, ${contract.workId ?? 'no Story'} step ${contract.phaseId ?? 'none'} generation ${contract.generation ?? 'none'}.`,
-    `Code authoring ready: ${presented.codeAuthoringReady}.`,
+    contract.authoringSkill ? `Step author: ${contract.authoringSkill}.` : null,
+    contract.policy?.requiresOpenGeneration ? `Code authoring ready: ${presented.codeAuthoringReady}.` : null,
     presented.sourceEditPrerequisite ? `Before source edits: ${presented.sourceEditPrerequisite.command}.` : null
   ].filter(Boolean).join(' ');
   const stable = [
@@ -231,7 +232,7 @@ export function turnBoundaryContext(value, presented = mutationContractPresentat
     // Never a stop: every kernel skill (/sf-submit, /sf-next…) gets this line, and "return the
     // authoring skill and stop" ended those turns before their own steps ran (2026-10-26).
     contract.turnMode === 'kernel-only'
-      ? 'Carry out the invoked skill\'s steps in this turn. Never inline /sf-code or edit files here; code waits for the configured authoring skill, which the human invokes.' : null
+      ? 'Carry out the invoked skill\'s steps in this turn. Never inline an authoring skill or edit files here; the step author drafts when the human invokes it.' : null
   ].filter(Boolean).join(' ');
   return { volatile, stable, digest: `sha256:${digest(stable).slice(0, 16)}` };
 }

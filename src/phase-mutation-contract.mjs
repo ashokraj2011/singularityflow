@@ -10,6 +10,7 @@ import { phaseNeedsGeneration } from './phase-generation-need.mjs';
 import { sourceReviewKind } from './phase-roles.mjs';
 import { AUTHORING_VERIFICATION_PROTOCOL, CLI_PATH_CONTRACT, safeCommandGuidance } from './safe-command-guidance.mjs';
 import { AUTHORING_SKILL_DECLARATION } from './authoring-skills.mjs';
+import { directCopilotSkill } from './copilot-guidance.mjs';
 import { phasePublicationContract } from './manual-authorship.mjs';
 import { consumedByPublishedGeneration, nextPhaseGeneration } from './phase-generation.mjs';
 
@@ -175,6 +176,8 @@ export function deriveMutationContract({ root = null, definition, workflow, phas
   return {
     schemaVersion: MUTATION_CONTRACT_VERSION, kind: 'phase-mutation-contract',
     workId, phaseId: phase?.id ?? null, generation: phase?.generation ?? null, turnMode, summary,
+    // The skill that drafts this step, named in every turn so no turn guesses one (/sf-code for a plan).
+    authoringSkill: phase ? directCopilotSkill(generationSkillForPhase(phase, workflow)) : null,
     repositoryRoot,
     policy: { writeScope: phase?.writeScope ?? 'artifact-only', sourceBoundary: phase?.sourceBoundary ?? 'unrestricted',
       requiresOpenGeneration: code, openGeneration, editable, supportingChangesOnly: !code && !ownsCode },

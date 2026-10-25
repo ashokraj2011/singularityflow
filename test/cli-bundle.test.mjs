@@ -200,7 +200,9 @@ test('the bundled CLI answers exactly like the sources while opening a handful o
   // withCommandLiteralEnvironment 283, the env field and the receipt digest's env) and cold-core +148
   // (environment-declaration.mjs looksSecretName, which secret-looking.mjs now re-exports). The instruction
   // extractor and completer load lazily, outside these reads.
-  assert.ok(catalogClosure.reduce((sum, item) => sum + item.bytes, 0) < 5_245_000,
+  // 5,250,000: a turn names its step's author (`Step author: /sf-phase.`) so no turn guesses /sf-code,
+  // cold-hooks +216 (phase-mutation-contract.mjs, copilot-mutation-guard.mjs) for 5,245,199.
+  assert.ok(catalogClosure.reduce((sum, item) => sum + item.bytes, 0) < 5_250_000,
     'catalog parsing stays bounded instead of pulling in the entire administration bundle');
   for (const name of ['cold-compatibility.mjs', 'cold-models.mjs', 'cold-intake.mjs', 'cold-phases.mjs', 'cold-hook-context.mjs']) {
     assert.ok(!catalogClosure.some(item => item.file === name), `catalogs must not statically reach ${name}`);

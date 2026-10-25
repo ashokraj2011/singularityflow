@@ -31,7 +31,7 @@ export const DEFAULT_RISK_DAYS = 30;
 const MAX_RISK_DAYS = 90;
 const DAY = 24 * 60 * 60 * 1000;
 // The order a chosen option's records are written in: an issue exists before it is decided.
-const EFFECT_ORDER = Object.freeze(['upstream-issue', 'evidence-reuse', 'test-run-risk', 'test-command', 'visual-profile', 'upstream-issue-decision']);
+const EFFECT_ORDER = Object.freeze(['upstream-issue', 'evidence-reuse', 'test-run-risk', 'test-narrowing', 'test-command', 'visual-profile', 'upstream-issue-decision']);
 const REASON = Object.freeze({ minimum: 20, maximum: 1000 });
 const CAUSE = Object.freeze({ minimum: 10, maximum: 300 });
 
@@ -370,6 +370,25 @@ function testRiskItem(workflow, context, risk) {
   };
 }
 
+/** One item for a test command of a step whose latest run passed narrowed, with no acceptance covering it. */
+function testNarrowingItem(workflow, context, entry) {
+  const name = stepName(workflow, entry.phase);
+  return {
+    kind: 'test-narrowing',
+    title: `${name}'s tests ran narrowed (${entry.commandId})`,
+    why: `The latest run of ${entry.commandId} passed narrowed: ${entry.words}. A narrowed run does not prove the module, so the gate refuses it. `
+      + 'Remove the narrowing and run it again, or accept it with a reason: the acceptance covers runs of the same pin narrowed the same or less.',
+    options: [option(workflow, context, {
+      id: 'accept-test-narrowing', label: 'Accept this narrowed run for this step',
+      words: 'A run narrowed further, or under a changed pin, is refused again.',
+      effects: [{ kind: 'test-narrowing', phase: entry.phase, commandId: entry.commandId, attemptId: entry.attemptId ?? null }],
+      needs: { reason: textNeed(`The narrowed run of ${entry.commandId} is enough for ${name}: ${entry.words}.`.slice(0, REASON.maximum), REASON) }
+    })],
+    details: { phase: entry.phase, commandId: entry.commandId, attemptId: entry.attemptId ?? null, reasons: entry.reasons,
+      commands: [`singularity-flow decision test-narrowing ${workflow.workItem.id} --phase ${entry.phase} --command ${entry.commandId} --reason "<why the narrowed run is enough for this step>"`] }
+  };
+}
+
 /** One item for a Story-only test command someone requested for a step (`decision test-command`). */
 function testCommandItem(workflow, context, request) {
   const name = stepName(workflow, request.phase);
@@ -565,7 +584,7 @@ export const APPROVAL_HOLDING_KINDS = Object.freeze(['conformance-gap', 'upstrea
 export const PENDING_CONCEPTS = Object.freeze({
   'unpushed-commits': Object.freeze({ kinds: ['story-publication'], machine: true }),
   'transport-intents': Object.freeze({ kinds: ['transport-intent'], machine: true }),
-  'decision-list': Object.freeze({ kinds: ['conformance-gap', 'upstream-issue', 'visual-profile', 'test-run-risk', 'test-command', 'evidence-obligation'] }),
+  'decision-list': Object.freeze({ kinds: ['conformance-gap', 'upstream-issue', 'visual-profile', 'test-run-risk', 'test-narrowing', 'test-command', 'evidence-obligation'] }),
   'routing-decision': Object.freeze({ kinds: ['routing-decision'] }),
   'owed-witnesses-and-scope-items': Object.freeze({ kinds: ['owed-decision', 'evidence-obligation'] }),
   'intent-amendments': Object.freeze({ kinds: ['intent-amendment'] }),
@@ -595,11 +614,11 @@ export function holdItemKind(hold) {
 }
 
 // The kinds whose items are decided on this list itself; the digest binds their words and options.
-const DECIDED_HERE = new Set(['conformance-gap', 'upstream-issue', 'visual-profile', 'test-run-risk', 'test-command', 'evidence-obligation']);
+const DECIDED_HERE = new Set(['conformance-gap', 'upstream-issue', 'visual-profile', 'test-run-risk', 'test-narrowing', 'test-command', 'evidence-obligation']);
 
 /** Every item kind this list builds. */
 export const PENDING_ITEM_KINDS = Object.freeze(['story-publication', 'routing-decision', 'intent-amendment', 'forward-amendment', 'appeal',
-  'conformance-gap', 'upstream-issue', 'visual-profile', 'test-run-risk', 'test-command', 'evidence-obligation', 'owed-decision',
+  'conformance-gap', 'upstream-issue', 'visual-profile', 'test-run-risk', 'test-narrowing', 'test-command', 'evidence-obligation', 'owed-decision',
   'approval-hold', 'transport-intent', 'approval']);
 
 /** The commands a person or script uses to record, with the packet digest. */
@@ -642,6 +661,7 @@ export function decisionPacket(workflow, facts, { authorities, actor, at, reques
     ...groups.map((group) => (group.kind === 'conformance-gap' ? gapItem(workflow, context, group) : issueItem(workflow, context, group.state))),
     ...(facts.visual ?? []).map((entry) => visualItem(workflow, context, entry)),
     ...(facts.testRisks ?? []).map((risk) => testRiskItem(workflow, context, risk)),
+    ...(facts.testNarrowings ?? []).map((entry) => testNarrowingItem(workflow, context, entry)),
     ...(facts.testCommands ?? []).map((request) => testCommandItem(workflow, context, request)),
     ...(facts.evidence ?? []).map((entry) => evidenceItem(workflow, context, entry)),
     ...(pending.owed ?? []).map((entry) => owedItem(workflow, context, entry))
@@ -828,6 +848,7 @@ export function effectWords(workflow, effect, values = {}) {
   }
   if (effect.kind === 'upstream-issue') return `report the gap against ${stepName(workflow, effect.phase)} (new upstream issue about ${effect.about})`;
   if (effect.kind === 'test-run-risk') return `accept that ${effect.commandId} cannot run here until ${values.expires} (test-run risk)`;
+  if (effect.kind === 'test-narrowing') return `accept that ${effect.commandId} ran narrowed for ${stepName(workflow, effect.phase)} (test-narrowing decision)`;
   if (effect.kind === 'test-command') return `run ${effect.request}'s command as ${stepName(workflow, effect.phase)}'s tests for this Story (test-command decision)`;
   if (effect.kind === 'visual-profile') return `record that screen size ${effect.profileId} does not apply to this Story (visual-profile decision)`;
   const what = { 'accept-risk': `accept it as a risk until ${values.expires}`, dismiss: 'dismiss it', return: `return the work to ${stepName(workflow, effect.issuePhase)}` }[effect.outcome] ?? effect.outcome;

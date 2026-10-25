@@ -125,6 +125,8 @@ export async function recordTestRunRiskDecision(root, config, workflow, request,
 }
 
 export async function decisionTestRiskCommand(positionals, options) {
+  // Its sibling decision on a test run, routed here so the CLI's dispatch keeps one line for both.
+  if (positionals[1] === 'test-narrowing') return (await import('./decision-test-narrowing.mjs')).decisionTestNarrowingCommand(positionals, options);
   const root = repoRoot();
   const requestedId = positionals[2] ?? optionString(options, 'work-id') ?? null;
   let config = await loadConfig(root);

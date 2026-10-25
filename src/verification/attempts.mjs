@@ -100,7 +100,7 @@ export async function latestStepAttempts(root, itemRelative, workId, phaseId, { 
  */
 export async function recordTestAttempt(root, itemRelative, {
   command, check, purpose, workId, phaseId, generation, epoch = null, random = randomBytes, localRunId = null,
-  uncommittedChanges = null, pin = null
+  uncommittedChanges = null, pin = null, narrowing = null
 }) {
   let parsed = null;
   let reportError = null;
@@ -122,8 +122,11 @@ export async function recordTestAttempt(root, itemRelative, {
   const attempt = buildTestExecutionReceipt(command, check, parsed, {
     ...newAttemptIdentity(random), parentAttemptId: previous?.attemptId ?? null, purpose, workId, phase: phaseId,
     generation, epoch, rawReports, reportError, profile, selection: classifyTestCommand(profile, command), localRunId,
-    uncommittedChanges, pin
+    uncommittedChanges
   });
+  // The pin a gate ran it under, which replay finds on the Story [TCE:REQ-014], and what narrowed it [TCE:REQ-021].
+  if (pin) attempt.pin = pin;
+  if (narrowing) attempt.narrowing = (await import('../test-narrowing.mjs')).observedNarrowing(narrowing, parsed?.tests);
   await writeAtomicExclusive(path.join(staging, phaseId, `${attempt.attemptId}.json`), `${JSON.stringify(attempt, null, 2)}\n`, { mode: 0o600 });
   return {
     attempt, parsed, reportError,

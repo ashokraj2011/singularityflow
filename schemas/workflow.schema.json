@@ -766,6 +766,49 @@
         "additionalProperties": false
       }
     },
+    "testNarrowings": {
+      "description": "Append-only decisions by a step's approvers that a narrowed run of one of its test commands (filters, focused tests, skipped tests, fewer tests than the pin's baseline) is enough, and their revocations [TCE:REQ-023]. A decision is bound to the command's pin and the narrowing it saw, and covers later runs whose narrowing is the same or smaller, until it expires or is revoked.",
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["phase", "commandId", "reason", "actor", "authorityGroup", "at"],
+        "properties": {
+          "id": { "type": "string", "pattern": "^TNR-[0-9]{3,}$" },
+          "revokes": { "type": "string", "pattern": "^TNR-[0-9]{3,}$" },
+          "phase": { "type": "string", "minLength": 1 },
+          "commandId": { "type": "string", "minLength": 1 },
+          "pinSha256": { "type": "string", "pattern": "^sha256:[a-f0-9]{64}$" },
+          "narrowing": {
+            "type": "object",
+            "required": ["reasons", "filters", "focused", "skipped", "shortfall"],
+            "properties": {
+              "reasons": { "type": "array", "items": { "enum": ["filter", "focused", "skipped", "below-baseline"] } },
+              "filters": { "type": "array", "items": { "type": "object" } },
+              "focused": { "type": "array", "items": { "type": "object" } },
+              "skipped": { "type": "integer", "minimum": 0 },
+              "discovered": { "type": ["integer", "null"] },
+              "baseline": { "type": ["integer", "null"] },
+              "shortfall": { "type": "integer", "minimum": 0 }
+            },
+            "additionalProperties": false
+          },
+          "fingerprint": { "type": "string", "pattern": "^sha256:[a-f0-9]{64}$" },
+          "observation": {
+            "type": "object",
+            "required": ["attemptId"],
+            "properties": { "attemptId": { "type": "string", "pattern": "^TA-[a-f0-9]{20}$" } },
+            "additionalProperties": false
+          },
+          "reason": { "type": "string", "minLength": 20, "maxLength": 1000 },
+          "expiresAt": { "type": ["string", "null"], "format": "date-time" },
+          "actor": { "type": "string", "minLength": 1 },
+          "authorityGroup": { "type": "string", "minLength": 1 },
+          "identityAssurance": { "type": ["string", "null"] },
+          "at": { "type": "string", "format": "date-time" }
+        },
+        "additionalProperties": false
+      }
+    },
     "testRunRisks": {
       "description": "Append-only decisions by a step's approvers that one of its test commands cannot run in this environment, and their revocations. A decision lets through only a run of the same command in which no test executed, until it expires or is revoked.",
       "type": "array",

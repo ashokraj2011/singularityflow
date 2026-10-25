@@ -13,7 +13,7 @@ related:
   - recovery
   - approvals
   - configuration
-version: 23
+version: 24
 ---
 Test and Recovery (TRP) is an explicitly enabled pilot for a Story's test policy, baseline repair and phase issues. It keeps what a check observed separate from the decision about whether work may continue. A failed test remains failed even when a current, authorized exception permits a named transition. Normal phase approval remains separate.
 
@@ -244,6 +244,24 @@ singularity-flow decision test-command <WORK-ID> --accept TCD-001        (a pers
 ```
 
 The request records the exact new pin by digest and what changed. Anyone working on the Story may request it; only a person who approves the step accepts it (an agent is refused). The next gate run records it as the command's pin, naming the pin it replaces and the request. Each test attempt carries the pin it ran under, and the receipt replays only against a pin recorded on the Story. Line endings and the per-platform wrapper spelling (`./mvnw` or `.\mvnw.cmd`, `python3` or `py -3`) are not changes.
+
+### When a run is narrowed
+
+A gate run proves a module only when it ran the module's tests. Each gate run records on its attempt what narrowed it, and a run that passed narrowed is refused with `CODE_TEST_NARROWED`, naming each reason:
+
+- **filter:** a test-selecting option in the command or in the pinned script behind it: `-Dtest`, `-Dit.test`, `-k`, `-m` (pytest), `--grep`/`-g`, `-t`/`--testNamePattern`, `--testPathPattern`, `--shard`, `--only`, `--tests` (Gradle), `-run` (Go), `--filter` (.NET), `--test-name-pattern` and `--test-only` (Node), and `--project` in a guessed command;
+- **focused:** `.only`, `fit` or `fdescribe` in a changed test file the command covers;
+- **skipped:** any skipped test (a test-policy agreement's accepted reduced coverage is judged by that agreement);
+- **below-baseline:** fewer tests discovered than the first passing run of the same pin in this Story.
+
+Remove the narrowing and run it again, or a person who approves the step accepts it with a reason, in their own terminal or from the decision list:
+
+```text
+singularity-flow decision test-narrowing <WORK-ID> --phase <PHASE> [--command <COMMAND-ID>] --reason "<why the narrowed run is enough for this step>" [--expires YYYY-MM-DD]
+singularity-flow decision test-narrowing <WORK-ID> --revoke TNR-001 --reason "<why>"
+```
+
+It needs a recorded run of that command that passed narrowed. The decision is bound to the command's pin and to the narrowing it saw, and covers later runs of the same pin whose narrowing is the same or smaller: no new filter or focused test, no more skipped tests, no larger shortfall. Without `--expires` it lasts until the Story ends. An agent is refused; it shows the command and stops. The review (`Accepted narrowing: …`) and `tests summary` (`Narrowed: …; accepted as TNR-001: …`) show an accepted narrowing with its reason, and receipt replay checks the decision still covers the run.
 
 ### When no runner is found: a command for this Story only
 

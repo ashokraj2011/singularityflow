@@ -139,6 +139,8 @@ export function buildTestSummary({ scope, run, entries, history = [] }) {
       environment: entry.environment ?? null,
       countsForStep: entry.countsForStep ?? false,
       ...(entry.label ? { label: entry.label } : {}),
+      // A gate run that ran narrowed, and the acceptance that let it through [TCE:REQ-024].
+      ...(entry.narrowing ? { narrowing: entry.narrowing } : {}),
       attemptId: receipt.attemptId ?? null
     });
     for (const [index, occurrence] of occurrences.entries()) {
@@ -203,6 +205,10 @@ export function testSummaryText(summary, { next = null } = {}) {
     lines.push(`  ${command.id} (${command.adapter ?? command.kind}): ${command.status}${command.exitCode != null ? `, exit ${command.exitCode}` : ''}${counts}${environment}`);
     if (command.label && command.label !== run.label) lines.push(`    ${command.label}`);
     if (command.note) lines.push(`    ${command.note}`);
+    if (command.narrowing) {
+      const accepted = command.narrowing.accepted;
+      lines.push(`    Narrowed: ${command.narrowing.words}; ${accepted ? `accepted as ${accepted.id}: ${accepted.reason}` : 'not accepted, so its gate refuses it'}`);
+    }
   }
   const failed = summary.cases.filter((entry) => entry.outcome === 'failed');
   if (failed.length) {

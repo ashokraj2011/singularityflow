@@ -17,7 +17,8 @@
  * run of the command stands for it, so a refused first run cannot be followed by a quiet edit. Each
  * attempt carries the pin it ran under, and receipt replay checks that pin is the Story's
  * [TCE:REQ-014]. Pins are kept in `workflow.testCommandPins`, append-only apart from the baseline a
- * pin gains at its first passing run (the narrowed-run check reads it, src/test-narrowing.mjs).
+ * pin gains at its first passing run. The gate also gathers here what narrows each run before it
+ * runs (src/test-narrowing.mjs), from the same script texts.
  */
 import { createHash } from 'node:crypto';
 import { readdir } from 'node:fs/promises';
@@ -352,13 +353,16 @@ async function recordedRuns(root, config, workflow, phase) {
 }
 
 /**
- * Check every test command a gate is about to run against its pin, before anything runs; refuses
+ * Check every test command a gate is about to run against its pin, before anything runs (the
+ * candidate's `deliveryEvidence` names the changed test files it reads for focused tests); refuses
  * TEST_COMMAND_PIN_CHANGED for the first that changed with no accepted re-pin. Returns, per
  * command ID, the candidate pin (each attempt carries it) and how it stands, and `record`, which
  * the gate calls once it passed to write the pins of the commands that ran onto the Story.
  */
-export async function gateTestCommandPins(root, config, workflow, phase, commands) {
+export async function gateTestCommandPins(root, config, workflow, phase, commands, deliveryEvidence = null) {
+  const testPaths = deliveryEvidence?.testPaths ?? [];
   const attempts = await recordedRuns(root, config, workflow, phase);
+  const { gateNarrowing, narrowingFacts, skippedByAgreement } = await import('./test-narrowing.mjs');
   const prepared = new Map();
   for (const command of commands) {
     const { entries, scripts } = await commandDefinition(root, command);
@@ -367,12 +371,18 @@ export async function gateTestCommandPins(root, config, workflow, phase, command
     const acceptedBy = reference && reference.sha256 !== candidate.sha256 ? acceptedRepin(workflow, candidate) : null;
     if (reference && reference.sha256 !== candidate.sha256 && !acceptedBy) throw pinChangedError(workflow, phase, reference, candidate);
     const recorded = storyPin(workflow, candidate);
-    prepared.set(command.id, { candidate, reference, acceptedBy, scripts,
-      baseline: (recorded?.sha256 === candidate.sha256 ? recorded.baseline : null) ?? firstPassingRun(attempts, candidate.sha256) });
+    const baseline = (recorded?.sha256 === candidate.sha256 ? recorded.baseline : null) ?? firstPassingRun(attempts, candidate.sha256);
+    // What narrows the run before it runs: filters, focused tests, and the pin's baseline [TCE:REQ-021].
+    const narrowing = await narrowingFacts(root, command, { scripts, testPaths, baseline, inferred: candidate.source.kind === 'inferred' });
+    prepared.set(command.id, { candidate, reference, acceptedBy, scripts, baseline, narrowing });
   }
   return {
     prepared,
-    pin: (commandId) => prepared.get(commandId)?.candidate ?? null,
+    // What an attempt of the command records: the pin it runs under and what narrows it before it runs.
+    attempt: (commandId) => ({ pin: prepared.get(commandId)?.candidate ?? null, narrowing: prepared.get(commandId)?.narrowing ?? null }),
+    // The gate's rule for a passing run's recorded narrowing: null, an acceptance's binding, or CODE_TEST_NARROWED.
+    narrowed: (attempt, operation) => gateNarrowing(workflow, phase, attempt,
+      { at: new Date().toISOString(), operation, skippedAccepted: skippedByAgreement(workflow) }),
     record: async (aggregate, ran, { at }) => recordTestCommandPins(aggregate, phase, prepared,
       { ran, at, attempts: await recordedRuns(root, config, aggregate, phase) })
   };
@@ -421,9 +431,15 @@ export async function repinRequest(root, config, workflow, phase, command) {
   return { commandId: command.id, sha256: digest, pinned: reference.sha256, pin, changes: pinChanges(reference, candidate).map(pinChangeWords) };
 }
 
-/** Why one receipt execution's attempt does not replay its pin against the Story (`story`: { workflow, at }). */
-export function attemptReplayProblems(story, receipt, execution, attempt) {
-  return [pinReplayProblem(story?.workflow ?? null, attempt)].filter(Boolean);
+/**
+ * Why one receipt execution's attempt does not replay its pin, or the narrowing a person accepted for
+ * it, against the Story (`story`: { workflow, at }).
+ */
+export async function attemptReplayProblems(story, receipt, execution, attempt) {
+  const { skippedByAgreement, testNarrowingReplayProblem } = attempt?.narrowing ? await import('./test-narrowing.mjs') : {};
+  const narrowing = attempt?.narrowing ? testNarrowingReplayProblem(story?.workflow ?? null, execution, attempt,
+    { phaseId: receipt.phase, at: story?.at, skippedAccepted: skippedByAgreement(story?.workflow) }) : null;
+  return [pinReplayProblem(story?.workflow ?? null, attempt), narrowing].filter(Boolean);
 }
 
 /** Why a recorded attempt's pin does not replay against its Story, or null [TCE:REQ-014]. */

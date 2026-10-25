@@ -1,9 +1,9 @@
 {
   "schemaVersion": 2,
   "generatedFrom": "docs/topics",
-  "sourceCommit": "3bd739a85b936b74a9eb22d6e91e33cd6b5ca440",
+  "sourceCommit": "80b07b13c26dfee546aa46e8e1c794054b7cdf58",
   "topicCount": 85,
-  "contentSha256": "5ebe3c8695a748c9d567e844ad878de10cecb7a63b79350586fe49262469a0ef",
+  "contentSha256": "258fa2de7d58e01b532687ee162bcf18c61e053295c6ab2152967063e20eaa1e",
   "topics": [
     {
       "id": "activity-and-prompt-audit",
@@ -240,8 +240,8 @@
     {
       "id": "findings",
       "title": "Findings — what a blocking finding means and how to recover",
-      "version": 9,
-      "sha256": "fc01a0c61e3cb4354e2008fb9ff39ee6eaf261900881c2220d9b51730d2e6d01",
+      "version": 10,
+      "sha256": "eb9fc89ab0798d39049e9d73ab1943d61df1485b2482d48dc6102997058e71c0",
       "routingSha256": "63e669eb5eb939fd7ee9a8f6447d098138d7e424eac2ee4ff55901d902118539",
       "file": "findings.md"
     },
@@ -600,8 +600,8 @@
     {
       "id": "test-recovery",
       "title": "Story test policy and recovery pilot",
-      "version": 23,
-      "sha256": "ad798d1dce6017da817df0be2aa95c1f5a46caee89247948446551b7bf54f6a5",
+      "version": 24,
+      "sha256": "0d98231e2bb0b2e2e5acce41d009e4aee164019a55de986e6e3f504a7feee737",
       "routingSha256": "8330286140e41b11c99e24d5b83150c155d7563d24f240c9c9df28418d6a2ea2",
       "file": "test-recovery.md"
     },

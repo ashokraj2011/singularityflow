@@ -2211,8 +2211,8 @@ export async function verifyCodeDeliveryReceipt(root, receipt, {
         fail(`test receipt ${execution.commandId} raw report replay failed: ${error.message}`);
       }
     }
-    // The pin an attempt ran under replays with it [TCE:REQ-014].
-    if (testReceipt.pin) for (const problem of (await import('./test-command-pins.mjs')).attemptReplayProblems(testRunRisks, receipt, execution, testReceipt)) {
+    // The pin an attempt ran under replays with it [TCE:REQ-014], and so does its accepted narrowing.
+    if (testReceipt.pin) for (const problem of await (await import('./test-command-pins.mjs')).attemptReplayProblems(testRunRisks, receipt, execution, testReceipt)) {
       fail(`test receipt ${execution.commandId}: ${problem}`);
     }
     if (execution.testRunRisk) {

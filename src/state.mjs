@@ -576,6 +576,8 @@ export const REVIEW_EFFECTS = Object.freeze({
   'decision-made:risk': { effect: 'review-safe', lists: { riskDecisions: 'risk_decided' } },
   // A step approver's test-run risk decision, revocation or renewal (`decision test-risk`).
   'decision-made:test-risk': { effect: 'review-safe', lists: { testRunRisks: 'risk_decided' } },
+  // A step approver's acceptance of a narrowed test run, or its revocation (`decision test-narrowing`).
+  'decision-made:test-narrowing': { effect: 'review-safe', lists: { testNarrowings: 'narrowing_decided' } },
   // A step approver's reuse of an earlier step's recorded test run, or its revocation (`decision evidence-reuse`).
   'decision-made:evidence-reuse': { effect: 'review-safe', lists: { evidenceReuses: 'evidence_reuse_decided' } },
   // A visual step approver's decision that one of its screen sizes does not apply, or its revocation (`decision visual-profile`).
@@ -4914,7 +4916,7 @@ async function preflightCodeDeliveryTests(root, config, workflow, phase, deliver
     return { commands, checks: [], testRecovery: retainedRisk };
   }
   // A guessed command is pinned for the Story at first use; a changed one waits for a person [TCE:REQ-010].
-  const pins = await (await import('./test-command-pins.mjs')).gateTestCommandPins(root, config, workflow, phase, commands);
+  const pins = await (await import('./test-command-pins.mjs')).gateTestCommandPins(root, config, workflow, phase, commands, deliveryEvidence);
   const riskRun = await beginStoryTestRiskRun(root, config, workflow, phase, { commands, selection: trpSelection?.selection });
   const checks = await qualityChecks(root, phase, config, workflow, commands, {
     commandProvenance: new Map(commands.map((command) => [command, command.provenance]))
@@ -4929,7 +4931,7 @@ async function preflightCodeDeliveryTests(root, config, workflow, phase, deliver
       // Every run is one immutable attempt, recorded before its result is judged [E2G-016].
       const recorded = check ? await recordTestAttempt(root, workDirRelative(config, workflow.workItem.id), {
         command, check, purpose: 'preflight', workId: workflow.workItem.id, phaseId: phase.id,
-        generation: nextPhaseGeneration(phase), pin: pins.pin(command.id)
+        generation: nextPhaseGeneration(phase), ...pins.attempt(command.id)
       }) : null;
       if (recorded) {
         attempts.push({ commandId: command.id, attemptId: recorded.attempt.attemptId, receiptPath: recorded.path,
@@ -4995,6 +4997,8 @@ async function preflightCodeDeliveryTests(root, config, workflow, phase, deliver
           throw await testRunRiskRefusal(workflow, phase, receipt,
             new SingularityFlowError(`Required test command '${command.id}' did not produce passing executable-test evidence before publication.`, { code: 'CODE_TEST_FAILED' }));
         }
+        const narrowed = pins.narrowed(receipt, 'publish'); // refused unless a step approver accepted it [TCE:REQ-022]
+        if (narrowed) attempts.at(-1).testNarrowing = narrowed;
         passing.push(command);
       } catch (error) {
         throw isolatedRunHint(await attachRequiredTestExecution(error, root, command, check), check);
@@ -5379,7 +5383,7 @@ async function submitPhaseTransition(root, config, workflow, {
     : null;
   if (repositoryTests?.commands.length) deliveryCommands = [...deliveryCommands, ...repositoryTests.commands];
   const pins = codeDeliveryRequired && !retainedRisk && runChecks
-    ? await (await import('./test-command-pins.mjs')).gateTestCommandPins(root, config, workflow, phase, requiredTestCommands) : null;
+    ? await (await import('./test-command-pins.mjs')).gateTestCommandPins(root, config, workflow, phase, requiredTestCommands, phase.deliveryEvidence) : null;
   phase.checks = runChecks ? await qualityChecks(root, phase, config, workflow,
     retainedRisk ? deliveryCommands.filter(command => command?.kind !== 'test') : deliveryCommands, {
     // Assign provenance from trusted resolution identity, never a field supplied by configuration.
@@ -5423,7 +5427,7 @@ async function submitPhaseTransition(root, config, workflow, {
         let receipt;
         const recorded = check ? await recordTestAttempt(root, workDirRelative(config, workflow.workItem.id), {
           command, check, purpose: testCommandEpochRun ? 'epoch' : 'submission', workId: workflow.workItem.id,
-          phaseId: phase.id, generation: phase.generation, epoch: testCommandEpochRun?.suffix ?? null, pin: pins?.pin(command.id) ?? null
+          phaseId: phase.id, generation: phase.generation, epoch: testCommandEpochRun?.suffix ?? null, ...pins?.attempt(command.id)
         }) : null;
         if (recorded) attemptHistory.push({ commandId: command.id, attemptId: recorded.attempt.attemptId, status: recorded.attempt.status });
         let runRisk = null;
@@ -5470,6 +5474,9 @@ async function submitPhaseTransition(root, config, workflow, {
               // The run exited 0 yet no test ran: it is recorded as not passing, carried by the decision.
               check.testRunRisk = runRisk;
               check.status = 'failed';
+            } else {
+              const narrowed = pins?.narrowed(receipt, 'submit');
+              if (narrowed) check.testNarrowing = narrowed;
             }
           }
         } catch (error) {
@@ -5486,7 +5493,8 @@ async function submitPhaseTransition(root, config, workflow, {
           commandId: command.id, attemptId: receipt.attemptId, receiptPath: recorded.path,
           receiptSha256: recorded.sha256,
           status: receipt.status,
-          affectedRoots: command.affectedRoots
+          affectedRoots: command.affectedRoots,
+          ...(check.testNarrowing ? { testNarrowing: check.testNarrowing } : {})
         });
         submittedAttempts.set(command.id, receipt);
       }

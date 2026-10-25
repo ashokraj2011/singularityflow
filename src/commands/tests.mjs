@@ -419,12 +419,17 @@ async function storySummary(root, options, { localRunId = null } = {}) {
   }
   if (!group) return summary.buildTestSummary({ scope, run: null, entries: [], history });
   const entries = [];
+  const narrowed = group.members.some((attempt) => attempt.narrowing?.reasons?.length) ? await import('../test-narrowing.mjs') : null;
   for (const attempt of group.members) {
     const contents = await rawReportContents(root, attempt, workflow.workItem.id);
     const locations = await rawReportLocations(attempt, contents);
     const messages = await caseMessages(root, attempt, contents);
+    const accepted = narrowed && attempt.narrowing?.reasons?.length
+      ? narrowed.coveringTestNarrowing(workflow, { phaseId, attempt, at: new Date().toISOString() }) : null;
     entries.push({
       receipt: attempt, kind: 'test', locations, ...(messages ? { messages } : {}), ...await attemptMeaning(attempt, declaration),
+      ...(narrowed && attempt.narrowing?.reasons?.length ? { narrowing: { reasons: attempt.narrowing.reasons, words: narrowed.narrowingWords(attempt.narrowing),
+        accepted: accepted ? { id: accepted.id, reason: accepted.reason, actor: accepted.actor } : null } } : {}),
       clauses: await summary.occurrenceClauses(root, { occurrences: attempt.occurrences ?? [], profile: attempt.profile, locations })
     });
   }

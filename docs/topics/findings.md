@@ -14,7 +14,7 @@ related:
   - recovery
   - phase-appeals
   - escalation
-version: 9
+version: 10
 ---
 A finding is one exact reason a step cannot publish, submit or finish. Every finding has an owner and a recovery route: the step's own author fixes its draft, an earlier step's approvers decide an upstream issue, a person records a decision, or an owner restores trusted bytes. Each refusal names its finding code; read its entry here with `sflow explain findings --section <CODE>` (the code is matched without regard to case). No finding routes only back to its own author: each names at least one route for someone else, its approvers, an earlier step, an owner, or, when nothing more specific exists, the workflow maintainer. Nothing in this catalog waives a test, approves a step or accepts a risk by itself.
 
@@ -97,6 +97,10 @@ No supported structured test command can be inferred for the changed code. `sflo
 ### TEST_COMMAND_PIN_CHANGED
 
 A test command changed since its first gate run pinned it for the Story: its argv or adapter, or a script or runner configuration it resolves through (the refusal lists each change). Nothing ran. Restore what was pinned, or request the new pin with `decision test-command <WORK-ID> --phase <PHASE> --repin <COMMAND-ID> --reason <TEXT>`; a person who approves the step accepts it from the decision list, and the next gate run records it. An agent may request, never accept.
+
+### CODE_TEST_NARROWED
+
+A required test command passed, but narrowed: a filter in its argv or pinned script, a focused test (`.only`), skipped tests, or fewer tests than its first passing run in this Story (the refusal names each). Remove the narrowing and publish again, or a person who approves the step accepts it with `decision test-narrowing <WORK-ID> --phase <PHASE> --command <COMMAND-ID> --reason <TEXT>`; it covers the same or a smaller narrowing of the same pin. An agent never accepts it.
 
 ### SPEC_COVERAGE_INCOMPLETE
 

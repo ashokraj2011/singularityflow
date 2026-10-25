@@ -44,12 +44,8 @@ export function specification(WORK, value) {
   ].join('\n');
 }
 
-/**
- * A Story whose specification was submitted and then approved by its submitter, in a repository of
- * its own. Used by test/int-material-events.test.mjs. `configure` may change the configuration
- * before it is committed (test/oap-m4-one-ceremony.test.mjs ends the work type at planning).
- */
-export async function approvedSpecificationStory(t, WORK, { configure = null } = {}) {
+/** A started Story, its specification at generation 0, in a repository of its own. */
+export async function startedSpecificationStory(t, WORK, { configure = null } = {}) {
   const directory = await mkdtemp(path.join(os.tmpdir(), 'sflow-approval-history-'));
   const root = path.join(directory, 'repository');
   const remote = path.join(directory, 'origin.git');
@@ -85,6 +81,16 @@ export async function approvedSpecificationStory(t, WORK, { configure = null } =
   cli('start', WORK, '--from-branch', 'main', '--work-type', 'spec-driven-standard',
     '--title', 'Validate a value', '--description', 'Return an approved value.');
   const item = path.join(root, 'singularity/work-items', WORK);
+  return { directory, root, run, git, cli, item };
+}
+
+/**
+ * A Story whose specification was submitted and then approved by its submitter, in a repository of
+ * its own. Used by test/int-material-events.test.mjs. `configure` may change the configuration
+ * before it is committed (test/oap-m4-one-ceremony.test.mjs ends the work type at planning).
+ */
+export async function approvedSpecificationStory(t, WORK, options = {}) {
+  const { directory, root, run, git, cli, item } = await startedSpecificationStory(t, WORK, options);
   await writeFile(path.join(item, 'artifacts/specification/spec.md'), specification(WORK, 1));
   cli('artifact', 'scan', '--phase', 'specification');
   cli('phase', 'publish', 'specification', '--authored', 'human', '--channel', 'manual-in-place');
@@ -98,7 +104,14 @@ export async function publishedPlanningStory(t, WORK, options = {}) {
   const story = await approvedSpecificationStory(t, WORK, options);
   const { cli, item } = story;
   cli('prepare', 'planning');
-  await writeFile(path.join(item, 'artifacts/planning/plan.md'), [
+  await writeFile(path.join(item, 'artifacts/planning/plan.md'), implementationPlan(WORK));
+  cli('artifact', 'scan', '--phase', 'planning');
+  cli('phase', 'publish', 'planning', '--authored', 'human', '--channel', 'manual-in-place');
+  return story;
+}
+
+export function implementationPlan(WORK) {
+  return [
     `# ${WORK} — Implementation plan`, '',
     '## Agent brief', '', 'Return the approved value and prove both clauses with one focused test.', '',
     '## Approach', '', 'Export a constant from the value module and assert it in a unit test.', '',
@@ -108,10 +121,7 @@ export async function publishedPlanningStory(t, WORK, options = {}) {
     `| \`${WORK}:AC-001\` | \`src/value.mjs\` | \`test/value.test.mjs\` |`,
     `| \`${WORK}:REQ-002\` | \`src/value.mjs\` | \`test/value.test.mjs\` |`, '',
     '## Risks and rollback', '', 'Risk is a wrong constant; rollback restores the previous module.', ''
-  ].join('\n'));
-  cli('artifact', 'scan', '--phase', 'planning');
-  cli('phase', 'publish', 'planning', '--authored', 'human', '--channel', 'manual-in-place');
-  return story;
+  ].join('\n');
 }
 
 /** A Story whose planning was submitted and awaits approval, in a repository of its own. */

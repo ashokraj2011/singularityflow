@@ -190,6 +190,9 @@ export const ARGUMENT_SCHEMAS = Object.freeze([
     workId: required('identifier'),
     workKind: optional('enum', { values: ['story', 'initiative'] })
   }),
+  // A Story read that, unnamed, reads the Story its CLI command would: the attached one, else the
+  // one checked out (`work.progress`, `work.nextsteps`).
+  schema('work-reference-v1', { workId: optional('identifier') }),
   schema('auto-flight-v1', { flightId: required('identifier') }),
   schema('auto-story-v1', { workId: required('identifier') }),
   schema('auto-plan-v1', { planId: required('identifier') }),

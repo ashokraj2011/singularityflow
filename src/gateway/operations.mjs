@@ -32,7 +32,7 @@ export const GATEWAY_PLANNERS = Object.freeze([
   'goal-inspect', 'goal-impact', 'goal-next', 'goal-trace',
   'auto-flight-read',
   'home-overview', 'developer-next', 'work-list', 'work-continue', 'work-handoff', 'context-brief', 'work-start-intake', 'work-start',
-  'work-draft-save', 'work-readiness', 'work-return', 'workspace-list', 'workspace-switch', 'workspace-materialize',
+  'work-draft-save', 'work-readiness', 'work-progress', 'work-nextsteps', 'work-return', 'workspace-list', 'workspace-switch', 'workspace-materialize',
   'workspace-bootstrap-status', 'workspace-prepare-guide', 'repository-open-guide',
   'workspace-doctor-guide', 'workspace-explore-guide',
   'impact-quick', 'impact-quick-assisted', 'impact-what-if', 'impact-what-if-assisted',
@@ -384,6 +384,35 @@ export const GATEWAY_DECLARATIONS = Object.freeze([
     argumentSchema: 'work-subject-v1',
     planner: 'work-readiness',
     noModelFixture: 'work-readiness-model-free'
+  },
+
+  /**
+   * A Story's progress and its ordered next steps, as the CLI prints them (`progress --json`,
+   * `nextsteps --for-agent`), so /sf-progress and /sf-nextsteps can read them through the tools.
+   * The planners call the commands' own producers; nothing here is a second reading of state.
+   */
+  {
+    ...READ,
+    id: 'work.progress',
+    modelPolicy: 'never',
+    // Not `work.list`: a `work.list` goal hint alone resolves to the work list, and must keep doing so.
+    goals: ['work.continue'],
+    aliases: en('show story progress', 'how far has this story got'),
+    subjects: ['story'],
+    argumentSchema: 'work-reference-v1',
+    planner: 'work-progress',
+    noModelFixture: 'work-progress-model-free'
+  },
+  {
+    ...READ,
+    id: 'work.nextsteps',
+    modelPolicy: 'never',
+    goals: ['work.continue'],
+    aliases: en('show story next steps', 'list the next steps for this story'),
+    subjects: ['story'],
+    argumentSchema: 'work-reference-v1',
+    planner: 'work-nextsteps',
+    noModelFixture: 'work-nextsteps-model-free'
   },
 
   // §8.4 Only what the configured registry makes visible; never a directory scan `[INT:CON-067]`.

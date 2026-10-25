@@ -44,11 +44,12 @@ const AUTHORITIES = {
 
 const RECOMMEND_CALL = /Call `sflow_resolve` with `\{"utterance": "what should I do next"\}`, then `sflow_read` its one\s+read handle \(`next\[0\]\.handle`\) as `resolutionId`|call `sflow_resolve` with `\{"utterance": "what should I do next"\}`, then `sflow_read` its one read handle \(`next\[0\]\.handle`\) as `resolutionId`/u;
 const EXPLAIN_CALL = /call `sflow_explain` with `\{"question": "\$ARGUMENTS"\}`, then `sflow_read` each handle in its `data\.part\.read` as `resolutionId` in the same response; its `data\.body` and theirs, in part order, are `data\.served\.text`\./u;
+const storyCall = (utterance) => new RegExp(`[Cc]all \`sflow_resolve\` with \`\\{"utterance": "${utterance}", "arguments": \\{"workId": "<WORK-ID>"\\}\\}\` \\(no \`arguments\` when [^)]*\\), then \`sflow_read\` its one read handle \\(\`next\\[0\\]\\.handle\`\\) as \`resolutionId\`, whose \`data\` is the command's \`data\`; or run`, 'u');
 
 /**
  * The skills whose step names a tool call: the call (exact), the CLI command it stands beside, and
  * what that step said before that must still be there. The answers are held to the CLI's JSON here
- * (recommend) and in int-skill-gateway-reads.test.mjs (docs, help).
+ * (recommend) and in int-skill-gateway-reads.test.mjs (docs, help, progress, nextsteps).
  */
 const SWITCHED = Object.freeze({
   'sflow-recommend': { call: RECOMMEND_CALL, command: 'singularity-flow recommend --json', kept: [] },
@@ -57,7 +58,11 @@ const SWITCHED = Object.freeze({
   'sflow-docs': { call: EXPLAIN_CALL, command: "singularity-flow explain '$ARGUMENTS' --json",
     kept: ["each inner `'` as `'\\''` (PowerShell `''`) so nothing expands", 'run `singularity-flow explain --json` for the topic catalog', 'Do not map the question to a topic from model memory.'] },
   'sflow-help': { call: EXPLAIN_CALL, command: "singularity-flow explain '$ARGUMENTS' --json",
-    kept: ["each inner `'` as `'\\''` (PowerShell `''`) so nothing expands", 'Relay only `data.served.text`, its citation/provenance, warnings, and related actions.', 'Never answer product behavior from model memory.'] }
+    kept: ["each inner `'` as `'\\''` (PowerShell `''`) so nothing expands", 'Relay only `data.served.text`, its citation/provenance, warnings, and related actions.', 'Never answer product behavior from model memory.'] },
+  'sflow-progress': { call: storyCall('show story progress'), command: 'singularity-flow progress <WORK-ID> --utility-entry --for-agent --json',
+    kept: ['(omit the ID only when absent)', 'Do not forward user-supplied formatting flags.'] },
+  'sflow-nextsteps': { call: storyCall('show story next steps'), command: 'singularity-flow nextsteps <WORK-ID> --utility-entry --for-agent --json',
+    kept: ['when the user supplied an ID; otherwise omit the ID. Read the returned `data`.', 'A ready Story session is not required for repository initialization, start, resume, or explicit-ID guidance.'] }
 });
 
 async function skillBody(name) {

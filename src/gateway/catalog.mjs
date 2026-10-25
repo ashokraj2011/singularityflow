@@ -63,6 +63,8 @@ export const KERNEL_CODES = Object.freeze([
   'gateway.read-only',
   /** SFlow guidance is paused on this machine; a model's tool call is answered before the kernel. */
   'gateway.copilot-paused',
+  /** A read too long for one tool answer (`TOOL_ANSWER_MAX_BYTES`); its CLI command serves it. */
+  'gateway.answer-too-long',
   'gateway.run-in-progress',
   'gateway.confirmation-channel-unavailable',
   'gateway.confirmation-declined',

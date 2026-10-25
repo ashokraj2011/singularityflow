@@ -1,8 +1,8 @@
-import { readStoryState } from '../story-state-read.mjs';
+import { readProgress } from '../story-state-read.mjs';
 import { withCommandConfirmation } from '../command-confirmation.mjs';
 import { withCommandObservability } from '../command-observability.mjs';
 import { repoRoot } from '../git.mjs';
-import { progressBar, progressFlow, progressMarkdown, progressSnapshot } from '../progress.mjs';
+import { progressBar, progressFlow, progressMarkdown } from '../progress.mjs';
 import { optionBoolean, table } from '../util.mjs';
 
 export async function run(argv, { positionals, options }) {
@@ -26,7 +26,4 @@ export async function progressCommand(positionals, options) {
   ])}`);
 }
 
-/** Recorded progress, not evidence that the phase may execute or be approved. */
-export async function readProgress(root, workId = null) {
-  return progressSnapshot(await readStoryState(root, workId));
-}
+export { readProgress };

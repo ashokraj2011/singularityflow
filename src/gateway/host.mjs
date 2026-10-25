@@ -68,6 +68,12 @@ function runHostOperation(root, policy, request, callback, { modelCapable = fals
         ? 'gateway-pre-execution'
         : gatewayAllowsModel ? (parent?.modelMode?.source ?? 'gateway-policy') : 'gateway-policy'
     }),
+    /**
+     * The mode of the CLI run this gateway serves (`recommend`, `gateway serve`), or null in a host
+     * with none. Not a permission: a planner runs model-disabled above, and a read names the routes
+     * that run would offer (`nextsteps`' publication route) from this instead of from its own mode.
+     */
+    routeModelMode: parent?.routeModelMode ?? parent?.modelMode ?? null,
     // Repository selection belongs to this gateway session. An ambient CLI operation can restrict
     // model policy through the inherited stack, but it cannot redirect audit records to its root.
     root,

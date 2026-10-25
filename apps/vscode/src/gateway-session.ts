@@ -28,7 +28,7 @@ import { bindingActorId, createHostGateway, pausedToolAnswer } from '../../../sr
 import {
   astContextPlanner, astQueryPlanner, astStatusPlanner
 } from '../../../src/gateway/planners/ast-intelligence.mjs';
-import { developerNext } from '../../../src/gateway/planners/developer-next.mjs';
+import { developerNext, workNextSteps, workProgress } from '../../../src/gateway/planners/developer-next.mjs';
 import { contextBrief } from '../../../src/gateway/planners/context-brief.mjs';
 import { helpExplain } from '../../../src/gateway/planners/help-explain.mjs';
 import {
@@ -83,6 +83,9 @@ export function editorPlanners(): Map<string, unknown> {
     // The Handoff view reads the packet through the kernel like any other read `[INT:REQ-178]`.
     ['work-handoff', workHandoff],
     ['work-readiness', workReadiness],
+    // A Story's progress and next steps, from the CLI's own producers (/sf-progress, /sf-nextsteps).
+    ['work-progress', workProgress],
+    ['work-nextsteps', workNextSteps],
     ['work-return', workReturn],
     ['work-start-intake', workStartIntake],
     ['workspace-list', workspaceList],

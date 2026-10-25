@@ -22,7 +22,8 @@ function sameList(left = [], right = []) {
 function fileMatches(occurrenceFile, sourcePath) {
   if (!occurrenceFile) return null;
   const file = String(occurrenceFile).replaceAll('\\', '/');
-  return file === sourcePath || file.endsWith(`/${sourcePath}`);
+  // Playwright names a spec's file from its test directory, which may sit below the repository root.
+  return file === sourcePath || file.endsWith(`/${sourcePath}`) || sourcePath.endsWith(`/${file}`);
 }
 
 function blockingGaps(declaration) {
@@ -39,6 +40,11 @@ function candidateOccurrences(declaration, occurrences, language) {
       return inClass.filter((occurrence) => instance.test(occurrence.name ?? ''));
     }
     return inClass.filter((occurrence) => occurrence.name === declaration.methodName || occurrence.name === `${declaration.methodName}()`);
+  }
+  if (language === 'python') {
+    // pytest's class is the file's dotted module path from the directory it ran in: a suffix of the declaration's.
+    return occurrences.filter((occurrence) => occurrence.className && `.${declaration.className}`.endsWith(`.${occurrence.className}`)
+      && (declaration.parameters ? String(occurrence.name).startsWith(`${declaration.methodName}[`) : occurrence.name === declaration.methodName));
   }
   // A persisted attempt names an occurrence's describe path `suitePath`; a fresh parse, `ancestorTitles`.
   const inSuite = occurrences.filter((occurrence) => sameList(occurrence.suitePath ?? occurrence.ancestorTitles ?? [], declaration.suitePath));
@@ -86,9 +92,11 @@ export function joinDeclaration(declaration, occurrences, { language, runner = n
   if (!matched.length) return { outcome: 'missing', reasons: ['NO_OCCURRENCE'], occurrences: [] };
   if (declaration.parameters) {
     const expected = declaration.parameters.count;
+    // A pytest parametrize set is known only at run time (count null): every instance that ran must pass.
     if (matched.length < expected) return { outcome: 'missing', reasons: ['INSTANCES_MISSING'], expected, occurrences: summary };
-    if (matched.length > expected) return { outcome: 'ambiguous', reasons: ['INSTANCES_EXCEED_DECLARATION'], expected, occurrences: summary };
-  } else if (matched.length > 1) {
+    if (expected != null && matched.length > expected) return { outcome: 'ambiguous', reasons: ['INSTANCES_EXCEED_DECLARATION'], expected, occurrences: summary };
+  } else if (matched.length > 1 && !(declaration.framework === 'playwright' && new Set(matched.map((occurrence) => occurrence.project ?? null)).size === matched.length)) {
+    // A Playwright test runs once in each project; every project's run must pass. The same project twice is ambiguous.
     return { outcome: 'ambiguous', reasons: ['DUPLICATE_OCCURRENCE'], occurrences: summary };
   }
   const outcome = outcomeOf(matched);

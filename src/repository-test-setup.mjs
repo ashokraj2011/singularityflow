@@ -2,7 +2,8 @@
 import { readdir } from 'node:fs/promises';
 import path from 'node:path';
 import { inferRepositoryTestCommands } from './repository-test-command-inference.mjs';
-import { inferModuleTestCommand, resolveAffectedModule, sourceEcosystem, testCommandEcosystem } from './code-delivery-tests.mjs';
+import { resolveAffectedModule, sourceEcosystem, testCommandEcosystem } from './code-delivery-tests.mjs';
+import { moduleTestCommands } from './test-module-markers.mjs';
 import { secureRepositoryPath, SingularityFlowError } from './util.mjs';
 
 const SKIPPED_DIRECTORIES = new Set(['node_modules', 'vendor', 'target', 'build', 'dist', 'out', 'coverage', 'venv', '__pycache__', 'bin', 'obj']);
@@ -26,18 +27,6 @@ async function directoryEcosystems(root, directory) {
   return [...found].sort();
 }
 
-/** What publication infers for a module: its command and, beside a Node or Nx unit command, the separate Playwright run. */
-async function moduleCommands(root, module, platform) {
-  const commands = [await inferModuleTestCommand(root, module, { platform })].filter(Boolean);
-  if (['node', 'nx'].includes(module.system) && commands[0]?.result?.adapter !== 'playwright-json') {
-    for (const nodeScript of ['test:e2e', 'test:playwright', 'e2e']) {
-      const browser = await inferModuleTestCommand(root, module, { platform, nodeScript });
-      if (browser?.result?.adapter === 'playwright-json') { commands.push(browser); break; }
-    }
-  }
-  return commands;
-}
-
 export async function inspectRepositoryTestSetup(root, { sourceRoots = ['.'], platform = process.platform } = {}) {
   if (!Array.isArray(sourceRoots) || !sourceRoots.length || sourceRoots.length > 20) {
     throw new SingularityFlowError('Choose from 1 to 20 explicit module directories.', { code: 'TEST_SETUP_SCOPE_INVALID' });
@@ -57,7 +46,7 @@ export async function inspectRepositoryTestSetup(root, { sourceRoots = ['.'], pl
     if (directory !== '.') await secureRepositoryPath(root, directory, { mustExist: true, type: 'directory', label: 'Test module' });
     try {
       const module = directory === '.' ? null : await resolveAffectedModule(root, `${directory}/__sflow_test_setup__`);
-      let commands = module ? await moduleCommands(root, module, platform) : await inferRepositoryTestCommands(root, { platform });
+      let commands = module ? await moduleTestCommands(root, module, { platform }) : await inferRepositoryTestCommands(root, { platform });
       if (module && module.root !== directory && commands.length) {
         // A directory with no build file of its own borrows a command inferred for another module, and
         // publication counts it only for that command's own ecosystem [TCE:REQ-052]. Never suggest it for
@@ -79,7 +68,8 @@ export async function inspectRepositoryTestSetup(root, { sourceRoots = ['.'], pl
       if (!commands.length) diagnostics.push({ path: directory, code: 'TEST_CONFIGURATION_PENDING', message: 'No supported structured runner inferred. Provide the command and reporter, or select the exact nested application directory.' });
     } catch (error) {
       if (!['TEST_MODULE_UNCOVERED', 'TEST_MODULE_AMBIGUOUS', 'GRADLE_TEST_TARGET_REQUIRED', 'RUST_TEST_ADAPTER_REQUIRED', 'XCODE_TEST_TARGET_REQUIRED'].includes(error.code)) throw error;
-      diagnostics.push({ path: directory, code: error.code, message: error.message });
+      // A runner that needs a device or a scheme comes with the command to complete [TCE:REQ-075].
+      diagnostics.push({ path: directory, code: error.code, message: error.message, ...(error.details?.proposal ? { proposal: error.details.proposal } : {}) });
     }
   }
   // Test commands the team wrote down, completed and kept with their file and line [TCE:REQ-061..063];

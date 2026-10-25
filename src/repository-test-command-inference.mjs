@@ -1,7 +1,7 @@
 import { readdir } from 'node:fs/promises';
 
 import { inferModuleTestCommand } from './code-delivery-tests.mjs';
-import { readRepositoryManifest, repositoryManifestExists } from './repository-manifest.mjs';
+import { repositoryManifestExists } from './repository-manifest.mjs';
 import { isDotnetManifest, selectDotnetManifest } from './dotnet-manifests.mjs';
 
 /** Repository-native, deterministic defaults. No model is needed to identify a build manifest. */
@@ -42,27 +42,24 @@ async function inferOtherRepositoryTestCommands(root, { unitOnly, platform }) {
     return inferred('python', await regular('pyproject.toml') ? 'pyproject.toml' : 'pytest.ini');
   }
   if (await regular('package.json')) {
-    const manifest = JSON.parse((await readRepositoryManifest(root, 'package.json')).bytes.toString('utf8'));
-    const candidates = unitOnly ? ['test:unit', 'unit', 'test']
-      : ['test', 'test:e2e', 'test:playwright', 'e2e'];
-    const commands = [];
-    for (const nodeScript of candidates) {
-      const script = String(manifest.scripts?.[nodeScript] ?? '').trim();
-      if (!script || /no test specified/i.test(script)) continue;
-      const found = await inferred('node', 'package.json', { nodeScript });
-      if (!found.length) continue;
-      if (unitOnly) return found;
-      if (nodeScript === 'test' || found[0].result?.adapter === 'playwright-json') {
-        commands.push(...found);
-      }
-      if (found[0].result?.adapter === 'playwright-json') break;
-    }
-    if (commands.length) return commands;
+    // The package's commands by the module rule: one for each runner and level its scripts declare.
+    const module = { root: '.', system: 'node', manifest: 'package.json' };
+    const commands = unitOnly ? [await inferModuleTestCommand(root, module, { unitOnly, platform })].filter(Boolean)
+      : await (await import('./test-module-markers.mjs')).moduleTestCommands(root, module, { platform });
+    // The package's first unit command keeps the whole-repository name; browser and other runs keep their own.
+    if (commands.length) return commands.map((command, index) => ({ ...command,
+      id: index || /(?:playwright|cypress)(?:-ct|-component)?-tests$/u.test(command.id) ? command.id : 'node-tests' }));
   }
   const dotnet = (await readdir(root)).filter(isDotnetManifest);
   // Validate all candidates before selecting; a dangling/escaping peer cannot be guessed away.
   for (const name of dotnet) await regular(name);
   const selected = selectDotnetManifest(dotnet);
-  if (selected) return inferred('dotnet', selected);
-  return [];
+  if (selected) {
+    // A product project runs the test projects that reference it, as the module rule does [TCE:REQ-072].
+    const commands = await (await import('./test-module-markers.mjs')).moduleTestCommands(root, { root: '.', system: 'dotnet', manifest: selected }, { platform });
+    return commands.map((command) => ({ ...command, id: command.id === '.-dotnet-tests' ? 'dotnet-tests' : command.id }));
+  }
+  // A Python project without pyproject.toml or pytest.ini is still a pytest module, as a changed path's is [TCE:REQ-074].
+  const python = (await readdir(root)).find((name) => /^(?:requirements[\w.-]*\.txt|setup\.py|setup\.cfg|Pipfile|tox\.ini|noxfile\.py)$/u.test(name));
+  return python ? inferred('python', python) : [];
 }

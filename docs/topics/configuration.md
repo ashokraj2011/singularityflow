@@ -10,7 +10,7 @@ related:
   - pins
   - quick-fix
   - escalation
-version: 11
+version: 12
 commands:
   - configuration
   - workflow
@@ -100,6 +100,34 @@ proxies) and names that read like a secret are refused, and a secret-looking val
 command, so a changed value is a changed command. An engine older than this key reads the workflow
 and ignores `env`, as it ignores every command key it does not know, so a repository that relies on
 `env` needs every runner on a version that knows it.
+
+A Node package can declare several test commands, and each runner it declares is its own run with its
+own evidence: unit (Jest, Vitest, mocha, `node --test`, Create React App's `react-scripts test`, Angular's
+Karma or `@angular-builders/jest` builder), end-to-end (`playwright test`, `cypress run`) and component
+(a Playwright CT config, `cypress run --component`). Every script is read through its `npm run`
+references and `&&`/`;` steps to the runner, whatever the script is called; a runner that ends its script
+runs through it with the reporter after `--`, one inside a chain runs alone through the package
+manager's exec (`npx --no-install`, `pnpm exec`, `yarn`). Scripts running a runner the same way collapse
+into one, a narrower run (`--project`, `--grep`) beside the whole one is left out, and two that differ
+in configuration are refused with both named. A Playwright config no script runs is run directly.
+Playwright and pytest results name each test, so an `@ac` tag on one is credited only when that test
+ran and passed (a test that passed only on a retry is flaky, not passed). mocha reports through
+`mocha-junit-reporter` when installed, else its JSON reporter (`mocha-json`); Cypress through its JUnit
+reporter.
+
+Elsewhere: a .NET product project runs the test projects that reference it (`tests/App.Tests` beside
+`src/App`), and is refused when none does; a Maven module with the failsafe plugin runs `verify` and
+reads `failsafe-reports` with the `surefire-reports` beside it; a Python module without
+`pyproject.toml` (requirements files, `setup.py`, `setup.cfg`, `Pipfile`, `tox.ini`, `noxfile.py`) runs
+pytest, under `uv run --locked` beside a `uv.lock` or `poetry run` beside a `poetry.lock` with no `.venv`
+(tox and nox environments run only when configured). An Android module runs
+`:<module>:test<Variant>UnitTest` and, with `src/androidTest`, `:<module>:connected<Variant>AndroidTest`,
+which starts only while `adb devices` lists a device (otherwise it is blocked with
+`ANDROID_DEVICE_UNAVAILABLE`; SFlow never starts an emulator). Product flavors, Gradle Managed Devices,
+Kotlin multiplatform targets and Xcode schemes and destinations are proposed by test setup with the
+fields a person supplies. A configured `cargo-json` command reads libtest's JSON lines from its stdout:
+`cargo test -- -Z unstable-options --format json` (nightly, or `RUSTC_BOOTSTRAP=1`) or
+`cargo nextest run --message-format libtest-json`.
 
 To save a chosen command from Copilot or a terminal, preview it with `singularity-flow capability
 test-setup --step <STEP> [--workflow <WORKFLOW>]` and either `--use <SUGGESTION-ID>` or the command in

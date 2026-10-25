@@ -161,7 +161,11 @@ test('Kotlin Maven and target-specific Kotlin builds are disclosed without guess
   const detection = runSmartInitDetectors(await captureSmartInitSnapshot(maven));
   assert.deepEqual(detection.stacks, ['kotlin-maven']);
   assert.ok(detection.commands.verification[0].evidence.every((id) => detection.facts.some((entry) => entry.id === id)));
-  for (const target of ['multiplatform', 'android']) {
+  // An Android module runs its variant's unit tests (testDebugUnitTest) [TCE:REQ-075]; multiplatform needs a chosen target.
+  const android = await fixture(t, { 'build.gradle.kts': 'plugins { kotlin("android") }' });
+  assert.deepEqual((await inferModuleTestCommand(android, { root: '.', system: 'gradle' })).argv, ['gradle', 'testDebugUnitTest']);
+  assert.equal((await buildRepositoryReadinessPlan(android, { scope: 'dependency-test' })).status, 'ready');
+  for (const target of ['multiplatform']) {
     const root = await fixture(t, { 'build.gradle.kts': `plugins { kotlin("${target}") }` });
     const planned = await buildRepositoryReadinessPlan(root, { scope: 'dependency-test' });
     assert.equal(planned.status, 'blocked');
@@ -179,9 +183,13 @@ test('Kotlin Maven and target-specific Kotlin builds are disclosed without guess
   }
 });
 
+// A project is its own test command only when it is a test project [TCE:REQ-072]; a product project runs the
+// test projects that reference it (test/tce-ecosystems.test.mjs).
+const DOTNET_TEST_PROJECT = '<Project Sdk="Microsoft.NET.Sdk"><ItemGroup><PackageReference Include="Microsoft.NET.Test.Sdk" Version="17.11.1" /></ItemGroup></Project>';
+
 test('.NET C#, F#, VB, legacy solutions and XML solutions have structured readiness plans', async (t) => {
   for (const name of ['App.csproj', 'App.fsproj', 'App.vbproj', 'App.sln', 'App.slnx']) {
-    const root = await fixture(t, { [name]: name.endsWith('.sln') ? 'Microsoft Visual Studio Solution File' : '<Project/>',
+    const root = await fixture(t, { [name]: name.endsWith('.sln') ? 'Microsoft Visual Studio Solution File' : name.endsWith('.slnx') ? '<Project/>' : DOTNET_TEST_PROJECT,
       'global.json': '{"sdk":{"version":"8.0.100"}}', 'NuGet.Config': '<configuration/>',
       'Directory.Build.props': '<Project/>', 'Directory.Packages.props': '<Project/>' });
     const snapshot = await captureSmartInitSnapshot(root);
@@ -227,8 +235,8 @@ test('new XML build manifests keep entity declarations refused before detection'
 });
 
 test('module-level .NET inference also validates linked project targets before returning a command', async (t) => {
-  const root = await fixture(t, { 'shared/project.txt': '<Project/>' });
-  const external = await fixture(t, { 'project.txt': '<Project/>' });
+  const root = await fixture(t, { 'shared/project.txt': DOTNET_TEST_PROJECT });
+  const external = await fixture(t, { 'project.txt': DOTNET_TEST_PROJECT });
   if (!await link(t, root, 'shared/project.txt', 'App.csproj')) return;
   const module = { root: '.', system: 'dotnet', manifest: 'App.csproj' };
   assert.equal((await inferModuleTestCommand(root, module)).argv[2], 'App.csproj');
@@ -238,7 +246,7 @@ test('module-level .NET inference also validates linked project targets before r
 });
 
 test('a confirmed .NET plan records fresh TRX observations, and SDK/config edits invalidate it', async (t) => {
-  const root = await fixture(t, { 'App.csproj': '<Project/>', 'global.json': '{"sdk":{"version":"8.0.100"}}' });
+  const root = await fixture(t, { 'App.csproj': DOTNET_TEST_PROJECT, 'global.json': '{"sdk":{"version":"8.0.100"}}' });
   const options = { scope: 'dependency-test' };
   const plan = await buildRepositoryReadinessPlan(root, options);
   const runCommand = async (command) => {

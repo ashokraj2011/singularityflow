@@ -17,6 +17,9 @@ export const TEST_ADAPTER_PROFILES = Object.freeze({
   'vitest-static-v2': Object.freeze({ language: 'javascript', framework: 'vitest', resultAdapter: 'vitest-json', ceiling: 'exact-local-observed' }),
   'junit5-surefire-v2': Object.freeze({ language: 'java', framework: 'junit5', runner: 'surefire', resultAdapter: 'junit-xml', ceiling: 'exact-local-observed' }),
   'junit5-gradle-v2': Object.freeze({ language: 'java', framework: 'junit5', runner: 'gradle', resultAdapter: 'junit-xml', ceiling: 'exact-local-observed' }),
+  // Each Playwright test and each pytest test reports its own result [TCE:REQ-071, TCE:REQ-074].
+  'playwright-json-v1': Object.freeze({ language: 'javascript', framework: 'playwright', resultAdapter: 'playwright-json', ceiling: 'exact-local-observed' }),
+  'pytest-junit-v1': Object.freeze({ language: 'python', framework: 'pytest', resultAdapter: 'junit-xml', ceiling: 'exact-local-observed' }),
   'module-counts-v1': Object.freeze({ language: null, framework: null, resultAdapter: null, ceiling: 'module-observed' })
 });
 
@@ -30,10 +33,12 @@ export function profileForCommand(command) {
   if (adapter === 'node-tap') return 'node-test-v1';
   if (adapter === 'jest-json') return 'jest-static-v2';
   if (adapter === 'vitest-json') return 'vitest-static-v2';
+  if (adapter === 'playwright-json') return 'playwright-json-v1';
   if (adapter === 'junit-xml') {
     const executable = executableName(command?.argv?.[0]);
     if (MAVEN.has(executable)) return 'junit5-surefire-v2';
     if (GRADLE.has(executable)) return 'junit5-gradle-v2';
+    if (/^(?:py(?:thon[\d.]*)?(?:\.exe)?|uv|poetry)$/u.test(executable) && command.argv.includes('pytest')) return 'pytest-junit-v1';
   }
   return 'module-counts-v1';
 }

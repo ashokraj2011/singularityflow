@@ -653,17 +653,19 @@ test('Angular Karma tests are inferred and their bounded terminal summary is str
     scripts: { test: 'npm run unit', unit: 'ng test' },
     devDependencies: { karma: '^6.4.0' }
   }));
-  assert.equal(await inferModuleTestCommand(root, {
+  assert.deepEqual((await inferModuleTestCommand(root, {
     root: '.', system: 'node', manifest: 'package.json'
-  }), null, 'nested scripts are not inferred because npm flags may not reach the Angular leaf');
+  })).argv, ['npm', 'run', 'unit', '--', '--watch=false', '--browsers=ChromeHeadless', '--no-progress'],
+  'a script that only runs another is followed to it, and the Angular flags go to the script that runs ng test [TCE:REQ-071]');
 
   await writeFile(path.join(root, 'package.json'), JSON.stringify({
     scripts: { test: 'ng test && playwright test' },
     devDependencies: { karma: '^6.4.0' }
   }));
-  assert.equal(await inferModuleTestCommand(root, {
+  assert.deepEqual((await inferModuleTestCommand(root, {
     root: '.', system: 'node', manifest: 'package.json'
-  }), null, 'composite scripts are not inferred because Angular flags may bind to the wrong command');
+  })).argv, ['npx', '--no-install', 'ng', 'test', '--watch=false', '--browsers=ChromeHeadless', '--no-progress'],
+  'inside a chain, ng test runs alone so the Angular flags bind to it, never to the command after it [TCE:REQ-071]');
 
   for (const unsafeScript of ['ng test\nplaywright test', 'ng test # keep watching']) {
     await writeFile(path.join(root, 'package.json'), JSON.stringify({
@@ -712,12 +714,15 @@ test('direct Playwright scripts infer a structured browser run without hidden in
   assert.equal((await inferModuleTestCommand(root, module)).result.adapter, 'playwright-json');
   for (const unsafe of [
     'npx playwright test', 'playwright test --list', 'playwright test --ui',
-    'playwright test --pass-with-no-tests', 'playwright test && echo done',
+    'playwright test --pass-with-no-tests',
     'npm run browser', 'playwright test\nnode other.js'
   ]) {
     await writeManifest(unsafe);
     assert.equal(await inferModuleTestCommand(root, module), null, unsafe);
   }
+  // Inside a chain the Playwright step runs alone, with the reporter on its own invocation [TCE:REQ-071].
+  await writeManifest('playwright test && echo done');
+  assert.deepEqual((await inferModuleTestCommand(root, module)).argv, ['npx', '--no-install', 'playwright', 'test', '--reporter=json']);
   await writeManifest('playwright test', {});
   assert.equal(await inferModuleTestCommand(root, module), null,
     'a script without a declared local Playwright package is not a safe runner');

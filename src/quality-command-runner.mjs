@@ -131,14 +131,18 @@ export async function runQualityCommand(command, args = [], {
   // bounded, hashed, written or returned.
   redactor = null
 } = {}) {
+  let refused = null;
   if (reportCapture) {
     try {
       const { assertTestReportTargetEmpty } = await import('./code-delivery-tests.mjs');
       await assertTestReportTargetEmpty(reportCapture.root, reportCapture.command);
-    } catch (error) {
-      return { status: 1, signal: null, error, timedOut: false, aborted: false, stdout: '', stderr: '', stdoutBytes: 0,
-        stderrBytes: 0, stdoutTruncated: false, stderrTruncated: false };
-    }
+    } catch (error) { refused = error; }
+  }
+  // A connected Android test run needs an attached device; without one it never starts [TCE:REQ-075].
+  if (!refused && /(?:^|:)connected\w*AndroidTest$/u.test(args.at(-1) ?? '')) refused = await (await import('./test-module-markers.mjs')).androidDeviceUnavailable(env);
+  if (refused) {
+    return { status: 1, signal: null, error: refused, timedOut: false, aborted: false, stdout: '', stderr: '', stdoutBytes: 0,
+      stderrBytes: 0, stdoutTruncated: false, stderrTruncated: false };
   }
   return new Promise((resolve) => {
     const startedAt = new Date().toISOString();

@@ -1781,6 +1781,20 @@
         "command-run": 1
       },
       "digest": "3cf83f658d4506a6dc719490ec8d1a4b927881dec4e679c3b3793d490fb7aaa5"
+    },
+    "scripts/documentation-privacy.mjs": {
+      "counts": {
+        "process-import": 1,
+        "process-launch": 1
+      },
+      "digest": "7e1cdf758ee92fe5b4cbf3ea86245718da605375f352f77a1508af03de73e15a"
+    },
+    "scripts/install-build-outputs.mjs": {
+      "counts": {
+        "process-import": 1,
+        "process-launch": 1
+      },
+      "digest": "c50dcdadd4e21592294e06d004343972011fb9c0db7fcffac236931ad83c4ed0"
     }
   }
 }

@@ -262,3 +262,11 @@ it adds no Git calls or process owner. The installer baseline still has 43 shell
 usage-text fingerprint changes. The package-script baseline still has 66 sites; `test:reinstall`
 also runs the portable receipt-upgrade suite. Exact old receipt bytes are archival data, never
 executable or rollback authority, and the shared activation lease remains required.
+
+Source-install build preparation adds one frozen local `ls-files --cached` read scoped to
+`bundle/` and `apps/vscode/dist/`, so clearing stale generated output cannot delete tracked source.
+The privacy check's existing local Git identity read moves from `scripts/check.mjs` to the shared
+`scripts/documentation-privacy.mjs` helper, also used for checking rebuilt output. Both calls use
+fixed arguments and ten-second deadlines, access no remote or history, and perform no Git writes.
+No process owner is exempted. Active recovery is admitted before preparation; exact staged-artifact
+recovery never enters build cleanup.

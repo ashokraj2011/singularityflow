@@ -63,11 +63,14 @@ test('receipt archives are exact, idempotent and cannot be redirected through a 
 
 async function scriptFixture(t) {
   const f = await fixture(t);
+  const initialized = spawnSync('git', ['init', '--quiet'], { cwd: f.directory, encoding: 'utf8', timeout: childTimeout(10_000) });
+  assert.equal(initialized.status, 0, initialized.stderr);
   const bin = path.join(f.directory, 'bin');
   const log = path.join(f.directory, 'commands.log');
   await mkdir(bin);
   await mkdir(path.join(f.directory, 'scripts'));
-  for (const file of ['install.sh', 'scripts/install-staged-artifacts.mjs']) {
+  for (const file of ['install.sh', 'scripts/install-staged-artifacts.mjs',
+    'scripts/install-build-outputs.mjs', 'scripts/documentation-privacy.mjs', 'scripts/check-path-policy.mjs']) {
     await copyFile(path.join(root, file), path.join(f.directory, file));
   }
   await writeFile(f.current, legacy);

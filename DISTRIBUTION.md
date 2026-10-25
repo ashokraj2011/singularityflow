@@ -218,6 +218,12 @@ The same bounded source-install modes are available on Windows, macOS, and Linux
 ./install.sh --from-staged-artifacts # resume exact artifacts after interrupted activation
 ```
 
+Source installs clear only the checkout's regenerable `bundle/` and `apps/vscode/dist/` outputs
+before validating the current source, then check the rebuilt outputs before packaging. This also
+applies with `--skip-tests`: old bundles cannot block an update or enter its replacement packages.
+Retained installation artifacts and recovery journals are preserved. Exact staged-artifact recovery
+uses its retained packages and does not clean or rebuild them.
+
 Use `bash ./install-windows-git-bash.sh` in Git Bash on Windows; the wrapper accepts those same
 mode flags. `--vscode-only` does not change the global CLI, Copilot plugin/skills, telemetry, or
 workspace configuration and therefore cannot serve the managed Playwright MCP host on a blank

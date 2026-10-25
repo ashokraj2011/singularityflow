@@ -126,7 +126,7 @@ retention rules. For a complete explanation of the runtime, prompt composition, 
 phase lifecycle, Git state transfer, approvals, Epic planning, Jira, workspaces,
 VS Code, telemetry, and security boundaries, read
 [How Singularity Flow works](FRAMEWORK-GUIDE.md). The
-[VS Code UI remediation and regression contract](docs/UI-REMEDIATION-PLAN.md) covers active Story
+[VS Code UI remediation and regression contract](docs/history/completed-fixes.md#vs-code-ui-remediation-plan) covers active Story
 navigation, timeout recovery, responsive behavior, and visual fixtures. For the implementation-level
 path from `/sf-*` through the Node.js launcher, command dispatcher, prompt
 composer, question bridge, and Git publication, read
@@ -588,7 +588,7 @@ have a clone URL or workspace:
 
 ```bash
 singularity-flow repositories list --scope known
-singularity-flow repositories search payments --scope provider --provider github --host git.example.corp
+singularity-flow repositories search payments --scope provider --provider github --host <git_host>
 ```
 
 The default `known` scope reads only saved SFlow registries and retained approved-map observations;
@@ -749,9 +749,9 @@ the same matching team ID later adds selected children without recreating the co
 
 ```bash
 singularity-flow capability map-team order-services \
-  --lead "https://git.example.corp/retail/sflow-config.git" \
+  --lead "<git_url>.git" \
   --name "Order Services" --jira-project ORDS \
-  --member order-routing-service=https://git.example.corp/retail/order-routing-service.git \
+  --member order-routing-service="<git_url>.git" \
   --member-name order-routing-service="Order routing" \
   --link existing-order-ui \
   --json
@@ -794,7 +794,7 @@ ID, and local path; capability and workspace IDs use lower-case kebab case.
 ```bash
 singularity-flow capability leads --json
 singularity-flow capability organisation \
-  "https://git.example.corp/acme/platform.git" --refresh --json
+  "<git_url>.git" --refresh --json
 ```
 
 Use the lead repository that owns the organisation map. If no lead is registered,
@@ -805,12 +805,12 @@ initialize a lead repository that does not use Singularity Flow yet, without a p
 
 ```bash
 singularity-flow capability map payments-api \
-  --lead "https://git.example.corp/acme/platform.git" \
+  --lead "<git_url>.git" \
   --name "Payments API" \
   --kind delivery \
   --type tech \
   --parent payments \
-  --repository "https://git.example.corp/acme/payments-api.git" \
+  --repository "<git_url>.git" \
   --metadata applicationId=APP-1001 \
   --metadata costCenter=PAYMENTS \
   --json
@@ -827,10 +827,10 @@ proposal commit. Nothing is active yet, and no application branch was changed.
 
 ```bash
 singularity-flow capability proposals \
-  --lead "https://git.example.corp/acme/platform.git"
+  --lead "<git_url>.git"
 
 singularity-flow capability proposal "<REVIEW-BRANCH>" \
-  --lead "https://git.example.corp/acme/platform.git" \
+  --lead "<git_url>.git" \
   --json
 ```
 
@@ -842,7 +842,7 @@ Review the complete commit, changed-file set, and diff. The proposal must target
 
 ```bash
 singularity-flow capability activate "<REVIEW-BRANCH>" \
-  --lead "https://git.example.corp/acme/platform.git" \
+  --lead "<git_url>.git" \
   --confirm "<FULL-PROPOSAL-COMMIT>" \
   --json
 ```
@@ -865,7 +865,7 @@ activating a reviewed proposal.
 
 ```bash
 singularity-flow capability organisation \
-  "https://git.example.corp/acme/platform.git" --readiness --refresh --json
+  "<git_url>.git" --readiness --refresh --json
 
 singularity-flow capabilities doctor payments-api --json
 ```
@@ -878,7 +878,7 @@ branch by itself is not an onboarded capability.
 
 ```bash
 singularity-flow workspace prepare \
-  "https://git.example.corp/acme/platform.git" \
+  "<git_url>.git" \
   --id payments-work \
   --name "Payments workspace" \
   --capability payments-api \
@@ -1095,7 +1095,7 @@ ships from is where the orphan `state` branch is created when the workspace is
 initialised.
 
 ```bash
-singularity-flow workspace prepare https://git.example.corp/acme/platform.git \
+singularity-flow workspace prepare "<git_url>.git" \
   --id commerce-work \
   --capability commerce --lead-capability payments-api \
   --base ~/work --initialize
@@ -1220,7 +1220,7 @@ Each participating repository can carry application identity and arbitrary scala
 ```yaml
 repositories:
   mobile:
-    url: git@git.example.corp:company/mobile.git
+    url: <git_url>.git
     defaultBranch: main
     required: true
     metadata:

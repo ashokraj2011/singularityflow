@@ -94,7 +94,7 @@ approvalAuthorities:
 # identity and any organization-specific tags stay with the Git configuration:
 # repositories:
 #   mobile:
-#     url: git@git.example.corp:company/mobile.git
+#     url: <git_url>.git
 #     defaultBranch: main
 #     required: true
 #     # For large repositories, fetch historical blobs on demand and materialize only these cones.

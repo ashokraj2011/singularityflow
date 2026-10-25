@@ -327,8 +327,8 @@ canonical `reproduce` action.
 
 The legacy-named bundled polyglot pack is repository-native preview code, not a parser and not a
 repackaged third-party grammar.
-Its source is `src/ast-packs/polyglot-syntax-core.mjs`, it inherits the repository's MIT license,
-and its manifest records a digest of the exact source used for each derivation. It has no generated
+Its source is `src/ast-packs/polyglot-syntax-core.mjs`, and its manifest records a digest of the
+exact source used for each derivation. It has no generated
 binary, downloaded grammar, or separate build step. Optional parser and semantic packs must instead declare
 their license metadata and bind the adapter, runtime, grammar, and dependency artifacts by digest;
 an incomplete or mismatched manifest is unavailable rather than silently downgraded.
@@ -340,7 +340,7 @@ manifests bind the adapter, shared core, compiler, and its license by digest. Wi
 carries a copy of the compiler (about 9 MB).
 
 The bundled Java semantic pack runs `src/ast-packs/java-semantic-adapter.mjs`, `java-core.mjs`, and
-`JavaCallResolver.java` (repository-native, MIT), and reuses the structural preview's core to join its
+`JavaCallResolver.java` (repository-native), and reuses the structural preview's core to join its
 answers. No JDK ships with Singularity Flow or is retained with evidence: the JDK's identity is part
 of the warmed project binding and of every derivation, and reproducing a retained Java derivation
 needs a JDK on `PATH`.

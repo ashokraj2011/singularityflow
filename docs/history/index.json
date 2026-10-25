@@ -1,0 +1,156 @@
+{
+  "schemaVersion": 1,
+  "baseline": "5cd3577bc0fa95d38e2e41f02b5d3a3b4a57b0c7",
+  "entries": [
+    {
+      "formerPath": "RELEASE-PHASE-INPUTS.md",
+      "target": "docs/history/release-notes.md",
+      "anchor": "singularity-flow-080--phase-inputs-and-remote-agent-markdown",
+      "title": "Singularity Flow 0.8.0 \u2014 Phase Inputs and Remote Agent Markdown"
+    },
+    {
+      "formerPath": "RELEASE-INITIATIVE-ORCHESTRATION.md",
+      "target": "docs/history/release-notes.md",
+      "anchor": "initiative-orchestration-delivery",
+      "title": "Initiative orchestration delivery"
+    },
+    {
+      "formerPath": "RELEASE-EPIC-STORY-LINEAGE.md",
+      "target": "docs/history/release-notes.md",
+      "anchor": "epic-to-story-planning-and-lifecycle-lineage",
+      "title": "Epic-to-Story Planning and Lifecycle Lineage"
+    },
+    {
+      "formerPath": "RELEASE-EPIC-BRANCH-LINEAGE.md",
+      "target": "docs/history/release-notes.md",
+      "anchor": "epic-branch-lineage-merge-sequence-and-story-pull-requests",
+      "title": "Epic Branch Lineage, Merge Sequence, and Story Pull Requests"
+    },
+    {
+      "formerPath": "RELEASE-EPIC-WIZARD.md",
+      "target": "docs/history/release-notes.md",
+      "anchor": "epic-lifecycle-wizard",
+      "title": "Epic Lifecycle Wizard"
+    },
+    {
+      "formerPath": "RELEASE-EPIC-UI-0.9.md",
+      "target": "docs/history/release-notes.md",
+      "anchor": "singularity-flow-090--epic-to-stories-business-experience",
+      "title": "Singularity Flow 0.9.0 \u2014 Epic-to-Stories Business Experience"
+    },
+    {
+      "formerPath": "docs/COLD-START-PERFORMANCE.md",
+      "target": "docs/history/performance-qualification.md",
+      "anchor": "cold-start-and-native-intake-performance",
+      "title": "Cold-start and native intake performance"
+    },
+    {
+      "formerPath": "docs/FIRST-REQUEST-STORY-PERFORMANCE.md",
+      "target": "docs/history/performance-qualification.md",
+      "anchor": "first-request-isolated-story-performance",
+      "title": "First-request isolated Story performance"
+    },
+    {
+      "formerPath": "docs/STORY-CREATION-PERFORMANCE.md",
+      "target": "docs/history/performance-qualification.md",
+      "anchor": "story-creation-performance",
+      "title": "Story creation performance"
+    },
+    {
+      "formerPath": "docs/LARGE-WINDOWS-STORY-PERFORMANCE.md",
+      "target": "docs/history/performance-qualification.md",
+      "anchor": "large-windows-isolated-story-creation",
+      "title": "Large Windows isolated Story creation"
+    },
+    {
+      "formerPath": "docs/phase-next-performance.md",
+      "target": "docs/history/performance-qualification.md",
+      "anchor": "bound-phase-and-next-step-performance",
+      "title": "Bound phase and next-step performance"
+    },
+    {
+      "formerPath": "docs/publication-performance.md",
+      "target": "docs/history/performance-qualification.md",
+      "anchor": "publication-context-and-first-write-qualification",
+      "title": "Publication context and first-write qualification"
+    },
+    {
+      "formerPath": "docs/shared-read-performance.md",
+      "target": "docs/history/performance-qualification.md",
+      "anchor": "shared-read-performance",
+      "title": "Shared-read performance"
+    },
+    {
+      "formerPath": "docs/source-review-performance.md",
+      "target": "docs/history/performance-qualification.md",
+      "anchor": "source-review-performance",
+      "title": "Source review performance"
+    },
+    {
+      "formerPath": "docs/story-start-context-performance.md",
+      "target": "docs/history/performance-qualification.md",
+      "anchor": "story-creation-shared-capture-and-background-configuration-preparation",
+      "title": "Story creation: shared capture and background configuration preparation"
+    },
+    {
+      "formerPath": "docs/workspace-creation-performance.md",
+      "target": "docs/history/performance-qualification.md",
+      "anchor": "workspace-creation-and-story-intake-qualification",
+      "title": "Workspace creation and Story intake qualification"
+    },
+    {
+      "formerPath": "docs/worktree-context-performance.md",
+      "target": "docs/history/performance-qualification.md",
+      "anchor": "shared-worktree-and-cold-phase-performance",
+      "title": "Shared worktree and cold phase performance"
+    },
+    {
+      "formerPath": "docs/UI-REMEDIATION-PLAN.md",
+      "target": "docs/history/completed-fixes.md",
+      "anchor": "vs-code-ui-remediation-plan",
+      "title": "VS Code UI Remediation Plan"
+    },
+    {
+      "formerPath": "docs/SIMPLE-CAPABILITY-ONBOARDING-AND-CONFIGURATION-RECOVERY-PLAN.md",
+      "target": "docs/history/completed-fixes.md",
+      "anchor": "simple-capability-onboarding-and-configuration-recovery",
+      "title": "Simple capability onboarding and configuration recovery"
+    },
+    {
+      "formerPath": "docs/WINDOWS-GIT-BASH-INSTALL-FIX.md",
+      "target": "docs/history/completed-fixes.md",
+      "anchor": "windows-git-bash-installation-compatibility",
+      "title": "Windows Git Bash installation compatibility"
+    },
+    {
+      "formerPath": "docs/installation-receipt-upgrade-qualification.md",
+      "target": "docs/history/completed-fixes.md",
+      "anchor": "automatic-installation-receipt-upgrade-qualification",
+      "title": "Automatic installation-receipt upgrade qualification"
+    },
+    {
+      "formerPath": "docs/cli-status-bundle-hardening.md",
+      "target": "docs/history/completed-fixes.md",
+      "anchor": "cli-status-bundle-hardening",
+      "title": "CLI status bundle hardening"
+    },
+    {
+      "formerPath": "docs/native-auto-bundle-hardening.md",
+      "target": "docs/history/completed-fixes.md",
+      "anchor": "native-auto-submission-and-bundle-hardening",
+      "title": "Native Auto submission and bundle hardening"
+    },
+    {
+      "formerPath": "docs/source-review-citation-repair.md",
+      "target": "docs/history/completed-fixes.md",
+      "anchor": "source-review-packet-repair",
+      "title": "Source-review packet repair"
+    },
+    {
+      "formerPath": "docs/residual-branch-port.md",
+      "target": "docs/history/completed-fixes.md",
+      "anchor": "residual-branch-reconciliation",
+      "title": "Residual branch reconciliation"
+    }
+  ]
+}

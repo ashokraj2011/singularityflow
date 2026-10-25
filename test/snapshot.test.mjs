@@ -520,7 +520,7 @@ test('visual editor bootstraps governed portfolio and Jira policy without storin
     approvalEmail: 'Owner@Example.com',
     repository: {
       id: 'mobile',
-      url: 'git@git.example.corp:company/mobile.git',
+      url: 'git@git.example.invalid:company/mobile.git',
       defaultBranch: 'develop',
       required: true,
       metadata: {
@@ -573,7 +573,7 @@ test('visual editor safely repairs an untouched starter portfolio with empty aut
     replaceEmptyStarter: true,
     repositories: {
       lead: {
-        url: 'https://git.example.corp/company/lead.git',
+        url: 'https://git.example.invalid/company/lead.git',
         defaultBranch: 'main',
         required: true,
         metadata: { appId: 'APP-1', name: 'Lead' }
@@ -626,7 +626,7 @@ test('a new workspace portfolio keeps the packaged starter as written around the
   await unlink(path.join(root, 'singularity/portfolio.yml'));
   await bootstrapWorkspacePortfolio(root, {
     approvalName: 'Portfolio Owner', approvalEmail: 'owner@example.com',
-    repository: { id: 'mobile', url: 'https://git.example.corp/company/mobile.git', defaultBranch: 'develop' }
+    repository: { id: 'mobile', url: 'https://git.example.invalid/company/mobile.git', defaultBranch: 'develop' }
   });
   const starter = await readFile(path.join(packageRoot, 'templates/portfolio.yml'), 'utf8');
   const created = await readFile(path.join(root, 'singularity/portfolio.yml'), 'utf8');
@@ -644,13 +644,13 @@ test('visual editor bootstraps all workspace repositories and Jira project route
   const created = await bootstrapWorkspacePortfolio(root, {
     repositories: {
       lead: {
-        url: 'https://git.example.corp/company/lead.git',
+        url: 'https://git.example.invalid/company/lead.git',
         defaultBranch: 'main',
         required: true,
         metadata: { appId: 'APP-1', name: 'Lead' }
       },
       mobile: {
-        url: 'https://git.example.corp/company/mobile.git',
+        url: 'https://git.example.invalid/company/mobile.git',
         defaultBranch: 'develop',
         required: true,
         metadata: { appId: 'APP-2', name: 'Mobile' }

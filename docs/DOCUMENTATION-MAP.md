@@ -14,6 +14,8 @@ right document without scanning the full `docs/` directory.
 - Use **World model, AST, and token economy** for model/context behavior.
 - Use **Roadmaps and specs** only when planning or validating future work.
 - Use **ADRs** for durable design decisions.
+- Use [Completed delivery records](history/README.md) for consolidated release notes,
+  completed fixes and historical performance measurements.
 
 ## Current Product Guides
 
@@ -78,7 +80,7 @@ Use these when the system refuses, times out, or needs repair.
 | [State authority](STATE-AUTHORITY.md) | Which state plane owns each fact |
 | [Developer Experience Layer](DEVELOPER-EXPERIENCE-LAYER.md) | First-run rehearsal and bounded diagnostics |
 | [DX performance](DX-PERFORMANCE.md) | Performance diagnostics and timing receipts |
-| [Windows Git Bash installation compatibility](WINDOWS-GIT-BASH-INSTALL-FIX.md) | Windows shell install behavior |
+| [Windows Git Bash installation compatibility](history/completed-fixes.md#windows-git-bash-installation-compatibility) | Windows shell install behavior |
 | [Harness imports](HARNESS-IMPORTS.md) | Bounded reference preview and runtime conformance |
 | [Ledger deployment validation](LEDGER-DEPLOYMENT.md) | Ledger trust-tier validation |
 | [Verification](../VERIFICATION.md) | Test and governance checks |
@@ -98,7 +100,7 @@ Use these for user surfaces, Copilot skills, and external tool wiring.
 | [MCP integration](MCP-INTEGRATION.md) | Governing MCP tools such as Playwright and Figma |
 | [Playwright POC runbook](PLAYWRIGHT-POC-RUNBOOK.md) | Preparing and rehearsing Playwright POC evidence |
 | [Mobile model intake](MOBILE-MODEL-INTAKE.md) | Figma metadata and downstream design context |
-| [UI remediation plan](UI-REMEDIATION-PLAN.md) | Deferred UI alignment and improvement work |
+| [Completed UI remediation](history/completed-fixes.md#vs-code-ui-remediation-plan) | Delivered UI alignment and regression checks |
 
 ## World Model, AST, And Token Economy
 
@@ -173,7 +175,6 @@ unless the document itself says the feature is implemented.
 | [GDP delivery roadmap](GDP-DELIVERY-ROADMAP.md) | Governed delivery and proof |
 | [WEL pending work](WEL-PENDING-WORK.md) | Witnessed Engineering Loop |
 | [SGOS pending work](SGOS-PENDING-WORK.md) | SGOS |
-| [UI remediation plan](UI-REMEDIATION-PLAN.md) | VS Code UI cleanup |
 
 ## GDP Milestone Files
 

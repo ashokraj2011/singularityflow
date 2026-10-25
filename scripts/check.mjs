@@ -202,13 +202,13 @@ if (marketplaceJson.name !== 'singularity-flow') fail('marketplace.json name mus
 if (!marketplacePlugin || marketplacePlugin.source !== './plugin') fail('marketplace must publish singularity-flow from ./plugin');
 if (marketplaceJson.metadata?.version !== pluginJson.version || marketplacePlugin?.version !== pluginJson.version) fail('marketplace and plugin versions must match');
 if (!packageJson.files?.includes('DISTRIBUTION.md') || !existsSync(path.join(root, 'DISTRIBUTION.md'))) fail('distribution guide must ship in the npm package');
-for (const initiativeDocument of ['INITIATIVE-ORCHESTRATION.md', 'RELEASE-INITIATIVE-ORCHESTRATION.md']) {
+for (const initiativeDocument of ['INITIATIVE-ORCHESTRATION.md']) {
   if (!packageJson.files?.includes(initiativeDocument) || !existsSync(path.join(root, initiativeDocument))) fail(`${initiativeDocument} must ship in the npm package`);
 }
-if (!packageJson.files?.includes('RELEASE-EPIC-STORY-LINEAGE.md') || !existsSync(path.join(root, 'RELEASE-EPIC-STORY-LINEAGE.md'))) {
-  fail('Epic-to-Story lineage release notes must ship in the npm package');
+if (!packageJson.files?.includes('docs/') || !existsSync(path.join(root, 'docs/history/release-notes.md'))) {
+  fail('Consolidated release history must ship in the npm package');
 }
-checked.push('DISTRIBUTION.md', 'INITIATIVE-ORCHESTRATION.md', 'RELEASE-INITIATIVE-ORCHESTRATION.md');
+checked.push('DISTRIBUTION.md', 'INITIATIVE-ORCHESTRATION.md', 'docs/history/release-notes.md');
 
 const allFiles = repositoryFiles();
 const identityConfig = spawnSync('git', ['config', '--null', '--get-regexp', '^user[.](name|email)$'], {

@@ -1,7 +1,7 @@
 # Isolated Story creation performance
 
 For the later fresh-request Git batching, shared configuration and VS Code preparation work, see
-[First-request isolated Story performance](FIRST-REQUEST-STORY-PERFORMANCE.md). The measurements
+[First-request isolated Story performance](history/performance-qualification.md#first-request-isolated-story-performance). The measurements
 below remain the earlier parallel-checkout comparison.
 
 This follow-up profiles the isolated `start --isolated-worktree` transaction used by VS Code.
@@ -93,7 +93,7 @@ bundled CLI parity, installed VS Code staging and the unchanged bundle limits ar
 
 The benchmark exercises the CLI transaction backing VS Code, not native Copilot/UI round trips.
 Native Windows was not qualified in this earlier parallel-checkout comparison. The later
-[first-request study](FIRST-REQUEST-STORY-PERFORMANCE.md) includes a hosted Windows 1,000-file
+[first-request study](history/performance-qualification.md#first-request-isolated-story-performance) includes a hosted Windows 1,000-file
 qualification; antivirus/OneDrive, enterprise transport and spinning/network-disk behavior remain
 unqualified. Parallel checkout can have different results on those hosts; explicit Git
 worker policy is retained. Do not claim that this proves a reported six-minute Windows start is

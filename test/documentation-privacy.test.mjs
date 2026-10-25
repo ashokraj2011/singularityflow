@@ -85,7 +85,7 @@ test('machine-specific paths are refused, including escaped Windows and HTML exa
   for (const text of ['/Users/<USER>/repo', '/home/${USER}/repo',
     'C:\\Users\\<USER>\\repo', 'C:/Users/%USERNAME%/repo',
     '/Users/&lt;USER&gt;/repo', '/path/to/workspace',
-    'git@git.example.corp:team/project.git', 'reviewer@example.com']) {
+    'git@git.example.invalid:team/project.git', 'reviewer@example.com']) {
     assert.deepEqual(documentationPrivacyProblems('docs/example.md', text), [], text);
   }
 });
@@ -95,4 +95,24 @@ test('privacy diagnostics report exact lines without echoing personal contents',
   assert.equal(results.length, 1);
   assert.match(results[0], /^docs\/example\.txt:2:/);
   assert.ok(!results[0].includes('private-user'));
+});
+
+test('retired example hosts are refused in source and generated output without identity hints', () => {
+  const host = ['git', 'example', 'corp'].join('.');
+  for (const file of ['README.md', 'src/example.mjs', 'test/example.test.mjs', 'bundle/cli.mjs',
+    'apps/vscode/dist/extension.cjs.map']) {
+    assert.match(sourcePrivacyProblems(file, `Neutral\nhttps://${host}/team/project.git`).join('\n'),
+      /:2: use the generic Git URL placeholder/);
+  }
+  assert.deepEqual(documentationPrivacyProblems('docs/example.md', '`<git_url>.git`'), []);
+  assert.deepEqual(documentationPrivacyProblems('docs/example.html', '&lt;git_url&gt;.git'), []);
+});
+
+test('documentation refuses public repository links without echoing their identities', () => {
+  for (const host of [['github', 'com'].join('.'), 'gitlab.com', 'bitbucket.org']) {
+    const problems = documentationPrivacyProblems('docs/example.md', `https://${host}/private-owner/project`);
+    assert.equal(problems.length, 1);
+    assert.match(problems[0], /public repository reference/);
+    assert.ok(!problems[0].includes('private-owner'));
+  }
 });

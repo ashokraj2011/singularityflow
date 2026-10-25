@@ -64,7 +64,7 @@ test('starter portfolio resolves Epic planning and pins storage and repository d
   const file = path.join(root, 'singularity/portfolio.yml');
   const value = YAML.parse(await readFile(file, 'utf8'));
   value.repositories.mobile = {
-    url: 'git@git.example.corp:company/mobile.git',
+    url: 'git@git.example.invalid:company/mobile.git',
     branchCompletionPolicy: 'either',
     requiredChecks: ['build', 'security']
   };
@@ -162,7 +162,7 @@ test('portfolio repository metadata accepts App IDs, names, and scalar organizat
     version: 1,
     repositories: {
       mobile: {
-        url: 'git@git.example.corp:company/mobile.git',
+        url: 'git@git.example.invalid:company/mobile.git',
         metadata: {
           appId: 'APP-1001',
           name: 'Mobile application',
@@ -201,7 +201,7 @@ test('Epic identity and repository Jira routing are normalized and pinned', () =
     },
     repositories: {
       mobile: {
-        url: 'git@git.example.corp:company/mobile.git',
+        url: 'git@git.example.invalid:company/mobile.git',
         jira: { projectKey: 'MOB', boardId: '42' },
         metadata: { appId: 'APP-1001', name: 'Mobile' }
       }

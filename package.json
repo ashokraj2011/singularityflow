@@ -45,14 +45,11 @@
     "ARCHITECTURE.md",
     "CAPABILITY-LEDGER.md",
     "VERIFICATION.md",
-    "RELEASE-PHASE-INPUTS.md",
-    "RELEASE-EPIC-STORY-LINEAGE.md",
     "DISTRIBUTION.md",
     "INITIATIVE-ORCHESTRATION.md",
     "NATIVE-COPILOT.md",
     "WORKSPACES.md",
     "revision-trace-manifest.json",
-    "RELEASE-INITIATIVE-ORCHESTRATION.md",
     "scripts/revision-trace-check.mjs",
     "scripts/prompt-size-audit.mjs",
     "scripts/native-copilot-audit.mjs",
@@ -73,8 +70,7 @@
     "scripts/fos-benchmark.mjs",
     "scripts/fos-accept-benchmark.mjs",
     "scripts/fos-release-evidence.mjs",
-    "benchmarks/fos/",
-    "LICENSE"
+    "benchmarks/fos/"
   ],
   "workspaces": [
     "apps/vscode"
@@ -161,7 +157,7 @@
     "singularity-flow",
     "copilot-plugin"
   ],
-  "license": "MIT",
+  "license": "UNLICENSED",
   "publishConfig": {
     "access": "restricted"
   },

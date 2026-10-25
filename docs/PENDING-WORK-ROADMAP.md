@@ -491,7 +491,7 @@ matrix cell.
 | Fast onboarding and safe Git | M0–M5 code-local contracts are active. Portable delivery-state authority discovery, URL-first approved-map inspection, explicit registered-lead search, deferred proposal enumeration, exact conflict reconciliation, cross-process verified capability-catalog reuse, Smart clone defaults, and the VS Code explanation/recovery slice landed through `main@7508665e`. RDS v1's explicit model-free provider catalog and repository selection flow subsequently landed at `main@baca8ed1`; controlled release evidence remains open | Complete `CAD-WSP-PLAN-v1` M6 office/platform evidence, FOS AC-035, external M5 adapter certification, and RDS physical office/provider evidence | [Operator guide](FAST-ONBOARDING-AND-GIT-PERFORMANCE.md), [FOS implementation plan](FOS-IMPLEMENTATION-PLAN.md), [capability/workspace extension plan](CAPABILITY-AUTHORITY-DISCOVERY-AND-WORKSPACE-PERFORMANCE-PLAN.md), and [repository discovery specification](SPEC-RDS-REPOSITORY-DISCOVERY-AND-SELECTION-v1.md) |
 
 Completed work is not repeated in this tracker. In particular, the
-[VS Code UI remediation contract](UI-REMEDIATION-PLAN.md) is implemented and regression-backed; a
+[VS Code UI remediation contract](history/completed-fixes.md#vs-code-ui-remediation-plan) is implemented and regression-backed; a
 new responsiveness defect belongs in the DXP track below, not in that closed remediation plan.
 
 ### Current work classification

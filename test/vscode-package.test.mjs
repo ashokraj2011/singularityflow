@@ -94,7 +94,7 @@ function zipEntryModes(archive) {
 
 test('the installed VS Code CLI carries the canonical Help manual and intent-authoring closure', async t => {
   assert.ok(CLI_PAYLOAD.includes('HELP.md'), 'HELP.md is part of the declared installed payload');
-  assert.ok(CLI_PAYLOAD.includes('LICENSE'), 'the bundled polyglot pack license is part of the installed payload');
+  assert.ok(!CLI_PAYLOAD.includes('LICENSE'), 'the installed CLI does not require a removed product license');
   assert.ok(CLI_PAYLOAD.includes('scripts/install-staged-artifacts.mjs'),
     'the bundled reinstall command carries its activation helper');
   assert.ok(VSIX_REQUIRED_CLI_RUNTIME.includes('src/wel-lifecycle.mjs'),

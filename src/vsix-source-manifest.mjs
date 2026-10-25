@@ -9,7 +9,7 @@ export const VSIX_CLI_PAYLOAD = Object.freeze([
   'bin', 'src', 'docs', 'templates', 'plugin', 'schemas',
   'examples/demo-tagged-workflow.xml', 'examples/demo-intent-workflow.xml',
   'scripts/install-staged-artifacts.mjs',
-  'package.json', 'HELP.md', 'LICENSE'
+  'package.json', 'HELP.md'
 ]);
 
 /**

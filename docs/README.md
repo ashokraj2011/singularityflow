@@ -1,6 +1,6 @@
 # Singularity Flow documentation
 
-- [Windows Git Bash installation compatibility](WINDOWS-GIT-BASH-INSTALL-FIX.md)
+- [Windows Git Bash installation compatibility](history/completed-fixes.md#windows-git-bash-installation-compatibility)
 - [Documentation map and classification](DOCUMENTATION-MAP.md)
 
 Singularity Flow is a Git-native delivery system with two supported product
@@ -16,8 +16,8 @@ is not part of the current product.
 
 ## Start here
 
-The repository has many documents because it keeps current guides, help topics,
-architecture decisions, roadmaps, and shareable review artifacts together. Use
+Current guides, help topics, architecture decisions and pending roadmaps remain
+separate from the [consolidated completed records](history/README.md). Use
 the [Documentation map and classification](DOCUMENTATION-MAP.md) when you need
 to understand which document is authoritative for a specific topic.
 
@@ -107,12 +107,12 @@ to understand which document is authoritative for a specific topic.
 | Test and governance checks | [Verification](../VERIFICATION.md) |
 | npm and VSIX distribution | [Distribution](../DISTRIBUTION.md) |
 | Security and trust boundaries | [Architecture](../ARCHITECTURE.md#security-and-trust-boundaries) |
-| Current product decisions and compatibility records | [Architecture decision records](adr/) and repository `RELEASE-*.md` documents |
+| Current product decisions and compatibility records | [Architecture decision records](adr/) |
+| Completed releases, fixes and measurements | [Completed delivery records](history/README.md) |
 
-Files named `RELEASE-*.md` retain stable filenames for inbound links, but their
-behavioral guidance is maintained against the current product. Version labels
-identify where a capability originated; current commands, surfaces, and safety
-boundaries take precedence throughout each document.
+Completed release notes are consolidated under `history/`. Their version labels,
+measurements and limitations describe the original delivery. Use current guides
+for commands, supported surfaces and operational behavior.
 
 ## Source-of-truth rule
 

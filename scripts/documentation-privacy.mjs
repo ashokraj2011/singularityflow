@@ -60,11 +60,14 @@ function personalTermPattern(terms) {
 export function sourcePrivacyProblems(relative, text, personalTerms = []) {
   const problems = [];
   const pattern = personalTermPattern(personalTerms);
-  if (!pattern) return problems;
-  if (pattern.test(relative)) problems.push(`${relative}: personal identity in filename`);
+  if (pattern?.test(relative)) problems.push(`${relative}: personal identity in filename`);
+  const obsoleteGitHost = ['git', 'example', 'corp'].join('.');
   for (const [index, line] of String(text).split(/\r?\n/).entries()) {
-    if (pattern.test(line)) {
+    if (pattern?.test(line)) {
       problems.push(`${relative}:${index + 1}: personal name or account reference`);
+    }
+    if (line.toLowerCase().includes(obsoleteGitHost)) {
+      problems.push(`${relative}:${index + 1}: use the generic Git URL placeholder instead of the retired example host`);
     }
   }
   return problems;
@@ -78,6 +81,9 @@ export function documentationPrivacyProblems(relative, text, personalTerms = [])
   for (let index = 0; index < lines.length; index += 1) {
     const line = lines[index].replaceAll('&lt;', '<').replaceAll('&gt;', '>');
     if (homePath.test(line)) problems.push(`${relative}:${index + 1}: use a placeholder instead of a machine-specific home path`);
+    if (/https?:\/\/(?:www\.)?(?:github\.com|gitlab\.com|bitbucket\.org)\//iu.test(line)) {
+      problems.push(`${relative}:${index + 1}: use a generic Git URL placeholder instead of a public repository reference`);
+    }
   }
   return problems;
 }

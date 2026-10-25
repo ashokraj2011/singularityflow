@@ -41,14 +41,14 @@ test('GitHub remotes in SSH, scp, git and HTTPS form become the repository page'
 
 test('anything that is not one GitHub repository shows nothing new', () => {
   for (const remote of [
-    null, undefined, 42, '', 'https://git.example.corp/acme/platform.git', 'git@gitlab.example:acme/api.git',
+    null, undefined, 42, '', 'https://git.example.invalid/acme/platform.git', 'git@gitlab.example:acme/api.git',
     `https://${GITHUB}/acme`, `https://${GITHUB}/acme/api/tree/main`, `https://${GITHUB}/acme/..`,
     `https://user:secret@${GITHUB}/acme/api.git`, `https://${GITHUB}/acme/api.git?ref=main`,
     `https://${GITHUB}/acme/api#readme`, 'file:///work/api', '/work/api', 'C:\\work\\api',
     `https://${GITHUB}/-acme/api`, `https://${GITHUB}/acme/a%20b`, 'javascript:alert(1)',
     `https://${GITHUB}.example.corp/acme/api.git`
   ]) assert.equal(repositoryWebUrl(remote), null, String(remote));
-  assert.equal(repositoryWebLink('https://git.example.corp/acme/platform.git'), '');
+  assert.equal(repositoryWebLink('https://git.example.invalid/acme/platform.git'), '');
 });
 
 test('the link names its page and carries it for the shared click handler', () => {

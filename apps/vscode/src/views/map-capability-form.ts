@@ -551,7 +551,7 @@ function repositorySetupHtml(form: MapCapabilityForm): string {
         <p><strong>Already onboarded elsewhere?</strong> Check the approved capability-map repository before setting up this one.</p>
         <label class="field full"><span>Existing capability-map Git URL</span>
           <input type="text" value="${escape(form.inspectionLeadUrl)}" data-map="inspectionLeadUrl"
-            placeholder="https://git.example.corp/acme/platform.git">
+            placeholder="&lt;git_url&gt;.git">
           <small>Use this when another repository owns the organisation map.</small></label>
         <p><button type="button" class="secondary" data-map-inspect-lead${form.inspectionLeadUrl.trim() ? '' : ' disabled'}>Check existing capability map</button>
           ${form.leads.length
@@ -796,7 +796,7 @@ export function mapCapabilityHtml(form: MapCapabilityForm, journey: StartWizardP
                       && (!form.repositorySetupPlan || form.repositorySetupResolved)
                       ? `<div class="form-grid">
                           <label class="field full"><span>Existing capability-map Git URL</span>
-                            <input type="text" value="${escape(form.inspectionLeadUrl)}" data-map="inspectionLeadUrl" placeholder="https://git.example.corp/acme/platform.git">
+                            <input type="text" value="${escape(form.inspectionLeadUrl)}" data-map="inspectionLeadUrl" placeholder="&lt;git_url&gt;.git">
                             <small>Use this when another repository already owns the organisation map.</small></label>
                         </div>
                         <p><button type="button" class="secondary" data-map-inspect-lead${form.inspectionLeadUrl.trim() ? '' : ' disabled'}>Check existing capability map</button>
@@ -859,7 +859,7 @@ export function mapCapabilityHtml(form: MapCapabilityForm, journey: StartWizardP
       <h2>${icon('repository')}Repository</h2>
       <label class="field full"><span>Git URL or local clone</span><input type="text"
         value="${escape(form.repositoryUrl)}" data-map="repositoryUrl"
-        placeholder="https://git.example.corp/acme/payments-api.git"></label>
+        placeholder="&lt;git_url&gt;.git"></label>
       <p><button type="button" data-map-inspect
           ${!form.repositoryUrl.trim() || form.inspectionStatus === 'checking' ? 'disabled' : ''}>${form.inspectionStatus === 'checking' ? 'Checking…' : 'Check setup'}</button></p>
       <details class="configuration-advanced-tools"><summary>Don't have the Git URL?</summary>
@@ -885,7 +885,7 @@ export function mapCapabilityHtml(form: MapCapabilityForm, journey: StartWizardP
     <h2>${icon('git')}Git repository</h2>
     <p class="muted">Enter the Git URL, then check the repository.</p>
     <label class="field full"><span>Git URL ${fieldInfo('Git URL', 'The credential-free Git identity of the repository that ships this capability. Authentication remains in Git or the operating system and is never stored in the capability map.')}</span><input type="text" value="${escape(form.repositoryUrl)}" data-map="repositoryUrl"
-      ${form.collectionWithoutRepository ? 'disabled' : ''} placeholder="https://git.example.corp/acme/payments-api.git"></label>
+      ${form.collectionWithoutRepository ? 'disabled' : ''} placeholder="&lt;git_url&gt;.git"></label>
     <p>
       ${form.collectionWithoutRepository
         ? '<button type="button" data-map-collection>Use a repository instead</button>'
@@ -978,7 +978,7 @@ export function mapCapabilityHtml(form: MapCapabilityForm, journey: StartWizardP
     : 'Use the existing capability map instead of the shipping repository.'}</span>
       </label>` : ''}
       ${!form.leads.length && form.kind === 'collection' ? `<label class="field full"><span>Repository</span>
-        <input type="text" value="${escape(form.lead)}" data-map="lead" placeholder="https://git.example.corp/acme/platform.git">
+        <input type="text" value="${escape(form.lead)}" data-map="lead" placeholder="&lt;git_url&gt;.git">
         <small>No capability-map repository is registered yet. Enter the repository that should hold it.</small></label>` : ''}
       ${form.kind === 'delivery' ? `<label class="choice${usesShippingRepository ? ' chosen' : ''}">
         <input type="checkbox" data-use-shipping-repository${usesShippingRepository ? ' checked' : ''}${repository ? '' : ' disabled'}>

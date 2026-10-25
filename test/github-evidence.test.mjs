@@ -3,8 +3,8 @@ import assert from 'node:assert/strict';
 import { collectGitHubEvidence, parseGitHubRemote } from '../src/github-evidence.mjs';
 
 test('GitHub remotes normalize SSH and HTTPS without accepting unrelated URLs', () => {
-  assert.deepEqual(parseGitHubRemote('git@git.example.corp:company/mobile.git'), {
-    host: 'git.example.corp',
+  assert.deepEqual(parseGitHubRemote('git@git.example.invalid:company/mobile.git'), {
+    host: 'git.example.invalid',
     owner: 'company',
     repository: 'mobile',
     slug: 'company/mobile'
@@ -40,12 +40,12 @@ test('GitHub review evidence binds required Actions and PR observations to the e
         merged_at: null,
         head: { sha: submitted },
         base: { ref: 'MOB-123' },
-        html_url: 'https://git.example.corp/company/mobile/pull/17'
+        html_url: 'https://git.example.invalid/company/mobile/pull/17'
       }])
     };
   };
   const evidence = collectGitHubEvidence('/tmp', {
-    remote: 'git@git.example.corp:company/mobile.git',
+    remote: 'git@git.example.invalid:company/mobile.git',
     commit: submitted,
     submittedBranch: 'feature/login-ui',
     canonicalBranch: 'MOB-123',

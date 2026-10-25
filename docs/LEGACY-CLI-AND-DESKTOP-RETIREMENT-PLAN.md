@@ -111,11 +111,10 @@ special case outside the 78 registry routes.
 
 **Purpose:** remove confusion and release risk, not VS Code functionality.
 
-- Review `RELEASE-PHASE-INPUTS.md`, `RELEASE-EPIC-WIZARD.md`, and
-  `RELEASE-EPIC-STORY-LINEAGE.md`. Their stable filenames may be needed for inbound links: either
-  rewrite current guidance against CLI/VS Code/Copilot or add a prominent historical-status banner
-  and point to current guidance. Reconcile the statement in `docs/README.md` that `RELEASE-*`
-  behavioral guidance is current.
+- Review the [consolidated release history](history/release-notes.md). Completed phase-input,
+  Epic wizard and Story-lineage notes are retained there with their original boundaries;
+  current guides link directly to those sections. Keep historical desktop behavior clearly
+  separated from current CLI, VS Code and Copilot guidance.
 - Keep the archive reference in ADR 0004, `DISTRIBUTION.md`, and architecture history. Do not
   rewrite Git history or delete the archival ref merely to erase a string search hit.
 - Extend dependency/packaging tests to refuse `apps/desktop`, desktop build scripts, Electron app

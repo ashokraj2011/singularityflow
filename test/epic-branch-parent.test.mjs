@@ -303,21 +303,21 @@ test('story pull request targets the epic branch and is built from committed sta
   const calls = [];
   const stub = (command, args) => {
     calls.push(`${command} ${args[0]}`);
-    if (command === 'git') return { status: 0, stdout: 'git@git.example.corp:acme/app.git', stderr: '' };
+    if (command === 'git') return { status: 0, stdout: 'git@git.example.invalid:acme/app.git', stderr: '' };
     if (args[0] === 'auth') return { status: 0, stdout: '', stderr: '' };
-    if (args[0] === 'pr' && args[1] === 'list') return { status: 0, stdout: 'https://git.example.corp/acme/app/pull/7', stderr: '' };
+    if (args[0] === 'pr' && args[1] === 'list') return { status: 0, stdout: 'https://git.example.invalid/acme/app/pull/7', stderr: '' };
     return { status: 0, stdout: '', stderr: '' };
   };
   const ready = { workId: 'APP-1', base: EPIC, head: 'APP-1', title: 't', body: 'b', requiredChecks: [], blockedBy: [] };
   const result = createStoryPullRequest('/tmp', ready, { runCommand: stub });
   assert.equal(result.status, 'existing');
-  assert.equal(result.url, 'https://git.example.corp/acme/app/pull/7');
+  assert.equal(result.url, 'https://git.example.invalid/acme/app/pull/7');
   assert.ok(!calls.includes('gh pr create'));
 
   const updateCalls = [];
   const updateResult = updateStoryPullRequest('/tmp', ready, { runCommand: (command, args) => {
     updateCalls.push([command, ...args]);
-    if (args[0] === 'pr' && args[1] === 'list') return { status: 0, stdout: '{"number":7,"url":"https://git.example.corp/acme/app/pull/7"}', stderr: '' };
+    if (args[0] === 'pr' && args[1] === 'list') return { status: 0, stdout: '{"number":7,"url":"https://git.example.invalid/acme/app/pull/7"}', stderr: '' };
     return { status: 0, stdout: '', stderr: '' };
   } });
   assert.equal(updateResult.status, 'updated');
@@ -365,14 +365,14 @@ test('Epic pull requests land only after the blocking Story stack has merged', a
   const calls = [];
   const result = createPullRequest(root, ready, { runCommand: (command, args) => {
     calls.push([command, ...args]);
-    if (command === 'git') return { status: 0, stdout: 'git@git.example.corp:acme/app.git', stderr: '' };
+    if (command === 'git') return { status: 0, stdout: 'git@git.example.invalid:acme/app.git', stderr: '' };
     if (args[0] === 'auth') return { status: 0, stdout: '', stderr: '' };
     if (args[0] === 'pr' && args[1] === 'list') return { status: 0, stdout: '', stderr: '' };
-    if (args[0] === 'pr' && args[1] === 'create') return { status: 0, stdout: 'https://git.example.corp/acme/app/pull/9\n', stderr: '' };
+    if (args[0] === 'pr' && args[1] === 'create') return { status: 0, stdout: 'https://git.example.invalid/acme/app/pull/9\n', stderr: '' };
     return { status: 0, stdout: '', stderr: '' };
   } });
   assert.equal(result.status, 'created');
-  assert.equal(result.url, 'https://git.example.corp/acme/app/pull/9');
+  assert.equal(result.url, 'https://git.example.invalid/acme/app/pull/9');
   assert.ok(calls.some((args) => args[0] === 'gh' && args[1] === 'pr' && args[2] === 'create'));
 });
 

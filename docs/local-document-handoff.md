@@ -122,7 +122,7 @@ Those budgets are not widened to conceal the existing overruns. No dependency or
 is added.
 
 These are the historical results of the attachment-delivery change. The subsequent
-[native Auto and bundle hardening](native-auto-bundle-hardening.md) resolves the Windows
+[native Auto and bundle hardening](history/completed-fixes.md#native-auto-submission-and-bundle-hardening) resolves the Windows
 Ad Hoc-to-Auto submission failure and all six VS Code bundle overruns without raising their
 limits. That report records the native follow-up results, portability corrections and separate
 remaining qualification limitations.

@@ -5584,7 +5584,7 @@ test('onboarded capabilities show their repository as a GitHub link and nothing 
   for (const html of [
     capabilitiesHtml(capabilityFixture, 'payments', null),
     capabilitiesHtml(capabilityFixture, 'payments', null, undefined, 'explicit-legacy',
-      { api: { url: 'https://git.example.corp/acme/payments-api.git' } }),
+      { api: { url: 'https://git.example.invalid/acme/payments-api.git' } }),
     capabilitiesHtml([{
       id: 'repository-root', name: 'This repository', kind: 'delivery', delivery: true,
       repository: 'api', policy: {}, effectivePolicy: {}, children: []
@@ -7281,7 +7281,7 @@ test('workspace capabilities link their GitHub repository in the details and in 
       { id: 'payments', name: 'Payments', depth: 0, ancestors: [], repository: 'platform',
         url: `ssh://git@${GITHUB}/acme/commerce-platform.git` },
       { id: 'risk', name: 'Risk', depth: 0, ancestors: [], repository: 'risk',
-        url: 'https://git.example.corp/acme/risk.git' }
+        url: 'https://git.example.invalid/acme/risk.git' }
     ]
   };
   const link = githubLink('acme/commerce-platform');

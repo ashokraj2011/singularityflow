@@ -450,7 +450,7 @@ Story start avoids a full FOS repository-identity projection only when the entir
 namespace is absent. Existing attachments, recovery operations, malformed or unreadable state
 retain full validation; this shortcut never treats an attachment-read error as an absent pin.
 
-See [creation performance qualification](docs/workspace-creation-performance.md) for cold/warm
+See [creation performance qualification](docs/history/performance-qualification.md#workspace-creation-and-story-intake-qualification) for cold/warm
 benchmark commands, Git-call definitions and measurement limitations.
 It uses disposable local bare remotes, creates no Story, and reports fresh-process first-download,
 reused-fresh and cached requests. It does not model enterprise network or credential latency.

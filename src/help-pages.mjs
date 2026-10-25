@@ -1966,7 +1966,7 @@ const PAGES = Object.freeze({
     examples: [
       ['singularity-flow repositories list --scope known', 'List repositories already named by strict local SFlow sources.'],
       ['singularity-flow repositories search payments --scope known --json', 'Apply deterministic literal matching without a provider request.'],
-      ['singularity-flow repositories list --scope provider --provider github --host git.example.corp --json', 'Explicitly read one bounded GitHub page.'],
+      ['singularity-flow repositories list --scope provider --provider github --host <git_host> --json', 'Explicitly read one bounded GitHub page.'],
       ['singularity-flow repositories select rdssel_… --action inspect --json', 'Revalidate one selected row and prepare, but do not run, capability inspection.'],
       ['singularity-flow repositories cache clear --json', 'Clear only RDS observations, selections, and cursors.']
     ],

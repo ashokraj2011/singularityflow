@@ -42,8 +42,8 @@ async function remote({ branch = 'main' } = {}) {
 }
 
 test('a repository identifier comes from the URL, however it is written', () => {
-  assert.equal(repositoryIdFromUrl('https://git.example.corp/acme/Commerce-Platform.git'), 'commerce-platform');
-  assert.equal(repositoryIdFromUrl('git@git.example.corp:acme/platform.git'), 'platform');
+  assert.equal(repositoryIdFromUrl('https://git.example.invalid/acme/Commerce-Platform.git'), 'commerce-platform');
+  assert.equal(repositoryIdFromUrl('git@git.example.invalid:acme/platform.git'), 'platform');
   assert.equal(repositoryIdFromUrl('/srv/git/platform.git/'), 'platform');
   assert.throws(() => repositoryIdFromUrl(''), /Cannot derive a repository identifier/);
   assert.deepEqual(bootstrapBranchPatterns(), [

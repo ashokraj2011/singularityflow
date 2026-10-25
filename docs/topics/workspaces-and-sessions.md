@@ -16,7 +16,7 @@ related:
   - developer-home
   - capability-management
   - repository-state-and-snapshots
-version: 22
+version: 23
 ---
 A workspace is the machine-local collection of capability repositories used for one delivery context. Sessions bind a contributor and selected work item without replacing repository state.
 
@@ -111,6 +111,7 @@ A Story has one checkout on this computer, whichever workspace or clone holds it
 - A command that names a Story, by `--work-id` or by its Work ID operand (`status`, `nextsteps`, `report`, `approvals`, `progress` and the others, and `session context --work-id`), runs in that Story's checkout wherever it was started, and says so: `<WORK-ID> → <CHECKOUT>` on stderr, or `storyRoute` in `--json` output. Relative file options (`--file`, `--out` and similar) and file operands (`documents upload <FILE>`, `impact evidence import <FILE>`, the comprehension draft files) are made absolute first, against the folder the command was run from; one that is not there stays repository-relative.
 - A Story in another workspace is refused with `sflow workspace use <WORKSPACE>` and `sflow session open <WORK-ID>`; a Story with no checkout here, with `sflow session open <WORK-ID>` (`resume` and `return` open it here instead, as its one checkout). A command never answers about the current folder's Story instead.
 - Start, `session open`, `session open-local` and `session attach` reuse the Story's checkout (including one in another clone of the same workspace) or refuse to create a second one.
+- A Story that delivers in several repositories has its checkout of each recorded (`role: secondary` in `workspace stories --json`, a `+` after the repository in the table). Commands for it still run in the checkout that holds its record, and `session takeover` uses its existing checkout of each repository, in any clone of the workspace, instead of making a second; one in another workspace is refused.
 - An explicit checkout (`--context-root`, a VS Code window binding) still wins, and a Copilot turn bound to one Story cannot run a command for another (`ACTIVE_SUBJECT_MISMATCH`). A routed change is refused while the folder you are in has uncommitted changes to that Story's files.
 
 The index is a lookup and a cache, never authority. Every read checks an entry against the checkout's own Git files (folder, branch, Git directory, remote, the Story's `workflow.json`) and drops one that no longer matches; Git stays the truth. Phase and status are refreshed after each lifecycle command; no gate reads them. A checkout whose files are cloud placeholders is reported as unavailable, not read.

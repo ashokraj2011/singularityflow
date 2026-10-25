@@ -502,3 +502,134 @@ test('attach and open reuse the Story checkout in another clone of the same work
   assert.ok(envelope.remediationPlan.steps.some((step) => step.command === 'singularity-flow session open S-4'),
     JSON.stringify(envelope.remediationPlan));
 });
+
+/**
+ * One workspace whose capability delivers in two repositories, app and api, each with its own bare
+ * remote; app carries the approved configuration that names both (as in execution-context.test.mjs).
+ */
+async function twoRepositoryWorkspace(t) {
+  const base = await mkdtemp(path.join(os.tmpdir(), 'sflow-story-index-multi-'));
+  t.after(() => rm(base, { recursive: true, force: true }));
+  const state = path.join(base, 'machine');
+  await mkdir(state);
+  const env = {
+    ...process.env, NODE_ENV: 'test', SINGULARITY_FLOW_BUNDLE: 'off', SINGULARITY_FLOW_NO_MODEL: '1',
+    SINGULARITY_FLOW_TEST_IDENTITY: 'Index Tester',
+    SINGULARITY_FLOW_TEST_SELECTION: JSON.stringify({ workType: 'feature', agent: 'product-owner' }),
+    SINGULARITY_FLOW_WORKSPACE_REGISTRY: path.join(state, 'workspaces.json'),
+    SINGULARITY_FLOW_ACTIVE_WORKSPACE: path.join(state, 'active-workspace.json'),
+    SINGULARITY_FLOW_LEAD_REGISTRY: path.join(state, 'leads.json'),
+    SINGULARITY_FLOW_COPILOT_MODE_FILE: path.join(state, 'copilot-mode.json'),
+    SINGULARITY_FLOW_AUTOMATIC_CLEANUP: 'off'
+  };
+  delete env.SINGULARITY_FLOW_STORY_INDEX;
+  const run = (command, args, { cwd = base, allowFailure = false } = {}) => {
+    const result = spawnSync(command, args, { cwd, encoding: 'utf8', env, timeout: childTimeout(180_000), maxBuffer: 64 * 1024 * 1024 });
+    if (!allowFailure) assert.equal(result.status, 0, `${command} ${args.join(' ')}\n${result.stdout}\n${result.stderr}`);
+    return result;
+  };
+  const cli = (args, options = {}) => run(process.execPath, [CLI, ...args], options);
+  const json = (args, options = {}) => JSON.parse(cli([...args, '--json'], options).stdout);
+  const git = (cwd, ...args) => run('git', ['-c', 'gc.auto=0', '-c', 'maintenance.auto=false', ...args], { cwd }).stdout.trim();
+  const workspacePath = path.join(base, 'workspace');
+  const app = path.join(workspacePath, 'repos', 'app');
+  const api = path.join(workspacePath, 'repos', 'api');
+  const remote = path.join(base, 'app.git');
+  const apiRemote = path.join(base, 'api.git');
+  await mkdir(app, { recursive: true });
+  git(app, 'init', '-q', '-b', 'main');
+  git(app, 'config', 'user.name', 'Index Tester');
+  git(app, 'config', 'user.email', 'index.tester@example.invalid');
+  await writeFile(path.join(app, 'README.md'), 'Two-repository Story index fixture\n');
+  cli(['--no-model', 'init'], { cwd: app });
+  const definitionPath = path.join(app, 'singularity/workflow.yml');
+  const definition = YAML.parse(await readFile(definitionPath, 'utf8'));
+  definition.git.publish = 'off';
+  definition.repositoryReadiness.requiredBeforeStory = false;
+  await writeFile(definitionPath, YAML.stringify(definition));
+  const portfolioPath = path.join(app, 'singularity/portfolio.yml');
+  const portfolio = YAML.parse(await readFile(portfolioPath, 'utf8'));
+  portfolio.repositories = { app: { url: remote, defaultBranch: 'main', required: true },
+    api: { url: apiRemote, defaultBranch: 'main', required: true } };
+  await writeFile(portfolioPath, YAML.stringify(portfolio));
+  await writeFile(path.join(app, 'singularity/capabilities.yml'), YAML.stringify({ version: 1, capabilities: {
+    enterprise: { kind: 'collection', parent: null, policy: {} },
+    product: { kind: 'collection', parent: 'enterprise', policy: {} },
+    delivery: { kind: 'delivery', parent: 'product', repositories: ['app', 'api'], policy: {} }
+  } }));
+  git(app, 'add', '.');
+  git(app, 'commit', '-qm', 'Approved two-repository configuration');
+  git(app, 'branch', 'sflow/config');
+  for (const bare of [remote, apiRemote]) git(base, 'init', '--bare', '-q', '-b', 'main', bare);
+  git(app, 'remote', 'add', 'origin', remote);
+  git(app, 'push', '-q', '-u', 'origin', 'main', 'sflow/config');
+  git(base, 'clone', '--no-local', '-q', remote, api);
+  git(api, 'remote', 'set-url', 'origin', apiRemote);
+  git(api, 'push', '-q', '-u', 'origin', 'main');
+  for (const clone of [app, api]) {
+    git(clone, 'config', 'user.name', 'Index Tester');
+    git(clone, 'config', 'user.email', 'index.tester@example.invalid');
+  }
+  const now = new Date().toISOString();
+  await writeFile(path.join(workspacePath, 'workspace.json'), JSON.stringify({ version: 1, id: 'multi', name: 'Multi',
+    createdAt: now, updatedAt: now, anchor: { provider: 'workspace', key: 'multi', title: 'Multi', fetchedAt: now },
+    leadRepository: 'app', capabilities: ['delivery'], repositories: {
+      app: { url: remote, path: 'repos/app', defaultBranch: 'main', required: true, capabilities: ['delivery'] },
+      api: { url: apiRemote, path: 'repos/api', defaultBranch: 'main', required: true, capabilities: ['delivery'] }
+    } }));
+  const { readWorkspace, rememberWorkspace } = await import('../src/workspace.mjs');
+  await rememberWorkspace(env.SINGULARITY_FLOW_WORKSPACE_REGISTRY, await readWorkspace(workspacePath));
+  cli(['workspace', 'use', workspacePath, '--repository', 'app', '--json']);
+  const index = async () => JSON.parse(await readFile(path.join(state, 'story-index.json'), 'utf8'));
+  const worktreeOn = (clone, branch) => git(clone, 'worktree', 'list', '--porcelain').split('\n\n')
+    .find((block) => block.includes(`branch refs/heads/${branch}`))?.split('\n')[0].slice('worktree '.length) ?? null;
+  return { base, env, run, cli, json, git, workspacePath, app, api, remote, apiRemote, index, worktreeOn, readWorkspace };
+}
+
+test('a Story that delivers in two repositories has its checkout of each in the index', slowLane({ timeout: 900_000 }), async (t) => {
+  const f = await twoRepositoryWorkspace(t);
+  const started = f.json(['start', 'MULTI-1', '--isolated-worktree', '--from-branch', 'main', '--capability', 'delivery',
+    '--work-type', 'feature', '--title', 'Shared delivery'], { cwd: f.app });
+  const lifecycle = (started.data ?? started).repositoryPath;
+  f.git(lifecycle, 'push', '-q', '-u', 'origin', 'MULTI-1');
+  if (!f.git(f.api, 'branch', '--list', 'MULTI-1')) f.git(f.api, 'branch', 'MULTI-1');
+  f.git(f.api, 'push', '-q', 'origin', 'MULTI-1');
+  const apiCheckout = f.worktreeOn(f.api, 'MULTI-1');
+  assert.ok(apiCheckout, f.git(f.api, 'worktree', 'list'));
+
+  // The start records both: the checkout holding the Story, and api's, which only carries its branch.
+  const entries = (await f.index()).entries.filter((entry) => entry.workId === 'MULTI-1');
+  assert.deepEqual(entries.map((entry) => [entry.repository.id, entry.role ?? 'story']).sort(), [['api', 'secondary'], ['app', 'story']],
+    JSON.stringify(entries, null, 2));
+  const secondary = entries.find((entry) => entry.role === 'secondary');
+  assert.equal(canonical(secondary.checkoutPath), canonical(apiCheckout));
+  assert.equal(canonical(secondary.lifecycle.checkoutPath), canonical(lifecycle));
+  const listed = f.json(['workspace', 'stories', 'MULTI-1'], { cwd: f.base });
+  assert.deepEqual(listed.stories.map((story) => story.role).sort(), ['secondary', 'story']);
+  assert.deepEqual(listed.routes.commands, ['singularity-flow session open MULTI-1']);
+  assert.doesNotMatch(f.cli(['workspace', 'stories', 'MULTI-1'], { cwd: f.base }).stdout, /more than one checkout/u);
+
+  // From api's checkout, a command for the Story runs where its record is, never in api.
+  const routed = f.json(['status', '--work-id', 'MULTI-1'], { cwd: apiCheckout });
+  assert.equal(routed.workItem.id, 'MULTI-1');
+  assert.equal(canonical(routed.storyRoute.checkoutPath), canonical(lifecycle));
+
+  // api's checkout moves to another clone of the workspace (a branch download); a rebuild finds it there.
+  const { prepareWorkspaceBranch } = await import('../src/workspace-branch-checkout.mjs');
+  const second = (await prepareWorkspaceBranch(await f.readWorkspace(f.workspacePath), 'api', 'main', { reuse: true, env: f.env })).repositoryPath;
+  f.git(f.api, 'worktree', 'remove', apiCheckout);
+  f.git(second, 'fetch', '-q', 'origin', 'MULTI-1:MULTI-1');
+  const moved = path.join(f.workspacePath, '.singularity-flow', 'story-worktrees', 'api-second');
+  f.git(second, 'worktree', 'add', '-q', moved, 'MULTI-1');
+  const rebuilt = f.json(['workspace', 'stories', 'MULTI-1', '--rebuild'], { cwd: f.base });
+  assert.deepEqual(rebuilt.stories.filter((story) => story.role === 'secondary').map((story) => canonical(story.checkoutPath)),
+    [canonical(moved)], JSON.stringify(rebuilt, null, 2));
+
+  // Takeover uses that checkout instead of checking api's branch out a second time in the declared clone.
+  const taken = f.json(['session', 'takeover', 'MULTI-1'], { cwd: f.app });
+  assert.equal(taken.ready, true, JSON.stringify(taken));
+  assert.deepEqual(taken.repositories.map((context) => context.repository.id), ['app', 'api']);
+  assert.equal(f.worktreeOn(f.api, 'MULTI-1'), null, f.git(f.api, 'worktree', 'list'));
+  assert.equal(canonical(f.worktreeOn(second, 'MULTI-1')), canonical(moved));
+  assert.equal(f.git(f.api, 'branch', '--show-current'), 'main');
+});

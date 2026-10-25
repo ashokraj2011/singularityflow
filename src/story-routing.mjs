@@ -231,7 +231,10 @@ export async function routeNamedStory({ command, positionals, options, argv, roo
       'ACTIVE_SUBJECT_MISMATCH', { expectedWorkId: workId, actualWorkId: current.workId, repositoryPath: root });
     return null;
   }
-  const { valid, unavailable } = await index.lookupStoryCheckouts(workId, { env });
+  // A command runs where the Story's record is: its other repositories' checkouts are not candidates.
+  const found = await index.lookupStoryCheckouts(workId, { env });
+  const valid = found.valid.filter(index.isLifecycle);
+  const unavailable = found.unavailable.filter(index.isLifecycle);
   const active = await index.activeWorkspaceId(env);
   const here = new Set([member.workspace.id, active].filter(Boolean));
   const local = valid.filter((entry) => here.has(entry.workspace.id));

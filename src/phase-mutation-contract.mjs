@@ -257,18 +257,18 @@ export function mutationToolProtocol(contract) {
     staging: 'Use a file-edit tool only at an exact kernel-issued staging path. No shell writers, mkdir or arbitrary temporary paths.',
     terminal: authoring
       ? 'Run SFlow lifecycle commands standalone with cwd=repositoryPath; do not wrap or chain kernel mutations. Repository-local authoring shell commands are permitted under the pinned file policy and before/after change detection; this is not a standalone-SFlow-only terminal.'
-      : 'Run one standalone registered SFlow command with cwd=repositoryPath (one carrying returned `selectors` runs from any cwd); no pipes, redirects, substitutions or command chains.',
+      : 'Run one standalone registered SFlow command with cwd=repositoryPath, or as is from a non-Git folder such as a chat folder (SFlow finds the bound checkout; `cd <it> && …` or `env -C <it> …` also sets it); no pipes, redirects, substitutions or other command chains.',
     localVerification: { allowed: verification, guidance: verification ? AUTHORING_VERIFICATION_PROTOCOL :
       'This retained, deterministic or non-authoring turn does not grant local test/app execution. Use its returned authoring or kernel route; do not reopen a phase or broaden write permissions.' },
     retry: 'Correct the tool form without re-asking settled questions or changing lifecycle state.',
     mode: contract.turnMode };
 }
 
-export function mutationDenial(contract, reason, paths = []) {
-  const actions = contract?.next?.length ? contract.next : [route(['phase', 'enter', '--for-agent', '--json'],
-    'Preserve existing work. End an expired/corrupt turn and invoke /sf-phase in a new turn; missing selection uses /sf-session.')];
+export function mutationDenial(contract, reason, paths = [], { routes = null } = {}) {
+  const actions = routes ?? (contract?.next?.length ? contract.next : [route(['phase', 'enter', '--for-agent', '--json'],
+    'Preserve existing work. End an expired/corrupt turn and invoke /sf-phase in a new turn; missing selection uses /sf-session.')]);
   const lines = actions.map(action => `Copilot: ${action.copilotCommand ?? 'unavailable'}; Shell: ${action.command}; Model-free: ${action.modelFreeCommand ?? 'not available for this action'}`);
   return { permissionDecision: 'deny', permissionDecisionReason:
-    `${reason}${paths.length ? ` (${paths.join(', ')})` : ''}. ${contract?.summary ?? 'No current verified mutation contract.'} ${lines.join(' ')}`,
+    `${reason}${paths.length ? ` (${paths.join(', ')})` : ''}. ${contract?.summary ?? 'No current verified mutation contract.'} ${lines.join(' ')}`.trimEnd(),
     next: actions };
 }

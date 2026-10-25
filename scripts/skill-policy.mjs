@@ -399,14 +399,19 @@ const SKILL_SEMANTIC_CONTRACTS = Object.freeze({
   }
 });
 
+// SFlow finds the bound Story's checkout (session binding, Story index) from a folder outside any
+// Git repository. Read alone, "cwd=repositoryPath" made a VS Code agent-host chat, which runs in its
+// own folder and cannot change it, refuse /sf-inputs and wrap /sf-submit until refused (2026-10-26).
+const STORY_CWD = 'cwd=`repositoryPath`, or as is from a non-Git (chat) folder: SFlow finds the bound checkout; never refuse or wrap for it';
+
 function executionBoundary(kind = 'story', name = '') {
   if (name === 'sflow-start') return '**Boundary:** no Story required; reuse entry `repositoryPath` after its workspace/clean-tree checks. Refuse absent/unready selections; never search `$HOME`/parents.';
   // Session attachment resolves its own scope, and its returned selectors need no checkout: a chat with
   // no folder open (a non-Git cwd) attaches as given. Read as "cd first", the generic cwd rule stopped it.
   if (name === 'sflow-session') return '**Boundary:** no Story required; any cwd, even a non-Git chat folder: `open` resolves the opened Git root or selected workspace, and a command carrying `selectors` (`--workspace`, `--repository`) needs no checkout; never `cd` for it; refuse if none resolves; never search `$HOME`/parents.';
-  if (name === 'sflow-review-source') return '**Boundary:** reuse this invocation\'s review entry: require `ready`/`workId`, valid `phaseAgent`; cwd=`repositoryPath`. Use returned `workItemRoot`/artifact and Git-private staging paths; never `$HOME`.';
-  if (['sflow-next', 'sflow-inputs'].includes(name)) return '**Boundary:** reuse this invocation\'s entry: require `ready`/`workId`, valid `phaseAgent` for active phases; cwd=`repositoryPath`. Use returned `workItemRoot`/artifact paths; never `$HOME`.';
-  if (PHASE_ENTRY_SKILLS.includes(name)) return '**Boundary:** reuse entry `ready`/`workId`, valid `phaseAgent`; cwd=`repositoryPath`. Honor `mutationContract`. Returned `workItemRoot`/artifact paths only; never `$HOME`.';
+  if (name === 'sflow-review-source') return '**Boundary:** reuse this invocation\'s review entry: require `ready`/`workId`, valid `phaseAgent`; ' + STORY_CWD + '. Use returned `workItemRoot`/artifact and Git-private staging paths; never `$HOME`.';
+  if (['sflow-next', 'sflow-inputs'].includes(name)) return '**Boundary:** reuse this invocation\'s entry: require `ready`/`workId`, valid `phaseAgent` for active phases; ' + STORY_CWD + '. Use returned `workItemRoot`/artifact paths; never `$HOME`.';
+  if (PHASE_ENTRY_SKILLS.includes(name)) return '**Boundary:** reuse entry `ready`/`workId`, valid `phaseAgent`; ' + STORY_CWD + '. Honor `mutationContract`. Returned `workItemRoot`/artifact paths only; never `$HOME`.';
   if (kind === 'machine') {
     return '**Boundary:** machine-local; no repository or Story required. Use explicit arguments or SFlow-returned paths; never search `$HOME` or infer a repository.';
   }
@@ -422,7 +427,7 @@ function executionBoundary(kind = 'story', name = '') {
   // prefix for CLI-issued file paths. `ready` and `workId` are checked before mutation so a stale workspace lead cannot silently
   // replace the Story selected before `/clear`. Keeping this generated makes the rule catalog-wide.
   if (kind === 'story') {
-    return '**Boundary:** reuse entry `ready`/`workId`, cwd=`repositoryPath`; CLI/`workItemRoot` paths only; never `$HOME`. No duplicate lookup.';
+    return '**Boundary:** reuse entry `ready`/`workId`, ' + STORY_CWD + '; CLI/`workItemRoot` paths only; never `$HOME`. No duplicate lookup.';
   }
   throw new Error(`unknown skill execution boundary '${kind}'`);
 }
@@ -725,7 +730,9 @@ export async function auditSkillPolicy(repositoryRoot, { write = false } = {}) {
     const gatewayToolsTokens = gatewayTools ? estimatedTokens(`${GATEWAY_TOOLS_MARKER}\n${GATEWAY_TOOLS_CLAUSE}\n\n`) : 0;
     // Fixed engine-owned path safety, not permission to expand domain-specific skill prose.
     const pathContractTokens = skill.body.includes(pathContractText) ? bodyTokens - domainBodyTokens : 0;
-    const maximum = (rule.maximumTokenOverride ?? classPolicy.maximumTokens) + commandPresentationTokens + artifactPresentationTokens + refusalHandlingTokens + applicabilityTokens + approvedInputsTokens + pauseGuardTokens + gatewayToolsTokens + pathContractTokens;
+    // So is the cwd rule's non-Git-folder clause (STORY_CWD), beyond the `cwd=` it replaced.
+    const storyCwdTokens = skill.body.includes(STORY_CWD) ? estimatedTokens(STORY_CWD) - estimatedTokens('cwd=`repositoryPath`') : 0;
+    const maximum = (rule.maximumTokenOverride ?? classPolicy.maximumTokens) + commandPresentationTokens + artifactPresentationTokens + refusalHandlingTokens + applicabilityTokens + approvedInputsTokens + pauseGuardTokens + gatewayToolsTokens + pathContractTokens + storyCwdTokens;
     const marker = `<!-- sflow-output-contract: ${classPolicy.outputContract} -->`;
     const boundaryMarker = '<!-- sflow-execution-boundary -->';
     const boundaryText = executionBoundary(executionBoundaryKind, name);
@@ -829,6 +836,7 @@ export async function auditSkillPolicy(repositoryRoot, { write = false } = {}) {
       pauseGuardTokens,
       gatewayToolsTokens,
       pathContractTokens,
+      storyCwdTokens,
       warningTokens: classPolicy.warningTokens,
       maximumTokens: maximum,
       previewBytes: classPolicy.previewBytes,

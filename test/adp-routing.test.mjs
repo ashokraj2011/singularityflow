@@ -67,7 +67,9 @@ test('every shipped contract class routes somewhere', async () => {
   // Story skills reuse the one pause-aware session entry; the boundary names what to take from it.
   assert.match(boundary, /reuse (?:this invocation's )?entry/);
   assert.match(boundary, /ready.*workId/);
-  assert.match(boundary, /cwd=`repositoryPath`/);
+  // Story skills share one cwd rule, which also runs commands as is from a non-Git (chat) folder.
+  assert.match(source, /const STORY_CWD = 'cwd=`repositoryPath`, or as is from a non-Git \(chat\) folder/);
+  assert.match(boundary, / \+ STORY_CWD \+ /);
   assert.match(boundary, /never `\$HOME`/);
   assert.match(boundary, /CLI\/`workItemRoot` paths/,
     'Story skills must use the immutable CLI-resolved work-item root');

@@ -183,7 +183,11 @@ test('the bundled CLI answers exactly like the sources while opening a handful o
   // code-delivery-tests.mjs -5,001 as Node inference moved to the lazily loaded test-module-markers.mjs), cold-core +614
   // (refusal-remediation.mjs +595 for the new refusal details, environment-declaration.mjs +220) and cold-hooks +50
   // (copilot-mutation-guard.mjs, the person-only decisions).
-  assert.ok(closure('cold-hook-context.mjs').reduce((sum, item) => sum + item.bytes, 0) < 7_425_000,
+  // 7,430,000: main 327175e4 measures 7,424,875; a shell that cannot set its cwd (a VS Code agent-host chat) adds
+  // cold-hooks +476 for 7,425,351: `env -C <bound root>` scoping, a tool-form refusal that names its fix instead of
+  // a lifecycle route, and the turn rule that a non-Git folder runs commands as is (copilot-mutation-guard.mjs,
+  // phase-mutation-contract.mjs).
+  assert.ok(closure('cold-hook-context.mjs').reduce((sum, item) => sum + item.bytes, 0) < 7_430_000,
     'phase-review reads retain their existing byte ceiling after moving families');
   assert.match(await readFile(path.join(outdir, 'cold-light.mjs'), 'utf8'), /function enterPhase\b/u,
     'phase binding must not fall through to the compatibility/admin bundle');

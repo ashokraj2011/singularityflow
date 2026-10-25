@@ -1665,6 +1665,24 @@ test('missing Story setup and session attach retain kernel routes but never file
   assert.equal((await mutationToolGuard({ ...payload, toolName: 'bash', toolArgs: { command: 'singularity-flow decision choose PMC-1 --option a --reason "Because the person chose it."' } })).permissionDecision, 'deny');
 });
 
+test('a /sf-submit command scoped to the checkout runs, and a refused tool form names its fix, not a lifecycle route', async t => {
+  // fact-01, 2026-10-26: `env -C <story worktree> singularity-flow status … --submit-if-ready` was refused,
+  // and the refusal sent the turn to /sf-recover although nothing needed recovering.
+  const f = await fixture(t, { id: 'planning', generation: 2, status: 'in_progress' });
+  const payload = await f.enter('/sf-submit', 'submit-scoped');
+  const shell = command => ({ ...payload, toolName: 'bash', toolArgs: { command } });
+  const readiness = 'singularity-flow status PMC-1 --submission-readiness --for-agent --json --submit-if-ready';
+  assert.deepEqual(await mutationToolGuard(shell(`env -C ${f.root} ${readiness}`)), {});
+  assert.deepEqual(await mutationToolGuard(shell(`cd '${f.root}' && ${readiness}`)), {});
+  const refused = await mutationToolGuard(shell(`env -C ${path.dirname(f.root)} ${readiness}`));
+  assert.equal(refused.permissionDecision, 'deny');
+  assert.match(refused.permissionDecisionReason, /PHASE_MUTATION_TOOL_PROTOCOL/);
+  assert.ok(refused.permissionDecisionReason.includes(`(${f.root}) with \`cd <it> && …\` or \`env -C <it> …\``));
+  assert.match(refused.permissionDecisionReason, /from a non-Git folder such as a chat folder it runs as is \(SFlow finds the bound checkout\)/);
+  assert.doesNotMatch(refused.permissionDecisionReason, /\/sf-recover|Copilot: \/sf-|phase enter/);
+  assert.deepEqual(refused.next, []);
+});
+
 test('a failed decision locks only approval operations, never granting authoring or raw-shell permission', async t => {
   const f = await fixture(t); const payload = await f.enter('/sf-approve');
   const shell = command => ({ ...payload, toolName: 'bash', toolArgs: { command } });
@@ -1672,6 +1690,15 @@ test('a failed decision locks only approval operations, never granting authoring
   assert.deepEqual(await mutationToolGuard(shell(`cd '${f.root}' && 'singularity-flow' 'approve' 'custom-step' '--work-id' 'PMC-1' '--for-agent' '--json'`)), {});
   assert.equal((await mutationToolGuard(shell(`cd '${path.dirname(f.root)}' && singularity-flow approve custom-step --work-id PMC-1`))).permissionDecision, 'deny');
   assert.equal((await mutationToolGuard(shell(`cd '${f.root}' && singularity-flow approve custom-step --work-id PMC-1 && npm test`))).permissionDecision, 'deny');
+  // A shell that cannot set its cwd (a VS Code agent-host chat) scopes the command with `env -C`, to
+  // exactly the bound checkout like `cd <root> &&` (2026-10-26).
+  assert.deepEqual(await mutationToolGuard(shell(`env -C ${f.root} singularity-flow approve custom-step --work-id PMC-1 --for-agent --json`)), {});
+  assert.deepEqual(await mutationToolGuard(shell(`env --chdir='${f.root}' singularity-flow approve custom-step --work-id PMC-1 --for-agent --json`)), {});
+  for (const command of [`env -C ${path.dirname(f.root)} singularity-flow approve custom-step --work-id PMC-1`,
+    `env -C ${f.root} FOO=1 singularity-flow approve custom-step --work-id PMC-1`, `env -C ${f.root} npm test`]) {
+    const refused = await mutationToolGuard(shell(command));
+    assert.equal(refused.permissionDecision, 'deny', command);
+  }
   assert.equal((await mutationToolGuard(shell('singularity-flow approve custom-step --work-id OTHER'))).permissionDecision, 'deny');
   assert.equal((await mutationToolGuard(shell('singularity-flow choices begin start PMC-1 --json'))).permissionDecision, 'deny');
   await endMutationDecisionTurns(f.root);

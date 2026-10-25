@@ -27,7 +27,7 @@ const bytes = (value) => Buffer.byteLength(JSON.stringify(value), 'utf8');
 
 function action(index, extra = {}) {
   return { handle: `rea_${String(index).padStart(32, '0')}`, id: `test:action-${index}`, label: `Action ${index}`, kind: 'read',
-    reasonCode: 'home.work-summary', confirmation: 'none', interaction: 'navigation', emphasis: 'secondary',
+    reasonCode: 'home.work-summary', confirmation: 'none', interaction: 'navigation', emphasis: 'secondary', executable: true,
     slots: { work: 'HEX-1', note: 'x'.repeat(120) }, effect: { summaryMessageId: 'home.work-summary', target: 'status' },
     fallback: { label: `Action ${index}`, command: 'singularity-flow status', skill: '/sf-status', copilotCommand: '/sf-status', copyable: true },
     ...extra };
@@ -72,7 +72,7 @@ test('a next action keeps what a model follows and stays a valid one; what only 
   assert.ok(bytes(view) <= TOOL_ANSWER_MAX_BYTES);
   assert.deepEqual(view.next.map((entry) => entry.handle), whole.next.map((entry) => entry.handle));
   for (const entry of view.next) {
-    assert.deepEqual(Object.keys(entry), ['handle', 'id', 'label', 'kind', 'reasonCode', 'confirmation', 'interaction', 'emphasis', 'fallback']);
+    assert.deepEqual(Object.keys(entry), ['handle', 'id', 'label', 'kind', 'reasonCode', 'confirmation', 'interaction', 'emphasis', 'executable', 'fallback']);
     assert.deepEqual(entry.fallback, { label: entry.label, command: 'singularity-flow status', skill: '/sf-status', copilotCommand: '/sf-status' });
   }
 });

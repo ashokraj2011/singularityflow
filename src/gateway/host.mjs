@@ -183,9 +183,10 @@ const answerBytes = (answer) => Buffer.byteLength(JSON.stringify(answer), 'utf8'
  * is confirmed and the routes printed without the tool. Its rank, topic, effect summary and label
  * slots are what a card draws, and the result contract fills their defaults back in.
  */
-function toolNextAction({ handle, id, label, kind, reasonCode, confirmation, interaction, emphasis, fallback, hostAction }) {
+// `executable` stays: whether a handle runs is the action's meaning, and every host must agree on it.
+function toolNextAction({ handle, id, label, kind, reasonCode, confirmation, interaction, emphasis, executable, fallback, hostAction }) {
   const { copyable: _copyable, ...routes } = fallback ?? {};
-  return { handle, id, label, kind, reasonCode, confirmation, interaction, emphasis,
+  return { handle, id, label, kind, reasonCode, confirmation, interaction, emphasis, executable,
     ...(fallback ? { fallback: routes } : {}), ...(hostAction === undefined ? {} : { hostAction }) };
 }
 

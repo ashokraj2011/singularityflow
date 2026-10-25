@@ -700,7 +700,7 @@
       }
     },
     "testRunRisks": {
-      "description": "Append-only decisions by a step's approvers that one of its test commands cannot run in this environment, and their revocations. A decision lets through only a run of the same command in which no test executed, until it expires or is revoked.",
+      "description": "Append-only decisions by a step's approvers that one of its test commands cannot run in this environment, and their revocations. A decision lets through only a run of the same command whose classified cause is the environment class it accepted, until it expires or is revoked; a decision without a class (recorded before causes were classified) covers only environment-classified runs in which no test executed.",
       "type": "array",
       "items": {
         "type": "object",
@@ -711,11 +711,16 @@
           "phase": { "type": "string", "minLength": 1 },
           "commandId": { "type": "string", "minLength": 1 },
           "argvSha256": { "type": "string", "pattern": "^[a-f0-9]{64}$" },
+          "causeClass": {
+            "type": "string",
+            "pattern": "^[a-z]+(?:-[a-z]+)*(?:\\+[a-z]+(?:-[a-z]+)*)*$",
+            "description": "The environment cause class the decision accepted (src/test-run-cause.mjs), or several joined by + in sorted order when the failed tests of the accepted run failed from more than one."
+          },
           "cause": { "type": "string", "minLength": 10, "maxLength": 300 },
           "expiresAt": { "type": "string", "format": "date-time" },
           "boundBy": {
             "const": "command-digest",
-            "description": "The decision names the command by its ID and argv digest because no run of it was recorded in the approver's checkout; it has no observation, and every run it lets through is checked for no executed test."
+            "description": "The decision names the command by its ID, argv digest and cause class because no run of it was recorded in the approver's checkout; it has no observation, and every run it lets through is checked for that cause."
           },
           "observation": {
             "type": "object",
@@ -724,7 +729,7 @@
               "attemptId": { "type": "string", "pattern": "^TA-[a-f0-9]{20}$" },
               "status": { "enum": ["failed", "blocked"] },
               "exitCode": { "type": ["integer", "null"] },
-              "testsExecuted": { "const": 0 }
+              "testsExecuted": { "type": "integer", "minimum": 0 }
             },
             "additionalProperties": false
           },

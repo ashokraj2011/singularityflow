@@ -60,7 +60,7 @@ async function partFor(root, config, workflow, effect, step, produced, who) {
   }
   if (effect.kind === 'test-run-risk') {
     return (await import('./commands/decision-test-risk.mjs')).testRunRiskDecisionPart(root, config, workflow,
-      { phaseId: effect.phase, commandId: effect.commandId, argvSha256: effect.argvSha256 ?? null, cause: step.values.cause,
+      { phaseId: effect.phase, commandId: effect.commandId, argvSha256: effect.argvSha256 ?? null, causeClass: effect.causeClass ?? null, cause: step.values.cause,
         reason: step.values.reason, expires: step.values.expires }, who);
   }
   return (await import('./commands/upstream-issue.mjs')).upstreamIssueDecisionPart(root, config, workflow, effect.issue ?? produced.issue,

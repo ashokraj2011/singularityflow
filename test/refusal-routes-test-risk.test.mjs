@@ -24,7 +24,7 @@ const skippedRun = (extra = {}) => ({
 });
 const story = () => ({ workItem: { id: 'ENV-2' }, testRunRisks: [] });
 const decide = (workflow, extra = {}) => recordTestRunRisk(workflow, {
-  phaseId: 'implement', attempt: null, commandId: '.-node-tests', argvSha256: ARGV,
+  phaseId: 'implement', attempt: null, commandId: '.-node-tests', argvSha256: ARGV, causeClass: 'all-tests-skipped',
   cause: 'The integration tests skip themselves without a Docker daemon here',
   reason: 'The pipeline runs them against a real database before merge.', expires: '2026-11-01',
   actor: 'lead@example.invalid', authorityGroup: 'implement-approvers', at: AT, ...extra
@@ -59,8 +59,12 @@ test('an approver with no recorded run binds the command by the digest its refus
   // Without a run or a digest there is nothing to bind.
   assert.throws(() => decide(story(), { argvSha256: null }), (error) =>
     error.code === 'TEST_RUN_RISK_NOT_ELIGIBLE' && /--argv-sha256/u.test(error.message));
+  // Bound by digest, the decision names the cause class the refusal gave.
+  assert.throws(() => decide(story(), { causeClass: null }), { code: 'TEST_RUN_RISK_INVALID' });
+  assert.throws(() => decide(story(), { causeClass: 'compile-error' }), { code: 'TEST_RUN_RISK_INVALID' });
   const decision = decide(workflow);
   assert.equal(decision.boundBy, 'command-digest');
+  assert.equal(decision.causeClass, 'all-tests-skipped');
   assert.equal(decision.observation, undefined, 'no run was observed by this decision');
   assert.equal(decision.argvSha256, ARGV);
   // Every run it lets through is still checked: no executed test, same command and argv.
@@ -111,7 +115,7 @@ test('test findings route to what can act without a test-recovery agreement', ()
   const risk = first({ code: 'code.delivery.incomplete', details: { sourceCode: 'CODE_TEST_FAILED', testRunRisk: route } });
   assert.equal(risk.kind, 'test-run-risk');
   assert.equal(risk.owner, 'phase-approval-authority');
-  assert.equal(risk.command, `singularity-flow decision test-risk ENV-2 --phase implement --command .-node-tests --cause <cause> --reason <reason> --expires <YYYY-MM-DD> --argv-sha256 ${ARGV}`);
+  assert.equal(risk.command, `singularity-flow decision test-risk ENV-2 --phase implement --command .-node-tests --cause-class all-tests-skipped --cause <cause> --reason <reason> --expires <YYYY-MM-DD> --argv-sha256 ${ARGV}`);
   assert.equal(risk.skill, '/sf-decide');
   assert.equal(phaseResolutionChoices(workflow, phase, { code: 'CODE_TEST_FAILED', details: { testRunRisk: route } }).status, 'needs-human');
 

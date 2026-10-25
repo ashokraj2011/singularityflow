@@ -99,6 +99,9 @@ test('every test skipped is an environment cause the step approvers can accept, 
   const commandId = blocked.details.testRunRisk.commandId;
   const digest = blocked.details.testRunRisk.command.match(/--argv-sha256 ([a-f0-9]{64})$/u)?.[1];
   assert.ok(digest, blocked.details.testRunRisk.command);
+  // The run's classified cause is named beside the digest [TCE:REQ-042].
+  assert.equal(blocked.details.testRunRisk.causeClass, 'all-tests-skipped');
+  assert.match(blocked.details.testRunRisk.command, / --cause-class all-tests-skipped /u);
 
   // The approver's checkout has no record of that run (it is kept in the author's private Git storage).
   await rm(path.join(root, '.git', 'singularity-flow', 'test-attempts'), { recursive: true, force: true });
@@ -110,11 +113,16 @@ test('every test skipped is an environment cause the step approvers can accept, 
   assert.equal(refused('decision', 'test-risk', '--phase', 'implement', '--command', commandId, '--argv-sha256', 'not-a-digest',
     '--cause', 'The integration database is not reachable here.', '--reason', 'CI runs the same tests with a database before merge.',
     '--expires', inDays(30)).code, 'TEST_RUN_RISK_INVALID');
-  const accepted = JSON.parse(sflow('decision', 'test-risk', '--phase', 'implement', '--command', commandId, '--argv-sha256', digest,
+  // Bound by digest alone, the decision would not know which cause it accepts.
+  assert.equal(refused('decision', 'test-risk', '--phase', 'implement', '--command', commandId, '--argv-sha256', digest,
+    '--cause', 'The integration database is not reachable here.', '--reason', 'CI runs the same tests with a database before merge.',
+    '--expires', inDays(30)).code, 'TEST_RUN_RISK_INVALID');
+  const accepted = JSON.parse(sflow('decision', 'test-risk', '--phase', 'implement', '--command', commandId, '--cause-class', 'all-tests-skipped', '--argv-sha256', digest,
     '--cause', 'The integration database is not reachable here.', '--reason', 'CI runs the same tests with a database before merge.',
     '--expires', inDays(30), '--json'));
   assert.equal(accepted.data.record.id, 'TRR-001');
   assert.equal(accepted.data.record.boundBy, 'command-digest');
+  assert.equal(accepted.data.record.causeClass, 'all-tests-skipped');
   assert.equal(accepted.data.record.argvSha256, digest);
 
   // Still no database: the run is let through, and recorded as what it was.
@@ -129,7 +137,7 @@ test('every test skipped is an environment cause the step approvers can accept, 
   assert.equal(evidence.validation.status, 'failed');
   assert.equal(evidence.validation.checks[0].testRunRisk.id, 'TRR-001');
   assert.equal(submitted.phases.implement.status, 'awaiting_approval');
-  const accept = (...extra) => sflow('decision', 'test-risk', '--phase', 'implement', '--command', commandId, '--argv-sha256', digest,
+  const accept = (...extra) => sflow('decision', 'test-risk', '--phase', 'implement', '--command', commandId, '--cause-class', 'all-tests-skipped', '--argv-sha256', digest,
     '--cause', 'The integration database is not reachable here.', '--reason', 'CI runs the same tests with a database before merge.',
     '--expires', inDays(30), ...extra);
   const renewal = new RegExp(`singularity-flow decision test-risk QF-2 --phase implement --command ${commandId.replaceAll('.', '\\.')} .* --expires <YYYY-MM-DD> --argv-sha256 ${digest}`, 'u');

@@ -255,7 +255,7 @@ export const MESSAGES = Object.freeze({
     preserves: false
   },
   'decision.test-risk.succeeded': {
-    headline: (s) => `Recorded ${slot(s.record)}; the tests still run every time, and only a run in which no test executed is let through until it expires or is revoked.`,
+    headline: (s) => `Recorded ${slot(s.record)}; the tests still run every time, and only a run with the same environment cause is let through until it expires or is revoked.`,
     preserves: false
   },
   'decision.evidence-reuse.succeeded': {

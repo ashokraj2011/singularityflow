@@ -118,7 +118,15 @@ test('frequent lifecycle handlers do not reach the legacy dispatcher and stay un
     // approval receipt bound to the review it holds rather than a clock or HEAD, the refusal naming what changed,
     // and the cleanup of receipts for other reviews: 9,100,683. approval-decisions.mjs and terminal-review.mjs
     // load with approve and phase show, never with start. No new file.
-    assert.ok(closure.bytes <= 9_105_000, `${file} exceeds the 9 MB eager-source budget (${closure.bytes} bytes)`);
+    // 9,110,000 (next 5,000 boundary): SPEC-TCE (test commands and evidence) adds 7,603 to main 3bd739a8's
+    // 9,102,016 for 9,109,619: state.mjs +2,784 (pins, narrowing, cause, clean environment at the gates),
+    // external-command-policy.mjs +2,171 (the command `env` key), quality-command-runner.mjs +1,568 (the
+    // process-group reaper and the adb device check), verification/join.mjs +955, attempts.mjs +618 and
+    // profiles.mjs +599 (Playwright and pytest exact profiles, pins and narrowing on attempts), and smaller
+    // shares in repository-test-command-inference, test-recovery-runtime, gradle-manifests,
+    // javascript-declarations and test-runtime; code-delivery-tests.mjs is 5,147 smaller (Node inference moved to
+    // the lazily loaded test-module-markers.mjs). No new file.
+    assert.ok(closure.bytes <= 9_110_000, `${file} exceeds the 9 MB eager-source budget (${closure.bytes} bytes)`);
   }
 });
 

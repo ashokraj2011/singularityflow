@@ -3,6 +3,7 @@ import { mkdir, mkdtemp, readFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
+import { spawn } from 'node:child_process';
 import { EventEmitter } from 'node:events';
 import { createHash } from 'node:crypto';
 import { PassThrough } from 'node:stream';
@@ -194,4 +195,50 @@ test('cancellation remains cancellation when its timeout is already queued', asy
   const result = await execution;
   assert.equal(result.aborted, true);
   assert.equal(result.timedOut, false);
+});
+
+const alive = (pid) => { try { process.kill(pid, 0); return true; } catch { return false; } };
+
+test('a process the command started that holds its output open ends the run after a short grace [TCE:REQ-034]', { skip: process.platform === 'win32' }, async (t) => {
+  const cwd = await mkdtemp(path.join(os.tmpdir(), 'sflow-quality-linger-'));
+  const pidFile = path.join(cwd, 'grandchild.pid');
+  const script = `const { spawn } = require('node:child_process');
+    const held = spawn(process.execPath, ['-e', 'setTimeout(() => {}, 120000)'], { stdio: ['ignore', 'inherit', 'inherit'] });
+    require('node:fs').writeFileSync(${JSON.stringify(pidFile)}, String(held.pid));
+    console.log('TOTAL: 1 SUCCESS'); process.exit(0);`;
+  const started = Date.now();
+  const result = await runQualityCommand(process.execPath, ['-e', script], { cwd, timeoutMs: 60_000 });
+  const pid = Number(await readFile(pidFile, 'utf8'));
+  t.after(() => { if (alive(pid)) process.kill(pid, 'SIGKILL'); });
+  assert.equal(result.status, 0);
+  assert.equal(result.timedOut, false, 'the command finished before its deadline');
+  assert.match(result.stdout, /TOTAL: 1 SUCCESS/u);
+  assert.ok(Date.now() - started < 30_000, `the run ended ${Date.now() - started} ms after it started, not at its deadline`);
+  const deadline = Date.now() + 5_000;
+  while (alive(pid) && Date.now() < deadline) await new Promise((resolve) => setTimeout(resolve, 50));
+  assert.equal(alive(pid), false, 'the process holding the output was ended with its group');
+});
+
+test('an interrupted CLI ends the test process groups it started, then stops as signalled [TCE:REQ-034]', { skip: process.platform === 'win32' }, async (t) => {
+  const cwd = await mkdtemp(path.join(os.tmpdir(), 'sflow-quality-interrupt-'));
+  const runner = new URL('../src/quality-command-runner.mjs', import.meta.url).href;
+  for (const signal of ['SIGTERM', 'SIGINT', 'SIGHUP']) {
+    const pidFile = path.join(cwd, `${signal}.pid`);
+    const inner = `const { runQualityCommand } = await import(${JSON.stringify(runner)});
+      await runQualityCommand(process.execPath, ['-e', "require('node:fs').writeFileSync(process.env.PID_FILE, String(process.pid)); setTimeout(() => {}, 120000)"], { timeoutMs: 120000 });`;
+    const child = spawn(process.execPath, ['--input-type=module', '-e', inner], { stdio: 'ignore', env: { ...process.env, PID_FILE: pidFile } });
+    const exited = new Promise((resolve) => child.on('exit', (code, received) => resolve({ code, received })));
+    let pid = null;
+    for (const deadline = Date.now() + 30_000; !pid && Date.now() < deadline;) {
+      pid = Number(await readFile(pidFile, 'utf8').catch(() => '')) || null;
+      if (!pid) await new Promise((resolve) => setTimeout(resolve, 50));
+    }
+    assert.ok(pid, 'the test process started');
+    t.after(() => { if (alive(pid)) process.kill(pid, 'SIGKILL'); });
+    child.kill(signal);
+    assert.deepEqual(await exited, { code: null, received: signal }, 'the signal still ends the CLI');
+    const deadline = Date.now() + 5_000;
+    while (alive(pid) && Date.now() < deadline) await new Promise((resolve) => setTimeout(resolve, 50));
+    assert.equal(alive(pid), false, `${signal}: no test process is left behind`);
+  }
 });

@@ -3,16 +3,19 @@
  * session command does not probe a remote again that just left a probe unanswered. Loaded only for
  * real spawns (git-execution.mjs), so none of it is in the root dispatch closure.
  *
- * Detached Git children end when the process that started them ends.
+ * Detached Git children, and test commands, end when the process that started them ends.
  *
  * Remote Git runs in its own process group so a deadline can reach its credential helpers and
- * transports with one signal (git-execution.mjs). That also means a signal sent to this process's
- * group misses it: VS Code stops a CLI call by signalling the call's group, and Copilot stops a
- * shell command the same way. A fetch blocked reading an undownloaded cloud file kept running for
- * as long as its read stayed blocked, long after the command that wanted it had gone.
+ * transports with one signal (git-execution.mjs), and so does a test command a gate runs, for its
+ * runner's workers and the servers its tests start (quality-command-runner.mjs). That also means a
+ * signal sent to this process's group misses them: VS Code stops a CLI call by signalling the
+ * call's group, and Copilot stops a shell command the same way. A fetch blocked reading an
+ * undownloaded cloud file kept running for as long as its read stayed blocked, long after the
+ * command that wanted it had gone, and an interrupted publication left its test run behind.
  *
  * Live groups are therefore ended on exit and on SIGTERM, SIGINT and SIGHUP. A termination signal
  * nothing else handles still terminates the process, by re-raising it once the groups are gone.
+ * One set of handlers serves every kind of group: two would each leave the re-raise to the other.
  */
 import { AsyncLocalStorage } from 'node:async_hooks';
 import { writeSync } from 'node:fs';
@@ -38,7 +41,7 @@ function onSignal(signal) {
 }
 
 /** Track one detached child's group until it settles; returns the function that stops tracking. */
-export function trackGitGroup(pid) {
+export function trackProcessGroup(pid) {
   if (!Number.isInteger(pid) || pid <= 0) return () => {};
   live.add(pid);
   if (!installed) {

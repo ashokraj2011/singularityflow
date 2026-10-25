@@ -1724,6 +1724,8 @@ export function buildTestExecutionReceipt(command, check, parsed, {
     argv: command.argv, workingDirectory: command.workingDirectory, affectedRoots: command.affectedRoots,
     result: { adapter: command.result?.adapter ?? null, path: command.result?.path ?? null }
   };
+  // What shaped the run [TCE:REQ-033]; the digest covers all of it but the CLI's own Node.
+  const ran = { platform: process.platform, arch: process.arch, ...check?.runEnvironment };
   return {
     schemaVersion: currentSchemaVersion('test-execution'), kind: 'test-execution',
     attemptId, nonce, parentAttemptId, purpose, workId, phase, generation, ...(epoch ? { epoch } : {}),
@@ -1733,8 +1735,8 @@ export function buildTestExecutionReceipt(command, check, parsed, {
     commandSha256: `sha256:${sha256(canonicalJson(commandCore))}`,
     argvSha256: sha256(Buffer.from(JSON.stringify(command.argv))),
     selection: selection ? { ...selection, selectionSha256: `sha256:${sha256(canonicalJson({ profile, ...selection }))}` } : null,
-    environment: { platform: process.platform, arch: process.arch, host: `node ${process.versions.node}` },
-    environmentSha256: `sha256:${sha256(canonicalJson({ platform: process.platform, arch: process.arch }))}`,
+    environment: { ...ran, host: `node ${process.versions.node}` },
+    environmentSha256: `sha256:${sha256(canonicalJson(ran))}`,
     platform: process.platform,
     workingDirectory: command.workingDirectory,
     affectedRoots: command.affectedRoots,

@@ -260,9 +260,13 @@ export async function captureMutationTurn(payload, record, {
     const given = earlier?.sessionId === record.sessionId && earlier.modeChangedAt === record.modeChangedAt
       ? earlier.contextDigest ?? null : null;
     await rm(`${file}.issued`, { recursive: true, force: true }).catch(() => {});
-    // One content-bound baseline, not a path/status-only baseline. It is deliberately lazy:
-    // edit-tool interception needs no Git process; post-shell detection records its own baseline.
-    await atomicRecord(file, { ...value, contextDigest: context.digest });
+    // One content-bound baseline, not a path/status-only baseline. The pre-tool guard takes a fresh
+    // one before an authoring turn's first other shell command; this one, from the turn's start, is
+    // only the fallback for a pre-tool hook the host stopped before it saved its own (Copilot then
+    // runs the call anyway). Only authoring turns run such commands; edit-tool interception needs none.
+    const fallback = value.contract.turnMode === 'authoring'
+      ? await shellSnapshot(root).then(snapshot => ({ ...snapshot, fallback: true })).catch(() => null) : null;
+    await atomicRecord(file, { ...value, ...(fallback ? { baseline: fallback } : {}), contextDigest: context.digest });
     // A verified native Copilot turn may be rooted in the canonical workspace while its Story
     // lives in a linked checkout. Tell only that launch folder's window, never every open window.
     const follow = await import('./copilot-story-follow.mjs');
@@ -1199,8 +1203,9 @@ async function mutationToolDecision(payload, record) {
         if (mentionsKernelExecution(call, value)) return mutationDenial(contract,
           'PHASE_MUTATION_SHELL_COMMAND_UNVERIFIED: run one standalone registered SFlow command; no chains or wrappers. Use a file-edit tool for the exact issued staging file. Preserve human answers and repair recording, not the questions');
       }
-      // Baseline BEFORE execution, refreshed after kernel-owned operations at the CLI boundary.
-      if (!kernel && !value.baseline) {
+      // Baseline BEFORE execution, refreshed after kernel-owned operations at the CLI boundary. The
+      // turn-start fallback is replaced by a fresh one here, so a change made before this command is not its.
+      if (!kernel && (!value.baseline || value.baseline.fallback)) {
         value.baseline = await shellSnapshot(contract.repositoryRoot);
         await atomicRecord(recordFile(payload), value);
       }
@@ -1271,7 +1276,11 @@ export async function mutationPostToolGuard(payload = {}) {
     return postFinding(mutationDenial(null, 'PHASE_MUTATION_CONTRACT_STALE: preserve changes and refresh the binding'));
   }
   if (!value.baseline) {
-    if (calls(payload).every(call => shellAllowed(call, value.contract.turnMode, value))) return {};
+    // An SFlow command the turn allowed needs no shell baseline: the CLI refreshes this turn at its own
+    // boundary. Judge it by the turn it ran in, not the one it ended: approve and reject end their own
+    // decision turn, and a stop after a successful approval named a fault that never happened.
+    const before = { ...value, decisionEnded: false };
+    if (terminals.every(call => shellAllowed(call, value.contract.turnMode, before))) return {};
     return postFinding(mutationDenial(value.contract, 'PHASE_MUTATION_BASELINE_UNAVAILABLE: detection cannot establish which command changed bytes'));
   }
   const after = await shellSnapshot(value.contract.repositoryRoot);

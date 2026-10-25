@@ -118,6 +118,8 @@ test('only skills that write their own document are told a route back to them is
   }
   assert.match(AUTHORING_TURN_CONTRACT, /routes back to this skill with nothing for a person to answer, edit, review or confirm, that is this turn's own work: do it, never relay it/u);
   assert.match(AUTHORING_TURN_CONTRACT, /A file edit that does not match is not a refusal: read those lines again and redo the edit/u);
-  // An edit's replaced text comes from the file as it is now: a paraphrase from memory never matches.
-  assert.match(AUTHORING_TURN_CONTRACT, /Copy the text an edit replaces from the file as it is now, read after your last edit of it, never from memory, a finding or a search result/u);
+  // An edit's matched lines come from the file as it is now: a paraphrase or a guessed structure never matches.
+  assert.match(AUTHORING_TURN_CONTRACT, /Copy every line a patch matches, changed or unchanged, from the file as it is now, read after your last edit of it, never from memory, a finding or a search result/u);
+  // A multi-file patch fails whole on one stale hunk, so each file is its own patch.
+  assert.match(AUTHORING_TURN_CONTRACT, /one file per patch, so one stale hunk cannot reject the others/u);
 });

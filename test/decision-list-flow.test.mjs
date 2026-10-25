@@ -149,7 +149,8 @@ test('the release-approval incident is one decision: recorded once, then approva
   // owned by Testing, not a second invented Code defect. Every surface agrees before recording.
   cli('upstream-issue', 'raise', '--from-artifact');
   const sectionPacket = json(cliAs('release-reviewer', 'decisions', W, '--json')).data;
-  assert.equal(sectionPacket.items.length, 1);
+  // The gap, then the step's approval it holds: one list holds every pending kind, the approval last.
+  assert.deepEqual(sectionPacket.items.map((entry) => [entry.kind, entry.details.heldBy ?? null]), [['conformance-gap', null], ['approval', ['d1']]]);
   assert.deepEqual([sectionPacket.items[0].details.owner, sectionPacket.items[0].details.issue], ['testing', 'UPI-001']);
   assert.equal(sectionPacket.items[0].options.some((option) => option.effects.some((effect) => effect.kind === 'upstream-issue')), false);
   assert.deepEqual(sectionPacket.items[0].options.find((option) => option.id === 'accept-risk').decidedBy.groups, ['quality-reviewers']);
@@ -197,7 +198,8 @@ test('the release-approval incident is one decision: recorded once, then approva
   const packet = json(cliAs('release-reviewer', 'decisions', W, '--json')).data;
   assert.equal(packet.resultType, 'sflow-decisions');
   assert.equal(packet.headline, 'Code checking can\'t be approved yet: 1 decision needed.');
-  assert.equal(packet.items.length, 1, JSON.stringify(packet.items, null, 2));
+  assert.deepEqual(packet.items.map((entry) => [entry.kind, entry.details.heldBy ?? null]), [['conformance-gap', null], ['approval', ['d1']]],
+    JSON.stringify(packet.items, null, 2));
   const [d1] = packet.items;
   assert.equal(d1.id, 'd1');
   assert.equal(d1.kind, 'conformance-gap');

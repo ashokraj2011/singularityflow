@@ -12,7 +12,8 @@ import {
 
 const at = '2026-10-25T10:00:00.000Z';
 const pin = { sha256: `sha256:${'a'.repeat(64)}` };
-const facts = (extra = {}) => ({ filters: [], focused: [], baseline: 3, ...extra });
+// The pin's first passing run discovered 3 and skipped none.
+const facts = (extra = {}) => ({ filters: [], focused: [], baseline: 3, baselineSkipped: 0, ...extra });
 const attempt = (narrowing, extra = {}) => ({ attemptId: 'TA-0123456789abcdef0123', commandId: 'unit', status: 'passed', pin, narrowing, ...extra });
 
 test('filters are read per runner, from argv and the pinned scripts, and reporter arguments are not filters', () => {
@@ -25,6 +26,19 @@ test('filters are read per runner, from argv and the pinned scripts, and reporte
   assert.deepEqual(commandFilters(['npm', 'test', '--', '--json', '--outputFile', '.sflow/results/node-tests.json'], [{ source: 'package.json#scripts.test', text: 'jest' }]), []);
   assert.deepEqual(commandFilters(['npx', 'playwright', 'test', '--project=chromium']), [], 'a project a person configured is their choice');
   assert.equal(commandFilters(['npx', 'playwright', 'test', '--project=chromium'], [], { inferred: true })[0].option, '--project');
+});
+
+test('skips the team already had are no narrowing; skip markers the Story added, or more skipped than the baseline, are', () => {
+  // Before any passing run there is no baseline: skipped tests with no skip marker added are the team's own.
+  assert.deepEqual(observedNarrowing(facts({ baselineSkipped: null }), { discovered: 5, skipped: 2 }).reasons, []);
+  assert.deepEqual(observedNarrowing(facts({ baseline: 5, baselineSkipped: 2 }), { discovered: 5, skipped: 2 }).reasons, [], 'as many as the baseline');
+  assert.deepEqual(observedNarrowing(facts({ baseline: 5, baselineSkipped: 2 }), { discovered: 5, skipped: 3 }).reasons, ['skipped'], 'one more than it');
+  const added = observedNarrowing(facts({ baselineSkipped: null, addedSkips: [{ path: 'test/a.test.mjs', added: 1 }] }), { discovered: 3, skipped: 1 });
+  assert.deepEqual([added.reasons, added.addedSkips], [['skipped'], [{ path: 'test/a.test.mjs', added: 1 }]]);
+  // A filter or focused test already on the base commit is recorded as standing, never as a reason.
+  const standing = { filters: [{ option: '--project', value: 'chromium', source: 'web/package.json#scripts.e2e:ci' }], focused: [] };
+  const team = observedNarrowing(facts({ standing }), { discovered: 3, skipped: 0 });
+  assert.deepEqual([team.reasons, team.standing], [[], standing]);
 });
 
 test('focused declarations are found in code, not in comments or strings', () => {

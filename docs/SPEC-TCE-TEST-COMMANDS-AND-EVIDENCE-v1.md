@@ -128,6 +128,10 @@ still fill an uncovered module, and that command is pinned on first use.
   `--testPathPattern`, `--shard`, `--only`, `--project` when not pinned), focused tests
   (`.only`, `fit`, `fdescribe`, `test.only`), skipped tests, and discovered tests below the baseline
   (the first passing run of the same pin in this Story).
+  **Amended (owner, 2026-10-25):** narrowing is what the Story adds, measured against its base commit. A
+  filter already in the same script there, or a focused test already in the base version of the file,
+  is the team's setup: recorded as `standing`, never a reason. Skipped tests are a reason only when the
+  Story's changed test files add skip markers, or a run skips more than the pin's first passing run.
 - `[TCE:REQ-022]` A narrowed run refuses the gate with `CODE_TEST_NARROWED`, naming each reason.
 - `[TCE:REQ-023]` A step approver may accept it:
   `decision test-narrowing [WORK-ID] --phase P --command ID --reason TEXT [--expires DATE]`. The

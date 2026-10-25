@@ -14,7 +14,7 @@ related:
   - recovery
   - phase-appeals
   - escalation
-version: 10
+version: 11
 ---
 A finding is one exact reason a step cannot publish, submit or finish. Every finding has an owner and a recovery route: the step's own author fixes its draft, an earlier step's approvers decide an upstream issue, a person records a decision, or an owner restores trusted bytes. Each refusal names its finding code; read its entry here with `sflow explain findings --section <CODE>` (the code is matched without regard to case). No finding routes only back to its own author: each names at least one route for someone else, its approvers, an earlier step, an owner, or, when nothing more specific exists, the workflow maintainer. Nothing in this catalog waives a test, approves a step or accepts a risk by itself.
 
@@ -102,7 +102,7 @@ A test command changed since its first gate run pinned it for the Story: its arg
 
 ### CODE_TEST_NARROWED
 
-A required test command passed, but narrowed: a filter in its argv or pinned script, a focused test (`.only`), skipped tests, or fewer tests than its first passing run in this Story (the refusal names each). Remove the narrowing and publish again, or a person who approves the step accepts it with `decision test-narrowing <WORK-ID> --phase <PHASE> --command <COMMAND-ID> --reason <TEXT>`; it covers the same or a smaller narrowing of the same pin. An agent never accepts it.
+A required test command passed, but narrowed by this Story: a filter in its argv or pinned script, a focused test (`.only`), skipped tests, or fewer tests than its first passing run in this Story (the refusal names each). Narrowing is measured against the Story's base commit: a filter already in the same script there (a team's `playwright test --project=chromium`) or a focused test already in the base version of the file is the team's own setup and is recorded as standing, not refused; skipped tests count only when the Story's changed test files add skip markers or a run skips more than its first passing run. Remove the narrowing and publish again, or a person who approves the step accepts it with `decision test-narrowing <WORK-ID> --phase <PHASE> --command <COMMAND-ID> --reason <TEXT>`; it covers the same or a smaller narrowing of the same pin. An agent never accepts it.
 
 ### SPEC_COVERAGE_INCOMPLETE
 

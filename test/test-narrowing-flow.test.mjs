@@ -20,8 +20,11 @@ import { slowLane } from './helpers/slow-lane.mjs';
 
 const cli = fileURLToPath(new URL('../bin/singularity-flow.mjs', import.meta.url));
 
-/** A quick-fix Story opened at its code step, with `scripts` as the package's scripts. */
-async function quickFix(t, { scripts, prefix }) {
+/**
+ * A quick-fix Story opened at its code step, with `scripts` as the package's scripts on the base
+ * branch and `storyScripts`, when given, as the Story's own change to them.
+ */
+async function quickFix(t, { scripts, storyScripts = null, prefix }) {
   const base = await mkdtemp(path.join(os.tmpdir(), prefix));
   t.after(() => rm(base, { recursive: true, force: true }));
   const root = path.join(base, 'repo');
@@ -82,6 +85,7 @@ async function quickFix(t, { scripts, prefix }) {
     '## Planned implementation evidence', '',
     '| Clause | Expected paths | Planned tests | Fulfillment | Observable result |', '|---|---|---|---|---|',
     '| `QF-1:AC-001` | `src/value.mjs` | `test/value.test.mjs` | modified | The test reads 2. |', '',
+    ...(storyScripts ? ['## Supporting files', '', '- `package.json` — the test script gains a step.', ''] : []),
     '## Out of scope', '', 'Nothing else changes in the module or its interface.', ''].join('\n'));
   sflow('phase', 'publish', 'intake', '--authored', 'human', '--channel', 'manual-in-place');
   sflow('submit', 'intake');
@@ -89,6 +93,7 @@ async function quickFix(t, { scripts, prefix }) {
   sflow('resume', 'QF-1');
   sflow('phase', 'begin', 'implement', '--json');
   await writeFile(path.join(root, 'src/value.mjs'), '// @clause:QF-1:AC-001 the exported value is the approved 2\nexport const value = 2;\n');
+  if (storyScripts) await writeFile(path.join(root, 'package.json'), JSON.stringify({ type: 'module', private: true, scripts: storyScripts }));
   sflow('prepare', 'implement');
   return { root, run, sflow, json, asReviewer, refused, writeTests, reviewer,
     stored: async () => JSON.parse(await readFile(path.join(root, 'singularity/work-items/QF-1/workflow.json'), 'utf8')) };
@@ -154,13 +159,16 @@ test('focused, skipped and dropped tests refuse the gate until a person who appr
   assert.equal(submitted.phases.implement.deliveryEvidence.testExecutions[0].testNarrowing.id, 'TNR-001', 'the submission ran narrowed too, under the same decision');
 });
 
-test('a filter in the pinned script behind npm test refuses the gate, naming where it was written', slowLane({ timeout: 600_000 }), async (t) => {
-  const story = await quickFix(t, { scripts: { test: 'node --test --test-name-pattern=value', posttest: 'mocha --grep value' }, prefix: 'sflow-filtered-run-' });
+test('a filter the Story adds to the script behind npm test refuses the gate, naming where it was written; the team\'s own does not', slowLane({ timeout: 600_000 }), async (t) => {
+  // The team's script already filters by name on the base branch; the Story adds a mocha step that greps.
+  const story = await quickFix(t, { scripts: { test: 'node --test --test-name-pattern=value' },
+    storyScripts: { test: 'node --test --test-name-pattern=value', posttest: 'mocha --grep value' }, prefix: 'sflow-filtered-run-' });
   await story.writeTests("test('value', () => assert.equal(value, 2));");
   const filtered = story.refused('phase', 'publish', 'implement');
   assert.equal(filtered.error.code, 'CODE_TEST_NARROWED', JSON.stringify(filtered.error));
   assert.deepEqual(filtered.error.details.testNarrowing.reasons, ['filter']);
-  assert.match(filtered.error.message, /filter --test-name-pattern value \(package\.json#scripts\.test\); filter --grep value \(package\.json#scripts\.posttest\)/u);
+  assert.match(filtered.error.message, /ran narrowed before publication: filter --grep value \(package\.json#scripts\.posttest\)/u);
+  assert.doesNotMatch(filtered.error.message, /--test-name-pattern/u, 'the filter already on the base branch is the team\'s setup');
   // The pinned filter is accepted once; the same filter then passes, with the decision bound.
   story.asReviewer('decision', 'test-narrowing', 'QF-1', '--phase', 'implement', '--command', '.-node-tests',
     '--reason', 'The module names its suite by pattern; CI runs the same script.');

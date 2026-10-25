@@ -12,8 +12,14 @@
  * no new filter or focused test, no more skipped tests, no larger shortfall below the baseline.
  * Decisions and revocations are append-only in `workflow.testNarrowings`; the review packet and the
  * test summary show an accepted narrowing with its reason [TCE:REQ-024]. Pure apart from reading the
- * changed test files for focused tests.
+ * changed test files for focused tests, and the base commit's scripts and test files.
+ *
+ * Narrowing is what the Story adds (owner decision, 2026-10-25): a filter already in the same script
+ * on the Story's base commit, or a focused test already in the base version of a test file, is the
+ * team's own setup, recorded as `standing` and never a reason; skipped tests are a reason only when
+ * the Story's changed test files add skip markers or a run skips more than the pin's first passing run.
  */
+import { committedFilesAtRevisions } from './git.mjs';
 import { readRepositoryManifest } from './repository-manifest.mjs';
 import { recordSha256 } from './records.mjs';
 import { commandTokens, launcherName, packageScriptName, shellSegments } from './test-command-pins.mjs';
@@ -142,12 +148,64 @@ export async function focusedTests(root, files) {
 
 const covered = (file, roots) => (roots ?? []).some((root) => root === '.' || file === root || file.startsWith(`${root.replace(/\/$/u, '')}/`));
 
-/** What a gate knows before a command runs: its filters, the focused tests it covers, its pin's baseline. */
-export async function narrowingFacts(root, command, { scripts = [], testPaths = [], baseline = null, inferred = false } = {}) {
+// Skip markers in a test source, by language: `it.skip(`, `{ skip: true }`, `xit(`, `test.fixme(`, `@pytest.mark.skip`,
+// `@unittest.skip`, `pytest.skip(`, `@Disabled`, `@Ignore`, `[Ignore]`, `Skip = "…"`, `t.Skip(`.
+const SKIP_MARKER = /\b(?:describe|context|suite|it|test|specify)\.(?:skip|fixme)\s*\(|\bx(?:it|test|describe|context)\s*\(|\{\s*skip\s*:\s*(?!false\b)|@pytest\.mark\.skip(?:if)?\b|@unittest\.skip\w*|\bpytest\.skip\s*\(|@(?:Disabled|Ignore)\b|\[Ignore\b|\bSkip\s*=\s*"|\bt\.Skip(?:f|Now)?\s*\(/gu;
+const skipMarkers = (text) => (String(text ?? '').match(SKIP_MARKER) ?? []).length;
+const filterAt = (filter) => `${filter.source}|${filter.option}=${filter.value ?? ''}`;
+
+/** The base commit's text of each file a command's scripts, or the changed test files, came from. */
+function baseTexts(root, baseCommit, files) {
+  if (!baseCommit || !files.length) return new Map();
+  try {
+    return new Map([...committedFilesAtRevisions(root, [...new Set(files)].map((file) => ({ key: file, ref: baseCommit, path: file })),
+      { maximumObjectBytes: MAX_SOURCE_BYTES, maximumBytes: 8 * MAX_SOURCE_BYTES })].map(([file, bytes]) => [file, bytes.toString('utf8')]));
+  } catch { return new Map(); }
+}
+
+/** The same scripts as they stood on the base commit (`dir/package.json#scripts.name`), where they did. */
+function baseScripts(texts, scripts) {
+  return scripts.flatMap((script) => {
+    const [file, name] = String(script.source ?? '').split('#scripts.');
+    if (!name || !texts.has(file)) return [];
+    let parsed;
+    try { parsed = JSON.parse(texts.get(file)); } catch { return []; }
+    const text = parsed?.scripts?.[name];
+    return typeof text === 'string' ? [{ ...script, text }] : [];
+  });
+}
+
+/**
+ * What a gate knows before a command runs: the filters and focused tests this Story added (those already
+ * on the base commit are `standing`), the skip markers its changed test files added, and the pin's baseline.
+ */
+export async function narrowingFacts(root, command, { scripts = [], testPaths = [], baseline = null, inferred = false, baseCommit = null } = {}) {
+  const tests = testPaths.filter((file) => covered(file, command.affectedRoots));
+  const scriptFiles = scripts.map((script) => String(script.source ?? '').split('#scripts.')[0]).filter((file) => file && file !== 'argv');
+  const base = baseTexts(root, baseCommit, [...scriptFiles, ...tests.filter((file) => JAVASCRIPT.test(file) || /\.(?:py|java|kt|cs|go)$/iu.test(file))]);
+  const standingFilters = new Set(baseCommit ? commandFilters(command.argv, baseScripts(base, scripts), { inferred })
+    .filter((filter) => filter.source !== 'argv').map(filterAt) : []);
+  const filters = commandFilters(command.argv, scripts, { inferred });
+  const focused = await focusedTests(root, tests);
+  const standingFocus = new Set(tests.flatMap((file) => (base.has(file) && JAVASCRIPT.test(file) ? focusedDeclarations(base.get(file)) : [])
+    .map((entry) => `${file}|${entry.name ?? ''}`)));
+  const addedSkips = [];
+  for (const file of tests) {
+    let text;
+    try { text = (await readRepositoryManifest(root, file, { maxBytes: MAX_SOURCE_BYTES })).bytes.toString('utf8'); } catch { continue; }
+    const added = skipMarkers(text) - skipMarkers(base.get(file));
+    if (added > 0) addedSkips.push({ path: file, added });
+  }
   return {
-    filters: commandFilters(command.argv, scripts, { inferred }),
-    focused: await focusedTests(root, testPaths.filter((file) => covered(file, command.affectedRoots))),
-    baseline: Number.isInteger(baseline?.discovered) ? baseline.discovered : null
+    filters: filters.filter((filter) => !standingFilters.has(filterAt(filter))),
+    focused: focused.filter((entry) => !standingFocus.has(`${entry.path}|${entry.name ?? ''}`)),
+    standing: {
+      filters: filters.filter((filter) => standingFilters.has(filterAt(filter))),
+      focused: focused.filter((entry) => standingFocus.has(`${entry.path}|${entry.name ?? ''}`))
+    },
+    addedSkips,
+    baseline: Number.isInteger(baseline?.discovered) ? baseline.discovered : null,
+    baselineSkipped: Number.isInteger(baseline?.skipped) ? baseline.skipped : null
   };
 }
 
@@ -159,10 +217,16 @@ export function observedNarrowing(facts, tests) {
   const shortfall = baseline != null && discovered != null ? Math.max(0, baseline - discovered) : 0;
   const filters = facts?.filters ?? [];
   const focused = facts?.focused ?? [];
+  // Skipped tests the team already had are not this Story's narrowing: only added skip markers, or more
+  // skipped than the pin's first passing run, are.
+  const skipsAdded = skipped > 0 && ((facts?.addedSkips ?? []).length > 0
+    || (Number.isInteger(facts?.baselineSkipped) && skipped > facts.baselineSkipped));
   return {
-    reasons: [...(filters.length ? ['filter'] : []), ...(focused.length ? ['focused'] : []), ...(skipped > 0 ? ['skipped'] : []),
+    reasons: [...(filters.length ? ['filter'] : []), ...(focused.length ? ['focused'] : []), ...(skipsAdded ? ['skipped'] : []),
       ...(shortfall > 0 ? ['below-baseline'] : [])],
-    filters, focused, skipped, discovered, baseline, shortfall
+    filters, focused, skipped, discovered, baseline, shortfall,
+    ...(facts?.standing && (facts.standing.filters.length || facts.standing.focused.length) ? { standing: facts.standing } : {}),
+    ...(facts?.addedSkips?.length ? { addedSkips: facts.addedSkips } : {})
   };
 }
 

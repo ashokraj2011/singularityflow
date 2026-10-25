@@ -757,6 +757,7 @@
             "required": ["discovered", "attemptId"],
             "properties": {
               "discovered": { "type": "integer", "minimum": 0 },
+              "skipped": { "type": "integer", "minimum": 0 },
               "attemptId": { "type": "string", "pattern": "^TA-[a-f0-9]{20}$" }
             },
             "additionalProperties": false

@@ -343,7 +343,7 @@ function pinChangedError(workflow, phase, pinned, candidate) {
 function firstPassingRun(attempts, sha) {
   const attempt = attempts.find((entry) => entry.purpose !== 'local' && entry.pin?.sha256 === sha
     && entry.status === 'passed' && Number.isInteger(entry.tests?.discovered));
-  return attempt ? { discovered: attempt.tests.discovered, attemptId: attempt.attemptId } : null;
+  return attempt ? { discovered: attempt.tests.discovered, skipped: Number(attempt.tests.skipped) || 0, attemptId: attempt.attemptId } : null;
 }
 
 /** The recorded runs of one step, oldest first, that pins and baselines are read from. */
@@ -361,6 +361,9 @@ async function recordedRuns(root, config, workflow, phase) {
  */
 export async function gateTestCommandPins(root, config, workflow, phase, commands, deliveryEvidence = null) {
   const testPaths = deliveryEvidence?.testPaths ?? [];
+  // What the Story changed is measured against its base: narrowing already there is the team's own [TCE:REQ-021].
+  const baseCommit = deliveryEvidence?.changeSet?.base?.commit ?? phase.generationIntent?.baseline?.commit
+    ?? workflow.workIntervals?.current?.sourceBaseCommit ?? null;
   const attempts = await recordedRuns(root, config, workflow, phase);
   const { gateNarrowing, narrowingFacts, skippedByAgreement } = await import('./test-narrowing.mjs');
   const prepared = new Map();
@@ -373,7 +376,7 @@ export async function gateTestCommandPins(root, config, workflow, phase, command
     const recorded = storyPin(workflow, candidate);
     const baseline = (recorded?.sha256 === candidate.sha256 ? recorded.baseline : null) ?? firstPassingRun(attempts, candidate.sha256);
     // What narrows the run before it runs: filters, focused tests, and the pin's baseline [TCE:REQ-021].
-    const narrowing = await narrowingFacts(root, command, { scripts, testPaths, baseline, inferred: candidate.source.kind === 'inferred' });
+    const narrowing = await narrowingFacts(root, command, { scripts, testPaths, baseline, inferred: candidate.source.kind === 'inferred', baseCommit });
     prepared.set(command.id, { candidate, reference, acceptedBy, scripts, baseline, narrowing });
   }
   return {

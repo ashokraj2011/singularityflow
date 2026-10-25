@@ -126,8 +126,8 @@ export async function decisionTestCommandCommand(positionals, options) {
     try { requested = await requestedCommand(root, options); }
     catch (error) { if (error?.code === 'TEST_SETUP_PROPOSAL_USAGE') fail(`${error.message.replace(/ Use: [\s\S]*$/u, '')} ${USAGE}`); throw error; }
     try { normalizeRequiredTestCommand(requested); } catch (error) { fail(`Test command '${requested.id}' cannot be requested: ${error.message}`); }
-    command = { id: requested.id, kind: 'test', argv: requested.argv, workingDirectory: requested.workingDirectory,
-      affectedRoots: requested.affectedRoots, modelPolicy: 'never', result: requested.result };
+    command = { id: requested.id, kind: 'test', argv: requested.argv, ...(requested.env ? { env: requested.env } : {}),
+      workingDirectory: requested.workingDirectory, affectedRoots: requested.affectedRoots, modelPolicy: 'never', result: requested.result };
   }
   const actor = actionActor(root);
   const session = await loadSession(root, { required: false });

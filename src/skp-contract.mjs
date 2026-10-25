@@ -37,7 +37,7 @@ const OUTPUT_ROLES = new Set(['criteria', 'planning', 'findings', 'evidence', 'n
 const CLAUSE_MODES = new Set(['required', 'optional', 'none']);
 const COMMAND_FIELDS = new Set([
   'id', 'argv', 'command', 'modelPolicy', 'requirement', 'timeoutMs', 'kind',
-  'environment', 'workingDirectory', 'affectedRoots', 'result'
+  'environment', 'env', 'workingDirectory', 'affectedRoots', 'result'
 ]);
 
 function fail(code, message, details = null) {

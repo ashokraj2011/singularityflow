@@ -1123,9 +1123,13 @@ test('/sf-test-setup may propose the exact test command it previewed, its JSON a
   // The line `capability test-setup` prints as its confirmCommand, with --json added.
   const command = `singularity-flow capability test-setup --step implementation --id shop-e2e-junit --argv '["npx","nx","run","shop-e2e:e2e"]' `
     + `--working-directory . --affected-root apps/shop-e2e --adapter junit-xml --report coverage/e2e/shop-e2e/junit-results.xml --confirm sha256:${'a'.repeat(64)} --json`;
-  for (const payload of [bare, bound]) {
-    const decision = await mutationToolGuard({ ...payload, toolName: 'bash', toolArgs: { command, cwd: f.root } });
+  // A command read from the team's instructions is confirmed by its candidate ID [TCE:REQ-063].
+  const written = `singularity-flow capability test-setup --step implementation --use npx-playwright-test-project-chromium --confirm sha256:${'a'.repeat(64)} --json`;
+  for (const payload of [bare, bound]) for (const line of [command, written]) {
+    const decision = await mutationToolGuard({ ...payload, toolName: 'bash', toolArgs: { command: line, cwd: f.root } });
     assert.notEqual(decision.permissionDecision, 'deny', `${payload.sessionId}: ${decision.permissionDecisionReason}`);
+  }
+  for (const payload of [bare, bound]) {
     // The same turn still edits no file itself.
     const edit = await mutationToolGuard({ ...payload, toolName: 'bash', toolArgs: { command: 'printf x > singularity/workflow.yml', cwd: f.root } });
     assert.equal(edit.permissionDecision, 'deny', payload.sessionId);

@@ -1,9 +1,9 @@
 {
   "schemaVersion": 2,
   "generatedFrom": "docs/topics",
-  "sourceCommit": "5cd3577bc0fa95d38e2e41f02b5d3a3b4a57b0c7",
+  "sourceCommit": "3bd739a85b936b74a9eb22d6e91e33cd6b5ca440",
   "topicCount": 85,
-  "contentSha256": "d2c6d03542ea7b0f4e2a9dedf59177df72ad2cc8e1c51dea73f9ebb2c284c654",
+  "contentSha256": "3cf6d16670501260a1d0e218e3ccdae6c1183d1c506dd52464875d9e51bb85ef",
   "topics": [
     {
       "id": "activity-and-prompt-audit",
@@ -112,8 +112,8 @@
     {
       "id": "configuration",
       "title": "Configuration, capabilities, and the policy fold",
-      "version": 10,
-      "sha256": "73dc376ce78755093a53d648f604e991a7ecfd7ba21d6faeefe7a2e27ce4e66b",
+      "version": 11,
+      "sha256": "8050b4c7628e381b0efcb8b59b78a2f74189857763b04a688c81237a53200391",
       "routingSha256": "2d2fa1c092e101abe3c2074545597f9ed25b38d2627aeaa9e9d89c3c24c15c58",
       "file": "configuration.md"
     },

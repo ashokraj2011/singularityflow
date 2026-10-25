@@ -8,7 +8,7 @@ import path from 'node:path';
 
 import { evaluateCodeDeliveryPreflight, phaseRequiresCodeDelivery, resolveDeliveryQualityCommands, testCommandProvenance } from './delivery-evidence.mjs';
 import { normalizeRequiredTestCommand, parseTestResult, structuredTestCommandRequiredError } from './code-delivery-tests.mjs';
-import { evaluateExternalCommandForModelMode } from './external-command-policy.mjs';
+import { evaluateExternalCommandForModelMode, withCommandLiteralEnvironment } from './external-command-policy.mjs';
 import { head } from './git.mjs';
 import { operationContext } from './operation-context.mjs';
 import { nextPhaseGeneration } from './phase-generation.mjs';
@@ -68,6 +68,7 @@ export async function runLocalPreviewQualityCommand(root, config, value, { index
     }
     delete commandEnvironment.NODE_TEST_CONTEXT;
     commandEnvironment = withoutHostSurfaceVariables(commandEnvironment);
+    commandEnvironment = withCommandLiteralEnvironment(commandEnvironment, policy);
     if (policy.kind === 'test' && policy.result?.adapter === 'playwright-json' && structuredResultTarget) {
       for (const key of Object.keys(commandEnvironment)) {
         if (key.toLocaleUpperCase('en-US') === 'PLAYWRIGHT_JSON_OUTPUT_FILE') delete commandEnvironment[key];

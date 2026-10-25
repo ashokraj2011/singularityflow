@@ -214,7 +214,7 @@ import {
 import { operationContext } from './operation-context.mjs';
 import { normalizeQualityGateMode, qualityRiskStatus } from './phase-quality-risk.mjs';
 import {
-  evaluateExternalCommandForModelMode, externalCommandText, normalizeExternalCommand
+  evaluateExternalCommandForModelMode, externalCommandText, normalizeExternalCommand, withCommandLiteralEnvironment
 } from './external-command-policy.mjs';
 import { assertProducerAllowed, buildGenerationAuthorship, normalizeAuthorshipOptions, phasePublicationCommand } from './manual-authorship.mjs';
 import { consumeRepairAttempt, repairBudgetPhaseForRejection } from './repair-budget.mjs';
@@ -4764,6 +4764,7 @@ async function qualityChecks(root, phase, config, workflow, commands = phase.qua
     // Variables a host sets to run the CLI itself (VS Code's ELECTRON_RUN_AS_NODE) are not the
     // tests' environment, in a local run or at publication and submission alike.
     commandEnvironment = withoutHostSurfaceVariables(commandEnvironment);
+    commandEnvironment = withCommandLiteralEnvironment(commandEnvironment, policy);
     if (materialized) commandEnvironment = materialized.childEnvironment(commandEnvironment);
     if (policy.kind === 'test' && policy.result?.adapter === 'playwright-json'
         && structuredResultTarget) {

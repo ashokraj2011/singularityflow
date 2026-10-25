@@ -253,6 +253,10 @@ test('an orchestrator written as a skill is the process the steps come from, and
 test('a test, lint or build command in a skill becomes a step check sflow runs; a deployment stays with the agent', async () => {
   const { run, flow, json } = await harness();
   const root = await repository(run, flow);
+  // The web module the skill's unit tests run in: its test:unit script is Vitest.
+  await mkdir(path.join(root, 'web'), { recursive: true });
+  await writeFile(path.join(root, 'web/package.json'), JSON.stringify({ name: 'web', private: true, scripts: { 'test:unit': 'vitest run' } }));
+  run('git', ['add', '-A'], root); run('git', ['commit', '-m', 'web module'], root);
   const folder = await mkdtemp(path.join(os.tmpdir(), 'sflow-build-engine-checks-'));
   await mkdir(path.join(folder, '.github/skills/release-checks'), { recursive: true });
   await writeFile(path.join(folder, '.github/skills/release-checks/SKILL.md'), ['---', 'name: release-checks', 'description: What to run before a release.', '---',
@@ -269,10 +273,16 @@ test('a test, lint or build command in a skill becomes a step check sflow runs; 
     moves: [{ move: 'step.check', id: 'verification', item: command('CI=true npm run test:unit').id }, { move: 'step.check', id: 'implementation', item: command('npm run lint').id, command: 'rm -rf /' }] }) });
   const checked = json(root, ['workflow', 'build', 'check', '--build', build.id]);
   const updates = Object.fromEntries(checked.changeSet.changes.filter((change) => change.qualityCommands).map((change) => [change.id, change.qualityCommands]));
+  // A test command is completed into the full record a code step publishes with [TCE:REQ-063]: its variable,
+  // folder and module, and the Vitest reporter and result; a lint check stays as written.
   assert.deepEqual(updates, {
-    verification: [{ id: 'ci-true-npm-run-test-unit', modelPolicy: 'never', command: 'CI=true npm run test:unit', kind: 'test', requirement: 'required', workingDirectory: 'web' }],
+    verification: [{ id: 'ci-true-npm-run-test-unit', kind: 'test', argv: ['npm', 'run', 'test:unit', '--', '--reporter=json', '--outputFile=.sflow/results/node-tests.json'],
+      env: { CI: 'true' }, workingDirectory: 'web', affectedRoots: ['web'], modelPolicy: 'never',
+      result: { adapter: 'vitest-json', path: '.sflow/results/node-tests.json', minimumDiscovered: 1 }, requirement: 'required' }],
     implementation: [{ id: 'npm-run-lint', modelPolicy: 'never', argv: ['npm', 'run', 'lint'], kind: 'lint', requirement: 'required' }]
   }, 'the command is the one the team wrote, never one a proposal types in');
+  const { normalizeRequiredTestCommand } = await import('../src/code-delivery-tests.mjs');
+  assert.doesNotThrow(() => normalizeRequiredTestCommand(updates.verification[0]), 'publication accepts it as a structured test command');
   assert.equal(checked.plan.valid, true, JSON.stringify(checked.plan.problems));
   assert.deepEqual(checked.explanation.steps.find((step) => step.id === 'implementation').checks.map((check) => check.command), ['npm run lint']);
   assert.match(flow(root, ['workflow', 'build', 'check', '--build', build.id]).stdout, /^ {2}changed {2}Verification: checks: CI=true npm run test:unit$/mu);

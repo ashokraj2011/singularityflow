@@ -25,21 +25,25 @@ const csv = (values) => (values.length ? [...new Set(values)].join(', ') : '-');
 
 /**
  * A phase's checks as sflow runs them: each named, of its kind, and using no model, so a check is
- * never left unavailable because its model behaviour is unknown.
+ * never left unavailable because its model behaviour is unknown. A test command the completer could
+ * finish (`completed`, compile.mjs) is written in full, with its variables, folder, module and result,
+ * so a code step can publish with it [TCE:REQ-063]; any other stays as the source wrote it.
  */
-function qualityChecks(commands) {
+function qualityChecks(commands, completed = new Map()) {
   const taken = new Set();
   return commands.map((command) => {
     const stem = command.argv.join(' ').toLowerCase().replace(/[^a-z0-9]+/gu, '-').replace(/^-+|-+$/gu, '').slice(0, 60) || 'check';
     let id = stem;
     for (let index = 2; taken.has(id); index += 1) id = `${stem}-${index}`;
     taken.add(id);
+    const full = completed.get(command);
+    if (full) return { ...structuredClone(full), id };
     return { id, modelPolicy: 'never', argv: [...command.argv], kind: CHECK_KINDS[classifyCommand(command.argv.join(' '))] ?? 'other' };
   });
 }
 
 /** The workflow.yml phase a candidate phase becomes. */
-function phaseDefinition(phase) {
+function phaseDefinition(phase, completed) {
   const definition = {
     label: phase.label,
     defaultTemplate: phase.template,
@@ -48,7 +52,7 @@ function phaseDefinition(phase) {
   };
   if (phase.inputs?.length) definition.inputs = [...phase.inputs];
   if (phase.code === true) definition.generation = { task: 'code' };
-  if (phase.qualityCommands?.length) definition.qualityCommands = qualityChecks(phase.qualityCommands);
+  if (phase.qualityCommands?.length) definition.qualityCommands = qualityChecks(phase.qualityCommands, completed);
   definition.approval = phase.approval === 'none' ? 'none' : {
     authorities: [...phase.approval.authorities],
     minimum: phase.approval.minimum,
@@ -60,8 +64,9 @@ function phaseDefinition(phase) {
 /**
  * Write `candidate` under `root` (emptied first). Returns the files it wrote, relative, and the
  * IDs the baseline already used before the candidate was added (for collision findings).
+ * `completed` maps a candidate's quality command to its completed test record.
  */
-export async function stageCandidate(root, candidate) {
+export async function stageCandidate(root, candidate, { completed = new Map() } = {}) {
   await rm(root, { recursive: true, force: true });
   await mkdir(root, { recursive: true, mode: 0o700 });
   await initializeDefinition(root);
@@ -80,7 +85,7 @@ export async function stageCandidate(root, candidate) {
     // Membership is the destination's to decide; an imported authority arrives empty. [TAWI-REQ-012]
     config.approvalAuthorities[authority.id] = { label: authority.label, allowAnyGitIdentity: false, members: [] };
   }
-  for (const phase of candidate.phases) config.phases[phase.id] = phaseDefinition(phase);
+  for (const phase of candidate.phases) config.phases[phase.id] = phaseDefinition(phase, completed);
   const workType = { label: candidate.workflow.label, phases: [...candidate.workflow.phases] };
   if (candidate.workflow.decisions?.length) workType.decisions = structuredClone(candidate.workflow.decisions);
   if (candidate.workflow.omits?.length) workType.omits = structuredClone(candidate.workflow.omits);

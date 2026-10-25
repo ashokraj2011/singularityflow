@@ -184,7 +184,13 @@ test('the bundled CLI answers exactly like the sources while opening a handful o
   for (const name of ['readPendingList', 'pendingSummary', 'approvalAdvisories']) {
     assert.match(phaseCode, new RegExp(`function ${name}\\b`, 'u'), `nextsteps' ${name} must not fall through to the compatibility/admin bundle`);
   }
-  assert.ok(catalogClosure.reduce((sum, item) => sum + item.bytes, 0) < 5 * 1024 * 1024,
+  // 5,245,000 (next 5,000 boundary over 5 MiB): main 3bd739a8 measures 5,241,916. A test command's literal `env`
+  // (SPEC-TCE M6) adds 1,741 for 5,243,657, because every configuration read validates its commands:
+  // cold-narrow-reads +1,593 (external-command-policy.mjs: the env check in normalizeExternalCommand 1,031 and
+  // withCommandLiteralEnvironment 283, the env field and the receipt digest's env) and cold-core +148
+  // (environment-declaration.mjs looksSecretName, which secret-looking.mjs now re-exports). The instruction
+  // extractor and completer load lazily, outside these reads.
+  assert.ok(catalogClosure.reduce((sum, item) => sum + item.bytes, 0) < 5_245_000,
     'catalog parsing stays bounded instead of pulling in the entire administration bundle');
   for (const name of ['cold-compatibility.mjs', 'cold-models.mjs', 'cold-intake.mjs', 'cold-phases.mjs', 'cold-hook-context.mjs']) {
     assert.ok(!catalogClosure.some(item => item.file === name), `catalogs must not statically reach ${name}`);

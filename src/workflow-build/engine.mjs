@@ -258,7 +258,7 @@ export async function proposeToBuild(id, payload, { root = null, by = 'copilot',
   const shape = validateProposal(payload, record);
   if (shape.length) throw invalidMoves(shape);
   const repository = repositoryOf(record, root);
-  const moves = withFoundCommands(payload.moves ?? [], record);
+  const moves = await withFoundCommands(payload.moves ?? [], record, repository);
   await withRepository(repository, async (model) => {
     record.repository ??= { root: repository, label: path.basename(repository) };
     record.goal.workflow = targetWorkflow(record, model);
@@ -329,16 +329,25 @@ export async function decideInBuild(id, proposalId, { accept, reason = null, roo
 
 /**
  * A check names the command it runs by the found item only: its words, category and directory are
- * taken from what the build found, so a check is always a command the team wrote down.
+ * taken from what the build found, so a check is always a command the team wrote down. A test
+ * command is completed against the repository it runs in, by the completer `capability test-setup`
+ * uses [TCE:REQ-063]: one it cannot finish stays as written.
  */
-function withFoundCommands(moves, record) {
+async function withFoundCommands(moves, record, repository) {
   const found = new Map(record.items.filter((entry) => entry.kind === 'command').map((entry) => [entry.id, entry]));
-  return moves.map((move) => {
-    if (!plain(move) || move.move !== 'step.check') return move;
-    const { command: ignored, category: ignoredCategory, directory: ignoredDirectory, ...rest } = move;
+  const filled = [];
+  for (const move of moves) {
+    if (!plain(move) || move.move !== 'step.check') { filled.push(move); continue; }
+    const { command: ignored, category: ignoredCategory, directory: ignoredDirectory, record: ignoredRecord, ...rest } = move;
     const item = found.get(move.item);
-    return item ? { ...rest, command: item.name, category: item.category ?? null, ...(item.directory ? { directory: item.directory } : {}) } : rest;
-  });
+    if (!item) { filled.push(rest); continue; }
+    const completed = item.category === 'test'
+      ? await (await import('../instruction-test-commands.mjs')).completeWrittenTestCommand(repository, { text: item.name, directory: item.directory ?? '.' })
+      : null;
+    filled.push({ ...rest, command: item.name, category: item.category ?? null, ...(item.directory ? { directory: item.directory } : {}),
+      ...(completed?.command ? { record: completed.command } : {}) });
+  }
+  return filled;
 }
 
 /** Mark a checked proposal accepted, and what it says about found items. */

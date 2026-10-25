@@ -14,7 +14,7 @@ import path from 'node:path';
 import { PACKAGE_ROOT } from '../package-root.mjs';
 import { readFile } from 'node:fs/promises';
 
-import { normalizeExternalCommand } from '../external-command-policy.mjs';
+import { normalizeExternalCommand, withCommandLiteralEnvironment } from '../external-command-policy.mjs';
 import { head } from '../git.mjs';
 import { runQualityCommand } from '../quality-command-runner.mjs';
 import { canonicalJson, recordSha256 } from '../records.mjs';
@@ -197,7 +197,8 @@ function commandIdentity(command) {
     id: command.id, argv: command.argv, modelPolicy: command.modelPolicy,
     requirement: command.requirement, kind: command.kind ?? null,
     workingDirectory: command.workingDirectory, timeoutMs: command.timeoutMs,
-    affectedRoots: command.affectedRoots ?? [], result: command.result ?? null
+    affectedRoots: command.affectedRoots ?? [], result: command.result ?? null,
+    ...(command.env ? { env: command.env } : {})
   });
 }
 
@@ -376,7 +377,7 @@ export async function executeLocalRunnerWorker(root, definition, value) {
   const before = repositoryStatus(root);
   const startedAt = new Date().toISOString();
   const result = await runQualityCommand(command.argv[0], command.argv.slice(1), {
-    cwd: secured.absolute, timeoutMs: command.timeoutMs, captureBytes: CAPTURE_BYTES,
+    cwd: secured.absolute, env: withCommandLiteralEnvironment(process.env, command), timeoutMs: command.timeoutMs, captureBytes: CAPTURE_BYTES,
     shell: false, killTree: true
   });
   const completedAt = new Date().toISOString();

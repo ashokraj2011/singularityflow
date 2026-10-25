@@ -25,8 +25,9 @@ export const MOVES = Object.freeze({
   'step.change': { required: ['id'], optional: ['label', 'purpose', 'agent', 'output', 'reads', 'signOff'] },
   'step.remove': { required: ['id'], optional: [] },
   'step.move': { required: ['id'], optional: ['after'] },
-  // command, category and directory are filled in from the found command, never written by hand.
-  'step.check': { required: ['id', 'item'], optional: ['requirement', 'command', 'category', 'directory'] },
+  // command, category, directory and a test command's completed record are filled in from the found
+  // command, never written by hand.
+  'step.check': { required: ['id', 'item'], optional: ['requirement', 'command', 'category', 'directory', 'record'] },
   'agent.add': { required: ['id', 'label', 'description'], optional: ['from', 'instructions', 'tools'] },
   'skill.add': { required: ['id', 'description'], optional: ['label', 'from', 'procedure', 'loading'] },
   'skill.attach': { required: ['skill'], optional: ['agent', 'steps', 'use'] },
@@ -405,7 +406,8 @@ export function applyMoves(draft, moves) {
       case 'step.check':
         next.checks ??= {};
         next.checks[move.id] = [...(next.checks[move.id] ?? []).filter((check) => check.command !== move.command),
-          { item: move.item, command: move.command, category: move.category, ...(move.directory ? { directory: move.directory } : {}), requirement: move.requirement ?? 'required' }];
+          { item: move.item, command: move.command, category: move.category, ...(move.directory ? { directory: move.directory } : {}),
+            ...(move.record ? { record: move.record } : {}), requirement: move.requirement ?? 'required' }];
         break;
       case 'action.add': next.actions[move.step] = [...(next.actions[move.step] ?? []), { on: move.on, target: move.target }]; break;
       case 'item.classify': next.items[move.item] = { ...next.items[move.item], kind: move.as }; break;
@@ -498,7 +500,7 @@ export function lowerDraft(draft, model) {
     const current = structuredClone(base?.steps.find((step) => step.id === id)?.qualityCommands ?? []);
     const commandOf = (entry) => (typeof entry === 'string' ? entry : entry?.command ?? (entry?.argv ?? []).join(' '));
     const taken = new Set(current.map((entry) => (typeof entry === 'string' ? entry : entry?.id)));
-    const added = checks.filter((check) => !current.some((entry) => commandOf(entry) === check.command)).map((check) => qualityCommand(check, taken));
+    const added = checks.filter((check) => !current.some((entry) => [check.command, check.record?.argv.join(' ')].includes(commandOf(entry)))).map((check) => qualityCommand(check, taken));
     if (added.length) changes.push({ op: 'phase.update', id, workflow: workflowId, qualityCommands: [...current, ...added] });
   }
   for (const attachment of draft.attachments) {
@@ -509,14 +511,17 @@ export function lowerDraft(draft, model) {
 }
 
 /**
- * A found command as a check sflow runs when the step is submitted: argv when it is plain words, the
- * command as written when it sets environment variables or quotes. It uses no model.
+ * A found command as a check sflow runs when the step is submitted. A test command the completer
+ * finished (engine.mjs, instruction-test-commands.mjs) is its full record: variables, folder, module
+ * and result, so a code step can publish with it [TCE:REQ-063]. Any other is argv when it is plain
+ * words, the command as written when it sets environment variables or quotes. It uses no model.
  */
 function qualityCommand(check, taken) {
   const stem = check.command.toLowerCase().replace(/[^a-z0-9]+/gu, '-').replace(/^-+|-+$/gu, '').slice(0, 60) || 'check';
   let id = stem;
   for (let index = 2; taken.has(id); index += 1) id = `${stem}-${index}`;
   taken.add(id);
+  if (check.record) return { ...structuredClone(check.record), id, requirement: check.requirement ?? 'required' };
   const asWritten = /^[A-Za-z_][A-Za-z0-9_]*=|["'\\$`*?]/u.test(check.command);
   return { id, modelPolicy: 'never', ...(asWritten ? { command: check.command } : { argv: check.command.split(/\s+/u) }),
     kind: CHECK_KINDS[check.category], requirement: check.requirement ?? 'required', ...(check.directory ? { workingDirectory: check.directory } : {}) };

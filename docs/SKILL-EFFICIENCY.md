@@ -62,6 +62,10 @@ opened or workspace-selected checkout), `story` (a ready Work ID and its exact
 repository), and `organisation` (one explicitly selected lead authority).
 Bootstrap, packaged-help, workspace-list, and quickstart skills therefore remain
 usable on a blank machine without weakening the Story boundary for lifecycle work.
+`/sf-start` and `/sf-session` reuse their own entry instead: `session open`
+resolves the opened Git root or selected workspace from any cwd, and a command
+carrying its returned `selectors` (`--workspace`, `--repository`) needs no
+checkout, so a chat with no folder open attaches without a `cd`.
 The same boundary declares the kernel-model policy: deterministic CLI work uses
 `--no-model`; only explicitly classified conditional skills may name a
 model-capable operation, and those require contributor consent.

@@ -254,7 +254,7 @@ export function mutationToolProtocol(contract) {
     staging: 'Use a file-edit tool only at an exact kernel-issued staging path. No shell writers, mkdir or arbitrary temporary paths.',
     terminal: authoring
       ? 'Run SFlow lifecycle commands standalone with cwd=repositoryPath; do not wrap or chain kernel mutations. Repository-local authoring shell commands are permitted under the pinned file policy and before/after change detection; this is not a standalone-SFlow-only terminal.'
-      : 'Run one standalone registered SFlow command with cwd=repositoryPath; no pipes, redirects, substitutions or command chains.',
+      : 'Run one standalone registered SFlow command with cwd=repositoryPath (one carrying returned `selectors` runs from any cwd); no pipes, redirects, substitutions or command chains.',
     localVerification: { allowed: verification, guidance: verification ? AUTHORING_VERIFICATION_PROTOCOL :
       'This retained, deterministic or non-authoring turn does not grant local test/app execution. Use its returned authoring or kernel route; do not reopen a phase or broaden write permissions.' },
     retry: 'Correct the tool form without re-asking settled questions or changing lifecycle state.',

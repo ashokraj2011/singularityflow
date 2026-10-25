@@ -401,6 +401,9 @@ const SKILL_SEMANTIC_CONTRACTS = Object.freeze({
 
 function executionBoundary(kind = 'story', name = '') {
   if (name === 'sflow-start') return '**Boundary:** no Story required; reuse entry `repositoryPath` after its workspace/clean-tree checks. Refuse absent/unready selections; never search `$HOME`/parents.';
+  // Session attachment resolves its own scope, and its returned selectors need no checkout: a chat with
+  // no folder open (a non-Git cwd) attaches as given. Read as "cd first", the generic cwd rule stopped it.
+  if (name === 'sflow-session') return '**Boundary:** no Story required; any cwd, even a non-Git chat folder: `open` resolves the opened Git root or selected workspace, and a command carrying `selectors` (`--workspace`, `--repository`) needs no checkout; never `cd` for it; refuse if none resolves; never search `$HOME`/parents.';
   if (name === 'sflow-review-source') return '**Boundary:** reuse this invocation\'s review entry: require `ready`/`workId`, valid `phaseAgent`; cwd=`repositoryPath`. Use returned `workItemRoot`/artifact and Git-private staging paths; never `$HOME`.';
   if (['sflow-next', 'sflow-inputs'].includes(name)) return '**Boundary:** reuse this invocation\'s entry: require `ready`/`workId`, valid `phaseAgent` for active phases; cwd=`repositoryPath`. Use returned `workItemRoot`/artifact paths; never `$HOME`.';
   if (PHASE_ENTRY_SKILLS.includes(name)) return '**Boundary:** reuse entry `ready`/`workId`, valid `phaseAgent`; cwd=`repositoryPath`. Honor `mutationContract`. Returned `workItemRoot`/artifact paths only; never `$HOME`.';
@@ -408,12 +411,7 @@ function executionBoundary(kind = 'story', name = '') {
     return '**Boundary:** machine-local; no repository or Story required. Use explicit arguments or SFlow-returned paths; never search `$HOME` or infer a repository.';
   }
   if (kind === 'repository') {
-    const base = '**Boundary:** no Story required; cwd=opened Git root or verified `repositoryPath` from `singularity-flow workspace current --json`; refuse if neither resolves; never search `$HOME`/parents.';
-    // Session attachment alone can start from an exact selected workspace whose application
-    // checkout is deferred. Other repository-bound skills still require a ready checkout.
-    return name === 'sflow-session'
-      ? base.replace('refuse if neither resolves;', 'an exact selected workspace/repository is also valid before checkout exists; refuse if neither resolves;')
-      : base;
+    return '**Boundary:** no Story required; cwd=opened Git root or verified `repositoryPath` from `singularity-flow workspace current --json`; refuse if neither resolves; never search `$HOME`/parents.';
   }
   if (kind === 'organisation') {
     return '**Boundary:** no Story or repository required; use only the selected lead URL. Resolve local checks with `singularity-flow workspace current --json`; never search `$HOME`.';

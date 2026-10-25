@@ -1,5 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import { realpathSync } from 'node:fs';
 import { mkdtemp, mkdir, readFile, writeFile, rm, lstat } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
@@ -13,6 +14,7 @@ import { workspaceCheckoutInventory, planWorkspaceCheckoutCleanup, applyWorkspac
 import { readWorkspace, rememberWorkspace } from '../src/workspace.mjs';
 import { withRepositoryMutationLease } from '../src/subject-lock.mjs';
 import { childTimeout } from './helpers/child-timeout.mjs';
+import { renderPlatformCommand } from '../src/safe-command-guidance.mjs';
 
 const cli = fileURLToPath(new URL('../bin/singularity-flow.mjs', import.meta.url));
 const git = (root, args) => {
@@ -251,6 +253,46 @@ test('explicit takeover uses a published custom branch and returns the accepted 
   assert.equal(refreshed.localOnly, false);
   const again = JSON.parse(f.flow(['snapshot', '--include', 'executionContext', '--if-revision', snapshot.revision.subjectRevision, '--json'], { cwd: taken.repositoryPath }).stdout);
   assert.equal(again.notModified, true, 'timestamps must not invalidate a stable context snapshot');
+});
+
+test('a chat with no folder open attaches the chosen Story with the returned selectors, from its own cwd, by the named CLI invocation', async t => {
+  const f = await fixture(t, { governed: true });
+  f.flow(['start', 'CTX-CHAT', '--isolated-worktree', '--from-branch', 'main', '--work-type', 'feature',
+    '--title', 'Chat attach', '--description', 'Attach from a chat folder that is not a repository', '--json']);
+  await rememberWorkspace(f.env.SINGULARITY_FLOW_WORKSPACE_REGISTRY, await readWorkspace(f.workspacePath));
+  f.flow(['workspace', 'use', f.workspacePath, '--repository', 'app', '--json']);
+  // VS Code's agent host with no folder open (2026-10-25): the session cwd is its own chat folder, not a Git repository.
+  const chat = path.join(f.base, 'copilot', 'chats', 'be57b0fb-8d44');
+  await mkdir(chat, { recursive: true });
+  const environment = { ...f.env, SINGULARITY_FLOW_COPILOT_MODE_FILE: path.join(f.base, 'copilot', 'mode.json') };
+  const hook = (action, payload) => {
+    // `singularity-flow` was not on the host's PATH: the launcher's marker, then this package.
+    const result = spawnSync(process.execPath, [fileURLToPath(new URL('../plugin/hook-launcher.mjs', import.meta.url)), action, '--cli-off-path', cli],
+      { cwd: chat, env: environment, input: JSON.stringify({ sessionId: 'chat-attach', cwd: chat, ...payload }), encoding: 'utf8', timeout: childTimeout(60000) });
+    assert.equal(result.status, 0, result.stderr);
+    return JSON.parse(result.stdout);
+  };
+  const verified = renderPlatformCommand([process.execPath, realpathSync(cli)], 'linux');
+  assert.ok(hook('boundary-turn', { prompt: '/sf-session' }).additionalContext.endsWith(
+    `If \`singularity-flow\` is not found, run each \`singularity-flow …\` command as \`${verified} …\`.`));
+  const listed = JSON.parse(f.flow(['session', 'open', '--for-agent', '--json'], { cwd: chat, environment }).stdout);
+  assert.equal(listed.status, 'choose');
+  assert.deepEqual([listed.selectors[0], listed.selectors[2], listed.selectors[3]], ['--workspace', '--repository', 'app']);
+  const argv = ['session', 'open', 'CTX-CHAT', ...listed.selectors, '--for-agent', '--json'];
+  for (const command of [renderPlatformCommand(['singularity-flow', ...argv], 'linux'), `${verified} ${renderPlatformCommand(argv, 'linux')}`]) {
+    assert.deepEqual(hook('boundary-guard', { toolName: 'bash', toolArgs: { command } }), {}, command);
+  }
+  const opened = process.platform === 'win32'
+    ? spawnSync(process.execPath, [cli, ...argv], { cwd: chat, env: environment, encoding: 'utf8', timeout: childTimeout(120000) })
+    : spawnSync('/bin/sh', ['-c', `${verified} ${renderPlatformCommand(argv, 'linux')}`], { cwd: chat, env: environment, encoding: 'utf8', timeout: childTimeout(120000) });
+  assert.equal(opened.status, 0, opened.stderr);
+  const result = JSON.parse(opened.stdout);
+  assert.equal(result.act.story.workId, 'CTX-CHAT');
+  const full = JSON.parse(await readFile(result.agentOutput?.path ?? '', 'utf8').catch(() => opened.stdout));
+  assert.equal(full.ready, true);
+  assert.equal(full.workId, 'CTX-CHAT');
+  assert.equal(git(full.repositoryPath, ['branch', '--show-current']), 'CTX-CHAT');
+  assert.deepEqual(hook('boundary-after', { toolName: 'bash', toolArgs: { command: `${verified} ${renderPlatformCommand(argv, 'linux')}` } }), {});
 });
 
 test('branch downloads honor the approved partial and sparse clone policy', async t => {

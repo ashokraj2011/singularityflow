@@ -153,12 +153,17 @@ test('every generated skill boundary forbids home search and uses only its decla
         assert.match(declared, /no Story required; reuse entry `repositoryPath` after its workspace\/clean-tree checks/, name);
         assert.match(declared, /Refuse absent\/unready selections/, name);
         assert.match(content, /singularity-flow workspace branches --entry --intake --work-id <WORK-ID> --for-agent --json/, `${name} resolves its repository through the intake entry`);
+      } else if (name === 'sflow-session') {
+        // Session open resolves its own scope, and a command carrying its selectors needs no checkout:
+        // a chat with no folder open (2026-10-25) attaches from its own cwd instead of stopping to `cd`.
+        assert.match(declared, /no Story required; any cwd, even a non-Git chat folder: `open` resolves the opened Git root or selected workspace/, name);
+        assert.match(declared, /a command carrying `selectors` \(`--workspace`, `--repository`\) needs no checkout; never `cd` for it; refuse if none resolves/, name);
+        assert.doesNotMatch(declared, /cwd=/, name);
       } else {
         assert.match(declared, /no Story required; cwd=opened Git root or verified `repositoryPath`/, name);
         assert.match(declared, /from `singularity-flow workspace current --json`/, name);
         assert.match(declared, /refuse if neither resolves/, name);
       }
-      if (name === 'sflow-session') assert.match(declared, /exact selected workspace\/repository is also valid before checkout exists/, name);
       assert.doesNotMatch(declared, /session current|ready.*workId/, name);
     } else if (executionBoundary === 'organisation') {
       assert.match(declared, /no Story or repository required; use only the selected lead URL/, name);

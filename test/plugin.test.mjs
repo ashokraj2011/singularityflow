@@ -947,6 +947,9 @@ test('session setup fences partial selectors, and one command checks the binding
     assert.match(openStep, /Relay refusals and stop/);
     assert.doesNotMatch(body, /singularity-flow session status --json|singularity-flow nextsteps <WORK-ID>/,
       'the separate status, context and nextsteps round trips are gone');
+    // A chat with no folder open (a non-Git cwd) attaches with the returned selectors; it never stops to `cd`.
+    assert.match(body, /any cwd, even a non-Git chat folder: `open` resolves the opened Git root or selected workspace, and a command carrying `selectors` \(`--workspace`, `--repository`\) needs no checkout; never `cd` for it/);
+    assert.doesNotMatch(body, /cwd=opened Git root|from `singularity-flow workspace current --json`/, 'no separate workspace lookup, no cwd to reach first');
   }
 });
 

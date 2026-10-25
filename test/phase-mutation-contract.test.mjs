@@ -846,21 +846,52 @@ test('post-shell content checks detect edits to a path that was already dirty; u
   assert.equal(await readFile(path.join(f.root, 'src/App.jsx'), 'utf8'), 'changed again, same porcelain status');
 });
 
-test('a pre-tool hook that timed out before saving a baseline still leaves one: a change it never saw is detected, not refused for want of one', async t => {
+test('a command that only reads needs no shell baseline, even when its pre-tool hook timed out; an unknown one is still stopped', async t => {
   const f = await fixture(t);
-  // Copilot runs a call whose pre-tool hook timed out, so no pre-tool baseline was saved for it.
-  const quiet = await f.enter('/sf-phase', 'timed-out-quiet');
-  const status = { ...quiet, toolName: 'bash', toolArgs: { command: 'git status --short && git --no-pager diff', cwd: f.root } };
-  assert.deepEqual(await mutationPostToolGuard(status), {}, 'a command that changed nothing passes');
-  const changed = await f.enter('/sf-phase', 'timed-out-changed');
-  const shell = { ...changed, toolName: 'bash', toolArgs: { command: 'sh ./outside.sh', cwd: f.root } };
-  await mkdir(path.join(f.root, 'policy'), { recursive: true });
-  await writeFile(path.join(f.root, 'policy', 'rule.txt'), 'changed outside the step');
-  const result = await mutationPostToolGuard(shell);
-  assert.equal(result.continue, false);
-  assert.match(result.stopReason, /PHASE_MUTATION_SHELL_CHANGE_DETECTED/u);
-  assert.match(result.stopReason, /policy\/rule\.txt/u);
-  assert.doesNotMatch(result.stopReason, /BASELINE_UNAVAILABLE/u);
+  // Copilot ran these after their pre-tool hook timed out, so no pre-tool baseline was saved.
+  const quiet = await f.enter('/sf-phase', 'timed-out-read');
+  for (const command of ['git status --short && git --no-pager diff -- singularity/work-items/PMC-1/workflow.json src/App.jsx',
+    'git log --oneline -5', 'git show --stat HEAD', 'pwd']) {
+    const call = { ...quiet, toolName: 'bash', toolArgs: { command, cwd: f.root } };
+    assert.deepEqual(await mutationPostToolGuard(call), {}, command);
+  }
+  for (const command of ['git diff --output=patch.txt', 'git status > status.txt', 'git status | tee status.txt', 'sh ./outside.sh']) {
+    const changed = await f.enter('/sf-phase', `timed-out-${command.length}`);
+    const result = await mutationPostToolGuard({ ...changed, toolName: 'bash', toolArgs: { command, cwd: f.root } });
+    assert.match(result.stopReason ?? '', /PHASE_MUTATION_BASELINE_UNAVAILABLE/u, command);
+  }
+  // A read takes no snapshot before it runs, so a busy hook does less.
+  const pre = await f.enter('/sf-phase', 'read-no-snapshot');
+  assert.deepEqual(await mutationToolGuard({ ...pre, toolName: 'bash', toolArgs: { command: 'git status --short', cwd: f.root } }), {});
+  const record = JSON.parse(await readFile((await readdir(path.dirname(process.env.SINGULARITY_FLOW_COPILOT_MODE_FILE), { recursive: true }))
+    .map(name => path.join(path.dirname(process.env.SINGULARITY_FLOW_COPILOT_MODE_FILE), name))
+    .filter(name => name.endsWith('.mutation.json')).find(name => readFileSync(name, 'utf8').includes('read-no-snapshot')), 'utf8'));
+  assert.equal(record.baseline, null);
+});
+
+test('a routing decision that moves the step is not stopped afterwards by the read-only turn it made [audit 1]', async t => {
+  const f = await fixture(t);
+  const payload = await f.enter('/sf-decide PMC-1', 'decide-moves');
+  const choose = { ...payload, toolName: 'bash', toolArgs: { cwd: f.root,
+    command: 'singularity-flow decision choose PMC-1 --option ship --reason "The person chose to ship." --expected k1' } };
+  assert.deepEqual(await mutationToolGuard(choose), {});
+  // The decision moved the Story to its next step; the CLI refreshes the turn at its boundary.
+  const moved = { ...f.workflow, currentPhase: 'next-step', phaseOrder: ['custom-step', 'next-step'],
+    phases: { 'custom-step': { ...f.phase, status: 'approved' }, 'next-step': { ...f.phase, id: 'next-step', status: 'in_progress' } } };
+  await writeFile(f.workflowFile, JSON.stringify(moved));
+  await refreshMutationContracts(f.root, { ...f.accepted, workflow: moved }, { advanceBaseline: true });
+  assert.deepEqual(await mutationPostToolGuard(choose), {}, 'judged by the turn it ran in');
+  assert.equal((await mutationToolGuard(choose)).permissionDecision, 'deny', 'the moved turn runs no more decisions');
+});
+
+test('a person staging or editing during an authoring turn is not blamed on the next SFlow read [audit 6]', async t => {
+  const f = await fixture(t);
+  const payload = await f.enter('/sf-phase', 'person-stages');
+  await writeFile(path.join(f.root, 'notes.txt'), 'the person writes this in their editor');
+  f.git(['add', 'notes.txt']);
+  const status = { ...payload, toolName: 'bash', toolArgs: { command: 'singularity-flow status PMC-1 --json', cwd: f.root } };
+  assert.deepEqual(await mutationToolGuard(status), {});
+  assert.deepEqual(await mutationPostToolGuard(status), {}, 'a kernel read the turn allowed is not judged by outside changes');
 });
 
 test('an approval that ends its own turn is not stopped afterwards for want of a shell baseline', async t => {

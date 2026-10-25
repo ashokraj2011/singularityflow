@@ -260,13 +260,9 @@ export async function captureMutationTurn(payload, record, {
     const given = earlier?.sessionId === record.sessionId && earlier.modeChangedAt === record.modeChangedAt
       ? earlier.contextDigest ?? null : null;
     await rm(`${file}.issued`, { recursive: true, force: true }).catch(() => {});
-    // One content-bound baseline, not a path/status-only baseline. The pre-tool guard takes a fresh
-    // one before an authoring turn's first other shell command; this one, from the turn's start, is
-    // only the fallback for a pre-tool hook the host stopped before it saved its own (Copilot then
-    // runs the call anyway). Only authoring turns run such commands; edit-tool interception needs none.
-    const fallback = value.contract.turnMode === 'authoring'
-      ? await shellSnapshot(root).then(snapshot => ({ ...snapshot, fallback: true })).catch(() => null) : null;
-    await atomicRecord(file, { ...value, ...(fallback ? { baseline: fallback } : {}), contextDigest: context.digest });
+    // One content-bound baseline, not a path/status-only baseline. It is deliberately lazy:
+    // edit-tool interception needs no Git process; post-shell detection records its own baseline.
+    await atomicRecord(file, { ...value, contextDigest: context.digest });
     // A verified native Copilot turn may be rooted in the canonical workspace while its Story
     // lives in a linked checkout. Tell only that launch folder's window, never every open window.
     const follow = await import('./copilot-story-follow.mjs');
@@ -1203,9 +1199,9 @@ async function mutationToolDecision(payload, record) {
         if (mentionsKernelExecution(call, value)) return mutationDenial(contract,
           'PHASE_MUTATION_SHELL_COMMAND_UNVERIFIED: run one standalone registered SFlow command; no chains or wrappers. Use a file-edit tool for the exact issued staging file. Preserve human answers and repair recording, not the questions');
       }
-      // Baseline BEFORE execution, refreshed after kernel-owned operations at the CLI boundary. The
-      // turn-start fallback is replaced by a fresh one here, so a change made before this command is not its.
-      if (!kernel && (!value.baseline || value.baseline.fallback)) {
+      // Baseline BEFORE execution, refreshed after kernel-owned operations at the CLI boundary. A
+      // command that only reads changes nothing, so it needs none.
+      if (!kernel && !readOnlyShell(call, value) && !value.baseline) {
         value.baseline = await shellSnapshot(contract.repositoryRoot);
         await atomicRecord(recordFile(payload), value);
       }
@@ -1276,11 +1272,12 @@ export async function mutationPostToolGuard(payload = {}) {
     return postFinding(mutationDenial(null, 'PHASE_MUTATION_CONTRACT_STALE: preserve changes and refresh the binding'));
   }
   if (!value.baseline) {
-    // An SFlow command the turn allowed needs no shell baseline: the CLI refreshes this turn at its own
-    // boundary. Judge it by the turn it ran in, not the one it ended: approve and reject end their own
-    // decision turn, and a stop after a successful approval named a fault that never happened.
-    const before = { ...value, decisionEnded: false };
-    if (terminals.every(call => shellAllowed(call, value.contract.turnMode, before))) return {};
+    // Neither an SFlow command the turn allowed nor a command that only reads needs a shell baseline:
+    // the CLI refreshes this turn at its own boundary, and a read changes nothing. A command that
+    // ran without its pre-tool check (the host stops a slow hook and runs the call anyway) is
+    // judged the same way; anything else is stopped, since nothing can tell what it changed.
+    const ran = turnAsRun(value, record);
+    if (terminals.every(call => shellAllowed(call, ran.contract.turnMode, ran) || readOnlyShell(call, value))) return {};
     return postFinding(mutationDenial(value.contract, 'PHASE_MUTATION_BASELINE_UNAVAILABLE: detection cannot establish which command changed bytes'));
   }
   const after = await shellSnapshot(value.contract.repositoryRoot);
@@ -1297,6 +1294,51 @@ export async function mutationPostToolGuard(payload = {}) {
   value.baseline = after;
   await atomicRecord(recordFile(payload), value);
   return {};
+}
+
+/**
+ * The turn as an SFlow command found it, for judging that command after it ran: the CLI refreshes the
+ * turn at its own boundary, so approve and reject have already ended their decision and a command
+ * that moved the phase has already made the turn read-only. Judged by the refreshed turn, the command
+ * that did it was refused after it succeeded.
+ */
+function turnAsRun(value, record) {
+  return { ...value, decisionEnded: false, contract: { ...value.contract,
+    turnMode: mutationTurnMode(record.skill ?? value.skill), phaseId: value.originPhase ?? value.contract.phaseId } };
+}
+
+// Commands that only read the checkout: no redirection, pipe or substitution, `&&` chains of these only.
+const READ_ONLY_GIT = Object.freeze({
+  status: /^(?:-s|--short|-b|--branch|--porcelain(?:=v[12])?|--untracked-files(?:=(?:no|normal|all))?|--ignored|-z)$/u,
+  diff: /^(?:--stat|--numstat|--shortstat|--name-only|--name-status|--cached|--staged|--no-color|--no-renames|--check|-U\d+|--unified=\d+|-z)$/u,
+  log: /^(?:--oneline|--stat|--name-only|--name-status|--no-decorate|--decorate|--graph|-\d+|-n\d*|--max-count=\d+|\d+|--format=[A-Za-z%:() -]*|--pretty=[A-Za-z%:() -]*|--no-color|-z)$/u,
+  show: /^(?:--stat|--name-only|--name-status|--oneline|--no-patch|-s|--no-color|--format=[A-Za-z%:() -]*|--pretty=[A-Za-z%:() -]*)$/u,
+  'ls-files': /^(?:-c|--cached|-m|--modified|-o|--others|--exclude-standard|-z|-s|--stage)$/u,
+  'rev-parse': /^(?:--show-toplevel|--abbrev-ref|--verify|--short|--git-dir|--absolute-git-dir|HEAD|HEAD\^\{tree\})$/u
+});
+
+function readOnlyShell(call, value) {
+  const command = scopedShellCommand(call, value);
+  if (typeof command !== 'string' || /[;|`$<>\n\r]/u.test(command)) return false;
+  const parts = command.split(/\s*&&\s*/u).map(part => part.trim());
+  if (!parts.length || parts.some(part => !part || part.includes('&'))) return false;
+  return parts.every(part => {
+    const words = part.match(/'[^']*'|"[^"]*"|\S+/gu) ?? [];
+    if (/^(?:pwd|ls(?: -[1aAlhR]+)*(?: [^-'"][^\s]*)*)$/u.test(part)) return true;
+    let [tool, ...rest] = words;
+    if (tool !== 'git') return false;
+    while (rest[0] === '--no-pager' || rest[0] === '-P') rest = rest.slice(1);
+    if (rest[0] === 'branch' && rest.length === 2 && rest[1] === '--show-current') return true;
+    const allowed = READ_ONLY_GIT[rest[0]];
+    if (!allowed) return false;
+    let paths = false;
+    return rest.slice(1).every(word => {
+      if (word === '--') return (paths = true);
+      // After `--`, or not an option: a path or revision, quoted or plain.
+      if (paths || !word.startsWith('-')) return !/^-/u.test(word.replace(/^['"]/u, ''));
+      return allowed.test(word);
+    });
+  });
 }
 
 function postFinding(denial) {

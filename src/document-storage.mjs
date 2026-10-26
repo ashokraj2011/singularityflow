@@ -10,11 +10,12 @@
  * pretending it is empty.
  *
  * The store is content-addressed (`<WORK-ID>/<sha256>/<file name>`), created owner-only, and never
- * follows a symbolic link; a read is verified against the committed SHA-256 before it is used.
+ * follows a symbolic link; a read is verified against the committed SHA-256 before it is used. A read
+ * hands out a hard link beside it, `<WORK-ID>/<first 12 of the sha256>/<file name>` (issuedPath).
  */
 import { createHash, randomUUID } from 'node:crypto';
 import { constants as fsConstants } from 'node:fs';
-import { lstat, mkdir, open, readdir, realpath, rename, rm, rmdir, writeFile } from 'node:fs/promises';
+import { link, lstat, mkdir, open, readdir, realpath, rename, rm, rmdir, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import { gitCommonDir } from './git.mjs';
 import { SingularityFlowError } from './util.mjs';
@@ -26,6 +27,7 @@ const LOCAL_STORE_DIRECTORY = 'singularity-flow-documents';
 const LEGACY_LOCAL_DIRECTORY = ['singularity-flow', 'local-documents'];
 const LOCAL_KEY = /^[a-f0-9]{64}\/[A-Za-z0-9._-]{1,255}$/u;
 const WORK_ID = /^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$/u;
+const ISSUED_HASH_LENGTH = 12;
 
 function fail(message, code, details) {
   throw new SingularityFlowError(message, { code, ...(details ? { details } : {}) });
@@ -230,12 +232,36 @@ function unavailableMessage(record, status) {
     : `Document '${record.id}'${name} is kept only on the machine where ${who} added it; this checkout does not have its bytes (SHA-256 ${record.sha256}). Upload the same original on this laptop with singularity-flow documents restore ${record.id} --file <LOCAL-FILE>. This restores its existing ID without changing the Story or approvals.`;
 }
 
-/** The verified bytes of a machine-local document and where they are, or a refusal saying why not. */
+/**
+ * The path a reader is given for a verified original: a hard link to it named by the first 12 digits
+ * of its SHA-256, not all 64. An agent copying the 64-digit folder dropped one digit and reported the
+ * document unavailable (graph-plot, 2026-10-26). It is the same file, so a change through either name
+ * changes the original and is caught by the next verified read; the original, its committed key and
+ * what older builds read stay as they were. Null when no link can be made, and the original is used.
+ */
+async function issuedPath(record, file) {
+  try {
+    const directory = path.join(path.dirname(path.dirname(file)), record.storage.key.slice(0, ISSUED_HASH_LENGTH));
+    if (!(await realDirectory(directory, { create: true }))) return null;
+    const issued = path.join(directory, path.basename(file));
+    const [original, existing] = await Promise.all([lstat(file, { bigint: true }),
+      lstat(issued, { bigint: true }).catch((error) => (error?.code === 'ENOENT' ? null : Promise.reject(error)))]);
+    // Without a file identity the link cannot be told from a stale copy.
+    if (!original.ino) return null;
+    if (existing?.isFile() && existing.ino === original.ino && existing.dev === original.dev) return issued;
+    // Storing a changed original replaces its file, which leaves the old link on the old bytes.
+    if (existing) await rm(issued);
+    await link(file, issued);
+    return issued;
+  } catch { return null; }
+}
+
+/** The verified bytes of a machine-local document and where a reader opens them, or a refusal saying why not. */
 export async function readLocalDocument(root, workId, record) {
   const located = await locate(root, workId, record);
   if (located.status === 'available') {
     const bytes = await readVerified(located.file, record);
-    if (bytes) return { bytes, absolutePath: located.file };
+    if (bytes) return { bytes, absolutePath: await issuedPath(record, located.file) ?? located.file, storePath: located.file };
     located.status = 'changed';
   }
   fail(unavailableMessage(record, located.status),

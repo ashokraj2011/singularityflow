@@ -172,6 +172,33 @@ test('Auto binds local evidence by ID/hash and grants only exact read-only files
   assert.throws(() => absoluteAutoWriteScope(f.root, [refs[0]]), /never a write path/);
 });
 
+test('a reader opens a local document by a short name that is the original file itself', async t => {
+  // graph-plot, 2026-10-26: an agent copying the 64-digit hash folder dropped a digit and called the
+  // screenshot unavailable. The name it is given now carries 12 digits; the original stays where it was.
+  const f = await fixture(t);
+  const image = await readLocalDocument(f.root, 'REVIEW-1', f.records[1]);
+  const hash = f.records[1].storage.key.split('/')[0];
+  assert.equal(path.basename(path.dirname(image.storePath)), hash);
+  assert.equal(path.basename(path.dirname(image.absolutePath)), hash.slice(0, 12));
+  assert.equal(path.dirname(path.dirname(image.absolutePath)), path.dirname(path.dirname(image.storePath)));
+  assert.equal(path.basename(image.absolutePath), path.basename(image.storePath));
+  const [issued, original] = await Promise.all([stat(image.absolutePath), stat(image.storePath)]);
+  assert.equal(issued.ino, original.ino, 'a hard link, not a copy');
+  assert.deepEqual(await readFile(image.absolutePath), png);
+
+  // A removed link is made again on the next read, at the same name.
+  await rm(image.absolutePath);
+  assert.equal((await readLocalDocument(f.root, 'REVIEW-1', f.records[1])).absolutePath, image.absolutePath);
+
+  // Restoring the original replaces its file; the link follows the new file, never the old bytes.
+  await writeFile(image.storePath, 'damaged');
+  await restoreLocalDocument(f.root, f.definition, f.workflow, { documentId: f.records[1].id, file: path.join(f.uploads, f.records[1].sourceName) });
+  const restored = await readLocalDocument(f.root, 'REVIEW-1', f.records[1]);
+  assert.equal(restored.absolutePath, image.absolutePath);
+  assert.equal((await stat(restored.absolutePath)).ino, (await stat(restored.storePath)).ino);
+  assert.deepEqual(await readFile(restored.absolutePath), png);
+});
+
 test('Auto refuses missing, changed, detached and forged attachments before provider access', async t => {
   const f = await fixture(t);
   const refs = f.records.map(localDocumentReadScope);

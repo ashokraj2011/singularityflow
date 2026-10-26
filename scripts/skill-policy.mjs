@@ -66,7 +66,7 @@ export const approvedInputsContractApplies = (contract) => contract === 'clarifi
  * guessed the older Git-directory location misread about 3% of those paths. Engine-owned like the
  * contracts above, on the same Story skills as the applicability contract.
  */
-export const COMPLETE_OUTPUT_CONTRACT = 'Act on a result\'s `act` first: its state, `do` routes and any `ask`. A bounded result names `agentOutput.read` ranges and `omittedFields` text files; read all in one response with your file tool, at the exact paths in the checkout\'s `.sflow/out/`. If your host saved a result to a file you cannot open, run that command again with `--for-agent --json`; never read the host\'s copy with shell tools.';
+export const COMPLETE_OUTPUT_CONTRACT = 'Act on a result\'s `act` first: its state, `do` routes and any `ask`. A bounded result names `agentOutput.read` ranges and `omittedFields` text files; read all in one response with your file tool, at the exact paths in the checkout\'s `.sflow/out/`. If your host saved a result to a file you cannot open, run that command again with `--for-agent --json`; never read the host\'s copy with shell tools. If a path SFlow returned fails to open, copy it again exactly from the result and open it once more; only then report it unopened, with the path and error.';
 
 /**
  * A read skill answers through SFlow's gateway tools when the host offers them. `[gateway-tools]`

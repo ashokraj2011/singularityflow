@@ -141,7 +141,12 @@ test('frequent lifecycle handlers do not reach the legacy dispatcher and stay un
     // checkout's Git-excluded .sflow/out add 5,247 for 9,123,623: the new agent-output-folder.mjs (the folder, its
     // exclude line and the ignored-entry check) and its use in agent-output.mjs, application-paths.mjs,
     // copilot-mutation-guard.mjs, story-worktree.mjs, workspace.mjs and workspace-retention.mjs. One new file.
-    assert.ok(closure.bytes <= 9_125_000, `${file} exceeds the 9 MB eager-source budget (${closure.bytes} bytes)`);
+    // 9,135,000 (next 5,000 boundary): main 4f81044f measures 9,125,824, over 9,125,000 without a recorded raise:
+    // a local document's short hard-linked name added 1,673 to document-storage.mjs (from 9,124,151 at 04e37689).
+    // The outcome review adds 4,679 for 9,130,503: its terminal view in render-terminal.mjs (2,949), a sign-off's
+    // own screenshot as review-safe in state.mjs (1,155), its messages (476), registry entry (72) and skill route
+    // (27). The reader and command are lazy; no new file.
+    assert.ok(closure.bytes <= 9_135_000, `${file} exceeds the 9 MB eager-source budget (${closure.bytes} bytes)`);
   }
 });
 

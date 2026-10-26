@@ -53,7 +53,9 @@ test('frequent lifecycle handlers do not reach the legacy dispatcher and stay un
     // (858465d6, lightweight intake and direct Story worktrees) joined its graph through capability-start.mjs.
     // 459: story-configuration-objects.mjs (b25d3e72, bounded configuration trees) joined submit.mjs's graph through
     // configuration-branch.mjs on main 810418a6 without a recorded raise.
-    assert.ok(closure.files.size <= 459, `${file} loads ${closure.files.size} local files (budget 459; retired graph 597)`);
+    // 460: story-presentation.mjs (c8e340ef3, a Story's original creator) joined submit.mjs's graph through
+    // story-publication-binding.mjs and story-state-index.mjs on main without a recorded raise.
+    assert.ok(closure.files.size <= 460, `${file} loads ${closure.files.size} local files (budget 460; retired graph 597)`);
     // 9,005,000 (next 5,000 boundary): phase-lifecycle.mjs grew from 8,993,692 (main 4a8e6c42) to 9,004,129 with the
     // capability application block's per-environment arguments and debug validation in capabilities.mjs and the
     // launcher rules it reads (RUN amendment), together with 2ca46d6d's conformance issue ownership; no new file.
@@ -129,7 +131,11 @@ test('frequent lifecycle handlers do not reach the legacy dispatcher and stay un
     // 9,115,000 (next 5,000 boundary): 8f25dc4b's three-surface guidance measures 9,111,051, and a person's own
     // terminal steps routing to their command instead of /sf-decide adds 723 for 9,111,774 (decision-list.mjs,
     // decision-list-facts.mjs, nextsteps.mjs, command-skills.mjs). No new file.
-    assert.ok(closure.bytes <= 9_115_000, `${file} exceeds the 9 MB eager-source budget (${closure.bytes} bytes)`);
+    // 9,120,000 (next 5,000 boundary): start.mjs was 9,115,761 on main c8e340ef3 (Story lists sorted by creation
+    // with their original creators) without a recorded raise; a Verification intent finding that names its missing
+    // methods and both fixes, with the coverage rule in the Specification line, adds 1,021 for 9,116,782
+    // (verification/intent.mjs, phase-authoring-contract.mjs, specification-quality.mjs). No new file.
+    assert.ok(closure.bytes <= 9_120_000, `${file} exceeds the 9 MB eager-source budget (${closure.bytes} bytes)`);
   }
 });
 

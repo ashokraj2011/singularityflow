@@ -187,7 +187,10 @@ test('the bundled CLI answers exactly like the sources while opening a handful o
   // cold-hooks +476 for 7,425,351: `env -C <bound root>` scoping, a tool-form refusal that names its fix instead of
   // a lifecycle route, and the turn rule that a non-Git folder runs commands as is (copilot-mutation-guard.mjs,
   // phase-mutation-contract.mjs).
-  assert.ok(closure('cold-hook-context.mjs').reduce((sum, item) => sum + item.bytes, 0) < 7_430_000,
+  // 7,435,000: main c8e340ef3 (Story lists sorted by creation with their original creators) measures 7,430,250
+  // without a recorded raise (cold-narrow-reads +1,004, cold-publication +413, cold-hook-context +2); the
+  // Verification intent finding that names its fixes adds cold-narrow-reads +638 for 7,430,888.
+  assert.ok(closure('cold-hook-context.mjs').reduce((sum, item) => sum + item.bytes, 0) < 7_435_000,
     'phase-review reads retain their existing byte ceiling after moving families');
   assert.match(await readFile(path.join(outdir, 'cold-light.mjs'), 'utf8'), /function enterPhase\b/u,
     'phase binding must not fall through to the compatibility/admin bundle');

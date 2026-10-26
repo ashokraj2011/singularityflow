@@ -2,7 +2,8 @@
 import * as vscode from 'vscode';
 import path from 'node:path';
 import { opendir, realpath } from 'node:fs/promises';
-import { contentSecurityPolicy, nonce, page } from './webview.ts';
+import { contentSecurityPolicy, navigationTarget, nonce, page } from './webview.ts';
+import { navigateTo } from './navigate.ts';
 import { registerMessageRouter, stringField, integerField } from './messages.ts';
 import { RunAndTest, type RunAndTestHost } from './run-and-test.ts';
 import { RUN_AND_TEST_SCRIPT, RUN_AND_TEST_STYLE } from './run-and-test-page.ts';
@@ -55,7 +56,12 @@ export class WorkspaceRuntimePanel implements vscode.Disposable {
       file: message => this.perform(() => this.openFile(stringField(message, 'relative') ?? '')),
       'local-file': message => this.perform(() => this.localFile(integerField(message, 'index') ?? -1, message.clear === true))
     });
-    this.panel.webview.onDidReceiveMessage(raw => router.route(raw), null, this.subscriptions);
+    // The page's footer navigates like every other view's.
+    this.panel.webview.onDidReceiveMessage(raw => {
+      const navigation = navigationTarget(raw);
+      if (navigation) return navigateTo(navigation);
+      return router.route(raw);
+    }, null, this.subscriptions);
     this.panel.onDidDispose(() => this.dispose(), null, this.subscriptions);
     void this.refresh(workspace);
   }

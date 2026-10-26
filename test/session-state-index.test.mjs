@@ -16,7 +16,10 @@ async function partialFixture(t) {
   const f = await createSessionListingFixture(); t.after(f.cleanup);
   await appendLedgerIntent(f.source, { ...f.definition.ledger, pinTransport: 'none' }, createLedgerIntent({
     eventType: 'binding', capabilityId: 'fixture', actor: { name: 'Fixture', email: 'fixture@example.invalid' },
+    // A current summary records who created the Story and when (main c8e340ef); one without them is
+    // proven from the Story's committed state instead, which this fixture does not publish.
     subject: { kind: 'story', workId: 'INDEX-1', branch: 'INDEX-1', title: 'Indexed Story',
+      createdAt: '2026-10-20T08:00:00.000Z', createdBy: { name: 'Fixture' },
       status: 'in_progress', currentPhase: 'specification', progress: { total: 6, approved: 0 } }
   }), f.git(f.source, 'rev-parse', 'HEAD'));
   const partial = path.join(f.directory, 'partial');

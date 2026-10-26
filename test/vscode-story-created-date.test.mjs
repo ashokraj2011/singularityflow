@@ -15,7 +15,8 @@ test('Story lists retain creation dates from local metadata and mapped remote ca
   const remote = buildInbox(null, [{ ...row, repositoryPath: '', repositoryUrl: 'https://example.test/app.git' }]);
   assert.equal(remote.stories[0].createdAt, createdAt);
   const html = workspaceStoriesHtml(remote, '');
-  assert.match(html, /<th>Created \(UTC\)<\/th>/);
+  // The column sorts, newest first by default (main c8e340ef).
+  assert.match(html, /<th scope="col" aria-sort="descending"><button [^>]*data-story-sort="created">Created \(UTC\)/);
   assert.match(html, /<time datetime="2026-10-01T08:30:00.000Z"[^>]*>1 Oct 2026<\/time>/);
   assert.equal(local.stories[0].createdAt, remote.stories[0].createdAt);
 });

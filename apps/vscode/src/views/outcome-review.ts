@@ -10,7 +10,9 @@ import { copyFile, mkdir, stat } from 'node:fs/promises';
 import path from 'node:path';
 import type { SingularityFlowClient } from '../cli/client.ts';
 import type { WorkspaceStore } from '../state.ts';
-import { contentSecurityPolicy, nonce, page } from './webview.ts';
+import { contentSecurityPolicy, navigationTarget, nonce, page } from './webview.ts';
+import { navigateTo } from './navigate.ts';
+import { showCompactInformationMessage, showCompactWarningMessage } from '../compact-message.ts';
 import { taskStartFolder } from '../terminal-start.ts';
 import { integerField, registerMessageRouter, stringField } from './messages.ts';
 import { documentReference, outcomeView, signOffArgs, signOffQuestions, type OutcomeCheck, type OutcomeView } from './outcome-review-model.ts';
@@ -42,7 +44,12 @@ export class OutcomeReviewPanel {
       action: (message) => this.act(stringField(message, 'action') ?? '', integerField(message, 'criterion'),
         integerField(message, 'check'), integerField(message, 'item'))
     });
-    this.panel.webview.onDidReceiveMessage((raw: unknown) => router.route(raw), null, this.disposables);
+    // The page's footer navigates like every other view's.
+    this.panel.webview.onDidReceiveMessage((raw: unknown) => {
+      const navigation = navigationTarget(raw);
+      if (navigation) return navigateTo(navigation);
+      return router.route(raw);
+    }, null, this.disposables);
     this.panel.onDidDispose(() => this.dispose(), null, this.disposables);
     this.render();
     void this.reload();
@@ -84,14 +91,14 @@ export class OutcomeReviewPanel {
       const scope = item === null ? null : this.view?.open.scopeItems[item];
       if (!scope) return;
       await vscode.env.clipboard.writeText(scope.command);
-      void vscode.window.showInformationMessage('Copied. Choose the disposition, name the clauses for included or existing, give your reason, then run it.');
+      void showCompactInformationMessage('Copied. Choose the disposition, name the clauses for included or existing, give your reason, then run it.');
       return;
     }
     const selected = this.check(criterion, check);
     if (!selected) return;
     if (action === 'copy-sign-off' && selected.signOff) {
       await vscode.env.clipboard.writeText(selected.signOff);
-      void vscode.window.showInformationMessage('Copied. Look at the screenshot first, replace the reason, then run it; use --deny for any item that is not true.');
+      void showCompactInformationMessage('Copied. Look at the screenshot first, replace the reason, then run it; use --deny for any item that is not true.');
       return;
     }
     if (action === 'reference' && selected.reference) return this.openReference(selected.reference);
@@ -115,13 +122,13 @@ export class OutcomeReviewPanel {
       filters: { Images: ['png', 'jpg', 'jpeg', 'webp', 'gif'] } }) ?? [];
     if (!picked) return;
     if (await stat(target).then(() => true, () => false)) {
-      const replace = await vscode.window.showWarningMessage(`${relative} already exists. Replace it with the picked screenshot?`, { modal: true }, 'Replace');
+      const replace = await showCompactWarningMessage(`${relative} already exists. Replace it with the picked screenshot?`, { modal: true }, 'Replace');
       if (replace !== 'Replace') return;
     }
     await mkdir(path.dirname(target), { recursive: true });
     await copyFile(picked.fsPath, target);
     await vscode.commands.executeCommand('vscode.open', vscode.Uri.file(target));
-    void vscode.window.showInformationMessage(`Saved as ${relative}. Look at it, then sign off; the sign-off commits it with its record.`);
+    void showCompactInformationMessage(`Saved as ${relative}. Look at it, then sign off; the sign-off commits it with its record.`);
     await this.reload();
   }
 
@@ -145,11 +152,11 @@ export class OutcomeReviewPanel {
     const url = this.runningUrl();
     if (!target || !url || !this.playwright) return;
     if (vscode.workspace.isTrusted === false) {
-      void vscode.window.showWarningMessage('Capturing runs this repository\'s Playwright. Trust the workspace first, or attach a screenshot instead.');
+      void showCompactWarningMessage('Capturing runs this repository\'s Playwright. Trust the workspace first, or attach a screenshot instead.');
       return;
     }
     if (await stat(target).then(() => true, () => false)) {
-      const replace = await vscode.window.showWarningMessage(`${relative} already exists. Replace it with a new capture?`, { modal: true }, 'Replace');
+      const replace = await showCompactWarningMessage(`${relative} already exists. Replace it with a new capture?`, { modal: true }, 'Replace');
       if (replace !== 'Replace') return;
     }
     await mkdir(path.dirname(target), { recursive: true });
@@ -164,9 +171,9 @@ export class OutcomeReviewPanel {
       ended.dispose();
       if (event.exitCode === 0) {
         await vscode.commands.executeCommand('vscode.open', vscode.Uri.file(target));
-        void vscode.window.showInformationMessage(`Captured ${url} as ${relative}. Look at it, then sign off.`);
+        void showCompactInformationMessage(`Captured ${url} as ${relative}. Look at it, then sign off.`);
       } else {
-        void vscode.window.showWarningMessage('Playwright could not capture the screen; see its task output (its browsers may need installing). You can attach a screenshot instead.');
+        void showCompactWarningMessage('Playwright could not capture the screen; see its task output (its browsers may need installing). You can attach a screenshot instead.');
       }
       await this.reload();
     });
@@ -184,7 +191,7 @@ export class OutcomeReviewPanel {
     const file = this.repositoryPath(relative);
     if (!criterion || !this.view || !file || !relative) return;
     if (!(await stat(file).then((info) => info.isFile(), () => false))) {
-      void vscode.window.showInformationMessage(`No screenshot at ${relative} yet. Attach one first, then sign off.`);
+      void showCompactInformationMessage(`No screenshot at ${relative} yet. Attach one first, then sign off.`);
       return;
     }
     await vscode.commands.executeCommand('vscode.open', vscode.Uri.file(file));
@@ -200,13 +207,13 @@ export class OutcomeReviewPanel {
       validateInput: (value) => value.trim().length >= 10 && value.trim().length <= 1000 ? null : 'Say what you inspected in 10 to 1000 characters.' });
     if (!reason) return;
     const met = answers.every(([, yes]) => yes);
-    const confirmed = await vscode.window.showWarningMessage(
+    const confirmed = await showCompactWarningMessage(
       `Record this sign-off of ${criterion.id} (${check.slot}) as ${met ? 'satisfied' : 'not satisfied'}? It is committed with ${relative}, under your name.`,
       { modal: true }, 'Record sign-off');
     if (confirmed !== 'Record sign-off') return;
     try {
       await this.client.run(signOffArgs(this.view.workId, criterion.id, check.slot, relative, answers, reason));
-      void vscode.window.showInformationMessage(`Recorded the sign-off of ${criterion.id} (${check.slot}).`);
+      void showCompactInformationMessage(`Recorded the sign-off of ${criterion.id} (${check.slot}).`);
     } catch (failure) {
       void vscode.window.showErrorMessage(`The sign-off was not recorded: ${failure instanceof Error ? failure.message : String(failure)}`);
     }
@@ -220,7 +227,7 @@ export class OutcomeReviewPanel {
       if (typeof viewed?.absolutePath !== 'string' || !path.isAbsolute(viewed.absolutePath)) throw new Error(`${reference} has no local file to open.`);
       await vscode.commands.executeCommand('vscode.open', vscode.Uri.file(viewed.absolutePath));
     } catch (failure) {
-      void vscode.window.showWarningMessage(`${reference} could not be opened: ${failure instanceof Error ? failure.message : String(failure)}`);
+      void showCompactWarningMessage(`${reference} could not be opened: ${failure instanceof Error ? failure.message : String(failure)}`);
     }
   }
 
@@ -232,7 +239,7 @@ export class OutcomeReviewPanel {
       await vscode.workspace.fs.stat(file);
       await vscode.commands.executeCommand('vscode.open', file);
     } catch {
-      void vscode.window.showInformationMessage(screenshot
+      void showCompactInformationMessage(screenshot
         ? `No screenshot yet. Save one of the running screen as ${relative}, then open it here.`
         : `${relative} is not in this checkout.`);
     }

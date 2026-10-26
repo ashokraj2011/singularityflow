@@ -5164,7 +5164,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     const offered = context.workspaceState.get<string[]>('singularityFlow.outcomeOffered') ?? [];
     if (offered.includes(key)) return;
     void context.workspaceState.update('singularityFlow.outcomeOffered', [...offered, key].slice(-50));
-    void vscode.window.showInformationMessage(`${phase.label || workflow.currentPhase} is waiting for approval. Check the outcome first?`, 'Check the Outcome')
+    void showCompactInformationMessage(`${phase.label || workflow.currentPhase} is waiting for approval. Check the outcome first?`, 'Check the Outcome')
       .then((choice) => { if (choice === 'Check the Outcome') void vscode.commands.executeCommand('singularityFlow.openOutcomeReview'); });
   }));
   // Registered before the tree-model listeners, so the benchmark labels the render they queue

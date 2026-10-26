@@ -142,7 +142,8 @@ test('a blobless clone lists summarized Stories with no Story read, and older en
 
   const summarized = candidatesInBloblessClone(base, remote, 'summarized');
   assert.equal(summarized.discovery.source, 'state-ledger', 'no metadata recovery from the remote');
-  assert.deepEqual(summarized.discovery.items.map((item) => item.id), ['DISC-101', 'DISC-102', 'DISC-103']);
+  // Newest first (main c8e340ef sorts Story lists by creation).
+  assert.deepEqual(summarized.discovery.items.map((item) => item.id), ['DISC-103', 'DISC-102', 'DISC-101']);
   assert.equal(summarized.discovery.unavailableCount, 0);
   assert.equal(summarized.perBlobReads, 0);
   assert.equal(summarized.byIdFetches, 0);

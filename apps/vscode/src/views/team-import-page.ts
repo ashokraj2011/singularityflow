@@ -25,8 +25,8 @@ function checkHtml(check: TeamImportCompile, disabled: string, repository: TeamI
       ${workflow.decisions.length ? `<p class="muted">Decisions: ${workflow.decisions.map(decision => `${escape(decision.kind)} after ${escape(decision.after)}`).join(', ')}</p>` : ''}` : ''}
     <p class="muted">Route simulation: ${escape(check.routeSimulation.status)}${check.destination ? ` · import into ${check.destination.root === repository?.root ? `<strong>${escape(repository.label)}</strong>` : `<code>${escape(check.destination.root)}</code>`}: ${escape(check.destination.status)}` : ''}</p>
     ${check.questions.length ? `<section class="questions"><h3>Questions for you</h3>${check.questions.map(question => `<div class="question"><p>${escape(question.question)}${question.blocking ? '' : ' <span class="muted">(optional)</span>'}</p>
-      <p class="card-foot">${question.choices.map(choice => `<button class="secondary" data-team-answer="${escape(question.id)}" data-team-choice="${escape(choice)}"${disabled}>${escape(choice)}</button>`).join('')}</p></div>`).join('')}</section>` : ''}
-    ${check.answers.length ? `<details><summary>${check.answers.length} answered</summary><ul class="plain-list">${check.answers.map(answer => `<li>${escape(answer.question ?? answer.id)}: <strong>${escape(answer.choice)}</strong></li>`).join('')}</ul></details>` : ''}
+      <p class="card-foot">${question.choices.map(choice => `<button class="secondary" data-team-answer="${escape(question.id)}" data-team-choice="${escape(choice)}"${disabled}>${escape(choice)}</button>`).join('')}<button class="secondary" data-team-answer-own="${escape(question.id)}"${disabled}>In my own words…</button></p></div>`).join('')}</section>` : ''}
+    ${check.answers.length ? `<details><summary>${check.answers.length} answered</summary><ul class="plain-list">${check.answers.map(answer => `<li>${escape(answer.question ?? answer.id)}: <strong>${escape(answer.choice)}</strong>${answer.own ? ' <span class="muted">(your words)</span>' : ''}</li>`).join('')}</ul></details>` : ''}
     ${check.findings.length ? `<div class="table-scroll"><table><thead><tr><th>Who fixes it</th><th>Finding</th></tr></thead><tbody>
       ${check.findings.map(finding => `<tr><td>${finding.owner === 'person' ? 'You' : 'Copilot'}${finding.severity === 'warning' ? ' <span class="muted">(warning)</span>' : ''}</td><td><code>${escape(finding.code)}</code> <span class="muted">${escape(finding.at)}</span><br>${escape(finding.message)}</td></tr>`).join('')}
     </tbody></table></div>` : ''}
@@ -105,10 +105,12 @@ export const TEAM_IMPORT_STYLE = `
 
 export const TEAM_IMPORT_SCRIPT = `
   document.addEventListener('click', event => {
-    const target = event.target.closest('[data-team-action],[data-team-session],[data-team-answer]');
+    const target = event.target.closest('[data-team-action],[data-team-session],[data-team-answer],[data-team-answer-own]');
     if (!target || target.disabled) return;
     if (target.dataset.teamSession !== undefined) {
       window.__sfVscode.postMessage({type:'session', id:target.dataset.teamSession});
+    } else if (target.dataset.teamAnswerOwn !== undefined) {
+      window.__sfVscode.postMessage({type:'answerOwn', question:target.dataset.teamAnswerOwn});
     } else if (target.dataset.teamAnswer !== undefined) {
       window.__sfVscode.postMessage({type:'answer', question:target.dataset.teamAnswer, choice:target.dataset.teamChoice || ''});
     } else window.__sfVscode.postMessage({type:target.dataset.teamAction});

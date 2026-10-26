@@ -40,7 +40,7 @@ related:
   - agents-and-routing
   - artifacts-and-generation
   - workflow-markup
-version: 89
+version: 90
 ---
 Author work types, ordered phases, gates, artifacts, inputs, and approval policy through approved configuration. Existing work remains pinned to the resolution it started with.
 
@@ -1367,12 +1367,20 @@ inspect read), and compile still checks the folder holds exactly what was interp
    while it works (documents, office files, images, PDFs); they travel with the workflow byte for
    byte as that agent's folder (`singularity/user-defined/<agent>/`, pinned by its manifest), and
    its step prompt gives them to it. What SFlow needs but the source never said is labelled
-   *destination policy*; open questions go to a person.
+   *destination policy*; anything the source leaves unclear (step order, who approves, the test
+   command, a loop bound) becomes a question for a person, never a guess.
 3. **compile** checks it deterministically: the closed record and its evidence, references between
    sections, coverage, the engine's own loader and validators, the responsibilities every route
    owes, a route simulation (pass, repair, repeated failure, unavailable evidence, rejection), the
    bundle compiler, and a preview of the import into a fresh configuration and into
-   `--destination`. Answers to open questions are recorded with `--answer <id>=<choice>`.
+   `--destination`. Answers to open questions are recorded with `--answer <id>=<choice>`, or in
+   the person's own words (`--answer <id>=<text>`). The candidate must follow every answer: one in
+   the person's own words keeps the conversion from being ready until the candidate cites it as
+   evidence (`{ answer: <id> }`), and a check taken from an answer must be their exact words.
+4. **Review.** Before the bundle is written, `/sf-import-team` asks the person, all at once, every
+   open question, every finding only they can settle and every warning, then shows the workflow
+   (steps with agent, checks and sign-off, decisions, the files each agent carries) and asks
+   whether to write it or change something. A change is followed like an answer.
 
 States: `invalid`, `unsupported` (required behaviour SFlow cannot express), `needs-decision`,
 `portable-ready`, and `ready-for-destination`. A bundle is written only when ready, unless
@@ -1384,7 +1392,7 @@ Workflow Studio's Build with Copilot) runs the same steps without a terminal. Ch
 it and pick the entry agent or skill. **Convert with Copilot…** types the `/sf-import-team` command into
 Copilot Chat, and shows it to copy when Copilot Chat is unavailable. The panel lists every session,
 whichever surface started it. **Check** runs compile with `--dry-run` and offers each open question's
-choices as buttons. **Write bundle…** saves the ready bundle beside the team directory.
+choices as buttons, and **In my own words…** for an answer none of them gives. **Write bundle…** saves the ready bundle beside the team directory.
 **Import in Workflow Studio…** opens Studio's Import preview with that file. The panel needs no
 open repository until the import itself; with one open, it can preview the import into it.
 

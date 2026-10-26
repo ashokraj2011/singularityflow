@@ -3370,7 +3370,8 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
           openInStudio: async file => {
             await vscode.commands.executeCommand('singularityFlow.openWorkflowStudio', { importBundle: file });
           },
-          repository: repositoryLabel
+          repository: repositoryLabel,
+          input: async prompt => (await vscode.window.showInputBox({ prompt, ignoreFocusOut: true })) ?? null
         }, folder);
       } catch (error) { showRefusal(error, { headline: 'Team workflow import is unavailable' }); }
     }

@@ -25,6 +25,8 @@ export interface TeamImportHost {
    * destination: its root for the CLI and a name for people. Null with none open.
    */
   repository(): TeamImportRepository | null;
+  /** Ask for an answer in the person's own words (an input box); null when they cancel. */
+  input(prompt: string): Promise<string | null>;
 }
 
 export interface TeamImportRepository { root: string; label: string }
@@ -63,7 +65,7 @@ export interface TeamImportCompile {
   dispositions: { sourceItem: string; disposition: string; kind: string; reason: string | null }[];
   destinationPolicy: { sourceItem: string; target: string; reason: string | null }[];
   questions: TeamImportQuestion[];
-  answers: { id: string; question?: string; choice: string }[];
+  answers: { id: string; question?: string; choice: string; own?: boolean }[];
   findings: TeamImportFinding[];
   routeSimulation: { status: string };
   destination: { root: string; status: string } | null;
@@ -355,6 +357,19 @@ export class TeamImportJourney {
     const asked = this.view.check?.questions.find(entry => entry.id === question);
     if (!asked || !asked.choices.includes(choice)) return;
     await this.check(['--answer', `${question}=${choice}`]);
+  }
+
+  /**
+   * An answer none of the choices gives, typed by the person in an input box, never taken from the
+   * page. Copilot then revises the candidate to follow it; compile holds it until it does.
+   */
+  async answerOwn(question: string): Promise<void> {
+    if (this.view.busy) return;
+    const asked = this.view.check?.questions.find(entry => entry.id === question);
+    if (!asked) return;
+    const text = (await this.host.input(`${asked.question} Answer in your own words; Copilot then revises the workflow to follow it.`))?.trim();
+    if (!text || this.disposed) return;
+    await this.check(['--answer', `${question}=${text}`]);
   }
 
   async write(): Promise<void> {

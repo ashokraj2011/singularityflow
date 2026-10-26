@@ -302,7 +302,7 @@ test('a session moves to another computer as one file and compiles there against
   await assert.rejects(() => importTeamImportSession(exported, { folders: [path.join(elsewhere, 'team')], env }), /already has session/u);
 });
 
-test('open questions hold the state at needs-decision until a person answers with one of their choices [TAWI:AC-009 AC-023]', async (t) => {
+test('open questions hold the state at needs-decision until a person answers, with a choice or in their own words [TAWI:AC-009 AC-023]', async (t) => {
   const { env, inspection, result } = await compiled(t, (candidate) => {
     candidate.decisionsNeeded = [{ id: 'retry-bound', question: 'How many test rounds before the lead decides?', choices: ['3', '5'], blocking: true }];
     candidate.mappings.push({ sourceItem: 'retry-bound-choice', evidence: [candidate.phases[1].qualityCommands[0].evidence[0]], target: 'decision:delivery-tests', disposition: 'mapped',
@@ -310,10 +310,52 @@ test('open questions hold the state at needs-decision until a person answers wit
   });
   assert.equal(result.state, 'needs-decision');
   assert.deepEqual(result.questions.map((question) => question.id), ['retry-bound']);
-  await assert.rejects(() => compileTeamImport(inspection.session.id, { env, dryRun: true, answers: ['retry-bound=7'] }), { code: 'TEAM_IMPORT_ANSWER_INVALID' });
+  await assert.rejects(() => compileTeamImport(inspection.session.id, { env, dryRun: true, answers: ['retry-bound='] }), { code: 'TEAM_IMPORT_ANSWER_INVALID' });
   const answered = await compileTeamImport(inspection.session.id, { env, dryRun: true, answers: ['retry-bound=3'] });
   assert.equal(answered.state, 'portable-ready');
   assert.equal((await compileTeamImport(inspection.session.id, { env, dryRun: true })).state, 'portable-ready', 'answers stay recorded in the session');
+
+  // In their own words: kept exactly, and the conversion is not ready until the candidate follows it.
+  const own = await compileTeamImport(inspection.session.id, { env, dryRun: true, answers: ['retry-bound=7, then ask the lead'] });
+  assert.deepEqual(own.answers.map(({ id, choice, own: words }) => [id, choice, words]), [['retry-bound', '7, then ask the lead', true]]);
+  assert.equal(own.state, 'invalid');
+  assert.match(own.findings.find((finding) => finding.code === 'TEAM_IMPORT_ANSWER_NOT_APPLIED').message, /in their own words: '7, then ask the lead'/u);
+  await writeCandidate(inspection, fixtureCandidate(inspection, (candidate) => {
+    candidate.workflow.decisions[0].maxRounds = 7;
+    candidate.decisionsNeeded = [{ id: 'retry-bound', question: 'How many test rounds before the lead decides?', choices: ['3', '5'], blocking: true }];
+    candidate.mappings.push({ sourceItem: 'retry-bound-choice', evidence: [{ answer: 'retry-bound' }], target: 'decision:delivery-tests', disposition: 'mapped',
+      kind: 'explicit', decision: 'retry-bound' });
+  }));
+  const followed = await compileTeamImport(inspection.session.id, { env, dryRun: true });
+  assert.equal(followed.state, 'portable-ready', JSON.stringify(followed.findings, null, 2));
+});
+
+test('what only the person knows is their recorded answer, cited as evidence and used exactly', async (t) => {
+  const question = { id: 'delivery-test-command', question: 'Which command runs the tests?', choices: ['npm test', 'make check'], blocking: true };
+  const asking = (candidate) => { delete candidate.phases[1].qualityCommands; candidate.decisionsNeeded = [question]; };
+  const { env, inspection, result } = await compiled(t, asking);
+  assert.equal(result.state, 'needs-decision');
+  assert.deepEqual(result.questions.map((entry) => entry.id), ['delivery-test-command']);
+  const answered = await compileTeamImport(inspection.session.id, { env, dryRun: true, answers: ['delivery-test-command=npm run test:ci'] });
+  assert.ok(answered.findings.some((finding) => finding.code === 'TEAM_IMPORT_ANSWER_NOT_APPLIED'), 'their words are not used yet');
+  const revise = async (argv, answer = 'delivery-test-command') => {
+    await writeCandidate(inspection, fixtureCandidate(inspection, (candidate) => {
+      candidate.decisionsNeeded = [question];
+      candidate.phases[1].qualityCommands = [{ argv, evidence: [{ answer }] }];
+    }));
+    return compileTeamImport(inspection.session.id, { env, dryRun: true });
+  };
+  const exact = await revise(['npm', 'run', 'test:ci']);
+  assert.equal(exact.state, 'portable-ready', JSON.stringify(exact.findings, null, 2));
+  assert.equal(exact.findings.some((finding) => finding.code === 'TEAM_IMPORT_QUALITY_COMMAND_MISSING'), false);
+  assert.ok((await revise(['npm', 'test'])).findings.some((finding) => finding.code === 'TEAM_IMPORT_ANSWER_MISMATCH' && /use their exact words/u.test(finding.message)));
+  assert.ok((await revise(['npm', 'run', 'test:ci'], 'never-asked')).findings.some((finding) => finding.code === 'TEAM_IMPORT_EVIDENCE_ANSWER_UNKNOWN'));
+
+  // An offered choice the candidate never uses is pointed out, without blocking.
+  await writeCandidate(inspection, fixtureCandidate(inspection, (candidate) => { candidate.decisionsNeeded = [question]; }));
+  const chosen = await compileTeamImport(inspection.session.id, { env, dryRun: true, answers: ['delivery-test-command=npm test'] });
+  assert.deepEqual(chosen.findings.filter((finding) => finding.code === 'TEAM_IMPORT_ANSWER_UNUSED').map((finding) => finding.severity), ['warning']);
+  assert.ok(inspection.candidate.guide.rules.some((rule) => /answer in their own words/u.test(rule)));
 });
 
 test('unrepresentable behaviour is unsupported, never relabelled [TAWI:AC-010 AC-024]', async (t) => {

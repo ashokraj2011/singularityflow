@@ -69,6 +69,30 @@ async function capturedBytes(session, where) {
   return bytes && digest(bytes) === file.sha256 ? bytes : null;
 }
 
+/**
+ * Every answer reaches the candidate. An answer in the person's own words says something no offered
+ * choice did, so the candidate is revised to follow it and cites it; until then it is not ready. An
+ * offered choice the candidate neither cites nor names as a mapping's decision is pointed out.
+ */
+function answersApplied(candidate, answers) {
+  const cited = new Set();
+  const visit = (value) => {
+    if (Array.isArray(value)) value.forEach(visit);
+    else if (value && typeof value === 'object') {
+      if (typeof value.answer === 'string' && Object.keys(value).length === 1) cited.add(value.answer);
+      Object.values(value).forEach(visit);
+    }
+  };
+  visit(candidate);
+  const decided = new Set(candidate.mappings.map((mapping) => mapping.decision).filter(Boolean));
+  const asked = new Set(candidate.decisionsNeeded.map((question) => question.id));
+  return answers.filter((answer) => asked.has(answer.id) && !cited.has(answer.id) && (answer.own || !decided.has(answer.id))).map((answer) => answer.own
+    ? { at: `answer:${answer.id}`, code: 'TEAM_IMPORT_ANSWER_NOT_APPLIED', owner: 'model',
+      message: `The person answered '${answer.question}' in their own words: '${answer.choice}'. Revise the candidate to follow it, cite { answer: '${answer.id}' } where it decides something, then compile again.` }
+    : { at: `answer:${answer.id}`, code: 'TEAM_IMPORT_ANSWER_UNUSED', owner: 'model', severity: 'warning',
+      message: `The person chose '${answer.choice}' for '${answer.question}'. Make sure the candidate follows it, and cite { answer: '${answer.id}' } or name it as a mapping's decision.` });
+}
+
 const PLACED_INSTRUCTION = /<instruction>\s*([a-z0-9-]+)\s*<\/instruction>|<!--\s*sflow-instruction:\s*([a-z0-9-]+)\s*-->/gu;
 
 function fail(code, message, details = undefined) {
@@ -270,18 +294,25 @@ export async function compileTeamImport(sessionId, {
     fail('TEAM_IMPORT_CANDIDATE_MISSING', `No candidate yet: write it to ${session.candidatePath} (the path inspect issued), then compile again.`,
       { candidatePath: session.candidatePath });
   }
-  const { findings: candidateFindings, candidate } = validateCandidate(text, { session });
+  const pending = parseAnswers(given);
+  // The candidate may cite an answer given in this same compile.
+  const { findings: candidateFindings, candidate } = validateCandidate(text, { session,
+    answers: [...(session.answers ?? []).filter((entry) => !pending.some((answer) => answer.id === entry.id)), ...pending] });
   findings.push(...candidateFindings);
   const answers = [...(session.answers ?? [])];
-  for (const answer of parseAnswers(given)) {
+  for (const answer of pending) {
     const question = candidate?.decisionsNeeded?.find((entry) => entry.id === answer.id);
     if (!question) fail('TEAM_IMPORT_ANSWER_INVALID', `--answer names '${answer.id}', which the candidate does not ask.`);
     const choice = question.choices.find((entry) => entry.toLowerCase() === answer.choice.toLowerCase());
-    if (!choice) fail('TEAM_IMPORT_ANSWER_INVALID', `'${answer.choice}' is not one of ${question.choices.map((entry) => `'${entry}'`).join(', ')} for '${answer.id}'.`);
-    const recorded = { id: answer.id, question: question.question, choice, at: new Date().toISOString() };
+    // Not one of the offered choices: the person's own words, kept exactly.
+    if (!choice && (!answer.choice || answer.choice.length > 2000)) {
+      fail('TEAM_IMPORT_ANSWER_INVALID', `Answer '${answer.id}' with one of ${question.choices.map((entry) => `'${entry}'`).join(', ')}, or in your own words (at most 2,000 characters).`);
+    }
+    const recorded = { id: answer.id, question: question.question, choice: choice ?? answer.choice, ...(choice ? {} : { own: true }), at: new Date().toISOString() };
     const index = answers.findIndex((entry) => entry.id === answer.id);
     if (index >= 0) answers[index] = recorded; else answers.push(recorded);
   }
+  if (candidate && !candidateFindings.length) findings.push(...answersApplied(candidate, answers));
   let simulation = null;
   let bundle = null;
   let fresh = null;

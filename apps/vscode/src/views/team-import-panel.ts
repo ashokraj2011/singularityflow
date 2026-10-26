@@ -34,6 +34,10 @@ export class TeamImportPanel {
         const choice = stringField(message, 'choice');
         if (question && choice) return this.journey.answer(question, choice);
       },
+      answerOwn: message => {
+        const question = stringField(message, 'question');
+        if (question) return this.journey.answerOwn(question);
+      },
       write: () => this.journey.write(),
       studio: () => this.journey.openInStudio()
     });

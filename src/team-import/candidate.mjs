@@ -5,7 +5,9 @@
  * It is closed. Every object has a fixed field set, every generated ID carries the namespace,
  * every mapping cites evidence spans inside the capture, and nothing in it can claim a hash, an
  * approval, a validation result or a person's decision: compile computes those, and answers to
- * open questions are recorded by `compile --answer`, never written by the model.
+ * open questions are recorded by `compile --answer`, never written by the model. What only the
+ * person knows (a test command, who approves) is evidenced by citing their recorded answer,
+ * `{ answer: <question-id> }`, never by the model's guess.
  *
  * Validation collects every finding instead of stopping at the first, so one repair pass can fix
  * them together. Each finding names the field (`at`), the code, and who can fix it (`model` for
@@ -43,6 +45,7 @@ const FIELDS = Object.freeze({
   attachment: ['skill', 'agent', 'workflow', 'steps', 'use'],
   mapping: ['sourceItem', 'evidence', 'target', 'disposition', 'kind', 'material', 'decision', 'reason'],
   evidence: ['path', 'sha256', 'startLine', 'endLine'],
+  answerEvidence: ['answer'],
   prerequisite: ['id', 'kind', 'description', 'evidence'],
   decisionNeeded: ['id', 'question', 'choices', 'blocking']
 });
@@ -64,7 +67,7 @@ const plain = (value) => value !== null && typeof value === 'object' && !Array.i
  * Check a candidate against the capture it interprets. Returns `{ findings, candidate }`, where
  * `candidate` is the parsed record (or null when it is not even a record of this family).
  */
-export function validateCandidate(text, { session }) {
+export function validateCandidate(text, { session, answers = session.answers ?? [] }) {
   const findings = [];
   const add = (at, code, message, owner = 'model') => findings.push({ at, code, message, owner });
   let candidate;
@@ -115,6 +118,13 @@ export function validateCandidate(text, { session }) {
     if (required && !spans.length) add(at, 'TEAM_IMPORT_EVIDENCE_MISSING', `${at} needs at least one evidence span from the capture.`);
     spans.forEach((span, index) => {
       const where = `${at}[${index}]`;
+      // The person's own answer, recorded with compile --answer: evidence of what they said.
+      if (plain(span) && Object.hasOwn(span, 'answer')) {
+        if (closed(span, 'answerEvidence', where) && !answers.some((answer) => answer.id === span.answer)) {
+          add(where, 'TEAM_IMPORT_EVIDENCE_ANSWER_UNKNOWN', `${where} cites answer '${span.answer}', which the person has not recorded. Ask it through decisionsNeeded, record their answer with compile --answer, then cite it.`);
+        }
+        return;
+      }
       if (!closed(span, 'evidence', where)) return;
       const file = files.get(span.path);
       if (!file) { add(where, 'TEAM_IMPORT_EVIDENCE_UNKNOWN', `${where} cites '${span.path}', which is not in the capture.`); return; }
@@ -172,8 +182,14 @@ export function validateCandidate(text, { session }) {
       if (!Array.isArray(command.argv) || !command.argv.length || command.argv.some((arg) => typeof arg !== 'string' || !arg)) {
         add(`${where}.argv`, 'TEAM_IMPORT_CANDIDATE_SHAPE', 'argv is the command exactly as the source writes it, one string per argument.');
       }
-      // A quality command is taken verbatim from the source, never invented. [TAWI-REQ-010]
+      // A quality command is taken verbatim from the source, or from the person's answer, never invented. [TAWI-REQ-010]
       evidence(command.evidence, `${where}.evidence`);
+      for (const span of Array.isArray(command.evidence) ? command.evidence : []) {
+        const said = plain(span) && answers.find((answer) => answer.id === span.answer);
+        if (said && Array.isArray(command.argv) && command.argv.join(' ') !== String(said.choice).trim()) {
+          add(`${where}.argv`, 'TEAM_IMPORT_ANSWER_MISMATCH', `'${command.argv.join(' ')}' is not what the person answered to '${said.id}' ('${said.choice}'); use their exact words.`);
+        }
+      }
       // sflow runs a step's checks at every submit, so only a test, lint, type-check, format or build
       // command is one; a script or deployment stays in its skill or instructions for the agent.
       const category = Array.isArray(command.argv) ? classifyCommand(command.argv.join(' ')) : null;
@@ -393,6 +409,8 @@ export function candidateGuide() {
           routes: [{ id: 'acme-ship', label: 'Ship', to: 'next' }, { id: 'acme-rework', label: 'Rework', to: 'acme-build' }] }
       ],
       omits: [{ responsibility: 'scope', reason: 'The source process starts from an approved ticket and defines no requirements of its own.', authority: 'acme-leads' }],
+      // The person answered decisionsNeeded 'acme-test-command' with these words.
+      qualityCommandFromAnswer: { argv: ['npm', 'run', 'test:ci'], evidence: [{ answer: 'acme-test-command' }] },
       artifactKinds: 'The step before a code step: implementation-spec (or requirements). A code step: any word such as change-summary. A test report: test-evidence. Others: a plain word such as review.'
     },
     rules: [
@@ -408,6 +426,8 @@ export function candidateGuide() {
       'An agent\'s files lists the capture paths of the reference material it consults while it works: documents, office files (media document, read as their text), images and PDFs (media viewable, opened and looked at). They travel with the workflow byte for byte as the agent\'s folder, and its step prompt gives them to it. Behaviour still belongs in the agent body, skills and instructions.',
       'Every interpreted source file has a mapping; evidence spans cite capture paths, their sha256 and line numbers.',
       'What SFlow requires but the source never said is kind destination-policy; a material inference names the decisionsNeeded question a person answers.',
+      'Where the source is unclear, contradictory or silent on what the workflow needs (step order, which agent does a step, who approves, the test command, a loop bound), ask through decisionsNeeded instead of guessing.',
+      'The person may answer in their own words. Follow every answer: revise the candidate and cite what only the person said as evidence { answer: <question-id> }; a quality command from an answer is their exact words.',
       'Never write hashes, approvals, validation results or answers: compile computes them, and answers are recorded with --answer.'
     ]
   };

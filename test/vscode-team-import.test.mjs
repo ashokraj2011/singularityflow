@@ -136,7 +136,7 @@ test('a folder named elsewhere is inspected at once, and one named while the pan
   const extension = await readFile(new URL('../apps/vscode/src/extension.ts', import.meta.url), 'utf8');
   assert.match(extension, /buildWorkflow: \(folder\) => vscode\.commands\.executeCommand\('singularityFlow\.importTeamWorkflow', \{ folder \}\)/u,
     'Add your own agent hands a folder of several agents to Import a Team Workflow');
-  assert.match(extension, /repository: repositoryLabel\n {8}\}, folder\);/u);
+  assert.match(extension, /input: async prompt => \(await vscode\.window\.showInputBox\(\{ prompt, ignoreFocusOut: true \}\)\) \?\? null\n {8}\}, folder\);/u);
 });
 
 test('Convert with Copilot types the skill command into chat, quoting the directory and naming an ambiguous entry by path', async () => {
@@ -227,6 +227,28 @@ test('a session is checked, answered with an offered choice only, written beside
   assert.equal(f.journey.view.written.path, '/work/team-delivery.sflow-workflows.json');
   await f.journey.openInStudio();
   assert.deepEqual(f.studio, ['/work/team-delivery.sflow-workflows.json']);
+});
+
+test('a question can be answered in the person\'s own words, typed in an input box, never taken from the page', async () => {
+  const typed = [];
+  const f = fixture({ input: async prompt => { typed.push(prompt); return '  npm run test:ci  '; } });
+  await f.journey.pick();
+  await f.journey.load();
+  await f.journey.check();
+  assert.match(teamImportHtml(f.journey.view), /<button class="secondary" data-team-answer-own="quality-command">In my own words…<\/button>/);
+  await f.journey.answerOwn('not-asked');
+  assert.deepEqual(typed, [], 'a question the check did not ask opens nothing');
+  await f.journey.answerOwn('quality-command');
+  assert.match(typed[0], /^Which command runs the tests\? Answer in your own words/);
+  assert.ok(f.calls.some(argv => argv.join(' ') === `workflow import-team compile --session ${session.id} --dry-run --answer quality-command=npm run test:ci --json`));
+  assert.match(TEAM_IMPORT_SCRIPT, /\{type:'answerOwn', question:target\.dataset\.teamAnswerOwn\}/, 'the page posts only the question id');
+  const cancelled = fixture({ input: async () => null });
+  await cancelled.journey.pick();
+  await cancelled.journey.load();
+  await cancelled.journey.check();
+  const before = cancelled.calls.length;
+  await cancelled.journey.answerOwn('quality-command');
+  assert.equal(cancelled.calls.length, before, 'cancelling records nothing');
 });
 
 test('the destination preview is offered only with a governed repository open; Studio is not opened without one', async () => {

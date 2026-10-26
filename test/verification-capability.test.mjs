@@ -87,7 +87,7 @@ test('intake seals testing intent without requiring a checkout, manifests, launc
   assert.equal(sealed.record.baselineObservation, 'deferred-not-verified');
   assert.equal(sealed.record.capability.status, 'not-checked');
   assert.deepEqual(sealed.record.capability.modules, []);
-  assert.match(sealed.record.capability.guidance, /Copilot: \/sf-test-setup; Shell:/);
+  assert.match(sealed.record.capability.guidance, /- Copilot: \/sf-test-setup\n- Shell: singularity-flow capability test-setup --json/);
   assert.match(sealed.sha256, /^sha256:[a-f0-9]{64}$/u);
 });
 

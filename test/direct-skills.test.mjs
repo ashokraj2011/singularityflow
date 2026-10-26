@@ -70,7 +70,7 @@ test('direct skills install as personal bare-command aliases and update only man
   assert.match(directSubmit, /never reproduce document bodies, code or diffs/);
   assert.match(directSubmit, /Never infer review from a summary, opening a preview or successful submission/);
   assert.match(directSubmit, /never approve/);
-  assert.match(directSubmit, /in order: Copilot, Shell, VS Code \(model-free\) using `modelFreeCommand`/);
+  assert.match(directSubmit, /three separate Markdown bullets, in order: "- Copilot: `<copilotCommand>`", "- Shell: `<command>`", "- VS Code \(model-free\): `<modelFreeCommand>`"/);
   assert.equal(directSubmit, renderDirectSkill(sourceSubmit, 'sflow-submit'));
 
   await writeFile(path.join(targetRoot, 'sf-submit', 'SKILL.md'), directSubmit.replace('Validate and submit', 'OLD Validate and submit'));

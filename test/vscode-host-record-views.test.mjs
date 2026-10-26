@@ -294,7 +294,7 @@ test('the Handoff view draws the packet sections, and a refusal as unavailable',
   assert.doesNotMatch(html, /<a\s/u, 'no anchors: VS Code would open a clicked link a second time');
   const refused = handoffView({ workId: 'WRK-9', result: { kind: 'refusal', why: [{ code: 'work.not-in-this-repository' }] } });
   assert.equal(refused.state, 'unavailable');
-  assert.match(refused.notice.text, /WRK-9 is not governed work in this repository/u);
+  assert.match(refused.notice.text, /WRK-9 is not a Story this repository tracks/u);
 });
 
 test('the Progress view reads Story progress and says a job has no record to read', () => {

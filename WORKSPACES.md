@@ -518,3 +518,20 @@ Active application/start leases prevent automatic checkout cleanup. Private over
 the shared Git directory, outside a Story worktree’s private metadata, and survive worktree
 cleanup. Clone cleanup preserves private settings and recovery data. No new configuration,
 run, test or connection operation approves a workflow phase.
+
+### Story list ordering
+
+Story lists in VS Code and `singularity-flow session candidates` (including `/sf-session`)
+start with the newest retained creation date. Last activity, approval and checkout time do not
+change that order. Equal dates use the Story ID and repository as stable ties; missing or invalid
+dates appear last. The Story creator is read from the original creation identity, never the user
+who takes over or publishes it. Older summaries missing these fields are enriched from the exact state-indexed Story commit once
+and cached. Truly absent creation metadata shows **Not recorded**. This does not scan application
+branches or Git history.
+
+In the VS Code Stories table, click **Story**, **Repository**, **Created (UTC)**, **Creator**,
+**Phase / progress** or **Status** to sort; click again to reverse direction. Sorting, search,
+status filters and expanded details survive a refresh within that panel. Sorting is local and
+neither contacts Git nor switches the active Story. Run & Test, Story cards and Navigator lists
+use the same creation order within their repository/status groups. Dependency and merge execution
+order remain defined by the workflow.

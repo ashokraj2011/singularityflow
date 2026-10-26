@@ -1,3 +1,4 @@
+import { storyCreatedDateHtml } from './workspace-stories-page.ts';
 /**
  * The Stories panel: what the Epic decomposed into, grouped by the repository each piece lands in.
  *
@@ -32,7 +33,7 @@ function storyHtml(story: StoryView): string {
       <span class="grow"></span>
       ${story.blocking ? '' : '<span class="muted">non-blocking</span>'}
     </div>
-    <p>${escape(story.title)}</p>
+    <p>${escape(story.title)}</p><p class="muted">Created (UTC): ${storyCreatedDateHtml(story.createdAt)} · Creator: ${escape(story.createdBy ?? 'Not recorded')}</p>
 
     ${traces.length
     ? `<p class="muted">Carries ${traces.map((id) => `<code>${escape(id)}</code>`).join(' ')}</p>`

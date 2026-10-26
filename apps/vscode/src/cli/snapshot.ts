@@ -1,3 +1,4 @@
+import { compareStoryCreation, type StoryCreator } from '../../../../src/story-presentation.mjs';
 /**
  * Types over `desktop snapshot --json`, plus the small accessors the views need.
  *
@@ -211,6 +212,8 @@ export interface InitiativeState {
 }
 
 export interface BreakdownStory {
+  createdAt?: string | null;
+  createdBy?: StoryCreator;
   id: string;
   planId: string;
   workId: string;
@@ -295,6 +298,7 @@ export interface WorkItemSummary {
   currentPhase?: string | null;
   updatedAt?: string | null;
   createdAt?: string | null;
+  createdBy?: StoryCreator;
   source?: string | null;
   [key: string]: unknown;
 }
@@ -376,7 +380,7 @@ export interface StoryPhase {
 }
 
 export interface StoryWorkflow {
-  workItem: { id: string; title?: string; branch?: string; baseBranch?: string; workType?: string; createdAt?: string | null };
+  workItem: { id: string; title?: string; branch?: string; baseBranch?: string; workType?: string; createdAt?: string | null; createdBy?: StoryCreator };
   currentPhase: string | null;
   phaseOrder: string[];
   phases: Record<string, StoryPhase>;
@@ -1653,7 +1657,11 @@ export function storiesByRepository(initiative: InitiativeSnapshot): Array<{ rep
     else grouped.set(story.repository, [story]);
   }
   return [...grouped.entries()]
-    .map(([repository, entries]) => ({ repository, stories: entries }))
+    .map(([repository, entries]) => ({ repository, stories: [...entries].sort((left, right) => {
+      const metadata = (story: BreakdownStory) => ({ ...story, createdAt:
+        (initiative.state.childStories?.[story.planId] as { createdAt?: string | null } | undefined)?.createdAt ?? story.createdAt });
+      return compareStoryCreation(metadata(left), metadata(right));
+    }) }))
     .sort((left, right) => left.repository.localeCompare(right.repository));
 }
 

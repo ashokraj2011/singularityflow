@@ -52,7 +52,7 @@ const progress = { schemaVersion: 1, available: true, approved: 1, total: 4 };
 const summary = (id, extra = {}) => ({
   workId: id, workType: 'feature', phase: 'design', generation: 1, branch: `feature/${id}`,
   title: `Story ${id}`, status: 'in_progress', currentPhase: 'design', progress,
-  canonicalBranch: `feature/${id}`, createdAt: '2026-04-01T10:00:00.000Z',
+  canonicalBranch: `feature/${id}`, createdAt: '2026-04-01T10:00:00.000Z', createdBy: { name: 'Ledger Creator' },
   updatedAt: '2026-04-02T10:00:00.000Z', aliases: [id, 'JIRA-7'], ...extra
 });
 const single = (value) => storyPointersFromLedger({ sequence: 1, entryHash: value.hash }, new Map([[value.file, value.text]]));
@@ -61,7 +61,7 @@ test('a Story summary on the ledger subject is listed as recorded, with or witho
   for (const subject of [summary('STORY-42'), summary('STORY-42', { kind: 'story' })]) {
     const [pointer] = single(entry('STORY-42', null, 'c'.repeat(40), { subject }));
     assert.deepEqual(pointer.story, {
-      id: 'STORY-42', branch: 'feature/STORY-42', title: 'Story STORY-42', createdAt: '2026-04-01T10:00:00.000Z',
+      id: 'STORY-42', branch: 'feature/STORY-42', title: 'Story STORY-42', createdAt: '2026-04-01T10:00:00.000Z', createdBy: 'Ledger Creator',
       status: 'in_progress', phase: 'design', progress, commit: 'cccccccc', commitOid: 'c'.repeat(40),
       aliases: ['STORY-42', 'JIRA-7'], workType: 'feature', updatedAt: '2026-04-02T10:00:00.000Z'
     });
@@ -72,6 +72,8 @@ test('an entry without a usable summary is still a Story location, proven from i
   const unusable = [
     { workId: 'A', branch: 'feature/A' },
     summary('A', { title: '' }),
+    summary('A', { createdBy: undefined }),
+    summary('A', { createdAt: undefined }),
     summary('A', { status: null }),
     summary('A', { progress: [1, 4] }),
     // Published from a child branch: the summary is not the Story's own location.

@@ -1,3 +1,5 @@
+import { compareStoryCreation } from '../../../../src/story-presentation.mjs';
+import { storyCreatedDateHtml, storyTableHeader, STORY_SORT_SCRIPT } from './workspace-stories-page.ts';
 import { commandRouteListHtml } from './command-guidance.ts';
 /**
  * Work intake: the one screen that starts anything.
@@ -218,6 +220,8 @@ export function mergeStoryAttachments(
 
 /** Something already started, so nobody starts it twice. */
 export interface InFlight {
+  createdAt?: string | null;
+  createdBy?: string | null;
   shape: Shape;
   id: string;
   title: string;
@@ -1403,25 +1407,26 @@ function phaseRailHtml(phases: string[]): string {
 /** Started work, separated by lifecycle outcome so completed work is never called active. */
 function inFlightHtml(form: IntakeForm): string {
   if (!form.inFlight.length) return '';
-  const table = (entries: InFlight[]): string => `
-    <table>
-      <tbody>${entries.map((entry) => `
-        <tr>
+  const table = (entries: InFlight[], key: string): string => `
+    <div class="story-table-scroll"><table data-story-table="${key}">
+      <thead><tr>${storyTableHeader([['id', 'ID'], ['title', 'Title'], ['created', 'Created (UTC)'], ['creator', 'Creator'], ['status', 'Status']], key)}</tr></thead>
+      <tbody>${[...entries].sort(compareStoryCreation).map((entry) => `
+        <tr data-story-row data-id="${escape(entry.id)}" data-title="${escape(entry.title)}" data-created="${escape(entry.createdAt ?? '')}" data-creator="${escape(entry.createdBy ?? '')}" data-status="${escape(entry.status)}" data-identity="${escape(entry.id)}">
           <td>${icon(entry.shape === 'story' ? 'story' : entry.shape === 'epic' ? 'epic' : 'impact')}<code>${escape(entry.id)}</code></td>
-          <td>${escape(entry.title)}</td>
+          <td>${escape(entry.title)}</td><td>${storyCreatedDateHtml(entry.createdAt)}</td><td>${escape(entry.createdBy ?? 'Not recorded')}</td>
           <td class="muted">${escape(entry.status)}</td>
         </tr>`).join('')}</tbody>
-    </table>`;
+    </table></div>`;
   const active = form.inFlight.filter((entry) => !entry.completed);
   const completed = form.inFlight.filter((entry) => entry.completed);
   return `${active.length ? `
   <section class="plain">
     <h2>${icon('wait')}Already under way</h2>
-    ${table(active)}
+    ${table(active, 'intake-active')}
   </section>` : ''}${completed.length ? `
   <section class="plain">
     <h2>${icon('ok')}Closed</h2>
-    ${table(completed)}
+    ${table(completed, 'intake-closed')}
   </section>` : ''}`;
 }
 
@@ -1607,6 +1612,7 @@ function numberedSections(html: string, first: number): string {
  */
 export const INTAKE_SCRIPT = CATALOG_SEARCH_SCRIPT + INTAKE_WIZARD_SCRIPT + `
 const vscode = window.__sfVscode;
+${STORY_SORT_SCRIPT}
 let branchSearch = document.querySelector('[data-base-branch-search]');
 let branchExact = document.querySelector('[data-base-branch-exact]');
 let branchRows = [...document.querySelectorAll('[data-base-branch-choice]')].map((row) => ({
@@ -1882,6 +1888,7 @@ window.addEventListener('message', (event) => {
     if (branchExact) branchExact.checked = saved.branchExact === true;
     filterBaseBranches();
   }
+  if (changed.has('inFlight')) window.__sfSortStoryTables?.();
   if (changed.has('workflow')) {
     workflowSearch = document.querySelector('[data-workflow-search]');
     workflowRows = [...document.querySelectorAll('[data-workflow-search-text]')];

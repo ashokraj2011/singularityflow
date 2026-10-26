@@ -1,3 +1,4 @@
+import { compareStoryCreation, storyCreatorName } from '../../../../src/story-presentation.mjs';
 /**
  * Stories: what the Epic decomposed into, and where each piece landed.
  *
@@ -16,6 +17,8 @@ import type { BreakdownStory, RepositorySnapshot, InitiativeSnapshot } from '../
 export type StoryState = 'planned' | 'seeded' | 'in-progress' | 'closed' | 'merged' | 'blocked';
 
 export interface StoryView {
+  createdAt?: string | null;
+  createdBy?: string | null;
   planId: string;
   /** The identifier the child repository knows it by; equals planId until Jira re-keys it. */
   workId: string;
@@ -101,6 +104,8 @@ function storiesOf(initiative: InitiativeSnapshot, stories: BreakdownStory[]): S
     const conformance = (child?.conformance ?? null) as { status?: string; treeSha256?: string | null } | null;
     const head = child ? String(child.observedCommit ?? '') : '';
     return {
+      createdAt: typeof child?.createdAt === 'string' ? child.createdAt : story.createdAt ?? null,
+      createdBy: storyCreatorName(child?.createdBy ?? story.createdBy),
       planId: story.planId,
       workId: story.workId || story.planId,
       title: story.title,
@@ -135,7 +140,7 @@ function storiesOf(initiative: InitiativeSnapshot, stories: BreakdownStory[]): S
     materialized: views.some((view) => view.state !== 'planned'),
     planned: views.length,
     groups: [...grouped.entries()]
-      .map(([repository, entries]) => ({ repository, stories: entries }))
+      .map(([repository, entries]) => ({ repository, stories: [...entries].sort(compareStoryCreation) }))
       .sort((left, right) => left.repository.localeCompare(right.repository)),
     order: mergeOrder(views),
     empty: null

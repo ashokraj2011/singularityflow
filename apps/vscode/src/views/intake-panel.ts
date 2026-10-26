@@ -1,3 +1,5 @@
+import { STORY_CATALOG_STYLE } from './workspace-stories-page.ts';
+import { compareStoryCreation, storyCreatorName } from '../../../../src/story-presentation.mjs';
 import { showCompactWarningMessage } from "../compact-message.ts";
 /**
  * The work-intake panel: the six ways work starts, behind one screen.
@@ -208,7 +210,7 @@ function configurationRefreshRelevant(readiness: StoryStartReadinessResult | und
 export function intakeInFlight(snapshot: {
   initiatives?: { id?: string; title?: string; status?: string; currentPhaseLabel?: string | null }[];
   workItems?: {
-    id?: string; title?: string; status?: string; workType?: string; currentPhase?: string | null;
+    id?: string; title?: string; status?: string; workType?: string; currentPhase?: string | null; createdAt?: string | null; createdBy?: unknown;
   }[];
 } | null | undefined): InFlight[] {
   const where = (status?: string, phase?: string | null): string =>
@@ -222,8 +224,9 @@ export function intakeInFlight(snapshot: {
     status: where(entry.status, entry.currentPhaseLabel),
     completed: completed(entry.status)
   }));
-  const items = (snapshot?.workItems ?? []).filter((entry) => entry.id).map((entry) => ({
+  const items = (snapshot?.workItems ?? []).filter((entry) => entry.id).sort(compareStoryCreation).map((entry) => ({
     shape: (entry.workType === 'epic' ? 'epic' : 'story') as Shape,
+    createdAt: entry.createdAt ?? null, createdBy: storyCreatorName(entry.createdBy),
     id: entry.id!,
     title: entry.title ?? entry.id!,
     status: where(entry.status, entry.currentPhase),
@@ -455,7 +458,7 @@ export class IntakePanel {
     const token = nonce();
     this.panel.webview.html = page(
       this.journey ? 'Guided start' : 'Start new work', intakeHtml(this.form, this.journey),
-      contentSecurityPolicy(this.panel.webview, token), token, INTAKE_SCRIPT, { styles: INTAKE_WIZARD_STYLE }
+      contentSecurityPolicy(this.panel.webview, token), token, INTAKE_SCRIPT, { styles: INTAKE_WIZARD_STYLE + STORY_CATALOG_STYLE }
     );
     this.renderedRegions = regions;
   }

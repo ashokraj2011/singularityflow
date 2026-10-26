@@ -234,6 +234,7 @@ export async function printSessionCandidateResult(discovered, options, scope = {
   if (!discovered.items.length) return console.log(`No Stories are indexed in the verified state ledger on ${discovered.remote}.`);
   return console.log(table(discovered.items, [
     { key: 'id', label: 'WORK/JIRA ID' }, { key: 'title', label: 'TITLE' },
+    { key: 'createdAt', label: 'CREATED (UTC)', shrink: false }, { key: 'createdBy', label: 'CREATOR', shrink: false },
     { key: 'phase', label: 'PHASE' }, { key: 'status', label: 'STATUS' },
     { key: 'commit', label: 'REMOTE COMMIT' }
   ]));

@@ -18,7 +18,7 @@ async function fixture(t) {
   const f = await createSessionListingFixture(); t.after(f.cleanup);
   const id = 'REVIEW-1', branch = 'team/custom-review';
   const state = { schemaVersion: 11, workItem: { id, title: 'Indexed review', branch, workType: 'feature',
-    createdAt: '2026-10-18T00:00:00Z' }, lineage: { canonicalBranch: branch, aliases: ['external-review'] },
+    createdAt: '2026-10-18T00:00:00Z', createdBy: { name: 'Source Builder' } }, lineage: { canonicalBranch: branch, aliases: ['external-review'] },
     status: 'in_progress', currentPhase: 'specification', phaseOrder: ['specification'],
     phases: { specification: { id: 'specification', label: 'Specification', status: 'awaiting_approval',
       generation: 1, artifacts: [], checks: [], approvals: [], approvalPolicy: { minimum: 1, authorities: ['quality-reviewers'] },
@@ -80,6 +80,8 @@ test('approval inbox, legacy subject lookup and snapshots discover only state-in
   assert.deepEqual(before.lifecycle.workItems.map(row => row.id), [f.id]);
   assert.equal(before.lifecycle.workItems[0].workType, 'feature', 'state projections retain useful catalog metadata');
   assert.equal(before.lifecycle.storyDiscovery.complete, true);
+  assert.equal(before.lifecycle.workItems[0].createdAt, f.state.workItem.createdAt);
+  assert.equal(before.lifecycle.workItems[0].createdBy, 'Source Builder');
   const measure = async () => {
     const timer = commandTimer('inbox', { commandClass: 'read' });
     const result = await withCommandTiming(timer, () => approvalInbox(f.original, f.definition,

@@ -1,3 +1,4 @@
+import { compareStoryCreation, storyCreatorName } from './story-presentation.mjs';
 import { randomBytes } from 'node:crypto';
 import { mkdirSync, readFileSync, renameSync, rmSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
@@ -27,7 +28,7 @@ import { posix, SingularityFlowError } from './util.mjs';
  * summary on the ledger. Only rows that passed the full proof are kept, the file holds only the
  * current roster's rows, and an unreadable or malformed file or row is ignored and rewritten.
  */
-const PROVEN_FORMAT = 1;
+const PROVEN_FORMAT = 2;
 const PROVEN_MAXIMUM_BYTES = 8 * 1024 * 1024;
 const provenKey = (row) => `${row.commitOid}\0${row.id}\0${row.branch}`;
 const provenText = (value) => typeof value === 'string' && value.length > 0;
@@ -40,7 +41,7 @@ function provenRow(item) {
       || !(item.createdAt == null || typeof item.createdAt === 'string')
       || !Array.isArray(item.aliases) || !item.aliases.every(provenText)) return null;
   return {
-    id: item.id, branch: item.branch, title: item.title, createdAt: item.createdAt ?? null,
+    id: item.id, branch: item.branch, title: item.title, createdAt: item.createdAt ?? null, createdBy: storyCreatorName(item.createdBy),
     status: item.status, phase: item.phase ?? null, progress: item.progress,
     commit: item.commitOid.slice(0, 8), commitOid: item.commitOid, aliases: item.aliases,
     workType: typeof item.workType === 'string' ? item.workType : null,
@@ -201,7 +202,7 @@ export async function discoverRemoteStoryCandidates(root, definition, {
         id: subject.id,
         branch: canonicalBranch,
         title: workflow.workItem.title,
-        createdAt: workflow.workItem.createdAt ?? null,
+        createdAt: workflow.workItem.createdAt ?? null, createdBy: storyCreatorName(workflow.workItem.createdBy),
         status: workflow.status,
         phase: workflow.currentPhase,
         workType: workflow.workItem.workType ?? null,
@@ -252,7 +253,7 @@ export async function discoverRemoteStoryCandidates(root, definition, {
       const remaining = unavailable.filter((entry) => !restoredBranches.has(entry.branch)
         && !recovered.unavailable.some((failure) => failure.branch === entry.branch
           && (failure.path === entry.path || missingLocally(entry))));
-      const restored = [...merged.values()].sort((left, right) => left.id.localeCompare(right.id));
+      const restored = [...merged.values()].sort(compareStoryCreation);
       rememberProvenSummaries(cache, kept, pointers, restored, [...remaining, ...recovered.unavailable]);
       return {
         source: 'materialized-metadata-recovery', stateRef: roster.ref, repositoryPath: path.resolve(root),
@@ -273,7 +274,7 @@ export async function discoverRemoteStoryCandidates(root, definition, {
   return {
     source: 'state-ledger', stateRef: roster.ref,
     repositoryPath: path.resolve(root), remote, fetched: fetch,
-    count: items.length, items: items.sort((left, right) => left.id.localeCompare(right.id)),
+    count: items.length, items: items.sort(compareStoryCreation),
     unavailableCount: unavailable.length, unavailable
   };
 }

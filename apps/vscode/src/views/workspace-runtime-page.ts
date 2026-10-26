@@ -1,3 +1,4 @@
+import { storyCreatedDateHtml } from './workspace-stories-page.ts';
 import { escape, icon } from './webview.ts';
 import type { RuntimeInventory, RuntimeTarget } from './workspace-runtime-model.ts';
 export interface RuntimeFile { name: string; relative: string; directory: boolean }
@@ -15,7 +16,7 @@ export function workspaceRuntimeHtml(state: { inventory: RuntimeInventory | null
     <div class="runtime-layout"><aside aria-label="Stories and repositories"><label>Find a Story or repository<input type="search" id="runtime-search" placeholder="Story, branch or repository"></label>
     ${repositoryIds.map(repository => `<details open><summary>${escape(repository)}</summary>${inventory!.targets.filter(item => item.repositoryId === repository).map(item =>
       `<button type="button" class="runtime-target${item.id === target?.id ? ' selected' : ''}" data-target="${escape(item.id)}" data-search="${escape([item.workId, item.title, item.branch, repository].join(' ').toLowerCase())}" aria-pressed="${item.id === target?.id}">
-      <strong>${escape(item.workId ?? 'Base checkout')}</strong><span>${escape(item.title)}</span><small>${escape(item.branch ?? 'Branch checked when selected')}${item.available ? '' : ' · Prepare checkout'}</small></button>`).join('')}</details>`).join('')}
+      <strong>${escape(item.workId ?? 'Base checkout')}</strong><span>${escape(item.title)}</span>${item.workId ? `<small>${storyCreatedDateHtml(item.createdAt)} · ${escape(item.createdBy ?? 'Not recorded')}</small>` : ''}<small>${escape(item.branch ?? 'Branch checked when selected')}${item.available ? '' : ' · Prepare checkout'}</small></button>`).join('')}</details>`).join('')}
     </aside><section class="runtime-detail">${target ? `<section class="runtime-context"><h2>${escape(target.workId ?? target.repositoryId)}</h2><p>${escape(target.title)}</p>
       <dl><dt>Repository</dt><dd>${escape(target.repositoryId)}</dd><dt>Branch</dt><dd>${escape(target.context?.worktree?.branch ?? target.branch ?? 'Unavailable')}</dd>
       <dt>Checkout</dt><dd><code>${escape(target.checkoutPath)}</code></dd>${target.phase ? `<dt>Phase</dt><dd>${escape(target.phase)}</dd>` : ''}</dl>

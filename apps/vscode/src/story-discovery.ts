@@ -1,3 +1,4 @@
+import { compareStoryCreation, storyCreatorName } from '../../../src/story-presentation.mjs';
 /** Read-only, bounded remote Story discovery across materialized workspace repositories. */
 import path from 'node:path';
 import { isCliReadSuperseded } from './cli/client.ts';
@@ -57,6 +58,7 @@ interface CandidateResponse {
     id?: string;
     title?: string;
     createdAt?: string | null;
+    createdBy?: unknown;
     status?: string;
     phase?: string | null;
     branch?: string | null;
@@ -131,7 +133,7 @@ export async function discoverWorkspaceStoryRows(
             repositoryUrl: repository.url ?? null,
             id: candidate.id,
             title: candidate.title || candidate.id,
-            createdAt: candidate.createdAt ?? null,
+            createdAt: candidate.createdAt ?? null, createdBy: storyCreatorName(candidate.createdBy),
             status: candidate.status || 'unknown',
             currentPhase: candidate.phase ?? null,
             branch: candidate.branch ?? null
@@ -148,8 +150,7 @@ export async function discoverWorkspaceStoryRows(
       }
     }));
   }
-  stories.sort((left, right) => left.repositoryId.localeCompare(right.repositoryId)
-    || left.id.localeCompare(right.id));
+  stories.sort(compareStoryCreation);
   issues.sort((left, right) => left.repositoryId.localeCompare(right.repositoryId));
   return { stories, issues };
 }

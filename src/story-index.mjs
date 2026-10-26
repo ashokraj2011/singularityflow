@@ -1,3 +1,4 @@
+import { compareStoryCreation, storyCreatorName } from './story-presentation.mjs';
 import { formatCommandRouteLines } from './model-free-commands.mjs';
 /**
  * The machine's Story index: which checkout holds each workspace Story, in which workspace.
@@ -185,6 +186,7 @@ export async function storyInCheckout(checkout, { facts = null, workId = null, w
   const { state, relative } = found;
   return {
     workId: state.workItem.id,
+    createdAt: state.workItem.createdAt ?? null, createdBy: storyCreatorName(state.workItem.createdBy),
     title: typeof state.workItem.title === 'string' ? state.workItem.title.slice(0, 200) : null,
     branch: git.branch,
     workflowPath: relative,
@@ -285,6 +287,7 @@ export async function verifyStoryEntry(entry) {
       ? `${entry.lifecycle.checkoutPath} no longer holds ${entry.workId} delivering in ${entry.repository.id ?? 'this repository'} on ${entry.branch}`
       : `the checkout no longer holds ${entry.workId}` };
     return { status: 'valid', entry: { ...entry, checkoutPath: facts.checkoutPath, title: story.title ?? entry.title ?? null,
+      createdAt: story.createdAt ?? null, createdBy: storyCreatorName(story.createdBy),
       workflowPath: story.workflowPath, phase: story.phase, phaseStatus: story.phaseStatus, storyStatus: story.storyStatus,
       aliases: story.aliases } };
   } catch (error) {
@@ -306,7 +309,7 @@ async function applyVerification(results, options) {
   }, options).catch(() => {});
 }
 
-const DISPLAY = ['phase', 'phaseStatus', 'storyStatus', 'title', 'workflowPath', 'checkoutPath'];
+const DISPLAY = ['createdAt', 'createdBy', 'phase', 'phaseStatus', 'storyStatus', 'title', 'workflowPath', 'checkoutPath'];
 function changedDisplay(left, right) {
   return DISPLAY.some((key) => (left?.[key] ?? null) !== (right?.[key] ?? null))
     || JSON.stringify(left?.aliases ?? []) !== JSON.stringify(right?.aliases ?? []);
@@ -354,6 +357,7 @@ function workspaceSummary(workspace) {
 async function entryFor(checkout, { workspace, repositoryId, repository, facts, story, source }) {
   return {
     workId: story.workId,
+    createdAt: story.createdAt ?? null, createdBy: storyCreatorName(story.createdBy),
     title: story.title,
     repository: { key: await repositoryKey(repository.url, facts.commonDir), url: repository.url, id: repositoryId },
     workspace: workspaceSummary(workspace),
@@ -526,7 +530,7 @@ export async function listStoryIndex({ env = process.env, rebuild = false } = {}
   const entries = results.filter((result) => result.status !== 'stale')
     .map((result) => ({ ...result.entry, availability: result.status === 'valid' ? 'ready' : 'unavailable',
       ...(result.status === 'unavailable' ? { reason: result.reason } : {}) }))
-    .sort((left, right) => left.workId.localeCompare(right.workId) || left.checkoutPath.localeCompare(right.checkoutPath));
+    .sort(compareStoryCreation);
   return { file: storyIndexFile(env), entries, dropped: results.filter((result) => result.status === 'stale')
     .map((result) => ({ workId: result.original.workId, checkoutPath: result.original.checkoutPath, reason: result.reason })),
   backfill };

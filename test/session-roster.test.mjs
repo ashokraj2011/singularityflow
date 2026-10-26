@@ -132,8 +132,8 @@ test('inherited phase names and statuses do not establish retained state evidenc
   assert.equal(storyLifecycleProgress(state).approved, 1, 'valid own constructor declarations remain allowed');
 });
 
-test('the roster retains all verified rows in input order, actual source scope and approval fractions', () => {
-  const observed = result([item('SECOND'), item('FIRST', { progress: storyLifecycleProgress(workflow(['approved'])) })], {
+test('the roster retains all verified rows in creation order, actual source scope and approval fractions', () => {
+  const observed = result([item('SECOND', { createdAt: '2026-10-02T00:00:00Z', createdBy: 'Sample Creator' }), item('FIRST', { createdAt: '2026-10-01T00:00:00Z', progress: storyLifecycleProgress(workflow(['approved'])) })], {
     source: 'remote-url', repositoryPath: null, count: 2
   });
   const before = structuredClone(observed);
@@ -210,7 +210,7 @@ test('absent progress and mismatched current phase metadata are shown as unavail
     item('MISMATCH', { phase: 'another-phase' }),
     item('INVALID', { progress: { schemaVersion: 1, available: true, approved: 99, total: 1, current: {} } })
   ]));
-  assert.match(output, /\| ABSENT \| unavailable \| unavailable \| — \| unavailable \| unavailable \| unavailable \|/u);
+  assert.match(output, /\| ABSENT \| unavailable \| Not recorded \| Not recorded \| unavailable \| — \| unavailable \| unavailable \| unavailable \|/u);
   assert.match(output, /\| another-phase \| unavailable \| unavailable \| 1\/3 \|/u);
   assert.doesNotMatch(output, /99\/1/u);
   assert.match(output, /Lifecycle counts are unavailable for 2 verified Story rows/u);
@@ -224,7 +224,7 @@ test('large rosters either render all rows within the explicit bound or refuse w
     assert.throws(() => renderStoryRoster(observed, options), { code: 'SESSION_ROSTER_OUTPUT_LIMIT' });
   }
   assert.throws(() => renderStoryRoster(result([item('BIG', { title: 'x'.repeat(2000) })]), { maxOutputBytes: 1000 }), { code: 'SESSION_ROSTER_OUTPUT_LIMIT' });
-  for (const invalid of [null, {}, { items: [null] }, { items: [{ title: 'No identity' }] }, { items: [], unavailable: [{} , null] }]) {
+  for (const invalid of [null, {}, { items: [null] }, { items: [null, item('VALID')] }, { items: [{ title: 'No identity' }] }, { items: [], unavailable: [{} , null] }]) {
     assert.throws(() => renderStoryRoster(invalid), { code: 'SESSION_ROSTER_INVALID' });
   }
 });

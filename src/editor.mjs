@@ -1,3 +1,4 @@
+import { compareStoryCreation, storyCreatorName } from './story-presentation.mjs';
 import { SKILL_LIBRARY_ROOT } from './skill-library.mjs';
 import { INSTRUCTION_LIBRARY_ROOT } from './instruction-library.mjs';
 import { isConfigurationStatePath } from './configuration-state-contract.mjs';
@@ -368,7 +369,7 @@ async function workItems(root, definition) {
     status: state.status ?? 'unknown',
     currentPhase: state.currentPhase ?? null,
     branch: state.lineage?.canonicalBranch ?? state.workItem?.branch ?? fallbackId,
-    createdAt: state.workItem?.createdAt ?? null,
+    createdAt: state.workItem?.createdAt ?? null, createdBy: storyCreatorName(state.workItem?.createdBy),
     updatedAt: state.history?.at(-1)?.at ?? state.workItem?.createdAt ?? null,
     source
   });
@@ -382,7 +383,7 @@ async function workItems(root, definition) {
       complete: roster.unavailableCount === 0, unavailable: roster.unavailable };
     for (const row of roster.items) results.set(row.id, { id: row.id, title: row.title,
       workType: row.workType ?? 'legacy', status: row.status, currentPhase: row.phase,
-      branch: row.branch, createdAt: row.createdAt ?? null, updatedAt: row.updatedAt ?? row.createdAt ?? null,
+      branch: row.branch, createdBy: storyCreatorName(row.createdBy), createdAt: row.createdAt ?? null, updatedAt: row.updatedAt ?? row.createdAt ?? null,
       source: 'state-ledger' });
   } catch (error) {
     discovery = { source: 'state-ledger', complete: false,
@@ -404,8 +405,7 @@ async function workItems(root, definition) {
       }
     }
   }
-  return { items: [...results.values()].sort((left, right) =>
-    String(right.updatedAt ?? '').localeCompare(String(left.updatedAt ?? ''))), discovery };
+  return { items: [...results.values()].sort(compareStoryCreation), discovery };
 }
 
 function configurationChangeScope(root, definition, portfolio, changes) {

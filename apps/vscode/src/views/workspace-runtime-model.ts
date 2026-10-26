@@ -4,6 +4,7 @@ import type { CapabilityNode } from '../cli/snapshot.ts';
 import { unwrapResult } from './run-and-test-model.ts';
 export interface RuntimeTarget {
   id: string; repositoryId: string; checkoutPath: string; workId: string | null; title: string;
+  createdAt?: string | null; createdBy?: string | null;
   branch: string | null; phase: string | null; storyStatus: string | null; role: string; available: boolean;
   changes?: Array<{ path: string | null; display: string; status: string }>; changesTruncated?: boolean;
   lifecycleCheckoutPath?: string; capabilities?: CapabilityNode[];

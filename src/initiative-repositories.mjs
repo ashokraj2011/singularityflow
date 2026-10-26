@@ -1259,6 +1259,8 @@ export async function syncInitiativeRepositories(root, initiativeId) {
       telemetry: workflow ? childTelemetry(workflow) : previous.telemetry ?? null
     };
     if (workflow) {
+      current.createdAt = workflow.workItem.createdAt ?? null;
+      current.createdBy = workflow.workItem.createdBy ?? null;
       current.canonicalBranch = workflow.lineage?.canonicalBranch ?? recordedBranch;
       current.childBranches = structuredClone(workflow.lineage?.childBranches ?? []);
       current.submissions = structuredClone(workflow.lineage?.submissions ?? []);

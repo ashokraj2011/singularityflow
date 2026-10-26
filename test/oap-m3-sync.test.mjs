@@ -160,7 +160,7 @@ test('outside a Story, sync retries the saved pushes; one that does not land nam
   assert.match(human, /No Story publication is pending here\./u);
   assert.match(human, new RegExp(`Waiting for you: the configuration change to feature/hooked \\(commit ${hooked.sourceCommit.slice(0, 12)}, ${hooked.intentId}\\) `
     + 'is needs-user\\. Git refused it \\(local-hook-failed: husky - pre-push hook exited with code 1 \\(npm run lint\\)\\)\\. Review the local Git hook output', 'u'));
-  assert.match(human, new RegExp(`Once that is fixed, retry it:\\n\\s+Copilot: /sf-push\\n\\s+Shell: singularity-flow sync ${hooked.intentId}\\n`, 'u'));
+  assert.match(human, new RegExp(`Once that is fixed, retry it:\\n\\s+- Copilot: /sf-push\\n\\s+- Shell: singularity-flow sync ${hooked.intentId}\\n`, 'u'));
   assert.doesNotMatch(human, /Nothing else is waiting to be published/u);
   assert.doesNotMatch(human, new RegExp(moved.intentId, 'u'), 'a push that can no longer land is not retried or listed');
   assert.equal((await readTransportIntent(hooked.intentId, item.options)).attempts.length, 1, 'a plain sync spent no attempt on it');

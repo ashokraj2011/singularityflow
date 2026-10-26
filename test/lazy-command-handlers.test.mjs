@@ -126,7 +126,10 @@ test('frequent lifecycle handlers do not reach the legacy dispatcher and stay un
     // shares in repository-test-command-inference, test-recovery-runtime, gradle-manifests,
     // javascript-declarations and test-runtime; code-delivery-tests.mjs is 5,147 smaller (Node inference moved to
     // the lazily loaded test-module-markers.mjs). No new file.
-    assert.ok(closure.bytes <= 9_110_000, `${file} exceeds the 9 MB eager-source budget (${closure.bytes} bytes)`);
+    // 9,115,000 (next 5,000 boundary): 8f25dc4b's three-surface guidance measures 9,111,051, and a person's own
+    // terminal steps routing to their command instead of /sf-decide adds 723 for 9,111,774 (decision-list.mjs,
+    // decision-list-facts.mjs, nextsteps.mjs, command-skills.mjs). No new file.
+    assert.ok(closure.bytes <= 9_115_000, `${file} exceeds the 9 MB eager-source budget (${closure.bytes} bytes)`);
   }
 });
 

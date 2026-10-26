@@ -10,7 +10,7 @@ related:
   - evidence-matrix
 commands:
   - outcome
-version: 2
+version: 3
 ---
 Once a Story's code and tests are in, the outcome review puts in one place what a person wants to see before deciding anything: the application to try, each acceptance criterion with the tests that prove it, the screens and files a person signs off, and what the Story's end still waits for. It is optional. It records nothing, no step waits for it, and every route it shows is a command that already exists.
 
@@ -22,7 +22,7 @@ Use it after a step that writes code has its code and tests, typically before yo
 
 - **Shell:** `singularity-flow outcome [WORK-ID] [--capability ID] [--json]`.
 - **Copilot:** `/sf-outcome [WORK-ID]` shows the same review and the routes; it never starts, signs off or decides anything for you.
-- **VS Code:** run **Singularity Flow: Check the Outcome** from the Command Palette. Its buttons start the application, run the tests, open the reference and the screenshot, **Attach a screenshot…** to the suggested path, and **Sign off…**: it opens the screenshot, asks the three checklist questions and what you looked at, and records the sign-off after you confirm. To be offered the review once when a step is submitted for approval, turn on the setting `singularityFlow.outcomeReview.suggest` (off by default).
+- **VS Code:** run **Singularity Flow: Check the Outcome** from the Command Palette. Its buttons start the application, run the tests, open the reference and the screenshot, **Capture the running screen** (when the application runs and the repository has its own Playwright; it runs as a task you can watch, in a trusted workspace, and installs nothing), **Attach a screenshot…** to the suggested path, and **Sign off…**: it opens the screenshot, asks the three checklist questions and what you looked at, and records the sign-off after you confirm. To be offered the review once when a step is submitted for approval, turn on the setting `singularityFlow.outcomeReview.suggest` (off by default).
 
 ## Guided workflow
 

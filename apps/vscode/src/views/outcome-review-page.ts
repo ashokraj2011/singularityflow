@@ -13,7 +13,7 @@ function button(action: string, label: string, data: Record<string, number> = {}
   return `<button type="button"${secondary ? ' class="secondary"' : ''} data-outcome="${escape(action)}"${attributes}>${escape(label)}</button>`;
 }
 
-function criterionHtml(criterion: OutcomeCriterion, index: number): string {
+function criterionHtml(criterion: OutcomeCriterion, index: number, capture: boolean): string {
   const tests = criterion.tests.map((test) => `<li><strong>${escape(test.outcome ?? 'not run')}</strong> ${escape(test.test ?? test.file ?? '')}</li>`).join('');
   const checks = criterion.checks.filter((check) => check.method !== 'test').map((check) => {
     const at = criterion.checks.indexOf(check);
@@ -22,6 +22,7 @@ function criterionHtml(criterion: OutcomeCriterion, index: number): string {
       ${check.suggestedFile ? `<p class="meta">Save the screenshot as <code>${escape(check.suggestedFile)}</code>.</p>` : ''}
       <div class="outcome-actions">
         ${check.reference ? button('reference', documentReference(check.reference) ? `Open ${check.reference}` : 'Open the reference', { criterion: index, check: at }) : ''}
+        ${check.suggestedFile && capture ? button('capture', 'Capture the running screen', { criterion: index, check: at }) : ''}
         ${check.suggestedFile ? button('attach', 'Attach a screenshot…', { criterion: index, check: at }) : ''}
         ${check.suggestedFile || check.files?.length ? button('screenshot', 'Open the screenshot', { criterion: index, check: at }) : ''}
         ${check.signOff ? button('sign-off', 'Sign off…', { criterion: index, check: at }, false) : ''}
@@ -34,8 +35,11 @@ function criterionHtml(criterion: OutcomeCriterion, index: number): string {
     ${checks ? `<h4>Checks a person signs off</h4><ul>${checks}</ul>` : ''}</section>`;
 }
 
-/** The page body; `error` replaces it when the review could not be read. */
-export function outcomeReviewHtml(view: OutcomeView | null, error: string | null): string {
+/**
+ * The page body; `error` replaces it when the review could not be read. `capture` is true when the
+ * application runs and this checkout has its own Playwright, so its screen can be captured here.
+ */
+export function outcomeReviewHtml(view: OutcomeView | null, error: string | null, { capture = false }: { capture?: boolean } = {}): string {
   const header = `<header><h1>Check the outcome</h1>
     <p>Try what this Story delivered, see what proves each acceptance criterion, and what is still open. Optional: nothing here is recorded and no step waits for it.</p>
     ${button('refresh', 'Refresh')}</header>`;
@@ -56,7 +60,7 @@ export function outcomeReviewHtml(view: OutcomeView | null, error: string | null
     <p class="meta">${escape(view.workId)}${view.title ? ` · ${escape(view.title)}` : ''}</p>
     <p><strong>${escape(view.lifecycle ?? 'Lifecycle unknown')}</strong> · ${escape(view.completion ?? 'Completion unknown')}</p>
     <section><h2>Try it</h2>${appHtml}</section>
-    <section><h2>Acceptance criteria</h2>${view.criteria.length ? view.criteria.map(criterionHtml).join('') : '<p>No acceptance criteria are recorded yet.</p>'}
+    <section><h2>Acceptance criteria</h2>${view.criteria.length ? view.criteria.map((criterion, index) => criterionHtml(criterion, index, capture)).join('') : '<p>No acceptance criteria are recorded yet.</p>'}
       <div class="outcome-actions">${button('tests', 'Run the tests')}${button('matrix', 'Open the Evidence Matrix')}</div></section>
     ${openHtml}
     <p class="muted">A screenshot or a passing test is not a sign-off. Sign-offs and decisions stay with the people who own them.</p>`;

@@ -44,6 +44,8 @@ test('the outcome page shows the app, each check with its reference, and only ex
     assert.ok(html.includes(words), words);
   }
   assert.ok(!html.includes('<script>alert(1)</script>') && html.includes('&lt;script&gt;'), 'engine text is escaped');
+  assert.ok(!html.includes('Capture the running screen'), 'capture is offered only when it can run');
+  assert.ok(outcomeReviewHtml(view, null, { capture: true }).includes('Capture the running screen'));
   assert.ok(!html.includes('Plot <b>'), 'the title is escaped');
   // The page posts only an action name and indexes into what the panel loaded, never a command.
   assert.match(OUTCOME_REVIEW_SCRIPT, /type: 'action', action: d\.outcome/u);

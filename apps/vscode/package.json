@@ -1390,7 +1390,7 @@
         "type": "singularityFlow",
         "required": ["action", "capability"],
         "properties": {
-          "action": { "type": "string", "enum": ["app-start", "tests-run"], "description": "Start a capability's application or run its tests through the Singularity Flow CLI." },
+          "action": { "type": "string", "enum": ["app-start", "tests-run", "outcome-capture"], "description": "Start a capability's application or run its tests through the Singularity Flow CLI, or capture its running screen with the repository's own Playwright for the outcome review." },
           "capability": { "type": "string", "description": "The capability ID from singularity/capabilities.yml." },
           "entry": { "type": "string", "description": "The application.start entry ID." },
           "environment": { "type": "string", "description": "The environments.yml environment the run uses. Its values stay with the CLI." },

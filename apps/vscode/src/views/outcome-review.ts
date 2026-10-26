@@ -11,6 +11,7 @@ import path from 'node:path';
 import type { SingularityFlowClient } from '../cli/client.ts';
 import type { WorkspaceStore } from '../state.ts';
 import { contentSecurityPolicy, nonce, page } from './webview.ts';
+import { taskStartFolder } from '../terminal-start.ts';
 import { integerField, registerMessageRouter, stringField } from './messages.ts';
 import { documentReference, outcomeView, signOffArgs, signOffQuestions, type OutcomeCheck, type OutcomeView } from './outcome-review-model.ts';
 import { OUTCOME_REVIEW_SCRIPT, OUTCOME_REVIEW_STYLE, outcomeReviewHtml } from './outcome-review-page.ts';
@@ -20,6 +21,7 @@ export class OutcomeReviewPanel {
   private view: OutcomeView | null = null;
   private error: string | null = null;
   private revision = 0;
+  private playwright: string | null = null;
   private disposed = false;
   private readonly disposables: vscode.Disposable[] = [];
 
@@ -58,6 +60,7 @@ export class OutcomeReviewPanel {
       if (revision !== this.revision) return;
       this.view = outcomeView(result);
       this.error = this.view ? null : 'The outcome review returned a shape this panel does not read.';
+      this.playwright = await this.localPlaywright();
     } catch (failure) {
       if (revision !== this.revision) return;
       this.view = null;
@@ -93,6 +96,7 @@ export class OutcomeReviewPanel {
     }
     if (action === 'reference' && selected.reference) return this.openReference(selected.reference);
     if (action === 'attach' && selected.suggestedFile) return this.attach(selected.suggestedFile);
+    if (action === 'capture' && selected.suggestedFile) return this.capture(selected.suggestedFile);
     if (action === 'sign-off' && selected.signOff && criterion !== null) return this.signOff(criterion, selected);
     if (action === 'screenshot') return this.openRepositoryFile(selected.files?.[0] ?? selected.suggestedFile ?? null, true);
   }
@@ -119,6 +123,54 @@ export class OutcomeReviewPanel {
     await vscode.commands.executeCommand('vscode.open', vscode.Uri.file(target));
     void vscode.window.showInformationMessage(`Saved as ${relative}. Look at it, then sign off; the sign-off commits it with its record.`);
     await this.reload();
+  }
+
+  /** This checkout's own Playwright command, or null: capturing never installs anything. */
+  private async localPlaywright(): Promise<string | null> {
+    const command = path.join(this.client.repository, 'node_modules', '.bin', process.platform === 'win32' ? 'playwright.cmd' : 'playwright');
+    return await stat(command).then((info) => (info.isFile() ? command : null), () => null);
+  }
+
+  /** The running application's address, when one runs. */
+  private runningUrl(): string | null {
+    return this.view?.application.entries?.find((entry) => entry.started)?.url ?? null;
+  }
+
+  /**
+   * Capture the running screen to the suggested path with the repository's Playwright, as a task the
+   * person can watch; like a test run it needs a trusted workspace. Nothing is recorded by capturing.
+   */
+  private async capture(relative: string): Promise<void> {
+    const target = this.repositoryPath(relative);
+    const url = this.runningUrl();
+    if (!target || !url || !this.playwright) return;
+    if (vscode.workspace.isTrusted === false) {
+      void vscode.window.showWarningMessage('Capturing runs this repository\'s Playwright. Trust the workspace first, or attach a screenshot instead.');
+      return;
+    }
+    if (await stat(target).then(() => true, () => false)) {
+      const replace = await vscode.window.showWarningMessage(`${relative} already exists. Replace it with a new capture?`, { modal: true }, 'Replace');
+      if (replace !== 'Replace') return;
+    }
+    await mkdir(path.dirname(target), { recursive: true });
+    const execution = new vscode.ProcessExecution(this.playwright, ['screenshot', '--viewport-size=1280,800', url, target],
+      { cwd: taskStartFolder(this.client.repository) });
+    const task = new vscode.Task({ type: 'singularityFlow', action: 'outcome-capture', capability: this.view?.application.capability ?? 'default' },
+      vscode.TaskScope.Workspace, `Capture ${relative}`, 'Singularity Flow', execution, []);
+    task.presentationOptions = { reveal: vscode.TaskRevealKind.Always, panel: vscode.TaskPanelKind.Dedicated, clear: true, focus: false, showReuseMessage: false };
+    const run = await vscode.tasks.executeTask(task);
+    const ended = vscode.tasks.onDidEndTaskProcess(async (event) => {
+      if (event.execution !== run) return;
+      ended.dispose();
+      if (event.exitCode === 0) {
+        await vscode.commands.executeCommand('vscode.open', vscode.Uri.file(target));
+        void vscode.window.showInformationMessage(`Captured ${url} as ${relative}. Look at it, then sign off.`);
+      } else {
+        void vscode.window.showWarningMessage('Playwright could not capture the screen; see its task output (its browsers may need installing). You can attach a screenshot instead.');
+      }
+      await this.reload();
+    });
+    this.disposables.push(ended);
   }
 
   /**
@@ -189,7 +241,7 @@ export class OutcomeReviewPanel {
   private render(): void {
     if (this.disposed) return;
     const token = nonce();
-    this.panel.webview.html = page('Check the Outcome', outcomeReviewHtml(this.view, this.error),
+    this.panel.webview.html = page('Check the Outcome', outcomeReviewHtml(this.view, this.error, { capture: Boolean(this.playwright && this.runningUrl()) }),
       contentSecurityPolicy(this.panel.webview, token), token, OUTCOME_REVIEW_SCRIPT, { styles: OUTCOME_REVIEW_STYLE });
   }
 

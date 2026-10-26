@@ -431,7 +431,7 @@ export function contextReceiptView({ request = {}, workId = null, ledger = null 
 // Handoff
 
 const HANDOFF_REFUSALS: Readonly<Record<string, string>> = Object.freeze({
-  'work.not-in-this-repository': 'is not governed work in this repository',
+  'work.not-in-this-repository': 'is not a Story this repository tracks',
   'work.revision-unavailable': 'cannot be handed off here: the exact repository revision could not be read, and a packet is always bound to one'
 });
 
@@ -449,7 +449,7 @@ export function handoffView({ request = {}, workId = null, result = null }: {
   if (!workId) return noStory(action, 'handoff packet');
   const guidance = `singularity-flow status --work-id ${workId}`;
   const answer = record(result);
-  const source = 'A projection of governed records, rebuilt now through SFlow\'s kernel (work.handoff). It is never lifecycle authority, no conversation was used, and nothing was changed.';
+  const source = 'A view of the Story\'s records, rebuilt now through SFlow\'s kernel (work.handoff). It is never lifecycle authority, no conversation was used, and nothing was changed.';
   const packet = record(answer.data?.packet);
   if (answer.kind !== 'read' || packet.kind !== 'handoff-packet') {
     const code = String(answer.why?.[0]?.code ?? answer.kind ?? 'no answer');
@@ -573,7 +573,7 @@ export function progressView({ request = {}, workId = null, progress = null }: {
       Object.freeze({ id: 'handoff', label: 'Open the handoff packet', command: 'singularityFlow.openHandoff', args: Object.freeze([Object.freeze({ workId })]), shell: `singularity-flow status --work-id ${workId}` })
     ],
     guidance,
-    source: `Read from ${workId}'s governed state (singularity-flow progress). Nothing was changed.`
+    source: `Read from ${workId}'s records (singularity-flow progress). Nothing was changed.`
   });
 }
 

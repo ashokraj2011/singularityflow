@@ -186,8 +186,9 @@ test('phase handoffs show Copilot, Shell and exact available model-free alternat
   ];
   for (const name of phaseSkills) {
     const content = await readFile(path.join(root, 'plugin', 'skills', name, 'SKILL.md'), 'utf8');
-    assert.match(content, /in order: Copilot, Shell, VS Code \(model-free\) using `modelFreeCommand`/);
-    assert.match(content, /if absent, say "not available for this action"/);
+    // The shared presentation contract (8f25dc4b): three bullets in route order, and the words for a missing route.
+    assert.match(content, /three separate Markdown bullets, in order: "- Copilot: `<copilotCommand>`", "- Shell: `<command>`", "- VS Code \(model-free\): `<modelFreeCommand>`"/);
+    assert.match(content, /Missing Copilot: "no verified equivalent"; missing Shell or model-free: "not available for this action"/);
     if (name === 'sflow-next') {
       assert.match(content, /first `NOW` action's `copilotCommand` and `command` from that same action object/);
       assert.match(content, /render all three surfaces per the Output contract/);

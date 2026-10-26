@@ -11,6 +11,7 @@ import { planDeveloperConversation } from '../../../src/gateway/conversation.mjs
 import { activeRepositoryContext, gatewaySession, type GatewayRepositoryContext } from './gateway-runtime-client.ts';
 import { commandGuidance, setChatModelsAvailable } from './copilot-command.ts';
 import { commandGuidanceMarkdown } from './views/command-guidance.ts';
+import { formatCommandRouteLines } from '../../../src/model-free-commands.mjs';
 import { commandClass, resolveCli, SingularityFlowClient } from './cli/client.ts';
 import { CliError } from './cli/runner.ts';
 import {
@@ -792,7 +793,11 @@ function renderRevisionChecksRoutes(
   routes: { shell: string; copilot: string },
   { copy = true }: { copy?: boolean } = {}
 ): void {
-  stream.markdown(routeMarkdown({ command: routes.shell, copilotCommand: routes.copilot }));
+  // Built here from the exact action, never read from a result: shown whole. A Copilot route with
+  // arguments (`/sf-revision-checks run <PLAN>`) is not in the guidance catalog, so validating the pair
+  // dropped every route, the run confirmation's Shell command included (8f25dc4b).
+  stream.markdown(`\n${formatCommandRouteLines({ command: routes.shell, copilotCommand: routes.copilot, modelFreeCommand: null },
+    { markdown: true }).join('\n')}\n`);
   if (copy) stream.button({
     command: 'singularityFlow.copyParticipantCommand', title: 'Copy Shell',
     arguments: [routes.shell, 'revision-checks']

@@ -145,6 +145,7 @@ import {
 } from './host-performance.ts';
 import { GatewayStatusWorker } from './gateway-status-worker-client.ts';
 import { commandGuidanceText, safeCommandPair } from './views/command-guidance.ts';
+import { formatCommandRouteLines } from '../../../src/model-free-commands.mjs';
 import { createTerminalIn } from './terminal-start.ts';
 import {
   offerCopilotChatCounting, startCopilotChatCounting, turnOffCopilotChatCounting, turnOnCopilotChatCounting
@@ -3836,8 +3837,10 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
         ) ?? (requestedUrl ? safeCommandPair(
           'singularity-flow workspace doctor --network --repository <REPOSITORY-URL> --json'
         ) : null);
+        // The routes are found from a display form, but the Shell line is the exact command, the remote
+        // one single-quoted argument; the display form's <REPOSITORY-URL> would leave the person to retype it.
         const recoveryText = recoveryRoute
-          ? commandGuidanceText(recoveryRoute)
+          ? formatCommandRouteLines({ ...recoveryRoute, command: recovery }).join('\n')
           : null;
         output.appendLine(`No registered workspace matched the requested repository.${recoveryText
           ? ` Recover with:\n${recoveryText}` : ''}`);

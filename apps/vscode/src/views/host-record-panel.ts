@@ -167,7 +167,7 @@ export class HostRecordPanel implements vscode.Disposable {
     if (!workId) return handoffView({ request, workId: null });
     const session = this.sources.gateway();
     if (!session?.root) {
-      return failedView(this.action, request, new Error('No repository is selected, so the governed records cannot be read.'),
+      return failedView(this.action, request, new Error('No repository is selected, so the Story\'s records cannot be read.'),
         `singularity-flow status --work-id ${workId}`);
     }
     const { kernel } = session;

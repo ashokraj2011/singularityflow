@@ -196,8 +196,8 @@ test('an honest partial verdict publishes and submits, and approval waits for a 
   // The recovery plan names the decision and every route, never a repair of the report itself.
   const planText = unraisedText.slice(unraisedText.indexOf('Recovery plan:'));
   // The refusal leads with one plain sentence, and the decision list is the first recovery step.
-  assert.match(unraisedText, /Code checking can't be approved yet: 1 decision needed\. Decide them in one place\. Copilot: \/sf-decide VERDICT-1/u);
-  assert.match(planText, /^Recovery plan:\n  Scope: phase conformance — people decide what is open; nothing about the report needs repairing\. Open the decision list now\.\n  1\. [^\n]*\n {5}Copilot: \/sf-decide VERDICT-1\n {5}Shell: singularity-flow decisions VERDICT-1\n/u);
+  assert.match(unraisedText, /Code checking can't be approved yet: 1 decision needed\. Decide them in one place\.\n- Copilot: \/sf-decide VERDICT-1\n/u);
+  assert.match(planText, /^Recovery plan:\n  Scope: phase conformance — people decide what is open; nothing about the report needs repairing\. Open the decision list now\.\n  1\. [^\n]*\n {5}- Copilot: \/sf-decide VERDICT-1\n {5}- Shell: singularity-flow decisions VERDICT-1\n/u);
   assert.match(planText, new RegExp(`Shell: singularity-flow upstream-issue raise --phase implementation --about ${AC1} `, 'u'));
   assert.match(planText, new RegExp(`Shell: singularity-flow decision evidence-reuse ${W} --phase implementation --from-attempt <ATTEMPT-ID> --reason <TEXT>`, 'u'));
   assert.match(planText, /Shell: singularity-flow reject conformance --work-id VERDICT-1 --to implementation/u);

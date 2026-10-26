@@ -175,9 +175,9 @@ test('unavailable capability attachment shows a scrubbed Git diagnosis and exact
     'The capability authority could not be freshly verified.',
     'Git diagnosis (authentication-required): Sign in to Git with the approved credential helper, then retry.',
     'Diagnose:',
-    'Copilot: /sf-workspace-bootstrap',
-    'Shell: singularity-flow workspace doctor --network --repository https://git.example/platform.git --json',
-    'VS Code (model-free): not available for this action',
+    '- Copilot: /sf-workspace-bootstrap',
+    '- Shell: singularity-flow workspace doctor --network --repository https://git.example/platform.git --json',
+    '- VS Code (model-free): not available for this action',
     'No local workspace was selected.'
   ].join('\n'));
 
@@ -2595,8 +2595,10 @@ test('the journey reports where the Epic stands and what it is waiting on', () =
 
 test('the Work Journey renders and copies both validated action routes', async () => {
   const sourceText = await readFile(source('views/journey.ts'), 'utf8');
-  assert.match(sourceText, /<b>Shell:<\/b>[\s\S]*journey\.nextAction\.command/);
-  assert.match(sourceText, /<b>Copilot:<\/b>[\s\S]*journey\.nextAction\.copilotCommand/);
+  // Both routes render in the shared three-route list (8f25dc4b), each with its own copy button.
+  assert.match(sourceText, /commandRouteListHtml\(journey\.nextAction, \[/);
+  assert.match(sourceText, /data-copy-route="\$\{escape\(journey\.nextAction\.copilotCommand\)\}">Copy Copilot/);
+  assert.match(sourceText, /data-copy-route="\$\{escape\(journey\.nextAction\.command\)\}">Copy shell/);
   assert.match(sourceText, /data-copy-route=/);
   assert.match(sourceText, /navigator\.clipboard\.writeText\(target\.dataset\.copyRoute\)/);
 });
@@ -4979,8 +4981,8 @@ test('repository inspection unlocks only safe outcomes and explains blocked outc
     inspectionRecoveryCommand: 'singularity-flow workspace doctor --network --json',
     inspectionRecoveryCopilotCommand: '/sf-workspace-bootstrap'
   });
-  assert.match(recovery, /Shell: <code>singularity-flow workspace doctor --network --json<\/code>/);
-  assert.match(recovery, /Copilot: <code>\/sf-workspace-bootstrap<\/code>/);
+  assert.match(recovery, /Shell:<\/strong> <code>singularity-flow workspace doctor --network --json<\/code>/);
+  assert.match(recovery, /Copilot:<\/strong> <code>\/sf-workspace-bootstrap<\/code>/);
   assert.match(recovery, /data-map-copy-command=/);
   assert.match(recovery, /data-map-copy-copilot=/);
   assert.match(MAP_CAPABILITY_SCRIPT, /type: 'copyCopilotCommand'/);
@@ -7883,8 +7885,8 @@ test('capability proposals have an exact review and activation UI', async () => 
     'proposal transport failures expose their exact safe diagnostic command pair');
   assert.match(dashboard, /commandGuidance/,
     'proposal recovery commands use the shared CLI-to-Copilot presentation boundary');
-  assert.match(dashboard, /Copilot: <code>/,
-    'proposal diagnostics always show their derived Copilot equivalent beside the shell command');
+  assert.match(dashboard, /commandRouteListHtml\(guidance\)/,
+    'proposal diagnostics always show their derived Copilot equivalent beside the shell command (the shared three-route list)');
   assert.match(dashboard, /Show merged history/);
   assert.match(dashboard, /'--all'/,
     'the same UI can inspect retained merged proposal branches without making them actionable');

@@ -478,7 +478,7 @@ test('prepare, inputs, and compose replay complete repository-rooted paths witho
   assert.equal(draft.continuation.automaticAdvance, false);
   const displayed = sflowCopilotRouting(repository, 'phase', 'show', 'implementation', '--show-artifact');
   assert.equal(displayed.status, 0, displayed.stderr);
-  assert.match(displayed.stdout, /Next action:[\s\S]*Copilot: \/sf-code\nShell: singularity-flow prepare implementation\nVS Code \(model-free\): not available for this action/);
+  assert.match(displayed.stdout, /Next action:[\s\S]*- Copilot: \/sf-code\n- Shell: singularity-flow prepare implementation\n- VS Code \(model-free\): not available for this action/);
   assert.equal(git(repository, 'rev-parse', 'HEAD'), beforeDocumentView.head);
   assert.equal(git(repository, 'status', '--porcelain'), beforeDocumentView.status);
 

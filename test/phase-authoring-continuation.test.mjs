@@ -154,7 +154,7 @@ test('phase continuation selects NOW, never an optional assignment or a later ap
   assert.equal(next.nextAction.timing, 'now');
   assert.doesNotMatch(next.nextCommand, /assign|approve|cancel/);
   assert.equal(JSON.stringify(workflow), before);
-  assert.ok(phaseContinuationLines(next).some(line => line.startsWith('Copilot: /sf-')));
+  assert.ok(phaseContinuationLines(next).some(line => line.startsWith('- Copilot: /sf-')));
   const historical = phaseContinuation(workflow, { reviewedPhaseId: 'previous-scope' });
   assert.equal(historical.nextCommand, 'singularity-flow nextsteps ROUTE-1 --json');
   assert.equal(historical.copilotCommand, '/sf-nextsteps');

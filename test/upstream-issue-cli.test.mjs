@@ -242,7 +242,7 @@ test('a Story completes only once its open upstream issue is decided', slowLane(
   assert.match(refused.stdout + refused.stderr, /UPI-001 about intake \(Out of scope\) is not decided/u);
   assert.match(refused.stdout + refused.stderr, /upstream-issue decide UPI-001 --work-id ISSUE-3/u);
   // The ending's refusal leads with one plain sentence and the decision list.
-  assert.match(refused.stdout + refused.stderr, /can't be (?:completed|approved) yet: 1 decision needed\. Decide them in one place\. Copilot: \/sf-decide ISSUE-3/u);
+  assert.match(refused.stdout + refused.stderr, /can't be (?:completed|approved) yet: 1 decision needed\. Decide them in one place\.\n- Copilot: \/sf-decide ISSUE-3\n/u);
   // Next steps never offer the submission that would end the Story while the issue is open; the list takes its place.
   const held = JSON.parse(cli('nextsteps', 'ISSUE-3', '--json').stdout).actions;
   assert.equal(held.some((entry) => entry.command?.startsWith('singularity-flow submit verify')), false, JSON.stringify(held.map((entry) => entry.command)));

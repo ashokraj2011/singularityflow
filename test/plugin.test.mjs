@@ -1142,7 +1142,7 @@ test('source review follows the returned schema and a bounded read-only format c
   assert.match(skill, /`canReview: false`: relay `continuation.actions`, stop/);
   assert.match(skill, /only the author prepares\/publishes successors/);
   assert.match(skill, /End with `continuation.actions`, target generation\/owner/);
-  assert.match(skill, /in order: Copilot, Shell, VS Code \(model-free\)/);
+  assert.match(skill, /three separate Markdown bullets, in order: "- Copilot: `<copilotCommand>`", "- Shell: `<command>`", "- VS Code \(model-free\): `<modelFreeCommand>`"/);
   assert.match(agent, /do not search for, create, or persistently select an\s+agent/);
   for (const instructions of [skill, agent]) {
     assert.match(instructions, /clarificationsReviewed/);

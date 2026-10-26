@@ -615,7 +615,7 @@ test('next executes one valid lifecycle action at a time', async () => {
   let workflow = JSON.parse(await readFile(workflowFile, 'utf8'));
   const prepared = flow(root, ['next', '--task', 'Capture automatic intake'], { selection: selection('feature', 'product-owner') });
   assert.match(prepared.stdout, /Next step prepared: generate 'intake'/);
-  assert.match(flow(root, ['nextsteps']).stdout, /Guided router: Copilot \/sf-next/);
+  assert.match(flow(root, ['nextsteps']).stdout, /Guided router:\n- Copilot: \/sf-next\n/);
   await completeArtifact(root, workflow, 'intake');
   flow(root, ['phase', 'publish', 'intake'], { selection: selection('feature', 'product-owner') });
 
@@ -634,8 +634,8 @@ test('next executes one valid lifecycle action at a time', async () => {
   const approved = flow(root, ['next', '--yes'], { selection: selection('feature', 'product-owner'), actor: 'Next Reviewer' });
   assert.match(approved.stdout, /Approval decision committed [0-9a-f]{8} locally/);
   assert.match(approved.stdout, /Context boundary: new/);
-  assert.match(approved.stdout, /1\. \/clear/);
-  assert.match(approved.stdout, /2\. \/sf-next/);
+  // Each next Copilot action is its own three-route block (8f25dc4b): first /clear, then /sf-next.
+  assert.match(approved.stdout, /Next Copilot actions:\n- Copilot: \/clear\n[\s\S]*?\n- Copilot: \/sf-next\n/);
   workflow = JSON.parse(await readFile(workflowFile, 'utf8'));
   assert.equal(workflow.currentPhase, 'requirements');
   assert.deepEqual(workflow.resolution.contextPolicy, { onApproval: 'new', onRejection: 'keep', phaseOverrides: {} });

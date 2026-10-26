@@ -337,6 +337,10 @@
           "type": "integer", "default": 30, "minimum": 1, "maximum": 10080, "scope": "resource",
           "description": "Maximum age of successful routine verification in Cached mode. Use Singularity Flow: Check Repository Now or @sflow /check to refresh immediately."
         },
+        "singularityFlow.outcomeReview.suggest": {
+          "type": "boolean", "default": false,
+          "description": "Offer Check the Outcome once when a Story step is submitted for approval: the app to try, each criterion's tests and checks, and what is still open. Optional; nothing waits for it and nothing is recorded."
+        },
         "singularityFlow.warmReads": {
           "type": "boolean",
           "default": true,

@@ -57,6 +57,22 @@ export function outcomeView(raw: unknown): OutcomeView | null {
   };
 }
 
+/** The three checklist items in the person's words, in the order `decision witness` takes them. */
+export function signOffQuestions(criterion: Pick<OutcomeCriterion, 'id' | 'text'>): Array<[string, string]> {
+  return [
+    ['states-the-outcome', `Does the screenshot show the outcome ${criterion.id} describes?`],
+    ['matches-the-criterion', `Does it match the criterion as written${criterion.text ? `: "${criterion.text}"` : ''}?`],
+    ['current-for-this-change', 'Is it a screenshot of this Story\'s current change?']
+  ];
+}
+
+/** The `decision witness` arguments for the person's answers; every item is answered, yes or no. */
+export function signOffArgs(workId: string, criterionId: string, slot: string, file: string,
+  answers: Array<[string, boolean]>, reason: string): string[] {
+  return ['decision', 'witness', workId, '--criterion', criterionId, '--slot', slot, '--file', file,
+    ...answers.flatMap(([item, yes]) => [yes ? '--confirm' : '--deny', item]), '--reason', reason.trim(), '--json'];
+}
+
 /** A document reference such as DOC-001, which `documents view` opens; anything else is a path or a screen name. */
 export function documentReference(reference: string | null): boolean {
   return Boolean(reference && /^[A-Z][A-Z0-9]*-\d+$/u.test(reference));

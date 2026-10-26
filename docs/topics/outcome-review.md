@@ -10,7 +10,7 @@ related:
   - evidence-matrix
 commands:
   - outcome
-version: 1
+version: 2
 ---
 Once a Story's code and tests are in, the outcome review puts in one place what a person wants to see before deciding anything: the application to try, each acceptance criterion with the tests that prove it, the screens and files a person signs off, and what the Story's end still waits for. It is optional. It records nothing, no step waits for it, and every route it shows is a command that already exists.
 
@@ -22,7 +22,7 @@ Use it after a step that writes code has its code and tests, typically before yo
 
 - **Shell:** `singularity-flow outcome [WORK-ID] [--capability ID] [--json]`.
 - **Copilot:** `/sf-outcome [WORK-ID]` shows the same review and the routes; it never starts, signs off or decides anything for you.
-- **VS Code:** run **Singularity Flow: Check the Outcome** from the Command Palette. Its buttons start and stop the application, run the tests, open the reference and the screenshot, and open the sign-off and decision routes.
+- **VS Code:** run **Singularity Flow: Check the Outcome** from the Command Palette. Its buttons start the application, run the tests, open the reference and the screenshot, **Attach a screenshot…** to the suggested path, and **Sign off…**: it opens the screenshot, asks the three checklist questions and what you looked at, and records the sign-off after you confirm. To be offered the review once when a step is submitted for approval, turn on the setting `singularityFlow.outcomeReview.suggest` (off by default).
 
 ## Guided workflow
 
@@ -33,7 +33,7 @@ Use it after a step that writes code has its code and tests, typically before yo
 
 ## State and safety
 
-The review is a read. It writes no file, commit or record, and its result names no next action, so an agent never acts on it unasked. A sign-off binds the screenshot's bytes; keep the file unchanged afterwards. Approval, sign-offs and scope decisions stay with the people who own them.
+The review is a read. It writes no file, commit or record, and its result names no next action, so an agent never acts on it unasked. Attaching a screenshot only copies your image to the suggested path. A sign-off binds the screenshot's bytes and commits a screenshot kept in the Story's evidence folder together with its record, so nothing is left uncommitted for approval to refuse, and it does not hold a step that is awaiting approval. Keep the file unchanged afterwards. Approval, sign-offs and scope decisions stay with the people who own them.
 
 ## Troubleshooting
 

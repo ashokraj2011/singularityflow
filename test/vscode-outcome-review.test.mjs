@@ -1,9 +1,10 @@
 import assert from 'node:assert/strict';
+import { readFileSync } from 'node:fs';
 import test from 'node:test';
 
 import { buildOutcomeReview } from '../src/outcome-review.mjs';
 
-const { outcomeView, documentReference } = await import('../apps/vscode/src/views/outcome-review-model.ts');
+const { outcomeView, documentReference, signOffArgs, signOffQuestions } = await import('../apps/vscode/src/views/outcome-review-model.ts');
 const { outcomeReviewHtml, OUTCOME_REVIEW_SCRIPT } = await import('../apps/vscode/src/views/outcome-review-page.ts');
 
 // What `singularity-flow outcome --json` carries, built by the engine itself so the page and the CLI
@@ -38,7 +39,7 @@ test('the outcome page shows the app, each check with its reference, and only ex
   for (const words of ['Check the outcome', 'Optional: nothing here is recorded and no step waits for it',
     'Another process already listens at that address', 'Start the application', 'compared with <code>DOC-001</code>',
     'Open DOC-001', 'Copy the sign-off command', 'singularity/work-items/OUT-2/evidence/ac-001-screen.png',
-    'Run the tests', 'Open the Evidence Matrix', 'Copy the scope command', 'Open the decisions',
+    'Attach a screenshot…', 'Sign off…', 'Run the tests', 'Open the Evidence Matrix', 'Copy the scope command', 'Open the decisions',
     'A screenshot or a passing test is not a sign-off']) {
     assert.ok(html.includes(words), words);
   }
@@ -56,4 +57,24 @@ test('the outcome page refuses another result shape and says when nothing was re
   assert.equal(documentReference('DOC-001'), true);
   assert.equal(documentReference('screens/home.png'), false);
   assert.equal(documentReference(null), false);
+});
+
+test('the page\'s sign-off asks the three checklist items in plain words and runs decision witness exactly', () => {
+  const questions = signOffQuestions({ id: 'OUT-2:AC-001', text: 'Shows the plot.' });
+  assert.deepEqual(questions.map(([item]) => item), ['states-the-outcome', 'matches-the-criterion', 'current-for-this-change'],
+    'the order and names decision witness checks');
+  assert.match(questions[1][1], /as written: "Shows the plot\."/u);
+  // The same form test/scope-inventory.test.mjs runs against the real CLI.
+  assert.deepEqual(signOffArgs('OUT-2', 'OUT-2:AC-001', 'screen', 'singularity/work-items/OUT-2/evidence/ac-001-screen.png',
+    [['states-the-outcome', true], ['matches-the-criterion', false], ['current-for-this-change', true]], '  Looked at the plot.  '),
+  ['decision', 'witness', 'OUT-2', '--criterion', 'OUT-2:AC-001', '--slot', 'screen', '--file', 'singularity/work-items/OUT-2/evidence/ac-001-screen.png',
+    '--confirm', 'states-the-outcome', '--deny', 'matches-the-criterion', '--confirm', 'current-for-this-change', '--reason', 'Looked at the plot.', '--json']);
+});
+
+test('the outcome suggestion is a personal VS Code setting that is off unless turned on', () => {
+  const manifest = JSON.parse(readFileSync(new URL('../apps/vscode/package.json', import.meta.url), 'utf8'));
+  const setting = manifest.contributes.configuration.properties['singularityFlow.outcomeReview.suggest'];
+  assert.equal(setting.type, 'boolean');
+  assert.equal(setting.default, false, 'nothing is offered until a person turns it on');
+  assert.ok(manifest.contributes.commands.some((entry) => entry.command === 'singularityFlow.openOutcomeReview'));
 });

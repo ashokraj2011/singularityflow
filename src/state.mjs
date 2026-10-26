@@ -646,6 +646,17 @@ export function stateChangesOnly({ before, after }, keys) {
 }
 
 /**
+ * The screenshot a sign-off may commit with its record: its own visual file in the Story's evidence
+ * folder, with exactly the bytes the record binds. Null for anything else, so the rest fails closed.
+ */
+export function witnessEvidenceFile(item, record, committedBytes) {
+  const file = record?.file;
+  if (record?.method !== 'visual' || typeof file !== 'string' || !file.startsWith(`${item}/evidence/`)
+      || file.split('/').some((part) => !part || part === '.' || part === '..') || !committedBytes) return null;
+  return `sha256:${createHash('sha256').update(committedBytes).digest('hex')}` === record.sha256 ? file : null;
+}
+
+/**
  * Whether a commit is exactly one review-safe decision (REVIEW_EFFECTS), such as an applicability
  * decision [E2G-005]: a person recording why a left-out responsibility does not apply changes
  * nothing a review saw, so it may sit between a phase's submission and its approval. Anything more
@@ -655,10 +666,15 @@ function applicabilityDecisionCommit(root, config, workflow, commit) {
   const change = governedStateChange(root, config, workflow, commit);
   if (!change) return false;
   const { identity, before, after } = change;
-  // With the ledger on, the decision also adds the ledger intent of its own event.
-  if (change.changed.some((file) => !change.ownPaths.includes(file))) return false;
   // Each review-safe decision appends to its own list only.
   const kind = REVIEW_SAFE_DECISION_LISTS.find(({ list }) => recordSha256(before[list] ?? null) !== recordSha256(after[list] ?? null));
+  // With the ledger on, the decision also adds the ledger intent of its own event. A sign-off also
+  // commits the screenshot it binds when that image sits in the Story's evidence folder, with exactly
+  // the bytes its record names: what a person looked at, never product source (outcome review).
+  const witnessed = kind?.list === 'witnessRecords' ? after.witnessRecords?.at(-1) : null;
+  const evidence = witnessed && change.changed.includes(witnessed.file)
+    ? witnessEvidenceFile(change.item, witnessed, exactFileAtObject(root, identity.commit, witnessed.file)) : null;
+  if (change.changed.some((file) => !change.ownPaths.includes(file) && file !== evidence)) return false;
   if (!kind || !stateChangesOnly(change, [kind.list, 'history', 'publicationProjections'])) return false;
   // Each list keeps what it had and gains exactly one entry; earlier decisions only gain a withdrawal.
   const appendsOne = (key) => {

@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import { createHash } from 'node:crypto';
 import { spawnSync } from 'node:child_process';
 import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import os from 'node:os';
@@ -320,7 +321,7 @@ test('the CLI shows the inventory and records a scope decision through the scope
 });
 
 /** A governed fixture Story whose intake (the step defining its scope) is published, not submitted. */
-async function publishedScopeStory(t, id, { criteria = [], planned = [] } = {}) {
+async function publishedScopeStory(t, id, { criteria = [], planned = [], sections = [] } = {}) {
   const root = await mkdtemp(path.join(os.tmpdir(), 'sflow-scope-story-'));
   const remote = `${root}-remote.git`;
   t.after(() => Promise.all([rm(root, { recursive: true, force: true }), rm(remote, { recursive: true, force: true })]));
@@ -353,6 +354,7 @@ async function publishedScopeStory(t, id, { criteria = [], planned = [] } = {}) 
     '## Acceptance criteria', '', '| Clause | Observable outcome |', '|---|---|', `| [${id}:AC-001] | The exported value must equal 2. |`, ...criteria, '',
     '## Planned implementation evidence', '', '| Clause | Expected paths | Planned tests | Fulfillment | Observable result |', '|---|---|---|---|---|',
     `| \`${id}:AC-001\` | \`src/value.mjs\` | \`test/value.test.mjs\` | new | value() returns 2. |`, ...planned, '',
+    ...sections,
     '## Initial evidence', '', 'The README at the pinned main revision.', '',
     '## Agent brief', '', 'Intake for a one-line value change; one criterion.', ''
   ].join('\n'));
@@ -383,6 +385,48 @@ test('the scope step\'s approver is shown each open statement while reviewing, a
   sflow('approve', 'intake', '--yes');
   const workflowState = JSON.parse(await readFile(path.join(root, 'singularity/work-items/SCOPE-2/workflow.json'), 'utf8'));
   assert.equal(workflowState.phases.intake.status, 'approved', 'a decision recorded during review does not stale the approval');
+});
+
+test('a sign-off commits its own new screenshot, and approval counts that commit as review-safe', async (t) => {
+  // Outcome review: a visual check the plan named no screenshot path for. The person saves a screenshot
+  // in the Story's evidence folder and signs off; the sign-off's commit carries exactly that image, so
+  // the checkout stays clean, and a step under review is not held by it.
+  const { root, sflow } = await publishedScopeStory(t, 'SCOPE-5', { sections: [
+    '## Verification contracts', '', '| Criterion | Slot | Method | Witness | Role | Required assurance |', '|---|---|---|---|---|---|',
+    '| `SCOPE-5:AC-001` | `screen` | visual | `the value screen` | primary | source-bound |', ''] });
+  sflow('submit', 'intake');
+  sflow('approve', 'intake', '--yes');
+  const before = run('git', ['rev-parse', 'HEAD'], root).stdout.trim();
+  const screenshot = 'singularity/work-items/SCOPE-5/evidence/ac-001-screen.png';
+  await mkdir(path.join(root, path.dirname(screenshot)), { recursive: true });
+  await writeFile(path.join(root, screenshot), 'a screenshot of the value screen');
+  sflow('decision', 'witness', 'SCOPE-5', '--criterion', 'SCOPE-5:AC-001', '--slot', 'screen', '--file', screenshot,
+    '--confirm', 'states-the-outcome', '--confirm', 'matches-the-criterion', '--confirm', 'current-for-this-change',
+    '--reason', 'The value screen shows 2, as the criterion says.');
+  assert.match(run('git', ['show', '--name-only', '--format=', 'HEAD'], root).stdout, /evidence\/ac-001-screen\.png/u,
+    'the sign-off committed the screenshot it binds');
+  assert.equal(run('git', ['status', '--porcelain'], root).stdout.trim(), '', 'nothing is left for approval to refuse');
+  // The approval gate's own classifier, over just that commit: review-safe, so it never holds a step.
+  const { reviewHistoryCommits } = await import('../src/state.mjs');
+  const definition = YAML.parse(await readFile(path.join(root, 'singularity/workflow.yml'), 'utf8'));
+  const workflow = JSON.parse(await readFile(path.join(root, 'singularity/work-items/SCOPE-5/workflow.json'), 'utf8'));
+  const history = await reviewHistoryCommits(root, definition, workflow, workflow.phases.intake, { evidenceCommit: before });
+  assert.equal(history.interveningCommits.length, 1);
+  assert.deepEqual(history.blocking, []);
+});
+
+test('only a sign-off\'s own visual screenshot in the evidence folder, byte for byte, rides with it', async () => {
+  const { witnessEvidenceFile } = await import('../src/state.mjs');
+  const item = 'singularity/work-items/W-1';
+  const bytes = Buffer.from('screen');
+  const sha256 = `sha256:${createHash('sha256').update(bytes).digest('hex')}`;
+  const record = { method: 'visual', file: `${item}/evidence/ac-001-screen.png`, sha256 };
+  assert.equal(witnessEvidenceFile(item, record, bytes), record.file);
+  assert.equal(witnessEvidenceFile(item, record, Buffer.from('other')), null, 'other bytes than the record binds');
+  assert.equal(witnessEvidenceFile(item, { ...record, method: 'inspection' }, bytes), null, 'an inspection names a planned file');
+  assert.equal(witnessEvidenceFile(item, { ...record, file: 'src/app.mjs' }, bytes), null, 'never product source');
+  assert.equal(witnessEvidenceFile(item, { ...record, file: `${item}/evidence/../workflow.json` }, bytes), null);
+  assert.equal(witnessEvidenceFile(item, record, null), null);
 });
 
 test('while the step defining scope is open, a decision names its own clauses and the inventory reads them', async (t) => {

@@ -6,12 +6,13 @@
  * is looked up in what this panel loaded, never taken from the page.
  */
 import * as vscode from 'vscode';
+import { copyFile, mkdir, stat } from 'node:fs/promises';
 import path from 'node:path';
 import type { SingularityFlowClient } from '../cli/client.ts';
 import type { WorkspaceStore } from '../state.ts';
 import { contentSecurityPolicy, nonce, page } from './webview.ts';
 import { integerField, registerMessageRouter, stringField } from './messages.ts';
-import { documentReference, outcomeView, type OutcomeCheck, type OutcomeView } from './outcome-review-model.ts';
+import { documentReference, outcomeView, signOffArgs, signOffQuestions, type OutcomeCheck, type OutcomeView } from './outcome-review-model.ts';
 import { OUTCOME_REVIEW_SCRIPT, OUTCOME_REVIEW_STYLE, outcomeReviewHtml } from './outcome-review-page.ts';
 
 export class OutcomeReviewPanel {
@@ -91,7 +92,73 @@ export class OutcomeReviewPanel {
       return;
     }
     if (action === 'reference' && selected.reference) return this.openReference(selected.reference);
+    if (action === 'attach' && selected.suggestedFile) return this.attach(selected.suggestedFile);
+    if (action === 'sign-off' && selected.signOff && criterion !== null) return this.signOff(criterion, selected);
     if (action === 'screenshot') return this.openRepositoryFile(selected.files?.[0] ?? selected.suggestedFile ?? null, true);
+  }
+
+  /** Repository-relative and inside this checkout, as the engine wrote it, or null. */
+  private repositoryPath(relative: string | null): string | null {
+    if (!relative || path.isAbsolute(relative) || relative.split(/[\\/]/u).some((part) => !part || part === '.' || part === '..')) return null;
+    return path.join(this.client.repository, relative);
+  }
+
+  /** Copy a screenshot the person picks to the path the review suggested; nothing is recorded yet. */
+  private async attach(relative: string): Promise<void> {
+    const target = this.repositoryPath(relative);
+    if (!target) return;
+    const [picked] = await vscode.window.showOpenDialog({ canSelectMany: false, openLabel: 'Attach screenshot',
+      filters: { Images: ['png', 'jpg', 'jpeg', 'webp', 'gif'] } }) ?? [];
+    if (!picked) return;
+    if (await stat(target).then(() => true, () => false)) {
+      const replace = await vscode.window.showWarningMessage(`${relative} already exists. Replace it with the picked screenshot?`, { modal: true }, 'Replace');
+      if (replace !== 'Replace') return;
+    }
+    await mkdir(path.dirname(target), { recursive: true });
+    await copyFile(picked.fsPath, target);
+    await vscode.commands.executeCommand('vscode.open', vscode.Uri.file(target));
+    void vscode.window.showInformationMessage(`Saved as ${relative}. Look at it, then sign off; the sign-off commits it with its record.`);
+    await this.reload();
+  }
+
+  /**
+   * The person's sign-off: they look at the screenshot, answer the three checklist items and say
+   * what they looked at, then confirm. The CLI records it under their authority and refuses anyone
+   * else; nothing is preselected and nothing is recorded until they confirm.
+   */
+  private async signOff(criterionIndex: number, check: OutcomeCheck): Promise<void> {
+    const criterion = this.view?.criteria[criterionIndex];
+    const relative = check.files?.[0] ?? check.suggestedFile ?? null;
+    const file = this.repositoryPath(relative);
+    if (!criterion || !this.view || !file || !relative) return;
+    if (!(await stat(file).then((info) => info.isFile(), () => false))) {
+      void vscode.window.showInformationMessage(`No screenshot at ${relative} yet. Attach one first, then sign off.`);
+      return;
+    }
+    await vscode.commands.executeCommand('vscode.open', vscode.Uri.file(file));
+    const answers: Array<[string, boolean]> = [];
+    for (const [item, question] of signOffQuestions(criterion)) {
+      const choice = await vscode.window.showQuickPick([{ label: 'Yes', yes: true }, { label: 'No', yes: false }],
+        { title: `Sign off ${criterion.id} · ${check.slot}`, placeHolder: question, ignoreFocusOut: true });
+      if (!choice) return;
+      answers.push([item, choice.yes]);
+    }
+    const reason = await vscode.window.showInputBox({ title: `Sign off ${criterion.id} · ${check.slot}`, ignoreFocusOut: true,
+      prompt: 'What did you look at? (10 to 1000 characters)',
+      validateInput: (value) => value.trim().length >= 10 && value.trim().length <= 1000 ? null : 'Say what you inspected in 10 to 1000 characters.' });
+    if (!reason) return;
+    const met = answers.every(([, yes]) => yes);
+    const confirmed = await vscode.window.showWarningMessage(
+      `Record this sign-off of ${criterion.id} (${check.slot}) as ${met ? 'satisfied' : 'not satisfied'}? It is committed with ${relative}, under your name.`,
+      { modal: true }, 'Record sign-off');
+    if (confirmed !== 'Record sign-off') return;
+    try {
+      await this.client.run(signOffArgs(this.view.workId, criterion.id, check.slot, relative, answers, reason));
+      void vscode.window.showInformationMessage(`Recorded the sign-off of ${criterion.id} (${check.slot}).`);
+    } catch (failure) {
+      void vscode.window.showErrorMessage(`The sign-off was not recorded: ${failure instanceof Error ? failure.message : String(failure)}`);
+    }
+    await this.reload();
   }
 
   private async openReference(reference: string): Promise<void> {
@@ -106,9 +173,9 @@ export class OutcomeReviewPanel {
   }
 
   private async openRepositoryFile(relative: string | null, screenshot: boolean): Promise<void> {
-    // Only a path inside this repository, as the engine wrote it.
-    if (!relative || path.isAbsolute(relative) || relative.split(/[\\/]/u).some((part) => part === '..')) return;
-    const file = vscode.Uri.file(path.join(this.client.repository, relative));
+    const target = this.repositoryPath(relative);
+    if (!target) return;
+    const file = vscode.Uri.file(target);
     try {
       await vscode.workspace.fs.stat(file);
       await vscode.commands.executeCommand('vscode.open', file);

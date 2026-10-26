@@ -22,7 +22,9 @@ function criterionHtml(criterion: OutcomeCriterion, index: number): string {
       ${check.suggestedFile ? `<p class="meta">Save the screenshot as <code>${escape(check.suggestedFile)}</code>.</p>` : ''}
       <div class="outcome-actions">
         ${check.reference ? button('reference', documentReference(check.reference) ? `Open ${check.reference}` : 'Open the reference', { criterion: index, check: at }) : ''}
+        ${check.suggestedFile ? button('attach', 'Attach a screenshot…', { criterion: index, check: at }) : ''}
         ${check.suggestedFile || check.files?.length ? button('screenshot', 'Open the screenshot', { criterion: index, check: at }) : ''}
+        ${check.signOff ? button('sign-off', 'Sign off…', { criterion: index, check: at }, false) : ''}
         ${check.signOff ? button('copy-sign-off', 'Copy the sign-off command', { criterion: index, check: at }) : ''}
       </div></li>`;
   }).join('');

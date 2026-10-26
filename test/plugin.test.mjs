@@ -451,7 +451,7 @@ test('code skill treats a prepared draft as authoring work without bypassing gen
   assert.match(content, /Consumed-changed intent needs reviewed rollover/);
   assert.match(content, /Consumed intent requires `\/sf-recover`/);
   assert.match(content, /unchanged publication: relay `next`, stop/);
-  assert.match(content, /Follow returned `repairLoop.protocol`; stop unchanged/i);
+  assert.match(content, /Follow returned `repairLoop.protocol`; never recheck an unchanged draft; same findings after a change: correct differently/i);
   assert.match(content, /Untracked `\.sflow\/results\/\*\*` need no cleaning; review tracked\/staged reports/);
   assert.doesNotMatch(content, /stop for manual\/unchanged\/other-producer recovery/);
 });
@@ -590,7 +590,7 @@ test('Copilot phase authoring repairs structured draft findings before publicati
       `${name} defers repair instead of completing the authoring turn`);
     assert.match(content, /(?:returned )?`repairLoop.protocol`/,
       `${name} must use the durable kernel budget instead of remembering turn-local counts`);
-    assert.match(content, /stop unchanged|never loop preparation/i,
+    assert.match(content, /never recheck an unchanged draft|never loop preparation/i,
       `${name} may loop on a non-progressing repair`);
     assert.match(content, /(?:never )?(?:blindly )?delete markers|never blindly delete markers|never delete markers blindly/i,
       `${name} permits blind placeholder deletion`);
@@ -614,8 +614,8 @@ test('Copilot phase authoring repairs structured draft findings before publicati
   assert.match(initiative, /initiative phase draft-check \[PHASE\].*--json/);
   assert.match(initiative, /act only on its `findings` and `correction`, rerun its `commands\.recheck`/);
   assert.match(initiative, /correct every agent finding now/i);
-  assert.match(initiative, /up to three changed fingerprints/i);
-  assert.match(initiative, /stop on an unchanged fingerprint/i);
+  assert.match(initiative, /up to three changed `draftFingerprint`s/i);
+  assert.match(initiative, /stop on an unchanged `draftFingerprint` \(an unedited draft; same findings after an edit: correct differently\)/i);
   assert.match(initiative, /(?:publish only when `status` is `ready`|only when `status` is `ready`.*publish)/i);
   assert.match(initiative, /ARTIFACT_AUTHORING_INCOMPLETE.*recheck once/is);
   assert.match(initiative, /never loop/i);
@@ -633,7 +633,7 @@ test('Copilot phase authoring repairs structured draft findings before publicati
       `${name} may publish an unready draft`);
     assert.match(content, /returned `repairLoop.protocol`/,
       `${name} lacks the durable correction budget`);
-    assert.match(content, /stop unchanged/i,
+    assert.match(content, /never recheck an unchanged draft; same findings after a change: correct differently/i,
       `${name} may loop without progress`);
     assert.match(content, /ARTIFACT_AUTHORING_INCOMPLETE/i,
       `${name} omits the final kernel race guard`);

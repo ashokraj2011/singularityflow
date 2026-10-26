@@ -53,7 +53,7 @@
     "ask only unanswered/changed questions with `ask_user` (unavailable: show them and stop;",
     "Follow `toolProtocol.localVerification` for tests/app start/stop and exact `mutationContract.artifacts` evidence.",
     "Follow `testExecution.handoff`;",
-    "stop unchanged.",
+    "same findings after a change: correct differently, up to `correction.maximumChangedFingerprints` changed drafts, then stop.",
     "Absent: relay `commands.next`, stop."
   ],
   "sflow-code-docs": [
@@ -75,7 +75,7 @@
     "Stop immediately after publication;",
     "Report the handoff/document view from `publishIfReady.review`.",
     "absent: relay `commands.next`, stop.",
-    "stop unchanged.",
+    "same findings after a change: correct differently, up to `correction.maximumChangedFingerprints` changed drafts, then stop.",
     "open blockers stop advancement."
   ],
   "sflow-decide": [
@@ -91,7 +91,7 @@
     "stop for protected/unowned edits or required human decisions.",
     "Not admitted: relay blockers/next, stop.",
     "Unavailable: show questions and stop;",
-    "stop unchanged.",
+    "same findings after a change: correct differently, up to `correction.maximumChangedFingerprints` changed drafts, then stop.",
     "absent: relay `commands.next`, stop.",
     "Relay each `handoff`: `Next in Copilot: /sf-…` from `copilotCommand`, then `Terminal equivalent: singularity-flow …` from `command`."
   ],
@@ -102,7 +102,7 @@
     "stop for protected/unowned edits or required human decisions.",
     "Not admitted: relay blockers/next, stop.",
     "Stop for human confirmation or protected/unowned edits.",
-    "stop unchanged.",
+    "same findings after a change: correct differently, up to `correction.maximumChangedFingerprints` changed drafts, then stop.",
     "absent: relay `commands.next`, stop.",
     "Relay each `handoff` using its `copilotCommand` and `command`."
   ],
@@ -122,7 +122,7 @@
   ],
   "sflow-epic-requirements": [
     "If `ask_user` is unavailable, display the questions and stop before authoring or publication.",
-    "If unready, act only on its `findings` and `correction`, rerun its `commands.recheck` at most twice, and stop on an unchanged fingerprint.",
+    "If unready, act only on its `findings` and `correction`, rerun its `commands.recheck` at most twice, and stop on an unchanged `draftFingerprint` (an unedited draft);",
     "Only when `status` is `ready`, run `singularity-flow epic requirements publish`, summarize every output with verified preview/file links and hashes, and stop for human review of the complete bound documents outside chat.",
     "After explicit approval, hand off to `/sf-initiative-approve <EPIC-KEY> phase` for its receipt and self-approval flow."
   ],
@@ -196,7 +196,7 @@
     "continue only when its review `phaseStatus` is `approved`, otherwise relay it and stop."
   ],
   "sflow-initiative-phase": [
-    "Recheck up to three changed fingerprints and stop on an unchanged fingerprint, relaying the actions of `singularity-flow initiative recover <INIT-ID> --json`."
+    "Recheck up to three changed `draftFingerprint`s and stop on an unchanged `draftFingerprint` (an unedited draft;"
   ],
   "sflow-inputs": [
     "unavailable: `/sf-session` or `/sf-workspaces`, stop.",
@@ -247,7 +247,7 @@
     "`not-admitted`: relay blockers/next, stop;",
     "ask only unanswered/changed questions with `ask_user` (unavailable: show them and stop;",
     "never stop there.",
-    "stop unchanged.",
+    "same findings after a change: correct differently, up to `correction.maximumChangedFingerprints` changed drafts, then stop.",
     "Absent: relay `commands.next`, stop.",
     "Relay `handoff`'s `copilotCommand`/`command`."
   ],
@@ -260,7 +260,7 @@
     "If the checkpoint is `approval`, stop: only an authorized human Git identity approves.",
     "Otherwise relay the route and stop;",
     "absent: relay `commands.next`, stop.",
-    "stop unchanged."
+    "same findings after a change: correct differently, up to `correction.maximumChangedFingerprints` changed drafts, then stop."
   ],
   "sflow-progress": [
     "If unsupported, stop with the compatibility error, never retry blindly."
@@ -299,7 +299,7 @@
     "`retained-generation`: relay `next`, stop.",
     "stop for protected/unowned edits or required human decisions.",
     "Not admitted: relay blockers/next, stop.",
-    "stop unchanged.",
+    "same findings after a change: correct differently, up to `correction.maximumChangedFingerprints` changed drafts, then stop.",
     "absent: relay `commands.next`, stop.",
     "Relay each `handoff`: `Next in Copilot: /sf-…` from `copilotCommand`, then `Terminal equivalent: singularity-flow …` from `command`."
   ],
@@ -313,7 +313,7 @@
     "stop for protected/unowned edits or human decisions.",
     "Not admitted: relay blockers/next, stop.",
     "Unavailable: show questions and stop;",
-    "stop unchanged.",
+    "same findings after a change: correct differently, up to `correction.maximumChangedFingerprints` changed drafts, then stop.",
     "absent: relay `commands.next`, stop.",
     "End with each returned `handoff`: `Next in Copilot: /sf-…` from its `copilotCommand`, then `Terminal equivalent: singularity-flow …` from its `command`;"
   ],
@@ -329,7 +329,7 @@
   "sflow-review": [
     "return its exact lifecycle handoff.",
     "Otherwise perform inspection steps 3–6 and handoff 10;",
-    "stop unchanged.",
+    "same findings after a change: correct differently, up to `correction.maximumChangedFingerprints` changed drafts, then stop.",
     "absent: relay `commands.next`, stop."
   ],
   "sflow-review-decide": [
@@ -376,7 +376,7 @@
     "Not admitted: relay blockers/next, stop.",
     "blocked for unavailable/inconclusive evidence, a verdict to record and publish, not a stop (then name the missing tool/environment and offer `/sf-test-setup`);",
     "Stop for confirmation/protected edits.",
-    "stop unchanged.",
+    "same findings after a change: correct differently, up to `correction.maximumChangedFingerprints` changed drafts, then stop.",
     "absent: relay `commands.next`, stop.",
     "Relay each `handoff` with its `copilotCommand` and `command`;"
   ],
@@ -415,7 +415,7 @@
     "If the checkpoint is `approval`, stop: only an authorized human Git identity approves.",
     "If the action differs, stop and relay the returned route;",
     "absent: relay `commands.next`, stop.",
-    "stop unchanged."
+    "same findings after a change: correct differently, up to `correction.maximumChangedFingerprints` changed drafts, then stop."
   ],
   "sflow-stack": [
     "say so and stop."
@@ -458,7 +458,7 @@
     "otherwise relay the nextsteps route and stop.",
     "stop.",
     "If `effectiveAuthoringSkill` is not `/sf-phase` (a release step returns `/sf-release`), relay it and stop.",
-    "stop unchanged.",
+    "same findings after a change: correct differently, up to `correction.maximumChangedFingerprints` changed drafts, then stop.",
     "absent: relay `commands.next`, stop.",
     "End with each `handoff` from step 11: `Next in Copilot: /sf-…` from its `copilotCommand`, then `Terminal equivalent: singularity-flow …` from its `command`."
   ],
@@ -468,7 +468,7 @@
   "sflow-workflow-rules": [
     "stop after its report.",
     "absent: relay `commands.next`, stop;",
-    "stop unchanged.",
+    "same findings after a change: correct differently, up to `correction.maximumChangedFingerprints` changed drafts, then stop.",
     "For `/sf-next`, run `singularity-flow nextsteps <WORK-ID> --for-agent --json`, load the first `NOW` returned SFlow skill route, complete its preflight, execute at most one authorized action, and stop."
   ],
   "sflow-workflows": [

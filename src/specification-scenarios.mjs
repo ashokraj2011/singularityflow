@@ -52,7 +52,7 @@ function acceptanceCases(body) {
 }
 
 /** A declared matrix is checked exactly; lexical failure hints are always advisories only. */
-export function inspectSpecificationScenarios(markdown, clauses, { required = false } = {}) {
+export function inspectSpecificationScenarios(markdown, clauses, { required = false, clausesKnown = true } = {}) {
   const { structure, visible } = prose(String(markdown));
   const findings = [];
   const advisories = [];
@@ -96,7 +96,7 @@ export function inspectSpecificationScenarios(markdown, clauses, { required = fa
           add('scenario-coverage-row-invalid', 'Use one exact clause ID, S-number scenario ID, and success/failure/boundary/empty outcome per row.', { line });
           continue;
         }
-        if (!clauseById.has(clauseId)) add('scenario-coverage-clause-unknown', `${clauseId} is not declared by this specification.`, { line, clauseId });
+        if (clausesKnown && !clauseById.has(clauseId)) add('scenario-coverage-clause-unknown', `${clauseId} is not declared by this specification.`, { line, clauseId });
         const key = `${clauseId}:${scenarioId}:${outcome}`;
         if (seen.has(key)) add('scenario-coverage-row-duplicate', `Duplicate scenario coverage row for ${clauseId}, ${scenarioId}, ${outcome}.`, { line, clauseId, scenarioId });
         seen.add(key);

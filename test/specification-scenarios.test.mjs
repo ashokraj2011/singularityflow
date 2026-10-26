@@ -24,6 +24,18 @@ test('the declared matrix checks all clauses, distinct failure cases and observa
   assert.deepEqual(inspect((source + matrix).replaceAll('`EGL:', '`egl:').replaceAll('| S2 |', '| s2 |')).findings, []);
 });
 
+test('when clauses cannot be extracted, coverage does not call every declared clause unknown', () => {
+  // graph-plot (2026-10-26): one intent mismatch also produced "REQ-001/AC-001 is not declared" at the
+  // coverage rows, which sent the author to the wrong lines. The extraction failure is the one finding.
+  const broken = source + matrix + '\n## Verification intent\n\n| Clause | Methods | Criterion |\n|---|---|---|\n'
+    + '| `EGL:REQ-001` | test, visual | `EGL:AC-001` |\n| `EGL:REQ-002` | test | - |\n| `EGL:AC-001` | visual | `EGL:AC-001` |\n';
+  const findings = analyzeSpecification(broken, { policy: { scenarioCoverage: 'required' } }).findings;
+  assert.deepEqual(findings.map((finding) => finding.kind), ['clause-extraction-failed'], JSON.stringify(findings));
+  assert.match(findings[0].message, /^EGL:REQ-001 is proven by test, visual, but its criterion EGL:AC-001 lists only visual/u);
+  assert.equal(inspectSpecificationScenarios(broken, [], { required: true }).findings.filter((finding) => finding.kind === 'scenario-coverage-clause-unknown').length, 3,
+    'with clauses known to be absent the check still reports them');
+});
+
 test('legacy happy-path-only drafts get a specific failure hint, never a heuristic refusal', () => {
   const legacy = source.replace(/### S2[\s\S]*?(?=## Requirements)/u, '')
     + '\n## Failure and empty states\n\nInvalid inputs show an error.\n';

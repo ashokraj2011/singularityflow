@@ -1229,7 +1229,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     'singularityFlow.openEvidenceMatrix',
     'singularityFlow.showImpact', 'singularityFlow.addCapability', 'singularityFlow.editCapability',
     'singularityFlow.openDashboard', 'singularityFlow.openDesigner', 'singularityFlow.openWorkflowStudio', 'singularityFlow.addUserAgent', 'singularityFlow.decideStory', 'singularityFlow.decisions',
-    'singularityFlow.startApplication', 'singularityFlow.runTests', 'singularityFlow.testSummary', 'singularityFlow.editRunConfigurations', ...RUN_CONFIGURATION_COMMANDS,
+    'singularityFlow.workspaceRunTest', 'singularityFlow.startApplication', 'singularityFlow.runTests', 'singularityFlow.testSummary', 'singularityFlow.editRunConfigurations', ...RUN_CONFIGURATION_COMMANDS,
     'singularityFlow.openEnvironmentFiles',
     'singularityFlow.publishConfiguration',
     'singularityFlow.openInstructionDesigner', 'singularityFlow.openPromptAudit', 'singularityFlow.togglePromptLog', 'singularityFlow.openActivityLog',

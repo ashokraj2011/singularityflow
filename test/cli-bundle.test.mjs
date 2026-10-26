@@ -206,7 +206,12 @@ test('the bundled CLI answers exactly like the sources while opening a handful o
   // extractor and completer load lazily, outside these reads.
   // 5,250,000: a turn names its step's author (`Step author: /sf-phase.`) so no turn guesses /sf-code,
   // cold-hooks +216 (phase-mutation-contract.mjs, copilot-mutation-guard.mjs) for 5,245,199.
-  assert.ok(catalogClosure.reduce((sum, item) => sum + item.bytes, 0) < 5_250_000,
+  // 5,255,000: main bc773c14 measures 5,249,833. A requirement whose criterion lacks one of its methods is
+  // told which and both fixes, a clause-extraction failure is reported once instead of as every coverage row,
+  // and the Specification line states that coverage rule: cold-narrow-reads +638 (verification/intent.mjs,
+  // specification-quality.mjs, specification-scenarios.mjs, phase-prepublish.mjs, phase-authoring-contract.mjs)
+  // for 5,250,471.
+  assert.ok(catalogClosure.reduce((sum, item) => sum + item.bytes, 0) < 5_255_000,
     'catalog parsing stays bounded instead of pulling in the entire administration bundle');
   for (const name of ['cold-compatibility.mjs', 'cold-models.mjs', 'cold-intake.mjs', 'cold-phases.mjs', 'cold-hook-context.mjs']) {
     assert.ok(!catalogClosure.some(item => item.file === name), `catalogs must not statically reach ${name}`);

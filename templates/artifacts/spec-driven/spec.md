@@ -115,8 +115,10 @@ Acceptance criteria use the same stable, namespaced form:
 
 <!-- One row per declared clause, including non-functional requirements. Methods: test, visual,
 inspection, or a comma-separated combination (all required). AC Criterion is its own ID. A
-visual/inspection requirement names the AC proving it; a test-only requirement may use -. Choose
-from the pinned source, not from available tools. A screenshot is visual proof, not a test exemption.
+visual/inspection requirement names the AC proving it; a test-only requirement may use -. An AC a
+requirement names lists every method that requirement lists: a `test, visual` requirement needs a
+`test, visual` AC. Choose from the pinned source, not from available tools. A screenshot is visual
+proof, not a test exemption.
 Planning must inherit these methods and cannot change them without an approved scope amendment. -->
 
 | Clause | Methods | Criterion |

@@ -142,8 +142,11 @@ async function specificationPublicationBlockers(root, config, workflow, phase, d
         }
       }
     } catch (error) {
-      add('specification.index-invalid', 'specification-index', error.message,
-        { details: { sourceCode: error.code ?? null } });
+      // The quality check reads the same clauses first; its finding already names this cause.
+      if (!blockers.some(finding => finding.code === 'specification.clause-extraction-failed' && finding.message === error.message)) {
+        add('specification.index-invalid', 'specification-index', error.message,
+          { details: { sourceCode: error.code ?? null } });
+      }
     }
   }
 

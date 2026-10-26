@@ -73,6 +73,20 @@ test('invalid, incomplete or unlinked intent is caught during Specification, not
     'a later defining phase can reference approved proof without redefining earlier clauses');
 });
 
+test('a requirement proven by more than its criterion names what is missing and both ways to fix it', () => {
+  // graph-plot (2026-10-26): REQ-001 "test, visual" with AC-001 "visual" said only "verification methods
+  // must be covered by AC-001", and the author edited the requirement's prose twice instead of this table.
+  const mismatched = scope + '\n' + intent().replace('| `PROOF:REQ-001` | visual |', '| `PROOF:REQ-001` | test, visual |');
+  assert.throws(() => extractClauses(mismatched), (error) => {
+    assert.equal(error.code, 'SPEC_VERIFICATION_INTENT_INVALID');
+    assert.equal(error.message, 'PROOF:REQ-001 is proven by test, visual, but its criterion PROOF:AC-001 lists only visual in Verification intent: '
+      + "add test to PROOF:AC-001's Methods, or remove it from PROOF:REQ-001's.");
+    assert.deepEqual(error.details.uncovered, ['test']);
+    return true;
+  });
+  assert.equal(extractClauses(mismatched.replace('| `PROOF:AC-001` | visual |', '| `PROOF:AC-001` | test, visual |')).length, 2, 'either fix it names clears it');
+});
+
 test('non-test proof is an exact shared contract, not an exemption or an observed visual pass', () => {
   const derived = derive();
   assert.deepEqual(derived.missingTestClauseIds, []);

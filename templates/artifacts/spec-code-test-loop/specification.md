@@ -44,7 +44,9 @@ case. Use only pinned source/clarification facts, never invented behavior or tes
 
 <!-- Declare test/visual/inspection methods for every clause. Comma-separated methods are all
 required. Each AC names itself under Criterion; a visual/inspection requirement links to the AC
-proving it. A test-only requirement may use -. Resolve the proof method from the Story source here. -->
+proving it, and that AC lists every method the requirement lists (a `test, visual` requirement
+needs a `test, visual` AC). A test-only requirement may use -. Resolve the proof method from the
+Story source here. -->
 
 | Clause | Methods | Criterion |
 |---|---|---|

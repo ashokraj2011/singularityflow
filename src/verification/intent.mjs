@@ -62,8 +62,13 @@ export function parseVerificationIntent(markdown, clauses = [], { externalClause
   if (missing.length) throw invalid(`Verification intent is missing clauses: ${missing.join(', ')}.`, { clauses: missing });
   for (const [id, intent] of intents) {
     const criterion = intents.get(intent.criterionId) ?? known.get(intent.criterionId)?.verification;
-    if (intent.criterionId && intent.methods.some(method => !criterion?.methods.includes(method))) {
-      throw invalid(`${id} verification methods must be covered by ${intent.criterionId}.`, { clauseId: id });
+    const uncovered = intent.criterionId ? intent.methods.filter(method => !criterion?.methods.includes(method)) : [];
+    if (uncovered.length) {
+      // Name the missing methods and both ways out: "must be covered" alone sent an author to edit
+      // the requirement's prose, twice, instead of this table (graph-plot, 2026-10-26).
+      throw invalid(`${id} is proven by ${intent.methods.join(', ')}, but its criterion ${intent.criterionId} lists only `
+        + `${criterion?.methods?.length ? criterion.methods.join(', ') : 'no methods'} in Verification intent: add ${uncovered.join(', ')} `
+        + `to ${intent.criterionId}'s Methods, or remove ${uncovered.length === 1 ? 'it' : 'them'} from ${id}'s.`, { clauseId: id, uncovered });
     }
   }
   return intents;

@@ -455,12 +455,14 @@ export function analyzeSpecification(markdown, {
   const add = (kind, message, detail = {}) => findings.push({ kind, message, ...detail });
 
   let clauses = [];
+  let extracted = true;
   try {
     // `extractClauses` returns the array itself, and names the dependency edge `dependsOn` and the
     // clause text `body`. Reading `.clauses`, `.dependencies` and `.text` produced zero findings on
     // every document — a dead check that looks exactly like a clean one.
     clauses = extractClauses(markdown, { sourcePath: artifactPath, namespace });
   } catch (error) {
+    extracted = false;
     add('clause-extraction-failed', error.message);
   }
 
@@ -495,7 +497,8 @@ export function analyzeSpecification(markdown, {
     : null;
   if (witnessed) findings.push(...witnessed.findings);
   const scenarioCoverage = resolved.scenarioCoverage === 'off' ? null
-    : inspectSpecificationScenarios(markdown, clauses, { required: resolved.scenarioCoverage === 'required' });
+    // Without extracted clauses every coverage row would read as undeclared: one cause, reported once.
+    : inspectSpecificationScenarios(markdown, clauses, { required: resolved.scenarioCoverage === 'required', clausesKnown: extracted });
   if (scenarioCoverage) findings.push(...scenarioCoverage.findings);
 
   const ordered = findings.sort((left, right) =>

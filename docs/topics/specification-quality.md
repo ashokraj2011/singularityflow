@@ -19,7 +19,7 @@ related:
   - approvals
   - artifacts-and-generation
   - rejection-and-rework
-version: 13
+version: 14
 ---
 Specification quality asks "is the requirement good enough?", which is a different question from verification ("does the implementation satisfy it?") and from conformance ("does the evidence trace to approved intent?"). `sflow spec analyze` answers the deterministic part without a model: unresolved clarification markers, duplicate requirement text, missing scenario sections, and defects the clause extractor refuses. It never claims prose is complete, clear, consistent or correct, and it says so in its own report — a clean run means nothing checkable is wrong, not that the specification is good. `--assisted` adds semantic candidates through one model turn with no tools; candidates are observations for a reviewer, are recorded separately with the model, prompt hash and usage, and change no deterministic finding and no gate. Running it again for the same specification, findings and model shows the recorded candidates without another model call; `--refresh` asks again.
 
@@ -83,7 +83,8 @@ New specifications declare one row per clause in `## Verification intent`:
 | `STORY:AC-004` | visual | `STORY:AC-004` |
 
 Methods are `test`, `visual`, `inspection`, or a comma-separated combination, all required.
-Each AC names itself; visual/inspection requirements link to the AC proving them. A test-only
+Each AC names itself; visual/inspection requirements link to the AC proving them, and an AC a
+requirement names lists every method that requirement lists. A test-only
 requirement may use `-` for Criterion. Once declared, the table must cover every clause, including
 non-functional requirements. Duplicate, unknown, incomplete or inconsistent rows are refused in
 Specification's current draft, before Planning. Legacy publications without the table stay intact;

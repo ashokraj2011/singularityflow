@@ -1,3 +1,4 @@
+import { compareStoryCreation, storyCreatorName } from '../../../../src/story-presentation.mjs';
 /**
  * The lifecycle tree, as data.
  *
@@ -383,7 +384,7 @@ function activeStorySummaries(snapshot: RepositorySnapshot, excludeId?: string):
   return (snapshot.workItems ?? [])
     .filter((item) => item.id !== excludeId
       && !['closed', 'cancelled', 'invalid'].includes(String(item.status)))
-    .sort((left, right) => left.id.localeCompare(right.id))
+    .sort(compareStoryCreation)
     .map((item) => ({
       kind: 'story' as const,
       id: `active-story-summary:${item.id}`,
@@ -391,7 +392,7 @@ function activeStorySummaries(snapshot: RepositorySnapshot, excludeId?: string):
       description: [item.currentPhase, item.status]
         .filter(Boolean).map((value) => String(value).replaceAll('_', ' ')).join(' · ')
         || item.title || 'Active Story',
-      tooltip: `${item.title ?? item.id}\nOpen its verified checkout and continue in Copilot. Existing local work is preserved.`,
+      tooltip: `${item.title ?? item.id}\nCreated: ${item.createdAt ?? 'Not recorded'} · Creator: ${storyCreatorName(item.createdBy) ?? 'Not recorded'}\nOpen its verified checkout and continue in Copilot. Existing local work is preserved.`,
       icon: 'statusCurrent',
       command: ['session', 'attach', item.id],
       openCopilotAfterAttach: true,
@@ -448,13 +449,13 @@ function completedFolder(subjects: TreeNode[], artifactCount: number): TreeNode 
 function completedStorySummaries(snapshot: RepositorySnapshot, excludeId?: string): TreeNode[] {
   return (snapshot.workItems ?? [])
     .filter((item) => item.id !== excludeId && String(item.status) === 'closed')
-    .sort((left, right) => left.id.localeCompare(right.id))
+    .sort(compareStoryCreation)
     .map((item) => ({
       kind: 'story' as const,
       id: `completed-story-summary:${item.id}`,
       label: item.id,
       description: item.title ?? 'Closed Story',
-      tooltip: `Closed on ${item.branch ?? item.id}. Select it to synchronize that branch and browse its artifacts.`,
+      tooltip: `Creator: ${storyCreatorName(item.createdBy) ?? 'Not recorded'}. Closed on ${item.branch ?? item.id}. Select it to synchronize that branch and browse its artifacts.`,
       icon: 'statusSuccess',
       command: ['session', 'attach', item.id],
       runCommand: 'singularityFlow.runAction',
@@ -479,11 +480,11 @@ function archivedFolder(subjects: TreeNode[]): TreeNode {
 function cancelledStorySummaries(snapshot: RepositorySnapshot, excludeId?: string): TreeNode[] {
   return (snapshot.workItems ?? [])
     .filter((item) => item.id !== excludeId && item.status === 'cancelled')
-    .sort((left, right) => left.id.localeCompare(right.id))
+    .sort(compareStoryCreation)
     .map((item) => ({
       kind: 'story' as const, id: `archived-story-summary:${item.id}`, label: item.id,
       description: item.title ?? 'Cancelled Story',
-      tooltip: `Cancelled on ${item.branch ?? item.id}. Select it to synchronize that branch and browse its preserved artifacts.`,
+      tooltip: `Creator: ${storyCreatorName(item.createdBy) ?? 'Not recorded'}. Cancelled on ${item.branch ?? item.id}. Select it to synchronize that branch and browse its preserved artifacts.`,
       icon: 'archive', command: ['session', 'attach', item.id], runCommand: 'singularityFlow.runAction',
       contextValue: 'sflow.story.archived.summary'
     }));

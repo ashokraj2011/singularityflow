@@ -1,3 +1,4 @@
+import { compareStoryCreation, storyCreatorName } from './story-presentation.mjs';
 /** Local inventory for Run & Test. Opening the page never fetches, backfills or scans Git history. */
 import { createHash } from 'node:crypto';
 import { lstat, realpath } from 'node:fs/promises';
@@ -27,13 +28,14 @@ export async function workspaceRuntimeInventory(workspacePath) {
     targets.push({ id: key([workspace.path, repositoryId, root, story?.workId ?? null]),
       repositoryId, checkoutPath: root, workId: story?.workId ?? null,
       title: story?.title ?? workspace.repositories[repositoryId]?.name ?? repositoryId,
+      createdAt: story?.createdAt ?? null, createdBy: storyCreatorName(story?.createdBy),
       branch: story?.branch ?? workspace.repositories[repositoryId]?.branch ?? null,
       phase: story?.phase ?? null, storyStatus: story?.storyStatus ?? null,
       role: story ? story.role ?? 'story' : 'base', available: Boolean(available),
       ...(story?.lifecycle?.checkoutPath ? { lifecycleCheckoutPath: story.lifecycle.checkoutPath } : {}) });
   };
   for (const [id, repository] of Object.entries(workspace.repositories)) await add(id, workspaceRepositoryPath(workspace, repository));
-  for (const entry of index.entries) {
+  for (const entry of [...index.entries].sort(compareStoryCreation)) {
     if (!entry.workspace?.path || !same(await canonical(entry.workspace.path), canonicalWorkspace)
         || !Object.hasOwn(workspace.repositories, entry.repository?.id)) continue;
     await add(entry.repository.id, entry.checkoutPath, entry);

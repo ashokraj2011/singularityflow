@@ -1,3 +1,4 @@
+import { compareStoryCreation, storyCreatorName } from './story-presentation.mjs';
 import { SingularityFlowError } from './util.mjs';
 
 const PHASE_STATUSES = Object.freeze([
@@ -124,6 +125,10 @@ export function renderStoryRoster(result, {
       || (result.unavailable != null && !Array.isArray(result.unavailable))) {
     fail('Story roster requires a complete discovery result with its items and diagnostics.');
   }
+  const rows = result.items.map((item, index) => {
+    if (!object(item) || !text(item.id)) fail(`Story roster row ${index + 1} has no verified Story identity.`);
+    return item;
+  }).sort(compareStoryCreation);
   const diagnostics = result.unavailable ?? [];
   const lines = [];
   let bytes = 0;
@@ -160,10 +165,9 @@ export function renderStoryRoster(result, {
     add(`Warning: the discovery count ${literal(String(result.count))} differs from the retained rows; this roster may be incomplete.`);
   }
   add('');
-  add(`| # | Story ID | Title | Status | Current phase | Phase status | Generation | Progress (approved/total) | Branch |${showSelection ? ' Selection |' : ''}`);
-  add(`|---:|---|---|---|---|---|---:|---|---|${showSelection ? '---|' : ''}`);
-  result.items.forEach((item, index) => {
-    if (!object(item) || !text(item.id)) fail(`Story roster row ${index + 1} has no verified Story identity.`);
+  add(`| # | Story ID | Title | Created (UTC) | Creator | Status | Current phase | Phase status | Generation | Progress (approved/total) | Branch |${showSelection ? ' Selection |' : ''}`);
+  add(`|---:|---|---|---|---|---|---|---|---:|---|---|${showSelection ? '---|' : ''}`);
+  rows.forEach((item, index) => {
     const progress = item.progress;
     const available = countsAvailable(progress);
     const current = object(progress?.current) ? progress.current : null;
@@ -172,7 +176,7 @@ export function renderStoryRoster(result, {
     const generation = samePhase && Number.isSafeInteger(current?.generation) && current.generation >= 0
       ? String(current.generation) : 'unavailable';
     const fraction = available ? `${progress.approved}/${progress.total}` : 'unavailable';
-    add(`| ${index + 1} | ${literal(item.id)} | ${literal(item.title)} | ${literal(item.status)} | ${literal(phaseId, '—')} | ${samePhase ? literal(current?.status) : 'unavailable'} | ${generation} | ${fraction} | ${literal(item.branch)} |${showSelection ? ` ${selectedItem(item, result, activeSelection) ? 'selected' : '—'} |` : ''}`);
+    add(`| ${index + 1} | ${literal(item.id)} | ${literal(item.title)} | ${literal(typeof item.createdAt === 'string' && Number.isFinite(Date.parse(item.createdAt)) ? new Date(item.createdAt).toISOString() : null, 'Not recorded')} | ${literal(storyCreatorName(item.createdBy), 'Not recorded')} | ${literal(item.status)} | ${literal(phaseId, '—')} | ${samePhase ? literal(current?.status) : 'unavailable'} | ${generation} | ${fraction} | ${literal(item.branch)} |${showSelection ? ` ${selectedItem(item, result, activeSelection) ? 'selected' : '—'} |` : ''}`);
   });
   if (!result.items.length) add('');
   if (!result.items.length) add('No verified Stories were found in this discovery scope.');

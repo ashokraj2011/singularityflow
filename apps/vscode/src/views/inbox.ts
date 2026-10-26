@@ -27,6 +27,7 @@ function artifactRows(inbox: Inbox): string {
     <section class="inbox-work">
       <div class="section-heading"><h2>${icon(work.source === 'initiative' ? 'initiative' : 'story')}${escape(work.workId)}</h2><span class="count-badge">${work.artifacts.length}</span></div>
       ${work.label && work.label !== work.workId ? `<p class="muted">${escape(work.label)}</p>` : ''}
+      ${work.source === 'story' ? `<p class="muted">Created (UTC): ${storyCreatedDateHtml(work.createdAt)} · Creator: ${escape(work.createdBy ?? 'Not recorded')}</p>` : ''}
       ${work.groups.map((group) => `<section class="inbox-phase">
         <div class="section-heading"><h3>${icon('directory')}${escape(group.label)}</h3><span class="count-badge">${group.artifacts.length}</span></div>
         <div class="artifact-cards">${group.artifacts.map((artifact) => `
@@ -104,7 +105,7 @@ function storyCards(inbox: Inbox): string {
         <span class="active-story-title">${icon(story.current ? 'statusCurrent' : 'story')}${escape(story.workId)}</span>
         <span class="active-story-phase">${escape(story.repositoryId)} · ${escape(story.phase)}${story.terminal ? ` · ${escape(story.status)}` : ''}</span>
         <small>${escape(story.title)}</small>
-        <small>Created (UTC): ${storyCreatedDateHtml(story.createdAt)}</small>
+        <small>Created (UTC): ${storyCreatedDateHtml(story.createdAt)}</small><small>Creator: ${escape(story.createdBy ?? 'Not recorded')}</small>
         ${story.attachable
     ? `<span class="active-story-action">${story.current ? 'Continue in Copilot' : story.materialized ? 'Open &amp; continue' : 'Set up &amp; continue'}${icon('next')}</span>`
     : '<small>Repository mapping is unavailable</small>'}

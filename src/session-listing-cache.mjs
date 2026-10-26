@@ -1,3 +1,4 @@
+import { compareStoryCreation, storyCreatorName } from './story-presentation.mjs';
 /** Machine-local advisory roster. No Git/network before a hit; writes never consume this result. */
 import path from 'node:path';
 import os from 'node:os';
@@ -56,7 +57,7 @@ export async function sessionListingSnapshot(positionals, options, read) {
   const value = await (optionBoolean(options, 'refresh') ? withFreshRepositoryChecks(inspect) : inspect());
   if (!value?.discovered) return value;
   const status = repositoryCheckStatus(cwd);
-  return { ...value, discovered: { ...value.discovered, ...(status.source === 'cache' ? { fetched: false } : {}), listingSnapshot: {
+  return { ...value, discovered: { ...value.discovered, items: value.discovered.items.map(item => ({ ...item, createdBy: storyCreatorName(item.createdBy) })).sort(compareStoryCreation), ...(status.source === 'cache' ? { fetched: false } : {}), listingSnapshot: {
     ...status, source: status.source === 'fresh' && value.discovered.fetched === false ? 'local' : status.source,
     scope: 'session-candidate-listing', advisory: true,
     remoteCheckedAt: value.discovered.fetched === true ? status.checkedAt : null,

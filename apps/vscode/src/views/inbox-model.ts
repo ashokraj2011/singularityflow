@@ -1,3 +1,4 @@
+import { compareStoryCreation, storyCreatorName } from '../../../../src/story-presentation.mjs';
 /**
  * The business inbox, as data.
  *
@@ -33,6 +34,8 @@ export interface InboxArtifact {
 }
 
 export interface InboxWorkItem {
+  createdAt?: string | null;
+  createdBy?: string | null;
   workId: string;
   label: string;
   source: 'initiative' | 'story';
@@ -49,6 +52,7 @@ export interface WorkspaceStoryCatalogRow {
   id: string;
   title: string;
   createdAt?: string | null;
+  createdBy?: string | null;
   status: string;
   currentPhase: string | null;
   branch: string | null;
@@ -66,6 +70,7 @@ export interface InboxStory {
   workId: string;
   title: string;
   createdAt?: string | null;
+  createdBy?: string | null;
   phase: string;
   status: string;
   terminal: boolean;
@@ -224,6 +229,8 @@ function storiesOf(
       title: item.title ?? catalogRow?.title ?? item.id,
       createdAt: item.createdAt ?? (snapshot?.workflow?.workItem.id === item.id
         ? snapshot.workflow.workItem.createdAt : null) ?? catalogRow?.createdAt ?? null,
+      createdBy: storyCreatorName(item.createdBy ?? (snapshot?.workflow?.workItem.id === item.id
+        ? snapshot.workflow.workItem.createdBy : null) ?? catalogRow?.createdBy),
       phase: String(item.currentPhase ?? item.status ?? 'active').replaceAll('_', ' '),
       status: String(item.status ?? 'active').replaceAll('_', ' '),
       terminal: TERMINAL_STORY_STATUSES.has(String(item.status)),
@@ -243,7 +250,7 @@ function storiesOf(
     byRepositoryAndId.set(identity, {
       workId: row.id,
       title: row.title || row.id,
-      createdAt: row.createdAt ?? null,
+      createdAt: row.createdAt ?? null, createdBy: storyCreatorName(row.createdBy),
       phase: String(row.currentPhase || row.status || 'active').replaceAll('_', ' '),
       status: String(row.status || 'active').replaceAll('_', ' '),
       terminal: TERMINAL_STORY_STATUSES.has(String(row.status)),
@@ -261,10 +268,7 @@ function storiesOf(
     const phases = Object.values(snapshot.workflow.phases ?? {});
     if (phases.length) currentStory.progress = `${phases.filter(phase => phase.status === 'approved' || phase.status === 'complete').length} / ${phases.length} phases completed`;
   }
-  return [...byRepositoryAndId.values()].sort((left, right) => Number(left.terminal) - Number(right.terminal)
-    || Number(right.current) - Number(left.current)
-    || left.repositoryId.localeCompare(right.repositoryId)
-    || left.workId.localeCompare(right.workId));
+  return [...byRepositoryAndId.values()].sort(compareStoryCreation);
 }
 
 export function buildInbox(
@@ -333,7 +337,8 @@ export function buildInbox(
   const workItems = [...byWorkId.entries()].map(([workId, entries]): InboxWorkItem => {
     const source = entries[0]?.source ?? 'story';
     return {
-      workId,
+      workId, createdAt: snapshot.workItems.find(item => item.id === workId)?.createdAt ?? null,
+      createdBy: storyCreatorName(snapshot.workItems.find(item => item.id === workId)?.createdBy),
       label: entries[0]?.workLabel ?? workId,
       source,
       artifacts: entries,
@@ -344,9 +349,7 @@ export function buildInbox(
       )
     };
   }).sort((left, right) => {
-    if (left.workId === subjectId) return -1;
-    if (right.workId === subjectId) return 1;
-    return left.workId.localeCompare(right.workId);
+    return compareStoryCreation(left, right);
   });
   // Compatibility for consumers that still expect one flat phase list. New renderers use
   // workItems, which prevents identical phase names from different Stories being conflated.

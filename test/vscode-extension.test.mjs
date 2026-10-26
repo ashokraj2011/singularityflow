@@ -3763,7 +3763,7 @@ test('the sidebar and full inbox list active Stories without mixing their artifa
 
   const inbox = buildInbox(shot);
   assert.deepEqual(inbox.activeStories.map((story) => [story.workId, story.current]), [
-    ['STORY-42', true], ['CFA-STORY', false]
+    ['CFA-STORY', false], ['STORY-42', true]
   ]);
   const surface = await readFile(source('views/inbox.ts'), 'utf8');
   assert.match(surface, /Workspace Stories/);

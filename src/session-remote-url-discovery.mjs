@@ -1,3 +1,4 @@
+import { compareStoryCreation, storyCreatorName } from './story-presentation.mjs';
 import { mkdtemp, readdir, stat } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
@@ -59,7 +60,7 @@ export function ledgerSummaryCandidate(definition, pointer) {
   if (!story) return null;
   try { validateId(definition, pointer.id); } catch { return null; }
   return {
-    id: story.id, branch: story.branch, title: story.title, createdAt: story.createdAt ?? null,
+    id: story.id, branch: story.branch, title: story.title, createdAt: story.createdAt ?? null, createdBy: storyCreatorName(story.createdBy),
     status: story.status, phase: story.phase, progress: story.progress,
     commit: story.commit, commitOid: story.commitOid, aliases: story.aliases,
     workType: story.workType ?? null, updatedAt: story.updatedAt ?? story.createdAt ?? null
@@ -459,7 +460,7 @@ export async function discoverRemoteStoryCandidatesByUrl(url, {
             if (items.has(claimedId)) throw new Error('Story ID is claimed by more than one canonical branch');
             items.set(claimedId, {
               id: claimedId, branch: canonical, title: workflow.workItem.title,
-              createdAt: workflow.workItem.createdAt ?? null,
+              createdAt: workflow.workItem.createdAt ?? null, createdBy: storyCreatorName(workflow.workItem.createdBy),
               status: workflow.status, phase: workflow.currentPhase,
               workType: workflow.workItem.workType ?? null,
               updatedAt: workflow.history?.at(-1)?.at ?? workflow.workItem.createdAt ?? null,
@@ -485,7 +486,7 @@ export async function discoverRemoteStoryCandidatesByUrl(url, {
     }
     return {
       source: 'remote-url', discovery: 'state-ledger', stateRef, repositoryPath: null, remote: 'origin', fetched: true,
-      count: items.size, items: [...items.values()].sort((a, b) => a.id.localeCompare(b.id)),
+      count: items.size, items: [...items.values()].sort(compareStoryCreation),
       unavailableCount: diagnostics.length, unavailable: diagnostics
     };
   } finally {

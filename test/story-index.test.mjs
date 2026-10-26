@@ -248,6 +248,8 @@ test('one Story has one checkout across workspaces, and a Work ID decides where 
       assert.equal(recorded.workspace.id, 'local--wsa');
       assert.equal(recorded.branch, 'S-1');
       assert.equal(recorded.phase, 'specification');
+      assert.ok(Number.isFinite(Date.parse(recorded.createdAt)));
+      assert.equal(recorded.createdBy, 'Index Tester');
       assert.equal(canonical(path.dirname(path.dirname(recorded.checkoutPath))),
         canonical(path.join(f.workspaces.wsa.path, '.singularity-flow')), 'an isolated Story worktree');
       assert.equal(f.git(recorded.checkoutPath, 'branch', '--show-current'), 'S-1');

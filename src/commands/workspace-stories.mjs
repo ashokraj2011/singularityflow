@@ -1,3 +1,4 @@
+import { storyCreatorName } from '../story-presentation.mjs';
 /**
  * `workspace stories [WORK-ID]`: every Story checkout on this computer, across all workspaces.
  *
@@ -13,6 +14,7 @@ const OPTIONS = new Set(['json', 'rebuild', 'timings']);
 function projected(entry, activeWorkspaceId) {
   return {
     workId: entry.workId, title: entry.title ?? null,
+    createdAt: entry.createdAt ?? null, createdBy: storyCreatorName(entry.createdBy),
     workspace: entry.workspace, activeWorkspace: entry.workspace.id === activeWorkspaceId,
     repository: { id: entry.repository.id ?? null, url: entry.repository.url ?? null },
     // `secondary`: the Story's checkout in another repository it delivers in; its record is in `lifecycleCheckoutPath`.
@@ -66,6 +68,7 @@ export async function run(positionals = [], options = {}) {
         ? ` (another repository the Story delivers in; its record is in ${story.lifecycleCheckoutPath})` : ''}`);
       console.log(`Checkout: ${story.checkoutPath}${story.availability === 'ready' ? '' : ` (unavailable: ${story.reason})`}`);
       console.log(`Branch: ${story.branch} · phase: ${story.phase ?? '—'} (${story.phaseStatus ?? '—'}) · Story: ${story.storyStatus ?? '—'}`);
+      console.log(`Created: ${story.createdAt ?? 'Not recorded'} · Creator: ${story.createdBy ?? 'Not recorded'}`);
       console.log(`Updated: ${story.updatedAt ?? '—'}`);
     }
     if (lifecycle.length > 1) console.log('This Story has more than one checkout. Keep the one you work in; remove the other after checking it holds nothing you need.');
@@ -83,12 +86,12 @@ export async function run(positionals = [], options = {}) {
     phase: [story.phase, story.phaseStatus].filter(Boolean).join(' · ') || '—',
     status: story.availability === 'ready' ? story.storyStatus ?? '—' : 'unavailable',
     branch: story.branch,
-    updated: String(story.updatedAt ?? '—').slice(0, 16).replace('T', ' '),
+    created: story.createdAt ?? 'Not recorded', creator: story.createdBy ?? 'Not recorded',
     checkoutPath: story.checkoutPath
   })), [
     { key: 'workId', label: 'STORY' }, { key: 'workspace', label: 'WORKSPACE' }, { key: 'repository', label: 'REPOSITORY' },
     { key: 'phase', label: 'PHASE' }, { key: 'status', label: 'STATUS' }, { key: 'branch', label: 'BRANCH' },
-    { key: 'updated', label: 'UPDATED' }, { key: 'checkoutPath', label: 'CHECKOUT', kind: 'path' }
+    { key: 'created', label: 'CREATED (UTC)', shrink: false }, { key: 'creator', label: 'CREATOR', shrink: false }, { key: 'checkoutPath', label: 'CHECKOUT', kind: 'path' }
   ]));
   console.log(`* the active workspace${stories.some((story) => story.role === 'secondary') ? '; + another repository the Story delivers in' : ''}. `
     + 'Locate one Story with: singularity-flow workspace stories <WORK-ID>');

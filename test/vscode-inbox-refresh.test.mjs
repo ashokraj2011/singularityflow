@@ -95,11 +95,11 @@ test('the same Story ID in different mapped repositories remains distinct even w
   assert.deepEqual(inbox.stories.map((story) => ({
     repositoryId: story.repositoryId, repositoryPath: story.repositoryPath, current: story.current
   })), [
-    { repositoryId: 'delivery', repositoryPath: '/workspace/repos/delivery', current: true },
-    { repositoryId: 'accounts', repositoryPath: '/workspace/repos/accounts', current: false }
+    { repositoryId: 'accounts', repositoryPath: '/workspace/repos/accounts', current: false },
+    { repositoryId: 'delivery', repositoryPath: '/workspace/repos/delivery', current: true }
   ]);
-  assert.equal(inbox.stories[1].title, 'Independent repository Story');
-  assert.equal(inbox.stories[1].phase, 'design');
+  assert.equal(inbox.stories[0].title, 'Independent repository Story');
+  assert.equal(inbox.stories[0].phase, 'design');
 });
 
 test('an unknown linked-checkout repository is not inferred from a matching Story ID', () => {
@@ -170,7 +170,7 @@ test('Inbox refresh discovers Stories from an empty workspace and supports a fai
   const click = event => { for (const listener of clicks) listener(event); };
   runInNewContext(script, {
     window: { __sfVscode: { postMessage: (message) => webviewMessage(message) } },
-    document: { getElementById: () => null,
+    document: { getElementById: () => null, querySelectorAll: () => [],
       addEventListener: (type, listener) => { if (type === 'click') clicks.push(listener); } }
   });
   const refreshButton = { hasAttribute: (name) => name === 'data-refresh-stories', dataset: {} };

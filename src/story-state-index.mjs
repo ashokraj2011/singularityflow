@@ -1,3 +1,4 @@
+import { storyCreatorName } from './story-presentation.mjs';
 /** Story locations come from the reachable state ledger, never an application branch inventory. */
 import { createHash } from 'node:crypto';
 import path from 'node:path';
@@ -18,6 +19,9 @@ const text = (value) => typeof value === 'string' && value ? value : null;
 function storySummaryFromSubject(entry, id, branch, commit) {
   const subject = entry?.subject;
   if (!subject || typeof subject !== 'object' || Array.isArray(subject)) return null;
+  // Historical summaries omitted creation metadata. Prove those from the exact Story object
+  // once, rather than describing a recorded creator/date as unknown or inferring a publisher.
+  if (!Object.hasOwn(subject, 'createdAt') || !Object.hasOwn(subject, 'createdBy')) return null;
   const progress = subject.progress;
   if (!text(subject.title) || !text(subject.status)
       || !progress || typeof progress !== 'object' || Array.isArray(progress)) return null;
@@ -27,6 +31,7 @@ function storySummaryFromSubject(entry, id, branch, commit) {
     branch,
     title: subject.title,
     createdAt: text(subject.createdAt),
+    createdBy: storyCreatorName(subject.createdBy),
     status: subject.status,
     phase: text(subject.currentPhase),
     progress,

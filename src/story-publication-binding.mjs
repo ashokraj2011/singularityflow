@@ -1,3 +1,4 @@
+import { storyCreatorName } from './story-presentation.mjs';
 /** Canonical story publication binding; legacy state exports delegate here. */
 import { SingularityFlowError } from "./util.mjs";
 import { branch } from "./git.mjs";
@@ -31,6 +32,7 @@ export function storyLedgerSummary(workflow) {
     progress: structuredClone(storyLifecycleProgress(workflow)),
     canonicalBranch: lineage.canonicalBranch ?? workflow.workItem.branch ?? workflow.workItem.id,
     createdAt: workflow.workItem.createdAt ?? null,
+    createdBy: storyCreatorName(workflow.workItem.createdBy),
     updatedAt: workflow.history?.at(-1)?.at ?? workflow.workItem.createdAt ?? null,
     aliases: [lineage.planId, lineage.jiraIssueId, lineage.sourceStableId, workflow.workItem.source?.stableId,
       lineage.initialJiraKey, lineage.currentJiraKey,

@@ -53,6 +53,22 @@ async function completedTestChecks(candidate, root) {
   }
   return { completed, findings };
 }
+/**
+ * A captured file's bytes from the team directory, for an agent's folder: only a regular file whose
+ * bytes still have the hash the capture recorded. A changed one is null; the re-capture above already
+ * reports the change.
+ */
+async function capturedBytes(session, where) {
+  const file = session.capture.files.find((entry) => entry.path === where);
+  const extra = /^\+(\d+)\/(.+)$/u.exec(where);
+  const root = session.capture.roots[extra ? Number(extra[1]) : 0]?.path;
+  if (!file?.sha256 || !root) return null;
+  const absolute = path.join(root, ...(extra ? extra[2] : where).split('/'));
+  if (!(await lstat(absolute).catch(() => null))?.isFile()) return null;
+  const bytes = await readFile(absolute).catch(() => null);
+  return bytes && digest(bytes) === file.sha256 ? bytes : null;
+}
+
 const PLACED_INSTRUCTION = /<instruction>\s*([a-z0-9-]+)\s*<\/instruction>|<!--\s*sflow-instruction:\s*([a-z0-9-]+)\s*-->/gu;
 
 function fail(code, message, details = undefined) {
@@ -262,7 +278,7 @@ export async function compileTeamImport(sessionId, {
     const staging = path.join(path.dirname(session.candidatePath), 'stage');
     const checks = await completedTestChecks(candidate, session.capture.roots[0]?.path ?? null);
     findings.push(...checks.findings);
-    const { baseline } = await stageCandidate(staging, candidate, { completed: checks.completed });
+    const { baseline } = await stageCandidate(staging, candidate, { completed: checks.completed, sourceFile: (where) => capturedBytes(session, where) });
     findings.push(...crossReferences(candidate, baseline));
     const covered = coverage(candidate, session);
     findings.push(...covered.findings);

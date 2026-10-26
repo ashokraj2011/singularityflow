@@ -4,13 +4,18 @@
  *
  * The tree starts from a freshly initialized configuration, the baseline every destination
  * shares, and adds only the candidate's namespaced workflow, phases, authorities, agents, skills,
- * instructions, templates and attachments. It lives in the session directory, is rebuilt on every
+ * instructions, templates and attachments, and each agent's folder: the captured files it consults,
+ * byte for byte, under singularity/user-defined/<agent>/ with the manifest its agent pins, so the
+ * bundle carries them and the step prompt gives them to it as for a folder `call add` made. It lives in the session directory, is rebuilt on every
  * compile, is never a Git repository, and fabricates no approval or provenance.
  */
+import { createHash } from 'node:crypto';
 import { mkdir, readFile, rm, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import YAML from 'yaml';
 import { discoverAgents } from '../agents.mjs';
+import { USER_DEFINED_MANIFEST_METADATA, USER_DEFINED_METADATA, userDefinedFolderPath, userDefinedManifestPath } from '../user-defined-agent-identity.mjs';
+import { fileMedia } from './formats.mjs';
 import { initializeDefinition } from '../config.mjs';
 import { SKILL_ATTACHMENTS_PATH } from '../skill-library.mjs';
 import { CHECK_KINDS, classifyCommand } from '../guidance-scan.mjs';
@@ -62,11 +67,36 @@ function phaseDefinition(phase, completed) {
 }
 
 /**
+ * An agent's folder: the files of `agent.files` that still hold the bytes the capture hashed
+ * (`sourceFile` answers null for any other), and the manifest text that pins them.
+ */
+async function agentFolder(agent, candidate, sourceFile) {
+  const files = [];
+  for (const where of agent.files ?? []) {
+    const bytes = await sourceFile(where);
+    if (!bytes) continue;
+    const media = fileMedia(where);
+    // An extra root's capture path (+1/notes.md) keeps its root apart inside the folder.
+    files.push({ path: where.replace(/^\+(\d+)\//u, 'root-$1/'), sha256: `sha256:${createHash('sha256').update(bytes).digest('hex')}`,
+      bytes: bytes.length, ...(media ? { kind: media } : {}), content: bytes });
+  }
+  if (!files.length) return null;
+  files.sort((a, b) => (a.path < b.path ? -1 : a.path > b.path ? 1 : 0));
+  const { userDefinedManifestText } = await import('../user-defined-agents.mjs');
+  const code = candidate.phases.some((phase) => phase.agent === agent.id && phase.code === true);
+  // No main file: the agent's instructions are its body, so every file is given to it.
+  const manifest = userDefinedManifestText({ name: agent.id, label: agent.label, main: null, output: code ? 'code' : 'document',
+    files: files.map(({ content, ...file }) => file), leftOut: [] });
+  return { files, manifest, sha256: `sha256:${createHash('sha256').update(manifest).digest('hex')}` };
+}
+
+/**
  * Write `candidate` under `root` (emptied first). Returns the files it wrote, relative, and the
  * IDs the baseline already used before the candidate was added (for collision findings).
- * `completed` maps a candidate's quality command to its completed test record.
+ * `completed` maps a candidate's quality command to its completed test record; `sourceFile` reads a
+ * captured file's bytes for an agent's folder, or null when they no longer match the capture.
  */
-export async function stageCandidate(root, candidate, { completed = new Map() } = {}) {
+export async function stageCandidate(root, candidate, { completed = new Map(), sourceFile = async () => null } = {}) {
   await rm(root, { recursive: true, force: true });
   await mkdir(root, { recursive: true, mode: 0o700 });
   await initializeDefinition(root);
@@ -75,7 +105,7 @@ export async function stageCandidate(root, candidate, { completed = new Map() } 
   const put = async (relative, text) => {
     const target = path.join(root, ...relative.split('/'));
     await mkdir(path.dirname(target), { recursive: true });
-    await writeFile(target, text, 'utf8');
+    await writeFile(target, text, typeof text === 'string' ? 'utf8' : undefined);
     written.push(relative);
   };
 
@@ -103,13 +133,19 @@ export async function stageCandidate(root, candidate, { completed = new Map() } 
   for (const agent of candidate.agents) {
     const defaultFor = candidate.phases.filter((phase) => phase.agent === agent.id).map((phase) => phase.id);
     const reviews = agent.id === reviewer ? candidate.workflow.sourceReview.phases : [];
+    const folder = await agentFolder(agent, candidate, sourceFile);
+    if (folder) {
+      for (const file of folder.files) await put(`${userDefinedFolderPath(agent.id)}/${file.path}`, file.content);
+      await put(userDefinedManifestPath(agent.id), folder.manifest);
+    }
     const fields = {
       name: agent.id,
       description: agent.description,
       ...(agent.tools?.length ? { tools: [...agent.tools] } : {}),
       metadata: { 'sflow-label': agent.label, 'sflow-phases': csv([...defaultFor, ...reviews]), 'sflow-default-for': csv(defaultFor),
         // A source reviewer reads and reports; the engine admits only a review-only agent there.
-        ...(reviews.length ? { 'sflow-mode': 'read-only-review' } : {}) }
+        ...(reviews.length ? { 'sflow-mode': 'read-only-review' } : {}),
+        ...(folder ? { [USER_DEFINED_METADATA]: agent.id, [USER_DEFINED_MANIFEST_METADATA]: folder.sha256 } : {}) }
     };
     await put(`.github/agents/${agent.id}.agent.md`, `${frontMatter(fields)}${agent.body.trim()}\n`);
   }

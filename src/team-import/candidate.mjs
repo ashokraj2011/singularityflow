@@ -36,7 +36,7 @@ const FIELDS = Object.freeze({
   qualityCommand: ['argv', 'evidence'],
   approval: ['mode', 'authorities', 'minimum', 'allowSelfApproval'],
   sourceReview: ['phases', 'reviewerAgent'],
-  agent: ['id', 'label', 'description', 'tools', 'body'],
+  agent: ['id', 'label', 'description', 'tools', 'body', 'files'],
   skill: ['id', 'description', 'loading', 'body'],
   instruction: ['id', 'description', 'body'],
   template: ['ref', 'body'],
@@ -49,14 +49,14 @@ const FIELDS = Object.freeze({
 const OPTIONAL = Object.freeze({
   phase: ['inputs', 'qualityCommands', 'code'],
   approval: ['allowSelfApproval'],
-  agent: ['tools'],
+  agent: ['tools', 'files'],
   skill: ['loading'],
   attachment: ['agent', 'workflow', 'steps', 'use'],
   mapping: ['material', 'decision', 'reason'],
   authority: ['evidence'],
   workflow: ['decisions', 'sourceReview', 'omits']
 });
-const LIMITS = Object.freeze({ phases: 30, agents: 40, skills: 64, instructions: 64, templates: 40, mappings: 2000, body: 30_000 });
+const LIMITS = Object.freeze({ phases: 30, agents: 40, skills: 64, instructions: 64, templates: 40, mappings: 2000, body: 30_000, agentFiles: 64 });
 
 const plain = (value) => value !== null && typeof value === 'object' && !Array.isArray(value);
 
@@ -268,6 +268,16 @@ export function validateCandidate(text, { session }) {
     if (Object.hasOwn(agent, 'tools') && (!Array.isArray(agent.tools) || agent.tools.some((tool) => typeof tool !== 'string' || !tool || tool.length > 80))) {
       add(`${at}.tools`, 'TEAM_IMPORT_CANDIDATE_SHAPE', 'tools lists tool names exactly as the source agent declares them.');
     }
+    // The captured files the agent consults while it works travel with the workflow as its folder.
+    const carried = new Set();
+    (Object.hasOwn(agent, 'files') ? list(agent.files, `${at}.files`, LIMITS.agentFiles) : []).forEach((where, fileIndex) => {
+      const atFile = `${at}.files[${fileIndex}]`;
+      const file = typeof where === 'string' ? files.get(where) : null;
+      if (!file) add(atFile, 'TEAM_IMPORT_AGENT_FILE_UNKNOWN', `${atFile} names '${where}', which is not in the capture; give a capture path.`);
+      else if (!['clean', 'viewable'].includes(file.screening)) add(atFile, 'TEAM_IMPORT_EVIDENCE_WITHHELD', `${atFile} names '${where}', which was ${file.screening}; it cannot travel with the workflow.`);
+      else if (carried.has(where)) add(atFile, 'TEAM_IMPORT_CANDIDATE_ID_COLLISION', `${atFile} names '${where}' twice.`);
+      carried.add(where);
+    });
   });
   const skillIds = new Set();
   list(candidate.skills, '$.skills', LIMITS.skills).forEach((skill, index) => {
@@ -395,6 +405,7 @@ export function candidateGuide() {
       'Running out of rounds always pauses for the by group; a source that escalates or skips instead maps as unsupported.',
       'workflow.sourceReview reviews only the steps that define requirements or plan claims, by a review-only agent that authors no phase; a review step authored by an agent is just a phase. Independence the source requires and this cannot express stays unresolved.',
       'Place each instruction in a skill body with <instruction>id</instruction>; every skill is attached; every agent defaults for a phase or reviews.',
+      'An agent\'s files lists the capture paths of the reference material it consults while it works: documents, office files (media document, read as their text), images and PDFs (media viewable, opened and looked at). They travel with the workflow byte for byte as the agent\'s folder, and its step prompt gives them to it. Behaviour still belongs in the agent body, skills and instructions.',
       'Every interpreted source file has a mapping; evidence spans cite capture paths, their sha256 and line numbers.',
       'What SFlow requires but the source never said is kind destination-policy; a material inference names the decisionsNeeded question a person answers.',
       'Never write hashes, approvals, validation results or answers: compile computes them, and answers are recorded with --answer.'

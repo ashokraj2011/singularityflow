@@ -100,22 +100,31 @@ export async function pruneTeamImportSessions({ env = process.env, now = Date.no
 }
 
 /**
- * Create a session for `capture`, copy the screened text of `closure` into it, and return the
- * record. `contents` maps capture paths to the screened text `captureTeamDirectory` returned.
+ * Where a captured file's screened copy lives: an office document's text beside its name (`.txt`),
+ * so the copy never claims to be the document; any other file under its own path.
  */
-export async function createTeamImportSession({ capture, contents, closure, entry, options = {} }, { env = process.env, now = Date.now() } = {}) {
+function snapshotTarget(capture, file) {
+  const target = path.join(capture, ...`${file.path}${file.media === 'document' ? '.txt' : ''}`.split('/'));
+  return target.startsWith(capture + path.sep) ? target : null;
+}
+
+/**
+ * Create a session for `capture`, copy the screened text of `closure` into it, and return the
+ * record. `contents` maps capture paths to the screened text `captureTeamDirectory` returned, and
+ * `binaries` to the bytes of each image or PDF, copied whole for the model to open.
+ */
+export async function createTeamImportSession({ capture, contents, binaries = new Map(), closure, entry, options = {} }, { env = process.env, now = Date.now() } = {}) {
   const root = await stateRoot(env);
   const id = `tis_${randomBytes(8).toString('hex')}`;
   const paths = sessionPaths(root, id);
   await mkdir(paths.directory, { mode: 0o700 });
   const snapshots = [];
   for (const file of closure) {
-    const text = contents.get(file.path);
-    if (text === undefined) continue;
-    const target = path.join(paths.capture, ...file.path.split('/'));
-    if (!target.startsWith(paths.capture + path.sep)) continue;
-    await writePrivate(target, text);
-    snapshots.push({ path: file.path, snapshot: target });
+    const value = contents.get(file.path) ?? binaries.get(file.path);
+    const target = snapshotTarget(paths.capture, file);
+    if (value === undefined || !target) continue;
+    await writePrivate(target, value);
+    snapshots.push({ path: file.path, snapshot: target, ...(file.media ? { media: file.media } : {}) });
   }
   const record = sealed({
     schemaVersion: currentSchemaVersion('team-import-session'),
@@ -188,14 +197,17 @@ export const TEAM_IMPORT_SESSION_TRANSFER = 'sflow-team-import-session-transfer@
 
 /**
  * A session as one file, to go on with the conversion on another computer: its sealed record, the
- * screened copies it keeps and the candidate written so far. Nothing else leaves this computer.
+ * screened copies it keeps (an image or PDF as base64 of its bytes) and the candidate written so
+ * far. Nothing else leaves this computer.
  */
 export async function exportTeamImportSession(sessionId, { env = process.env, now = Date.now() } = {}) {
   const session = await readTeamImportSession(sessionId, { env, now });
   const paths = sessionPaths(await stateRoot(env), session.id);
   const files = [];
   for (const entry of session.snapshots ?? []) {
-    files.push({ path: entry.path, text: await readFile(entry.snapshot, 'utf8') });
+    files.push(entry.media === 'viewable'
+      ? { path: entry.path, media: 'viewable', base64: (await readFile(entry.snapshot)).toString('base64') }
+      : { path: entry.path, ...(entry.media ? { media: entry.media } : {}), text: await readFile(entry.snapshot, 'utf8') });
   }
   const candidate = await readFile(paths.candidate, 'utf8').catch(() => null);
   const content = { schema: TEAM_IMPORT_SESSION_TRANSFER, exportedAt: new Date(now).toISOString(), session, files, candidate };
@@ -229,16 +241,18 @@ export async function importTeamImportSession(transfer, { folders = [], env = pr
   const files = Array.isArray(transfer.files) ? transfer.files : [];
   for (const file of files) {
     const parts = String(file?.path ?? '').split('/');
-    if (typeof file?.text !== 'string' || parts.some((part) => !part || part === '.' || part === '..' || part.includes('\\'))) {
+    const held = file?.media === 'viewable' ? typeof file.base64 === 'string' : typeof file?.text === 'string' && [undefined, 'document'].includes(file.media);
+    if (!held || parts.some((part) => !part || part === '.' || part === '..' || part.includes('\\'))) {
       fail('TEAM_IMPORT_TRANSFER_INVALID', `The session file names a file it may not hold: ${String(file?.path ?? '')}.`);
     }
   }
   await mkdir(paths.directory, { mode: 0o700 });
   const snapshots = [];
   for (const file of files) {
-    const target = path.join(paths.capture, ...file.path.split('/'));
-    await writePrivate(target, file.text);
-    snapshots.push({ path: file.path, snapshot: target });
+    const target = snapshotTarget(paths.capture, file);
+    if (!target) continue;
+    await writePrivate(target, file.media === 'viewable' ? Buffer.from(file.base64, 'base64') : file.text);
+    snapshots.push({ path: file.path, snapshot: target, ...(file.media ? { media: file.media } : {}) });
   }
   if (typeof transfer.candidate === 'string') await writePrivate(paths.candidate, transfer.candidate);
   const rebound = roots.map((entry, index) => ({ ...entry, path: path.resolve(folders[index]) }));

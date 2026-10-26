@@ -1334,9 +1334,11 @@ directory, not a repository, not configuration.
 
 It reads Copilot agents, chat modes, scoped and repository instructions, prompt files and directory
 skills (`<id>/SKILL.md`), `AGENTS.md`, and the hidden-tool layout other coding agents use
-(`.<tool>/agents/<name>.md` with a root `<TOOL>.md` beside `.<tool>/`). Everything else is listed
-by name, never interpreted. Files are captured whole and twice, screened for secrets (a file with a
-finding is withheld, never read back), and never executed.
+(`.<tool>/agents/<name>.md` with a root `<TOOL>.md` beside `.<tool>/`). Word, Excel and PowerPoint
+files are read as their text, and images and PDFs are kept whole for the model to open; links to
+them resolve like links to any file. Everything else is listed by name, never interpreted. Files are
+captured whole and twice, screened for secrets (a file with a finding is withheld, never read back),
+and never executed.
 
 ```bash
 singularity-flow workflow import-team inspect ./team-automation --entry delivery-lead --json
@@ -1359,7 +1361,10 @@ inspect read), and compile still checks the folder holds exactly what was interp
    one candidate file the conversion may write.
 2. The model writes a `team-import-candidate` record following the returned `candidate.guide`:
    namespaced phases, agents, skills, instructions and templates, decisions, and one mapping per
-   source item, with evidence spans. What SFlow needs but the source never said is labelled
+   source item, with evidence spans. An agent's `files` lists the reference material it consults
+   while it works (documents, office files, images, PDFs); they travel with the workflow byte for
+   byte as that agent's folder (`singularity/user-defined/<agent>/`, pinned by its manifest), and
+   its step prompt gives them to it. What SFlow needs but the source never said is labelled
    *destination policy*; open questions go to a person.
 3. **compile** checks it deterministically: the closed record and its evidence, references between
    sections, coverage, the engine's own loader and validators, the responsibilities every route

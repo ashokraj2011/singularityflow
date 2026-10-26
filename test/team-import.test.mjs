@@ -15,6 +15,9 @@ import { exportTeamImportSession, importTeamImportSession, listTeamImportSession
 import { applyWorkflowImport, compileWorkflowBundle, importResolutionOptions, planWorkflowImport, readWorkflowBundle } from '../src/workflow-transfer.mjs';
 import { initializeDefinition } from '../src/config.mjs';
 import { fixtureCandidate, teamFixture, writeCandidate } from './helpers/team-import-fixture.mjs';
+import { docx } from './helpers/office-fixtures.mjs';
+import { loadDefinition } from '../src/config.mjs';
+import { renderUserDefinedFolder } from '../src/user-defined-agents.mjs';
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 
@@ -184,6 +187,74 @@ test('a careful candidate compiles portable-ready, byte-identical every time, an
   assert.match(skill.content, /<instruction>delivery-api-compat<\/instruction>/u, 'the instruction stays placed at its point of use');
   assert.ok(bundle.assets.some((asset) => asset.kind === 'instruction' && asset.id === 'delivery-api-compat'));
   assert.ok(!JSON.stringify(bundle).includes(base), 'no source-machine path enters the bundle');
+});
+
+test('documents, images and PDFs are read and linked, and travel with the agent that uses them as its folder', async (t) => {
+  const screen = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0, 0, 0, 13, 0xff]);
+  const f = await inspected(t, { files: {
+    '.github/agents/builder.agent.md': '---\nname: builder\ndescription: Implements the plan.\ntools: [read, edit, terminal]\n---\n# Builder\n'
+      + 'Implement the approved plan and keep tests green. Check it against the [UI checklist](../../docs/ui-checklist.docx) and match [the home screen](../../docs/home.png).\n',
+    'docs/ui-checklist.docx': docx(['Check the login page', 'Check the checkout total']),
+    'docs/home.png': screen,
+    'docs/archive.zip': Buffer.from([0x50, 0x4b, 3, 4, 0, 0])
+  } });
+  const { inspection, env, base } = f;
+  assert.equal(inspection.capture.counts.documents, 1);
+  assert.equal(inspection.capture.counts.viewable, 1);
+  // The builder links both, so its interpretation needs them: the document as its text, the image whole.
+  const checklist = inspection.closure.find((file) => file.path === 'docs/ui-checklist.docx');
+  const home = inspection.closure.find((file) => file.path === 'docs/home.png');
+  assert.equal(checklist.media, 'document');
+  assert.match(checklist.snapshot, /ui-checklist\.docx\.txt$/u, 'the copy of a document is its text, never named as the document');
+  assert.match(await readFile(checklist.snapshot, 'utf8'), /Check the login page\n+Check the checkout total/u);
+  assert.equal(home.media, 'viewable');
+  assert.ok((await readFile(home.snapshot)).equals(screen), 'an image is copied whole for the model to open');
+  assert.ok(inspection.references.some((reference) => reference.target === 'docs/home.png' && reference.status === 'resolved'));
+  assert.equal(inspection.closure.some((file) => file.path === 'docs/archive.zip'), false, 'any other binary is only inventoried');
+
+  // An agent's files must be captured, and readable.
+  await writeCandidate(inspection, fixtureCandidate(inspection, (candidate) => { candidate.agents[1].files = ['docs/missing.md', 'docs/notes.md']; }));
+  const refused = await compileTeamImport(inspection.session.id, { env, dryRun: true });
+  assert.deepEqual(refused.findings.filter((finding) => finding.at.startsWith('$.agents[1].files')).map((finding) => finding.code),
+    ['TEAM_IMPORT_AGENT_FILE_UNKNOWN', 'TEAM_IMPORT_EVIDENCE_WITHHELD']);
+
+  await writeCandidate(inspection, fixtureCandidate(inspection, (candidate) => { candidate.agents[1].files = ['docs/ui-checklist.docx', 'docs/home.png']; }));
+  const result = await compileTeamImport(inspection.session.id, { env, dryRun: true });
+  assert.equal(result.state, 'portable-ready', JSON.stringify(result.findings, null, 2));
+  const out = path.join(base, 'delivery.sflow-workflows.json');
+  await compileTeamImport(inspection.session.id, { env, out });
+  const bundle = await readWorkflowBundle(out);
+  const folder = bundle.assets.filter((asset) => asset.kind === 'user-defined');
+  assert.deepEqual(folder.map((asset) => [asset.path, asset.owner.id, asset.encoding ?? null]), [
+    ['singularity/user-defined/delivery-builder.json', 'delivery-builder', null],
+    ['singularity/user-defined/delivery-builder/docs/home.png', 'delivery-builder', 'base64'],
+    ['singularity/user-defined/delivery-builder/docs/ui-checklist.docx', 'delivery-builder', 'base64']
+  ]);
+  assert.ok(Buffer.from(folder[1].content, 'base64').equals(screen), 'the exact bytes travel');
+  assert.equal(JSON.parse(folder[0].content).main, null, 'a team agent has no main file: its body is its instructions');
+  assert.match(bundle.assets.find((asset) => asset.kind === 'agent' && asset.id === 'delivery-builder').content, /sflow-user-defined: delivery-builder/u);
+
+  // Imported, the builder's step prompt gives it both, verified against the manifest its agent pins.
+  const destination = path.join(base, 'fresh');
+  await mkdir(destination);
+  await initializeDefinition(destination);
+  const plan = await planWorkflowImport(destination, bundle, importResolutionOptions([], 'suggested'));
+  assert.equal(plan.status, 'ready', JSON.stringify(plan.conflicts));
+  await applyWorkflowImport(destination, bundle, { expectedPlanSha256: plan.planSha256, ...importResolutionOptions([], 'suggested') });
+  const definition = await loadDefinition(destination);
+  const section = await renderUserDefinedFolder(destination, definition.agents['delivery-builder']);
+  assert.match(section, /This step's agent came from a team's folder; the 2 files it works with follow/u);
+  assert.match(section, /### docs\/ui-checklist\.docx \(its text\)\n\n~~~~\nCheck the login page/u);
+  assert.match(section, /### docs\/home\.png\n\nAn image or PDF: open `[^`]*delivery-builder\/docs\/home\.png`/u);
+  assert.equal(await renderUserDefinedFolder(destination, definition.agents['delivery-planner']), null, 'an agent without files has no folder');
+
+  // The session moves to another computer with the document's text and the image's bytes.
+  const moved = await importTeamImportSession(await exportTeamImportSession(inspection.session.id, { env }),
+    { folders: [f.team], env: { ...env, SINGULARITY_FLOW_TEAM_IMPORT_STATE: path.join(base, 'other-state') } });
+  const copies = new Map(moved.snapshots.map((entry) => [entry.path, entry.snapshot]));
+  assert.match(await readFile(copies.get('docs/ui-checklist.docx'), 'utf8'), /Check the checkout total/u);
+  assert.match(copies.get('docs/ui-checklist.docx'), /ui-checklist\.docx\.txt$/u);
+  assert.ok((await readFile(copies.get('docs/home.png'))).equals(screen));
 });
 
 test('a code phase keeps its checks and only it writes source; planning stays artifact-only [TAWI:AC-006 AC-008 AC-028]', async (t) => {

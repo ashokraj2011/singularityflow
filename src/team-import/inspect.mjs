@@ -31,6 +31,8 @@ function namespaceSuggestion(directory, entries) {
 function summarizeFile(file) {
   return Object.fromEntries(Object.entries({
     path: file.path, format: file.format, role: file.role, id: file.id, lines: file.lines,
+    // An office document's copy is its text; an image or PDF's copy is the file, to open and look at.
+    media: file.media,
     ...file.frontMatter, problem: file.problem
   }).filter(([, value]) => value !== undefined && value !== null));
 }
@@ -41,7 +43,7 @@ export async function inspectTeamDirectory(directory, {
   issue = async (target, root) => (await import('../copilot-mutation-guard.mjs')).issueImportTeamStaging(target, { root })
 } = {}) {
   await pruneTeamImportSessions({ env });
-  const { capture, contents } = await captureTeamDirectory(directory, { roots, bounds });
+  const { capture, contents, binaries } = await captureTeamDirectory(directory, { roots, bounds });
   const interpreted = capture.files.filter((file) => file.id);
   let selected = [];
   let selectedBy = null;
@@ -72,6 +74,8 @@ export async function inspectTeamDirectory(directory, {
     files: capture.files.length,
     interpreted: interpreted.length,
     references: capture.files.filter((file) => file.kind === 'reference').length,
+    documents: capture.files.filter((file) => file.media === 'document' && file.screening === 'clean').length,
+    viewable: capture.files.filter((file) => file.screening === 'viewable').length,
     withheld: capture.files.filter((file) => file.screening === 'withheld').length,
     blocked: capture.files.filter((file) => file.screening === 'blocked').length,
     overBound: capture.files.filter((file) => file.screening === 'over-bound').length,
@@ -101,7 +105,7 @@ export async function inspectTeamDirectory(directory, {
   const closure = captureClosure(capture, selected.map((file) => file.path));
   const closurePaths = new Set(closure.map((file) => file.path));
   const entry = { status: 'selected', selected: selected.map((file) => ({ id: file.id, path: file.path })), selectedBy, candidates: capture.entryCandidates };
-  const session = await createTeamImportSession({ capture, contents, closure, entry, options: { roots: capture.roots, bounds: capture.bounds } }, { env });
+  const session = await createTeamImportSession({ capture, contents, binaries, closure, entry, options: { roots: capture.roots, bounds: capture.bounds } }, { env });
   const issuedTo = await issue(session.candidatePath, repositoryRoot).catch(() => 0);
   const snapshots = new Map(session.snapshots.map((entry) => [entry.path, entry.snapshot]));
   return {

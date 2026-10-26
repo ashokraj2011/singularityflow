@@ -15,7 +15,7 @@ import { lstat, readdir, readFile } from 'node:fs/promises';
 import path from 'node:path';
 import { canonicalJson } from './records.mjs';
 import { scanText } from './secrets.mjs';
-import { agentFrontMatter, blockedPath, EXCLUDED_DIRECTORIES, kebab, splitFrontMatter } from './team-import/formats.mjs';
+import { agentFrontMatter, blockedPath, EXCLUDED_DIRECTORIES, fileMedia, kebab, splitFrontMatter } from './team-import/formats.mjs';
 import { SingularityFlowError } from './util.mjs';
 import {
   USER_DEFINED_MANIFEST_METADATA, USER_DEFINED_METADATA, userDefinedAgentName, userDefinedFolderPath, userDefinedManifestPath
@@ -28,10 +28,8 @@ export const USER_DEFINED_AGENT_SCHEMA = 'sflow-user-defined-agent@1';
 export const USER_DEFINED_LIMITS = Object.freeze({ files: 256, depth: 12, fileBytes: 64 * 1024, totalBytes: 192 * 1024, mainBytes: 30_000,
   binaryFileBytes: 4 * 1024 * 1024, binaryTotalBytes: 10 * 1024 * 1024 });
 // Besides text, a folder may hold office documents, given to its agent as their extracted text, and
-// images and PDFs, which the agent opens with its own image or PDF tools. Both are copied byte for
-// byte. Any other binary file (an archive, a program) is left out.
-const DOCUMENT_EXTENSIONS = new Set(['.docx', '.xlsx', '.pptx']);
-const VIEWABLE_EXTENSIONS = new Set(['.png', '.jpg', '.jpeg', '.gif', '.webp', '.pdf']);
+// images and PDFs, which the agent opens with its own image or PDF tools (fileMedia). Both are copied
+// byte for byte. Any other binary file (an archive, a program) is left out.
 const ID = /^[a-z0-9]+(?:-[a-z0-9]+)*$/u;
 const OUTPUTS = new Set(['code', 'document']);
 // The tools the agent file grants Copilot: the developer preset for a step that changes code, the
@@ -76,9 +74,9 @@ export async function captureUserDefinedFolder(folder) {
       }
       if (!entry.isFile()) { leftOut.push({ path: where, reason: 'not a regular file' }); continue; }
       if (blockedPath(where)) { leftOut.push({ path: where, reason: 'named like a secret, key or environment file; never read' }); continue; }
-      const extension = path.extname(entry.name).toLowerCase();
-      const document = DOCUMENT_EXTENSIONS.has(extension);
-      if (document || VIEWABLE_EXTENSIONS.has(extension)) {
+      const media = fileMedia(where);
+      const document = media === 'document';
+      if (media) {
         if ((await lstat(path.join(directory, entry.name))).size > USER_DEFINED_LIMITS.binaryFileBytes) {
           leftOut.push({ path: where, reason: `larger than ${USER_DEFINED_LIMITS.binaryFileBytes / 1024 / 1024} MiB` }); continue;
         }
@@ -397,12 +395,16 @@ export async function renderUserDefinedFolder(configRoot, agent, { root = null }
   if (viewable.length && root && globalThis.__SFLOW_EXTENSION_HOST__ !== true) {
     await (await import('./copilot-mutation-guard.mjs')).issueMutationReadPaths(root, viewable);
   }
-  const others = manifest.files.length - 1;
+  const others = manifest.files.filter((entry) => entry.path !== manifest.main).length;
+  const kinds = 'text exactly, office documents as their text, images and PDFs as paths to open';
+  // A workflow built from a team's folder (team import) has no main file: every file is the agent's reference.
   return [
     `# The ${agent.label ?? agent.id} folder`, '',
-    `This step runs a user-defined agent: its instructions above are the folder's main file, \`${manifest.main}\`. `
-      + (others ? `The ${plural(others, 'other file')} of its folder follow: text exactly, office documents as their text, images and PDFs as paths to open. When its instructions name one of them (a skill, a template, a note, a picture), use what is below; they are not in this repository, so never search for them there.`
-        : 'Its folder has no other file.'),
+    (manifest.main
+      ? `This step runs a user-defined agent: its instructions above are the folder's main file, \`${manifest.main}\`. `
+        + (others ? `The ${plural(others, 'other file')} of its folder follow: ${kinds}.` : 'Its folder has no other file.')
+      : `This step's agent came from a team's folder; the ${plural(others, 'file')} it works with follow: ${kinds}.`)
+      + (others ? ' When its instructions name one of them (a skill, a template, a note, a picture), use what is below; they are not in this repository, so never search for them there.' : ''),
     ...(manifest.leftOut?.length ? ['', `Left out of the folder when it was added: ${manifest.leftOut.map((entry) => `\`${entry.path}\` (${entry.reason})`).join('; ')}.`] : []),
     ...(parts.length ? ['', ...parts.flatMap((part) => [part, ''])] : [])
   ].join('\n').trimEnd();

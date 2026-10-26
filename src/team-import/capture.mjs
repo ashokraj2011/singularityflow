@@ -13,6 +13,9 @@
  * - References [TAWI-REQ-004]: links, `#file:` paths, front-matter delegations, and exact
  *   names are resolved deterministically to resolved | ambiguous | missing | unsupported |
  *   excluded, and reference cycles are reported.
+ * - Every kind of file a team keeps beside its agents: an office document is read as its text
+ *   (screened like any text file), and an image or PDF is kept whole (`viewable`) for a reader to
+ *   open; both are hashed by their exact bytes and can be referenced.
  */
 import { createHash } from 'node:crypto';
 import { constants as fsConstants } from 'node:fs';
@@ -21,13 +24,15 @@ import path from 'node:path';
 import { scanText } from '../secrets.mjs';
 import { SingularityFlowError } from '../util.mjs';
 import {
-  EXCLUDED_DIRECTORIES, TEAM_IMPORT_FORMAT_VERSION, blockedPath, describeFrontMatter, formatRole,
+  EXCLUDED_DIRECTORIES, TEAM_IMPORT_FORMAT_VERSION, blockedPath, describeFrontMatter, fileMedia, formatRole,
   recognizeFormat, sourceItemId, splitFrontMatter, textCandidate
 } from './formats.mjs';
 
 /** Default bounds; each is reported with the capture, and callers may lower or raise them. */
 export const TEAM_IMPORT_BOUNDS = Object.freeze({
-  files: 2000, depth: 12, fileBytes: 1024 * 1024, totalBytes: 16 * 1024 * 1024, pathBytes: 1024
+  files: 2000, depth: 12, fileBytes: 1024 * 1024, totalBytes: 16 * 1024 * 1024, pathBytes: 1024,
+  // An office document, image or PDF: what a workflow bundle carries for one file.
+  mediaBytes: 4 * 1024 * 1024
 });
 const LISTED_EXCLUSIONS = 200;
 
@@ -87,11 +92,39 @@ function decodeText(bytes) {
   try { return new TextDecoder('utf-8', { fatal: true }).decode(bytes); } catch { return null; }
 }
 
+/**
+ * An office document or an image or PDF, read whole: a document gives its text, screened as any text
+ * file is; an image or PDF keeps its bytes (`binaries`) for a reader to open.
+ */
+async function captureMedia(record, absolute, info, { media, bounds, totalBytes, contents, binaries }) {
+  if (info.size > bounds.mediaBytes) return { ...record, screening: 'over-bound', bound: 'mediaBytes' };
+  if (totalBytes + info.size > bounds.totalBytes) return { ...record, screening: 'over-bound', bound: 'totalBytes' };
+  const read = await readWhole(absolute, info);
+  if (read.link) return { link: true };
+  if (read.changed) return { ...record, screening: 'changed' };
+  if (read.error) return { ...record, screening: 'unreadable', reason: read.error };
+  const described = { ...record, media, sha256: sha256(read.bytes), read: read.bytes.length };
+  if (media === 'viewable') {
+    binaries.set(record.path, read.bytes);
+    return { ...described, screening: 'viewable' };
+  }
+  const extracted = (await import('../source-text.mjs')).extractSourceTextForPath(read.bytes, record.relative);
+  if (extracted.status !== 'extracted') return { ...described, screening: 'unreadable', reason: extracted.reason ?? 'its text could not be read' };
+  const findings = scanText(extracted.text, { path: record.path });
+  if (findings.length) {
+    return { ...described, screening: 'withheld',
+      findings: findings.slice(0, 20).map((finding) => ({ rule: finding.rule, label: finding.label, line: finding.line })) };
+  }
+  contents.set(record.path, extracted.text);
+  return { ...described, lines: extracted.text.split('\n').length, screening: 'clean' };
+}
+
 /** One pass over every root: the listing, the readable text, and the screening of each file. */
 async function capturePass(roots, bounds, textExtensions = null) {
   const files = [];
   const excluded = [];
   const contents = new Map();
+  const binaries = new Map();
   let excludedCount = 0;
   let totalBytes = 0;
   let fileCount = 0;
@@ -135,6 +168,14 @@ async function capturePass(roots, bounds, textExtensions = null) {
         const format = recognizeFormat(relative, toolDirectories);
         const record = { path: where, root: rootIndex, relative, bytes: info.size, format, role: formatRole(format) };
         if (blockedPath(relative)) { files.push({ ...record, screening: 'blocked' }); continue; }
+        const media = fileMedia(relative);
+        if (media) {
+          const { read, ...captured } = await captureMedia(record, absolute, info, { media, bounds, totalBytes, contents, binaries });
+          if (captured.link) { exclude({ path: where, reason: 'symbolic link (not followed)' }); continue; }
+          totalBytes += read ?? 0;
+          files.push(captured);
+          continue;
+        }
         if (!textCandidate(relative, textExtensions)) { files.push({ ...record, screening: 'not-text' }); continue; }
         if (info.size > bounds.fileBytes) { files.push({ ...record, screening: 'over-bound', bound: 'fileBytes' }); continue; }
         if (totalBytes + info.size > bounds.totalBytes) { files.push({ ...record, screening: 'over-bound', bound: 'totalBytes' }); continue; }
@@ -160,7 +201,7 @@ async function capturePass(roots, bounds, textExtensions = null) {
       }
     }
   }
-  return { files, excluded, excludedCount, contents, totalBytes };
+  return { files, excluded, excludedCount, contents, binaries, totalBytes };
 }
 
 function passIdentity(pass) {
@@ -199,7 +240,7 @@ function resolvePathTarget(from, target, byPath) {
   const where = capturePath(rootIndex, joined.replace(/\/$/u, ''));
   const file = byPath.get(where) ?? byPath.get(`${where}/SKILL.md`);
   if (!file) return { status: 'missing', target: where, reason: 'no such file in the capture' };
-  if (file.screening === 'clean') return { status: 'resolved', target: file.path };
+  if (file.screening === 'clean' || file.screening === 'viewable') return { status: 'resolved', target: file.path };
   const reasons = {
     withheld: 'withheld: the secret scan found a credential', blocked: 'blocked path (never read)',
     'over-bound': 'exceeds a capture bound', 'not-text': 'not UTF-8 text', changed: 'changed while it was read',
@@ -221,7 +262,7 @@ function referencesOf(file, text, frontMatter, { byPath, byName }) {
   }
   for (const match of text.matchAll(CODE_SPAN)) {
     const value = match[1].trim();
-    if (/^[\w./-]+\.(?:md|markdown|txt|ya?ml|json)$/iu.test(value)) {
+    if (/^[\w./-]+\.(?:md|markdown|txt|ya?ml|json|docx|xlsx|pptx|png|jpe?g|gif|webp|pdf)$/iu.test(value)) {
       const resolved = resolvePathTarget(file, value, byPath);
       if (resolved?.status === 'resolved') add({ kind: 'path', written: value, line: lineOf(text, match.index), ...resolved });
       continue;
@@ -312,7 +353,8 @@ function multiStep(text) {
 
 /**
  * Capture `directory` (and the explicit extra `roots`) twice and return one stable capture.
- * Returns `{ capture, contents }`: the JSON-safe manifest, and the screened text of clean files.
+ * Returns `{ capture, contents, binaries }`: the JSON-safe manifest, the screened text of clean files
+ * (an office document's extracted text), and the bytes of each image or PDF.
  * `afterPass(index)` runs after each pass; tests use it to change a file between passes.
  */
 export async function captureTeamDirectory(directory, { roots = [], bounds = {}, afterPass = null, textExtensions = null } = {}) {
@@ -341,7 +383,7 @@ export async function captureTeamDirectory(directory, { roots = [], bounds = {},
         { changed: passDifference(first, second) });
     }
   }
-  const { files, excluded, excludedCount, contents, totalBytes } = second;
+  const { files, excluded, excludedCount, contents, binaries, totalBytes } = second;
   const byPath = new Map(files.map((file) => [file.path, file]));
   const items = [];
   const parsed = new Map();
@@ -419,7 +461,7 @@ export async function captureTeamDirectory(directory, { roots = [], bounds = {},
     cycles,
     entryCandidates
   };
-  return { capture, contents };
+  return { capture, contents, binaries };
 }
 
 /** Items a capture interprets that answer to `value`: an id, a declared name, or a capture path. */
@@ -440,7 +482,7 @@ export function captureClosure(capture, entries) {
   const pending = [...entries];
   while (pending.length) {
     const where = pending.shift();
-    if (selected.has(where) || byPath.get(where)?.screening !== 'clean') continue;
+    if (selected.has(where) || !['clean', 'viewable'].includes(byPath.get(where)?.screening)) continue;
     selected.add(where);
     for (const reference of capture.references) {
       if (reference.from === where && reference.status === 'resolved') pending.push(reference.target);

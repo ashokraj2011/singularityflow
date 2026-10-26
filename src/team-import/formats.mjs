@@ -56,6 +56,20 @@ export function blockedPath(relative) {
 const TEXT_EXTENSIONS = new Set(['.md', '.markdown', '.txt', '.yml', '.yaml', '.json', '.mdc']);
 
 /**
+ * Files read besides text: office documents, read as their text, and images and PDFs, kept as files
+ * a reader opens with its own image or PDF tools. Both keep their exact bytes. Any other binary file
+ * is inventoried by name and size only.
+ */
+export const DOCUMENT_EXTENSIONS = Object.freeze(new Set(['.docx', '.xlsx', '.pptx']));
+export const VIEWABLE_EXTENSIONS = Object.freeze(new Set(['.png', '.jpg', '.jpeg', '.gif', '.webp', '.pdf']));
+
+/** 'document', 'viewable', or null for a text or other file. */
+export function fileMedia(relative) {
+  const extension = path.posix.extname(relative).toLowerCase();
+  return DOCUMENT_EXTENSIONS.has(extension) ? 'document' : VIEWABLE_EXTENSIONS.has(extension) ? 'viewable' : null;
+}
+
+/**
  * Whether a file may be captured as text at all (others are inventoried by size only). `extra` adds
  * extensions a caller reads as well (the workflow builder reads request files and scripts).
  */

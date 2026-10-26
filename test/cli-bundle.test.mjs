@@ -224,7 +224,11 @@ test('the bundled CLI answers exactly like the sources while opening a handful o
   // Git-excluded .sflow/out under short names: cold-hooks +2,915 (the new agent-output-folder.mjs, shared by
   // agent-output.mjs, application-paths.mjs and the edit guard, and the guard's correction of misread result
   // paths), cold-catalogs +63 and cold-worker-protocol -10 for 5,255,495.
-  assert.ok(catalogClosure.reduce((sum, item) => sum + item.bytes, 0) < 5_260_000,
+  // 5,265,000 (next 5,000 boundary): main 48d03fc8 measures 5,259,933. An agent folder of several agents is
+  // named a workflow, with the recovery step that builds one from it (USER_AGENT_FOLDER_IS_WORKFLOW), and
+  // call add and team import share one table of office documents, images and PDFs: cold-core +1,069 for
+  // 5,261,002.
+  assert.ok(catalogClosure.reduce((sum, item) => sum + item.bytes, 0) < 5_265_000,
     'catalog parsing stays bounded instead of pulling in the entire administration bundle');
   for (const name of ['cold-compatibility.mjs', 'cold-models.mjs', 'cold-intake.mjs', 'cold-phases.mjs', 'cold-hook-context.mjs']) {
     assert.ok(!catalogClosure.some(item => item.file === name), `catalogs must not statically reach ${name}`);

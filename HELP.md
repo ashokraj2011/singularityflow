@@ -3972,6 +3972,7 @@ singularity-flow hook turn-intent|turn-end|agent-start|session-start|agent-guard
 singularity-flow env status|audit|bind|unbind ...
 singularity-flow app plan|start|status|stop|suggest|config preview [START-ID] [--capability ID] [--environment ENV] [--debug] [--application-file FILE] [--json]
 singularity-flow tests plan|run|summary [--capability ID | --work-id ID [--phase PHASE]] [--command ID]... [--environment ENV] [--expect-command sha256:DIGEST]... [--run RUN-ID] [--json]
+singularity-flow outcome [WORK-ID] [--capability ID] [--json]
 singularity-flow secrets scan [--staged] [--json]
 singularity-flow secrets protect [--force]
 singularity-flow bootstrap <REPOSITORY-URL> --capability ID [--name TEXT] [--kind collection|delivery] [--into DIR] [--no-push]

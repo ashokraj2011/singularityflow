@@ -15,7 +15,7 @@ export const MIGRATED_NARRATION_COMMANDS = Object.freeze([
   'onboard', 'authority', 'cache',
   'plan', 'policy', 'prepare', 'process', 'product', 'program', 'proof', 'push', 'integrations', 'quickstart', 'receipt', 'recommend', 'repositories',
   'reinstall', 'reject', 'repair', 'request', 'resume', 'return', 'revise', 'revision', 'review-source', 'secrets', 'specify', 'precheck',
-  'instruction', 'skill', 'start', 'submit', 'task', 'tokens', 'upstream-issue', 'decisions', 'verify', 'why',
+  'instruction', 'skill', 'start', 'submit', 'task', 'tokens', 'upstream-issue', 'decisions', 'outcome', 'verify', 'why',
   // Like env: model-free commands whose --json is their own structured result (sflow-app-*, sflow-test-*).
   'app', 'tests', 'call',
   // Emits the sflow-result v2 envelope the gateway serves, which is a structured result too [INT:IFC-020].

@@ -522,6 +522,7 @@ Every public operation is classified before its implementation module is importe
 | next.orchestrate | mutation | optional | next.model-free | copilot-cli |
 | nextsteps | read | never | — | — |
 | onboard | mutation | never | — | — |
+| outcome | read | never | — | — |
 | pack.activate | mutation | never | — | — |
 | pack.active | read | never | — | — |
 | pack.list | read | never | — | — |

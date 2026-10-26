@@ -908,7 +908,7 @@ export async function compose(root, options, {
   // agent names; any other agent has no such section.
   const agentProfile = config.executionContext?.agent ?? definition.agents?.[agent];
   const userFolder = userDefinedAgentName(agentProfile)
-    ? await (await import('./user-defined-agents.mjs')).renderUserDefinedFolder(configurationReadRoot(root), agentProfile) : '';
+    ? await (await import('./user-defined-agents.mjs')).renderUserDefinedFolder(configurationReadRoot(root), agentProfile, { root }) : '';
   const remote = phase ? await renderAgentSkills(root, workflow, phase, { ...(session ?? {}), agent }, {
     record: !dryRun && !renderOnly,
     itemDirectory: path.join(root, workItemRoot, workflow.workItem.id),

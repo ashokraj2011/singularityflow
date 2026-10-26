@@ -663,6 +663,16 @@ function localSyncSteps(argv, error) {
 }
 
 const KNOWN = Object.freeze({
+  // A folder of several agents is a workflow: team import builds one from the same reading of its
+  // files and links. Adding one of its agents alone stays possible with --main.
+  USER_AGENT_FOLDER_IS_WORKFLOW: (argv, error) => {
+    const folder = typeof error?.details?.folder === 'string' ? error.details.folder : null;
+    const build = folder ? safeCommandGuidance({ argv: ['workflow', 'import-team', 'inspect', folder] }) : null;
+    const single = folder ? safeCommandGuidance({ argv: ['call', 'add', folder, '--main', '<FILE>'] }) : null;
+    return [build && step('build-workflow-from-folder', 'Build a workflow from this folder: SFlow reads every file and how they link, '
+      + 'Copilot proposes the steps, and SFlow validates every route before you review the proposal.', build.command, 'remediation', '/sf-import-team'),
+    single && step('add-one-agent', 'Or add one of its agents as a single step.', single.command, 'remediation', '/sf-call-add')].filter(Boolean);
+  },
   // The main agent file of `call add`: what is wrong is in that file, never the repository, so the
   // repository-health route a refusal falls back to sent people to the wrong place (office, 2026-10-26).
   USER_AGENT_MAIN_INVALID: (argv, error) => {

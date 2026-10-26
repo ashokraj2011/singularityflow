@@ -25,7 +25,13 @@ export const USER_DEFINED_AGENT_SCHEMA = 'sflow-user-defined-agent@1';
 // The main file becomes the agent's instructions (the agent parser's own body limit); every other
 // file is given to the agent in its step prompt, so the folder's text is bounded to what one prompt
 // can carry.
-export const USER_DEFINED_LIMITS = Object.freeze({ files: 256, depth: 12, fileBytes: 64 * 1024, totalBytes: 192 * 1024, mainBytes: 30_000 });
+export const USER_DEFINED_LIMITS = Object.freeze({ files: 256, depth: 12, fileBytes: 64 * 1024, totalBytes: 192 * 1024, mainBytes: 30_000,
+  binaryFileBytes: 5 * 1024 * 1024, binaryTotalBytes: 20 * 1024 * 1024 });
+// Besides text, a folder may hold office documents, given to its agent as their extracted text, and
+// images and PDFs, which the agent opens with its own image or PDF tools. Both are copied byte for
+// byte. Any other binary file (an archive, a program) is left out.
+const DOCUMENT_EXTENSIONS = new Set(['.docx', '.xlsx', '.pptx']);
+const VIEWABLE_EXTENSIONS = new Set(['.png', '.jpg', '.jpeg', '.gif', '.webp', '.pdf']);
 const ID = /^[a-z0-9]+(?:-[a-z0-9]+)*$/u;
 const OUTPUTS = new Set(['code', 'document']);
 // The tools the agent file grants Copilot: the developer preset for a step that changes code, the
@@ -51,7 +57,12 @@ export async function captureUserDefinedFolder(folder) {
   const root = path.resolve(String(folder ?? ''));
   const info = await lstat(root).catch(() => null);
   if (!info?.isDirectory()) fail('USER_AGENT_FOLDER_UNAVAILABLE', `${folder} is not a folder.`);
-  const files = []; const leftOut = []; let total = 0;
+  const files = []; const leftOut = []; let total = 0; let binary = 0;
+  const bounded = () => {
+    if (files.length > USER_DEFINED_LIMITS.files) fail('USER_AGENT_FOLDER_TOO_LARGE', `${folder} has more than ${USER_DEFINED_LIMITS.files} files; one agent's folder is given to it in one prompt.`);
+    if (total > USER_DEFINED_LIMITS.totalBytes) fail('USER_AGENT_FOLDER_TOO_LARGE', `${folder} holds more than ${USER_DEFINED_LIMITS.totalBytes / 1024} KiB of text; one agent's folder is given to it in one prompt.`);
+    if (binary > USER_DEFINED_LIMITS.binaryTotalBytes) fail('USER_AGENT_FOLDER_TOO_LARGE', `${folder} holds more than ${USER_DEFINED_LIMITS.binaryTotalBytes / 1024 / 1024} MiB of documents, images and PDFs.`);
+  };
   const walk = async (directory, relative, depth) => {
     const entries = (await readdir(directory, { withFileTypes: true })).sort((a, b) => (a.name < b.name ? -1 : a.name > b.name ? 1 : 0));
     for (const entry of entries) {
@@ -65,16 +76,37 @@ export async function captureUserDefinedFolder(folder) {
       }
       if (!entry.isFile()) { leftOut.push({ path: where, reason: 'not a regular file' }); continue; }
       if (blockedPath(where)) { leftOut.push({ path: where, reason: 'named like a secret, key or environment file; never read' }); continue; }
+      const extension = path.extname(entry.name).toLowerCase();
+      const document = DOCUMENT_EXTENSIONS.has(extension);
+      if (document || VIEWABLE_EXTENSIONS.has(extension)) {
+        if ((await lstat(path.join(directory, entry.name))).size > USER_DEFINED_LIMITS.binaryFileBytes) {
+          leftOut.push({ path: where, reason: `larger than ${USER_DEFINED_LIMITS.binaryFileBytes / 1024 / 1024} MiB` }); continue;
+        }
+        const kept = await readFile(path.join(directory, entry.name));
+        let text = null;
+        if (document) {
+          const extracted = (await import('./source-text.mjs')).extractSourceTextForPath(kept, entry.name);
+          if (extracted.status === 'extracted') {
+            const findings = scanText(extracted.text, { path: where });
+            if (findings.length) { leftOut.push({ path: where, reason: `holds what looks like a secret (${findings[0].label ?? findings[0].rule}, line ${findings[0].line} of its text)` }); continue; }
+            text = extracted.text;
+          }
+        }
+        files.push({ path: where, bytes: kept, text, sha256: sha256(kept), size: kept.length, kind: document ? 'document' : 'viewable' });
+        binary += kept.length;
+        total += text ? Buffer.byteLength(text) : 0;
+        bounded();
+        continue;
+      }
       const bytes = await readFile(path.join(directory, entry.name));
       if (bytes.length > USER_DEFINED_LIMITS.fileBytes) { leftOut.push({ path: where, reason: `larger than ${USER_DEFINED_LIMITS.fileBytes / 1024} KiB` }); continue; }
       const text = utf8(bytes);
-      if (text == null) { leftOut.push({ path: where, reason: 'not a text file' }); continue; }
+      if (text == null) { leftOut.push({ path: where, reason: 'a binary file other than a document, image or PDF' }); continue; }
       const findings = scanText(text, { path: where });
       if (findings.length) { leftOut.push({ path: where, reason: `holds what looks like a secret (${findings[0].label ?? findings[0].rule}, line ${findings[0].line})` }); continue; }
       files.push({ path: where, bytes, text, sha256: sha256(bytes), size: bytes.length });
       total += bytes.length;
-      if (files.length > USER_DEFINED_LIMITS.files) fail('USER_AGENT_FOLDER_TOO_LARGE', `${folder} has more than ${USER_DEFINED_LIMITS.files} text files; one agent's folder is given to it in one prompt.`);
-      if (total > USER_DEFINED_LIMITS.totalBytes) fail('USER_AGENT_FOLDER_TOO_LARGE', `${folder} holds more than ${USER_DEFINED_LIMITS.totalBytes / 1024} KiB of text; one agent's folder is given to it in one prompt.`);
+      bounded();
     }
   };
   await walk(root, '', 0);
@@ -100,14 +132,35 @@ function plainAgentCandidates(files) {
 }
 
 /** Every text file a person may name as the main agent, Markdown first. */
-const choosableFiles = (files) => [...files.filter((file) => /\.md$/iu.test(file.path)), ...files.filter((file) => !/\.md$/iu.test(file.path))]
-  .map((file) => file.path);
+const choosableFiles = (files) => {
+  const text = files.filter((file) => !file.kind);
+  return [...text.filter((file) => /\.md$/iu.test(file.path)), ...text.filter((file) => !/\.md$/iu.test(file.path))].map((file) => file.path);
+};
+
+/**
+ * What the folder holds and how its files link, read as team import reads a team directory: each
+ * file's role (agent, skill, procedure, instruction) and every resolved reference between files
+ * (Markdown links, #file: paths, named files and agents, front-matter handoffs). Two or more agents
+ * describe a workflow rather than one step. Null when the folder cannot be read that way; adding it
+ * as one step never depends on this.
+ */
+export async function userDefinedFolderMap(root) {
+  try {
+    const { capture } = await (await import('./team-import/capture.mjs')).captureTeamDirectory(root);
+    const roles = capture.files.filter((file) => file.role && file.screening === 'clean').map((file) => ({ path: file.relative, role: file.role }));
+    const links = capture.references.filter((reference) => reference.status === 'resolved' && reference.target !== reference.from)
+      .map((reference) => ({ from: reference.from, to: reference.target, kind: reference.kind }));
+    const agents = roles.filter((entry) => entry.role === 'agent').map((entry) => entry.path);
+    const handoffs = links.filter((link) => agents.includes(link.from) && agents.includes(link.to));
+    return { roles, links, agents, handoffs, shape: agents.length > 1 ? 'workflow' : 'one-step' };
+  } catch { return null; }
+}
 
 /** The main agent: the one `--main` names, else the folder's only agent file. Never a guess between several. */
 export function chooseMainAgent(files, requested = null) {
   if (requested) {
     const wanted = String(requested).replace(/\\/gu, '/').replace(/^\.\//u, '');
-    const match = files.find((file) => file.path === wanted);
+    const match = files.find((file) => file.path === wanted && !file.kind);
     if (!match) fail('USER_AGENT_MAIN_UNKNOWN', `${wanted} is not one of the folder's text files.`, { files: files.map((file) => file.path), candidates: choosableFiles(files) });
     return match;
   }
@@ -135,7 +188,7 @@ function titleOf(name) {
 export function userDefinedManifestText(plan) {
   return `${canonicalJson({
     schema: USER_DEFINED_AGENT_SCHEMA, name: plan.name, label: plan.label, main: plan.main, output: plan.output,
-    files: plan.files.map((file) => ({ path: file.path, sha256: file.sha256, bytes: file.bytes })),
+    files: plan.files.map((file) => ({ path: file.path, sha256: file.sha256, bytes: file.bytes, ...(file.kind ? { kind: file.kind } : {}) })),
     leftOut: plan.leftOut
   })}\n`;
 }
@@ -148,6 +201,15 @@ export async function userDefinedAgentPlan(folder, { name = null, label = null, 
   if (!OUTPUTS.has(output)) fail('USER_AGENT_USAGE', '--output is code (the agent changes code and tests) or document (it writes a document).');
   const captured = await captureUserDefinedFolder(folder);
   if (!captured.files.length) fail('USER_AGENT_FOLDER_EMPTY', `${folder} has no text file to copy.`, { leftOut: captured.leftOut });
+  const map = await userDefinedFolderMap(captured.root);
+  // Several agents are a workflow: built with team import from the same reading, unless the person
+  // names one to run alone with --main.
+  if (!main && map?.shape === 'workflow') {
+    const handoffs = map.handoffs.map((link) => `${link.from} → ${link.to}`);
+    fail('USER_AGENT_FOLDER_IS_WORKFLOW', `${path.basename(captured.root)} describes a workflow of ${map.agents.length} agents (${map.agents.join(', ')})`
+      + `${handoffs.length ? ` that hand work to each other (${handoffs.join('; ')})` : ''}. Build a workflow from it, or add one of them as a single step with --main <FILE>.`,
+    { folder: captured.root, agents: map.agents, handoffs: map.handoffs, candidates: map.agents });
+  }
   const mainFile = chooseMainAgent(captured.files, main);
   // Read as Copilot reads it: a header that is not strict YAML still names and describes the agent.
   const { frontMatter, body, problem, lenient } = agentFrontMatter(mainFile.text);
@@ -170,9 +232,12 @@ export async function userDefinedAgentPlan(folder, { name = null, label = null, 
     // workflow stay as they are.
     ...(replace ? { replace: true } : {}),
     folder: path.basename(captured.root),
-    files: captured.files.map((file) => ({ path: file.path, sha256: file.sha256, bytes: file.size })),
+    // A document, image or PDF says so; a text-only folder plans exactly as before.
+    files: captured.files.map((file) => ({ path: file.path, sha256: file.sha256, bytes: file.size, ...(file.kind ? { kind: file.kind } : {}) })),
     leftOut: captured.leftOut,
     notUsed: Object.keys(frontMatter).filter((key) => !['name', 'description'].includes(key)).sort(),
+    // What each file is and how they link, as the preview shows it.
+    ...(map && (map.roles.length || map.links.length) ? { map: { roles: map.roles, links: map.links } } : {}),
     ...(lenient ? { frontMatterNote: `Its front matter is not strict YAML (${lenient.replace(/^front matter is not valid YAML: /u, '')}); its name and description were read line by line, as Copilot reads them.` } : {})
   };
   plan.manifestSha256 = sha256(Buffer.from(userDefinedManifestText(plan)));
@@ -256,6 +321,9 @@ export function userDefinedPlanLines(plan) {
   if (plan.leftOut.length) lines.push(`  Left out (${plan.leftOut.length}):`, ...plan.leftOut.map((entry) => `    ${entry.path}: ${entry.reason}`));
   if (plan.notUsed.length) lines.push(`  Not used from ${plan.main}'s front matter: ${plan.notUsed.join(', ')} (SFlow sets the agent's tools and steps)`);
   if (plan.frontMatterNote) lines.push(`  ${plan.main}: ${plan.frontMatterNote}`);
+  const kinds = plan.files.filter((file) => file.kind);
+  if (kinds.length) lines.push(`  Documents, images and PDFs (${kinds.length}): ${kinds.map((file) => file.path).join(', ')}; documents reach the agent as their text, images and PDFs as files to open`);
+  if (plan.map?.links?.length) lines.push(`  Links between its files (${plan.map.links.length}):`, ...plan.map.links.slice(0, 20).map((link) => `    ${link.from} → ${link.to} (${link.kind})`));
   return lines;
 }
 
@@ -293,7 +361,7 @@ async function readManifest(configRoot, name) {
  * manifest digest the Story's pinned agent names. A folder changed since the Story started is
  * refused, never substituted.
  */
-export async function renderUserDefinedFolder(configRoot, agent) {
+export async function renderUserDefinedFolder(configRoot, agent, { root = null } = {}) {
   const name = userDefinedAgentName(agent);
   if (!name) return null;
   const pinned = agent.metadata?.[USER_DEFINED_MANIFEST_METADATA];
@@ -306,17 +374,34 @@ export async function renderUserDefinedFolder(configRoot, agent) {
   if (!manifest) changed('has no manifest');
   if (manifest.sha256 !== pinned) changed('has a manifest other than the one its agent pins');
   const parts = [];
+  const viewable = [];
   for (const file of manifest.files.filter((entry) => entry.path !== manifest.main)) {
-    const bytes = await readFile(path.join(configRoot, userDefinedFolderPath(name), file.path)).catch(() => null);
+    const absolute = path.join(configRoot, userDefinedFolderPath(name), file.path);
+    const bytes = await readFile(absolute).catch(() => null);
     if (!bytes || sha256(bytes) !== file.sha256) changed(`no longer matches its manifest (${file.path} changed)`);
-    const fence = '~'.repeat(Math.max(4, ...[...bytes.toString('utf8').matchAll(/~{4,}/gu)].map((match) => match[0].length + 1)));
-    parts.push(`### ${file.path}\n\n${fence}\n${bytes.toString('utf8').replace(/\n$/u, '')}\n${fence}`);
+    // An image or PDF is opened, not inlined; its exact verified path is given and allowed for reading.
+    if (file.kind === 'viewable') {
+      viewable.push(absolute);
+      parts.push(`### ${file.path}\n\nAn image or PDF: open \`${absolute}\` with your image or PDF tool and look at it before you use it.`);
+      continue;
+    }
+    const extracted = file.kind === 'document' ? (await import('./source-text.mjs')).extractSourceTextForPath(bytes, file.path) : null;
+    if (extracted && extracted.status !== 'extracted') {
+      parts.push(`### ${file.path}\n\nA document whose text could not be extracted (${extracted.reason}); it is kept in the folder.`);
+      continue;
+    }
+    const text = extracted ? extracted.text : bytes.toString('utf8');
+    const fence = '~'.repeat(Math.max(4, ...[...text.matchAll(/~{4,}/gu)].map((match) => match[0].length + 1)));
+    parts.push(`### ${file.path}${extracted ? ' (its text)' : ''}\n\n${fence}\n${text.replace(/\n$/u, '')}\n${fence}`);
+  }
+  if (viewable.length && root && globalThis.__SFLOW_EXTENSION_HOST__ !== true) {
+    await (await import('./copilot-mutation-guard.mjs')).issueMutationReadPaths(root, viewable);
   }
   const others = manifest.files.length - 1;
   return [
     `# The ${agent.label ?? agent.id} folder`, '',
     `This step runs a user-defined agent: its instructions above are the folder's main file, \`${manifest.main}\`. `
-      + (others ? `The ${plural(others, 'other file')} of its folder follow, exact. When its instructions name one of them (a skill, a template, a note), use the text below; they are not in this repository, so never search for them there.`
+      + (others ? `The ${plural(others, 'other file')} of its folder follow: text exactly, office documents as their text, images and PDFs as paths to open. When its instructions name one of them (a skill, a template, a note, a picture), use what is below; they are not in this repository, so never search for them there.`
         : 'Its folder has no other file.'),
     ...(manifest.leftOut?.length ? ['', `Left out of the folder when it was added: ${manifest.leftOut.map((entry) => `\`${entry.path}\` (${entry.reason})`).join('; ')}.`] : []),
     ...(parts.length ? ['', ...parts.flatMap((part) => [part, ''])] : [])

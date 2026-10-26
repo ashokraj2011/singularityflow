@@ -14,6 +14,7 @@ import {
 import { userDefinedAgentWorkType } from '../src/user-defined-agent-identity.mjs';
 import { refusalEnvelope } from '../src/refusal-remediation.mjs';
 import { agentFrontMatter } from '../src/team-import/formats.mjs';
+import { docx } from './helpers/office-fixtures.mjs';
 import { childTimeout } from './helpers/child-timeout.mjs';
 import { slowLane } from './helpers/slow-lane.mjs';
 
@@ -34,7 +35,7 @@ async function teamFolder(base) {
   await writeFile(path.join(folder, 'skills', 'review', 'SKILL.md'), '---\nname: review\ndescription: Review a plan for risks.\n---\nList each risk with a mitigation.\n');
   await writeFile(path.join(folder, 'notes', 'style.md'), '# Style\nUse small functions.\n');
   await writeFile(path.join(folder, '.env'), 'API_TOKEN=abc\n');
-  await writeFile(path.join(folder, 'logo.png'), Buffer.from([0, 1, 2, 3]));
+  await writeFile(path.join(folder, 'tool.bin'), Buffer.from([0, 1, 2, 3]));
   await writeFile(path.join(folder, 'node_modules', 'x', 'i.js'), 'x');
   await writeFile(path.join(folder, 'leaked.md'), `key: ghp_${'A1b2C3d4E5f6G7h8I9j0K1l2M3n4O5p6Q7r8'}\n`);
   await symlink(path.join(folder, 'notes', 'style.md'), path.join(folder, 'linked.md'));
@@ -47,7 +48,8 @@ test('a folder is copied as exact text, and links, binaries, secrets and depende
   const folder = await teamFolder(base);
   const captured = await captureUserDefinedFolder(folder);
   assert.deepEqual(captured.files.map((file) => file.path), ['notes/style.md', 'orchestrator.agent.md', 'skills/review/SKILL.md']);
-  assert.deepEqual(captured.leftOut.map((entry) => entry.path), ['.env', 'leaked.md', 'linked.md', 'logo.png', 'node_modules/']);
+  assert.deepEqual(captured.leftOut.map((entry) => entry.path), ['.env', 'leaked.md', 'linked.md', 'node_modules/', 'tool.bin']);
+  assert.equal(captured.leftOut.find((entry) => entry.path === 'tool.bin').reason, 'a binary file other than a document, image or PDF');
   assert.match(captured.leftOut.find((entry) => entry.path === 'leaked.md').reason, /looks like a secret/u);
   assert.match(captured.leftOut.find((entry) => entry.path === 'linked.md').reason, /links are never followed/u);
 
@@ -110,6 +112,66 @@ test('an agent header Copilot runs is read as Copilot reads it, even when it is 
   assert.ok(!steps.some((entry) => /doctor/u.test(entry.command ?? '')), JSON.stringify(steps));
 });
 
+test('a folder keeps documents, images and PDFs, gives documents as text and images as paths, and leaves other binaries out', async (t) => {
+  // "It should take any kind of files" (2026-10-26): an agent's checklist in Word, its reference screen
+  // and its PDF guide are part of what it knows; only binaries nobody can read stay out.
+  const base = await mkdtemp(path.join(os.tmpdir(), 'sflow-user-agent-files-'));
+  t.after(() => rm(base, { recursive: true, force: true }));
+  const folder = path.join(base, 'qa');
+  const write = async (relative, bytes) => { await mkdir(path.dirname(path.join(folder, relative)), { recursive: true }); await writeFile(path.join(folder, relative), bytes); };
+  await write('qa.agent.md', '---\nname: qa\ndescription: Writes QA tests\n---\n# QA\nFollow [the checklist](docs/checklist.docx) and match [the home screen](screens/home.png).\n');
+  await write('docs/checklist.docx', docx(['Check the login page', 'Check the checkout total']));
+  await write('screens/home.png', Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0, 0, 0, 13]));
+  await write('specs/guide.pdf', Buffer.from('%PDF-1.4\n%\xe2\xe3\xcf\xd3\n1 0 obj\n<<>>\nendobj\n', 'latin1'));
+  await write('tools.zip', Buffer.from([0x50, 0x4b, 0x03, 0x04, 0, 0, 0, 0, 0, 0xff, 0]));
+  const planned = await userDefinedAgentPlan(folder);
+  const kinds = Object.fromEntries(planned.plan.files.map((file) => [file.path, file.kind ?? 'text']));
+  assert.deepEqual(kinds, { 'docs/checklist.docx': 'document', 'qa.agent.md': 'text', 'screens/home.png': 'viewable', 'specs/guide.pdf': 'viewable' });
+  assert.match(planned.captured.files.find((file) => file.path === 'docs/checklist.docx').text, /Check the login page\s+Check the checkout total/u);
+  assert.deepEqual(planned.plan.leftOut, [{ path: 'tools.zip', reason: 'a binary file other than a document, image or PDF' }]);
+  assert.match(userDefinedManifestText(planned.plan), /"kind": "document"/u);
+
+  // The step prompt: the document as its text, the image and PDF as exact paths to open, all verified.
+  const config = path.join(base, 'config');
+  for (const file of planned.captured.files) {
+    await mkdir(path.dirname(path.join(config, 'singularity/user-defined/qa', file.path)), { recursive: true });
+    await writeFile(path.join(config, 'singularity/user-defined/qa', file.path), file.bytes);
+  }
+  await writeFile(path.join(config, 'singularity/user-defined/qa.json'), userDefinedManifestText(planned.plan));
+  const agent = { id: 'qa', label: 'QA', metadata: { 'sflow-user-defined': 'qa', 'sflow-user-defined-manifest': planned.plan.manifestSha256 } };
+  const text = await renderUserDefinedFolder(config, agent);
+  assert.match(text, /### docs\/checklist\.docx \(its text\)\n\n~~~~\nCheck the login page/u);
+  assert.match(text, new RegExp(`### screens/home\\.png\\n\\nAn image or PDF: open \`${path.join(config, 'singularity/user-defined/qa/screens/home.png').replace(/[.*+?^${}()|[\]\\]/gu, '\\$&')}\``, 'u'));
+  assert.match(text, /### specs\/guide\.pdf\n\nAn image or PDF: open `/u);
+  assert.doesNotMatch(text, /%PDF|PNG/u, 'binary bytes never reach the prompt');
+
+  // A text-only folder plans exactly as before: no kinds, the same manifest shape.
+  assert.ok((await userDefinedAgentPlan(await teamFolder(base))).plan.files.every((file) => !Object.hasOwn(file, 'kind')));
+});
+
+test('a folder of several agents is a workflow: the refusal names them and routes to building one', async (t) => {
+  const base = await mkdtemp(path.join(os.tmpdir(), 'sflow-user-agent-workflow-'));
+  t.after(() => rm(base, { recursive: true, force: true }));
+  const folder = path.join(base, 'qa-team');
+  await mkdir(path.join(folder, 'agents'), { recursive: true });
+  await writeFile(path.join(folder, 'agents', 'planner.agent.md'), '---\nname: planner\ndescription: Plans the tests\nhandoffs:\n  - agent: writer\n---\nPlan the tests, then hand them to the writer.\n');
+  await writeFile(path.join(folder, 'agents', 'writer.agent.md'), '---\nname: writer\ndescription: Writes the tests\n---\nWrite the planned tests.\n');
+  let refusal;
+  try { await userDefinedAgentPlan(folder); } catch (error) { refusal = refusalEnvelope(error, ['call', 'add', folder]); }
+  assert.equal(refusal.error.code, 'USER_AGENT_FOLDER_IS_WORKFLOW');
+  assert.match(refusal.error.message, /describes a workflow of 2 agents \(agents\/planner\.agent\.md, agents\/writer\.agent\.md\) that hand work to each other \(agents\/planner\.agent\.md → agents\/writer\.agent\.md\)/u);
+  const [build, single] = refusal.remediationPlan.steps;
+  assert.equal(build.id, 'build-workflow-from-folder');
+  assert.match(build.command, /^singularity-flow workflow import-team inspect /u);
+  assert.equal(build.copilotCommand, '/sf-import-team');
+  assert.equal(single.id, 'add-one-agent');
+  assert.match(single.command, /call add .* --main '<FILE>'$/u);
+  // Naming one agent adds it alone, as before.
+  const { plan } = await userDefinedAgentPlan(folder, { main: 'agents/writer.agent.md' });
+  assert.equal(plan.name, 'writer');
+  assert.deepEqual(plan.map.links.map((link) => [link.from, link.to, link.kind]), [['agents/planner.agent.md', 'agents/writer.agent.md', 'metadata']]);
+});
+
 test('a plain Markdown agent at the top of the folder is its main agent, and a refusal carries the files to choose from', () => {
   const agent = '---\nname: reviewer\ndescription: Reviews code\n---\nReview the change.\n';
   const files = (entries) => entries.map(([entry, text = '# x']) => ({ path: entry, text }));
@@ -161,7 +223,7 @@ test('the step prompt gives the agent its folder, verified, and refuses a folder
   const agent = { id: 'orchestrator', label: 'Orchestrator', metadata: { 'sflow-user-defined': 'orchestrator', 'sflow-user-defined-manifest': planned.plan.manifestSha256 } };
   const text = await renderUserDefinedFolder(config, agent);
   assert.match(text, /^# The Orchestrator folder/u);
-  assert.match(text, /The 2 other files of its folder follow, exact\..*never search for them there/su);
+  assert.match(text, /The 2 other files of its folder follow: text exactly, office documents as their text, images and PDFs as paths to open\..*never search for them there/su);
   assert.match(text, /### skills\/review\/SKILL\.md\n\n~~~~\n---\nname: review/u);
   assert.match(text, /`\.env` \(named like a secret/u, 'what was left out stays visible to the agent');
   assert.doesNotMatch(text, /### orchestrator\.agent\.md/u, 'the main file is already the agent\'s instructions');

@@ -1,7 +1,8 @@
+import { commandRouteListHtml } from './command-guidance.ts';
 /** Searchable, offline rendering of the canonical Singularity Flow manual. */
 import {
   brandLockup, escape, icon } from './webview.ts';
-import { chatModelsMissing, commandGuidance, modelFreeRouteHtml } from '../copilot-command.ts';
+import { chatModelsMissing, commandGuidance } from '../copilot-command.ts';
 
 export interface HelpTopic {
   id: string;
@@ -170,12 +171,11 @@ function answerHtml(answer: HelpAnswerView | null): string {
   }
   const handoff = answer.handoff ? commandGuidance(answer.handoff) : null;
   const handoffHtml = handoff ? `<div class="command-guidance">
-    <p><strong>Copilot:</strong> <code>${escape(handoff.copilotCommand)}</code>
-      ${handoff.copyable ? `<button class="secondary" data-copy="${escape(handoff.copilotCommand)}" data-help-copy-topic="${escape(answer.topic.id)}">Copy Copilot</button>
-      <button class="secondary" data-prefill-help="${escape(handoff.skill)}" data-prefill-topic="${escape(answer.topic.id)}">Prepare ${escape(handoff.skill)}</button>` : ''}</p>
-    <p><strong>Shell:</strong> <code>${escape(handoff.command)}</code>
-      ${handoff.copyable ? `<button class="secondary" data-copy="${escape(handoff.command)}" data-help-copy-topic="${escape(answer.topic.id)}">Copy Shell</button>` : ''}</p>
-    <p><strong>VS Code (model-free):</strong> ${modelFreeRouteHtml(handoff.modelFreeCommand, escape)}</p>
+    ${commandRouteListHtml(handoff, [
+      handoff.copyable && handoff.copilotCommand ? `<button class="secondary" data-copy="${escape(handoff.copilotCommand)}" data-help-copy-topic="${escape(answer.topic.id)}">Copy Copilot</button>
+      <button class="secondary" data-prefill-help="${escape(handoff.skill)}" data-prefill-topic="${escape(answer.topic.id)}">Prepare ${escape(handoff.skill)}</button>` : '',
+      handoff.copyable ? `<button class="secondary" data-copy="${escape(handoff.command)}" data-help-copy-topic="${escape(answer.topic.id)}">Copy Shell</button>` : ''
+    ])}
     ${handoff.copyable ? '' : '<p class="muted">Replace the shown placeholders before running this command.</p>'}
   </div>` : '';
   const actions = `<div class="form-actions">

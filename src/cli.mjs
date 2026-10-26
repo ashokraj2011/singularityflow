@@ -45,7 +45,7 @@ import { workflowBranchAllowed, workDir } from './story-paths.mjs';
 import { actorKey, assertNoPendingPublication, cancelWorkflow, commitAndPublish, completionPhaseOf, CONFIG_PATH, decideStory, loadConfig, preparePhaseInputs, promoteDesignSource, registerArtifact, rejectPhase, reopenWorkflow, saveStoryDraft, transactStory, scanArtifacts, storyPublicationPending, storyWelEnrollmentStatus, validateId, workflowPublicationBranch } from './state-stores.mjs';
 import { generationSkillForPhase, workflowAuthoringRoutes } from './code-delivery-policy.mjs';
 import { phasePreparationCommandLines } from './phase-preparation-guidance.mjs';
-import { renderChangeDirectoryCommand, renderPlatformCommand, safeCommandGuidance } from './safe-command-guidance.mjs';
+import { renderChangeDirectoryCommand, renderPlatformCommand, safeCommandGuidance, commandRouteLines } from './safe-command-guidance.mjs';
 import { nextPhaseGeneration } from './phase-generation.mjs';
 import { applicationPathContext } from './work-intervals.mjs';
 import { LIFECYCLE_EVENT } from './lifecycle-event.mjs';
@@ -201,9 +201,8 @@ function printStashRecoveryCommand(command, { indent = '', label = null } = {}) 
     throw new SingularityFlowError('The retained stash recovery command was malformed.');
   }
   if (label) console.log(`${indent}${label}:`);
-  console.log(`${indent}Copilot: unavailable — local Git stash restoration is intentionally Shell-only.`);
-  console.log(`${indent}Shell: ${command}`);
-  console.log(`${indent}VS Code (model-free): not available for this action`);
+  console.log(`${indent}Local Git stash restoration is available in Shell.`);
+  for (const line of commandRouteLines({ command }, indent)) console.log(line);
 }
 
 async function confirmExact(prompt, expected) {
@@ -1910,9 +1909,8 @@ async function actionCommand(positionals, options) {
     if (optionBoolean(options, 'json')) return console.log(JSON.stringify(authorization, null, 2));
     console.log(`One-time authorization: ${authorization.token}`);
     console.log('Execute:');
-    console.log('Copilot: /sf-continue');
-    console.log(`Shell (private one-time token): singularity-flow action execute ${plan.planId} --action ${action.actionId} --authorization ${authorization.token}`);
-    console.log('VS Code (model-free): not available for this action');
+    console.log('The Shell command contains a private one-time token.');
+    for (const line of commandRouteLines({ copilotCommand: '/sf-continue', command: `singularity-flow action execute ${plan.planId} --action ${action.actionId} --authorization ${authorization.token}` })) console.log(line);
     return;
   }
   const authorization = action.confirmation?.required
@@ -1999,7 +1997,7 @@ async function nextCommand(options) {
     if (held) return (await import('./commands/decisions.mjs')).run(['decisions', workflow.workItem.id], { positionals: ['decisions', workflow.workItem.id], options: {} });
     return (await import('./commands/approve.mjs')).approveCommand(['approve', workflow.workItem.id], { ...options, fetch: optionBoolean(options, 'fetch', true) });
   }
-  if (phase.status !== 'in_progress') throw new SingularityFlowError(`Cannot automatically continue phase '${phase.id}' while it is ${phase.status}.\nCopilot: /sf-nextsteps ${workflow.workItem.id}\nShell: singularity-flow nextsteps ${workflow.workItem.id}\nVS Code (model-free): not available for this action`);
+  if (phase.status !== 'in_progress') throw new SingularityFlowError(`Cannot automatically continue phase '${phase.id}' while it is ${phase.status}.\n${commandRouteLines({ copilotCommand: `/sf-nextsteps ${workflow.workItem.id}`, command: `singularity-flow nextsteps ${workflow.workItem.id}` }).join('\n')}`);
   if (!phaseNeedsGeneration(workflow, phase)) {
     if (isConvergencePhase(phase)) {
       printCommandRoutes(`singularity-flow story advance --work-id ${workflow.workItem.id}`, {
@@ -8369,7 +8367,7 @@ async function initiativeCommand(positionals, options) {
   if (subcommand === 'next') {
     const actions = await initiativeNextActions(root, initiativeId);
     if (optionBoolean(options, 'json')) console.log(JSON.stringify(actions, null, 2));
-    else actions.forEach((action, index) => console.log(`${index + 1}. ${action.action}\n   Copilot: ${action.skill}\n   Run: ${action.command}\n   ${action.reason}`));
+    else actions.forEach((action, index) => console.log(`${index + 1}. ${action.action} — ${action.reason}\n${commandRouteLines(safeCommandGuidance(action) ?? safeCommandGuidance(action.command) ?? {}, '   ').join('\n')}`));
     return;
   }
   if (subcommand === 'journey') {

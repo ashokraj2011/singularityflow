@@ -436,25 +436,20 @@ export function nextStepsText(snapshot) {
     `State: ${snapshot.state}`,
     snapshot.branch ? `Branch: ${snapshot.branch}` : null,
     snapshot.currentPhase ? `Current phase: ${snapshot.currentPhase}` : null,
-    snapshot.workId ? 'Guided router: Copilot /sf-next · Shell singularity-flow next' : null,
+    ...(snapshot.workId ? ['Guided router:', ...commandRouteLines(safeCommandGuidance('singularity-flow next'))] : []),
     ...(snapshot.pending?.open ? [`Open on the decision list: ${snapshot.pending.open} — first: ${snapshot.pending.next.title} (${snapshot.pending.command})`] : []),
     ''
   ].filter((line) => line !== null);
   if (snapshot.contextBoundary) lines.push(...formatContextBoundaryHandoff(snapshot.contextBoundary),
     snapshot.contextBoundary.instruction,
-    'Shell: not available for the conversation reset; the listed Shell actions remain valid.',
-    'VS Code (model-free): not available for the conversation reset', '');
+    'Conversation reset is a Copilot chat action; the listed Shell actions remain valid.', '');
   // Every action names its three entry points in the contract order: Copilot, Shell, then the
   // model-free VS Code route. The reason leads; no surface is presented as the secondary product.
   snapshot.actions.forEach((item, index) => {
     lines.push(`${index + 1}. ${item.timing.toUpperCase()}${item.copilotTiming === 'after-context-boundary' ? ' (Copilot: after conversation boundary)' : ''} — ${item.reason}`);
     const guidance = safeCommandGuidance(item);
     if (guidance) lines.push(...commandRouteLines(guidance, '   '));
-    else {
-      lines.push('   Copilot: unavailable — ask /sf-next for a current action.');
-      lines.push('   Shell: unavailable — the supplied command was not safe to display.');
-      lines.push('   VS Code (model-free): not available for this action');
-    }
+    else lines.push('   The supplied command could not be safely displayed.', ...commandRouteLines({}, '   '));
   });
   return `${lines.join('\n')}\n`;
 }

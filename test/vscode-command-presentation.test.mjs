@@ -5,7 +5,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
-const { commandGuidanceHtml, commandGuidanceText, safeCommandPair } = await import(
+const { commandGuidanceHtml, commandGuidanceText, commandGuidanceMarkdown, safeCommandPair } = await import(
   pathToFileURL(path.join(root, 'apps', 'vscode', 'src', 'views', 'command-guidance.ts')).href);
 const { modelFreeRouteHtml, modelFreeRouteText, setChatModelsAvailable } = await import(
   pathToFileURL(path.join(root, 'apps', 'vscode', 'src', 'copilot-command.ts')).href);
@@ -22,7 +22,7 @@ test('shared VS Code continuation presentation renders and copies both validated
   assert.match(html, /Copy Shell/);
   assert.match(html, /Copy Copilot/);
   assert.equal(commandGuidanceText('singularity-flow doctor --json'),
-    'Copilot: /sf-doctor\nShell: singularity-flow doctor --json\nVS Code (model-free): not available for this action');
+    '- Copilot: /sf-doctor\n- Shell: singularity-flow doctor --json\n- VS Code (model-free): not available for this action');
 });
 
 test('placeholder routes remain visible but cannot be copied as executable commands', () => {
@@ -34,6 +34,20 @@ test('placeholder routes remain visible but cannot be copied as executable comma
   assert.doesNotMatch(html, /Copy Shell|Copy Copilot/);
 });
 
+test('Copilot chat and VS Code use the requested three-row format with exact command arguments', () => {
+  const command = 'singularity-flow approve implementation --work-id fact-01 --fetch';
+  assert.equal(commandGuidanceMarkdown(command), [
+    '- Copilot: `/sf-approve implementation --work-id fact-01`',
+    '- Shell: `singularity-flow approve implementation --work-id fact-01 --fetch`',
+    '- VS Code (model-free): `@sflow /approve implementation --work-id fact-01`'
+  ].join('\n'));
+  const html = commandGuidanceHtml(command);
+  assert.deepEqual([...html.matchAll(/<li><strong>([^<]+):<\/strong>/gu)].map(match => match[1]),
+    ['Copilot', 'Shell', 'VS Code (model-free)']);
+  assert.match(html, /data-copy-command="singularity-flow approve implementation --work-id fact-01 --fetch"/);
+  assert.equal(commandGuidanceMarkdown('singularity-flow doctor; echo unsafe'), null);
+});
+
 test('approval presentation pins the phase and Story in the validated Copilot handoff', () => {
   const command = 'singularity-flow approve poc-review-v2 --work-id STORY-17 --fetch';
   const expected = '/sf-approve poc-review-v2 --work-id STORY-17';
@@ -42,7 +56,7 @@ test('approval presentation pins the phase and Story in the validated Copilot ha
   });
   assert.equal(guidance?.copilotCommand, expected);
   assert.equal(commandGuidanceText(command),
-    `Copilot: ${expected}\nShell: ${command}\nVS Code (model-free): @sflow /approve poc-review-v2 --work-id STORY-17`);
+    `- Copilot: ${expected}\n- Shell: ${command}\n- VS Code (model-free): @sflow /approve poc-review-v2 --work-id STORY-17`);
   assert.match(commandGuidanceHtml({ command, copilotCommand: expected }), /\/sf-approve poc-review-v2 --work-id STORY-17/);
   assert.equal(safeCommandPair({ command, copilotCommand: '/sf-approve' }), null,
     'an asserted route cannot discard the reviewed phase or Story');

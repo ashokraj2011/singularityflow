@@ -1,3 +1,4 @@
+import { formatCommandRouteLines } from './model-free-commands.mjs';
 /**
  * A Work ID decides where a command runs.
  *
@@ -258,12 +259,12 @@ export async function routeNamedStory({ command, positionals, options, argv, roo
         nextAction: `singularity-flow workspace stories ${workId}` });
     const routes = await index.storyCheckoutRoutes(workId, { workspace: member.workspace }, { sameWorkspace: true });
     throw refusal(`Story ${workId} has no checkout on this computer, so this command was not run here, in ${current?.workId ?? 'a checkout without a Story'}. `
-      + `Open it first. ${routes.text}.`, 'STORY_CHECKOUT_REQUIRED', { workId, nextAction: routes.commands[0], recoveryCommands: routes.commands });
+      + `Open it first.\n${routes.text}`, 'STORY_CHECKOUT_REQUIRED', { workId, nextAction: routes.commands[0], recoveryCommands: routes.commands });
   }
   const bound = (await boundTurnStories(root)).filter((story) => story !== workId);
   if (bound.length) throw refusal(
     `This checkout's Copilot turn is bound to Story ${bound[0]}, so it cannot run a command for ${workId}. Nothing was run. `
-    + `Open ${workId} in a chat of its own. Copilot: /sf-session ${workId}; Shell: singularity-flow session open ${workId}; VS Code (model-free): not available for this action.`,
+    + `Open ${workId} in a chat of its own.\n${formatCommandRouteLines({ copilotCommand: `/sf-session ${workId}`, command: `singularity-flow session open ${workId}` }).join('\n')}`,
     'ACTIVE_SUBJECT_MISMATCH', { expectedWorkId: bound[0], actualWorkId: workId, repositoryPath: root, nextAction: `singularity-flow session open ${workId}` });
   if (await classification(command, positionals, options) === 'mutation') {
     const changes = await storyChangesHere(root, entry.workflowPath);

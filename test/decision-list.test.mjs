@@ -322,7 +322,7 @@ test('refusals lead with one sentence and the decision list, keeping the exact c
   const workflow = story();
   const lead = decisionRefusalLead(workflow, 'release', { gaps: [gap('BIN-501:REQ-001')], issues: upstreamIssueStates(workflow, AT), includeAllIssues: true });
   assert.equal(lead.headline, 'Release can\'t be approved yet: 1 decision needed.');
-  assert.equal(lead.route, 'Decide them in one place. Copilot: /sf-decide BIN-501 · Shell: singularity-flow decisions BIN-501');
+  assert.equal(lead.route, 'Decide them in one place.\n- Copilot: /sf-decide BIN-501\n- Shell: singularity-flow decisions BIN-501\n- VS Code (model-free): not available for this action');
   const error = Object.assign(new Error(`${lead.headline} ${lead.route}`), { code: 'CONFORMANCE_BLOCKING_VERDICTS', details: {
     workId: 'BIN-501', phase: 'release', nextAction: lead.nextAction,
     conformanceGaps: [{ clauseId: 'BIN-501:REQ-001', choices: [{ kind: 'decide-upstream-issue', command: 'singularity-flow upstream-issue decide UPI-002 --work-id BIN-501 --outcome accept-risk --expires <YYYY-MM-DD> --reason <why>', skill: '/sf-decide', detail: 'Decide it.' }] }] } });
@@ -334,7 +334,7 @@ test('refusals lead with one sentence and the decision list, keeping the exact c
   assert.equal(plan.context.turn, 'current-turn', 'the list opens in the same turn');
   const message = terminalRefusalMessage('BIN-501', { blockers: ['UPI-002 about implementation (BIN-501:REQ-001) is not decided; implementation\'s approvers decide it.'],
     recovery: ['singularity-flow decisions BIN-501'], decisions: lead });
-  assert.match(message, /^Release can't be approved yet: 1 decision needed\. Decide them in one place\. Copilot: \/sf-decide BIN-501/u);
+  assert.match(message, /^Release can't be approved yet: 1 decision needed\. Decide them in one place\.\n- Copilot: \/sf-decide BIN-501/u);
 });
 
 test('a screen size coverage still lacks is one item: capturing it is the person\'s action, not applicable is the decision', async (t) => {

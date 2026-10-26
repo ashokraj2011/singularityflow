@@ -145,7 +145,6 @@ import {
 } from './host-performance.ts';
 import { GatewayStatusWorker } from './gateway-status-worker-client.ts';
 import { commandGuidanceText, safeCommandPair } from './views/command-guidance.ts';
-import { modelFreeRouteText } from './copilot-command.ts';
 import { createTerminalIn } from './terminal-start.ts';
 import {
   offerCopilotChatCounting, startCopilotChatCounting, turnOffCopilotChatCounting, turnOnCopilotChatCounting
@@ -3838,7 +3837,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
           'singularity-flow workspace doctor --network --repository <REPOSITORY-URL> --json'
         ) : null);
         const recoveryText = recoveryRoute
-          ? `Copilot: ${recoveryRoute.copilotCommand}\nShell: ${recovery}\nVS Code (model-free): ${modelFreeRouteText(recoveryRoute.modelFreeCommand)}`
+          ? commandGuidanceText(recoveryRoute)
           : null;
         output.appendLine(`No registered workspace matched the requested repository.${recoveryText
           ? ` Recover with:\n${recoveryText}` : ''}`);

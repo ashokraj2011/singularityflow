@@ -1,4 +1,4 @@
-/** Closed presentation crosswalk. These are explicit VS Code routes, never shell relays. */
+/** Closed command crosswalk and shared display layout. These routes grant no execution authority. */
 const ID = /^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$/u;
 
 export function parseModelFreeTarget(text = '') {
@@ -58,4 +58,38 @@ export function modelFreeCommandForCommand(command) {
   // Strict literal grammar here. The shared safe-command boundary handles quoted argv separately.
   if (typeof command !== 'string' || !/^(?:singularity-flow|sflow)\s+[A-Za-z0-9._ -]+$/u.test(command)) return null;
   return modelFreeCommandForArgv(command.trim().split(/\s+/u).slice(1));
+}
+
+/** Layout only: callers still validate untrusted routes and retain their existing execution gates. */
+export const COMMAND_PRESENTATION_CONTRACT = 'After a blank line, display each next action as three separate Markdown bullets, in order: "- Copilot: `<copilotCommand>`", "- Shell: `<command>`", "- VS Code (model-free): `<modelFreeCommand>`". Preserve exact returned routes; never combine them on one line or in a table. Missing Copilot: "no verified equivalent"; missing Shell or model-free: "not available for this action". Never invent routes or make further calls for formatting.';
+
+export function commandRouteRows(guidance = {}) {
+  guidance ??= {};
+  return [
+    { label: 'Copilot', command: guidance.copilotCommand, unavailable: 'no verified equivalent' },
+    { label: 'Shell', command: guidance.command, unavailable: 'not available for this action' },
+    { label: 'VS Code (model-free)', command: guidance.modelFreeCommand, unavailable: 'not available for this action' }
+  ];
+}
+
+/** Choose a Markdown code span that preserves literal backticks in quoted command arguments. */
+export function commandInlineCode(value) {
+  const text = String(value);
+  const length = (text.match(/`+/gu) ?? []).reduce((maximum, run) => Math.max(maximum, run.length), 0) + 1;
+  const fence = '`'.repeat(length);
+  const padding = text.startsWith('`') || text.endsWith('`') || text.startsWith(' ') && text.endsWith(' ') ? ' ' : '';
+  return `${fence}${padding}${text}${padding}${fence}`;
+}
+
+export function formatCommandRouteLines(guidance, { indent = '', markdown = false, modelFreeNote = '' } = {}) {
+  return commandRouteRows(guidance).map(({ label, command, unavailable }, index) => {
+    const value = command ? markdown ? commandInlineCode(command) : command : unavailable;
+    const note = index === 2 && command && modelFreeNote ? ` ${modelFreeNote}` : '';
+    return `${indent}- ${label}: ${value}${note}`;
+  });
+}
+
+/** Apply at delivery, without rewriting pinned skill, agent, instruction or artifact bytes. */
+export function withCommandPresentationProtocol(text) {
+  return text.includes(COMMAND_PRESENTATION_CONTRACT) ? text : `# Runtime command presentation\n\n${COMMAND_PRESENTATION_CONTRACT}\n\n${text}`;
 }

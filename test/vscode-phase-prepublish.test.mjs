@@ -42,12 +42,11 @@ test('all field diagnostics remain visible and next-action surfaces come from on
     findings: Array.from({ length: 12 }, (_, index) => ({ message: `Fix witness field ${index}.`, line: index + 10,
       details: { field: 'method' } })),
     correction: { skill: '/sf-code' }, commands: { publish: null, next: 'singularity-flow phase show implementation --json' },
-    commandGuidance: { next: { copilotCommand: '/sf-phase-documents implementation', modelFreeCommand: '@sflow /documents implementation' } }
+    commandGuidance: { next: { copilotCommand: '/sf-phase-documents implementation', modelFreeCommand: null } }
   }, expected);
   for (let index = 0; index < 12; index += 1) assert.ok(decision.details.some(line => line.includes(`Fix witness field ${index}.`)));
-  assert.ok(decision.details.includes('Next in Copilot: /sf-phase-documents implementation'));
-  assert.ok(decision.details.includes('VS Code (model-free): @sflow /documents implementation'));
-  assert.ok(decision.details.includes('Repair in Copilot: /sf-code'));
+  assert.ok(decision.details.includes('Next action:\n- Copilot: /sf-phase-documents implementation\n- Shell: singularity-flow phase show implementation --json\n- VS Code (model-free): not available for this action'));
+  assert.ok(decision.details.includes('Repair:\n- Copilot: /sf-code\n- Shell: not available for this action\n- VS Code (model-free): not available for this action'));
   assert.equal(decision.skill, '/sf-code', 'the repair prefill is separate from the read-only next action');
 });
 
@@ -79,6 +78,18 @@ test('VS Code Publish accepts only an exact fresh read-only ready projection', (
   }
 });
 
+test('publication notifications do not display unverified command alternatives', () => {
+  const decision = phasePrepublishDecision({ ...ready, status: 'correction-required',
+    correction: { skill: '/sf-code' },
+    commands: { publish: null, next: 'singularity-flow phase show implementation --json' },
+    commandGuidance: { next: { copilotCommand: '/sf-approve implementation --work-id OTHER',
+      modelFreeCommand: '@sflow /approve implementation --work-id OTHER' } }
+  }, expected);
+  assert.equal(decision.ready, false);
+  assert.doesNotMatch(decision.details.join('\n'), /\/approve|\/sf-approve|OTHER/u);
+  assert.match(decision.details.join('\n'), /Repair:\n- Copilot: \/sf-code\n- Shell: not available for this action/u);
+});
+
 test('a ready publication forwards only the exact closed producer/channel route and asks for a compact receipt', () => {
   assert.deepEqual(phasePrepublishDecision(ready, expected).publishArgv,
     ['phase', 'publish', 'implementation', '--authored', 'governed-agent', '--channel', 'copilot-host', '--json']);
@@ -100,14 +111,14 @@ test('a correction names the current phase, bounded findings, and the owner skil
   assert.equal(decision.ready, false);
   assert.match(decision.headline, /implementation stopped/);
   assert.match(decision.details.join('\n'), /required test command did not pass/);
-  assert.match(decision.details.join('\n'), /Next in Copilot: \/sf-code/);
+  assert.match(decision.details.join('\n'), /Repair:\n- Copilot: \/sf-code/);
   assert.equal(decision.skill, '/sf-code');
   assert.deepEqual(phaseGenerationChatPrefill(decision.skill), {
     query: '/sf-code ', isPartialQuery: true
   }, 'Fix in Copilot is a draft query, not execution');
-  assert.match(decision.details.join('\n'), /Next in Shell: singularity-flow phase show implementation --json/);
+  assert.match(decision.details.join('\n'), /- Shell: singularity-flow phase show implementation --json/);
   assert.match(decision.details.join('\n'), /phase prepublish implementation --json/);
-  assert.ok(decision.details.every((detail) => !detail.includes('\n')));
+  assert.ok(decision.details.filter(detail => detail.includes('\n')).every(detail => detail.split('\n').length === 4), 'each action is a label followed by exactly three command rows');
   const unsupported = phasePrepublishDecision({
     ...ready, status: 'correction-required', findings: [{ message: 'Needs review.' }],
     correction: { skill: '/sf-code now', guidance: 'Review the source.' },
@@ -194,7 +205,7 @@ test('a correction that restates the blocking finding is shown once, in its full
   assert.equal(decision.ready, false);
   assert.deepEqual(decision.details, [
     sentence,
-    'Next in Shell: singularity-flow reject verify --to implement --repair --reason <REASON>',
-    'Shell: singularity-flow phase prepublish verify --json'
+    'Next action:\n- Copilot: /sf-reject\n- Shell: singularity-flow reject verify --to implement --repair --reason <REASON>\n- VS Code (model-free): not available for this action',
+    'Recheck:\n- Copilot: /sf-phase\n- Shell: singularity-flow phase prepublish verify --json\n- VS Code (model-free): not available for this action'
   ]);
 });

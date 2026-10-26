@@ -252,9 +252,9 @@ test('rendered action guidance reads Copilot, Shell, then the model-free VS Code
   assert.equal(action.copilotCommand, '/sf-phase');
   assert.deepEqual(actionCommandLines(action), [
     'Run:',
-    'Copilot: /sf-phase',
-    'Shell: singularity-flow prepare intake',
-    'VS Code (model-free): not available for this action'
+    '- Copilot: /sf-phase',
+    '- Shell: singularity-flow prepare intake',
+    '- VS Code (model-free): not available for this action'
   ]);
 });
 

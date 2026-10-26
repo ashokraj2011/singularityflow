@@ -206,11 +206,15 @@ export function renderStoryRoster(result, {
     add('');
   }
   add(`${cloneUnavailable ? 'Once the clone is readable, choose' : 'Choose'} an exact Story ID explicitly, then use the existing safe session attach command. Listing this roster does not activate or mutate a Story.`);
-  add('Copilot: `/sf-session` — supply the exact chosen Story ID and preserve the scope shown above.');
+  add('Supply the exact chosen Story ID and preserve the scope shown above.');
   const scoped = text(scope?.workspaceReference) || text(scope?.repositoryUrl);
   const selectorPlaceholders = scoped
     ? ' --workspace <EXACT-WORKSPACE-ID-OR-PATH> --repository <EXACT-REPOSITORY-ID>' : '';
-  add(`Shell: \`singularity-flow session attach <EXACT-STORY-ID>${selectorPlaceholders}\``);
+  add('');
+  add('- Copilot: `/sf-session`');
+  add(`- Shell: \`singularity-flow session attach <EXACT-STORY-ID>${selectorPlaceholders}\``);
+  add('- VS Code (model-free): not available for this action');
+  add('');
   if (scoped) add('Replace the selector placeholders with the exact captured workspace and repository; do not switch to an old host checkout.');
   if (text(scope?.repositoryUrl)) add('URL-only discovery is read-only: choose a matching registered workspace/repository before attaching; session attach does not accept --repository-url.');
   return lines.join('\n');

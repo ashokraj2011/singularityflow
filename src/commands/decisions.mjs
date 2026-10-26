@@ -1,3 +1,4 @@
+import { formatCommandRouteLines } from '../model-free-commands.mjs';
 /**
  * `decisions [WORK-ID]` and `decisions record [WORK-ID]`: everything people must decide before a
  * step can move, in plain words, as choices, recorded with one confirmation. [decision list]
@@ -140,11 +141,11 @@ function packetText(packet) {
   for (const [index, item] of packet.items.entries()) lines.push(...itemLines(item, index), '');
   if (packet.items.some((item) => ['conformance-gap', 'upstream-issue'].includes(item.kind))) lines.push(packet.rule);
   if (packet.items.some((item) => item.options.some((option) => option.recordable !== false))) {
-    lines.push(`Decide them in this terminal: ${packet.record.interactive}`);
-    if (packet.record.recommended) lines.push(`Or record the recommended choices: ${packet.record.recommended}`);
-    if (packet.inApproval) lines.push(`Or answer them in the approval, in one commit: ${packet.inApproval.command}`);
-  } else if (packet.next) lines.push(`Next: ${packet.next.command}`);
-  lines.push(`In Copilot: ${packet.next?.copilotCommand ?? packet.record.share}`);
+    lines.push('Decide them in this terminal:', ...formatCommandRouteLines({ command: packet.record.interactive, copilotCommand: packet.record.share }));
+    if (packet.record.recommended) lines.push('Or record the recommended choices:', ...formatCommandRouteLines({ command: packet.record.recommended, copilotCommand: packet.record.share }));
+    if (packet.inApproval) lines.push('Or answer them in the approval, in one commit:', ...formatCommandRouteLines(packet.inApproval));
+  } else if (packet.next) lines.push('Next:', ...formatCommandRouteLines(packet.next));
+  else lines.push(...formatCommandRouteLines({ copilotCommand: packet.record.share }));
   return `${lines.join('\n')}\n`;
 }
 

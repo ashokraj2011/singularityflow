@@ -1,6 +1,6 @@
 /** Model-free discovery for the native Copilot authoring handoff. No implicit remote/root search. */
 import { SingularityFlowError } from '../util.mjs';
-import { safeCommandGuidance } from '../safe-command-guidance.mjs';
+import { safeCommandGuidance, commandRouteLines } from '../safe-command-guidance.mjs';
 
 export async function run(_argv, { positionals, options }) {
   const action = positionals[2];
@@ -52,8 +52,6 @@ export async function run(_argv, { positionals, options }) {
     console.log(`${result.total} matches; next cursor ${result.nextCursor ?? 'none'}.`);
   }
   if (result.commandGuidance) {
-    console.log(`Copilot: ${result.commandGuidance.copilotCommand ?? 'no verified equivalent'}`);
-    console.log(`Shell: ${result.commandGuidance.command}`);
-    console.log(`VS Code (model-free): ${result.commandGuidance.modelFreeCommand ?? 'not available for this action'}`);
+    for (const line of commandRouteLines(result.commandGuidance)) console.log(line);
   }
 }

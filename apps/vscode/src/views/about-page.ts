@@ -1,6 +1,7 @@
 /** Pure read-only About view; all installed-build observations come from the CLI. */
 import { BRAND_ART_STYLE, brandCard } from './brand-art.ts';
 import { escape } from './webview.ts';
+import { commandRouteRows } from '../../../../src/model-free-commands.mjs';
 
 export interface AboutSurface {
   id: string; label: string; status: string; version: string | null; build: string | null;
@@ -66,7 +67,7 @@ export function aboutHtml(info: AboutInfo | null, window: AboutWindow, error: st
         <dt>Installation receipt</dt><dd>${escape(info.receipt.status)} · <code>${escape(info.receipt.path)}</code></dd>
         ${[info.running, ...info.vscode].filter(item => item.path).map(item => `<dt>${escape(item.label)}</dt><dd><code>${escape(item.path)}</code></dd>`).join('')}</dl></details>`
       : !error ? '<p role="status" aria-live="polite">Reading local build information…</p>' : ''}
-    <p>Copilot: <code>/sf-about</code> · Shell: <code>singularity-flow about</code> or <code>sflow-about</code>.</p>
+    <ul class="command-guidance-routes">${commandRouteRows({ copilotCommand: '/sf-about', command: 'singularity-flow about' }).map(row => `<li><strong>${escape(row.label)}:</strong> ${row.command ? `<code>${escape(row.command)}</code>` : escape(row.unavailable)}</li>`).join('')}</ul>
     <p><button data-about="after-install" class="secondary">Open After install</button></p>`;
 }
 

@@ -292,7 +292,7 @@ test('the shipped edit guard denies direct and batched source patches with three
   const f = await fixture(t); const payload = await f.enter('/sf-phase');
   const refused = await mutationToolGuard(payload);
   assert.equal(refused.permissionDecision, 'deny');
-  assert.match(refused.permissionDecisionReason, /Copilot:.*Shell:.*Model-free:/u);
+  assert.match(refused.permissionDecisionReason, /\n- Copilot: [^\n]+\n- Shell: [^\n]+\n- VS Code \(model-free\):/u);
   assert.equal((await mutationToolGuard({ ...payload, toolName: 'apply_patch', toolArgs: {
     patch: '*** Begin Patch\n*** Add File: singularity/work-items/PMC-1/artifacts/custom-step/plan.md\n+x\n*** End Patch' }
   })).permissionDecision, undefined);
@@ -1634,7 +1634,7 @@ test('expired explicit permission cannot authorize an edit or approval; diagnost
   assert.match(receiptRefusal.permissionDecisionReason, /^PHASE_MUTATION_TURN_EXPIRED: .*Invoke \/sf-approve again/u);
   assert.deepEqual(await mutationToolGuard({ ...payload, toolName: 'bash', toolArgs: { command: 'singularity-flow phase enter --for-agent --json' } }), {});
   const refusal = await mutationToolGuard(payload);
-  assert.match(refusal.permissionDecisionReason, /^PHASE_MUTATION_TURN_EXPIRED: .*Copilot: \/sf-approve; Shell: not available for this action/u);
+  assert.match(refusal.permissionDecisionReason, /^PHASE_MUTATION_TURN_EXPIRED: [^\n]*\n\n- Copilot: \/sf-approve\n- Shell: not available for this action\n- VS Code \(model-free\): not available for this action$/u);
   assert.deepEqual(refusal.next, []);
 });
 
@@ -2162,7 +2162,7 @@ test('an expired turn says so and names its own skill, never an issuer or shell 
   const author = await enterAt('/sf-code', 'expired-author', past);
   for (const payload of [asPatch(author, staging), { ...author, toolName: 'edit', toolArgs: { path: 'singularity/work-items/PMC-1/artifacts/custom-step/a.md' } }]) {
     assert.match((await mutationToolGuard(payload)).permissionDecisionReason,
-      /^PHASE_MUTATION_TURN_EXPIRED: .*Invoke \/sf-code again to continue.*Shell: not available for this action/u);
+      /^PHASE_MUTATION_TURN_EXPIRED: [^\n]*Invoke \/sf-code again to continue[^\n]*\n\n- Copilot: \/sf-code\n- Shell: not available for this action\n- VS Code \(model-free\): not available for this action$/u);
   }
   const draft = path.join(path.dirname(f.root), 'drafts', 'web.application.yml');
   const runApp = await enterAt('/sf-run-app suggest', 'expired-run', past);

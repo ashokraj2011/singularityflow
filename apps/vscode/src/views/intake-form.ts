@@ -1,3 +1,4 @@
+import { commandRouteListHtml } from './command-guidance.ts';
 /**
  * Work intake: the one screen that starts anything.
  *
@@ -19,7 +20,7 @@ import { contextStrip, heroHeader, infoNote, stepHeading, tag } from './theme.ts
 import { startWizardProgress, type StartWizardProgress } from './start-wizard.ts';
 import { intakeWizardActions, intakeWizardLayout, intakeWizardNavigation, INTAKE_WIZARD_SCRIPT } from './intake-wizard.ts';
 import { gitRemoteProblem } from './map-capability-form.ts';
-import { commandGuidance, modelFreeRouteHtml } from '../copilot-command.ts';
+import { commandGuidance } from '../copilot-command.ts';
 import { CATALOG_SEARCH_SCRIPT, SAMPLE_STORY_WORKFLOWS } from './catalog-search.ts';
 import {
   EMPTY_TEST_RECOVERY_DRAFT, testRecoveryArguments, testRecoveryPreviewArguments, testRecoveryEnabled,
@@ -1559,11 +1560,10 @@ export function intakeRegions(form: IntakeForm, journey: StartWizardProgress | n
     ${form.error ? `<div class="notice error" role="alert">${escape(form.error)}</div>` : ''}
     ${form.recoveryCommand && recoveryRoute ? `<div class="notice warning" role="status" aria-live="polite"><strong>Continue safely</strong>
       <p>The command is bound to this repository and preserves every argument exactly.</p>
-      <p><strong>Copilot:</strong> <code>${escape(recoveryRoute.copilotCommand)}</code></p>
-      ${recoveryRoute.copyable ? `<button type="button" class="secondary" data-copy-command="${escape(recoveryRoute.copilotCommand)}">Copy Copilot</button>` : ''}
-      <p><strong>Shell:</strong></p><pre class="terminal-command"><code>${escape(form.recoveryCommand)}</code></pre>
-      ${recoveryRoute.copyable ? `<button type="button" class="secondary" data-copy-command="${escape(form.recoveryCommand)}">Copy Shell</button>` : ''}
-      <p><strong>VS Code (model-free):</strong> ${modelFreeRouteHtml(recoveryRoute.modelFreeCommand, escape)}</p>
+      ${commandRouteListHtml(recoveryRoute, [
+        recoveryRoute.copyable && recoveryRoute.copilotCommand ? `<button type="button" class="secondary" data-copy-command="${escape(recoveryRoute.copilotCommand)}">Copy Copilot</button>` : '',
+        recoveryRoute.copyable ? `<button type="button" class="secondary" data-copy-command="${escape(form.recoveryCommand)}">Copy Shell</button>` : ''
+      ])}
       ${recoveryRoute.copyable ? '' : '<p>Replace the shown placeholders before running this command.</p>'}
       ${form.shape === 'story' ? '<button type="button" class="secondary" data-submit="recover-start">Check and open created Story</button>' : ''}</div>` : ''}
   </section>`;

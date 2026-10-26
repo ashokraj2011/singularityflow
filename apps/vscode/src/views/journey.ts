@@ -1,3 +1,4 @@
+import { commandRouteListHtml } from './command-guidance.ts';
 /**
  * The journey panel.
  *
@@ -13,7 +14,6 @@ import * as vscode from 'vscode';
 import { buildJourney, type Journey } from './journey-model.ts';
 import { journeyLineageHtml } from './journey-lineage.ts';
 import { contentSecurityPolicy, escape, navigationTarget, nonce, page, icon } from './webview.ts';
-import { modelFreeRouteHtml } from '../copilot-command.ts';
 import { navigateTo } from './navigate.ts';
 import { registerMessageRouter, stringField } from './messages.ts';
 import { decisionTargetText, pendingListSentence } from '../decisions.ts';
@@ -219,13 +219,10 @@ export function journeyBodyHtml(journey: Journey, deliveries: JourneyDeliveries 
     : '<p class="muted">Replace the shown placeholders before continuing.</p>'}
       ${journey.decisionAhead ? `<p class="muted">Then: ${escape(journey.decisionAhead.text)}</p>` : ''}
       <div class="command-hint journey-command-routes">
-        <p><b>Copilot:</b> <code>${escape(journey.nextAction.copilotCommand)}</code>
-          ${journey.nextAction.copyable
-    ? `<button type="button" class="secondary" data-copy-route="${escape(journey.nextAction.copilotCommand)}">Copy Copilot</button>` : ''}</p>
-        <p><b>Shell:</b> <code>${escape(journey.nextAction.command)}</code>
-          ${journey.nextAction.copyable
-    ? `<button type="button" class="secondary" data-copy-route="${escape(journey.nextAction.command)}">Copy shell</button>` : ''}</p>
-        <p><b>VS Code (model-free):</b> ${modelFreeRouteHtml(journey.nextAction.modelFreeCommand, escape)}</p>
+        ${commandRouteListHtml(journey.nextAction, [
+          journey.nextAction.copyable && journey.nextAction.copilotCommand ? `<button type="button" class="secondary" data-copy-route="${escape(journey.nextAction.copilotCommand)}">Copy Copilot</button>` : '',
+          journey.nextAction.copyable ? `<button type="button" class="secondary" data-copy-route="${escape(journey.nextAction.command)}">Copy shell</button>` : ''
+        ])}
       </div>
     </section>` : ''}
 

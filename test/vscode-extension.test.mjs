@@ -5875,19 +5875,19 @@ test('a failure shows the sentence, not the log line that carries it', () => {
     }
   })), [
     'Git access is unavailable.',
-    'Copilot: /sf-workspace-bootstrap',
-    'Shell: singularity-flow workspace doctor --network --repository URL --json',
-    'VS Code (model-free): not available for this action'
+    '- Copilot: /sf-workspace-bootstrap',
+    '- Shell: singularity-flow workspace doctor --network --repository URL --json',
+    '- VS Code (model-free): not available for this action'
   ].join('\n'));
   assert.equal(humanError(JSON.stringify({
     rendered: { headline: 'Publication pending' },
     next: [{ command: 'singularity-flow sync', skill: '/sf-next' }]
-  })), 'Publication pending\nCopilot: /sf-next\nShell: singularity-flow sync\nVS Code (model-free): not available for this action');
+  })), 'Publication pending\n- Copilot: /sf-next\n- Shell: singularity-flow sync\n- VS Code (model-free): not available for this action');
   assert.equal(humanError(JSON.stringify({
     resultType: 'sflow-refusal-plan',
     error: { message: 'Auto mode is disabled.' },
     remediationPlan: { steps: [{ command: 'singularity-flow explain auto-mode', skill: '/sf-docs' }] }
-  })), 'Auto mode is disabled.\nCopilot: /sf-docs\nShell: singularity-flow explain auto-mode\nVS Code (model-free): not available for this action');
+  })), 'Auto mode is disabled.\n- Copilot: /sf-docs\n- Shell: singularity-flow explain auto-mode\n- VS Code (model-free): not available for this action');
   assert.equal(humanError(JSON.stringify({
     resultType: 'sflow-refusal-plan',
     error: {
@@ -5900,9 +5900,9 @@ test('a failure shows the sentence, not the log line that carries it', () => {
     ] }
   })), [
     "Agent 'poc-analyst' references unknown phase 'poc-intake'.",
-    'Copilot: /sf-workspace',
-    'Shell: singularity-flow workspace refresh-configuration --dry-run',
-    'VS Code (model-free): not available for this action'
+    '- Copilot: /sf-workspace',
+    '- Shell: singularity-flow workspace refresh-configuration --dry-run',
+    '- VS Code (model-free): not available for this action'
   ].join('\n'));
   assert.equal(humanError(JSON.stringify({
     error: {

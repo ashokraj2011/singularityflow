@@ -3,7 +3,7 @@ import { constants } from 'node:fs';
 import { lstat, open, readFile } from 'node:fs/promises';
 import { TextDecoder } from 'node:util';
 import { WORKFLOW_MARKUP_LIMITS, markupError } from '../workflow-markup-parser.mjs';
-import { safeCommandGuidance } from '../safe-command-guidance.mjs';
+import { safeCommandGuidance, commandRouteLines } from '../safe-command-guidance.mjs';
 import { parseWorkflowMarkup } from '../workflow-markup-parser.mjs';
 import path from 'node:path';
 import { PACKAGE_ROOT } from '../package-root.mjs';
@@ -68,8 +68,6 @@ export async function run(argv, { positionals, options }) {
   if (result.outputPath) console.log(`Bundle: ${result.outputPath}`);
   console.log(result.meaning);
   if (result.commandGuidance) {
-    console.log(`Copilot: ${result.commandGuidance.copilotCommand ?? 'no verified equivalent'}`);
-    console.log(`Shell: ${result.commandGuidance.command}`);
-    console.log(`VS Code (model-free): ${result.commandGuidance.modelFreeCommand ?? 'not available for this action'}`);
+    for (const line of commandRouteLines(result.commandGuidance)) console.log(line);
   }
 }

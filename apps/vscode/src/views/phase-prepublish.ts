@@ -1,4 +1,6 @@
-import { modelFreeRouteText } from '../copilot-command.ts';
+import { commandGuidance, type CommandGuidance } from '../copilot-command.ts';
+import { commandGuidanceText } from './command-guidance.ts';
+import { formatCommandRouteLines } from '../../../../src/model-free-commands.mjs';
 
 /** Keep the editor's Publish button on the same read-only phase gate as the CLI. */
 export interface PhasePrepublishDecision {
@@ -119,16 +121,13 @@ export function phasePrepublishDecision(
   }
   const skill = line(record(projection.correction)?.skill, 80);
   const exactSkill = skill && /^\/sf-[a-z0-9-]+$/u.test(skill) ? skill : null;
-  const nextGuidance = record(record(projection.commandGuidance)?.next);
-  const nextCopilot = line(nextGuidance?.copilotCommand, 500);
-  if (nextCopilot && /^\/sf-[a-z0-9-]+(?:\s|$)/u.test(nextCopilot)) details.push(`Next in Copilot: ${nextCopilot}`);
-  else if (exactSkill && !nextGuidance) details.push(`Next in Copilot: ${exactSkill}`);
-  if (exactSkill && nextGuidance && nextCopilot !== exactSkill) details.push(`Repair in Copilot: ${exactSkill}`);
-  const next = line(commands?.next, 500);
-  if (next?.startsWith('singularity-flow ')) details.push(`Next in Shell: ${next}`);
-  const modelFree = line(nextGuidance?.modelFreeCommand, 500);
-  if (modelFree?.startsWith('@sflow /')) details.push(`VS Code (model-free): ${modelFreeRouteText(modelFree)}`);
-  details.push(`Shell: singularity-flow phase prepublish ${expected.phaseId} --json`);
+  const suppliedNext = record(record(projection.commandGuidance)?.next);
+  const nextGuidance: CommandGuidance | null = commandGuidance(suppliedNext ? { command: commands?.next, ...suppliedNext } : commands?.next);
+  if (nextGuidance) details.push(`Next action:\n${commandGuidanceText(nextGuidance)}`);
+  if (exactSkill && nextGuidance?.copilotCommand !== exactSkill) {
+    details.push(`Repair:\n${formatCommandRouteLines({ copilotCommand: exactSkill }).join('\n')}`);
+  }
+  details.push(`Recheck:\n${commandGuidanceText(`singularity-flow phase prepublish ${expected.phaseId} --json`)}`);
   return {
     ready: false,
     headline: `Publication of ${expected.phaseId} stopped: correct this phase first.`,

@@ -1,3 +1,4 @@
+import { formatCommandRouteLines } from './model-free-commands.mjs';
 import { nextPhaseGeneration } from './phase-generation.mjs';
 import { SingularityFlowError } from './util.mjs';
 
@@ -77,7 +78,7 @@ export function formatContextBoundaryHandoff(handoff) {
   const lines = [`Context boundary: ${handoff.mode}. ${handoff.reason}`];
   if (handoff.commands.length) {
     lines.push('Next Copilot actions:');
-    handoff.commands.forEach((command, index) => lines.push(`  ${index + 1}. ${command}`));
+    handoff.commands.forEach(command => lines.push(...formatCommandRouteLines({ copilotCommand: command }), ''));
   }
   return lines;
 }

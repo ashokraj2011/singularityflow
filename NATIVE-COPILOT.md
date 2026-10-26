@@ -36,6 +36,19 @@ native Copilot Chat. The equivalent `/sf-*` and `/sflow-*` skills work in Copilo
 The Node.js CLI remains authoritative. It validates ordering, inputs, templates, approvals, and
 Git publication. A Copilot response alone never advances the workflow.
 
+## Command display
+
+Every next action uses three separate bullets, in this order, with the exact returned commands:
+
+- Copilot: `/sf-approve implementation --work-id fact-01`
+- Shell: `singularity-flow approve implementation --work-id fact-01 --fetch`
+- VS Code (model-free): `@sflow /approve implementation --work-id fact-01`
+
+An unavailable Copilot route says `no verified equivalent`; an unavailable Shell or model-free
+route says `not available for this action`. Multiple actions each get their own command block.
+This layout applies to packaged skills, phase prompt delivery, CLI guidance and VS Code. Existing
+Stories receive the runtime presentation rule without rewriting their pinned instructions.
+
 ## Repository lookup after compaction
 
 An explicit `/sf-code` or `/sf-phase` invocation starts with

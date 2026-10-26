@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import test from 'node:test';
 import YAML from 'yaml';
+import { COMMAND_PRESENTATION_CONTRACT } from '../src/model-free-commands.mjs';
 import { resolveWorkType } from '../src/config.mjs';
 import { phaseAuthoringContract, phaseAuthoringContractLines } from '../src/phase-authoring-contract.mjs';
 import { phasePromptExecutionContract, withPhasePromptRuntimeGuidance } from '../src/worldmodel.mjs';
@@ -27,6 +28,9 @@ test('all seeded scope producers share an application-neutral repair rubric with
       assert.equal(Boolean(contract.requirementCoverage), ownsScope, `${name}/${phase.id}`);
       const prompt = phaseAuthoringContractLines(contract).join('\n');
       assert.equal(prompt.includes(REQUIREMENT_AUTHORING_PROTOCOL), ownsScope);
+      const delivered = withPhasePromptRuntimeGuidance('Pinned phase instructions.\n', definition, workflow, phase);
+      assert.ok(delivered.includes(COMMAND_PRESENTATION_CONTRACT), `${name}/${phase.id}: command format`);
+      assert.equal(withPhasePromptRuntimeGuidance(delivered, definition, workflow, phase), delivered);
       if (ownsScope) {
         assert.equal(contract.requirementCoverage, REQUIREMENT_COVERAGE);
         scope += 1;

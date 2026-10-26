@@ -94,8 +94,8 @@ test('native SGOS review explicitly stops before ratification or execution', () 
 
 test('native SGOS review does not surface a command when its payload has no safe route', () => {
   const review = sgosWorkflowCreateReview({ ...selection(), title: 'Unsafe\npayload' });
-  assert.match(review, /Shell: not displayed/);
-  assert.match(review, /Copilot: not displayed/);
+  assert.match(review, /- Shell: not available for this action/);
+  assert.match(review, /- Copilot: no verified equivalent/);
   assert.doesNotMatch(review.split('Exact command:')[1], /Unsafe\s+payload/);
 });
 

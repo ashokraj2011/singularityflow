@@ -9,7 +9,7 @@ import { captureTerminalActionAuthorization } from '../action-authorization.mjs'
 import { withApprovedConfigurationRead } from '../approved-configuration-reader.mjs';
 import { configurationReadRoot } from '../configuration-read-scope.mjs';
 import { canonicalJson, recordSha256 } from '../records.mjs';
-import { safeCommandGuidance } from '../safe-command-guidance.mjs';
+import { safeCommandGuidance, commandRouteLines } from '../safe-command-guidance.mjs';
 import { draftDeletePlan, openGitDraftStore } from '../wca-git-drafts.mjs';
 import { SingularityFlowError, isPortableRepositoryPathComponent, optionBoolean } from '../util.mjs';
 import { parseLocalStoryInventorySubjects, SKP_STORY_INVENTORY_LIMITS } from '../skp-story-inventory-request.mjs';
@@ -313,9 +313,7 @@ function emit(value, json) {
       console.log(`Structural lifecycle: ${view.assessment.simulation}. Projected scenarios only; no tests, models or human decisions were executed.`);
       for (const decision of view.missingDecisions) console.log(`${decision.status === 'requires-terminal-review' ? 'Review required' : 'Unresolved'}: ${decision.fieldPath} (${decision.label})`);
       if (view.primaryAction?.effect === 'separate-terminal-review-only') {
-        console.log(`Copilot: ${view.primaryAction.copilotCommand}`);
-        console.log(`Shell: ${view.primaryAction.command}`);
-        console.log('VS Code (model-free): not available for this action');
+        for (const line of commandRouteLines(view.primaryAction)) console.log(line);
       }
       console.log('This Show operation requested no proposal, approval, installation, or execution.');
     } else console.log(JSON.stringify(value.data, null, 2));

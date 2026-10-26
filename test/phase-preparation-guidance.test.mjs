@@ -8,9 +8,9 @@ test('custom document phases keep their shell id and use the generic Copilot pha
   const phase = { id: 'poc-impact-analysis', generationPolicy: { task: 'analyze' } };
   assert.deepEqual(phasePreparationCommandLines(phase), [
     'Run:',
-    'Copilot: /sf-phase',
-    'Shell: singularity-flow prepare poc-impact-analysis',
-    'VS Code (model-free): not available for this action'
+    '- Copilot: /sf-phase',
+    '- Shell: singularity-flow prepare poc-impact-analysis',
+    '- VS Code (model-free): not available for this action'
   ]);
 });
 
@@ -18,9 +18,9 @@ test('custom code phases keep their shell id and use the policy-selected Copilot
   const phase = { id: 'poc-test-generation', generationPolicy: { task: 'code' } };
   assert.deepEqual(phasePreparationCommandLines(phase, 'Next'), [
     'Next:',
-    'Copilot: /sf-code',
-    'Shell: singularity-flow prepare poc-test-generation',
-    'VS Code (model-free): not available for this action'
+    '- Copilot: /sf-code',
+    '- Shell: singularity-flow prepare poc-test-generation',
+    '- VS Code (model-free): not available for this action'
   ]);
 });
 

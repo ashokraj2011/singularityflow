@@ -1,6 +1,7 @@
 /** Explicit-turn interception. Ordinary chat/pause never loads Story policy. */
 import path from 'node:path';
 import { createHash, randomUUID } from 'node:crypto';
+import { COMMAND_PRESENTATION_CONTRACT, formatCommandRouteLines } from './model-free-commands.mjs';
 import { readFileSync, realpathSync } from 'node:fs';
 import { lstat, mkdir, readFile, readdir, realpath, rename, rm, unlink, writeFile } from 'node:fs/promises';
 import { fileURLToPath } from 'node:url';
@@ -30,7 +31,7 @@ function turnExpiredDenial(record) {
   return { permissionDecision: 'deny', next: [], permissionDecisionReason:
     `PHASE_MUTATION_TURN_EXPIRED: this turn's permissions last ${MAX_AGE / 60000} minutes from its prompt and have ended; nothing was written. `
     + `Invoke ${skill} again to continue: the new turn enters again and keeps everything already written. `
-    + `Copilot: ${skill}; Shell: not available for this action (no command renews a Copilot turn); Model-free: not available for this action` };
+    + `No Shell command renews a Copilot turn.\n\n${formatCommandRouteLines({ copilotCommand: skill }).join('\n')}` };
 }
 
 /**
@@ -222,6 +223,7 @@ export function turnBoundaryContext(value, presented = mutationContractPresentat
     presented.sourceEditPrerequisite ? `Before source edits: ${presented.sourceEditPrerequisite.command}.` : null
   ].filter(Boolean).join(' ');
   const stable = [
+    COMMAND_PRESENTATION_CONTRACT,
     presented.summary,
     CLI_PATH_REFERENCE,
     presented.toolProtocol.terminal,

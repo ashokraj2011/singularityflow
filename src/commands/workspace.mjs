@@ -77,13 +77,9 @@ export async function run(argv, context = {}) {
       const repairArgv = ['singularity-flow', 'workspace', 'repair', activeContext.workspacePath,
         ...(activeContext.repositoryId ? ['--repository', activeContext.repositoryId] : [])];
       const repairLines = actionCommandLines({
-        command: renderPlatformCommand(repairArgv, process.platform === 'win32' ? 'linux' : process.platform),
+        command: renderPlatformCommand(repairArgv, process.platform),
         skill: '/sf-workspace'
       }, 'Repair');
-      if (process.platform === 'win32') {
-        repairLines[1] = repairLines[1].replace(/^Shell:/u, 'Shell (Git Bash):');
-        repairLines.splice(2, 0, `Shell (PowerShell): ${renderPlatformCommand(repairArgv, 'win32')}`);
-      }
       for (const line of repairLines) console.log(line);
     }
     for (const line of actionCommandLines(copilotAction({

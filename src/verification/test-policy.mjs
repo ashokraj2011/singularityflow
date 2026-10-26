@@ -1,3 +1,4 @@
+import { formatCommandRouteLines } from '../model-free-commands.mjs';
 /**
  * The Story test policy, sealed when the Story is created [E2G-019, E2G-020 intake side, D12, D13].
  *
@@ -88,7 +89,7 @@ export async function sealStoryTestPolicy(root, {
   }
   const configuredCommands = phases.filter((phase) => phaseRequiresCodeDelivery(phase)).flatMap((phase) => phase.qualityCommands ?? []);
   const capability = intakeOnly ? { status: 'not-checked', modules: [], truncated: false,
-    guidance: 'Copilot: /sf-test-setup; Shell: singularity-flow capability test-setup --json. Inspect the selected module, review the command and run required tests during coding/verification; intake is not passing evidence.' }
+    guidance: `Inspect the selected module, review the command and run required tests during coding/verification; intake is not passing evidence.\n${formatCommandRouteLines({ copilotCommand: '/sf-test-setup', command: 'singularity-flow capability test-setup --json' }).join('\n')}` }
     : await repositoryTestCapability(root, { configuredCommands, env, platform });
   const record = {
     schemaVersion: 1, kind: 'story-test-policy', workId, baseCommit, host: { platform, arch },

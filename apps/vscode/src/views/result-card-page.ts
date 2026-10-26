@@ -10,8 +10,8 @@
  * is still intact, what is safe next — and the last two are the ones a red error box drops.
  */
 import { escape, icon } from './webview.ts';
-import { copilotRouteText, modelFreeRouteHtml } from '../copilot-command.ts';
 import { message } from './result-messages.ts';
+import { commandRouteListHtml } from './command-guidance.ts';
 import type { CardAction, ChecklistRow, HomeAttentionView, ResultCardView } from './result-card-model.ts';
 
 /**
@@ -240,11 +240,7 @@ function button(action: CardAction, className: string): string {
 function actionRoutes(action: CardAction): string {
   if (!action.command && !action.copilotCommand && !action.skill) return '';
   return `<details class="sf-action-routes"><summary>Other ways to run this</summary>
-    ${action.copilotCommand || action.skill
-      ? `<span>Copilot: <code>${escape(action.copilotCommand ?? action.skill ?? '')}</code></span>`
-      : action.command ? `<span>Copilot: ${escape(copilotRouteText(null))}</span>` : ''}
-    ${action.command ? `<span>Shell: <code>${escape(action.command)}</code></span>
-    <span>VS Code (model-free): ${modelFreeRouteHtml(action.modelFreeCommand, escape)}</span>` : ''}
+    ${commandRouteListHtml({ ...action, copilotCommand: action.copilotCommand ?? action.skill })}
   </details>`;
 }
 
@@ -404,14 +400,10 @@ function guidanceHtml(view: ResultCardView): string {
       ?? effectLabels.mutation)}${guidance.recommendation.confirmationRequired
     ? ' Nothing runs until you explicitly authorize the action.' : ''}</p>
     <details class="sf-guidance-routes" aria-label="Recommended command"><summary>Run it from Copilot or a terminal</summary>
-      <p class="sf-guidance-command"><b>Copilot</b>${guidance.recommendation.copilotCommand
-    ? `<code>${escape(guidance.recommendation.copilotCommand)}</code>${guidance.recommendation.copyable
-      ? `<button type="button" data-copy-route="${escape(guidance.recommendation.copilotCommand)}">Copy Copilot</button>` : ''}`
-    : escape(copilotRouteText(null))}</p>
-      <p class="sf-guidance-command"><b>Shell</b><code>${escape(guidance.recommendation.command)}</code>
-        ${guidance.recommendation.copyable
-    ? `<button type="button" data-copy-route="${escape(guidance.recommendation.command)}">Copy shell</button>` : ''}</p>
-      <p class="sf-guidance-command"><b>VS Code (model-free)</b>${modelFreeRouteHtml(guidance.recommendation.modelFreeCommand, escape)}</p>
+      ${commandRouteListHtml(guidance.recommendation, [
+        guidance.recommendation.copyable && guidance.recommendation.copilotCommand ? `<button type="button" data-copy-route="${escape(guidance.recommendation.copilotCommand)}">Copy Copilot</button>` : '',
+        guidance.recommendation.copyable ? `<button type="button" data-copy-route="${escape(guidance.recommendation.command)}">Copy shell</button>` : ''
+      ])}
       ${guidance.recommendation.copyable ? '' : '<p class="muted">Replace the shown placeholders before running this command.</p>'}
     </details>` : '';
   const preflight = guidance.preflight.length ? `<details><summary>Before you continue</summary>
@@ -448,12 +440,10 @@ function autoHtml(view: ResultCardView): string {
       ${card.details.length ? `<div class="sf-auto-details">${card.details.map((entry) =>
         `<span>${escape(entry.label)}<strong>${escape(entry.value)}</strong></span>`).join('')}</div>` : ''}
       ${card.actions.length ? `<div class="sf-auto-actions">${card.actions.map((action) => `
-        <span class="sf-auto-action">
+        <div class="sf-auto-action">
           <button type="button" data-auto-action-id="${escape(action.id)}">${escape(action.label)}</button>
-          <span>Copilot: <code>${escape(action.copilotCommand)}</code></span>
-          <span>Shell: <code>${escape(action.command)}</code></span>
-          <span>VS Code (model-free): ${modelFreeRouteHtml(action.modelFreeCommand, escape)}</span>
-        </span>`).join('')}</div>` : ''}
+          ${commandRouteListHtml(action)}
+        </div>`).join('')}</div>` : ''}
     </article>`).join('')}</section>`;
 }
 

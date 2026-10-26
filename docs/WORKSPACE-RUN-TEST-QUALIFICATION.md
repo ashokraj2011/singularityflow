@@ -1,7 +1,8 @@
 # Workspace Run & Test qualification
 
-Implemented on `codex/workspace-run-test`, based on main `d0b3976d`. The branch must remain
-unmerged until native Windows qualification can run. The Windows preflight job never started:
+Implemented on `codex/workspace-run-test`, based on main `d0b3976d` and integrated with
+main `35d32106`. Publication was explicitly requested with native Windows qualification still
+pending. The Windows preflight job never started:
 the hosting account reported failed payments or an insufficient spending limit. Its temporary
 CI-only branch has been removed. No Windows pass is claimed.
 
@@ -28,7 +29,7 @@ is adjusted from 286 to 289. Its byte ceiling and the activation, status, catalo
 byte ceilings remain unchanged. Worktree-specific helpers stay outside the startup Git helper,
 so an unused Run & Test feature does not add its code to the cold startup/catalog closure.
 
-Before merge:
+Outstanding qualification:
 
 1. Restore Windows CI capacity, then run the targeted fixtures and existing Run & Test,
    environment-file, checkout-retention, command-registry and packaging suites natively.
@@ -37,8 +38,8 @@ Before merge:
 3. Verify the installed editor page on both platforms: select a different Story while reads are
    pending, run/restart/stop, edit a private copy, review a diff, and distinguish preview tests from
    phase evidence. Check the exact checkout and task command in the first-run confirmation.
-4. Fetch latest main, integrate any new changes, repeat affected checks and merge only after the
-   requested Windows qualification is successful.
+4. Recheck these results against the current main build when native Windows and installed-editor
+   qualification can run; the Mac results do not substitute for those checks.
 
 Optional real debugpy/Delve integration remains inapplicable on a host without those tools; any
 such skip must be reported explicitly and is not a release qualification pass.

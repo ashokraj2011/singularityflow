@@ -61,6 +61,8 @@ export interface RunAndTestHost extends Omit<RunSuggestionsHost, 'client' | 'out
   capabilities(): CapabilityNode[];
   /** The Story selected in this window, for the Story-scope summary. */
   workId?(): string | null;
+  localRunConfiguration?: boolean;
+  testsScope?: { workId: string; phase: string };
 }
 
 export const TASK_TYPE = 'singularityFlow';
@@ -95,10 +97,18 @@ const failureCode = (error: unknown): string => {
 
 export class RunAndTest implements vscode.Disposable {
   private static instance: RunAndTest | null = null;
+  private static readonly instances = new Map<string, RunAndTest>();
   static attach(host: RunAndTestHost): RunAndTest {
-    if (!RunAndTest.instance) RunAndTest.instance = new RunAndTest(host);
-    else RunAndTest.instance.host = host;
-    return RunAndTest.instance;
+    const root = path.resolve(host.client.repository);
+    const key = `${root}\0${host.testsScope ? `${host.testsScope.workId}/${host.testsScope.phase}` : 'preview'}\0${host.localRunConfiguration ? 'personal' : 'team'}`;
+    const repositoryId = host.activeRepositoryId();
+    const scoped = { ...host, client: host.client.forkForRepository?.(root) ?? host.client,
+      activeRepositoryId: () => repositoryId };
+    let instance = RunAndTest.instances.get(key);
+    if (!instance) { instance = new RunAndTest(scoped); RunAndTest.instances.set(key, instance); }
+    else instance.host = scoped;
+    RunAndTest.instance = instance;
+    return instance;
   }
   static get current(): RunAndTest | null { return RunAndTest.instance; }
 
@@ -265,7 +275,7 @@ export class RunAndTest implements vscode.Disposable {
     const repository = client.repository;
     const [plan, status, tests, last, files] = await Promise.allSettled([
       client.run(appPlanArgv(capability)), client.run(appStatusArgv(capability)),
-      client.run(testsPlanArgv(capability)), client.run(testsSummaryArgv({ kind: 'capability', capability })),
+      client.run(this.testsArgv(testsPlanArgv(capability))), client.run(testsSummaryArgv(this.host.testsScope ? { kind: 'story', ...this.host.testsScope } : { kind: 'capability', capability })),
       client.run(envFilesArgv())
     ]);
     this.keepEnvironmentFiles(repository, files);
@@ -468,6 +478,13 @@ export class RunAndTest implements vscode.Disposable {
     }
   }
 
+  private testsArgv(argv: string[]): string[] {
+    if (!this.host.testsScope) return argv;
+    const at = argv.indexOf('--capability');
+    if (at < 0) return argv;
+    return [...argv.slice(0, at), '--work-id', this.host.testsScope.workId, '--phase', this.host.testsScope.phase, ...argv.slice(at + 2)];
+  }
+
   private log(argv: string[]): void { this.host.output?.appendLine(`\n$ singularity-flow ${argv.join(' ')}`); }
 
   /** Start one entry as a task, after trust and the first-run confirmation of its command identity. */
@@ -634,8 +651,8 @@ export class RunAndTest implements vscode.Disposable {
     const environment = testsEnvironment(tests, this.chosenEnvironment(capability), commands);
     const planned = commands.length ? tests.filter((item) => commands.includes(item.id)) : tests;
     if (await this.filesMissing(capability, environment, { kind: 'tests', label: `Tests for ${capability}` }, planned.map((item) => item.workingDirectory))) return null;
-    const argv = testsRunArgv(capability, commands, environment, plannedIdentities(tests, commands));
-    if (!await this.confirmed(testsConfirmationKeys(tests, argv, commands), testsConfirmationRequest(capability, tests, commands, environment))) {
+    const argv = this.testsArgv(testsRunArgv(capability, commands, environment, plannedIdentities(tests, commands)));
+    if (!await this.confirmed(testsConfirmationKeys(tests, argv, commands), testsConfirmationRequest(capability, tests, commands, environment, this.host.testsScope ? { ...this.host.testsScope, argv, checkout: this.host.client.repository } : undefined))) {
       this.update(capability, { notice: 'No tests were run.', error: null });
       return null;
     }
@@ -691,7 +708,7 @@ export class RunAndTest implements vscode.Disposable {
       const notRun = last.commands.filter((command) => command.status === 'blocked').length;
       this.update(held.capability, { notice: `The test run finished: ${totalsLine(last.totals)}${notRun ? `; ${notRun} command${notRun === 1 ? '' : 's'} not run` : ''}.` });
     }
-    TestSummaryPanel.refreshFor({ kind: 'capability', capability: held.capability });
+    TestSummaryPanel.refreshFor(this.host.testsScope ? { kind: 'story', ...this.host.testsScope } : { kind: 'capability', capability: held.capability });
     this.testsEnded.fire({ capability: held.capability, execution: held.execution, exitCode, cancelled: held.stopping });
     // The engine records no run when it refused one; a missing environment file is said with its fixes.
     if (!last?.run || last.run.id === before) await this.checkFilesAfter(held, exitCode, false);
@@ -722,6 +739,12 @@ export class RunAndTest implements vscode.Disposable {
     switch (message.action) {
       case 'refresh': return this.load(capability);
       case 'start': return isEntry ? this.start(capability, entry) : undefined;
+      case 'restart':
+        if (!isEntry) return;
+        await this.stop(capability, entry);
+        await this.refreshStatus(capability);
+        if (this.stateOf(capability).status?.some(item => item.id === entry && item.started)) return this.update(capability, { notice: 'The application is still stopping. Its process was preserved; retry Restart after it stops.' });
+        return this.start(capability, entry);
       case 'debug': return isEntry ? this.startDebug(capability, entry) : undefined;
       case 'attach': return isEntry ? this.attach(capability, entry) : undefined;
       case 'suggest': return void RunSuggestionsPanel.show({ ...this.host, afterLocalChange: async (id: string) => {
@@ -730,10 +753,17 @@ export class RunAndTest implements vscode.Disposable {
       } }, capability);
       case 'configurations': return void this.editConfigurations(capability, isEntry ? entry : null);
       case 'stop': return entry ? this.stop(capability, entry) : undefined;
+      case 'log': {
+        const name = this.taskName(capability, entry || '#tests');
+        const terminal = name ? (vscode.window.terminals ?? []).find(item => item.name === name || item.name === `Task - ${name}`) : null;
+        if (terminal) terminal.show();
+        else this.update(capability, { notice: 'No task log exists in this window yet. Start this configuration to open one.' });
+        return;
+      }
       case 'open': return isEntry ? this.open(capability, entry) : undefined;
       case 'tests': return void await this.runTests(capability, command || null);
       case 'cancel-tests': return this.cancelTests(capability);
-      case 'summary': return void TestSummaryPanel.show(this.host.client, { kind: 'capability', capability });
+      case 'summary': return void TestSummaryPanel.show(this.host.client, this.host.testsScope ? { kind: 'story', ...this.host.testsScope } : { kind: 'capability', capability });
       case 'environment': return this.setEnvironment(capability, environment);
       case 'copy-bind': return this.copyBind(capability, environment);
       case 'env-files': return void EnvironmentFilesPanel.show(this.host, { environment: environment || null, capability });
@@ -818,6 +848,8 @@ export class RunAndTest implements vscode.Disposable {
   }
 
   dispose(): void {
+    for (const [key, value] of RunAndTest.instances) if (value === this) RunAndTest.instances.delete(key);
+    if (RunAndTest.instance === this) RunAndTest.instance = null;
     for (const timer of this.polls.values()) clearTimeout(timer);
     this.polls.clear();
     for (const subscription of this.subscriptions.splice(0)) subscription.dispose();

@@ -370,7 +370,7 @@ export interface PlanFacts {
   envNames: Record<string, string[]>;
 }
 
-const PLAN_KEYS = ['id', 'name', 'type', 'repository', 'argv', 'workingDirectory', 'url', 'ready', 'arguments', 'debug', 'env', 'beforeLaunch', 'perEnvironment',
+const PLAN_KEYS = ['dependsOn', 'id', 'name', 'type', 'repository', 'argv', 'workingDirectory', 'url', 'ready', 'arguments', 'debug', 'env', 'beforeLaunch', 'perEnvironment',
   ...new Set(Object.values(TYPE_SPECS).flatMap((spec) => spec.fields.map((field) => field.key)))];
 
 /**
@@ -446,7 +446,7 @@ export function isModified(configuration: DraftConfiguration, block: DeclaredBlo
 export function orderedEntry(entry: Entry): Entry {
   const type = typeOf(entry);
   const typeKeys = type ? TYPE_SPECS[type].fields.map((field) => field.key) : [];
-  const order = ['id', 'name', 'type', 'repository', ...typeKeys, 'argv', 'workingDirectory', 'env', 'beforeLaunch', 'perEnvironment', 'environments',
+  const order = ['dependsOn', 'id', 'name', 'type', 'repository', ...typeKeys, 'argv', 'workingDirectory', 'env', 'beforeLaunch', 'perEnvironment', 'environments',
     'arguments', 'url', 'ready', 'debug'];
   const ordered: Entry = {};
   for (const key of order) if (entry[key] !== undefined) ordered[key] = entry[key];
@@ -633,6 +633,7 @@ const COMMON_SPECS: Record<string, FieldSpec> = {
   name: { key: 'name', label: 'Name', kind: 'text' },
   repository: { key: 'repository', label: 'Repository', kind: 'text' },
   workingDirectory: { key: 'workingDirectory', label: 'Working directory', kind: 'path' },
+  dependsOn: { key: 'dependsOn', label: 'Required services', kind: 'list' },
   appended: { key: 'appended', label: 'Arguments appended in this environment', kind: 'list' }
 };
 
@@ -728,6 +729,12 @@ export function editField(entry: Entry, tab: Tab, field: string, raw: string, ta
         if (value === 'dotnet') delete debug.port;
       }
       return { entry: withField(entry, 'debug', debug), error: null };
+    }
+    case 'dependsOn': {
+      if (tab !== 'base') return keep('Services are selected on Base.');
+      const services = linesOf(raw);
+      if (services.some(id => !/^[a-z0-9]+(?:-[a-z0-9]+)*$/u.test(id) || !taken.includes(id) || id === entry.id)) return keep('Choose other declared start-entry IDs, one per line.');
+      return { entry: withField(entry, 'dependsOn', services.length ? [...new Set(services)] : undefined), error: null };
     }
     case 'beforeLaunch': {
       const steps: Entry[] = [];
@@ -1177,6 +1184,7 @@ export function configurationsReviewRequest(input: { capability: string; draft: 
     title: route.kind === 'proposal' ? `Propose run configurations for ${capability}` : `Save run configurations for ${capability}`,
     summary: route.kind === 'proposal'
       ? 'The capability\'s application block becomes the block below, through a reviewed capability proposal. Its review page shows the resulting singularity/capabilities.yml before anything is approved.'
+      : route.kind === 'personal' ? 'Save personal start settings for this checkout only. Team configuration and the pinned test selection stay unchanged.'
       : 'The capability\'s application block in singularity/capabilities.yml in this checkout becomes the block below, as a local authoring change: nothing is proposed or committed.',
     detail: [
       `Capability: ${capability}`,
@@ -1185,10 +1193,10 @@ export function configurationsReviewRequest(input: { capability: string; draft: 
       `Removed: ${list(changes.removed)}`,
       `Kept as they are: ${list(changes.kept)}${changes.reordered ? ' (the order changed)' : ''}`,
       `Tests already declared, kept as they are: ${block.tests ? block.tests.length : 'none'}`,
-      route.kind === 'proposal' ? `Proposed to: ${route.lead}` : 'Written to: singularity/capabilities.yml in this checkout',
+      route.kind === 'proposal' ? `Proposed to: ${route.lead}` : route.kind === 'personal' ? 'Written to: this checkout’s private run settings on this laptop' : 'Written to: singularity/capabilities.yml in this checkout',
       'Secrets are not in this block: they are names in singularity/environments.yml, bound privately on each computer with singularity-flow env bind <ENVIRONMENT> --stdin.',
       '',
-      'Application block, as a difference from what is declared now (- removed, + added). The whole block is written: VS Code writes the new block to a private temporary file, passes it to the command below, then deletes the file.',
+      route.kind === 'personal' ? 'Changes to personal start settings (- removed, + added). Only start entries are saved privately for this checkout; tests are checked for consistency and stay unchanged.' : 'Application block, as a difference from what is declared now (- removed, + added). The whole block is written: VS Code writes the new block to a private temporary file, passes it to the command below, then deletes the file.',
       ...yamlDiff(before, after),
       '',
       `VS Code runs: ${displayCommand(applicationWriteArgv(route, capability, TEMPORARY_FILE_WORDS))}`

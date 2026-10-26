@@ -305,6 +305,7 @@ function formHtml(state: EditorPageState): string {
     effectiveValue(entry, state.tab, 'workingDirectory'), { after: ` <button type="button" class="secondary compact-action" data-cf-action="browse" data-cf-field="workingDirectory">${icon('directory')}Browse…</button>` })}
     </fieldset>
     ${envSection(state, configuration, index)}
+    ${base ? `<fieldset class="cf-section"><legend>Required services</legend>${fieldRow(state, { key: 'dependsOn', label: 'Services', kind: 'list', placeholder: 'api', help: 'Other start-entry IDs, one per line. They start in dependency order and must be ready before this application.' }, Array.isArray(entry.dependsOn) ? entry.dependsOn.map(String) : [])}</fieldset>` : ''}
     <fieldset class="cf-section"><legend>Before launch</legend>
       ${fieldRow(state, { key: 'beforeLaunch', label: 'Steps', kind: 'list', placeholder: '../../mvnw -q compile', help: 'One command per line, run in order before the application starts; a failing step stops the start. Arguments split at spaces; quote one that has spaces. No shell: nothing is expanded.' },
     beforeLaunchLines(entry, state.tab).split('\n').filter(Boolean))}

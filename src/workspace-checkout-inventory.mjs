@@ -78,7 +78,8 @@ export async function workspaceCheckoutInventory(workspacePath) {
       const context = await captureExecutionContext(candidate.root, { workflow: null, fresh: true });
       const worktrees = worktreeInventory(candidate.root).map(entry => entry.path);
       // Unknown/private state, local document bytes and recovery records are never disposable.
-      const privateState = await checkoutPrivateState(candidate.root, context.clone.commonDirectory);
+      const privateState = await checkoutPrivateState(candidate.root, context.clone.commonDirectory)
+        || await (await import('./application-run.mjs')).applicationCheckoutInUse(candidate.root);
       const structurallyEligible = candidate.purpose === 'branch' && !candidate.current
         && worktrees.length === 1 && !privateState;
       clones.push({ ...candidate, state: 'ready', clone: context.clone, worktrees,

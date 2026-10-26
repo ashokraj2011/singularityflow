@@ -13,10 +13,12 @@
  * the same output redaction.
  */
 import { spawn, spawnSync } from 'node:child_process';
-import { existsSync } from 'node:fs';
+import { realpathSync, existsSync } from 'node:fs';
 import http from 'node:http';
 import https from 'node:https';
 import path from 'node:path';
+import { createHash, randomUUID } from 'node:crypto';
+import { repositoryWorktreeDirectory } from './git-worktree-directory.mjs';
 
 import {
   appDebugPaths, assertDebugToolsAvailable, debugPortAccepts, jdwpListeningLine, resolveDebugLaunch
@@ -40,13 +42,34 @@ const STOP_GRACE_MS = 5_000;
 /** What a start entry runs in one environment: its resolved argv, then that environment's arguments. */
 export const startArgv = startArgvFor;
 
+/** Confirmation covers the complete declared service graph, not just the final process. */
+export function applicationCommandSha256(context, entry, chain = [], memo = new Map()) {
+  if (memo.has(entry.id)) return memo.get(entry.id);
+  const own = startEntryCommandSha256(entry);
+  if (!entry.dependsOn?.length) { memo.set(entry.id, own); return own; }
+  if (chain.includes(entry.id)) throw new SingularityFlowError('Application dependency cycle.', { code: 'APP_DEPENDENCY_CYCLE' });
+  const dependencies = entry.dependsOn.map(id => {
+    const required = context.application.start.find(item => item.id === id);
+    if (!required) throw new SingularityFlowError(`Unknown dependency '${id}'.`, { code: 'APP_DEPENDENCY_UNKNOWN' });
+    return [id, applicationCommandSha256(context, required, [...chain, entry.id], memo)];
+  });
+  const digest = `sha256:${createHash('sha256').update(JSON.stringify([own, dependencies])).digest('hex')}`;
+  memo.set(entry.id, digest);
+  return digest;
+}
+
 /** Refuse `--debug` for an entry without a debug block, before anything runs or is read. */
 export function assertDebugDeclared(entry) {
   if (!entry.debug) resolveDebugLaunch(entry);
 }
 
 export function appRecordPath(root, capabilityId, startId) {
-  return path.join(gitCommonDir(root), 'singularity-flow', 'app', capabilityId, `${startId}.json`);
+  const common = gitCommonDir(root);
+  const own = repositoryWorktreeDirectory(root);
+  if (!own) throw new SingularityFlowError('The application checkout is unavailable.', { code: 'APP_CHECKOUT_UNAVAILABLE' });
+  const scope = path.resolve(own) === realpathSync(common) ? []
+    : ['worktrees', createHash('sha256').update(path.resolve(own)).digest('hex').slice(0, 32)];
+  return path.join(common, 'singularity-flow', 'app', ...scope, capabilityId, `${startId}.json`);
 }
 
 /** The private files a run of an entry writes beside its run record (a Gradle init script for VM options). */
@@ -56,8 +79,15 @@ export function appRunPaths(root, capabilityId, startId) {
 
 /** The process-start identity of a pid, so a recycled pid is never mistaken for a recorded process. */
 export function processStartIdentity(pid, { platform = process.platform, spawnSyncCommand = spawnSync } = {}) {
-  if (platform === 'win32' || !Number.isInteger(pid) || pid <= 0) return null;
+  if (!Number.isInteger(pid) || pid <= 0) return null;
   try {
+    if (platform === 'win32') {
+      const executable = path.win32.join(process.env.SystemRoot || 'C:\\Windows', 'System32', 'WindowsPowerShell', 'v1.0', 'powershell.exe');
+      const result = spawnSyncCommand(executable, ['-NoLogo', '-NoProfile', '-NonInteractive', '-Command',
+        `[System.Diagnostics.Process]::GetProcessById(${pid}).StartTime.ToUniversalTime().Ticks`], { encoding: 'utf8', timeout: 2_000, windowsHide: true });
+      const value = String(result.stdout ?? '').trim();
+      return result.status === 0 && /^\d+$/u.test(value) ? value : null;
+    }
     // The system ps, never one a checkout or PATH entry could shadow.
     const result = spawnSyncCommand(existsSync('/bin/ps') ? '/bin/ps' : '/usr/bin/ps', ['-o', 'lstart=', '-p', String(pid)], { encoding: 'utf8', timeout: 2_000 });
     const value = String(result.stdout ?? '').trim();
@@ -76,16 +106,20 @@ function validRecord(record, capabilityId, startId) {
     && typeof record.startedAt === 'string' && /^sha256:[a-f0-9]{64}$/u.test(String(record.commandSha256 ?? ''));
 }
 
-export async function readAppRecord(root, capabilityId, startId) {
+export async function readAppRecord(root, capabilityId, startId, { strict = false } = {}) {
   let bytes;
   try {
     bytes = await readPrivateSidecar(root, appRecordPath(root, capabilityId, startId), { maximumBytes: MAXIMUM_RECORD_BYTES, optional: true });
-  } catch { return null; }
+  } catch (error) { if (strict) throw error; return null; }
   if (!bytes) return null;
   try {
     const record = JSON.parse(bytes.toString('utf8'));
-    return validRecord(record, capabilityId, startId) ? record : null;
-  } catch { return null; }
+    if (!validRecord(record, capabilityId, startId)) throw new Error('Invalid app record');
+    return record;
+  } catch {
+    if (strict) throw new SingularityFlowError('The saved application record is unreadable. Its bytes were preserved; inspect the original task before starting again.', { code: 'APP_RUN_RECORD_INVALID' });
+    return null;
+  }
 }
 
 async function writeAppRecord(root, record) {
@@ -96,15 +130,22 @@ async function writeAppRecord(root, record) {
 async function removeAppRecord(root, capabilityId, startId, expectedPid = null) {
   const current = await readAppRecord(root, capabilityId, startId);
   if (expectedPid != null && current && current.pid !== expectedPid) return;
+  if (expectedPid != null && (pidAlive(expectedPid) || pidAlive(expectedPid, { group: true }))) return;
   const { rm } = await import('node:fs/promises');
   await rm(appRecordPath(root, capabilityId, startId), { force: true }).catch(() => {});
 }
 
 /** Whether a recorded process is still the one `app start` started. */
-export function recordedProcessAlive(record) {
-  if (!record || !pidAlive(record.pid)) return false;
-  if (!record.processStartedAt) return true;
-  return processStartIdentity(record.pid) === record.processStartedAt;
+const processIdentities = new Map();
+export function recordedProcessAlive(record, { fresh = false, requireIdentity = false } = {}) {
+  if (!record) return false;
+  if (!pidAlive(record.pid)) return !requireIdentity && pidAlive(record.pid, { group: true });
+  if (!record.processStartedAt) return !requireIdentity;
+  const cached = processIdentities.get(record.pid);
+  const identity = !fresh && cached && Date.now() - cached.at < 5_000 ? cached.identity : processStartIdentity(record.pid);
+  if (processIdentities.size > 1024) processIdentities.clear();
+  processIdentities.set(record.pid, { identity, at: Date.now() });
+  return identity == null ? !requireIdentity : identity === record.processStartedAt;
 }
 
 /** The loopback URL a readiness probe asks: the http ready path on the entry's origin, else the URL. */
@@ -169,7 +210,7 @@ export function describeDebugStart(root, context, entry, environment = null) {
   }
 }
 
-export async function planStartEntry(root, context, entry, declaration) {
+export async function planStartEntry(root, context, entry, declaration, { includeDependencies = true } = {}) {
   const environments = await startEntryEnvironments(root, entry, declaration);
   const paths = appRunPaths(root, context.capabilityId, entry.id);
   const base = resolveStartCommand(entry, null, { paths });
@@ -179,13 +220,14 @@ export async function planStartEntry(root, context, entry, declaration) {
     capability: context.capabilityId,
     repository: entry.repository,
     id: entry.id,
+    ...(entry.dependsOn?.length ? { dependsOn: [...entry.dependsOn] } : {}),
     ...(configured ? { name: entry.name ?? entry.id, type: entry.type ?? 'command' } : {}),
     argv: entry.type && entry.type !== 'command' ? [...base.argv] : [...entry.argv],
     workingDirectory: entry.workingDirectory,
     url: entry.url,
     ready: { ...entry.ready },
     environments,
-    commandSha256: startEntryCommandSha256(entry),
+    commandSha256: applicationCommandSha256(context, entry),
     // The base form, without an environment; each environment's own is environments[].resolved.
     ...(configured ? { resolved: shownResolution(base) } : {})
   };
@@ -208,6 +250,10 @@ export async function planStartEntry(root, context, entry, declaration) {
     const { runtime, port, suspend } = entry.debug;
     plan.debug = { runtime, port, suspend, address: port == null ? null : `127.0.0.1:${port}`,
       ...describeDebugStart(root, context, entry, entry.environments[0] ?? null) };
+  }
+  if (includeDependencies && entry.dependsOn?.length) {
+    const { dependencyOrder } = await import('./application-dependencies.mjs');
+    plan.dependencies = await Promise.all(dependencyOrder(context, entry).map(required => planStartEntry(root, context, required, declaration, { includeDependencies: false })));
   }
   return plan;
 }
@@ -247,14 +293,14 @@ function assertRepositoryHere(context, entry) {
 export async function applicationStatus(root, context) {
   const entries = [];
   for (const entry of context.application.start) {
-    const record = await readAppRecord(root, context.capabilityId, entry.id);
+    const record = await readAppRecord(root, context.capabilityId, entry.id, { strict: true });
     const started = recordedProcessAlive(record);
-    const probe = await probeLoopback(readinessUrl(entry), { timeoutMs: 1_500 });
+    const probe = started ? await probeLoopback(readinessUrl(entry), { timeoutMs: 1_500 }) : { ready: false, responded: false, status: null };
     entries.push({
-      id: entry.id, name: entry.name ?? entry.id, declared: true, started, ready: probe.ready, url: entry.url,
+      id: entry.id, name: entry.name ?? entry.id, declared: true, started, ready: entry.ready.log ? Boolean(started && record.readyAt) : probe.ready, url: entry.url,
       pid: started ? record.pid : null, startedAt: started ? record.startedAt : null,
       environment: started ? record.environment ?? null : null,
-      commandSha256: startEntryCommandSha256(entry),
+      commandSha256: applicationCommandSha256(context, entry),
       recordedCommandSha256: started ? record.commandSha256 : null,
       ...(record && !started ? { staleRecord: true } : {}),
       ...(entry.debug || (started && record.debug) ? { debug: await debugStatus(entry, started ? record : null) } : {})
@@ -296,14 +342,16 @@ async function stopTree(pid) {
 
 /** Stop only a process tree `app start` recorded for this entry, then forget it. */
 export async function stopApplication(root, context, entry) {
-  const record = await readAppRecord(root, context.capabilityId, entry.id);
+  const record = await readAppRecord(root, context.capabilityId, entry.id, { strict: true });
   if (!record) return { capability: context.capabilityId, id: entry.id, stopped: false, reason: 'not-recorded' };
-  if (!recordedProcessAlive(record)) {
+  const live = pidAlive(record.pid), identity = live ? processStartIdentity(record.pid) : null;
+  if ((live && (!record.processStartedAt || !identity)) || (!live && pidAlive(record.pid, { group: true }))) throw new SingularityFlowError('The saved process identity cannot be verified. Stop it from its original task terminal; the saved record was preserved.', { code: 'APP_PROCESS_IDENTITY_UNAVAILABLE' });
+  if (!live || identity !== record.processStartedAt) {
     await removeAppRecord(root, context.capabilityId, entry.id, record.pid);
     return { capability: context.capabilityId, id: entry.id, stopped: false, reason: 'not-running' };
   }
   const stopped = await stopTree(record.pid);
-  await removeAppRecord(root, context.capabilityId, entry.id, record.pid);
+  if (stopped) await removeAppRecord(root, context.capabilityId, entry.id, record.pid);
   return { capability: context.capabilityId, id: entry.id, stopped, pid: record.pid, reason: stopped ? 'stopped' : 'still-running' };
 }
 
@@ -350,8 +398,9 @@ function relayOutput(stream, target, materialized, onText = null) {
  * application's own environment and redaction. A step that fails or times out stops the start
  * (nothing else runs); a stop request ends the running step's tree. Resolves true when stopped.
  */
-async function runBeforeLaunch(root, entry, steps, { env, platform, output, errorOutput, materialized, signals }) {
+async function runBeforeLaunch(root, entry, steps, { env, platform, output, errorOutput, materialized, signals, signal }) {
   for (const [index, step] of steps.entries()) {
+    if (signal?.aborted) return true;
     const subject = `Start entry '${entry.id}' before-launch step ${index + 1}`;
     const cwd = (await secureRepositoryPath(root, step.workingDirectory, { label: `${subject} working directory`, mustExist: true, type: 'directory' })).absolute;
     output.write(`Before launch (${index + 1}/${steps.length}): ${step.argv.join(' ')}${step.workingDirectory === entry.workingDirectory ? '' : ` (in ${step.workingDirectory})`}\n`);
@@ -360,6 +409,9 @@ async function runBeforeLaunch(root, entry, steps, { env, platform, output, erro
     relayOutput(child.stderr, errorOutput, materialized);
     let stopRequested = null;
     const onSignal = (name) => { stopRequested ??= name; void stopTree(child.pid); };
+    const onAbort = () => onSignal('cancelled');
+    signal?.addEventListener('abort', onAbort, { once: true });
+    if (signal?.aborted) onAbort();
     for (const name of signals) process.on(name, onSignal);
     let timedOut = false;
     const timer = setTimeout(() => { timedOut = true; void stopTree(child.pid); }, step.timeoutMs);
@@ -376,6 +428,7 @@ async function runBeforeLaunch(root, entry, steps, { env, platform, output, erro
       }
     } finally {
       clearTimeout(timer);
+      signal?.removeEventListener('abort', onAbort);
       for (const name of signals) process.off(name, onSignal);
       if (pidAlive(child.pid, { group: true })) await stopTree(child.pid);
     }
@@ -401,18 +454,19 @@ async function removeFiles(files) {
  * readiness, then stay attached until the application exits or this process is asked to stop.
  * Resolves with how it ended.
  */
-export async function startApplication(root, context, entry, {
+async function runSingleApplication(root, context, entry, {
   requestedEnvironment = null, declaration = null, output = process.stdout, errorOutput = process.stderr,
   onReady = null, signals = ['SIGINT', 'SIGTERM', 'SIGHUP'], platform = process.platform, expectedCommandSha256 = null,
-  debug = false, spawnSyncCommand = undefined
+  debug = false, spawnSyncCommand = undefined, managedDependency = false, signal = null
 } = {}) {
-  if (expectedCommandSha256 && expectedCommandSha256 !== startEntryCommandSha256(entry)) {
+  if (expectedCommandSha256 && expectedCommandSha256 !== applicationCommandSha256(context, entry)) {
     throw new SingularityFlowError(
       `Start entry '${entry.id}' changed since it was confirmed; nothing ran. Read singularity-flow app plan ${entry.id} --json and confirm again.`,
-      { code: 'APP_COMMAND_CHANGED', details: { startId: entry.id, expected: expectedCommandSha256, commandSha256: startEntryCommandSha256(entry) } });
+      { code: 'APP_COMMAND_CHANGED', details: { startId: entry.id, expected: expectedCommandSha256, commandSha256: applicationCommandSha256(context, entry) } });
   }
+  if (signal?.aborted) return { capability: context.capabilityId, id: entry.id, outcome: 'stopped', ready: false, exitCode: 0 };
   assertRepositoryHere(context, entry);
-  const existing = await readAppRecord(root, context.capabilityId, entry.id);
+  const existing = await readAppRecord(root, context.capabilityId, entry.id, { strict: true });
   if (existing && recordedProcessAlive(existing)) {
     throw new SingularityFlowError(`Start entry '${entry.id}' is already running (pid ${existing.pid}) at ${existing.url}. Stop it with singularity-flow app stop ${entry.id}.`,
       { code: 'APP_ALREADY_RUNNING', details: { capabilityId: context.capabilityId, startId: entry.id, pid: existing.pid, url: existing.url } });
@@ -454,7 +508,7 @@ export async function startApplication(root, context, entry, {
     configured[name] = inherited ? `${inherited} ${value}` : value;
   }
   const env = materialized ? materialized.childEnvironment(configured) : configured;
-  const commandSha256 = startEntryCommandSha256(entry);
+  const commandSha256 = applicationCommandSha256(context, entry);
   const debugPaths = appDebugPaths(appRecordPath(root, context.capabilityId, entry.id));
   let debugLaunch = null;
   if (debug) {
@@ -469,9 +523,13 @@ export async function startApplication(root, context, entry, {
     output.write(`Debug start: ${debugLaunch.argv.join(' ')}${debugLaunch.environmentNames.length ? ` (with ${debugLaunch.environmentNames.join(', ')} set for the application only)` : ''}\n`);
     for (const note of debugLaunch.notes) output.write(`${note}\n`);
   }
+  const applicationUrl = loopbackApplicationUrl(entry.url);
+  if (await debugPortAccepts(Number(applicationUrl.port || (applicationUrl.protocol === 'https:' ? 443 : 80)), { host: applicationUrl.hostname.replace(/^\[|\]$/gu, ''), timeoutMs: 300 })) {
+    throw new SingularityFlowError(`${subject} cannot bind ${applicationUrl.origin}: another process already listens there. Stop it, or choose a different personal port. Nothing was started.`, { code: 'APP_PORT_IN_USE' });
+  }
   // Before-launch steps get the application's environment without the debugger's variables: a build
   // step must not start a JDWP agent or an inspector on the port the application will debug on.
-  if (command.beforeLaunch.length && await runBeforeLaunch(root, entry, command.beforeLaunch, { env, platform, output, errorOutput, materialized, signals })) {
+  if (command.beforeLaunch.length && await runBeforeLaunch(root, entry, command.beforeLaunch, { env, platform, output, errorOutput, materialized, signals, signal })) {
     return { capability: context.capabilityId, id: entry.id, outcome: 'stopped', ready: false, exitCode: 0 };
   }
   if (debugLaunch) Object.assign(env, debugLaunch.environment);
@@ -488,6 +546,8 @@ export async function startApplication(root, context, entry, {
   }
   const record = {
     format: APP_RUN_FORMAT, capability: context.capabilityId, id: entry.id, pid: child.pid,
+    runId: randomUUID(), checkout: path.resolve(root),
+    ...(managedDependency ? { managedDependency: true } : {}),
     url: entry.url, startedAt: new Date().toISOString(), commandSha256,
     processStartedAt: processStartIdentity(child.pid, { platform }), environment, readyAt: null,
     // Paths only: another environment's run refuses to switch a shared file while this one runs.
@@ -495,7 +555,7 @@ export async function startApplication(root, context, entry, {
       checkout: materialized.environmentFiles.checkout, paths: [...materialized.environmentFiles.paths] } } : {}),
     ...(debugLaunch ? { debug: { runtime: debugLaunch.runtime, port: debugLaunch.port, listeningAt: null } } : {})
   };
-  await writeAppRecord(root, record);
+  try { await writeAppRecord(root, record); } catch (error) { await stopTree(child.pid); await removeFiles(written); throw error; }
   if (debugLaunch && debugLaunch.port == null) output.write(`Attach a .NET debugger to process ${child.pid}; dotnet has no debugger listener.\n`);
 
   const logText = entry.ready.log ?? null;
@@ -521,6 +581,9 @@ export async function startApplication(root, context, entry, {
   const exited = new Promise((resolve) => child.once('close', (code, signal) => { exit = { code, signal }; resolve(exit); }));
   let stopRequested = null;
   const onSignal = (name) => { stopRequested ??= name; void stopTree(child.pid); };
+  const onAbort = () => onSignal('cancelled');
+  signal?.addEventListener('abort', onAbort, { once: true });
+  if (signal?.aborted) onAbort();
   for (const name of signals) process.on(name, onSignal);
   let debugAnnounced = false;
   const announceDebugger = async () => {
@@ -574,10 +637,49 @@ export async function startApplication(root, context, entry, {
       exitCode: stopped ? 0 : exit?.code ?? 1, signal: exit?.signal ?? null
     };
   } finally {
+    signal?.removeEventListener('abort', onAbort);
     for (const name of signals) process.off(name, onSignal);
     // The leader may exit while descendants it started keep the group alive.
     if (!exit || pidAlive(child.pid, { group: true })) await stopTree(child.pid);
     await removeAppRecord(root, context.capabilityId, entry.id, child.pid);
     await removeFiles(written);
   }
+}
+
+/** Dependency orchestration loads only for an entry which declares services. */
+export async function startApplication(root, context, entry, options = {}) {
+  if (entry.dependsOn?.length) return (await import('./application-dependencies.mjs')).startWithDependencies(root, context, entry, options);
+  return startSingleApplication(root, context, entry, options);
+}
+
+/** Fence simultaneous starts of the same entry without blocking other Story worktrees. */
+export async function startSingleApplication(root, context, entry, options = {}) {
+  const record = appRecordPath(root, context.capabilityId, entry.id);
+  const existing = await readAppRecord(root, context.capabilityId, entry.id, { strict: true });
+  if (existing && recordedProcessAlive(existing)) throw new SingularityFlowError(`Start entry '${entry.id}' is already running in this checkout.`, { code: 'APP_ALREADY_RUNNING' });
+  const { safePrivateSidecarDirectory } = await import('./private-sidecar.mjs');
+  await safePrivateSidecarDirectory(root, path.dirname(record), { create: true, enforceWindowsAcl: true });
+  const { withRegistryFileLease } = await import('./file-lease.mjs');
+  return withRegistryFileLease(record, () => runSingleApplication(root, context, entry, options), { timeoutMs: 2_000 });
+}
+
+/** Cleanup must preserve a checkout while its process or start lease is present. */
+export async function applicationCheckoutInUse(root) {
+  const directory = path.dirname(appRecordPath(root, 'runtime-check', 'probe'));
+  const namespace = path.dirname(directory);
+  const { listPrivateSidecar } = await import('./private-sidecar.mjs');
+  const capabilities = await listPrivateSidecar(root, namespace, { optional: true });
+  if (capabilities.length > 1024) return true;
+  for (const capability of capabilities) {
+    if (!capability.isDirectory() || capability.isSymbolicLink()) continue;
+    const records = await listPrivateSidecar(root, path.join(namespace, capability.name), { optional: true });
+    if (records.length > 1024) return true;
+    for (const entry of records) {
+      if (entry.name.endsWith('.lock')) return true;
+      if (!entry.name.endsWith('.json')) continue;
+      const record = await readAppRecord(root, capability.name, entry.name.slice(0, -5));
+      if (!record || recordedProcessAlive(record)) return true;
+    }
+  }
+  return false;
 }

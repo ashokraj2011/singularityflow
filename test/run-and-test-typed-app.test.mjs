@@ -278,7 +278,7 @@ test('app config preview checks a whole block from a file and resolves it per en
   assert.match(cli(root, ['app', 'config', 'preview', '--application-file', path.join(directory, 'huge.yml')]).stderr, /--application-file is larger than 256 KiB\./u);
   assert.match(cli(root, ['app', 'config', 'preview', '--application-file', path.join(directory, 'missing.yml')]).stderr, /names .*missing\.yml, which does not exist\./u);
   assert.match(cli(root, ['app', 'config', 'preview']).stderr, /app config preview needs --application-file <FILE>/u);
-  assert.match(cli(root, ['app', 'config', 'apply', '--application-file', file]).stderr, /app config takes one action: app config preview/u);
+  assert.match(cli(root, ['app', 'config', 'apply', '--application-file', file]).stderr, /Use app config preview\|save-local.*app config reset-local/u);
 });
 
 test('capability set --application-file refuses a typed entry at its field before writing, and app plan reads a valid one', async (t) => {

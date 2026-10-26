@@ -370,7 +370,7 @@ export function applicationDraftYaml(existing: NonNullable<SuggestionSet['existi
 }
 
 /** How the application block leaves this window: a reviewed proposal to the map's authority, or this checkout. */
-export type ApplicationRoute = { kind: 'proposal'; lead: string } | { kind: 'local' };
+export type ApplicationRoute = { kind: 'proposal'; lead: string } | { kind: 'local' } | { kind: 'personal' };
 
 /**
  * The capability page's choice: an implicit map is edited here; an explicit one is proposed to its
@@ -389,6 +389,7 @@ export function applicationRoute(mode: string | null | undefined, authorityRepos
 /** `capability edit <ID> --lead <URL> --mode set --application-file <FILE> --json`, or `capability set … --json`. */
 export function applicationWriteArgv(route: ApplicationRoute, capability: string, file: string): string[] {
   if (!CAPABILITY.test(capability)) throw new Error(`Capability is invalid: ${capability}`);
+  if (route.kind === 'personal') return ['app', 'config', 'save-local', '--capability', capability, '--application-file', file, '--json'];
   return route.kind === 'proposal'
     ? capabilityProposalArgv('set', capability, route.lead, {}, { applicationFile: file })
     : [...capabilityArgv('set', capability, {}, { applicationFile: file }), '--json'];
@@ -419,15 +420,16 @@ export function suggestionReviewRequest(input: {
     title: route.kind === 'proposal' ? `Propose start entries for ${capability}` : `Save start entries for ${capability}`,
     summary: route.kind === 'proposal'
       ? 'The capability\'s application block becomes the block below, through a reviewed capability proposal. Its review page shows the resulting singularity/capabilities.yml before anything is approved.'
+      : route.kind === 'personal' ? 'Save personal start settings for this checkout only. Team configuration and the pinned test selection stay unchanged.'
       : 'The capability\'s application block in singularity/capabilities.yml in this checkout becomes the block below, as a local authoring change: nothing is proposed or committed.',
     detail: [
       `Capability: ${capability}`,
       `Start entries added: ${kept.map(({ id, suggestion }) => `${id} (from ${from(suggestion)})`).join('; ')}`,
       `Start entries already declared, kept as they are: ${declaredIds.length ? declaredIds.join(', ') : 'none'}`,
       `Tests already declared, kept as they are: ${existing.tests ? existing.tests.length : 'none'}`,
-      route.kind === 'proposal' ? `Proposed to: ${route.lead}` : 'Written to: singularity/capabilities.yml in this checkout',
+      route.kind === 'proposal' ? `Proposed to: ${route.lead}` : route.kind === 'personal' ? 'Written to: this checkout’s private run settings on this laptop' : 'Written to: singularity/capabilities.yml in this checkout',
       '',
-      'Application block. It replaces the capability\'s whole block; VS Code writes exactly this to a private temporary file, passes it to the command below, then deletes the file:',
+      route.kind === 'personal' ? 'Personal start settings. Tests below are checked for consistency and stay unchanged. VS Code passes this block through a private temporary file, then deletes that temporary file.' : 'Application block. It replaces the capability\'s whole block; VS Code writes exactly this to a private temporary file, passes it to the command below, then deletes the file:',
       applicationYaml.trimEnd(),
       '',
       environmentsDraft

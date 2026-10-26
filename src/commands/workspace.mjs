@@ -22,6 +22,7 @@ async function loadLegacy() {
 
 /** Keep timing attribution accurate for non-hot workspace commands that still use the monolith. */
 export async function load(context = {}) {
+  if (subcommand(context) === 'runtime') return import('./workspace-runtime.mjs');
   if (subcommand(context) === 'stories') return import('./workspace-stories.mjs');
   if (subcommand(context) === 'consolidate') return import('./workspace-consolidate.mjs');
   if (['context', 'checkouts', 'cleanup', 'retention'].includes(subcommand(context))) return import('./workspace-context.mjs');
@@ -33,6 +34,7 @@ export async function load(context = {}) {
 
 export async function run(argv, context = {}) {
   const action = subcommand(context);
+  if (action === 'runtime') return (await import('./workspace-runtime.mjs')).run(context.positionals, context.options);
   if (action === 'stories') return (await import('./workspace-stories.mjs')).run(context.positionals, context.options);
   if (action === 'consolidate') return (await import('./workspace-consolidate.mjs')).run(context.positionals, context.options);
   if (['context', 'checkouts', 'cleanup', 'retention'].includes(action)) return (await import('./workspace-context.mjs')).run(context.positionals, context.options);

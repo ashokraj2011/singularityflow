@@ -442,13 +442,13 @@ export function commandClass(args: string[]): 'read' | 'mutation' | 'unknown' {
   if (args[0] === 'call') return args[1] === 'add' && args.includes('--confirm') ? 'mutation' : 'read';
   // Environment files: the list, a file's location and the suggestions read; every other files
   // action creates, links, moves or records a file on this computer. [ENVF]
-  if (args[0] === 'env' && args[1] === 'files') return ['create', 'link', 'unlink', 'adopt', 'add', 'remove', 'root', 'place'].includes(args[2] ?? '') ? 'mutation' : 'read';
+  if (args[0] === 'env' && args[1] === 'files') return ['override', 'create', 'link', 'unlink', 'adopt', 'add', 'remove', 'root', 'place'].includes(args[2] ?? '') ? 'mutation' : 'read';
   // Run and test: plan, status, suggest, summary (and the plan of a test run) read; start, stop and
   // run execute repository code, so they are never reads.
   // Without a subcommand `app` shows status and `tests` the summary, as the CLI resolves them.
   // `app config preview` validates and resolves a block from a file: a read (the editor's Command line).
   if (args[0] === 'app' && args[1] === 'config') return args[2] === 'preview' ? 'read' : 'mutation';
-  if (args[0] === 'app') return ['plan', 'status', 'suggest'].includes(args[1] && !args[1].startsWith('-') ? args[1] : 'status') ? 'read' : 'mutation';
+  if (args[0] === 'app') return ['plan', 'status', 'suggest', 'connections'].includes(args[1] && !args[1].startsWith('-') ? args[1] : 'status') ? 'read' : 'mutation';
   if (args[0] === 'tests') return ['summary', 'plan'].includes(args[1] && !args[1].startsWith('-') ? args[1] : 'summary') ? 'read' : 'mutation';
   if (args[0] === 'mcp' && args[1] === 'sources') return 'read';
   // A preview fetches and stages bytes and a check re-reads sources; neither changes governed state.
@@ -510,7 +510,7 @@ export function commandClass(args: string[]): 'read' | 'mutation' | 'unknown' {
       ? 'read'
       : 'mutation';
   }
-  if (args[0] === 'workspace' && ['current', 'list', 'status', 'doctor', 'branches', 'context', 'checkouts'].includes(args[1] ?? 'list')) return 'read';
+  if (args[0] === 'workspace' && ['current', 'list', 'status', 'doctor', 'branches', 'context', 'checkouts', 'stories', 'runtime'].includes(args[1] ?? 'list')) return 'read';
   // Automatic cleanup removes eligible worktrees and clones, so only a manual preview is a read.
   if (args[0] === 'workspace' && args[1] === 'cleanup') {
     return enabledBooleanOption(args, 'apply') || enabledBooleanOption(args, 'automatic') ? 'mutation' : 'read';

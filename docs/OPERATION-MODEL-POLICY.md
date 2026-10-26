@@ -36,6 +36,9 @@ Every public operation is classified before its implementation module is importe
 | agents.mappings | read | never | — | — |
 | agents.status | read | never | — | — |
 | app.config | read | never | — | — |
+| app.config.reset-local | mutation | never | — | — |
+| app.config.save-local | mutation | never | — | — |
+| app.connections | read | never | — | — |
 | app.plan | read | never | — | — |
 | app.start | mutation | never | — | — |
 | app.status | read | never | — | — |
@@ -261,6 +264,7 @@ Every public operation is classified before its implementation module is importe
 | env.files.create | mutation | never | — | — |
 | env.files.link | mutation | never | — | — |
 | env.files.list | read | never | — | — |
+| env.files.override | mutation | never | — | — |
 | env.files.path | read | never | — | — |
 | env.files.place | mutation | never | — | — |
 | env.files.remove | mutation | never | — | — |
@@ -966,6 +970,7 @@ Every public operation is classified before its implementation module is importe
 | workspace.repair | mutation | never | — | — |
 | workspace.restore | mutation | never | — | — |
 | workspace.retention | mutation | never | — | — |
+| workspace.runtime | read | never | — | — |
 | workspace.status | read | never | — | — |
 | workspace.stories | read | never | — | — |
 | workspace.sync | mutation | never | — | — |

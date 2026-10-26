@@ -187,6 +187,7 @@ export async function terminalStoryWorktreeProof(workspace, clone, entry, { sett
       }
     }
   }
+  if (await (await import('./application-run.mjs')).applicationCheckoutInUse(root)) fail('An application is running or starting in this checkout.', 'WORKSPACE_RETENTION_IN_USE');
   const privateRuntime = path.join(privateGit, 'singularity-flow');
   const runtimeInfo = await lstat(privateRuntime).catch(error => error.code === 'ENOENT' ? null : Promise.reject(error));
   if (runtimeInfo) {

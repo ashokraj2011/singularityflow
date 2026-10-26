@@ -9250,6 +9250,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
         { refresh: refreshAfterKnownMutation, output });
     },
     // Run & test from the palette; `testSummary` also takes `{ workId, phase, beside }` or `{ capability }`.
+    'singularityFlow.workspaceRunTest': (target?: { workspace?: string }) => lazyPanels().WorkspaceRuntimePanel.show(context, runAndTestHost(), target?.workspace),
     'singularityFlow.startApplication': () => lazyPanels().runAndTestCommand('start', runAndTestHost()),
     'singularityFlow.runTests': () => lazyPanels().runAndTestCommand('tests', runAndTestHost()),
     'singularityFlow.testSummary': (target?: unknown) => lazyPanels().runAndTestCommand('summary', runAndTestHost(), target),

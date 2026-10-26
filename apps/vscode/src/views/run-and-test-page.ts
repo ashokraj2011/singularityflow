@@ -37,8 +37,10 @@ function startRow(view: RunAndTestView, row: StartRow): string {
       ${row.listening ? `<br><small class="rt-listening">${escape(row.listening)}</small>` : ''}</td>
     <td><div class="rt-actions">
       <button type="button" class="compact-action"${attributes(view, 'start', { entry: row.id })}${row.canStart ? '' : ' disabled'}>${icon('start')}Start</button>${debug}
+      <button type="button" class="secondary compact-action"${attributes(view, 'restart', { entry: row.id })}${row.canStop ? '' : ' disabled'}>Restart</button>
       <button type="button" class="secondary compact-action"${attributes(view, 'stop', { entry: row.id })}${row.canStop ? '' : ' disabled'}>Stop</button>
       <button type="button" class="secondary compact-action"${attributes(view, 'open', { entry: row.id })}${row.canOpen ? '' : ' disabled'}>Open in browser</button>
+      <button type="button" class="secondary compact-action"${attributes(view, 'log', { entry: row.id })}>Show log</button>
       <button type="button" class="secondary compact-action"${attributes(view, 'configurations', { entry: row.id })} title="Edit this run configuration">${icon('edit')}Edit</button>
     </div></td></tr>`;
 }
@@ -91,7 +93,7 @@ function testsHtml(view: RunAndTestView): string {
 export function runAndTestHtml(view: RunAndTestView | null): string {
   if (!view || view.ownership === 'not-delivery' || view.ownership === 'elsewhere') return '';
   const head = `<div class="card-head"><div><h2>${icon('start')}Run &amp; test</h2>
-      <p class="muted">Start ${escape(view.name)} and run its tests on this computer. Commands come from singularity/capabilities.yml and the workflow; each one asks once before it first runs.</p></div>
+      <p class="muted">Start ${escape(view.name)} and run its tests on this computer. Commands use this checkout’s selected run configuration and workflow; each one asks once before it first runs.</p></div>
       <span class="grow"></span>${view.ownership === 'here'
     ? `<button type="button" class="secondary compact-action"${attributes(view, 'refresh')}${view.loading ? ' disabled' : ''}>${icon('refresh')}Refresh</button>` : ''}</div>`;
   if (view.ownership === 'unknown-repository') {

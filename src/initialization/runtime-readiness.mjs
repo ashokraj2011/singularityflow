@@ -412,7 +412,7 @@ async function declaredStartCommands(root, options) {
     const { resolveCapabilityApplication } = await import(pathToFileURL(path.join(PACKAGE_ROOT, 'src', 'capability-application-context.mjs')).href);
     const context = await resolveCapabilityApplication(root);
     return context.application.start
-      .filter((entry) => !entry.environments.length && entry.startsFromArgv !== false
+      .filter((entry) => !entry.environments.length && !entry.dependsOn?.length && entry.startsFromArgv !== false
         && (context.repositories.length <= 1 || entry.repository === context.repositoryId))
       .map((entry) => ({ id: `start-${entry.id}`, argv: [...entry.argv], workingDirectory: entry.workingDirectory }));
   } catch {

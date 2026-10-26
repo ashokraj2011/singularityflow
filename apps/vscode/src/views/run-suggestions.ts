@@ -24,6 +24,7 @@ import {
 import { runSuggestionsHtml, RUN_SUGGESTIONS_SCRIPT, RUN_SUGGESTIONS_STYLE } from './run-suggestions-page.ts';
 
 export interface RunSuggestionsHost {
+  localRunConfiguration?: boolean;
   client: SingularityFlowClient;
   output?: { appendLine(line: string): void };
   /** The capability map's mode and approved authority, as the capability page reads them. */
@@ -155,7 +156,7 @@ export class RunSuggestionsPanel implements vscode.Disposable {
         this.notice = `Proposal ${outcome.branch} was created on ${outcome.lead}. Review it on its page; nothing is applied before it is approved.`;
         this.host.openCapabilityProposal?.(outcome.lead, outcome.branch, capability);
       } else if (outcome.kind === 'local') {
-        this.notice = `Saved to ${outcome.path ?? 'singularity/capabilities.yml'} in this checkout, as a local authoring change. Commit it, or propose it to the capability map's authority.`;
+        this.notice = route.kind === 'personal' ? 'Saved personal run settings for this checkout. Restart the application to use them; team configuration and tests stay unchanged.' : `Saved to ${outcome.path ?? 'singularity/capabilities.yml'} in this checkout, as a local authoring change. Commit it, or propose it to the capability map's authority.`;
         await this.host.afterLocalChange?.(capability);
         return true;
       } else {

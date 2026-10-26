@@ -62,7 +62,10 @@ export class RunWidget implements vscode.Disposable {
   /** The one widget of this window; `changed` redraws the Run view the extension registered. */
   static attach(host: RunAndTestHost, changed: () => void): RunWidget {
     if (!RunWidget.instance) RunWidget.instance = new RunWidget(host, changed);
-    else RunWidget.instance.host = host;
+    else if (RunWidget.instance.host.client.repository !== host.client.repository) {
+      RunWidget.instance.dispose();
+      RunWidget.instance = new RunWidget(host, changed);
+    } else RunWidget.instance.host = host;
     return RunWidget.instance;
   }
 

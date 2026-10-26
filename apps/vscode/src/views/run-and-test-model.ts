@@ -78,6 +78,7 @@ export interface StartEntry {
   debug: DebugPlan | null;
   /** Why a declared `debug` block is not offered: the engine's answer for it is incomplete. */
   debugIssue: string | null;
+  dependencies?: StartEntry[];
 }
 
 /** A typed entry's before-launch steps (run in order before the application) and the variable names it sets. */
@@ -266,6 +267,8 @@ export function appPlanFrom(raw: unknown): { entries: StartEntry[]; dropped: str
       dropped.push(id ?? '(unnamed)');
       continue;
     }
+    const dependencies = Array.isArray(entry.dependencies) ? appPlanFrom({ entries: entry.dependencies }) : { entries: [], dropped: [] };
+    if (dependencies.dropped.length) { dropped.push(id); continue; }
     const ready = record(entry.ready);
     const environments = environmentsFrom(entry);
     const names = environments.map((choice) => choice.name);
@@ -304,7 +307,8 @@ export function appPlanFrom(raw: unknown): { entries: StartEntry[]; dropped: str
       resolvedArgv,
       launch,
       debug,
-      debugIssue: issue
+      debugIssue: issue,
+      ...(dependencies.entries.length ? { dependencies: dependencies.entries } : {})
     });
   }
   return { entries, dropped };
@@ -668,6 +672,13 @@ const otherEnvironmentLines = (entry: StartEntry, environment: string | null, co
 };
 
 /** "api (Api, node)" when the configuration has a name or type of its own. */
+const dependencyLines = (entry: StartEntry, environment: string | null): string[] => (entry.dependencies ?? []).flatMap(service => [
+  `Required service: ${service.name ?? service.id} in ${service.repository ?? 'this repository'}/${service.workingDirectory ?? '.'}`,
+  `  Command: ${JSON.stringify(resolvedArgv(service, service.environments.length ? environment ?? service.environments[0]!.name : null))}`,
+  ...launchLines(service, environment).map(line => `  ${line}`),
+  ...otherEnvironmentLines(service, environment, name => resolvedArgv(service, name))
+]);
+
 const entryWords = (entry: StartEntry): string => {
   const extra = [entry.name && entry.name !== entry.id ? entry.name : null, entry.type].filter(Boolean);
   return extra.length ? `${entry.id} (${extra.join(', ')})` : entry.id;
@@ -677,11 +688,12 @@ const entryWords = (entry: StartEntry): string => {
 export function startConfirmationRequest(entry: StartEntry, environment: string | null): ReviewConfirmationRequest {
   return {
     title: `Start ${entry.name ?? entry.id} for ${entry.capability}`,
-    summary: 'This command comes from singularity/capabilities.yml and runs on this computer. Review it once; you are asked again when it changes.',
+    summary: 'This command comes from this checkout’s effective run configuration and runs on this computer. Review it once; you are asked again when it changes.',
     detail: [
       `Capability: ${entry.capability}`,
       `Start entry: ${entryWords(entry)}`,
       `Command: ${JSON.stringify(resolvedArgv(entry, environment))}`,
+      ...dependencyLines(entry, environment),
       ...argumentsLine(entry, environment),
       ...launchLines(entry, environment),
       `Working directory: ${entry.workingDirectory ?? '.'}${entry.repository ? ` (repository ${entry.repository})` : ''}`,
@@ -707,12 +719,13 @@ export function debugStartConfirmationRequest(entry: StartEntry, environment: st
   const attach = debugAttachConfiguration(debug.runtime, debugSessionName(entry.capability, entry.id), { port: debug.port, pid: 1 });
   return {
     title: `Start ${entry.name ?? entry.id} with its debugger for ${entry.capability}`,
-    summary: 'This command comes from singularity/capabilities.yml and runs on this computer with a debugger that listens on 127.0.0.1 only. Review it once; you are asked again when it changes.',
+    summary: 'This command comes from this checkout’s effective run configuration and runs on this computer with a debugger that listens on 127.0.0.1 only. Review it once; you are asked again when it changes.',
     detail: [
       `Capability: ${entry.capability}`,
       `Start entry: ${entryWords(entry)}`,
       launch.argv ? `Command: ${JSON.stringify(launch.argv)}`
         : `Command: ${JSON.stringify(resolvedArgv(entry, environment))}, with the debugger the engine adds for ${debug.runtime}`,
+      ...dependencyLines(entry, environment),
       ...argumentsLine(entry, environment),
       ...launchLines(entry, environment),
       ...(launch.environmentNames.length ? [`Set for the application only, by the engine: ${launch.environmentNames.join(', ')}`] : []),
@@ -737,7 +750,7 @@ export function debugStartConfirmationRequest(entry: StartEntry, environment: st
 
 /** The review page shown before a test selection first runs. */
 export function testsConfirmationRequest(capability: string, tests: TestCommandPlan[], commands: string[],
-  environment: string | null): ReviewConfirmationRequest {
+  environment: string | null, scope?: { workId: string; phase: string; argv: string[]; checkout: string }): ReviewConfirmationRequest {
   const planned = commands.length ? tests.filter((command) => commands.includes(command.id)) : tests;
   const lines = planned.length
     ? planned.flatMap((command) => [
@@ -747,15 +760,15 @@ export function testsConfirmationRequest(capability: string, tests: TestCommandP
     ])
     : [commands.length ? `Commands: ${commands.join(', ')}` : 'Commands: the capability\'s tests, or what its code step runs, as the engine resolves them'];
   return {
-    title: `Run tests for ${capability}`,
+    title: `Run tests for ${scope ? `${scope.workId} · ${scope.phase}` : capability}`,
     summary: 'These test commands come from the workflow and run on this computer. Review them once; you are asked again when they change.',
     detail: [
       `Capability: ${capability}`,
       ...lines,
       environment ? `Environment: ${environment}. Its values go to the test process only; VS Code never reads or shows them.` : 'Environment: none named',
       '',
-      `VS Code runs it as a task: ${displayCommand(testsRunArgv(capability, commands, environment, plannedIdentities(tests, commands)))}`,
-      'The run is a local preview: it is shown in the test summary and never counts as evidence for a Story.'
+      `VS Code runs it as a task: ${displayCommand(scope?.argv ?? testsRunArgv(capability, commands, environment, plannedIdentities(tests, commands)))}`,
+      ...(scope ? [`Checkout: ${scope.checkout}`, `Story: ${scope.workId} · phase ${scope.phase}`, 'Results are staged for the Story evidence checks. This does not publish, submit or approve the phase.'] : ['The run is a local preview: it is shown in the test summary and never counts as evidence for a Story.'])
     ].join('\n'),
     confirmLabel: 'Run these tests'
   };

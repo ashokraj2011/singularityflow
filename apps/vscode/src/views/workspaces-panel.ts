@@ -423,6 +423,7 @@ export class WorkspacesPanel {
       if (route && routes[route]) void navigateTo(routes[route]!);
     },
     // The selected workspace is the one meant: refresh it to the new version without a Git URL.
+    'run-test': () => vscode.commands.executeCommand('singularityFlow.workspaceRunTest', this.selected ? { workspace: this.selected } : undefined),
     'repository-refresh': () => vscode.commands.executeCommand('singularityFlow.refreshCapability',
       this.selected ? { workspacePath: this.selected } : undefined),
     'repository-refresh-url': () => vscode.commands.executeCommand('singularityFlow.refreshRepositorySetup'),

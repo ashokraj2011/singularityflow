@@ -22,8 +22,8 @@ const TERMINALS = new Set(['bash', 'powershell', 'run_in_terminal', 'execute', '
 const SEARCH_TOOLS = new Set(['grep', 'rg', 'glob', 'search_code_subagent']);
 const MAXIMUM_RECORD_BYTES = 262_144;
 // `env files` subcommands Copilot may run: they print paths and statuses, or create from a template.
-const ALLOWED_ENV_FILES = new Set(['', 'list', 'path', 'suggest', 'create', 'place']);
-const KNOWN_ENV_FILES = Object.freeze(['list', 'path', 'suggest', 'create', 'place', 'link', 'unlink', 'adopt', 'add', 'remove', 'root']);
+const ALLOWED_ENV_FILES = new Set(['', 'list', 'path', 'suggest', 'create', 'place', 'override']);
+const KNOWN_ENV_FILES = Object.freeze(['list', 'path', 'suggest', 'override', 'create', 'place', 'link', 'unlink', 'adopt', 'add', 'remove', 'root']);
 
 function exists(file) { try { return lstatSync(file); } catch { return null; } }
 function canonical(file) { try { return realpathSync(file); } catch { return path.resolve(file); } }

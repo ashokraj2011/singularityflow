@@ -59,7 +59,7 @@ const ACTIONS = ['copy', 'remove', 'up', 'down', 'import', 'browse', 'reset-fiel
   'discard-confirm', 'refresh', 'apply', 'ok', 'env-files'] as const;
 /** Edits after which the form itself changes (fields appear, go or are cleared): the page is drawn again. */
 const STRUCTURAL = new Set(['environments', 'ready.kind', 'debug.enabled', 'debug.runtime', 'script', 'module']);
-const NOTE_FIELDS = ['name', 'id', 'workingDirectory', 'env', 'beforeLaunch', 'url', 'ready.value', 'ready.timeout', 'environments', 'repository',
+const NOTE_FIELDS = ['dependsOn', 'name', 'id', 'workingDirectory', 'env', 'beforeLaunch', 'url', 'ready.value', 'ready.timeout', 'environments', 'repository',
   'debug.port', 'debug.suspend', 'debug.runtime', 'debug.enabled', 'appended'];
 const PREVIEW_DELAY_MS = 350;
 
@@ -545,7 +545,7 @@ export class RunConfigurationsPanel implements vscode.Disposable {
       this.notice = `Proposal ${outcome.branch} was created on ${outcome.lead}. Nothing changes here until it is approved; this page shows what is declared now.`;
       this.host.openCapabilityProposal?.(outcome.lead, outcome.branch, capability);
     } else if (outcome.kind === 'local') {
-      this.notice = `Saved to ${outcome.path ?? 'singularity/capabilities.yml'} in this checkout, as a local authoring change. Commit it, or propose it to the capability map's authority.`;
+      this.notice = route.kind === 'personal' ? 'Saved personal run settings for this checkout. Restart the application to use them; team configuration and tests stay unchanged.' : `Saved to ${outcome.path ?? 'singularity/capabilities.yml'} in this checkout, as a local authoring change. Commit it, or propose it to the capability map's authority.`;
       await this.host.afterLocalChange?.(capability);
     } else {
       this.notice = 'The capability already declares exactly these run configurations; nothing changed.';

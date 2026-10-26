@@ -37,9 +37,13 @@ export async function resolveCapabilityApplication(root, { capabilityId = null, 
         `Unknown capability '${capabilityId}'. This repository currently uses the implicit '${IMPLICIT_CAPABILITY_ID}' capability.`,
         { code: 'CAPABILITY_UNKNOWN', details: { capabilityId, available: [IMPLICIT_CAPABILITY_ID] } });
     }
+    const profile = readApplication ? await (await import('./local-application-profile.mjs')).readLocalApplicationProfile(root, IMPLICIT_CAPABILITY_ID, null) : null;
+    const capability = profile ? { kind: 'delivery', repository: source.repositoryId ?? IMPLICIT_CAPABILITY_ID, application: { start: profile.start, tests: [] } } : null;
     return Object.freeze({
-      capabilityId: IMPLICIT_CAPABILITY_ID, implicit: true, capability: null,
-      application: normalizeCapabilityApplication(IMPLICIT_CAPABILITY_ID, null),
+      capabilityId: IMPLICIT_CAPABILITY_ID, implicit: true, capability,
+      application: readApplication ? typedApplication(IMPLICIT_CAPABILITY_ID, capability?.application, normalizeCapabilityApplication(IMPLICIT_CAPABILITY_ID, capability), {
+        checkoutRoot: root, repositoryId: source.repositoryId ?? null, repositories: [source.repositoryId ?? IMPLICIT_CAPABILITY_ID] }) : null,
+      applicationSource: profile ? 'personal-checkout' : 'team', profileRevision: profile?.revision ?? null,
       repositories: source.repositoryId ? [source.repositoryId] : [], repositoryId: source.repositoryId ?? null,
       policy: {}, mapSha256: null
     });
@@ -73,9 +77,11 @@ export async function resolveCapabilityApplication(root, { capabilityId = null, 
       code: 'CAPABILITY_NOT_DELIVERY', details: { capabilityId: selected, available: deliveries } });
   }
   const repositories = capabilityRepositories(capability);
+  const profile = readApplication ? await (await import('./local-application-profile.mjs')).readLocalApplicationProfile(root, selected, snapshot.sha256) : null;
+  const effective = profile ? { ...capability, application: { ...capability.application, start: profile.start } } : capability;
   return Object.freeze({
-    capabilityId: selected, implicit: false, capability,
-    application: readApplication ? typedApplication(selected, capability.application, normalizeCapabilityApplication(selected, capability), {
+    capabilityId: selected, implicit: false, capability: effective, applicationSource: profile ? 'personal-checkout' : 'team', profileRevision: profile?.revision ?? null,
+    application: readApplication ? typedApplication(selected, effective.application, normalizeCapabilityApplication(selected, effective), {
       checkoutRoot: root, repositoryId: source.repositoryId ?? null, repositories }) : null,
     repositories, repositoryId: source.repositoryId ?? null,
     policy: resolveCapabilityPolicy(definition, selected).policy, mapSha256: snapshot.sha256

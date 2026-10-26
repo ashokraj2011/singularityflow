@@ -458,7 +458,7 @@ export function capabilityLeadRepository(capability) {
 
 const APPLICATION_KEYS = Object.freeze(['start', 'tests']);
 const START_KEYS = Object.freeze(['id', 'repository', 'argv', 'workingDirectory', 'url', 'ready', 'environments', 'arguments', 'debug', 'name', 'type',
-  'env', 'beforeLaunch', 'perEnvironment']);
+  'env', 'beforeLaunch', 'perEnvironment', 'dependsOn']);
 const DEBUG_KEYS = Object.freeze(['runtime', 'port', 'suspend', 'argv', 'arguments', 'environment']);
 /** The runtimes app start --debug knows, and each one's default loopback port. */
 export const APPLICATION_DEBUG_RUNTIMES = Object.freeze(['java', 'python', 'node', 'go', 'dotnet']);
@@ -710,6 +710,9 @@ function applicationStartEntry(id, raw, index, repositories) {
     throw applicationError(id, `${label}.ready.timeoutMs must be an integer from 1000 to 600000.`);
   }
   const environments = Object.freeze(applicationEnvironments(id, raw.environments, label));
+  if (raw.dependsOn != null && (!Array.isArray(raw.dependsOn) || raw.dependsOn.length > 64
+      || raw.dependsOn.some(item => typeof item !== 'string' || !APPLICATION_ENTRY_ID.test(item))
+      || new Set(raw.dependsOn).size !== raw.dependsOn.length)) throw applicationError(id, `${label}.dependsOn requires unique start IDs.`);
   const startArguments = typed ? null : applicationArguments(id, raw.arguments, label, environments, raw.id);
   const debug = typed ? null : applicationDebug(id, raw.debug, label, raw.id, raw.url);
   assertLoopbackDebugTokens(id, raw.argv, `${label}.argv`, raw.id);
@@ -721,6 +724,7 @@ function applicationStartEntry(id, raw, index, repositories) {
     url: raw.url,
     ready: Object.freeze(ready.http != null ? { http: ready.http, timeoutMs } : { log: ready.log, timeoutMs }),
     environments,
+    ...(raw.dependsOn?.length ? { dependsOn: Object.freeze([...raw.dependsOn]) } : {}),
     ...(startArguments ? { arguments: startArguments } : {}),
     ...(debug ? { debug } : {})
   });
@@ -736,6 +740,9 @@ export function applicationStartArgv(entry, environment = null) {
  * which quality commands its tests are. Absent means `{ start: [], tests: [] }`. Environment names
  * and quality-command IDs are checked when a run resolves them, because those live in other files.
  */
+/** Validate one editor row; graph completeness is validated on the complete application block. */
+export { applicationStartEntry as normalizeCapabilityApplicationEntry };
+
 export function normalizeCapabilityApplication(id, capability) {
   const value = capability?.application;
   if (value == null) return Object.freeze({ start: Object.freeze([]), tests: Object.freeze([]) });
@@ -751,6 +758,18 @@ export function normalizeCapabilityApplication(id, capability) {
   const start = (value.start ?? []).map((entry, index) => applicationStartEntry(id, entry, index, repositories));
   const duplicateStart = start.find((entry, index) => start.findIndex((other) => other.id === entry.id) !== index);
   if (duplicateStart) throw applicationError(id, `start declares id '${duplicateStart.id}' more than once.`);
+  const completed = new Set();
+  const visit = (entry, chain = []) => {
+    if (chain.includes(entry.id)) throw applicationError(id, `start dependency cycle: ${[...chain, entry.id].join(' -> ')}.`);
+    if (completed.has(entry.id)) return;
+    for (const dependency of entry.dependsOn ?? []) {
+      const required = start.find(item => item.id === dependency);
+      if (!required) throw applicationError(id, `Unknown dependency ${entry.id} -> ${dependency}.`);
+      visit(required, [...chain, entry.id]);
+    }
+    completed.add(entry.id);
+  };
+  for (const entry of start) visit(entry);
   const tests = (value.tests ?? []).map((raw, index) => {
     const label = `tests[${index}]`;
     if (!raw || typeof raw !== 'object' || Array.isArray(raw)) throw applicationError(id, `${label} must be an object with use.`);
@@ -772,6 +791,7 @@ export function normalizeCapabilityApplication(id, capability) {
 export function applicationStartCommandSha256(entry) {
   return `sha256:${recordSha256({ repository: entry.repository, workingDirectory: entry.workingDirectory, argv: [...entry.argv],
     environments: [...entry.environments],
+    ...(entry.dependsOn?.length ? { dependsOn: [...entry.dependsOn] } : {}),
     ...(entry.arguments ? { resolvedArgv: Object.fromEntries(entry.environments.map((name) => [name, applicationStartArgv(entry, name)])) } : {}),
     ...(entry.debug ? { debug: entry.debug } : {}) })}`;
 }

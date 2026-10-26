@@ -807,6 +807,11 @@
         "icon": "$(checklist)"
       },
       {
+        "command": "singularityFlow.workspaceRunTest",
+        "title": "Singularity Flow: Workspace Run & Test",
+        "icon": "$(play-circle)"
+      },
+      {
         "command": "singularityFlow.startApplication",
         "title": "Singularity Flow: Start Application",
         "icon": "$(play)"

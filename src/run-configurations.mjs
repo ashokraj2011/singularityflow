@@ -31,7 +31,7 @@ import path from 'node:path';
 
 import { resolveDebugLaunch } from './application-debug.mjs';
 import {
-  applicationArguments, applicationDebug, applicationStartArgv, applicationStartCommandSha256, debuggerListeners, normalizeCapabilityApplication
+  applicationArguments, applicationDebug, applicationStartArgv, applicationStartCommandSha256, debuggerListeners, normalizeCapabilityApplication, normalizeCapabilityApplicationEntry
 } from './capabilities.mjs';
 import { declarableEnvironmentVariable } from './environment-declaration.mjs';
 import { recordSha256 } from './records.mjs';
@@ -41,7 +41,7 @@ import { SingularityFlowError } from './util.mjs';
 const CONTROL = /[\u0000-\u001f\u007f]/u;
 const ENVIRONMENT_ID = /^(?=.{1,64}$)[a-z][a-z0-9]*(?:-[a-z0-9]+)*$/u;
 const SHARED_KEYS = Object.freeze(['id', 'name', 'type', 'repository', 'workingDirectory', 'url', 'ready', 'environments', 'arguments', 'debug',
-  'env', 'beforeLaunch', 'perEnvironment']);
+  'env', 'beforeLaunch', 'perEnvironment', 'dependsOn']);
 const STEP_KEYS = Object.freeze(['argv', 'workingDirectory', 'timeoutMs']);
 export const BEFORE_LAUNCH_TIMEOUT_MS = Object.freeze({ minimum: 1_000, maximum: 1_800_000, default: 600_000 });
 const SECRET_OPTION_NAME = /pass(?:word|wd|phrase)?|secret|token|credential|api[-_.]?key|private[-_.]?key|access[-_.]?key/iu;
@@ -649,6 +649,7 @@ export function startEntryCommandSha256(entry) {
   const names = entry.environments.length ? entry.environments : [null];
   return `sha256:${recordSha256({
     repository: entry.repository, workingDirectory: entry.workingDirectory, type: entry.type, environments: [...entry.environments],
+    ...(entry.dependsOn?.length ? { dependsOn: [...entry.dependsOn] } : {}),
     resolved: names.map((name) => {
       const command = resolveStartCommand(entry, name);
       return {
@@ -794,7 +795,7 @@ export function previewApplication(capabilityId, block, { checkoutRoot = null, r
     const name = typeof raw?.name === 'string' ? raw.name : id;
     const problems = [];
     let normalized = null;
-    try { [normalized] = normalizeCapabilityApplication(capabilityId, { ...shape, application: { start: [raw] } }).start; } catch (error) {
+    try { normalized = normalizeCapabilityApplicationEntry(capabilityId, raw, 0, shape.repositories); } catch (error) {
       problems.push(locatedApplicationError(error));
     }
     problems.push(...runConfigurationErrors(raw, { capabilityId, index }));
@@ -811,5 +812,9 @@ export function previewApplication(capabilityId, block, { checkoutRoot = null, r
         name: environment, default: position === 0, resolved: shownResolution(resolveStartCommand(entry, environment, { paths })) }))
     };
   });
+  if (!errors.length && entries.every(entry => !entry.errors.length)) {
+    try { normalizeCapabilityApplication(capabilityId, { ...shape, application: block }); }
+    catch (error) { const located = locatedApplicationError(error); errors.push({ path: located.field || 'start', message: located.message }); }
+  }
   return { valid: !errors.length && entries.every((entry) => !entry.errors.length), entries, errors };
 }

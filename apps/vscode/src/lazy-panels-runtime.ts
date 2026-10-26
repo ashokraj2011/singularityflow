@@ -59,3 +59,5 @@ export { RunAndTest, runAndTestCommand, editRunConfigurationsCommand } from './v
 export { TestSummaryPanel } from './views/test-summary.ts';
 export { RunWidget } from './views/run-widget.ts';
 export { EnvironmentFilesPanel, environmentFilesCommand } from './views/environment-files.ts';
+
+export { WorkspaceRuntimePanel } from './views/workspace-runtime.ts';

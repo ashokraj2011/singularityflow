@@ -84,6 +84,7 @@ function workspaceDetails(status: WorkspaceStatus | null, loading: boolean, deta
       : '<span class="muted">No tracker anchor configured</span>'}</p>
   </div>
 
+  <p><button data-run-test>${icon('start')}Run &amp; Test Stories in this workspace</button></p>
   <h2>${icon('repository')}Repositories</h2>
   <p class="meta">${escape(status.counts?.ready ?? 0)} of ${escape(status.counts?.repositories ?? status.repositories.length)} ready
     · ${escape(status.counts?.dirty ?? 0)} with local changes</p>
@@ -681,7 +682,7 @@ export const WORKSPACES_SCRIPT = `
     if(target)vscode.postMessage({type:'setup-route',route:target.dataset.setupRoute});
   });
   document.addEventListener('click', (event) => {
-    const target = event.target.closest('[data-select],[data-switch],[data-rename],[data-duplicate],[data-forget],[data-create],[data-adopt],[data-edit],[data-edit-save],[data-edit-cancel],[data-capability-attach],[data-capability-detach],[data-capability-drop],[data-repair],[data-archive],[data-restore],[data-config-preview],[data-config-apply],[data-fos-action],[data-repository-refresh],[data-repository-refresh-url],[data-help-topic],[data-copy-command],[data-copy-clear]');
+    const target = event.target.closest('[data-run-test],[data-select],[data-switch],[data-rename],[data-duplicate],[data-forget],[data-create],[data-adopt],[data-edit],[data-edit-save],[data-edit-cancel],[data-capability-attach],[data-capability-detach],[data-capability-drop],[data-repair],[data-archive],[data-restore],[data-config-preview],[data-config-apply],[data-fos-action],[data-repository-refresh],[data-repository-refresh-url],[data-help-topic],[data-copy-command],[data-copy-clear]');
     if (!target) return;
     event.preventDefault();
     const data = target.dataset;
@@ -699,6 +700,7 @@ export const WORKSPACES_SCRIPT = `
     else if (data.repair !== undefined) vscode.postMessage({ type: 'repair', path: data.repair });
     else if (data.configPreview !== undefined) vscode.postMessage({ type: 'configuration-preview', scope: data.configPreview });
     else if (data.configApply !== undefined) vscode.postMessage({ type: 'configuration-apply' });
+    else if (data.runTest !== undefined) vscode.postMessage({ type: 'run-test' });
     else if (data.repositoryRefresh !== undefined) vscode.postMessage({ type: 'repository-refresh' });
     else if (data.repositoryRefreshUrl !== undefined) vscode.postMessage({ type: 'repository-refresh-url' });
     else if (data.fosAction !== undefined) vscode.postMessage({

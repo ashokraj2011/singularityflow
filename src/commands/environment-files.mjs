@@ -8,14 +8,16 @@ import path from 'node:path';
 
 import { optionBoolean, optionString, SingularityFlowError } from '../util.mjs';
 
-export const ENV_FILES_ACTIONS = Object.freeze(['create', 'link', 'unlink', 'adopt', 'add', 'remove', 'path', 'root', 'place', 'suggest']);
+export const ENV_FILES_ACTIONS = Object.freeze(['override', 'create', 'link', 'unlink', 'adopt', 'add', 'remove', 'path', 'root', 'place', 'suggest']);
 const OPTIONS = Object.freeze({
+  override: ['clear', 'repository'],
   list: ['repository', 'workspace'], create: ['from-template', 'repository', 'workspace'], link: ['to', 'clear', 'repository', 'workspace'],
   unlink: ['repository', 'workspace'],
   adopt: ['repository', 'workspace'], add: ['personal', 'repository', 'workspace'], remove: ['personal', 'repository', 'workspace'],
   path: ['repository', 'workspace'], root: ['clear'], place: ['capability', 'workspace'], suggest: ['repository']
 });
 const USAGE = Object.freeze({
+  override: 'env files override <ENV> <PATH> [--clear] [--json]',
   list: 'env files [ENV] [--repository ID | --workspace] [--json]',
   create: 'env files create <ENV> <PATH> [--from-template] [--repository ID | --workspace] [--json]',
   link: 'env files link <ENV> <PATH> --to <FILE> [--repository ID | --workspace] [--json]',
@@ -166,6 +168,7 @@ export async function run(_argv, { positionals, options = {} }) {
       'ENV_FILES_PERSONAL_REQUIRED');
   }
   const scope = await engine.commandScope(root, { repository, workspace });
+  if (action === 'override') return emit(await engine.overrideStoryEnvironmentFile(scope, environment, relative, { clear: optionBoolean(options, 'clear') }), json, value => value.location ?? 'Using the personal environment again; existing values were preserved.');
   if (action === 'path') {
     return emit(await engine.environmentFilePath(scope, environment, relative), json,
       (value) => `${value.location}${value.exists ? '' : ` (missing: singularity-flow env files create ${environment} ${relative})`}`);

@@ -297,9 +297,9 @@ export function assertDebugToolsAvailable(launch, { cwd, environment = process.e
 }
 
 /** Whether something accepts TCP connections on the loopback debug port. */
-export function debugPortAccepts(port, { timeoutMs = 750 } = {}) {
+export function debugPortAccepts(port, { timeoutMs = 750, host = DEBUG_HOST } = {}) {
   return new Promise((resolve) => {
-    const socket = net.connect({ host: DEBUG_HOST, port });
+    const socket = net.connect({ host, port });
     const done = (value) => { socket.destroy(); resolve(value); };
     socket.setTimeout(timeoutMs, () => done(false));
     socket.once('connect', () => done(true));

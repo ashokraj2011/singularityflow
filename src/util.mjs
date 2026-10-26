@@ -167,7 +167,7 @@ export const BOOLEAN_OPTIONS = Object.freeze(new Set([
   'from-artifact', 'include-existing', 'include-local-documents', 'include-local-metadata', 'independent', 'isolated-worktree',
   'git-shadow', 'git-speed', 'keep', 'local', 'local-only', 'make-lead', 'markdown', 'migrate-legacy', 'mint-intake-receipt', 'narrate', 'network', 'offline', 'once', 'open', 'performance', 'plan-only',
   'opt-out', 'optional', 'parallel', 'planned', 'polish', 'portable-discovery', 'prefetch', 'preview', 'probe', 'propose', 'publish', 'push',
-  'query-stdin', 'quick', 'raw', 'readiness', 'rebuild', 'recap', 'record', 'record-audit', 'recover', 'refresh', 'release', 'render-only', 'repair', 'repair-on-fault', 'restore-remote', 'risk-status', 'run',
+  'changes', 'query-stdin', 'quick', 'raw', 'readiness', 'rebuild', 'recap', 'record', 'record-audit', 'recover', 'refresh', 'release', 'render-only', 'repair', 'repair-on-fault', 'restore-remote', 'risk-status', 'run',
   'remove-stale', 'repair-projections', 'replace', 'replace-server', 'replay', 'resume', 'set', 'sign', 'solo',
   'refresh-readiness', 'saved-buffers-confirmed', 'search-known', 'selected-base-only', 'semantic', 'shadow', 'skip-checks', 'skip-tests', 'smart-detect', 'staged', 'stale', 'state-only', 'stdin', 'strict', 'submission-readiness', 'terminal', 'timings', 'today', 'update', 'write',
   'yes',

@@ -456,3 +456,62 @@ It uses disposable local bare remotes, creates no Story, and reports fresh-proce
 reused-fresh and cached requests. It does not model enterprise network or credential latency.
 Native Mac/Windows measurements and qualification limits are recorded in
 [`readiness-qualification.json`](benchmarks/story-creation/readiness-qualification.json).
+
+## Run applications and tests from a workspace
+
+Open **Workspaces → Run & Test Stories in this workspace**, or the command palette’s
+**Singularity Flow: Workspace Run & Test**. Choose a repository or a recorded Story checkout.
+The page shows its branch, phase, checkout path, lazy file tree and working-tree changes.
+Opening the page reads local records only. It does not fetch, scan branches or history, create
+checkouts or reload VS Code. **Open checkout in editor** is the explicit folder-switch action.
+A missing Story offers **Prepare & Start**, which uses the existing Story attach operation,
+updates the local session selection and then confirms its launch command.
+
+**Start**, **Debug**, **Restart**, **Stop**, **Show log** and **Open in browser** all target
+that checkout. Separate Story worktrees have separate process records. First-run confirmation
+covers the resolved command, before-launch steps and required service commands. Changing any
+of them invalidates that confirmation. **Personal run configurations** writes checkout-local
+start settings; **Use team run configurations** retains those settings before resetting them.
+Personal settings cannot change the pinned test selection.
+
+Use **Environment files & API settings** to declare or bind laptop-local settings. **Make/open
+Story copy** copies a declared environment file into a private store for this checkout. Edit
+that copy, then restart the application to place it. Other Stories keep their own settings.
+Tracked source files cannot be replaced by this operation. Resetting an override retains its
+contents. Credentials and local file contents are excluded from Git, prompts and evidence.
+On another laptop, supply the required local values/files again before running the application.
+
+Application start entries can declare `dependsOn: [api, database]`, referring to other start
+entry IDs in the same capability. Services start in dependency order and must become ready
+before the application starts. Only services owned by that launch stop with it, in reverse
+order. A compatible service started separately can be reused and is left running. A service
+owned by another launch is refused rather than taking control of it. Cross-repository services
+use that Story’s recorded checkout; a missing Story checkout is never replaced with base code.
+Dependency installation/build steps use the existing shell-free `beforeLaunch` configuration.
+
+**Local preview** tests do not count as Story evidence. **Story test evidence** runs the
+current phase’s pinned test plan in the Story lifecycle checkout. Secondary-repository
+selection switches visibly to that lifecycle checkout before offering evidence tests. The
+normal evidence admission, publication, submission and approval checks still apply.
+
+**Check API connections** performs explicit, cancellable HEAD checks, at most four at once,
+under one 20-second deadline. It sends no credentials, follows no redirects and displays only
+endpoint names, status codes and timing. Reachability does not establish authenticated API
+behavior or test evidence. Applications must still have their declared runtimes installed.
+
+Terminal reads and personal settings:
+
+```sh
+singularity-flow workspace runtime --json
+singularity-flow workspace runtime --workspace <absolute-workspace-path> --target <target-id> --json
+singularity-flow app plan --json
+singularity-flow app config save-local --application-file <application.yml> --json
+singularity-flow app config reset-local --json
+singularity-flow env files override dev config/dev.local.yml --json
+singularity-flow app connections --environment dev --json
+```
+
+Active application/start leases prevent automatic checkout cleanup. Private overrides live in
+the shared Git directory, outside a Story worktree’s private metadata, and survive worktree
+cleanup. Clone cleanup preserves private settings and recovery data. No new configuration,
+run, test or connection operation approves a workflow phase.

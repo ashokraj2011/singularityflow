@@ -27,9 +27,10 @@ import path from 'node:path';
 
 import { ENVIRONMENT_IDENTIFIER, isExactEnvironmentFilePath, loadEnvironmentDeclaration } from './environment-declaration.mjs';
 import { repositoryGitDirectory } from './git-directory.mjs';
+import { repositoryWorktreeDirectory } from './git-worktree-directory.mjs';
 import { gitCommonDir, trackedPaths } from './git.mjs';
 import {
-  listPrivateSidecar, readPrivateSidecar, safePrivateSidecarDirectory, writeMutablePrivateSidecar
+  listPrivateSidecar, readPrivateSidecar, safePrivateSidecarDirectory, writeMutablePrivateSidecar, writeImmutablePrivateSidecar
 } from './private-sidecar.mjs';
 import { ensureSecureRepositoryDirectory, secureRepositoryPath, SingularityFlowError } from './util.mjs';
 
@@ -357,6 +358,13 @@ async function regularFile(location, { follow = false } = {}) {
 
 /** Where a file's real file is: linked (authoritative), else the workspace folder or store that has it. */
 async function resolveFile(scope, file) {
+  if (scope.kind === 'repository') {
+    const override = storyEnvironmentFilePath(scope.root, file.environment, file.path);
+    try {
+      await safePrivateSidecarDirectory(scope.root, path.dirname(override), { enforceWindowsAcl: true });
+      if (await regularFile(override)) return { source: 'store', location: override, exists: true, localScope: 'checkout' };
+    } catch (error) { if (error?.code !== 'ENOENT') throw error; }
+  }
   if (file.entry?.source === 'linked' && file.entry.linkedPath) {
     return { source: 'linked', location: file.entry.linkedPath, exists: await regularFile(file.entry.linkedPath, { follow: true }) };
   }
@@ -703,6 +711,7 @@ async function reportFiles(scope, files) {
       environment: file.environment, path: file.path, kind: file.origin, template: await templateFor(scope.checkout, file.path),
       // Outside every repository there is nothing to exclude.
       source: file.source, location: file.location, status: fileStatus(file, state), excluded: scope.kind === 'repository' ? excluded.has(file.path) : null,
+      ...(file.localScope ? { localScope: file.localScope } : {}),
       placedFor: state.kind === 'placed' ? state.environment : null,
       placement: state.kind === 'placed' ? state.mode : null,
       problem: tracked.has(file.path) ? 'tracked' : file.origin === 'declared' && !file.declared ? 'no-longer-declared' : null
@@ -1151,4 +1160,49 @@ export async function placeForCommand(root, environment, { capability = null, wo
   result.workspace = { ...workspaceSummary(level.workspace), files: files.map((file) => file.path), placed: placed.placed.map((file) => file.path),
     unchanged: placed.unchanged.map((file) => file.path), unmanaged: placed.unmanaged.map((file) => file.path), notes: placed.notes };
   return result;
+}
+
+/** Private copies are outside worktrees, so checkout cleanup preserves their contents. */
+export function storyEnvironmentFilePath(root, environment, relative) {
+  const own = repositoryWorktreeDirectory(root);
+  if (!own) fail('Open the selected Story checkout first.', 'ENV_FILE_CHECKOUT_REQUIRED');
+  const key = createHash('sha256').update(path.resolve(own)).digest('hex').slice(0, 32);
+  return path.join(gitCommonDir(root), 'singularity-flow', 'environment-files', 'checkout-overrides-v1', key,
+    environmentArgument(environment), ...filePathArgument(relative).split('/'));
+}
+
+/** Copy a declared local file for this checkout only; values never enter output or Git. */
+export async function overrideStoryEnvironmentFile(scope, environment, relative, { clear = false } = {}) {
+  if (scope.kind !== 'repository') fail('A Story override needs a repository checkout.', 'ENV_FILE_CHECKOUT_REQUIRED');
+  const { file } = await knownFile(scope, environment, relative);
+  if (!file) throw undeclared(scope, environment, relative);
+  const tracked = trackedPaths(scope.checkout, [relative]);
+  if (tracked.length) fail('A tracked file must be edited as a source change, not replaced by a local override.', 'ENV_FILE_TRACKED');
+  const location = storyEnvironmentFilePath(scope.root, environment, relative);
+  const existing = await readPrivateSidecar(scope.root, location, { optional: true, maximumBytes: MAXIMUM_TEMPLATE_BYTES, enforceWindowsAcl: true });
+  if (clear) {
+    const retained = existing == null ? null : `${location}.retained-${randomUUID()}`;
+    if (retained) await rename(location, retained);
+    return { resultType: 'sflow-env-file-override', environment, path: relative, location: retained, cleared: true, preserved: Boolean(retained), localScope: 'checkout' };
+  }
+  if (existing == null) {
+    const source = await resolveFile(scope, file);
+    let bytes = Buffer.alloc(0);
+    if (source.exists) {
+      const canonical = await realpath(source.location);
+      const handle = await open(canonical, fsConstants.O_RDONLY | (fsConstants.O_NOFOLLOW ?? 0));
+      try {
+        const info = await handle.stat();
+        if (!info.isFile() || info.size > MAXIMUM_TEMPLATE_BYTES) fail('The environment file is not a bounded regular file.', 'ENV_FILES_STORE_UNSAFE');
+        bytes = await handle.readFile();
+        if (bytes.length > MAXIMUM_TEMPLATE_BYTES) fail('The environment file grew beyond its byte limit.', 'ENV_FILES_STORE_UNSAFE');
+      } finally { await handle.close(); }
+    } else {
+      const template = await templateFor(scope.checkout, relative);
+      if (template) bytes = await boundedTemplate(path.join(scope.checkout, ...template.split('/')));
+    }
+    await writeImmutablePrivateSidecar(scope.root, location, bytes, { maximumBytes: MAXIMUM_TEMPLATE_BYTES, enforceWindowsAcl: true });
+  }
+  await ensureExcluded(scope, [relative]);
+  return { resultType: 'sflow-env-file-override', environment, path: relative, location, exists: true, localScope: 'checkout', sharedFileChanged: false };
 }

@@ -7,9 +7,10 @@ import path from 'node:path';
 
 import { optionBoolean, optionString, SingularityFlowError } from '../util.mjs';
 
-const SUBCOMMANDS = Object.freeze(['plan', 'start', 'status', 'stop', 'suggest', 'config']);
+const SUBCOMMANDS = Object.freeze(['plan', 'start', 'status', 'stop', 'suggest', 'config', 'connections']);
 const OPTIONS = Object.freeze({
   plan: ['capability', 'json'], start: ['capability', 'environment', 'expect-command', 'debug'], status: ['capability', 'json'], stop: ['capability', 'json'],
+  connections: ['environment', 'timeout-ms', 'json'],
   suggest: ['capability', 'json'], config: ['application-file', 'capability', 'json']
 });
 
@@ -57,6 +58,16 @@ export async function run(_argv, { positionals, options = {} }) {
     const { repoRoot } = await import('../git.mjs');
     return (await import('./app-config.mjs')).run(repoRoot(process.cwd()), options, positionals, { json: optionBoolean(options, 'json') });
   }
+  if (subcommand === 'connections') {
+    if (positionals.length > 2) fail('connections takes --environment, not a start ID.');
+    const { repoRoot } = await import('../git.mjs');
+    const { checkApplicationConnections } = await import('../application-connections.mjs');
+    const environment = optionString(options, 'environment');
+    if (!environment) fail('Choose --environment for the connection check.');
+    const result = await checkApplicationConnections(repoRoot(process.cwd()), environment, { timeoutMs: Number(optionString(options, 'timeout-ms', '20000')) });
+    console.log(JSON.stringify(result, null, 2));
+    return result;
+  }
   const startId = positionals[2] ?? null;
   if (positionals.length > 3 || (['status', 'suggest'].includes(subcommand) && startId)) {
     fail(['status', 'suggest'].includes(subcommand) ? `app ${subcommand} reads every entry; it takes no START-ID.` : `app ${subcommand} takes at most one START-ID.`);
@@ -77,7 +88,7 @@ export async function run(_argv, { positionals, options = {} }) {
     // The block as capabilities.yml holds it (typed fields as written), so an editor can write the whole
     // block back with --application-file and never drop tests; no block reads as an empty one.
     const block = application.capability?.application;
-    const result = { resultType: 'sflow-app-plan', capability: application.capabilityId, entries: plans,
+    const result = { resultType: 'sflow-app-plan', capability: application.capabilityId, entries: plans, applicationSource: application.applicationSource ?? 'team', profileRevision: application.profileRevision ?? null,
       application: block && typeof block === 'object' ? structuredClone(block) : { start: [], tests: [] } };
     if (json) console.log(JSON.stringify(result, null, 2));
     else if (!plans.length) {

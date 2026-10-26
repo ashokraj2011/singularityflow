@@ -8,8 +8,8 @@ const STRUCTURED = new Set(['about', 'specify', 'plan', 'implement', 'verify', '
 // Without this line `resolveSecretsOperation` is unreachable and the scan/protect split is inert.
 const MODEL_FREE_MIXED_COMMANDS = new Set(['skill', 'init', 'precheck', 'configuration', 'report', 'telemetry', 'doctor', 'review', 'review-source', 'inputs', 'spec', 'visual', 'mcp', 'clarification', 'story', 'session', 'constitution', 'secrets', 'env', 'fault', 'fix', 'repair', 'recover', 'goal', 'journal', 'push', 'integrations', 'next', 'return', 'impact', 'copilot', 'context', 'tokens', 'help-metrics', 'auto', 'adhoc', 'capability', 'repositories', 'intent', 'program', 'process', 'policy', 'task', 'request', 'evidence', 'candidate', 'execution-unit', 'device', 'authority-store', 'pack', 'learn', 'memory', 'meta-tool', 'comprehension', 'change', 'proof', 'delivery', 'local', 'revision', 'revise', 'explain', 'workflow', 'documents', 'jira', 'prompt-log', 'factory-reset', 'governance', 'phase', 'product', 'decision', 'import', 'imports', 'marketplace', 'appeal', 'instruction', 'upstream-issue', 'decisions', 'app', 'tests', 'call', 'gateway']);
 // Run and test from a capability [RUN]: plan, status and summary read; start, stop and run execute code.
-const APP_SUBCOMMANDS = Object.freeze(['plan', 'start', 'status', 'stop', 'suggest', 'config']);
-const APP_READS = Object.freeze(['plan', 'status', 'suggest', 'config']);
+const APP_SUBCOMMANDS = Object.freeze(['plan', 'start', 'status', 'stop', 'suggest', 'config', 'connections']);
+const APP_READS = Object.freeze(['plan', 'status', 'suggest', 'config', 'connections']);
 const TESTS_SUBCOMMANDS = Object.freeze(['plan', 'run', 'summary']);
 const UPSTREAM_ISSUE_SUBCOMMANDS = Object.freeze(['raise', 'list', 'decide', 'propose-amendment', 'decide-amendment', 'revalidate']);
 
@@ -278,7 +278,7 @@ const WM_KNOWLEDGE_REVIEW_ACTIONS = new Set(['confirm', 'correct', 'reject']);
  * pass of their own; calling them mutations is the wrong-but-safe direction in the meantime.
  */
 const WORKSPACE_READ_OPERATIONS = new Set([
-  'context', 'checkouts', 'stories',
+  'context', 'checkouts', 'stories', 'runtime',
   'branches', 'list', 'current', 'prompt', 'archive-status', 'inspect', 'capabilities', 'status', 'documents', 'doctor',
   'migrate-schemas'
 ]);
@@ -292,14 +292,14 @@ export const ENV_READ_SUBCOMMANDS = Object.freeze(['status', 'audit']);
 export const ENV_MUTATION_SUBCOMMANDS = Object.freeze(['bind', 'unbind']);
 export const ENV_SUBCOMMANDS = Object.freeze([...ENV_READ_SUBCOMMANDS, ...ENV_MUTATION_SUBCOMMANDS, 'files']);
 // `env files` [ENVF]: the first three read; the others change machine-local environment-file state.
-const ENV_FILES_ACTIONS = Object.freeze(['list', 'path', 'suggest', 'create', 'link', 'unlink', 'adopt', 'add', 'remove', 'root', 'place']);
+const ENV_FILES_ACTIONS = Object.freeze(['list', 'path', 'suggest', 'override', 'create', 'link', 'unlink', 'adopt', 'add', 'remove', 'root', 'place']);
 /**
  * `status` only reads; `align` replaces installed product surfaces with the installed build;
  * `reviews` opens this build's configuration reviews, pushing review branches only.
  */
 export const PRODUCT_SUBCOMMANDS = Object.freeze(['status', 'align', 'reviews']);
 const WORKSPACE_NEVER_OPERATIONS = new Set([
-  'context', 'checkouts', 'stories', 'cleanup', 'retention',
+  'context', 'checkouts', 'stories', 'runtime', 'cleanup', 'retention',
   'branches', 'prune', 'list', 'current', 'prompt', 'create', 'adopt', 'open', 'archive-status', 'rename', 'archive',
   'restore', 'inspect', 'duplicate', 'capabilities', 'update', 'attach-capability', 'detach-capability',
   'status', 'sync', 'repair', 'documents', 'forget', 'use',
@@ -1564,6 +1564,7 @@ export function resolveOperation({ requestedCommand, positionals, options = {}, 
   if (definition.name === 'app') {
     const action = positionals[1] ?? 'status';
     if (!APP_SUBCOMMANDS.includes(action)) return unknownSubcommand('app', action, APP_SUBCOMMANDS);
+    if (action === 'config' && ['save-local', 'reset-local'].includes(positionals[2])) return never(`app.config.${positionals[2]}`, definition, 'mutation');
     return never(`app.${action}`, definition, APP_READS.includes(action) ? 'read' : 'mutation');
   }
   if (definition.name === 'tests') {
@@ -1837,6 +1838,7 @@ export function operationCatalog() {
     never('call.add', commandDefinition('call'), 'mutation'),
     ...GATEWAY_ACTIONS.map(name => gatewayOperation(commandDefinition('gateway'), name)),
     ...APP_SUBCOMMANDS.map(name => never(`app.${name}`, commandDefinition('app'), APP_READS.includes(name) ? 'read' : 'mutation')),
+    ...['save-local', 'reset-local'].map(name => never(`app.config.${name}`, commandDefinition('app'), 'mutation')),
     ...TESTS_SUBCOMMANDS.map(name => never(`tests.${name}`, commandDefinition('tests'), ['plan', 'summary'].includes(name) ? 'read' : 'mutation')),
     ...['create', 'edit', 'remove'].flatMap(name => [never(`instruction.${name}.preview`, commandDefinition('instruction'), 'read'), never(`instruction.${name}`, commandDefinition('instruction'), 'mutation')]),
     ...SKILL_MUTATION_SUBCOMMANDS.flatMap((name) => [

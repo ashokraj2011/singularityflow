@@ -17,9 +17,25 @@ function lineFor(resolved) {
 }
 
 export async function run(root, options, positionals, { json = false } = {}) {
+  if (['save-local', 'reset-local'].includes(positionals[2])) {
+    if (positionals.length > 3) throw new SingularityFlowError('A local run configuration takes no extra operands.');
+    const { resolveCapabilityApplication } = await import('../capability-application-context.mjs');
+    const context = await resolveCapabilityApplication(root, { capabilityId: optionString(options, 'capability'), readApplication: false });
+    const local = await import('../local-application-profile.mjs');
+    let result;
+    if (positionals[2] === 'reset-local') result = await local.resetLocalApplicationProfile(root, context.capabilityId);
+    else {
+      const { readApplicationBlockFile } = await import('../capability-application-file.mjs');
+      const file = optionString(options, 'application-file');
+      if (!file) throw new SingularityFlowError('save-local needs --application-file.');
+      result = await local.saveLocalApplicationProfile(root, context, readApplicationBlockFile(file, { suffix: '' }));
+    }
+    console.log(JSON.stringify(result, null, 2));
+    return result;
+  }
   if (positionals[2] !== 'preview' || positionals.length > 3) {
-    throw new SingularityFlowError('app config takes one action: app config preview --application-file <FILE> [--json].', {
-      code: 'APP_COMMAND_INVALID', details: { available: ['preview'] } });
+    throw new SingularityFlowError('Use app config preview|save-local --application-file <FILE>, or app config reset-local [--capability ID] [--json].', {
+      code: 'APP_COMMAND_INVALID', details: { available: ['preview', 'save-local', 'reset-local'] } });
   }
   const file = optionString(options, 'application-file', null);
   if (!file) {
@@ -35,7 +51,7 @@ export async function run(root, options, positionals, { json = false } = {}) {
     capabilityId: optionString(options, 'capability', null), subjectPath: relative && !relative.startsWith('..') ? relative : '', readApplication: false
   });
   const preview = previewApplication(context.capabilityId, block, {
-    checkoutRoot: root, repositoryId: context.repositoryId, repositories: context.repositories,
+    checkoutRoot: root, repositoryId: context.repositoryId, repositories: context.repositories.length ? context.repositories : context.implicit ? [context.capabilityId] : [],
     pathsFor: (startId) => appRunPaths(root, context.capabilityId, startId)
   });
   const result = { resultType: APP_CONFIG_PREVIEW_RESULT, capability: context.capabilityId, file, ...preview };

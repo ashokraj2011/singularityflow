@@ -19,6 +19,7 @@ import {
 
 export interface ApplicationWriteHost {
   client: SingularityFlowClient;
+  localRunConfiguration?: boolean;
   output?: { appendLine(line: string): void };
   /** The capability map's mode and approved authority, as the capability page reads them. */
   capabilityAuthority?(): { mode: string | null; authorityRepository: string | null };
@@ -38,6 +39,7 @@ export async function withPrivateApplicationFile<T>(yaml: string, use: (file: st
 
 /** Where the block goes, by the capability page's rule; several registered leads ask which. Null: cancelled. */
 export async function chooseApplicationRoute(host: ApplicationWriteHost): Promise<ApplicationRoute | null> {
+  if (host.localRunConfiguration) return { kind: 'personal' };
   const { mode = null, authorityRepository = null } = host.capabilityAuthority?.() ?? {};
   let leads: string[] = [];
   if (mode !== 'implicit' && !authorityRepository?.trim()) {

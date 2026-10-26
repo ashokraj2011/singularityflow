@@ -11,7 +11,7 @@ export class TeamImportPanel {
   private readonly journey: TeamImportJourney;
   private readonly disposables: vscode.Disposable[] = [];
 
-  private constructor(private readonly panel: vscode.WebviewPanel, host: TeamImportHost) {
+  private constructor(private readonly panel: vscode.WebviewPanel, host: TeamImportHost, directory: string | null) {
     this.journey = new TeamImportJourney(host, () => this.render());
     const router = registerMessageRouter('singularityFlow.teamImport', {
       pick: () => this.journey.pick(),
@@ -48,20 +48,23 @@ export class TeamImportPanel {
       for (const disposable of this.disposables) disposable.dispose();
     }, null, this.disposables);
     this.render();
-    void this.journey.load();
+    void (directory ? this.journey.open(directory) : this.journey.load());
   }
 
-  /** One panel: reopening reveals it and rereads the sessions, keeping the inspected directory. */
-  static show(context: vscode.ExtensionContext, host: TeamImportHost): TeamImportPanel {
+  /**
+   * One panel: reopening reveals it and rereads the sessions, keeping the inspected directory, unless
+   * `directory` names one to inspect now.
+   */
+  static show(context: vscode.ExtensionContext, host: TeamImportHost, directory: string | null = null): TeamImportPanel {
     if (TeamImportPanel.current) {
       TeamImportPanel.current.panel.reveal(vscode.ViewColumn.Active);
-      void TeamImportPanel.current.journey.load();
+      void (directory ? TeamImportPanel.current.journey.open(directory) : TeamImportPanel.current.journey.load());
       return TeamImportPanel.current;
     }
     const panel = vscode.window.createWebviewPanel('singularityFlow.teamImport', 'Import a team workflow',
       vscode.ViewColumn.Active, { enableScripts: true, retainContextWhenHidden: true,
         localResourceRoots: [vscode.Uri.joinPath(context.extensionUri, 'media')] });
-    TeamImportPanel.current = new TeamImportPanel(panel, host);
+    TeamImportPanel.current = new TeamImportPanel(panel, host, directory);
     return TeamImportPanel.current;
   }
 

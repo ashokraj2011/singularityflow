@@ -3326,7 +3326,9 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
    * so it opens with no repository. Copilot writes the candidate; Workflow Studio imports the bundle.
    */
   context.subscriptions.push(vscode.commands.registerCommand(
-    'singularityFlow.importTeamWorkflow', async () => {
+    'singularityFlow.importTeamWorkflow', async (target?: unknown) => {
+      // Add your own agent passes `{ folder }` for a folder of several agents: inspect it at once.
+      const folder = typeof (target as { folder?: unknown } | undefined)?.folder === 'string' ? (target as { folder: string }).folder : null;
       try {
         const location = resolveCli({ extensionPath: context.extensionPath });
         const repositoryRoot = (): string | null => activeRepositoryContext()?.root ?? null;
@@ -3369,7 +3371,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
             await vscode.commands.executeCommand('singularityFlow.openWorkflowStudio', { importBundle: file });
           },
           repository: repositoryLabel
-        });
+        }, folder);
       } catch (error) { showRefusal(error, { headline: 'Team workflow import is unavailable' }); }
     }
   ));
@@ -9295,7 +9297,8 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
           info: (message, buttons) => showCompactInformationMessage(message, ...buttons),
           error: async (message) => { showRefusal(message, { headline: 'Your agent folder cannot be added' }); },
           reviewAndActivate: (branch) => reviewAndActivateWorkflowProposal(branch),
-          openStudio: () => vscode.commands.executeCommand('singularityFlow.openWorkflowStudio', { view: 'changes' })
+          openStudio: () => vscode.commands.executeCommand('singularityFlow.openWorkflowStudio', { view: 'changes' }),
+          buildWorkflow: (folder) => vscode.commands.executeCommand('singularityFlow.importTeamWorkflow', { folder })
         });
       } catch (error) { showRefusal(error, { headline: 'Your agent folder cannot be added' }); }
     },

@@ -112,6 +112,33 @@ test('choosing a folder inspects it without a model; the entry is checked agains
   assert.ok(!f.calls.some(argv => argv.includes('compile')), 'nothing is checked before a session exists');
 });
 
+test('a folder named elsewhere is inspected at once, and one named while the panel is busy right after', async () => {
+  const idle = fixture();
+  await idle.journey.open('/work/agents folder');
+  assert.deepEqual(idle.calls.slice(0, 1).map((argv) => argv.slice(0, 4)), [['workflow', 'import-team', 'inspect', '/work/agents folder']]);
+  // Busy reading sessions: the folder waits, then is inspected as soon as the panel is free.
+  const base = fixture();
+  let release;
+  const gate = new Promise((resolve) => { release = resolve; });
+  let held = false;
+  const busy = fixture({ run: async (argv) => {
+    if (!held && argv[2] === 'status') { held = true; await gate; }
+    return base.journey.host.run(argv);
+  } });
+  const loading = busy.journey.load();
+  await busy.journey.open('/work/agents folder');
+  assert.equal(busy.journey.view.directory, null);
+  release();
+  await loading;
+  for (let turn = 0; turn < 10 && !busy.journey.view.inspection; turn += 1) await new Promise((resolve) => setTimeout(resolve, 0));
+  assert.equal(busy.journey.view.directory, '/work/agents folder');
+  assert.ok(base.calls.some((argv) => argv[2] === 'inspect' && argv[3] === '/work/agents folder'));
+  const extension = await readFile(new URL('../apps/vscode/src/extension.ts', import.meta.url), 'utf8');
+  assert.match(extension, /buildWorkflow: \(folder\) => vscode\.commands\.executeCommand\('singularityFlow\.importTeamWorkflow', \{ folder \}\)/u,
+    'Add your own agent hands a folder of several agents to Import a Team Workflow');
+  assert.match(extension, /repository: repositoryLabel\n {8}\}, folder\);/u);
+});
+
 test('Convert with Copilot types the skill command into chat, quoting the directory and naming an ambiguous entry by path', async () => {
   const f = fixture();
   await f.journey.pick();

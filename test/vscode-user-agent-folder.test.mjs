@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import test from 'node:test';
-import { addUserAgentFolder, userAgentArgv, userAgentPreviewText } from '../apps/vscode/src/user-agent-folder.ts';
+import { ADD_ONE_AGENT, BUILD_WORKFLOW, addUserAgentFolder, userAgentArgv, userAgentPreviewText } from '../apps/vscode/src/user-agent-folder.ts';
 
 const preview = (overrides = {}) => ({
   name: 'orchestrator', label: 'Orchestrator', main: 'orchestrator.agent.md', output: 'code', step: 'orchestrator', workflow: 'orchestrator',
@@ -12,7 +12,7 @@ const preview = (overrides = {}) => ({
 
 /** A host that answers from a script and records what it was asked and what it ran. */
 function host(script) {
-  const seen = { runs: [], confirms: [], picks: [], inputs: [], infos: [], errors: [], reviewed: [], studio: 0 };
+  const seen = { runs: [], confirms: [], picks: [], inputs: [], infos: [], errors: [], reviewed: [], studio: 0, built: [] };
   return {
     seen,
     pickFolder: async () => script.folder ?? null,
@@ -23,7 +23,8 @@ function host(script) {
     info: async (message, buttons) => { seen.infos.push({ message, buttons }); return script.info?.shift(); },
     error: async (message) => { seen.errors.push(message); },
     reviewAndActivate: async (branch) => { seen.reviewed.push(branch); },
-    openStudio: async () => { seen.studio += 1; }
+    openStudio: async () => { seen.studio += 1; },
+    buildWorkflow: async (folder) => { seen.built.push(folder); }
   };
 }
 
@@ -65,6 +66,38 @@ test('several agent files ask which one is main, a taken name asks for another, 
   assert.deepEqual(fake.seen.runs.at(-1), ['call', 'add', '/work/pack', '--name', 'orchestrator-agent', '--main', 'agents/lead.md', '--output', 'document',
     '--confirm', `sha256:${'a'.repeat(64)}`, '--json']);
   assert.deepEqual(fake.seen.reviewed, [], 'nothing is activated unless the person chooses to review it');
+});
+
+test('a folder of several agents offers to build a workflow from it, or to add one of its agents as a step', async () => {
+  const workflow = () => refusal('USER_AGENT_FOLDER_IS_WORKFLOW', 'qa-team describes a workflow of 2 agents (planner.agent.md, writer.agent.md) that hand work to each other (planner.agent.md → writer.agent.md).',
+    { folder: '/work/qa-team', agents: ['planner.agent.md', 'writer.agent.md'] });
+  const build = host({ folder: '/work/qa-team', confirm: [BUILD_WORKFLOW], run: () => { throw workflow(); } });
+  assert.equal(await addUserAgentFolder(build), 'workflow');
+  assert.deepEqual(build.seen.confirms[0].buttons, [BUILD_WORKFLOW, ADD_ONE_AGENT]);
+  assert.match(build.seen.confirms[0].message, /describes a workflow of 2 agents/u);
+  assert.match(build.seen.confirms[0].detail, /Copilot proposes the steps, and SFlow checks every route before you review it/u);
+  assert.deepEqual(build.seen.built, ['/work/qa-team'], 'Import a Team Workflow opens on the same folder');
+  assert.deepEqual(build.seen.errors, []);
+
+  const one = host({ folder: '/work/qa-team', confirm: [ADD_ONE_AGENT, 'Propose It'], pick: ['writer.agent.md'], info: [undefined],
+    run: (argv, call) => {
+      if (call === 1) throw workflow();
+      return argv.includes('--confirm') ? { data: { branch: 'sflow/config-change/w' } } : { data: preview({ name: 'writer', main: 'writer.agent.md' }) };
+    } });
+  assert.equal(await addUserAgentFolder(one), 'proposed');
+  assert.deepEqual(one.seen.picks[0].items, ['planner.agent.md', 'writer.agent.md']);
+  assert.deepEqual(one.seen.runs[1], ['call', 'add', '/work/qa-team', '--main', 'writer.agent.md', '--json']);
+  assert.deepEqual(one.seen.built, []);
+});
+
+test('the confirmation says how each document, image and PDF is given to the agent, and how its files link', () => {
+  const text = userAgentPreviewText(preview({
+    files: [{ path: 'qa.agent.md', bytes: 120 }, { path: 'docs/checklist.docx', bytes: 9000, kind: 'document' }, { path: 'screens/home.png', bytes: 4000, kind: 'viewable' }],
+    map: { links: [{ from: 'qa.agent.md', to: 'docs/checklist.docx', kind: 'link' }, { from: 'qa.agent.md', to: 'screens/home.png', kind: 'link' }] }
+  }));
+  assert.match(text.detail, /• docs\/checklist\.docx \(9000 bytes, read as its text\)/u);
+  assert.match(text.detail, /• screens\/home\.png \(4000 bytes, an image or PDF the agent opens\)/u);
+  assert.match(text.detail, /Links between its files: 2 links\.\n {2}• qa\.agent\.md → docs\/checklist\.docx/u);
 });
 
 test('a refusal with nothing to choose from is shown, never closed as if the person had cancelled', async () => {

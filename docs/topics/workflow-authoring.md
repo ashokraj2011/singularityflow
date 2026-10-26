@@ -1294,7 +1294,9 @@ In Copilot: `/sf-call-add ~/team-agents`, then `/sf-start JIRA-123 --agent orche
   to each other, or roles that link to one another), it describes a workflow, not one step: `call add`
   refuses with `USER_AGENT_FOLDER_IS_WORKFLOW`, names the agents and their handoffs, and offers two
   routes: build a workflow from the folder (`workflow import-team inspect <FOLDER>`, below) or add one
-  of its agents alone with `--main <FILE>`.
+  of its agents alone with `--main <FILE>`. In VS Code, Workflow Studio's **Add your own agent…** asks
+  the same question: **Build a Workflow from This Folder…** opens **Import a Team Workflow** on that
+  folder, and **Add One of Its Agents…** lets you pick the agent.
 - **Proposal.** With the plan digest, it proposes one reviewed configuration change: the folder copied
   unchanged to `singularity/user-defined/<name>/`, its manifest beside it
   (`singularity/user-defined/<name>.json`, every file's SHA-256), one agent whose instructions are the

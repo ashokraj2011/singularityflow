@@ -155,6 +155,8 @@ export class TeamImportJourney {
   private disposed = false;
   /** Whether the person chose the session; until then the newest one for the directory is shown. */
   private sessionChosen = false;
+  /** A directory `open` was given while the panel was busy. */
+  private queued: string | null = null;
   private readonly host: TeamImportHost;
   private readonly render: () => void;
 
@@ -179,6 +181,10 @@ export class TeamImportJourney {
     if (!this.current(revision)) return;
     this.view.busy = null;
     this.render();
+    // A folder named while the panel was busy is inspected as soon as it is free.
+    const queued = this.queued;
+    this.queued = null;
+    if (queued) void this.open(queued);
   }
 
   /** Sessions from any surface (this panel, Copilot, the shell), newest first. */
@@ -225,6 +231,13 @@ export class TeamImportJourney {
     if (this.view.busy) return;
     const directory = await this.host.pickFolder();
     if (!directory || this.disposed) return;
+    await this.open(directory);
+  }
+
+  /** Inspect `directory`, chosen elsewhere (Add your own agent's folder of several agents). */
+  async open(directory: string): Promise<void> {
+    if (this.disposed) return;
+    if (this.view.busy) { this.queued = directory; return; }
     this.view.directory = directory;
     this.view.inspection = null;
     this.view.entry = null;

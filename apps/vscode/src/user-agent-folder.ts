@@ -5,12 +5,15 @@
  * The host owns every prompt; the CLI owns every rule. This module only sequences them, so the tests
  * can drive the whole conversation without an extension host: preview, choose the main agent when the
  * folder has several, rename on a clash, confirm by the previewed plan digest, then review and
- * activate the proposal the way Workflow Studio's Changes does.
+ * activate the proposal the way Workflow Studio's Changes does. A folder of several agents that hand
+ * work to each other is a workflow: the person builds one from it (team import), or adds one agent.
  */
 
 export interface UserAgentPreview {
   name: string; label: string; main: string; output: 'code' | 'document'; step: string; workflow: string;
-  folder: string; files: Array<{ path: string; bytes: number }>; leftOut: Array<{ path: string; reason: string }>;
+  folder: string; files: Array<{ path: string; bytes: number; kind?: 'document' | 'viewable' }>; leftOut: Array<{ path: string; reason: string }>;
+  /** How the folder's files link, as the CLI read them. */
+  map?: { links: Array<{ from: string; to: string; kind: string }> };
   notUsed: string[]; problems: string[]; planSha256: string; confirmCommand: string | null; frontMatterNote?: string | null;
   /** A new copy of an existing agent's folder under the same name (call add --replace). */
   replace?: boolean;
@@ -27,14 +30,19 @@ export interface UserAgentHost {
   error(message: string): PromiseLike<void>;
   reviewAndActivate(branch: string): PromiseLike<unknown>;
   openStudio(): PromiseLike<unknown>;
+  /** Open Import a Team Workflow on `folder`: SFlow reads it, Copilot proposes the steps, SFlow checks them. */
+  buildWorkflow(folder: string): PromiseLike<unknown>;
 }
 
-export type UserAgentOutcome = 'cancelled' | 'refused' | 'proposed' | 'reviewed';
+export type UserAgentOutcome = 'cancelled' | 'refused' | 'proposed' | 'reviewed' | 'workflow';
 
 interface Choices { name?: string; main?: string; output?: 'code' | 'document'; replace?: boolean }
 
 const NAME = /^[a-z0-9]+(?:-[a-z0-9]+)*$/;
 const plural = (count: number, word: string): string => `${count} ${word}${count === 1 ? '' : 's'}`;
+const KIND_NOTE = { document: ', read as its text', viewable: ', an image or PDF the agent opens' } as const;
+export const BUILD_WORKFLOW = 'Build a Workflow from This Folder…';
+export const ADD_ONE_AGENT = 'Add One of Its Agents…';
 
 /** The `call add` words for one folder and the choices made so far. */
 export function userAgentArgv(folder: string, choices: Choices, confirm: string | null = null): string[] {
@@ -49,7 +57,9 @@ export function userAgentPreviewText(preview: UserAgentPreview): { message: stri
   const lines = [
     `Main agent: ${preview.main}. Its instructions become the agent's.`,
     `Copied unchanged to singularity/user-defined/${preview.name}/: ${plural(preview.files.length, 'file')}.`,
-    ...preview.files.map((file) => `  • ${file.path} (${file.bytes} bytes)`),
+    ...preview.files.map((file) => `  • ${file.path} (${file.bytes} bytes${file.kind ? KIND_NOTE[file.kind] : ''})`),
+    ...(preview.map?.links.length ? [`Links between its files: ${plural(preview.map.links.length, 'link')}.`,
+      ...preview.map.links.slice(0, 12).map((link) => `  • ${link.from} → ${link.to}`)] : []),
     ...(preview.leftOut.length ? [`Left out: ${plural(preview.leftOut.length, 'file')}.`, ...preview.leftOut.map((entry) => `  • ${entry.path}: ${entry.reason}`)] : []),
     ...(preview.notUsed.length ? [`Not used from ${preview.main}: ${preview.notUsed.join(', ')} (SFlow sets the agent's tools and steps).`] : []),
     ...(preview.frontMatterNote ? [`${preview.main}: ${preview.frontMatterNote}`] : []),
@@ -78,6 +88,19 @@ export async function addUserAgentFolder(host: UserAgentHost): Promise<UserAgent
       preview = (await host.run<{ data: UserAgentPreview }>(userAgentArgv(folder, choices))).data;
     } catch (error) {
       const refused = refusal(error);
+      // Several agents that hand work to each other: a workflow to build, or one agent to add alone.
+      if (refused.code === 'USER_AGENT_FOLDER_IS_WORKFLOW') {
+        const agents = (refused.details.agents ?? []) as string[];
+        const answer = await host.confirm(refused.message,
+          'Build a workflow: SFlow reads every file and how they link, Copilot proposes the steps, and SFlow checks every route before you review it. Or add one of its agents as a single step.',
+          agents.length ? [BUILD_WORKFLOW, ADD_ONE_AGENT] : [BUILD_WORKFLOW]);
+        if (answer === BUILD_WORKFLOW) { await host.buildWorkflow(folder); return 'workflow'; }
+        if (answer !== ADD_ONE_AGENT) return 'cancelled';
+        const main = await host.pick('Which agent do you want to add as one step?', agents);
+        if (!main) return 'cancelled';
+        choices.main = main;
+        continue;
+      }
       // Several agent files, or none recognised: the person says which one runs the others.
       if (refused.code === 'USER_AGENT_MAIN_AMBIGUOUS' || refused.code === 'USER_AGENT_MAIN_REQUIRED') {
         const candidates = (refused.details.candidates ?? refused.details.files ?? []) as string[];

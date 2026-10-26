@@ -2335,7 +2335,7 @@ const families = [
   // Portable workflow bundles are immutable, digest-bound configuration transfer records. They
   // deliberately have no repository path because contributors choose an external export path.
   family({
-    id: 'workflow-bundle', currentVersion: 10, immutable: true,
+    id: 'workflow-bundle', currentVersion: 11, immutable: true,
     // Historical v1/v2 bundle bytes and bundleSha256 keep their stored identity. Read-side
     // projections cannot manufacture retained packages, approval provenance, or v3's strict
     // dependency closure; the bundle reader applies the contract of the stored version. v4 adds
@@ -2347,7 +2347,9 @@ const families = [
     // target whatever it sends, and scopes carried agents to the exported steps; an older bundle
     // carries no constitution and keeps the closure rule it was written with. v10 carries each
     // user-defined agent's folder and manifest; an older bundle carries none, so the reader refuses
-    // one that brings a user-defined agent instead of importing a step that could never run.
+    // one that brings a user-defined agent instead of importing a step that could never run. v11 lets
+    // a user-defined folder's office documents, images and PDFs travel as their exact bytes (base64);
+    // an older bundle carries only text files, so a migrated one has none.
     steps: [
       migration(1, 2, (source) => ({
         ...clone(source), schemaVersion: 2, skillPackages: []
@@ -2359,7 +2361,8 @@ const families = [
       migration(6, 7, (source) => ({ ...clone(source), schemaVersion: 7, workflowSkillAttachments: [] })),
       migration(7, 8, (source) => ({ ...clone(source), schemaVersion: 8 })),
       migration(8, 9, (source) => ({ ...clone(source), schemaVersion: 9 })),
-      migration(9, 10, (source) => ({ ...clone(source), schemaVersion: 10 }))
+      migration(9, 10, (source) => ({ ...clone(source), schemaVersion: 10 })),
+      migration(10, 11, (source) => ({ ...clone(source), schemaVersion: 11 }))
     ]
   }),
   family({

@@ -69,6 +69,14 @@ export const WORKFLOW_BUNDLE_SCHEMA_VERSION = currentSchemaVersion(WORKFLOW_BUND
 
 const MAX_ASSETS = 2048;
 const MAX_ASSET_BYTES = 1024 * 1024;
+// A user-defined folder's office document, image or PDF (USER_DEFINED_LIMITS.binaryFileBytes).
+const MAX_ENCODED_ASSET_BYTES = 4 * 1024 * 1024;
+const BINARY_MEDIA_TYPES = Object.freeze({
+  '.docx': 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+  '.xlsx': 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+  '.pptx': 'application/vnd.openxmlformats-officedocument.presentationml.presentation',
+  '.png': 'image/png', '.jpg': 'image/jpeg', '.jpeg': 'image/jpeg', '.gif': 'image/gif', '.webp': 'image/webp', '.pdf': 'application/pdf'
+});
 const MAX_ASSET_BYTES_TOTAL = 16 * 1024 * 1024;
 const MAX_BUNDLE_BYTES = 20 * 1024 * 1024;
 const MAX_SKILL_BYTES_TOTAL = 64 * 1024 * 1024;
@@ -231,10 +239,11 @@ function importedAssetReuse(asset, targetBytes) {
 /**
  * The bytes an asset writes. A bundle asset is UTF-8 text: ASSET_FIELDS refuses an encoding field,
  * so its digest and size always describe what is written. Only the compiled skill-package files
- * this module builds from verified packages (skillFileAssets) carry base64.
+ * this module builds from verified packages (skillFileAssets), and from v11 a user-defined folder's
+ * office documents, images and PDFs, carry base64; their digest and size describe the decoded bytes.
  */
 function assetBytes(asset) {
-  return Buffer.from(asset.content, asset.kind === 'skill-package-file' && asset.encoding === 'base64' ? 'base64' : 'utf8');
+  return Buffer.from(asset.content, ['skill-package-file', 'user-defined'].includes(asset.kind) && asset.encoding === 'base64' ? 'base64' : 'utf8');
 }
 
 /**
@@ -250,7 +259,7 @@ const ASSET_FIELDS = Object.freeze({
 });
 
 function requireAssetFields(asset) {
-  const allowed = ASSET_FIELDS[asset.kind];
+  const allowed = asset.kind === 'user-defined' && Object.hasOwn(asset, 'encoding') ? [...ASSET_FIELDS[asset.kind], 'encoding'] : ASSET_FIELDS[asset.kind];
   const unknown = Object.keys(asset).filter((field) => !allowed.includes(field)).sort();
   const missing = allowed.filter((field) => !Object.hasOwn(asset, field));
   if (['vendored', 'user-defined'].includes(asset.kind) && plainObject(asset.owner)) {
@@ -1281,7 +1290,12 @@ async function userDefinedAssets(root, agentId, name, pinned) {
   const owner = { kind: 'agent', id: agentId };
   const changed = (detail) => fail(`The folder of user-defined agent '${agentId}' ${detail}, so it cannot be exported. `
     + 'Restore it, or add the folder again with call add, then export.', 'WORKFLOW_USER_AGENT_FOLDER_CHANGED', { agent: agentId });
-  const asset = (relative, bytes) => {
+  const asset = (relative, bytes, kind = null) => {
+    // An office document, image or PDF the manifest lists by kind travels as its exact bytes.
+    if (kind) {
+      return { kind: 'user-defined', owner, path: relative, mediaType: BINARY_MEDIA_TYPES[path.posix.extname(relative).toLowerCase()] ?? 'application/octet-stream',
+        size: bytes.length, sha256: digest(bytes), encoding: 'base64', content: bytes.toString('base64') };
+    }
     const content = bytes.toString('utf8');
     if (!Buffer.from(content, 'utf8').equals(bytes)) changed(`has a file that is not UTF-8 text (${relative})`);
     return { kind: 'user-defined', owner, path: relative,
@@ -1303,7 +1317,7 @@ async function userDefinedAssets(root, agentId, name, pinned) {
     if (!copy.exists) changed(`no longer has ${file.path}`);
     const bytes = await readFile(copy.absolute);
     if (digest(bytes) !== file.sha256) changed(`no longer matches its manifest (${file.path} changed)`);
-    result.push(asset(relative, bytes));
+    result.push(asset(relative, bytes, ['document', 'viewable'].includes(file.kind) ? file.kind : null));
   }
   return result;
 }
@@ -1763,8 +1777,15 @@ async function validateBundle(raw, { importedHere = null } = {}) {
     const identity = `${asset.kind}:${asset.governs ?? ''}:${portableFilesystemPathIdentity(asset.path)}`;
     if (identities.has(identity)) fail(`Workflow bundle repeats asset '${identity}'.`);
     identities.add(identity);
-    const size = Buffer.byteLength(asset.content, 'utf8');
-    if (size !== asset.size || size > MAX_ASSET_BYTES || digest(asset.content) !== asset.sha256) {
+    // A v11 user-defined office document, image or PDF is canonical base64 of its exact bytes.
+    const encoded = Object.hasOwn(asset, 'encoding');
+    if (encoded && (storedVersion < 11 || asset.encoding !== 'base64'
+        || Buffer.from(asset.content, 'base64').toString('base64') !== asset.content)) {
+      fail(`Workflow bundle asset '${asset.path}' has an encoding this bundle version does not carry.`, 'WORKFLOW_BUNDLE_ASSET_INVALID');
+    }
+    const bytes = assetBytes(asset);
+    const size = bytes.length;
+    if (size !== asset.size || size > (encoded ? MAX_ENCODED_ASSET_BYTES : MAX_ASSET_BYTES) || digest(bytes) !== asset.sha256) {
       fail(`Workflow bundle asset '${asset.path}' failed size or digest validation.`,
         'WORKFLOW_BUNDLE_ASSET_INVALID');
     }
@@ -1779,7 +1800,7 @@ async function validateBundle(raw, { importedHere = null } = {}) {
       const parsed = parseAgentDependencies(asset.content, { source: asset.path, agentId: asset.id });
       agents.set(asset.id, { ...parsed, sha256: asset.sha256.replace(/^sha256:/, '') });
     }
-    total += size;
+    total += encoded ? asset.content.length : size;
   }
   if (total > MAX_ASSET_BYTES_TOTAL) fail('Workflow bundle assets exceed the aggregate limit.',
     'WORKFLOW_BUNDLE_LIMIT_EXCEEDED');

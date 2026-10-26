@@ -26,7 +26,7 @@ export const USER_DEFINED_AGENT_SCHEMA = 'sflow-user-defined-agent@1';
 // file is given to the agent in its step prompt, so the folder's text is bounded to what one prompt
 // can carry.
 export const USER_DEFINED_LIMITS = Object.freeze({ files: 256, depth: 12, fileBytes: 64 * 1024, totalBytes: 192 * 1024, mainBytes: 30_000,
-  binaryFileBytes: 5 * 1024 * 1024, binaryTotalBytes: 20 * 1024 * 1024 });
+  binaryFileBytes: 4 * 1024 * 1024, binaryTotalBytes: 10 * 1024 * 1024 });
 // Besides text, a folder may hold office documents, given to its agent as their extracted text, and
 // images and PDFs, which the agent opens with its own image or PDF tools. Both are copied byte for
 // byte. Any other binary file (an archive, a program) is left out.

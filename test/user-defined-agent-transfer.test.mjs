@@ -1,7 +1,8 @@
 /**
  * A user-defined agent's folder travels with its workflow. Bundles before v10 carried only the agent
  * and its starter template, so the destination imported a step whose folder it did not have and
- * refused to compose it (USER_AGENT_FOLDER_CHANGED, "has no manifest").
+ * refused to compose it (USER_AGENT_FOLDER_CHANGED, "has no manifest"). From v11 the folder's office
+ * documents, images and PDFs travel too, as their exact bytes.
  */
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
@@ -14,6 +15,7 @@ import { fileURLToPath } from 'node:url';
 import YAML from 'yaml';
 import { readWorkflowBundle } from '../src/workflow-transfer.mjs';
 import { childTimeout } from './helpers/child-timeout.mjs';
+import { docx } from './helpers/office-fixtures.mjs';
 import { slowLane } from './helpers/slow-lane.mjs';
 
 const cli = fileURLToPath(new URL('../bin/singularity-flow.mjs', import.meta.url));
@@ -27,11 +29,16 @@ function canonical(value) {
 
 /** The bundle digest after a test rewrote it, as the exporter computes it. */
 function resealed(bundle) {
-  for (const asset of bundle.assets) { asset.size = Buffer.byteLength(asset.content, 'utf8'); asset.sha256 = sha256(asset.content); }
+  for (const asset of bundle.assets) {
+    const bytes = Buffer.from(asset.content, asset.encoding === 'base64' ? 'base64' : 'utf8');
+    asset.size = bytes.length; asset.sha256 = sha256(bytes);
+  }
   const copy = structuredClone(bundle); delete copy.bundleSha256;
   bundle.bundleSha256 = sha256(JSON.stringify(canonical(copy)));
   return bundle;
 }
+
+const SCREEN = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0, 0, 0, 13, 0xff, 0xfe]);
 
 async function teamFolder(base, note = 'Use small functions.') {
   const folder = path.join(base, 'team-agents');
@@ -40,6 +47,8 @@ async function teamFolder(base, note = 'Use small functions.') {
   await writeFile(path.join(folder, 'orchestrator.agent.md'), '---\nname: orchestrator\ndescription: Plans, reviews and implements a change.\n---\n# Orchestrator\n\n1. Plan.\n2. Apply skills/review/SKILL.md.\n3. Implement, following notes/style.md.\n');
   await writeFile(path.join(folder, 'skills', 'review', 'SKILL.md'), '---\nname: review\ndescription: Review a plan for risks.\n---\nList each risk with a mitigation.\n');
   await writeFile(path.join(folder, 'notes', 'style.md'), `# Style\n${note}\n`);
+  await writeFile(path.join(folder, 'notes', 'brief.docx'), docx(['Keep the public API stable.']));
+  await writeFile(path.join(folder, 'notes', 'screen.png'), SCREEN);
   return folder;
 }
 
@@ -97,9 +106,11 @@ test('a user-defined agent\'s folder travels with its workflow, and an import th
   const bundlePath = path.join(base, 'orchestrator.bundle.json');
   sflow(a.root, 'workflow', 'export', '--workflow', 'orchestrator', '--out', bundlePath);
   const bundle = JSON.parse(await readFile(bundlePath, 'utf8'));
-  assert.equal(bundle.schemaVersion, 10);
+  assert.equal(bundle.schemaVersion, 11);
   assert.deepEqual(bundle.assets.filter((asset) => asset.kind === 'user-defined').map((asset) => [asset.path, asset.owner.id]), [
     ['singularity/user-defined/orchestrator.json', 'orchestrator'],
+    ['singularity/user-defined/orchestrator/notes/brief.docx', 'orchestrator'],
+    ['singularity/user-defined/orchestrator/notes/screen.png', 'orchestrator'],
     ['singularity/user-defined/orchestrator/notes/style.md', 'orchestrator'],
     ['singularity/user-defined/orchestrator/orchestrator.agent.md', 'orchestrator'],
     ['singularity/user-defined/orchestrator/skills/review/SKILL.md', 'orchestrator']
@@ -107,6 +118,13 @@ test('a user-defined agent\'s folder travels with its workflow, and an import th
   for (const relative of ['notes/style.md', 'skills/review/SKILL.md']) {
     assert.equal(bundle.assets.find((asset) => asset.path === `singularity/user-defined/orchestrator/${relative}`).content,
       await readFile(path.join(folder, relative), 'utf8'), `${relative} travels byte for byte`);
+  }
+  // An office document or image travels as base64 of its exact bytes, its digest that of the bytes.
+  for (const [relative, mediaType] of [['notes/brief.docx', 'application/vnd.openxmlformats-officedocument.wordprocessingml.document'], ['notes/screen.png', 'image/png']]) {
+    const asset = bundle.assets.find((entry) => entry.path === `singularity/user-defined/orchestrator/${relative}`);
+    const bytes = await readFile(path.join(folder, relative));
+    assert.deepEqual([asset.encoding, asset.mediaType, asset.size, asset.sha256], ['base64', mediaType, bytes.length, sha256(bytes)]);
+    assert.ok(Buffer.from(asset.content, 'base64').equals(bytes), `${relative} travels byte for byte`);
   }
 
   // B: the import adds the folder, and the Story's step composes from it.
@@ -118,7 +136,8 @@ test('a user-defined agent\'s folder travels with its workflow, and an import th
   sflow(b.root, 'start', 'MOVE-1', '--agent', 'orchestrator', '--from-branch', 'main', '--title', 'Moved agent',
     '--description', 'Run the imported user-defined agent.', '--readiness-baseline', 'defer');
   const prompt = sflow(b.root, 'wm', 'compose', '--phase', 'orchestrator', '--render-only');
-  assert.match(prompt, /# The Orchestrator folder[\s\S]*### notes\/style\.md[\s\S]*Use small functions\.[\s\S]*### skills\/review\/SKILL\.md/u);
+  assert.match(prompt, /# The Orchestrator folder[\s\S]*### notes\/brief\.docx \(its text\)[\s\S]*Keep the public API stable\.[\s\S]*### notes\/screen\.png\n\nAn image or PDF: open `[^`]*notes\/screen\.png`[\s\S]*### notes\/style\.md[\s\S]*Use small functions\.[\s\S]*### skills\/review\/SKILL\.md/u);
+  assert.ok((await readFile(path.join(b.root, 'singularity/user-defined/orchestrator/notes/screen.png'))).equals(SCREEN), 'the image is written byte for byte');
 
   // C: a different folder under the same name is a conflict of the agent, kept or replaced, never renamed.
   const c = await repository('c');
@@ -146,6 +165,8 @@ test('a user-defined agent\'s folder travels with its workflow, and an import th
   const folderFiles = run('git', ['--git-dir', c.remote, 'ls-tree', '-r', '--name-only', 'sflow/config', 'singularity/user-defined/'], base).stdout.trim().split('\n');
   assert.deepEqual(folderFiles.filter((relative) => relative.includes('/orchestrator')), [
     'singularity/user-defined/orchestrator.json',
+    'singularity/user-defined/orchestrator/notes/brief.docx',
+    'singularity/user-defined/orchestrator/notes/screen.png',
     'singularity/user-defined/orchestrator/notes/style.md',
     'singularity/user-defined/orchestrator/orchestrator.agent.md',
     'singularity/user-defined/orchestrator/skills/review/SKILL.md'
@@ -168,6 +189,11 @@ test('a user-defined agent\'s folder travels with its workflow, and an import th
   const stray = structuredClone(bundle);
   stray.assets.push({ ...structuredClone(stray.assets.find((asset) => asset.path.endsWith('notes/style.md'))), path: 'singularity/user-defined/orchestrator/notes/extra.md' });
   await assert.rejects(readWorkflowBundle(await write('stray.json', resealed(stray))), (error) => error.code === 'WORKFLOW_BUNDLE_DEPENDENCY_EXTRA');
+  // Only v11 carries bytes as base64; a v10 bundle that claims to is refused.
+  const encodedV10 = structuredClone(bundle);
+  encodedV10.schemaVersion = 10;
+  await assert.rejects(readWorkflowBundle(await write('encoded-v10.json', resealed(encodedV10))),
+    (error) => error.code === 'WORKFLOW_BUNDLE_ASSET_INVALID' && /encoding this bundle version does not carry/u.test(error.message));
 
   // A folder edited by hand on sflow/config is never exported as if its agent pinned it.
   const edited = path.join(base, 'edited');

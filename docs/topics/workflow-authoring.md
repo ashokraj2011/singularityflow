@@ -1120,7 +1120,8 @@ token or credential. Repository-wide policy is a prerequisite:
 import validates it on the destination but never overwrites it. It does not include local caches,
 runtime ledgers, work-item artifacts, or application source.
 
-New exports use bundle v10: user-defined agent folders, on top of v9's constitution file, after-step
+New exports use bundle v11: a user-defined agent folder's office documents, images and PDFs as their
+exact bytes, on top of v10's user-defined agent folders, v9's constitution file, after-step
 targets whatever they send, and agents scoped to the exported steps, v8's reusable instructions, v7's workflow skill attachments
 and v5's skill master skills. v4 added the imported copies and their records; the reader refuses a
 bundle whose agents attach a skill it does not carry, or that carries one no agent attaches, and a
@@ -1128,7 +1129,8 @@ constitution no carried workflow names. When the destination already has a diffe
 the import offers keep (suggested) or replace. A v9 or older bundle carries no user-defined agent
 folder, so the reader refuses one that brings such an agent; export it again from the source. Where
 the destination has the same folder, it is already there; a different folder under the same name is
-a conflict of its agent, kept or replaced with it. Replacing it removes the files the old folder had
+a conflict of its agent, kept or replaced with it. A v10 bundle carries only a folder's text files.
+Replacing it removes the files the old folder had
 and the imported one does not; the preview lists them under Removes. A user-defined agent cannot arrive under a new
 name, because its agent names its folder and pins the manifest. Export refuses
 an imported copy that no longer matches its lock; check it with `singularity-flow imports check`
@@ -1281,11 +1283,18 @@ In Copilot: `/sf-call-add ~/team-agents`, then `/sf-start JIRA-123 --agent orche
 
 - **Preview.** `call add` finds the main agent (the folder's one `*.agent.md`, `*.chatmode.md`,
   `agents/*.md` or `AGENTS.md`; failing those, its one Markdown file at the top of the folder whose front
-  matter has a `name` or `description`; or the file `--main` names) and lists every text file it would copy,
-  every file it leaves out with why (links, binary files, files that look like secrets or keys,
-  dependency and build directories), and the main file's front-matter fields SFlow does not use (its
-  own `tools` or `model`). Nothing is silently dropped. A folder holds at most 256 text files and
-  192 KiB of text, and the main file's instructions at most 30,000 bytes.
+  matter has a `name` or `description`; or the file `--main` names) and lists every file it would copy,
+  every file it leaves out with why (links, binary files other than documents, images and PDFs, files
+  that look like secrets or keys, dependency and build directories), the links between its files, and
+  the main file's front-matter fields SFlow does not use (its own `tools` or `model`). Nothing is
+  silently dropped. A folder holds at most 256 files and 192 KiB of text, and the main file's
+  instructions at most 30,000 bytes. Word, Excel and PowerPoint files are kept byte for byte and read
+  as their text; images and PDFs are kept byte for byte, at most 4 MiB each and 10 MiB in all.
+- **A folder of several agents.** When the folder holds more than one agent (agents that hand work
+  to each other, or roles that link to one another), it describes a workflow, not one step: `call add`
+  refuses with `USER_AGENT_FOLDER_IS_WORKFLOW`, names the agents and their handoffs, and offers two
+  routes: build a workflow from the folder (`workflow import-team inspect <FOLDER>`, below) or add one
+  of its agents alone with `--main <FILE>`.
 - **Proposal.** With the plan digest, it proposes one reviewed configuration change: the folder copied
   unchanged to `singularity/user-defined/<name>/`, its manifest beside it
   (`singularity/user-defined/<name>.json`, every file's SHA-256), one agent whose instructions are the
@@ -1295,8 +1304,9 @@ In Copilot: `/sf-call-add ~/team-agents`, then `/sf-start JIRA-123 --agent orche
   `--work-type` starts a Story on that workflow. For any other agent, `--agent` keeps choosing the
   step's agent.
 - **Running.** The step's prompt carries the agent's own instructions, then every other file of its
-  folder, exact, read from the configuration and checked against the manifest digest the Story's
-  pinned agent names. A folder changed after the Story started is refused, never substituted.
+  folder, read from the configuration and checked against the manifest digest the Story's
+  pinned agent names: text files exactly, office documents as their text, and images and PDFs as
+  paths the step's Copilot turn may open. A folder changed after the Story started is refused, never substituted.
   SFlow executes nothing in the folder.
 - **Finishing.** A code step (`--output code`, the default) implements, runs its tests and is
   reviewed, but no earlier step defines its requirements or plans it. Its workflow omits scope and

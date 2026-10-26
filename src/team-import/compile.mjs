@@ -195,6 +195,20 @@ function coverage(candidate, session) {
         message: `'${reference.from}' line ${reference.line} refers to '${reference.written}', which is ${reference.status}${reference.reason ? ` (${reference.reason})` : ''}. Acknowledge it with a mapping whose sourceItem is '${reference.written}' (excluded, unsupported or unresolved), or ask who can supply it.` });
     } else acknowledgements.push({ reference: reference.written, disposition: acknowledged.disposition });
   }
+  // A document, image or PDF a source agent links is something it works with: its imported agent
+  // carries it (files), or a mapping says where it went. Said, never blocking.
+  const media = new Map(session.capture.files.filter((file) => file.media).map((file) => [file.path, file]));
+  for (const mapping of candidate.mappings) {
+    const agent = /^agent:(.+)$/u.exec(mapping.target)?.[1];
+    if (!agent) continue;
+    const carried = new Set(candidate.agents.find((entry) => entry.id === agent)?.files ?? []);
+    for (const reference of session.capture.references) {
+      if (reference.from !== mapping.sourceItem || reference.status !== 'resolved' || !media.has(reference.target)
+          || carried.has(reference.target) || mapped.has(reference.target)) continue;
+      findings.push({ at: `reference:${reference.from}:${reference.line}`, code: 'TEAM_IMPORT_FILE_NOT_CARRIED', owner: 'model', severity: 'warning',
+        message: `'${reference.from}' line ${reference.line} links '${reference.target}', which agent '${agent}' does not carry. Add it to that agent's files so its step is given it, or map it with a reason.` });
+    }
+  }
   return { findings, items: items.length, acknowledgements };
 }
 

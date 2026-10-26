@@ -212,6 +212,13 @@ test('documents, images and PDFs are read and linked, and travel with the agent 
   assert.ok(inspection.references.some((reference) => reference.target === 'docs/home.png' && reference.status === 'resolved'));
   assert.equal(inspection.closure.some((file) => file.path === 'docs/archive.zip'), false, 'any other binary is only inventoried');
 
+  // A file the source agent links and its agent does not carry is named, without blocking.
+  await writeCandidate(inspection, fixtureCandidate(inspection));
+  const uncarried = await compileTeamImport(inspection.session.id, { env, dryRun: true });
+  assert.equal(uncarried.state, 'portable-ready');
+  assert.deepEqual(uncarried.findings.filter((finding) => finding.code === 'TEAM_IMPORT_FILE_NOT_CARRIED').map((finding) => [finding.severity, /links '(.+?)'/u.exec(finding.message)[1]]),
+    [['warning', 'docs/ui-checklist.docx'], ['warning', 'docs/home.png']]);
+
   // An agent's files must be captured, and readable.
   await writeCandidate(inspection, fixtureCandidate(inspection, (candidate) => { candidate.agents[1].files = ['docs/missing.md', 'docs/notes.md']; }));
   const refused = await compileTeamImport(inspection.session.id, { env, dryRun: true });

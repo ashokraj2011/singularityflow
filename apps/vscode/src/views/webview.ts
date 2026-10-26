@@ -335,6 +335,9 @@ export const STYLE = `
   code { font-family: var(--vscode-editor-font-family); font-size: .85em;
          background: var(--vscode-textCodeBlock-background, rgba(128,128,128,.14));
          padding: .05rem .35rem; border-radius: 3px; }
+  .command-guidance-routes { padding-left: 1.3rem; }
+  .command-guidance-routes li { margin: .5rem 0; overflow-wrap: anywhere; }
+  .command-guidance-routes code { white-space: pre-wrap; }
   .terminal-command { max-width: 100%; overflow: auto; white-space: pre-wrap; overflow-wrap: anywhere;
     padding: .65rem .75rem; border-radius: var(--sf-radius); background: var(--vscode-textCodeBlock-background); }
   .terminal-command code { padding: 0; background: transparent; }

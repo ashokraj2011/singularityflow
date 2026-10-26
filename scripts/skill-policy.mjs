@@ -7,8 +7,9 @@ import { AUTHORING_SKILL_DECLARATION, parseAuthoringSkills } from '../src/author
 import { copilotPauseGuardForSkill, COPILOT_PAUSE_MARKER, PHASE_ENTRY_SKILLS } from '../src/copilot-mode.mjs';
 import { mutationTurnMode } from '../src/phase-mutation-contract.mjs';
 import { CLI_PATH_CONTRACT } from '../src/safe-command-guidance.mjs';
+import { COMMAND_PRESENTATION_CONTRACT } from '../src/model-free-commands.mjs';
 
-export const COMMAND_PRESENTATION_CONTRACT = 'For every next action, honor returned `commandGuidance` in order: Copilot, Shell, VS Code (model-free) using `modelFreeCommand`; if absent, say "not available for this action". Missing Copilot: "no verified equivalent". Never invent routes.';
+export { COMMAND_PRESENTATION_CONTRACT };
 /**
  * How a Story skill that runs governed commands handles a refusal. `[phase-self-repair A2/A4]`
  *

@@ -97,7 +97,7 @@ function reviewHtml(proposal: CapabilityProposal | null, busy: boolean, error: s
       : `Projection: ${projection?.reason ?? 'not available'}.`)}</p>${cleanupNotice}${activated.audit?.eventId
           ? `<p>Activation audit: <code>${escape(activated.audit.eventId)}</code>${activated.audit.sequence == null ? '' : ` at ledger sequence ${activated.audit.sequence}`}.</p>`
           : ''}${activated.nextAction?.command
-            ? commandGuidanceHtml(activated.nextAction, { shellLabel: 'Recovery — Shell', copilotLabel: 'Recovery — Copilot' }) : ''}
+            ? commandGuidanceHtml(activated.nextAction) : ''}
       ${workspaceHandoff ? `<p>The approved capability map is now available to workspace creation.</p>
       <div class="actions"><button class="primary" data-action="create-workspace" ${busy ? 'disabled' : ''}>${icon('workspace')} Create workspace</button></div>` : ''}</div>`
     : `<div class="notice governance-warning"><p><strong>Activation is waiting.</strong> ${escape(
@@ -130,7 +130,7 @@ function reviewHtml(proposal: CapabilityProposal | null, busy: boolean, error: s
       ${proposal.configurationError ? `<div class="notice governance-warning"><p><strong>Configuration compatibility needs attention.</strong> ${escape(proposal.configurationError)}</p>${proposal.repairable
         ? '<p>The recognized historical packaged files can be repaired on this proposal branch without changing approved configuration or application code. The new commit must be reviewed again.</p>'
         : proposal.repairAction?.command
-          ? commandGuidanceHtml(proposal.repairAction, { shellLabel: 'Next — Shell', copilotLabel: 'Next — Copilot' })
+          ? commandGuidanceHtml(proposal.repairAction)
           : ''}</div>` : ''}
     </section>
     <section class="plain">

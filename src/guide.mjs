@@ -2,6 +2,7 @@ import { intentAmendmentSource, isConvergencePhase } from './phase-roles.mjs';
 import { convergenceTransitionRoute } from './phase-transition-routes.mjs';
 import { phaseNeedsGeneration } from './sequence.mjs';
 import { copilotAction } from './copilot-guidance.mjs';
+import { safeCommandGuidance, commandRouteLines } from './safe-command-guidance.mjs';
 import { generationSkillForPhase } from './code-delivery-policy.mjs';
 import { phaseUsesDeterministicGeneration } from './manual-authorship.mjs';
 import { sourceReviewRequired } from './source-review-policy.mjs';
@@ -146,7 +147,7 @@ export function guideText(guide) {
     ...guide.phases.map((phase) => `${phase.number}. ${phase.label} (${phase.id}) — ${phase.status}\n   Artifact: ${phase.artifact}\n   Agent: ${phase.agent ?? 'unavailable'}; approval authority: ${phase.approvalAuthorities.join(', ') || 'none'} (${phase.approvalsRequired} required)`),
     '',
     'What to do next:',
-    ...guide.nextActions.map((action) => `- Copilot: ${action.skill}\n  ${action.reason}\n  Run: ${action.command}`)
+    ...guide.nextActions.flatMap((action) => [action.reason, '', ...commandRouteLines(safeCommandGuidance(action) ?? safeCommandGuidance(action.command) ?? {}), ''])
   ];
   return `${lines.join('\n')}\n`;
 }

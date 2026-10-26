@@ -21,7 +21,8 @@ import type {
   ApprovalChecklistDecision, InApprovalDecision, InApprovalItem, WitnessMappingDecision
 } from './views/approval-review.ts';
 import { inApprovalOf } from './decisions.ts';
-import { commandGuidance, modelFreeRouteText } from './copilot-command.ts';
+import { commandGuidance } from './copilot-command.ts';
+import { commandGuidanceText } from './views/command-guidance.ts';
 import { phasePublicationSummary, phasePublicationProgressLabel } from './phase-publication.ts';
 
 /** Arguments that must be answered by a human before the command is allowed to run. */
@@ -248,7 +249,7 @@ export async function runGovernedAction(
           `The published ${rolloverPhase} generation changed. Start generation ${preview.toGeneration} with the exact current bytes?`,
           {
             modal: true,
-            detail: `Copilot: ${guidance.copilotCommand}\nShell: ${guidance.command}\nVS Code (model-free): ${modelFreeRouteText(guidance.modelFreeCommand)}\n\nGeneration ${preview.fromGeneration} remains preserved. No code is discarded, stashed, or rewritten.`
+            detail: `${commandGuidanceText(guidance)}\n\nGeneration ${preview.fromGeneration} remains preserved. No code is discarded, stashed, or rewritten.`
           },
           'Start new generation'
         );
@@ -350,7 +351,7 @@ export async function runPlannedAction(
   const choice = await vscode.window.showQuickPick(executable.map(({ action, guidance }) => ({
     label: action.reason,
     description: guidance.command,
-    detail: `Copilot: ${guidance.copilotCommand} · Plan ${plan.planId} · action ${action.actionId} · expires ${plan.expiresAt}`,
+    detail: `${commandGuidanceText(guidance)}\nPlan ${plan.planId} · action ${action.actionId} · expires ${plan.expiresAt}`,
     action,
     guidance
   })), {
@@ -364,7 +365,7 @@ export async function runPlannedAction(
     `Run the exact action “${choice.action.reason}”?`,
     {
       modal: true,
-      detail: `Copilot: ${choice.guidance.copilotCommand}\nShell: ${choice.guidance.command}\nVS Code (model-free): ${modelFreeRouteText(choice.guidance.modelFreeCommand)}\n\nPlan ${plan.planId} is bound to ${plan.revision.branch}@${plan.revision.head.slice(0, 12)}. Any repository or lifecycle change invalidates it.`
+      detail: `${commandGuidanceText(choice.guidance)}\n\nPlan ${plan.planId} is bound to ${plan.revision.branch}@${plan.revision.head.slice(0, 12)}. Any repository or lifecycle change invalidates it.`
     },
     'Run action'
   );

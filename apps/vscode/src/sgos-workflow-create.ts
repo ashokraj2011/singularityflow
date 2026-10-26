@@ -11,7 +11,8 @@ import {
   sgosWorkflowOutputPaths, sgosWorkflowSelectionIssue, sgosWorkspaceBindingIssue,
   validSgosInputPath, type SgosWorkflowCreateSelection, type SgosWorkflowGuide
 } from './sgos-workflow-create-model.ts';
-import { commandGuidance, modelFreeRouteText } from './copilot-command.ts';
+import { commandGuidance } from './copilot-command.ts';
+import { commandGuidanceText } from './views/command-guidance.ts';
 import {
   SGOS_WORKFLOW_CREATE_SCRIPT, sgosWorkflowCreateHtml,
   type SgosWorkflowPageState
@@ -323,7 +324,7 @@ class SgosWorkflowCreatePanel {
     const guidance = commandGuidance(sgosCommand(ratificationArgs));
     const action = await showCompactInformationMessage(
       `Created ${selection.declarationOut} and ${selection.workflowOut}. The Workflow is not ratified or executable.${guidance
-        ? `\nCopilot: ${guidance.copilotCommand}\nShell: ${guidance.command}\nVS Code (model-free): ${modelFreeRouteText(guidance.modelFreeCommand)}` : ''}`,
+        ? `\n\n${commandGuidanceText(guidance)}` : ''}`,
       ...(guidance?.copyable ? ['Copy Shell preview', 'Copy Copilot preview'] : []), 'Open Command Center'
     );
     if (action === 'Copy Shell preview' && guidance?.copyable) {

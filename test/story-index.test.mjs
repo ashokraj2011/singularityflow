@@ -417,7 +417,7 @@ test('one Story has one checkout across workspaces, and a Work ID decides where 
         assert.ok(table.includes(expected), `${expected}\n${table}`);
       }
       assert.match(f.cli(['workspace', 'stories', 'S-3'], { cwd: f.directory }).stdout,
-        /Go there\. Copilot: \/sf-workspace, then \/sf-session S-3; Shell: singularity-flow workspace use local--wsb, then singularity-flow session open S-3; VS Code \(model-free\): not available for this action\./u);
+        /Go there\.\n- Copilot: \/sf-workspace\n- Shell: singularity-flow workspace use local--wsb\n- VS Code \(model-free\): not available for this action\n\n- Copilot: \/sf-session S-3\n- Shell: singularity-flow session open S-3\n- VS Code \(model-free\): not available for this action/u);
     });
 
     await t.test('a stale entry is dropped, and Stories that predate the index are found again', async () => {

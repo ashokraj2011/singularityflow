@@ -12,6 +12,7 @@
 import { phaseRequiresCodeDelivery } from './code-delivery-policy.mjs';
 import { intentAmendmentSource, latestStepBefore, scopeStepOf } from './phase-roles.mjs';
 import { clauseMentionPattern } from './traceability-ids.mjs';
+import { formatCommandRouteLines } from './model-free-commands.mjs';
 
 /**
  * The route that is open from any status of a later phase: record the defect for the earlier
@@ -278,8 +279,8 @@ export function decisionListRoute(workId) {
     label: 'Open the decision list: each decision in plain words, with its choices, recorded with one confirmation.' };
 }
 
-/** "Decide them in one place: Copilot /sf-decide W; Shell singularity-flow decisions W." */
+/** One decision-list action, with a separate row for each command surface. */
 export function decisionListRouteLine(workId) {
   const route = decisionListRoute(workId);
-  return `Decide them in one place. Copilot: ${route.copilotCommand} · Shell: ${route.command}`;
+  return `Decide them in one place.\n${formatCommandRouteLines(route).join('\n')}`;
 }

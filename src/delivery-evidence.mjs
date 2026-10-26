@@ -4,6 +4,7 @@ import { readFile } from 'node:fs/promises';
 import path from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { PACKAGE_ROOT } from './package-root.mjs';
+import { formatCommandRouteLines } from './model-free-commands.mjs';
 
 const CORNER_CASE_MODULE = pathToFileURL(path.join(PACKAGE_ROOT, 'src/verification/corner-case-obligations.mjs')).href;
 
@@ -157,7 +158,7 @@ function testOnlyDeliveryRoute(workflow, phase, { unchanged, testOnly }) {
       kind: 'withdraw-return', changeRequestId: request.id, command, skill: '/sf-reject',
       guidance: `Nothing changed since generation ${generation}, which ${request.id} returned to ${phase.id}. Make the change it asks for, then publish again. `
         + `If no change is needed, a reviewer of ${request.sourcePhase} withdraws the return instead; that restores generation ${generation} and ${request.sourcePhase} as they stood before ${request.id}, and keeps the history. `
-        + `Copilot: /sf-reject. Shell: ${command}, then the --confirm form it prints. VS Code (model-free): not available for this action.`
+        + `Review its preview, then use the --confirm form it prints.\n${formatCommandRouteLines({ command, copilotCommand: '/sf-reject' }).join('\n')}`
     });
   }
   if (!testOnly) return null;
@@ -168,7 +169,7 @@ function testOnlyDeliveryRoute(workflow, phase, { unchanged, testOnly }) {
       guidance: `This is ${phase.id}'s first generation, so a test-only change implements nothing: deliver the approved behavior in its planned product source, with each clause comment in that change, and publish again. `
         + 'Only a later generation that a reviewer returned asking for tests carries earlier source unchanged. '
         + `If a clause truly needs only tests, the plan that owes source for it is what is wrong: raise it against ${owner}, whose approvers correct the row's Fulfillment (test-only, or existing where the behavior already lives). `
-        + `Copilot: /sf-decide. Shell: singularity-flow upstream-issue raise --work-id ${workId} --phase ${owner} --about <CLAUSE-ID> --problem "<TEXT>". VS Code (model-free): not available for this action.`
+        + `\n${formatCommandRouteLines({ copilotCommand: '/sf-decide', command: `singularity-flow upstream-issue raise --work-id ${workId} --phase ${owner} --about <CLAUSE-ID> --problem "<TEXT>"` }).join('\n')}`
     });
   }
   const why = !request ? `no return into ${phase.id} is open`

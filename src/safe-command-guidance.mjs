@@ -11,7 +11,7 @@
 import { authoringSkillEntry } from './authoring-skills.mjs';
 import { commandDefinition } from './command-registry.mjs';
 import { commandLineWithoutSkill, skillForCommandLine } from './command-skills.mjs';
-import { modelFreeCommandForArgv } from './model-free-commands.mjs';
+import { modelFreeCommandForArgv, formatCommandRouteLines } from './model-free-commands.mjs';
 import {
   copilotCommandForCommand, directCopilotSkill, directCopilotSkillId
 } from './copilot-guidance.mjs';
@@ -459,13 +459,10 @@ export function commandGuidanceForCommands(commands) {
 
 /** One action's routes in the contract order: Copilot, Shell, then the model-free VS Code route. */
 export function commandRouteLines(guidance, indent = '') {
-  return [`${indent}Copilot: ${guidance.copilotCommand ?? guidance.copilotReason ?? 'no verified Copilot equivalent; use the Shell command'}`, `${indent}Shell: ${guidance.command}`,
-    `${indent}VS Code (model-free): ${guidance.modelFreeCommand ?? 'not available for this action'}`];
+  return formatCommandRouteLines(guidance, { indent });
 }
 
 export function commandGuidanceLines(guidance, label) {
   if (!guidance) return [];
-  return [`${label}:`, `Copilot: ${guidance.copilotCommand ?? guidance.copilotReason}`,
-    `Shell: ${guidance.command ?? 'unavailable — unsafe command'}`,
-    `VS Code (model-free): ${guidance.modelFreeCommand ?? 'not available for this action'}`];
+  return [`${label}:`, ...commandRouteLines(guidance)];
 }

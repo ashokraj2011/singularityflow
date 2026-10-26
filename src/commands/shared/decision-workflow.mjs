@@ -1,3 +1,4 @@
+import { formatCommandRouteLines } from '../../model-free-commands.mjs';
 /** Extracted command implementation; governance remains in the existing kernel APIs. */
 import { repoRoot, branch } from '../../git.mjs';
 import { optionString, optionBoolean, SingularityFlowError } from '../../util.mjs';
@@ -44,8 +45,7 @@ export async function decisionWorkflow(positionals, options, action) {
   if (testingRepairPlan && optionString(options, 'confirm') !== testingRepairPlan.confirmation) {
     throw new SingularityFlowError(
       `The review contains source or test edits. Review ${testingRepairPlan.changedPaths.join(', ')} and return them to Code only after confirmation. `
-      + 'Copilot: /sf-reject. '
-      + `Shell: singularity-flow reject ${testingRepairPlan.phase} --to ${testingRepairPlan.targetPhase} --repair --reason <REASON> --confirm ${testingRepairPlan.confirmation}. VS Code (model-free): not available for this action.`,
+      + `\n${formatCommandRouteLines({ copilotCommand: '/sf-reject', command: `singularity-flow reject ${testingRepairPlan.phase} --to ${testingRepairPlan.targetPhase} --repair --reason <REASON> --confirm ${testingRepairPlan.confirmation}` }).join('\n')}`,
       { code: 'TESTING_REPAIR_CONFIRMATION_REQUIRED', details: { plan: testingRepairPlan } }
     );
   }

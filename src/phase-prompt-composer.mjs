@@ -3,6 +3,7 @@ import { constitutionPromptContext } from './constitution-prompt.mjs';
 import { withoutAttachedSkills, withoutTableSection } from './skill-library.mjs';
 import { resolvePersonalization, withReplyPersonalization } from './personalization.mjs';
 import { withAgentPathProtocol } from './safe-command-guidance.mjs';
+import { withCommandPresentationProtocol } from './model-free-commands.mjs';
 import { readFile, writeFile } from 'node:fs/promises';
 import { existsSync, readFileSync } from 'node:fs';
 import { createHash } from 'node:crypto';
@@ -519,9 +520,9 @@ export function withPhasePromptRuntimeGuidance(text, definition, workflow, phase
   const verification = bound && mutationToolProtocol(deriveMutationContract({ definition, workflow, phase })).localVerification.allowed;
   const requirements = bound && phaseOwnsScope(workflow, phase)
     && !phasePromptExecutionContract(definition, workflow, phase).deterministicOnly;
-  return withAgentPathProtocol(withRequirementAuthoringProtocol(text, Boolean(requirements)), {
+  return withCommandPresentationProtocol(withAgentPathProtocol(withRequirementAuthoringProtocol(text, Boolean(requirements)), {
     normalizeLegacy: false, authoringVerification: Boolean(verification)
-  });
+  }));
 }
 
 export function renderFinalClarificationGuard(phaseId, clarificationPolicy, { deterministicOnly = false } = {}) {

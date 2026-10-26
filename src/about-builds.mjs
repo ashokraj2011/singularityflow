@@ -1,3 +1,4 @@
+import { formatCommandRouteLines } from './model-free-commands.mjs';
 /** Machine-local build inventory. No Git, repository lookup, receipt authority or product mutation. */
 import { lstat, readFile, readdir, realpath } from 'node:fs/promises';
 import os from 'node:os';
@@ -148,6 +149,6 @@ export function aboutBuildsMarkdown(report) {
     ...report.warnings.map(warning => `Warning: ${cell(warning)}`), '',
     'Dates are recorded build stamps, not installation times. Unknown values are not inferred from matching version numbers.',
     'VS Code rows describe installed bytes; use About in the VS Code window to see its loaded UI build.',
-    '', 'Copilot: /sf-about · Shell: singularity-flow about (or sflow-about).'
+    '', ...formatCommandRouteLines({ copilotCommand: '/sf-about', command: 'singularity-flow about' })
   ].join('\n');
 }

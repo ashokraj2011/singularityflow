@@ -5,6 +5,7 @@ import path from 'node:path';
 import { codePageSafeJson } from './code-page-safe-json.mjs';
 import { copilotModeFile, hookCliLine, readCopilotMode } from './copilot-mode.mjs';
 import { currentSchemaVersion, readRecord } from './schema-migrations.mjs';
+import { formatCommandRouteLines } from './model-free-commands.mjs';
 
 const FAMILY = 'copilot-repository-boundary';
 /**
@@ -154,7 +155,7 @@ export async function repositoryPostToolGuard(payload = {}) {
 }
 
 function boundaryGuardUnavailable() {
-  return { permissionDecision: 'deny', permissionDecisionReason: 'PHASE_MUTATION_GUARD_UNAVAILABLE: preserve work and refresh the exact boundary. Copilot: /sf-phase. Shell: singularity-flow phase enter --for-agent --json. VS Code (model-free): not available for this action.' };
+  return { permissionDecision: 'deny', permissionDecisionReason: `PHASE_MUTATION_GUARD_UNAVAILABLE: preserve work and refresh the exact boundary.\n${formatCommandRouteLines({ copilotCommand: '/sf-phase', command: 'singularity-flow phase enter --for-agent --json' }).join('\n')}` };
 }
 
 async function hasBoundaryTurn(payload) {

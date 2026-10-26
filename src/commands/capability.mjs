@@ -32,18 +32,11 @@ const CAPABILITY_TEAM_REQUEST_MEMBER_FIELDS = new Set([
 ]);
 
 async function printCommandRoutes(command, { skill = null, label = null, indent = '' } = {}) {
-  const { safeCommandGuidance } = await import('../safe-command-guidance.mjs');
+  const { safeCommandGuidance, commandRouteLines } = await import('../safe-command-guidance.mjs');
   if (label) console.log(`${indent}${label}:`);
   const guidance = safeCommandGuidance({ command, skill });
-  if (!guidance) {
-    console.log(`${indent}Copilot: unavailable — ask /sf-next for a current action.`);
-    console.log(`${indent}Shell: unavailable — the supplied command was not safe to display.`);
-    console.log(`${indent}VS Code (model-free): not available for this action`);
-    return;
-  }
-  console.log(`${indent}Copilot: ${guidance.copilotCommand}`);
-  console.log(`${indent}Shell: ${guidance.command}`);
-  console.log(`${indent}VS Code (model-free): ${guidance.modelFreeCommand ?? 'not available for this action'}`);
+  if (!guidance) console.log(`${indent}The supplied command could not be safely displayed.`);
+  for (const line of commandRouteLines(guidance ?? {}, indent)) console.log(line);
 }
 
 function isDirect(context = {}) {
@@ -509,10 +502,9 @@ async function runOnboard(context) {
   const shell = result.proposal?.reviewRequired
     ? (result.dryRun ? null : result.review?.inspectCommand ?? result.nextActions?.shell)
     : result.nextActions?.shell;
-  if (result.nextActions?.copilot) console.log(`Copilot: ${result.nextActions.copilot}`);
-  if (shell) {
-    console.log(`Shell: ${shell}`);
-    console.log('VS Code (model-free): not available for this action');
+  if (shell || result.nextActions?.copilot) {
+    const { formatCommandRouteLines } = await import('../model-free-commands.mjs');
+    for (const line of formatCommandRouteLines({ command: shell, copilotCommand: result.nextActions?.copilot })) console.log(line);
   }
   return result;
 }
@@ -878,7 +870,8 @@ export async function run(argv, context = {}) {
       }
       for (const diagnostic of result.diagnostics) console.log(`  ${diagnostic.path}: ${diagnostic.message}`);
       console.log('Suggestions only. No tests ran; the existing-failure baseline is unverified.');
-      console.log('Copilot: /sf-test-setup');
+      const { formatCommandRouteLines } = await import('../model-free-commands.mjs');
+      for (const line of formatCommandRouteLines({ copilotCommand: '/sf-test-setup' })) console.log(line);
     }
     return result;
   }

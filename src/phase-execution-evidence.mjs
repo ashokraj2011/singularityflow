@@ -6,6 +6,7 @@ import { sourceTreeHash, testInputTreeHash } from './state-stores.mjs';
 import { commitIsAncestor, exactFileAtObject } from './git.mjs';
 import { readRecord } from './schema-migrations.mjs';
 import { safeCommandGuidance } from './safe-command-guidance.mjs';
+import { formatCommandRouteLines } from './model-free-commands.mjs';
 import { attemptLocalIntegrationLabel, testReceiptPassing } from './code-delivery-tests.mjs';
 import { SingularityFlowError } from './util.mjs';
 
@@ -222,7 +223,7 @@ export function renderExecutionEvidence(evidence) {
     ...(evidence.reconciliation?.omittedHumanReturns ? [`Additional pinned return targets: ${evidence.reconciliation.omittedHumanReturns}; use the inspection route before deciding.`] : []),
     ...[evidence.reconciliation?.currentDraft, evidence.reconciliation?.inspect,
       ...(evidence.reconciliation?.humanReturns ?? []).map(entry => entry.commandGuidance)]
-      .filter(Boolean).map(route => `- Copilot: ${route.copilotCommand ?? 'no verified equivalent'}; Shell: ${route.command}; VS Code: ${route.modelFreeCommand ?? 'not available for this action'}`)
+      .filter(Boolean).flatMap(route => [...formatCommandRouteLines(route, { markdown: true }), ''])
   ].join('\n');
 }
 

@@ -408,8 +408,8 @@ test('developer recommendations retain one validated Shell and Copilot pair with
     effect: 'generation'
   });
   const html = resultCardHtml(card);
-  assert.match(html, /<b>Shell<\/b><code>singularity-flow prepare planning<\/code>/);
-  assert.match(html, /<b>Copilot<\/b><code>\/sf-phase<\/code>/);
+  assert.match(html, /<li><strong>Shell:<\/strong> <code>singularity-flow prepare planning<\/code>/);
+  assert.match(html, /<li><strong>Copilot:<\/strong> <code>\/sf-phase<\/code>/);
   assert.match(html, /data-copy-route="singularity-flow prepare planning"/);
   assert.match(html, /data-copy-route="\/sf-phase"/);
   assert.match(RESULT_CARD_SCRIPT, /navigator\.clipboard\.writeText\(value\)/);

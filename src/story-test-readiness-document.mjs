@@ -1,3 +1,4 @@
+import { formatCommandRouteLines } from './model-free-commands.mjs';
 /**
  * The Story carries the test tools and pre-code disposition that were actually observed at
  * creation. This is a snapshot of a completed read-only preflight, not a substitute for a test
@@ -80,6 +81,6 @@ export function storyTestReadinessDocument(workId, repositories, evidence, { req
         ? receipts[record.repository] : null))
         ? 'pending-not-verified' : 'receipt-only',
     repositories: records,
-    guidance: 'Test setup and baseline results are advisory at Story creation, including observed failures. Copilot: /sf-test-setup; Shell: singularity-flow capability test-setup --json. Inspect the selected module, configure and run the chosen tests during coding/verification. Repair failures or obtain an eligible human risk decision before publication. Intake never installs dependencies, runs tests, creates a pass, or waives publication, approval, or protected-path checks.'
+    guidance: `Test setup and baseline results are advisory at Story creation, including observed failures. Inspect the selected module, configure and run the chosen tests during coding/verification. Repair failures or obtain an eligible human risk decision before publication. Intake never installs dependencies, runs tests, creates a pass, or waives publication, approval, or protected-path checks.\n${formatCommandRouteLines({ copilotCommand: '/sf-test-setup', command: 'singularity-flow capability test-setup --json' }).join('\n')}`
   };
 }

@@ -6,6 +6,7 @@
  * With a Work ID it locates that Story and gives the commands that go to its checkout.
  */
 import { optionBoolean, SingularityFlowError, table } from '../util.mjs';
+import { formatCommandRouteLines } from '../model-free-commands.mjs';
 
 const OPTIONS = new Set(['json', 'rebuild', 'timings']);
 
@@ -55,7 +56,7 @@ export async function run(positionals = [], options = {}) {
   if (workId) {
     if (!stories.length) {
       console.log(`Story ${workId} has no checkout on this computer.`);
-      console.log(`Open it. Copilot: /sf-session ${workId}; Shell: singularity-flow session open ${workId}; VS Code (model-free): not available for this action.`);
+      console.log(`Open it.\n${formatCommandRouteLines({ copilotCommand: `/sf-session ${workId}`, command: `singularity-flow session open ${workId}` }).join('\n')}`);
       return result;
     }
     for (const story of stories) {
@@ -68,7 +69,7 @@ export async function run(positionals = [], options = {}) {
       console.log(`Updated: ${story.updatedAt ?? '—'}`);
     }
     if (lifecycle.length > 1) console.log('This Story has more than one checkout. Keep the one you work in; remove the other after checking it holds nothing you need.');
-    console.log(`Go there. ${result.routes.text}.`);
+    console.log(`Go there.\n${result.routes.text}`);
     return result;
   }
   if (!stories.length) {

@@ -52,7 +52,7 @@ export function routedCommandGuidance(value: unknown): RoutedCommandGuidance | n
 
 /** The value after a "Copilot:" label: the route, or the contract's words when no skill carries it out. */
 export function copilotRouteText(command: string | null | undefined): string {
-  return command || 'no verified equivalent; use the Shell command';
+  return command || 'no verified equivalent';
 }
 
 /**

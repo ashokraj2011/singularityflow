@@ -152,8 +152,7 @@ function sequenceMessage(workflow, gate, action, { requestedPhase = null, reason
     ...(withGuidance ? [
       `Required next action: ${guidance.summary}`,
       ...commandLines(guidance.actions, guidance.alternativeSecond),
-      `See all valid actions: singularity-flow nextsteps ${workflow.workItem.id}`,
-      `In Copilot: /sf-nextsteps ${workflow.workItem.id}`
+      ...actionCommandLines({ command: `singularity-flow nextsteps ${workflow.workItem.id}`, skill: `/sf-nextsteps` }, 'See all valid actions')
     ] : [])
   ].filter(Boolean).join('\n');
 }

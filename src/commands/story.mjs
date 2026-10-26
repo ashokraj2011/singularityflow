@@ -88,7 +88,7 @@ import {
 } from './kernel.mjs';
 import { capabilityBaseForRepository, prepareCapabilityRepositories, printCapabilityBase } from '../capability-start.mjs';
 import { withApprovedConfigurationRead } from '../approved-configuration-reader.mjs';
-import { safeCommandGuidance } from '../safe-command-guidance.mjs';
+import { safeCommandGuidance, commandRouteLines } from '../safe-command-guidance.mjs';
 import { collectRepositoryReadinessEvidence } from '../repository-readiness-evidence.mjs';
 import {
   assertStoryStartReady, inspectStoryStartReadiness, requiredRepositoryReadinessScope, repositoryReadinessRequired
@@ -124,18 +124,11 @@ function repositoryRemoteName(root, expectedUrl) {
   }) ?? null;
 }
 
-function printCommandRoutes(command, { skill = null, indent = '', label = null } = {}) {
+function printCommandRoutes(command, { skill = null, label = null, indent = '' } = {}) {
   if (label) console.log(`${indent}${label}:`);
   const guidance = safeCommandGuidance({ command, skill });
-  if (!guidance) {
-    console.log(`${indent}Copilot: unavailable — ask /sf-next for a current action.`);
-    console.log(`${indent}Shell: unavailable — the supplied command was not safe to display.`);
-    console.log(`${indent}VS Code (model-free): not available for this action`);
-    return;
-  }
-  console.log(`${indent}Copilot: ${guidance.copilotCommand ?? 'no verified Copilot equivalent; use the Shell command'}`);
-  console.log(`${indent}Shell: ${guidance.command}`);
-  console.log(`${indent}VS Code (model-free): ${guidance.modelFreeCommand ?? 'not available for this action'}`);
+  if (!guidance) console.log(`${indent}The supplied command could not be safely displayed.`);
+  for (const line of commandRouteLines(guidance ?? {}, indent)) console.log(line);
 }
 
 function skillVersionGuidance(argv) {
@@ -155,9 +148,7 @@ function skillVersionNext(guidance) {
 function printSkillVersionGuidance(argv, label) {
   const guidance = skillVersionGuidance(argv);
   console.log(`${label}:`);
-  console.log(`  Copilot: ${guidance?.copilotCommand ?? '/sf-story-skill-version'}`);
-  console.log(`  Shell: ${guidance?.command ?? 'unavailable — review story skill-version --help'}`);
-  console.log(`  VS Code (model-free): ${guidance?.modelFreeCommand ?? 'not available for this action'}`);
+  for (const line of commandRouteLines(guidance ?? {}, '  ')) console.log(line);
   return guidance;
 }
 

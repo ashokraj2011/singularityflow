@@ -1,3 +1,4 @@
+import { formatCommandRouteLines } from './model-free-commands.mjs';
 import path from 'node:path';
 import { table } from './util.mjs';
 import { discoverRemoteStoryCandidates } from './session-story-discovery.mjs';
@@ -133,7 +134,7 @@ export async function approvalInbox(root, definition, { fetch = true, now = new 
 
 export function approvalInboxText(snapshot) {
   const warning = snapshot.unavailableCount
-    ? `\nWarning: ${snapshot.unavailableCount} lifecycle state record(s) are unavailable or conflicting; they were not treated as absent.\nCopilot: ${copilotCommandForCommand('singularity-flow doctor')}\nShell: singularity-flow doctor\nVS Code (model-free): not available for this action\n`
+    ? `\nWarning: ${snapshot.unavailableCount} lifecycle state record(s) are unavailable or conflicting; they were not treated as absent.\n${formatCommandRouteLines({ copilotCommand: copilotCommandForCommand('singularity-flow doctor'), command: 'singularity-flow doctor' }).join('\n')}\n`
     : '';
   if (!snapshot.items.length) return `Pending approval inbox — ${snapshot.remote}\n\nNo phases are awaiting approval in readable state-indexed Story commits.${warning}\n`;
   const rows = snapshot.items.map((item) => ({
@@ -155,5 +156,5 @@ export function approvalInboxText(snapshot) {
     { key: 'waiting', label: 'WAITING' },
     { key: 'authorities', label: 'AUTHORITY GROUPS' },
     { key: 'commit', label: 'REMOTE COMMIT' }
-  ])}${warning}\nChoose an item:\nCopilot: /sf-inbox\nShell: singularity-flow session attach <WORK/JIRA-ID>\nVS Code (model-free): not available for this action\n`;
+  ])}${warning}\nChoose an item:\n${formatCommandRouteLines({ copilotCommand: '/sf-inbox', command: 'singularity-flow session attach <WORK/JIRA-ID>' }).join('\n')}\n`;
 }

@@ -6,7 +6,8 @@ import {
 import { navigateTo } from './navigate.ts';
 import { integerField, registerMessageRouter } from './messages.ts';
 import { gitRemoteProblem, screenGitRemotes } from './map-capability-form.ts';
-import { commandGuidance, modelFreeRouteHtml } from '../copilot-command.ts';
+import { commandGuidance } from '../copilot-command.ts';
+import { commandRouteListHtml } from './command-guidance.ts';
 import { SetupProposalPanel } from './setup-proposal.ts';
 import {
   forgetSetupReviewRepository, rememberCapabilityProposalCheck, rememberSetupReviewRepository, setupReviewRepositories
@@ -78,10 +79,7 @@ function shortName(branch: string): string {
 function commandPair(label: string, value: unknown): string {
   const guidance = commandGuidance(value);
   if (!guidance) return '';
-  return `<small><strong>${escape(label)}</strong></small>
-    <small>Copilot: <code>${escape(guidance.copilotCommand)}</code></small>
-    <small>Shell: <code>${escape(guidance.command)}</code></small>
-    <small>VS Code (model-free): ${modelFreeRouteHtml(guidance.modelFreeCommand, escape)}</small>`;
+  return `<small><strong>${escape(label)}</strong></small>${commandRouteListHtml(guidance)}`;
 }
 
 function remediation(value: unknown): string {

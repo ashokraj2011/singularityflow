@@ -1,3 +1,4 @@
+import { formatCommandRouteLines } from './model-free-commands.mjs';
 /**
  * The machine's Story index: which checkout holds each workspace Story, in which workspace.
  *
@@ -568,8 +569,7 @@ export async function storyCheckoutRoutes(workId, entry, { sameWorkspace }) {
   const guidance = commands.map((command) => safeCommandGuidance({ command }));
   const copilot = guidance.map((item, index) => item?.copilotCommand
     ? `${item.copilotCommand}${index === guidance.length - 1 ? ` ${workId}` : ''}` : null);
-  const text = `Copilot: ${copilot.every(Boolean) ? copilot.join(', then ') : 'not available for this action'}; `
-    + `Shell: ${commands.join(', then ')}; VS Code (model-free): not available for this action`;
+  const text = guidance.map((route, index) => formatCommandRouteLines({ ...route, copilotCommand: copilot[index] }).join('\n')).join('\n\n');
   return { commands, text };
 }
 
@@ -581,7 +581,7 @@ export async function storyElsewhereError(workId, entry, { sameWorkspace, operat
   const routes = await storyCheckoutRoutes(workId, entry, { sameWorkspace });
   return new SingularityFlowError(
     `Story ${workId} already has its checkout in ${where}, at ${entry.checkoutPath}. One Story has one checkout on this computer, `
-    + `so ${operation} did not create another. Nothing was changed. Go there instead. ${routes.text}.`,
+    + `so ${operation} did not create another. Nothing was changed. Go there instead.\n${routes.text}`,
     { code: 'STORY_CHECKOUT_ELSEWHERE', details: {
       workId, storyCheckout: { workId, checkoutPath: entry.checkoutPath, branch: entry.branch, workspace: entry.workspace, sameWorkspace },
       nextAction: routes.commands[0], recoveryCommands: routes.commands

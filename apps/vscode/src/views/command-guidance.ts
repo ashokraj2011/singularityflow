@@ -1,16 +1,22 @@
 /** Shared, fail-closed presentation for an engine-supplied SFlow continuation. */
-import { chatModelsMissing, commandGuidance, copilotRouteText, modelFreeRouteHtml, modelFreeRouteText, type CommandGuidance } from '../copilot-command.ts';
+import { chatModelsMissing, commandGuidance, modelFreeRouteHtml, modelFreeRouteText, type CommandGuidance } from '../copilot-command.ts';
 import { escape } from './webview.ts';
+import { commandRouteRows, formatCommandRouteLines, type PresentedCommandRoutes } from '../../../../src/model-free-commands.mjs';
 
 export function safeCommandPair(value: unknown): CommandGuidance | null {
   return commandGuidance(value);
 }
 
+/** Layout for routes already validated by the owning card/view; this adds no runnable actions. */
+export function commandRouteListHtml(guidance: PresentedCommandRoutes, buttons: readonly string[] = []): string {
+  return `<ul class="command-guidance-routes">${commandRouteRows(guidance).map((row, index) =>
+    `<li><strong>${escape(row.label)}:</strong> ${index === 2 ? modelFreeRouteHtml(row.command, escape)
+      : row.command ? `<code>${escape(row.command)}</code>` : escape(row.unavailable)} ${buttons[index] ?? ''}</li>`).join('')}</ul>`;
+}
+
 /** Render three surfaces; advertise @ only for an exact supported equivalent. */
 export function commandGuidanceHtml(value: unknown, options: {
   shellCopy?: string;
-  shellLabel?: string;
-  copilotLabel?: string;
 } = {}): string {
   const guidance = safeCommandPair(value);
   if (!guidance) return '';
@@ -19,14 +25,10 @@ export function commandGuidanceHtml(value: unknown, options: {
     ? `<button type="button" class="secondary" data-copy-command="${escape(shellCopy)}">Copy Shell</button>` : '';
   const copilotButton = guidance.copyable && guidance.copilotCommand
     ? `<button type="button" class="secondary" data-copy-command="${escape(guidance.copilotCommand)}">Copy Copilot</button>` : '';
-  return `<div class="command-guidance">
-    <p><strong>${escape(options.copilotLabel ?? 'Copilot')}:</strong> ${guidance.copilotCommand
-    ? `<code>${escape(guidance.copilotCommand)}</code>` : escape(copilotRouteText(null))}
-      ${copilotButton}</p>
-    <p><strong>${escape(options.shellLabel ?? 'Shell')}:</strong> <code>${escape(guidance.command)}</code>
-      ${shellButton}</p>
-    ${guidance.modelFreeCommand ? `<p><strong>VS Code (model-free):</strong> ${modelFreeRouteHtml(guidance.modelFreeCommand, escape)}
-      ${chatModelsMissing() ? '' : `<button type="button" class="secondary" data-copy-command="${escape(guidance.modelFreeCommand)}">Copy @sflow</button>`}</p>` : '<p class="muted">VS Code (model-free): not available for this action.</p>'}
+  const modelFreeButton = guidance.modelFreeCommand && !chatModelsMissing()
+    ? `<button type="button" class="secondary" data-copy-command="${escape(guidance.modelFreeCommand)}">Copy @sflow</button>` : '';
+  const buttons = [copilotButton, shellButton, modelFreeButton];
+  return `<div class="command-guidance">${commandRouteListHtml(guidance, buttons)}
     ${guidance.copyable ? '' : '<p class="muted">Replace the shown placeholders before running this command.</p>'}
   </div>`;
 }
@@ -35,10 +37,19 @@ export function commandGuidanceHtml(value: unknown, options: {
 export function commandGuidanceText(value: unknown): string | null {
   const guidance = safeCommandPair(value);
   return guidance
-    ? `Copilot: ${copilotRouteText(guidance.copilotCommand)}\nShell: ${guidance.command}\nVS Code (model-free): ${modelFreeRouteText(guidance.modelFreeCommand)}`
+    ? formatCommandRouteLines(guidance, { modelFreeNote: modelFreeNote(guidance) }).join('\n')
     : null;
 }
 
+function modelFreeNote(guidance: CommandGuidance): string {
+  return guidance.modelFreeCommand ? modelFreeRouteText(guidance.modelFreeCommand).slice(guidance.modelFreeCommand.length).trim() : '';
+}
+
+/** Chat Markdown uses the same rows, with exact commands in safe inline code spans. */
+export function commandGuidanceMarkdown(value: unknown): string | null {
+  const guidance = safeCommandPair(value);
+  return guidance ? formatCommandRouteLines(guidance, { markdown: true, modelFreeNote: modelFreeNote(guidance) }).join('\n') : null;
+}
 /** Browser-side copy support shared by pages that render `commandGuidanceHtml`. */
 export const COMMAND_GUIDANCE_COPY_SCRIPT = `
   const copyCommand = event.target.closest('[data-copy-command]');

@@ -11,6 +11,7 @@ import { sourceReviewKind } from './phase-roles.mjs';
 import { AUTHORING_VERIFICATION_PROTOCOL, CLI_PATH_CONTRACT, safeCommandGuidance } from './safe-command-guidance.mjs';
 import { AUTHORING_SKILL_DECLARATION } from './authoring-skills.mjs';
 import { directCopilotSkill } from './copilot-guidance.mjs';
+import { formatCommandRouteLines } from './model-free-commands.mjs';
 import { phasePublicationContract } from './manual-authorship.mjs';
 import { consumedByPublishedGeneration, nextPhaseGeneration } from './phase-generation.mjs';
 
@@ -267,8 +268,8 @@ export function mutationToolProtocol(contract) {
 export function mutationDenial(contract, reason, paths = [], { routes = null } = {}) {
   const actions = routes ?? (contract?.next?.length ? contract.next : [route(['phase', 'enter', '--for-agent', '--json'],
     'Preserve existing work. End an expired/corrupt turn and invoke /sf-phase in a new turn; missing selection uses /sf-session.')]);
-  const lines = actions.map(action => `Copilot: ${action.copilotCommand ?? 'unavailable'}; Shell: ${action.command}; Model-free: ${action.modelFreeCommand ?? 'not available for this action'}`);
+  const lines = actions.map(action => formatCommandRouteLines(action).join('\n'));
   return { permissionDecision: 'deny', permissionDecisionReason:
-    `${reason}${paths.length ? ` (${paths.join(', ')})` : ''}. ${contract?.summary ?? 'No current verified mutation contract.'} ${lines.join(' ')}`.trimEnd(),
+    `${reason}${paths.length ? ` (${paths.join(', ')})` : ''}. ${contract?.summary ?? 'No current verified mutation contract.'}${lines.length ? `\n\n${lines.join('\n\n')}` : ''}`.trimEnd(),
     next: actions };
 }

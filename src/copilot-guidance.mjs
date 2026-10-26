@@ -1,5 +1,5 @@
 import { commandLineWithoutSkill, skillForCommandLine } from './command-skills.mjs';
-import { modelFreeCommandForCommand } from './model-free-commands.mjs';
+import { modelFreeCommandForCommand, formatCommandRouteLines } from './model-free-commands.mjs';
 
 /**
  * User-facing Copilot commands use the direct, globally installed `/sf-*` aliases.
@@ -288,10 +288,6 @@ export function submissionReadinessPresentation(readiness) {
  */
 export function actionCommandLines({ skill, command }, label = 'Run') {
   const modelFreeCommand = modelFreeCommandForCommand(command);
-  return [
-    `${label}:`,
-    `Copilot: ${copilotCommandForCommand(command, skill) ?? 'no verified equivalent; use the Shell command'}`,
-    `Shell: ${command}`,
-    `VS Code (model-free): ${modelFreeCommand ?? 'not available for this action'}`
-  ];
+  return [`${label}:`, ...formatCommandRouteLines({ command,
+    copilotCommand: copilotCommandForCommand(command, skill), modelFreeCommand })];
 }

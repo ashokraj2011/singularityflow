@@ -1,3 +1,4 @@
+import { formatCommandRouteLines } from '../model-free-commands.mjs';
 /**
  * The repository's own tests, run when a verification step is submitted.
  *
@@ -23,7 +24,7 @@ import { readSealedStoryTestPolicy } from './test-policy.mjs';
 
 export const REPOSITORY_TESTS_SOURCE = 'repository-tests';
 const SETUP_ROUTE = "Name the repository's test command in this step's checks (Workflow Studio, or qualityCommands in "
-  + 'singularity/workflow.yml); Copilot: /sf-test-setup; Shell: singularity-flow capability test-setup --json.';
+  + `singularity/workflow.yml).\n${formatCommandRouteLines({ copilotCommand: '/sf-test-setup', command: 'singularity-flow capability test-setup --json' }).join('\n')}`;
 
 function note(id, reason, at) {
   return {

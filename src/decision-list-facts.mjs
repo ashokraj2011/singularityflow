@@ -156,9 +156,18 @@ export async function pendingDecisionSummary(root, config, workflow, phase, { at
   const facts = await blockingDecisionFacts(root, config, workflow, { phaseId: phase.id, at });
   // An unavailable evaluation is not "nothing to decide": approval reports it as its own refusal.
   const evidence = await evidenceDecisionFacts(root, config, workflow, phase).catch(() => []);
-  const count = decisionGroups(workflow, { gaps: facts.gaps, issues: facts.issues, includeAllIssues: facts.endsStory }).length + evidence.length;
+  const groups = decisionGroups(workflow, { gaps: facts.gaps, issues: facts.issues, includeAllIssues: facts.endsStory }).length;
+  const count = groups + evidence.length;
   if (!count) return null;
   const workId = workflow.workItem.id;
+  // Only evidence left: a person witnesses it or accepts a dated risk in their own terminal, which no
+  // turn records, so the route is that command, not /sf-decide again.
+  if (!groups) {
+    const [first] = evidence;
+    return { count, headline: decisionHeadline(workflow, phase.id, count), personal: true,
+      command: first.witnesses[0]?.command ?? first.risks[0]?.command ?? `singularity-flow decisions ${workId}`,
+      listCommand: `singularity-flow decisions ${workId}`, skill: null, copilotCommand: null };
+  }
   return { count, headline: decisionHeadline(workflow, phase.id, count), command: `singularity-flow decisions ${workId}`,
     skill: '/sf-decide', copilotCommand: `/sf-decide ${workId}` };
 }

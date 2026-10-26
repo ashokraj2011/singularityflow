@@ -200,6 +200,12 @@ test('the CLI accepts and revokes the risk of an inconclusive criterion through 
     `// @ac:${id}:AC-001`, "test.skip('value in the payment sandbox', () => assert.equal(value, 2));", ''].join('\n'));
   const codeArtifact = path.join(item, 'artifacts/implementation/implementation-summary.md');
   await writeFile(codeArtifact, (await readFile(codeArtifact, 'utf8')).replace(/TODO:[^\n]*/gu, 'The value module returns the approved value 2.'));
+  // The skip this Story adds narrows its run against the base, so a person who approves Code accepts
+  // that first (SPEC-TCE M4); the criterion then stays inconclusive, which is what this test decides.
+  const narrowed = cliRun(process.execPath, [CLI, '--no-model', 'phase', 'publish', 'implementation', '--authored', 'human',
+    '--channel', 'manual-in-place', '--json'], root, { allowFailure: true });
+  assert.equal(JSON.parse(narrowed.stdout).error.code, 'CODE_TEST_NARROWED', narrowed.stdout);
+  cli('decision', 'test-narrowing', id, '--phase', 'implementation', '--reason', 'The sandbox test is skipped until the provider restores it next sprint.');
   cli('phase', 'publish', 'implementation', '--authored', 'human', '--channel', 'manual-in-place');
   cli('submit', 'implementation');
   cli('approve', 'implementation', '--yes');

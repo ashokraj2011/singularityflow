@@ -121,9 +121,13 @@ function withDecisionList(workflow, phase, actions, held) {
     || (['none', 'policy'].includes(phase.approvalPolicy?.mode) && entry.command?.startsWith(`singularity-flow submit ${phase.id}`));
   const index = actions.findIndex(blocked);
   if (index < 0) return actions;
-  const decide = action(actions[index].timing, '/sf-decide', `singularity-flow decisions ${workId}`,
-    `${held.headline} Decide them in one place: each is shown in plain words with its choices, and its approvers record them.`,
-    { route: 'decision-list' });
+  const decide = held.personal
+    ? action(actions[index].timing, null, held.command,
+      `${held.headline} Only you record it, in your own terminal, after looking at the evidence yourself; \`${held.listCommand}\` shows its other choice, a dated risk.`,
+      { route: 'decision-list' })
+    : action(actions[index].timing, '/sf-decide', `singularity-flow decisions ${workId}`,
+      `${held.headline} Decide them in one place: each is shown in plain words with its choices, and its approvers record them.`,
+      { route: 'decision-list' });
   return [...actions.slice(0, index), decide, ...actions.slice(index + 1).filter((entry) => !blocked(entry))];
 }
 

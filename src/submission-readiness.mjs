@@ -202,7 +202,7 @@ async function phaseReadiness(root, config, workflow, {
     const held = await (await import('./decision-list-facts.mjs')).pendingDecisionSummary(root, config, workflow, phase).catch(() => null);
     if (held) {
       return { ...readiness, lifecycleReady: false, classification: 'decisions-required', reasonCode: 'DECISIONS_REQUIRED',
-        reason: held.headline, command: held.command, nextCommand: held.command, nextSkill: '/sf-decide',
+        reason: held.headline, command: held.command, nextCommand: held.command, nextSkill: held.skill,
         decisions: { count: held.count, headline: held.headline, copilotCommand: held.copilotCommand } };
     }
   }

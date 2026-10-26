@@ -116,7 +116,8 @@ test('test findings route to what can act without a test-recovery agreement', ()
   assert.equal(risk.kind, 'test-run-risk');
   assert.equal(risk.owner, 'phase-approval-authority');
   assert.equal(risk.command, `singularity-flow decision test-risk ENV-2 --phase implement --command .-node-tests --cause-class all-tests-skipped --cause <cause> --reason <reason> --expires <YYYY-MM-DD> --argv-sha256 ${ARGV}`);
-  assert.equal(risk.skill, '/sf-decide');
+  // A person runs it in their own terminal: no turn records a test-run risk, so no skill is its route.
+  assert.equal(risk.skill, null);
   assert.equal(phaseResolutionChoices(workflow, phase, { code: 'CODE_TEST_FAILED', details: { testRunRisk: route } }).status, 'needs-human');
 
   // A downstream refusal of a lapsed decision routes to its renewal, not to repair.

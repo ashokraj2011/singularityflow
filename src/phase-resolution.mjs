@@ -60,7 +60,7 @@ function testFindingRoute(workflow, phase, finding, code) {
         '--cause', '<cause>', '--reason', '<reason>', '--expires', '<YYYY-MM-DD>', ...(argvSha256 ? ['--argv-sha256', argvSha256] : [])],
       `The environment may be what stopped this run${renewal && decided === renewal ? ', and the decision that let it through lapsed' : ''}. `
       + `Fix the environment and run it again, or a person who approves ${decided.phase} names the cause, why the risk is acceptable and an expiry in their own terminal (an agent cannot). `
-      + 'The tests still run every time; only a run with the same environment cause is covered.', '/sf-decide');
+      + 'The tests still run every time; only a run with the same environment cause is covered.', null);
   }
   if (TEST_CONFIGURATION_CODES.has(code) || (TEST_POLICY_CODES.has(code) && finding.details?.configurationDependency === true)) {
     return route('runner-setup', phase.id, ['capability', 'test-setup', '--json'],

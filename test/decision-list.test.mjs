@@ -21,6 +21,7 @@ import { terminalEvidenceDecisions, terminalRefusalMessage } from '../src/eviden
 import { decisionsMayBePending } from '../src/decision-list-facts.mjs';
 import { decisionListFacts } from '../src/decision-list-reads.mjs';
 import { workflowNextSteps } from '../src/nextsteps.mjs';
+import { skillForCommandLine } from '../src/command-skills.mjs';
 import { refusalRemediationPlan } from '../src/refusal-remediation.mjs';
 import { validateSflowExecutionCommand } from '../src/safe-command-guidance.mjs';
 import { upstreamIssueStates } from '../src/upstream-routes.mjs';
@@ -436,6 +437,27 @@ test('an evidence item is the person\'s own step: the list shows its commands an
     assert.match(option.action.command, /^singularity-flow decision (?:witness|risk) /u);
   }
   assert.throws(() => decisionRecordPlan(packet, parseDecisionAnswers({ choose: [`${item.id}=witness-result`] }), { at: AT }));
+  // With only such items left, the next step is the person's own command, never /sf-decide again:
+  // /sf-decide recorded fact-01's gap and then routed back to itself for the witness (2026-10-26).
+  assert.equal(packet.next.command, item.options[0].action.command);
+  assert.equal(packet.next.copilotCommand, null);
+  for (const option of item.options) assert.equal(skillForCommandLine(option.action.command), null, option.action.command);
+  for (const command of ['decision test-risk BIN-501', 'decision test-narrowing BIN-501', 'decision evidence-reuse BIN-501', 'decision visual-profile BIN-501']) {
+    assert.equal(skillForCommandLine(`singularity-flow ${command}`), null, command);
+  }
+  for (const command of ['decision choose BIN-501', 'decision show BIN-501', 'decisions BIN-501']) {
+    assert.equal(skillForCommandLine(`singularity-flow ${command}`), 'sf-decide', command);
+  }
+  const witness = item.options[0].action.command;
+  const now = workflowNextSteps(workflow, { pendingDecisions: { count: 1, headline: 'Release can\'t be approved yet: 1 decision needed.', personal: true,
+    command: witness, listCommand: 'singularity-flow decisions BIN-501', skill: null, copilotCommand: null } }).find((action) => action.timing === 'now');
+  assert.equal(now.command, witness);
+  assert.equal(now.copilotCommand ?? null, null, JSON.stringify(now));
+  assert.match(now.reason, /Only you record it, in your own terminal, after looking at the evidence yourself; `singularity-flow decisions BIN-501` shows its other choice/u);
+  // While a decision the list records is open too (the story's gap), /sf-decide is still the way to it.
+  const mixed = packetOf(workflow, { evidence });
+  assert.ok(mixed.items.some((entry) => entry.kind === 'conformance-gap'), JSON.stringify(mixed.items.map((entry) => entry.kind)));
+  assert.equal(mixed.next.copilotCommand, '/sf-decide BIN-501');
   // The digest moves with the evidence: a witnessed slot is a different list.
   assert.notEqual(packetOf(workflow, { gaps: [], issues: [], evidence: [] }).packetSha256, packet.packetSha256);
 });

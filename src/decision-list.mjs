@@ -16,6 +16,7 @@
  * run stays labelled as the step that recorded it. Pure: the facts arrive from decision-list-facts.mjs.
  */
 import { matchApprovalAuthority, normalizeApprovalAuthorities } from './approval-authority.mjs';
+import { commandLineWithoutSkill } from './command-skills.mjs';
 import { recordSha256 } from './records.mjs';
 import { testCommandReviewHold } from './story-test-commands.mjs';
 import { testRunCauseWords } from './test-run-cause.mjs';
@@ -715,6 +716,11 @@ export function decisionPacket(workflow, facts, { authorities, actor, at, reques
       : holdingAll ? `${decisionHeadline(workflow, phaseId, holdingAll)} ${others === 1 ? '1 other decision does' : `${others} other decisions do`} not hold its approval.`
         : `${stepName(workflow, phaseId)} has ${others === 1 ? '1 open decision' : `${others} open decisions`}; none holds its approval.`;
   const [first] = items;
+  // When every option left is a person's own terminal command no skill runs (a witness, an obligation
+  // risk), /sf-decide would only show it again: the route is that command.
+  const theirsAlone = (item) => item.options.length > 0 && item.options.every((entry) => entry.recordable === false
+    && typeof entry.action?.command === 'string' && commandLineWithoutSkill(entry.action.command));
+  const listRoute = decisions.length && decisions.every(theirsAlone) ? null : `/sf-decide ${workId}`;
   return {
     schemaVersion: 1, resultType: 'sflow-decisions', revision: DECISION_LIST_REVISION,
     workId, phase: phaseId, phaseLabel: stepName(workflow, phaseId), status: decisions.length ? 'decisions-needed' : 'nothing-to-decide',
@@ -722,7 +728,7 @@ export function decisionPacket(workflow, facts, { authorities, actor, at, reques
     items, holding, open: items.length,
     // What to do next: the first open item, with its first route.
     next: first ? { item: first.id, kind: first.kind, title: first.title, command: first.options[0]?.action?.command ?? `singularity-flow decisions ${workId}`,
-      copilotCommand: first.kind === 'approval' ? `/sf-approve ${phaseId} --work-id ${workId}` : `/sf-decide ${workId}` } : null,
+      copilotCommand: first.kind === 'approval' ? `/sf-approve ${phaseId} --work-id ${workId}` : listRoute } : null,
     packetSha256: digest,
     record: {
       form: `singularity-flow decisions record ${workId}${phaseOption ? ` --phase ${phaseOption}` : ''} --choose <ITEM>=<OPTION> [--reason <ITEM>=TEXT] [--expires <ITEM>=YYYY-MM-DD] [--cause <ITEM>=TEXT] --confirm ${digest}`,

@@ -59,7 +59,8 @@ test('Auto card actions are validated against the rendered card and only prefill
   assert.match(panel, /binding\.epoch !== repositoryBinding\?\.epoch/);
   const extension = await readFile(source('extension.ts'), 'utf8');
   assert.match(extension, /onAutoResultAction/);
-  assert.match(extension, /name: 'Singularity Flow Auto review', cwd: repositoryRoot/);
+  // A window with no folder starts it at home and moves into the checkout first (terminal-start.ts).
+  assert.match(extension, /createTerminalIn\(\{ name: 'Singularity Flow Auto review' \}, repositoryRoot\)/);
   assert.match(extension, /terminal\.sendText\(command, false\)/);
   assert.doesNotMatch(extension, /onAutoResultAction[\s\S]{0,500}terminal\.sendText\(command, true\)/);
 });

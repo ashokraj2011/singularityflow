@@ -566,7 +566,7 @@ export async function approveWithReceipt(
     output.appendLine(result.output);
     const { approvalOutcome } = await import('./views/approval-review.ts');
     const outcome = approvalOutcome(result.output);
-    void vscode.window.showInformationMessage(outcome.next ? `${outcome.headline} Next: ${outcome.next}` : outcome.headline, 'Show output')
+    void showCompactInformationMessage(outcome.next ? `${outcome.headline} Next: ${outcome.next}` : outcome.headline, 'Show output')
       .then((choice) => { if (choice) output.show(true); });
     return true;
   };

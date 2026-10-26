@@ -205,6 +205,11 @@ function route(defaultSkill, subcommands = {}) {
  * packaged.
  */
 export const COMMAND_LINE_SKILL_ROUTES = Object.freeze({
+  // The person's own terminal steps (copilot-mutation-guard.mjs keeps them out of every turn): a
+  // /sf-decide route to them only showed them again, and pointed back to /sf-decide (2026-10-26).
+  decision: route('sf-decide', {
+    witness: null, risk: null, 'test-risk': null, 'test-narrowing': null, 'evidence-reuse': null, 'visual-profile': null
+  }),
   'review-source': route('sf-review-source', {
     'decision-context': 'sf-review-decide', decide: 'sf-review-decide'
   }),

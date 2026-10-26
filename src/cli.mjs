@@ -192,7 +192,7 @@ async function submitHeldRoute(root, config, workflow, phase, options) {
   }
   if (decisionSubmitArguments(workflow, phase.id) && !optionStrings(options, 'decision').length) return submitRoute(workflow, phase);
   const decide = ['none', 'policy'].includes(phase.approvalPolicy?.mode) ? await (await import('./decision-list-facts.mjs')).pendingDecisionSummary(root, config, workflow, phase).catch(() => null) : null;
-  return decide ? { command: decide.command, skill: '/sf-decide', reason: `${decide.headline} Decide them in one place before submitting.` } : null;
+  return decide ? { command: decide.command, skill: decide.skill, reason: `${decide.headline} Decide them in one place before submitting.` } : null;
 }
 
 /** The only deliberately Shell-only instruction: restore a locally retained Git stash commit. */

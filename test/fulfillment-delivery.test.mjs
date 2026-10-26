@@ -261,7 +261,9 @@ test('a real Story delivers source, configuration, test-only, removal, document 
   assert.equal(receipt.changeSet.sourcePaths.includes('vite.config.mjs'), false);
   assert.equal(observed.claims[ac(7)].verdict, 'matched');
   assert.deepEqual(observed.claims[ac(7)].observedPaths, ['config/app.json']);
-  assert.equal((await verifyCodeDeliveryReceipt(root, receipt)).valid, true, 'configuration is retained and has passing test coverage');
+  // A pinned test attempt replays only against its Story's recorded pins (SPEC-TCE M3), as the engine passes them.
+  assert.deepEqual((await verifyCodeDeliveryReceipt(root, receipt, { testRunRisks: { workflow: workflowState, at: new Date().toISOString() } })).errors, [],
+    'configuration is retained and has passing test coverage');
   // The modified obligation is bound to its exact hunk, the declaration it touches and its explanation.
   const [binding] = receipt.implementationBindings.bindings;
   assert.equal(binding.clauseId, ac(1));

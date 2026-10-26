@@ -663,6 +663,14 @@ function localSyncSteps(argv, error) {
 }
 
 const KNOWN = Object.freeze({
+  // The main agent file of `call add`: what is wrong is in that file, never the repository, so the
+  // repository-health route a refusal falls back to sent people to the wrong place (office, 2026-10-26).
+  USER_AGENT_MAIN_INVALID: (argv, error) => {
+    const retry = argv.length ? safeCommandGuidance({ argv }) : null;
+    return [step('edit-main-agent-file', `${error?.message ?? 'The main agent file cannot be read.'} Edit that file: SFlow uses its name, `
+      + 'its description and the instructions after its front matter. Or name another file of the folder with --main.', null, 'remediation'),
+    retry && step('preview-again', 'Then preview adding the folder again.', retry.command, 'diagnostic')].filter(Boolean);
+  },
   // Commits after a submission: an undecided intent amendment among them is decided first.
   STORY_REVIEW_INTERVENING_COMMIT: pendingAmendmentSteps,
   // An amendment proposed after the submission holds the approval until a person decides it [SPEC-OAP M2].

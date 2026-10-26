@@ -116,6 +116,34 @@ export function splitFrontMatter(text) {
   }
 }
 
+/**
+ * An agent file's front matter as Copilot reads it. VS Code and Copilot run an agent whose header is
+ * not strict YAML: a description wrapped onto an unindented line ("Implicit keys need to be on a
+ * single line"), a colon inside a value, a tab-indented line. Refusing such a file turned away an
+ * agent that works (office, 2026-10-26). When strict YAML fails, a line at the margin that starts
+ * with a plain `key:` begins a field and every other line continues the one before; `lenient` keeps
+ * the YAML error so a reader can say how the header was read.
+ */
+export function agentFrontMatter(text) {
+  const split = splitFrontMatter(text);
+  if (!split.problem?.startsWith('front matter is not valid YAML')) return { ...split, lenient: null };
+  const header = /^---\r?\n([\s\S]*?)\r?\n---[ \t]*(?:\r?\n|$)/u.exec(text.replace(/^﻿/u, ''))?.[1] ?? '';
+  const unquote = (value) => /^(["']).*\1$/su.test(value) ? value.slice(1, -1) : value;
+  const frontMatter = {};
+  let key = null;
+  for (const line of header.split(/\r?\n/u)) {
+    const field = /^([A-Za-z_][\w-]*)[ \t]*:(?:[ \t]+(.*)|[ \t]*)$/u.exec(line);
+    if (field) {
+      key = field[1];
+      // A block scalar's indicator (| or >) says how its lines join; the lines themselves follow.
+      frontMatter[key] = unquote((field[2] ?? '').trim().replace(/^[|>][+-]?$/u, ''));
+    } else if (key && line.trim()) {
+      frontMatter[key] = `${frontMatter[key]} ${line.trim()}`.trim();
+    }
+  }
+  return { frontMatter, body: split.body, bodyStartLine: split.bodyStartLine, problem: null, lenient: split.problem };
+}
+
 /** A stable, portable id for a recognised file: kebab-case of its declared name or file name. */
 export function sourceItemId(relative, format, frontMatter = {}) {
   const segments = relative.split('/');

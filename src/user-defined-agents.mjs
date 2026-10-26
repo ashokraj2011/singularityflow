@@ -15,7 +15,7 @@ import { lstat, readdir, readFile } from 'node:fs/promises';
 import path from 'node:path';
 import { canonicalJson } from './records.mjs';
 import { scanText } from './secrets.mjs';
-import { blockedPath, EXCLUDED_DIRECTORIES, kebab, splitFrontMatter } from './team-import/formats.mjs';
+import { agentFrontMatter, blockedPath, EXCLUDED_DIRECTORIES, kebab, splitFrontMatter } from './team-import/formats.mjs';
 import { SingularityFlowError } from './util.mjs';
 import {
   USER_DEFINED_MANIFEST_METADATA, USER_DEFINED_METADATA, userDefinedAgentName, userDefinedFolderPath, userDefinedManifestPath
@@ -94,7 +94,7 @@ function agentCandidates(files) {
 function plainAgentCandidates(files) {
   return files.filter((file) => /^[^/]+\.md$/iu.test(file.path) && !/^(?:readme|skill|changelog|contributing|license)\.md$/iu.test(file.path))
     .filter((file) => {
-      const { frontMatter, problem } = splitFrontMatter(file.text);
+      const { frontMatter, problem } = agentFrontMatter(file.text);
       return !problem && ['name', 'description'].some((key) => typeof frontMatter[key] === 'string' && frontMatter[key].trim());
     }).map((file) => file.path);
 }
@@ -149,7 +149,8 @@ export async function userDefinedAgentPlan(folder, { name = null, label = null, 
   const captured = await captureUserDefinedFolder(folder);
   if (!captured.files.length) fail('USER_AGENT_FOLDER_EMPTY', `${folder} has no text file to copy.`, { leftOut: captured.leftOut });
   const mainFile = chooseMainAgent(captured.files, main);
-  const { frontMatter, body, problem } = splitFrontMatter(mainFile.text);
+  // Read as Copilot reads it: a header that is not strict YAML still names and describes the agent.
+  const { frontMatter, body, problem, lenient } = agentFrontMatter(mainFile.text);
   if (problem) fail('USER_AGENT_MAIN_INVALID', `${mainFile.path}: ${problem}.`);
   const instructions = body.trim();
   if (!instructions) fail('USER_AGENT_MAIN_INVALID', `${mainFile.path} has no instructions after its front matter.`);
@@ -171,7 +172,8 @@ export async function userDefinedAgentPlan(folder, { name = null, label = null, 
     folder: path.basename(captured.root),
     files: captured.files.map((file) => ({ path: file.path, sha256: file.sha256, bytes: file.size })),
     leftOut: captured.leftOut,
-    notUsed: Object.keys(frontMatter).filter((key) => !['name', 'description'].includes(key)).sort()
+    notUsed: Object.keys(frontMatter).filter((key) => !['name', 'description'].includes(key)).sort(),
+    ...(lenient ? { frontMatterNote: `Its front matter is not strict YAML (${lenient.replace(/^front matter is not valid YAML: /u, '')}); its name and description were read line by line, as Copilot reads them.` } : {})
   };
   plan.manifestSha256 = sha256(Buffer.from(userDefinedManifestText(plan)));
   plan.planSha256 = sha256(Buffer.from(canonicalJson(plan)));
@@ -253,6 +255,7 @@ export function userDefinedPlanLines(plan) {
   ];
   if (plan.leftOut.length) lines.push(`  Left out (${plan.leftOut.length}):`, ...plan.leftOut.map((entry) => `    ${entry.path}: ${entry.reason}`));
   if (plan.notUsed.length) lines.push(`  Not used from ${plan.main}'s front matter: ${plan.notUsed.join(', ')} (SFlow sets the agent's tools and steps)`);
+  if (plan.frontMatterNote) lines.push(`  ${plan.main}: ${plan.frontMatterNote}`);
   return lines;
 }
 

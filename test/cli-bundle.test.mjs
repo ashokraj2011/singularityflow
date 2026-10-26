@@ -194,7 +194,9 @@ test('the bundled CLI answers exactly like the sources while opening a handful o
   // Git-excluded .sflow/out under short names: cold-hooks +2,915 (the new agent-output-folder.mjs, shared by
   // agent-output.mjs, application-paths.mjs and the edit guard, and the guard's correction of misread result
   // paths), cold-catalogs +63 and cold-worker-protocol -10 for 7,435,196.
-  assert.ok(closure('cold-hook-context.mjs').reduce((sum, item) => sum + item.bytes, 0) < 7_440_000,
+  // 7,445,000: main 00854b18 measures 7,439,597; the add-your-own-agent refusal's own recovery step
+  // (refusal-remediation.mjs USER_AGENT_MAIN_INVALID) adds cold-core +470 for 7,440,067.
+  assert.ok(closure('cold-hook-context.mjs').reduce((sum, item) => sum + item.bytes, 0) < 7_445_000,
     'phase-review reads retain their existing byte ceiling after moving families');
   assert.match(await readFile(path.join(outdir, 'cold-light.mjs'), 'utf8'), /function enterPhase\b/u,
     'phase binding must not fall through to the compatibility/admin bundle');

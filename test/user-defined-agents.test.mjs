@@ -13,6 +13,7 @@ import {
 } from '../src/user-defined-agents.mjs';
 import { userDefinedAgentWorkType } from '../src/user-defined-agent-identity.mjs';
 import { refusalEnvelope } from '../src/refusal-remediation.mjs';
+import { agentFrontMatter } from '../src/team-import/formats.mjs';
 import { childTimeout } from './helpers/child-timeout.mjs';
 import { slowLane } from './helpers/slow-lane.mjs';
 
@@ -66,6 +67,47 @@ test('the main agent is the only agent file, the one --main names, and never a g
   assert.throws(() => chooseMainAgent(files(['notes.md'])), (error) => error.code === 'USER_AGENT_MAIN_REQUIRED');
   assert.equal(chooseMainAgent(files(['a.agent.md', 'b.agent.md']), './b.agent.md').path, 'b.agent.md');
   assert.throws(() => chooseMainAgent(files(['a.agent.md']), 'missing.md'), (error) => error.code === 'USER_AGENT_MAIN_UNKNOWN');
+});
+
+test('an agent header Copilot runs is read as Copilot reads it, even when it is not strict YAML', async (t) => {
+  // Office, 2026-10-26: "front matter is not valid YAML: Implicit keys need to be on a single line" refused a
+  // folder whose agent ran in Copilot; its description wrapped onto an unindented line.
+  const wrapped = '---\nname: qa-test-automation\ndescription: Writes QA automation tests\nfor the web app, login and checkout\ntools: [codebase]\n---\n# QA\nWrite Playwright tests.\n';
+  const read = agentFrontMatter(wrapped);
+  assert.equal(read.problem, null);
+  assert.match(read.lenient, /Implicit keys need to be on a single line/u);
+  assert.deepEqual(read.frontMatter, { name: 'qa-test-automation', description: 'Writes QA automation tests for the web app, login and checkout', tools: '[codebase]' });
+  assert.equal(read.body, '# QA\nWrite Playwright tests.\n');
+  for (const [header, description] of [
+    ['description: Use when: tests are needed', 'Use when: tests are needed'],
+    ['description: "Quoted: with a colon"\n\textra: tab-indented', 'Quoted: with a colon extra: tab-indented'],
+    ['description: >\n  Folded text\nfor two lines', 'Folded text for two lines']
+  ]) assert.equal(agentFrontMatter(`---\nname: a\n${header}\n---\nBody\n`).frontMatter.description, description, header);
+  const strict = agentFrontMatter('---\nname: a\ndescription: Fine\n---\nBody\n');
+  assert.equal(strict.lenient, null, 'strict YAML is read as before');
+  assert.equal(agentFrontMatter('---\n- a list\n---\nBody\n').problem, 'front matter is not a mapping', 'a header that is not a mapping is still refused');
+
+  const base = await mkdtemp(path.join(os.tmpdir(), 'sflow-user-agent-lenient-'));
+  t.after(() => rm(base, { recursive: true, force: true }));
+  const folder = path.join(base, 'qa');
+  await mkdir(folder);
+  await writeFile(path.join(folder, 'qa-test-automation.agent.md'), wrapped);
+  const { plan, instructions } = await userDefinedAgentPlan(folder);
+  assert.equal(plan.name, 'qa-test-automation');
+  assert.equal(plan.description, 'Writes QA automation tests for the web app, login and checkout');
+  assert.equal(instructions, '# QA\nWrite Playwright tests.');
+  assert.match(plan.frontMatterNote, /^Its front matter is not strict YAML \(Implicit keys need to be on a single line\); its name and description were read line by line, as Copilot reads them\.$/u);
+  assert.equal(Object.hasOwn((await userDefinedAgentPlan(await teamFolder(base))).plan, 'frontMatterNote'), false, 'a strict header plans exactly as before');
+
+  // A main file SFlow still cannot use says what to edit, never to check the repository's health.
+  await writeFile(path.join(folder, 'qa-test-automation.agent.md'), '---\n- a list\n---\nWrite tests.\n');
+  let refusal;
+  try { await userDefinedAgentPlan(folder); } catch (error) { refusal = refusalEnvelope(error, ['call', 'add', folder]); }
+  assert.equal(refusal.error.code, 'USER_AGENT_MAIN_INVALID');
+  const steps = refusal.remediationPlan.steps;
+  assert.equal(steps[0].id, 'edit-main-agent-file');
+  assert.match(steps[0].label, /Edit that file: SFlow uses its name, its description and the instructions after its front matter/u);
+  assert.ok(!steps.some((entry) => /doctor/u.test(entry.command ?? '')), JSON.stringify(steps));
 });
 
 test('a plain Markdown agent at the top of the folder is its main agent, and a refusal carries the files to choose from', () => {

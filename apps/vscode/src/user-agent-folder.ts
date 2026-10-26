@@ -11,7 +11,7 @@
 export interface UserAgentPreview {
   name: string; label: string; main: string; output: 'code' | 'document'; step: string; workflow: string;
   folder: string; files: Array<{ path: string; bytes: number }>; leftOut: Array<{ path: string; reason: string }>;
-  notUsed: string[]; problems: string[]; planSha256: string; confirmCommand: string | null;
+  notUsed: string[]; problems: string[]; planSha256: string; confirmCommand: string | null; frontMatterNote?: string | null;
   /** A new copy of an existing agent's folder under the same name (call add --replace). */
   replace?: boolean;
 }
@@ -52,6 +52,7 @@ export function userAgentPreviewText(preview: UserAgentPreview): { message: stri
     ...preview.files.map((file) => `  • ${file.path} (${file.bytes} bytes)`),
     ...(preview.leftOut.length ? [`Left out: ${plural(preview.leftOut.length, 'file')}.`, ...preview.leftOut.map((entry) => `  • ${entry.path}: ${entry.reason}`)] : []),
     ...(preview.notUsed.length ? [`Not used from ${preview.main}: ${preview.notUsed.join(', ')} (SFlow sets the agent's tools and steps).`] : []),
+    ...(preview.frontMatterNote ? [`${preview.main}: ${preview.frontMatterNote}`] : []),
     preview.replace
       ? `It replaces the folder of your agent ${preview.name}; its step and workflow stay, and running Stories keep the folder they started with.`
       : `It runs as one ${preview.output === 'code' ? 'code' : 'document'} step. Start a Story with it from Start Work (Your agents) or: singularity-flow start <WORK-ID> --agent ${preview.name}.`,

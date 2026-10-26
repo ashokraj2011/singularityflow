@@ -11,16 +11,17 @@
  * So every agent result now starts with `act`: one place, derived only from what the engine itself
  * returned, saying what state this is, what to do now with its Copilot, Shell and VS Code routes,
  * and whether a person must answer or confirm first. And it is bounded: when the result is larger
- * than the budget, the complete result is written inside the repository's Git directory (agents
- * already edit staging files there), long texts as their own line-readable files, and stdout keeps
- * `act`, the fields that fit and the exact line range of every field it left out.
+ * than the budget, the complete result is written to the checkout's Git-excluded `.sflow/out/`
+ * (agent-output-folder.mjs), long texts as their own line-readable files, and stdout keeps `act`,
+ * the fields that fit and the exact line range of every field it left out.
  */
 import { createHash } from 'node:crypto';
 import { readFileSync, realpathSync } from 'node:fs';
 import { readdir, rm, stat } from 'node:fs/promises';
 import path from 'node:path';
+import { AGENT_OUTPUT_FOLDER, agentOutputDirectory, excludeAgentOutput } from './agent-output-folder.mjs';
 import { observeFindingStreak } from './finding-escalation.mjs';
-import { gitDir } from './git-execution.mjs';
+import { gitCommonDir, repoRoot } from './git-execution.mjs';
 import { CLI_PATH_REFERENCE, safeCommandGuidance, validateSafeSflowCommand } from './safe-command-guidance.mjs';
 import { validateAgentEntryRequest } from './agent-entry-options.mjs';
 import { interpretsForAgent } from './cli-json-output.mjs';
@@ -442,35 +443,34 @@ function readPlan(text, ranges, fields, { chunkBytes = READ_CHUNK_BYTES, chunks 
 // cleanup; older ones stay while they are among the newest KEPT_RESULTS.
 const KEPT_RESULT_MS = 24 * 60 * 60 * 1000;
 
+// The names SFlow writes: `<kind>-<8 hex>`, then a field trail or `omitted` for the files of the
+// same result. The folder sits in a checkout, so cleanup never touches any other file there.
+const RESULT_FILE = /^[A-Za-z0-9-]{1,48}-[0-9a-f]{8}(?:\.[A-Za-z0-9_.-]+)?\.(?:json|txt)$/u;
+
+/** A result's base name: its kind and the first eight hex digits of what it holds. */
+const resultBase = (kind, text) => `${String(kind || 'result').replace(/^sflow-/u, '').replace(/[^A-Za-z0-9-]/gu, '-').slice(0, 48) || 'result'}-${sha256(text).slice(7, 15)}`;
+
 /**
  * Remove old results whole: a result is its JSON, its text files and its omitted index, all named
- * from one base that carries the time it was written. The result just written (`keep`) is never
- * removed, however many files it has.
+ * from one base and dated by their newest file. The result just written (`keep`) is never removed,
+ * however many files it has.
  */
 async function prune(directory, keep, now = new Date()) {
   try {
     const results = new Map();
-    for (const name of (await readdir(directory)).filter((name) => /\.(?:json|txt)$/u.test(name))) {
+    for (const name of (await readdir(directory)).filter((name) => RESULT_FILE.test(name))) {
       const base = name.replace(/\..*$/u, '');
-      const entry = results.get(base) ?? { base, names: [], at: writtenAt(base) };
+      const entry = results.get(base) ?? { base, names: [], at: 0 };
       entry.names.push(name);
       results.set(base, entry);
     }
-    // A name without its time (not written here) is dated by the file itself.
-    await Promise.all([...results.values()].filter((entry) => entry.at == null).map(async (entry) => {
+    await Promise.all([...results.values()].map(async (entry) => {
       entry.at = Math.max(0, ...await Promise.all(entry.names.map((name) => stat(path.join(directory, name)).then(({ mtimeMs }) => mtimeMs, () => 0))));
     }));
     const stale = [...results.values()].sort((left, right) => right.at - left.at).slice(KEPT_RESULTS)
       .filter((entry) => entry.base !== keep && now.getTime() - entry.at > KEPT_RESULT_MS);
     await Promise.all(stale.flatMap((entry) => entry.names.map((name) => rm(path.join(directory, name), { force: true }))));
   } catch { /* retention is best effort */ }
-}
-
-/** The time in a result's base name (`<kind>-2026-10-25T03-51-18-671Z-<hash>`), or null. */
-function writtenAt(base) {
-  const match = /-(\d{4}-\d{2}-\d{2})T(\d{2})-(\d{2})-(\d{2})-(\d{3})Z-[0-9a-f]{8}$/u.exec(base);
-  const at = match ? Date.parse(`${match[1]}T${match[2]}:${match[3]}:${match[4]}.${match[5]}Z`) : Number.NaN;
-  return Number.isFinite(at) ? at : null;
 }
 
 async function registerReadFiles(root, files) {
@@ -483,10 +483,20 @@ async function registerReadFiles(root, files) {
 
 function repositoryOf(result, cwd) {
   const candidate = typeof result.repositoryPath === 'string' && path.isAbsolute(result.repositoryPath) ? result.repositoryPath : cwd;
-  // Native real paths also expand Windows 8.3 aliases (e.g. a short TEMP path versus Git's long
-  // path). Both sides must name the same physical root before computing a workspace-relative file.
-  try { return { root: realpathSync.native(candidate), directory: path.join(realpathSync.native(gitDir(candidate)), 'singularity-flow', 'agent-results') }; }
-  catch { return null; }
+  // The checkout's top, from the same one Git process that names its Git directories, so the
+  // anchored exclude line covers the folder from any cwd inside it. Native real paths also expand
+  // Windows 8.3 aliases (a short TEMP path versus Git's long path): both sides must name the same
+  // physical root before computing a checkout-relative file.
+  try {
+    const root = realpathSync.native(repoRoot(candidate));
+    return { root, common: gitCommonDir(candidate), directory: path.join(root, ...AGENT_OUTPUT_FOLDER.split('/')) };
+  } catch { return null; }
+}
+
+/** Make the folder ready before the first file: excluded from Git first, then created. */
+async function readyFolder(target) {
+  await excludeAgentOutput(target.common);
+  await agentOutputDirectory(target.root);
 }
 
 /** True when this exact command accepts --for-agent; a compact entry keeps its own option rules. */
@@ -630,7 +640,8 @@ async function literalEnvelope(text, { cwd, budget, now, literal, unkept = null 
   const said = literal === 'json-array' ? 'The command returned a JSON array, not one result object.' : 'The command returned text that is not one JSON object.';
   let agentOutput;
   if (target) {
-    const file = path.join(target.directory, `literal-${now.toISOString().replace(/[:.]/gu, '-')}-${sha256(text).slice(7, 15)}.txt`);
+    await readyFolder(target);
+    const file = path.join(target.directory, `${resultBase('literal', text)}.txt`);
     await writeAtomic(file, text, { mode: 0o600 });
     await registerReadFiles(target.root, [file]);
     await prune(target.directory, path.basename(file, '.txt'), now);
@@ -653,9 +664,9 @@ async function literalEnvelope(text, { cwd, budget, now, literal, unkept = null 
  * unchanged; larger text gets the literal envelope.
  *
  * The command has already run when its result is shown, so a result that cannot be written (a
- * full disk, a file another program holds open on Windows, a read-only Git directory) never turns
- * into a refusal: a command that committed would read as refused and be run again. The view then
- * keeps what fits, names what it does not show, and stderr says why.
+ * full disk, a file another program holds open on Windows, a read-only checkout or exclude file)
+ * never turns into a refusal: a command that committed would read as refused and be run again.
+ * The view then keeps what fits, names what it does not show, and stderr says why.
  */
 export async function boundedAgentOutput(text, options = {}) {
   try { return await keptAgentOutput(text, options); }
@@ -718,8 +729,8 @@ async function keptAgentOutput(text, { cwd = process.cwd(), budget = agentOutput
     catalog = catalogAgentView(ordered);
   }
   const target = locate();
-  const kind = String(result.resultType ?? (result.error ? 'refusal' : 'result')).replace(/[^A-Za-z0-9-]/gu, '-').slice(0, 48);
-  const base = `${kind}-${now.toISOString().replace(/[:.]/gu, '-')}-${sha256(whole).slice(7, 15)}`;
+  await readyFolder(target);
+  const base = resultBase(String(result.resultType ?? (result.error ? 'refusal' : 'result')), whole);
   const texts = [];
   const full = await externalize(ordered, target.directory, base, [], texts, reviewSources);
   const file = path.join(target.directory, `${base}.json`);
@@ -830,8 +841,8 @@ export async function boundedAgentText(text, { cwd = process.cwd(), budget = age
 }
 
 async function keptAgentText(text, target, { budget, now, kind }) {
-  const name = String(kind || 'text').replace(/[^A-Za-z0-9-]/gu, '-').slice(0, 48) || 'text';
-  const file = path.join(target.directory, `${name}-${now.toISOString().replace(/[:.]/gu, '-')}-${sha256(text).slice(7, 15)}.txt`);
+  await readyFolder(target);
+  const file = path.join(target.directory, `${resultBase(kind || 'text', text)}.txt`);
   await writeAtomic(file, text, { mode: 0o600 });
   await registerReadFiles(target.root, [file]);
   await prune(target.directory, path.basename(file, '.txt'), now);

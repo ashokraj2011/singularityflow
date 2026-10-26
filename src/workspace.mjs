@@ -7,6 +7,7 @@ import path from 'node:path';
 import { setTimeout as delay } from 'node:timers/promises';
 import { pathToFileURL } from 'node:url';
 import { withRegistryFileLease } from './file-lease.mjs';
+import { withoutAgentOutputStatus } from './agent-output-folder.mjs';
 import {
   CLONE_COMPLETION_FILE, cloneClaimPolicy, findCompletedWorkspaceClone, retryWorkspaceCloneClaim,
   sealWorkspaceClone, verifyCompletedWorkspaceClone, workspaceCloneLeasePath, workspaceCloneStagingPrefix
@@ -1874,7 +1875,8 @@ export async function workspaceRepositoryDropProof(workspace, repository, status
       { code: 'WORKSPACE_CAPABILITY_DROP_UNVERIFIED' }
     );
   }
-  if (ignored.stdout.split(/\r?\n/).some((line) => line.startsWith('!! '))) {
+  // SFlow's own excluded agent results are copies of printed output, never a person's local files.
+  if (withoutAgentOutputStatus(ignored.stdout, target).split(/\r?\n/).some((line) => line.startsWith('!! '))) {
     throw new SingularityFlowError(
       `Repository '${repository.id}' contains ignored local files. Preserve or explicitly remove them before using Detach & drop local.`,
       { code: 'WORKSPACE_CAPABILITY_DROP_IGNORED' }

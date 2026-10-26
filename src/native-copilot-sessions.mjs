@@ -24,8 +24,11 @@ const SEARCH_TOOLS = new Set(['rg', 'grep', 'glob', 'grep_search', 'file_search'
 const SFLOW_COMMAND = /(?:^|[\s;&|(`"'/])(?:singularity-flow(?:\.mjs)?|sflow)(?=\s|$)/u;
 const SFLOW_VERB = /(?:singularity-flow(?:\.mjs)?|sflow)\s+([a-z][a-z-]*)(?:\s+([a-z][a-z-]*))?/u;
 const TEST_RUNNER = /\b(?:(?:npm|pnpm|yarn|bun)\s+(?:run\s+)?test\b|node\b[^|;&]*\s--test\b|jest\b|vitest\b|mocha\b|pytest\b|playwright\s+test\b|go\s+test\b|cargo\s+test\b|dotnet\s+test\b|mvnw?\b[^|;&]*\b(?:test|verify)\b|gradlew?\b[^|;&]*\btest\b|rspec\b|phpunit\b)/u;
-const OVERFLOW_PATH = /[^\s'"`]*agent-results[\\/][^\s'"`]+/u;
-const OVERFLOW_TYPE = /^([A-Za-z0-9][A-Za-z0-9-]*?)-\d{4}-\d{2}-\d{2}T/u;
+// A bounded result's files: the checkout's `.sflow/out/<kind>-<8 hex>…` (agent-output-folder.mjs),
+// or `<git dir>/singularity-flow/agent-results/<sflow-kind>-<time>-<8 hex>…` in sessions recorded
+// before it moved. Both spellings of a kind count as one, so a report spanning the move compares.
+const OVERFLOW_PATH = /[^\s'"`]*(?:agent-results|\.sflow[\\/]out)[\\/][^\s'"`]+/u;
+const OVERFLOW_TYPE = /^(?:sflow-)?([A-Za-z0-9][A-Za-z0-9-]*?)-(?:\d{4}-\d{2}-\d{2}T|[0-9a-f]{8}\.)/u;
 const HOST_SAVED_PATH = /copilot-tool-output-/u;
 const HOST_SAVED_NOTICE = /^Output too large to read at once \(/u;
 const IDENTIFIER = /^[A-Za-z0-9][A-Za-z0-9._:-]{0,63}$/u;

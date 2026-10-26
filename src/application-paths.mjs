@@ -1,3 +1,4 @@
+import { isAgentOutputPath } from './agent-output-folder.mjs';
 import { GOVERNED_ROOTS } from './governed-roots.mjs';
 import { SingularityFlowError } from './util.mjs';
 
@@ -131,14 +132,16 @@ function comparisonPath(value, caseInsensitivePaths) {
   return caseInsensitivePaths ? value.toLocaleLowerCase('en-US') : value;
 }
 
-/** SFlow-owned structured command results are transport state, not product source. */
+/**
+ * SFlow-owned structured command results are transport state, not product source: test reports
+ * under `.sflow/results`, and agent results in the checkout's `.sflow/out`.
+ */
 export function isTransientTestResultPath(candidate, options = null) {
   const normalized = portableRepositoryPath(candidate);
   if (!normalized) return false;
   const context = pathContext(options);
-  return /(?:^|\/)\.sflow\/results(?:\/|$)/.test(
-    comparisonPath(normalized, context.caseInsensitivePaths)
-  );
+  const compared = comparisonPath(normalized, context.caseInsensitivePaths);
+  return /(?:^|\/)\.sflow\/results(?:\/|$)/.test(compared) || isAgentOutputPath(compared);
 }
 
 /** Generic generated trees are excluded only when their Git provenance says they are untracked. */

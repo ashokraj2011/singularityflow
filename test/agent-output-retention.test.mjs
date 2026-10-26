@@ -8,7 +8,7 @@
  */
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
-import { mkdir, mkdtemp, readdir, readFile, rm, writeFile } from 'node:fs/promises';
+import { mkdir, mkdtemp, readdir, readFile, realpath, rm, symlink, utimes, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
@@ -16,6 +16,8 @@ import test from 'node:test';
 import { boundedAgentOutput, boundedAgentText, completeAgentResult, DEFAULT_AGENT_OUTPUT_BYTES } from '../src/agent-output.mjs';
 import { agentViewOrOutput, withCliJsonOutput } from '../src/cli-json-output.mjs';
 import { codePageSafeJson } from '../src/code-page-safe-json.mjs';
+import { AGENT_OUTPUT_EXCLUDE, isAgentOutputEntry, isAgentOutputPath, withoutAgentOutputStatus } from '../src/agent-output-folder.mjs';
+import { reinstallSourceDigest } from '../src/reinstall.mjs';
 
 async function repository(t, prefix) {
   const root = await mkdtemp(path.join(os.tmpdir(), prefix));
@@ -45,8 +47,8 @@ const committed = (root) => ({ resultType: 'sflow-approval', status: 'approved',
 test('a result that cannot be written still shows the command ran, with what fits and why', async (t) => {
   const root = await repository(t, 'sflow-agent-unkept-');
   // The results folder cannot be created: a file stands where it would go.
-  await mkdir(path.join(root, '.git', 'singularity-flow'), { recursive: true });
-  await writeFile(path.join(root, '.git', 'singularity-flow', 'agent-results'), 'not a folder');
+  await mkdir(path.join(root, '.sflow'), { recursive: true });
+  await writeFile(path.join(root, '.sflow', 'out'), 'not a folder');
 
   const { value: text, text: stderr } = await captured(process.stderr, () => boundedAgentOutput(JSON.stringify(committed(root)), { cwd: root }));
   assert.ok(Buffer.byteLength(text) <= DEFAULT_AGENT_OUTPUT_BYTES, `${Buffer.byteLength(text)} bytes`);
@@ -71,8 +73,8 @@ test('a result that cannot be written still shows the command ran, with what fit
 
 test('the CLI prints a committed result, never a refusal, when its view cannot be written', async (t) => {
   const root = await repository(t, 'sflow-agent-unkept-cli-');
-  await mkdir(path.join(root, '.git', 'singularity-flow'), { recursive: true });
-  await writeFile(path.join(root, '.git', 'singularity-flow', 'agent-results'), 'not a folder');
+  await mkdir(path.join(root, '.sflow'), { recursive: true });
+  await writeFile(path.join(root, '.sflow', 'out'), 'not a folder');
   const result = committed(root);
   const { value, text: stdout } = await captured(process.stdout, () => captured(process.stderr,
     () => withCliJsonOutput(true, async () => { console.log(JSON.stringify(result, null, 2)); return 'ran'; }, { forAgent: true })));
@@ -88,17 +90,26 @@ test('the CLI prints a committed result, never a refusal, when its view cannot b
 
 test('cleanup keeps every file of the result just written and every result from the last day, and removes old ones whole', async (t) => {
   const root = await repository(t, 'sflow-agent-retention-');
-  const directory = path.join(root, '.git', 'singularity-flow', 'agent-results');
+  const directory = path.join(root, '.sflow', 'out');
   await mkdir(directory, { recursive: true });
   const now = new Date('2026-10-25T12:00:00.000Z');
-  const stamp = (at) => at.toISOString().replace(/[:.]/gu, '-');
-  const named = (kind, minutesAgo, index) => `${kind}-${stamp(new Date(now.getTime() - minutesAgo * 60_000))}-${index.toString(16).padStart(8, '0')}`;
-  const old = Array.from({ length: 30 }, (_, index) => named('old', 3 * 24 * 60 + index, index));
-  const recent = Array.from({ length: 50 }, (_, index) => named('recent', 60 + index, index));
-  for (const base of [...old, ...recent]) {
-    await writeFile(path.join(directory, `${base}.json`), '{}\n');
-    await writeFile(path.join(directory, `${base}.context.text.txt`), 'kept text\n');
+  // A name carries no time; a result is as old as its newest file.
+  const written = async (file, minutesAgo) => {
+    const at = new Date(now.getTime() - minutesAgo * 60_000);
+    await utimes(file, at, at);
+  };
+  const named = (kind, index) => `${kind}-${index.toString(16).padStart(8, '0')}`;
+  const old = Array.from({ length: 30 }, (_, index) => ({ base: named('old', index), minutesAgo: 3 * 24 * 60 + index }));
+  const recent = Array.from({ length: 50 }, (_, index) => ({ base: named('recent', index), minutesAgo: 60 + index }));
+  for (const { base, minutesAgo } of [...old, ...recent]) {
+    for (const name of [`${base}.json`, `${base}.context.text.txt`]) {
+      await writeFile(path.join(directory, name), name.endsWith('.json') ? '{}\n' : 'kept text\n');
+      await written(path.join(directory, name), minutesAgo);
+    }
   }
+  // The folder is in a checkout: a file SFlow did not name is never cleanup's to remove.
+  await writeFile(path.join(directory, 'notes.txt'), 'a person\'s file\n');
+  await written(path.join(directory, 'notes.txt'), 10 * 24 * 60);
 
   // One result with far more long texts than the old 160-file limit.
   const wide = { resultType: 'wide', repositoryPath: root, ...Object.fromEntries(Array.from({ length: 200 }, (_, index) => [`field${index}`, `${index} `.repeat(2_500)])) };
@@ -107,8 +118,64 @@ test('cleanup keeps every file of the result just written and every result from 
   assert.deepEqual(restored, wide, 'every file of the result just written is still there');
 
   const names = await readdir(directory);
-  for (const base of recent) assert.ok(names.includes(`${base}.json`) && names.includes(`${base}.context.text.txt`), `${base} is less than a day old`);
+  for (const { base } of recent) assert.ok(names.includes(`${base}.json`) && names.includes(`${base}.context.text.txt`), `${base} is less than a day old`);
   assert.deepEqual(names.filter((name) => name.startsWith('old-')), [], 'results past a day and past the newest 40 go, each one whole');
+  assert.ok(names.includes('notes.txt'));
+});
+
+test('results go to the top of the checkout from any folder in it, excluded once for every worktree, and change no source digest', async (t) => {
+  const root = await repository(t, 'sflow-agent-folder-');
+  const source = path.join(root, 'src', 'deep');
+  await mkdir(source, { recursive: true });
+  await writeFile(path.join(root, 'README.md'), 'source\n');
+  const digest = await reinstallSourceDigest(root);
+  const large = { resultType: 'sflow-phase-entry', status: 'ok', context: { text: 'Composed context line.\n'.repeat(900) } };
+  for (const cwd of [source, root]) {
+    const view = JSON.parse(await boundedAgentOutput(JSON.stringify(large), { cwd }));
+    assert.equal(view.agentOutput.path, path.join(await realpath(root), '.sflow', 'out', path.basename(view.agentOutput.path)), cwd);
+    assert.match(path.basename(view.agentOutput.path), /^phase-entry-[0-9a-f]{8}\.json$/u);
+  }
+  const exclude = (await readFile(path.join(root, '.git', 'info', 'exclude'), 'utf8')).split('\n');
+  assert.equal(exclude.filter((line) => line === AGENT_OUTPUT_EXCLUDE).length, 1, 'one line, written once');
+  const status = spawnSync('git', ['status', '--porcelain', '--untracked-files=all'], { cwd: root, encoding: 'utf8' }).stdout;
+  assert.equal(status, '?? README.md\n', 'only the person\'s own file shows');
+  const ignored = spawnSync('git', ['status', '--porcelain=v1', '--untracked-files=all', '--ignored=matching'], { cwd: root, encoding: 'utf8' }).stdout;
+  assert.match(ignored, /^!! \.sflow\/out\/$/mu);
+  assert.equal(withoutAgentOutputStatus(ignored, root), '?? README.md');
+  assert.equal(await reinstallSourceDigest(root), digest, 'a reinstall preview printed here leaves the digest its apply rechecks');
+  assert.deepEqual(['.sflow/out', '.sflow/out/', '.sflow/out/a.json', '.sflow/outer', '.sflow/results/a.tap', 'src/.sflow/out/a'].map(isAgentOutputPath),
+    [true, true, true, false, false, false]);
+});
+
+test('where a team ignores all of .sflow, only a .sflow holding nothing but SFlow\'s results is skipped', async (t) => {
+  const root = await repository(t, 'sflow-agent-folder-team-');
+  await writeFile(path.join(root, '.gitignore'), '.sflow/\n');
+  await boundedAgentOutput(JSON.stringify({ resultType: 'sflow-phase-entry', context: { text: 'Composed context line.\n'.repeat(900) } }), { cwd: root });
+  const ignored = () => spawnSync('git', ['status', '--porcelain=v1', '--untracked-files=all', '--ignored=matching'], { cwd: root, encoding: 'utf8' }).stdout;
+  assert.match(ignored(), /^!! \.sflow\/$/mu, 'Git names the team\'s ignored folder, not ours');
+  assert.equal(withoutAgentOutputStatus(ignored(), root), '?? .gitignore');
+  await mkdir(path.join(root, '.sflow', 'results'));
+  await writeFile(path.join(root, '.sflow', 'results', 'report.tap'), 'TAP version 13\n');
+  assert.equal(isAgentOutputEntry(root, '.sflow/'), false, 'other files there are not SFlow\'s results');
+  assert.match(withoutAgentOutputStatus(ignored(), root), /^!! \.sflow\/$/mu);
+});
+
+test('a linked folder is never written through and its files are never cleaned up', async (t) => {
+  const root = await repository(t, 'sflow-agent-folder-link-');
+  const elsewhere = await mkdtemp(path.join(os.tmpdir(), 'sflow-agent-folder-elsewhere-'));
+  t.after(() => rm(elsewhere, { recursive: true, force: true }));
+  const old = new Date(Date.now() - 10 * 24 * 60 * 60 * 1000);
+  for (let index = 0; index < 60; index++) {
+    const file = path.join(elsewhere, `kept-${index.toString(16).padStart(8, '0')}.json`);
+    await writeFile(file, '{}\n');
+    await utimes(file, old, old);
+  }
+  await mkdir(path.join(root, '.sflow'));
+  await symlink(elsewhere, path.join(root, '.sflow', 'out'), 'dir');
+  const { value: text } = await captured(process.stderr, () => boundedAgentOutput(JSON.stringify(committed(root)), { cwd: root }));
+  const view = JSON.parse(text);
+  assert.deepEqual([view.agentOutput.retained, view.agentOutput.writeError], [false, 'ELOOP']);
+  assert.equal((await readdir(elsewhere)).length, 60, 'nothing written there, nothing removed');
 });
 
 test('JSON for a Windows shell is ASCII and parses to the same values; other platforms keep UTF-8', async () => {

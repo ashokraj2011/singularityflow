@@ -2,15 +2,16 @@
   "format": 1,
   "measurement": "Repository-local static ESM closure; dynamic first-use imports excluded. Runtime source/bundle parity is tested separately.",
   "source": [
-    { "entry": "src/commands/start.mjs", "maximumModules": 454,
-      "note": "Includes the shared import-free requirement coverage rubric; no additional Git, model or legacy-dispatch dependency. 444: the source-review batching split three helpers out of loaded modules and added its snapshot cache. 454: 1078bf60 split publication writers out of state.mjs into ten modules (+17 KB eager source).",
+    { "entry": "src/commands/start.mjs", "maximumModules": 456,
+      "note": "Includes the shared import-free requirement coverage rubric; no additional Git, model or legacy-dispatch dependency. 444: the source-review batching split three helpers out of loaded modules and added its snapshot cache. 454: 1078bf60 split publication writers out of state.mjs into ten modules (+17 KB eager source). 456: main 1d40e1de already loaded 455 without a recorded raise; agent-output-folder.mjs, the leaf that keeps agent results in the checkout's Git-excluded .sflow/out, makes 456.",
       "forbidden": ["src/cli.mjs", "src/commands/legacy.mjs", "src/worldmodel.mjs", "src/model-runner.mjs", "src/editor.mjs"] },
     { "entry": "src/commands/workspace.mjs", "maximumModules": 27 },
     { "entry": "src/commands/capability.mjs", "maximumModules": 12 },
     { "entry": "src/commands/logs.mjs", "maximumModules": 30 },
     { "entry": "src/commands/session-open-local.mjs", "maximumModules": 225,
       "forbidden": ["src/cli.mjs", "src/commands/legacy.mjs", "src/commands/session.mjs", "src/context-broker.mjs", "src/model-runner.mjs", "src/session-remote-url-discovery.mjs", "src/session-story-discovery.mjs"] },
-    { "entry": "src/copilot-mutation-guard.mjs", "maximumModules": 60 }
+    { "entry": "src/copilot-mutation-guard.mjs", "maximumModules": 61,
+      "note": "61: agent-output-folder.mjs, a leaf on Node built-ins only, names the checkout's agent results folder that the guard corrects misread result paths to." }
   ],
   "forbidden": ["src/cli.mjs", "src/commands/legacy.mjs", "src/model-runner.mjs", "src/model-provider.mjs", "src/jira.mjs", "src/initiative.mjs"],
   "bundleBudgets": "benchmarks/dx/vscode-bundle-budgets.json"

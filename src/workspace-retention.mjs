@@ -5,6 +5,7 @@ import path from 'node:path';
 import { readWorkspace } from './workspace-manifest.mjs';
 import { writeAtomic, run, SingularityFlowError } from './util.mjs';
 import { withRegistryFileLease } from './file-lease.mjs';
+import { withoutAgentOutputStatus } from './agent-output-folder.mjs';
 
 export const DEFAULT_WORKSPACE_RETENTION = Object.freeze({ enabled: true, completedDays: 7,
   cancelledDays: 7, unusedCloneDays: 7, intervalMinutes: 1440 });
@@ -192,7 +193,9 @@ export async function terminalStoryWorktreeProof(workspace, clone, entry, { sett
   const runtimeInfo = await lstat(privateRuntime).catch(error => error.code === 'ENOENT' ? null : Promise.reject(error));
   if (runtimeInfo) {
     if (!runtimeInfo.isDirectory() || runtimeInfo.isSymbolicLink()
-        || (await readdir(privateRuntime)).some(file => !['cache', 'session.json', 'copilot-session.json', 'dx', 'harness-events', 'logs', 'temporary-indexes'].includes(file))) fail('Private Story recovery state is retained.');
+        // `agent-results` is where agent results were kept before they moved to the checkout's
+        // `.sflow/out`: copies of output already printed, like logs, never recovery state.
+        || (await readdir(privateRuntime)).some(file => !['agent-results', 'cache', 'session.json', 'copilot-session.json', 'dx', 'harness-events', 'logs', 'temporary-indexes'].includes(file))) fail('Private Story recovery state is retained.');
     const indexes = path.join(privateRuntime, 'temporary-indexes');
     const indexesInfo = await lstat(indexes).catch(error => error.code === 'ENOENT' ? null : Promise.reject(error));
     if (indexesInfo && (!indexesInfo.isDirectory() || indexesInfo.isSymbolicLink() || (await readdir(indexes)).length)) fail('Private candidate indexes are retained.');
@@ -209,7 +212,8 @@ export async function terminalStoryWorktreeProof(workspace, clone, entry, { sett
       || currentSubjectLockOwner(root, lock.owner.subject)?.lockToken !== lock.owner.lockToken)) fail('A repository operation is active.');
   const { worktreeFingerprint } = await import('./worktree-fingerprint.mjs');
   if (worktreeFingerprint(root, { fresh: true, env, exhaustive: true }).dirty
-      || git(['status', '--porcelain=v1', '--untracked-files=all', '--ignored=matching', '--ignore-submodules=none'])) fail('Story has local, hidden or ignored files.');
+      // SFlow's own excluded agent results are copies of printed output; they go with the checkout.
+      || withoutAgentOutputStatus(git(['status', '--porcelain=v1', '--untracked-files=all', '--ignored=matching', '--ignore-submodules=none']), root)) fail('Story has local, hidden or ignored files.');
   await assertWorkspaceDropLocalGitConfiguration({ id: clone.repositoryId }, root, { env, worktreeGitDirectory: privateGit });
   const head = git(['rev-parse', 'HEAD']), branch = git(['symbolic-ref', '--short', 'HEAD']);
   if (head !== entry.head || branch !== entry.branch) fail('Story checkout changed.');

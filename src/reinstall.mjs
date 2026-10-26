@@ -146,6 +146,10 @@ function generatedBundle(relative) {
 function excludedSource(relative, entry) {
   const segments = relative.split(path.sep);
   if (segments.includes('.git') || segments.includes('node_modules')) return true;
+  // SFlow's own runtime folder (agent results, test reports), written when a command runs in this
+  // checkout, is never its source: nothing there is tracked or packed, and a reinstall preview
+  // printed there must not change the digest its apply rechecks.
+  if (segments[0] === '.sflow') return true;
   if (generatedBundle(relative)) return true;
   if (segments.includes('release') && segments.includes('apps') && segments.includes('vscode')) return true;
   if (entry.isFile() && (/\.tgz$/i.test(entry.name) || /\.vsix$/i.test(entry.name))) return true;
@@ -422,6 +426,7 @@ async function copyCheckout(checkout, target) {
       if (!relative) return true;
       const segments = relative.split(path.sep);
       if (segments.includes('.git') || segments.includes('node_modules')) return false;
+      if (segments[0] === '.sflow') return false;
       if (generatedBundle(relative)) return false;
       if (segments.includes('release') && segments.includes('apps') && segments.includes('vscode')) return false;
       return !(/\.tgz$/i.test(path.basename(source)) || /\.vsix$/i.test(path.basename(source)));

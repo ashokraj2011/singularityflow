@@ -5,7 +5,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
-import { CALL_CAUSES, RESULT_ROUTES, createSessionAttribution, readCopilotSessionReport } from '../src/native-copilot-sessions.mjs';
+import { CALL_CAUSES, RESULT_ROUTES, copilotSessionReport, createSessionAttribution, readCopilotSessionReport } from '../src/native-copilot-sessions.mjs';
 import { childTimeout } from './helpers/child-timeout.mjs';
 
 const packageRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
@@ -33,7 +33,8 @@ test('session report gives every model call one cause and every tool result one 
   assert.deepEqual(report.otherTools, { apply_patch: 1, unknown: 1 }, 'a result without a logged start is other, never dropped');
   assert.equal(report.byRoute['host-shell-other'].savedByHost, 1);
   assert.deepEqual([report.corpus.unparsedLines, report.corpus.unmatchedToolResults, report.corpus.unfinishedToolCalls], [1, 1, 1]);
-  assert.deepEqual(report.resultTypes.overflowReads, { 'sflow-phase-entry': { results: 3, bytes: 81 } });
+  // A kind is counted without its `sflow-` prefix, the way the checkout's `.sflow/out` names it.
+  assert.deepEqual(report.resultTypes.overflowReads, { 'phase-entry': { results: 3, bytes: 81 } });
   assert.deepEqual(report.overflowReads, { files: 1, reads: 3, readsPerFile: { median: 3, p90: 3 }, repeatRate: 0.3333 });
   // The asynchronous shell's later read keeps the SFlow route of the command that started it.
   assert.equal(report.resultTypes.sflowResults['sflow-submission-readiness'].results, 1);
@@ -93,6 +94,27 @@ test('session logs are read only as regular files, one event at a time', async t
   const summary = session.finish();
   assert.equal(summary.unparsedLines, 2);
   assert.match(summary.id, /^[0-9a-f]{16}$/u, 'a session name that is not an identifier is reported only as its digest');
+});
+
+test('an overflow read counts the same in the checkout\'s .sflow/out and the older Git-directory folder', () => {
+  const session = createSessionAttribution('11111111-0000-4000-8000-0000000000aa');
+  const at = (index) => `2026-10-26T10:00:${String(index).padStart(2, '0')}.000Z`;
+  const events = [
+    { type: 'session.start', data: { copilotVersion: '1.0.103', startTime: at(0) } },
+    { type: 'user.message', data: { content: '/sf-phase' } },
+    { type: 'tool.execution_start', data: { toolCallId: 'a', toolName: 'bash', arguments: { command: 'singularity-flow phase enter --compose --for-agent --json' } } },
+    { type: 'tool.execution_complete', data: { toolCallId: 'a', success: true, result: { content: '{"resultType":"sflow-phase-entry"}' } } },
+    { type: 'tool.execution_start', data: { toolCallId: 'b', toolName: 'view',
+      arguments: { path: '/w/.singularity-flow/story-worktrees/.w-1ba53a9069e84ec4093256c2/.sflow/out/phase-entry-5ec3d303.context.text.txt' } } },
+    { type: 'tool.execution_complete', data: { toolCallId: 'b', success: true, result: { content: 'new' } } },
+    { type: 'tool.execution_start', data: { toolCallId: 'c', toolName: 'view',
+      arguments: { path: '/w/main/.git/worktrees/-w-1ba53a9069e84ec4093256c2/singularity-flow/agent-results/sflow-phase-entry-2026-10-25T10-00-00-000Z-5ec3d303.json' } } },
+    { type: 'tool.execution_complete', data: { toolCallId: 'c', success: true, result: { content: 'old' } } }
+  ];
+  events.forEach((event, index) => session.push(JSON.stringify({ ...event, id: `e${index}`, timestamp: at(index) })));
+  const report = copilotSessionReport([session.finish()]);
+  assert.equal(report.byRoute['sflow-overflow-read'].results, 2);
+  assert.deepEqual(report.resultTypes.overflowReads, { 'phase-entry': { results: 2, bytes: 6 } });
 });
 
 // AC-005 (CON-015): no work command, hook or skill reads the report, the analyzer or the host logs.

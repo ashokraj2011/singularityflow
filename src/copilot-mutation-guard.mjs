@@ -11,6 +11,7 @@ import { asSflowCommand, copilotModeFile, mentionsHookCli, readCopilotMode } fro
 // or a staging refusal is written, never on the per-call path.
 const stagingPaths = () => import('./phase-staging-paths.mjs');
 import { parseArgs } from './util.mjs';
+import { AGENT_OUTPUT_FOLDER } from './agent-output-folder.mjs';
 import { canonicalCommand, resolveOperation } from './command-registry.mjs';
 import { currentSchemaVersion, readRecord } from './schema-migrations.mjs';
 import { CLI_PATH_REFERENCE, safeCommandGuidance, validateSflowExecutionCommand } from './safe-command-guidance.mjs';
@@ -345,11 +346,10 @@ function stagingPathMismatch(contract, paths, cwd, operation, outputPaths = null
     const matches = issued.filter(file => {
       if (operation === 'write') return path.basename(absolute) === path.basename(file);
       // Reads are otherwise unrestricted by this mutation guard. Correct only an exact reserved
-      // staging suffix rebuilt below this checkout, not arbitrary files sharing a basename.
-      const suffix = file.split(path.sep).lastIndexOf('singularity-flow');
-      if (suffix < 0) return false;
-      const tail = file.split(path.sep).slice(suffix);
-      return [path.join(contract.repositoryRoot, ...tail), path.join(contract.repositoryRoot, '.git', ...tail)].includes(absolute);
+      // staging or output suffix rebuilt below this checkout, not arbitrary files sharing a basename.
+      const issuedTail = issuedSuffix(file), tail = issuedSuffix(absolute);
+      if (!issuedTail || !tail || issuedKey(issuedTail) !== issuedKey(tail)) return false;
+      return [path.join(contract.repositoryRoot, tail), path.join(contract.repositoryRoot, '.git', tail)].includes(absolute);
     });
     if (matches.length === 1) corrections.push({ attemptedPath: target, issuedPath: matches[0], operation });
   }
@@ -408,9 +408,25 @@ async function unissuedStagingRefusal(value, targetsDenied, cwd) {
   return null;
 }
 
+// Generated output is issued in the checkout's output folder (agent-output-folder.mjs). A read at
+// the older Git-directory spelling, rebuilt below the checkout, is corrected to it like a misplaced
+// staging read, never retargeted.
+const OUTPUT_FOLDERS = Object.freeze([AGENT_OUTPUT_FOLDER, 'singularity-flow/agent-results'].map(folder => folder.split('/')));
+
+/** The issued suffix a path names: its output folder and file, or its Git-private `singularity-flow` tail. */
 function issuedSuffix(file) {
-  const parts = file.split(path.sep), index = parts.lastIndexOf('singularity-flow');
+  const parts = file.split(path.sep);
+  const folder = OUTPUT_FOLDERS.find(segments => parts.length > segments.length
+    && segments.every((segment, index) => parts[parts.length - 1 - segments.length + index] === segment));
+  if (folder) return path.join(...folder, parts.at(-1));
+  const index = parts.lastIndexOf('singularity-flow');
   return index < 0 ? null : parts.slice(index).join(path.sep);
+}
+/** One key for every spelling of the same issued file: an output file's is its current folder's. */
+function issuedKey(suffix) {
+  const parts = suffix.split(path.sep);
+  return OUTPUT_FOLDERS.some(segments => parts.length === segments.length + 1 && segments.every((segment, index) => parts[index] === segment))
+    ? path.join(...OUTPUT_FOLDERS[0], parts.at(-1)) : suffix;
 }
 function issuedReadFile(payload, turnId, suffix) {
   return path.join(`${recordFile(payload)}.issued`, digest(turnId), `${digest(suffix)}.json`);
@@ -423,7 +439,7 @@ async function outputPathMismatch(payload, record, call) {
     const absolute = editTarget(target, call.args.cwd ?? payload.cwd ?? root);
     const suffix = absolute && issuedSuffix(absolute);
     if (!suffix || ![path.join(root, suffix), path.join(root, '.git', suffix)].includes(absolute)) continue;
-    const issued = await boundedRecord(issuedReadFile(payload, record.turnId, suffix), 'copilot-issued-read').catch(() => null);
+    const issued = await boundedRecord(issuedReadFile(payload, record.turnId, issuedKey(suffix)), 'copilot-issued-read').catch(() => null);
     if (issued?.root !== root || issued.turnId !== record.turnId || typeof issued.path !== 'string') continue;
     const correction = stagingPathMismatch({ repositoryRoot: root }, [target],
       call.args.cwd ?? payload.cwd ?? root, 'read', [issued.path]);
@@ -1098,7 +1114,7 @@ async function mutationToolDecision(payload, record) {
   }
   const guarded = toolCalls.filter(call => TERMINALS.has(call.name) || DELEGATION.has(call.name) || isEdit(call.name));
   const stagingReads = toolCalls.filter(call => FILE_READS.has(call.name)
-    && targets(call.args).some(target => /(?:^|[\\/])singularity-flow[\\/]/u.test(target)));
+    && targets(call.args).some(target => /(?:^|[\\/])(?:singularity-flow|\.sflow[\\/]out)[\\/]/u.test(target)));
   if (stagingReads.length) {
     // Read references are hints, never write grants. Use the integrity-bound live turn record:
     // no Story/config reload, Git lookup or directory search is needed to correct an output read.
@@ -1472,7 +1488,7 @@ export async function issueMutationReadPaths(root, targets) {
     // They are removed at turn replacement/end; output pruning still owns the actual files.
     for (const target of paths) {
       const suffix = issuedSuffix(target);
-      if (suffix) await atomicRecord(issuedReadFile({ sessionId: value.sessionId }, value.turnId, suffix), {
+      if (suffix) await atomicRecord(issuedReadFile({ sessionId: value.sessionId }, value.turnId, issuedKey(suffix)), {
         kind: 'copilot-issued-read', root, turnId: value.turnId, path: target
       });
     }

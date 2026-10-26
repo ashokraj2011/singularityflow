@@ -13,6 +13,7 @@ import {
 import { discardPreparedStoryWorktree } from '../src/story-worktree.mjs';
 import { gitCommonDir } from '../src/git.mjs';
 import { SingularityFlowError } from '../src/util.mjs';
+import { boundedAgentOutput } from '../src/agent-output.mjs';
 import { createWorkflow, loadConfig } from '../src/state.mjs';
 import { preflightFetchedStoryCapability } from '../src/commands/story.mjs';
 import { onboardRepository } from '../src/onboard.mjs';
@@ -170,6 +171,8 @@ test('failed-start rollback retains tracked, untracked, and ignored checkout cha
   await writeFile(path.join(worktree, 'untracked work.txt'), 'keep this work\n');
   await writeFile(path.join(root, '.git/info/exclude'), 'ignored-recovery.txt\n');
   await writeFile(path.join(worktree, 'ignored-recovery.txt'), 'keep ignored work\n');
+  // SFlow's own agent results beside them are not work to keep, and never hide the work that is.
+  await spillAgentResult(worktree);
 
   const inspected = storyWorktreeChanges(worktree);
   assert.equal(inspected.clean, false);
@@ -197,6 +200,25 @@ test('failed-start rollback retains tracked, untracked, and ignored checkout cha
     assert.match(error.message, /Review git status there, preserve those changes/);
     return true;
   });
+});
+
+/** A real bounded agent result, written where every command run in `checkout` writes one. */
+async function spillAgentResult(checkout) {
+  const view = JSON.parse(await boundedAgentOutput(JSON.stringify({ resultType: 'sflow-phase-entry', repositoryPath: checkout,
+    context: { text: 'Composed context line.\n'.repeat(900) } }), { cwd: checkout }));
+  assert.equal(path.dirname(view.agentOutput.path), path.join(await realpath(checkout), '.sflow', 'out'));
+  return view;
+}
+
+test('failed-start rollback removes a launch checkout that holds only SFlow\'s own agent results', async (t) => {
+  const { root } = await repository(t);
+  const prepared = await prepareStoryWorktree(root, 'ISO-AGENT-OUTPUT', { base: 'main' });
+  const worktree = prepared.repositoryPath;
+  await spillAgentResult(worktree);
+  assert.equal(git(worktree, ['status', '--porcelain', '--untracked-files=all']), '', 'the clone excludes the folder in every worktree');
+  assert.deepEqual(storyWorktreeChanges(worktree), { clean: true, changedPaths: [], entries: [] });
+  assert.equal(rollbackStoryWorktree(prepared).removed, true);
+  await assert.rejects(access(worktree), { code: 'ENOENT' });
 });
 
 test('failed-start rollback retries one transient worktree lock without discarding work', async (t) => {

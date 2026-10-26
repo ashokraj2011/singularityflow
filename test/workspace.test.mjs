@@ -36,6 +36,7 @@ import {
   activeSubjectLocks, assertNoActiveSubjectLocks, withRepositoryResetBarrier
 } from '../src/subject-lock.mjs';
 import { run, SingularityFlowError } from '../src/util.mjs';
+import { boundedAgentOutput } from '../src/agent-output.mjs';
 import { ensureConfigurationBranch } from '../src/configuration-branch.mjs';
 import { publishOrganisationCapabilityMap, readOrganisation } from '../src/organisation.mjs';
 import { GitRemoteSession } from '../src/git-execution.mjs';
@@ -1282,6 +1283,11 @@ test('workspace capability drop refuses ignored files and commits retained only 
 
   await writeFile(path.join(fixture.apiCheckout, '.git', 'info', 'exclude'), 'local-cache.bin\n');
   await writeFile(path.join(fixture.apiCheckout, 'local-cache.bin'), 'irreplaceable cache\n');
+  // SFlow's own agent results, in the checkout's excluded .sflow/out, are not a person's ignored
+  // files: once the cache is gone the drop goes on to its next check.
+  const spilled = JSON.parse(await boundedAgentOutput(JSON.stringify({ resultType: 'sflow-phase-entry',
+    repositoryPath: fixture.apiCheckout, context: { text: 'Composed context line.\n'.repeat(900) } }), { cwd: fixture.apiCheckout }));
+  assert.match(spilled.agentOutput.relativePath, /^\.sflow\/out\//u);
   await assert.rejects(
     () => previewWorkspaceCapabilityChange(fixture.workspace.path, 'api', {
       action: 'detach', dropLocal: true

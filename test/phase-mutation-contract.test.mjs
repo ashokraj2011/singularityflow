@@ -46,8 +46,12 @@ test('all generated context, JSON, catalog, refusal and text files get exact rea
   const textPath = textOutput.match(/The complete output is (.+) \(/u)[1];
   files.push(textPath);
   for (const exact of files) {
-    for (const prefix of [checkout, path.join(checkout, '.git')]) {
-      const wrong = path.join(prefix, 'singularity-flow', 'agent-results', path.basename(exact));
+    // Every file is in the checkout's output folder: one ID, the checkout's own, in every path.
+    assert.equal(path.dirname(exact), path.join(checkout, '.sflow', 'out'), exact);
+    // The older Git-directory spelling, and the folder guessed inside .git, are corrected to it.
+    for (const wrong of [path.join(checkout, 'singularity-flow', 'agent-results', path.basename(exact)),
+      path.join(checkout, '.git', 'singularity-flow', 'agent-results', path.basename(exact)),
+      path.join(checkout, '.git', '.sflow', 'out', path.basename(exact))]) {
       const decision = await mutationToolGuard({ ...payload, toolName: 'Read', toolArgs: { path: wrong, view_range: [121, 225] } });
       assert.equal(decision.permissionDecision, 'deny', wrong);
       assert.match(decision.permissionDecisionReason, /^CLI_ISSUED_PATH_MISMATCH/u);
@@ -59,6 +63,8 @@ test('all generated context, JSON, catalog, refusal and text files get exact rea
     assert.deepEqual(await mutationToolGuard({ ...payload, toolName: 'view', toolArgs: { path: pathToFileURL(exact).href } }), {});
     assert.equal((await mutationToolGuard({ ...payload, toolName: 'edit', toolArgs: { path: exact } })).permissionDecision, 'deny');
   }
+  // The clone's info/exclude covers its linked worktrees: nothing SFlow wrote shows as a change.
+  assert.equal(spawnSync('git', ['status', '--porcelain', '--untracked-files=all'], { cwd: checkout, encoding: 'utf8' }).stdout, '');
   const missing = `${files[0]}.missing`;
   assert.deepEqual(await mutationToolGuard({ ...payload, toolName: 'read', toolArgs: { path: missing } }), {});
   await assert.rejects(readFile(missing), { code: 'ENOENT' });

@@ -55,7 +55,9 @@ test('frequent lifecycle handlers do not reach the legacy dispatcher and stay un
     // configuration-branch.mjs on main 810418a6 without a recorded raise.
     // 460: story-presentation.mjs (c8e340ef3, a Story's original creator) joined submit.mjs's graph through
     // story-publication-binding.mjs and story-state-index.mjs on main without a recorded raise.
-    assert.ok(closure.files.size <= 460, `${file} loads ${closure.files.size} local files (budget 460; retired graph 597)`);
+    // 461: agent-output-folder.mjs, the leaf that keeps agent results in the checkout's Git-excluded .sflow/out,
+    // joined submit.mjs's graph through agent-output.mjs and application-paths.mjs.
+    assert.ok(closure.files.size <= 461, `${file} loads ${closure.files.size} local files (budget 461; retired graph 597)`);
     // 9,005,000 (next 5,000 boundary): phase-lifecycle.mjs grew from 8,993,692 (main 4a8e6c42) to 9,004,129 with the
     // capability application block's per-environment arguments and debug validation in capabilities.mjs and the
     // launcher rules it reads (RUN amendment), together with 2ca46d6d's conformance issue ownership; no new file.
@@ -135,7 +137,11 @@ test('frequent lifecycle handlers do not reach the legacy dispatcher and stay un
     // with their original creators) without a recorded raise; a Verification intent finding that names its missing
     // methods and both fixes, with the coverage rule in the Specification line, adds 1,021 for 9,116,782
     // (verification/intent.mjs, phase-authoring-contract.mjs, specification-quality.mjs). No new file.
-    assert.ok(closure.bytes <= 9_120_000, `${file} exceeds the 9 MB eager-source budget (${closure.bytes} bytes)`);
+    // 9,125,000 (next 5,000 boundary): main 1d40e1de measures 9,118,376 for start.mjs. Agent results in the
+    // checkout's Git-excluded .sflow/out add 5,247 for 9,123,623: the new agent-output-folder.mjs (the folder, its
+    // exclude line and the ignored-entry check) and its use in agent-output.mjs, application-paths.mjs,
+    // copilot-mutation-guard.mjs, story-worktree.mjs, workspace.mjs and workspace-retention.mjs. One new file.
+    assert.ok(closure.bytes <= 9_125_000, `${file} exceeds the 9 MB eager-source budget (${closure.bytes} bytes)`);
   }
 });
 

@@ -180,7 +180,9 @@ test('the Copilot edit guard, run on every tool call, stays clear of the configu
   for (const heavy of ['src/config.mjs', 'src/sequence.mjs', 'src/cli.mjs']) {
     assert.ok(!names.includes(heavy), `the edit guard statically reaches ${heavy}`);
   }
-  assert.ok(closure.size <= 60, `the edit guard loads ${closure.size} static modules; ceiling is 60`);
+  // 61: agent-output-folder.mjs, a leaf on Node built-ins only, names the checkout's agent results folder, which
+  // the guard corrects misread result paths to and application-paths.mjs keeps out of application edits.
+  assert.ok(closure.size <= 61, `the edit guard loads ${closure.size} static modules; ceiling is 61`);
 });
 
 test('commands that load the legacy CLI leave the SQLite build and the ACP SDK to first use', () => {

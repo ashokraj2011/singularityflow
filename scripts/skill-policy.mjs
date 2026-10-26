@@ -61,11 +61,12 @@ export const approvedInputsContractApplies = (contract) => contract === 'clarifi
  * Copilot keeps a long tool result in a file and shows the model only its start, or saves it
  * outside the workspace where its file tools cannot open it. Agents missed what to do next, stopped,
  * or treated the result as truncated. A `--for-agent` result now starts with `act` and stays
- * within a fixed size, listing every field it left out with its line range in a file inside the
- * repository (src/agent-output.mjs). Engine-owned like the contracts above, on the same Story
- * skills as the applicability contract.
+ * within a fixed size, listing every field it left out with its line range in a file in the
+ * checkout's `.sflow/out/` (src/agent-output.mjs). The contract names that folder: agents that
+ * guessed the older Git-directory location misread about 3% of those paths. Engine-owned like the
+ * contracts above, on the same Story skills as the applicability contract.
  */
-export const COMPLETE_OUTPUT_CONTRACT = 'Act on a result\'s `act` first: its state, `do` routes and any `ask`. A bounded result names `agentOutput.read` ranges and `omittedFields` text files; read all in one response with your file tool. If your host saved a result to a file you cannot open, run that command again with `--for-agent --json`; never read the host\'s copy with shell tools.';
+export const COMPLETE_OUTPUT_CONTRACT = 'Act on a result\'s `act` first: its state, `do` routes and any `ask`. A bounded result names `agentOutput.read` ranges and `omittedFields` text files; read all in one response with your file tool, at the exact paths in the checkout\'s `.sflow/out/`. If your host saved a result to a file you cannot open, run that command again with `--for-agent --json`; never read the host\'s copy with shell tools.';
 
 /**
  * A read skill answers through SFlow's gateway tools when the host offers them. `[gateway-tools]`

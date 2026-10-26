@@ -190,7 +190,11 @@ test('the bundled CLI answers exactly like the sources while opening a handful o
   // 7,435,000: main c8e340ef3 (Story lists sorted by creation with their original creators) measures 7,430,250
   // without a recorded raise (cold-narrow-reads +1,004, cold-publication +413, cold-hook-context +2); the
   // Verification intent finding that names its fixes adds cold-narrow-reads +638 for 7,430,888.
-  assert.ok(closure('cold-hook-context.mjs').reduce((sum, item) => sum + item.bytes, 0) < 7_435_000,
+  // 7,440,000 (next 5,000 boundary): main 34868ccab measures 7,432,228. Agent results move to the checkout's
+  // Git-excluded .sflow/out under short names: cold-hooks +2,915 (the new agent-output-folder.mjs, shared by
+  // agent-output.mjs, application-paths.mjs and the edit guard, and the guard's correction of misread result
+  // paths), cold-catalogs +63 and cold-worker-protocol -10 for 7,435,196.
+  assert.ok(closure('cold-hook-context.mjs').reduce((sum, item) => sum + item.bytes, 0) < 7_440_000,
     'phase-review reads retain their existing byte ceiling after moving families');
   assert.match(await readFile(path.join(outdir, 'cold-light.mjs'), 'utf8'), /function enterPhase\b/u,
     'phase binding must not fall through to the compatibility/admin bundle');
@@ -214,7 +218,11 @@ test('the bundled CLI answers exactly like the sources while opening a handful o
   // and the Specification line states that coverage rule: cold-narrow-reads +638 (verification/intent.mjs,
   // specification-quality.mjs, specification-scenarios.mjs, phase-prepublish.mjs, phase-authoring-contract.mjs)
   // for 5,250,471.
-  assert.ok(catalogClosure.reduce((sum, item) => sum + item.bytes, 0) < 5_255_000,
+  // 5,260,000 (next 5,000 boundary): main 1d40e1de measures 5,252,527. Agent results move to the checkout's
+  // Git-excluded .sflow/out under short names: cold-hooks +2,915 (the new agent-output-folder.mjs, shared by
+  // agent-output.mjs, application-paths.mjs and the edit guard, and the guard's correction of misread result
+  // paths), cold-catalogs +63 and cold-worker-protocol -10 for 5,255,495.
+  assert.ok(catalogClosure.reduce((sum, item) => sum + item.bytes, 0) < 5_260_000,
     'catalog parsing stays bounded instead of pulling in the entire administration bundle');
   for (const name of ['cold-compatibility.mjs', 'cold-models.mjs', 'cold-intake.mjs', 'cold-phases.mjs', 'cold-hook-context.mjs']) {
     assert.ok(!catalogClosure.some(item => item.file === name), `catalogs must not statically reach ${name}`);

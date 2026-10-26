@@ -156,7 +156,7 @@ test('even short pinned review sources get exact line-readable files, not JSON l
   const sourceFile = full.sources[0].text;
   assert.equal(await readFile(sourceFile.textFile, 'utf8'), source, 'do not normalize or prefix pinned bytes');
   assert.equal(sourceFile.lines, 5);
-  assert.ok(path.relative(await realpath(root), sourceFile.textFile).startsWith('.git'));
+  assert.ok(path.relative(await realpath(root), sourceFile.textFile).startsWith(path.join('.sflow', 'out', 'source-review-agent-context-')));
   assert.ok(view.omittedFields.find(entry => entry.field === 'sources').textFiles[0].path === sourceFile.textFile);
 });
 
@@ -199,8 +199,11 @@ test('a small result keeps every field with act first; a large one is written wh
   assert.equal(view.act.paths, CLI_PATH_REFERENCE, 'the rule is named even when phase instructions are externalized');
   assert.deepEqual(view.clarification, large.clarification, 'the field act reads stays in the view');
   assert.equal(view.workId, 'W', 'small fields stay');
-  // The complete result lives inside the repository's Git directory, readable by line range.
-  assert.match(view.agentOutput.relativePath, /^\.git\/singularity-flow\/agent-results\/sflow-phase-entry-.*\.json$/u);
+  // The complete result lives in the checkout's excluded output folder, readable by line range,
+  // under a short name: its kind and eight hex digits.
+  assert.match(view.agentOutput.relativePath, /^\.sflow\/out\/phase-entry-[0-9a-f]{8}\.json$/u);
+  assert.equal(view.agentOutput.path, path.join(await realpath(root), '.sflow', 'out', path.basename(view.agentOutput.relativePath)));
+  assert.equal(spawnSync('git', ['status', '--porcelain', '--untracked-files=all'], { cwd: root, encoding: 'utf8' }).stdout, '', 'nothing SFlow wrote shows as a change');
   const lines = (await readFile(view.agentOutput.path, 'utf8')).split('\n');
   const recovery = view.omittedFields.find((entry) => entry.field === 'recovery');
   const slice = lines.slice(recovery.lines[0] - 1, recovery.lines[1]).join('\n').replace(/^ {2}"recovery": /u, '').replace(/,$/u, '');
@@ -388,10 +391,11 @@ test('the CLI bounds a real phase entry, and the bytes it leaves out are in the 
   const context = view.omittedFields.find((entry) => entry.field === 'context');
   const whole = JSON.parse(run(['phase', 'enter', '--compose', '--for-agent', '--json'], { SINGULARITY_FLOW_AGENT_OUTPUT: 'full' }).stdout);
   assert.equal(await readFile(context.textFiles[0].path, 'utf8'), whole.context.text, 'the composed context is complete in its file');
-  // The composition records its own prompt; the bounded result adds nothing to the working tree.
+  // The composition records its own prompt; the bounded result, in the checkout's excluded
+  // output folder, adds nothing Git sees.
   const changed = spawnSync('git', ['status', '--porcelain', '--untracked-files=all'], { cwd: root, encoding: 'utf8' }).stdout.trim().split('\n');
   assert.ok(changed.every((line) => line.startsWith('?? singularity/work-items/OUT-1/context/')), changed.join('\n'));
-  assert.match(view.agentOutput.relativePath, /^\.git\//u);
+  assert.match(view.agentOutput.relativePath, /^\.sflow\/out\/phase-entry-[0-9a-f]{8}\.json$/u);
 });
 
 test('the same actionable result a third time in a row says it is a loop and names what changes it', async (t) => {
@@ -601,7 +605,7 @@ test('every route form given --for-agent is accepted, fits the host, and a pause
   const bounded = run(['explain', 'workflow-markup', '--for-agent']).stdout;
   assert.ok(Buffer.byteLength(bounded) <= DEFAULT_AGENT_OUTPUT_BYTES, `${Buffer.byteLength(bounded)} bytes`);
   const [, file, relative] = /The complete output is (\S+) \(([^)]+)\)/u.exec(bounded);
-  assert.match(relative, /^\.git\/singularity-flow\/agent-results\/explain-/u);
+  assert.match(relative, /^\.sflow\/out\/explain-[0-9a-f]{8}\.txt$/u);
   assert.equal(await readFile(file, 'utf8'), whole, 'nothing was truncated');
   assert.ok(whole.startsWith(bounded.slice(0, bounded.indexOf('\n[Output continues]'))), 'the view is the start of the text');
   // A paused SFlow answers an agent command before any Git or lookup; pause itself still runs.

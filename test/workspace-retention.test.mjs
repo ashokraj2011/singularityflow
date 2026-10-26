@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdtemp, mkdir, readFile, writeFile, rm, lstat, readdir, symlink } from 'node:fs/promises';
+import { mkdtemp, mkdir, readFile, writeFile, rm, lstat, readdir, realpath, symlink } from 'node:fs/promises';
 import path from 'node:path';
 import os from 'node:os';
 import { fileURLToPath } from 'node:url';
@@ -11,6 +11,7 @@ import { DEFAULT_WORKSPACE_RETENTION, normalizeWorkspaceRetention, workspaceRete
 import { prepareWorkspaceBranch } from '../src/workspace-branch-checkout.mjs';
 import { readWorkspace, rememberWorkspace } from '../src/workspace.mjs';
 import { withRepositoryMutationLease } from '../src/subject-lock.mjs';
+import { boundedAgentOutput } from '../src/agent-output.mjs';
 import { childTimeout } from './helpers/child-timeout.mjs';
 import { slowLane } from './helpers/slow-lane.mjs';
 
@@ -116,6 +117,14 @@ test('automatic retention removes only the published cancelled worktree after re
   const f = await fixture(t), target = await f.story('RETIRE');
   const early = await runWorkspaceRetention(f.workspacePath, { force: true });
   assert.equal(early.removed.length, 0);
+  // SFlow's own agent results are copies of printed output and never keep a checkout: those in its
+  // excluded .sflow/out, and those kept in its Git directory before they moved there.
+  const spilled = JSON.parse(await boundedAgentOutput(JSON.stringify({ resultType: 'sflow-phase-entry', repositoryPath: target,
+    context: { text: 'Composed context line.\n'.repeat(900) } }), { cwd: target }));
+  assert.equal(path.dirname(spilled.agentOutput.path), path.join(await realpath(target), '.sflow', 'out'));
+  const legacy = path.join(git(target, ['rev-parse', '--absolute-git-dir']), 'singularity-flow', 'agent-results');
+  await mkdir(legacy, { recursive: true });
+  await writeFile(path.join(legacy, 'sflow-phase-entry-2026-10-20T10-00-00-000Z-abcdef12.json'), '{}\n');
   const late = await runWorkspaceRetention(f.workspacePath, { force: true, now: Date.now() + 8 * 86400000 });
   assert.ok(late.removed.some(item => item.root === target), JSON.stringify(late));
   const archived = late.removed.find(item => item.root === target).retainedMetadata;

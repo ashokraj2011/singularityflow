@@ -15,6 +15,7 @@ import { lstat, mkdir, realpath } from 'node:fs/promises';
 import { gitCommonDir, headAndBranch, localRefHeads, refExists, remoteNames } from './git.mjs';
 import { executeGitQuery } from './git-query.mjs';
 import { parsePorcelainV2Status } from './git-status-detail.mjs';
+import { isAgentOutputEntry } from './agent-output-folder.mjs';
 import {
   activeWorkspaceFile, workspaceMemberContextForRepository, workspaceRegistryFile
 } from './workspace-context.mjs';
@@ -481,12 +482,14 @@ export function storyWorktreeChanges(repositoryPath) {
       code: 'STORY_WORKTREE_RECOVERY_REQUIRED', cause: error
     });
   }
+  // SFlow's own excluded agent results are copies of printed output, not work to keep.
+  const entries = parsed.entries.filter((entry) => !(entry.type === 'ignored' && isAgentOutputEntry(repositoryPath, entry.path.value)));
   return {
-    clean: parsed.entries.length === 0,
-    changedPaths: [...new Set(parsed.entries.flatMap((entry) => [
+    clean: entries.length === 0,
+    changedPaths: [...new Set(entries.flatMap((entry) => [
       entry.path.display, entry.sourcePath?.display
     ]).filter(Boolean))].sort(),
-    entries: parsed.entries.map((entry) => ({
+    entries: entries.map((entry) => ({
       status: entry.type, path: entry.path, sourcePath: entry.sourcePath ?? null
     }))
   };

@@ -62,6 +62,40 @@ export function portableArgv(argv) {
   return values;
 }
 
+// `node --test` takes test files as operands. The files a Story adds or edits are its work, not the
+// command: a pin names the runner and its flags, and its files once as `<test files>`. Pinning the
+// list (and the first file's text as if it were a script) refused every Story that added a test
+// (spk-e2e, 2026-10-26).
+const NODE_TEST_VALUE_FLAGS = new Set(['--test-reporter', '--test-reporter-destination', '--test-name-pattern',
+  '--test-skip-pattern', '--test-concurrency', '--test-timeout', '--test-shard', '--import', '--require', '-r',
+  '--loader', '--experimental-loader', '--env-file']);
+const nodeTestRunner = (argv) => launcherName(argv[0]) === 'node' && argv.includes('--test');
+
+/** The test-file operands of a `node --test` argv, or none. */
+function nodeTestFiles(argv) {
+  const values = (argv ?? []).map(String);
+  if (!nodeTestRunner(values)) return [];
+  const files = [];
+  for (let index = 1; index < values.length; index += 1) {
+    if (values[index].startsWith('-')) { if (NODE_TEST_VALUE_FLAGS.has(values[index])) index += 1; continue; }
+    files.push(values[index].replaceAll('\\', '/').replace(/^\.\//u, ''));
+  }
+  return files;
+}
+
+/** Argv as a pin records it: portable, and a `node --test` file list as one `<test files>`. */
+export function pinnedArgv(argv) {
+  const values = portableArgv(argv);
+  if (!nodeTestRunner(values)) return values;
+  const kept = [values[0]];
+  for (let index = 1; index < values.length; index += 1) {
+    if (!values[index].startsWith('-')) continue;
+    kept.push(values[index]);
+    if (NODE_TEST_VALUE_FLAGS.has(values[index]) && index + 1 < values.length) kept.push(values[index += 1]);
+  }
+  return nodeTestFiles(values).length ? [...kept, '<test files>'] : kept;
+}
+
 /** The package script an npm, pnpm, yarn or bun invocation runs, or null (`bun test` is bun's own runner). */
 export function packageScriptName(tokens) {
   const [first, ...rest] = tokens ?? [];
@@ -235,7 +269,8 @@ export async function commandDefinition(root, command, { read = (relative) => re
     add(join(directory, 'tox.ini'), 'pytest', iniSection(await read(join(directory, 'tox.ini')), '[pytest]'));
   }
   // A repository script the command runs (`./scripts/test.sh`, `bash scripts/test.sh`, `node run-tests.mjs`).
-  const scriptFile = ['bash', 'sh', 'zsh', 'node'].includes(launcher) ? argv.slice(1).find((value) => !value.startsWith('-')) : argv[0];
+  const scriptFile = nodeTestRunner(argv) ? null
+    : ['bash', 'sh', 'zsh', 'node'].includes(launcher) ? argv.slice(1).find((value) => !value.startsWith('-')) : argv[0];
   if (scriptFile && /[/\\]|\.(?:sh|mjs|cjs|js|py|ps1)$/u.test(scriptFile) && !['mvnw', 'gradlew'].includes(launcher)
       && !path.posix.isAbsolute(scriptFile.replaceAll('\\', '/')) && !scriptFile.replaceAll('\\', '/').split('/').includes('..')) {
     await whole(join(directory, scriptFile.replaceAll('\\', '/').replace(/^\.\//u, '')));
@@ -266,7 +301,7 @@ export function pinSourceKey(source) {
 /** The pin a gate run of `command` would record, identified by the digest of everything it pins. */
 export function pinCandidate(phase, command, definition) {
   const identity = {
-    commandId: command.id, source: pinSource(phase, command), argv: portableArgv(command.argv),
+    commandId: command.id, source: pinSource(phase, command), argv: pinnedArgv(command.argv),
     workingDirectory: command.workingDirectory ?? '.', affectedRoots: [...(command.affectedRoots ?? [])].sort(),
     adapter: command.result?.adapter ?? null, definition
   };
@@ -275,6 +310,20 @@ export function pinCandidate(phase, command, definition) {
 
 const pinIdentity = ({ commandId, source, argv, workingDirectory, affectedRoots, adapter, definition, sha256: digest }) =>
   ({ commandId, source, argv, workingDirectory, affectedRoots, adapter, definition, sha256: digest });
+
+/**
+ * A pin as the current identity reads it. One recorded before `<test files>` listed its `node --test`
+ * files and pinned the first file's text; read here without them, so a Story that only added or
+ * edited tests since then is not asked for a re-pin.
+ */
+function comparablePin(pinned) {
+  const files = new Set(nodeTestFiles(pinned?.argv));
+  if (!files.size) return pinned;
+  const { commandId, source, workingDirectory, affectedRoots, adapter } = pinned;
+  const identity = { commandId, source, argv: pinnedArgv(pinned.argv), workingDirectory, affectedRoots, adapter,
+    definition: (pinned.definition ?? []).filter((entry) => !files.has(entry.path)) };
+  return { ...pinned, ...identity, sha256: `sha256:${recordSha256(identity)}` };
+}
 
 /** The Story's latest recorded pin of this command and source, or null. */
 export function storyPin(workflow, candidate) {
@@ -300,7 +349,8 @@ export function acceptedRepin(workflow, candidate) {
 }
 
 /** What differs between a pin and a candidate: argv, directory, roots, adapter, and each definition entry. */
-export function pinChanges(pinned, candidate) {
+export function pinChanges(recorded, candidate) {
+  const pinned = comparablePin(recorded);
   const changes = [];
   for (const field of ['argv', 'workingDirectory', 'affectedRoots', 'adapter']) {
     if (canonicalJson(pinned[field] ?? null) !== canonicalJson(candidate[field] ?? null)) changes.push({ field, pinned: pinned[field] ?? null, now: candidate[field] ?? null });
@@ -379,7 +429,8 @@ export async function gateTestCommandPins(root, config, workflow, phase, command
   for (const command of commands) {
     const { entries, scripts } = await commandDefinition(root, command);
     const candidate = pinCandidate(phase, command, entries);
-    const reference = referencePin(workflow, candidate, attempts);
+    const recordedReference = referencePin(workflow, candidate, attempts);
+    const reference = recordedReference && comparablePin(recordedReference);
     const acceptedBy = reference && reference.sha256 !== candidate.sha256 ? acceptedRepin(workflow, candidate) : null;
     // Back to exactly what the base commit runs is the team's own setup, never a change to decide.
     const restoredToBase = Boolean(reference && reference.sha256 !== candidate.sha256 && !acceptedBy && baseCommit
@@ -438,14 +489,15 @@ export function recordTestCommandPins(workflow, phase, prepared, { ran, at, atte
 export async function repinRequest(root, config, workflow, phase, command) {
   const { entries } = await commandDefinition(root, command);
   const candidate = pinCandidate(phase, command, entries);
-  const reference = referencePin(workflow, candidate, await recordedRuns(root, config, workflow, phase));
+  const recorded = referencePin(workflow, candidate, await recordedRuns(root, config, workflow, phase));
+  const reference = recorded && comparablePin(recorded);
   if (!reference || reference.sha256 === candidate.sha256) {
     throw new SingularityFlowError(reference
       ? `Test command ${command.id} is unchanged since it was pinned for this Story${reference.id ? ` (${reference.id})` : ''}; there is nothing to re-pin.`
       : `Test command ${command.id} is not pinned for this Story yet; its first gate run pins it.`, { code: 'TEST_COMMAND_REPIN_UNNEEDED' });
   }
   const { sha256: digest, ...pin } = pinIdentity(candidate);
-  return { commandId: command.id, sha256: digest, pinned: reference.sha256, pin, changes: pinChanges(reference, candidate).map(pinChangeWords) };
+  return { commandId: command.id, sha256: digest, pinned: recorded.sha256, pin, changes: pinChanges(reference, candidate).map(pinChangeWords) };
 }
 
 /**

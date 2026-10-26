@@ -11,7 +11,7 @@ import test from 'node:test';
 
 import { recordSha256 } from '../src/records.mjs';
 import {
-  commandDefinition, gateTestCommandPins, packageScriptChain, pinCandidate, pinReplayProblem, pinSource, portableArgv, referencePin
+  commandDefinition, gateTestCommandPins, packageScriptChain, pinCandidate, pinnedArgv, pinReplayProblem, pinSource, portableArgv, referencePin
 } from '../src/test-command-pins.mjs';
 
 async function repository(t, files) {
@@ -70,6 +70,40 @@ test('one pin serves every platform: wrapper and launcher spellings read the sam
   assert.deepEqual(portableArgv(['.\\mvnw.cmd', 'test']), ['./mvnw', 'test']);
   assert.deepEqual(portableArgv(['py', '-3', '-B', '-m', 'pytest']), ['python3', '-B', '-m', 'pytest']);
   assert.deepEqual(portableArgv(['.venv\\Scripts\\python.exe', '-m', 'pytest']), ['.venv/bin/python', '-m', 'pytest']);
+});
+
+test('a node --test pin names its runner and flags, never its test files: adding or editing a test is the Story\'s work', async (t) => {
+  // spk-e2e (2026-10-26): the inferred `node --test <files>` grew a file, and the pin, which listed the
+  // files and hashed the first one as a script, refused the Story until a person re-pinned it.
+  const root = await repository(t, { 'tests/retry.test.mjs': "import test from 'node:test';\ntest('retry', () => {});\n" });
+  const phase = { id: 'implement', status: 'in_progress' };
+  const workflow = { workItem: { id: 'W-2' }, phases: { implement: phase }, phaseOrder: ['implement'] };
+  const command = (files, extra = []) => ({ id: 'node-tests', kind: 'test', argv: ['node', '--test', ...extra, ...files], workingDirectory: '.',
+    affectedRoots: ['.'], provenance: 'inferred', result: { adapter: 'node-tap' } });
+  assert.deepEqual(pinnedArgv(['node', '--test', '--test-reporter', 'junit', 'tests/a.test.mjs', 'tests/b.test.mjs']),
+    ['node', '--test', '--test-reporter', 'junit', '<test files>']);
+  assert.deepEqual((await commandDefinition(root, command(['tests/retry.test.mjs']))).entries, [], 'a test file is not a script');
+  const first = await gateTestCommandPins(root, {}, workflow, phase, [command(['tests/retry.test.mjs'])]);
+  await first.record(workflow, ['node-tests'], { at: '2026-10-26T00:00:00.000Z' });
+  assert.deepEqual(workflow.testCommandPins[0].argv, ['node', '--test', '<test files>']);
+  // A new test file and an edited one: the same pin, and nothing to decide.
+  await writeFile(path.join(root, 'tests/attempts.test.mjs'), "import test from 'node:test';\ntest('attempts', () => {});\n");
+  await writeFile(path.join(root, 'tests/retry.test.mjs'), "import test from 'node:test';\ntest('retry twice', () => {});\n");
+  const grown = await gateTestCommandPins(root, {}, workflow, phase, [command(['tests/attempts.test.mjs', 'tests/retry.test.mjs'])]);
+  assert.equal(grown.prepared.get('node-tests').candidate.sha256, workflow.testCommandPins[0].sha256);
+  // A pin recorded before this rule (its files listed, the first one hashed) reads the same way.
+  const legacyIdentity = { commandId: 'node-tests', source: { kind: 'inferred' }, argv: ['node', '--test', 'tests/retry.test.mjs'], workingDirectory: '.',
+    affectedRoots: ['.'], adapter: 'node-tap', definition: [{ path: 'tests/retry.test.mjs', selector: null, sha256: `sha256:${'1'.repeat(64)}` }] };
+  workflow.testCommandPins = [{ id: 'TCP-001', phase: 'implement', ...legacyIdentity, sha256: `sha256:${recordSha256(legacyIdentity)}`, baseline: null, at: 'x' }];
+  const upgraded = await gateTestCommandPins(root, {}, workflow, phase, [command(['tests/attempts.test.mjs', 'tests/retry.test.mjs'])]);
+  await upgraded.record(workflow, ['node-tests'], { at: '2026-10-26T00:00:01.000Z' });
+  assert.deepEqual([workflow.testCommandPins[1].replaces, workflow.testCommandPins[1].argv], ['TCP-001', ['node', '--test', '<test files>']]);
+  // A changed runner flag is still a changed command, decided by a person.
+  await assert.rejects(gateTestCommandPins(root, {}, workflow, phase, [command(['tests/retry.test.mjs'], ['--test-only'])]), (error) => {
+    assert.equal(error.code, 'TEST_COMMAND_PIN_CHANGED');
+    assert.deepEqual(error.details.testCommandPin.changes, ['argv ["node","--test","<test files>"] → ["node","--test","--test-only","<test files>"]']);
+    return true;
+  });
 });
 
 test('a configured command records its definition, and an edited script behind it waits for an accepted re-pin [TCE:REQ-013]', async (t) => {

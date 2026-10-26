@@ -323,6 +323,17 @@ const retryableOfficeClasses = new Set([
   'proxy-configuration', 'rate-limited', 'tls-trust', 'working-directory-unavailable'
 ]);
 
+test('a URL in prose keeps its address; only what follows it is punctuation', () => {
+  // "cannot bind http://localhost:5173: another process" once read as one malformed URL (2026-10-26).
+  assert.equal(redactDiagnosticText('cannot bind http://localhost:5173: another process'), 'cannot bind http://localhost:5173/: another process');
+  assert.equal(redactDiagnosticText('at http://[::1]:5173, now'), 'at http://[::1]:5173/, now');
+  assert.equal(redactDiagnosticText('open (http://127.0.0.1:8080).'), 'open (http://127.0.0.1:8080/).');
+  // Setting punctuation aside never lets a credential, query or fragment through.
+  assert.equal(redactDiagnosticText('push https://user:LEAKMARK@host/r.git: denied'), 'push [REDACTED REMOTE] denied');
+  assert.equal(redactDiagnosticText('got https://host/x?token=LEAKMARK.'), 'got https://host/x.');
+  assert.equal(redactDiagnosticText('see https://host/x#LEAKMARK:'), 'see https://host/x:');
+});
+
 test('office Git failures have precise, actionable classifications', async (t) => {
   for (const example of classificationCases) {
     await t.test(example.name, () => {

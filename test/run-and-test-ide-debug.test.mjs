@@ -323,6 +323,21 @@ test('app start --debug through an npm script gives the debugger to the applicat
   await stopped(root, started);
 });
 
+test('app start names the address it cannot bind, whole, when another process holds it', async (t) => {
+  // Workspace Run & Test, 2026-10-26: an old dev server held the port, and the refusal read
+  // "cannot bind http://[invalid-remote]" because the colon after the address was scrubbed with it.
+  const port = await freePort();
+  const root = await repository(t, { argv: ['node', 'server.mjs', String(port)], url: `http://127.0.0.1:${port}/`, ready: { http: '/', timeoutMs: 5_000 } });
+  const holder = net.createServer().listen(port, '127.0.0.1');
+  await new Promise((resolve) => holder.once('listening', resolve));
+  t.after(() => holder.close());
+  const refused = cli(root, ['app', 'start']);
+  assert.notEqual(refused.status, 0);
+  assert.match(refused.stderr, new RegExp(`cannot bind http://127\\.0\\.0\\.1:${port}/?: another process already listens there`, 'u'));
+  assert.doesNotMatch(refused.stderr, /invalid-remote/u);
+  await assert.rejects(readFile(path.join(root, 'app', 'pid.txt')), { code: 'ENOENT' });
+});
+
 test('app start --debug refuses an undeclared debugger and a port already in use, before anything runs', async (t) => {
   const [port, debugPort] = [await freePort(), await freePort()];
   const plain = await repository(t, { argv: ['node', 'server.mjs', String(port)], url: `http://127.0.0.1:${port}/`, ready: { http: '/', timeoutMs: 5_000 } });

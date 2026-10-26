@@ -343,6 +343,16 @@ export function assertCredentialFreeRemote(value) {
   return remote;
 }
 
+/**
+ * A URL in prose, without the punctuation that follows it. "cannot bind http://localhost:5173: another
+ * process" read as one malformed URL and hid a valid loopback address as [invalid-remote] (2026-10-26).
+ * Only trailing punctuation is set aside, so nothing a scrubber would remove survives it.
+ */
+function sanitizeRemoteInProse(remote) {
+  const trailing = /[.,;:!?)]+$/u.exec(remote)?.[0] ?? '';
+  return `${sanitizeRemote(trailing ? remote.slice(0, -trailing.length) : remote)}${trailing}`;
+}
+
 /** Remove common credential material before a diagnostic is written to durable local state. */
 export function redactDiagnosticText(value, { multiline = false } = {}) {
   const source = String(value ?? '');
@@ -355,11 +365,11 @@ export function redactDiagnosticText(value, { multiline = false } = {}) {
     '[REDACTED REMOTE]');
   text = text.replace(/\b(?:https?|ssh|git\+ssh|ssh\+git|git|file|ftp|ftps):(?!\/\/)(?=[^\s@]*:[^\s@]*@)[^\s]+/gi,
     '[REDACTED REMOTE]');
-  text = text.replace(/\b[a-z][a-z0-9+.-]*:\/\/[^\s<>"']+/gi, (remote) => sanitizeRemote(remote));
+  text = text.replace(/\b[a-z][a-z0-9+.-]*:\/\/[^\s<>"']+/gi, (remote) => sanitizeRemoteInProse(remote));
   text = text.replace(/(^|[\s("'=])\/\/[^\s<>"']+/g,
-    (match, prefix) => `${prefix}${sanitizeRemote(match.slice(prefix.length))}`);
+    (match, prefix) => `${prefix}${sanitizeRemoteInProse(match.slice(prefix.length))}`);
   text = text.replace(/\b(?:https?|ssh|git\+ssh|ssh\+git|git|file|ftp|ftps):(?!\/\/)[^\s<>"']+/gi,
-    (remote) => sanitizeRemote(remote));
+    (remote) => sanitizeRemoteInProse(remote));
   text = text
     .replace(/-----BEGIN [^-\r\n]*PRIVATE KEY-----[\s\S]*/gi, '[REDACTED PRIVATE KEY]')
     .replace(/\beyJ[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\b/g, '[REDACTED JWT]')

@@ -5,6 +5,8 @@ import type { WorkspaceEntry } from './workspaces-model.ts';
 export type SidebarNextActionId = 'setup-wizard' | 'workspace-switch' | 'work-start' | 'my-work';
 
 export interface SidebarNavigation {
+  /** Host-owned workspace path for the direct Run & Test entry; never taken from a webview. */
+  workspaceRunPath?: string;
   workspace: { name: string; repository?: string } | null;
   subject?: { id: string; kind: 'Story' | 'Initiative'; phase: string | null };
   next: { label: string; description: string; actionId: SidebarNextActionId } | null;
@@ -77,11 +79,12 @@ export function deriveSidebarNavigation(
     name: entry.name.trim() || entry.id || lastPathSegment(entry.path) || 'Workspace',
     ...(repository ? { repository } : {})
   };
+  const runScope = entry.archivedAt ? {} : { workspaceRunPath: entry.path };
   if (entry.archivedAt || entry.repositoryState && entry.repositoryState !== 'ready') {
-    return { workspace, next: null };
+    return { workspace, ...runScope, next: null };
   }
   if (!snapshot || snapshot.included && !snapshot.included.includes('lifecycle')) {
-    return { workspace, next: null };
+    return { workspace, ...runScope, next: null };
   }
   if (snapshot.workflow?.workItem?.id || snapshot.initiative) {
     const story = snapshot.workflow;
@@ -89,7 +92,7 @@ export function deriveSidebarNavigation(
     const kind = story ? 'Story' : 'Initiative';
     const phase = currentPhaseLabel(snapshot);
     return {
-      workspace,
+      workspace, ...runScope,
       subject: { id, kind, phase },
       next: {
         label: id ? `Continue ${id}` : 'Continue current work',
@@ -99,10 +102,10 @@ export function deriveSidebarNavigation(
     };
   }
   if (snapshot.selectedWorkId || snapshot.selectedInitiativeId) {
-    return { workspace, next: null };
+    return { workspace, ...runScope, next: null };
   }
   return {
-    workspace,
+    workspace, ...runScope,
     next: {
       label: 'Start new work',
       description: 'Describe a request and start a Story.',

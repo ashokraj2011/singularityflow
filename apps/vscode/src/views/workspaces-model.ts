@@ -497,6 +497,12 @@ function workspaceDirectoryKey(value: string): string {
  * on disk that survives moves, restores and hand edits. Showing it is cheaper than the alternative,
  * which is two workspaces quietly writing over one directory.
  */
+/** A Run & Test click can select only a current, non-archived registry row. */
+export function workspaceRunTarget(rows: readonly WorkspaceRow[], requested: unknown): { workspace: string } | null {
+  const row = rows.find(item => item.path === requested);
+  return row && !row.archived ? { workspace: row.path } : null;
+}
+
 export function workspaceRows(entries: WorkspaceEntry[]): WorkspaceRow[] {
   const counts = new Map<string, number>();
   const ids = new Map<string, number>();

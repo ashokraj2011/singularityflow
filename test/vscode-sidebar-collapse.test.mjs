@@ -48,7 +48,7 @@ function sidebarFixture({ collapsed = false, saved = {} } = {}) {
   const nodes = [story, favorite, summary];
   document.querySelector = selector => selector === 'main' ? main : selector === '[data-main-menu]' ? menu : null;
   document.querySelectorAll = selector => selector === '[data-state-key]' ? [pins]
-    : selector === 'nav [data-action],footer [data-action]' ? [story] : nodes;
+    : selector === 'nav [data-action],footer [data-action],.context .workspace-runtime' ? [story] : nodes;
   const api = { getState: () => state, setState: value => { state = value; }, postMessage: message => posted.push(message) };
   new Function('acquireVsCodeApi', 'window', 'document', SIDEBAR_SCRIPT)(() => api, window, document);
   return { menu, main, pins, summary, story, favorite, document, window, posted, state: () => state,

@@ -13,6 +13,7 @@ export function sidebarDestination(viewType: string | null, home = false): strin
     'singularityFlow.reviews': 'reviews',
     'singularityFlow.approvals': 'reviews',
     'singularityFlow.capabilityProposals': 'reviews',
+    'singularityFlow.workspaceRuntime': 'workspace-run-test',
     'singularityFlow.workspaces': 'workspace-manage',
     'singularityFlow.configurationCenter': 'configuration-center',
     'singularityFlow.afterInstall': 'after-install',

@@ -28,7 +28,8 @@ function rowHtml(row: WorkspaceRow, selected: string | null): string {
     <td>${row.archived
       ? `<button class="secondary" data-restore="${escape(row.path)}">Restore</button>`
       : `<button class="${row.active ? 'secondary' : ''}" data-switch="${escape(row.path)}">
-        ${row.active ? 'Reload' : 'Switch'}</button>`}</td>
+        ${row.active ? 'Reload' : 'Switch'}</button>
+        <button class="secondary" data-run-test="${escape(row.path)}">Run &amp; Test</button>`}</td>
   </tr>`;
 }
 
@@ -84,7 +85,7 @@ function workspaceDetails(status: WorkspaceStatus | null, loading: boolean, deta
       : '<span class="muted">No tracker anchor configured</span>'}</p>
   </div>
 
-  <p><button data-run-test>${icon('start')}Run &amp; Test Stories in this workspace</button></p>
+  <p><button data-run-test="${escape(status.workspace.path)}">${icon('start')}Run &amp; Test Stories in this workspace</button></p>
   <h2>${icon('repository')}Repositories</h2>
   <p class="meta">${escape(status.counts?.ready ?? 0)} of ${escape(status.counts?.repositories ?? status.repositories.length)} ready
     · ${escape(status.counts?.dirty ?? 0)} with local changes</p>
@@ -700,7 +701,7 @@ export const WORKSPACES_SCRIPT = `
     else if (data.repair !== undefined) vscode.postMessage({ type: 'repair', path: data.repair });
     else if (data.configPreview !== undefined) vscode.postMessage({ type: 'configuration-preview', scope: data.configPreview });
     else if (data.configApply !== undefined) vscode.postMessage({ type: 'configuration-apply' });
-    else if (data.runTest !== undefined) vscode.postMessage({ type: 'run-test' });
+    else if (data.runTest !== undefined) vscode.postMessage({ type: 'run-test', path: data.runTest });
     else if (data.repositoryRefresh !== undefined) vscode.postMessage({ type: 'repository-refresh' });
     else if (data.repositoryRefreshUrl !== undefined) vscode.postMessage({ type: 'repository-refresh-url' });
     else if (data.fosAction !== undefined) vscode.postMessage({

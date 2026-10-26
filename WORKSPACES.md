@@ -459,7 +459,10 @@ Native Mac/Windows measurements and qualification limits are recorded in
 
 ## Run applications and tests from a workspace
 
-Open **Workspaces → Run & Test Stories in this workspace**, or the command palette’s
+Click **Run & Test** directly under the selected workspace in the SFlow Navigator. It stays
+visible when the main menu is collapsed and opens that workspace without switching folders.
+Each active workspace row on **Workspaces** also has a **Run & Test** button, available before
+repository-detail checks finish. Alternatively use the command palette’s
 **Singularity Flow: Workspace Run & Test**. Choose a repository or a recorded Story checkout.
 The page shows its branch, phase, checkout path, lazy file tree and working-tree changes.
 Opening the page reads local records only. It does not fetch, scan branches or history, create

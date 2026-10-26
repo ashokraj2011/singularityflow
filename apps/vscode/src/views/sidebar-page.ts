@@ -63,6 +63,8 @@ export function sidebarBody(view: SidebarPage): string {
       ${workspace?.repository ? `<p class="context-detail">Repository: <span>${escape(workspace.repository)}</span></p>` : ''}
       ${subject ? `<p class="context-detail">${escape(subject.kind)}: <span>${escape(subject.id)}</span></p><p class="context-detail">Phase: <span>${escape(subject.phase ?? 'none current')}</span></p>` : workspace ? '<p class="context-detail">No work in progress</p>' : '<p class="context-detail">Select or create a workspace to begin.</p>'}
       ${subject?.kind === 'Story' ? '<button type="button" class="text-action" data-action="story-intake">View intake details</button>' : ''}
+      ${view.navigation.workspaceRunPath ? `<button type="button" class="workspace-runtime" data-action="workspace-run-test"${view.active === 'workspace-run-test' ? ' aria-current="page"' : ''}>
+        ${icon('start', { size: 16 })}<span><strong>Run &amp; Test</strong><small>Application · Story settings · tests</small></span></button>` : ''}
       ${view.freshness || view.loading ? `<p class="freshness" role="status">${escape(view.freshness ?? 'Reading workspace state…')}</p>` : ''}
       ${next ? `<button type="button" class="next-step" data-action="${escape(next.actionId)}" data-focus-key="next-step">
         <span class="next-label">${escape(next.label)}</span><span class="next-detail">${escape(next.description)}</span></button>` : ''}
@@ -116,6 +118,11 @@ export const SIDEBAR_STYLE = `${CALM_PALETTE_STYLE}
   .context-detail { margin:7px 0 0; font-size:12px; color:var(--sf-dim); overflow-wrap:anywhere; }
   .context-detail span { color:var(--sf-text); }
   .freshness { font-size:11px; margin:8px 0 0; color:var(--vscode-descriptionForeground); }
+  .workspace-runtime { display:flex; align-items:center; gap:8px; width:100%; margin-top:12px; padding:8px 10px; text-align:left;
+    border:1px solid var(--sf-border-color); border-radius:var(--sf-radius); background:var(--sf-surface); }
+  .workspace-runtime span { display:flex; flex-direction:column; gap:3px; min-width:0; }
+  .workspace-runtime small { color:var(--sf-dim); font-size:11px; overflow-wrap:anywhere; }
+  .workspace-runtime[aria-current="page"] { border-color:var(--sf-accent); }
   .next-step { display:flex; flex-direction:column; align-items:flex-start; gap:2px; width:100%; margin-top:12px; padding:8px 10px; border:0; border-radius:var(--sf-radius);
     background:var(--vscode-button-background); color:var(--vscode-button-foreground); text-align:left; }
   .next-label { font-weight:600; overflow-wrap:anywhere; }
@@ -148,7 +155,7 @@ export const SIDEBAR_STYLE = `${CALM_PALETTE_STYLE}
   footer { flex:none; padding:10px 12px; border-top:1px solid var(--sf-border-color); }
   footer .nav-row { font-size:12px; min-height:32px; }
   @media (hover:hover) and (pointer:fine) {
-    .nav-row:not(:disabled):hover,.workspace-switch:not(:disabled):hover { transform:scale(1.015); background:var(--sf-surface-raised); color:var(--sf-text); }
+    .nav-row:not(:disabled):hover,.workspace-switch:not(:disabled):hover,.workspace-runtime:not(:disabled):hover { transform:scale(1.015); background:var(--sf-surface-raised); color:var(--sf-text); }
     .next-step:hover { background:var(--vscode-button-hoverBackground,var(--vscode-button-background)); }
     .profile-button:hover,.unpin:hover { background:var(--sf-surface-raised); }
     .main-menu>summary:hover { background:var(--sf-surface-raised); color:var(--sf-text); }
@@ -163,7 +170,7 @@ export const SIDEBAR_SCRIPT = `
   const vscode=acquireVsCodeApi();
   window.addEventListener('message',event=>{
     if(event.data?.type!=='active-destination')return;
-    for(const item of document.querySelectorAll('nav [data-action],footer [data-action]')) {
+    for(const item of document.querySelectorAll('nav [data-action],footer [data-action],.context .workspace-runtime')) {
       if(item.dataset.action===event.data.id)item.setAttribute('aria-current','page');
       else item.removeAttribute('aria-current');
     }

@@ -30,6 +30,7 @@ const ACTION_COMMANDS: Record<string, string> = {
   'workspace-create': 'singularityFlow.createWorkspace',
   'setup-wizard': 'singularityFlow.startWizard',
   'workspace-manage': 'singularityFlow.openWorkspaces',
+  'workspace-run-test': 'singularityFlow.workspaceRunTest',
   'workspace-switch': 'singularityFlow.switchWorkspace',
   'local-reset': 'singularityFlow.openLocalReset',
   'work-start': 'singularityFlow.startWork',
@@ -365,7 +366,10 @@ export class SidebarViewProvider implements vscode.WebviewViewProvider, vscode.D
       const favorite = value.action.startsWith('favorite:') ? value.action.slice('favorite:'.length) : null;
       const command = favorite && this.favoriteIds.includes(favorite)
         ? FAVORITE_BY_ID.get(favorite)?.command : ACTION_COMMANDS[value.action];
-      if (command) void vscode.commands.executeCommand(command);
+      if (command === 'singularityFlow.workspaceRunTest') {
+        const workspace = this.navigation.workspaceRunPath;
+        if (workspace) void vscode.commands.executeCommand(command, { workspace });
+      } else if (command) void vscode.commands.executeCommand(command);
       return;
     }
     if (value.type === 'workspace' && typeof value.key === 'string') {

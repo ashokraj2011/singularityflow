@@ -16,7 +16,7 @@ import {
   type DuplicateDraft, type WorkspaceConfigurationRefreshView, type WorkspaceEditDraft
 } from './workspaces-page.ts';
 import {
-  duplicateCommand, duplicateProblems, renameCommand, updateCommand, workspaceRows,
+  duplicateCommand, duplicateProblems, renameCommand, updateCommand, workspaceRows, workspaceRunTarget,
   isSafeWorkspaceReinitializationPreview,
   WORKSPACE_ACTION_CANCELLED,
   type WorkspaceConfigurationRefreshResult,
@@ -423,7 +423,10 @@ export class WorkspacesPanel {
       if (route && routes[route]) void navigateTo(routes[route]!);
     },
     // The selected workspace is the one meant: refresh it to the new version without a Git URL.
-    'run-test': () => vscode.commands.executeCommand('singularityFlow.workspaceRunTest', this.selected ? { workspace: this.selected } : undefined),
+    'run-test': async message => {
+      const target = workspaceRunTarget(this.rows, stringField(message, 'path') ?? this.selected);
+      if (target) await vscode.commands.executeCommand('singularityFlow.workspaceRunTest', target);
+    },
     'repository-refresh': () => vscode.commands.executeCommand('singularityFlow.refreshCapability',
       this.selected ? { workspacePath: this.selected } : undefined),
     'repository-refresh-url': () => vscode.commands.executeCommand('singularityFlow.refreshRepositorySetup'),

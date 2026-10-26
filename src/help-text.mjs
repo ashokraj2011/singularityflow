@@ -108,6 +108,7 @@ Usage:
   singularity-flow tests plan [--capability ID | --work-id ID [--phase PHASE]] [--command ID]... [--json]
   singularity-flow tests run [--capability ID | --work-id ID [--phase PHASE]] [--command ID]... [--environment ENV] [--expect-command sha256:DIGEST]... [--json]
   singularity-flow tests summary [--capability ID | --work-id ID [--phase PHASE]] [--run RUN-ID] [--json]
+  singularity-flow outcome [WORK-ID] [--capability ID] [--json]
   singularity-flow refresh-branch [--remote origin] [--branch CURRENT] [--json]
   singularity-flow factory-reset [--dry-run] [--confirm "RESET REPOSITORY COMMIT" --expect-scope-sha256 SHA256] [--allow-dirty] [--include-local-documents] [--json]
   singularity-flow governance rebuild --dry-run [--remote origin] [--json]

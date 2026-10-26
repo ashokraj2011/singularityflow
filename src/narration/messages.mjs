@@ -234,6 +234,10 @@ export const MESSAGES = Object.freeze({
     headline: (s) => `Developer-local runner receipt is cryptographically verified (${slot(s.outcome)}; ${slot(s.assurance)}).`,
     preserves: true
   },
+  'outcome.review.reported': {
+    headline: (s) => `${slot(s.workId)}: ${slot(s.criteria, '0')} acceptance criterion(s) to check; ${slot(s.open, '0')} sign-off(s) or scope decision(s) still open. Nothing here is required or recorded.`,
+    preserves: true
+  },
   'evidence.scope.reported': {
     headline: (s) => `${slot(s.workId)}: ${slot(s.items, '0')} requirement statement(s) from ${slot(s.sources, '0')} source(s); ${slot(s.unresolved, '0')} without a disposition.`,
     preserves: true
@@ -1155,6 +1159,9 @@ export const REASONS = Object.freeze({
   },
   'evidence.from-committed-records': {
     render: () => "each row was evaluated from the Story's committed plan, delivery receipts, test receipts and approvals; no test or network call ran"
+  },
+  'outcome.from-story-records': {
+    render: () => "read from the Story's committed plan, test receipts, sign-offs and scope decisions, and this checkout's application state; nothing ran and nothing changed"
   },
   'scope.from-pinned-sources': {
     render: () => 'the statements were read from the pinned Story source, its active documents and its answered clarifications; nothing ran and nothing changed'

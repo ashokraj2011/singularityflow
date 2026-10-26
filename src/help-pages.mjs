@@ -1415,6 +1415,27 @@ const PAGES = Object.freeze({
     ],
     seeAlso: ['home', 'explain']
   },
+  outcome: {
+    summary: 'Check what a Story delivered: try the application, see each criterion\'s proof, and what is still open.',
+    description: [
+      'outcome reads one Story: the declared application in this checkout (running or not, and whether another',
+      'process already holds its address), each acceptance criterion with the tests that prove it and how they',
+      'last ran, the visual and inspection checks a person signs off with the reference each is compared with,',
+      'and the scope decisions and sign-offs the Story\'s end still waits for. Every route it shows is an existing',
+      'command. It is optional and a read: it records nothing, no step waits for it, and the sign-offs and',
+      'decisions it lists stay with the person who makes them.'
+    ],
+    options: [
+      ['WORK-ID', 'The Story; the attached Story by default.'],
+      ['--capability ID', 'Which capability\'s application to show, when the repository has several.'],
+      ['--json', 'The outcome as a JSON result.']
+    ],
+    examples: [
+      ['singularity-flow outcome', 'The attached Story\'s outcome.'],
+      ['singularity-flow outcome JIRA-123 --json', 'One Story\'s outcome as JSON.']
+    ],
+    seeAlso: ['app', 'tests', 'evidence', 'decision', 'decisions']
+  },
   call: {
     summary: 'Add your own agent folder (a main agent and the skills it uses) and run it as a Story\'s one step.',
     description: [

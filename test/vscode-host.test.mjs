@@ -6928,6 +6928,23 @@ test('with a repository, every contributed command actually does something', asy
   assert.doesNotMatch(registered.warnings.join(' '), /Open the repository that contains/);
 });
 
+test('Check the Outcome opens its own read-only page, and a target it never loaded does nothing', async (t) => {
+  if (!requireBundle(t)) return;
+  const { registered } = await activated();
+  await registered.commands.get('singularityFlow.openOutcomeReview')();
+  const panel = registered.panels.find((entry) => entry.id === 'singularityFlow.outcomeReview');
+  assert.ok(panel, 'the command opened its panel');
+  for (let wait = 0; wait < 100 && !/Try it|Open a Story to check its outcome|could not be read/u.test(panel.webview.html); wait += 1) {
+    await new Promise((resolve) => setTimeout(resolve, 20));
+  }
+  assert.match(panel.webview.html, /Check the outcome/u);
+  assert.match(panel.webview.html, /Optional: nothing here is recorded and no step waits for it/u);
+  assert.match(panel.webview.html, /Try it|Open a Story to check its outcome/u);
+  await panel.post({ type: 'action', action: 'copy-sign-off', criterion: 9, check: 9 });
+  await panel.post({ type: 'action', action: 'copy-scope', item: 9 });
+  assert.deepEqual(registered.clipboard, [], 'only what the panel loaded is copied');
+});
+
 /** Every view package.json contributes, in the order the sidebar will show them. */
 function contributedViews() {
   const manifest = JSON.parse(readFileSync(path.join(packageRoot, 'apps/vscode/package.json'), 'utf8'));

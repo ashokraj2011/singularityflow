@@ -79,6 +79,7 @@ const entries = {
   task: ['sf-sgos'],
   request: ['sf-sgos'],
   evidence: ['sf-sgos', 'sf-evidence'],
+  outcome: ['sf-outcome'],
   env: ['sf-environment'],
   candidate: ['sf-sgos'],
   'execution-unit': ['sf-sgos'],

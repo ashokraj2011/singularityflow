@@ -1149,6 +1149,11 @@
         "icon": "$(checklist)"
       },
       {
+        "command": "singularityFlow.openOutcomeReview",
+        "title": "Singularity Flow: Check the Outcome",
+        "icon": "$(eye)"
+      },
+      {
         "command": "singularityFlow.openArtifact",
         "title": "Singularity Flow: Open Artifact"
       },

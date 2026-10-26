@@ -1226,7 +1226,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     'singularityFlow.createSgosWorkflow', 'singularityFlow.reviewSgosMetaTool',
     'singularityFlow.reviewLocalRunner',
     'singularityFlow.openReconciliation',
-    'singularityFlow.openEvidenceMatrix',
+    'singularityFlow.openEvidenceMatrix', 'singularityFlow.openOutcomeReview',
     'singularityFlow.showImpact', 'singularityFlow.addCapability', 'singularityFlow.editCapability',
     'singularityFlow.openDashboard', 'singularityFlow.openDesigner', 'singularityFlow.openWorkflowStudio', 'singularityFlow.addUserAgent', 'singularityFlow.decideStory', 'singularityFlow.decisions',
     'singularityFlow.workspaceRunTest', 'singularityFlow.startApplication', 'singularityFlow.runTests', 'singularityFlow.testSummary', 'singularityFlow.editRunConfigurations', ...RUN_CONFIGURATION_COMMANDS,
@@ -9092,6 +9092,8 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       const { showGdpLocalRunnerReview } = lazyPanels();
       return showGdpLocalRunnerReview(client);
     },
+    // Optional: what a Story delivered, read once per refresh; nothing waits for it.
+    'singularityFlow.openOutcomeReview': async () => lazyPanels().OutcomeReviewPanel.show(context, store, client),
     'singularityFlow.openEvidenceMatrix': async () => {
       const { EvidenceMatrixPanel } = lazyPanels();
       return EvidenceMatrixPanel.show(context, store, client);

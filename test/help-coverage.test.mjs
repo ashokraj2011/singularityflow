@@ -68,7 +68,8 @@ test('canonical manuals require exact Epic confirmation for completion', async (
 test('every served topic is a surface-aware tutorial', async () => {
   const topics = await loadTopics();
   // 85: run-and-test (app and tests commands, docs/SPEC-RUN-AND-TEST-v1.md).
-  assert.equal(topics.length, 85);
+  // 86: outcome-review (the outcome command, an optional read after code and tests are in).
+  assert.equal(topics.length, 86);
   for (const topic of topics) {
     for (const section of requiredSections) {
       assert.match(topic.body, new RegExp(`^## ${section}$`, 'm'), `${topic.file} lacks ${section}`);

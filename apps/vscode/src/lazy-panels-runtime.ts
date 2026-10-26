@@ -47,6 +47,7 @@ export { showSgosMetaToolReview } from './sgos-meta-tool-review.ts';
 export { showGdpLocalRunnerReview } from './gdp-local-runner-review.ts';
 export { ReconciliationPanel } from './views/reconciliation.ts';
 export { EvidenceMatrixPanel } from './views/evidence-matrix.ts';
+export { OutcomeReviewPanel } from './views/outcome-review.ts';
 export { DashboardPanel } from './views/dashboard.ts';
 export { WorkflowStudioPanel, STUDIO_FOCUS_VIEWS } from './views/workflow-studio.ts';
 export { configurationGitFailureText } from './views/configuration-save.ts';

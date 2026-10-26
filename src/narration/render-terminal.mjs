@@ -555,8 +555,45 @@ function governanceRebuildPreview(result) {
   ].filter((line) => line !== null && line !== undefined).join('\n');
 }
 
+/** The outcome review: try it, each criterion's proof, then what the Story's end waits for. */
+function outcomeReviewText(result) {
+  const review = result.data.outcome;
+  const app = review.application ?? {};
+  const word = (status) => ({ met: 'done', missing: 'not done yet', pending: 'pending' })[status] ?? status ?? 'unknown';
+  const appLines = app.status === 'declared' ? app.entries.flatMap((entry) => [
+    `  ${entry.name} at ${entry.url}: ${entry.started ? `running (pid ${entry.pid})${entry.ready ? '' : ', not answering yet'}` : 'not running'}`,
+    ...(entry.portTaken ? ['    Another process already listens at that address; stop it before starting this one.'] : []),
+    ...(entry.start?.command ? [`    Start: ${entry.start.command}`] : []), ...(entry.stop?.command ? [`    Stop: ${entry.stop.command}`] : [])
+  ]) : [`  ${app.status === 'none-declared' ? `No application is declared${app.setup?.command ? `; suggest one with ${app.setup.command}` : ''}.` : `Unavailable: ${app.message ?? 'unknown reason'}`}`];
+  const criterionLines = review.criteria.flatMap((criterion) => [
+    `  ${criterion.id} (${criterion.result ?? 'unknown'}${criterion.methods ? `; ${criterion.methods.join(', ')}` : ''})${criterion.text ? `: ${criterion.text}` : ''}`,
+    ...criterion.tests.map((test) => `    test ${test.outcome ?? 'not run'}: ${test.test ?? test.file}`),
+    ...criterion.checks.filter((check) => check.method !== 'test').flatMap((check) => [
+      `    ${check.method} check ${check.slot}: ${word(check.status)}${check.reference ? `, compared with ${check.reference}` : ''}`,
+      ...(check.suggestedFile ? [`      Save the screenshot as ${check.suggestedFile}`] : []),
+      ...(check.signOff ? [`      Sign off after looking at it: ${check.signOff}`] : [])
+    ])
+  ]);
+  const open = review.open;
+  const openLines = [
+    ...open.scopeItems.flatMap((item) => [`  ${item.id}: ${item.text}`, `    ${item.command}`, ...(item.otherCommand ? [`    ${item.otherCommand}`] : [])]),
+    ...open.blocking.filter((finding) => !['EVIDENCE_VISUAL_MISSING', 'EVIDENCE_INSPECTION_MISSING', 'SCOPE_ITEMS_UNRESOLVED'].includes(finding.code))
+      .map((finding) => `  ${finding.message}`)
+  ];
+  return [
+    style.heading(headline(result)),
+    `${review.lifecycle ?? 'Lifecycle unknown'} · ${review.completion ?? 'completion unknown'}`,
+    '', style.heading('Try it:'), ...appLines,
+    '', style.heading('Acceptance criteria:'), ...(criterionLines.length ? criterionLines : ['  None recorded yet.']),
+    ...(openLines.length ? ['', style.heading("Still open for the Story's end:"), ...openLines] : []),
+    '', `Run the tests again: ${review.routes.tests?.command ?? 'singularity-flow tests run'}`,
+    'This review is optional: it records nothing and no step waits for it. Sign-offs and decisions stay yours.'
+  ].join('\n');
+}
+
 export function renderCommandResult(result) {
   if (result.operation.id === 'governance.rebuild.preview' && result.data?.plan) return governanceRebuildPreview(result);
+  if (result.operation.id === 'outcome.review' && result.data?.outcome) return outcomeReviewText(result);
   if (result.operation.id === 'evidence.scope' && result.data?.scope) {
     const scope = result.data.scope;
     const order = ['unresolved', 'included', 'existing', 'excluded', 'deferred', 'informative', 'duplicate', 'superseded'];

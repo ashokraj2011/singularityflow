@@ -22,17 +22,13 @@ import { createHash } from 'node:crypto';
 import { readdir, readFile } from 'node:fs/promises';
 import path from 'node:path';
 
-import { clauseScopeItems, extractNormativeStatements, normalizeStatement, scopeItemId, storySourceStatements } from './extract.mjs';
+import { CLAUSE_LINKED_DISPOSITIONS, clauseScopeItems, extractNormativeStatements, normalizeStatement, scopeItemId, storySourceStatements } from './extract.mjs';
 import { extractSourceText, isTextualSource } from '../source-text.mjs';
 
 export const SCOPE_INVENTORY_VERSION = 'scope-inventory/v1';
 export const SCOPE_DISPOSITIONS = Object.freeze([
   'included', 'existing', 'excluded', 'deferred', 'unresolved', 'informative', 'duplicate', 'superseded'
 ]);
-/** Dispositions a person records with `decision scope`. */
-export const DECIDABLE_SCOPE_DISPOSITIONS = Object.freeze(['included', 'existing', 'excluded', 'deferred', 'informative', 'duplicate', 'superseded']);
-/** Dispositions that must name the clauses that carry the statement. */
-export const CLAUSE_LINKED_DISPOSITIONS = Object.freeze(['included', 'existing']);
 const MAX_SOURCE_TEXT = 1024 * 1024;
 const MIN_CONTAINMENT = 12;
 

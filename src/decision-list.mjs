@@ -526,8 +526,10 @@ function owedItem(workflow, context, entry) {
     why: witness ? `An approver of ${listWords(entry.owners.map((id) => stepName(workflow, id)))} inspects ${listWords(entry.files)} and signs it off; the Story cannot end without it.`
       : `${entry.text ? `"${entry.text}" ` : ''}needs a link or a disposition from an approver of the step that defines the scope before the Story ends.`,
     groups: witness ? [...new Set(entry.owners.flatMap((id) => approvers(workflow, id)))] : [],
-    options: [{ id: witness ? 'witness' : 'disposition', label: witness ? 'Sign it off after inspecting it' : 'Link or disposition it',
-      command: entry.command ?? `singularity-flow evidence matrix ${workflow.workItem.id} --json`, words: 'Only a person records it; an agent never answers it.' }],
+    options: [{ id: witness ? 'witness' : 'disposition', label: witness ? 'Sign it off after inspecting it' : 'Include it, or say it exists, naming its clauses',
+      command: entry.command ?? `singularity-flow evidence matrix ${workflow.workItem.id} --json`, words: 'Only a person records it; an agent never answers it.' },
+    ...(entry.otherCommand ? [{ id: 'other-disposition', label: 'Exclude, defer or set it aside, with a reason', command: entry.otherCommand,
+      words: 'Only a person records it; an agent never answers it.' }] : [])],
     details: witness ? { clause: entry.clauseId, slot: entry.slot } : { scopeItem: entry.id }
   });
 }

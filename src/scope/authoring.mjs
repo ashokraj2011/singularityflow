@@ -3,6 +3,7 @@ import path from 'node:path';
 import { phaseOwnsScope } from '../phase-roles.mjs';
 import { safeCommandGuidance } from '../safe-command-guidance.mjs';
 import { scopeAuthorities } from './decisions.mjs';
+import { scopeDecisionArgv } from './extract.mjs';
 
 export { phaseOwnsScope };
 
@@ -37,16 +38,16 @@ export async function scopeAuthoringCheckpoint(root, definition, workflow, phase
         text: item.text, statementSha256: item.statementSha256, kind: item.kind,
         repair: draftPreview && item.kind === 'statement' ? { scope: 'current-draft', artifactPath,
           sourceReference: `[scope:${item.id}]`, requiresSubstantiveClause: true,
-          instruction: 'Use the supplied intent to repair or add a real observable clause in this draft, linking this source reference inside that clause. A reference is a coverage claim, never a test pass or an approval. If interpretation or scope must change, ask the authorized human instead.' } : null,
+          instruction: 'Use the supplied intent to repair or add a real observable clause in this draft, linking this source reference inside that clause. A reference is a coverage claim, never a test pass or an approval. If interpretation or scope must change, that is the person\'s decision: name this item\'s humanDecision route, never ask for a disposition in this turn.' } : null,
         humanDecision: { requiresActualHumanChoice: true, requiresReason: true,
           includedOrExistingRequiresClause: true,
-          commandGuidance: safeCommandGuidance({ argv: ['decision', 'scope', workflow.workItem.id,
-            '--item', item.id, '--as', '<included|existing|excluded|deferred|informative|duplicate|superseded>',
-            '--reason', '<human-reason>'] }) }
+          // Included or existing names its clauses; every other disposition refuses --clause.
+          commandGuidance: safeCommandGuidance({ argv: scopeDecisionArgv(workflow.workItem.id, item.id).linked }),
+          otherCommandGuidance: safeCommandGuidance({ argv: scopeDecisionArgv(workflow.workItem.id, item.id).unlinked }) }
       })),
       more: Math.max(0, unresolved.length - 8),
       instruction: unresolved.length
-        ? `${draftPreview ? 'Repair clear source-to-clause coverage in this scope-owning draft before handoff.' : 'This is a retained publication, not editable draft coverage: preserve it and use only a returned successor or human decision route.'} Do not stop solely on this advisory or loop on unchanged output. For ambiguity, exclusions, deferral or unreadable sources, offer the exact authorized human decision route; never invent a disposition. Ordinary phase approval is not a waiver. Unchanged recorded decisions and approved clause links carry forward; later phases must not edit this earlier artifact.`
+        ? `${draftPreview ? 'Repair clear source-to-clause coverage in this scope-owning draft before handoff.' : 'This is a retained publication, not editable draft coverage: preserve it and use only a returned successor or human decision route.'} Do not stop solely on this advisory or loop on unchanged output. For ambiguity, exclusions, deferral or unreadable sources, name each item's humanDecision route: a person records the disposition in a /sf-decide turn they start, so never ask for one in this turn or invent one. A source nobody could read (kind source) has no clause reference; only that decision closes it. Ordinary phase approval is not a waiver. Unchanged recorded decisions and approved clause links carry forward; later phases must not edit this earlier artifact.`
         : 'Every identified source statement is linked or dispositioned. This draft preview is not approval or proof that implementation/tests pass.' };
   } catch (error) {
     return { ...common, status: 'unavailable', reason: error.code ?? 'scope-preview-unavailable',

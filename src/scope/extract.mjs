@@ -45,6 +45,30 @@ export function clauseScopeItems(text) {
   return [...new Set([...String(text ?? '').matchAll(/\[scope:(SRI-[0-9a-f]{12})\]/gu)].map(match => match[1]))];
 }
 
+/** Dispositions a person records with `decision scope`. */
+export const DECIDABLE_SCOPE_DISPOSITIONS = Object.freeze(['included', 'existing', 'excluded', 'deferred', 'informative', 'duplicate', 'superseded']);
+/** Dispositions that must name the clauses that carry the statement. */
+export const CLAUSE_LINKED_DISPOSITIONS = Object.freeze(['included', 'existing']);
+
+/**
+ * The two `decision scope` commands a person completes for one item. Included and existing name the
+ * clauses that carry it and every other disposition refuses `--clause`, so one template cannot serve
+ * both: the single one offered had no `--clause`, and filled in as `included` it was refused (2026-10-26).
+ */
+export function scopeDecisionArgv(workId, itemId) {
+  const head = ['decision', 'scope', ...(workId ? [workId] : []), '--item', itemId];
+  const others = DECIDABLE_SCOPE_DISPOSITIONS.filter((entry) => !CLAUSE_LINKED_DISPOSITIONS.includes(entry));
+  return {
+    linked: [...head, '--as', `<${CLAUSE_LINKED_DISPOSITIONS.join('|')}>`, '--clause', '<CLAUSE-ID,...>', '--reason', '<why>'],
+    unlinked: [...head, '--as', `<${others.join('|')}>`, '--reason', '<why>']
+  };
+}
+
+/** One of those commands as the line a person copies and fills in. */
+export function scopeDecisionCommandLine(argv) {
+  return ['singularity-flow', ...argv.map((entry) => entry === '<why>' ? '"<why>"' : entry)].join(' ');
+}
+
 function sentences(text) {
   return String(text).split(/(?<=[.!?])\s+(?=[A-Z0-9"'(])/u).map((entry) => entry.trim()).filter(Boolean);
 }

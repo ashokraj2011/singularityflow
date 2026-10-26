@@ -4193,13 +4193,14 @@ async function decisionScopeCommand(positionals, options) {
     throw new SingularityFlowError('Name the item with --item <SRI-...|DOC-...> and the disposition with --as <included|existing|excluded|deferred|informative|duplicate|superseded>.', { code: 'SCOPE_DECISION_INCOMPLETE' });
   }
   const clauseIds = String(optionString(options, 'clause') ?? '').split(',').map((entry) => entry.trim()).filter(Boolean);
-  const { evidenceGraphFromAggregate } = await import('./evidence/graph.mjs');
+  const { evidenceGraphFromAggregate, scopeDecisionPreview } = await import('./evidence/graph.mjs');
   const graph = await evidenceGraphFromAggregate(root, config, workflow);
-  const inventory = graph.scope;
+  const preview = await scopeDecisionPreview(root, config, workflow);
+  const inventory = preview.inventory ?? graph.scope;
   if (!inventory) {
     throw new SingularityFlowError('The scope inventory of this Story cannot be built; see singularity-flow evidence scope.', { code: 'SCOPE_INVENTORY_UNAVAILABLE' });
   }
-  const knownClauseIds = (graph.records.indexes ?? []).flatMap((index) => (index.clauses ?? []).map((clause) => clause.id));
+  const knownClauseIds = [...new Set([...(graph.records.indexes ?? []).flatMap((index) => (index.clauses ?? []).map((clause) => clause.id)), ...preview.clauseIds])];
   const groups = scopeAuthorities(workflow);
   if (!groups.length) {
     throw new SingularityFlowError('No step of this Story defines its scope with an approval group, so nobody can decide it.', { code: 'SCOPE_AUTHORITY_UNAVAILABLE' });

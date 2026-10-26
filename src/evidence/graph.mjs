@@ -25,6 +25,7 @@ import { planAmendmentRecord } from '../plan-amendments.mjs';
 import { secureRepositoryPath } from '../util.mjs';
 import { witnessContextBinding, witnessRecordResults } from '../verification/witness-records.mjs';
 import { applicabilityStatus } from './applicability.mjs';
+import { phaseOwnsScope } from '../phase-roles.mjs';
 import { pinnedStorySource } from '../story-epic-sources.mjs';
 import {
   extractClauses, isSpecificationDefinitionPhase, loadActiveSpecRecords, loadSpecRecords, readBoundSpecificationClaimMap, readSubmittedSpecificationIndex,
@@ -320,20 +321,43 @@ async function loadScopeInventory(root, definition, workflow, directory, records
  */
 export async function previewScopeInventory(root, definition, workflow, { draftPhase = null, diagnostics = [] } = {}) {
   const directory = itemDirectory(root, { workItemRoot: workflow.resolution?.workItemRoot ?? definition?.workItemRoot }, workflow.workItem.id);
-  const findings = diagnostics;
+  const { indexes } = await previewSpecIndexes(root, directory, workflow, draftPhase, diagnostics);
+  return loadScopeInventory(root, definition, workflow, directory, { indexes }, diagnostics);
+}
+
+/**
+ * What a person decides scope against: the preview above, with the current step's draft when that
+ * step defines the scope, and the clause IDs it holds. A decision could once name only approved
+ * clauses, so while the Specification asking for one was open its own AC was "unknown" (graph-plot,
+ * 2026-10-26). Never evidence: the final check reads the trusted graph, where a decision naming a
+ * clause the approved index lacks is not current.
+ */
+export async function scopeDecisionPreview(root, definition, workflow, { diagnostics = [] } = {}) {
+  const directory = itemDirectory(root, { workItemRoot: workflow.resolution?.workItemRoot ?? definition?.workItemRoot }, workflow.workItem.id);
+  const current = workflow.phases?.[workflow.currentPhase];
+  const { indexes, previewed } = await previewSpecIndexes(root, directory, workflow,
+    current && phaseOwnsScope(workflow, current) ? current : null, diagnostics);
+  const inventory = await loadScopeInventory(root, definition, workflow, directory, { indexes }, diagnostics);
+  return { inventory, previewed, clauseIds: [...new Set(indexes.flatMap((index) => (index.clauses ?? []).map((clause) => clause.id)))] };
+}
+
+/** The trusted indexes, each submitted one, and the open draft's clauses; `previewed` when any is not yet approved. */
+async function previewSpecIndexes(root, directory, workflow, draftPhase, findings) {
   const indexes = [...((await loadProjectedSpecRecords(root, directory, workflow, findings)).records.indexes ?? [])];
+  let previewed = false;
   for (const id of workflow.phaseOrder ?? []) {
     const phase = workflow.phases?.[id];
     if (phase?.status !== 'awaiting_approval' || !phase.specIndex || !isSpecificationDefinitionPhase(phase)
       || indexes.some((index) => index.phase === id)) continue;
     // An index that fails its own binding is reported by the trusted read; the preview omits it.
-    try { indexes.push(await readSubmittedSpecificationIndex(root, directory, workflow, phase)); } catch { /* omitted */ }
+    try { indexes.push(await readSubmittedSpecificationIndex(root, directory, workflow, phase)); previewed = true; } catch { /* omitted */ }
   }
   if (draftPhase?.id === workflow.currentPhase && draftPhase.status === 'in_progress'
       && isSpecificationDefinitionPhase(draftPhase) && draftPhase.requiredArtifact?.path) {
     // A successor's missing or invalid draft must not borrow coverage from its retained generation.
     const predecessors = indexes.filter(index => index.phase !== draftPhase.id);
     indexes.splice(0, indexes.length, ...predecessors);
+    previewed = true;
     try {
       const relative = path.relative(root, path.join(directory, draftPhase.requiredArtifact.path));
       const file = await secureRepositoryPath(root, relative, { label: 'Scope authoring draft', mustExist: true, type: 'file' });
@@ -343,15 +367,16 @@ export async function previewScopeInventory(root, definition, workflow, { draftP
       indexes.push({ phase: draftPhase.id, clauses });
     } catch { /* Missing/invalid drafts remain unresolved in this advisory preview, never trusted. */ }
   }
-  return loadScopeInventory(root, definition, workflow, directory, { indexes }, findings);
+  return { indexes, previewed };
 }
 
 /** Read one Story's records from its checkout. Never throws for a record problem; reports it. */
-export async function loadEvidenceGraph(root, { workId = null } = {}) {
+export async function loadEvidenceGraph(root, { workId = null, scopePreview = false } = {}) {
   const evaluatedCommit = head(root);
   const accepted = await loadAcceptedStoryExecution(root, workId);
   const graph = await evidenceGraphFromAggregate(root, accepted.definition, accepted.workflow);
   graph.provenance = evidenceProvenance(root, accepted.workflow, evaluatedCommit);
+  if (scopePreview) graph.scopePreview = await scopeDecisionPreview(root, accepted.definition, accepted.workflow);
   return graph;
 }
 

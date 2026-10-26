@@ -62,6 +62,15 @@ test('scope authors see short requests, documents and answered clarifications be
   assert.equal(tests.humanDecision.requiresActualHumanChoice, true);
   assert.equal(tests.humanDecision.commandGuidance.copilotCommand, '/sf-decide');
   assert.match(tests.humanDecision.commandGuidance.command, /decision scope SCOPE-1 --item SRI-/u);
+  // Included or existing names its clauses and the rest refuse --clause: a single template without
+  // --clause, filled in as included, was refused (graph-plot, 2026-10-26).
+  assert.match(tests.humanDecision.commandGuidance.command, / --as '<included\|existing>' --clause '<CLAUSE-ID,\.\.\.>' --reason /u);
+  assert.match(tests.humanDecision.otherCommandGuidance.command, / --as '<excluded\|deferred\|informative\|duplicate\|superseded>' --reason /u);
+  assert.doesNotMatch(tests.humanDecision.otherCommandGuidance.command, /--clause/u);
+  assert.equal(tests.humanDecision.otherCommandGuidance.copilotCommand, '/sf-decide');
+  // The author names the route; a person records the disposition in their own /sf-decide turn.
+  assert.match(review.instruction, /never ask for one in this turn or invent one/u);
+  assert.match(review.instruction, /A source nobody could read \(kind source\) has no clause reference/u);
   assert.ok(review.items.some(entry => entry.sourceId === 'DOC-001'));
   assert.ok(review.items.some(entry => entry.sourceId === 'clarification:discover:Q-001'));
   assert.deepEqual(item.workflow, before, 'preview neither decides scope nor changes lifecycle');
@@ -188,6 +197,10 @@ test('the same scope checkpoint applies by responsibility across every seeded wo
   const prompt = phasePromptExecutionContract({}, custom, renamed).lines.join('\n');
   assert.match(prompt, /Scope repair first/u);
   assert.match(prompt, /not a blanket phase blocker/u);
+  // An authoring turn that asked the person for a disposition could not record it (graph-plot, 2026-10-26).
+  assert.match(prompt, /recorded in a \/sf-decide turn they start: never ask for one in this turn or record one/u);
+  assert.doesNotMatch(prompt, /ask the authorized person through the returned decision scope route/u);
+  assert.match(prompt, /A source nobody could read \(an item of kind `source`, such as an attached document\) has no reference/u);
   assert.equal(phaseOwnsScope({ resolution: { obligationGraph: { nodes: [{ id: phase.id, responsibilities: [] }] } } }, phase), false,
     'an explicit pinned omission is not overridden by a name or artifact fallback');
 });

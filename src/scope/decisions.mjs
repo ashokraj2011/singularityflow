@@ -10,7 +10,7 @@ import { omissionAuthorities } from '../evidence/applicability.mjs';
 import { stepResponsibilities } from '../phase-roles.mjs';
 import { STARTER_CHECKLIST, validateChecklistDecisions } from '../specification-quality.mjs';
 import { SingularityFlowError } from '../util.mjs';
-import { CLAUSE_LINKED_DISPOSITIONS, DECIDABLE_SCOPE_DISPOSITIONS } from './inventory.mjs';
+import { CLAUSE_LINKED_DISPOSITIONS, DECIDABLE_SCOPE_DISPOSITIONS } from './extract.mjs';
 
 /** Who may decide the scope: the approval groups of the steps that define it. */
 export function scopeAuthorities(workflow) {
@@ -55,7 +55,10 @@ export function recordScopeDecision(workflow, {
     }
     const unknown = linked.filter((id) => !knownClauseIds.includes(id));
     if (unknown.length) {
-      throw new SingularityFlowError(`This Story's specification defines no clause ${unknown.join(', ')}.`, { code: 'SCOPE_CLAUSE_UNKNOWN', details: { unknown } });
+      // Say where it looked: "defines no clause" alone read as a broken publication to an agent, which
+      // then asked the person to retype the command and got a commit hash as the clause (2026-10-26).
+      throw new SingularityFlowError(`${unknown.join(', ')} ${unknown.length === 1 ? 'is not a clause' : 'are not clauses'} of this Story's approved, submitted or open-draft specification; name clause IDs as it writes them, such as ${knownClauseIds[0] ?? 'STORY:AC-001'}.`, {
+        code: 'SCOPE_CLAUSE_UNKNOWN', details: { unknown, known: knownClauseIds.slice(0, 20) } });
     }
   } else if (linked.length) {
     throw new SingularityFlowError(`A ${disposition} statement is not carried by clauses; leave out --clause.`, { code: 'SCOPE_CLAUSES_UNEXPECTED' });

@@ -121,7 +121,8 @@ test('a scope decision disposes of an item while its statement is unchanged, and
     actor: 'po@example.test', authorityGroup: 'product-approvers', at: '2026-10-03T00:00:00.000Z', inventory, knownClauseIds: [], ...overrides
   });
   assert.throws(() => decide({ disposition: 'included' }), (error) => error.code === 'SCOPE_CLAUSES_REQUIRED');
-  assert.throws(() => decide({ disposition: 'included', clauseIds: ['W-1:AC-009'] }), (error) => error.code === 'SCOPE_CLAUSE_UNKNOWN');
+  assert.throws(() => decide({ disposition: 'included', clauseIds: ['W-1:AC-009'] }), (error) => error.code === 'SCOPE_CLAUSE_UNKNOWN'
+    && /^W-1:AC-009 is not a clause of this Story's approved, submitted or open-draft specification; name clause IDs as it writes them, such as /u.test(error.message));
   assert.throws(() => decide({ clauseIds: ['W-1:AC-001'] }), (error) => error.code === 'SCOPE_CLAUSES_UNEXPECTED');
   assert.throws(() => decide({ reason: 'too short' }), (error) => error.code === 'SCOPE_REASON_REQUIRED');
   assert.throws(() => decide({ item: 'SRI-000000000000' }), (error) => error.code === 'SCOPE_ITEM_UNKNOWN');
@@ -318,8 +319,9 @@ test('the CLI shows the inventory and records a scope decision through the scope
   assert.equal(reviewedState.completenessReviews.at(-1).inventorySha256, after.inventorySha256);
 });
 
-test('the scope step\'s approver is shown each open statement while reviewing, and a statement its clauses carry is not open', async (t) => {
-  const root = await mkdtemp(path.join(os.tmpdir(), 'sflow-scope-owed-'));
+/** A governed fixture Story whose intake (the step defining its scope) is published, not submitted. */
+async function publishedScopeStory(t, id, { criteria = [], planned = [] } = {}) {
+  const root = await mkdtemp(path.join(os.tmpdir(), 'sflow-scope-story-'));
   const remote = `${root}-remote.git`;
   t.after(() => Promise.all([rm(root, { recursive: true, force: true }), rm(remote, { recursive: true, force: true })]));
   const git = (...args) => run('git', args, root).stdout.trim();
@@ -342,21 +344,26 @@ test('the scope step\'s approver is shown each open statement while reviewing, a
   run('git', ['init', '-q', '--bare', '-b', 'main', remote], root);
   git('remote', 'add', 'origin', remote);
   git('push', '-q', '-u', 'origin', 'main');
-  sflow('start', 'SCOPE-2', '--from-branch', 'main', '--work-type', 'classic-delivery', '--title', 'Change the value',
+  sflow('start', id, '--from-branch', 'main', '--work-type', 'classic-delivery', '--title', 'Change the value',
     '--description', 'The exported value must equal 2. The public API must stay stable.');
   sflow('prepare', 'intake');
-  await writeFile(path.join(root, 'singularity/work-items/SCOPE-2/artifacts/intake/intake.md'), [
-    '# SCOPE-2 — intake', '', '## Request and outcome', '', 'Change the exported value to 2.', '',
+  await writeFile(path.join(root, `singularity/work-items/${id}/artifacts/intake/intake.md`), [
+    `# ${id} — intake`, '', '## Request and outcome', '', 'Change the exported value to 2.', '',
     '## Scope and constraints', '', 'Change only the value module and its test.', '',
-    '## Acceptance criteria', '', '| Clause | Observable outcome |', '|---|---|', '| [SCOPE-2:AC-001] | The exported value must equal 2. |', '',
+    '## Acceptance criteria', '', '| Clause | Observable outcome |', '|---|---|', `| [${id}:AC-001] | The exported value must equal 2. |`, ...criteria, '',
     '## Planned implementation evidence', '', '| Clause | Expected paths | Planned tests | Fulfillment | Observable result |', '|---|---|---|---|---|',
-    '| `SCOPE-2:AC-001` | `src/value.mjs` | `test/value.test.mjs` | new | value() returns 2. |', '',
+    `| \`${id}:AC-001\` | \`src/value.mjs\` | \`test/value.test.mjs\` | new | value() returns 2. |`, ...planned, '',
     '## Initial evidence', '', 'The README at the pinned main revision.', '',
     '## Agent brief', '', 'Intake for a one-line value change; one criterion.', ''
   ].join('\n'));
   sflow('wm', 'compose', '--phase', 'intake');
   sflow('clarification', 'record', 'intake', '--question', 'Is the value 2?', '--answer', 'Yes.');
   sflow('phase', 'publish', 'intake', '--authored', 'human', '--channel', 'manual-in-place');
+  return { root, sflow };
+}
+
+test('the scope step\'s approver is shown each open statement while reviewing, and a statement its clauses carry is not open', async (t) => {
+  const { root, sflow } = await publishedScopeStory(t, 'SCOPE-2');
   sflow('submit', 'intake');
 
   // Submission rewrote the document's status block, so its index is trusted only once approval
@@ -365,7 +372,9 @@ test('the scope step\'s approver is shown each open statement while reviewing, a
   assert.equal(readiness.classification, 'already-submitted');
   const open = readiness.owedDecisions?.scopeItems ?? [];
   assert.deepEqual(open.map((item) => item.text), ['The public API must stay stable.'], JSON.stringify(readiness.owedDecisions));
-  assert.equal(open[0].command, `singularity-flow decision scope SCOPE-2 --item ${open[0].id} --as <included|existing|excluded|deferred|informative|duplicate|superseded> --reason "<why>"`);
+  // Included or existing names its clauses and the rest refuse --clause, so each has its own command.
+  assert.equal(open[0].command, `singularity-flow decision scope SCOPE-2 --item ${open[0].id} --as <included|existing> --clause <CLAUSE-ID,...> --reason "<why>"`);
+  assert.equal(open[0].otherCommand, `singularity-flow decision scope SCOPE-2 --item ${open[0].id} --as <excluded|deferred|informative|duplicate|superseded> --reason "<why>"`);
   assert.deepEqual(readiness.owedDecisions.witnesses, []);
   assert.match(sflow('phase', 'show', 'intake').stdout, /Open scope items \(1, human only, not blocking this step\):\n {2}SRI-[0-9a-f]{12} story: "The public API must stay stable\."/u);
 
@@ -374,4 +383,27 @@ test('the scope step\'s approver is shown each open statement while reviewing, a
   sflow('approve', 'intake', '--yes');
   const workflowState = JSON.parse(await readFile(path.join(root, 'singularity/work-items/SCOPE-2/workflow.json'), 'utf8'));
   assert.equal(workflowState.phases.intake.status, 'approved', 'a decision recorded during review does not stale the approval');
+});
+
+test('while the step defining scope is open, a decision names its own clauses and the inventory reads them', async (t) => {
+  // graph-plot, 2026-10-26: the Specification asked for a scope decision, but decision scope knew only
+  // approved clauses, so naming the Specification's own AC was refused until approval, and evidence
+  // scope showed statements its draft already linked as open.
+  const { sflow } = await publishedScopeStory(t, 'SCOPE-3', {
+    criteria: ['| [SCOPE-3:AC-002] | Callers of the value module change nothing. |'],
+    planned: ['| `SCOPE-3:AC-002` | `src/value.mjs` | `test/value.test.mjs` | modified | Existing callers still import value(). |']
+  });
+  const scope = () => JSON.parse(sflow('evidence', 'scope', 'SCOPE-3', '--json').stdout).data;
+  const before = scope();
+  assert.equal(before.preview, true, 'the open intake is read as a preview');
+  const byText = (data, text) => data.scope.items.find((item) => item.text === text);
+  assert.equal(byText(before, 'The exported value must equal 2.').disposition, 'included', 'its own clause carries it');
+  const api = byText(before, 'The public API must stay stable.');
+  assert.equal(api.disposition, 'unresolved');
+
+  sflow('decision', 'scope', 'SCOPE-3', '--item', api.id, '--as', 'included', '--clause', 'SCOPE-3:AC-002',
+    '--reason', 'Callers changing nothing is how this Story keeps the public API stable.');
+  const after = byText(scope(), 'The public API must stay stable.');
+  assert.equal(after.disposition, 'included');
+  assert.deepEqual(after.clauseIds, ['SCOPE-3:AC-002']);
 });

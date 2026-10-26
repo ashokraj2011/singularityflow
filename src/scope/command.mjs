@@ -13,8 +13,11 @@ import { optionBoolean, SingularityFlowError } from '../util.mjs';
 
 export async function run(_argv, { positionals, options }) {
   const root = repoRoot();
-  const graph = await loadEvidenceGraph(root, { workId: positionals[2] ?? null });
-  const inventory = graph.scope;
+  const graph = await loadEvidenceGraph(root, { workId: positionals[2] ?? null, scopePreview: true });
+  // While the step defining the scope is open, its own draft or submitted clauses link statements,
+  // as decision scope reads them; approved evidence and the final check still read graph.scope.
+  const preview = graph.scopePreview?.previewed && graph.scopePreview.inventory ? graph.scopePreview.inventory : null;
+  const inventory = preview ?? graph.scope;
   if (!inventory) {
     const reason = graph.findings.find((entry) => entry.code === 'SCOPE_INVENTORY_UNAVAILABLE')?.message ?? 'unknown reason';
     throw new SingularityFlowError(reason, { code: 'SCOPE_INVENTORY_UNAVAILABLE' });
@@ -35,6 +38,6 @@ export async function run(_argv, { positionals, options }) {
       command: `singularity-flow decision completeness ${inventory.workId} --confirm ${inventory.inventorySha256} --article <article>=satisfied|exception|not-applicable --reason <reason>`,
       kind: 'review'
     })] : [],
-    data: { scope: inventory, completenessReview: graph.completenessReview ?? null }
+    data: { scope: inventory, preview: Boolean(preview), completenessReview: graph.completenessReview ?? null }
   }), { json: optionBoolean(options, 'json'), restStateWhenIdle: 'informational' });
 }

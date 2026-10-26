@@ -11,6 +11,7 @@
 import { stepResponsibilities } from './phase-roles.mjs';
 import { WITNESS_CHECKLIST } from './verification/witness-records.mjs';
 import { commandRouteLines, safeCommandGuidance } from './safe-command-guidance.mjs';
+import { scopeDecisionArgv, scopeDecisionCommandLine } from './scope/extract.mjs';
 
 const MAX_LISTED = 8;
 const MAX_TEXT = 160;
@@ -93,9 +94,10 @@ function listed(entries) {
 function scopeItemsOf(workflow, inventory) {
   return (inventory?.items ?? []).filter((item) => item.disposition === 'unresolved').map((item) => {
     const text = String(item.text ?? '').replace(/\s+/gu, ' ').trim();
+    const decide = scopeDecisionArgv(workflow.workItem.id, item.id);
     return { id: item.id, source: item.line ? `${item.sourceId}:${item.line}` : item.sourceId, kind: item.kind ?? null, humanRequired: true,
       text: text.length > MAX_TEXT ? `${text.slice(0, MAX_TEXT - 1)}…` : text,
-      command: `singularity-flow decision scope ${workflow.workItem.id} --item ${item.id} --as <included|existing|excluded|deferred|informative|duplicate|superseded> --reason "<why>"` };
+      command: scopeDecisionCommandLine(decide.linked), otherCommand: scopeDecisionCommandLine(decide.unlinked) };
   });
 }
 
@@ -150,7 +152,9 @@ export function owedDecisionLines(owed) {
   const scopeCount = owed.scopeItems.length + owed.more.scopeItems;
   if (scopeCount) {
     lines.push(`Open scope items (${scopeCount}, human only, not blocking this step):`);
-    for (const item of owed.scopeItems) lines.push(`  ${item.id} ${item.source ?? ''}: "${item.text}"`, `    ${item.command}`);
+    for (const item of owed.scopeItems) {
+      lines.push(`  ${item.id} ${item.source ?? ''}: "${item.text}"`, `    ${item.command}`, ...(item.otherCommand ? [`    ${item.otherCommand}`] : []));
+    }
     if (owed.more.scopeItems) lines.push(`  …and ${owed.more.scopeItems} more: singularity-flow evidence scope`);
   }
   return lines;

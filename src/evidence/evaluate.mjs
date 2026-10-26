@@ -16,6 +16,7 @@ import { qualifiedClauseIds } from '../traceability-ids.mjs';
 import { phaseRequiresCodeDelivery } from '../code-delivery-policy.mjs';
 import { mergeObservedClaimRecords, mergePlannedClaimRecords, plannedProductSourcePaths, testOnlyClaimEvidence } from '../specifications.mjs';
 import { scopeStaleness } from '../scope/revisions.mjs';
+import { scopeDecisionArgv, scopeDecisionCommandLine } from '../scope/extract.mjs';
 import { riskDecisionState, riskEligibility } from './risk-decisions.mjs';
 import { applicabilityStatus, endpointTaken } from './applicability.mjs';
 import { completionLabel, lifecycleWords, resultCounts } from './labels.mjs';
@@ -635,7 +636,7 @@ export function evaluateEvidence(graph, { boundary = 'view', mode = 'projection'
       id: item.id, type: 'SCOPE', definedIn: item.sourceId, source: item.line ? `${item.sourceId}:${item.line}` : item.sourceId,
       statementSha256: item.statementSha256, result: unresolved ? 'pending' : 'not-applicable', assurance: 'not-applicable',
       plan: null, implementation: null, verification: null, obligations: [obligation], findings: [],
-      actions: unresolved ? [{ kind: 'decide', command: `singularity-flow decision scope --item ${item.id} --as <included|existing|excluded|deferred|informative|duplicate|superseded> --reason "<why>"` }] : [],
+      actions: unresolved ? Object.values(scopeDecisionArgv(null, item.id)).map((argv) => ({ kind: 'decide', command: scopeDecisionCommandLine(argv) })) : [],
       scope: { kind: item.kind, text: item.text, disposition: item.disposition, clauseIds: item.clauseIds, duplicateOf: item.duplicateOf ?? null, coveredBy: item.coveredBy ?? null }
     });
   }

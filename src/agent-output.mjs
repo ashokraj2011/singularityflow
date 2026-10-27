@@ -19,7 +19,7 @@ import { createHash } from 'node:crypto';
 import { readFileSync, realpathSync } from 'node:fs';
 import { readdir, rm, stat } from 'node:fs/promises';
 import path from 'node:path';
-import { AGENT_OUTPUT_FOLDER, agentOutputDirectory, excludeAgentOutput } from './agent-output-folder.mjs';
+import { AGENT_OUTPUT_FOLDER, agentOutputDirectory, excludeAgentOutput, lineRanges, READ_CHUNK_BYTES } from './agent-output-folder.mjs';
 import { observeFindingStreak } from './finding-escalation.mjs';
 import { gitCommonDir, repoRoot } from './git-execution.mjs';
 import { CLI_PATH_REFERENCE, safeCommandGuidance, validateSafeSflowCommand } from './safe-command-guidance.mjs';
@@ -36,13 +36,9 @@ export const DEFAULT_AGENT_OUTPUT_BYTES = 7_500;
 // An agent read a 40 KB overflow file in three slices on average, up to eight: one model call per
 // slice, each re-sending the whole conversation (22% of all calls in recorded sessions, 2026-10-18
 // to 10-21). So the fields a view leaves out are written first and together, and named as at most
-// ten ranges of whole fields (70 KB), to be read in one response. Copilot 1.0.95 (2026-10-22) cut a
-// ranged read at about 20,000 characters; Copilot 1.0.100 in VS Code (2026-10-27) cut every ranged
-// read after 8,193 to 9,233 bytes ("Output truncated") and refused an 8,909-byte file whole ("File
-// too large to read at once"). Each cut read was read again in slices, and a source review that
-// never got its specification text ended without reviewing. So a range is at most 7,000 bytes, and
-// a longer text file is named as ranges of that size too.
-export const READ_CHUNK_BYTES = 7_000;
+// ten ranges of whole fields (70 KB), to be read in one response; each range, and each range of a
+// longer text file, is at most READ_CHUNK_BYTES (agent-output-folder.mjs: what the host shows at once).
+export { READ_CHUNK_BYTES };
 export const READ_PLAN_CHUNKS = 10;
 export const LOOP_THRESHOLD = 3;
 const LOOP_WINDOW_MS = 2 * 60 * 60 * 1000;
@@ -426,18 +422,12 @@ function topLevelRanges(text) {
 }
 
 /** Consecutive line ranges of a text, each at most `chunkBytes` (a longer line is its own range). */
-function lineRanges(text, chunkBytes = READ_CHUNK_BYTES) {
-  const lines = text.split('\n');
-  if (lines.at(-1) === '') lines.pop();
-  const ranges = [];
-  let start = 1, size = 0;
-  lines.forEach((line, index) => {
-    const length = bytes(line) + 1;
-    if (size && size + length > chunkBytes) { ranges.push([start, index]); start = index + 1; size = 0; }
-    size += length;
-  });
-  if (lines.length) ranges.push([start, lines.length]);
-  return ranges;
+/**
+ * A file SFlow names for an agent to read whole (a prepared draft), as `start-end` line ranges the
+ * host file tool shows in one read each; null when it fits one read.
+ */
+export function readRangesText(text) {
+  return bytes(text) > READ_CHUNK_BYTES ? lineRanges(text).map(([start, end]) => `${start}-${end}`).join(', ') : null;
 }
 
 /**

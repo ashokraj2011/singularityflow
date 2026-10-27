@@ -1,4 +1,6 @@
 /** Extracted command implementation; governance remains in the existing kernel APIs. */
+import { readFile } from 'node:fs/promises';
+import path from 'node:path';
 import { repoRoot } from '../git.mjs';
 import { loadAcceptedStoryExecution } from '../accepted-story-execution.mjs';
 import { SingularityFlowError, optionBoolean } from '../util.mjs';
@@ -28,10 +30,14 @@ export async function prepareCommand(positionals, options) {
   workflow = prepared.workflow;
   phaseContract = workflow.phases[phase] ?? phaseContract;
   const artifact = prepared.artifact;
+  // A template draft (with its approved inputs) is often longer than the host file tool shows at
+  // once; refused whole, an agent then reads it again in slices. Name the ranges up front.
+  const draftText = artifact ? await readFile(path.resolve(root, artifact), 'utf8').catch(() => null) : null;
+  const read = draftText == null ? null : (await import('../agent-output.mjs')).readRangesText(draftText);
   emitCommandResult(commandResult({
     operation: { id: 'prepare', classification: 'mutation' },
     subject: { kind: 'story', id: workflow.workItem.id },
-    outcome: succeeded('prepare.succeeded', { phase, path: artifact }),
+    outcome: succeeded('prepare.succeeded', { phase, path: artifact, ...(read ? { read } : {}) }),
     // Materialises the artifact from its template and captures the interval baseline. Nothing is
     // committed or pushed: preparing is not a governed transition.
     effects: effects({ filesChanged: true, stateChanged: true }),
@@ -39,6 +45,7 @@ export async function prepareCommand(positionals, options) {
     data: {
       preparation: {
         path: artifact,
+        ...(read ? { read } : {}),
         stage: 'prepared',
         producer: prepared.publicationProducer,
         authoringRequired: prepared.publicationProducer !== 'deterministic' || !phaseKernelOwned(phaseContract),

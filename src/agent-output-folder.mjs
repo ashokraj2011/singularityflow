@@ -18,6 +18,29 @@ import { appendFile, lstat, mkdir, readFile } from 'node:fs/promises';
 import path from 'node:path';
 
 export const AGENT_OUTPUT_FOLDER = '.sflow/out';
+
+// What an agent's file tool shows in one read. Copilot 1.0.95 (2026-10-22) cut a ranged read at about
+// 20,000 characters; Copilot 1.0.100 in VS Code (2026-10-27) cut every ranged read after 8,193 to 9,233
+// bytes ("Output truncated") and refused an 8,909-byte file whole ("File too large to read at once").
+// Each cut read was read again in slices, and a source review that never got its specification text
+// ended without reviewing. So a range SFlow names is at most 7,000 bytes. Here, beside the folder,
+// because both the result writer and the Copilot edit guard (for any file read) use it.
+export const READ_CHUNK_BYTES = 7_000;
+
+/** 1-based inclusive line ranges of at most `chunkBytes` each; a longer single line is its own range. */
+export function lineRanges(text, chunkBytes = READ_CHUNK_BYTES) {
+  const lines = text.split('\n');
+  if (lines.at(-1) === '') lines.pop();
+  const ranges = [];
+  let start = 1, size = 0;
+  lines.forEach((line, index) => {
+    const length = Buffer.byteLength(line) + 1;
+    if (size && size + length > chunkBytes) { ranges.push([start, index]); start = index + 1; size = 0; }
+    size += length;
+  });
+  if (lines.length) ranges.push([start, lines.length]);
+  return ranges;
+}
 export const AGENT_OUTPUT_EXCLUDE = `/${AGENT_OUTPUT_FOLDER}/`;
 const EXCLUDE_COMMENT = '# Singularity Flow: agent results (.sflow/out), machine-local, never commit them';
 

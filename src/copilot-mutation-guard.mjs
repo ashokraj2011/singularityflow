@@ -11,7 +11,7 @@ import { asSflowCommand, copilotModeFile, mentionsHookCli, readCopilotMode } fro
 // or a staging refusal is written, never on the per-call path.
 const stagingPaths = () => import('./phase-staging-paths.mjs');
 import { parseArgs } from './util.mjs';
-import { AGENT_OUTPUT_FOLDER } from './agent-output-folder.mjs';
+import { AGENT_OUTPUT_FOLDER, lineRanges, READ_CHUNK_BYTES } from './agent-output-folder.mjs';
 import { canonicalCommand, resolveOperation } from './command-registry.mjs';
 import { currentSchemaVersion, readRecord } from './schema-migrations.mjs';
 import { CLI_PATH_REFERENCE, safeCommandGuidance, validateSflowExecutionCommand } from './safe-command-guidance.mjs';
@@ -1107,6 +1107,50 @@ export async function mutationToolGuard(payload = {}) {
   return decision;
 }
 
+// A read is turned back only when the host would cut it (the smallest cut seen was 8,193 bytes); the
+// ranges it names are READ_CHUNK_BYTES, with room to spare. A file longer than the scan limit is not
+// scanned for ranges; the host's own refusal stands.
+const LONG_READ_BYTES = 8_000;
+const LONG_READ_SCAN_BYTES = 1024 * 1024;
+const LONG_READ_RANGES_SHOWN = 10;
+
+/**
+ * Any file an agent reads in an SFlow turn (a custom workflow's artifacts, a draft, a workflow file,
+ * source), not only the results SFlow names: a whole read or range longer than one file read
+ * (LONG_READ_BYTES) would come back cut or refused, and the agent reads it again in slices or gives
+ * up. Turn it back before it runs, naming the exact ranges to request together. A short read, an
+ * image or other binary, a link, and a text whose single line is longer than one read pass as before.
+ */
+async function longFileRead(toolCalls, cwd) {
+  for (const call of toolCalls) {
+    if (call.name !== 'view') continue;
+    const [target] = targets(call.args);
+    if (typeof target !== 'string' || !target) continue;
+    let file;
+    try { file = target.startsWith('file:') ? fileURLToPath(target) : path.resolve(call.args.cwd ?? cwd ?? process.cwd(), target); }
+    catch { continue; }
+    const info = await lstat(file).catch(() => null);
+    if (!info?.isFile() || info.size <= LONG_READ_BYTES || info.size > LONG_READ_SCAN_BYTES) continue;
+    const text = await readFile(file, 'utf8').catch(() => null);
+    if (text == null || text.includes('\u0000')) continue;
+    const lines = text.split('\n');
+    if (lines.at(-1) === '') lines.pop();
+    const range = Array.isArray(call.args.view_range) ? call.args.view_range.map(Number) : null;
+    const first = Math.max(1, range?.[0] || 1);
+    const last = range && range[1] > 0 ? Math.min(range[1], lines.length) : lines.length;
+    if (first > last) continue;
+    const part = lines.slice(first - 1, last);
+    if (Buffer.byteLength(part.join('\n')) <= LONG_READ_BYTES || part.some(line => Buffer.byteLength(line) >= READ_CHUNK_BYTES)) continue;
+    const ranges = lineRanges(part.join('\n')).map(([start, end]) => [start + first - 1, end + first - 1]);
+    const shown = ranges.slice(0, LONG_READ_RANGES_SHOWN);
+    const more = ranges.length > shown.length ? ` Then continue from line ${shown.at(-1)[1] + 1} the same way, or search the file for what you need.` : '';
+    return { permissionDecision: 'deny', next: [], readRanges: [{ path: target, ranges }],
+      permissionDecisionReason: `FILE_READ_TOO_LONG: ${target}${range ? ` lines ${first}-${last}` : ''} is longer than one file read shows (about 8 KB), so it would come back cut or refused. Nothing was read. `
+        + `Request these view_range values together in one response: ${shown.map(([start, end]) => `[${start}, ${end}]`).join(', ')}.${more}` };
+  }
+  return null;
+}
+
 async function mutationToolDecision(payload, record) {
   const toolCalls = calls(payload);
   if (mutationTurnMode(record.skill) === 'read' && toolCalls.some(call => GATEWAY_RUN_TOOL.test(call.name))) {
@@ -1123,6 +1167,8 @@ async function mutationToolDecision(payload, record) {
       if (correction) return correction;
     }
   }
+  const tooLong = await longFileRead(toolCalls, payload.cwd);
+  if (tooLong) return tooLong;
   if (!guarded.length) {
     if (!stagingReads.length) return {}; // Ordinary file reads keep the existing no-policy-load path.
     const current = await currentContract(payload, record).catch(() => null);

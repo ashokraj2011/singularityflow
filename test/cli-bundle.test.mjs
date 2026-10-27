@@ -115,7 +115,10 @@ test('the bundled CLI answers exactly like the sources while opening a handful o
   // 4,460,000 (next 5,000 boundary; it was 4.25 MiB, 4,456,448): main 317d51b9 measures 4,456,138. The blocker
   // audit's dead-end and trap routes add cold-core +1,952, cold-narrow-reads +1,216 and cold-worker-protocol +62
   // for 4,459,368. No new file.
-  assert.ok(closure('cold-narrow-reads.mjs').reduce((sum, item) => sum + item.bytes, 0) < 4_460_000,
+  // 4,465,000: main 16677122 measures 4,459,467. The edit guard turns back any file read longer than one
+  // view (Copilot 1.0.100 shows about 8 KB) with its exact ranges: cold-hooks +2,263, cold-core +85 and
+  // cold-worker-protocol -191 (the range builder moved beside the output folder) for 4,461,624. No new file.
+  assert.ok(closure('cold-narrow-reads.mjs').reduce((sum, item) => sum + item.bytes, 0) < 4_465_000,
     'strict next-step reads must not inherit the broad phase-review closure');
   const publicationClosure = closure('cold-publication.mjs');
   assert.ok(publicationClosure.length && publicationClosure.reduce((sum, item) => sum + item.bytes, 0) < 6 * 1024 * 1024,
@@ -248,7 +251,9 @@ test('the bundled CLI answers exactly like the sources while opening a handful o
   // 5,270,000 (next 5,000 boundary): main e5dd29cf measures 5,262,555; the blocker audit's recovery plans and
   // agent view add cold-core +5,200, cold-worker-protocol +1,044 and cold-narrow-reads +676 for 5,269,475.
   // 5,275,000: main d62754fe measures 5,269,475; the document-step fixes add 1,742 for 5,271,217.
-  assert.ok(catalogClosure.reduce((sum, item) => sum + item.bytes, 0) < 5_275_000,
+  // 5,280,000: main 16677122 measures 5,274,546; the edit guard's long-read ranges add cold-hooks +2,263,
+  // cold-core +85 and cold-worker-protocol -191 for 5,276,703.
+  assert.ok(catalogClosure.reduce((sum, item) => sum + item.bytes, 0) < 5_280_000,
     'catalog parsing stays bounded instead of pulling in the entire administration bundle');
   for (const name of ['cold-compatibility.mjs', 'cold-models.mjs', 'cold-intake.mjs', 'cold-phases.mjs', 'cold-hook-context.mjs']) {
     assert.ok(!catalogClosure.some(item => item.file === name), `catalogs must not statically reach ${name}`);

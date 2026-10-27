@@ -60,7 +60,8 @@ test('all generated context, JSON, catalog, refusal and text files get exact rea
       await assert.rejects(readFile(wrong), error => ['ENOENT', 'ENOTDIR'].includes(error.code));
     }
     assert.deepEqual(await mutationToolGuard({ ...payload, toolName: 'read_file', toolArgs: { path: exact } }), {});
-    assert.deepEqual(await mutationToolGuard({ ...payload, toolName: 'view', toolArgs: { path: pathToFileURL(exact).href } }), {});
+    // A range one file read shows; a longer whole read is turned back with its ranges (below).
+    assert.deepEqual(await mutationToolGuard({ ...payload, toolName: 'view', toolArgs: { path: pathToFileURL(exact).href, view_range: [1, 100] } }), {});
     assert.equal((await mutationToolGuard({ ...payload, toolName: 'edit', toolArgs: { path: exact } })).permissionDecision, 'deny');
   }
   // The clone's info/exclude covers its linked worktrees: nothing SFlow wrote shows as a change.
@@ -2021,6 +2022,42 @@ test('after a command that changed nothing, current contracts are not rebuilt an
   assert.notEqual(await readFile(recordPath, 'utf8'), before, 'rebuilt against the new Story file');
   assert.deepEqual(await mutationToolGuard({ ...payload, toolName: 'view', toolArgs: { path: 'src/App.jsx' } }), {});
 
+});
+
+// Copilot 1.0.100 shows about 8 KB per file read: a longer read came back cut ("Output truncated") or
+// refused ("File too large to read at once"), and agents read it again in slices or gave up. Any file a
+// turn reads counts, including the artifacts a custom workflow defines, not only what SFlow names.
+test('a file read longer than one view is turned back with the exact ranges to request together', async t => {
+  const f = await fixture(t);
+  const payload = await f.enter('/sf-phase');
+  const write = async (relative, content) => {
+    await mkdir(path.dirname(path.join(f.root, relative)), { recursive: true });
+    await writeFile(path.join(f.root, relative), content);
+    return relative;
+  };
+  const rows = Array.from({ length: 400 }, (_, index) => `  - id: RISK-${index}\n    note: owner, likelihood and the check that proves it`);
+  const custom = await write('team/outputs/risk-register.yaml', `risks:\n${rows.join('\n')}\n`);
+  const view = args => mutationToolGuard({ ...payload, toolName: 'view', toolArgs: args });
+  const whole = await view({ path: custom });
+  assert.equal(whole.permissionDecision, 'deny');
+  assert.match(whole.permissionDecisionReason, /^FILE_READ_TOO_LONG: .*Nothing was read\. Request these view_range values together in one response: \[1, \d+\], /u);
+  const lines = (await readFile(path.join(f.root, custom), 'utf8')).split('\n');
+  const [{ ranges }] = whole.readRanges;
+  assert.equal(ranges[0][0], 1);
+  assert.equal(ranges.at(-1)[1], lines.length - 1, 'the ranges cover the whole file');
+  for (const [start, end] of ranges) {
+    assert.ok(Buffer.byteLength(lines.slice(start - 1, end).join('\n')) <= 7_000, `${start}-${end}`);
+    assert.deepEqual(await view({ path: custom, view_range: [start, end] }), {}, 'each named range passes');
+  }
+  // A range too long for one read is split the same way, from where it starts.
+  const ranged = await view({ path: custom, view_range: [301, -1] });
+  assert.equal(ranged.readRanges[0].ranges[0][0], 301);
+  // Short files (up to what one read shows), images and a single line no range can split read as before.
+  assert.deepEqual(await view({ path: await write('team/outputs/short.md', '# Short\n') }), {});
+  assert.deepEqual(await view({ path: await write('team/outputs/just-fits.md', `${'- a line of notes for the step\n'.repeat(240)}`) }), {}, '7.4 KB fits one read');
+  assert.deepEqual(await view({ path: await write('team/outputs/shot.png', Buffer.concat([Buffer.from([0x89, 0x50, 0x4e, 0x47, 0]), Buffer.alloc(9_000, 1)])) }), {});
+  assert.deepEqual(await view({ path: await write('team/outputs/one-line.json', JSON.stringify({ rows })) }), {});
+  assert.deepEqual(await view({ path: 'team/outputs/missing.md' }), {});
 });
 
 test('a deterministic code step lets its author write code; only its summary is kernel-built', async t => {

@@ -912,7 +912,7 @@ export const MESSAGES = Object.freeze({
     preserves: false
   },
   'prepare.succeeded': {
-    headline: (s) => `${slot(s.phase)} is ready to author in ${slot(s.path)}.`,
+    headline: (s) => `${slot(s.phase)} is ready to author in ${slot(s.path)}.${s.read ? ` It is longer than one file read: open lines ${slot(s.read)} together.` : ''}`,
     preserves: false
   },
   'prepare.noop': {

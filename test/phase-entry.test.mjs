@@ -212,6 +212,28 @@ test('CLI preparation is an unpublished authoring checkpoint, not a completed te
   assert.equal(await readFile(draftPath, 'utf8'), draft, 'readiness inspection preserves draft bytes');
 });
 
+// Copilot 1.0.100 refused a 9-28 KB prepared draft whole ("File too large to read at once") right
+// after prepare, every step: preparation names the ranges its file tool shows in one read each.
+test('preparing a draft longer than one file read names its line ranges', async t => {
+  const item = await fixture(t, { customPhase: 'team-discovery' });
+  const first = completeAgentResult(item.invoke('prepare', 'team-discovery', '--json').stdout);
+  const draftPath = path.join(item.root, first.data.preparation.path);
+  const long = `${await readFile(draftPath, 'utf8')}\n${Array.from({ length: 300 }, (_, index) => `- Discovery note ${index}: who needs it and why.`).join('\n')}\n`;
+  await writeFile(draftPath, long);
+  const prepared = item.invoke('prepare', 'team-discovery', '--json');
+  assert.equal(prepared.status, 0, prepared.stderr || prepared.stdout);
+  const result = completeAgentResult(prepared.stdout);
+  assert.equal(await readFile(draftPath, 'utf8'), long, 'preparation keeps the authored draft');
+  const ranges = result.data.preparation.read.split(', ').map((range) => range.split('-').map(Number));
+  const lines = long.split('\n');
+  assert.ok(ranges.length >= 2, result.data.preparation.read);
+  assert.equal(ranges[0][0], 1);
+  assert.equal(ranges.at(-1)[1], lines.length - 1, 'the ranges cover the whole draft');
+  for (const [start, end] of ranges) assert.ok(Buffer.byteLength(lines.slice(start - 1, end).join('\n')) <= 7_000, `${start}-${end}`);
+  const said = item.invoke('prepare', 'team-discovery');
+  assert.match(said.stdout, new RegExp(`It is longer than one file read: open lines ${result.data.preparation.read} together\\.`, 'u'));
+});
+
 test('entry and nextsteps resume an authored custom draft at prepublish without repeating preparation', async t => {
   const item = await fixture(t, { customPhase: 'team-resume' });
   const prepared = item.invoke('prepare', 'team-resume', '--json');

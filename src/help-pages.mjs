@@ -1436,6 +1436,27 @@ const PAGES = Object.freeze({
     ],
     seeAlso: ['app', 'tests', 'evidence', 'decision', 'decisions']
   },
+  result: {
+    summary: 'Read the newest result an agent command kept in this checkout, whole, without running it again.',
+    description: [
+      'Every --for-agent JSON command keeps its complete result, refusals included, machine-locally for its checkout',
+      '(the last five). When a host shows only part of a result, saves it where the agent cannot open it, or returns',
+      'while the command is still running, `result last --wait` waits until no command of the checkout is running and',
+      'returns the newest result as that command returned it. It is a read: it never runs the command again. A command',
+      'that ended without a result (interrupted or killed) is named, to run once more.'
+    ],
+    options: [
+      ['last', 'The newest kept result.'],
+      ['--wait [SECONDS]', `Wait for a command still running (45 seconds by default, at most 300); past it, say it still runs.`],
+      ['--command WORDS', 'The newest result of the command starting with these words, such as "phase prepublish".'],
+      ['--json', 'The kept result as JSON, marked with keptResult.']
+    ],
+    examples: [
+      ['singularity-flow result last --wait --for-agent --json', 'What an agent runs when a result came back cut off.'],
+      ['singularity-flow result last --command "phase prepublish"', 'The newest prepublish result of this checkout.']
+    ],
+    seeAlso: ['phase', 'nextsteps']
+  },
   call: {
     summary: 'Add your own agent folder (a main agent and the skills it uses) and run it as a Story\'s one step.',
     description: [

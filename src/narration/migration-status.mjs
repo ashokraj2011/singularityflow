@@ -18,6 +18,8 @@ export const MIGRATED_NARRATION_COMMANDS = Object.freeze([
   'instruction', 'skill', 'start', 'submit', 'task', 'tokens', 'upstream-issue', 'decisions', 'outcome', 'verify', 'why',
   // Like env: model-free commands whose --json is their own structured result (sflow-app-*, sflow-test-*).
   'app', 'tests', 'call',
+  // Returns another command's kept result as that command returned it, or why there is none.
+  'result',
   // Emits the sflow-result v2 envelope the gateway serves, which is a structured result too [INT:IFC-020].
   'home',
   // Emits sflow-result v2 for tools and events; serve speaks MCP JSON-RPC, never prose [INT:IFC-062].

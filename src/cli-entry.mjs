@@ -581,6 +581,9 @@ export async function withExplicitRepositoryMutationLeases(roots, operationId, c
 }
 
 export async function main(argv) {
+  // Where the agent's terminal is, before a command moves into a Story's checkout: kept results are
+  // filed under it, and `result last` looks there (agent-result-keeper.mjs).
+  if (!(globalThis.__SINGULARITY_FLOW_CLI_STEP_DEPTH > 0)) globalThis.__SFLOW_INVOCATION_CWD = process.cwd();
   const contextRequest = executionContextArguments(argv);
   argv = contextRequest.argv;
   // Git answers earlier commands in this session already proved; see git-fact-store.mjs.
@@ -601,7 +604,7 @@ export async function main(argv) {
     const commandArgv = utilityEntry ? withoutUtilityEntry(argv) : argv;
     const invoke = () => withCliJsonOutput(optionBoolean(options, 'json'),
       () => runMain(agentFlag && !ownsFlag ? withoutAgentFlag(commandArgv) : commandArgv, utilityEntry, contextRequest.root),
-      { forAgent: agentViewRequested(options), kind: positionals[0], utilityEntry });
+      { forAgent: agentViewRequested(options), kind: positionals[0], utilityEntry, argv: commandArgv });
     // Include the first-build gate, accounting and authoring in one bounded immutable capture.
     // No branch tip, identity authorization or working-tree validation is cached here.
     return await (positionals[0] === 'start'

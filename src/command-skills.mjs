@@ -80,6 +80,8 @@ const entries = {
   request: ['sf-sgos'],
   evidence: ['sf-sgos', 'sf-evidence'],
   outcome: ['sf-outcome'],
+  // Every Story skill's output rule runs it when a result came back cut off (agent-result-keeper.mjs).
+  result: ['sf-code'],
   env: ['sf-environment'],
   candidate: ['sf-sgos'],
   'execution-unit': ['sf-sgos'],

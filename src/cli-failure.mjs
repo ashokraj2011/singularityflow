@@ -66,6 +66,8 @@ export async function reportCliFailure(error, argv = []) {
   // Either way it is code-page safe: Windows PowerShell decodes captured output in the console's
   // code page (code-page-safe-json.mjs).
   const printJson = async (text) => {
+    const kept = globalThis.__SFLOW_AGENT_RESULT_RUN;
+    if (kept) (await import('./agent-result-keeper.mjs')).keepAgentResult(kept, text);
     const governed = forAgent && (await import('./agent-output.mjs'));
     const { agentViewOrOutput } = await import('./cli-json-output.mjs');
     const { codePageSafeJson } = await import('./code-page-safe-json.mjs');

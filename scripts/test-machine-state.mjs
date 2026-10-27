@@ -37,6 +37,8 @@ export const MACHINE_STATE_LOCATIONS = Object.freeze({
   SINGULARITY_FLOW_TELEMETRY_PREFERENCES: 'telemetry-preferences.json',
   SINGULARITY_FLOW_COPILOT_CHAT_OTEL_FILE: 'copilot-chat-otel.jsonl',
   SINGULARITY_FLOW_TEAM_IMPORT_STATE: 'team-imports',
+  // Every --for-agent result a test's commands keep (src/agent-result-keeper.mjs).
+  SINGULARITY_FLOW_AGENT_RESULTS: 'agent-results',
   SINGULARITY_FLOW_WORKFLOW_BUILD_STATE: 'workflow-builds',
   SINGULARITY_FLOW_REPOSITORY_CATALOG: 'repository-catalog',
   SINGULARITY_FLOW_LOCAL_MODE_ROOT: 'local-mode',

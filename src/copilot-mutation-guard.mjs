@@ -1052,8 +1052,8 @@ async function buildWorkflowGuard(payload, record, toolCalls) {
 /**
  * A shell command that reads the host's own saved copy of a long tool result. The host keeps it
  * outside the workspace, so the agent's file tools cannot open it, and an agent reached for `jq` on
- * it in a turn that runs only SFlow commands. The SFlow result itself, run again as an agent view,
- * is bounded and names its complete copy inside the repository.
+ * it in a turn that runs only SFlow commands. SFlow kept that result: `result last` returns it, bounded
+ * and act first, without running the command again (agent-result-keeper.mjs).
  */
 export function readsHostSavedOutput(call) {
   const command = String(call?.args?.command ?? call?.args?.cmd ?? call?.args?.script ?? '');
@@ -1061,7 +1061,7 @@ export function readsHostSavedOutput(call) {
 }
 
 const OWN_ROUTE_TURNS = new Set(['read-only-review', 'review-decision-only', 'decision-only', 'publish-only']);
-const HOST_SAVED_OUTPUT_DENIAL = 'PHASE_MUTATION_TOOL_PROTOCOL: that file is the host\'s saved copy of a long result, outside the workspace; do not read it with shell tools. Run the same SFlow command again, standalone, with --for-agent --json: its result starts with act, fits the host, and names the complete copy inside the repository (agentOutput.path) for your file-read tool. This refusal does not invalidate the phase or require repeating clarification';
+const HOST_SAVED_OUTPUT_DENIAL = 'PHASE_MUTATION_TOOL_PROTOCOL: that file is the host\'s saved copy of a long result, outside the workspace; do not read it with shell tools. Run singularity-flow result last --wait --for-agent --json, standalone: it returns that command\'s kept result, starting with act and fitting the host, without running the command again. This refusal does not invalidate the phase or require repeating clarification';
 
 /**
  * XPL2 observed writes, on the guard that already runs: settle what this session's earlier edits

@@ -34,8 +34,15 @@ export function withoutAgentFlag(argv) {
   return argv.filter((token, index) => (end >= 0 && index > end) || !/^--for-agent(?:=.*)?$/u.test(token));
 }
 
-export async function withCliJsonOutput(json, execute, { forAgent = false, kind = 'text', utilityEntry = null } = {}) {
+export async function withCliJsonOutput(json, execute, { forAgent = false, kind = 'text', utilityEntry = null, argv = null } = {}) {
   if (!json) return forAgent ? withAgentText(execute, kind) : execute();
+  // An agent's result is kept whole, refusals too (cli-failure.mjs), for `result last` to return
+  // when its host cut it off or returned while it still ran (agent-result-keeper.mjs).
+  // A composite's nested step keeps nothing and never replaces the composite's own run.
+  const nested = globalThis.__SINGULARITY_FLOW_CLI_STEP_DEPTH > 0;
+  const keeper = forAgent && argv && kind !== 'result' && !nested ? await import('./agent-result-keeper.mjs') : null;
+  const kept = keeper?.beginAgentResult(argv, { cwd: globalThis.__SFLOW_INVOCATION_CWD ?? process.cwd() }) ?? null;
+  if (!nested) globalThis.__SFLOW_AGENT_RESULT_RUN = kept;
   const stream = process.stdout;
   const write = stream.write;
   const chunks = [];
@@ -81,6 +88,7 @@ export async function withCliJsonOutput(json, execute, { forAgent = false, kind 
   const compact = forAgent && agentOutputGoverned();
   const rendered = compact ? await agentViewOrOutput(boundedAgentOutput, output) : output;
   const renderedAt = timed ? performance.now() : 0;
+  keeper?.keepAgentResult(kept, output);
   const safe = codePageSafeJson(rendered);
   if (compact || safe !== rendered) write.call(stream, safe);
   else if (utilityEntry || route) write.call(stream, output);

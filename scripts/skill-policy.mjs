@@ -63,10 +63,12 @@ export const approvedInputsContractApplies = (contract) => contract === 'clarifi
  * or treated the result as truncated. A `--for-agent` result now starts with `act` and stays
  * within a fixed size, listing every field it left out with its line range in a file in the
  * checkout's `.sflow/out/` (src/agent-output.mjs). The contract names that folder: agents that
- * guessed the older Git-directory location misread about 3% of those paths. Engine-owned like the
+ * guessed the older Git-directory location misread about 3% of those paths. A result its host cut off,
+ * or returned while the command still ran, is read again whole with `result last --wait`, never by
+ * running the command again (src/agent-result-keeper.mjs; office, 2026-10-27). Engine-owned like the
  * contracts above, on the same Story skills as the applicability contract.
  */
-export const COMPLETE_OUTPUT_CONTRACT = 'Act on a result\'s `act` first: its state, `do` routes and any `ask`. A bounded result names `agentOutput.read` ranges and `omittedFields` text files; read all in one response with your file tool, at the exact paths in the checkout\'s `.sflow/out/`. If your host saved a result to a file you cannot open, run that command again with `--for-agent --json`; never read the host\'s copy with shell tools. If a path SFlow returned fails to open, copy it again exactly from the result and open it once more; only then report it unopened, with the path and error.';
+export const COMPLETE_OUTPUT_CONTRACT = 'Act on a result\'s `act` first: its state, `do` routes and any `ask`. A bounded result names `agentOutput.read` ranges and `omittedFields` text files; read all in one response with your file tool, at the exact paths in the checkout\'s `.sflow/out/`. If a result comes back cut off, empty, still running or saved where you cannot open it, run `singularity-flow result last --wait --for-agent --json` and act on it; never rerun the command or point back to this skill, and never read the host\'s copy with shell tools. If a path SFlow returned fails to open, copy it again exactly from the result and open it once more; only then report it unopened, with the path and error.';
 
 /**
  * A read skill answers through SFlow's gateway tools when the host offers them. `[gateway-tools]`

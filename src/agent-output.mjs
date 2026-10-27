@@ -44,7 +44,8 @@ export const READ_CHUNK_BYTES = 18_000;
 export const READ_PLAN_CHUNKS = 4;
 export const LOOP_THRESHOLD = 3;
 const LOOP_WINDOW_MS = 2 * 60 * 60 * 1000;
-const UNCOUNTED_STATES = new Set(['author', 'read', 'paused']);
+// `wait`: reading a result again while its command still runs is never a loop.
+const UNCOUNTED_STATES = new Set(['author', 'read', 'paused', 'wait']);
 const LARGE_TEXT_BYTES = 4_000;
 const FIELD_ORDER = 'agentOutputFieldOrder';
 // Recorded sessions read review document bodies back in every approval, publish and submit result
@@ -131,6 +132,15 @@ export function agentAct(result) {
   }
   if (!result || typeof result !== 'object' || Array.isArray(result)) return null;
   if (result.paused === true) return { state: 'paused', said: 'SFlow is paused for this conversation; answer as native Copilot and offer only /sf-pause off.', do: null };
+  // `result last` (agent-result-keeper.mjs): a kept result is acted on as the command returned it;
+  // otherwise it says to wait for the command, run it once more, or that nothing was kept.
+  if (result.resultType === 'sflow-kept-result') {
+    if (result.status === 'running') return { state: 'wait', do: { reason: 'Read the result once the command ends.', copilot: null, shell: result.retry ?? null, vscode: null },
+      said: oneLine(`Still running: ${(result.running ?? []).map((entry) => entry.command).join('; ')}. Run this same read again; never run the command itself again.`) };
+    if (result.status === 'interrupted') return { state: 'next', do: null,
+      said: oneLine(`${result.interrupted?.command ?? 'The command'} ended without a result (interrupted or killed). Run it again once, with --for-agent --json.`) };
+    if (result.status === 'none') return { state: 'read', do: null, said: 'No result is kept for this checkout. Run the command again once, with --for-agent --json.' };
+  }
   // Every skill reads the pause state first, so the same answer repeats all day: it is a read to
   // follow, never an action (pausing or resuming is only ever the person's explicit request).
   const mode = result.resultType === 'sflow-copilot-mode' ? result : result.data?.resultType === 'sflow-copilot-mode' ? result.data : null;
@@ -703,7 +713,8 @@ async function keptAgentOutput(text, { cwd = process.cwd(), budget = agentOutput
   let located;
   const locate = () => (located ??= repositoryOf(result, cwd) ?? false) || null;
   const derived = result.act ?? agentAct(result);
-  const counted = derived && !UNCOUNTED_STATES.has(derived.state) && (derived.do || derived.ask);
+  // A kept result read again (`result last`) is the same action, never a repeat of it.
+  const counted = derived && !result.keptResult && !UNCOUNTED_STATES.has(derived.state) && (derived.do || derived.ask);
   const observed = counted && locate() ? observeAgentLoop(locate().root, result, derived, { now: now.getTime() }) : derived;
   // Name the path rule in the mandatory first field, never an omitted long instruction or catalog
   // body, and only where the view returns paths to use: its own fields, or the file a bounded view

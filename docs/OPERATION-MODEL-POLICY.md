@@ -627,6 +627,7 @@ Every public operation is classified before its implementation module is importe
 | request.respond | mutation | never | — | — |
 | request.show | read | never | — | — |
 | reset-all | mutation | never | — | — |
+| result | read | never | — | — |
 | resume | mutation | never | — | — |
 | return.apply | mutation | never | — | — |
 | return.plan | read | never | — | — |

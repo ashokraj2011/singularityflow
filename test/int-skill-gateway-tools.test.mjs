@@ -32,8 +32,11 @@ import { validateSflowResult } from '../src/gateway/result.mjs';
 import { run } from '../src/util.mjs';
 import { COPILOT_PAUSE_MARKER } from '../src/copilot-mode.mjs';
 import { GATEWAY_TOOLS_CLAUSE, GATEWAY_TOOLS_MARKER, auditSkillPolicy, loadSkillPolicy } from '../scripts/skill-policy.mjs';
+import { isolatePresentationProfile } from './helpers/presentation-profile.mjs';
 
 const root = fileURLToPath(new URL('..', import.meta.url));
+// The reply name is the fixture's Git identity, never the developer's own VS Code profile name.
+isolatePresentationProfile();
 const ACTOR = { login: 'dev', email: 'dev@example.test', name: 'Dev' };
 const AUTHORITIES = {
   developers: {
@@ -213,7 +216,7 @@ test('through the MCP tool layer the two calls answer with every field the switc
     assert.ok(Object.hasOwn(guidance, field), `data.guidance.${field}`);
   }
   assert.ok(Array.isArray(guidance.requiredInputs));
-  assert.equal(answer.data.personalization.replyName, ACTOR.name);
+  assert.deepEqual([answer.data.personalization.source, answer.data.personalization.replyName], ['git-identity', ACTOR.name]);
   // Secondary actions are next[1..], each with the routes the shared clause names (`fallback`).
   assert.ok(answer.next.length > 1);
   for (const action of answer.next) assert.equal(typeof action.fallback?.command, 'string', action.id);

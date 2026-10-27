@@ -15,6 +15,10 @@ import { synchronizeChatProfile } from '../apps/vscode/src/personalization.ts';
 import { copilotModePresentation } from '../src/copilot-mode.mjs';
 import { renderCommandResult } from '../src/narration/render-terminal.mjs';
 import { commandResult, succeeded, noEffects, plannedAction } from '../src/narration/command-result.mjs';
+import { isolatePresentationProfile } from './helpers/presentation-profile.mjs';
+
+// The Git fallback below reads process.env, which a CLI started by VS Code gives the developer's own reply name.
+isolatePresentationProfile();
 
 test('a Git display name supplies a bounded natural reply name', () => {
   assert.deepEqual(personalizationFromGitIdentity({ name: 'First Reviewer', email: 'first@example.test' }), {

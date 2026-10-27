@@ -216,7 +216,11 @@ test('the bundled CLI answers exactly like the sources while opening a handful o
   // step prepared again, detach for a lost document, the Git commands for unsent commits, the decision list for an
   // open Story's ending, the model-off cause) add cold-hook-context +2,251, cold-core +1,952, cold-narrow-reads
   // +1,216, cold-publication +362 and cold-worker-protocol +62 for 7,457,432.
-  assert.ok(closure('cold-hook-context.mjs').reduce((sum, item) => sum + item.bytes, 0) < 7_460_000,
+  // 7,465,000: main 2bfcc075 measures 7,459,805; a person's own terminal steps routed to no skill and refused in
+  // every turn (OWN_TERMINAL_STEPS in command-skills.mjs, the sign-off refusal in copilot-mutation-guard.mjs, the
+  // decision list's terminal-only choices) add cold-core +2,092, cold-hooks +596, cold-phases +104 and
+  // cold-compatibility +76 for 7,462,493.
+  assert.ok(closure('cold-hook-context.mjs').reduce((sum, item) => sum + item.bytes, 0) < 7_465_000,
     'phase-review reads retain their existing byte ceiling after moving families');
   assert.match(await readFile(path.join(outdir, 'cold-light.mjs'), 'utf8'), /function enterPhase\b/u,
     'phase binding must not fall through to the compatibility/admin bundle');

@@ -472,7 +472,7 @@ export function assertPlannedClaimsReady(resolved) {
   throw new SingularityFlowError(
     `Workflow '${id}' predates the planned-claim contract and cannot start a new Story. `
     + 'Review it with singularity-flow workflow validate, then run workflow edit with '
-    + '--planned-claims required --clause-phases <phase,...> --claim-owners <code=owner,...>, '
+    + '--planned-claims required --clause-phases <PHASES> --claim-owners <CODE>=<OWNER> (comma-separate several), '
     + 'or, for a workflow that defines no requirement clauses, declare omits for scope with a reason and the approval group that decides. Existing Stories keep their pinned policy.',
     {
       code: 'WORKFLOW_PLANNED_CLAIMS_MIGRATION_REQUIRED',

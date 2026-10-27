@@ -221,6 +221,32 @@ test('convergence adjudication names every item by ID and path for the person to
   assert.match(decide.command, new RegExp(`story adjudicate ${facts[1].id} --disposition <rework\\|update-intent`, 'u'));
 });
 
+// A command with a placeholder the route filter refuses is dropped from every plan without a word: the
+// include route for a source statement (`--clause <CLAUSE-ID,...>`) vanished, so refusals offered only
+// exclude or defer (ws-graph, 2026-10-27). Help pages document usage and are not routes.
+test('every placeholder in a command line SFlow emits is one the route filter accepts', async () => {
+  const { readdirSync, readFileSync } = await import('node:fs');
+  const accepted = /^<[A-Za-z][A-Za-z0-9 ._/|-]*>$/u;
+  const files = [];
+  const walk = (directory) => readdirSync(directory, { withFileTypes: true }).forEach((entry) => {
+    const file = path.join(directory, entry.name);
+    if (entry.isDirectory()) walk(file); else if (file.endsWith('.mjs') && !file.endsWith('help-text.mjs')) files.push(file);
+  });
+  walk(path.resolve('src'));
+  const refused = [];
+  for (const file of files) readFileSync(file, 'utf8').split('\n').forEach((line, index) => {
+    if (!/singularity-flow [a-z]|'--[a-z]/u.test(line)) return;
+    for (const [token] of line.matchAll(/<[A-Za-z][^<>\s'"`]{0,60}>/gu)) {
+      if (!accepted.test(token) && !/^<\/?[a-z]+$/u.test(token.slice(0, -1))) refused.push(`${path.relative(path.resolve('.'), file)}:${index + 1} ${token}`);
+    }
+  });
+  assert.deepEqual(refused, []);
+  const { scopeDecisionArgv, scopeDecisionCommandLine } = await import('../src/scope/extract.mjs');
+  const { safeCommandGuidance } = await import('../src/safe-command-guidance.mjs');
+  const { linked, unlinked } = scopeDecisionArgv('DEAD-1', 'DOC-001');
+  for (const argv of [linked, unlinked]) assert.ok(safeCommandGuidance({ command: scopeDecisionCommandLine(argv) }), argv.join(' '));
+});
+
 test('a model-only step with the model off says how to turn the model back on', () => {
   assert.match(modelOffCause({ source: 'environment' }), /SINGULARITY_FLOW_NO_MODEL is set/u);
   assert.match(modelOffCause({ source: 'cli' }), /passed --no-model/u);

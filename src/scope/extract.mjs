@@ -59,7 +59,10 @@ export function scopeDecisionArgv(workId, itemId) {
   const head = ['decision', 'scope', ...(workId ? [workId] : []), '--item', itemId];
   const others = DECIDABLE_SCOPE_DISPOSITIONS.filter((entry) => !CLAUSE_LINKED_DISPOSITIONS.includes(entry));
   return {
-    linked: [...head, '--as', `<${CLAUSE_LINKED_DISPOSITIONS.join('|')}>`, '--clause', '<CLAUSE-ID,...>', '--reason', '<why>'],
+    // `--clause` takes several IDs comma-separated. The placeholder is one the route filter accepts:
+    // `<CLAUSE-ID,...>` was not, and the include route vanished from every refusal and recovery plan,
+    // leaving only exclude or defer (ws-graph, 2026-10-27).
+    linked: [...head, '--as', `<${CLAUSE_LINKED_DISPOSITIONS.join('|')}>`, '--clause', '<CLAUSE-ID>', '--reason', '<why>'],
     unlinked: [...head, '--as', `<${others.join('|')}>`, '--reason', '<why>']
   };
 }

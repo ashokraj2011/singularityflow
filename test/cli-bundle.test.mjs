@@ -260,7 +260,10 @@ test('the bundled CLI answers exactly like the sources while opening a handful o
   // 5,275,000: main d62754fe measures 5,269,475; the document-step fixes add 1,742 for 5,271,217.
   // 5,280,000: main 16677122 measures 5,274,546; the edit guard's long-read ranges add cold-hooks +2,263,
   // cold-core +85 and cold-worker-protocol -191 for 5,276,703.
-  assert.ok(catalogClosure.reduce((sum, item) => sum + item.bytes, 0) < 5_280_000,
+  // 5,285,000: main 591a797a measures 5,279,984 (Playwright results 828898f3 and convergence items 591a797a
+  // took the rest); the scope include route's accepted placeholder adds cold-core +22 and cold-narrow-reads
+  // +16 for 5,280,022. No new file.
+  assert.ok(catalogClosure.reduce((sum, item) => sum + item.bytes, 0) < 5_285_000,
     'catalog parsing stays bounded instead of pulling in the entire administration bundle');
   for (const name of ['cold-compatibility.mjs', 'cold-models.mjs', 'cold-intake.mjs', 'cold-phases.mjs', 'cold-hook-context.mjs']) {
     assert.ok(!catalogClosure.some(item => item.file === name), `catalogs must not statically reach ${name}`);

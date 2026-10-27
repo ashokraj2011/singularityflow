@@ -375,7 +375,7 @@ test('the scope step\'s approver is shown each open statement while reviewing, a
   const open = readiness.owedDecisions?.scopeItems ?? [];
   assert.deepEqual(open.map((item) => item.text), ['The public API must stay stable.'], JSON.stringify(readiness.owedDecisions));
   // Included or existing names its clauses and the rest refuse --clause, so each has its own command.
-  assert.equal(open[0].command, `singularity-flow decision scope SCOPE-2 --item ${open[0].id} --as <included|existing> --clause <CLAUSE-ID,...> --reason "<why>"`);
+  assert.equal(open[0].command, `singularity-flow decision scope SCOPE-2 --item ${open[0].id} --as <included|existing> --clause <CLAUSE-ID> --reason "<why>"`);
   assert.equal(open[0].otherCommand, `singularity-flow decision scope SCOPE-2 --item ${open[0].id} --as <excluded|deferred|informative|duplicate|superseded> --reason "<why>"`);
   assert.deepEqual(readiness.owedDecisions.witnesses, []);
   assert.match(sflow('phase', 'show', 'intake').stdout, /Open scope items \(1, human only, not blocking this step\):\n {2}SRI-[0-9a-f]{12} story: "The public API must stay stable\."/u);

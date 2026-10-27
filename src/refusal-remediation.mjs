@@ -348,7 +348,7 @@ const UPGRADE_KNOWN = Object.freeze({
       step('validate-workflow', 'Review the work type\'s planned-claim contract. Existing Stories keep their pinned policy.',
         'singularity-flow workflow validate'),
       step('record-planned-claims', 'Record the reviewed planned-claim policy for new Stories.',
-        `singularity-flow workflow edit ${workType} --planned-claims required --clause-phases <PHASES> --claim-owners <CODE=OWNER>`,
+        `singularity-flow workflow edit ${workType} --planned-claims required --clause-phases <PHASES> --claim-owners <CODE>=<OWNER>`,
         'remediation')
     ];
   },

@@ -611,7 +611,7 @@ export function renderCommandResult(result) {
         return ['', style.heading(`${disposition[0].toUpperCase()}${disposition.slice(1)} (${items.length}):`),
           ...items.map((item) => `  ${item.id} [${item.sourceId}${item.line ? `:${item.line}` : ''}] ${item.text}${item.clauseIds?.length ? ` → ${item.clauseIds.join(', ')}` : ''}${item.duplicateOf ? ` (duplicate of ${item.duplicateOf})` : ''}`)];
       }),
-      ...(scope.summary.unresolved ? ['', 'Record each unresolved statement: singularity-flow decision scope --item <ID> --as <disposition> [--clause <CLAUSE-ID,...> when included or existing] --reason "<why>"'] : []),
+      ...(scope.summary.unresolved ? ['', 'Record each unresolved statement: singularity-flow decision scope --item <ID> --as <disposition> [--clause <CLAUSE-ID> when included or existing; comma-separate several] --reason "<why>"'] : []),
       ...(result.next.length ? ['', style.heading(nextSuggestionsHeading(result.data?.personalization)), ...nextLines(result)] : []),
       style.detail(preservationLine(result))
     ].join('\n');

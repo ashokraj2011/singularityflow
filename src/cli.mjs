@@ -3075,7 +3075,7 @@ async function mcpCommand(positionals, options) {
     const { mcpDescriptorPath, parseMcpServerDescriptor } = await import('./mcp-descriptor.mjs');
     const descriptorText = await withApprovedConfigurationRead(root, async () => {
       const target = await secureRepositoryPath(root, mcpDescriptorPath(serverId), { label: 'Imported MCP server descriptor', type: 'file' });
-      if (!target.exists) throw new SingularityFlowError(`No MCP server '${serverId}' has been imported. Import it first with singularity-flow import add <LINK|market:…> --as mcp-server.`, { code: 'MCP_SERVER_NOT_IMPORTED' });
+      if (!target.exists) throw new SingularityFlowError(`No MCP server '${serverId}' has been imported. Import it first with singularity-flow import add <LINK> --as mcp-server.`, { code: 'MCP_SERVER_NOT_IMPORTED' });
       return readFile(target.absolute, 'utf8');
     }, { preferAuthority: true });
     const descriptor = parseMcpServerDescriptor(descriptorText, { id: serverId });

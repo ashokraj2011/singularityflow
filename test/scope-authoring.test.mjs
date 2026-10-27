@@ -64,7 +64,7 @@ test('scope authors see short requests, documents and answered clarifications be
   assert.match(tests.humanDecision.commandGuidance.command, /decision scope SCOPE-1 --item SRI-/u);
   // Included or existing names its clauses and the rest refuse --clause: a single template without
   // --clause, filled in as included, was refused (graph-plot, 2026-10-26).
-  assert.match(tests.humanDecision.commandGuidance.command, / --as '<included\|existing>' --clause '<CLAUSE-ID,\.\.\.>' --reason /u);
+  assert.match(tests.humanDecision.commandGuidance.command, / --as '<included\|existing>' --clause '<CLAUSE-ID>' --reason /u);
   assert.match(tests.humanDecision.otherCommandGuidance.command, / --as '<excluded\|deferred\|informative\|duplicate\|superseded>' --reason /u);
   assert.doesNotMatch(tests.humanDecision.otherCommandGuidance.command, /--clause/u);
   assert.equal(tests.humanDecision.otherCommandGuidance.copilotCommand, '/sf-decide');

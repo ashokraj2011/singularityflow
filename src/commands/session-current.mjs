@@ -149,13 +149,16 @@ export async function sessionCurrent(options, { agentEntry = null } = {}) {
     selectionSource: context.selectionSource ?? null,
     selectionStatus: context.selectionStatus ?? 'ready'
   };
-  result.executionContext = await (await import('../execution-context.mjs')).captureExecutionContext(executionRoot, {
+  const { captureExecutionContext, agentExecutionContext } = await import('../execution-context.mjs');
+  result.executionContext = await captureExecutionContext(executionRoot, {
     // Reuse this read's exact verified checkout/revision, rather than joining a second HEAD
     // observation to the result above. This is a projection, never mutation authority.
     workflow, configurationPin: workflow?.resolution?.configurationSource ?? null, fresh: true,
     revision: { head: result.head, branch: result.branch }
   });
-  if (agentEntry) return console.log(JSON.stringify(agentEntry.sessionAgentResult(result, definition.workItemRoot)));
+  // Every Story skill turn starts here: the binding, never the pinned configuration's file catalog.
+  if (agentEntry) return console.log(JSON.stringify(agentEntry.sessionAgentResult(
+    { ...result, executionContext: agentExecutionContext(result.executionContext) }, definition.workItemRoot)));
   if (optionBoolean(options, 'json')) return console.log(JSON.stringify(result, null, 2));
   console.log(`Repository: ${result.repositoryPath}`);
   console.log(`Story: ${result.workId ?? 'not selected'} · branch ${result.branch}`);

@@ -3,7 +3,7 @@ import path from 'node:path';
 import { lstat } from 'node:fs/promises';
 import { step, stop } from '../cli-steps.mjs';
 import { optionString, requirePositional, SingularityFlowError } from '../util.mjs';
-import { captureExecutionContext, boundExecutionContextRoot } from '../execution-context.mjs';
+import { agentExecutionContext, captureExecutionContext, boundExecutionContextRoot } from '../execution-context.mjs';
 import { readCopilotMode, copilotModePresentation } from '../copilot-mode.mjs';
 
 export function validateSessionTakeoverRequest({ positionals, options }) {
@@ -130,6 +130,8 @@ export async function run(_argv, { positionals, options }) {
         message: `Phase '${phase}' uses ${restoreNow.length === 1 ? 'a document' : 'documents'} kept only on the laptop that added ${restoreNow.length === 1 ? 'it' : 'them'}. Ask for the same original file and upload it here with ${restoreNow.map(document => document.restore).join('; ')}. This keeps its ID and changes no approval.` } : null,
       remoteSynchronized: true, exclusiveOwnership: false,
       effects: { storyAdvanced: false, committed: false, pushed: false, testsRun: false } };
+    if (options['for-agent']) Object.assign(result, { executionContext: agentExecutionContext(primary),
+      repositories: bindings.map(agentExecutionContext) });
     console.log(JSON.stringify(result, null, 2));
     return result;
   } catch (error) {

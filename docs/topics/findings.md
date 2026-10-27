@@ -14,7 +14,7 @@ related:
   - recovery
   - phase-appeals
   - escalation
-version: 13
+version: 14
 ---
 A finding is one exact reason a step cannot publish, submit or finish. Every finding has an owner and a recovery route: the step's own author fixes its draft, an earlier step's approvers decide an upstream issue, a person records a decision, or an owner restores trusted bytes. Each refusal names its finding code; read its entry here with `sflow explain findings --section <CODE>` (the code is matched without regard to case). No finding routes only back to its own author: each names at least one route for someone else, its approvers, an earlier step, an owner, or, when nothing more specific exists, the workflow maintainer. Nothing in this catalog waives a test, approves a step or accepts a risk by itself.
 
@@ -167,6 +167,10 @@ A published document was edited after publication. Keep the new draft separately
 ### Grounding findings
 
 `phase.grounding.required` and `phase.grounding.not-ready`. The current generation has no trusted composition. Recompose it with `sflow wm compose --phase <PHASE>`; tampered authenticated records still need restoration.
+
+### Files outside the step
+
+`PHASE_ARTIFACT_ONLY_CHANGES` and `PHASE_SOURCE_CHANGE_UNGOVERNED`. A step that writes only documents changed a file outside them: an agent's scratch file, a person's own edit, or source this step may not publish. Editing the draft cannot clear it. Move each listed file out of the checkout, or set it aside with `sflow recover <WORK-ID> --phase <PHASE>`, a person's step that keeps a private copy; then recheck.
 
 ## State and safety
 

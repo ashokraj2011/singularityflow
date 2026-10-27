@@ -266,9 +266,13 @@ async function changeScopeBlocker(root, config, workflow, phase) {
     return {
       blocker: { code: error.code, category: protectedPath ? 'integrity' : 'change-scope', path: paths[0] ?? null,
         line: null, message: `${error.message} (${error.code})`, details: { ...(error.details ?? {}), sourceCode: error.code } },
-      action: { command: error.details?.diagnosticAction?.command ?? error.details?.gate?.actions?.[0]?.command
-        ?? `singularity-flow phase prepublish ${phase.id} --json`, skill: null,
-      detail: `Phase ${phase.id} cannot publish these changes: take the route the refusal names, or move each listed file out of this step, then recheck.` }
+      // With no route of its own, recovery is the way: it offers a person's set-aside of the listed
+      // files (a private copy kept). Prepublish itself only refused again (2026-10-27 blocker audit).
+      action: error.details?.diagnosticAction?.command || error.details?.gate?.actions?.[0]?.command
+        ? { command: error.details?.diagnosticAction?.command ?? error.details.gate.actions[0].command, skill: null,
+          detail: `Phase ${phase.id} cannot publish these changes: take the route the refusal names, or move each listed file out of this step, then recheck.` }
+        : { command: `singularity-flow recover ${workflow.workItem.id} --phase ${phase.id} --json`, skill: '/sf-recover',
+          detail: `Phase ${phase.id} cannot publish ${paths.length ? paths.slice(0, 5).join(', ') : 'these files'}: they are outside its documents. Move each out of the checkout, or set it aside with recovery (a person's step that keeps a private copy), then recheck. Editing the draft cannot clear this.` }
     };
   }
 }
@@ -335,6 +339,19 @@ async function staticPublicationBlockers(root, config, workflow, phase, { retain
   const scope = !retained && !phaseRequiresCodeDelivery(phase)
     ? await changeScopeBlocker(root, config, workflow, phase) : null;
   if (scope) { blockers.push(scope.blocker); actions.push(scope.action); }
+  // Constitution citations, checked against the Story's pin as publication checks them. Publication
+  // refused an unknown article in enforce mode while prepublish said ready (2026-10-27 blocker audit).
+  if (!retained && (workflow.resolution?.constitution?.mode ?? 'off') === 'enforce') {
+    const [{ citedArticleIds, validateCitations }, { requiredRepoPath }] = await Promise.all([
+      import('./constitution.mjs'), import('./story-state-validation.mjs')]);
+    const relative = requiredRepoPath(config, workflow, phase);
+    const text = await readFile(path.join(root, relative), 'utf8').catch(() => '');
+    const citations = validateCitations(workflow.resolution?.constitutionPin ?? null, citedArticleIds(text), { label: `Phase ${phase.id}` });
+    for (const message of citations.errors) {
+      blockers.push({ code: 'constitution.citation-invalid', category: 'authoring', path: relative, line: null, message,
+        details: { sourceCode: 'CONSTITUTION_CITATION_INVALID' } });
+    }
+  }
   const sourceId = pinned?.testEvidenceFrom;
   if (sourceId) {
     const source = workflow.phases?.[sourceId];

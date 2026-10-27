@@ -201,7 +201,11 @@ test('the bundled CLI answers exactly like the sources while opening a handful o
   // (refusal-remediation.mjs), cold-core +5,200; the agent view that routes a finding the author cannot fix,
   // cold-worker-protocol +1,044; the coverage check naming its upstream issues, cold-narrow-reads +676 and
   // cold-phases +681; cold-hook-context +10, for 7,449,619.
-  assert.ok(closure('cold-hook-context.mjs').reduce((sum, item) => sum + item.bytes, 0) < 7_450_000,
+  // 7,455,000: main d62754fe measures 7,449,619; the document-step fixes (an escalation's real instruction and
+  // route, a stray file routed to recovery, constitution citations at prepublish with a coded refusal) add
+  // cold-narrow-reads +838, cold-core +578, cold-worker-protocol +326, cold-publication +118 and
+  // cold-hook-context +110 for 7,451,589.
+  assert.ok(closure('cold-hook-context.mjs').reduce((sum, item) => sum + item.bytes, 0) < 7_455_000,
     'phase-review reads retain their existing byte ceiling after moving families');
   assert.match(await readFile(path.join(outdir, 'cold-light.mjs'), 'utf8'), /function enterPhase\b/u,
     'phase binding must not fall through to the compatibility/admin bundle');
@@ -235,7 +239,8 @@ test('the bundled CLI answers exactly like the sources while opening a handful o
   // 5,261,002.
   // 5,270,000 (next 5,000 boundary): main e5dd29cf measures 5,262,555; the blocker audit's recovery plans and
   // agent view add cold-core +5,200, cold-worker-protocol +1,044 and cold-narrow-reads +676 for 5,269,475.
-  assert.ok(catalogClosure.reduce((sum, item) => sum + item.bytes, 0) < 5_270_000,
+  // 5,275,000: main d62754fe measures 5,269,475; the document-step fixes add 1,742 for 5,271,217.
+  assert.ok(catalogClosure.reduce((sum, item) => sum + item.bytes, 0) < 5_275_000,
     'catalog parsing stays bounded instead of pulling in the entire administration bundle');
   for (const name of ['cold-compatibility.mjs', 'cold-models.mjs', 'cold-intake.mjs', 'cold-phases.mjs', 'cold-hook-context.mjs']) {
     assert.ok(!catalogClosure.some(item => item.file === name), `catalogs must not statically reach ${name}`);

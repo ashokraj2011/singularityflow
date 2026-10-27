@@ -170,7 +170,9 @@ export function phaseResolutionChoices(workflow, phase, finding) {
   } else if (category === 'appeal' || code.includes('appeal')) {
     resolution = route('human-review', 'plan-approval-authority', ['appeal', 'list', '--phase', phase.id, '--json'],
       'Review the exact retained appeal or request corrections and prepare a successor. This is not phase approval or a risk waiver.', '/sf-appeal');
-  } else if (/dirty|worktree|working.tree|staged|index.conflict/u.test(code) || category === 'worktree') {
+  } else if (/dirty|worktree|working.tree|staged|index.conflict/u.test(code) || category === 'worktree'
+      // Files outside this step's documents: a person's set-aside or move, never a draft edit.
+      || code === 'phase_artifact_only_changes' || code === 'phase_source_change_ungoverned') {
     resolution = route('worktree-review', 'human-reviewer', ['recover', workId, '--phase', phase.id, '--json'],
       'Review exact current bytes. Recovery can offer a hash-confirmed scoped commit and revalidation; unrelated edits and the index are preserved. Published work needs an authorized successor.');
   } else if (code === 'spec_coverage_incomplete' && finding.details?.upstreamDecision?.complete === true) {

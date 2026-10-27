@@ -113,7 +113,7 @@ test('phase draft check reports actionable authoring findings without changing b
     assert.equal(result.correction.class, 'agent-authoring');
     assert.equal(result.correction.sameTurn, true);
     assert.equal(result.correction.automatic, false);
-    assert.equal(result.correction.maximumChangedFingerprints, 3);
+    assert.equal(result.correction.maximumChangedFingerprints, 2);
     assert.equal(result.modelInvocations, 0);
     assert.equal(result.mutates, false);
     assert.match(result.findings[0].message, /unresolved placeholder 'TODO'.*line 3/i);

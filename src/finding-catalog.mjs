@@ -36,7 +36,8 @@ const CODE_SECTIONS = new Map(Object.entries({
   'Repair attempt findings': ['phase_repair_recheck_required'],
   'Generation intent findings': ['generation_intent_required', 'phase.generation-intent.required',
     'generation_intent_already_consumed', 'generation.intent.consumed-changed'],
-  'Grounding findings': ['phase.grounding.required', 'phase.grounding.not-ready']
+  'Grounding findings': ['phase.grounding.required', 'phase.grounding.not-ready'],
+  'Files outside the step': ['phase_artifact_only_changes', 'phase_source_change_ungoverned']
 }).flatMap(([section, codes]) => codes.map((code) => [code, section])));
 
 // Code families the recovery routes match by prefix or pattern.

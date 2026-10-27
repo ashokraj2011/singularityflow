@@ -311,7 +311,9 @@ export async function initiativePhaseDraftCheck(root, initiativeId, requestedPha
       automatic: false,
       sameTurn: agentMayCorrect && !awaitingApproval,
       requiresNewGeneration: awaitingApproval && !clean,
-      maximumChangedFingerprints: 3,
+      // The escalation (finding-escalation.mjs ESCALATION_THRESHOLD, 3 sightings) fires on the second
+      // changed draft that keeps the same finding; the limit the skills follow says the same.
+      maximumChangedFingerprints: 2,
       guidance: clean ? null : agentMayCorrect
         ? 'In the current Copilot turn, re-author every finding from approved Initiative evidence. Do not delete markers, invent facts, add padding, or launch a nested model.'
         : 'Open the exact output and provide the missing reviewed content. SFlow cannot prove that the current agent owns every affected output and will not replace human or unknown-authored content automatically.'

@@ -678,6 +678,12 @@ function localSyncSteps(argv, error) {
 }
 
 const KNOWN = Object.freeze({
+  // A draft citing a constitution article the Story's pin lacks: the author corrects the citation.
+  CONSTITUTION_CITATION_INVALID: (argv, error) => {
+    const phase = typeof error?.details?.phase === 'string' ? error.details.phase : null;
+    return [phase ? step('correct-citation', `Correct or remove each citation the Story's pinned constitution does not contain (${(error.details.errors ?? []).length || 'see the refusal'}), then recheck. An article added since the Story started is not in its pin.`,
+      `singularity-flow phase prepublish ${phase} --for-agent --json`, 'remediation', '/sf-phase') : null].filter(Boolean);
+  },
   // Refused at Story start: a step nobody could approve. Its fix is in the approved configuration.
   APPROVAL_POLICY_UNATTAINABLE: (argv, error) => {
     const details = error?.details ?? {};

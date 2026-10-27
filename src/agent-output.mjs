@@ -209,8 +209,16 @@ export function agentAct(result) {
     return withRoute({ state: 'next', said: oneLine(result.reason ?? `Phase entry status: ${result.status}.`), do: null }, firstNow(result.next));
   }
   if (result.resultType === 'sflow-phase-prepublish') {
-    if (result.repairLoop?.status === 'escalate') return { state: 'escalate', do: null,
-      said: oneLine(result.repairLoop.instruction ?? 'The same finding keeps returning; stop repairing and hand it on.') };
+    // The instruction and routes prepublish sets (escalation, repairLoop.protocol); `instruction` was
+    // never set there, so Copilot got a generic sentence and nothing to run (2026-10-27 blocker audit).
+    if (result.repairLoop?.status === 'escalate') {
+      const escalation = result.escalation ?? result.repairLoop.escalation ?? null;
+      const route = escalation?.routes?.find((entry) => entry?.command) ?? null;
+      return withRoute({ state: 'escalate', do: null, read: ['escalation', 'findings'],
+        said: oneLine(escalation?.instruction ?? result.repairLoop.protocol ?? result.repairLoop.instruction
+          ?? 'The same finding keeps returning; tell the person what is blocked and hand it to someone other than the author.') },
+      route && { command: route.command, reason: route.detail });
+    }
     if (result.status === 'ready' && result.commands?.publish) return withRoute({ state: 'publish', do: null, read: ['scopeReview'],
       said: 'Ready: publish once with the returned command; it runs the required tests.' },
       { command: result.commands.publish, ...(result.commandGuidance?.publish ? { commandGuidance: result.commandGuidance.publish } : {}), reason: 'Publish this draft.' });

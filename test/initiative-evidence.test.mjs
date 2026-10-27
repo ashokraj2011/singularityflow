@@ -145,7 +145,7 @@ test('initiative outputs cannot reach publication or approval with unresolved pl
   assert.equal(draft.status, 'correction-required');
   assert.equal(draft.correction.class, 'agent-authoring');
   assert.equal(draft.correction.sameTurn, true);
-  assert.equal(draft.correction.maximumChangedFingerprints, 3);
+  assert.equal(draft.correction.maximumChangedFingerprints, 2);
   assert.equal(draft.modelInvocations, 0);
   assert.equal(draft.mutates, false);
   assert.deepEqual(draft.commands, {

@@ -395,7 +395,9 @@ export async function phaseDraftCheck(root, config, workflow, phase, {
         && (!phaseRequiresCodeDelivery(phase) || editableCode)
         && traceabilityRepair?.status !== 'manual-review',
       requiresNewGeneration: (awaitingApproval || retained) && !clean,
-      maximumChangedFingerprints: 3,
+      // The escalation (finding-escalation.mjs ESCALATION_THRESHOLD, 3 sightings) fires on the second
+      // changed draft that keeps the same finding; the limit the skills follow says the same.
+      maximumChangedFingerprints: 2,
       guidance: clean ? null : nextRoute?.guidance ?? (upstreamOnly ? UPSTREAM_GAP_GUIDANCE
         : [traceabilityRepair?.sameTurn ? traceabilityRepair.guidance : correctionGuidance(repairClass, phase, { deterministicCode }),
           upstreamGap ? UPSTREAM_GAP_GUIDANCE : null].filter(Boolean).join(' ') || null),

@@ -3697,7 +3697,8 @@ export async function publishGeneration(root, config, workflow, {
   );
   citations.warnings.forEach((warning) => console.warn(`Warning: ${warning}`));
   if (citations.errors.length && (workflow.resolution?.constitution?.mode ?? 'off') === 'enforce') {
-    throw new SingularityFlowError(`Phase ${phase.id} is not publishable:\n- ${citations.errors.join('\n- ')}`);
+    throw new SingularityFlowError(`Phase ${phase.id} is not publishable:\n- ${citations.errors.join('\n- ')}`,
+      { code: 'CONSTITUTION_CITATION_INVALID', details: { phase: phase.id, errors: citations.errors, cited: citations.cited } });
   }
   citations.errors.forEach((error) => console.warn(`Warning: ${error}`));
 

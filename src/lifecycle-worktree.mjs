@@ -1,6 +1,6 @@
 import { lstatSync } from 'node:fs';
 import path from 'node:path';
-import { applicationPathContext, isTransientTestResultPath } from './application-paths.mjs';
+import { applicationPathContext, isTestRunnerOutputPath, isTransientTestResultPath } from './application-paths.mjs';
 import { worktreeStatusDetail } from './git.mjs';
 import { assertNoHiddenWorktreeChanges } from './worktree-fingerprint.mjs';
 import { SingularityFlowError } from './util.mjs';
@@ -36,7 +36,8 @@ export function inspectLifecycleWorktree(root, config = null, workflow = null) {
   const { entries } = worktreeStatusDetail(root);
   const ownership = applicationPathContext(config, workflow);
   const reports = entries.filter(entry => entry.type === 'untracked' && entry.path.kind === 'utf8'
-    && (isTransientTestResultPath(entry.path.value, ownership) || abandonedStoryWrite(entry.path.value, config, workflow))
+    && (isTransientTestResultPath(entry.path.value, ownership) || isTestRunnerOutputPath(entry.path.value, ownership)
+      || abandonedStoryWrite(entry.path.value, config, workflow))
     && regularWorktreeFile(root, entry.path.value));
   return {
     entries: entries.filter(entry => !reports.includes(entry)),

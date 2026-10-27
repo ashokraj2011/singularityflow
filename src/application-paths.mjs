@@ -144,13 +144,27 @@ export function isTransientTestResultPath(candidate, options = null) {
   return /(?:^|\/)\.sflow\/results(?:\/|$)/.test(compared) || isAgentOutputPath(compared);
 }
 
+// The folders a test runner writes each run's results into by default: Playwright's results, HTML and
+// blob reports (test-results/.last-run.json after every run). A repository that never ignored them
+// showed each run's results as a change nobody made, at every approval. Coverage reports are not
+// here: an untracked coverage folder stays for a person to look at, as any other output directory.
+const TEST_RUNNER_OUTPUT_SEGMENTS = Object.freeze(['test-results', 'playwright-report', 'blob-report']);
+
+/** A test runner's own output folder; disposable only when Git says the file is untracked. */
+export function isTestRunnerOutputPath(candidate, options = null) {
+  const normalized = portableRepositoryPath(candidate);
+  if (!normalized) return false;
+  const compared = comparisonPath(normalized, pathContext(options).caseInsensitivePaths);
+  return compared.split('/').slice(0, -1).some((segment) => TEST_RUNNER_OUTPUT_SEGMENTS.includes(segment));
+}
+
 /** Generic generated trees are excluded only when their Git provenance says they are untracked. */
 export function isGeneratedOutputPath(candidate, options = null) {
   const normalized = portableRepositoryPath(candidate);
   if (!normalized) return false;
   const context = pathContext(options);
   const compared = comparisonPath(normalized, context.caseInsensitivePaths);
-  return isTransientTestResultPath(normalized, context)
+  return isTransientTestResultPath(normalized, context) || isTestRunnerOutputPath(normalized, context)
     || compared.split('/').some((segment) => ['node_modules', 'vendor', 'target', 'build', 'coverage'].includes(segment));
 }
 

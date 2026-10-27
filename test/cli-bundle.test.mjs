@@ -216,7 +216,10 @@ test('the bundled CLI answers exactly like the sources while opening a handful o
   // step prepared again, detach for a lost document, the Git commands for unsent commits, the decision list for an
   // open Story's ending, the model-off cause) add cold-hook-context +2,251, cold-core +1,952, cold-narrow-reads
   // +1,216, cold-publication +362 and cold-worker-protocol +62 for 7,457,432.
-  assert.ok(closure('cold-hook-context.mjs').reduce((sum, item) => sum + item.bytes, 0) < 7_460_000,
+  // 7,465,000: main db439e3c measures 7,459,688 (the long-read ranges in 21d69817 took 2,157). An untracked
+  // Playwright result folder no longer holds a decision, and the coverage preview selects changes as
+  // publication does: cold-hooks +476 and cold-hook-context +81 for 7,460,245. No new file.
+  assert.ok(closure('cold-hook-context.mjs').reduce((sum, item) => sum + item.bytes, 0) < 7_465_000,
     'phase-review reads retain their existing byte ceiling after moving families');
   assert.match(await readFile(path.join(outdir, 'cold-light.mjs'), 'utf8'), /function enterPhase\b/u,
     'phase binding must not fall through to the compatibility/admin bundle');

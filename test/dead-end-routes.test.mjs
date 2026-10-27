@@ -16,6 +16,7 @@ import { resolveOperation } from '../src/command-registry.mjs';
 import { selectStartEntry } from '../src/application-run.mjs';
 import { unavailableStoriesError } from '../src/session-story-discovery.mjs';
 import { inspectLifecycleWorktree } from '../src/lifecycle-worktree.mjs';
+import { isApplicationChangeEntry } from '../src/application-paths.mjs';
 import { modelOffCause } from '../src/operation-context.mjs';
 import { workflowNextSteps } from '../src/nextsteps.mjs';
 
@@ -173,6 +174,34 @@ test('an interrupted SFlow write inside the Story\'s folder never holds a lifecy
   assert.deepEqual(inspection.disposableUntrackedPaths, [`singularity/work-items/DEAD-1/${temp}`]);
   // Outside the Story's folder the same name could be anyone's, so it stays for review.
   assert.deepEqual(inspection.entries.map((entry) => entry.path.value), [temp]);
+});
+
+// Playwright writes test-results/.last-run.json after every run; a repository that never ignored it
+// had every approval refused for "a change that is not part of this decision" (ws-graph, 2026-10-27).
+test('an untracked test runner output never holds a decision, and is never counted as changed code', async (t) => {
+  const root = await mkdtemp(path.join(os.tmpdir(), 'sflow-dead-end-runner-'));
+  t.after(() => rm(root, { recursive: true, force: true }));
+  git(root, 'init', '-q', '-b', 'main'); git(root, 'config', 'user.name', 'Runner Tester'); git(root, 'config', 'user.email', 'runner@example.invalid');
+  await mkdir(path.join(root, 'reports/test-results'), { recursive: true });
+  await writeFile(path.join(root, 'reports/test-results/kept.json'), '{}\n');
+  git(root, 'add', '.'); git(root, 'commit', '-qm', 'A team that commits one report');
+  const put = async (relative, text = '{}\n') => {
+    await mkdir(path.dirname(path.join(root, relative)), { recursive: true });
+    await writeFile(path.join(root, relative), text);
+  };
+  await put('test-results/.last-run.json', '{"status":"passed","failedTests":[]}\n');
+  await put('apps/web/playwright-report/index.html', '<html></html>\n');
+  await put('coverage/lcov.info');
+  await put('test-results-notes.md', '# Not a runner folder\n');
+  await writeFile(path.join(root, 'reports/test-results/kept.json'), '{"changed":true}\n');
+  const inspection = inspectLifecycleWorktree(root, { workItemRoot: 'singularity/work-items' }, { workItem: { id: 'DEAD-1' } });
+  assert.deepEqual(inspection.disposableUntrackedPaths, ['apps/web/playwright-report/index.html', 'test-results/.last-run.json']);
+  assert.deepEqual(inspection.entries.map((entry) => entry.path.value).sort(), ['coverage/lcov.info', 'reports/test-results/kept.json', 'test-results-notes.md'],
+    'a coverage folder, a tracked report and a look-alike name stay for review');
+  // Publication and the coverage preview select changes the same way: never an untracked runner output.
+  assert.equal(isApplicationChangeEntry({ newPath: 'test-results/.last-run.json', untracked: true }), false);
+  assert.equal(isApplicationChangeEntry({ newPath: 'reports/test-results/kept.json', untracked: false }), true);
+  assert.equal(isApplicationChangeEntry({ newPath: 'src/components/FunctionGrapher.jsx', untracked: true }), true, 'new source still counts');
 });
 
 test('a model-only step with the model off says how to turn the model back on', () => {

@@ -6,7 +6,7 @@
  * never throws: draft-check and prepublish carry its results as non-blocking advisories, and
  * approval keeps its own exact check over the submitted revision.
  */
-import { applicationPathContext, isApplicationPath } from './application-paths.mjs';
+import { applicationPathContext, isApplicationChangeEntry, isApplicationPath } from './application-paths.mjs';
 import { accountedAmendmentPaths } from './plan-amendments.mjs';
 import { phaseRequiresCodeDelivery } from './code-delivery-policy.mjs';
 import { buildRepositoryChangeSet } from './repository-change-set.mjs';
@@ -146,7 +146,9 @@ export async function inspectUnclaimedChangedPaths(root, config, workflow, phase
     if (!baseCommit) return { coverage: { status: 'unavailable', reason: 'story-base-unknown', unclaimed: 0, blocking: false }, advisories: [] };
     const pathContext = applicationPathContext(config, workflow);
     const changeSet = await buildRepositoryChangeSet(root, { baseCommit });
-    const changed = [...new Set(changeSet.entries.flatMap((entry) => [entry.newPath, entry.oldPath]).filter(Boolean).map(posix))]
+    // As publication selects them: an untracked generated or test-runner output is never committed.
+    const changed = [...new Set(changeSet.entries.filter((entry) => isApplicationChangeEntry(entry, pathContext))
+      .flatMap((entry) => [entry.newPath, entry.oldPath]).filter(Boolean).map(posix))]
       .filter((candidate) => isApplicationPath(candidate, pathContext) && !excluded(candidate, policy.excludes))
       .sort();
     const unclaimed = changed.filter((candidate) => !accounted.has(candidate));

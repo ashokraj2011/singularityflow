@@ -224,9 +224,10 @@ test('the fields a view leaves out are written first and together, and named as 
   t.after(() => rm(root, { recursive: true, force: true }));
   assert.equal(spawnSync('git', ['init', '-q', root]).status, 0);
   const large = { resultType: 'sflow-phase-entry', status: 'clarification-required', repositoryPath: root, workId: 'W',
-    notes: Array.from({ length: 40 }, (_, index) => `Note ${index}: ${'n'.repeat(60)}`),
+    // Sized so the fields left out fit one read (READ_CHUNK_BYTES) while the whole result does not fit the view.
+    notes: Array.from({ length: 30 }, (_, index) => `Note ${index}: ${'n'.repeat(60)}`),
     clarification: { checkpoint: { stage: 'derive-questions', instruction: 'Ask.' } },
-    recovery: { blockers: Array.from({ length: 60 }, (_, index) => ({ id: index, detail: 'x'.repeat(120) })) },
+    recovery: { blockers: Array.from({ length: 35 }, (_, index) => ({ id: index, detail: 'x'.repeat(80) })) },
     context: { text: Array.from({ length: 900 }, (_, index) => `Line ${index}.`).join('\n') } };
   const text = await boundedAgentOutput(JSON.stringify(large), { cwd: root });
   assert.ok(Buffer.byteLength(text) <= DEFAULT_AGENT_OUTPUT_BYTES, `${Buffer.byteLength(text)} bytes`);
@@ -287,6 +288,39 @@ test('a long text file is named as ranges the file tool shows whole, to request 
     if (index) assert.equal(start, text.read[index - 1][1] + 1, 'consecutive ranges');
   }
   assert.match(view.agentOutput.instruction, /by its read ranges when given/u);
+});
+
+// Copilot 1.0.100 in VS Code (2026-10-27) showed at most 8,193 bytes of a read before "Output truncated"
+// and refused an 8,909-byte file whole; a source review whose specification text never came through
+// ended without reviewing. Every read SFlow names must fit under that.
+test('a source review\'s reads all fit what the host file tool shows in one read', async (t) => {
+  assert.ok(READ_CHUNK_BYTES <= 7_000 && READ_CHUNK_BYTES * READ_PLAN_CHUNKS >= 64_000, `${READ_CHUNK_BYTES} x ${READ_PLAN_CHUNKS}`);
+  const root = await mkdtemp(path.join(os.tmpdir(), 'sflow-agent-review-reads-'));
+  t.after(() => rm(root, { recursive: true, force: true }));
+  assert.equal(spawnSync('git', ['init', '-q', root]).status, 0);
+  const paragraph = (label, count) => Array.from({ length: count }, (_, index) => `${label} line ${index}: the clause, its scenario and the test that proves it.`).join('\n');
+  const result = { resultType: 'source-review-agent-context', canReview: true, ready: true, repositoryPath: root, workId: 'W', phase: 'specification',
+    reviewGuide: { role: 'Do the whole review now.', next: 'Start from reportTemplate.' },
+    reviewer: { effectiveInstructions: paragraph('Reviewer rule', 140) },
+    sources: [{ id: 'story', path: 'USER-STORY.md', text: '# Story\n\nPlot a graph.\n' }],
+    artifact: { path: 'spec.md', text: paragraph('Specification', 125) },
+    reportTemplate: { binding: { workId: 'W', phase: 'specification', generation: 1 }, rows: Array.from({ length: 120 }, (_, index) => ({ clauseId: `REQ-${index}`, status: 'unreviewed' })) },
+    stagingProtocol: { path: path.join(root, 'review.json') }, stagingPath: path.join(root, 'review.json') };
+  const view = JSON.parse(await boundedAgentOutput(JSON.stringify(result), { cwd: root }));
+  assert.match(view.act.said, /Reading and summarising is not the review: end only after the filled report is staged and checked/u);
+  const file = (await readFile(view.agentOutput.path, 'utf8')).split('\n');
+  for (const { lines: [start, end] } of view.agentOutput.read) {
+    assert.ok(Buffer.byteLength(file.slice(start - 1, end).join('\n')) <= READ_CHUNK_BYTES, `result range ${start}-${end}`);
+  }
+  const texts = view.omittedFields.flatMap((entry) => entry.textFiles ?? []);
+  for (const field of ['artifact.text', 'reviewer.effectiveInstructions']) {
+    const text = texts.find((entry) => entry.field === field);
+    assert.ok(text.bytes > 8_000 && text.read?.length >= 2, `${field}: ${text.bytes} bytes must come as ranges`);
+    const lines = (await readFile(text.path, 'utf8')).split('\n');
+    for (const [start, end] of text.read) assert.ok(Buffer.byteLength(lines.slice(start - 1, end).join('\n')) <= READ_CHUNK_BYTES, `${field} ${start}-${end}`);
+  }
+  const story = texts.find((entry) => entry.field === 'sources.0.text');
+  assert.equal(story.read, undefined, 'a short source is read whole');
 });
 
 test('review document bodies and text given elsewhere become reference files outside the reads, restored whole', async (t) => {

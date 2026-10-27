@@ -36,12 +36,14 @@ export const DEFAULT_AGENT_OUTPUT_BYTES = 7_500;
 // An agent read a 40 KB overflow file in three slices on average, up to eight: one model call per
 // slice, each re-sending the whole conversation (22% of all calls in recorded sessions, 2026-10-18
 // to 10-21). So the fields a view leaves out are written first and together, and named as at most
-// four ranges of whole fields (72 KB), to be read in one response. In a live run (Copilot 1.0.95,
-// 2026-10-22) its file tool cut a ranged read at about 20,000 characters ("Output truncated") and
-// refused a 28,205-byte file whole ("File too large to read at once"), so a range is at most
-// 18,000 bytes, and a long text file is named as ranges of that size too.
-export const READ_CHUNK_BYTES = 18_000;
-export const READ_PLAN_CHUNKS = 4;
+// ten ranges of whole fields (70 KB), to be read in one response. Copilot 1.0.95 (2026-10-22) cut a
+// ranged read at about 20,000 characters; Copilot 1.0.100 in VS Code (2026-10-27) cut every ranged
+// read after 8,193 to 9,233 bytes ("Output truncated") and refused an 8,909-byte file whole ("File
+// too large to read at once"). Each cut read was read again in slices, and a source review that
+// never got its specification text ended without reviewing. So a range is at most 7,000 bytes, and
+// a longer text file is named as ranges of that size too.
+export const READ_CHUNK_BYTES = 7_000;
+export const READ_PLAN_CHUNKS = 10;
 export const LOOP_THRESHOLD = 3;
 const LOOP_WINDOW_MS = 2 * 60 * 60 * 1000;
 // `wait`: reading a result again while its command still runs is never a loop.
@@ -242,7 +244,7 @@ export function agentAct(result) {
   }
   if (result.resultType === 'source-review-agent-context' && result.canReview) return {
     state: 'review', do: null, read: ['reviewGuide', 'citationGuide', 'sources', 'clarifications', 'artifact', 'reportTemplate', 'stagingProtocol'],
-    said: 'Perform the independent review now. Read pinned source text files with native file tools; their 1-based lines are citation lines. Stage, check, repair the changed packet within the bounded budget, then retain. Do not stop at a repairable packet error or invent coverage.' };
+    said: 'Perform the independent review now. Read pinned source text files with native file tools; their 1-based lines are citation lines. Stage, check, repair the changed packet within the bounded budget, then retain. Reading and summarising is not the review: end only after the filled report is staged and checked. Do not stop at a repairable packet error or invent coverage.' };
   if (result.resultType === 'source-review-check') {
     if (result.repair?.status === 'reload-context') return withRoute({ state: 'next', do: null,
       read: ['repair'], said: result.repair.instruction }, result.continuation?.nextAction);

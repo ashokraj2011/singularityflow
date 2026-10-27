@@ -65,6 +65,23 @@ export function projectExecutionContext({ identity, workspace = null, workflow =
     observation: { observedAt, remoteCheckedAt: null, remoteStatus: 'not-checked', mutationAuthority: false } });
 }
 
+/**
+ * The context an agent reads: the same identity and binding, with the configuration pin named by
+ * its commit and digests instead of its per-file catalog. Every Story skill turn starts with a
+ * session entry, and a Story pinned to the whole approved configuration carried 55-70 KB of asset
+ * hashes in it: the entry spilled, and a /sf-decide turn read all of it in ten slices only to reuse
+ * the binding (2026-10-27). `contextId` still names the full projection; the catalog stays in the
+ * checkout's pin file and in every non-agent read.
+ */
+export function agentExecutionContext(context) {
+  const pin = context?.story?.configurationPin;
+  if (!pin || typeof pin !== 'object') return context;
+  const { files, assets, removed, closure, ...identity } = pin;
+  const count = value => value && typeof value === 'object' ? Object.keys(value).length : 0;
+  return { ...context, story: { ...context.story, configurationPin: { ...identity, assetCount: count(assets ?? files),
+    ...(closure ? { closure: { kind: closure.kind ?? null, workTypes: closure.workTypes ?? [] } } : {}) } } };
+}
+
 export async function captureExecutionContext(root, { workspace = undefined, workflow = undefined,
   configurationPin = null, identity: suppliedIdentity = null, fresh = false, observedAt = undefined, revision = null } = {}) {
   const selected = path.resolve(root ?? executionContextRoot() ?? process.cwd());

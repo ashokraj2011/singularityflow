@@ -462,6 +462,26 @@ test('an evidence item is the person\'s own step: the list shows its commands an
   assert.notEqual(packetOf(workflow, { gaps: [], issues: [], evidence: [] }).packetSha256, packet.packetSha256);
 });
 
+test('an accepted test command is the person\'s own record: no route sends it back to /sf-decide', () => {
+  const workflow = story();
+  // A re-pin (2026-10-27): /sf-decide previewed it, which only the person records, then named
+  // /sf-decide again as the way to record it, and the first route to it was /sf-decide too.
+  const request = { id: 'TCD-001', phase: 'implementation', requestedBy: 'developer', reason: 'Scoping Vitest to src keeps the browser test in its own runner.',
+    command: { id: '.-node-tests', argv: ['npm', 'test'], workingDirectory: '.', affectedRoots: ['.'],
+      result: { adapter: 'vitest-json', path: '.sflow/results/node-tests.json' } },
+    repin: { changes: ['package.json scripts.test changed'] } };
+  const packet = packetOf(workflow, { gaps: [], issues: [], testCommands: [request] });
+  const item = packet.items.find((entry) => entry.kind === 'test-command');
+  assert.deepEqual(item.options.map((option) => option.id), ['accept-test-command']);
+  assert.equal(DECISION_LIST_CHAT_OPTIONS.includes('accept-test-command'), false);
+  assert.deepEqual([packet.next.copilotCommand, packet.record.copilotCommand], [null, null]);
+  const record = decisionRecordCommand('BIN-501', { choices: [[item.id, 'accept-test-command']], digest: packet.packetSha256 });
+  for (const command of [record, item.details.commands[0]]) assert.equal(skillForCommandLine(command), null, command);
+  // With a decision a /sf-decide turn may record open too (the story's gap), the list keeps that route.
+  const mixed = packetOf(workflow, { testCommands: [request] });
+  assert.deepEqual([mixed.next.copilotCommand, mixed.record.copilotCommand], ['/sf-decide BIN-501', '/sf-decide BIN-501']);
+});
+
 test('evidence decisions apply at the Story\'s final step once it is submitted, and nowhere else', () => {
   // Two plain steps, no conformance report: only the evidence rule can make decisions pending.
   const plain = (build, ship) => ({ workItem: { id: 'BIN-502' }, phaseOrder: ['build', 'ship'], upstreamIssues: [], upstreamIssueDecisions: [],

@@ -11,7 +11,7 @@
  * command must be present, and every named skill must be packaged.
  */
 import { canonicalCommand, COMMAND_REGISTRY } from './command-registry.mjs';
-import { isTransportIntentId } from './util.mjs';
+import { isTransportIntentId, parseArgs } from './util.mjs';
 
 const entries = {
   pause: ['sf-pause'],
@@ -208,11 +208,9 @@ function route(defaultSkill, subcommands = {}) {
  * packaged.
  */
 export const COMMAND_LINE_SKILL_ROUTES = Object.freeze({
-  // The person's own terminal steps (copilot-mutation-guard.mjs keeps them out of every turn): a
-  // /sf-decide route to them only showed them again, and pointed back to /sf-decide (2026-10-26).
-  decision: route('sf-decide', {
-    witness: null, risk: null, 'test-risk': null, 'test-narrowing': null, 'evidence-reuse': null, 'visual-profile': null
-  }),
+  // A person's own terminal steps among these (witness, risk, test-risk, ...) have no route at all:
+  // OWN_TERMINAL_STEPS below.
+  decision: route('sf-decide'),
   'review-source': route('sf-review-source', {
     'decision-context': 'sf-review-decide', decide: 'sf-review-decide'
   }),
@@ -413,6 +411,53 @@ function commandLineHead(commandLine) {
   }
 }
 
+/**
+ * The decision-list options a /sf-decide turn may record, after the person's explicit yes: they
+ * write only upstream-issue records (copilot-mutation-guard.mjs). Every other choice is recorded in
+ * the person's own terminal.
+ */
+export const DECISION_LIST_CHAT_OPTIONS = Object.freeze(['accept-risk', 'dismiss', 'return']);
+const CHAT_CHOICE = new RegExp(`^d\\d{1,3}=(?:${DECISION_LIST_CHAT_OPTIONS.join('|')})$`, 'u');
+
+/**
+ * Steps only a person takes, in their own terminal. copilot-mutation-guard.mjs refuses each in every
+ * turn, so a skill route to one only showed it again and pointed back to that skill: /sf-decide for
+ * a witness (2026-10-26), then for an accepted test command and its decision-list record
+ * (2026-10-27). No surface routes them to a skill. test/phase-mutation-contract.test.mjs holds the
+ * guard's refusals and the routes to this list.
+ */
+export const OWN_TERMINAL_STEPS = Object.freeze([
+  ['witness', ([command, sub]) => command === 'decision' && sub === 'witness'],
+  ['risk', ([command, sub]) => command === 'decision' && sub === 'risk'],
+  ['test-run-risk', ([command, sub]) => command === 'decision' && ['test-risk', 'test-narrowing', 'evidence-reuse', 'visual-profile'].includes(sub)],
+  ['test-command-decision', ([command, sub], options) => command === 'decision' && sub === 'test-command'
+    && (options.accept !== undefined || options.revoke !== undefined)],
+  // A /sf-decide turn records only chat options; any other choice, an answers file or the
+  // interactive form is the person's.
+  ['decision-list-record', ([command, sub], options) => command === 'decisions' && sub === 'record'
+    && !(options.choose !== undefined && options.answers === undefined
+      && [options.choose].flat().every((entry) => typeof entry === 'string' && CHAT_CHOICE.test(entry)))],
+  ['set-aside', ([command], options) => command === 'recover' && options['set-aside'] === true],
+  ['workflow-delete', ([command, sub], options) => command === 'workflow' && sub === 'delete' && options.confirm !== undefined],
+  ['target-origin-pin', ([command, sub], options) => command === 'story' && sub === 'target-origin' && options.confirm !== undefined],
+  ['intent-amendment-decision', ([command, sub, verb]) => command === 'story' && sub === 'intent-amendment' && verb === 'decide'],
+  ['knowledge-confirmation', ([command, sub, verb]) => command === 'wm'
+    && ((sub === 'rules' && verb === 'confirm') || (sub === 'knowledge' && ['confirm', 'correct', 'reject'].includes(verb)))],
+  ['spec-drift-decision', ([command, sub, verb]) => command === 'spec' && sub === 'drift' && verb === 'decide'],
+  // `upstream-issue decide` for the bound Story is a /sf-decide turn's own; an amendment is not.
+  ['upstream-amendment-decision', ([command, sub]) => command === 'upstream-issue' && ['decide-amendment', 'revalidate'].includes(sub)],
+  ['environment-binding', ([command, sub]) => command === 'env' && ['bind', 'unbind'].includes(sub)]
+].map(([id, matches]) => Object.freeze({ id, matches })));
+
+/** The id of the own-terminal step this command line is, or null. */
+export function ownTerminalStep(commandLine) {
+  const parsed = commandLineHead(commandLine);
+  if (!parsed) return null;
+  const { positionals, options } = parseArgs([...parsed.arguments]);
+  const words = [parsed.command, ...positionals];
+  return OWN_TERMINAL_STEPS.find((step) => step.matches(words, options))?.id ?? null;
+}
+
 function exactRoute(routeEntry, commandArguments) {
   if (!routeEntry) return null;
   const candidates = Object.entries(routeEntry.subcommands)
@@ -434,6 +479,7 @@ export function skillForCommandLine(commandLine) {
   if (!parsed) return null;
   // The operand is an ID no fixed prefix can name: `sync <INTENT-ID>` retries one saved push.
   if (parsed.command === 'sync' && isTransportIntentId(parsed.arguments[0])) return 'sf-push';
+  if (ownTerminalStep(commandLine)) return null;
   const exact = COMMAND_LINE_SKILL_ROUTES[parsed.command];
   const match = exactRoute(exact, parsed.arguments);
   if (match?.skill === null) return null;
@@ -441,12 +487,14 @@ export function skillForCommandLine(commandLine) {
 }
 
 /**
- * True when an exact route names no skill (`null` above): a registered command that no packaged
- * skill carries out, so every surface says it has no verified Copilot equivalent.
+ * True when an exact route names no skill (`null` above) or the line is a person's own terminal
+ * step: a registered command that no packaged skill carries out, so every surface says it has no
+ * verified Copilot equivalent.
  */
 export function commandLineWithoutSkill(commandLine) {
   const parsed = commandLineHead(commandLine);
-  return Boolean(parsed) && exactRoute(COMMAND_LINE_SKILL_ROUTES[parsed.command], parsed.arguments)?.skill === null;
+  return Boolean(parsed) && (ownTerminalStep(commandLine) !== null
+    || exactRoute(COMMAND_LINE_SKILL_ROUTES[parsed.command], parsed.arguments)?.skill === null);
 }
 
 export function skillsForCommand(name) {

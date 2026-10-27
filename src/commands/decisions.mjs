@@ -118,6 +118,8 @@ async function previewOf(workflow, packet, plan) {
     record: command ? {
       command,
       recordInChat,
+      // A choice no /sf-decide turn may record has no Copilot route: that turn would only preview it again.
+      copilotCommand: recordInChat ? `/sf-decide ${packet.workId}` : null,
       terminal: 'Run it in your own terminal to record these decisions; nothing is recorded until then.'
     } : null,
     withApproval
@@ -141,8 +143,8 @@ function packetText(packet) {
   for (const [index, item] of packet.items.entries()) lines.push(...itemLines(item, index), '');
   if (packet.items.some((item) => ['conformance-gap', 'upstream-issue'].includes(item.kind))) lines.push(packet.rule);
   if (packet.items.some((item) => item.options.some((option) => option.recordable !== false))) {
-    lines.push('Decide them in this terminal:', ...formatCommandRouteLines({ command: packet.record.interactive, copilotCommand: packet.record.share }));
-    if (packet.record.recommended) lines.push('Or record the recommended choices:', ...formatCommandRouteLines({ command: packet.record.recommended, copilotCommand: packet.record.share }));
+    lines.push('Decide them in this terminal:', ...formatCommandRouteLines({ command: packet.record.interactive, copilotCommand: packet.record.copilotCommand }));
+    if (packet.record.recommended) lines.push('Or record the recommended choices:', ...formatCommandRouteLines({ command: packet.record.recommended, copilotCommand: packet.record.copilotCommand }));
     if (packet.inApproval) lines.push('Or answer them in the approval, in one commit:', ...formatCommandRouteLines(packet.inApproval));
   } else if (packet.next) lines.push('Next:', ...formatCommandRouteLines(packet.next));
   else lines.push(...formatCommandRouteLines({ copilotCommand: packet.record.share }));

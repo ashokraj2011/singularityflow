@@ -174,11 +174,13 @@ export function validateCommandResult(result, { requireEnvelope = false } = {}) 
     if (!entry?.id || !entry?.label || !entry?.command) {
       invalid('next[] entries need id, label and command');
     }
-    if (entry.skill !== undefined
+    // Null for a person's own terminal step, as action() names it; the guidance check below refuses a
+    // null route for any command a skill carries out.
+    if (entry.skill != null
       && (typeof entry.skill !== 'string' || !/^\/sf-[a-z0-9]+(?:-[a-z0-9]+)*$/.test(entry.skill))) {
       invalid(`next[].skill '${entry.skill}' must be an installed direct Copilot skill`);
     }
-    if (entry.copilotCommand !== undefined) {
+    if (entry.copilotCommand != null) {
       if (typeof entry.copilotCommand !== 'string') {
         invalid('next[].copilotCommand must be a string');
       }

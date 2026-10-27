@@ -16,7 +16,7 @@
  * run stays labelled as the step that recorded it. Pure: the facts arrive from decision-list-facts.mjs.
  */
 import { matchApprovalAuthority, normalizeApprovalAuthorities } from './approval-authority.mjs';
-import { commandLineWithoutSkill } from './command-skills.mjs';
+import { commandLineWithoutSkill, DECISION_LIST_CHAT_OPTIONS } from './command-skills.mjs';
 import { recordSha256 } from './records.mjs';
 import { testCommandReviewHold } from './story-test-commands.mjs';
 import { testRunCauseWords } from './test-run-cause.mjs';
@@ -722,10 +722,12 @@ export function decisionPacket(workflow, facts, { authorities, actor, at, reques
       : holdingAll ? `${decisionHeadline(workflow, phaseId, holdingAll)} ${others === 1 ? '1 other decision does' : `${others} other decisions do`} not hold its approval.`
         : `${stepName(workflow, phaseId)} has ${others === 1 ? '1 open decision' : `${others} open decisions`}; none holds its approval.`;
   const [first] = items;
-  // When every option left is a person's own terminal command no skill runs (a witness, an obligation
-  // risk), /sf-decide would only show it again: the route is that command.
-  const theirsAlone = (item) => item.options.length > 0 && item.options.every((entry) => entry.recordable === false
-    && typeof entry.action?.command === 'string' && commandLineWithoutSkill(entry.action.command));
+  // When every option left is a person's own terminal step, /sf-decide would only show it again: a
+  // command no skill runs (a witness, an obligation risk), or a choice recorded on this list that a
+  // /sf-decide turn may not record (an accepted test command). The route is that command.
+  const theirsAlone = (item) => item.options.length > 0 && item.options.every((entry) => (entry.recordable === false
+    ? typeof entry.action?.command === 'string' && commandLineWithoutSkill(entry.action.command)
+    : !DECISION_LIST_CHAT_OPTIONS.includes(entry.id)));
   const listRoute = decisions.length && decisions.every(theirsAlone) ? null : `/sf-decide ${workId}`;
   return {
     schemaVersion: 1, resultType: 'sflow-decisions', revision: DECISION_LIST_REVISION,
@@ -740,6 +742,8 @@ export function decisionPacket(workflow, facts, { authorities, actor, at, reques
       form: `singularity-flow decisions record ${workId}${phaseOption ? ` --phase ${phaseOption}` : ''} --choose <ITEM>=<OPTION> [--reason <ITEM>=TEXT] [--expires <ITEM>=YYYY-MM-DD] [--cause <ITEM>=TEXT] --confirm ${digest}`,
       recommended: recommended.length ? decisionRecordCommand(workId, { phaseId: phaseOption, choices: recommended, digest }) : null,
       interactive: `singularity-flow decisions record ${workId}${phaseOption ? ` --phase ${phaseOption}` : ''}`,
+      // Beside the record commands: null when no choice left may be recorded in a /sf-decide turn.
+      copilotCommand: listRoute,
       share: `/sf-decide ${workId}`
     },
     ...(facts.unavailable?.length ? { unavailable: facts.unavailable } : {})

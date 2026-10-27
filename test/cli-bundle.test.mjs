@@ -219,6 +219,10 @@ test('the bundled CLI answers exactly like the sources while opening a handful o
   // 7,465,000: main db439e3c measures 7,459,688 (the long-read ranges in 21d69817 took 2,157). An untracked
   // Playwright result folder no longer holds a decision, and the coverage preview selects changes as
   // publication does: cold-hooks +476 and cold-hook-context +81 for 7,460,245. No new file.
+  // Main 591a797a measures 7,460,362; a person's own terminal steps routed to no skill and refused in every turn
+  // (OWN_TERMINAL_STEPS in command-skills.mjs, the sign-off refusal in copilot-mutation-guard.mjs, the decision
+  // list's terminal-only choices) add cold-core +2,092, cold-hooks +596, cold-phases +104 and cold-compatibility
+  // +76 for 7,463,050, inside it.
   assert.ok(closure('cold-hook-context.mjs').reduce((sum, item) => sum + item.bytes, 0) < 7_465_000,
     'phase-review reads retain their existing byte ceiling after moving families');
   assert.match(await readFile(path.join(outdir, 'cold-light.mjs'), 'utf8'), /function enterPhase\b/u,

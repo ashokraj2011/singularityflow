@@ -13,6 +13,7 @@ const stagingPaths = () => import('./phase-staging-paths.mjs');
 import { parseArgs } from './util.mjs';
 import { AGENT_OUTPUT_FOLDER, lineRanges, READ_CHUNK_BYTES } from './agent-output-folder.mjs';
 import { canonicalCommand, resolveOperation } from './command-registry.mjs';
+import { DECISION_LIST_CHAT_OPTIONS } from './command-skills.mjs';
 import { currentSchemaVersion, readRecord } from './schema-migrations.mjs';
 import { CLI_PATH_REFERENCE, safeCommandGuidance, validateSflowExecutionCommand } from './safe-command-guidance.mjs';
 
@@ -57,8 +58,9 @@ const DECIDE_SKILL_MUTATIONS = Object.freeze(['choose', 'applicability', 'scope'
 // An agent may raise an issue or propose an amendment; only an approver decides or revalidates.
 const UPSTREAM_ISSUE_DECISIONS = Object.freeze(['decide', 'decide-amendment', 'revalidate']);
 // The decision list's options that write only upstream-issue records (ISSUE_ONLY_OPTIONS in
-// src/decision-list.mjs; a test pins the two equal). A /sf-decide turn may record only these.
-export const DECISION_LIST_CHAT_OPTIONS = Object.freeze(['accept-risk', 'dismiss', 'return']);
+// src/decision-list.mjs; a test pins the two equal). A /sf-decide turn may record only these; the
+// routes read the same list (command-skills.mjs), so no surface sends another choice to that turn.
+export { DECISION_LIST_CHAT_OPTIONS };
 const DELEGATION = new Set(['task', 'spawn_agent', 'write_agent', 'delegate', 'run_subagent']);
 const IMPORT_TEAM_COMMANDS = Object.freeze(['inspect', 'compile', 'status']);
 /**
@@ -650,6 +652,9 @@ function argvAllowed(argv, mode, value) {
   if (positionals[0] === 'spec' && positionals[1] === 'drift' && positionals[2] === 'decide') return false;
   // Setting held changes aside drops them from the checkout: the person who looked at them decides.
   if (positionals[0] === 'recover' && options['set-aside'] === true) return false;
+  // Witnessing evidence and accepting a dated obligation risk are a person's word on what they looked
+  // at, in no turn: run under the person's Git identity, an agent would sign off its own work.
+  if (signOff(positionals)) return false;
   // The /sf-confirm turn: only the command carrying the digest the person typed, for the bound Story.
   // The CLI refuses the digest once it is stale; approvals and the decisions above keep their routes.
   if (mode === 'confirm') return !value.decisionEnded && typeof value.confirmDigest === 'string'
@@ -783,6 +788,15 @@ function testRunRiskDecision(call, value) {
   return (positionals[0] === 'decision' && ['test-risk', 'test-narrowing', 'evidence-reuse', 'visual-profile'].includes(positionals[1]))
     || storyTestCommandDecision(positionals, options)
     || (positionals[0] === 'spec' && positionals[1] === 'drift' && positionals[2] === 'decide');
+}
+
+/** `decision witness` or `decision risk`: an approver's sign-off on evidence they looked at, or a dated risk. */
+function signOff(positionals) {
+  return positionals[0] === 'decision' && ['witness', 'risk'].includes(positionals[1]);
+}
+function signOffCall(call, value) {
+  const safe = verifiedShellForm(call, value);
+  return Boolean(safe) && signOff(parseCli(safe.argv).positionals);
 }
 
 /** `decision test-command --accept|--revoke`: a step approver's decision on a requested command. */
@@ -1256,6 +1270,8 @@ async function mutationToolDecision(payload, record) {
         if (knowledgeConfirmationCall(call, value)) return mutationDenial(contract, KNOWLEDGE_CONFIRMATION_DENIAL);
         if (intentAmendmentDecisionCall(call, value)) return mutationDenial(contract,
           'PHASE_MUTATION_OPERATION_NOT_ALLOWED: an intent amendment is decided by a person who approves the scope, in their own terminal, not by this turn. Show the user the amendment and the decide command, and stop; do not retry it');
+        if (signOffCall(call, value)) return mutationDenial(contract,
+          'PHASE_MUTATION_OPERATION_NOT_ALLOWED: witnessing a criterion\'s evidence or accepting a dated obligation risk is the word of a person who approves the step that delivered it, after looking for themselves, in their own terminal; an agent never signs off its own work. Show the user the command and stop; do not retry it');
         if (testRunRiskDecision(call, value)) return mutationDenial(contract,
           'PHASE_MUTATION_OPERATION_NOT_ALLOWED: accepting that a step\'s tests cannot run here or ran narrowed, reusing an earlier step\'s recorded run for it, that one of its screen sizes does not apply, or how a closed Story\'s drifted clause is resolved, is decided by a person who approves that step, in their own terminal, not by this turn. Show the user the command and stop; do not retry it');
         if (contract.turnMode !== 'authoring' && verifiedShellForm(call, value)) {

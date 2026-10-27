@@ -170,7 +170,7 @@ export async function decisionTestCommandCommand(positionals, options) {
     outcome: succeeded('decision.test-command.succeeded', { record: record.id ? `request ${record.id}` : `the ${accept ? 'acceptance' : 'revocation'} of ${recordId}` }),
     effects: effects({ stateChanged: true, filesChanged: true, publicationCreated: true }),
     next: record.id ? [action({ id: 'decision.test-command.accept', command: storyTestCommandAcceptCommand(workflow, record.id), rank: 'NOW', kind: 'review',
-      label: `A person who approves ${record.phase} accepts the requested command (or from /sf-decide ${id}); an agent never accepts it.` })] : [],
+      label: `A person who approves ${record.phase} accepts the requested command in their own terminal; an agent never accepts it.` })] : [],
     data: { commit: publication.sha, pushed: publication.pushed, record }
   }), { json: optionBoolean(options, 'json'), postState: workflow });
 }

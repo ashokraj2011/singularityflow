@@ -13,7 +13,7 @@ related:
   - recovery
   - approvals
   - configuration
-version: 25
+version: 26
 ---
 Test and Recovery (TRP) is an explicitly enabled pilot for a Story's test policy, baseline repair and phase issues. It keeps what a check observed separate from the decision about whether work may continue. A failed test remains failed even when a current, authorized exception permits a named transition. Normal phase approval remains separate.
 
@@ -263,7 +263,7 @@ A later gate whose command differs (an edited `"test": "jest src/one"`, a new ru
 
 ```text
 singularity-flow decision test-command <WORK-ID> --phase <PHASE> --repin <COMMAND-ID> --reason "<why the test command changed>"
-singularity-flow decision test-command <WORK-ID> --accept TCD-001        (a person who approves the step; or from /sf-decide)
+singularity-flow decision test-command <WORK-ID> --accept TCD-001        (a person who approves the step, in their own terminal)
 ```
 
 The request records the exact new pin by digest and what changed. Anyone working on the Story may request it; only a person who approves the step accepts it (an agent is refused). The next gate run records it as the command's pin, naming the pin it replaces and the request. Each test attempt carries the pin it ran under, and the receipt replays only against a pin recorded on the Story. Line endings and the per-platform wrapper spelling (`./mvnw` or `.\mvnw.cmd`, `python3` or `py -3`) are not changes.
@@ -295,7 +295,7 @@ Publication refuses with `CODE_DELIVERY_TEST_COMMAND_REQUIRED` when no test comm
 ```text
 singularity-flow decision test-command <WORK-ID> --phase <PHASE> --use <SUGGESTION-ID> --reason "<why this command tests the step>"
 singularity-flow decision test-command <WORK-ID> --phase <PHASE> --id <ID> --argv '<JSON ARRAY>' --working-directory <DIR> --affected-root <DIR> --adapter <ADAPTER> --report <PATH> --reason "<why>"
-singularity-flow decision test-command <WORK-ID> --accept TCD-001        (a person who approves the step; or from /sf-decide)
+singularity-flow decision test-command <WORK-ID> --accept TCD-001        (a person who approves the step, in their own terminal)
 singularity-flow decision test-command <WORK-ID> --revoke TCD-001 --reason "<why>"
 ```
 

@@ -20,6 +20,7 @@ import { readCopilotStoryFollow } from '../src/copilot-story-follow.mjs';
 import { gitDir } from '../src/git-execution.mjs';
 import { recordCopilotSession } from '../src/session.mjs';
 import { boundedAgentOutput, boundedAgentText } from '../src/agent-output.mjs';
+import { commandLineWithoutSkill, OWN_TERMINAL_STEPS, ownTerminalStep, skillForCommandLine } from '../src/command-skills.mjs';
 import { clarificationStagingPath, phaseStagingPaths, sourceReviewStagingPath } from '../src/phase-staging-paths.mjs';
 
 test('all generated context, JSON, catalog, refusal and text files get exact read-only hints in linked worktrees', async t => {
@@ -777,6 +778,67 @@ test('no agent turn sets held changes aside; it shows the person the command', a
     const denied = await mutationToolGuard({ ...payload, toolName: 'bash', toolArgs: { command: setAside, cwd: f.root } });
     assert.equal(denied.permissionDecision, 'deny', skill);
     assert.match(denied.permissionDecisionReason, /the person who looked at them runs it in their own terminal/u, skill);
+  }
+});
+
+test('every step only a person takes in their own terminal is refused in every turn and routed to no skill', async t => {
+  const f = await fixture(t);
+  const digest = `sha256:${'c'.repeat(64)}`;
+  // A /sf-decide route to one of these only previewed it again and pointed back to /sf-decide: an
+  // accepted test command and its decision-list record (2026-10-27). Each OWN_TERMINAL_STEPS entry
+  // names its commands here, so a new entry is held to both sides.
+  const steps = {
+    witness: ['singularity-flow decision witness PMC-1 --criterion PMC-1:AC-001 --slot screen --file evidence/screen.png --confirm states-the-outcome --reason "Looked at the screen."'],
+    risk: ['singularity-flow decision risk PMC-1 --obligation OBL-001 --category evidence --expires 2099-01-01 --reason "Accepted until the device lab returns."'],
+    'test-run-risk': ['test-risk --phase custom-step --cause "No browser here." --expires 2099-01-01', 'test-narrowing --phase custom-step',
+      'evidence-reuse --phase custom-step --from-attempt TA-001', 'visual-profile --phase custom-step --profile tablet --not-applicable']
+      .map((rest) => `singularity-flow decision ${rest.replace(/^(\S+)/u, '$1 PMC-1')} --reason "Decided by the approver."`),
+    'test-command-decision': ['singularity-flow decision test-command PMC-1 --accept TCD-001',
+      'singularity-flow decision test-command PMC-1 --revoke TCD-001 --reason "The repository configures this runner now."'],
+    'decision-list-record': [`singularity-flow decisions record PMC-1 --choose d1=accept-test-command --confirm ${digest}`,
+      `singularity-flow decisions record PMC-1 --choose d1=dismiss --choose d2=accept-test-command --confirm ${digest}`],
+    'set-aside': [`singularity-flow recover PMC-1 --phase custom-step --set-aside --confirm ${digest} --json`],
+    'workflow-delete': [`singularity-flow workflow delete team-flow --confirm ${digest}`],
+    'target-origin-pin': [`singularity-flow story target-origin PMC-1 --url https://staging.example.test --reason "Approved staging target." --confirm ${digest}`],
+    'intent-amendment-decision': ['singularity-flow story intent-amendment decide AMD-001 --decision approve --confirm AMD-001'],
+    'knowledge-confirmation': ['singularity-flow wm rules confirm R-0123456789ab --json', 'singularity-flow wm knowledge reject K-rule-0123456789abcdef --note "Not a rule."'],
+    'spec-drift-decision': ['singularity-flow spec drift decide PMC-1:REQ-001 --accept --reason "The code is right."'],
+    'upstream-amendment-decision': ['singularity-flow upstream-issue decide-amendment FAM-001 --decision approve --reason "The amendment is right." --confirm FAM-001',
+      'singularity-flow upstream-issue revalidate custom-step --amendment FAM-001 --outcome unchanged --reason "Still holds."'],
+    'environment-binding': ['singularity-flow env bind staging --stdin', 'singularity-flow env unbind staging --json']
+  };
+  assert.deepEqual(Object.keys(steps).sort(), OWN_TERMINAL_STEPS.map((step) => step.id).sort());
+  for (const [id, commands] of Object.entries(steps)) {
+    for (const command of commands) {
+      assert.deepEqual([ownTerminalStep(command), skillForCommandLine(command), commandLineWithoutSkill(command)], [id, null, true], command);
+    }
+  }
+  const allowed = [];
+  for (const [skill, session] of [['/sf-phase', 'author'], ['/sf-recover', 'kernel'], ['/sf-decide PMC-1', 'own-terminal-decider']]) {
+    const payload = await f.enter(skill, session);
+    for (const command of Object.values(steps).flat()) {
+      const decision = await mutationToolGuard({ ...payload, toolName: 'bash', toolArgs: { command, cwd: f.root } });
+      if (decision.permissionDecision !== 'deny') allowed.push(`${skill}: ${command}`);
+    }
+  }
+  assert.deepEqual(allowed, []);
+  // An authoring agent ran under the person's Git identity, so a witness from it was the person's sign-off.
+  const author = await f.enter('/sf-phase', 'author');
+  for (const command of [...steps.witness, ...steps.risk]) {
+    const denied = await mutationToolGuard({ ...author, toolName: 'bash', toolArgs: { command, cwd: f.root } });
+    assert.match(denied.permissionDecisionReason, /an agent never signs off its own work/u, command);
+  }
+  // What a /sf-decide turn may record keeps its route there; asking for a test command stays the agent's.
+  const decide = await f.enter('/sf-decide PMC-1', 'own-terminal-decider');
+  const chat = `singularity-flow decisions record PMC-1 --choose d1=dismiss --choose d2=return --confirm ${digest}`;
+  const issue = 'singularity-flow upstream-issue decide UPI-001 --work-id PMC-1 --outcome dismiss --reason "Already handled."';
+  for (const command of [chat, issue,
+    'singularity-flow decision test-command PMC-1 --phase custom-step --id module-tests --reason "The Nx run tests this module."']) {
+    assert.deepEqual([ownTerminalStep(command), skillForCommandLine(command)], [null, 'sf-decide'], command);
+  }
+  // The /sf-decide turn itself runs the first two (the record needs the list's real digest to succeed).
+  for (const command of [chat, issue]) {
+    assert.notEqual((await mutationToolGuard({ ...decide, toolName: 'bash', toolArgs: { command, cwd: f.root } })).permissionDecision, 'deny', command);
   }
 });
 

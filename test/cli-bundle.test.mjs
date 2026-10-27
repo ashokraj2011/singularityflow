@@ -196,7 +196,12 @@ test('the bundled CLI answers exactly like the sources while opening a handful o
   // paths), cold-catalogs +63 and cold-worker-protocol -10 for 7,435,196.
   // 7,445,000: main 00854b18 measures 7,439,597; the add-your-own-agent refusal's own recovery step
   // (refusal-remediation.mjs USER_AGENT_MAIN_INVALID) adds cold-core +470 for 7,440,067.
-  assert.ok(closure('cold-hook-context.mjs').reduce((sum, item) => sum + item.bytes, 0) < 7_445_000,
+  // 7,450,000 (next 5,000 boundary): main e5dd29cf measures 7,442,689. The 2026-10-27 blocker audit's fixes:
+  // recovery plans for a coverage gap an upstream issue names and for an approval nobody can give
+  // (refusal-remediation.mjs), cold-core +5,200; the agent view that routes a finding the author cannot fix,
+  // cold-worker-protocol +1,044; the coverage check naming its upstream issues, cold-narrow-reads +676 and
+  // cold-phases +681; cold-hook-context +10, for 7,449,619.
+  assert.ok(closure('cold-hook-context.mjs').reduce((sum, item) => sum + item.bytes, 0) < 7_450_000,
     'phase-review reads retain their existing byte ceiling after moving families');
   assert.match(await readFile(path.join(outdir, 'cold-light.mjs'), 'utf8'), /function enterPhase\b/u,
     'phase binding must not fall through to the compatibility/admin bundle');
@@ -228,7 +233,9 @@ test('the bundled CLI answers exactly like the sources while opening a handful o
   // named a workflow, with the recovery step that builds one from it (USER_AGENT_FOLDER_IS_WORKFLOW), and
   // call add and team import share one table of office documents, images and PDFs: cold-core +1,069 for
   // 5,261,002.
-  assert.ok(catalogClosure.reduce((sum, item) => sum + item.bytes, 0) < 5_265_000,
+  // 5,270,000 (next 5,000 boundary): main e5dd29cf measures 5,262,555; the blocker audit's recovery plans and
+  // agent view add cold-core +5,200, cold-worker-protocol +1,044 and cold-narrow-reads +676 for 5,269,475.
+  assert.ok(catalogClosure.reduce((sum, item) => sum + item.bytes, 0) < 5_270_000,
     'catalog parsing stays bounded instead of pulling in the entire administration bundle');
   for (const name of ['cold-compatibility.mjs', 'cold-models.mjs', 'cold-intake.mjs', 'cold-phases.mjs', 'cold-hook-context.mjs']) {
     assert.ok(!catalogClosure.some(item => item.file === name), `catalogs must not statically reach ${name}`);

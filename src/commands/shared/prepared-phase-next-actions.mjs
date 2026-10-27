@@ -4,6 +4,8 @@ import { convergencePreparationState } from './convergence-preparation-state.mjs
 import { generationSkillForPhase, phaseKernelOwned } from '../../code-delivery-policy.mjs';
 import { phasePublicationCommandForProducer, phasePublicationContract } from '../../manual-authorship.mjs';
 
+const ITEMS_NAMED = 8;
+
 /** Exact post-preparation actions; deterministic convergence cannot be published before review. */
 export function preparedPhaseNextActions(workflow, phase, prepared) {
   const inputs = narrationAction({
@@ -36,10 +38,16 @@ export function preparedPhaseNextActions(workflow, phase, prepared) {
 
   if (convergence.undisposedItemIds.length) {
     const itemId = convergence.undisposedItemIds[0];
+    // Every item, by ID and path, so the person decides from this step alone; only the first one used to
+    // be named, with a count.
+    const items = [...(prepared.convergence.facts ?? []), ...(prepared.convergence.candidateSnapshot ?? [])]
+      .filter((item) => convergence.undisposedItemIds.includes(item.id));
+    const named = items.slice(0, ITEMS_NAMED).map((item) => `${item.id} ${item.kind ?? 'item'}${item.paths?.length ? `: ${item.paths.join(', ')}` : ''}`);
     return [
       narrationAction({
         id: 'convergence.adjudicate',
-        label: `Review and disposition ${itemId}; ${convergence.undisposedItemIds.length} item(s) remain`,
+        label: `A person decides each of ${items.length || convergence.undisposedItemIds.length} convergence item(s): ${named.join('; ') || itemId}`
+          + `${items.length > named.length ? `; and ${items.length - named.length} more` : ''}`,
       command: `singularity-flow story adjudicate ${itemId} --disposition <rework|update-intent|accepted-deviation|dismissed|deferred> --reason <reason> [--clause <CLAUSE-ID> ...]`,
         kind: 'review'
       }),

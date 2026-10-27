@@ -669,7 +669,9 @@ test('convergence skill cannot replace deterministic kernel generation with agen
   assert.match(content, /clarification mode.*`off`/is);
   assert.match(content, /execute that exact returned preparation command once in this same turn/i);
   assert.match(content, /Do not stop after merely displaying the route/i);
-  assert.match(content, /for adjudication, rework, intent amendment, or inspection[^.]*stop for the human decision/i);
+  // Adjudication is asked and recorded in the turn; only rework, amendment and inspection stop for a person.
+  assert.match(content, /For adjudication, show each item[^.]*ask the person one `ask_user` question per item[^.]*never preselect one/i);
+  assert.match(content, /For rework, intent amendment, or inspection, relay the action and stop for the human decision/i);
   assert.match(content, /using the exact returned publication command/i);
   assert.match(content, /Stop immediately after publication; never advance, submit, approve/i);
   assert.doesNotMatch(content, /you may author with the resolved convergence agent/i);

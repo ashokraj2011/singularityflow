@@ -70,7 +70,7 @@
     "`not-routed`: relay `next[]`, stop.",
     "At `approval`, stop: only an authorized human Git identity approves.",
     "Do not stop after merely displaying the route;",
-    "In its `next[]`, for adjudication, rework, intent amendment, or inspection, relay the action and stop for the human decision.",
+    "For rework, intent amendment, or inspection, relay the action and stop for the human decision.",
     "absent: relay `commands.next`, stop.",
     "Stop immediately after publication;",
     "Report the handoff/document view from `publishIfReady.review`.",

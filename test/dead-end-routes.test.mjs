@@ -19,6 +19,7 @@ import { inspectLifecycleWorktree } from '../src/lifecycle-worktree.mjs';
 import { isApplicationChangeEntry } from '../src/application-paths.mjs';
 import { modelOffCause } from '../src/operation-context.mjs';
 import { workflowNextSteps } from '../src/nextsteps.mjs';
+import { preparedPhaseNextActions } from '../src/commands/shared/prepared-phase-next-actions.mjs';
 
 // Each refusal here used to leave its reader with prose or a route that refused again (blocker
 // audit 2026-10-27, batch 4 and 5). Each now names a command that works from where it stands.
@@ -202,6 +203,22 @@ test('an untracked test runner output never holds a decision, and is never count
   assert.equal(isApplicationChangeEntry({ newPath: 'test-results/.last-run.json', untracked: true }), false);
   assert.equal(isApplicationChangeEntry({ newPath: 'reports/test-results/kept.json', untracked: false }), true);
   assert.equal(isApplicationChangeEntry({ newPath: 'src/components/FunctionGrapher.jsx', untracked: true }), true, 'new source still counts');
+});
+
+// ws-graph (2026-10-27): "Review and disposition CF-21034d278357; 4 item(s) remain" named one item, and
+// its Copilot route was /sf-converge, the skill that had just stopped. The step names every item.
+test('convergence adjudication names every item by ID and path for the person to decide', () => {
+  const facts = ['package.json', 'package-lock.json', 'playwright.config.js', 'test-results/.last-run.json']
+    .map((file, index) => ({ id: `CF-${index}${'a'.repeat(11)}`, kind: 'unclaimed-changed-path', paths: [file] }));
+  const workflow = { workItem: { id: 'DEAD-1' } };
+  const phase = { id: 'convergence', generation: { producer: 'deterministic', task: 'convergence' } };
+  const [decide] = preparedPhaseNextActions(workflow, phase, {
+    publicationProducer: 'deterministic', convergence: { facts, findings: [{ itemId: facts[0].id }], allowedNext: ['adjudicate'] } });
+  assert.equal(decide.id, 'convergence.adjudicate');
+  assert.match(decide.label, /^A person decides each of 3 convergence item\(s\): /u);
+  for (const fact of facts.slice(1)) assert.ok(decide.label.includes(`${fact.id} unclaimed-changed-path: ${fact.paths[0]}`), fact.id);
+  assert.ok(!decide.label.includes(facts[0].id), 'a decided item is not asked again');
+  assert.match(decide.command, new RegExp(`story adjudicate ${facts[1].id} --disposition <rework\\|update-intent`, 'u'));
 });
 
 test('a model-only step with the model off says how to turn the model back on', () => {

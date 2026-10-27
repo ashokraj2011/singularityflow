@@ -361,7 +361,11 @@ const SKILL_SEMANTIC_CONTRACTS = Object.freeze({
       /execute that exact returned preparation command once in this same turn/i,
       /Do not stop after merely displaying the route/i,
       /do not run `singularity-flow converge --json` again/i,
-      /for adjudication, rework, intent amendment, or inspection[^.]*stop for the human decision/i,
+      // Adjudication is the person's choice, asked and recorded in this turn (2026-10-27): relaying it
+      // offered /sf-converge, this same skill, as its only Copilot route, and the turn stopped again.
+      /For adjudication, show each item[^.]*ask the person one `ask_user` question per item[^.]*never preselect one/i,
+      /Record each answer with `singularity-flow story adjudicate/i,
+      /For rework, intent amendment, or inspection, relay the action and stop for the human decision/i,
       /If and only if it returns deterministic convergence publication as the first `NOW` action/i,
       /using the exact returned publication command/i,
       /Stop immediately after publication; never advance, submit, approve/i

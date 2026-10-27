@@ -22,7 +22,7 @@ import { testCommandReviewHold } from './story-test-commands.mjs';
 import { testRunCauseWords } from './test-run-cause.mjs';
 import { testRunRiskAuthorities } from './test-run-risk.mjs';
 import { decisionGroups, decisionRefusalLead } from './decision-list-facts.mjs';
-import { CONFORMANCE_GAP_RULE, decisionHeadline, issueNamesClause, stepName } from './upstream-routes.mjs';
+import { CONFORMANCE_GAP_RULE, decidableUpstreamStep, decisionHeadline, issueNamesClause, stepName } from './upstream-routes.mjs';
 import { SingularityFlowError } from './util.mjs';
 
 export { decisionGroups, decisionHeadline, decisionRefusalLead, stepName };
@@ -97,8 +97,12 @@ function decidedBy(workflow, effects, { authorities, actor }) {
   const labels = groups.map((id) => groupLabel(registry, id));
   const workId = workflow?.workItem?.id ?? '<WORK-ID>';
   const who = [...new Set(missing.map((entry) => entry.groups.map((id) => groupLabel(registry, id)).join(' or ')))];
+  // An issue raised against a step without approvers is never decidable there: name where it can be.
+  const stuck = unavailable ? unavailable.effect.issuePhase ?? unavailable.effect.phase : null;
+  const instead = stuck ? decidableUpstreamStep(workflow, stuck) : null;
   const words = unavailable
-    ? `Nobody can decide this yet: ${stepName(workflow, unavailable.effect.issuePhase ?? unavailable.effect.phase)} has no approval group.`
+    ? `Nobody can decide this here: ${stepName(workflow, stuck)} has no approval group.${instead
+      ? ` Raise the same problem against ${stepName(workflow, instead)} with --supersedes; its approvers decide it.` : ''}`
     : !labels.length ? 'Anyone working on this Story may decide this.'
       : allowed ? `You may decide this (${listWords(labels)}).`
         : `The ${listWords(who)} decide this.`;

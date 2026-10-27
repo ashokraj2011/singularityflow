@@ -315,8 +315,9 @@ async function startCommandInIsolatedWorktree(sourceRoot, id, positionals, optio
       const { discardPreparedStoryWorktree } = await import('../story-worktree.mjs');
       const discarded = await discardPreparedStoryWorktree(sourceRoot, id, { baseCommit: preparedBase, storyBranch: canonicalBranch });
       if (!['removed', 'absent'].includes(discarded.status)) throw new SingularityFlowError(
-        'The prepared checkout changed; its files are preserved. Review it before starting on the new base.',
-        { code: 'STORY_WORKTREE_RECOVERY_REQUIRED' });
+        retainedPreparationMessage(id, discarded), { code: 'STORY_WORKTREE_RECOVERY_REQUIRED',
+          details: { reason: discarded.reason ?? null, ...(discarded.path ? { checkoutPath: discarded.path } : {}),
+            ...(discarded.reason === 'story-exists' ? { nextAction: { command: `singularity-flow session open ${id}` } } : {}) } });
     }
     const prepared = await measureCommandSpan('start.worktree', () =>
       prepareStoryWorktree(sourceRoot, id, {
@@ -882,12 +883,11 @@ async function startCommandAtRoot(positionals, options) {
       reference: requestedExternalSource.stableId, kind: 'story', required: false
     });
     if (!existing) {
-      const { discoverRemoteStoryCandidates } = await import('../session-story-discovery.mjs');
+      const { discoverRemoteStoryCandidates, unavailableStoriesError } = await import('../session-story-discovery.mjs');
       const roster = await discoverRemoteStoryCandidates(root, config ?? {}, { remote, fetch: true });
-      if (roster.unavailable?.length) throw new SingularityFlowError(
-        'Cannot verify the existing Story source identities from the state index. Refresh Story discovery before retrying; no Story was created.',
-        { code: 'SESSION_STATE_INDEX_UNAVAILABLE' }
-      );
+      // The unreadable records themselves, with an upgrade route when a newer build wrote them:
+      // refreshing discovery would only read the same records again.
+      if (roster.unavailable?.length) throw unavailableStoriesError(roster.unavailable);
       const matches = roster.items.filter((item) => item.aliases?.includes(requestedExternalSource.stableId));
       if (matches.length > 1) throw new SingularityFlowError(
         'The source identity is claimed by multiple Stories. Resolve the state-index conflict before retrying.',
@@ -2109,6 +2109,15 @@ async function startCommandAtRoot(positionals, options) {
   } finally {
     await documentCapture?.dispose().catch(() => {});
   }
+}
+
+/** Why the prepared checkout was kept instead of discarded, and what the person does about it. */
+function retainedPreparationMessage(id, discarded) {
+  const where = discarded.path ? ` (${discarded.path})` : '';
+  if (discarded.reason === 'story-exists') return `Story '${id}' already has a branch, so its prepared checkout was kept. Open the Story instead of starting it again.`;
+  if (discarded.reason === 'worktree-changes') return `The prepared checkout${where} has changes; its files are preserved. Move what you want to keep out of it, then start again.`;
+  if (discarded.reason === 'current-directory') return `The prepared checkout${where} is the current directory, so it was kept. Run start from the repository instead.`;
+  return `The prepared checkout${where} changed; its files are preserved. Review it before starting on the new base.`;
 }
 
 /**

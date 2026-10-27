@@ -13,12 +13,12 @@
  */
 import { z } from 'zod';
 import { discrepancyItemSha256 } from './records.mjs';
-import { OPEN_UPSTREAM_ISSUE_STATUSES, upstreamIssueStates } from './upstream-routes.mjs';
+import { decidableUpstreamStep, OPEN_UPSTREAM_ISSUE_STATUSES, upstreamIssueAuthorities, upstreamIssueStates } from './upstream-routes.mjs';
 import { SingularityFlowError } from './util.mjs';
 
 // The pure state read lives with the routes, which every lifecycle command already loads, so the
 // conformance gate can ask it without loading this module's schemas [owner decision 2026-10-19].
-export { upstreamIssueStates };
+export { decidableUpstreamStep, upstreamIssueAuthorities, upstreamIssueStates };
 export { discrepancyItemSha256 };
 
 export const UPSTREAM_ISSUE_OUTCOMES = Object.freeze(['plan-correction', 'amend', 'return', 'accept-risk', 'dismiss']);
@@ -61,12 +61,6 @@ function refused(message, code = 'UPSTREAM_ISSUE_INVALID', details = undefined) 
 
 function order(workflow) {
   return workflow?.phaseOrder ?? Object.keys(workflow?.phases ?? {});
-}
-
-/** The earlier phase's approval groups decide; a later phase's reviewers cannot rule on it. */
-export function upstreamIssueAuthorities(workflow, phaseId) {
-  const policy = workflow?.phases?.[phaseId]?.approvalPolicy ?? {};
-  return [...new Set([...(policy.authorities ?? []), ...(policy.requiredAuthorities ?? [])])].sort();
 }
 
 // Story-qualified clause IDs (`W:REQ-001`) and bare ones; record IDs (UPI, CR, PRC, FAM) are not clauses.
@@ -157,6 +151,13 @@ export function raiseUpstreamIssue(workflow, {
   }
   if (!(Number(target.generation) > 0) || target.status === 'not_started') {
     refused(`${phase} has not produced anything yet, so there is nothing upstream to raise.`, 'UPSTREAM_ISSUE_NOT_EARLIER');
+  }
+  if (!upstreamIssueAuthorities(workflow, phase).length) {
+    const instead = decidableUpstreamStep(workflow, phase);
+    refused(`${phase} has no approval group, so nobody could decide an issue about it and the Story could not finish while it was open. `
+      + (instead ? `Raise it against ${instead}, the nearest earlier step whose approvers can decide it.`
+        : 'No earlier step has approvers either: describe the problem in this step\'s own document for its reviewers.'),
+    'UPSTREAM_ISSUE_AUTHORITY_UNAVAILABLE', { phase, ...(instead ? { decidableStep: instead } : {}) });
   }
   if (supersedes != null) {
     // The replaced issue keeps its history; only its own step's approvers close it (as dismiss).

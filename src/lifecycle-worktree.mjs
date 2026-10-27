@@ -21,11 +21,23 @@ export function regularWorktreeFile(root, relative) {
   } catch { return false; }
 }
 
+// The temporary file an SFlow atomic write leaves when it is interrupted (util.mjs writeAtomic):
+// `<file>.tmp-<pid>-<uuid>`. Only inside this Story's own folder; elsewhere it could be anyone's.
+const ABANDONED_ATOMIC_WRITE = /\.tmp-\d+-[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/u;
+
+function abandonedStoryWrite(relative, config, workflow) {
+  const id = workflow?.workItem?.id;
+  if (!id || !ABANDONED_ATOMIC_WRITE.test(relative)) return false;
+  const itemRoot = `${config?.workItemRoot ?? workflow.resolution?.workItemRoot ?? 'singularity/work-items'}/${id}/`;
+  return relative.startsWith(itemRoot);
+}
+
 export function inspectLifecycleWorktree(root, config = null, workflow = null) {
   const { entries } = worktreeStatusDetail(root);
   const ownership = applicationPathContext(config, workflow);
   const reports = entries.filter(entry => entry.type === 'untracked' && entry.path.kind === 'utf8'
-    && isTransientTestResultPath(entry.path.value, ownership) && regularWorktreeFile(root, entry.path.value));
+    && (isTransientTestResultPath(entry.path.value, ownership) || abandonedStoryWrite(entry.path.value, config, workflow))
+    && regularWorktreeFile(root, entry.path.value));
   return {
     entries: entries.filter(entry => !reports.includes(entry)),
     disposableUntrackedPaths: reports.map(entry => entry.path.value).sort()
@@ -39,7 +51,7 @@ export function assertLifecycleWorktreeClean(root, config = null, workflow = nul
   const id = workflow?.workItem?.id ?? workId;
   const command = `singularity-flow recover${id ? ` ${id}` : ''} --json`;
   throw new SingularityFlowError(
-    'The checkout has changes that are not part of this lifecycle decision. A person reviews them: keep them by committing them, or set them aside with the confirmed set-aside-worktree route recovery returns (a private recovery copy is kept); eligible code-phase changes can also be committed through recovery, then revalidated. Untracked test reports alone do not block.',
+    'The checkout has changes that are not part of this lifecycle decision. A person reviews them and sets them aside with the confirmed set-aside-worktree route recovery returns (a private recovery copy is kept), or moves them out of the checkout. Do not commit them by hand: a commit after submission makes approval refuse until the step is returned and resubmitted. Eligible code-phase changes can be committed through recovery, then revalidated. Untracked test reports alone do not block.',
     { code: 'LIFECYCLE_WORKTREE_REVIEW_REQUIRED', details: {
       workId: id, paths: inspection.entries.map(entry => entry.path.display),
       preserved: ['working-tree bytes', 'Git index', 'test reports', 'published generations'],

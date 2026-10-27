@@ -303,7 +303,7 @@ Every public operation is classified before its implementation module is importe
 | fix.preview | read | never | — | — |
 | fix.request | mutation | never | — | — |
 | fresh-install | mutation | never | — | — |
-| gate | mutation | never | — | — |
+| gate | read | never | — | — |
 | gateway.events | read | never | — | — |
 | gateway.serve | mutation | never | — | — |
 | gateway.session | read | never | — | — |

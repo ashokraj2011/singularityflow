@@ -9,7 +9,7 @@ import { generationSkillForPhase } from './code-delivery-policy.mjs';
 import {
   effectivePhasePublicationProducer, phasePublicationCommand, phasePublicationCommandForProducer
 } from './manual-authorship.mjs';
-import { operationContext } from './operation-context.mjs';
+import { modelOffCause, operationContext } from './operation-context.mjs';
 import { decisionSubmitArguments, describeOutcome, reopenableSteps, upcomingDecision } from './workflow-decisions.mjs';
 import { nextPhaseAfterSkillAmendment } from './lifecycle-transitions.mjs';
 import { nextPhaseGeneration } from './phase-generation.mjs';
@@ -321,9 +321,10 @@ export function workflowNextSteps(workflow, {
       // action computes the projection and returns the exact human-review or publication branch;
       // absence of a premature publication action is not a model-free availability failure.
     }
+    // Asking again with --no-model returns this same block: the way through is the model.
     else actions.unshift(action(
-      'blocked', '/sf-nextsteps', `singularity-flow nextsteps ${workId} --no-model`,
-      `${phase.label} has no configured model-free producer.`,
+      'blocked', '/sf-nextsteps', `singularity-flow nextsteps ${workId}`,
+      `${phase.label} has no configured model-free producer. ${modelOffCause(modelMode)}`,
       { operationId: 'phase', modelPolicy: 'required', availability: 'blocked', route: 'none' }
     ));
   } else if (needsGeneration && !convergenceProjectionRequired) actions.push(action(

@@ -222,7 +222,9 @@ test('changes held before approval route the person to keep or set them aside, n
   const plan = refusalRemediationPlan(error, ['approve', 'qa-intake']);
   assert.equal(plan.steps[0].id, 'review-held-changes');
   assert.equal(plan.steps[0].command, 'singularity-flow recover Story-1 --json');
-  assert.match(plan.steps[0].label, /keeps them by committing them, or sets them aside/u);
+  assert.match(plan.steps[0].label, /sets them aside with the set-aside-worktree command/u);
+  // A hand-made commit after submission is the trap: approval then refuses until a resubmission.
+  assert.doesNotMatch(plan.steps[0].label, /keeps them by committing/u);
   assert.match(plan.steps[0].label, /nothing needs rejecting/u);
 });
 

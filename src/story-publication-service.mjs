@@ -164,10 +164,15 @@ export async function commitAndPublish(root, config, workflow, event, message, e
       : { reachable: false, malformed: false, sha: null };
     if (observation.reachable && !observation.malformed && observation.sha !== null) {
       if (!commitIsAncestor(root, observation.sha, governedLocalParent)) {
+        // Only behind: refresh-branch is the whole answer, and sync would find nothing to publish.
+        // A remote tip this clone has never fetched cannot tell, so refresh-branch reports it.
+        const remoteTipHere = commitIsAncestor(root, observation.sha, observation.sha);
+        const unpublishedLocal = remoteTipHere ? !commitIsAncestor(root, governedLocalParent, observation.sha) : null;
         throw new SingularityFlowError(
           `Story '${workflow.workItem.id}' has commits on its remote branch '${targetBranch}' that this checkout does not have: another clone published to it. `
-          + 'Run singularity-flow refresh-branch to bring them in (it only fast-forwards), then retry; nothing was changed. '
-          + 'If it reports that the branch diverged, this checkout also holds an unpublished commit: run singularity-flow sync.',
+          + 'Run singularity-flow refresh-branch to bring them in (it only fast-forwards), then retry; nothing was changed.'
+          + (unpublishedLocal === true ? ' This checkout also holds an unpublished commit, so refresh-branch will report that the branch diverged: run singularity-flow sync.'
+            : unpublishedLocal === null ? ' If it reports that the branch diverged, this checkout also holds an unpublished commit: run singularity-flow sync.' : ''),
           {
             code: 'STORY_PUBLICATION_REMOTE_DIVERGED',
             details: {
@@ -175,7 +180,7 @@ export async function commitAndPublish(root, config, workflow, event, message, e
               localParent: governedLocalParent,
               observedRemoteSha: observation.sha,
               // Fast-forward first; a diverged branch then needs the unpublished commit published.
-              recoveryCommands: ['singularity-flow refresh-branch', 'singularity-flow sync']
+              recoveryCommands: ['singularity-flow refresh-branch', ...(unpublishedLocal === false ? [] : ['singularity-flow sync'])]
             }
           }
         );

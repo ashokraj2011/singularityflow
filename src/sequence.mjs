@@ -58,6 +58,9 @@ export function sequenceGateMode(workflow, gate) {
 export function phaseExplicitlyReopened(workflow, phase) {
   return (workflow?.changeRequests ?? []).some((request) => request.status === 'open' && request.targetPhase === phase?.id)
     || Boolean(phase?.reworkRevalidation && phaseNeedsGeneration(workflow, phase))
+    // A reviewed skill amendment reopens its affected steps the same way: the consumed intent
+    // belongs to the generation before the amendment, so the next one is prepared, not rolled over.
+    || Boolean(phase?.skillAmendmentRevalidation?.state === 'affected' && phaseNeedsGeneration(workflow, phase))
     || Boolean(phase?.intentAmendmentRevalidation && !phase.intentAmendmentRevalidation.revalidatedAt);
 }
 

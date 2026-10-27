@@ -678,6 +678,18 @@ function localSyncSteps(argv, error) {
 }
 
 const KNOWN = Object.freeze({
+  // An upstream issue about a step with no approval group: never decidable there. Raise it, or a
+  // superseding issue, at the nearest earlier step whose approvers can decide it.
+  UPSTREAM_ISSUE_AUTHORITY_UNAVAILABLE: (argv, error) => {
+    const details = error?.details ?? {};
+    const instead = typeof details.decidableStep === 'string' ? lowerKebab(details.decidableStep) : null;
+    if (!instead) return [];
+    const command = details.nextAction?.command
+      ?? `singularity-flow upstream-issue raise --phase ${instead} --about <ID|SECTION> --problem <TEXT>`;
+    return [step(details.issue ? 'supersede-upstream-issue' : 'raise-at-decidable-step',
+      `${details.issue ? `Raise the same problem against ${instead}, superseding ${details.issue}` : `Raise it against ${instead}`}: its approvers can decide it.`,
+      command, 'remediation', null)].filter(Boolean);
+  },
   // A draft citing a constitution article the Story's pin lacks: the author corrects the citation.
   CONSTITUTION_CITATION_INVALID: (argv, error) => {
     const phase = typeof error?.details?.phase === 'string' ? error.details.phase : null;
@@ -825,7 +837,7 @@ const KNOWN = Object.freeze({
   // through recovery's confirmed route; rejecting the submission is not the remedy.
   LIFECYCLE_WORKTREE_REVIEW_REQUIRED: (argv, error) => [
     step('review-held-changes',
-      'The checkout has changes that are not part of this decision (details.paths). A person looks at them and either keeps them by committing them, or sets them aside with the set-aside-worktree command recovery returns (it keeps a private recovery copy). Then run the decision again; nothing needs rejecting.',
+      'The checkout has changes that are not part of this decision (details.paths). A person looks at them and sets them aside with the set-aside-worktree command recovery returns (it keeps a private recovery copy), or moves them out of the checkout. Committing them by hand is not a way through: approval then refuses until the step is returned and resubmitted. Then run the decision again; nothing needs rejecting.',
       error?.details?.recoveryCommand ?? null, 'remediation', '/sf-recover')
   ],
   INPUT_RESTORE_STAGED_DRIFT: (argv, error) => [
@@ -871,6 +883,20 @@ const KNOWN = Object.freeze({
     'Ground each listed impact-map entry in a repository the Initiative names, then check the draft again.'),
   INITIATIVE_OUTPUTS_MISSING: (_argv, error) => initiativeDraftSteps(error,
     'Write each listed required output of this phase, then check the draft again.'),
+  // The chosen file is not the original. Choose it again; when the original is gone, detaching is
+  // the person's decision, and its preview shows the steps it would reopen.
+  DOCUMENT_RESTORE_HASH_MISMATCH: (argv, error) => {
+    const id = safeWorkId(error?.details?.documentId);
+    const workId = safeWorkId(optionValueRaw(argv, 'work-id'));
+    if (!id) return [];
+    const scope = workId ? ` --work-id ${workId}` : '';
+    return [
+      step('choose-original-again', `Choose the original file for ${id} again; only its exact bytes restore it.`,
+        `singularity-flow documents restore ${id}${scope} --file <LOCAL-FILE> --json`, 'remediation', '/sf-documents'),
+      step('preview-detach', `If the original is gone, preview detaching ${id}: it reopens the steps that used it. The person detaches it with --reason.`,
+        `singularity-flow documents detach ${id}${scope} --dry-run --json`, 'diagnostic', '/sf-documents')
+    ];
+  },
   DOCUMENT_HASH_MISMATCH: () => [
     step('inspect-story-documents',
       'A supporting document no longer matches the bytes its catalog committed. Restore the committed copy (or re-add the changed document as a new one); this phase must not use the changed bytes.',

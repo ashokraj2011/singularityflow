@@ -164,14 +164,20 @@ function publicationRecovery(workflow, ownerPhase, { publicationPending = true, 
     ...route, mode: 'automatic',
     command: 'singularity-flow sync', detail: 'Retry the already-created commit; lifecycle state remains unchanged.'
   };
-  const target = publication?.remote && publication?.branch ? `${publication.remote}/${publication.branch}` : 'the remote branch';
+  const named = Boolean(publication?.remote && publication?.branch);
+  const target = named ? `${publication.remote}/${publication.branch}` : 'the remote branch';
+  // SFlow never pushes commits it did not make, so these stay the person's; the Git commands that
+  // show and send them are named exactly (a fast-forward push only, never a force).
   if (publication?.state === 'ahead') return {
     ...route, mode: 'manual', command: null,
-    detail: `This checkout has commits that are not on ${target}, and none is a retained Flow commit, so sync has nothing to send. Push them yourself when they belong to this Story, or return the branch to ${target}, then rerun the gate.`
+    detail: `This checkout has commits that are not on ${target}, and none is a retained Flow commit, so sync has nothing to send. `
+      + `${named ? `See them with \`git log --oneline ${target}..HEAD\`. ` : ''}Push them yourself when they belong to this Story`
+      + `${named ? ` (\`git push ${publication.remote} HEAD:${publication.branch}\`)` : ''}, or return the branch to ${target}, then rerun the gate.`
   };
   if (publication?.state === 'diverged') return {
     ...route, mode: 'manual', command: null,
-    detail: `This checkout and ${target} have diverged, and no retained Flow commit is waiting. Compare both tips with whoever pushed and reconcile them, then rerun the gate; nothing was changed.`
+    detail: `This checkout and ${target} have diverged, and no retained Flow commit is waiting. `
+      + `${named ? `Compare both tips with \`git log --oneline --left-right HEAD...${target}\` ` : 'Compare both tips '}with whoever pushed and reconcile them, then rerun the gate; nothing was changed.`
   };
   if (publication?.state === 'unavailable') return {
     ...route, mode: 'guided', command: 'singularity-flow workspace doctor --network',

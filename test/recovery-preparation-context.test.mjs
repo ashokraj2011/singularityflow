@@ -196,6 +196,35 @@ test('records the open step writes are its own only when they name this Story, s
     itemRoot: value.itemRoot, generation: 2, changedPaths: owned }), [], 'another generation owns nothing here');
 });
 
+test('a native visual capture recorded for this generation is the step\'s own, with its PNG while the record binds it', async t => {
+  const value = await fixture(t);
+  const context = `${value.itemRoot}/context`;
+  const put = async (relative, content) => {
+    await mkdir(path.dirname(path.join(value.root, relative)), { recursive: true });
+    await writeFile(path.join(value.root, relative), typeof content === 'string' ? content : JSON.stringify(content));
+    return relative;
+  };
+  const png = 'native PNG bytes';
+  const capture = (id, overrides = {}) => ({ format: 'sflow-visual-native-capture/v1', id, kind: 'visual-native-capture',
+    workId: 'CTX-1', phase: value.phase.id, targetGeneration: 1,
+    output: { path: `context/visual/captures/outputs/${id}/screen.png`, sha256: createHash('sha256').update(png).digest('hex') }, ...overrides });
+  const own = 'vnc-0f8fad5b-d9cb-469f-a165-70867728950e', edited = 'vnc-1f8fad5b-d9cb-469f-a165-70867728950e',
+    foreign = 'vnc-2f8fad5b-d9cb-469f-a165-70867728950e';
+  const owned = [
+    await put(`${context}/visual/captures/records/${own}.json`, capture(own)),
+    await put(`${context}/visual/captures/outputs/${own}/screen.png`, png),
+    await put(`${context}/visual/captures/records/${edited}.json`, capture(edited))
+  ];
+  const held = [
+    await put(`${context}/visual/captures/outputs/${edited}/screen.png`, 'edited after capture'),
+    await put(`${context}/visual/captures/records/${foreign}.json`, capture(foreign, { workId: 'OTHER' })),
+    await put(`${context}/visual/captures/outputs/${foreign}/screen.png`, png)
+  ];
+  const admitted = await expectedStepOwnedPaths(value.root, value.config, value.workflow, value.phase, {
+    itemRoot: value.itemRoot, generation: 1, changedPaths: [...owned, ...held] });
+  assert.deepEqual(new Set(admitted), new Set(owned));
+});
+
 test('convergence, spec, skill-copy and repository records SFlow commands write are recognised by identity', async t => {
   const value = await fixture(t);
   const context = `${value.itemRoot}/context`;

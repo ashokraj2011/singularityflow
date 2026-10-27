@@ -12,7 +12,7 @@ import path from 'node:path';
 import { availableParallelism } from 'node:os';
 import { lstat, mkdir, realpath } from 'node:fs/promises';
 
-import { gitCommonDir, headAndBranch, localRefHeads, refExists, remoteNames } from './git.mjs';
+import { commitIsAncestor, gitCommonDir, headAndBranch, localRefHeads, refExists, remoteNames } from './git.mjs';
 import { executeGitQuery } from './git-query.mjs';
 import { parsePorcelainV2Status } from './git-status-detail.mjs';
 import { isAgentOutputEntry } from './agent-output-folder.mjs';
@@ -217,7 +217,7 @@ export async function preparedStoryWorktreePath(root, workId, { baseCommit = nul
       && path.basename(path.dirname(path.dirname(canonicalEntry))) === '.singularity-flow';
     if (exact || legacy || ownCompact) candidates.push(entry);
   }
-  const refuse = message => { throw new SingularityFlowError(message, { code: 'STORY_WORKTREE_RECOVERY_REQUIRED' }); };
+  const refuse = (message, details) => { throw new SingularityFlowError(message, { code: 'STORY_WORKTREE_RECOVERY_REQUIRED', ...(details ? { details } : {}) }); };
   if (candidates.length > 1) refuse(`Story '${id}' has multiple managed launch checkouts; resolve the exact owner before reviewing baseline evidence.`);
   if (!candidates.length) {
     for (const candidate of [locations.compact, locations.legacy]) {
@@ -239,7 +239,16 @@ export async function preparedStoryWorktreePath(root, workId, { baseCommit = nul
       refuse(`Managed checkout is not on the exact prepared staging branch for Story '${id}'.`);
     }
     if (actualHead !== registered.head || baseCommit !== null && actualHead !== baseCommit) {
-      refuse(`Prepared Story '${id}' no longer points at the exact requested pre-feature base.`);
+      // A base that moved on since preparation: the checkout's commit is in the new base's history, so
+      // discarding it (named by that commit) loses nothing; it is still kept when it holds changes or the
+      // Story already exists. A commit made inside the checkout is not, and stays for a person.
+      const staleBase = baseCommit !== null && actualHead === registered.head && commitIsAncestor(root, actualHead, baseCommit);
+      refuse(`Prepared Story '${id}' no longer points at the exact requested pre-feature base: its checkout ${registered.path} is at ${actualHead.slice(0, 12)}. `
+        + (staleBase ? 'Discard it, then start again.' : 'It holds a commit the base does not have; review it before discarding anything.'), {
+        checkoutPath: registered.path, preparedBase: actualHead, ...(baseCommit ? { requestedBase: baseCommit } : {}),
+        ...(staleBase ? { nextAction: { command: `singularity-flow story discard-worktree --work-id ${id} --prepared-base ${actualHead}`,
+          label: 'Discard the prepared checkout. It is kept, with its files, if it holds changes or the Story already exists.' } } : {})
+      });
     }
     return registered.path;
   } catch (error) {
@@ -263,13 +272,13 @@ export async function discardPreparedStoryWorktree(root, workId, { baseCommit, s
   }
   const target = await preparedStoryWorktreePath(root, id, { baseCommit });
   if (!target) return { status: 'absent' };
-  if (!storyWorktreeChanges(target).clean) return { status: 'retained', reason: 'worktree-changes' };
-  if (pathContains(target, process.cwd())) return { status: 'retained', reason: 'current-directory' };
+  if (!storyWorktreeChanges(target).clean) return { status: 'retained', reason: 'worktree-changes', path: target };
+  if (pathContains(target, process.cwd())) return { status: 'retained', reason: 'current-directory', path: target };
   const common = gitCommonDir(root);
   const stages = new Set([common, await realpath(common), gitCommonDir(target)]
     .map(value => `sflow-start-${digest(`${value}\0${id}`).slice(0, 16)}`));
   const current = headAndBranch(target);
-  if (current.head !== baseCommit || !stages.has(current.branch)) return { status: 'retained', reason: 'checkout-changed' };
+  if (current.head !== baseCommit || !stages.has(current.branch)) return { status: 'retained', reason: 'checkout-changed', path: target };
   // Git's last dirty check remains in force. A concurrent ref advance is retained by the CAS
   // deletion; even then its commit stays reachable and can be recovered, never silently erased.
   const removed = run('git', ['worktree', 'remove', '--', target], { cwd: root, allowFailure: true });

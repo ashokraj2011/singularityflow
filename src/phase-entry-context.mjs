@@ -35,7 +35,8 @@ export async function phaseEntryContext({ cwd = process.cwd(), phaseId = null, w
   if ([workId, selected?.storyId].some(id => id && id !== actualId)) throw new SingularityFlowError(
     'Requested or selected Story does not match the active checkout. Attach it explicitly.', {
       code: 'ACTIVE_SUBJECT_MISMATCH', details: { expectedWorkId: workId ?? selected?.storyId,
-        actualWorkId: actualId, repositoryPath: root }
+        actualWorkId: actualId, repositoryPath: root,
+        nextCommand: `singularity-flow session attach ${workId ?? selected?.storyId} --json` }
     });
   // Entry grants authoring guidance; archived Stories remain inspectable through phase show,
   // but must not hand an agent permission to edit their preserved application or draft files.

@@ -304,7 +304,7 @@ export function blockingUnavailableStories(roster, reference = null) {
 /** Version refusals keep their own code: the reader then gets the upgrade route, not a repair. */
 const VERSION_SOURCE_CODES = new Set(['SCHEMA_VERSION_FUTURE', 'SCHEMA_VERSION_ARCHIVED']);
 
-function unavailableStoriesError(entries) {
+export function unavailableStoriesError(entries) {
   const codes = new Set(entries.map((entry) => entry.sourceCode));
   const [only] = codes;
   if (codes.size === 1 && VERSION_SOURCE_CODES.has(only)) {
@@ -315,7 +315,8 @@ function unavailableStoriesError(entries) {
   }
   return new SingularityFlowError(
     'State-indexed Story metadata is incomplete. Refresh or repair the named records before selecting a Story; application branches were not scanned.',
-    { code: 'SESSION_STATE_INDEX_UNAVAILABLE', details: { unavailable: entries } });
+    { code: 'SESSION_STATE_INDEX_UNAVAILABLE', details: { unavailable: entries,
+      nextAction: { command: 'singularity-flow ledger doctor --json', label: 'See which state records cannot be read and how to repair them.' } } });
 }
 
 /**

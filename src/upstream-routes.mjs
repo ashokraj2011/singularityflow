@@ -79,6 +79,27 @@ export function upstreamRouteSummary(entry) {
   return entry?.notes?.[0] ?? `${entry?.producer ?? 'The earlier phase'} is approved; it changes only by an authorized return or amendment.`;
 }
 
+/** The earlier phase's approval groups decide; a later phase's reviewers cannot rule on it. */
+export function upstreamIssueAuthorities(workflow, phaseId) {
+  const policy = workflow?.phases?.[phaseId]?.approvalPolicy ?? {};
+  return [...new Set([...(policy.authorities ?? []), ...(policy.requiredAuthorities ?? [])])].sort();
+}
+
+/**
+ * The step an issue about `phaseId` can be decided at: `phaseId` when it has approvers, else the
+ * nearest step before it that has run and has approvers, else null. An issue raised against a step
+ * with no approval group could never be decided, and the Story could never finish while it was open
+ * (quick-fix implement, poc-lite steps; 2026-10-27 blocker audit).
+ */
+export function decidableUpstreamStep(workflow, phaseId) {
+  const ids = workflow?.phaseOrder ?? Object.keys(workflow?.phases ?? {});
+  for (let index = ids.indexOf(phaseId); index >= 0; index -= 1) {
+    const candidate = workflow.phases?.[ids[index]];
+    if (upstreamIssueAuthorities(workflow, ids[index]).length && Number(candidate?.generation) > 0 && candidate.status !== 'not_started') return ids[index];
+  }
+  return null;
+}
+
 /** The statuses of an issue that still owe a person's decision: undecided, or an accepted risk that expired. */
 export const OPEN_UPSTREAM_ISSUE_STATUSES = Object.freeze(['open', 'expired']);
 

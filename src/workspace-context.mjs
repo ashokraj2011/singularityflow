@@ -501,7 +501,8 @@ export async function activateWorkspaceStoryContext(
         `Cannot select Story '${expectedStoryId}': checkout '${checkoutPath}' resolves to '${actualStoryId ?? 'no Story'}'.`,
         {
           code: 'ACTIVE_SUBJECT_MISMATCH',
-          details: { expectedWorkId: expectedStoryId, actualWorkId: actualStoryId, checkoutPath }
+          details: { expectedWorkId: expectedStoryId, actualWorkId: actualStoryId, checkoutPath,
+            nextAction: `singularity-flow session open ${expectedStoryId}` }
         }
       );
     }

@@ -14,7 +14,7 @@ import { validatePortableWorkId } from './work-id.mjs';
 import { VERSION } from './version.mjs';
 import { versionLine } from './build-info.mjs';
 import { resolveModelMode, stripGlobalModelOptions } from './model-mode.mjs';
-import { withOperationContext } from './operation-context.mjs';
+import { modelOffCause, withOperationContext } from './operation-context.mjs';
 import { runRemoteGitAsync } from './git-execution.mjs';
 import { FROZEN_REMOTE_ALIAS } from './git-remote-diagnostics.mjs';
 import { abandonRemoteBranchObservations } from './remote-observation-prefetch.mjs';
@@ -891,8 +891,8 @@ async function runMain(argv, utilityEntry = null, explicitContextRoot = null) {
     const fallback = operation.fallback?.operationId
       ? ` Use the model-free fallback: singularity-flow ${operation.fallback.operationId.replace('.', ' ')}.`
       : '';
-    throw new SingularityFlowError(`Operation '${operation.id}' requires a model and cannot run with --no-model.${fallback}`, {
-      code: 'MODEL_UNAVAILABLE', details: { operationId: operation.id, fallback: operation.fallback ?? null }
+    throw new SingularityFlowError(`Operation '${operation.id}' requires a model and cannot run with --no-model.${fallback} ${modelOffCause(modelMode)}`, {
+      code: 'MODEL_UNAVAILABLE', details: { operationId: operation.id, fallback: operation.fallback ?? null, modelSource: modelMode.source ?? null }
     });
   }
   // The resolved operation, not the command. Some command nouns carry both read and mutating

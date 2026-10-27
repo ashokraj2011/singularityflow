@@ -112,7 +112,10 @@ test('the bundled CLI answers exactly like the sources while opening a handful o
   for (const name of ['cold-catalogs.mjs', 'cold-hook-context.mjs', 'cold-narrow-reads.mjs', 'cold-compatibility.mjs']) {
     assert.ok(!presentationClosure.some(item => item.file === name), `output must not statically reach ${name}`);
   }
-  assert.ok(closure('cold-narrow-reads.mjs').reduce((sum, item) => sum + item.bytes, 0) < 4.25 * 1024 * 1024,
+  // 4,460,000 (next 5,000 boundary; it was 4.25 MiB, 4,456,448): main 317d51b9 measures 4,456,138. The blocker
+  // audit's dead-end and trap routes add cold-core +1,952, cold-narrow-reads +1,216 and cold-worker-protocol +62
+  // for 4,459,368. No new file.
+  assert.ok(closure('cold-narrow-reads.mjs').reduce((sum, item) => sum + item.bytes, 0) < 4_460_000,
     'strict next-step reads must not inherit the broad phase-review closure');
   const publicationClosure = closure('cold-publication.mjs');
   assert.ok(publicationClosure.length && publicationClosure.reduce((sum, item) => sum + item.bytes, 0) < 6 * 1024 * 1024,
@@ -205,7 +208,12 @@ test('the bundled CLI answers exactly like the sources while opening a handful o
   // route, a stray file routed to recovery, constitution citations at prepublish with a coded refusal) add
   // cold-narrow-reads +838, cold-core +578, cold-worker-protocol +326, cold-publication +118 and
   // cold-hook-context +110 for 7,451,589.
-  assert.ok(closure('cold-hook-context.mjs').reduce((sum, item) => sum + item.bytes, 0) < 7_455_000,
+  // 7,460,000: main 317d51b9 measures 7,451,589; the dead-end and trap routes (an upstream issue raised where it
+  // can be decided, restore or return at approval, the stale start checkout's own commit, a skill-amended code
+  // step prepared again, detach for a lost document, the Git commands for unsent commits, the decision list for an
+  // open Story's ending, the model-off cause) add cold-hook-context +2,251, cold-core +1,952, cold-narrow-reads
+  // +1,216, cold-publication +362 and cold-worker-protocol +62 for 7,457,432.
+  assert.ok(closure('cold-hook-context.mjs').reduce((sum, item) => sum + item.bytes, 0) < 7_460_000,
     'phase-review reads retain their existing byte ceiling after moving families');
   assert.match(await readFile(path.join(outdir, 'cold-light.mjs'), 'utf8'), /function enterPhase\b/u,
     'phase binding must not fall through to the compatibility/admin bundle');

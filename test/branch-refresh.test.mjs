@@ -46,7 +46,15 @@ test('refresh is fast-forward-only and reports up-to-date and ahead branches', a
 test('refresh refuses dirty and diverged work without changing HEAD', async () => {
   const { local, peer } = await fixture();
   await writeFile(path.join(local, 'dirty.txt'), 'dirty\n');
-  await assert.rejects(refreshBranch(local), /Working tree is not clean/);
+  await assert.rejects(refreshBranch(local), (error) => {
+    assert.match(error.message, /Working tree is not clean/);
+    // The way through is named, and never a flag refresh-branch does not accept.
+    assert.equal(error.code, 'BRANCH_REFRESH_WORKTREE_DIRTY');
+    assert.match(error.message, /git stash --include-untracked/);
+    assert.doesNotMatch(error.message, /--allow-dirty/);
+    assert.deepEqual(error.details.changedPaths, ['dirty.txt']);
+    return true;
+  });
   git(local, ['clean', '-f']);
 
   await writeFile(path.join(local, 'local.txt'), 'local\n');

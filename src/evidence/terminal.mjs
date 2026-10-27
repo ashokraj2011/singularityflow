@@ -67,7 +67,9 @@ export function terminalRecoveryActions(workId, evaluation, gate = null) {
   }
   for (const finding of gate?.findings ?? []) add(decisions, finding.recovery?.command);
   if ((evaluation?.decision?.gate === 'block')) add(diagnostics, `singularity-flow evidence matrix ${workId} --json`);
-  if ((gate?.errors ?? []).length) add(diagnostics, 'singularity-flow gate --terminal');
+  // Both callers judge a Story still open on disk, where `gate --terminal` always adds "not closed".
+  // The decision list shows this same as-if-closed evaluation, and runs in any turn.
+  if ((gate?.errors ?? []).length) add(diagnostics, `singularity-flow decisions ${workId}`);
   return [...decisions, ...witnesses, ...risks, ...diagnostics];
 }
 

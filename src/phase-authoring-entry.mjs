@@ -23,7 +23,7 @@ export function phaseAuthoringEntry(workflow, phase, { review = null, reviewErro
     if (phaseRequiresCodeDelivery(phase) && phase.generationIntent?.status === 'consumed') return phaseExplicitlyReopened(workflow, phase)
       ? { status: 'attention-required', reason: 'code-rework-preparation-required',
         actions: [copilotAction({ skill: generationSkillForPhase(phase, workflow), command: `singularity-flow prepare ${phase.id}`,
-          reason: 'This code step was returned for rework: prepare its next generation; the published one stays preserved.' })] }
+          reason: `This code step was ${phase.skillAmendmentRevalidation?.state === 'affected' ? 'reopened by a skill amendment' : 'returned for rework'}: prepare its next generation; the published one stays preserved.` })] }
       : { status: 'attention-required', reason: 'code-rollover-required',
         actions: [copilotAction({ skill: '/sf-recover', command: `singularity-flow phase rollover ${phase.id} --json`,
           reason: 'Review the guarded code successor boundary; preserve the published generation and its tests.' })] };

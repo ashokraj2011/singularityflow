@@ -1,5 +1,5 @@
 import { SingularityFlowError, run } from './util.mjs';
-import { assertClean, branch, hasRemote, head, validBranch } from './git.mjs';
+import { branch, changes, hasRemote, head, validBranch } from './git.mjs';
 import { runRemoteGitAsync } from './git-execution.mjs';
 
 function git(root, args, { allowFailure = false } = {}) {
@@ -17,7 +17,13 @@ function count(root, range) {
 export async function refreshBranch(root, {
   remote = 'origin', branchName = null, runRemoteCommand = runRemoteGitAsync
 } = {}) {
-  assertClean(root);
+  // Uncommitted files (a step's draft, say) are never touched. The way through is plain Git, named
+  // here because this command has no flag that overrides it.
+  const uncommitted = changes(root).trim();
+  if (uncommitted) throw new SingularityFlowError(
+    'Working tree is not clean: refresh-branch only fast-forwards a clean checkout and never touches uncommitted files. Nothing was changed. '
+    + 'Set them aside with `git stash --include-untracked`, run refresh-branch again, then bring them back with `git stash pop`.',
+    { code: 'BRANCH_REFRESH_WORKTREE_DIRTY', details: { changedPaths: uncommitted.split('\n').slice(0, 20).map(line => line.slice(3)) } });
   const current = branch(root);
   const target = branchName ?? current;
   validBranch(root, target);

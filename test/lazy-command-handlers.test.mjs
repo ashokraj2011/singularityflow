@@ -146,7 +146,10 @@ test('frequent lifecycle handlers do not reach the legacy dispatcher and stay un
     // The outcome review adds 4,679 for 9,130,503: its terminal view in render-terminal.mjs (2,949), a sign-off's
     // own screenshot as review-safe in state.mjs (1,155), its messages (476), registry entry (72) and skill route
     // (27). The reader and command are lazy; no new file.
-    assert.ok(closure.bytes <= 9_135_000, `${file} exceeds the 9 MB eager-source budget (${closure.bytes} bytes)`);
+    // 9,145,000 (next 5,000 boundary): main 317d51b9 measures 9,133,783 for start.mjs. The blocker audit's dead-end
+    // and trap routes add 7,385 for 9,141,168 (refusal-remediation.mjs, state.mjs, story-worktree.mjs, start.mjs,
+    // upstream-routes.mjs, document-runtime.mjs, gate-recovery.mjs, lifecycle-worktree.mjs and others). No new file.
+    assert.ok(closure.bytes <= 9_145_000, `${file} exceeds the 9 MB eager-source budget (${closure.bytes} bytes)`);
   }
 });
 

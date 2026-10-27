@@ -262,8 +262,10 @@ export function selectStartEntry(context, startId = null) {
   const entries = context.application.start;
   if (!entries.length) {
     throw new SingularityFlowError(
-      `Capability '${context.capabilityId}' declares no application start entry. Add application.start to singularity/capabilities.yml through a capability proposal.`,
-      { code: 'APP_START_NOT_DECLARED', details: { capabilityId: context.capabilityId } });
+      `Capability '${context.capabilityId}' declares no application start entry. Add application.start to singularity/capabilities.yml through a capability proposal; app suggest drafts it from the repository.`,
+      { code: 'APP_START_NOT_DECLARED', details: { capabilityId: context.capabilityId,
+        nextAction: { command: `singularity-flow app suggest --capability ${context.capabilityId} --json`,
+          label: 'Draft the application block from the repository, then propose it for the capability.' } } });
   }
   if (startId == null) {
     if (entries.length === 1) return entries[0];

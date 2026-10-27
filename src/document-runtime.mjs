@@ -24,10 +24,14 @@ export async function phaseDocumentReadiness(root, definition, workflow, phaseId
     if (availability === 'available') continue;
     const commandGuidance = safeCommandGuidance({ argv: ['documents', 'restore', record.id,
       '--work-id', workflow.workItem.id, '--file', '<LOCAL-FILE>', '--json'] });
+    // Restore accepts only the exact original bytes. When the original is gone, the person's other
+    // way through is detaching it, which reopens the steps that used it: the preview shows which.
+    const detachGuidance = safeCommandGuidance({ argv: ['documents', 'detach', record.id,
+      '--work-id', workflow.workItem.id, '--dry-run', '--json'] });
     missing.push({ id: record.id, name: record.name, filename: record.sourceName, sha256: record.sha256,
       bytes: record.size, mimeType: effectiveDocumentMimeType(record), availability,
-      instruction: 'Ask the person to choose the same original file on this laptop. Do not invent a path, add a duplicate document, change its expected hash, or ask the requirements questions again.',
-      commandGuidance });
+      instruction: 'Ask the person to choose the same original file on this laptop. Do not invent a path, add a duplicate document, change its expected hash, or ask the requirements questions again. If the original no longer exists, the person may detach the document instead; preview what that reopens first.',
+      commandGuidance, ...(detachGuidance ? { detachGuidance } : {}) });
   }
   return { resultType: 'document-readiness', status: missing.length ? 'upload-required' : 'ready', phase: phaseId,
     workId: workflow.workItem.id, localDocumentCount: records.length, missing,
@@ -40,8 +44,10 @@ export async function requirePhaseDocuments(root, definition, workflow, phaseId)
   const readiness = await phaseDocumentReadiness(root, definition, workflow, phaseId);
   if (readiness.status !== 'ready') throw new SingularityFlowError(readiness.instruction, {
     code: 'DOCUMENT_REUPLOAD_REQUIRED', details: { documentReadiness: readiness,
-      actions: readiness.missing.map(record => ({ ...record.commandGuidance,
-        detail: `Re-upload ${record.id} — ${record.name} on this laptop; choose --file explicitly.` })) } });
+      actions: [...readiness.missing.map(record => ({ ...record.commandGuidance,
+        detail: `Re-upload ${record.id} — ${record.name} on this laptop; choose --file explicitly.` })),
+      ...readiness.missing.filter(record => record.detachGuidance).map(record => ({ ...record.detachGuidance,
+        detail: `If the original of ${record.id} is gone: preview detaching it (it reopens the steps that used it). The person detaches it with --reason.` }))] } });
   return readiness;
 }
 

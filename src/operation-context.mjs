@@ -69,10 +69,17 @@ export function assertModelInvocationAllowed() {
     });
   }
   if (!context.modelMode.enabled) {
-    throw new SingularityFlowError(`Operation '${context.operation.id}' requires model execution, but model mode is disabled.`, {
+    throw new SingularityFlowError(`Operation '${context.operation.id}' requires model execution, but model mode is disabled. ${modelOffCause(context.modelMode)}`, {
       code: 'MODEL_UNAVAILABLE',
       details: { operationId: context.operation.id, fallback: context.operation.fallback ?? null }
     });
   }
   return context;
+}
+
+/** Why the model is off for this run, and how to turn it back on. */
+export function modelOffCause(mode = {}) {
+  if (mode.source === 'environment') return 'The model is off because SINGULARITY_FLOW_NO_MODEL is set in this environment; unset it (or set it to 0) to turn the model back on.';
+  if (mode.source === 'cli') return 'The model is off because this run passed --no-model; run the command without it to turn the model back on.';
+  return 'Turn the model back on: run without --no-model, with SINGULARITY_FLOW_NO_MODEL unset.';
 }

@@ -274,6 +274,17 @@ export async function expectedStepOwnedPaths(root, config, workflow, phase, {
       if (output && candidates.includes(output) && output.startsWith(`${context}mcp/outputs/`)
           && await safeContextFile(root, output)
           && (await snapshot(path.join(root, output))).sha256 === record.output.sha256) admitted.add(output);
+    } else if ((match = /^visual\/captures\/records\/(vnc-[0-9a-f-]{36})\.json$/u.exec(name))) {
+      // A native visual capture recorded for this generation, and its PNG while the record binds its
+      // hash: setting them aside would only have coverage ask for the same capture again.
+      const record = await contextJson(root, relative);
+      if (record?.id !== match[1] || record.kind !== 'visual-native-capture' || record.workId !== workId
+          || record.phase !== phase.id || record.targetGeneration !== generation) continue;
+      await admit(relative);
+      const output = record.output?.path ? `${itemRoot}/${record.output.path}` : null;
+      if (output && candidates.includes(output) && output.startsWith(`${context}visual/captures/outputs/${record.id}/`)
+          && await safeContextFile(root, output)
+          && (await snapshot(path.join(root, output))).sha256 === record.output.sha256) admitted.add(output);
     } else if ((match = /^design-inventory\/([0-9a-f]{64})\/digest\.(?:json|md)$/u.exec(name))) {
       const digest = await contextJson(root, `${context}design-inventory/${match[1]}/digest.json`);
       if (digest?.kind === 'design-inventory-digest' && digest.workId === workId

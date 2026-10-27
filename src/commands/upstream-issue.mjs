@@ -15,7 +15,7 @@ import { nextForwardAmendmentProposal, pendingAmendmentRevalidations, revalidate
 import { LIFECYCLE_EVENT } from '../lifecycle-event.mjs';
 import { discrepancySteps, upstreamDiscrepanciesFromMarkdown } from '../phase-upstream-discrepancies.mjs';
 import {
-  decideUpstreamIssue, discrepancyIssueRequests, raiseUpstreamIssue, upstreamIssueAuthorities, upstreamIssueDecideCommand,
+  decidableUpstreamStep, decideUpstreamIssue, discrepancyIssueRequests, raiseUpstreamIssue, upstreamIssueAuthorities, upstreamIssueDecideCommand,
   upstreamIssueStates, UPSTREAM_ISSUE_OUTCOMES, UPSTREAM_ISSUE_PROBLEM_MAXIMUM, UPSTREAM_ISSUE_PROPOSALS
 } from '../upstream-issues.mjs';
 import { commandResult, effects, noEffects, succeeded } from '../narration/command-result.mjs';
@@ -35,6 +35,20 @@ const ALLOWED = {
 
 function refused(message, code = 'UPSTREAM_ISSUE_INVALID', details = undefined) {
   throw new SingularityFlowError(message, { code, ...(details ? { details } : {}) });
+}
+
+/**
+ * An issue raised against a step with no approval group: nobody can decide it, and the Story cannot
+ * finish while it is open. Its way out is a superseding issue at a step whose approvers can decide
+ * both (they dismiss the old one), named exactly.
+ */
+function undecidableIssue(workflow, issue) {
+  const instead = decidableUpstreamStep(workflow, issue.phase);
+  const workId = workflow.workItem?.id ?? '<WORK-ID>';
+  const supersede = instead ? `singularity-flow upstream-issue raise --work-id ${workId} --phase ${instead} --supersedes ${issue.id} --about <ID|SECTION> --problem <TEXT>` : null;
+  return [`${issue.phase} has no approval group, so nobody can decide ${issue.id}. `
+    + (supersede ? `Raise the same problem against ${instead}, superseding it: ${supersede}. ${instead}'s approvers then decide the new issue.` : 'No earlier step has approvers to take it over.'),
+  'UPSTREAM_ISSUE_AUTHORITY_UNAVAILABLE', { issue: issue.id, phase: issue.phase, ...(supersede ? { decidableStep: instead, nextAction: { command: supersede } } : {}) }];
 }
 
 function emit(options, workflow, action, { slots = {}, body = {}, changed = false }) {
@@ -220,7 +234,7 @@ export async function decideUpstreamIssueRecord(root, config, workflow, issueId,
   const state = upstreamIssueStates(workflow).find((entry) => entry.issue.id === issueId);
   if (!state) refused(`${issueId || 'That issue'} is not an upstream issue of this Story. List them with upstream-issue list.`, 'UPSTREAM_ISSUE_NOT_FOUND');
   const groups = upstreamIssueAuthorities(workflow, state.issue.phase);
-  if (!groups.length) refused(`${state.issue.phase} has no approval group, so nobody can decide this issue.`, 'UPSTREAM_ISSUE_AUTHORITY_UNAVAILABLE');
+  if (!groups.length) refused(...undecidableIssue(workflow, state.issue));
   const authority = requireApprovalAuthority(workflow.resolution?.approvalAuthorities ?? config.approvalAuthorities,
     { mode: 'required', authorities: groups, requiredAuthorities: [], minimum: 1 }, actor);
   const decision = (aggregate, recordLink = link) => decideUpstreamIssue(aggregate, {
@@ -260,7 +274,7 @@ export function upstreamIssueDecisionPart(root, config, workflow, issueId, { out
   if (!state) refused(`${issueId || 'That issue'} is not an upstream issue of this Story. List them with upstream-issue list.`, 'UPSTREAM_ISSUE_NOT_FOUND');
   if (!UPSTREAM_ISSUE_OUTCOMES.includes(outcome)) refused(`--outcome must be one of ${UPSTREAM_ISSUE_OUTCOMES.join(', ')}.`);
   const groups = upstreamIssueAuthorities(workflow, state.issue.phase);
-  if (!groups.length) refused(`${state.issue.phase} has no approval group, so nobody can decide this issue.`, 'UPSTREAM_ISSUE_AUTHORITY_UNAVAILABLE');
+  if (!groups.length) refused(...undecidableIssue(workflow, state.issue));
   const authority = requireApprovalAuthority(workflow.resolution?.approvalAuthorities ?? config.approvalAuthorities,
     { mode: 'required', authorities: groups, requiredAuthorities: [], minimum: 1 }, actor);
   const decision = (aggregate) => decideUpstreamIssue(aggregate, {
@@ -287,7 +301,7 @@ async function decide(root, config, workflow, issueId, options) {
   const outcome = optionString(options, 'outcome');
   if (!UPSTREAM_ISSUE_OUTCOMES.includes(outcome)) refused(`--outcome must be one of ${UPSTREAM_ISSUE_OUTCOMES.join(', ')}.`);
   const groups = upstreamIssueAuthorities(workflow, state.issue.phase);
-  if (!groups.length) refused(`${state.issue.phase} has no approval group, so nobody can decide this issue.`, 'UPSTREAM_ISSUE_AUTHORITY_UNAVAILABLE');
+  if (!groups.length) refused(...undecidableIssue(workflow, state.issue));
   const actor = actionActor(root);
   const session = await loadSession(root, { required: false });
   const agent = session?.workId === workflow.workItem.id ? session.agent ?? null : null;

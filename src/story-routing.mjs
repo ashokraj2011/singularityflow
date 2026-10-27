@@ -229,7 +229,8 @@ export async function routeNamedStory({ command, positionals, options, argv, roo
     if (current && named.fromOption && CHECKOUT_STORY_COMMANDS.has(command)) throw refusal(
       `This checkout holds Story ${current.workId}, and --work-id names ${workId}. ${command} works on the Story of the checkout it runs in, `
       + `so it was not run. Run it in ${workId}'s checkout.`,
-      'ACTIVE_SUBJECT_MISMATCH', { expectedWorkId: workId, actualWorkId: current.workId, repositoryPath: root });
+      'ACTIVE_SUBJECT_MISMATCH', { expectedWorkId: workId, actualWorkId: current.workId, repositoryPath: root,
+        nextAction: `singularity-flow session open ${workId}` });
     return null;
   }
   // A command runs where the Story's record is: its other repositories' checkouts are not candidates.

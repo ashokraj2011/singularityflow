@@ -6104,6 +6104,15 @@ export async function evaluateApproval(root, config, workflow, {
       if (sourceReviewRequired(workflow, phase.id)) {
         const review = await readSourceReviewStatus(root, config, workflow, phase.id);
         if (review.status !== 'ready') {
+          // A review is made while the step is in progress, so review-source context refuses here: this
+          // laptop restores the missing documents, or the step goes back to be reviewed again.
+          const restore = review.status === 'documents-required' ? (review.continuation?.actions ?? []).find((entry) => entry?.command) : null;
+          const nextAction = restore
+            ? { command: restore.command, label: 'Restore each original document on this laptop with the exact file, then approve again; nothing about the step changes.' }
+            : phase.status === 'in_progress'
+              ? { command: `singularity-flow review-source context ${phase.id} --json`, skill: '/sf-review-source' }
+              : { command: `singularity-flow reject ${phase.id} --work-id ${workflow.workItem.id} --fetch --reason <REASON>`, skill: '/sf-reject',
+                label: `Return ${phase.id} so its independent source review can be made again while it is in progress.` };
           throw new SingularityFlowError(
             `Phase '${phase.id}' cannot be approved: the independent source review is ${review.status}.\n- `
             + (review.findings?.map((entry) => entry.message).join('\n- ') || 'Review the current source and artifact bindings.'),
@@ -6111,8 +6120,8 @@ export async function evaluateApproval(root, config, workflow, {
               code: 'SOURCE_REVIEW_REQUIRED',
               details: {
                 workId: workflow.workItem.id, phase: phase.id, generation: phase.generation,
-                status: review.status, findings: review.findings ?? [],
-                nextAction: { command: `singularity-flow review-source context ${phase.id} --json`, skill: '/sf-review-source' }
+                status: review.status, findings: review.findings ?? [], nextAction,
+                ...(restore ? { actions: (review.continuation?.actions ?? []).filter((entry) => entry?.command).map((entry) => ({ command: entry.command, label: entry.reason ?? null })) } : {})
               }
             }
           );

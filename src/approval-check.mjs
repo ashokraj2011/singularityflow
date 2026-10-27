@@ -476,6 +476,8 @@ export function approvalHoldOwner(error) {
   const code = String(error?.code ?? '');
   if (code === 'STORY_REVIEW_INTERVENING_COMMIT' && error.details?.pendingIntentAmendments?.length) return 'someone-decides';
   if (['PHASE_VALIDATION_FAILED', 'CODE_DELIVERY_VALIDATION_REQUIRED'].includes(code) && error.details?.testRunRisk) return 'someone-decides';
+  // A coverage gap every clause of which an open upstream issue names is that issue's approvers' to decide.
+  if (code === 'SPEC_COVERAGE_INCOMPLETE' && error.details?.upstreamDecision?.complete === true) return 'someone-decides';
   return APPROVAL_HOLD_OWNERS[code] ?? OWNER_PREFIXES.find(([prefix]) => code.startsWith(prefix))?.[1] ?? 'author-repairs';
 }
 
@@ -486,7 +488,8 @@ export function approvalHoldOwner(error) {
  */
 function holdRoute(error, owner, workflow, phase) {
   const details = error.details ?? {};
-  const named = [details.nextAction, details.recoveryCommand, details.command, details.testRunRisk?.command, ...(Array.isArray(details.actions) ? details.actions : [])]
+  const named = [details.nextAction, details.recoveryCommand, details.command, details.testRunRisk?.command,
+    ...(Array.isArray(details.recoveryCommands) ? details.recoveryCommands : []), ...(Array.isArray(details.actions) ? details.actions : [])]
     .map((entry) => (typeof entry === 'string' ? { command: entry } : entry))
     .find((entry) => typeof entry?.command === 'string' && safeCommandGuidance({ command: entry.command }));
   if (named) return { label: String(named.label ?? named.detail ?? '').slice(0, 400), command: safeCommandGuidance({ command: named.command }).command };

@@ -663,6 +663,29 @@ function localSyncSteps(argv, error) {
 }
 
 const KNOWN = Object.freeze({
+  // Planned delivery incomplete at publication. The generic recovery led back to /sf-code even when
+  // the gap waits on an earlier step's decision (office, 2026-10-27): every clause an open upstream
+  // issue names goes to the decision list; the author's recheck, a pilot risk the step's approvers
+  // may accept, and the read-only recovery inspection follow, as each applies.
+  SPEC_COVERAGE_INCOMPLETE: (argv, error) => {
+    const details = error?.details ?? {};
+    const phase = typeof details.phase === 'string' ? details.phase : null;
+    const decision = details.upstreamDecision ?? null;
+    const list = details.nextAction?.command?.startsWith('singularity-flow decisions ')
+      ? step('open-decision-list', String(details.nextAction.label ?? 'Open the decision list.').slice(0, 2000), details.nextAction.command, 'remediation', '/sf-decide')
+      : null;
+    const author = phase && !decision?.complete
+      ? step('deliver-missing-clauses', `Deliver the clauses this refusal lists (source, tests and their tags) in ${phase}'s open generation, then recheck.${decision ? ` Leave ${decision.issues.flatMap((entry) => entry.clauses).join(', ')} to the open upstream issue's decision.` : ''}`,
+        `singularity-flow phase prepublish ${phase} --for-agent --json`, 'remediation', '/sf-code')
+      : null;
+    const risk = phase && (details.qualityRisk?.eligible === true || details.riskEligible === true)
+      ? step('accept-quality-risk', `An approver of ${phase} may accept the remaining coverage gap for this pilot step, with an expiry; tests, review and integrity stay enforced.`,
+        `singularity-flow appeal risk-prepare --phase ${phase} --gate-mode soft --expires <YYYY-MM-DD> --reason <why> --json`, 'remediation', '/sf-appeal')
+      : null;
+    const inspect = typeof details.diagnosticCommand === 'string'
+      ? step('inspect-coverage', 'Inspect the exact source and test obligations still open.', details.diagnosticCommand, 'diagnostic', '/sf-recover') : null;
+    return [list, author, risk, inspect].filter(Boolean);
+  },
   // A folder of several agents is a workflow: team import builds one from the same reading of its
   // files and links. Adding one of its agents alone stays possible with --main.
   USER_AGENT_FOLDER_IS_WORKFLOW: (argv, error) => {

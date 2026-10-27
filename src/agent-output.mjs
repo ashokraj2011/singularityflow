@@ -214,6 +214,19 @@ export function agentAct(result) {
     if (result.status === 'ready' && result.commands?.publish) return withRoute({ state: 'publish', do: null, read: ['scopeReview'],
       said: 'Ready: publish once with the returned command; it runs the required tests.' },
       { command: result.commands.publish, ...(result.commandGuidance?.publish ? { commandGuidance: result.commandGuidance.publish } : {}), reason: 'Publish this draft.' });
+    const next = result.commands?.next ? { command: result.commands.next, ...(result.commandGuidance?.next ? { commandGuidance: result.commandGuidance.next } : {}),
+      ...(result.correction?.skill ? { skill: result.correction.skill } : {}) } : null;
+    // Already published: nothing to fix or publish; its next step (submission) is the route.
+    if (result.status === 'ready' && next) return withRoute({ state: 'next', do: null, read: ['submissionReadiness', 'finalGate', 'warnings'],
+      said: 'Already published and ready: take the returned next step; do not recheck or edit the draft.' }, { ...next, reason: 'Take the next step.' });
+    // A finding this author cannot fix in this turn: a person decides, or recovery comes first. Its route
+    // is the way through; editing the draft again would recheck the same refusal (office, 2026-10-27).
+    if (result.correction && result.correction.sameTurn !== true && ['human-input', 'phase-recovery'].includes(result.correction.class) && next) {
+      const decide = result.correction.class === 'human-input' || result.correction.skill === '/sf-decide';
+      return withRoute({ state: decide ? 'ask-person' : 'next', do: null, read: ['findings', 'correction', 'resolution'],
+        said: oneLine(`${result.correction.guidance ?? 'Take the returned route first.'} ${decide ? 'Tell the person; never decide or record it for them.' : ''}`),
+        ...correctionList(result.findings) }, { ...next, reason: oneLine(result.correction.guidance ?? '') });
+    }
     const count = Array.isArray(result.findings) ? result.findings.length : null;
     return { state: 'correct', do: null, read: ['findings', 'correction', 'traceabilityRepair', 'repairLoop'],
       said: oneLine(`${result.status}${count == null ? '' : ` with ${count} finding${count === 1 ? '' : 's'}`}: ${result.correction?.guidance ?? 'fix the listed findings in this draft, then recheck once.'}`),

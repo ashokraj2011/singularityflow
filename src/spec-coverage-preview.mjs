@@ -16,7 +16,24 @@ import {
 } from './specifications.mjs';
 import { isConfigurationPath } from './configuration-paths.mjs';
 import { workDir } from './story-paths.mjs';
+import { issueNamesClause, OPEN_UPSTREAM_ISSUE_STATUSES, upstreamIssueStates } from './upstream-routes.mjs';
 import { posix, SingularityFlowError } from './util.mjs';
+
+/**
+ * The open upstream issues that name a clause still without delivery, and whether they name all of
+ * them. A clause an open issue names waits on that issue's decision by the earlier step's approvers,
+ * never on this step's code (office, 2026-10-27: UPI-001 against planning named the clause, and every
+ * route still sent the coder back to /sf-code).
+ */
+export function upstreamDecisionFor(workflow, clauseIds) {
+  const issues = upstreamIssueStates(workflow).filter((state) => OPEN_UPSTREAM_ISSUE_STATUSES.includes(state.status))
+    .map(({ issue }) => ({ id: issue.id, phase: issue.phase,
+      clauses: clauseIds.filter((clauseId) => issueNamesClause(`${issue.about ?? ''} ${issue.problem ?? ''}`, clauseId)) }))
+    .filter((entry) => entry.clauses.length);
+  if (!issues.length) return null;
+  const waiting = new Set(issues.flatMap((entry) => entry.clauses));
+  return { issues, complete: clauseIds.length > 0 && clauseIds.every((clauseId) => waiting.has(clauseId)) };
+}
 
 /** Check the actual editable candidate, before tests, publication or submission consume it. */
 export async function assertCandidateSpecificationCoverage(root, config, workflow, phase, delivery) {
@@ -79,11 +96,19 @@ export async function assertStrictCandidateSpecificationCoverage(root, config, w
   if ((open.length || (final && coverage.invalidEvidence.length)) && enforcement !== 'enforce') {
     return { ...coverage, advisory: [`Planned delivery is incomplete: ${gapText || coverage.invalidEvidence.join('; ')}. This Story's ending refuses an unimplemented clause; deliver it in this step or a later one.`] };
   }
+  const upstreamDecision = upstreamDecisionFor(workflow, open);
+  const waitingText = upstreamDecision ? ` ${upstreamDecision.issues.map((entry) => `${entry.id} (raised against ${entry.phase}) names ${entry.clauses.join(', ')}`).join('; ')}: `
+    + `${upstreamDecision.complete ? 'every clause listed here waits' : 'those clauses wait only'} on that decision by ${[...new Set(upstreamDecision.issues.map((entry) => entry.phase))].join(' and ')}'s approvers, not on this step's code`
+    + `${upstreamDecision.complete ? '; they decide it in the decision list (singularity-flow decisions ' + workflow.workItem.id + ').' : '; deliver the others.'}` : '';
   if (open.length || (final && coverage.invalidEvidence.length)) throw new SingularityFlowError(
-    `Phase '${phase.id}' has incomplete planned delivery before publication: ${gapText || coverage.invalidEvidence.join('; ')}. `
+    `Phase '${phase.id}' has incomplete planned delivery before publication: ${gapText || coverage.invalidEvidence.join('; ')}.${waitingText} `
     + 'Inspect these exact source/test obligations while this generation is editable. Add a binding only where the approved behavior is actually implemented; an incorrect location needs a reviewed plan correction. Preserve application code and approved maps. A screenshot is fulfillment evidence, not an executable test or an automatic visual pass.',
     { code: 'SPEC_COVERAGE_INCOMPLETE', details: { workId: workflow.workItem.id, phase: phase.id,
-      coverage, claimGaps, planningOwner: owner, diagnosticCommand: `singularity-flow recover ${workflow.workItem.id} --phase ${phase.id} --json` } });
+      coverage, claimGaps, planningOwner: owner, diagnosticCommand: `singularity-flow recover ${workflow.workItem.id} --phase ${phase.id} --json`,
+      ...(upstreamDecision ? { upstreamDecision } : {}),
+      // Every gap waits on a person's decision: the decision list is the way through, for every surface.
+      ...(upstreamDecision?.complete ? { nextAction: { command: `singularity-flow decisions ${workflow.workItem.id} --json`, skill: '/sf-decide',
+        label: `${[...new Set(upstreamDecision.issues.map((entry) => entry.phase))].join(' and ')}'s approvers decide ${upstreamDecision.issues.map((entry) => entry.id).join(', ')} (return, plan correction, accepted risk or dismissal) in the decision list.` } } : {}) } });
   return coverage;
 }
 

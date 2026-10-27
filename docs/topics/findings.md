@@ -14,7 +14,7 @@ related:
   - recovery
   - phase-appeals
   - escalation
-version: 12
+version: 13
 ---
 A finding is one exact reason a step cannot publish, submit or finish. Every finding has an owner and a recovery route: the step's own author fixes its draft, an earlier step's approvers decide an upstream issue, a person records a decision, or an owner restores trusted bytes. Each refusal names its finding code; read its entry here with `sflow explain findings --section <CODE>` (the code is matched without regard to case). No finding routes only back to its own author: each names at least one route for someone else, its approvers, an earlier step, an owner, or, when nothing more specific exists, the workflow maintainer. Nothing in this catalog waives a test, approves a step or accepts a risk by itself.
 
@@ -51,6 +51,10 @@ A document-quality shortfall, such as a placeholder left in, a required section 
 ### upstream-defect
 
 An honest check found that an earlier step's delivery is incomplete. Do not edit the verdict or the earlier step. Raise an upstream issue with `sflow upstream-issue raise --phase <EARLIER-STEP> --about <CLAUSE> --problem <TEXT>`; that step's approvers decide it (return, amendment, plan correction or accepted risk).
+
+### upstream-decision
+
+A code step's planned delivery is incomplete, and every clause still missing is named by an open upstream issue raised against an earlier step. More code from this step cannot clear it. The earlier step's approvers decide the issue in the decision list (`sflow decisions <WORK-ID>`, or `/sf-decide`): a return, a plan correction, an accepted risk or a dismissal. Copilot tells the person and never decides or records it for them. A clause no issue names stays this step's to deliver.
 
 ### integrity-or-authority
 

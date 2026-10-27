@@ -563,6 +563,17 @@ export async function inspectPhaseRecovery(root, config, workflow, phase, {
             } : {})
           }
         });
+        // Every clause still without delivery is named by an open upstream issue: the way through is
+        // that issue's decision by the earlier step's approvers, never more code from this step.
+        const upstreamDecision = error.code === 'SPEC_COVERAGE_INCOMPLETE' ? error.details?.upstreamDecision : null;
+        if (upstreamDecision?.complete) {
+          actions.push(action({
+            id: `decide-upstream-issue:${phase.id}`, mode: 'manual',
+            detail: `${error.details.nextAction?.label ?? 'The earlier step\'s approvers decide the open upstream issue.'} The clauses without delivery wait on it, not on ${phase.id}'s code; nothing more is written here until it is decided.`,
+            command: error.details.nextAction?.command ?? `singularity-flow decisions ${workflow.workItem.id} --json`, skill: '/sf-decide'
+          }));
+          continue;
+        }
         actions.push(action({
           id: missingRepositoryRunner
             ? `repair-repository-test-runner:${phase.id}`

@@ -300,6 +300,29 @@ test('editable candidate coverage catches incomplete delivery without consuming 
   workflow.phases.implementation.claimMaps.observed = retained;
 });
 
+test('a clause an open upstream issue names waits on that decision, never on more code from this step', async () => {
+  const { root, config, workflow } = await fixture();
+  workflow.resolution.codeDelivery = { traceability: { sourceBindings: 'enforce' } };
+  const candidate = (paths) => ({ sourcePaths: paths, testPaths: [], fulfillment: [],
+    sourceBindings: { bindings: paths.map((sourcePath, index) => ({ sourcePath, clauseId: `COVER-1:REQ-00${index + 1}` })) },
+    changeSet: { entries: paths.map((newPath) => ({ newPath })) } });
+  // The office case: the coder raised UPI-001 against the plan for REQ-002, and only REQ-002 is open.
+  workflow.upstreamIssues = [{ id: 'UPI-001', phase: 'planning', about: 'COVER-1:REQ-002', problem: 'The plan places REQ-002 in a module this change cannot reach.' }];
+  const refused = await assertCandidateSpecificationCoverage(root, config, workflow, workflow.phases.implementation, candidate(['src/first.mjs'])).catch((error) => error);
+  assert.equal(refused.code, 'SPEC_COVERAGE_INCOMPLETE');
+  assert.deepEqual(refused.details.upstreamDecision, { issues: [{ id: 'UPI-001', phase: 'planning', clauses: ['COVER-1:REQ-002'] }], complete: true });
+  assert.equal(refused.details.nextAction.command, 'singularity-flow decisions COVER-1 --json');
+  assert.match(refused.message, /UPI-001 \(raised against planning\) names COVER-1:REQ-002: every clause listed here waits on that decision by planning's approvers, not on this step's code/u);
+  // REQ-001 is the coder's own; only the clause the issue names waits.
+  const partial = await assertCandidateSpecificationCoverage(root, config, workflow, workflow.phases.implementation, candidate([])).catch((error) => error);
+  assert.equal(partial.details.upstreamDecision.complete, false);
+  assert.equal(partial.details.nextAction, undefined, 'the coder still delivers the other clause first');
+  assert.match(partial.message, /those clauses wait only on that decision[^;]*; deliver the others/u);
+  // A decided issue no longer holds the clause.
+  workflow.upstreamIssueDecisions = [{ issue: 'UPI-001', outcome: 'dismiss' }];
+  assert.equal((await assertCandidateSpecificationCoverage(root, config, workflow, workflow.phases.implementation, candidate(['src/first.mjs'])).catch((error) => error)).details.upstreamDecision, undefined);
+});
+
 test('live pilot acceptance commits only decision metadata and keeps its human event identity',
   { skip: process.platform === 'win32' || !existsSync('/usr/bin/expect') }, async () => {
     const f = await fixture(); const phase = f.workflow.phases.implementation;

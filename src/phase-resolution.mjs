@@ -173,6 +173,13 @@ export function phaseResolutionChoices(workflow, phase, finding) {
   } else if (/dirty|worktree|working.tree|staged|index.conflict/u.test(code) || category === 'worktree') {
     resolution = route('worktree-review', 'human-reviewer', ['recover', workId, '--phase', phase.id, '--json'],
       'Review exact current bytes. Recovery can offer a hash-confirmed scoped commit and revalidation; unrelated edits and the index are preserved. Published work needs an authorized successor.');
+  } else if (code === 'spec_coverage_incomplete' && finding.details?.upstreamDecision?.complete === true) {
+    // Every clause still without delivery waits on an open upstream issue: its step's approvers decide.
+    const decision = finding.details.upstreamDecision;
+    resolution = route('upstream-decision', `${[...new Set(decision.issues.map((entry) => entry.phase))].join('+')}-approval-authority`,
+      ['decisions', workId, '--json'],
+      `${decision.issues.map((entry) => `${entry.id} (raised against ${entry.phase}) names ${entry.clauses.join(', ')}`).join('; ')}. Its approvers decide it in the decision list: return, plan correction, accepted risk or dismissal. More code from ${phase.id} cannot clear it.`,
+      '/sf-decide');
   } else if (code === 'spec_coverage_incomplete' && finding.details?.coverage?.unclaimedChangedPaths?.length) {
     // A scope appeal needs the current open code generation (preparePhaseAppeal's own checks);
     // anywhere else the plan's approvers account for the path with a plan decision instead of a

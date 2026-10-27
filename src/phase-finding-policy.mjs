@@ -48,6 +48,10 @@ export function phaseFindingPolicy(finding) {
     classification = 'current-phase-preparation'; repair = 'prepare-current-generation';
   } else if (/dirty|worktree|working.tree|staged|index.conflict/iu.test(code) || category === 'worktree') {
     classification = 'worktree-review'; repair = 'review-and-scoped-commit';
+  } else if (code === 'SPEC_COVERAGE_INCOMPLETE' && finding.details?.upstreamDecision?.complete === true) {
+    // Every clause still without delivery is named by an open upstream issue: the earlier step's
+    // approvers decide it. More code cannot clear it, so it is never the producer's repair.
+    classification = 'upstream-decision'; repair = 'decide-upstream-issue';
   } else if (code === 'SPEC_COVERAGE_INCOMPLETE') {
     classification = 'quality';
     const coverage = finding.details?.coverage;

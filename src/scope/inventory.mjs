@@ -14,9 +14,12 @@
  *   statement repeated verbatim in another source, by the inventory itself);
  * - unresolved: nobody has said yet. An unresolved item blocks completion.
  *
- * A source the extractor cannot read is listed as unreadable: it can never count as reviewed until
- * a person records a decision for it. Pure apart from reading the Story's files; never throws for a
- * source problem, which it reports instead.
+ * A source the extractor cannot read is listed as unreadable. An attached document among them (an
+ * image, a file kept only on one machine, a link) is not a decision of its own: a clause that cites
+ * it by ID covers it, and otherwise it is background, reviewed with the specification that cites or
+ * omits it. It used to wait as an open decision nobody was asked, and blocked the Story's last step
+ * (ws-graph, 2026-10-27). Pure apart from reading the Story's files; never throws for a source
+ * problem, which it reports instead.
  */
 import { createHash } from 'node:crypto';
 import { readdir, readFile } from 'node:fs/promises';
@@ -105,6 +108,18 @@ function matchingClauses(text, clauses, itemId) {
   }).map((clause) => clause.id).sort();
 }
 
+const ATTACHMENT_WORDS = Object.freeze({
+  'machine-local-storage': 'kept on one machine', 'external-reference': 'a link', 'no-text-layer': 'no text to read',
+  'too-large-to-cite': 'too large to cite', 'empty-text': 'empty'
+});
+
+/** The clauses that cite a document by its ID, as text or as a `[scope:DOC-…]` reference. */
+function citingClauses(documentId, clauses) {
+  const named = new RegExp(`(?<![A-Za-z0-9-])${documentId.replace(/[.*+?^${}()|[\]\\]/gu, '\\$&')}(?![A-Za-z0-9-])`, 'u');
+  return clauses.filter((clause) => named.test(clause.body ?? '') || clauseScopeItems(clause.body ?? '').includes(documentId))
+    .map((clause) => clause.id).sort();
+}
+
 /** The latest decision a person recorded for each item or source, kept only while its statement is unchanged. */
 function decisionsByItem(workflow) {
   const decided = new Map();
@@ -135,11 +150,17 @@ export async function buildScopeInventory(root, directory, workflow, { source, c
     if (!entry.readable) {
       const decision = decided.get(entry.id);
       const current = decisionIsCurrent(decision, entry.sha256, knownClauses);
+      // A person's decision wins; a stale one (its clauses gone) stays for that person to make again,
+      // and a file the record names but nobody can find stays open.
+      const attachment = entry.kind === 'document' && entry.reason !== 'missing' && !decision;
+      const citing = attachment ? citingClauses(entry.id, clauses) : [];
       items.push({
         id: entry.id, kind: 'source', sourceId: entry.id, line: null,
-        text: `${entry.name ?? entry.id} could not be read (${entry.reason})`, statementSha256: entry.sha256 ?? null,
-        disposition: current ? decision.disposition : 'unresolved',
-        clauseIds: current ? decision.clauseIds ?? [] : [], decision: current ? decision : null,
+        text: attachment ? `${entry.name ?? entry.id} is attached (${ATTACHMENT_WORDS[entry.reason] ?? 'no text to read'})`
+          : `${entry.name ?? entry.id} could not be read (${entry.reason})`, statementSha256: entry.sha256 ?? null,
+        disposition: current ? decision.disposition : attachment ? (citing.length ? 'included' : 'informative') : 'unresolved',
+        clauseIds: current ? decision.clauseIds ?? [] : citing, decision: current ? decision : null,
+        ...(attachment ? { coveredBy: citing.length ? 'clause-citation' : 'attached-document' } : {}),
         ...(decision && !current ? { staleDecision: true } : {}), reason: entry.reason
       });
       continue;

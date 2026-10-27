@@ -99,7 +99,9 @@ test('the inventory lists every statement and source, includes what a clause sta
   assert.equal(byText('The API must stay stable.').disposition, 'unresolved');
   const headers = inventory.items.filter((item) => normalizeStatement(item.text) === 'the export must include headers');
   assert.deepEqual(headers.map((item) => item.disposition), ['unresolved', 'duplicate'], 'a statement repeated verbatim in another source is a duplicate');
-  assert.equal(inventory.items.find((item) => item.id === 'DOC-002').disposition, 'unresolved');
+  // An attached document SFlow cannot read is not a decision of its own: uncited, it is background.
+  const link = inventory.items.find((item) => item.id === 'DOC-002');
+  assert.deepEqual([link.disposition, link.coveredBy, link.text], ['informative', 'attached-document', 'Design is attached (a link)']);
   assert.equal(inventory.structurallyComplete, false);
 
   const graph = evidenceGraph({ workflow: workflow(), records: { indexes: [] }, scope: inventory });
@@ -159,6 +161,23 @@ test('short or paraphrased scope uses exact substantive clause links, not substr
     'a changed source needs its own exact reference');
   const otherSource = scopeItemId('DOC-001', 'test cases');
   assert.equal((await disposition(`${clause.body} [scope:${otherSource}]`)).disposition, 'unresolved', 'references are source-specific');
+});
+
+// ws-graph (2026-10-27): a screenshot kept on one laptop waited as an open decision nobody was asked,
+// and refused the Story's last step although the specification cited it under AC-001.
+test('an attached document a clause cites is included under it; a person\'s decision still wins', async t => {
+  const { root, directory } = await storyDirectory(t);
+  const source = { description: 'Plot a graph like the attached screenshot.' };
+  const clauses = [{ id: 'W-1:AC-001', body: 'A screenshot shows the equation area and plotted circle guided by DOC-002.' },
+    { id: 'W-1:REQ-001', body: 'The grid is labeled [scope:DOC-002].' }, { id: 'W-1:REQ-002', body: 'Not DOC-0020 or XDOC-002.' }];
+  const story = workflow();
+  const cited = (await buildScopeInventory(root, directory, story, { source, clauses })).items.find((item) => item.id === 'DOC-002');
+  assert.deepEqual([cited.disposition, cited.clauseIds, cited.coveredBy], ['included', ['W-1:AC-001', 'W-1:REQ-001'], 'clause-citation']);
+  const inventory = await buildScopeInventory(root, directory, story, { source, clauses });
+  recordScopeDecision(story, { item: 'DOC-002', disposition: 'excluded', inventory, knownClauseIds: clauses.map((clause) => clause.id),
+    reason: 'The reference design is out of scope for this Story.', actor: 'reviewer@example.invalid', authorityGroup: 'product-approvers', at: '2026-10-27T10:00:00Z' });
+  const decided = (await buildScopeInventory(root, directory, story, { source, clauses })).items.find((item) => item.id === 'DOC-002');
+  assert.deepEqual([decided.disposition, decided.coveredBy], ['excluded', undefined], 'the recorded decision, not the citation');
 });
 
 test('included human choices carry while source and linked clauses exist; removed links are not silently accepted', async t => {

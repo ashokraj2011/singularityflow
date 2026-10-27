@@ -1094,7 +1094,7 @@ export async function createWorkflow(root, config, {
     }
   }
   for (const phase of resolution.phases) {
-    assertApprovalPolicyAttainable(pinnedApprovalAuthorities, phase.approval, phase.id);
+    assertApprovalPolicyAttainable(pinnedApprovalAuthorities, phase.approval, phase.id, { creator });
   }
   snapshotState.configurationSource = await readConfigurationSource(root, { verify: true });
   // The registered World Model was removed; every Story pins its grounding off.

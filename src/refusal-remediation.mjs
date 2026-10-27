@@ -550,6 +550,21 @@ function approvalIdentitySteps(_argv, error) {
       null, 'remediation'),
     ask
   ];
+  // Nobody else is pinned for this Story and the step forbids self-approval: no one can approve it
+  // here, and asking "another member" named nobody. Say so, and name the way to a Story that can finish.
+  if (error?.code === 'APPROVAL_SELF_APPROVAL_PROHIBITED' && !details.anyIdentity
+      && Array.isArray(details.eligibleApprovers) && !details.eligibleApprovers.length) {
+    const workId = typeof details.workId === 'string' ? details.workId : null;
+    const group = (Array.isArray(details.authorities) ? details.authorities : []).map(lowerKebab).filter(Boolean)[0] ?? null;
+    return [
+      step('no-other-approver', `Nobody else is listed in ${deciders} for this Story, and ${phase ?? 'this step'} forbids self-approval, so it cannot be approved in this Story; its approval groups were fixed when it started. Have another person added to ${deciders}, or self-approval allowed, then do the work again in a new Story.`,
+        null, 'remediation'),
+      group ? step('allow-self-approval', `Propose allowing self-approval for ${group}: a configuration change its reviewers approve. It applies to Stories started after it is activated.`,
+        `singularity-flow configuration add-current-identity --target story:${group} --self-approval on --json`, 'remediation') : null,
+      workId ? step('cancel-story', `Then cancel this Story, with why; its work stays on its branch.`,
+        `singularity-flow cancel ${workId} --reason <REASON> --confirm ${workId}`, 'remediation') : null
+    ].filter(Boolean);
+  }
   if (error?.code === 'APPROVAL_SELF_APPROVAL_PROHIBITED') return [
     step('ask-other-approver',
       `Policy does not let the author of this generation approve ${phase ?? 'it'}. Ask another member of ${deciders} to approve it from their own checkout. ${NOTHING_TO_REJECT}`,
@@ -663,6 +678,20 @@ function localSyncSteps(argv, error) {
 }
 
 const KNOWN = Object.freeze({
+  // Refused at Story start: a step nobody could approve. Its fix is in the approved configuration.
+  APPROVAL_POLICY_UNATTAINABLE: (argv, error) => {
+    const details = error?.details ?? {};
+    const groups = (Array.isArray(details.authorities) ? details.authorities : []).map(lowerKebab).filter(Boolean);
+    const group = groups[0] ?? null;
+    return [
+      step('add-approver', `Add ${details.selfApprovalExcluded ? 'another person' : 'enough reviewers'} to ${groups.join(', ') || 'the step\'s approval groups'} in the approved configuration (Workflow Studio: People & approvals), then start the Story again.`,
+        null, 'remediation'),
+      group ? step(details.selfApprovalExcluded ? 'allow-self-approval' : 'add-current-identity',
+        details.selfApprovalExcluded ? `Or propose allowing self-approval for ${group}: a configuration change its reviewers approve.`
+          : `Or propose adding yourself to ${group}: a configuration change its reviewers approve.`,
+        `singularity-flow configuration add-current-identity --target story:${group}${details.selfApprovalExcluded ? ' --self-approval on' : ''} --json`, 'remediation') : null
+    ].filter(Boolean);
+  },
   // Planned delivery incomplete at publication. The generic recovery led back to /sf-code even when
   // the gap waits on an earlier step's decision (office, 2026-10-27): every clause an open upstream
   // issue names goes to the decision list; the author's recheck, a pilot risk the step's approvers

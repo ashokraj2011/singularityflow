@@ -11,7 +11,9 @@
  * with who pinned it, through which approval group and why, in one Story commit.
  *
  * The origin is a security boundary, so this only fills one the Story lacks: a pinned origin is never
- * replaced or widened, and a pin that would make already recorded browser evidence invalid is refused.
+ * widened, and is replaced only when it is this machine's own loopback address on another port (the
+ * application started on a free port, office audit 2026-10-27), never another host; a pin that would
+ * make already recorded browser evidence invalid is refused.
  * The person confirming must be in a group that approves one of those steps, and the Copilot guard
  * refuses the confirmation in every turn, like approve: an agent may preview it, never pin it.
  */
@@ -44,9 +46,21 @@ function withPins(workflow, servers, record) {
   } };
 }
 
+const LOOPBACK_HOSTS = new Set(['localhost', '127.0.0.1', '[::1]']);
+
+/** Whether `next` is `pinned` with only the port changed, both on this machine's loopback address. */
+export function loopbackPortChange(pinned, next) {
+  try {
+    const before = new URL(pinned); const after = new URL(next);
+    return before.protocol === after.protocol && before.hostname === after.hostname && LOOPBACK_HOSTS.has(before.hostname)
+      && before.port !== after.port;
+  } catch { return false; }
+}
+
 /**
  * What pinning `url` to this Story would record, and the digest a person confirms it by. Refuses a
- * Story with no step that needs an origin, and any server already authorized for another origin.
+ * Story with no step that needs an origin, and any server already authorized for another origin,
+ * unless that origin is the same loopback address on another port, which the pin then replaces.
  */
 export function targetOriginPlan(workflow, url, { revision }) {
   const id = workflow.workItem.id;
@@ -58,19 +72,23 @@ export function targetOriginPlan(workflow, url, { revision }) {
   }
   const servers = [...new Set(steps.flatMap((step) => step.servers))];
   const pinned = Object.fromEntries(servers.map((server) => [server, authorizedMcpOrigins(workflow, server)]));
-  const other = servers.find((server) => pinned[server].length && !pinned[server].includes(origin));
+  const other = servers.find((server) => pinned[server].length && !pinned[server].includes(origin)
+    && !pinned[server].every((existing) => loopbackPortChange(existing, origin)));
   if (other) {
     throw new SingularityFlowError(
-      `Story ${id} already authorizes ${pinned[other].join(', ')} for MCP server '${other}'. A pinned origin is never replaced or widened; start a new Story with --target-url to test a different target.`,
+      `Story ${id} already authorizes ${pinned[other].join(', ')} for MCP server '${other}'. A pinned origin is never widened, and is replaced only by the same loopback address on another port; start a new Story with --target-url to test a different target.`,
       { code: 'STORY_TARGET_ORIGIN_ALREADY_PINNED' });
   }
-  const missing = servers.filter((server) => !pinned[server].length);
+  const replaces = Object.fromEntries(servers.filter((server) => pinned[server].length && !pinned[server].includes(origin))
+    .map((server) => [server, pinned[server]]));
+  const missing = servers.filter((server) => !pinned[server].includes(origin));
   if (!missing.length) {
     throw new SingularityFlowError(`Story ${id} already authorizes ${origin} for ${servers.join(', ')}; there is nothing to pin.`,
       { code: 'STORY_TARGET_ORIGIN_ALREADY_PINNED' });
   }
   const authorities = [...new Set(steps.flatMap((step) => testRunRiskAuthorities(workflow, step.phase)))].sort();
-  const plan = { workId: id, origin, servers: missing, steps: steps.map((step) => step.phase), authorities, revision };
+  const plan = { workId: id, origin, servers: missing, steps: steps.map((step) => step.phase), authorities, revision,
+    ...(Object.keys(replaces).length ? { replaces } : {}) };
   return { ...plan, planSha256: `sha256:${recordSha256(plan)}` };
 }
 
@@ -112,7 +130,8 @@ export async function storyTargetOriginCommand(positionals, options) {
   if (!confirm) {
     const conflicts = await evidenceConflicts(root, config, workflow, plan.servers, { origins: [plan.origin] });
     if (!json) {
-      console.log(`Preview: pin ${plan.origin} to Story ${id} for MCP server ${plan.servers.join(', ')}, which ${plan.steps.join(', ')} smoke-checks.`);
+      console.log(`Preview: pin ${plan.origin} to Story ${id} for MCP server ${plan.servers.join(', ')}, which ${plan.steps.join(', ')} smoke-checks.`
+        + (plan.replaces ? ` It replaces ${[...new Set(Object.values(plan.replaces).flat())].join(', ')}, the same address on another port.` : ''));
       console.log(plan.authorities.length
         ? `Who confirms it: a person in ${plan.authorities.join(' or ')}, in their own terminal. Plan: ${plan.planSha256}`
         : 'Nobody can confirm it: no step that needs it, nor any later step, has an approval group.');
@@ -179,7 +198,8 @@ export async function storyTargetOriginCommand(positionals, options) {
       aggregate.mcpAuthorizations = withPins(aggregate, plan.servers, record).mcpAuthorizations;
       aggregate.history.push({
         at, actor: record.pinnedBy, agent, event: 'mcp_target_origin_pinned', phase: aggregate.currentPhase ?? null,
-        detail: `${plan.origin} authorized for ${plan.servers.join(', ')} (${plan.steps.join(', ')}), pinned through ${record.authorityGroup}. ${reason}`
+        detail: `${plan.origin} authorized for ${plan.servers.join(', ')} (${plan.steps.join(', ')}), pinned through ${record.authorityGroup}`
+          + `${plan.replaces ? `, replacing ${[...new Set(Object.values(plan.replaces).flat())].join(', ')}` : ''}. ${reason}`
       });
       return record;
     },

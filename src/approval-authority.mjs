@@ -290,9 +290,34 @@ export function approvalPolicyCapacity(authorities, policy) {
   };
 }
 
-export function assertApprovalPolicyAttainable(authorities, policy, phaseId) {
-  const capacity = approvalPolicyCapacity(authorities, policy);
+/** `authorities` without the members `actor` is (by email or GitHub login): who could approve someone else's work. */
+export function withoutApprovalIdentity(authorities, actor) {
+  const email = normalizedEmail(actor?.email);
+  const login = normalizedLogin(actor?.login ?? actor?.githubLogin);
+  const registry = normalizeApprovalAuthorities(authorities);
+  return Object.fromEntries(Object.entries(registry).map(([id, authority]) => [id, { ...authority,
+    members: (authority.members ?? []).filter((member) => !(email && normalizedEmail(member.email) === email)
+      && !(login && normalizedLogin(member.githubLogin ?? member.login) === login)) }]));
+}
+
+/**
+ * Refuse a step nobody could ever approve. `creator` is who starts the Story and publishes its steps:
+ * where the step forbids self-approval they cannot approve it, so they do not count (the workflow
+ * simulation already counted it this way). A lone author used to start, write and submit, and only
+ * then learn nobody could approve, with approval groups pinned for the life of the Story.
+ */
+export function assertApprovalPolicyAttainable(authorities, policy, phaseId, { creator = null } = {}) {
+  const independent = policy?.allowSelfApproval === false && (creator?.email || creator?.login || creator?.githubLogin);
+  const capacity = approvalPolicyCapacity(independent ? withoutApprovalIdentity(authorities, creator) : authorities, policy);
   if (capacity.attainable) return capacity;
+  if (independent && approvalPolicyCapacity(authorities, policy).attainable) {
+    const who = normalizedEmail(creator.email) || normalizedLogin(creator.login ?? creator.githubLogin);
+    const groups = (policy?.authorities ?? []).join(', ') || 'its approval groups';
+    throw new SingularityFlowError(
+      `Phase '${phaseId}' forbids self-approval, and ${who}, who starts this Story and publishes its steps, is the only identity ${groups} lists, so nobody could approve it. Add another person to ${groups}, or allow self-approval for it, before starting the Story.`,
+      { code: 'APPROVAL_POLICY_UNATTAINABLE', details: { phase: phaseId, ...capacity, selfApprovalExcluded: true, authorities: policy?.authorities ?? [] } }
+    );
+  }
   const reasons = [
     ...(!capacity.unbounded && capacity.eligibleIdentities < capacity.minimum
       ? [`requires ${capacity.minimum} distinct approval identities but only ${capacity.eligibleIdentities} are pinned`]
@@ -303,7 +328,7 @@ export function assertApprovalPolicyAttainable(authorities, policy, phaseId) {
   ];
   throw new SingularityFlowError(
     `Phase '${phaseId}' approval policy cannot complete: ${reasons.join('; ')}. Add reviewers to the approved configuration before starting the Story.`,
-    { code: 'APPROVAL_POLICY_UNATTAINABLE', details: { phase: phaseId, ...capacity } }
+    { code: 'APPROVAL_POLICY_UNATTAINABLE', details: { phase: phaseId, ...capacity, authorities: policy?.authorities ?? [] } }
   );
 }
 
@@ -357,13 +382,15 @@ export function eligibleApprovers(authorities, policy, { exclude = [], limit = 1
   try { registry = normalizeApprovalAuthorities(authorities); } catch { return { authorities: groups, eligibleApprovers: [] }; }
   const skip = new Set((Array.isArray(exclude) ? exclude : [exclude]).map(normalizedEmail).filter(Boolean));
   const members = new Set();
+  // A group that admits any Git identity has no list to name, yet anyone in it may decide.
+  const unbounded = groups.some((id) => Object.hasOwn(registry, id) && registry[id].allowAnyGitIdentity === true);
   for (const id of groups) {
     for (const member of Object.hasOwn(registry, id) ? registry[id].members : []) {
       if ((member.email && skip.has(member.email)) || (member.githubLogin && skip.has(member.githubLogin))) continue;
       members.add(member.email || `github:${member.githubLogin}`);
     }
   }
-  return { authorities: groups, eligibleApprovers: [...members].slice(0, limit) };
+  return { authorities: groups, eligibleApprovers: [...members].slice(0, limit), ...(unbounded ? { anyIdentity: true } : {}) };
 }
 
 export function requireApprovalAuthority(authorities, policy, actor, options = {}) {

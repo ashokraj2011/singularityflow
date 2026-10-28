@@ -2,8 +2,8 @@
   "format": 1,
   "measurement": "Repository-local static ESM closure; dynamic first-use imports excluded. Runtime source/bundle parity is tested separately.",
   "source": [
-    { "entry": "src/commands/start.mjs", "maximumModules": 456,
-      "note": "Includes the shared import-free requirement coverage rubric; no additional Git, model or legacy-dispatch dependency. 444: the source-review batching split three helpers out of loaded modules and added its snapshot cache. 454: 1078bf60 split publication writers out of state.mjs into ten modules (+17 KB eager source). 456: main 1d40e1de already loaded 455 without a recorded raise; agent-output-folder.mjs, the leaf that keeps agent results in the checkout's Git-excluded .sflow/out, makes 456.",
+    { "entry": "src/commands/start.mjs", "maximumModules": 457,
+      "note": "Includes the shared import-free requirement coverage rubric; no additional Git, model or legacy-dispatch dependency. 444: the source-review batching split three helpers out of loaded modules and added its snapshot cache. 454: 1078bf60 split publication writers out of state.mjs into ten modules (+17 KB eager source). 456: main 1d40e1de already loaded 455 without a recorded raise; agent-output-folder.mjs, the leaf that keeps agent results in the checkout's Git-excluded .sflow/out, makes 456. 457: fddafbe0 added approval-fallback.mjs, the leaf that names the nearest step with approvers when the owning step has none (no Git, model or dispatch import).",
       "forbidden": ["src/cli.mjs", "src/commands/legacy.mjs", "src/worldmodel.mjs", "src/model-runner.mjs", "src/editor.mjs"] },
     { "entry": "src/commands/workspace.mjs", "maximumModules": 27 },
     { "entry": "src/commands/capability.mjs", "maximumModules": 12 },

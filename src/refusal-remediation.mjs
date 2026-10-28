@@ -571,6 +571,21 @@ function approvalIdentitySteps(_argv, error) {
         `singularity-flow cancel ${workId} --reason <REASON> --confirm ${workId}`, 'remediation') : null
     ].filter(Boolean);
   }
+  // Nobody at all is pinned in the group (empty from the start, or its only member left): "ask a
+  // member" named nobody, and a running Story's groups cannot change (2026-10-28).
+  if (error?.code === 'APPROVAL_IDENTITY_NOT_AUTHORIZED' && !details.anyIdentity
+      && Array.isArray(details.eligibleApprovers) && !details.eligibleApprovers.length) {
+    const workId = typeof details.workId === 'string' ? details.workId : null;
+    const group = (Array.isArray(details.authorities) ? details.authorities : []).map(lowerKebab).filter(Boolean)[0] ?? null;
+    return [
+      step('no-approver-listed', `Nobody is listed in ${deciders} for this Story, so ${phase ?? 'this step'} cannot be approved in it; its approval groups were fixed when it started. Have people added to ${deciders} through the configuration, then do the work again in a new Story.`,
+        null, 'remediation'),
+      group ? step('propose-joining-group', `If you should decide it, propose adding yourself to ${group}: a configuration change its reviewers approve. It applies to Stories started after it is activated.`,
+        `singularity-flow configuration add-current-identity --target story:${group} --json`, 'remediation') : null,
+      workId ? step('cancel-story', `Then cancel this Story, with why; its work stays on its branch.`,
+        `singularity-flow cancel ${workId} --reason <REASON> --confirm ${workId}`, 'remediation') : null
+    ].filter(Boolean);
+  }
   if (error?.code === 'APPROVAL_SELF_APPROVAL_PROHIBITED') return [
     step('ask-other-approver',
       `Policy does not let the author of this generation approve ${phase ?? 'it'}. Ask another member of ${deciders} to approve it from their own checkout. ${NOTHING_TO_REJECT}`,

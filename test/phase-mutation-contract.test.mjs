@@ -813,13 +813,29 @@ test('every step only a person takes in their own terminal is refused in every t
       'singularity-flow upstream-issue revalidate custom-step --amendment FAM-001 --outcome unchanged --reason "Still holds."'],
     'environment-binding': ['singularity-flow env bind staging --stdin', 'singularity-flow env unbind staging --json'],
     'plan-correction': ['singularity-flow decision plan PMC-1 --set-fulfillment PMC-1:REQ-001=test-only --reason "The tests are the whole delivery."',
-      'singularity-flow decision plan PMC-1 --replace-location PMC-1:AC-001=src/a.mjs:src/b.mjs --reason "The plan named the wrong module."']
+      'singularity-flow decision plan PMC-1 --replace-location PMC-1:AC-001=src/a.mjs:src/b.mjs --reason "The plan named the wrong module."'],
+    // A live-terminal review: a Copilot turn admitted it, then the terminal review refused the agent (2026-10-28).
+    'live-terminal-review': [`singularity-flow appeal decide APL-001 --work-id PMC-1 --decision account-scope --reason "Reviewed the exact diff." --confirm ${digest}`,
+      `singularity-flow appeal risk-accept --work-id PMC-1 --phase custom-step --reason "Accepted until the lab returns." --expires 2099-01-01 --confirm ${digest}`,
+      `singularity-flow appeal risk-revoke PQR-001 --work-id PMC-1 --reason "The lab is back." --confirm ${digest}`,
+      `singularity-flow appeal evidence-accept --work-id PMC-1 --phase custom-step --confirm ${digest}`,
+      `singularity-flow story test-policy accept-risk PMC-1 --phase custom-step --apply --confirm ${digest}`,
+      `singularity-flow story test-policy amend PMC-1 --phase custom-step --reason "The runner moved." --apply --confirm ${digest}`,
+      `singularity-flow story test-policy baseline-admission PMC-1 --phase custom-step --apply --confirm ${digest}`,
+      `singularity-flow story test-policy confirm PMC-1 --phase custom-step --confirm ${digest}`]
   };
   assert.deepEqual(Object.keys(steps).sort(), OWN_TERMINAL_STEPS.map((step) => step.id).sort());
   for (const [id, commands] of Object.entries(steps)) {
     for (const command of commands) {
       assert.deepEqual([ownTerminalStep(command), skillForCommandLine(command), commandLineWithoutSkill(command)], [id, null, true], command);
     }
+  }
+  // Their previews stay open to a turn, and so does the browser review /sf-appeal opens for the person.
+  for (const command of ['singularity-flow appeal risk-prepare --work-id PMC-1 --phase custom-step --reason "Preview the risk."',
+    `singularity-flow appeal evidence-accept --work-id PMC-1 --phase custom-step --review-ui --confirm ${digest}`,
+    'singularity-flow story test-policy accept-risk PMC-1 --phase custom-step',
+    'singularity-flow story test-policy amend PMC-1 --phase custom-step --reason "Preview the amendment."']) {
+    assert.equal(ownTerminalStep(command), null, command);
   }
   const allowed = [];
   for (const [skill, session] of [['/sf-phase', 'author'], ['/sf-recover', 'kernel'], ['/sf-decide PMC-1', 'own-terminal-decider']]) {

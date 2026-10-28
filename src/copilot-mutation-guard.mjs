@@ -13,7 +13,7 @@ const stagingPaths = () => import('./phase-staging-paths.mjs');
 import { parseArgs } from './util.mjs';
 import { AGENT_OUTPUT_FOLDER, lineRanges, READ_CHUNK_BYTES } from './agent-output-folder.mjs';
 import { canonicalCommand, resolveOperation } from './command-registry.mjs';
-import { DECISION_LIST_CHAT_OPTIONS, planRowCorrectionStep } from './command-skills.mjs';
+import { DECISION_LIST_CHAT_OPTIONS, liveTerminalReviewStep, planRowCorrectionStep } from './command-skills.mjs';
 import { currentSchemaVersion, readRecord } from './schema-migrations.mjs';
 import { CLI_PATH_REFERENCE, safeCommandGuidance, validateSflowExecutionCommand } from './safe-command-guidance.mjs';
 
@@ -662,6 +662,7 @@ export function argvAllowed(argv, mode, value) {
   // at, in no turn: run under the person's Git identity, an agent would sign off its own work.
   if (signOff(positionals)) return false;
   if (planRowCorrectionStep(positionals, options)) return false;
+  if (liveTerminalReviewStep(positionals, options)) return false;
   // The /sf-confirm turn: only the command carrying the digest the person typed, for the bound Story.
   // The CLI refuses the digest once it is stale; approvals and the decisions above keep their routes.
   if (mode === 'confirm') return !value.decisionEnded && typeof value.confirmDigest === 'string'
@@ -816,6 +817,12 @@ function personRoute(call, value) {
   const safe = verifiedShellForm(call, value);
   const guidance = safe ? safeCommandGuidance({ argv: safe.argv }) : null;
   return { routes: guidance ? [{ ...guidance, skill: null, copilotCommand: null }] : [] };
+}
+function liveTerminalReviewCall(call, value) {
+  const safe = verifiedShellForm(call, value);
+  if (!safe) return false;
+  const { positionals, options } = parseCli(safe.argv);
+  return liveTerminalReviewStep(positionals, options);
 }
 function planRowCorrectionCall(call, value) {
   const safe = verifiedShellForm(call, value);
@@ -1309,6 +1316,8 @@ async function mutationToolDecision(payload, record) {
           'PHASE_MUTATION_OPERATION_NOT_ALLOWED: an intent amendment is decided by a person who approves the scope, in their own terminal, not by this turn. Show the user the amendment and the decide command, and stop; do not retry it', [], own());
         if (planRowCorrectionCall(call, value)) return mutationDenial(contract,
           'PHASE_MUTATION_OPERATION_NOT_ALLOWED: correcting an approved plan\'s rows is the word of a person who approves that plan, after reviewing the exact rows in their own terminal; a preview (--dry-run) is all this turn may run. Show the user the command and stop; do not retry it', [], own());
+        if (liveTerminalReviewCall(call, value)) return mutationDenial(contract,
+          'PHASE_MUTATION_OPERATION_NOT_ALLOWED: this decision is recorded only after the person reviews its exact card in their own terminal and types the confirmation there; no turn runs or answers it. Show the user the command and stop; do not retry it', [], own());
         if (signOffCall(call, value)) return mutationDenial(contract,
           'PHASE_MUTATION_OPERATION_NOT_ALLOWED: witnessing a criterion\'s evidence or accepting a dated obligation risk is the word of a person who approves the step that delivered it, after looking for themselves, in their own terminal; an agent never signs off its own work. Show the user the command and stop; do not retry it', [], own());
         if (testRunRiskDecision(call, value)) return mutationDenial(contract,

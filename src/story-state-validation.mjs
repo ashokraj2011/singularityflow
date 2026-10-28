@@ -136,7 +136,9 @@ export async function validateWorkflow(root, config, workflow, {
     if (activeCount) errors.push('Cancelled workflow cannot have an active phase.');
     if (!workflow.cancellation?.reason?.trim()) errors.push('Cancelled workflow must record a cancellation reason.');
     if (!workflow.cancellation?.cancelledAt || !workflow.cancellation?.cancelledBy) errors.push('Cancelled workflow must record when and by whom it was cancelled.');
-    if (!workflow.cancellation?.phase || workflow.phases[workflow.cancellation.phase]?.status !== 'cancelled') errors.push('Cancelled workflow must identify its cancelled phase.');
+    // Cancelled while a decision waited after an approved step: that step stays approved (2026-10-28).
+    const cancelledPhaseStatuses = workflow.cancellation?.pendingDecision ? ['cancelled', 'approved'] : ['cancelled'];
+    if (!workflow.cancellation?.phase || !cancelledPhaseStatuses.includes(workflow.phases[workflow.cancellation.phase]?.status)) errors.push('Cancelled workflow must identify its cancelled phase.');
   } else if (workflow.pendingDecision) {
     // Waiting for a person: the phase before the decision is approved and stays current, and
     // nothing is active until someone chooses what happens next.

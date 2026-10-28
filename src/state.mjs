@@ -9229,9 +9229,10 @@ export async function cancelWorkflow(root, config, workflow, { reason, channel =
     cancelledBy: session.actor,
     agent: session.agent ?? null,
     channel,
-    ...(actionContext ? { actionContext } : {})
+    ...(actionContext ? { actionContext } : {}),
+    // The decision that waited after an approved step: that step keeps its approval in the history.
+    ...(workflow.pendingDecision?.decision && phase.status === 'approved' ? { pendingDecision: workflow.pendingDecision.decision } : {})
   };
-  // A step already approved (a decision was pending after it) keeps its approval in the history.
   if (phase.status !== 'approved') phase.status = 'cancelled';
   phase.cancelledAt = timestamp;
   phase.cancelledBy = session.actor;

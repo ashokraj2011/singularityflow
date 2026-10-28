@@ -47,6 +47,21 @@ test('at approval, a Story nobody else can approve says so and names a way to a 
   assert.equal(refusalRemediationPlan({ code: 'APPROVAL_SELF_APPROVAL_PROHIBITED', message: 'prohibited', details: open }, ['approve']).steps[0].id, 'ask-other-approver');
 });
 
+// A group nobody is listed in (empty from the start, or its only member left) said "ask a member"
+// of it; a running Story's groups cannot change, so the way through is the configuration and a new Story.
+test('at approval, a group with nobody listed says so and names the configuration and a new Story', () => {
+  const empty = authorities([]);
+  const details = { phase: 'implementation', workId: 'US-1', identity: 'author@example.invalid',
+    ...eligibleApprovers(empty, policy(true), { exclude: ['author@example.invalid'] }) };
+  const plan = refusalRemediationPlan({ code: 'APPROVAL_IDENTITY_NOT_AUTHORIZED', message: 'not a member', details }, ['approve', 'implementation']);
+  assert.deepEqual(plan.steps.map((entry) => entry.id).slice(0, 3), ['no-approver-listed', 'propose-joining-group', 'cancel-story']);
+  assert.match(plan.steps[0].label, /Nobody is listed in .* so implementation cannot be approved in it/u);
+  assert.equal(plan.steps[1].command, 'singularity-flow configuration add-current-identity --target story:reviewers --json');
+  // Someone listed: the ordinary identity check and "ask a member".
+  const listed = { ...details, ...eligibleApprovers(authorities([{ email: 'other@example.invalid' }]), policy(true), { exclude: ['author@example.invalid'] }) };
+  assert.equal(refusalRemediationPlan({ code: 'APPROVAL_IDENTITY_NOT_AUTHORIZED', message: 'not a member', details: listed }, ['approve']).steps[0].id, 'check-approval-identity');
+});
+
 test('a pinned loopback target is replaced when only its port changed, never for another host', () => {
   assert.equal(loopbackPortChange('http://localhost:5173', 'http://localhost:5174'), true);
   assert.equal(loopbackPortChange('http://127.0.0.1:3000', 'http://localhost:3001'), false, 'another host name is another target');

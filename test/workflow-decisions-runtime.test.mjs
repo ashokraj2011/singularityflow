@@ -264,3 +264,22 @@ test('a condition-enforced workflow cannot override a failed verdict through the
   flow(root, ['decision', 'choose', '--option', 'again', '--reason', 'Authorize one more exact reviewed repair attempt.'], { agent: 'architect' });
   assert.equal((await state(root, workId)).currentPhase, 'requirements');
 });
+
+// Cancelling while a decision waits turned the approved step that feeds it into 'cancelled', so the
+// record said that step was never approved (L9, 2026-10-28).
+test('cancelling a Story while its decision waits leaves the approved deciding step approved', async () => {
+  const root = await repository();
+  const workId = 'DEC-4';
+  start(root, workId);
+  await work(root, workId, 'intake', ['--decision', 'risk=high']);
+  flow(root, ['approve', '--yes'], { agent: 'product-owner' });
+  await work(root, workId, 'requirements');
+  flow(root, ['approve', '--yes'], { agent: 'product-owner' });
+  let workflow = await state(root, workId);
+  assert.deepEqual([workflow.pendingDecision?.decision, workflow.pendingDecision?.reason], ['direction', 'ask'], 'the ask decision waits for a person');
+  flow(root, ['cancel', workId, '--reason', 'The request was withdrawn', '--confirm', workId], { agent: 'product-owner' });
+  workflow = await state(root, workId);
+  assert.equal(workflow.status, 'cancelled');
+  assert.equal(workflow.phases.requirements.status, 'approved', 'the approved step that feeds the decision stays approved');
+  assert.equal(workflow.phases.intake.status, 'approved');
+});

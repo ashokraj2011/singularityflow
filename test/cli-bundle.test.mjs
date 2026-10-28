@@ -127,7 +127,11 @@ test('the bundled CLI answers exactly like the sources while opening a handful o
   // decision's rounds reset with its step, authority from the nearest step with approvers in the new
   // approval-fallback.mjs, the inspection witness kept at submission, an unchanged code step revalidated after an
   // earlier return, return listed only where it runs) add 2,888 for 4,475,075. One new file.
-  assert.ok(closure('cold-narrow-reads.mjs').reduce((sum, item) => sum + item.bytes, 0) < 4_480_000,
+  // 4,485,000: main ef81e85b measures 4,479,374; a person's own terminal decisions (live-terminal reviews in
+  // command-skills.mjs and their refusal in copilot-mutation-guard.mjs), the empty-group route in
+  // refusal-remediation.mjs and cancel while a decision waits add cold-core +1,770 and cold-hooks +601 for
+  // 4,481,745. No new file.
+  assert.ok(closure('cold-narrow-reads.mjs').reduce((sum, item) => sum + item.bytes, 0) < 4_485_000,
     'strict next-step reads must not inherit the broad phase-review closure');
   const publicationClosure = closure('cold-publication.mjs');
   assert.ok(publicationClosure.length && publicationClosure.reduce((sum, item) => sum + item.bytes, 0) < 6 * 1024 * 1024,
@@ -295,7 +299,9 @@ test('the bundled CLI answers exactly like the sources while opening a handful o
   // 5,290,000: main d01be67d measures 5,284,968; the route-closure fixes add 2,298 for 5,287,266. No new file.
   // 5,295,000: main 80f74694 measures 5,287,266; the batch 4 resets and authority fallback add 2,888 for
   // 5,290,154. One new file (approval-fallback.mjs).
-  assert.ok(catalogClosure.reduce((sum, item) => sum + item.bytes, 0) < 5_295_000,
+  // 5,300,000: main ef81e85b measures 5,294,453; the same person's own terminal decisions add cold-core +1,770 and
+  // cold-hooks +601 for 5,296,824. No new file.
+  assert.ok(catalogClosure.reduce((sum, item) => sum + item.bytes, 0) < 5_300_000,
     'catalog parsing stays bounded instead of pulling in the entire administration bundle');
   for (const name of ['cold-compatibility.mjs', 'cold-models.mjs', 'cold-intake.mjs', 'cold-phases.mjs', 'cold-hook-context.mjs']) {
     assert.ok(!catalogClosure.some(item => item.file === name), `catalogs must not statically reach ${name}`);

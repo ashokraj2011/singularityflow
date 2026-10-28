@@ -445,6 +445,22 @@ export function planRowCorrectionStep([command, sub], options) {
 }
 
 /**
+ * Decisions recorded only after the person reviews their exact card in a live terminal
+ * (captureTerminalActionAuthorization): an appeal's decision, attestation or risk, a Story test-policy
+ * risk, amendment, baseline admission or attestation applied, and a test-scope confirmation. A Copilot
+ * turn admitted them, then the terminal review refused the agent's shell, or a pty let an agent type
+ * the person's confirmation (2026-10-28). Their previews stay open; `evidence-accept --review-ui`
+ * is the browser review /sf-appeal opens for the person.
+ */
+const APPEAL_TERMINAL_REVIEWS = new Set(['decide', 'attest', 'risk-accept', 'risk-attest', 'risk-revoke', 'evidence-accept']);
+const TEST_POLICY_TERMINAL_REVIEWS = new Set(['accept-risk', 'revoke-risk', 'attest-risk', 'amend', 'baseline-admission', 'attest']);
+export function liveTerminalReviewStep([command, sub, verb], options) {
+  if (command === 'appeal') return APPEAL_TERMINAL_REVIEWS.has(sub) && !(sub === 'evidence-accept' && options['review-ui'] === true);
+  return command === 'story' && sub === 'test-policy'
+    && ((TEST_POLICY_TERMINAL_REVIEWS.has(verb) && options.apply === true) || (verb === 'confirm' && options.confirm !== undefined));
+}
+
+/**
  * Steps only a person takes, in their own terminal. copilot-mutation-guard.mjs refuses each in every
  * turn, so a skill route to one only showed it again and pointed back to that skill: /sf-decide for
  * a witness (2026-10-26), then for an accepted test command and its decision-list record
@@ -473,6 +489,7 @@ export const OWN_TERMINAL_STEPS = Object.freeze([
   ['spec-drift-decision', ([command, sub, verb]) => command === 'spec' && sub === 'drift' && verb === 'decide'],
   // The /sf-decide turn admitted it, then its live-terminal review refused the agent's shell (2026-10-28).
   ['plan-correction', planRowCorrectionStep],
+  ['live-terminal-review', liveTerminalReviewStep],
   // `upstream-issue decide` for the bound Story is a /sf-decide turn's own; an amendment is not.
   ['upstream-amendment-decision', ([command, sub]) => command === 'upstream-issue' && ['decide-amendment', 'revalidate'].includes(sub)],
   ['environment-binding', ([command, sub]) => command === 'env' && ['bind', 'unbind'].includes(sub)]

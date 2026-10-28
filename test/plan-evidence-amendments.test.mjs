@@ -100,7 +100,8 @@ test('preview works with future phase names/custom roots, is read-only, exact-by
   assert.equal(preview.proposedClaim.fulfillment, 'evidence');
   assert.deepEqual(preview.proposedClaim.expectedPaths, [file]);
   assert.equal(preview.proposedContract.slots[0].method, 'visual');
-  assert.match(preview.acceptance.copilotCommand, /^\/sf-appeal evidence-accept --phase future-render/u);
+  // The terminal form is the person's own step: its live review refused the agent's shell (2026-10-28).
+  assert.equal(preview.acceptance.copilotCommand, null);
   assert.match(preview.guidedReview.copilotCommand, /^\/sf-appeal evidence-accept --phase future-render.*--review-ui/u);
   assert.equal(preview.guidedReview.argv.includes('--review-ui'), true);
   assert.equal(f.git('status', '--porcelain=v1', '--untracked-files=all'), before);

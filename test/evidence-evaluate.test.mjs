@@ -133,6 +133,26 @@ test('a test-only requirement has linked delivery trace without counting that tr
   assert.equal(wrong.facets.coverage, 'unlinked');
 });
 
+// A test-generation Story (PMBEPP, 2026-10-27): its code step delivered only tests, the plan rows said
+// product change, and the final check said only "No delivered change implements", pointing at the code step.
+test('a code step that delivered only tests names the plan as what to correct for a row planned as a product change', async () => {
+  const maps = records();
+  for (const id of [REQ, AC1]) maps.observed[0].claims[id] = { observedPaths: [], testResults: [], commits: [], verdict: 'missing' };
+  const testsOnly = { ...delivery(), testsOnly: true };
+  const result = evaluate({ workflow: story(), records: maps, deliveries: [testsOnly] });
+  const finding = result.findings.find((entry) => entry.code === 'EVIDENCE_IMPLEMENTATION_MISSING' && entry.message.includes(REQ));
+  assert.match(finding.message, /implementation delivered only test files, and EV-1:REQ-001 is planned as a product change\. If the tests are the whole delivery, correct its plan row to test-only in intake\./u);
+  const implementation = row(result, REQ).obligations.find((entry) => entry.responsibility === 'implement');
+  assert.deepEqual([implementation.status, implementation.correctionSteps], ['missing', ['intake']]);
+  const { terminalRecoveryActions } = await import('../src/evidence/terminal.mjs');
+  const actions = terminalRecoveryActions(W, result, null, story());
+  assert.ok(actions.includes(`singularity-flow upstream-issue raise --work-id ${W} --phase intake --about ${REQ} --problem "Tests are the whole delivery: plan ${REQ} as test-only"`), actions.join('\n'));
+  // A delivery that changed product source keeps the plain finding and the code step as the owner.
+  const plain = evaluate({ workflow: story(), records: maps, deliveries: [delivery()] });
+  assert.equal(plain.findings.find((entry) => entry.message.includes(REQ) && entry.code === 'EVIDENCE_IMPLEMENTATION_MISSING').message, `No delivered change implements ${REQ}.`);
+  assert.equal(row(plain, REQ).obligations.find((entry) => entry.responsibility === 'implement').correctionSteps, undefined);
+});
+
 test('approved inspection must cite the exact criterion, not another Story or a longer identifier', () => {
   const phase = id => ({ id, status: 'approved', generation: 1, approvalPolicy: policy, approvals: [approval('reviewerone')] });
   const workflow = { workItem: { id: W }, status: 'closed', currentPhase: null,

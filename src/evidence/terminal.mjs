@@ -67,10 +67,12 @@ export function terminalRecoveryActions(workId, evaluation, gate = null, workflo
     // missing implementation at the final step had only a risk route (2026-10-27).
     if (workflow) for (const obligation of row.obligations ?? []) {
       if (!UPSTREAM_OWNED.has(obligation.responsibility) || !UPSTREAM_STATUSES.has(obligation.status)) continue;
-      const owner = obligation.owningSteps?.at(-1);
+      // A tests-only delivery for a row planned as a product change is corrected in the plan.
+      const owner = (obligation.correctionSteps ?? obligation.owningSteps)?.at(-1);
       const step = owner ? decidableUpstreamStep(workflow, owner) : null;
       const route = step ? raiseUpstreamIssueRoute(workflow, step, workflow.currentPhase) : null;
-      if (route) add(upstream, route.command.replace('<clause-or-section>', row.id));
+      if (route) add(upstream, route.command.replace('<clause-or-section>', row.id).replace('<what-is-wrong>', obligation.correctionSteps
+        ? `"Tests are the whole delivery: plan ${row.id} as test-only"` : '<what-is-wrong>'));
     }
     for (const slot of row.verification?.contract?.slots ?? []) {
       if (BLOCKING_RESULTS.has(slot.status) && WITNESSED_METHODS.has(slot.method)) add(witnesses, witnessAction(workId, row, slot));

@@ -143,6 +143,10 @@ async function loadDelivery(root, phase, findings, workflow = null) {
         }))
       }))
     } : null,
+    // Tests and no product source: a test-generation Story's whole delivery, told apart so a row
+    // planned as a product change is corrected in the plan, not looked for in code.
+    testsOnly: Array.isArray(receipt?.changeSet?.sourcePaths) && !receipt.changeSet.sourcePaths.length
+      && !(receipt.changeSet.deletedSourcePaths ?? []).length && (receipt.changeSet.executableTestPaths ?? []).length > 0,
     receipt: receipt ? {
       status: receipt.status ?? null,
       traceability: {

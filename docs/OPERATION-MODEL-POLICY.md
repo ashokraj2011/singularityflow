@@ -166,6 +166,8 @@ Every public operation is classified before its implementation module is importe
 | change.show.shadow | read | never | — | — |
 | check | read | never | — | — |
 | choices | read | never | — | — |
+| clarification.answer | mutation | never | — | — |
+| clarification.import | mutation | never | — | — |
 | clarification.record | mutation | never | — | — |
 | clarification.status | read | never | — | — |
 | comprehension.backfill.validate | read | never | — | — |

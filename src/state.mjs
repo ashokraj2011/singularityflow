@@ -3340,7 +3340,7 @@ export async function assertPassedCodeDeliveryInput(root, config, workflow, phas
   await verifyTestCommandEpochValidation(root, config, workflow, source, { packet });
   // A rewritten branch history (rebase, force-push) drops the approval commit: named, not "absent".
   assertRecordedHistory(root, workflow, [...recordedStepCommits(source), { commit: packet.evidenceCommit, label: `${sourceId}'s approved code evidence` }],
-    { branch: workflowPublicationBranch(root, workflow), remote: config.git?.remote ?? 'origin' });
+    { branch: workflowPublicationBranch(root, workflow), remote: config.git?.remote ?? 'origin', itemPath: workDirRelative(config, workflow.workItem.id) });
   const historical = run('git', ['show', `${packet.evidenceCommit}:${binding.path}`], {
     cwd: root, allowFailure: true
   });
@@ -5970,18 +5970,57 @@ function recordedStepCommits(phase) {
 }
 
 /**
+ * Which missing recorded commits the rewritten history still carries as the same change (`git
+ * patch-id --stable`, over HEAD's newest 400 commits), and whether the Story's records are the same
+ * bytes there. A diagnosis only: SFlow's records name exact commit IDs in about a thousand places
+ * (receipts, claim maps, approvals, attempts), so it never re-anchors them onto rebased commits; the
+ * person restores the recorded history or keeps the rebase knowing exactly what it changed.
+ */
+function rewrittenHistoryMapping(root, commits, itemPath) {
+  const patchIds = (args) => {
+    const patches = run('git', ['log', '-p', '--no-merges', '--format=commit %H', ...args], { cwd: root, allowFailure: true });
+    if (patches.status !== 0 || !patches.stdout.trim()) return [];
+    const listed = run('git', ['patch-id', '--stable'], { cwd: root, allowFailure: true, input: patches.stdout });
+    return listed.status !== 0 ? [] : listed.stdout.split(/\r?\n/u).map((line) => line.trim().split(/\s+/u)).filter((pair) => pair.length === 2);
+  };
+  const recorded = new Map(patchIds(['--no-walk', ...commits]).map(([id, commit]) => [commit, id]));
+  const current = new Map();
+  for (const [id, commit] of patchIds(['--max-count=400', 'HEAD'])) if (!current.has(id)) current.set(id, commit);
+  const tree = (commit) => itemPath ? refHead(root, `${commit}:${itemPath}`) : null;
+  return commits.map((commit) => {
+    const rebased = recorded.has(commit) ? current.get(recorded.get(commit)) ?? null : null;
+    return { recorded: commit, rebased, recordsSame: rebased && itemPath ? tree(commit) === tree(rebased) : null };
+  });
+}
+
+function mappingSentence(branch, mapping) {
+  const short = (commit) => commit.slice(0, 8);
+  const same = mapping.filter((entry) => entry.rebased);
+  const unmatched = mapping.filter((entry) => !entry.rebased);
+  const differs = same.filter((entry) => entry.recordsSame === false);
+  return `${branch} now carries the same change for ${same.length} of ${mapping.length} recorded commit(s)`
+    + (same.length ? ` (${same.map((entry) => `${short(entry.recorded)} as ${short(entry.rebased)}`).join(', ')})` : '')
+    + (unmatched.length ? `; ${unmatched.map((entry) => short(entry.recorded)).join(', ')} ${unmatched.length === 1 ? 'has' : 'have'} no matching change` : '')
+    + (differs.length ? `; the Story's records differ at ${differs.map((entry) => short(entry.rebased)).join(', ')}` : '')
+    + '. SFlow still reads only the recorded commit IDs, so restore that history either way. ';
+}
+
+/**
  * Refuse with STORY_HISTORY_REWRITTEN when a recorded commit is no longer an ancestor of HEAD.
- * `recorded` lists `{ commit, label }`; the first one missing is named.
+ * `recorded` lists `{ commit, label }`; the first one missing is named, and every missing one is
+ * matched against the rewritten history (rewrittenHistoryMapping).
  */
 function assertRecordedHistory(root, workflow, recorded, { branch = workflow.workItem.branch ?? workflow.workItem.id,
-  remote = 'origin', base = workflow.workItem.baseBranch ?? 'main' } = {}) {
+  remote = 'origin', base = workflow.workItem.baseBranch ?? 'main', itemPath = null } = {}) {
   // One Git process per distinct commit: a step's generation, submission and publication are often one.
   const distinct = [...new Map(recorded.filter((entry) => /^[0-9a-f]{40,64}$/u.test(String(entry?.commit ?? '')))
     .map((entry) => [entry.commit, entry])).values()];
-  const missing = distinct.find((entry) => !commitIsAncestor(root, entry.commit, 'HEAD'));
+  const absent = distinct.filter((entry) => !commitIsAncestor(root, entry.commit, 'HEAD'));
+  const missing = absent[0];
   if (!missing) return;
   const short = missing.commit.slice(0, 8);
   const here = historyCommitExists(root, missing.commit);
+  const mapping = here ? rewrittenHistoryMapping(root, absent.map((entry) => entry.commit).filter((commit) => historyCommitExists(root, commit)), itemPath) : [];
   const tip = here ? recordedHistoryTip(root, branch, missing.commit) : null;
   const merge = `git merge ${historyQuoted(`${remote}/${base}`)}`;
   const commands = tip ? [
@@ -5991,6 +6030,7 @@ function assertRecordedHistory(root, workflow, recorded, { branch = workflow.wor
   ] : [];
   throw new SingularityFlowError(
     `The history of ${branch} was rewritten (a rebase or force-push): ${missing.label} commit ${short}, which SFlow recorded, is no longer on it, so every rewritten commit reads as new. Nothing was recorded. `
+    + (mapping.length ? mappingSentence(branch, mapping) : '')
     + (tip
       ? `Put the branch back on the recorded history with git reset --keep ${tip.slice(0, 12)} (the last ${branch} tip in this clone that still has ${short}); if the rewritten history was pushed, put the remote back with git push --force-with-lease ${remote} ${branch}. Once no step is waiting for approval, bring ${base} in with ${merge}, which keeps every recorded commit, instead of a rebase.`
       : here
@@ -5999,7 +6039,7 @@ function assertRecordedHistory(root, workflow, recorded, { branch = workflow.wor
     {
       code: 'STORY_HISTORY_REWRITTEN',
       details: {
-        branch, commit: missing.commit, label: missing.label, recordedTip: tip, availableHere: here, recoveryCommands: commands,
+        branch, commit: missing.commit, label: missing.label, recordedTip: tip, availableHere: here, recoveryCommands: commands, mapping,
         // Plain Git is the person's to run, so each step is an instruction every surface shows.
         actions: tip ? [
           { label: `Put ${branch} back on the history SFlow recorded: git reset --keep ${tip}` },
@@ -6303,7 +6343,7 @@ export async function evaluateApproval(root, config, workflow, {
       // A rewritten history changes the source tree too, and every later check blamed that instead.
       // The packet is found on the current history, so the step's recorded commits are what tell.
       assertRecordedHistory(root, workflow, recordedStepCommits(phase),
-        { branch: workflowPublicationBranch(root, workflow), remote: config.git?.remote ?? 'origin' });
+        { branch: workflowPublicationBranch(root, workflow), remote: config.git?.remote ?? 'origin', itemPath: workDirRelative(config, workflow.workItem.id) });
     }, { foundation: true });
     await stage('test-command-epoch', async () => {
       await verifyTestCommandEpochValidation(root, config, workflow, phase, { packet: submittedReview });

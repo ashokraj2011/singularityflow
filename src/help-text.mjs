@@ -793,6 +793,8 @@ Usage:
   singularity-flow revision attachments remove --confirm SHA256 [--idempotency-key KEY] [--json]
   singularity-flow prepare [PHASE]
   singularity-flow clarification status [PHASE] [--json]
+  singularity-flow clarification answer [PHASE] (--question TEXT | --marker TEXT) --answer TEXT [--why TEXT] [--json]
+  singularity-flow clarification import [PHASE] [--json]
   singularity-flow clarification record [PHASE] (--question TEXT --answer TEXT | --marker TEXT --answer TEXT | --response-file FILE)
     [--why TEXT] [--status answered|deferred] [--blocking] [--owner TEXT] [--impact TEXT] [--replace]
   singularity-flow phase show [PHASE] [--json] [--for-agent]

@@ -1997,6 +1997,15 @@ singularity-flow clarification record requirements --response-file responses.jso
 singularity-flow clarification status requirements --json
 ```
 
+When the step has approval groups, only their members answer. An approver on another machine answers in their own clone, in their own terminal, and the author's checkout records it:
+
+```bash
+singularity-flow clarification answer requirements --question "Is this interpretation complete?" --answer "Yes."
+singularity-flow clarification import requirements
+```
+
+The answer travels as one small commit under `refs/sflow-clarifications/<WORK-ID>/<STEP>/gen<N>/`, never on the Story branch, with the approver as its committer. Import records an answer only when it still binds this step and generation, its committer is the person it names, and that person is in the step's approval groups; any other is listed as not recorded.
+
 The record contains the human actor, agent, prompt hash, composition-record hash, phase, and prospective generation. Required model-assisted publication rejects a missing or stale record and rejects a materially deferred decision. Human-authored artifacts use the explicit `--authored human` path instead of fabricating a Copilot checkpoint.
 
 A missing record does not mean the contributor has not answered. For the same Story, phase,
@@ -3542,6 +3551,8 @@ singularity-flow fresh-install [--checkout DIRECTORY] [--yes] [--registry URL] [
 singularity-flow choices begin|answer|status ...
 singularity-flow clarification status [PHASE] [--json]
 singularity-flow clarification record [PHASE] (--question TEXT --answer TEXT | --response-file FILE) [--json]
+singularity-flow clarification answer [PHASE] (--question TEXT | --marker TEXT) --answer TEXT [--why TEXT] [--json]
+singularity-flow clarification import [PHASE] [--json]
 singularity-flow start <WORK-ID> --from-branch BRANCH [--jira | --story-file FILE] [--work-type ID] [--agent ID] [--ref CANONICAL-BRANCH] [--reference-repository ID=URL --reference-branch ID=BRANCH]... [--isolated-worktree]
 singularity-flow resume <WORK-ID|BRANCH> [--fetch]
 singularity-flow return <WORK-ID> [--apply --confirm WORK-ID] [--remote REMOTE] [--json]

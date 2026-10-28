@@ -815,6 +815,7 @@ test('every step only a person takes in their own terminal is refused in every t
       'singularity-flow upstream-issue revalidate custom-step --amendment FAM-001 --outcome unchanged --reason "Still holds."'],
     'environment-binding': ['singularity-flow env bind staging --stdin', 'singularity-flow env unbind staging --json'],
     'approval-evidence-confirmation': ['singularity-flow approve custom-step --work-id PMC-1 --confirm-evidence'],
+    'clarification-answer': ['singularity-flow clarification answer custom-step --question "Is 2 right?" --answer "Yes."'],
     'plan-correction': ['singularity-flow decision plan PMC-1 --set-fulfillment PMC-1:REQ-001=test-only --reason "The tests are the whole delivery."',
       'singularity-flow decision plan PMC-1 --replace-location PMC-1:AC-001=src/a.mjs:src/b.mjs --reason "The plan named the wrong module."'],
     // A live-terminal review: a Copilot turn admitted it, then the terminal review refused the agent (2026-10-28).

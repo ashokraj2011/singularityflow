@@ -133,20 +133,21 @@ test('the self-approval and distinct-identity refusals are coded where approval 
   }
 });
 
-test('a clarification answer from an approver is routed to the author\'s checkout, never self-recorded', async () => {
+test('a clarification answer from an approver is answered in their own clone and imported, never self-recorded', async () => {
   const plan = refusalRemediationPlan(refusal('CLARIFICATION_AUTHORITY_REQUIRED', {
     phase: 'requirements', workId: 'W-1', authorities: ['product-owners'], eligibleApprovers: ['owner@example.test']
   }), ['clarification', 'record', 'requirements', '--response-file', 'answers.json', '--json']);
-  assert.equal(plan.steps[0].id, 'record-answer-in-author-checkout');
-  assert.match(plan.steps[0].label, /must be recorded in this checkout/u);
-  assert.match(plan.steps[0].label, /a record made in another clone is never seen/u);
-  assert.match(plan.steps[0].label, /singularity-flow resume W-1/u);
-  assert.match(plan.steps[0].label, /Never record the answer under the author's identity/u);
+  // Before 2026-10-28 the only way was the author's checkout under the approver's swapped identity.
+  assert.equal(plan.steps[0].id, 'answer-in-own-clone');
   assert.match(plan.steps[0].label, /product-owners \(owner@example\.test\)/u);
-  assert.equal(plan.steps[1].command, 'singularity-flow clarification status requirements --json');
+  assert.match(plan.steps[0].label, /in their own clone, in their own terminal/u);
+  assert.equal(plan.steps[0].command, 'singularity-flow clarification answer requirements --question "<QUESTION>" --answer "<ANSWER>"');
+  assert.equal(plan.steps[1].id, 'import-answers');
+  assert.equal(plan.steps[1].command, 'singularity-flow clarification import requirements');
+  assert.equal(plan.steps[2].command, 'singularity-flow clarification status requirements --json');
   const cli = await source('cli.mjs');
-  assert.doesNotMatch(cli, /Ask one of them to record the answer\./u);
-  assert.match(cli, /One of them records the answer in this checkout, under their own Git identity/u);
+  assert.doesNotMatch(cli, /One of them records the answer in this checkout, under their own Git identity/u);
+  assert.match(cli, /One of them answers in their own clone, in their own terminal, with singularity-flow clarification answer/u);
 });
 
 async function twoStoryFixture(t) {

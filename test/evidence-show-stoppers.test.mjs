@@ -114,6 +114,10 @@ test('a Story branch rebased and force-pushed during review is named as rewritte
   assert.equal(result.error.code, 'STORY_HISTORY_REWRITTEN', refused.stdout);
   assert.match(result.error.message, /was rewritten \(a rebase or force-push\)/u);
   assert.match(result.error.message, new RegExp(`git reset --keep ${recordedTip.slice(0, 12)}`, 'u'), 'the last tip that holds the recorded history');
+  // Which recorded commits the rebase still carries as the same change, and that the records match.
+  assert.match(result.error.message, /now carries the same change for (\d+) of \1 recorded commit/u, result.error.message);
+  assert.doesNotMatch(result.error.message, /no matching change|records differ/u);
+  assert.match(result.error.message, /SFlow still reads only the recorded commit IDs/u);
   const steps = result.remediationPlan.steps.map((entry) => entry.label).join('\n');
   assert.match(steps, new RegExp(`git reset --keep ${recordedTip}`, 'u'), 'the recovery plan shows the restore, not help or doctor alone');
   assert.match(steps, new RegExp(`git push --force-with-lease origin ${workId}`, 'u'));

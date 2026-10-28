@@ -191,7 +191,12 @@ test('frequent lifecycle handlers do not reach the legacy dispatcher and stay un
     // 9,240,000 (next 5,000 boundary): main 0c7ca31b measures 9,221,738 for start.mjs; refusals that quote the cell or line an author wrote and say what belongs there, publish-time prepublish plans for the draft refusals, and step-entry sentences for the rules never described (draft-diagnostics, specifications, specification-scenarios, verification intent and contracts, conformance, preflight, specification quality, constitution, refusal-remediation, phase-authoring-contract), after agents looped on such refusals in the office, add 14,359 for 9,236,097. No new file.
     // 9,245,000 (next 5,000 boundary): main 024a6dae measures 9,238,284 for start.mjs; a binary step artifact kept byte for byte (artifact-review-read.mjs; state.mjs prepare, publish and reconciliation; projectors.mjs; publication preflight; phase-upstream's authored digest), unique local Epic child Work IDs and an Epic's or Initiative's waiting commit set aside
     // add 5,564 for 9,243,848. No new file.
-    assert.ok(closure.bytes <= 9_245_000, `${file} exceeds the 9 MB eager-source budget (${closure.bytes} bytes)`);
+    // 9,250,000 (next 5,000 boundary): main e3cc278a measures 9,243,848 for start.mjs. A rewritten history named
+    // with which recorded commits it still carries as the same change, and a clarification answer sent from the
+    // approver's own clone, add 3,966 for 9,247,814 (state.mjs, copilot-mutation-guard.mjs, cli.mjs,
+    // narration/messages.mjs, command-registry.mjs, command-skills.mjs, help-text.mjs). The answer and import
+    // handlers are lazy; no new eager file.
+    assert.ok(closure.bytes <= 9_250_000, `${file} exceeds the 9 MB eager-source budget (${closure.bytes} bytes)`);
   }
 });
 

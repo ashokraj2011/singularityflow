@@ -2549,7 +2549,12 @@ async function clarificationCommand(positionals, options) {
     }), { json });
     return;
   }
-  if (subcommand !== 'record') throw new SingularityFlowError(`Unknown clarification subcommand '${subcommand}'. Use record or status.`);
+  // An approver answers in their own clone; the author's checkout imports it (2026-10-28).
+  if (subcommand === 'answer' || subcommand === 'import') {
+    const remote = await import('./commands/clarification-remote.mjs');
+    return (subcommand === 'answer' ? remote.clarificationAnswerCommand : remote.clarificationImportCommand)(root, config, workflow, phase, options);
+  }
+  if (subcommand !== 'record') throw new SingularityFlowError(`Unknown clarification subcommand '${subcommand}'. Use record, answer, import or status.`);
   // An off-mode phase has no human checkpoint to persist. Refuse before reading a response file or
   // requiring record-only flags so stale generic agent guidance always receives the policy recovery.
   assertClarificationRecordingAllowed(config, workflow, phase);
@@ -2603,7 +2608,7 @@ async function clarificationCommand(positionals, options) {
     } catch (error) {
       throw new SingularityFlowError(
         `Only a member of ${phase.id}'s approval groups (${answerPolicy.authorities.join(', ')}) can answer its clarification questions, because the answers decide what the phase produces. `
-        + `One of them records the answer in this checkout, under their own Git identity: a record made in another clone never reaches this Story, and the author cannot record it for them. ${error.message}`,
+        + `One of them answers in their own clone, in their own terminal, with singularity-flow clarification answer ${phase.id} --question "<QUESTION>" --answer "<ANSWER>"; then this checkout records it with singularity-flow clarification import ${phase.id}. The author cannot answer for them. ${error.message}`,
         { code: 'CLARIFICATION_AUTHORITY_REQUIRED', details: { ...error.details, phase: phase.id, workId: workflow.workItem.id, authorities: [...answerPolicy.authorities] } }
       );
     }

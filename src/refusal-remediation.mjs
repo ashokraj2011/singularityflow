@@ -616,18 +616,20 @@ const APPROVAL_IDENTITY_CODES = Object.freeze(['APPROVAL_IDENTITY_NOT_AUTHORIZED
   'APPROVAL_SELF_APPROVAL_PROHIBITED', 'APPROVAL_IDENTITY_ALREADY_RECORDED']);
 
 /**
- * An approver must answer, and the answer must land in the author's checkout: it binds that
- * checkout's composed prompt and reaches the Story only with that checkout's phase publication.
+ * An approver must answer. They answer in their own clone, under their own Git identity, and the
+ * author's checkout records it (clarification-remote.mjs); borrowing the author's checkout under a
+ * swapped identity was the only way before 2026-10-28.
  */
 function clarificationAuthoritySteps(argv, error) {
   const details = error?.details ?? {};
   const phase = lowerKebab(details.phase) ?? artifactAuthoringPhase(argv, error);
   const workId = safeWorkId(details.workId);
   return [
-    step('record-answer-in-author-checkout',
-      `Only a member of ${eligibleDeciders(details)} can answer. The answer must be recorded in this checkout: it is bound to this checkout's composed prompt and reaches the Story only with this checkout's publication, so a record made in another clone is never seen. `
-        + `The member records it here as themselves: with this checkout's git config user.email set to their listed address, they run singularity-flow resume ${workId ?? '<WORK-ID>'} and then the same clarification record command. The author then restores their own identity and resumes again. Never record the answer under the author's identity.`,
-      null, 'remediation'),
+    step('answer-in-own-clone',
+      `Only a member of ${eligibleDeciders(details)} can answer. They answer in their own clone, in their own terminal; the answer is sent as its own small commit, never on the Story branch.`,
+      `singularity-flow clarification answer ${phase ?? '<PHASE>'} --question "<QUESTION>" --answer "<ANSWER>"`, 'remediation'),
+    step('import-answers', `Then this checkout records the answers that bind this step${workId ? ` of ${workId}` : ''}, checking who sent each.`,
+      `singularity-flow clarification import ${phase ?? '<PHASE>'}`, 'remediation'),
     phase ? step('inspect-clarification-checkpoint', 'See which questions still need an answer.',
       `singularity-flow clarification status ${phase} --json`, 'diagnostic') : null
   ].filter(Boolean);

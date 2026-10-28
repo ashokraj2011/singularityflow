@@ -390,7 +390,7 @@ const MCP_SUBCOMMANDS = Object.freeze([
   'attest', 'auth', 'design-sources', 'doctor', 'list', 'probe', 'record', 'scaffold', 'serve',
   'smoke', 'sources', 'status', 'verify-offline', 'warm', 'host'
 ]);
-const CLARIFICATION_SUBCOMMANDS = Object.freeze(['status', 'record']);
+const CLARIFICATION_SUBCOMMANDS = Object.freeze(['status', 'record', 'answer', 'import']);
 const FAULT_SUBCOMMANDS = Object.freeze(['report', 'list', 'show']);
 const REPAIR_SUBCOMMANDS = Object.freeze(['list', 'status', 'authorize', 'attempt', 'cancel']);
 const GOAL_READ_SUBCOMMANDS = Object.freeze([
@@ -1045,6 +1045,8 @@ function resolveClarificationOperation(definition, positionals) {
   const subcommand = positionals[1] ?? 'status';
   if (subcommand === 'status') return never('clarification.status', definition, 'read');
   if (subcommand === 'record') return never('clarification.record', definition, 'mutation');
+  if (subcommand === 'answer') return never('clarification.answer', definition, 'mutation');
+  if (subcommand === 'import') return never('clarification.import', definition, 'mutation');
   return unknownSubcommand('clarification', subcommand, CLARIFICATION_SUBCOMMANDS);
 }
 
@@ -2049,6 +2051,8 @@ export function operationCatalog() {
     never('mcp.design-sources.promote', mcpDefinition, 'mutation'),
     never('clarification.status', clarificationDefinition, 'read'),
     never('clarification.record', clarificationDefinition, 'mutation'),
+    never('clarification.answer', clarificationDefinition, 'mutation'),
+    never('clarification.import', clarificationDefinition, 'mutation'),
     never('fault.list', faultDefinition, 'read'),
     never('fault.show', faultDefinition, 'read'),
     never('fault.report', faultDefinition, 'mutation'),

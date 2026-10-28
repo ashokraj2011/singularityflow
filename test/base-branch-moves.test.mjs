@@ -28,7 +28,10 @@ function execute(command, args, cwd, { allowFailure = false } = {}) {
   return result;
 }
 const flow = (cwd, args, options) => execute(process.execPath, [bin, ...args], cwd, options);
-const git = (cwd, ...args) => execute('git', args, cwd).stdout.trim();
+// The fixture's own back-to-back merge, fetch and worktree commands must not start Git's detached
+// auto-maintenance: two overlapping repacks deleted objects ("Could not read <sha>"), the race SFlow's
+// own Git children already avoid (withoutAutomaticGitMaintenance).
+const git = (cwd, ...args) => execute('git', ['-c', 'maintenance.auto=false', '-c', 'gc.auto=0', ...args], cwd).stdout.trim();
 
 async function repository(t) {
   const root = await mkdtemp(path.join(os.tmpdir(), 'sflow-base-moves-'));
@@ -49,6 +52,8 @@ async function repository(t) {
   git(root, 'add', '.');
   git(root, 'commit', '-q', '-m', 'initial');
   git(root, 'init', '-q', '--bare', '-b', 'main', `${root}.git`);
+  // The remote's receive-pack starts its own maintenance after every push unless told not to.
+  for (const [key, value] of [['maintenance.auto', 'false'], ['gc.auto', '0']]) git(`${root}.git`, 'config', key, value);
   git(root, 'remote', 'add', 'origin', `${root}.git`);
   git(root, 'push', '-q', '-u', 'origin', 'main');
   return root;

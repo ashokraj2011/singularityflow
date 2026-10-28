@@ -663,6 +663,8 @@ export function argvAllowed(argv, mode, value) {
   if (signOff(positionals)) return false;
   if (planRowCorrectionStep(positionals, options)) return false;
   if (liveTerminalReviewStep(positionals, options)) return false;
+  // An approver's clarification answer from their own clone carries their Git identity as its signer.
+  if (positionals[0] === 'clarification' && positionals[1] === 'answer') return false;
   // The /sf-confirm turn: only the command carrying the digest the person typed, for the bound Story.
   // The CLI refuses the digest once it is stale; approvals and the decisions above keep their routes.
   if (mode === 'confirm') return !value.decisionEnded && typeof value.confirmDigest === 'string'
@@ -832,6 +834,12 @@ function approvalEvidenceConfirmationCall(call, value) {
   if (!safe) return false;
   const { positionals, options } = parseCli(safe.argv);
   return positionals[0] === 'approve' && options['confirm-evidence'] === true;
+}
+function clarificationAnswerCall(call, value) {
+  const safe = verifiedShellForm(call, value);
+  if (!safe) return false;
+  const { positionals } = parseCli(safe.argv);
+  return positionals[0] === 'clarification' && positionals[1] === 'answer';
 }
 function planRowCorrectionCall(call, value) {
   const safe = verifiedShellForm(call, value);
@@ -1325,6 +1333,8 @@ async function mutationToolDecision(payload, record) {
           'PHASE_MUTATION_OPERATION_NOT_ALLOWED: an intent amendment is decided by a person who approves the scope, in their own terminal, not by this turn. Show the user the amendment and the decide command, and stop; do not retry it', [], own());
         if (approvalEvidenceConfirmationCall(call, value)) return mutationDenial(contract,
           'PHASE_MUTATION_OPERATION_NOT_ALLOWED: approving with --confirm-evidence also records the step\'s screenshots and inspections as witnessed, the word of the approver who looked at them, in their own terminal; an agent never signs off evidence. Approve here without it, or show the user the command and stop; do not retry it');
+        if (clarificationAnswerCall(call, value)) return mutationDenial(contract,
+          'PHASE_MUTATION_OPERATION_NOT_ALLOWED: a clarification answer from another clone is the approver\'s own word, committed under their Git identity, in their own terminal (singularity-flow clarification answer <step> --question "<QUESTION>" --answer "<ANSWER>"); the author\'s checkout then runs singularity-flow clarification import <step>. Show the user the command and stop; do not retry it', [], own());
         if (planRowCorrectionCall(call, value)) return mutationDenial(contract,
           'PHASE_MUTATION_OPERATION_NOT_ALLOWED: correcting an approved plan\'s rows is the word of a person who approves that plan, after reviewing the exact rows in their own terminal; a preview (--dry-run) is all this turn may run. Show the user the command and stop; do not retry it', [], own());
         if (liveTerminalReviewCall(call, value)) return mutationDenial(contract,

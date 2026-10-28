@@ -924,6 +924,14 @@ export const MESSAGES = Object.freeze({
     headline: (s) => `Recorded ${slot(s.responses, '0')} clarification response(s) for ${slot(s.phase)} generation ${slot(s.generation)}.`,
     preserves: false
   },
+  'clarification.answer-sent': {
+    headline: (s) => `Sent your clarification answer for ${slot(s.phase)} generation ${slot(s.generation)}; the author's checkout imports it.`,
+    preserves: true
+  },
+  'clarification.imported': {
+    headline: (s) => `Recorded ${slot(s.answers, '0')} clarification answer(s) from another clone for ${slot(s.phase)} generation ${slot(s.generation)}.`,
+    preserves: false
+  },
   'start.succeeded': {
     // The branch is usually named after the work ID, so naming both says the same thing twice.
     headline: (s) => `Started ${slot(s.workId)}${s.branch && s.branch !== s.workId ? ` on ${slot(s.branch)}` : ''}. Its first phase is ${slot(s.phase)}.`,

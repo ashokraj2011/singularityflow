@@ -146,7 +146,7 @@ const STORY_PATH_REFUSALS = [
   { code: 'APPROVAL_IDENTITY_ALREADY_RECORDED', argv: approve, routes: ['ask-next-approver'], details: identity, decidesWho: true },
   { code: 'APPROVAL_IDENTITY_NOT_AUTHORIZED', argv: ['decision', 'plan', 'AUDIT-1', '--reason', 'r'], routes: ['check-approval-identity'], details: identity, decidesWho: true },
   { code: 'CLARIFICATION_AUTHORITY_REQUIRED', argv: ['clarification', 'record', 'implementation', '--response-file', 'answers.json'],
-    routes: ['record-answer-in-author-checkout', 'singularity-flow clarification status implementation --json'], details: identity, decidesWho: true },
+    routes: ['answer-in-own-clone', 'import-answers', 'singularity-flow clarification status implementation --json'], details: identity, decidesWho: true },
   { code: 'CLARIFICATION_MODE_OFF', argv: ['clarification', 'record', 'implementation'], routes: ['singularity-flow prepare implementation'],
     details: { phase: 'implementation' } },
   { code: 'SCHEMA_VERSION_FUTURE', argv: ['resume', 'AUDIT-1'], routes: ['singularity-flow product status'],

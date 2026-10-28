@@ -490,6 +490,8 @@ export const OWN_TERMINAL_STEPS = Object.freeze([
   ['knowledge-confirmation', ([command, sub, verb]) => command === 'wm'
     && ((sub === 'rules' && verb === 'confirm') || (sub === 'knowledge' && ['confirm', 'correct', 'reject'].includes(verb)))],
   ['spec-drift-decision', ([command, sub, verb]) => command === 'spec' && sub === 'drift' && verb === 'decide'],
+  // An approver's answer from their own clone, under their own Git identity (2026-10-28).
+  ['clarification-answer', ([command, sub]) => command === 'clarification' && sub === 'answer'],
   // The /sf-decide turn admitted it, then its live-terminal review refused the agent's shell (2026-10-28).
   ['plan-correction', planRowCorrectionStep],
   ['live-terminal-review', liveTerminalReviewStep],

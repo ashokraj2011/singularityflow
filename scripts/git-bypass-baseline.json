@@ -76,6 +76,13 @@
       },
       "digest": "167173db4b18740e2127cf195731cd8645a5ddbfc5147c654d69301af89894b3"
     },
+    "src/clarification-remote.mjs": {
+      "counts": {
+        "command-git": 7,
+        "command-run": 1
+      },
+      "digest": "b355093fc77e25d230041555ca6a0618c0c40def0d3d721a5d054cd91438a632"
+    },
     "src/story-policy-anchor.mjs": {
       "counts": {
         "command-run": 2
@@ -1572,9 +1579,9 @@
     },
     "src/state.mjs": {
       "counts": {
-        "command-run": 29
+        "command-run": 31
       },
-      "digest": "2d6beb35444df56596f67640bf62f01f8c1c187ffed39a67814b366d950d414c"
+      "digest": "2f0a45d54870be548ada3784506340a56007b41c10c8f7a8788660725024ef81"
     },
     "src/story-intake-verification.mjs": {
       "counts": {

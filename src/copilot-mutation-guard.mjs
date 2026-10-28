@@ -13,7 +13,7 @@ const stagingPaths = () => import('./phase-staging-paths.mjs');
 import { parseArgs } from './util.mjs';
 import { AGENT_OUTPUT_FOLDER, lineRanges, READ_CHUNK_BYTES } from './agent-output-folder.mjs';
 import { canonicalCommand, resolveOperation } from './command-registry.mjs';
-import { DECISION_LIST_CHAT_OPTIONS } from './command-skills.mjs';
+import { DECISION_LIST_CHAT_OPTIONS, planRowCorrectionStep } from './command-skills.mjs';
 import { currentSchemaVersion, readRecord } from './schema-migrations.mjs';
 import { CLI_PATH_REFERENCE, safeCommandGuidance, validateSflowExecutionCommand } from './safe-command-guidance.mjs';
 
@@ -592,11 +592,16 @@ function argvAllowed(argv, mode, value) {
     && decisionListChatRecord(positionals, options, value.contract.workId);
   // The /sf-decide turn boundary: the decision commands its skill names, for the bound Story only.
   // `decision risk` and `decision witness` stay outside it; a witness needs the human terminal.
+  // Raising one for an earlier step is the route a final check names, and /sf-decide is where it is
+  // routed: denied here, it was a dead-end (2026-10-28). The problem is the person's own words.
   if (mode === 'decision-only' && positionals[0] === 'upstream-issue') return !value.decisionEnded
-    && positionals[1] === 'decide' && /^UPI-\d{3,}$/u.test(positionals[2] ?? '') && positionals.length === 3
+    && (positionals[1] === 'decide' && /^UPI-\d{3,}$/u.test(positionals[2] ?? '') && positionals.length === 3
+      || positionals[1] === 'raise' && positionals.length === 2 && typeof options.phase === 'string'
+        && typeof options.about === 'string' && typeof options.problem === 'string')
     && options['work-id'] === value.contract.workId;
   if (mode === 'decision-only') return !value.decisionEnded && positionals[0] === 'decision'
     && DECIDE_SKILL_MUTATIONS.includes(positionals[1]) && positionals.length <= 3
+    && !planRowCorrectionStep(positionals, options)
     && (!positionals[2] || positionals[2] === value.contract.workId)
     && (!options['work-id'] || options['work-id'] === value.contract.workId);
   if (mode === 'session-only') return ['session', 'agent', 'resume'].includes(positionals[0])
@@ -655,6 +660,7 @@ function argvAllowed(argv, mode, value) {
   // Witnessing evidence and accepting a dated obligation risk are a person's word on what they looked
   // at, in no turn: run under the person's Git identity, an agent would sign off its own work.
   if (signOff(positionals)) return false;
+  if (planRowCorrectionStep(positionals, options)) return false;
   // The /sf-confirm turn: only the command carrying the digest the person typed, for the bound Story.
   // The CLI refuses the digest once it is stale; approvals and the decisions above keep their routes.
   if (mode === 'confirm') return !value.decisionEnded && typeof value.confirmDigest === 'string'
@@ -793,6 +799,12 @@ function testRunRiskDecision(call, value) {
 /** `decision witness` or `decision risk`: an approver's sign-off on evidence they looked at, or a dated risk. */
 function signOff(positionals) {
   return positionals[0] === 'decision' && ['witness', 'risk'].includes(positionals[1]);
+}
+function planRowCorrectionCall(call, value) {
+  const safe = verifiedShellForm(call, value);
+  if (!safe) return false;
+  const { positionals, options } = parseCli(safe.argv);
+  return planRowCorrectionStep(positionals, options);
 }
 function signOffCall(call, value) {
   const safe = verifiedShellForm(call, value);
@@ -1270,6 +1282,8 @@ async function mutationToolDecision(payload, record) {
         if (knowledgeConfirmationCall(call, value)) return mutationDenial(contract, KNOWLEDGE_CONFIRMATION_DENIAL);
         if (intentAmendmentDecisionCall(call, value)) return mutationDenial(contract,
           'PHASE_MUTATION_OPERATION_NOT_ALLOWED: an intent amendment is decided by a person who approves the scope, in their own terminal, not by this turn. Show the user the amendment and the decide command, and stop; do not retry it');
+        if (planRowCorrectionCall(call, value)) return mutationDenial(contract,
+          'PHASE_MUTATION_OPERATION_NOT_ALLOWED: correcting an approved plan\'s rows is the word of a person who approves that plan, after reviewing the exact rows in their own terminal; a preview (--dry-run) is all this turn may run. Show the user the command and stop; do not retry it');
         if (signOffCall(call, value)) return mutationDenial(contract,
           'PHASE_MUTATION_OPERATION_NOT_ALLOWED: witnessing a criterion\'s evidence or accepting a dated obligation risk is the word of a person who approves the step that delivered it, after looking for themselves, in their own terminal; an agent never signs off its own work. Show the user the command and stop; do not retry it');
         if (testRunRiskDecision(call, value)) return mutationDenial(contract,

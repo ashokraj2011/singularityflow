@@ -10,7 +10,7 @@ import YAML from 'yaml';
 import { evaluateEvidence } from '../src/evidence/evaluate.mjs';
 import { evidenceGraph } from '../src/evidence/graph.mjs';
 import {
-  observationDigest, recordRiskDecision, recordRiskRevocation, riskDecisionState, riskEligibility
+  acceptedImplementationClauses, observationDigest, recordRiskDecision, recordRiskRevocation, riskDecisionState, riskEligibility
 } from '../src/evidence/risk-decisions.mjs';
 
 const CLI = path.join(path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..'), 'bin/singularity-flow.mjs');
@@ -107,6 +107,21 @@ test('an expired, revoked or overtaken decision counts for nothing and asks to b
   assert.throws(() => recordRiskRevocation(workflow, { riskId: 'RISK-001', reason: 'Revoking the same decision twice.', actor: 'qa@example.test', authorityGroup: 'quality-reviewers', at: NOW }),
     (error) => error.code === 'RISK_DECISION_REVOKED');
   assert.equal(riskDecisionState(workflow, obligation, { at: NOW, transition: 'approval' }).state, 'revoked');
+});
+
+// The final gate's clause coverage refused an implementation whose risk a person had accepted, so
+// the risk route every final check names could never end the Story (2026-10-28).
+test('the final gate carries a clause whose missing implementation a person accepted, and only while that holds', () => {
+  const implement = `OBL:${W}:implement:AC-001`;
+  const workflow = { workItem: { id: W }, riskDecisions: [
+    { id: 'RISK-001', obligationId: implement, transitions: ['terminal'], expiresAt: '2026-11-01T00:00:00.000Z' },
+    { id: 'RISK-002', obligationId: `OBL:${W}:verify:AC-001`, transitions: ['terminal'], expiresAt: '2026-11-01T00:00:00.000Z' }
+  ] };
+  assert.deepEqual([...acceptedImplementationClauses(workflow, { at: NOW })], [AC], 'a verify risk carries no implementation');
+  assert.deepEqual([...acceptedImplementationClauses(workflow, { at: '2026-11-02T00:00:00.000Z' })], [], 'expired');
+  assert.deepEqual([...acceptedImplementationClauses(workflow, { at: NOW, transition: 'approval' })], [], 'not for that transition');
+  workflow.riskDecisions.push({ id: 'RISK-003', revokes: 'RISK-001' });
+  assert.deepEqual([...acceptedImplementationClauses(workflow, { at: NOW })], [], 'revoked');
 });
 
 test('a decision binds the exact attempts it accepted, so a rerun or a looser tie asks for it to be renewed [E2G-020]', () => {

@@ -1,10 +1,10 @@
 /**
  * Plan corrections: rows, tests and paths of an approved plan, corrected in place. `[UIF-M1]`
  *
- * A plan that omits a clause, names a path the work never touches, or lacks a test used to have one
- * way out: reject back to planning and replay every phase after it. Real Stories stopped there,
- * often because the workflow did not even allow the return. Narrow amendments
- * (plan-amendments.mjs) could only add paths to existing rows.
+ * A plan that omits a clause, names a path the work never touches, lacks a test, or plans a product
+ * change where the tests are the whole delivery used to have one way out: reject back to planning
+ * and replay every phase after it. Real Stories stopped there, often because the workflow did not
+ * even allow the return. Narrow amendments (plan-amendments.mjs) could only add paths to existing rows.
  *
  * A correction is an append-only record on the Story, decided by the owner plan's approvers and
  * bound to that plan's exact generation, map digest and, for an existing row, the row's exact
@@ -21,11 +21,13 @@ import { SingularityFlowError, posix } from './util.mjs';
 const MAX_OPERATIONS = 20;
 const sha = z.string().regex(/^[a-f0-9]{64}$/u);
 const clause = z.string().regex(/^[A-Z0-9][A-Z0-9._-]{0,63}:[A-Z]{2,4}-\d{3}$/u);
+const fulfillmentKind = z.string().regex(/^[a-z][a-z-]{0,31}$/u);
 const portablePath = z.string().min(1).max(512).refine((value) => !/[\\:*?"<>|\x00-\x1f\x7f]/u.test(value)
   && !value.startsWith('/') && value.split('/').every((part) => part && part !== '.' && part !== '..'));
 
 const Operation = z.discriminatedUnion('op', [
   z.strictObject({ op: z.literal('add-row'), clauseId: clause, claim: z.record(z.string(), z.unknown()) }),
+  z.strictObject({ op: z.literal('set-fulfillment'), clauseId: clause, fulfillment: fulfillmentKind, previousClaimSha256: sha }),
   z.strictObject({ op: z.literal('add-test'), clauseId: clause, test: portablePath, previousClaimSha256: sha }),
   z.strictObject({ op: z.literal('remove-location'), clauseId: clause, path: portablePath, previousClaimSha256: sha }),
   z.strictObject({ op: z.literal('replace-location'), clauseId: clause, from: portablePath, to: portablePath,
@@ -78,6 +80,14 @@ function applyOperation(result, operation, { check }) {
   if (!claim) return check(false, `The plan has no row for ${id}.`, { clauseId: id });
   check(recordSha256(claim) === operation.previousClaimSha256,
     `The plan row for ${id} is not the row this correction was decided against.`, { clauseId: id });
+  if (operation.op === 'set-fulfillment') {
+    check((claim.fulfillment ?? null) !== operation.fulfillment, `${id} is already planned as ${operation.fulfillment}.`, { clauseId: id });
+    claim.fulfillment = operation.fulfillment;
+    // A test-only row names its tests and no product path: the tests are the whole delivery
+    // (a test-generation Story whose plan said otherwise, PMBEPP 2026-10-27).
+    if (operation.fulfillment === 'test-only') claim.expectedPaths = [];
+    return;
+  }
   if (operation.op === 'add-test') {
     check(claim.testDisposition !== 'non-test',
       `${id} is proven without executable tests; change its proof with an evidence correction or a new plan.`, { clauseId: id });
@@ -128,7 +138,7 @@ export function recordPlanRowCorrection(workflow, {
 }) {
   if (!ownerRecord || ownerRecord.kind !== 'planned') refused('A plan correction needs the approved plan it corrects.');
   if (!operations.length || operations.length > MAX_OPERATIONS) {
-    refused(`Name 1 to ${MAX_OPERATIONS} corrections with --add-row, --add-test, --remove-location or --replace-location.`);
+    refused(`Name 1 to ${MAX_OPERATIONS} corrections with --add-row, --set-fulfillment, --add-test, --remove-location or --replace-location.`);
   }
   const active = new Set(activeClauseIds.map((value) => String(value).toUpperCase()));
   const result = structuredClone(ownerRecord);
@@ -147,6 +157,9 @@ export function recordPlanRowCorrection(workflow, {
       };
       if (!raw.expectedPaths.length && !raw.tests.length) refused(`A new row for ${clauseId} needs expected paths or planned tests.`);
       operation = { op: 'add-row', clauseId, claim: normalizeRow(clauseId, raw) };
+    } else if (input.op === 'set-fulfillment') {
+      operation = { op: 'set-fulfillment', clauseId, fulfillment: String(input.fulfillment ?? '').trim() };
+      if (!fulfillmentKind.safeParse(operation.fulfillment).success) refused(`Name the fulfillment of ${clauseId}, such as test-only.`, { clauseId });
     } else if (input.op === 'add-test') {
       operation = { op: 'add-test', clauseId, test: exactPath(input.test, `The planned test for ${clauseId}`) };
     } else if (input.op === 'remove-location') {
@@ -155,7 +168,7 @@ export function recordPlanRowCorrection(workflow, {
       operation = { op: 'replace-location', clauseId, from: exactPath(input.from, `The path to replace in ${clauseId}`),
         to: exactPath(input.to, `The replacement path for ${clauseId}`) };
     } else {
-      refused('A plan correction adds a row or a test, or removes or replaces a path.');
+      refused('A plan correction adds a row or a test, changes a row\'s fulfillment, or removes or replaces a path.');
     }
     if (operation.op !== 'add-row') {
       if (!result.claims[clauseId]) refused(`The plan has no row for ${clauseId}; add one with --add-row.`, { clauseId });

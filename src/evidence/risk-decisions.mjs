@@ -123,3 +123,25 @@ export function riskDecisionState(workflow, obligation, { at, transition = 'term
   if (decision.observation?.sha256 !== observationDigest(obligation)) return { decision, state: 'overtaken' };
   return { decision, state: 'active' };
 }
+
+/**
+ * Clauses whose missing or partial implementation a person accepted for this transition, by full
+ * clause ID. The final gate's clause coverage carries these as the evidence evaluation does; that
+ * the accepted observation still holds is the evaluation's own check at the same transition, so
+ * here only the latest decision per obligation, unrevoked, unexpired and naming the transition, counts.
+ */
+export function acceptedImplementationClauses(workflow, { at, transition = 'terminal' } = {}) {
+  const workId = workflow?.workItem?.id;
+  const prefix = `OBL:${workId}:implement:`;
+  const entries = workflow?.riskDecisions ?? [];
+  const latest = new Map();
+  for (const entry of entries) if (!entry.revokes && String(entry.obligationId ?? '').startsWith(prefix)) latest.set(entry.obligationId, entry);
+  const clauses = new Set();
+  for (const decision of latest.values()) {
+    if (entries.some((entry) => entry.revokes === decision.id)) continue;
+    if (new Date(decision.expiresAt) <= new Date(at ?? Date.now()) || !(decision.transitions ?? []).includes(transition)) continue;
+    const local = decision.obligationId.slice(prefix.length);
+    clauses.add(local.includes(':') ? local : `${workId}:${local}`);
+  }
+  return clauses;
+}

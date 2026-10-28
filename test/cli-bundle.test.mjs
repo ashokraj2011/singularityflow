@@ -229,7 +229,11 @@ test('the bundled CLI answers exactly like the sources while opening a handful o
   // 7,470,000: main 775a37b9 measures 7,463,396; approving with --confirm-evidence, which records the step's
   // planned screenshots and inspections as witnessed in the approval itself (the approve wiring, the confirmation
   // list and the terminal route), adds cold-hook-context +3,803 and cold-core +445 for 7,467,644. No new file.
-  assert.ok(closure('cold-hook-context.mjs').reduce((sum, item) => sum + item.bytes, 0) < 7_470_000,
+  // 7,475,000: main cf33907d measures 7,467,644; a test-generation Story's plan row corrected to test-only
+  // (decision plan --set-fulfillment, now the plan approver's own terminal step), an accepted implementation risk
+  // honoured by the final gate, and an upstream issue raised from /sf-decide add cold-hooks +812, cold-narrow-reads
+  // +756, cold-hook-context +755 and cold-core +400 for 7,470,367. No new file.
+  assert.ok(closure('cold-hook-context.mjs').reduce((sum, item) => sum + item.bytes, 0) < 7_475_000,
     'phase-review reads retain their existing byte ceiling after moving families');
   assert.match(await readFile(path.join(outdir, 'cold-light.mjs'), 'utf8'), /function enterPhase\b/u,
     'phase binding must not fall through to the compatibility/admin bundle');

@@ -127,3 +127,82 @@ test('a wrong plan path is corrected by the plan approvers and the code step con
   assert.equal(after.phases.implementation.status, 'awaiting_approval');
   assert.equal(after.phases.intake.generation, 1, 'no step was reset');
 });
+
+// A test-generation Story (PMBEPP, 2026-10-27): the plan said the module changes, the code step wrote
+// only tests, and no correction could make the row test-only, so the Story could not end.
+test('a row planned as a product change is corrected to test-only and the tests-only code step publishes', async (t) => {
+  const root = await mkdtemp(path.join(os.tmpdir(), 'sflow-plan-test-only-'));
+  const remote = `${root}.git`;
+  t.after(() => Promise.all([rm(root, { recursive: true, force: true }), rm(remote, { recursive: true, force: true })]));
+  const cli = (...args) => run(process.execPath, [CLI, '--no-model', ...args], root);
+  const attempt = (...args) => run(process.execPath, [CLI, '--no-model', ...args], root, { allowFailure: true });
+  const write = async (relative, contents) => {
+    await mkdir(path.dirname(path.join(root, relative)), { recursive: true });
+    await writeFile(path.join(root, relative), contents);
+  };
+  const testFile = (cases) => ["import test from 'node:test';", "import assert from 'node:assert/strict';",
+    "import { value } from '../src/value.mjs';", `// @ac:${AC}`, ...cases, ''].join('\n');
+  run('git', ['init', '-b', 'main'], root);
+  run('git', ['config', 'user.name', 'Correction Tester'], root);
+  run('git', ['config', 'user.email', 'correct@example.test'], root);
+  await write('package.json', JSON.stringify({ type: 'module', private: true, scripts: { test: 'node --test' } }));
+  await write('src/value.mjs', 'export const value = 1;\n');
+  await write('test/value.test.mjs', testFile(["test('value', () => assert.equal(value, 1));"]));
+  cli('init');
+  const configPath = path.join(root, 'singularity/workflow.yml');
+  const config = YAML.parse(await readFile(configPath, 'utf8'));
+  config.worldModel.grounding = 'off';
+  config.approvalSecurity = { profile: 'poc' };
+  for (const authority of Object.values(config.approvalAuthorities)) authority.allowAnyGitIdentity = true;
+  config.workTypes['classic-delivery'].spec = { ...(config.workTypes['classic-delivery'].spec ?? {}), mode: 'enforce', coverage: 'enforce' };
+  await writeFile(configPath, YAML.stringify(config));
+  run('git', ['add', '.'], root);
+  run('git', ['commit', '-m', 'Initialize the test-only fixture'], root);
+  run('git', ['init', '--bare', '-b', 'main', remote], root);
+  run('git', ['remote', 'add', 'origin', remote], root);
+  run('git', ['push', '-u', 'origin', 'main'], root);
+  const readiness = JSON.parse(cli('precheck', '--run', '--scope', 'dependency-test', '--json').stdout).data.plan;
+  cli('precheck', '--run', '--scope', 'dependency-test', '--confirm-plan', readiness.planId, '--json');
+
+  cli('start', W, '--from-branch', 'main', '--work-type', 'classic-delivery', '--title', 'Cover the value', '--description', 'Add tests for the value.');
+  const item = path.join(root, 'singularity/work-items', W);
+  cli('prepare', 'intake');
+  await writeFile(path.join(item, 'artifacts/intake/intake.md'), [
+    `# ${W} — intake`, '', '## Request and outcome', '', 'Prove the exported value stays 1 with a second test.', '',
+    '## Scope and constraints', '', 'Tests only; the value module stays as it is.', '',
+    '## Acceptance criteria', '', '| Clause | Observable outcome |', '|---|---|', `| [${AC}] | A test proves the exported value equals 1. |`, '',
+    '## Planned implementation evidence', '', '| Clause | Expected paths | Planned tests | Fulfillment |', '|---|---|---|---|',
+    `| \`${AC}\` | \`src/value.mjs\` | \`test/value.test.mjs\` | modified |`, '',
+    '## Initial evidence', '', 'The baseline module and test at the pinned main revision.', ''
+  ].join('\n'));
+  cli('wm', 'compose', '--phase', 'intake');
+  cli('clarification', 'record', 'intake', '--question', 'Does the module change?', '--answer', 'No, only tests are added.');
+  cli('phase', 'publish', 'intake', '--authored', 'human', '--channel', 'manual-in-place');
+  cli('submit', 'intake');
+  cli('approve', 'intake', '--yes');
+
+  cli('prepare', 'implementation');
+  await write('test/value.test.mjs', testFile(["test('value', () => assert.equal(value, 1));",
+    "test('value is a number', () => assert.equal(typeof value, 'number'));"]));
+  const codeArtifact = path.join(item, 'artifacts/implementation/implementation-summary.md');
+  await writeFile(codeArtifact, (await readFile(codeArtifact, 'utf8')).replace(/TODO:[^\n]*/gu, 'A second test covers the exported value.'));
+  const refused = attempt('phase', 'publish', 'implementation', '--authored', 'human', '--channel', 'manual-in-place');
+  assert.notEqual(refused.status, 0, 'the plan says the module changes, and it does not');
+
+  const reason = 'This Story only adds tests; the value module is not changed.';
+  const preview = JSON.parse(cli('decision', 'plan', '--set-fulfillment', `${AC}=test-only`, '--reason', reason, '--dry-run', '--json').stdout);
+  assert.deepEqual(preview.data.operations.map((operation) => [operation.op, operation.clauseId, operation.fulfillment]),
+    [['set-fulfillment', AC, 'test-only']]);
+  const reviewed = run(process.execPath, ['--input-type=module', '-e', RUNNER,
+    JSON.stringify({ 'set-fulfillment': `${AC}=test-only`, reason, json: true })], root);
+  assert.match(reviewed.stderr, /REVIEWED \[\{"CORRECT-1:AC-001":\{"expectedPaths":\["src\/value\.mjs"\]/u, 'the reviewer saw the row before');
+  const state = JSON.parse(await readFile(path.join(item, 'workflow.json'), 'utf8'));
+  assert.deepEqual(state.planAmendments.map((entry) => [entry.id, entry.operations[0].op]), [['PRC-001', 'set-fulfillment']]);
+  assert.equal(state.phases.intake.status, 'approved', 'the plan keeps its approval');
+
+  cli('phase', 'publish', 'implementation', '--authored', 'human', '--channel', 'manual-in-place');
+  cli('submit', 'implementation');
+  const after = JSON.parse(await readFile(path.join(item, 'workflow.json'), 'utf8'));
+  assert.equal(after.phases.implementation.status, 'awaiting_approval');
+  assert.equal(after.phases.intake.generation, 1, 'no step was reset');
+});

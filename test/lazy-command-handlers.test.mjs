@@ -152,7 +152,12 @@ test('frequent lifecycle handlers do not reach the legacy dispatcher and stay un
     // 9,150,000 (next 5,000 boundary): main 591a797a measures 9,143,575 for start.mjs. A person's own terminal steps
     // routed to no skill and refused in every turn add 3,525 for 9,147,100 (command-skills.mjs,
     // copilot-mutation-guard.mjs, decision-list.mjs, narration/command-result.mjs, commands/decisions.mjs). No new file.
-    assert.ok(closure.bytes <= 9_150_000, `${file} exceeds the 9 MB eager-source budget (${closure.bytes} bytes)`);
+    // 9,155,000 (next 5,000 boundary): main cf33907d measures 9,147,422 for start.mjs. A test-generation Story's
+    // plan row corrected to test-only, the plan approver's own terminal step for it, an accepted implementation risk
+    // at the final gate and an upstream issue raised from /sf-decide add 3,152 for 9,150,574 (plan-row-corrections.mjs,
+    // evidence/risk-decisions.mjs, copilot-mutation-guard.mjs, command-skills.mjs, evidence/evaluate.mjs,
+    // governance.mjs, commands/plan-correction.mjs, evidence/terminal.mjs). No new file.
+    assert.ok(closure.bytes <= 9_155_000, `${file} exceeds the 9 MB eager-source budget (${closure.bytes} bytes)`);
   }
 });
 
@@ -205,7 +210,9 @@ test('the common session projection does not import attach, state stores or publ
     assert.equal(current.files.has(path.join(sourceRoot, file)), false, `session current eagerly loads ${file}`);
   }
   assert.ok(current.files.size <= 220, `session current reaches ${current.files.size} files; old session handler reached 429`);
-  assert.ok(current.bytes <= 3_900_000, `session current loads ${current.bytes} source bytes`);
+  // 3,905,000: main cf33907d measures 3,898,542; plan corrections as the plan approver's own terminal step and an
+  // upstream issue raised from /sf-decide add 1,906 for 3,900,448 (copilot-mutation-guard.mjs, command-skills.mjs).
+  assert.ok(current.bytes <= 3_905_000, `session current loads ${current.bytes} source bytes`);
 });
 
 test('early phase and grounding-path entries exclude the deferred authoring and review graphs', async () => {

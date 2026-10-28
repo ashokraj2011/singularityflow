@@ -558,7 +558,11 @@ test('/sf-decide turns permit only the bound decision commands its skill runs', 
     `singularity-flow decision completeness PMC-1 --fetch --confirm ${'b'.repeat(64)} --article completeness=satisfied --reason "Reviewed."`,
     'singularity-flow decision plan PMC-1 --fetch --add-location PMC-1:AC-001=src/App.jsx --reason "Belongs to AC-001."',
     'singularity-flow upstream-issue list --work-id PMC-1 --open --json',
-    'singularity-flow upstream-issue decide UPI-001 --work-id PMC-1 --outcome dismiss --reason "The person dismissed it."']) {
+    'singularity-flow upstream-issue decide UPI-001 --work-id PMC-1 --outcome dismiss --reason "The person dismissed it."',
+    // The route a final check names for an earlier step's defect (2026-10-28), with the person's words.
+    'singularity-flow upstream-issue raise --work-id PMC-1 --phase intake --about PMC-1:REQ-001 --problem "Tests are the whole delivery."',
+    // A plan correction's preview; recording one is the plan approver's own terminal step.
+    'singularity-flow decision plan PMC-1 --set-fulfillment PMC-1:REQ-001=test-only --reason "The tests are the whole delivery." --dry-run']) {
     assert.deepEqual(await shell(command), {}, command);
   }
   for (const command of [choose.replace('PMC-1', 'OTHER'), `${choose} --work-id OTHER`, `${choose} && echo unsafe`,
@@ -566,7 +570,8 @@ test('/sf-decide turns permit only the bound decision commands its skill runs', 
     'singularity-flow decision risk PMC-1 --reason "x"',
     'singularity-flow upstream-issue decide UPI-001 --outcome dismiss --reason "No Story bound to it."',
     'singularity-flow upstream-issue decide UPI-001 --work-id OTHER --outcome dismiss --reason "Another Story."',
-    'singularity-flow upstream-issue raise --work-id PMC-1 --phase intake --about x --problem "Not a decision turn action."',
+    'singularity-flow upstream-issue raise --work-id OTHER --phase intake --about x --problem "Another Story."',
+    'singularity-flow upstream-issue raise --work-id PMC-1 --phase intake --about x',
     'singularity-flow approve custom-step', 'singularity-flow reject custom-step --reason x',
     'singularity-flow submit custom-step', 'singularity-flow prepare custom-step', 'singularity-flow next']) {
     assert.equal((await shell(command)).permissionDecision, 'deny', command);
@@ -805,7 +810,9 @@ test('every step only a person takes in their own terminal is refused in every t
     'spec-drift-decision': ['singularity-flow spec drift decide PMC-1:REQ-001 --accept --reason "The code is right."'],
     'upstream-amendment-decision': ['singularity-flow upstream-issue decide-amendment FAM-001 --decision approve --reason "The amendment is right." --confirm FAM-001',
       'singularity-flow upstream-issue revalidate custom-step --amendment FAM-001 --outcome unchanged --reason "Still holds."'],
-    'environment-binding': ['singularity-flow env bind staging --stdin', 'singularity-flow env unbind staging --json']
+    'environment-binding': ['singularity-flow env bind staging --stdin', 'singularity-flow env unbind staging --json'],
+    'plan-correction': ['singularity-flow decision plan PMC-1 --set-fulfillment PMC-1:REQ-001=test-only --reason "The tests are the whole delivery."',
+      'singularity-flow decision plan PMC-1 --replace-location PMC-1:AC-001=src/a.mjs:src/b.mjs --reason "The plan named the wrong module."']
   };
   assert.deepEqual(Object.keys(steps).sort(), OWN_TERMINAL_STEPS.map((step) => step.id).sort());
   for (const [id, commands] of Object.entries(steps)) {
@@ -1124,7 +1131,8 @@ const NOT_RUN_BY_THIS_TURN = Object.freeze({
   'sflow-jira-work': [[/^start PMC-1 --jira\b/u, 'the Shell form of the /sf-start route it offers']],
   'sflow-nextsteps': [[/^sync$/u, 'lists the returned actions; /sf-next runs them']],
   'sflow-reject': [[/^story intent-amendment propose$/u, 'names the nextsteps action; its full command is checked']],
-  'sflow-decide': [[/^upstream-issue decide$/u, 'names the family in its turn boundary; its full `upstream-issue decide <UPI-ID> --work-id` step is checked']],
+  'sflow-decide': [[/^upstream-issue decide$/u, 'names the family in its turn boundary; its full `upstream-issue decide <UPI-ID> --work-id` step is checked'],
+    [/^upstream-issue raise$/u, 'names the returned route it runs; the full raise with --work-id, --phase, --about and --problem is checked in the /sf-decide turn test']],
   'sflow-workflow-rules': [[/^approve$/u, 'says who may approve; an approval is recorded only in an /sf-approve turn']],
   'sflow-sgos-create': [[/^(?:process (?:start|step|run)|intent (?:ratify|compile))\b/u, 'named only as commands it never runs']],
   'sflow-auto': [[/^auto flight-step\b/u, 'named only as a command it never invokes directly']],

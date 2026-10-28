@@ -141,12 +141,22 @@ test('a code step that delivered only tests names the plan as what to correct fo
   const testsOnly = { ...delivery(), testsOnly: true };
   const result = evaluate({ workflow: story(), records: maps, deliveries: [testsOnly] });
   const finding = result.findings.find((entry) => entry.code === 'EVIDENCE_IMPLEMENTATION_MISSING' && entry.message.includes(REQ));
-  assert.match(finding.message, /implementation delivered only test files, and EV-1:REQ-001 is planned as a product change\. If the tests are the whole delivery, correct its plan row to test-only in intake\./u);
+  // The route is a correction the plan's approvers can record: before 2026-10-28 it named an upstream
+  // issue whose plan correction could not change a row's fulfillment, so the Story stayed stuck.
+  const correction = `singularity-flow decision plan ${W} --owner intake --set-fulfillment ${REQ}=test-only --add-test ${REQ}=<TEST-PATH> --reason "<why the tests are the whole delivery>"`;
+  assert.equal(finding.message, `No delivered change implements ${REQ}: implementation delivered only test files, and ${REQ} is planned as a product change. If the tests are the whole delivery, someone who approves intake corrects the row: ${correction}.`);
   const implementation = row(result, REQ).obligations.find((entry) => entry.responsibility === 'implement');
   assert.deepEqual([implementation.status, implementation.correctionSteps], ['missing', ['intake']]);
   const { terminalRecoveryActions } = await import('../src/evidence/terminal.mjs');
   const actions = terminalRecoveryActions(W, result, null, story());
-  assert.ok(actions.includes(`singularity-flow upstream-issue raise --work-id ${W} --phase intake --about ${REQ} --problem "Tests are the whole delivery: plan ${REQ} as test-only"`), actions.join('\n'));
+  assert.ok(actions.includes(correction), actions.join('\n'));
+  // Once corrected, the delivered test implements the row.
+  const corrected = records();
+  corrected.planned[0].claims[REQ] = { expectedPaths: [], tests: ['test/one.test.mjs'], testDisposition: 'applicable', testReason: null, fulfillment: 'test-only' };
+  corrected.observed[0].claims[REQ] = { observedPaths: [], testResults: ['test/one.test.mjs'], commits: [], verdict: 'missing' };
+  const after = evaluate({ workflow: story(), records: corrected, deliveries: [testsOnly] });
+  assert.equal(row(after, REQ).obligations.find((entry) => entry.responsibility === 'implement').status, 'met');
+  assert.ok(!after.findings.some((entry) => entry.code === 'EVIDENCE_IMPLEMENTATION_MISSING' && entry.message.includes(REQ)));
   // A delivery that changed product source keeps the plain finding and the code step as the owner.
   const plain = evaluate({ workflow: story(), records: maps, deliveries: [delivery()] });
   assert.equal(plain.findings.find((entry) => entry.message.includes(REQ) && entry.code === 'EVIDENCE_IMPLEMENTATION_MISSING').message, `No delivered change implements ${REQ}.`);

@@ -1,7 +1,7 @@
 /**
  * `decision plan` corrections: someone in the group that approves a plan adds a missing row or
- * test, or removes or replaces a wrong path, after reviewing the exact before/after rows in a live
- * terminal. Nothing is reset; every plan reader applies the correction. `[UIF-M1]`
+ * test, changes a row's fulfillment, or removes or replaces a wrong path, after reviewing the exact
+ * before/after rows in a live terminal. Nothing is reset; every plan reader applies the correction. `[UIF-M1]`
  */
 import path from 'node:path';
 import { head, identity } from '../git.mjs';
@@ -16,8 +16,7 @@ import { LIFECYCLE_EVENT } from '../lifecycle-event.mjs';
 import { commandResult, effects, noEffects, succeeded } from '../narration/command-result.mjs';
 import { emitCommandResult } from '../narration/emit.mjs';
 import { nowIso, optionBoolean, optionString, optionStrings, SingularityFlowError } from '../util.mjs';
-
-const FLAGS = ['add-row', 'add-test', 'remove-location', 'replace-location'];
+import { PLAN_CORRECTION_FLAGS as FLAGS } from '../command-skills.mjs';
 
 function refused(message, details = undefined) {
   throw new SingularityFlowError(message, { code: 'PLAN_ROW_CORRECTION_INVALID', ...(details ? { details } : {}) });
@@ -27,9 +26,9 @@ function list(value) {
   return String(value ?? '').split(',').map((entry) => entry.trim()).filter(Boolean);
 }
 
-function pair(entry, flag, separator = '=') {
+function pair(entry, flag, separator = '=', value = 'path') {
   const at = String(entry).indexOf(separator);
-  if (at < 1) refused(`${flag} must be <clause>${separator}<path>; got '${entry}'.`);
+  if (at < 1) refused(`${flag} must be <clause>${separator}<${value}>; got '${entry}'.`);
   return [String(entry).slice(0, at).trim(), String(entry).slice(at + 1).trim()];
 }
 
@@ -50,6 +49,11 @@ export function planCorrectionOperations(options) {
     ...rows.map((entry) => {
       const [clauseId, paths] = String(entry).includes('=') ? pair(entry, '--add-row') : [String(entry).trim(), ''];
       return { op: 'add-row', clauseId, expectedPaths: list(paths), ...rowFields };
+    }),
+    // Before tests and paths, so they correct the row as the new fulfillment reads it.
+    ...optionStrings(options, 'set-fulfillment').map((entry) => {
+      const [clauseId, fulfillment] = pair(entry, '--set-fulfillment', '=', 'fulfillment');
+      return { op: 'set-fulfillment', clauseId, fulfillment };
     }),
     ...optionStrings(options, 'add-test').map((entry) => {
       const [clauseId, test] = pair(entry, '--add-test');

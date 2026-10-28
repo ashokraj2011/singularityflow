@@ -133,6 +133,7 @@ Operations:
 | Operation | Effect | Binding |
 |---|---|---|
 | `add-row { clauseId, expectedPaths[], tests[], fulfillment }` | Adds a row for an approved clause the plan omitted | The clause is active and has no row |
+| `set-fulfillment { clauseId, fulfillment }` | Changes a row's fulfillment; `test-only` also drops its expected paths, so the tests are the whole delivery (added 2026-10-28 for a test-generation Story) | `previousClaimSha256`; the row must still be one a planner could write |
 | `add-test { clauseId, test }` | Adds a planned test to a row | `previousClaimSha256` of the row |
 | `remove-location { clauseId, path }` | Removes a wrong expected path | `previousClaimSha256`; never the last path of a row that needs one |
 | `replace-location { clauseId, from, to }` | Removes one path and adds another | `previousClaimSha256` |
@@ -148,7 +149,7 @@ judged by every consumer (coverage, delivery evidence, terminal gate) as if the 
 ### 4.3 Command and authority
 
 `decision plan` gains `--add-row <clause>=<path>[,<path>]` (with `--test <path>` and
-`--fulfillment`), `--add-test <clause>=<path>`, `--remove-location <clause>=<path>` and
+`--fulfillment`), `--set-fulfillment <clause>=<kind>`, `--add-test <clause>=<path>`, `--remove-location <clause>=<path>` and
 `--replace-location <clause>=<from>:<to>`. Authority: the owner plan phase's approvers
 (`evidenceOwnerAuthorities`), confirmed in a live terminal review of the exact rows before and after
 (`captureTerminalActionAuthorization`), because a correction can remove an obligation; the record

@@ -9,7 +9,7 @@
  */
 import { runGovernanceGate } from '../governance.mjs';
 import { nowIso, SingularityFlowError } from '../util.mjs';
-import { evaluateEvidence } from './evaluate.mjs';
+import { evaluateEvidence, testOnlyCorrection } from './evaluate.mjs';
 import { WITNESS_CHECKLIST } from '../verification/witness-records.mjs';
 import { RISK_CATEGORIES, riskAuthorities, riskEligibility } from './risk-decisions.mjs';
 import { evidenceGraphFromAggregate } from './graph.mjs';
@@ -67,8 +67,10 @@ export function terminalRecoveryActions(workId, evaluation, gate = null, workflo
     // missing implementation at the final step had only a risk route (2026-10-27).
     if (workflow) for (const obligation of row.obligations ?? []) {
       if (!UPSTREAM_OWNED.has(obligation.responsibility) || !UPSTREAM_STATUSES.has(obligation.status)) continue;
-      // A tests-only delivery for a row planned as a product change is corrected in the plan.
+      // A tests-only delivery for a row planned as a product change is corrected in the plan, by its
+      // approvers directly; a correction could not change a row's fulfillment before 2026-10-28.
       const owner = (obligation.correctionSteps ?? obligation.owningSteps)?.at(-1);
+      if (obligation.correctionSteps && owner) add(decisions, testOnlyCorrection(workId, owner, row.id, row.plan));
       const step = owner ? decidableUpstreamStep(workflow, owner) : null;
       const route = step ? raiseUpstreamIssueRoute(workflow, step, workflow.currentPhase) : null;
       if (route) add(upstream, route.command.replace('<clause-or-section>', row.id).replace('<what-is-wrong>', obligation.correctionSteps

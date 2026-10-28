@@ -2,6 +2,7 @@ import { conformancePhasesOf } from './phase-roles.mjs';
 import { readFile } from 'node:fs/promises';
 import { createHash } from 'node:crypto';
 import { activeQualityRisks } from './phase-quality-risk.mjs';
+import { acceptedImplementationClauses } from './evidence/risk-decisions.mjs';
 import { approvedArtifactQualityFindings } from './phase-artifact-risk.mjs';
 import { terminalTransitionAt } from './workflow-terminal-time.mjs';
 export { terminalTransitionAt } from './workflow-terminal-time.mjs';
@@ -759,9 +760,15 @@ export async function runGovernanceGate(root, config, workflow, { terminal = fal
         return { ...observedCoverage, unimplemented: [], complete, severity: complete ? 'pass' : observedCoverage.severity };
       })();
       const qualityRisks = await activeQualityRisks(root, config, workflow, terminal ? 'terminal' : 'consume');
-      const carried = new Set(qualityRisks.flatMap(risk => risk.clauses ?? []));
+      // A person's accepted implementation risk carries its clause here as the evidence evaluation
+      // carries the obligation; without it the risk route every final check names was refused anyway.
+      const acceptedImplementation = acceptedImplementationClauses(workflow, { at: terminal ? terminalTransitionAt(workflow) : undefined });
+      const carried = new Set([...qualityRisks.flatMap(risk => risk.clauses ?? []), ...acceptedImplementation]);
       const unimplemented = coverage.unimplemented.filter(id => !carried.has(id))
         .map((id) => ({ code: 'gate.clause.unimplemented', message: `clause ${id} is not fully implemented` }));
+      for (const id of coverage.unimplemented.filter(id => acceptedImplementation.has(id))) {
+        warnings.push(`clause ${id} is not fully implemented; a person accepted the risk, so it is excepted, not satisfied.`);
+      }
       for (const risk of qualityRisks) {
         const scope = risk.gate === 'PHASE_ARTIFACT_QUALITY'
           ? (risk.findings ?? []).map(finding => `${finding.code} (${finding.path})`).join(', ')

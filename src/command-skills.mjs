@@ -420,6 +420,17 @@ export const DECISION_LIST_CHAT_OPTIONS = Object.freeze(['accept-risk', 'dismiss
 const CHAT_CHOICE = new RegExp(`^d\\d{1,3}=(?:${DECISION_LIST_CHAT_OPTIONS.join('|')})$`, 'u');
 
 /**
+ * `decision plan` flags that correct an approved plan's rows. A correction is recorded only after a
+ * person who approves the plan reviews the exact rows in a live terminal, so outside a preview it is
+ * their own terminal step; a narrow amendment (`--add-location`) is not.
+ */
+export const PLAN_CORRECTION_FLAGS = Object.freeze(['add-row', 'set-fulfillment', 'add-test', 'remove-location', 'replace-location']);
+export function planRowCorrectionStep([command, sub], options) {
+  return command === 'decision' && sub === 'plan' && options['dry-run'] !== true
+    && PLAN_CORRECTION_FLAGS.some((flag) => options[flag] !== undefined);
+}
+
+/**
  * Steps only a person takes, in their own terminal. copilot-mutation-guard.mjs refuses each in every
  * turn, so a skill route to one only showed it again and pointed back to that skill: /sf-decide for
  * a witness (2026-10-26), then for an accepted test command and its decision-list record
@@ -444,6 +455,8 @@ export const OWN_TERMINAL_STEPS = Object.freeze([
   ['knowledge-confirmation', ([command, sub, verb]) => command === 'wm'
     && ((sub === 'rules' && verb === 'confirm') || (sub === 'knowledge' && ['confirm', 'correct', 'reject'].includes(verb)))],
   ['spec-drift-decision', ([command, sub, verb]) => command === 'spec' && sub === 'drift' && verb === 'decide'],
+  // The /sf-decide turn admitted it, then its live-terminal review refused the agent's shell (2026-10-28).
+  ['plan-correction', planRowCorrectionStep],
   // `upstream-issue decide` for the bound Story is a /sf-decide turn's own; an amendment is not.
   ['upstream-amendment-decision', ([command, sub]) => command === 'upstream-issue' && ['decide-amendment', 'revalidate'].includes(sub)],
   ['environment-binding', ([command, sub]) => command === 'env' && ['bind', 'unbind'].includes(sub)]

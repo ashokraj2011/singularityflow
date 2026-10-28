@@ -76,6 +76,27 @@ test('a correction replaces a wrong path, adds a missing row and a test, and eve
   assert.deepEqual(applyPlanCorrections(record, workflow).claims[AC3].expectedPaths, ['src/format/index.mjs']);
 });
 
+test('a row planned as a product change becomes test-only when the tests are the whole delivery', () => {
+  const { record, workflow } = subject();
+  const recorded = correct(workflow, record, [{ op: 'set-fulfillment', clauseId: AC1, fulfillment: 'test-only' }],
+    { reason: 'This Story generates tests; the module it names is not changed.' });
+  assert.equal(recorded.operations[0].previousClaimSha256, recordSha256(record.claims[AC1]));
+  const corrected = applyPlanCorrections(record, workflow).claims[AC1];
+  assert.equal(corrected.fulfillment, 'test-only');
+  assert.deepEqual(corrected.expectedPaths, [], 'a test-only row names no product path');
+  assert.deepEqual(corrected.tests, ['test/value.test.mjs']);
+  // Refused where a planner's row would be: already that kind, an unknown kind, or test-only with no test.
+  assert.throws(() => correct(workflow, record, [{ op: 'set-fulfillment', clauseId: AC1, fulfillment: 'test-only' }]),
+    { code: 'PLAN_ROW_CORRECTION_INVALID' });
+  assert.throws(() => correct(workflow, record, [{ op: 'set-fulfillment', clauseId: AC2, fulfillment: 'rewritten' }]),
+    { code: 'SPEC_PLANNED_FULFILLMENT_INVALID' });
+  const { record: bare, workflow: bareFlow } = subject();
+  bare.claims[AC1] = { ...bare.claims[AC1], tests: [], testDisposition: 'not-applicable', testReason: 'Manual check.' };
+  bareFlow.phases.planning.claimMaps.planned.sha256 = recordSha256(bare);
+  assert.throws(() => correct(bareFlow, bare, [{ op: 'set-fulfillment', clauseId: AC1, fulfillment: 'test-only' }]));
+  assert.equal(planRowCorrections(bareFlow).length, 0);
+});
+
 test('a later approved plan supersedes its corrections, and another plan is untouched', () => {
   const { record, workflow } = subject();
   correct(workflow, record, [{ op: 'add-test', clauseId: AC1, test: 'test/value-more.test.mjs' }]);
@@ -153,10 +174,12 @@ test('evidence and row corrections replay in the order they were decided', () =>
 test('the command line names each correction exactly', () => {
   assert.deepEqual(planCorrectionOperations({
     'add-row': `${AC3}=src/a.mjs,src/b.mjs`, test: ['test/a.test.mjs'], fulfillment: 'new', steps: 'implementation',
-    'add-test': [`${AC1}=test/x.test.mjs`], 'remove-location': `${AC1}=src/legacy.mjs`, 'replace-location': `${AC1}=src/a.mjs:src/b.mjs`
+    'add-test': [`${AC1}=test/x.test.mjs`], 'remove-location': `${AC1}=src/legacy.mjs`, 'replace-location': `${AC1}=src/a.mjs:src/b.mjs`,
+    'set-fulfillment': `${AC2}=existing`
   }), [
     { op: 'add-row', clauseId: AC3, expectedPaths: ['src/a.mjs', 'src/b.mjs'], tests: ['test/a.test.mjs'], fulfillment: 'new',
       steps: ['implementation'], observableResult: undefined },
+    { op: 'set-fulfillment', clauseId: AC2, fulfillment: 'existing' },
     { op: 'add-test', clauseId: AC1, test: 'test/x.test.mjs' },
     { op: 'remove-location', clauseId: AC1, path: 'src/legacy.mjs' },
     { op: 'replace-location', clauseId: AC1, from: 'src/a.mjs', to: 'src/b.mjs' }

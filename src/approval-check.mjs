@@ -9,6 +9,7 @@
  * repairing the phase. Since SPEC-OAP M2 the proposal holds the approval until a person decides it,
  * and rejecting it lets the phase be approved as submitted.
  */
+import { createHash } from 'node:crypto';
 import { commitIsAncestor, exactFileAtObject, governedCommitIdentity, head } from './git.mjs';
 import { LIFECYCLE_EVENT } from './lifecycle-event.mjs';
 import { scopeStepOf } from './phase-roles.mjs';
@@ -192,6 +193,88 @@ export async function rejectedSkillVersionAmendments(root, config, workflow, com
     pairs.push({ id, proposalCommit, rejectionCommit });
   }
   return pairs;
+}
+
+/** The document commits that add records only: an upload, or a provider fetch. */
+const DOCUMENT_OPERATIONS = Object.freeze({
+  [LIFECYCLE_EVENT.EVIDENCE_RECORDED]: 'document-upload',
+  [LIFECYCLE_EVENT.EXTERNAL_SYNCHRONIZED]: 'document-fetch'
+});
+const DOCUMENT_KEYS = Object.freeze(['documents', 'history', 'publicationProjections']);
+
+/**
+ * The document uploads and fetches among the commits after a submission that offer nothing to the
+ * step under review [unhappy paths S8, 2026-10-28]. Such a commit adds document records the step was
+ * never given, so it changes nothing its review saw, yet it made the submission stale and cost a
+ * reject and a resubmit. Each is checked as strictly as a rejected skill-version pair: its event and
+ * the hash its commit names, a workflow.json diff of only the document counters, one history entry
+ * and one projection, a manifest whose earlier records and packages are unchanged, each new record
+ * offered only to other steps, and no file but its own records and their exact bytes. A document
+ * offered to that step, a package import or anything else still stales the submission.
+ */
+export async function reviewSafeDocumentAdditions(root, config, workflow, phase, commits) {
+  if (!commits.length) return [];
+  const { governedStateChange, stateChangesOnly } = await import('./state.mjs');
+  const manifestFile = `${workDirRelative(config, workflow.workItem.id)}/documents.json`;
+  const sha256 = (bytes) => createHash('sha256').update(bytes).digest('hex');
+  return commits.filter((commit) => {
+    const change = governedStateChange(root, config, workflow, commit);
+    const event = change?.event;
+    if (!event || DOCUMENT_OPERATIONS[event.type] !== event.payload?.operation || event.subject?.id !== workflow.workItem.id
+        || change.identity.eventSha256 !== `sha256:${recordSha256(event)}`) return false;
+    if (!stateChangesOnly(change, DOCUMENT_KEYS) || !['history', 'publicationProjections'].every((key) => appendsOne(change, key))
+        || change.after.history.at(-1)?.event !== 'documents_added') return false;
+    let before;
+    let after;
+    try {
+      before = recordAt(root, change.parent, manifestFile) ?? { documents: [], packages: [] };
+      after = recordAt(root, change.identity.commit, manifestFile);
+    } catch { return false; }
+    const prior = before.documents ?? [];
+    const added = (after?.documents ?? []).slice(prior.length);
+    if (!added.length || recordSha256(after.documents.slice(0, prior.length)) !== recordSha256(prior)
+        || recordSha256(after.packages ?? []) !== recordSha256(before.packages ?? [])) return false;
+    if (added.some((record) => !Array.isArray(record?.phases) || record.phases.includes(phase.id)
+        || record.phase !== phase.id || record.origin || record.packageId)) return false;
+    const files = new Set([...change.ownPaths, manifestFile]);
+    for (const record of added.filter((entry) => entry.storage?.kind === 'git')) {
+      const bytes = typeof record.path === 'string' ? exactFileAtObject(root, change.identity.commit, record.path) : null;
+      if (!bytes || exactFileAtObject(root, change.parent, record.path) || sha256(bytes) !== record.sha256) return false;
+      files.add(record.path);
+    }
+    return change.changed.every((file) => files.has(file));
+  });
+}
+
+const BRANCH_LINK_KEYS = Object.freeze(['lineage', 'history', 'publicationProjections']);
+
+/**
+ * The child-branch links among the commits after a submission [unhappy paths S8, 2026-10-28]. A link
+ * registers one more governed branch for the Story and changes nothing a review saw. Each is its
+ * exact record change: the link event and its hash, one appended child branch named by that event
+ * with the rest of the lineage unchanged, one history entry and one projection, and no file but the
+ * Story's own state.
+ */
+export async function reviewSafeBranchLinks(root, config, workflow, commits) {
+  if (!commits.length) return [];
+  const { governedStateChange, stateChangesOnly } = await import('./state.mjs');
+  return commits.filter((commit) => {
+    const change = governedStateChange(root, config, workflow, commit);
+    const event = change?.event;
+    if (event?.type !== LIFECYCLE_EVENT.BRANCH_LINKED || event.subject?.id !== workflow.workItem.id
+        || change.identity.eventSha256 !== `sha256:${recordSha256(event)}`) return false;
+    if (!stateChangesOnly(change, BRANCH_LINK_KEYS) || !['history', 'publicationProjections'].every((key) => appendsOne(change, key))
+        || change.after.history.at(-1)?.event !== 'child_branch_attached') return false;
+    const prior = change.before.lineage?.childBranches ?? [];
+    const next = change.after.lineage?.childBranches ?? [];
+    const rest = (lineage) => (lineage ? { ...lineage, childBranches: undefined } : null);
+    const createdLineage = { schemaVersion: change.after.lineage?.schemaVersion, canonicalBranch: workflow.workItem.branch,
+      parentStoryId: workflow.workItem.id, childBranches: undefined };
+    return next.length === prior.length + 1 && recordSha256(next.slice(0, prior.length)) === recordSha256(prior)
+      && next.at(-1)?.name === event.payload?.childBranch
+      && recordSha256(rest(change.after.lineage)) === recordSha256(change.before.lineage ? rest(change.before.lineage) : createdLineage)
+      && change.changed.every((file) => change.ownPaths.includes(file));
+  });
 }
 
 /**

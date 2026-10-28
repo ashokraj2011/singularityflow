@@ -554,8 +554,11 @@ export const REVIEW_EFFECTS = Object.freeze({
   [LIFECYCLE_EVENT.WORKFLOW_REOPENED]: 'stales-submission',
   [LIFECYCLE_EVENT.REWORK_ROLLED_FORWARD]: 'stales-submission',
   [LIFECYCLE_EVENT.SEQUENCE_OVERRIDE]: 'stales-submission',
-  // Only the exact Auto human-boundary checkpoint of this submission verifies; other evidence stales it.
+  // Only the exact Auto human-boundary checkpoint of this submission, or a document upload offered
+  // only to other steps (approval-check.mjs), verifies; other evidence stales it.
   [LIFECYCLE_EVENT.EVIDENCE_RECORDED]: 'review-safe',
+  // A document fetch offered only to other steps, and a child-branch link, each verify as their exact
+  // record change (approval-check.mjs); any other synchronization or link stales the submission.
   [LIFECYCLE_EVENT.EXTERNAL_SYNCHRONIZED]: 'stales-submission',
   [LIFECYCLE_EVENT.BRANCH_LINKED]: 'stales-submission',
   [LIFECYCLE_EVENT.TELEMETRY_RECORDED]: 'stales-submission',
@@ -6057,6 +6060,13 @@ export async function reviewHistoryCommits(root, config, workflow, phase, submit
   for (const { proposalCommit, rejectionCommit } of rejectedSkillVersions) {
     allowedReviewCommits.add(rejectionCommit);
     if (interveningCommits.includes(proposalCommit)) allowedReviewCommits.add(proposalCommit);
+  }
+  // Documents offered only to other steps, and a child-branch link: each its exact record change.
+  if (amendments && unallowed().length) {
+    for (const commit of await amendments.reviewSafeDocumentAdditions(root, config, workflow, phase, unallowed())) allowedReviewCommits.add(commit);
+  }
+  if (amendments && unallowed().length) {
+    for (const commit of await amendments.reviewSafeBranchLinks(root, config, workflow, unallowed())) allowedReviewCommits.add(commit);
   }
   const pendingProposals = amendments && unallowed().length
     ? await amendments.pendingIntentAmendmentProposals(root, config, workflow, unallowed()) : [];

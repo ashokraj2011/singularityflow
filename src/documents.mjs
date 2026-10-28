@@ -870,12 +870,26 @@ function assertDocumentInputContainsNoSecret(input, captured) {
 }
 
 
+/**
+ * The statuses a document action accepts on the current step. A step awaiting approval keeps its
+ * submission when every document is offered only to other steps: such an upload changes nothing its
+ * review saw, and approval verifies the commit as that (approval-check.mjs reviewSafeDocumentAdditions).
+ * Withdrawing the submission for it cost a resubmit (unhappy paths S8, 2026-10-28).
+ */
+function documentActionStatuses(workflow, phases) {
+  const current = workflow.phases?.[workflow.currentPhase];
+  if (current?.status !== 'awaiting_approval' || phases == null) return ['in_progress'];
+  let offered;
+  try { offered = normalizeDocumentPhases(phases, workflow, { fromPhase: current.id }); } catch { return ['in_progress']; }
+  return offered.length && !offered.includes(current.id) ? ['in_progress', 'awaiting_approval'] : ['in_progress'];
+}
+
 export async function addDocuments(root, config, workflow, {
   files = [], url = null, names = [], label = null, kind = null, phases = null,
   store = null, frozenEvidence = null, origin = null
 } = {}) {
   await assertNoPendingPublication(root, config, workflow, 'upload documents');
-  const phase = await assertPhaseSequence(root, workflow, 'upload documents');
+  const phase = await assertPhaseSequence(root, workflow, 'upload documents', { allowedStatuses: documentActionStatuses(workflow, phases) });
   // Documents supplied when the Story is created are part of its opening record, whatever the
   // upload window says: the person described the work with them. Only the creation path passes
   // this origin, and only while the first phase has not produced anything yet.
@@ -1128,7 +1142,7 @@ export async function fetchRemoteDocument(root, config, workflow, {
   label = null, kind = null, phases = null, store = null, runtime = {}
 } = {}) {
   await assertNoPendingPublication(root, config, workflow, 'fetch documents');
-  const phase = await assertPhaseSequence(root, workflow, 'fetch documents');
+  const phase = await assertPhaseSequence(root, workflow, 'fetch documents', { allowedStatuses: documentActionStatuses(workflow, phases) });
   await enforceDocumentPhase(root, workflow, config, phase, 'fetch documents');
   const policy = documentPolicy(workflow, config);
   if (!remoteRef) throw new SingularityFlowError('Provide a provider item ID or path to fetch (documents fetch --ref <id>).');

@@ -22,7 +22,7 @@ related:
   - artifacts-and-generation
   - specification-quality
   - epics-and-planning
-version: 11
+version: 12
 ---
 Supporting documents are the evidence a Story is built from: a brief, API notes, a spreadsheet of rules, a design export or screenshot. Images (PNG, JPEG, GIF, WebP, SVG) are attached like any other file. Each one is attached with a name, a storage location, and the phases that read it. `sflow documents upload <FILE> --name <NAME>` attaches a file and pins it by SHA-256; the Story's `documents.json` records its `DOC-nnn` ID, name, hash, size, storage, and phases. Names are required and unique within the Story: case and spacing are ignored, and a detached document keeps its name. Prompts list each document as `DOC-nnn — <name>`, and artifacts cite it the same way.
 
@@ -70,6 +70,10 @@ Without `--phases`, a document serves the current phase and every later one. A p
 list never sees it: its prompt leaves it out and its source review does not expect it to be cited.
 `sflow documents list --phase <phase>` shows exactly what a phase receives: its supporting documents
 only, without the Story's generated and workflow documents.
+
+While a step awaits approval, a document offered only to other steps (`--phases <later-step>`) can be
+uploaded or fetched without withdrawing the submission: its review never saw it, and approval checks
+that commit as exactly that. A document offered to the step under review still withdraws it.
 
 To change the list later, preview the change first:
 

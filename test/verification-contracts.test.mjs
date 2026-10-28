@@ -231,6 +231,32 @@ test('an inspection or visual witness binds the exact file, a full checklist and
   assert.ok(newCandidate.every((entry) => entry.status === 'missing'), 'unchanged screenshot bytes cannot reuse another candidate review');
 });
 
+// A sign-off given after the code step was published, as the outcome review asks, was marked missing
+// once submission set the generation commit (2026-10-28): it binds the candidate's bytes, not its commit.
+test('a witness given before submission still counts after it, and only for the same delivered bytes', async () => {
+  const { recordWitness, witnessContextBinding, witnessContextBindings, witnessRecordResults, WITNESS_CHECKLIST } = await import('../src/verification/witness-records.mjs');
+  const [slot] = parse(table(`| \`${AC1}\` | docs | inspection | \`docs/value.md\` | | | | |`))[0].slots;
+  const yes = Object.fromEntries(WITNESS_CHECKLIST.map((item) => [item, 'yes']));
+  const sha256 = `sha256:${'d'.repeat(64)}`;
+  const delivered = { sourceTreeSha256: 'b'.repeat(64), testInputSha256: 'c'.repeat(64) };
+  const workflow = { workItem: { id: 'VERIFY' }, phaseOrder: ['implementation'],
+    phases: { implementation: { generation: 1, generationCommit: null, deliveryEvidence: { ...delivered } } } };
+  recordWitness(workflow, { clauseId: AC1, slot, file: 'docs/value.md', sha256, answers: yes, reason: 'Read the value section end to end.', actor: 'carol', authorityGroup: 'reviewers', at: NOW });
+  const current = new Map([['docs/value.md', sha256]]);
+  const judged = () => witnessRecordResults(workflow.witnessRecords, current, { contextBinding: witnessContextBindings(workflow) })[0].status;
+  workflow.phases.implementation.generationCommit = 'a'.repeat(40);
+  assert.equal(judged(), 'met', 'submission set the commit; the delivered bytes are the same');
+  // A record bound before this change, with the commit, still counts for that commit.
+  workflow.witnessRecords[0] = { ...workflow.witnessRecords[0], contextBinding: witnessContextBinding(workflow, { legacy: true }) };
+  assert.equal(judged(), 'met');
+  workflow.witnessRecords[0] = { ...workflow.witnessRecords[0], contextBinding: witnessContextBinding(workflow) };
+  workflow.phases.implementation.deliveryEvidence = { ...delivered, sourceTreeSha256: 'e'.repeat(64) };
+  assert.equal(judged(), 'missing', 'other delivered source is another candidate');
+  workflow.phases.implementation.deliveryEvidence = { ...delivered };
+  workflow.phases.implementation.generation = 2;
+  assert.equal(judged(), 'missing', 'a new generation is another candidate');
+});
+
 test('a retained evidence witness requires exact published bytes, including mixed obligations', async () => {
   const { recordWitness, WITNESS_CHECKLIST } = await import('../src/verification/witness-records.mjs');
   const file = 'singularity/work-items/VERIFY/evidence/screen.png';

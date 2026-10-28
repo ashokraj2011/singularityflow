@@ -323,6 +323,56 @@ test('a verification contract through a real Story: an inspection-only criterion
   assert.ok(changed['AC-002'].findings.some((entry) => /changed after its inspection/.test(entry.message)));
 });
 
+// The outcome review asks for a sign-off after the step is published; submission set the generation
+// commit and the inspection was marked missing again (2026-10-28). It binds the delivered bytes now.
+test('an inspection recorded after publishing and before submitting still counts once the step is submitted', async (t) => {
+  const workId = 'EXACT-3B';
+  const { root, cli } = await governedRepository(t, workId, {
+    'package.json': JSON.stringify({ type: 'module', private: true, scripts: { test: 'node tools/jest-shim.mjs --runner jest' } }),
+    '.gitignore': '.sflow/\n',
+    'tools/jest-shim.mjs': await readFile(SHIM, 'utf8'),
+    'src/value.js': 'export const value = 1;\n',
+    'test/value.test.js': "import { value } from '../src/value.js';\ntest('baseline value', () => { expect(value).toBe(1); });\n"
+  });
+  const item = await intake(root, cli, workId, [
+    ['AC-001', 'The exported value equals 2.'],
+    ['AC-002', 'The runbook states the approved value.']
+  ], [
+    ['AC-001', '`src/value.js`', '`test/value.test.js`', 'modified'],
+    ['AC-002', '`docs/runbook.md`', 'not-applicable: a reviewer inspects the runbook', 'document']
+  ], {
+    columns: ['Clause', 'Expected paths', 'Planned tests', 'Fulfillment'],
+    extra: [
+      '## Verification contracts', '', '| Criterion | Slot | Method | Witness |', '|---|---|---|---|',
+      `| \`${workId}:AC-001\` | unit | test | \`test/value.test.js\` |`,
+      `| \`${workId}:AC-002\` | runbook | inspection | \`docs/runbook.md\` |`, ''
+    ]
+  });
+  await writeFile(path.join(root, 'src/value.js'), `// @clause:${workId}:AC-001 returns the approved value two\nexport const value = 2;\n`);
+  await writeFile(path.join(root, 'test/value.test.js'), [
+    "import { value } from '../src/value.js';", '', `// @ac:${workId}:AC-001`, "test('exported value is two', () => { expect(value).toBe(2); });", ''
+  ].join('\n'));
+  await mkdir(path.join(root, 'docs'), { recursive: true });
+  await writeFile(path.join(root, 'docs/runbook.md'), '# Runbook\n\nThe exported value is two.\n');
+  await completeSummary(item);
+  cli('phase', 'publish', 'implementation', '--authored', 'human', '--channel', 'manual-in-place');
+  cli('decision', 'witness', '--criterion', `${workId}:AC-002`, '--slot', 'runbook', '--file', 'docs/runbook.md',
+    '--confirm', 'states-the-outcome', '--confirm', 'matches-the-criterion', '--confirm', 'current-for-this-change',
+    '--reason', 'The runbook states that the exported value is two.');
+  cli('submit', 'implementation');
+  const verify = () => JSON.parse(cli('evidence', 'matrix', '--json').stdout).data.matrix.page.rows
+    .find((entry) => entry.id === `${workId}:AC-002`).obligations.find((entry) => entry.responsibility === 'verify');
+  assert.equal(verify().status, 'met', 'the inspection given before submission still counts');
+
+  // Code changed during review: the code step is told to be returned, not to move its own changes elsewhere.
+  await writeFile(path.join(root, 'src/value.js'), `// @clause:${workId}:AC-001 returns the approved value two\nexport const value = 3;\n`);
+  run('git', ['commit', '-qam', 'change the value during review'], root);
+  const refused = run(process.execPath, [CLI, '--no-model', 'approve', 'implementation', '--yes'], root, { allowFailure: true });
+  assert.notEqual(refused.status, 0);
+  assert.match(`${refused.stdout}\n${refused.stderr}`, /This step delivers that code: a person who approves it returns it \(singularity-flow reject implementation/u);
+  assert.doesNotMatch(`${refused.stdout}\n${refused.stderr}`, /appropriate code-delivery phase/u);
+});
+
 test('a tag naming a criterion the specification does not hold is refused at publication, before submission', async (t) => {
   const workId = 'EXACT-4';
   const { root, cli } = await governedRepository(t, workId, {

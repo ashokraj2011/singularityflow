@@ -23,7 +23,7 @@ import { buildScopeInventory } from '../scope/inventory.mjs';
 import { removedClauseIds } from '../scope/revisions.mjs';
 import { planAmendmentRecord } from '../plan-amendments.mjs';
 import { secureRepositoryPath } from '../util.mjs';
-import { witnessContextBinding, witnessRecordResults } from '../verification/witness-records.mjs';
+import { witnessContextBindings, witnessRecordResults } from '../verification/witness-records.mjs';
 import { applicabilityStatus } from './applicability.mjs';
 import { phaseOwnsScope } from '../phase-roles.mjs';
 import { pinnedStorySource } from '../story-epic-sources.mjs';
@@ -299,7 +299,7 @@ async function loadWitnessRecords(root, workflow) {
       current.set(file, `sha256:${createHash('sha256').update(await readFile(secured.absolute)).digest('hex')}`);
     } catch { current.set(file, null); }
   }
-  return witnessRecordResults(workflow.witnessRecords ?? [], current, { contextBinding: witnessContextBinding(workflow) });
+  return witnessRecordResults(workflow.witnessRecords ?? [], current, { contextBinding: witnessContextBindings(workflow) });
 }
 
 /** The Story's accepted-scope inventory [E2G-006], or null with a finding when it cannot be built. */

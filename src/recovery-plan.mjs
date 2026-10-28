@@ -343,6 +343,12 @@ export async function inspectPhaseRecovery(root, config, workflow, phase, {
           phase: phase.id, generation: phase.generation, path: relative,
           details: { message: 'Published document content changed. Restore the exact reviewed bytes (recover lists set-aside-worktree for it) or prepare an authorized successor; the old publication remains immutable.',
             headMatchesPublication: Boolean(headBytes) && authoredArtifactFingerprint(headBytes.toString('utf8')) === authoredArtifactFingerprint(bytes.toString('utf8')) } });
+        // A step still being authored publishes the edit as its next generation; the plan offered only
+        // restoring, returning or setting it aside, though that one command works (2026-10-28).
+        if (phase.status === 'in_progress') actions.push(action({ id: `published-document-new-generation:${phase.id}`, mode: 'guided',
+          command: `singularity-flow phase publish ${phase.id}`, skill: '/sf-publish',
+          detail: `Publish the edited draft as generation ${Number(phase.generation) + 1} and submit that; publication ${commit} stays as it was.`,
+          evidence: { path: relative, publicationCommit: commit } }));
         actions.push(action({ id: `published-document-successor:${phase.id}`, mode: 'guided',
           command: phase.status === 'awaiting_approval'
             ? `singularity-flow reject ${phase.id} --work-id ${workflow.workItem.id} --to <phase> --reason <reason>`

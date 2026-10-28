@@ -15,7 +15,7 @@ import { readFile } from 'node:fs/promises';
 import { createHash } from 'node:crypto';
 import { recordSha256 } from '../records.mjs';
 import { secureRepositoryPath } from '../util.mjs';
-import { witnessContextBinding } from './witness-records.mjs';
+import { witnessContextBindings } from './witness-records.mjs';
 import { approvedInputPhases } from '../phase-input-policy.mjs';
 import {
   isConformancePhase, isTestEvidencePhase, isVisualVerificationPhase, stepResponsibilities
@@ -39,14 +39,14 @@ function activeRecords(records = []) {
  * null when it cannot be read; a file absent from the map is reported unchecked). Pure.
  */
 export function witnessDecisionsFrom(workflow, currentSha256 = new Map()) {
-  const contextBinding = witnessContextBinding(workflow ?? {});
+  const contextBindings = new Set(witnessContextBindings(workflow ?? {}));
   return activeRecords(workflow?.witnessRecords ?? []).map((record) => {
     const current = currentSha256.has(record.file) ? currentSha256.get(record.file) : undefined;
     const binding = current === undefined ? 'unchecked'
       : current == null ? 'bound-file-unreadable'
         : current === record.sha256 ? 'bound-file-unchanged' : 'bound-file-changed';
     const candidate = !record.contextBinding ? 'not-recorded'
-      : record.contextBinding === contextBinding ? 'unchanged' : 'changed';
+      : contextBindings.has(record.contextBinding) ? 'unchanged' : 'changed';
     const answeredNo = Object.entries(record.checklist ?? {}).filter(([, answer]) => answer !== 'yes').map(([item]) => item);
     const decision = record.outcome === 'met' ? 'satisfies' : 'does-not-satisfy';
     return {

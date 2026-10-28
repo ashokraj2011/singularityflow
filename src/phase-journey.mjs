@@ -42,8 +42,8 @@ export function phaseJourney(workflow, phase, { findings = [], inspection = {}, 
     state = 'human-approval'; next = guidance(['approve', phase.id, '--work-id', workflow.workItem.id, '--fetch']);
   } else if (submission?.lifecycleReady === true && submission.confirmationRequired !== true
       && submission.classification === 'ready-to-attempt' && !(submission.decisionInputs?.length)) {
-    // Submission pins the delivery commit/test evidence used by witnessContextBinding.
-    // Asking for a witness earlier either refuses as unpublished or becomes stale on submit.
+    // Submission pins the delivery evidence retained evidence is witnessed against; asking for a
+    // witness of retained evidence earlier refuses it as unpublished.
     state = 'ready-to-submit'; next = safeCommandGuidance({ command: submission.nextCommand ?? submission.command });
   } else if (submission) {
     state = 'lifecycle-review'; next = safeCommandGuidance({ command: submission.nextCommand ?? submission.command });

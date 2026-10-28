@@ -19,16 +19,26 @@ function invalid(message, code = 'WITNESS_RECORD_INVALID') {
   return new SingularityFlowError(message, { code });
 }
 
-/** A visual/inspection decision belongs to this plan, criterion set and published candidate. */
-export function witnessContextBinding(workflow) {
+/**
+ * A visual/inspection decision belongs to this plan, criterion set and published candidate: its
+ * generation and the source and test bytes it delivered. Not the commit those bytes land in, which
+ * submission sets: a sign-off given after publishing, as the outcome review asks, was always marked
+ * missing once the step was submitted (2026-10-28). `legacy` is the form records before that bound.
+ */
+export function witnessContextBinding(workflow, { legacy = false } = {}) {
   return `sha256:${recordSha256({ workId: workflow.workItem?.id ?? null,
     phases: (workflow.phaseOrder ?? Object.keys(workflow.phases ?? {})).map((id) => {
       const phase = workflow.phases?.[id] ?? {};
       return { id, specification: phase.specIndex?.indexSha256 ?? null,
         plan: phase.claimMaps?.planned?.sha256 ?? null,
-        candidate: phase.deliveryEvidence ? { generation: phase.generation, commit: phase.generationCommit ?? null,
+        candidate: phase.deliveryEvidence ? { generation: phase.generation, ...(legacy ? { commit: phase.generationCommit ?? null } : {}),
           source: phase.deliveryEvidence.sourceTreeSha256 ?? null, tests: phase.deliveryEvidence.testInputSha256 ?? null } : null };
     }) })}`;
+}
+
+/** The bindings a record may carry and still belong to this candidate: today's, and the legacy form. */
+export function witnessContextBindings(workflow) {
+  return [witnessContextBinding(workflow), witnessContextBinding(workflow, { legacy: true })];
 }
 
 /**
@@ -83,12 +93,13 @@ export function recordWitness(workflow, { clauseId, slot, file, sha256, answers 
  * of its bytes at evaluation, or null when it cannot be read.
  */
 export function witnessRecordResults(records = [], currentSha256 = new Map(), { contextBinding = null } = {}) {
+  const bindings = new Set([contextBinding].flat());
   const latest = new Map();
   for (const record of records) latest.set(`${record.clauseId}\u0000${record.slot}`, record);
   return [...latest.values()].map((record) => {
     const base = { clauseId: record.clauseId, slot: record.slot, method: record.method, recordId: record.id, file: record.file, reviewer: record.actor };
     const what = record.method === 'inspection' ? 'inspection' : 'visual evidence';
-    if (record.contextBinding && record.contextBinding !== contextBinding) {
+    if (record.contextBinding && !bindings.has(record.contextBinding)) {
       return { ...base, status: 'missing', message: `The plan or code candidate changed after ${what} ${record.id}; inspect ${record.file} again for this generation.` };
     }
     if (currentSha256.get(record.file) !== record.sha256) {

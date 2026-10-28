@@ -64,7 +64,8 @@ test('a mistyped command is corrected instead of merely rejected', () => {
   assert.match(stderr, /Unknown command 'stauts'\./);
   assert.match(stderr, /Did you mean .*'status'/);
   assert.match(stderr, /--help/);
-  assert.match(stderr, /Shell: singularity-flow --help/);
+  // The route names `help`: the Copilot guard denies `--help` in every turn (80f74694).
+  assert.match(stderr, /Shell: singularity-flow help$/mu);
   assert.match(stderr, /Copilot: \/sf-help/);
   // Appending all 2,450 lines of HELP was the previous answer to a typo, via a branch that could
   // never run because the registry threw first.

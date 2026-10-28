@@ -5351,7 +5351,8 @@ async function submitPhaseTransition(root, config, workflow, {
         `Phase ${phase.id} authored content changed after its published generation. `
         + `Published authored hash: ${digest(registration.publishedAuthoredSha256)}. `
         + `Current authored hash: ${digest(registration.currentAuthoredSha256)}. `
-        + `The change was not registered or submitted. Begin and publish a new generation; inspect the safe path with: `
+        + `The change was not registered or submitted. Publish it as the next generation with `
+        + `singularity-flow phase publish ${phase.id}, then submit; or inspect the other routes with `
         + `singularity-flow recover ${workflow.workItem.id} --phase ${phase.id}.`,
         {
           code: 'ARTIFACT_AUTHORED_BYTES_CHANGED_AFTER_PUBLICATION',
@@ -5361,6 +5362,7 @@ async function submitPhaseTransition(root, config, workflow, {
             generationCommit: registration.generationCommit,
             publishedAuthoredSha256: registration.publishedAuthoredSha256,
             currentAuthoredSha256: registration.currentAuthoredSha256,
+            nextAction: `singularity-flow phase publish ${phase.id}`,
             recoveryCommand: `singularity-flow recover ${workflow.workItem.id} --phase ${phase.id}`
           }
         }
@@ -6262,7 +6264,11 @@ export async function evaluateApproval(root, config, workflow, {
       if (submittedReview.sourceTreeSha256 !== currentSourceTreeSha256) {
         throw new SingularityFlowError(
           `Phase '${phase.id}' application source or tests changed after generation ${phase.generation} was submitted. `
-          + 'Approval cannot absorb implementation created during review. Move those changes to the appropriate code-delivery phase and submit fresh evidence.',
+          + 'Approval cannot absorb implementation created during review. '
+          // A code step told to move its own changes to "the appropriate code-delivery phase" had nowhere to go (2026-10-28).
+          + (phaseRequiresCodeDelivery(phase)
+            ? `This step delivers that code: a person who approves it returns it (singularity-flow reject ${phase.id} --reason "<why>"), and the changes are published as its next generation with fresh evidence.`
+            : 'Move those changes to the appropriate code-delivery phase and submit fresh evidence.'),
           {
             code: 'STORY_REVIEW_SOURCE_CHANGED',
             details: {

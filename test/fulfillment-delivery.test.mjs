@@ -229,14 +229,16 @@ test('a real Story delivers source, configuration, test-only, removal, document 
   assert.notEqual(unpublishedWitness.status, 0);
   assert.match(`${unpublishedWitness.stdout}\n${unpublishedWitness.stderr}`, /does not match the published retained evidence/u);
   await write(SCREEN, publishedImage);
-  cli('decision', 'witness', W, '--criterion', ac(6), '--slot', 'retained-evidence', '--file', SCREEN,
-    '--confirm', 'states-the-outcome', '--confirm', 'matches-the-criterion', '--confirm', 'current-for-this-change',
-    '--reason', 'The isolated fixture image was inspected for this exact candidate.');
-  assert.equal(JSON.parse(cli('status', W, '--submission-readiness', '--json').stdout).owedDecisions, undefined,
-    'a recorded sign-off is no longer owed');
-  cli('approve', 'implementation', '--yes');
+  // The approver confirms the screenshot with the approval itself, in its commit (2026-10-28).
+  const approved = cli('approve', 'implementation', '--yes', '--confirm-evidence');
+  assert.match(approved.stdout, new RegExp(`Confirmed with this approval: each file states the outcome, matches its criterion and is current for this change\\.\\n  ${ac(6).replace(/[.]/gu, '\\.')} retained-evidence: ${SCREEN.replace(/[.]/gu, '\\.')}`, 'u'));
 
   const workflowState = JSON.parse(await readFile(path.join(item, 'workflow.json'), 'utf8'));
+  const [witnessed] = workflowState.witnessRecords;
+  assert.deepEqual([witnessed.clauseId, witnessed.slot, witnessed.file, witnessed.outcome, Object.values(witnessed.checklist)],
+    [ac(6), 'retained-evidence', SCREEN, 'met', ['yes', 'yes', 'yes']]);
+  assert.equal(witnessed.reason, `Confirmed while approving implementation: ${SCREEN} shows ${ac(6)}.`);
+  assert.ok(workflowState.history.some((event) => event.event === 'witness_recorded' && event.detail.includes('confirmed with the approval of implementation')));
   assert.deepEqual(workflowState.planAmendments ?? [], [], 'a correctly repaired draft needs no late evidence-classification appeal');
   assert.equal(workflowState.phases.implementation.generation, 1, 'test-only REQ submission needs no rollover');
   const observed = JSON.parse(await readFile(path.join(root, workflowState.phases.implementation.claimMaps.observed.path), 'utf8'));

@@ -101,3 +101,58 @@ export function witnessRecordResults(records = [], currentSha256 = new Map(), { 
     return { ...base, status: 'met', assurance: 'source-bound' };
   });
 }
+
+/**
+ * The visual and inspection witnesses an approver may confirm with an approval [witness folded into
+ * approval, 2026-10-28]: each open slot of an acceptance criterion whose evidence is one planned or
+ * inspected file, for a person in a group of the steps that deliver or verify it, as `decision
+ * witness` requires. `others` names the rest, which stay with whoever may witness them.
+ */
+export async function evidenceConfirmations(root, config, workflow, actor) {
+  const [{ createHash }, { readFile }, { evidenceGraphFromAggregate }, { evaluateEvidence }, { mergedVerificationContracts },
+    { mergePlannedClaimRecords }, { riskAuthorities }, { requireApprovalAuthority }, { plannedEvidenceFiles }, { secureRepositoryPath }] = await Promise.all([
+    import('node:crypto'), import('node:fs/promises'), import('../evidence/graph.mjs'), import('../evidence/evaluate.mjs'),
+    import('./contracts.mjs'), import('../specifications.mjs'), import('../evidence/risk-decisions.mjs'),
+    import('../approval-authority.mjs'), import('../evidence/terminal.mjs'), import('../util.mjs')]);
+  const graph = await evidenceGraphFromAggregate(root, config, workflow);
+  const plans = graph.records.planned ?? [];
+  const contracts = mergedVerificationContracts(plans);
+  const claims = mergePlannedClaimRecords(plans);
+  const confirm = [], others = [];
+  for (const row of evaluateEvidence(graph).rows) {
+    if (row.type !== 'AC') continue;
+    for (const open of row.verification?.contract?.slots ?? []) {
+      if (open.status !== 'missing' || !['visual', 'inspection'].includes(open.method)) continue;
+      const slot = contracts.get(row.id)?.slots.find((entry) => entry.slot === open.slot) ?? null;
+      const files = open.method === 'inspection' ? [slot?.witness?.path].filter(Boolean) : plannedEvidenceFiles(row);
+      const owning = [...new Set(row.obligations.filter((entry) => ['verify', 'implement'].includes(entry.responsibility)).flatMap((entry) => entry.owningSteps))];
+      const groups = riskAuthorities(workflow, { owningSteps: owning });
+      const other = (reason) => others.push({ clauseId: row.id, slot: open.slot, reason });
+      if (!slot || files.length !== 1) { other('it names no single evidence file to confirm'); continue; }
+      let authority;
+      try {
+        authority = requireApprovalAuthority(workflow.resolution?.approvalAuthorities ?? config.approvalAuthorities,
+          { mode: 'required', authorities: groups, requiredAuthorities: [], minimum: 1 }, actor);
+      } catch { other(groups.length ? `it is witnessed by ${groups.join(' or ')}` : 'no step delivering it has an approval group'); continue; }
+      const secured = await secureRepositoryPath(root, files[0], { label: 'Confirmed evidence', mustExist: true, type: 'file' }).catch(() => null);
+      if (!secured) { other(`${files[0]} is not in this checkout`); continue; }
+      confirm.push({ clauseId: row.id, slot, file: secured.relative ?? files[0],
+        sha256: `sha256:${createHash('sha256').update(await readFile(secured.absolute)).digest('hex')}`,
+        plannedClaim: claims[row.id] ?? null, authorityGroup: authority.authorityGroup, identityAssurance: authority.identityAssurance ?? null });
+    }
+  }
+  return { confirm, others };
+}
+
+/** Record each confirmation on the aggregate an approval is about to write: every check answered yes. */
+export function recordEvidenceConfirmations(workflow, confirmations, { actor, agent = null, phaseId, reason = null, at }) {
+  return confirmations.map((entry) => {
+    const recorded = recordWitness(workflow, { ...entry,
+      answers: Object.fromEntries(WITNESS_CHECKLIST.map((item) => [item, 'yes'])),
+      reason: reason ?? `Confirmed while approving ${phaseId}: ${entry.file} shows ${entry.clauseId}.`, actor, at });
+    workflow.history ??= [];
+    workflow.history.push({ at, actor, agent, event: 'witness_recorded', phase: workflow.currentPhase ?? null,
+      detail: `${recorded.id}: ${recorded.method} of ${recorded.file} for ${recorded.clauseId} slot ${recorded.slot} confirmed with the approval of ${phaseId}. ${recorded.reason}` });
+    return recorded;
+  });
+}

@@ -26,7 +26,7 @@ const BLOCKING_RESULTS = new Set(['failed', 'inconclusive', 'missing', 'pending'
 const WITNESSED_METHODS = new Set(['inspection', 'visual']);
 
 /** The planned evidence files of a criterion, from its plan obligations. */
-function plannedEvidenceFiles(row) {
+export function plannedEvidenceFiles(row) {
   const obligations = row.obligations ?? [];
   const nested = obligations.flatMap((entry) => entry.plannedObligations ?? [])
     .filter((entry) => entry.fulfillment === 'evidence').flatMap((entry) => entry.expectedPaths ?? []);
@@ -75,7 +75,10 @@ export function terminalRecoveryActions(workId, evaluation, gate = null, workflo
         ? `"Tests are the whole delivery: plan ${row.id} as test-only"` : '<what-is-wrong>'));
     }
     for (const slot of row.verification?.contract?.slots ?? []) {
-      if (BLOCKING_RESULTS.has(slot.status) && WITNESSED_METHODS.has(slot.method)) add(witnesses, witnessAction(workId, row, slot));
+      if (!BLOCKING_RESULTS.has(slot.status) || !WITNESSED_METHODS.has(slot.method)) continue;
+      // The approver confirms the evidence with the approval itself; a separate witness stays possible.
+      if (workflow?.currentPhase) add(witnesses, `singularity-flow approve ${workflow.currentPhase} --work-id ${workId} --confirm-evidence`);
+      add(witnesses, witnessAction(workId, row, slot));
     }
   }
   for (const finding of gate?.findings ?? []) add(decisions, finding.recovery?.command);
@@ -259,7 +262,7 @@ export async function evaluateTerminalReadiness(root, definition, workflow, { st
   const recovery = [...(decisions ? [decisions.nextAction.command] : []), ...(stage === 'submission' ? [] : result.upstream.map((entry) => entry.command)),
     ...terminalRecoveryActions(workflow.workItem.id, result.evaluation, gate, workflow).filter((command) => {
       if (stage !== 'submission') return true;
-      if (command.startsWith('singularity-flow decision witness ')) return false;
+      if (command.startsWith('singularity-flow decision witness ') || command.includes(' --confirm-evidence')) return false;
       return ![...deferredObligations].some((id) => command.includes(`--obligation ${id}`));
     })];
   return {

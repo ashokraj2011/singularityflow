@@ -147,6 +147,14 @@ export async function approveCommand(positionals, options) {
     prompt?.close();
   }
   const approvedGeneration = phase.generation;
+  // The evidence the approver confirms with this approval, recorded in its commit as witnesses.
+  const witnessRecords = optionBoolean(options, 'confirm-evidence') ? await import('../verification/witness-records.mjs') : null;
+  const evidence = witnessRecords ? await witnessRecords.evidenceConfirmations(root, config, workflow, session.actor) : null;
+  if (evidence && !forAgent) {
+    console.log('\nConfirmed with this approval: each file states the outcome, matches its criterion and is current for this change.');
+    for (const entry of evidence.confirm) console.log(`  ${entry.clauseId} ${entry.slot.slot}: ${entry.file}`);
+    for (const entry of evidence.others) console.log(`  not confirmed here: ${entry.clauseId} ${entry.slot}, because ${entry.reason}`);
+  }
   const checklist = await checklistDecisions(options);
   const witnessMappings = witnessMappingDecisions(options);
   const bindingDecisions = implementationBindingDecisions(options);
@@ -177,7 +185,7 @@ export async function approveCommand(positionals, options) {
   };
   const { value: result, publication } = await withRefusalMemory(root, {
     operation: 'approve', workId: workflow.workItem.id, phase: phase.id, actor: actorKey(session.actor),
-    args: [checklist ?? null, witnessMappings ?? null, bindingDecisions,
+    args: [checklist ?? null, witnessMappings ?? null, bindingDecisions, evidence ? evidence.confirm.map((entry) => `${entry.clauseId}:${entry.slot.slot}`) : null,
       ...(decisions ? [decisions.steps.map((step) => `${step.item}=${step.option}`)] : [])]
   }, () => transactStory(
     root,
@@ -192,7 +200,12 @@ export async function approveCommand(positionals, options) {
       authorityGroup: approvalAuthority.authorityGroup
     },
     `[${workflow.workItem.id}][phase:${phase.id}][approve] ${approvalAuthority.authorityGroup}${decisions ? ` with ${decisions.parts.length} decision record${decisions.parts.length === 1 ? '' : 's'}` : ''}`,
-    async (aggregate) => withApprovalDecisions(aggregate, decisions, () => approvePhase(root, config, aggregate, {
+    async (aggregate) => withApprovalDecisions(aggregate, decisions, () => {
+      // Confirmed evidence is recorded first, so the approval (and a Story's ending) is judged with it.
+      if (evidence?.confirm.length) witnessRecords.recordEvidenceConfirmations(aggregate, evidence.confirm, {
+        actor: actorKey(session.actor), agent: session.agent, phaseId: phase.id,
+        reason: optionString(options, 'evidence-reason') ?? null, at: new Date().toISOString() });
+      return approvePhase(root, config, aggregate, {
       phaseId: phase.id,
       channel: process.env.SINGULARITY_FLOW_GITHUB_ACTOR ? 'github-pr-comment' : receipt ? 'copilot-selection-receipt' : 'terminal',
       actionContext: activeActionContext() ?? receipt?.approvalContext ?? null,
@@ -202,7 +215,8 @@ export async function approveCommand(positionals, options) {
       actor: session.actor,
       agent: session.agent,
       persist: false
-    })),
+    });
+    }),
     {
       paths: phase.artifacts.map((item) => item.path),
       eventFromResult: (transition) => ({

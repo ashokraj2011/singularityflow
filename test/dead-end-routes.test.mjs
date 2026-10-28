@@ -296,6 +296,19 @@ test('every known refusal builds a recovery plan whose every command is one the 
   assert.ok(marked.steps.every((entry) => !entry.command || !entry.command.includes('<ID,...>')), 'an unsafe command is never shown');
 });
 
+// A screenshot's witness was its own step after the last submission (ws-graph AC-001, 2026-10-27). The
+// approver now confirms it with the approval; the separate witness command stays as the other route.
+test('an ending waiting on a witness offers to confirm the evidence with the approval itself, first', () => {
+  const workflow = { workItem: { id: 'DEAD-1' }, status: 'in_progress', currentPhase: 'release', phaseOrder: ['release'], phases: { release: {} } };
+  const row = { id: 'DEAD-1:AC-001', result: 'missing', actions: [],
+    obligations: [{ responsibility: 'verify', status: 'missing', owningSteps: ['implementation'],
+      plannedObligations: [{ fulfillment: 'evidence', expectedPaths: ['evidence/graph-tool.png'] }] }],
+    verification: { contract: { slots: [{ slot: 'graph-reference-screenshot', method: 'visual', status: 'missing' }] } } };
+  const actions = terminalRecoveryActions('DEAD-1', { decision: { gate: 'block' }, rows: [row] }, null, workflow);
+  assert.equal(actions[0], 'singularity-flow approve release --work-id DEAD-1 --confirm-evidence');
+  assert.match(actions[1], /^singularity-flow decision witness DEAD-1 --criterion DEAD-1:AC-001 --slot graph-reference-screenshot --file evidence\/graph-tool\.png /u);
+});
+
 test('a model-only step with the model off says how to turn the model back on', () => {
   assert.match(modelOffCause({ source: 'environment' }), /SINGULARITY_FLOW_NO_MODEL is set/u);
   assert.match(modelOffCause({ source: 'cli' }), /passed --no-model/u);

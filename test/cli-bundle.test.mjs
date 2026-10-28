@@ -226,7 +226,10 @@ test('the bundled CLI answers exactly like the sources while opening a handful o
   // (OWN_TERMINAL_STEPS in command-skills.mjs, the sign-off refusal in copilot-mutation-guard.mjs, the decision
   // list's terminal-only choices) add cold-core +2,092, cold-hooks +596, cold-phases +104 and cold-compatibility
   // +76 for 7,463,050, inside it.
-  assert.ok(closure('cold-hook-context.mjs').reduce((sum, item) => sum + item.bytes, 0) < 7_465_000,
+  // 7,470,000: main 775a37b9 measures 7,463,396; approving with --confirm-evidence, which records the step's
+  // planned screenshots and inspections as witnessed in the approval itself (the approve wiring, the confirmation
+  // list and the terminal route), adds cold-hook-context +3,803 and cold-core +445 for 7,467,644. No new file.
+  assert.ok(closure('cold-hook-context.mjs').reduce((sum, item) => sum + item.bytes, 0) < 7_470_000,
     'phase-review reads retain their existing byte ceiling after moving families');
   assert.match(await readFile(path.join(outdir, 'cold-light.mjs'), 'utf8'), /function enterPhase\b/u,
     'phase binding must not fall through to the compatibility/admin bundle');

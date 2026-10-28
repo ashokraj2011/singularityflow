@@ -11,11 +11,12 @@ import { runGovernanceGate } from '../governance.mjs';
 import { nowIso, SingularityFlowError } from '../util.mjs';
 import { evaluateEvidence } from './evaluate.mjs';
 import { WITNESS_CHECKLIST } from '../verification/witness-records.mjs';
-import { RISK_CATEGORIES } from './risk-decisions.mjs';
+import { RISK_CATEGORIES, riskAuthorities, riskEligibility } from './risk-decisions.mjs';
 import { evidenceGraphFromAggregate } from './graph.mjs';
 import { gateRefusal } from './gate-refusal.mjs';
 import { completionLabel } from './labels.mjs';
 import { upstreamIssueTerminalBlockers } from '../upstream-issues.mjs';
+import { decidableUpstreamStep, raiseUpstreamIssueRoute } from '../upstream-routes.mjs';
 import { forwardAmendmentTerminalBlockers } from '../forward-amendments.mjs';
 
 const MAX_LISTED = 20;
@@ -50,8 +51,8 @@ function witnessAction(workId, row, slot) {
  * Exact, typed continuations for a terminal hold. Publication recovery repairs lifecycle transport;
  * it cannot satisfy evidence obligations, so never make it the only route for this boundary.
  */
-export function terminalRecoveryActions(workId, evaluation, gate = null) {
-  const decisions = [], witnesses = [], risks = [], diagnostics = [];
+export function terminalRecoveryActions(workId, evaluation, gate = null, workflow = null) {
+  const decisions = [], upstream = [], witnesses = [], risks = [], diagnostics = [];
   const add = (collection, command) => {
     if (typeof command === 'string' && command.trim() && !collection.includes(command)) collection.push(command);
   };
@@ -60,6 +61,16 @@ export function terminalRecoveryActions(workId, evaluation, gate = null) {
     for (const action of row.actions ?? []) {
       if (action.kind === 'decide') add(decisions, action.command);
       if (action.kind === 'accept-risk') add(risks, action.command);
+    }
+    // What an earlier step owns is corrected there: an upstream issue this step raises, which that
+    // step's approvers decide (a return, a plan correction, an accepted risk or a dismissal). A
+    // missing implementation at the final step had only a risk route (2026-10-27).
+    if (workflow) for (const obligation of row.obligations ?? []) {
+      if (!UPSTREAM_OWNED.has(obligation.responsibility) || !UPSTREAM_STATUSES.has(obligation.status)) continue;
+      const owner = obligation.owningSteps?.at(-1);
+      const step = owner ? decidableUpstreamStep(workflow, owner) : null;
+      const route = step ? raiseUpstreamIssueRoute(workflow, step, workflow.currentPhase) : null;
+      if (route) add(upstream, route.command.replace('<clause-or-section>', row.id));
     }
     for (const slot of row.verification?.contract?.slots ?? []) {
       if (BLOCKING_RESULTS.has(slot.status) && WITNESSED_METHODS.has(slot.method)) add(witnesses, witnessAction(workId, row, slot));
@@ -70,7 +81,20 @@ export function terminalRecoveryActions(workId, evaluation, gate = null) {
   // Both callers judge a Story still open on disk, where `gate --terminal` always adds "not closed".
   // The decision list shows this same as-if-closed evaluation, and runs in any turn.
   if ((gate?.errors ?? []).length) add(diagnostics, `singularity-flow decisions ${workId}`);
-  return [...decisions, ...witnesses, ...risks, ...diagnostics];
+  return [...decisions, ...upstream, ...witnesses, ...risks, ...diagnostics];
+}
+
+const UPSTREAM_OWNED = new Set(['plan', 'implement', 'verify']);
+const UPSTREAM_STATUSES = new Set(['missing', 'partial', 'failed']);
+
+/**
+ * Whether a person may accept the risk of what holds the ending, as `decision risk` judges each
+ * obligation, and who may. A refusal without it said "not eligible" beside the risk commands it
+ * listed, so an agent was told both to use them and that they were barred.
+ */
+export function terminalRisk(workflow, obligations) {
+  const eligible = obligations.filter((obligation) => riskEligibility(obligation).eligible);
+  return { eligible: eligible.length > 0, authorities: [...new Set(eligible.flatMap((obligation) => riskAuthorities(workflow, obligation)))].sort(), maximumDays: null };
 }
 
 /**
@@ -123,7 +147,7 @@ export async function evaluateTerminalTransition(root, definition, workflow, { o
   const blockers = [...new Set([...evidenceBlockers, ...gate.errors, ...upstream.map((entry) => entry.message)])];
   const decisions = await pendingDecisionLead(workflow, gate, upstream, openStory);
   const recovery = [...new Set([...(decisions ? [decisions.nextAction.command] : []), ...upstream.map((entry) => entry.command),
-    ...terminalRecoveryActions(workflow.workItem.id, evaluation, gate)])];
+    ...terminalRecoveryActions(workflow.workItem.id, evaluation, gate, workflow)])];
   return { evaluation, gate, blockers, recovery, upstream, decisions };
 }
 
@@ -231,7 +255,7 @@ export async function evaluateTerminalReadiness(root, definition, workflow, { st
   // Submission defers the decisions; approval and the ending lead with their list.
   const decisions = stage === 'submission' ? null : result.decisions;
   const recovery = [...(decisions ? [decisions.nextAction.command] : []), ...(stage === 'submission' ? [] : result.upstream.map((entry) => entry.command)),
-    ...terminalRecoveryActions(workflow.workItem.id, result.evaluation, gate).filter((command) => {
+    ...terminalRecoveryActions(workflow.workItem.id, result.evaluation, gate, workflow).filter((command) => {
       if (stage !== 'submission') return true;
       if (command.startsWith('singularity-flow decision witness ')) return false;
       return ![...deferredObligations].some((id) => command.includes(`--obligation ${id}`));
@@ -269,6 +293,7 @@ export async function assertTerminalTransition(root, definition, workflow) {
       code: 'STORY_COMPLETION_REFUSED', gate: 'terminal',
       subject: { workId: workflow.workItem.id, phase, generation: workflow.phases?.[phase]?.generation ?? null },
       evaluation: result.evaluation.decision.gate === 'block' ? result.evaluation : null,
+      risk: terminalRisk(workflow, result.evaluation.rows.flatMap((row) => row.obligations ?? []).filter((obligation) => BLOCKING_RESULTS.has(obligation.status))),
       findings: [
         ...result.evaluation.findings.filter((entry) => entry.blocking !== false).map(({ code, message }) => ({ code, message })),
         ...(result.gate.findings ?? []).map((finding) => ({ code: finding.code, message: finding.details?.message })),
@@ -327,6 +352,7 @@ export async function assertTerminalReadiness(root, definition, workflow) {
     subject: { workId: workflow.workItem.id, phase, generation: workflow.phases?.[phase]?.generation ?? null },
     evaluation: result.evaluation.decision.gate === 'block' ? result.evaluation : null,
     obligations,
+    risk: terminalRisk(workflow, obligations),
     findings: [
       ...evidenceFindings.map(({ code, message }) => ({ code, message })),
       ...governanceFindings.map((finding) => ({ code: finding.code, message: finding.details?.message }))

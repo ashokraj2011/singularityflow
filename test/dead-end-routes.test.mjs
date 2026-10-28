@@ -11,7 +11,7 @@ import { discardPreparedStoryWorktree, preparedStoryWorktreePath, prepareStoryWo
 import { phaseExplicitlyReopened } from '../src/sequence.mjs';
 import { phaseAuthoringEntry } from '../src/phase-authoring-entry.mjs';
 import { classifyStoryGateFailures } from '../src/gate-recovery.mjs';
-import { terminalRecoveryActions } from '../src/evidence/terminal.mjs';
+import { terminalRecoveryActions, terminalRisk } from '../src/evidence/terminal.mjs';
 import { resolveOperation } from '../src/command-registry.mjs';
 import { selectStartEntry } from '../src/application-run.mjs';
 import { unavailableStoriesError } from '../src/session-story-discovery.mjs';
@@ -245,6 +245,31 @@ test('every placeholder in a command line SFlow emits is one the route filter ac
   const { safeCommandGuidance } = await import('../src/safe-command-guidance.mjs');
   const { linked, unlinked } = scopeDecisionArgv('DEAD-1', 'DOC-001');
   for (const argv of [linked, unlinked]) assert.ok(safeCommandGuidance({ command: scopeDecisionCommandLine(argv) }), argv.join(' '));
+});
+
+// A custom workflow's final step (2026-10-27): three clauses had no delivered implementation, owned by its
+// code step `fmly-implementation`. The refusal offered only risk commands and said risk was not eligible.
+test('a final check names an upstream issue for what an earlier step owns, and says truly whether risk is open', () => {
+  const workflow = { workItem: { id: 'APP-1' }, status: 'in_progress', currentPhase: 'fmly-release',
+    phaseOrder: ['fmly-spec', 'fmly-implementation', 'fmly-release'],
+    phases: { 'fmly-spec': { generation: 1, status: 'approved', approvalPolicy: { authorities: ['product'] } },
+      'fmly-implementation': { generation: 1, status: 'approved', approvalPolicy: { authorities: ['developers'] } },
+      'fmly-release': { generation: 1, status: 'in_progress', approvalPolicy: { authorities: ['release'] } } } };
+  const obligation = (responsibility, status, owner, subject) => ({ id: `OBL:APP-1:${responsibility}:${subject}`, responsibility, subject, status, owningSteps: [owner],
+    facets: { freshness: 'current' } });
+  const row = (id, obligations) => ({ id, result: 'missing', obligations, actions: [] });
+  const rows = [row('APP:REQ-001', [obligation('implement', 'missing', 'fmly-implementation', 'APP:REQ-001')]),
+    row('APP:AC-009', [obligation('verify', 'missing', 'fmly-implementation', 'APP:AC-009'), obligation('review', 'pending', 'fmly-release', 'APP:AC-009')])];
+  const actions = terminalRecoveryActions('APP-1', { decision: { gate: 'block' }, rows }, null, workflow);
+  assert.deepEqual(actions.slice(0, 2), [
+    'singularity-flow upstream-issue raise --work-id APP-1 --phase fmly-implementation --about APP:REQ-001 --problem <what-is-wrong>',
+    'singularity-flow upstream-issue raise --work-id APP-1 --phase fmly-implementation --about APP:AC-009 --problem <what-is-wrong>'
+  ]);
+  assert.equal(terminalRecoveryActions('APP-1', { decision: { gate: 'block' }, rows }).some((command) => command.includes('upstream-issue')), false,
+    'without the Story, no route is guessed');
+  const open = rows.flatMap((entry) => entry.obligations);
+  assert.deepEqual(terminalRisk(workflow, open), { eligible: true, authorities: ['developers'], maximumDays: null });
+  assert.equal(terminalRisk(workflow, [open[2]]).eligible, false, 'a pending review is approved, never accepted as a risk');
 });
 
 test('a model-only step with the model off says how to turn the model back on', () => {

@@ -168,11 +168,14 @@ export async function commitAndPublish(root, config, workflow, event, message, e
         // A remote tip this clone has never fetched cannot tell, so refresh-branch reports it.
         const remoteTipHere = commitIsAncestor(root, observation.sha, observation.sha);
         const unpublishedLocal = remoteTipHere ? !commitIsAncestor(root, governedLocalParent, observation.sha) : null;
+        // A waiting SFlow commit stops this transaction before it gets here, so a commit the remote lacks
+        // was made outside SFlow, and sync had nothing to publish: it named sync and looped (2026-10-28).
+        const merge = `git pull --no-rebase ${config.git?.remote ?? 'origin'} ${targetBranch}`;
         throw new SingularityFlowError(
           `Story '${workflow.workItem.id}' has commits on its remote branch '${targetBranch}' that this checkout does not have: another clone published to it. `
           + 'Run singularity-flow refresh-branch to bring them in (it only fast-forwards), then retry; nothing was changed.'
-          + (unpublishedLocal === true ? ' This checkout also holds an unpublished commit, so refresh-branch will report that the branch diverged: run singularity-flow sync.'
-            : unpublishedLocal === null ? ' If it reports that the branch diverged, this checkout also holds an unpublished commit: run singularity-flow sync.' : ''),
+          + (unpublishedLocal === true ? ` This checkout also holds a commit made outside SFlow that the remote does not have, so refresh-branch will report that the branch diverged: merge the other clone's commits in with a reviewed ${merge}, then retry.`
+            : unpublishedLocal === null ? ` If it reports that the branch diverged, this checkout also holds a commit the remote does not have: merge with a reviewed ${merge}, then retry.` : ''),
           {
             code: 'STORY_PUBLICATION_REMOTE_DIVERGED',
             details: {
@@ -180,7 +183,7 @@ export async function commitAndPublish(root, config, workflow, event, message, e
               localParent: governedLocalParent,
               observedRemoteSha: observation.sha,
               // Fast-forward first; a diverged branch then needs the unpublished commit published.
-              recoveryCommands: ['singularity-flow refresh-branch', ...(unpublishedLocal === false ? [] : ['singularity-flow sync'])]
+              recoveryCommands: ['singularity-flow refresh-branch', ...(unpublishedLocal === false ? [] : [merge])]
             }
           }
         );
@@ -189,6 +192,12 @@ export async function commitAndPublish(root, config, workflow, event, message, e
       // remote tip rather than pretending every local ancestor was already published.
       governedExpectedRemoteSha = observation.sha;
       expectedRemoteShaSource = 'observed-remote';
+    } else if (observation.reachable && !observation.malformed) {
+      // The remote has no Story branch (a merged pull request deleted it). Leasing the local parent
+      // could never succeed there, so the commit stayed unsent and cancel was blocked (2026-10-28).
+      // Create it, create-only: that cannot replace anything another clone sent.
+      governedExpectedRemoteSha = null;
+      expectedRemoteShaSource = 'observed-absent';
     }
   }
   const priorWorkflow = rollbackWorkflow ?? structuredClone(workflow);

@@ -52,6 +52,10 @@ export async function syncCommand(positionals = [], options = {}, { operation = 
     const { config, requestedId } = await storySelection(root, positionals[1] ?? null);
     return syncReplayCommand(root, config, requestedId, options);
   }
+  if (optionBoolean(options, 'set-aside')) {
+    const { config, requestedId } = await storySelection(root, positionals[1] ?? null);
+    return syncSetAsideCommand(root, config, requestedId, options);
+  }
   const say = output(json);
   const story = await publishStory(root, positionals[1] ?? null, options, say);
   if (!story.workId) say.text('No Story publication is pending here.');
@@ -285,7 +289,64 @@ async function explainLostPublicationRace(root, config, workflow, error) {
       + 'Nothing was changed.', { code: 'STORY_PUBLICATION_RACE_LOST', details: { commit: plan.commit, collisions: plan.collisions } }
     );
   }
-  return error;
+  // Any other lifecycle commit that lost the race: sync and recover only retried it, and cancel
+  // waited on it (2026-10-28). It is set aside, and its step's action done again on what was published.
+  if (error?.code !== 'PUBLICATION_PUSH_FAILED') return error;
+  let aside = null;
+  try { aside = await (await import('../publication-set-aside.mjs')).planPublicationSetAside(root, config, workflow); }
+  catch { return error; }
+  if (!aside?.settable || !(aside.lostRace || aside.publishedElsewhere)) return error;
+  const preview = `singularity-flow sync ${workflow.workItem.id} --set-aside`;
+  if (aside.publishedElsewhere) return new SingularityFlowError(
+    `${aside.remote}/${aside.branch} already has commit ${aside.commit.slice(0, 8)}, but it was sent outside SFlow (a hand push, say), so SFlow does not count it as its own publication and sync cannot finish it. Nothing was pushed. `
+    + `If you sent it, preview stopping the wait with ${preview}; the branch and the remote stay as they are.`,
+    { code: 'STORY_PUBLICATION_SENT_ELSEWHERE', details: { commit: aside.commit, remoteTip: aside.remoteTip, nextAction: preview,
+      recoveryCommands: [{ command: preview, label: 'Preview: nothing changes' },
+        { command: aside.command, label: 'In your own terminal, if you sent it: stop waiting for it' }] } }
+  );
+  return new SingularityFlowError(
+    `Another clone published to ${aside.branch} after this checkout made commit ${aside.commit.slice(0, 8)} (${aside.event ?? 'a lifecycle change'}${aside.phase ? ` at ${aside.phase}` : ''}), so it can never be sent as it is. Nothing was pushed. `
+    + `Preview setting it aside with ${preview}: it is kept, the branch moves to what was published, and you do the step's action again there if it still applies.`,
+    { code: 'STORY_PUBLICATION_RACE_LOST', details: { commit: aside.commit, remoteTip: aside.remoteTip, nextAction: preview,
+      recoveryCommands: [{ command: preview, label: 'Preview setting the commit aside; nothing changes' },
+        { command: aside.command, label: 'After looking at it, in your own terminal: set it aside' }] } }
+  );
+}
+
+/**
+ * `sync <WORK-ID> --set-aside`: a preview of setting the waiting commit aside; with `--confirm
+ * <COMMIT>`, in the person's own terminal, it is done (publication-set-aside.mjs).
+ */
+async function syncSetAsideCommand(root, config, requestedId, options) {
+  const [aside, { loadStoryAggregate }] = await Promise.all([
+    import('../publication-set-aside.mjs'), import('../story-aggregate-read.mjs')
+  ]);
+  const workflow = await loadStoryAggregate(root, config, requestedId);
+  const confirm = optionString(options, 'confirm');
+  const result = confirm ? await aside.setPublicationAside(root, config, workflow, { confirm })
+    : await aside.planPublicationSetAside(root, config, workflow);
+  if (optionBoolean(options, 'json')) return console.log(JSON.stringify({ ...result, pending: undefined }, null, 2));
+  const short = (sha) => String(sha ?? '').slice(0, 8);
+  if (result.setAside) {
+    console.log(result.publishedElsewhere
+      ? `Stopped waiting for commit ${short(result.commit)}: ${result.remote}/${result.branch} already has it. Nothing was pushed.`
+      : `Set aside commit ${short(result.commit)}; it is kept at ${result.preservedRef}. Nothing was pushed.`);
+    if (result.moveTo) console.log(`${result.branch} is now at ${short(result.head)}, ${result.moveTo === result.remoteTip ? 'what the remote has' : 'the commit before it'}.`);
+    printCommandRoutes(`singularity-flow nextsteps ${result.workId}`, { label: 'Then do the step\'s action again if it still applies' });
+    return;
+  }
+  if (!result.settable) {
+    console.log(`Nothing to set aside: ${aside.setAsideReason(result)}.`);
+    return;
+  }
+  const what = result.publishedElsewhere ? `, but the remote already has it: it was sent outside SFlow (by hand, say), which SFlow never counts as its own publication`
+    : result.lostRace ? `, which another clone has moved on from, so it can never be sent as it is`
+    : !result.onBranch ? ', but it is no longer on that branch' : '';
+  console.log(`Commit ${short(result.commit)} (${result.event ?? 'lifecycle change'}${result.phase ? ` at ${result.phase}` : ''}) is waiting to be published to ${result.remote}/${result.branch}${what}.`);
+  console.log(`Setting it aside keeps it at ${result.preservedRef} and clears the waiting publication`
+    + (result.moveTo ? `; ${result.branch} moves to ${short(result.moveTo)}, ${result.moveTo === result.remoteTip ? 'what the remote has' : 'the commit before it'}` : '')
+    + '. Nothing is pushed. Preview only: nothing was changed.');
+  printCommandRoutes(result.command, { label: 'After looking at it, in your own terminal' });
 }
 
 async function syncReplayCommand(root, config, requestedId, options) {

@@ -803,6 +803,7 @@ test('every step only a person takes in their own terminal is refused in every t
     'decision-list-record': [`singularity-flow decisions record PMC-1 --choose d1=accept-test-command --confirm ${digest}`,
       `singularity-flow decisions record PMC-1 --choose d1=dismiss --choose d2=accept-test-command --confirm ${digest}`],
     'set-aside': [`singularity-flow recover PMC-1 --phase custom-step --set-aside --confirm ${digest} --json`],
+    'publication-set-aside': [`singularity-flow sync PMC-1 --set-aside --confirm ${'a'.repeat(40)}`],
     'workflow-delete': [`singularity-flow workflow delete team-flow --confirm ${digest}`],
     'target-origin-pin': [`singularity-flow story target-origin PMC-1 --url https://staging.example.test --reason "Approved staging target." --confirm ${digest}`],
     'intent-amendment-decision': ['singularity-flow story intent-amendment decide AMD-001 --decision approve --confirm AMD-001'],

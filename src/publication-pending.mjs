@@ -45,6 +45,7 @@ const PENDING_INTEGRITY_SCHEME = MACHINE_LOCAL_PUBLICATION_INTEGRITY_SCHEME;
 const EXPECTED_REMOTE_SHA_SOURCES = new Set([
   'explicit',
   'observed-remote',
+  'observed-absent',
   'implicit-local-parent'
 ]);
 
@@ -380,6 +381,9 @@ export function verifyPendingPublicationCommit(root, record, {
   if (record.expectedRemoteShaSource === 'observed-remote'
     && !fullObjectId(record.expectedRemoteSha)) {
     failures.push('observed remote commit source requires an exact remote commit');
+  }
+  if (record.expectedRemoteShaSource === 'observed-absent' && record.expectedRemoteSha !== null) {
+    failures.push('observed absent remote branch requires a create-only lease');
   }
   if (!record.event || typeof record.event !== 'object' || Array.isArray(record.event)) {
     failures.push('bound lifecycle event is missing');

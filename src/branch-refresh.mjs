@@ -69,7 +69,14 @@ export async function refreshBranch(root, {
       ahead: count(root, `${incoming}..${before}`), behind: 0
     };
   }
+  // A rebase rewrites the commits SFlow recorded as evidence, so the reviewed way through is a merge;
+  // a waiting SFlow commit is sync's to judge (it says when one is set aside), 2026-10-28.
+  const merge = `git pull --no-rebase ${remote} ${target}`;
   throw new SingularityFlowError(
-    `${target} has diverged from ${remoteRef}. Nothing was changed. Resolve it explicitly with a reviewed rebase or merge; Singularity Flow will never reset or force-push it.`
+    `${target} has diverged from ${remoteRef}. Nothing was changed. Merge the other commits in with a reviewed ${merge} `
+    + '(a rebase would rewrite commits SFlow recorded); Singularity Flow will never reset or force-push it. '
+    + 'If SFlow is waiting to publish one of your commits, run singularity-flow sync first: it says whether that commit has to be set aside.',
+    { code: 'BRANCH_REFRESH_DIVERGED', details: { branch: target, remote, ahead: count(root, `${incoming}..${before}`), behind: count(root, `${before}..${incoming}`),
+      recoveryCommands: ['singularity-flow sync', merge] } }
   );
 }

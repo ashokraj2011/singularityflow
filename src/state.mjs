@@ -9940,6 +9940,16 @@ export async function syncPublication(root, config, workflow, { fault = null, re
         }
       );
     }
+    // A person who undid the waiting commit (git reset) saw sync publish exactly what they undid, and
+    // a branch reset to the remote left it retrying an orphan for ever: it must still be on its branch.
+    if (!localOnly && !commitIsAncestor(root, record.commit, `refs/heads/${record.branch}`)) {
+      const preview = `singularity-flow sync ${workflow.workItem.id} --set-aside`;
+      throw new SingularityFlowError(
+        `Story '${workflow.workItem.id}' is waiting to publish commit ${record.commit.slice(0, 8)}, but it is no longer on ${record.branch}: it was reset or rebased away. Nothing was pushed. `
+        + `If that undid it on purpose, preview setting it aside with ${preview}; to keep it, put it back with git reset --keep ${record.commit}.`,
+        { code: 'PENDING_PUBLICATION_COMMIT_OFF_BRANCH', details: { subject, commit: record.commit, branch: record.branch, nextAction: preview } }
+      );
+    }
     // The index refresh after the branch advanced may be what failed (another program held
     // index.lock); until it is done, every published file looks changed.
     refreshStalePublishedIndex(root, record.commit);
@@ -10054,21 +10064,30 @@ export async function syncPublication(root, config, workflow, { fault = null, re
       const recordedParent = verification.identity?.parents?.length === 1
         ? verification.identity.parents[0]
         : null;
-      if (current.integrityVerified === true
+      // Only a lease this release sealed from what it observed (or fell back to) is re-derived here.
+      const observableLease = current.integrityVerified === true
+        && ['implicit-local-parent', 'observed-remote', 'observed-absent'].includes(record.expectedRemoteShaSource);
+      const observation = observableLease
+        ? await exactRemoteBranchObservationAsync(root, rootRemoteAuthority.url, record.branch)
+        : null;
+      const observed = observation?.reachable === true && !observation.malformed;
+      // A remote that already has this commit (or builds on it) is never claimed as this
+      // publication: another actor's identical push, a hook-skipping one say, is not SFlow's. sync
+      // --set-aside lets the person stop waiting for it, in their own terminal (2026-10-28).
+      if (observed && observation.sha === null) {
+        // The Story branch is gone from the remote (a merged pull request deletes it). A lease on the
+        // commit it last had always failed, so nothing could publish and cancel stayed blocked.
+        // Create it again, create-only: that cannot replace anything another clone sent.
+        recoveryExpectedRemoteSha = null;
+      } else if (observed && observation.sha
         && record.expectedRemoteShaSource === 'implicit-local-parent'
         && recoveryExpectedRemoteSha !== null
-        && recoveryExpectedRemoteSha === recordedParent) {
-        const observation = await exactRemoteBranchObservationAsync(
-          root, rootRemoteAuthority.url, record.branch
-        );
+        && recoveryExpectedRemoteSha === recordedParent
         // Only this release's sealed provenance proves that the lease was an unavailable-remote
         // fallback rather than caller policy. Legacy markers and explicit leases fail closed even
         // when their SHA happens to equal the governed commit's first parent.
-        if (observation.reachable && !observation.malformed && observation.sha
-          && observation.sha !== record.commit
-          && commitIsAncestor(root, observation.sha, record.commit)) {
-          recoveryExpectedRemoteSha = observation.sha;
-        }
+        && commitIsAncestor(root, observation.sha, record.commit)) {
+        recoveryExpectedRemoteSha = observation.sha;
       }
       // The indeterminate receipt must immediately precede the operation that may mutate the
       // remote. Resolve the safe lease first: a crash during read-only observation must not create

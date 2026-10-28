@@ -657,6 +657,7 @@ function argvAllowed(argv, mode, value) {
   if (positionals[0] === 'spec' && positionals[1] === 'drift' && positionals[2] === 'decide') return false;
   // Setting held changes aside drops them from the checkout: the person who looked at them decides.
   if (positionals[0] === 'recover' && options['set-aside'] === true) return false;
+  if (publicationSetAside(positionals, options)) return false;
   // Witnessing evidence and accepting a dated obligation risk are a person's word on what they looked
   // at, in no turn: run under the person's Git identity, an agent would sign off its own work.
   if (signOff(positionals)) return false;
@@ -774,6 +775,16 @@ function hostOnlyDenial(call, value) {
 const PLANNED_ACTION_DENIAL = 'PHASE_MUTATION_OPERATION_NOT_ALLOWED: action execute runs its planned command in this process, and this turn may not run that command itself (an approval or rejection, a person\'s own decision, or a plan this checkout does not hold). Show the user the planned command and its own route; do not retry it';
 
 /** A verified `recover --set-aside`: a person's decision about changes held for review. */
+/** `sync --set-aside --confirm <COMMIT>`: a person's decision to drop a waiting commit from publication. */
+function publicationSetAside(positionals, options) {
+  return positionals[0] === 'sync' && options['set-aside'] === true && options.confirm !== undefined;
+}
+function publicationSetAsideCall(call, value) {
+  const safe = verifiedShellForm(call, value);
+  if (!safe) return false;
+  const { positionals, options } = parseCli(safe.argv);
+  return publicationSetAside(positionals, options);
+}
 function setAsideDecision(call, value) {
   const safe = verifiedShellForm(call, value);
   if (!safe) return false;
@@ -1273,6 +1284,8 @@ async function mutationToolDecision(payload, record) {
         if (plannedActionExecution(call, value)) return mutationDenial(contract, PLANNED_ACTION_DENIAL);
         const hostOnly = hostOnlyDenial(call, value);
         if (hostOnly) return mutationDenial(contract, hostOnly);
+        if (publicationSetAsideCall(call, value)) return mutationDenial(contract,
+          'PHASE_MUTATION_OPERATION_NOT_ALLOWED: setting a waiting commit aside clears what SFlow would publish and moves the branch; the person who looked at it confirms it with the commit ID in their own terminal (the preview without --confirm may run here). Show the user the preview and the command, and stop; do not retry it');
         if (setAsideDecision(call, value)) return mutationDenial(contract,
           'PHASE_MUTATION_OPERATION_NOT_ALLOWED: setting held changes aside removes them from the checkout (after a private recovery copy); the person who looked at them runs it in their own terminal. Show the user the listed files and the command, and stop; do not retry it');
         if (workflowDeleteConfirmation(call, value)) return mutationDenial(contract, WORKFLOW_DELETE_CONFIRMATION_DENIAL);

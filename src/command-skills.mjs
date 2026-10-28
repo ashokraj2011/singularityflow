@@ -449,6 +449,8 @@ export const OWN_TERMINAL_STEPS = Object.freeze([
     && !(options.choose !== undefined && options.answers === undefined
       && [options.choose].flat().every((entry) => typeof entry === 'string' && CHAT_CHOICE.test(entry)))],
   ['set-aside', ([command], options) => command === 'recover' && options['set-aside'] === true],
+  // Without --confirm it is a preview anyone may run.
+  ['publication-set-aside', ([command], options) => command === 'sync' && options['set-aside'] === true && options.confirm !== undefined],
   ['workflow-delete', ([command, sub], options) => command === 'workflow' && sub === 'delete' && options.confirm !== undefined],
   ['target-origin-pin', ([command, sub], options) => command === 'story' && sub === 'target-origin' && options.confirm !== undefined],
   ['intent-amendment-decision', ([command, sub, verb]) => command === 'story' && sub === 'intent-amendment' && verb === 'decide'],

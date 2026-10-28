@@ -4032,6 +4032,76 @@ export function remoteContains(root, sha, remote = 'origin', branchName = branch
 }
 
 /** Whether one exact commit is contained by another local commit/ref. */
+/**
+ * Changes the Story's base branch made, brought onto the Story branch by a merge (2026-10-28): the
+ * newest commit of `baseRefs` that HEAD has merged, when it is newer than `startCommit` (where the
+ * Story began), and which of `paths` the checkout holds byte for byte as that commit does. Main's
+ * own configuration or source is then not the Story's change. Null when nothing newer was merged.
+ */
+export function mergedBaseChanges(root, { startCommit, baseRefs = [], paths = [] } = {}) {
+  if (!startCommit) return null;
+  for (const ref of baseRefs) {
+    const tip = git(['rev-parse', '--verify', '--quiet', `${ref}^{commit}`], { cwd: root, allowFailure: true });
+    if (tip.status !== 0) continue;
+    const merged = git(['merge-base', 'HEAD', tip.stdout.trim()], { cwd: root, allowFailure: true });
+    const commit = merged.status === 0 ? merged.stdout.trim() : '';
+    if (!commit || commit === startCommit || !commitIsAncestor(root, startCommit, commit)) continue;
+    const wanted = [...new Set(paths.filter(Boolean))].slice(0, 500);
+    if (!wanted.length) return { ref, commit, paths: [] };
+    const there = new Map();
+    const listed = git(['ls-tree', '-r', '-z', commit, '--', ...wanted], { cwd: root, allowFailure: true });
+    for (const line of (listed.status === 0 ? listed.stdout : '').split('\0').filter(Boolean)) {
+      const tab = line.indexOf('\t');
+      there.set(line.slice(tab + 1), line.slice(0, tab).split(' ')[2]);
+    }
+    const present = wanted.filter((file) => existsSync(path.join(root, file)));
+    const hashed = present.length
+      ? git(['hash-object', '--stdin-paths'], { cwd: root, allowFailure: true, input: `${present.join('\n')}\n` }) : null;
+    const here = new Map((hashed?.status === 0 ? hashed.stdout.trim().split('\n') : []).map((oid, index) => [present[index], oid]));
+    // Deleted on both sides counts as the same; a path one side lacks does not.
+    return { ref, commit, paths: wanted.filter((file) => (there.get(file) ?? null) === (here.get(file) ?? null)) };
+  }
+  return null;
+}
+
+/**
+ * Paths `ref` changed after the last commit that touched `marker` (a closed Story's workflow.json:
+ * its closing commit) and that `baseRef` does not already hold the same way, outside `exclude`. A
+ * merge from the base brings only what the base has, so it is left out; a commit made on the
+ * branch after closing is not (2026-10-28). Null when `marker` was never committed on `ref`.
+ */
+export function pathsChangedAfterMarker(root, { ref, marker, baseRef = null, exclude = null } = {}) {
+  const closing = git(['log', '-1', '--format=%H', ref, '--', marker], { cwd: root, allowFailure: true });
+  const commit = closing.status === 0 ? closing.stdout.trim() : '';
+  if (!commit) return null;
+  const changed = git(['diff', '--name-only', '-z', commit, ref], { cwd: root, allowFailure: true });
+  const paths = (changed.status === 0 ? changed.stdout : '').split('\0').filter(Boolean)
+    .filter((file) => !exclude || !(file === exclude || file.startsWith(`${exclude}/`)));
+  if (!paths.length || !baseRef || git(['rev-parse', '--verify', '--quiet', `${baseRef}^{commit}`], { cwd: root, allowFailure: true }).status !== 0) {
+    return { commit, paths };
+  }
+  const objects = (tree) => {
+    const listed = git(['ls-tree', '-r', '-z', tree, '--', ...paths.slice(0, 500)], { cwd: root, allowFailure: true });
+    return new Map((listed.status === 0 ? listed.stdout : '').split('\0').filter(Boolean)
+      .map((line) => [line.slice(line.indexOf('\t') + 1), line.slice(0, line.indexOf('\t')).split(' ')[2]]));
+  };
+  const here = objects(ref);
+  const base = objects(baseRef);
+  return { commit, paths: paths.filter((file) => (here.get(file) ?? null) !== (base.get(file) ?? null)) };
+}
+
+/** Commits after `base` up to HEAD that touch `paths`, oldest first, and which of `paths` differ from HEAD in the worktree. */
+export function commitsTouchingSince(root, base, paths = []) {
+  const wanted = [...new Set(paths.filter(Boolean))].slice(0, 500);
+  if (!base || !wanted.length) return { commits: [], uncommitted: [] };
+  const listed = git(['rev-list', '--reverse', `${base}..HEAD`, '--', ...wanted], { cwd: root, allowFailure: true });
+  const status = git(['status', '--porcelain', '-z', '--untracked-files=all', '--', ...wanted], { cwd: root, allowFailure: true });
+  return {
+    commits: listed.status === 0 ? listed.stdout.split(/\s+/u).filter(Boolean) : [],
+    uncommitted: status.status === 0 ? status.stdout.split('\0').filter(Boolean).map((entry) => entry.slice(3)) : []
+  };
+}
+
 export function commitIsAncestor(root, ancestor, descendant = 'HEAD') {
   if (!ancestor || !descendant) return false;
   return git(['merge-base', '--is-ancestor', ancestor, descendant], {

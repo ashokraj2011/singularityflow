@@ -46,7 +46,7 @@ import { scanJavaScriptDeclarations } from './verification/javascript-declaratio
 import { bindingsDigest, clauseTagExplanation, EXPLANATION_LIMITS, implementationBindings } from './implementation-bindings.mjs';
 import { inferRepositoryTestCommands } from './repository-test-command-inference.mjs';
 import { SingularityFlowError, posix, run, secureRepositoryPath, snapshot, SUBPROCESS_MAX_BUFFER_BYTES } from './util.mjs';
-import { committedChangedPaths, trackedPaths, worktreePatchMatching } from './git.mjs';
+import { committedChangedPaths, mergedBaseChanges, trackedPaths, worktreePatchMatching } from './git.mjs';
 import {
   applicationChangeSetProjection, applicationPathContext, isApplicationChangeEntry, isApplicationPath,
   isGeneratedOutputPath, verifyWorkIntervalBaseline
@@ -288,6 +288,19 @@ async function governedReviewBaseline(root, config, workflow, { phase, source, e
  * may repair inside it; only a code generation can replace any other tested source or tests.
  * `verifiedCodeInput` is the result of assertPassedCodeDeliveryInput from the same operation.
  */
+/**
+ * The Story base branch's own changes among `paths`, merged onto the Story branch (git
+ * mergedBaseChanges). Only for a Story that runs on its pinned workflow snapshot: a legacy Story
+ * reads the live configuration, so a merged change would change its rules, and stays refused.
+ */
+export function storyMergedBaseChanges(root, config, workflow, paths) {
+  const base = workflow.workItem?.baseBranch;
+  if (!base || !workflow.workflowSnapshot) return null;
+  const remote = config.git?.remote ?? 'origin';
+  return mergedBaseChanges(root, { startCommit: workflow.workItem.baseCommit ?? null,
+    baseRefs: [`refs/remotes/${remote}/${base}`, `refs/heads/${base}`], paths });
+}
+
 export async function assertReviewCodeEvidenceFresh(root, config, workflow, phase, { verifiedCodeInput = null } = {}) {
   if (phaseRequiresCodeDelivery(phase)) return null;
   const source = reviewCodeSource(workflow, phase);
@@ -348,9 +361,17 @@ export async function assertReviewCodeEvidenceFresh(root, config, workflow, phas
     // One evaluator maps the change to its obligations and the returns the workflow permits [E2G-022].
     const change = await crossPhaseChange(root, config, workflow, phase, changedPaths);
     const described = describeCrossPhaseChange(change, { code: 'PRIOR_CODE_TEST_EVIDENCE_STALE', gate: 'consumption', workflow, phase });
+    // Changes main made, merged in after the code was approved, read as the Story's own edits
+    // (2026-10-28). The approved tests still never ran with them, so the repair stays; the cause is named.
+    const merged = storyMergedBaseChanges(root, config, workflow, changedPaths);
+    const fromBase = merged?.paths.length
+      ? ` ${merged.paths.length === changedPaths.length ? 'All of them' : `${merged.paths.join(', ')}`} came from ${workflow.workItem.baseBranch} through a merge, not from this Story; `
+        + `the approved tests never ran with them, so ${source.id} runs its tests again on the merged code, or the merge waits until ${workflow.workItem.id} ends.`
+      : '';
     throw new SingularityFlowError(
-      `Phase '${phase.id}' requires current Code evidence: source or tests changed after their approved execution: ${changedPaths.join(', ')}. ${described.text}`,
+      `Phase '${phase.id}' requires current Code evidence: source or tests changed after their approved execution: ${changedPaths.join(', ')}.${fromBase} ${described.text}`,
       { code: 'PRIOR_CODE_TEST_EVIDENCE_STALE', details: { phase: phase.id, sourcePhase: source.id, changedPaths,
+        ...(merged?.paths.length ? { mergedFromBase: { branch: workflow.workItem.baseBranch, commit: merged.commit, paths: merged.paths } } : {}),
         repairCommand: change.returns.find((entry) => entry.permitted)?.command ?? null, crossPhase: change, gate: described.gate } }
     );
   }
@@ -1209,7 +1230,13 @@ export async function evaluateCodeDeliveryPreflight(root, config, workflow, phas
     ...(workflow.resolution?.capability?.policy?.protectedPaths ?? [])
   ])];
   const protectedResult = evaluateStoryProtectedPaths(changeSet, guards, workflow);
-  if (!protectedResult.valid) {
+  // A protected file main changed reaches this branch when main is merged in. It is main's own
+  // reviewed change, not this generation's, and restoring it would undo main (2026-10-28). The
+  // Story still runs on its pinned configuration.
+  const fromBase = protectedResult.valid ? null : storyMergedBaseChanges(root, config, workflow,
+    protectedResult.violations.map((entry) => entry.path));
+  if (fromBase) protectedResult.violations = protectedResult.violations.filter((entry) => !fromBase.paths.includes(entry.path));
+  if (protectedResult.violations.length) {
     const protectedPaths = [...new Set(protectedResult.violations.map((entry) => entry.path))];
     throw new SingularityFlowError(
       `Generation cannot modify protected process paths: ${protectedPaths.join(', ')}`,

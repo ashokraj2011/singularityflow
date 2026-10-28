@@ -50,7 +50,7 @@ import { exactFileAtObject, firstParentCommitsMentioning, governedCommitIdentity
 import { documentUploadPhases, evidenceIsActive } from './documents.mjs';
 import { documentNameKey } from './document-identity.mjs';
 import { isLocalDocument, localDocumentAvailability, validLocalDocumentKey } from './document-storage.mjs';
-import { verifyCodeDeliveryReceipt } from './delivery-evidence.mjs';
+import { storyMergedBaseChanges, verifyCodeDeliveryReceipt } from './delivery-evidence.mjs';
 import { applicationPathContext } from './application-paths.mjs';
 import { classifyStoryGateFailures, pendingOpenStory } from './gate-recovery.mjs';
 import { runRemoteGitAsync } from './git-execution.mjs';
@@ -314,11 +314,22 @@ export async function runGovernanceGate(root, config, workflow, { terminal = fal
   }
 
   if (workflow.resolution.configSha256) {
+    // A configuration file main changed reaches this branch when main is merged in: main's own
+    // reviewed change. The Story keeps running on its pinned snapshot, so it is named, not refused;
+    // any other difference is an edit on the Story branch and still refuses (2026-10-28).
+    let fromBase;
+    const mergedFromBase = (file) => (fromBase ??= storyMergedBaseChanges(root, config, workflow,
+      ['singularity/workflow.yml', ...Object.values(workflow.resolution.templates ?? {}).map((entry) => entry.path)]))?.paths.includes(file);
     const current = await snapshot(path.join(root, 'singularity/workflow.yml'));
-    if (current.sha256 !== workflow.resolution.configSha256) refuse('gate.configuration.snapshot-drift', 'workflow.yml differs from the immutable work-item configuration snapshot', { path: 'singularity/workflow.yml' });
+    if (current.sha256 !== workflow.resolution.configSha256) {
+      if (mergedFromBase('singularity/workflow.yml')) warnings.push(`singularity/workflow.yml came from ${workflow.workItem.baseBranch} through a merge; this Story keeps its pinned configuration`);
+      else refuse('gate.configuration.snapshot-drift', 'workflow.yml differs from the immutable work-item configuration snapshot', { path: 'singularity/workflow.yml' });
+    }
     for (const [phaseId, template] of Object.entries(workflow.resolution.templates ?? {})) {
       const present = await snapshot(path.join(root, template.path));
-      if (present.sha256 !== template.sha256) refuse('gate.template.snapshot-drift', `template snapshot changed for ${phaseId}: ${template.path}`, { phase: phaseId, path: template.path });
+      if (present.sha256 === template.sha256) continue;
+      if (mergedFromBase(template.path)) warnings.push(`${template.path} came from ${workflow.workItem.baseBranch} through a merge; ${phaseId} keeps its pinned template`);
+      else refuse('gate.template.snapshot-drift', `template snapshot changed for ${phaseId}: ${template.path}`, { phase: phaseId, path: template.path });
     }
     if (workflow.resolution.sourceSha256) {
       try {
@@ -419,7 +430,10 @@ export async function runGovernanceGate(root, config, workflow, { terminal = fal
     const protectedResult = evaluateStoryProtectedPaths(
       branchChangeSet, config.governance?.protectedPaths ?? [], workflow
     );
-    for (const violation of protectedResult.violations) {
+    const mergedProtected = protectedResult.violations.length
+      ? storyMergedBaseChanges(root, config, workflow, protectedResult.violations.map((violation) => violation.path)) : null;
+    for (const file of mergedProtected?.paths ?? []) warnings.push(`protected path ${file} came from ${workflow.workItem.baseBranch} through a merge`);
+    for (const violation of protectedResult.violations.filter((entry) => !(mergedProtected?.paths ?? []).includes(entry.path))) {
       refuse('gate.protected-path.changed', `protected process path changed on work branch: ${violation.path} (${violation.endpoint})`, { path: violation.path });
     }
     if (protectedResult.acceptedProtectedPaths.size) {

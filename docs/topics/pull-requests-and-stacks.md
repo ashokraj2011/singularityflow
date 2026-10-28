@@ -12,9 +12,9 @@ related:
   - epics-and-planning
   - initiative-lifecycle
   - sequence-gates
-version: 3
+version: 4
 ---
-Pull-request descriptions and merge plans are derived from state. Story dependencies determine stack order; previews do not merge or bypass repository protection.
+Pull-request descriptions and merge plans are derived from state. Story dependencies determine stack order; previews do not merge or bypass repository protection. A closed Story's pull request is blocked when its branch changes files after the Story closed (a hotfix, say) that its base does not already have: the approved evidence never saw them. The blocker names `sflow reopen <WORK-ID> --to <code step>`; a merge from the base alone does not block it.
 
 ## Purpose and prerequisites
 

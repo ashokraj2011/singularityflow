@@ -248,7 +248,11 @@ test('the bundled CLI answers exactly like the sources while opening a handful o
   // 7,490,000: main 3662923e measures 7,480,656; the batch 4 resets and authority fallback (approval-fallback.mjs
   // and its callers, the complete reopen reset, the roll-forward refusal, return listed only where it runs, the
   // budget reset route only from a submitted step) add 4,902 for 7,485,558. One new file.
-  assert.ok(closure('cold-hook-context.mjs').reduce((sum, item) => sum + item.bytes, 0) < 7_490_000,
+  // 7,495,000: main fddafbe0 measures 7,485,558; main's own changes merged onto a Story branch named, not refused
+  // (git.mjs mergedBaseChanges, delivery-evidence.mjs, governance.mjs, state.mjs), a pull request blocked by commits
+  // after closing (git.mjs pathsChangedAfterMarker, pull-request.mjs) and early code taken out of an artifact-only
+  // step (git.mjs commitsTouchingSince, state.mjs) add 6,010 for 7,491,568. No new file.
+  assert.ok(closure('cold-hook-context.mjs').reduce((sum, item) => sum + item.bytes, 0) < 7_495_000,
     'phase-review reads retain their existing byte ceiling after moving families');
   assert.match(await readFile(path.join(outdir, 'cold-light.mjs'), 'utf8'), /function enterPhase\b/u,
     'phase binding must not fall through to the compatibility/admin bundle');

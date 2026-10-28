@@ -1,9 +1,9 @@
 {
   "schemaVersion": 2,
   "generatedFrom": "docs/topics",
-  "sourceCommit": "47e164b4300bc39bc62ba10118fbcad99a4c5346",
+  "sourceCommit": "fddafbe0838d8b9a58a14fa8436424c05cc6de5e",
   "topicCount": 86,
-  "contentSha256": "cc3cda661e3cb183440a7879dd1410690d0f97857cddb0e2a273c652c0212e6a",
+  "contentSha256": "ee090dfacd8690dc88a9fdbf5302385d4d38c8ae179cb47aa431a31550530b9f",
   "topics": [
     {
       "id": "activity-and-prompt-audit",
@@ -424,8 +424,8 @@
     {
       "id": "pull-requests-and-stacks",
       "title": "Pull requests, Story stacks, and merge order",
-      "version": 3,
-      "sha256": "b6053f4ca7e26ebb831fb24f8b68c205bff38e7c558c0fa2299d3516162bc15b",
+      "version": 4,
+      "sha256": "e450e6895d99932553c397a1ab2f979355ab9759d168e2555989502b95939bc8",
       "routingSha256": "71b5911c72960fa9a425ad5a6d0cc52177712369cdf7ad81528575964b1570fd",
       "file": "pull-requests-and-stacks.md"
     },
@@ -472,8 +472,8 @@
     {
       "id": "repository-state-and-snapshots",
       "title": "Repository state, snapshots, and branch refresh",
-      "version": 3,
-      "sha256": "49cd4ef8c980115361210c8e56eb1f3a06f7dce6f4ac3b4b2a563856f61e85fb",
+      "version": 4,
+      "sha256": "07afe5d8fefbd30899158d14d40e96a5e0950d36e101083be05b0ddcd5f6a9c2",
       "routingSha256": "4c8f6678320f217c5fdcb21d495c5be1507fc1bf1636c87ae7638d9b0b49720e",
       "file": "repository-state-and-snapshots.md"
     },

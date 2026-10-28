@@ -1,8 +1,9 @@
 import path from 'node:path';
 import { run, commandExists, SingularityFlowError } from './util.mjs';
 import { githubAuthStatus } from './github-evidence.mjs';
-import { branch as currentBranch, defaultBranchName } from './git.mjs';
+import { branch as currentBranch, defaultBranchName, pathsChangedAfterMarker } from './git.mjs';
 import { classifyGitHost } from './git-host.mjs';
+import { phaseRequiresCodeDelivery } from './code-delivery-policy.mjs';
 import { recap } from './narration/recap.mjs';
 import { receiptApprovalText } from './evidence-receipt.mjs';
 import { workItemWorkflowRelative } from './work-item-location.mjs';
@@ -151,6 +152,32 @@ export function epicPullRequestBody(initiative, mergeSequence) {
   return lines.join('\n');
 }
 
+/**
+ * Commits made on a closed Story's branch after it closed (a hotfix, say) ship in its pull request,
+ * but its approved evidence never saw them: the preview showed that evidence as exact (2026-10-28).
+ * A merge from the base adds only what the base has, so it does not count.
+ */
+export function storyChangedAfterClosing(root, config, workflow, { head, base }) {
+  if (workflow.status !== 'closed' || !root) return [];
+  const workId = workflow.workItem.id;
+  const marker = workItemWorkflowRelative(workId, workflow.resolution?.workItemRoot ?? config?.workItemRoot);
+  const remote = config?.git?.remote ?? 'origin';
+  let changed = null;
+  try {
+    changed = pathsChangedAfterMarker(root, { ref: `refs/heads/${head}`, marker,
+      baseRef: `refs/remotes/${remote}/${base}`, exclude: path.posix.dirname(marker) });
+  } catch { return []; }
+  if (!changed?.paths.length) return [];
+  const order = workflow.phaseOrder ?? [];
+  const completion = workflow.phases?.[order.at(-1)];
+  const codeStep = [...order].reverse().find((id) => phaseRequiresCodeDelivery(workflow.phases?.[id])
+    && (completion?.approvalPolicy?.rejectTo ?? []).includes(id)) ?? (completion?.approvalPolicy?.rejectTo ?? [])[0] ?? null;
+  const listed = changed.paths.slice(0, 5).join(', ') + (changed.paths.length > 5 ? ` and ${changed.paths.length - 5} more` : '');
+  return [`${head} changes ${listed} after ${workId} closed (at ${changed.commit.slice(0, 8)}), and its approved evidence does not cover that: `
+    + (codeStep ? `reopen it with singularity-flow reopen ${workId} --to ${codeStep} --reason "<why>"` : `reopen it with singularity-flow reopen ${workId} --reason "<why>"`)
+    + ', or move those commits to a Story of their own'];
+}
+
 export function storyLifecycleBlockers(workflow) {
   const blockers = [];
   if (workflow.status !== 'closed' || workflow.currentPhase != null) {
@@ -239,7 +266,7 @@ export async function storyPullRequestPlan(root, config, workflow, { mergeSequen
     evidenceReceipt,
     requiredChecks: seed?.story?.requiredChecks ?? [],
     blockedBy: (() => {
-      const blockers = storyLifecycleBlockers(workflow);
+      const blockers = [...storyLifecycleBlockers(workflow), ...storyChangedAfterClosing(root, config, workflow, { head, base })];
       const entry = mergeSequence?.stories?.find((item) => item.workId === workflow.workItem.id || item.id === workflow.workItem.id);
       if (!entry) return blockers;
       blockers.push(...(entry.blockedBy ?? []), ...(entry.mergeBlockedBy ?? []));

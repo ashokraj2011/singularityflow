@@ -170,7 +170,11 @@ test('frequent lifecycle handlers do not reach the legacy dispatcher and stay un
     // authority fallback add 8,825 for 9,172,030 (state.mjs, delivery-evidence.mjs, approval-fallback.mjs,
     // lifecycle-transitions.mjs, evidence/terminal.mjs, upstream-routes.mjs, repair-budget.mjs, decision-list.mjs
     // and others). One new file.
-    assert.ok(closure.bytes <= 9_175_000, `${file} exceeds the 9 MB eager-source budget (${closure.bytes} bytes)`);
+    // 9,185,000 (next 5,000 boundary): main fddafbe0 measures 9,172,581 for start.mjs. main's own changes merged
+    // onto a Story branch named, not refused, a pull request blocked by commits after closing, and early code taken
+    // out of an artifact-only step add 9,016 for 9,181,597 (git.mjs, state.mjs, delivery-evidence.mjs,
+    // pull-request.mjs, governance.mjs). No new file.
+    assert.ok(closure.bytes <= 9_185_000, `${file} exceeds the 9 MB eager-source budget (${closure.bytes} bytes)`);
   }
 });
 
@@ -228,7 +232,9 @@ test('the common session projection does not import attach, state stores or publ
   // 3,910,000: main 80f74694 measures 3,901,751; who decides for a step with no approval group (approval-fallback.mjs,
   // through scope/decisions.mjs and plan-row-corrections.mjs) and the decide command listing return only where it
   // runs (upstream-routes.mjs, upstream-issues.mjs) add 4,444 for 3,906,195.
-  assert.ok(current.bytes <= 3_910_000, `session current loads ${current.bytes} source bytes`);
+  // 3,915,000: main fddafbe0 measures 3,906,195; the merged-base, after-closing and early-code helpers in git.mjs
+  // and their use in state.mjs and delivery-evidence.mjs add 6,634 for 3,912,829.
+  assert.ok(current.bytes <= 3_915_000, `session current loads ${current.bytes} source bytes`);
 });
 
 test('early phase and grounding-path entries exclude the deferred authoring and review graphs', async () => {

@@ -56,7 +56,7 @@ import { assertStoryTestRiskGate, beginStoryTestRiskRun, captureStoryTestRiskObs
 import { trpCaseInventoryDeclaration, trpExecutionEnvironment, trpNativeReportCapture } from './test-recovery-adapters.mjs';
 import { inspectRepositoryReadinessReceipt, loadRepositoryTestBaseline } from './initialization/runtime-readiness.mjs';
 import {
-  artifactChangeInventory, branch, changedFiles, commitIsAncestor, headTreeEntries, refHead, exactChangedPathsBetweenObjects, exactFileAtObject, exactRemoteBranchObservationAsync, gitCommonDir, governedCommitIdentity, head, identity,
+  artifactChangeInventory, branch, changedFiles, commitIsAncestor, commitsTouchingSince, committedChangedPaths, headTreeEntries, refHead, exactChangedPathsBetweenObjects, exactFileAtObject, exactRemoteBranchObservationAsync, gitCommonDir, governedCommitIdentity, head, identity,
   publicationPushOutcome, pushCommitToBranchAsync, refreshStalePublishedIndex, remoteContains, shallowBoundaryCommit, untrackedFiles
 } from './git.mjs';
 import {
@@ -107,7 +107,7 @@ import { assertPhaseGovernanceMayAdvance } from './phase-governance-routing.mjs'
 import { readSourceReviewStatus } from './source-review-lifecycle.mjs';
 import {
   assertReviewCodeEvidenceFresh, evaluateCodeDeliveryPreflight, phaseRequiresCodeDelivery, resolveDeliveryQualityCommands,
-  reviewRepairTarget, testCommandProvenance, uncoveredTestDeliveryPaths,
+  reviewRepairTarget, storyMergedBaseChanges, testCommandProvenance, uncoveredTestDeliveryPaths,
   verifyCodeDeliveryReceipt
 } from './delivery-evidence.mjs';
 import { generationSkillForPhase, pinCodeDeliveryTask } from './code-delivery-policy.mjs';
@@ -3346,10 +3346,19 @@ export async function assertPassedCodeDeliveryInput(root, config, workflow, phas
   if (receipt.tree.workingStateDigest !== await sourceTreeHash(root, config, workflow)
       || (currentTestInput && receipt.tree.testInputSha256 !== currentTestInput)) {
     const repairTarget = reviewRepairTarget(workflow, phase);
+    // Main's own changes, merged in after the code was approved, read as this Story's edits
+    // (2026-10-28). The approved tests still never ran with them, so the return stays; the cause is named.
+    const itemPrefix = `${config.workItemRoot ?? 'singularity/work-items'}/${workflow.workItem.id}/`;
+    const merged = storyMergedBaseChanges(root, config, workflow,
+      committedChangedPaths(root, packet.evidenceCommit).filter((file) => !file.startsWith(itemPrefix)));
+    const mergedCause = merged?.paths.length
+      ? ` ${merged.paths.slice(0, 5).join(', ')}${merged.paths.length > 5 ? ` and ${merged.paths.length - 5} more` : ''} came from ${workflow.workItem.baseBranch} through a merge after ${sourceId} was approved, not from this Story; `
+        + `its approved tests never ran with them, so ${sourceId} runs its tests again on the merged code, or the merge waits until ${workflow.workItem.id} ends.`
+      : '';
     const testingRepairRoute = repairTarget
       ? ` Review the exact repair preview. The confirmed return preserves changed bytes and requires new Code tests.\n${formatCommandRouteLines({ copilotCommand: '/sf-reject', command: `singularity-flow reject ${phase.id} --to ${repairTarget.id} --repair --reason <REASON>` }).join('\n')}`
       : ' Return to Code.';
-    throw refuse(`application source or separately hashed test inputs changed after the approved execution.${testingRepairRoute}`);
+    throw refuse(`application source or separately hashed test inputs changed after the approved execution.${mergedCause}${testingRepairRoute}`);
   }
   const replay = await verifyCodeDeliveryReceipt(root, receipt, {
     protectedPaths: [...new Set([
@@ -5313,9 +5322,21 @@ async function submitPhaseTransition(root, config, workflow, {
       ]).filter(Boolean))].sort();
       const change = await crossPhaseChange(root, config, workflow, phase, changedPaths);
       const described = describeCrossPhaseChange(change, { code: 'PHASE_SOURCE_CHANGED_AFTER_PUBLICATION', gate: 'submission', workflow, phase });
+      // No earlier code step owns them, so "move them to the code step" named nothing a person could
+      // run (2026-10-28): take them out of this step now and bring them back in the code step ahead.
+      const ahead = change.returns.length ? null : (workflow.phaseOrder ?? []).slice((workflow.phaseOrder ?? []).indexOf(phase.id) + 1)
+        .find((id) => phaseRequiresCodeDelivery(workflow.phases?.[id]));
+      const held = ahead ? commitsTouchingSince(root, exactGenerationCommit, changedPaths) : null;
+      const shortList = (commits) => commits.map((commit) => commit.slice(0, 12)).join(' ');
+      const takeOut = held ? [
+        ...(held.commits.length ? [`git revert --no-edit ${shortList([...held.commits].reverse())} now, and git cherry-pick ${shortList(held.commits)} once ${ahead} is prepared`] : []),
+        ...(held.uncommitted.length ? [`git stash push --include-untracked -- ${held.uncommitted.join(' ')} now, and git stash pop once ${ahead} is prepared`] : [])
+      ] : [];
       throw new SingularityFlowError(
         `Phase '${phase.id}' is artifact-only, but application source or tests changed after generation ${phase.generation} was published: `
-        + `${changedPaths.join(', ')}. Move them to the code step that owns them, then submit the unchanged ${phase.id} generation again. ${described.text}`,
+        + `${changedPaths.join(', ')}. `
+        + (takeOut.length ? `No earlier code step owns them; ${ahead} will deliver them. Take them out of ${phase.id}: ${takeOut.join('; ')}. Then submit the unchanged ${phase.id} generation again.`
+          : `Move them to the code step that owns them, then submit the unchanged ${phase.id} generation again. ${described.text}`),
         {
           code: 'PHASE_SOURCE_CHANGED_AFTER_PUBLICATION',
           details: {
@@ -5325,7 +5346,8 @@ async function submitPhaseTransition(root, config, workflow, {
             generationCommit: exactGenerationCommit,
             changedPaths,
             crossPhase: change,
-            gate: described.gate
+            gate: described.gate,
+            ...(takeOut.length ? { codeStepAhead: ahead, heldCommits: held.commits, heldUncommitted: held.uncommitted, recoveryCommands: takeOut } : {})
           }
         }
       );

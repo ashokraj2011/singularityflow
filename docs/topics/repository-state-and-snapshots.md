@@ -13,9 +13,9 @@ related:
   - recovery
   - workspaces-and-sessions
   - pins
-version: 3
+version: 4
 ---
-Repository snapshots are read models of and Git state. Refresh uses safe fast-forward behavior and never hides dirty, diverged, or ambiguous work.
+Repository snapshots are read models of and Git state. Refresh uses safe fast-forward behavior and never hides dirty, diverged, or ambiguous work. A Story runs on the configuration pinned when it started. When main changes SFlow's configuration or a protected path and the Story branch merges main in, the code step and the final check count those files as main's own change: they are named, not refused, and the Story keeps its pin. The same bytes edited on the Story branch itself are still refused. Approved code evidence made stale only by such a merge says so; the code step then runs its tests again on the merged code.
 
 ## Faster VS Code reads
 

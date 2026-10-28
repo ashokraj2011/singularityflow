@@ -100,3 +100,29 @@ test('repair budgets follow the reopened validation boundary without counting pa
     workflow, workflow.phases['poc-publication-review'], 'poc-test-generation'
   )?.id, 'poc-validation', 'publication rejection cannot bypass the validation budget');
 });
+
+// An upstream issue's return usually comes from a step still in progress, where reject is refused, yet
+// the exhausted budget named that reject as the way out (2026-10-28).
+test('an exhausted budget names the reset return only from a submitted step', () => {
+  const workflow = {
+    workItem: { id: 'BUDGET-1' }, phaseOrder: ['intake', 'implementation', 'testing'],
+    phases: {
+      intake: { id: 'intake', generation: 1 },
+      implementation: { id: 'implementation', repairBudget: { maxAttempts: 1, resetOnPhase: 'intake' } },
+      testing: { id: 'testing', status: 'in_progress', approvalPolicy: { rejectTo: ['intake', 'implementation'] } }
+    }
+  };
+  const phase = workflow.phases.implementation;
+  const sourcePhase = workflow.phases.testing;
+  consumeRepairAttempt(workflow, phase, { targetPhase: 'implementation', sourcePhase, actor: 'reviewer', at: '2026-10-28T00:00:00.000Z', changeRequestId: 'CR-001' });
+  const refusal = (status) => {
+    sourcePhase.status = status;
+    try { consumeRepairAttempt(workflow, phase, { targetPhase: 'implementation', sourcePhase, actor: 'reviewer', at: '2026-10-28T01:00:00.000Z', changeRequestId: 'CR-002' }); }
+    catch (error) { return error; }
+    assert.fail('the budget is exhausted');
+  };
+  const inProgress = refusal('in_progress');
+  assert.equal(inProgress.details.resetCommand, null);
+  assert.match(inProgress.message, /Once 'testing' is submitted, its approvers may return it to 'intake'/u);
+  assert.match(refusal('awaiting_approval').details.resetCommand, /^singularity-flow reject testing --work-id BUDGET-1 --to intake/u);
+});

@@ -11,18 +11,21 @@ import { stepResponsibilities } from '../phase-roles.mjs';
 import { STARTER_CHECKLIST, validateChecklistDecisions } from '../specification-quality.mjs';
 import { SingularityFlowError } from '../util.mjs';
 import { CLAUSE_LINKED_DISPOSITIONS, DECIDABLE_SCOPE_DISPOSITIONS } from './extract.mjs';
+import { fallbackAuthorities } from '../approval-fallback.mjs';
 
-/** Who may decide the scope: the approval groups of the steps that define it. */
+/** Who may decide the scope: the approval groups of the steps that define it, else the nearest step's. */
 export function scopeAuthorities(workflow) {
   const groups = new Set();
+  const scopeSteps = [];
   for (const id of workflow?.phaseOrder ?? []) {
     if (!stepResponsibilities(workflow, id).includes('scope')) continue;
+    scopeSteps.push(id);
     const policy = workflow.phases?.[id]?.approvalPolicy ?? {};
     for (const group of [...(policy.authorities ?? []), ...(policy.requiredAuthorities ?? [])]) groups.add(group);
   }
   // A route that leaves scope out has no scope step; whoever decides that omission decides here.
   for (const group of omissionAuthorities(workflow, 'scope')) groups.add(group);
-  return [...groups].sort();
+  return groups.size ? [...groups].sort() : fallbackAuthorities(workflow, scopeSteps);
 }
 
 /**

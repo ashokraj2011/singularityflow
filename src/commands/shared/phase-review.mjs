@@ -176,7 +176,7 @@ export async function phaseReview(root, config, workflow, phase, { includeContin
     documents,
     upstreamDiscrepancies: phaseUpstreamDiscrepancies(documents, workflow, phase.id),
     upstreamIssues: openUpstreamIssues(workflow).map(({ issue, status, supersededBy }) => ({ id: issue.id, phase: issue.phase, about: issue.about,
-      problem: issue.problem, status, supersededBy, decide: upstreamIssueDecideCommand(workflow.workItem.id, issue, supersededBy) })),
+      problem: issue.problem, status, supersededBy, decide: upstreamIssueDecideCommand(workflow.workItem.id, issue, supersededBy, workflow) })),
     ...(await phaseAuthoringSummary(root, config, workflow, phase, { documents, includeContinuation }))
   };
 }

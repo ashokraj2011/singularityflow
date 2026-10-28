@@ -220,8 +220,8 @@ import {
 import { assertProducerAllowed, buildGenerationAuthorship, normalizeAuthorshipOptions, phasePublicationCommand } from './manual-authorship.mjs';
 import { consumeRepairAttempt, repairBudgetPhaseForRejection } from './repair-budget.mjs';
 import {
-  advanceCompletedPhase, clearApprovalDisposition, completionPhaseOf, nextPhaseAfterSkillAmendment, reopenPhaseRange,
-  resetPhaseRangeForRework
+  advanceCompletedPhase, clearApprovalDisposition, clearDecisionState, completionPhaseOf, nextPhaseAfterSkillAmendment, reopenPhaseRange,
+  resetDecisionRounds, resetPhaseRangeForRework
 } from './lifecycle-transitions.mjs';
 import {
   assertChoiceKeepsDependencies, decisionFedBy, decisionInputsHint, decisionOutcome, describeOutcome,
@@ -7368,7 +7368,7 @@ async function loopBackForDecision(root, config, workflow, phase, outcome, {
     resolution: null
   };
   for (const id of reopenPhaseRange(workflow, {
-    targetId, at, actor: actorKey(actor), reason: changeRequest.comment
+    targetId, at, actor: actorKey(actor), reason: changeRequest.comment, loopDecision: outcome.decision
   })) await updateArtifactMetadata(root, config, workflow, workflow.phases[id]);
   await ensureWorkIntervalBaseline(root, config, workflow, {
     phaseId: targetId,
@@ -8209,6 +8209,12 @@ export async function decideIntentAmendment(root, config, workflow, proposal, {
     phase.approvedAt = null;
     phase.approvedBy = null;
     clearApprovalDisposition(phase);
+    // The complete reset every reopen applies: a decision value recorded before the amendment
+    // (a pass, say) routed the new round on old evidence (2026-10-28).
+    delete phase.retention;
+    clearDecisionState(phase);
+    resetDecisionRounds(workflow, [phase.id]);
+    if (workflow.pendingDecision?.after === phase.id) delete workflow.pendingDecision;
     phase.rejectedAt = at;
     phase.rejectedBy = key;
     phase.rejectionReason = `Revalidate after approved intent amendment ${proposal.id}.`;
@@ -8223,6 +8229,7 @@ export async function decideIntentAmendment(root, config, workflow, proposal, {
   }
   workflow.currentPhase = workflow.phaseOrder[firstReset ?? nextIndex];
   workflow.status = 'in_progress';
+  if (firstReset != null) delete workflow.completion;
 
   proposal.status = 'approved';
   proposal.decidedAt = at;
@@ -8830,9 +8837,40 @@ function verifiedReworkBaselineTree(root, checkpoint) {
   return baseline.tree;
 }
 
+/**
+ * Decisions made after a rework's checkpoint that rolling it forward would undo: it restores the
+ * work item's files and its range's step records as they were, so an amendment approved since was
+ * reverted while the records kept it (2026-10-28). A later return opens its own newer rework, and a
+ * dismissal or accepted risk is not undone by it.
+ */
+export function decisionsSinceRework(workflow, request, checkpoint) {
+  const since = Date.parse(request?.requestedAt ?? '');
+  if (!Number.isFinite(since)) return [];
+  const after = (value) => Date.parse(value ?? '') > since;
+  const range = new Set(checkpoint?.state?.affectedPhaseIds ?? []);
+  return [
+    ...(workflow.intentAmendments ?? []).filter((entry) => entry?.status === 'approved' && after(entry.decidedAt))
+      .map((entry) => `intent amendment ${entry.id}`),
+    ...(workflow.forwardAmendmentDecisions ?? []).filter((entry) => entry?.decision === 'approved' && after(entry.at))
+      .map((entry) => `amendment ${entry.amendment}`),
+    ...(workflow.upstreamIssueDecisions ?? []).filter((entry) => ['amend', 'plan-correction'].includes(entry?.outcome) && after(entry.at))
+      .map((entry) => `upstream issue ${entry.issue} (${entry.outcome})`),
+    ...Object.values(workflow.phases ?? {}).filter((phase) => !range.has(phase.id) && phase.status === 'approved' && after(phase.approvedAt))
+      .map((phase) => `the approval of ${phase.id}`)
+  ];
+}
+
 /** A read-only, content-bound plan for abandoning the latest rework cone. */
 export async function previewReworkRollForward(root, config, workflow, { changeRequestId = null } = {}) {
   const { request, checkpoint } = openReworkCheckpoint(workflow, changeRequestId);
+  const newer = decisionsSinceRework(workflow, request, checkpoint);
+  if (newer.length) {
+    throw new SingularityFlowError(
+      `Rolling ${request.id} forward would put back the files and step records from before ${newer.join(', ')}, undoing ${newer.length === 1 ? 'it' : 'them'}. Nothing was changed. `
+      + 'Finish the rework round instead, or send the Story back with a reason.',
+      { code: 'REWORK_ROLL_FORWARD_SUPERSEDED', details: { changeRequest: request.id, decisions: newer } }
+    );
+  }
   const baselineTree = verifiedReworkBaselineTree(root, checkpoint);
   const currentHead = head(root);
   const snapshot = await currentReworkTreeChangeSet(root, config, workflow, baselineTree, currentHead);
@@ -8989,7 +9027,7 @@ export async function rollForwardRework(root, config, workflow, {
     );
   }
   const { request, checkpoint } = openReworkCheckpoint(workflow, preview.changeRequestId);
-  const session = await loadSession(root);
+  const session = await loadSession(root, { required: false }) ?? { actor: identity(root), agent: null };
   const sourcePhase = checkpoint.state.phases?.[checkpoint.sourcePhase] ?? workflow.phases[checkpoint.sourcePhase];
   const authority = requireApprovalAuthority(
     workflow.resolution.approvalAuthorities ?? config.approvalAuthorities,
@@ -9142,7 +9180,7 @@ export async function promoteDesignSource(root, config, workflow, {
  * Story directory, artifacts, approvals, and branch intact so the archived record
  * remains reconstructable from Git.
  */
-export async function cancelWorkflow(root, config, workflow, { reason, channel = 'terminal', actionContext = null } = {}) {
+export async function cancelWorkflow(root, config, workflow, { reason, channel = 'terminal', actionContext = null, session: chosenSession = null } = {}) {
   await assertNoPendingPublication(root, config, workflow, 'cancel work');
   if (workflow.status === 'cancelled') {
     throw new SingularityFlowError(`Story '${workflow.workItem.id}' is already cancelled and archived.`);
@@ -9154,7 +9192,9 @@ export async function cancelWorkflow(root, config, workflow, { reason, channel =
   if (!comment) throw new SingularityFlowError('A cancellation reason is required.');
   const phase = currentPhase(workflow);
   if (!phase) throw new SingularityFlowError(`Story '${workflow.workItem.id}' has no active phase to cancel.`);
-  const session = await loadSession(root);
+  // A step SFlow runs itself (a verification, a convergence) ends the agent session, and cancel then
+  // refused with "No active agent session"; the person's Git identity cancels, as reject does.
+  const session = chosenSession ?? await loadSession(root, { required: false }) ?? { actor: identity(root), agent: null };
   assertPhaseAgentMayMutate(config, workflow, phase, session, 'cancel');
   const timestamp = nowIso();
   const record = {
@@ -9169,7 +9209,8 @@ export async function cancelWorkflow(root, config, workflow, { reason, channel =
     channel,
     ...(actionContext ? { actionContext } : {})
   };
-  phase.status = 'cancelled';
+  // A step already approved (a decision was pending after it) keeps its approval in the history.
+  if (phase.status !== 'approved') phase.status = 'cancelled';
   phase.cancelledAt = timestamp;
   phase.cancelledBy = session.actor;
   phase.cancellationReason = comment;
@@ -9679,6 +9720,10 @@ export function applySkillAmendmentSelectiveReopen(workflow, amendment, at) {
     phase.submittedAt = null; phase.approvedAt = null; phase.approvedBy = null;
     phase.submissionArchitectureDecision = null;
     clearApprovalDisposition(phase);
+    delete phase.retention;
+    clearDecisionState(phase);
+    resetDecisionRounds(workflow, [phaseId]);
+    if (workflow.pendingDecision?.after === phaseId) delete workflow.pendingDecision;
     phase.skillAmendmentRevalidation = {
       id: amendment.id, state: 'affected', adoptedAt: at,
       generationAtAdoption: phase.generation
@@ -9692,6 +9737,9 @@ export function applySkillAmendmentSelectiveReopen(workflow, amendment, at) {
   }
   workflow.currentPhase = workflow.phaseOrder[first];
   workflow.status = 'in_progress';
+  // A closed Story adopting a skill version kept its old completion, so the next ending skipped its
+  // final evaluation and printed the old "passed" (2026-10-28).
+  delete workflow.completion;
   return workflow.currentPhase;
 }
 

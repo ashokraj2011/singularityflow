@@ -116,7 +116,7 @@ export function resetPhaseForRework(phase, { at, status, invalidation = {}, reta
  * their approval then, when nothing they decided over changed. Nothing changes when any phase in
  * the range is malformed.
  */
-export function resetPhaseRangeForRework(workflow, { targetId, at, invalidation = {}, retain = false }) {
+export function resetPhaseRangeForRework(workflow, { targetId, at, invalidation = {}, retain = false, loopDecision = null }) {
   const targetIndex = phaseIndex(workflow, targetId);
   const affectedIds = workflow.phaseOrder.slice(targetIndex);
   if (affectedIds.some((id) => !Array.isArray(workflow.phases[id].approvals)
@@ -130,6 +130,7 @@ export function resetPhaseRangeForRework(workflow, { targetId, at, invalidation 
   // Reopened phases run again, so their decisions are taken again; a question still waiting
   // after one of them no longer describes the Story.
   if (workflow.pendingDecision && affectedIds.includes(workflow.pendingDecision.after)) delete workflow.pendingDecision;
+  resetDecisionRounds(workflow, affectedIds, loopDecision);
   // A reopened Story finishes again, and its final evaluation is made again over the new evidence.
   delete workflow.completion;
   workflow.currentPhase = targetId; workflow.status = 'in_progress';
@@ -140,11 +141,22 @@ export function resetPhaseRangeForRework(workflow, { targetId, at, invalidation 
  * A rejection, a reopen or a decision's loop: the range is reset and the target records who sent it
  * back and why. A loop passes no `retain`: each round gets its own evidence [E2G-023].
  */
-export function reopenPhaseRange(workflow, { targetId, at, actor, reason, retain = false }) {
-  const affectedIds = resetPhaseRangeForRework(workflow, { targetId, at, retain });
+export function reopenPhaseRange(workflow, { targetId, at, actor, reason, retain = false, loopDecision = null }) {
+  const affectedIds = resetPhaseRangeForRework(workflow, { targetId, at, retain, loopDecision });
   const target = workflow.phases[targetId];
   target.rejectedAt = at; target.rejectedBy = actor; target.rejectionReason = reason;
   return affectedIds;
+}
+
+/**
+ * A decision whose step runs again from an earlier start counts its rounds afresh; only its own
+ * loop (`keep`) adds to them. They only grew, so after a rework the first "go back" said its
+ * rounds were used (2026-10-28).
+ */
+export function resetDecisionRounds(workflow, phaseIds, keep = null) {
+  for (const decision of workflow.resolution?.decisions ?? []) {
+    if (decision.id !== keep && phaseIds.includes(decision.after)) delete workflow.decisionRounds?.[decision.id];
+  }
 }
 
 /** A phase that runs again records its decision values again and is no longer skipped. */

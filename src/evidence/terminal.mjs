@@ -91,6 +91,16 @@ export function terminalRecoveryActions(workId, evaluation, gate = null, workflo
   return [...decisions, ...upstream, ...witnesses, ...risks, ...diagnostics];
 }
 
+/**
+ * The witness commands that wait for submission: visual ones, recorded once submission pins the
+ * candidate. An inspection is witnessed now; its command was dropped at submission too, so only a
+ * risk was left, which its owner could not always take (2026-10-28).
+ */
+export function visualWitnessCommands(workId, evaluation) {
+  return new Set((evaluation?.rows ?? []).flatMap((row) => (row.verification?.contract?.slots ?? [])
+    .filter((slot) => slot.method === 'visual').map((slot) => witnessAction(workId, row, slot))));
+}
+
 const UPSTREAM_OWNED = new Set(['plan', 'implement', 'verify']);
 const UPSTREAM_STATUSES = new Set(['missing', 'partial', 'failed']);
 
@@ -261,10 +271,11 @@ export async function evaluateTerminalReadiness(root, definition, workflow, { st
   const blockers = result.blockers.filter((message) => !omitted.has(message) && !deferredMessages.has(message));
   // Submission defers the decisions; approval and the ending lead with their list.
   const decisions = stage === 'submission' ? null : result.decisions;
+  const visualWitness = visualWitnessCommands(workflow.workItem.id, result.evaluation);
   const recovery = [...(decisions ? [decisions.nextAction.command] : []), ...(stage === 'submission' ? [] : result.upstream.map((entry) => entry.command)),
     ...terminalRecoveryActions(workflow.workItem.id, result.evaluation, gate, workflow).filter((command) => {
       if (stage !== 'submission') return true;
-      if (command.startsWith('singularity-flow decision witness ') || command.includes(' --confirm-evidence')) return false;
+      if (visualWitness.has(command) || command.includes(' --confirm-evidence')) return false;
       return ![...deferredObligations].some((id) => command.includes(`--obligation ${id}`));
     })];
   return {

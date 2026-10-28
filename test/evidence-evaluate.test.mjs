@@ -426,3 +426,17 @@ test('lifecycle words never claim completion', () => {
   assert.equal(lifecycleWords({ status: 'in_progress', currentPhase: null, pendingDecision: { label: 'Ship it?' } }), 'Waiting for a decision: Ship it?');
   assert.equal(lifecycleWords({ status: 'not_started', currentPhase: null }), 'Not started');
 });
+
+// At submission only a visual witness waits; an inspection's command was dropped too, so only a risk
+// was left, which its owner could not always take (2026-10-28).
+test('at submission only visual witnesses wait; an inspection keeps its witness command', async () => {
+  const { terminalRecoveryActions, visualWitnessCommands } = await import('../src/evidence/terminal.mjs');
+  const slot = (name, method) => ({ slot: name, method, status: 'missing' });
+  const evaluation = { rows: [{ id: AC1, result: 'missing', obligations: [], actions: [],
+    verification: { contract: { slots: [slot('screen', 'visual'), slot('review', 'inspection')] } } }] };
+  const all = terminalRecoveryActions(W, evaluation, null, null);
+  const visual = visualWitnessCommands(W, evaluation);
+  const witnesses = all.filter((command) => command.startsWith('singularity-flow decision witness '));
+  assert.equal(witnesses.length, 2, all.join('\n'));
+  assert.deepEqual(witnesses.filter((command) => !visual.has(command)).map((command) => command.match(/--slot (\S+)/u)[1]), ['review']);
+});

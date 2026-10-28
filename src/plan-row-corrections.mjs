@@ -15,6 +15,7 @@
 import { z } from 'zod';
 import { recordSha256 } from './records.mjs';
 import { applyPlanEvidenceAmendments, evidenceOwnerAuthorities } from './plan-evidence-amendments.mjs';
+import { fallbackAuthorities } from './approval-fallback.mjs';
 import { normalizeVerificationContracts } from './verification/contracts.mjs';
 import { SingularityFlowError, posix } from './util.mjs';
 
@@ -121,9 +122,13 @@ function applyOperation(result, operation, { check }) {
   claim.expectedPaths = [...new Set(next)].sort();
 }
 
-/** The owner plan's approval groups decide; a different plan's reviewers cannot correct this one. */
+/**
+ * The owner plan's approval groups decide; a different plan's reviewers cannot correct this one. A
+ * plan step with no approval group is corrected by the nearest step that has one.
+ */
 export function planCorrectionAuthorities(workflow, ownerPhase) {
-  return evidenceOwnerAuthorities(workflow, ownerPhase);
+  const own = evidenceOwnerAuthorities(workflow, ownerPhase);
+  return own.length ? own : fallbackAuthorities(workflow, [ownerPhase]);
 }
 
 /**

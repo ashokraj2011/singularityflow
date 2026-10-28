@@ -13,7 +13,7 @@
  */
 import { z } from 'zod';
 import { discrepancyItemSha256 } from './records.mjs';
-import { decidableUpstreamStep, OPEN_UPSTREAM_ISSUE_STATUSES, upstreamIssueAuthorities, upstreamIssueStates } from './upstream-routes.mjs';
+import { decidableUpstreamStep, OPEN_UPSTREAM_ISSUE_STATUSES, upstreamIssueAuthorities, upstreamIssueOutcomes, upstreamIssueStates } from './upstream-routes.mjs';
 import { SingularityFlowError } from './util.mjs';
 
 // The pure state read lives with the routes, which every lifecycle command already loads, so the
@@ -197,9 +197,9 @@ export function openUpstreamIssues(workflow, now = new Date().toISOString()) {
 }
 
 /** The decide command; a superseded issue, should its approvers close it, is dismissed naming its replacement. */
-export function upstreamIssueDecideCommand(workId, issue, supersededBy = null) {
+export function upstreamIssueDecideCommand(workId, issue, supersededBy = null, workflow = null) {
   if (supersededBy) return `singularity-flow upstream-issue decide ${issue.id} --work-id ${workId} --outcome dismiss --reason "Superseded by ${supersededBy}."`;
-  return `singularity-flow upstream-issue decide ${issue.id} --work-id ${workId} --outcome plan-correction|amend|return|accept-risk|dismiss --reason "<why>"`;
+  return `singularity-flow upstream-issue decide ${issue.id} --work-id ${workId} --outcome ${upstreamIssueOutcomes(workflow, issue.phase)} --reason "<why>"`;
 }
 
 /** One terminal blocker per open issue, with its exact decide command. A superseded issue blocks nothing. */
@@ -207,7 +207,7 @@ export function upstreamIssueTerminalBlockers(workflow, now = new Date().toISOSt
   return openUpstreamIssues(workflow, now).map(({ issue, status }) => ({
     code: 'UPSTREAM_ISSUES_OPEN',
     message: `${issue.id} about ${issue.phase} (${issue.about}) ${status === 'expired' ? 'had its accepted risk expire' : 'is not decided'}; ${issue.phase}'s approvers decide it.`,
-    command: upstreamIssueDecideCommand(workflow.workItem?.id ?? '<WORK-ID>', issue)
+    command: upstreamIssueDecideCommand(workflow.workItem?.id ?? '<WORK-ID>', issue, null, workflow)
   }));
 }
 

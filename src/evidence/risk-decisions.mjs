@@ -12,6 +12,9 @@
  */
 import { recordSha256 } from '../records.mjs';
 import { SingularityFlowError } from '../util.mjs';
+import { fallbackAuthorities, stepGroups } from '../approval-fallback.mjs';
+
+export { fallbackAuthorities };
 
 export const RISK_CATEGORIES = Object.freeze(['external-dependency', 'known-failure', 'assurance-shortfall', 'deferred-verification', 'accepted-deviation']);
 export const RISK_TRANSITIONS = Object.freeze(['terminal']);
@@ -47,14 +50,12 @@ export function riskEligibility(obligation, { untrusted = false } = {}) {
   return { eligible: true };
 }
 
-/** Who may accept: the approval groups of the steps that own the obligation. */
+
+/** Who may accept: the approval groups of the steps that own the obligation, else the nearest step's. */
 export function riskAuthorities(workflow, obligation) {
-  const groups = new Set();
-  for (const step of obligation?.owningSteps ?? []) {
-    const policy = workflow?.phases?.[step]?.approvalPolicy ?? {};
-    for (const group of [...(policy.authorities ?? []), ...(policy.requiredAuthorities ?? [])]) groups.add(group);
-  }
-  return [...groups].sort();
+  const steps = obligation?.owningSteps ?? [];
+  const groups = new Set(steps.flatMap((step) => stepGroups(workflow, step)));
+  return groups.size ? [...groups].sort() : fallbackAuthorities(workflow, steps);
 }
 
 /** Record a decision on the aggregate; the caller found the obligation in the current evaluation and checked authority. */

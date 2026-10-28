@@ -22,7 +22,7 @@ import { testCommandReviewHold } from './story-test-commands.mjs';
 import { testRunCauseWords } from './test-run-cause.mjs';
 import { testRunRiskAuthorities } from './test-run-risk.mjs';
 import { decisionGroups, decisionRefusalLead } from './decision-list-facts.mjs';
-import { CONFORMANCE_GAP_RULE, decidableUpstreamStep, decisionHeadline, issueNamesClause, stepName } from './upstream-routes.mjs';
+import { CONFORMANCE_GAP_RULE, decidableUpstreamStep, decisionHeadline, issueNamesClause, stepName, upstreamIssueOutcomes, upstreamReturnLegal } from './upstream-routes.mjs';
 import { SingularityFlowError } from './util.mjs';
 
 export { decisionGroups, decisionHeadline, decisionRefusalLead, stepName };
@@ -152,12 +152,7 @@ function coveringCandidate(candidates, clauses) {
   return (candidates ?? []).find((candidate) => clauses.every((clause) => (candidate.clauses ?? []).some((id) => sameClause(id, clause)))) ?? null;
 }
 
-function returnLegal(workflow, ownerPhase) {
-  const current = workflow?.phases?.[workflow?.currentPhase];
-  const order = workflow?.phaseOrder ?? [];
-  return Boolean(current) && ['in_progress', 'awaiting_approval'].includes(current.status)
-    && order.indexOf(ownerPhase) >= 0 && order.indexOf(ownerPhase) < order.indexOf(current.id);
-}
+const returnLegal = upstreamReturnLegal;
 
 /** One item for a conformance gap, with the open upstream issue that names its clauses when there is one. */
 function gapItem(workflow, context, group) {
@@ -284,7 +279,7 @@ function issueItem(workflow, context, state) {
     details: { issue: issue.id, phase: issue.phase, about: issue.about, status: state.status,
       supersedes: (context.facts.issues ?? []).filter((entry) => entry.supersededBy === issue.id).map((entry) => entry.issue.id),
       coveredBy: covering.map((entry) => entry.id),
-      commands: [`singularity-flow upstream-issue decide ${issue.id} --work-id ${workflow.workItem.id} --outcome plan-correction|amend|return|accept-risk|dismiss --reason "<why>"`] }
+      commands: [`singularity-flow upstream-issue decide ${issue.id} --work-id ${workflow.workItem.id} --outcome ${upstreamIssueOutcomes(workflow, issue.phase)} --reason "<why>"`] }
   };
 }
 

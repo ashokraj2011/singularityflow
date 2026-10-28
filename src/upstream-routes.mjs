@@ -110,6 +110,26 @@ export function reopenAuthorityStep(workflow, completionPhaseId) {
   return decidableUpstreamStep(workflow, completionPhaseId) ?? completionPhaseId;
 }
 
+/**
+ * Whether an issue about `ownerPhase` may be returned to it now: a return reopens from the current
+ * step, so that step is in progress or awaiting approval, and the issue's step comes before it.
+ */
+export function upstreamReturnLegal(workflow, ownerPhase) {
+  const current = workflow?.phases?.[workflow?.currentPhase];
+  const order = workflow?.phaseOrder ?? [];
+  return Boolean(current) && ['in_progress', 'awaiting_approval'].includes(current.status)
+    && order.indexOf(ownerPhase) >= 0 && order.indexOf(ownerPhase) < order.indexOf(current.id);
+}
+
+/**
+ * The outcomes its approvers may choose now, as the decide command lists them. It listed `return`
+ * while a decision was pending, or once another return had gone past the issue's step, and the
+ * return was then refused (2026-10-28).
+ */
+export function upstreamIssueOutcomes(workflow, ownerPhase) {
+  return ['plan-correction', 'amend', ...(!workflow || upstreamReturnLegal(workflow, ownerPhase) ? ['return'] : []), 'accept-risk', 'dismiss'].join('|');
+}
+
 /** The statuses of an issue that still owe a person's decision: undecided, or an accepted risk that expired. */
 export const OPEN_UPSTREAM_ISSUE_STATUSES = Object.freeze(['open', 'expired']);
 

@@ -23,7 +23,7 @@ related:
   - story-lifecycle
   - workflow-decisions
   - rejection-and-rework
-version: 31
+version: 32
 ---
 The evidence matrix shows every requirement and acceptance criterion of a Story as one row: whether the approved plan names it, whether a delivered change implements it, which tagged test verifies it and what that test's run proved. It reads committed records only, so it runs no test and makes no network call.
 
@@ -92,7 +92,7 @@ A passing test proves only what it asserts, so the reviewer decides whether each
 
 ### Accepting a risk
 
-When an obligation failed, is missing or is inconclusive and the Story must close anyway, someone in the group that approves the step owning it records `singularity-flow decision risk --obligation <OBL-ID> --category <category> --expires YYYY-MM-DD --reason TEXT`. The category is one of external-dependency, known-failure, assurance-shortfall, deferred-verification or accepted-deviation, and the expiry is at most 90 days ahead. The obligation then reads excepted, and what was observed stays visible: a failed test still reads failed.
+When an obligation failed, is missing or is inconclusive and the Story must close anyway, someone in the group that approves the step owning it records `singularity-flow decision risk --obligation <OBL-ID> --category <category> --expires YYYY-MM-DD --reason TEXT`. The category is one of external-dependency, known-failure, assurance-shortfall, deferred-verification or accepted-deviation, and the expiry is at most 90 days ahead. The obligation then reads excepted, and what was observed stays visible: a failed test still reads failed. When the owning step has no approval group (a quick-fix or POC Lite code step), or no step owns the obligation (a criterion no test is tied to), the nearest step that has one decides: the steps after the owner first, then those before it. The same rule decides a witness, a scope decision and a plan correction.
 
 A decision covers only what it accepted. It counts for nothing once it expires, is revoked with `decision risk --revoke <RISK-ID> --reason TEXT`, does not permit the transition at hand, or the evidence it accepted changes, including a rerun of the criterion's test, which is a new attempt; the matrix then says to renew it. Closing a Story re-evaluates decisions at that moment, so one that expired after approval blocks completion. Some failures are never accepted: stale evidence is run again, records that do not verify are repaired, a review is given by approving the step, and the scope has its own decisions.
 

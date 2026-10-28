@@ -57,7 +57,9 @@ test('frequent lifecycle handlers do not reach the legacy dispatcher and stay un
     // story-publication-binding.mjs and story-state-index.mjs on main without a recorded raise.
     // 461: agent-output-folder.mjs, the leaf that keeps agent results in the checkout's Git-excluded .sflow/out,
     // joined submit.mjs's graph through agent-output.mjs and application-paths.mjs.
-    assert.ok(closure.files.size <= 461, `${file} loads ${closure.files.size} local files (budget 461; retired graph 597)`);
+    // 462: approval-fallback.mjs, who decides for a step with no approval group of its own, joined submit.mjs's
+    // graph through evidence/risk-decisions.mjs, plan-row-corrections.mjs and scope/decisions.mjs.
+    assert.ok(closure.files.size <= 462, `${file} loads ${closure.files.size} local files (budget 462; retired graph 597)`);
     // 9,005,000 (next 5,000 boundary): phase-lifecycle.mjs grew from 8,993,692 (main 4a8e6c42) to 9,004,129 with the
     // capability application block's per-environment arguments and debug validation in capabilities.mjs and the
     // launcher rules it reads (RUN amendment), together with 2ca46d6d's conformance issue ownership; no new file.
@@ -164,7 +166,11 @@ test('frequent lifecycle handlers do not reach the legacy dispatcher and stay un
     // 9,165,000: main f732f212 measures 9,155,969 for start.mjs. A rewritten Story history named at approval and at
     // the prior code receipt, and acceptance off on a route with no code step, add 5,940 for 9,161,909 (state.mjs,
     // governance.mjs, config.mjs). No new file.
-    assert.ok(closure.bytes <= 9_165_000, `${file} exceeds the 9 MB eager-source budget (${closure.bytes} bytes)`);
+    // 9,175,000 (next 5,000 boundary): main 80f74694 measures 9,163,205 for start.mjs. The batch 4 resets and
+    // authority fallback add 8,825 for 9,172,030 (state.mjs, delivery-evidence.mjs, approval-fallback.mjs,
+    // lifecycle-transitions.mjs, evidence/terminal.mjs, upstream-routes.mjs, repair-budget.mjs, decision-list.mjs
+    // and others). One new file.
+    assert.ok(closure.bytes <= 9_175_000, `${file} exceeds the 9 MB eager-source budget (${closure.bytes} bytes)`);
   }
 });
 
@@ -219,7 +225,10 @@ test('the common session projection does not import attach, state stores or publ
   assert.ok(current.files.size <= 220, `session current reaches ${current.files.size} files; old session handler reached 429`);
   // 3,905,000: main cf33907d measures 3,898,542; plan corrections as the plan approver's own terminal step and an
   // upstream issue raised from /sf-decide add 1,906 for 3,900,448 (copilot-mutation-guard.mjs, command-skills.mjs).
-  assert.ok(current.bytes <= 3_905_000, `session current loads ${current.bytes} source bytes`);
+  // 3,910,000: main 80f74694 measures 3,901,751; who decides for a step with no approval group (approval-fallback.mjs,
+  // through scope/decisions.mjs and plan-row-corrections.mjs) and the decide command listing return only where it
+  // runs (upstream-routes.mjs, upstream-issues.mjs) add 4,444 for 3,906,195.
+  assert.ok(current.bytes <= 3_910_000, `session current loads ${current.bytes} source bytes`);
 });
 
 test('early phase and grounding-path entries exclude the deferred authoring and review graphs', async () => {

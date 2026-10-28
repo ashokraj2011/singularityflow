@@ -140,6 +140,27 @@ function reworkReturnRequest(workflow, phase) {
 }
 
 /**
+ * The return to a step before this one that reset this published code step: an upstream issue's
+ * return, or a rejection sent further back. What it corrects (the plan, the scope) may need no code
+ * change, yet the next generation was refused as unchanged, so the Story could go on only with a
+ * fake edit (2026-10-28). That generation carries the previous one's exact source and tests and runs
+ * them again, as an intent revalidation does; whatever the corrected plan still owes is judged as for
+ * any generation. Only the reset that reopened this exact generation qualifies.
+ */
+function earlierReturnRequest(workflow, phase) {
+  const generation = Number(phase?.generation ?? 0);
+  const evidence = phase?.deliveryEvidence;
+  const reset = phase?.reworkRevalidation;
+  if (!(generation > 0) || !phase.generationCommit || evidence?.status !== 'ready' || !evidence.receiptSha256
+      || Number(reset?.generation) !== generation) return null;
+  const order = workflow.phaseOrder ?? [];
+  const request = [...(workflow.changeRequests ?? [])].reverse().find((candidate) => candidate.requestedAt === reset.invalidatedAt) ?? null;
+  if (!request || request.decision || request.testingRepair || order.indexOf(request.targetPhase) < 0
+      || order.indexOf(request.targetPhase) >= order.indexOf(phase.id)) return null;
+  return request;
+}
+
+/**
  * The route a refused test-only or unchanged code generation takes, or null. A first generation
  * must implement; a later one carries its previous generation's unchanged source only when a
  * person's return reopened it; one left unchanged after a return is withdrawn by that return's
@@ -1361,7 +1382,8 @@ export async function evaluateCodeDeliveryPreflight(root, config, workflow, phas
   const returnRequest = !confirmedRepair && reworkReturnRequest(workflow, phase);
   const reworkRepair = !confirmedRepair && !changedSourcePaths.length && testOnlyChange && Boolean(returnRequest);
   const testOnlyRepair = confirmedRepair || reworkRepair;
-  const reusableSourceCandidates = intentRevalidation || testOnlyRepair || documentationOnlyCorrection
+  const earlierReturn = !intentRevalidation && !testOnlyRepair && !applicationEntries.length ? earlierReturnRequest(workflow, phase) : null;
+  const reusableSourceCandidates = intentRevalidation || testOnlyRepair || documentationOnlyCorrection || earlierReturn
     ? (phase.deliveryEvidence?.sourcePaths ?? []).filter((candidate) =>
       !changedEndpointPaths.has(candidate) && !isDocumentationPath(candidate) && !isConfigurationPath(candidate))
     : [];
@@ -1376,7 +1398,7 @@ export async function evaluateCodeDeliveryPreflight(root, config, workflow, phas
   const changeRequired = !obligations || obligations.some((obligation) => !['existing', 'evidence'].includes(obligation.fulfillment));
   const sourceRequired = !obligations || obligations.some(changesProductSource);
 
-  const unchangedGeneration = !applicationEntries.length && !intentRevalidation && !withdrawnRepair && changeRequired;
+  const unchangedGeneration = !applicationEntries.length && !intentRevalidation && !withdrawnRepair && !earlierReturn && changeRequired;
   if (unchangedGeneration) {
     errors.push('no application source or test paths changed during the work interval');
   }
@@ -1575,6 +1597,7 @@ export async function evaluateCodeDeliveryPreflight(root, config, workflow, phas
       reusedTestPaths: reusableTestPaths
     } : null,
     intentRevalidation: intentRevalidation ? phase.intentAmendmentRevalidation.id : null,
+    ...(earlierReturn ? { earlierReturn: { changeRequestId: earlierReturn.id, targetPhase: earlierReturn.targetPhase, priorGeneration: Number(phase.generation) } } : {}),
     testingRepair: confirmedRepair ? {
       changeRequestId: repairRequest.id,
       priorGeneration: repair.codeGeneration,

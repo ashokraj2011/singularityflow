@@ -4882,7 +4882,7 @@ async function cancelCommand(positionals, options) {
   // here and the cancellation itself happens in the transition.
   const cancelPhase = workflow.currentPhase ? workflow.phases?.[workflow.currentPhase] : null;
   if (!cancelPhase) throw new SingularityFlowError(`Story '${workflow.workItem.id}' has no active phase to cancel.`);
-  const cancelSession = await loadSession(root);
+  const cancelSession = await loadSession(root, { required: false }) ?? { actor: actionActor(root), agent: null };
   const { value: result, publication } = await transactStory(
     root,
     config,
@@ -4899,7 +4899,8 @@ async function cancelCommand(positionals, options) {
     (aggregate) => cancelWorkflow(root, config, aggregate, {
       reason: optionString(options, 'reason'),
       channel: 'terminal',
-      actionContext: activeActionContext()
+      actionContext: activeActionContext(),
+      session: cancelSession
     })
   );
   console.log(`Cancelled ${workflow.workItem.id} during ${result.phase.id}: ${result.cancellation.reason}`);

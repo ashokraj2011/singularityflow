@@ -71,6 +71,23 @@ test('adoption reopens only dependent phases and keeps unrelated approvals and r
   assert.equal(nextPhaseAfterSkillAmendment(subject, subject.phases.c), null);
 });
 
+// A closed Story kept its old completion and decision values, so its next ending skipped the final
+// evaluation and printed the old "passed" (2026-10-28).
+test('adoption on a closed Story clears its completion and the reopened steps\' decision state', () => {
+  const subject = workflow();
+  subject.completion = { evaluatedAt: '2026-09-26T00:30:00.000Z', verdict: 'complete' };
+  subject.resolution.decisions = [{ id: 'check', after: 'a' }, { id: 'other', after: 'b' }];
+  subject.decisionRounds = { check: { count: 2 }, other: { count: 1 } };
+  subject.phases.a.decisionInputs = { verdict: 'pass' };
+  subject.phases.a.retention = { rule: 'E1' };
+  applySkillAmendmentSelectiveReopen(subject, subject.skillVersionAmendments[0], '2026-09-26T01:00:00.000Z');
+  assert.equal(subject.completion, undefined, 'the next ending evaluates again');
+  assert.equal(subject.phases.a.decisionInputs, undefined, 'a reopened step records its decision values again');
+  assert.equal(subject.phases.a.retention, undefined);
+  assert.equal(subject.decisionRounds.check, undefined, 'its decision counts its rounds afresh');
+  assert.deepEqual(subject.decisionRounds.other, { count: 1 }, 'a preserved step keeps its decision rounds');
+});
+
 test('active preserved downstream phase refuses selective reopen without mutating anything', () => {
   const subject = workflow();
   subject.phases.d.status = 'in_progress';

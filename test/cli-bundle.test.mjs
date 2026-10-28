@@ -122,7 +122,12 @@ test('the bundled CLI answers exactly like the sources while opening a handful o
   // entry says when this build is older than main (its check is lazy): cold-core +209 and
   // cold-narrow-reads +99 for 4,465,251. No new file in this closure.
   // 4,475,000: main d01be67d measures 4,469,889; the route-closure fixes (a person's own step and raw commands handed to the person in agent-output.mjs, exact routes so no mutating command reaches a read-only skill in command-skills.mjs, person-only denials with their own terminal line and expired turns keeping only reads in copilot-mutation-guard.mjs, the decision list kept past the plan cap and live-terminal refusals in refusal-remediation.mjs, canonical routes kept in phase-resolution.mjs and collaboration.mjs) add 2,298 for 4,472,187. No new file.
-  assert.ok(closure('cold-narrow-reads.mjs').reduce((sum, item) => sum + item.bytes, 0) < 4_475_000,
+  // 4,480,000: main 80f74694 measures 4,472,187; the batch 4 resets and authority fallback (one complete reset on
+  // skill adoption and intent amendment, roll-forward refused over newer decisions, cancel by Git identity, a
+  // decision's rounds reset with its step, authority from the nearest step with approvers in the new
+  // approval-fallback.mjs, the inspection witness kept at submission, an unchanged code step revalidated after an
+  // earlier return, return listed only where it runs) add 2,888 for 4,475,075. One new file.
+  assert.ok(closure('cold-narrow-reads.mjs').reduce((sum, item) => sum + item.bytes, 0) < 4_480_000,
     'strict next-step reads must not inherit the broad phase-review closure');
   const publicationClosure = closure('cold-publication.mjs');
   assert.ok(publicationClosure.length && publicationClosure.reduce((sum, item) => sum + item.bytes, 0) < 6 * 1024 * 1024,
@@ -240,7 +245,10 @@ test('the bundled CLI answers exactly like the sources while opening a handful o
   // 7,485,000: main d01be67d measures 7,477,553; the route-closure fixes (agent-output.mjs, command-skills.mjs,
   // copilot-mutation-guard.mjs, refusal-remediation.mjs, phase-resolution.mjs, collaboration.mjs) add 2,524 for
   // 7,480,077. No new file.
-  assert.ok(closure('cold-hook-context.mjs').reduce((sum, item) => sum + item.bytes, 0) < 7_485_000,
+  // 7,490,000: main 3662923e measures 7,480,656; the batch 4 resets and authority fallback (approval-fallback.mjs
+  // and its callers, the complete reopen reset, the roll-forward refusal, return listed only where it runs, the
+  // budget reset route only from a submitted step) add 4,902 for 7,485,558. One new file.
+  assert.ok(closure('cold-hook-context.mjs').reduce((sum, item) => sum + item.bytes, 0) < 7_490_000,
     'phase-review reads retain their existing byte ceiling after moving families');
   assert.match(await readFile(path.join(outdir, 'cold-light.mjs'), 'utf8'), /function enterPhase\b/u,
     'phase binding must not fall through to the compatibility/admin bundle');
@@ -281,7 +289,9 @@ test('the bundled CLI answers exactly like the sources while opening a handful o
   // took the rest); the scope include route's accepted placeholder adds cold-core +22 and cold-narrow-reads
   // +16 for 5,280,022. No new file.
   // 5,290,000: main d01be67d measures 5,284,968; the route-closure fixes add 2,298 for 5,287,266. No new file.
-  assert.ok(catalogClosure.reduce((sum, item) => sum + item.bytes, 0) < 5_290_000,
+  // 5,295,000: main 80f74694 measures 5,287,266; the batch 4 resets and authority fallback add 2,888 for
+  // 5,290,154. One new file (approval-fallback.mjs).
+  assert.ok(catalogClosure.reduce((sum, item) => sum + item.bytes, 0) < 5_295_000,
     'catalog parsing stays bounded instead of pulling in the entire administration bundle');
   for (const name of ['cold-compatibility.mjs', 'cold-models.mjs', 'cold-intake.mjs', 'cold-phases.mjs', 'cold-hook-context.mjs']) {
     assert.ok(!catalogClosure.some(item => item.file === name), `catalogs must not statically reach ${name}`);

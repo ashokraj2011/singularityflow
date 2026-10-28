@@ -175,7 +175,7 @@ async function raise(root, config, workflow, options) {
     if (!raised.length && !unowned.length) console.log('No unraised upstream discrepancies are recorded in this step\'s artifacts.');
     for (const issue of raised) {
       console.log(`Raised ${issue.id} against ${issue.phase}: ${issue.about}. This step continues; ${issue.phase}'s approvers decide it:`);
-      console.log(`  ${upstreamIssueDecideCommand(workflow.workItem.id, issue)}`);
+      console.log(`  ${upstreamIssueDecideCommand(workflow.workItem.id, issue, null, workflow)}`);
       const prior = issue.supersedes ? workflow.upstreamIssues?.find((entry) => entry.id === issue.supersedes) : null;
       if (prior) console.log(`${issue.id} supersedes ${prior.id}, recorded against ${prior.phase}: it no longer blocks anything and stays in the history.`);
     }
@@ -201,7 +201,7 @@ function list(workflow, options) {
       if (issue.supersedes) console.log(`  supersedes ${issue.supersedes}`);
       if (supersededBy) console.log(`  superseded by ${supersededBy}${status === 'decided' ? '' : '; it no longer blocks anything'}`);
       if (decision) console.log(`  ${decision.outcome}${decision.link ? ` (${decision.link})` : ''} by ${decision.actor}: ${decision.reason}`);
-      else if (status !== 'superseded') console.log(`  ${upstreamIssueDecideCommand(workflow.workItem.id, issue)}`);
+      else if (status !== 'superseded') console.log(`  ${upstreamIssueDecideCommand(workflow.workItem.id, issue, null, workflow)}`);
     }
   }
   emit(options, workflow, 'list', {

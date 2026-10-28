@@ -71,7 +71,9 @@ export function normalizeRepairBudget(value = null, { phaseId = 'phase', phases 
 
 /**
  * The reachable way past an exhausted budget: a return to the phase whose new approved generation
- * resets it, when the submitted phase may return there. Otherwise only people can decide.
+ * resets it, when the submitted phase may return there. Otherwise only people can decide. An
+ * upstream issue's return usually comes from a step still in progress, and `reject` refuses a step
+ * that is not submitted, so the route was named where it could not run (2026-10-28).
  */
 function budgetResetRoute(workflow, policy, sourcePhase, targetPhase) {
   const reset = policy.resetOnPhase;
@@ -104,11 +106,14 @@ export function consumeRepairAttempt(workflow, phase, { targetPhase, actor, at, 
     return { ...structuredClone(state), resetRequested: true };
   }
   if (state.attempts.length >= policy.maxAttempts) {
-    const resetCommand = budgetResetRoute(workflow, policy, sourcePhase, targetPhase);
+    const route = budgetResetRoute(workflow, policy, sourcePhase, targetPhase);
+    const submitted = sourcePhase?.status === 'awaiting_approval';
+    const resetCommand = submitted ? route : null;
     throw new SingularityFlowError(
       `Phase '${phase.id}' repair budget is exhausted (${state.attempts.length}/${policy.maxAttempts}). `
       + (resetCommand
         ? `Return the submission to '${policy.resetOnPhase}' instead, which resets the budget once it has a new approved generation: ${resetCommand}. Otherwise ask the approvers for direction.`
+        : route ? `Once '${sourcePhase.id}' is submitted, its approvers may return it to '${policy.resetOnPhase}', which resets the budget once it has a new approved generation; a return is refused before then. Otherwise ask the approvers for direction.`
         : 'No allowed return resets it from here; ask the approvers for direction (approve the submission as it stands, or have a workflow maintainer change the budget for new Stories).'),
       { code: 'REPAIR_BUDGET_EXHAUSTED', details: {
         phase: phase.id, currentPhase: sourcePhase?.id ?? null, upstreamPhase: phase.id === sourcePhase?.id ? null : phase.id,

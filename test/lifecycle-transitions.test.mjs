@@ -203,3 +203,17 @@ test('only a current automatic completion reports its disposition', () => {
   assert.equal(automaticApprovalDisposition({ ...phase, status: 'in_progress' }), null);
   assert.equal(automaticApprovalDisposition({ status: 'approved', approvals: [] }), null);
 });
+
+// Rounds only grew: after a rework from an earlier step, a loop's first "go back" said its rounds
+// were used (2026-10-28). Only the loop's own going round keeps adding to them.
+test('a decision counts its rounds afresh when its step runs again from an earlier start', () => {
+  const workflow = fixture();
+  workflow.resolution = { decisions: [{ id: 'verify-loop', after: 'verification' }, { id: 'plan-check', after: 'requirements' }] };
+  workflow.decisionRounds = { 'verify-loop': { count: 3 }, 'plan-check': { count: 1 } };
+  reopenPhaseRange(workflow, { targetId: 'implementation', at, actor: 'reviewer', reason: 'Rework the change.', loopDecision: null });
+  assert.equal(workflow.decisionRounds['verify-loop'], undefined, 'its step is in the reset range');
+  assert.deepEqual(workflow.decisionRounds['plan-check'], { count: 1 }, 'a step before the range keeps its rounds');
+  workflow.decisionRounds['verify-loop'] = { count: 1 };
+  reopenPhaseRange(workflow, { targetId: 'implementation', at, actor: 'rule', reason: 'Goal not met.', loopDecision: 'verify-loop' });
+  assert.deepEqual(workflow.decisionRounds['verify-loop'], { count: 1 }, 'its own loop keeps counting');
+});

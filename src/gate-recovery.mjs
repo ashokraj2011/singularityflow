@@ -3,7 +3,7 @@ import { phaseRequiresCodeDelivery } from './code-delivery-policy.mjs';
 import { completionPhaseOf } from './lifecycle-transitions.mjs';
 
 import { canonicalJson } from './records.mjs';
-import { raiseUpstreamIssueRoute } from './upstream-routes.mjs';
+import { raiseUpstreamIssueRoute, reopenAuthorityStep } from './upstream-routes.mjs';
 import { run } from './util.mjs';
 
 /**
@@ -222,17 +222,20 @@ function storyRecovery(workflow, code, ownerPhase, path, openStory = null, conte
       mode: 'manual', ownerPhase, requiresReopen: false, command: null,
       detail: `${completion?.id ?? 'The final phase'} policy does not allow completed work to be reopened, so ${ownerPhase} cannot be returned to in this Story. Correct it in a follow-up Story, or have a workflow maintainer change the policy.`
     };
+    // Who reopens: the final step's approvers, or the nearest earlier step's when it has none.
+    const reopener = completion ? reopenAuthorityStep(workflow, completion.id) : null;
+    const who = reopener ? ` Someone who approves ${reopener} reopens it.` : '';
     if (allowed.includes(ownerPhase)) {
       return {
         mode: 'guided', ownerPhase, requiresReopen: true,
         command: `singularity-flow reopen ${workId} --to ${ownerPhase} --reason "Flow Gate recovery: ${code}"`,
-        detail: `Reopen the completed workflow at the phase that owns this evidence. Existing approved generations remain in history.`
+        detail: `Reopen the completed workflow at the phase that owns this evidence. Existing approved generations remain in history.${who}`
       };
     }
     return {
       mode: 'guided', ownerPhase, requiresReopen: true,
       command: `singularity-flow reopen ${workId} --to ${ownerPhase} --reason "Flow Gate recovery" --gate-recovery`,
-      detail: `The ordinary completion policy does not target ${ownerPhase}. Preview the content-bound final-gate recovery plan, then repeat the command with its exact --confirm digest. No state changes during preview.`
+      detail: `The ordinary completion policy does not target ${ownerPhase}. Preview the content-bound final-gate recovery plan, then repeat the command with its exact --confirm digest. No state changes during preview.${who}`
     };
   }
   if (code === 'gate.terminal.workflow-incomplete' || code === 'gate.terminal.phase-unapproved') return {

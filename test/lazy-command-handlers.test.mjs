@@ -157,7 +157,11 @@ test('frequent lifecycle handlers do not reach the legacy dispatcher and stay un
     // at the final gate and an upstream issue raised from /sf-decide add 3,152 for 9,150,574 (plan-row-corrections.mjs,
     // evidence/risk-decisions.mjs, copilot-mutation-guard.mjs, command-skills.mjs, evidence/evaluate.mjs,
     // governance.mjs, commands/plan-correction.mjs, evidence/terminal.mjs). No new file.
-    assert.ok(closure.bytes <= 9_155_000, `${file} exceeds the 9 MB eager-source budget (${closure.bytes} bytes)`);
+    // 9,160,000 (next 5,000 boundary): main 60915c16 measures 9,154,940 for start.mjs. Reopen authorized through the
+    // nearest earlier step with approvers when the last step has none, and the validator naming an omitted
+    // responsibility's empty group, add 1,029 for 9,155,969 (upstream-routes.mjs, state.mjs, workflow-check.mjs,
+    // gate-recovery.mjs). No new file.
+    assert.ok(closure.bytes <= 9_160_000, `${file} exceeds the 9 MB eager-source budget (${closure.bytes} bytes)`);
   }
 });
 

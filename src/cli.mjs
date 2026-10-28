@@ -4770,9 +4770,10 @@ async function reopenCommand(positionals, options) {
   const session = loadedSession?.workId === workflow.workItem.id ? loadedSession : null;
   const actor = actionActor(root);
   const agent = session?.agent ?? completionPhase.defaultAgent ?? null;
+  const { reopenAuthorityStep } = await import('./upstream-routes.mjs');
   const authority = requireApprovalAuthority(
     workflow.resolution.approvalAuthorities ?? config.approvalAuthorities,
-    completionPhase.approvalPolicy,
+    workflow.phases[reopenAuthorityStep(workflow, completionPhase.id)].approvalPolicy,
     actor
   );
   const { value: result, publication } = await transactStory(

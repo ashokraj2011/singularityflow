@@ -338,6 +338,21 @@ async function checkWorkflow(workflow, { definition, model, locate, guidance, gr
       }
     }
   }
+  // Who decides that a responsibility an end leaves out does not apply: a group with nobody in it left
+  // a Story that ended there unable to finish (2026-10-28 unhappy-paths audit).
+  const omissionsChecked = new Set();
+  for (const endpoint of resolved?.obligationGraph?.endpoints ?? []) {
+    for (const entry of endpoint.omits ?? []) {
+      const group = groups.get(entry.authority);
+      const key = `${entry.authority}\0${entry.responsibility}`;
+      if (group?.status !== 'blocked' || omissionsChecked.has(key)) continue;
+      omissionsChecked.add(key);
+      add({ code: 'CHECK_GROUP_BLOCKED', area: 'ownership', severity: 'warning', title: `Nobody can decide that ${entry.responsibility} does not apply`,
+        detail: `An end of this workflow leaves ${entry.responsibility} out, and group ${group.label} decides that it does not apply. It has no people and no teams, and new people are not added to it automatically, so a Story that ends there can never finish.`,
+        fix: `Add people to ${group.label} in Workflow Studio's People.`,
+        subject: { ...(endpoint.decision ? { decision: endpoint.decision } : {}), group: entry.authority } });
+    }
+  }
   const last = workflow.steps.at(-1);
   if (last && workflow.steps.length > 1 && !codeUnsigned && !reviewGaps.has(last.id) && !unreachable.has(last.id) && !signedOff.has(last.id)) {
     add({ code: 'CHECK_LAST_STEP_NO_SIGNOFF', area: 'ownership', severity: 'note', title: `The last step, ${last.label}, needs no sign-off`,

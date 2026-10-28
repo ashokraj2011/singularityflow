@@ -121,7 +121,7 @@ import {
   publishedGenerationCommit, verifyOpenGenerationIntent
 } from './generation-boundary.mjs';
 import { conformanceVerdictGaps } from './conformance-verdicts.mjs';
-import { CONFORMANCE_GAP_RULE, conformanceGapRefusal, upstreamIssueStates } from './upstream-routes.mjs';
+import { CONFORMANCE_GAP_RULE, conformanceGapRefusal, reopenAuthorityStep, upstreamIssueStates } from './upstream-routes.mjs';
 import { conformanceEvidenceReuse, inspectPhaseQualifiedConformance, withSelfApprovalDisclosures, withVerdictSummary } from './conformance-readiness.mjs';
 import { runQualityCommand, withoutHostSurfaceVariables } from './quality-command-runner.mjs';
 import { classifyRequiredTestFailure } from './test-execution-diagnostics.mjs';
@@ -8560,9 +8560,10 @@ export async function reopenWorkflow(root, config, workflow, {
   const session = loadedSession?.workId === workflow.workItem.id ? loadedSession : null;
   const decisionActor = actor ?? identity(root);
   const decisionAgent = agent ?? session?.agent ?? completionPhase.defaultAgent ?? null;
+  // A final step with no approvers is reopened by the nearest earlier step's (reopenAuthorityStep).
   const authority = requireApprovalAuthority(
     workflow.resolution.approvalAuthorities ?? config.approvalAuthorities,
-    completionPhase.approvalPolicy,
+    workflow.phases[reopenAuthorityStep(workflow, completionPhase.id)].approvalPolicy,
     decisionActor
   );
   const timestamp = nowIso();

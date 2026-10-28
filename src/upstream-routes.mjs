@@ -100,6 +100,16 @@ export function decidableUpstreamStep(workflow, phaseId) {
   return null;
 }
 
+/**
+ * The step whose approvers may reopen a closed Story: its final step when that step has approvers,
+ * else the nearest earlier step that ran and has them, as for an upstream issue. A final step with
+ * `approval: none` (quick-fix, poc-lite) left nobody who could reopen, so the Story could only be
+ * started over (2026-10-28 unhappy-paths audit). The final step itself when no step has approvers.
+ */
+export function reopenAuthorityStep(workflow, completionPhaseId) {
+  return decidableUpstreamStep(workflow, completionPhaseId) ?? completionPhaseId;
+}
+
 /** The statuses of an issue that still owe a person's decision: undecided, or an accepted risk that expired. */
 export const OPEN_UPSTREAM_ISSUE_STATUSES = Object.freeze(['open', 'expired']);
 

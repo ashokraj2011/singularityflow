@@ -7,7 +7,9 @@
  * now: when every upstream reference it decided over is byte-identical (rule E1) and its artifacts
  * and phase inputs still verify, the approval is retained instead of the phase running again. The
  * retained approval is a new record that names the rule and the approval it carries; the reset that
- * invalidated the original stays in its history. A phase that feeds or follows a decision, a skill
+ * invalidated the original stays in its history. When the only difference is a producer approved
+ * again with the same authored text, which the phase saw exactly as it is now, rule E9 keeps it and
+ * records which producer generations and bytes it was carried to. A phase that feeds or follows a decision, a skill
  * phase, a phase whose earlier completion was automatic, and a range a decision's loop or a changed
  * document or design source reopened always run again.
  */
@@ -16,8 +18,8 @@ import { approvalRequirementsMet } from './approval-authority.mjs';
 import { phaseRequiresCodeDelivery } from './code-delivery-policy.mjs';
 import { stepResponsibilities } from './phase-roles.mjs';
 import { retainedByRule } from './evidence/equivalence-rules.mjs';
-import { verifyInputsIntegrity } from './inputs.mjs';
-import { changedUpstream, phaseUpstream } from './phase-upstream.mjs';
+import { authoredInputsUnchanged, verifyInputsIntegrity } from './inputs.mjs';
+import { authoredEquivalence, changedUpstream, phaseUpstream } from './phase-upstream.mjs';
 import { snapshot } from './util.mjs';
 import { decisionAfter, decisionFedBy } from './workflow-decisions.mjs';
 
@@ -45,13 +47,13 @@ async function artifactsUnchanged(root, phase) {
   return true;
 }
 
-function retain(workflow, phase, approvals, { at, actor, agent, upstream }) {
+function retain(workflow, phase, approvals, { at, actor, agent, upstream, rule = 'E1', producers = [] }) {
   const carried = [];
   for (const approval of approvals) {
     const { invalidatedAt, invalidationReason, invalidatedBy, retained: earlier, ...decided } = approval;
     const record = {
       ...structuredClone(decided), at,
-      retained: retainedByRule('E1', { approvalAt: earlier?.approvalAt ?? approval.at, invalidatedAt, upstreamSha256: upstream.sha256 })
+      retained: retainedByRule(rule, { approvalAt: earlier?.approvalAt ?? approval.at, invalidatedAt, upstreamSha256: upstream.sha256 })
     };
     phase.approvals.push(record);
     carried.push(record);
@@ -62,11 +64,17 @@ function retain(workflow, phase, approvals, { at, actor, agent, upstream }) {
   phase.status = 'approved';
   phase.approvedAt = completing.retained?.approvalAt ?? completing.at;
   phase.approvedBy = actorKey(completing.actor);
-  phase.retention = { rule: 'E1', at, generation: phase.generation, upstreamSha256: upstream.sha256 };
+  // Under E9 the producers' approval is not final yet; settling the retained phase binds the exact
+  // generations and bytes it is carried to (inputBindings, state.mjs settleRetainedPhases).
+  phase.retention = { rule, at, generation: phase.generation, upstreamSha256: upstream.sha256,
+    ...(rule === 'E9' ? { authoredProducers: producers, inputBindings: [] } : {}) };
   delete phase.reworkRevalidation;
+  const why = rule === 'E9'
+    ? `${producers.join(', ')} came back with the same authored text and everything else is byte-identical`
+    : 'everything its approval decided over is byte-identical';
   workflow.history.push({
     at, actor: actorKey(actor), agent: agent ?? null, event: 'phase_retained', phase: phase.id,
-    detail: `Retained by rule E1: everything its approval decided over is byte-identical (${approvals.length} approval${approvals.length === 1 ? '' : 's'} carried).`
+    detail: `Retained by rule ${rule}: ${why} (${approvals.length} approval${approvals.length === 1 ? '' : 's'} carried).`
   });
   return carried;
 }
@@ -118,8 +126,18 @@ export async function retainUnchangedPhases(root, config, workflow, completed, {
     if (!approvals) break;
     const upstream = await phaseUpstream(root, config, workflow, phase);
     const differing = approvals.find((entry) => entry.upstream.sha256 !== upstream?.sha256);
-    if (differing) { stale = { phase: phase.id, changed: changedUpstream(differing.upstream, upstream) }; break; }
+    // Rule E9: the only difference is producers approved again with the same authored text.
+    const relied = differing ? approvals.map((entry) => authoredEquivalence(entry.upstream, upstream)) : [];
+    if (differing && relied.some((producers) => !producers?.length)) {
+      stale = { phase: phase.id, changed: changedUpstream(differing.upstream, upstream) }; break;
+    }
     if (!(await artifactsUnchanged(root, phase))) { stale = { phase: phase.id, changed: ['artifacts'] }; break; }
+    const producers = [...new Set(relied.flat())];
+    if (producers.length) {
+      if (!(await authoredInputsUnchanged(root, workflow, phase, producers, { itemDirectory }))) { stale = { phase: phase.id, changed: ['inputs'] }; break; }
+      retained.push({ phase: phase.id, approvals: retain(workflow, phase, approvals, { at, actor, agent, upstream, rule: 'E9', producers }) });
+      continue;
+    }
     const inputs = await verifyInputsIntegrity(root, workflow, phase, { itemDirectory, itemRelative });
     if (inputs.errors.length || inputs.warnings.length) { stale = { phase: phase.id, changed: ['inputs'] }; break; }
     retained.push({ phase: phase.id, approvals: retain(workflow, phase, approvals, { at, actor, agent, upstream }) });

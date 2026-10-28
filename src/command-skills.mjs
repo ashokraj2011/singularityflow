@@ -470,6 +470,7 @@ export function liveTerminalReviewStep([command, sub, verb], options) {
 export const OWN_TERMINAL_STEPS = Object.freeze([
   ['witness', ([command, sub]) => command === 'decision' && sub === 'witness'],
   ['risk', ([command, sub]) => command === 'decision' && sub === 'risk'],
+  ['witness-exception-renewal', ([command, sub]) => command === 'decision' && sub === 'witness-exception'],
   ['test-run-risk', ([command, sub]) => command === 'decision' && ['test-risk', 'test-narrowing', 'evidence-reuse', 'visual-profile'].includes(sub)],
   ['test-command-decision', ([command, sub], options) => command === 'decision' && sub === 'test-command'
     && (options.accept !== undefined || options.revoke !== undefined)],

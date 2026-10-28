@@ -270,6 +270,10 @@ export const MESSAGES = Object.freeze({
     headline: (s) => `Recorded ${slot(s.record)}; coverage lists that screen size as not applicable, never as passed.`,
     preserves: false
   },
+  'decision.witness-exception.succeeded': {
+    headline: (s) => `Recorded ${slot(s.record)}; the final check reads the renewed expiry for that exact witness exception.`,
+    preserves: false
+  },
   'decision.plan.succeeded': {
     headline: (s) => `Amended the plan with ${slot(s.amendment)}: ${slot(s.changes)} change(s) recorded.`,
     preserves: false

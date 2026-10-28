@@ -12,8 +12,14 @@
  *   applicability decisions.
  * Null for a skill phase, whose inputs are bound by receipts this does not model, or when the
  * repository cannot say what HEAD holds.
+ *
+ * Each producer reference also carries `authoredSha256`: its status and its artifacts' authored
+ * text, without the metadata and input blocks SFlow rewrites every generation [rule E9]. It is
+ * not part of the aggregate digest, so approvals recorded before it existed still compare.
  */
+import { readFile } from 'node:fs/promises';
 import path from 'node:path';
+import { authoredArtifactText } from './artifact-review-read.mjs';
 import { phaseRequiresCodeDelivery } from './code-delivery-policy.mjs';
 import { headTreeDigest } from './git.mjs';
 import { resolvedPhaseInputs } from './inputs.mjs';
@@ -44,6 +50,16 @@ function producerDigest(phase) {
   });
 }
 
+/** What a reader relied on from a producer: approved or not, and the text its author wrote. */
+async function producerAuthoredDigest(root, phase) {
+  const artifacts = [];
+  for (const artifact of [...(phase?.artifacts ?? [])].sort((left, right) => left.path.localeCompare(right.path))) {
+    const text = await readFile(path.join(root, artifact.path), 'utf8').catch(() => null);
+    artifacts.push({ path: artifact.path, authored: text == null ? null : digest(authoredArtifactText(text)) });
+  }
+  return digest({ status: phase?.status ?? 'missing', artifacts });
+}
+
 /** Every tracked file at HEAD outside the governance root, or null when HEAD cannot be read. */
 function applicationTreeDigest(root, config) {
   return headTreeDigest(root, { excludedRoot: `${String(config.workItemRoot ?? 'singularity/work-items').split('/')[0]}/` });
@@ -66,7 +82,8 @@ export async function phaseUpstream(root, config, workflow, phase) {
   const refs = [];
   const declared = [...new Set(resolvedPhaseInputs(workflow, phase).map((entry) => entry.phase).filter(Boolean))].sort();
   for (const id of declared.length ? declared : order.slice(0, index)) {
-    refs.push({ kind: declared.length ? 'input' : 'phase', ref: id, sha256: producerDigest(workflow.phases[id]) });
+    refs.push({ kind: declared.length ? 'input' : 'phase', ref: id, sha256: producerDigest(workflow.phases[id]),
+      authoredSha256: await producerAuthoredDigest(root, workflow.phases[id]) });
   }
   if (order.slice(0, index + 1).some((id) => phaseRequiresCodeDelivery(workflow.phases[id]))) {
     const tree = applicationTreeDigest(root, config);
@@ -79,7 +96,28 @@ export async function phaseUpstream(root, config, workflow, phase) {
   }
   refs.push({ kind: 'documents', ref: phase.id, sha256: digest(await offeredDocuments(root, config, workflow, phase.id)) });
   refs.push({ kind: 'decisions', ref: 'story', sha256: storyDecisionsDigest(workflow) });
-  return { sha256: digest(refs), refs };
+  return { sha256: digest(refs.map(({ authoredSha256, ...ref }) => ref)), refs };
+}
+
+/**
+ * Rule E9: every reference the approval decided over is byte-identical, except producers approved
+ * again whose authored content is unchanged. Returns those producers ([] when nothing changed), or
+ * null when the rule does not hold. An approval recorded before authored digests existed never
+ * qualifies through a changed producer.
+ */
+export function authoredEquivalence(decided, current) {
+  if (!decided?.refs || !current?.refs || decided.refs.length !== current.refs.length) return null;
+  const key = (ref) => `${ref.kind}:${ref.ref}`;
+  const now = new Map(current.refs.map((ref) => [key(ref), ref]));
+  const producers = [];
+  for (const ref of decided.refs) {
+    const live = now.get(key(ref));
+    if (!live) return null;
+    if (live.sha256 === ref.sha256) continue;
+    if (!['input', 'phase'].includes(ref.kind) || !ref.authoredSha256 || ref.authoredSha256 !== live.authoredSha256) return null;
+    producers.push(ref.ref);
+  }
+  return producers;
 }
 
 /** Which references differ, named `kind` or `kind:ref`, for saying why a phase runs again. */

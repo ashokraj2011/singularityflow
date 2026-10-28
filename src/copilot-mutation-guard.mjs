@@ -808,9 +808,9 @@ function testRunRiskDecision(call, value) {
     || (positionals[0] === 'spec' && positionals[1] === 'drift' && positionals[2] === 'decide');
 }
 
-/** `decision witness` or `decision risk`: an approver's sign-off on evidence they looked at, or a dated risk. */
+/** `decision witness`, `decision risk` or `decision witness-exception`: an approver's sign-off on evidence they looked at, or a dated risk or exception. */
 function signOff(positionals) {
-  return positionals[0] === 'decision' && ['witness', 'risk'].includes(positionals[1]);
+  return positionals[0] === 'decision' && ['witness', 'risk', 'witness-exception'].includes(positionals[1]);
 }
 /** The denied command's own route, for the person's terminal: its Shell line and no Copilot route. */
 function personRoute(call, value) {

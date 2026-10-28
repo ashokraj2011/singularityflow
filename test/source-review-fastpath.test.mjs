@@ -39,7 +39,9 @@ test('review readers cannot statically pull in phase authoring or lifecycle publ
   await walk('src/source-review-agent-context.mjs');
   // 261: agent-output-folder.mjs (a leaf on Node built-ins only) joined through agent-output.mjs and
   // application-paths.mjs when agent results moved to the checkout's .sflow/out; main 1d40e1de measures 259.
-  assert.ok(visited.size < 261, `review read closure grew to ${visited.size} local modules`);
+  // 262: approval-fallback.mjs (a pure leaf that reads approval policies only) joined through the witness, risk and
+  // scope authority fallback (fddafbe0, 2026-10-28); main measured 261 against < 261 until this was raised.
+  assert.ok(visited.size < 262, `review read closure grew to ${visited.size} local modules`);
 });
 
 test('only exact read forms share a review command scope; writers and override flags never do', () => {

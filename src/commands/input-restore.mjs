@@ -125,6 +125,26 @@ async function approvedArtifactDrift(root, workflow, phase, itemRelative) {
   return findings;
 }
 
+/**
+ * An early warning at publish [unhappy paths S15, 2026-10-28]: an earlier approved step's artifact
+ * changed after its approval. A step that does not declare it as an input saw nothing until the
+ * final check refused it. This never blocks: it names the producer's return or amendment route when
+ * the change is meant, and the restore preview when it is not.
+ */
+export async function approvedArtifactDriftWarnings(root, config, workflow, phase) {
+  const itemRelative = posix(path.join(config.workItemRoot ?? 'singularity/work-items', workflow.workItem.id));
+  const findings = await approvedArtifactDrift(root, workflow, phase, itemRelative).catch(() => []);
+  return findings.map((finding) => {
+    const route = upstreamChangeRoutes(workflow, finding.phase, { currentPhaseId: phase.id }).routes[0] ?? null;
+    return {
+      phase: finding.phase, path: finding.path, status: finding.status, route: route?.command ?? null,
+      message: `${finding.phase}'s approved ${finding.path} ${finding.status === 'missing' ? 'is missing' : 'changed after its approval'}, and the final check refuses that. `
+        + (route ? `If the change is meant, ${finding.phase} takes it back through its ${route.kind} route: ${route.command}. ` : `If the change is meant, it goes back through ${finding.phase}'s return or amendment route. `)
+        + `If not, singularity-flow inputs restore ${phase.id} previews putting the approved bytes back.`
+    };
+  });
+}
+
 /** Read-only preview with a digest the apply step must repeat exactly. */
 export async function inputRestorePlan(root, config, workflow, phaseId = null) {
   const phase = restorePhase(workflow, phaseId);

@@ -201,6 +201,12 @@ function storyRecovery(workflow, code, ownerPhase, path, openStory = null, conte
     command: context.details.nextAction.command, skill: context.details.nextAction.skill ?? '/sf-decide',
     detail: `${context.details.nextAction.label} ${context.details.rule ?? ''}`.trim()
   };
+  // A lapsed witness exception is renewed by the approvers of the step that recorded it, in their own
+  // terminal; returning the Story to that step only regenerated and retested unchanged code.
+  if (code === 'gate.witness.exception-lapsed' && context.details?.nextAction?.command) return {
+    mode: 'manual', ownerPhase, requiresReopen: false, command: context.details.nextAction.command, skill: null,
+    detail: context.details.nextAction.label
+  };
   if (code === 'gate.protected-path.changed') return {
     mode: 'manual', ownerPhase: null, requiresReopen: false,
     command: path ? `git diff -- ${path}` : 'git diff -- singularity/workflow.yml',

@@ -94,6 +94,12 @@ test('a lapsed witness exception reopens the code step that decided it, not the 
     assert.equal(finding.recovery.ownerPhase, 'implementation');
     assert.match(finding.recovery.command, /reopen REC-1 --to implementation/);
   }
+  // The finding the final gate makes names the renewal, which its approvers run in their own terminal.
+  const [renewable] = classifyStoryGateFailures(workflow, [
+    coded('gate.witness.exception-lapsed', lapsed.message, { phase: lapsed.phase, details: { nextAction: lapsed.nextAction } })
+  ]);
+  assert.match(renewable.recovery.command, /^singularity-flow decision witness-exception REC-1 --phase implementation /u);
+  assert.deepEqual([renewable.recovery.mode, renewable.recovery.skill, renewable.recovery.requiresReopen], ['manual', null, false]);
 });
 
 test('acceptance evidence failures have stable codes and route to their lifecycle owner', () => {

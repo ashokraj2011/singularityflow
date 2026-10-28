@@ -831,6 +831,7 @@ Usage:
   singularity-flow decision test-narrowing [WORK-ID] [--fetch] (--phase PHASE [--command ID] [--expires YYYY-MM-DD] | --revoke TNR-ID) --reason TEXT [--json]
   singularity-flow decision evidence-reuse [WORK-ID] [--fetch] (--phase PHASE --from-attempt TA-ID [--expires YYYY-MM-DD] | --revoke ERU-ID) --reason TEXT [--json]
   singularity-flow decision visual-profile [WORK-ID] [--fetch] (--phase VISUAL-STEP --profile PROFILE-ID --not-applicable | --revoke VPD-ID) --reason TEXT [--json]
+  singularity-flow decision witness-exception [WORK-ID] [--fetch] --phase STEP --mapping sha256:... --expires YYYY-MM-DD --reason TEXT [--json]
   singularity-flow decision witness [WORK-ID] [--fetch] --criterion AC-ID --slot SLOT --file PATH (--confirm ITEM | --deny ITEM)... --reason TEXT [--json]
   singularity-flow decision scope [WORK-ID] [--fetch] --item SRI-ID|DOC-ID --as included|existing|excluded|deferred|informative|duplicate|superseded [--clause ID,...] --reason TEXT [--json]
   singularity-flow decisions [WORK-ID] [--phase PHASE] [--choose ITEM=OPTION [--reason ITEM=TEXT] [--expires ITEM=YYYY-MM-DD] [--cause ITEM=TEXT]]... [--json]

@@ -152,10 +152,23 @@ async function publicationBaseBranch(root, config, workflow) {
  * Witness exceptions that lapsed before the Story finished. An exception is reviewed with an expiry;
  * once it lapses it no longer stands in for the evidence it excused.
  */
+/** The expiry the latest `decision witness-exception` renewal gives an exception, or null [witness-exception-renewals.mjs]. */
+export function renewedWitnessExpiry(workflow, phaseId, generation, mappingSha256) {
+  const renewal = [...(workflow?.witnessExceptionRenewals ?? [])].reverse()
+    .find((entry) => entry?.phase === phaseId && Number(entry.generation) === Number(generation) && entry.mappingSha256 === mappingSha256);
+  return renewal?.expiresAt ?? null;
+}
+
+/** The command a person who approves `phaseId` runs to renew the exception for `mappingSha256`. */
+export function witnessExceptionRenewalCommand(workId, phaseId, mappingSha256) {
+  return `singularity-flow decision witness-exception ${workId} --phase ${phaseId} --mapping ${mappingSha256} --expires <YYYY-MM-DD> --reason "<why the exception still stands>"`;
+}
+
 /**
  * Each lapsed witness exception with the step whose approval recorded it. Witness mappings come from
  * a code step's delivery receipt and are decided at that step's approval, so that step owns the
- * repair (a fresh witness decision), not whichever step happens to finish the Story.
+ * repair, not whichever step happens to finish the Story. Its approvers renew it with `decision
+ * witness-exception`; that renewal's expiry counts in place of the one the approval recorded.
  */
 export function lapsedWitnessExceptionFindings(workflow) {
   const finishedAt = Date.parse(terminalTransitionAt(workflow));
@@ -163,10 +176,13 @@ export function lapsedWitnessExceptionFindings(workflow) {
   for (const phaseId of workflow?.phaseOrder ?? []) {
     for (const approval of (workflow.phases?.[phaseId]?.approvals ?? []).filter((entry) => !entry?.invalidatedAt)) {
       for (const mapping of approval.witnessMappings ?? []) {
-        if (mapping?.decision === 'exception' && !(Date.parse(mapping.expiresAt ?? '') > finishedAt)) {
-          lapsed.push({ phase: phaseId, clauseId: mapping.clauseId ?? null, expiresAt: mapping.expiresAt ?? null,
-            message: `terminal: ${phaseId}'s witness exception for ${mapping.clauseId} expired at ${mapping.expiresAt ?? 'an unknown time'}, before the Story finished` });
-        }
+        if (mapping?.decision !== 'exception') continue;
+        const expiresAt = renewedWitnessExpiry(workflow, phaseId, approval.generation, mapping.mappingSha256) ?? mapping.expiresAt ?? null;
+        if (Date.parse(expiresAt ?? '') > finishedAt) continue;
+        const command = witnessExceptionRenewalCommand(workflow.workItem?.id ?? '<WORK-ID>', phaseId, mapping.mappingSha256);
+        lapsed.push({ phase: phaseId, clauseId: mapping.clauseId ?? null, expiresAt, mappingSha256: mapping.mappingSha256 ?? null,
+          message: `terminal: ${phaseId}'s witness exception for ${mapping.clauseId} expired at ${expiresAt ?? 'an unknown time'}, before the Story finished`,
+          nextAction: { command, skill: null, label: `A person who approves ${phaseId} renews it in their own terminal, or the step is returned for a test that is adequate.` } });
       }
     }
   }
@@ -923,7 +939,8 @@ export async function runGovernanceGate(root, config, workflow, { terminal = fal
         else passes.push(`skipped by decision: ${phaseId}${route}`);
       } else if (phase?.status !== 'approved') refuse('gate.terminal.phase-unapproved', `terminal: phase ${phaseId} is not approved`, { phase: phaseId });
     }
-    for (const lapsed of lapsedWitnessExceptionFindings(workflow)) refuse('gate.witness.exception-lapsed', lapsed.message, { phase: lapsed.phase });
+    for (const lapsed of lapsedWitnessExceptionFindings(workflow)) refuse('gate.witness.exception-lapsed', lapsed.message,
+      { phase: lapsed.phase, details: { mappingSha256: lapsed.mappingSha256, nextAction: lapsed.nextAction } });
     if (workflow.pendingDecision) refuse('gate.terminal.decision-pending', `terminal: the Story is waiting for a decision: ${workflow.pendingDecision.label}`, { phase: workflow.pendingDecision.after ?? null });
     if (workflow.status !== 'closed' || currentPhase(workflow)) refuse('gate.terminal.workflow-incomplete', 'terminal: workflow is not closed'); else passes.push('terminal lifecycle');
   }

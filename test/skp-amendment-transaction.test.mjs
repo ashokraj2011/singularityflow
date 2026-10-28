@@ -638,3 +638,41 @@ test('configuration ancestry proof rejects tampered commit bytes and a mismatche
     code: 'SKP_AMENDMENT_ANCESTRY_INVALID'
   });
 });
+
+// A skill-version proposal and its rejection during a review staled the submission, though the pair
+// changes no step, skill or package (unhappy paths S8, 2026-10-28). The pair is review-safe as one;
+// an undecided proposal is not.
+test('a rejected skill-version proposal and its rejection are one review-safe pair', async (t) => {
+  const { rejectedSkillVersionAmendments } = await import('../src/approval-check.mjs');
+  const { root, config, approved } = await fixture(t);
+  const selection = { skillId: 'threat-model', approvedConfigurationSnapshot: approved, reason: 'Review version two of the skill.' };
+  const reason = 'Version two is not wanted for this Story.';
+  const proposeAndReject = async () => {
+    const current = await loadWorkflow(root, config, 'SKP-ADOPT-1');
+    const proposal = await previewStorySkillVersionProposal(root, config, current, selection);
+    await proposeStorySkillVersion(root, config, current, { ...selection, confirmPreviewDigest: proposal.planSha256 });
+    return proposal.proposalId;
+  };
+  const reject = (proposalId) => {
+    const preview = JSON.parse(flow(root, 'story', 'skill-version', 'decide', proposalId, '--decision', 'reject', '--reason', reason, '--json'));
+    flow(root, 'story', 'skill-version', 'decide', proposalId, '--decision', 'reject', '--reason', reason, '--confirm', preview.planSha256, '--json');
+  };
+  // A Story under review has already written its normalized state; the first transaction after start does that.
+  reject(await proposeAndReject());
+  setActor(root, 'Story Proposer', 'proposer@example.invalid');
+  const evidenceCommit = git(root, 'rev-parse', 'HEAD');
+  const proposalId = await proposeAndReject();
+  const since = () => git(root, 'rev-list', '--first-parent', `${evidenceCommit}..HEAD`).split('\n').filter(Boolean);
+  const proposed = await loadWorkflow(root, config, 'SKP-ADOPT-1');
+  assert.deepEqual(await rejectedSkillVersionAmendments(root, config, proposed, since(), { evidenceCommit, interveningCommits: since() }), [],
+    'an undecided proposal still stales the submission');
+  setActor(root, 'Story Reviewer', 'reviewer@example.invalid');
+  reject(proposalId);
+  const rejected = await loadWorkflow(root, config, 'SKP-ADOPT-1');
+  const intervening = since();
+  assert.equal(intervening.length, 2);
+  const pair = { id: proposalId, proposalCommit: intervening[1], rejectionCommit: intervening[0] };
+  assert.deepEqual(await rejectedSkillVersionAmendments(root, config, rejected, intervening, { evidenceCommit, interveningCommits: intervening }), [pair]);
+  // A proposal made before the review evidence still pairs with a rejection after it.
+  assert.deepEqual(await rejectedSkillVersionAmendments(root, config, rejected, [intervening[0]], { evidenceCommit: intervening[1], interveningCommits: [intervening[0]] }), [pair]);
+});

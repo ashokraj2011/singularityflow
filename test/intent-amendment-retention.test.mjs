@@ -96,7 +96,7 @@ async function fixture(t) {
 }
 
 test('rule E8 is in the closed set and says what it keeps', () => {
-  assert.deepEqual(Object.keys(EQUIVALENCE_RULES), ['E1', 'E2', 'E3', 'E4', 'E5', 'E6', 'E7', 'E8']);
+  assert.deepEqual(Object.keys(EQUIVALENCE_RULES), ['E1', 'E2', 'E3', 'E4', 'E5', 'E6', 'E7', 'E8', 'E9']);
   assert.equal(EQUIVALENCE_RULES.E8.name, 'unaffected by an intent amendment');
 });
 

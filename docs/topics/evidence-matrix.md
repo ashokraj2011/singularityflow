@@ -23,7 +23,7 @@ related:
   - story-lifecycle
   - workflow-decisions
   - rejection-and-rework
-version: 32
+version: 33
 ---
 The evidence matrix shows every requirement and acceptance criterion of a Story as one row: whether the approved plan names it, whether a delivered change implements it, which tagged test verifies it and what that test's run proved. It reads committed records only, so it runs no test and makes no network call.
 
@@ -88,7 +88,7 @@ An inspection or visual slot is witnessed by a person in the group that approves
 
 ### Witness adequacy review
 
-A passing test proves only what it asserts, so the reviewer decides whether each exact test adequately verifies its criterion: its setup and inputs, its action, its assertions, its negative and boundary cases, and its relationship to the implementation. The submission lists every exact test with the criterion's text, and approving the step accepts all of them as adequate, as one batch over their exact digests. To record a shortfall, approve with `--witness-mapping <sha256>=exception:<facet>[,<facet>] --witness-mapping-reason TEXT --witness-mapping-expires YYYY-MM-DD`; the criterion then reads satisfied with an exception until the expiry, after which the test stops counting. To rule a test out, use `<sha256>=not-applicable` with a reason; it then verifies nothing. A decision carries forward to a later generation only while the test, its support code, the criterion's text and the contract are all unchanged.
+A passing test proves only what it asserts, so the reviewer decides whether each exact test adequately verifies its criterion: its setup and inputs, its action, its assertions, its negative and boundary cases, and its relationship to the implementation. The submission lists every exact test with the criterion's text, and approving the step accepts all of them as adequate, as one batch over their exact digests. To record a shortfall, approve with `--witness-mapping <sha256>=exception:<facet>[,<facet>] --witness-mapping-reason TEXT --witness-mapping-expires YYYY-MM-DD`; the criterion then reads satisfied with an exception until the expiry, after which the test stops counting. A lapsed exception is renewed, without returning the Story to that step, by a person who approves the step that recorded it, in their own terminal: `singularity-flow decision witness-exception <WORK-ID> --phase <STEP> --mapping <sha256> --expires YYYY-MM-DD --reason TEXT`. The final check names that exact command. To rule a test out, use `<sha256>=not-applicable` with a reason; it then verifies nothing. A decision carries forward to a later generation only while the test, its support code, the criterion's text and the contract are all unchanged.
 
 ### Accepting a risk
 

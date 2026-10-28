@@ -176,7 +176,11 @@ test('frequent lifecycle handlers do not reach the legacy dispatcher and stay un
     // pull-request.mjs, governance.mjs). No new file.
     // 9,195,000 (next 5,000 boundary): main f8cbcdc3 measures 9,183,252 for start.mjs; batch 7's shapes, two-machine and wording fixes (replace-test and remove-test in plan-row-corrections.mjs, the approval hint for a clone that is behind in sequence.mjs, the cancelled-Story refusal in lifecycle-transitions.mjs, tests owed only where planned in delivery-evidence.mjs, --fetch for the current Story, the evaluator's wording), with resume's
     // waiting-publication and synced-folder lines (commands/shared/start-context.mjs), add 7,016 for 9,190,268. No new file.
-    assert.ok(closure.bytes <= 9_195_000, `${file} exceeds the 9 MB eager-source budget (${closure.bytes} bytes)`);
+    // 9,205,000 (next 5,000 boundary): main c168c2cf measures 9,190,268 for start.mjs. Rule E9 (inputs.mjs,
+    // phase-upstream.mjs, phase-retention.mjs, equivalence-rules.mjs), the rejected skill-version pair check
+    // (approval-check.mjs) and the witness exception renewal at the final gate (governance.mjs, gate-recovery.mjs,
+    // state.mjs) add 11,733 for 9,202,001. No new file.
+    assert.ok(closure.bytes <= 9_205_000, `${file} exceeds the 9 MB eager-source budget (${closure.bytes} bytes)`);
   }
 });
 

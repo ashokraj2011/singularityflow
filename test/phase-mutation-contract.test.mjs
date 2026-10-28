@@ -795,6 +795,7 @@ test('every step only a person takes in their own terminal is refused in every t
   const steps = {
     witness: ['singularity-flow decision witness PMC-1 --criterion PMC-1:AC-001 --slot screen --file evidence/screen.png --confirm states-the-outcome --reason "Looked at the screen."'],
     risk: ['singularity-flow decision risk PMC-1 --obligation OBL-001 --category evidence --expires 2099-01-01 --reason "Accepted until the device lab returns."'],
+    'witness-exception-renewal': [`singularity-flow decision witness-exception PMC-1 --phase custom-step --mapping sha256:${'a'.repeat(64)} --expires 2099-01-01 --reason "The device lab is still down."`],
     'test-run-risk': ['test-risk --phase custom-step --cause "No browser here." --expires 2099-01-01', 'test-narrowing --phase custom-step',
       'evidence-reuse --phase custom-step --from-attempt TA-001', 'visual-profile --phase custom-step --profile tablet --not-applicable']
       .map((rest) => `singularity-flow decision ${rest.replace(/^(\S+)/u, '$1 PMC-1')} --reason "Decided by the approver."`),

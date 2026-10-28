@@ -583,6 +583,7 @@ export const REVIEW_EFFECTS = Object.freeze({
   'decision-made:evidence-reuse': { effect: 'review-safe', lists: { evidenceReuses: 'evidence_reuse_decided' } },
   // A visual step approver's decision that one of its screen sizes does not apply, or its revocation (`decision visual-profile`).
   'decision-made:visual-profile': { effect: 'review-safe', lists: { visualProfileDecisions: 'visual_profile_decided' } },
+  'decision-made:witness-exception': { effect: 'review-safe', lists: { witnessExceptionRenewals: 'witness_exception_renewed' } },
   'decision-made:quality-risk': { effect: 'review-safe', lists: { qualityRiskDecisions: 'quality_risk_decided' } },
   'decision-made:witness': { effect: 'review-safe', lists: { witnessRecords: 'witness_recorded' } },
   'decision-made:upstream-issue': { effect: 'review-safe',
@@ -6050,6 +6051,13 @@ export async function reviewHistoryCommits(root, config, workflow, phase, submit
     allowedReviewCommits.add(rejectionCommit);
     if (interveningCommits.includes(proposalCommit)) allowedReviewCommits.add(proposalCommit);
   }
+  // A rejected skill-version proposal and its rejection, as one pair; an undecided or approved one still stales.
+  const rejectedSkillVersions = amendments && unallowed().length ? await amendments.rejectedSkillVersionAmendments(root, config, workflow, unallowed(), {
+    evidenceCommit: submittedReview.evidenceCommit, interveningCommits }) : [];
+  for (const { proposalCommit, rejectionCommit } of rejectedSkillVersions) {
+    allowedReviewCommits.add(rejectionCommit);
+    if (interveningCommits.includes(proposalCommit)) allowedReviewCommits.add(proposalCommit);
+  }
   const pendingProposals = amendments && unallowed().length
     ? await amendments.pendingIntentAmendmentProposals(root, config, workflow, unallowed()) : [];
   for (const { proposalCommit } of pendingProposals) allowedReviewCommits.add(proposalCommit);
@@ -7275,6 +7283,14 @@ async function settleRetainedPhases(root, config, workflow, at) {
     if (retained?.status !== 'approved' || retained.retention?.at !== at) continue;
     await updateArtifactMetadata(root, config, workflow, retained);
     await registerApprovedSnapshot(root, config, workflow, retained);
+    // Rule E9: the producers are approved and registered now, so bind the generations and exact
+    // bytes this phase is carried to; its own input checks accept those and nothing else.
+    if (retained.retention.rule === 'E9') {
+      const { authoredRetentionBindings } = await import('./inputs.mjs');
+      retained.retention.inputBindings = await authoredRetentionBindings(root, workflow, retained, retained.retention.authoredProducers ?? [], {
+        itemDirectory: workDir(root, config, workflow.workItem.id), itemRelative: workDirRelative(config, workflow.workItem.id)
+      });
+    }
     await refreshPhaseSpecificationIndex(root, config, workflow, retained);
     settled.push(retained);
   }

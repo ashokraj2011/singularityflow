@@ -48,6 +48,11 @@ export const EQUIVALENCE_RULES = Object.freeze({
     name: 'unaffected by an intent amendment',
     permits: 'an approval after the scope step stays valid through an approved intent amendment when none of its artifacts cites a clause the amendment added, revised, removed or made stale, it is not a code or convergence step, and everything else it decided over was byte-identical when the amendment was approved',
     appliedBy: 'intent-amendment approval (decideIntentAmendment in src/state.mjs, candidates from src/phase-retention.mjs)'
+  }),
+  E9: Object.freeze({
+    name: 'unchanged authored content',
+    permits: 'an approval stays valid through rework when the steps it reads were approved again with the same authored text (their bytes without the metadata and input blocks SFlow rewrites each generation), it saw exactly that text as its inputs, and everything else it decided over is byte-identical',
+    appliedBy: 'rework (src/phase-retention.mjs, bindings checked by verifyInputsIntegrity in src/inputs.mjs)'
   })
 });
 

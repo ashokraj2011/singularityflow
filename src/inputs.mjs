@@ -444,6 +444,63 @@ function sameRecord(left, right) {
   return canonicalJson(left) === canonicalJson(right);
 }
 
+/** An input entry without what a producer's next generation rewrites even when its author changed nothing. */
+function withoutProducerIdentity({ producerGeneration, approvedAt, approvedBy, approvedSha256, sha256: _sha256, bytes,
+  managedBytesExcluded, source, representation, ...entry }) {
+  return { ...entry, source: source ? { ...source, rawSha256: null } : source,
+    representation: representation ? { ...representation, expansionHandle: null } : representation };
+}
+
+/**
+ * Rule E9 [phase-retention.mjs]: producers this step was kept against, keyed by producer, for its
+ * current generation and exact input record. Each names the producer generation and bytes it was
+ * carried to; a later generation of that producer needs its own retention.
+ */
+function retainedAuthoredBindings(phase, inputRecordSha256) {
+  const retention = phase?.retention;
+  if (retention?.rule !== 'E9' || Number(retention.generation) !== Number(phase.generation)) return new Map();
+  return new Map((retention.inputBindings ?? []).filter((binding) => binding.inputRecordSha256 === inputRecordSha256)
+    .map((binding) => [binding.producer, binding]));
+}
+
+/**
+ * Rule E9 at retention: whether this step saw, for each of `producers`, exactly the authored text
+ * that producer holds now. Read from the files, because a producer approved in this transaction has
+ * no registered approved snapshot yet. Only a whole, untruncated input qualifies; a summary, a
+ * clause selection or a truncated one runs again.
+ */
+export async function authoredInputsUnchanged(root, workflow, phase, producers, { itemDirectory } = {}) {
+  if (workflowInputsMode(workflow) === 'off') return true;
+  const declarations = resolvedPhaseInputs(workflow, phase);
+  if (!declarations.length) return true;
+  const file = path.join(itemDirectory, 'context', `inputs-${phase.id}-gen${phase.generation}.json`);
+  const record = await readFile(file).then((bytes) => readRecord('phase-input-record', bytes).record, () => null);
+  if (!record) return false;
+  for (const producer of producers) {
+    const declaration = declarations.find((entry) => entry.phase === producer);
+    const recorded = (record.inputs ?? []).find((entry) => entry.phase === producer);
+    if (!declaration || !recorded || recorded.status !== 'captured' || recorded.truncated
+        || declaration.selector || declaration.projection === 'approved-summary' || recorded.representation?.kind !== 'full') return false;
+    const relative = declaration.path ?? workflow.phases[producer]?.requiredArtifact?.path ?? null;
+    const raw = relative ? await readFile(path.join(itemDirectory, relative)).catch(() => null) : null;
+    if (!raw) return false;
+    const content = embeddedInputContent(raw, declaration.maxBytes ?? null);
+    if (recorded.representation.sha256 !== `sha256:${sha256(content)}`) return false;
+  }
+  return true;
+}
+
+/** Rule E9 once the producers' approval is final: the generation and bytes the step is carried to. */
+export async function authoredRetentionBindings(root, workflow, phase, producers, { itemDirectory, itemRelative } = {}) {
+  const file = path.join(itemDirectory, 'context', `inputs-${phase.id}-gen${phase.generation}.json`);
+  const recordSnapshot = await snapshot(file);
+  if (!recordSnapshot.exists) return [];
+  const live = await collectInputs(root, workflow, phase, { itemDirectory, itemRelative, generation: phase.generation });
+  return producers.map((producer) => live.records.find((entry) => entry.phase === producer)).filter(Boolean)
+    .map((entry) => ({ producer: entry.phase, producerGeneration: entry.producerGeneration, producerSha256: entry.sha256,
+      inputRecordSha256: recordSnapshot.sha256 }));
+}
+
 export async function verifyInputsIntegrity(root, workflow, phase, { itemDirectory, itemRelative, definition = null } = {}) {
   const selected = workflow.resolution?.phases?.find((entry) => entry.id === phase.id);
   if (selected?.kind === 'skill' && !definition) {
@@ -512,6 +569,31 @@ export async function verifyInputsIntegrity(root, workflow, phase, { itemDirecto
     if (!errors.length && !warnings.length) {
       passes.push(`phase inputs revalidated: ${phase.id} after ${[...new Set([...revalidated.values()].map((binding) => binding.amendment))].join(', ')}`);
     }
+    return { errors, warnings, passes };
+  }
+  // Rule E9 [phase-retention.mjs]: kept through rework while its producers were approved again with
+  // the same authored text. Its record and artifact keep the inputs it was approved with; the
+  // retention names the producer generations and bytes it was carried to, and the text it saw
+  // (each input's representation digest) must still be the text those producers hold.
+  const retainedAuthored = retainedAuthoredBindings(phase, recordSnapshot.sha256);
+  if (retainedAuthored.size) {
+    const others = (entries) => entries.filter((entry) => !retainedAuthored.has(entry.phase));
+    for (const [producer, binding] of retainedAuthored) {
+      const current = live.records.find((entry) => entry.phase === producer);
+      const recorded = (record.inputs ?? []).find((entry) => entry.phase === producer);
+      if (!current || current.status !== 'captured' || !recorded
+          || Number(current.producerGeneration) !== Number(binding.producerGeneration) || current.sha256 !== binding.producerSha256) {
+        add(`${phase.id} was kept under rule E9 against ${producer} generation ${binding.producerGeneration}, which is no longer the approved input`);
+      } else if (!sameRecord(withoutProducerIdentity(recorded), withoutProducerIdentity(recordedInputs([current])[0]))) {
+        add(`${phase.id} read ${producer} in a form ${producer} no longer has`);
+      }
+    }
+    if (!sameRecord(others(record.inputs ?? []), others(expectedInputs))) {
+      add(`${phase.id} phase-input record does not match the recomputed inputs outside its retained producers`);
+    }
+    const block = extractInputsBlock(await readFile(path.join(itemDirectory, phase.requiredArtifact.path), 'utf8').catch(() => ''));
+    if (!block || sha256(block) !== record.renderedSha256) add(`${phase.id} artifact does not contain the recorded managed input block`);
+    if (!errors.length && !warnings.length) passes.push(`phase inputs kept under rule E9: ${phase.id} ← ${[...retainedAuthored.keys()].join(', ')}`);
     return { errors, warnings, passes };
   }
   if (!sameRecord(record.inputs ?? [], expectedInputs)) {

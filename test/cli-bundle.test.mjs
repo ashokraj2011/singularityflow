@@ -258,7 +258,12 @@ test('the bundled CLI answers exactly like the sources while opening a handful o
   // after closing (git.mjs pathsChangedAfterMarker, pull-request.mjs) and early code taken out of an artifact-only
   // step (git.mjs commitsTouchingSince, state.mjs) add 6,010 for 7,491,568. No new file.
   // 7,500,000: main f8cbcdc3 measures 7,494,199; batch 7's shapes, two-machine and wording fixes (replace-test and remove-test in plan-row-corrections.mjs, the approval hint for a clone that is behind in sequence.mjs, the cancelled-Story refusal in lifecycle-transitions.mjs, tests owed only where planned in delivery-evidence.mjs, --fetch for the current Story, the evaluator's wording) add 3,682 for 7,497,881. No new file.
-  assert.ok(closure('cold-hook-context.mjs').reduce((sum, item) => sum + item.bytes, 0) < 7_500_000,
+  // 7,510,000: main c168c2cf measures 7,497,881; keeping readers of a step approved again with the same authored text
+  // (rule E9: authored producer digests in phase-upstream.mjs, retention bindings in inputs.mjs, phase-retention.mjs),
+  // a rejected skill-version pair as review-safe (approval-check.mjs) and a lapsed witness exception's renewal at the
+  // final gate (governance.mjs, gate-recovery.mjs) add 7,558 for 7,505,439. No new eager file: the renewal command,
+  // its record and the publish drift warning are lazy.
+  assert.ok(closure('cold-hook-context.mjs').reduce((sum, item) => sum + item.bytes, 0) < 7_510_000,
     'phase-review reads retain their existing byte ceiling after moving families');
   assert.match(await readFile(path.join(outdir, 'cold-light.mjs'), 'utf8'), /function enterPhase\b/u,
     'phase binding must not fall through to the compatibility/admin bundle');

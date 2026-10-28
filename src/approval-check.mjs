@@ -123,6 +123,77 @@ export async function rejectedIntentAmendments(root, config, workflow, commits, 
   });
 }
 
+const SKILL_VERSION_SUBJECT = /^\[([^\]]+)\]\[skill-version:reject\] (\S+)$/u;
+// Both transactions stamp the Story's current schema version; every other key is pinned exactly.
+const SKILL_VERSION_KEYS = Object.freeze(['skillVersionAmendments', 'history', 'publicationProjections', 'schemaVersion']);
+
+/**
+ * The rejected skill-version proposals among the commits after a submission, each as its proposal
+ * and rejection [unhappy paths S8, 2026-10-28]. A rejected proposal changes no step, skill or
+ * package: the pair adds its own review records and the summary's rejection, and nothing else, so
+ * it makes nothing a review saw stale. Each commit is checked as `rejectedIntentAmendmentPair`
+ * checks an amendment's: an exact path allowlist, an exact workflow.json key diff and the commit's
+ * event hash. A proposal still undecided, or one approved, keeps staling the submission.
+ */
+export async function rejectedSkillVersionAmendments(root, config, workflow, commits, { evidenceCommit, interveningCommits }) {
+  const rejected = new Map((workflow.skillVersionAmendments ?? []).filter((entry) => entry?.status === 'rejected').map((entry) => [entry.id, entry]));
+  if (!commits.length || !rejected.size) return [];
+  const { governedStateChange, stateChangesOnly } = await import('./state.mjs');
+  let subjects;
+  try {
+    subjects = storyHistoryCommits(root, ['log', '--no-walk=unsorted', '--format=%H%x1f%s', ...commits], 'Subjects of the commits after the review evidence');
+  } catch { return []; }
+  const event = (change, type, id) => change.event?.type === type && change.event.subject?.id === workflow.workItem.id
+    && change.event.payload?.proposalId === id && change.identity.eventSha256 === `sha256:${recordSha256(change.event)}`;
+  const newFiles = (change, files) => files.every((file) => change.changed.includes(file) && !exactFileAtObject(root, change.parent, file))
+    && change.changed.every((file) => change.ownPaths.includes(file) || files.includes(file));
+  const pairs = [];
+  for (const line of subjects) {
+    const [rejectionCommit, subject = ''] = line.split('\u001f');
+    const match = SKILL_VERSION_SUBJECT.exec(subject);
+    const summary = match?.[1] === workflow.workItem.id ? rejected.get(match[2]) : null;
+    if (!summary?.proposalPath || !summary.impactPath || !summary.rejection?.reviewPath) continue;
+    const id = summary.id;
+    // The proposal created its record and nothing rewrote it.
+    let writers;
+    try {
+      writers = storyHistoryCommits(root, ['log', '--first-parent', '--format=%H%x1f%s', head(root), '--', summary.proposalPath],
+        `Skill-version proposal ${id} record history`).map((entry) => entry.split('\u001f'));
+    } catch { continue; }
+    if (writers.length !== 1 || writers[0][1] !== `[${workflow.workItem.id}][skill-version:propose] ${id}`) continue;
+    const [proposalCommit] = writers[0];
+    if (!interveningCommits.includes(proposalCommit) && !commitIsAncestor(root, proposalCommit, evidenceCommit)) continue;
+    const proposal = governedStateChange(root, config, workflow, proposalCommit);
+    const rejection = governedStateChange(root, config, workflow, rejectionCommit);
+    if (!proposal || !rejection) continue;
+    // The proposal adds its two records and one proposed summary, and nothing else.
+    const added = proposal.after.skillVersionAmendments?.at(-1);
+    if (!newFiles(proposal, [summary.proposalPath, summary.impactPath]) || !stateChangesOnly(proposal, SKILL_VERSION_KEYS)
+        || !['skillVersionAmendments', 'history', 'publicationProjections'].every((key) => appendsOne(proposal, key))
+        || added?.id !== id || added.status !== 'proposed' || added.proposalPath !== summary.proposalPath
+        || added.impactPath !== summary.impactPath || added.proposalSha256 !== summary.proposalSha256
+        || proposal.after.history.at(-1)?.event !== 'skill_version_proposed'
+        || !event(proposal, LIFECYCLE_EVENT.SKILL_AMENDMENT_PROPOSED, id) || proposal.event.payload.proposalSha256 !== summary.proposalSha256) continue;
+    // The rejection adds its review record and changes that one summary to rejected, and nothing else.
+    const before = rejection.before.skillVersionAmendments ?? [];
+    const after = rejection.after.skillVersionAmendments ?? [];
+    const index = after.findIndex((entry) => entry?.id === id);
+    const undecided = before[index];
+    const decided = after[index];
+    if (!newFiles(rejection, [summary.rejection.reviewPath]) || !stateChangesOnly(rejection, SKILL_VERSION_KEYS)
+        || !['history', 'publicationProjections'].every((key) => appendsOne(rejection, key))
+        || index < 0 || before.length !== after.length || undecided?.status !== 'proposed' || decided?.status !== 'rejected'
+        || recordSha256({ ...decided, status: 'proposed', decidedAt: undefined, rejection: undefined, schemaVersion: undecided.schemaVersion })
+          !== recordSha256(undecided)
+        || recordSha256(after.filter((_, at) => at !== index)) !== recordSha256(before.filter((_, at) => at !== index))
+        || rejection.after.history.at(-1)?.event !== 'skill_version_rejected'
+        || !event(rejection, LIFECYCLE_EVENT.SKILL_AMENDMENT_REJECTED, id)
+        || rejection.event.payload.decision !== 'reject' || rejection.event.payload.willApply !== false) continue;
+    pairs.push({ id, proposalCommit, rejectionCommit });
+  }
+  return pairs;
+}
+
 /**
  * The undecided intent amendments proposed among the commits after a submission, each with its
  * proposal commit [SPEC-OAP M2]. A proposal adds only its own amendment records, so it makes

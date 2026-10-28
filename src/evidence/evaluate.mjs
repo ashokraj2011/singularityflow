@@ -342,10 +342,17 @@ export function evaluateEvidence(graph, { boundary = 'view', mode = 'projection'
     else if (observed && ['partial', 'deviated'].includes(observed.verdict)) implementStatus = 'partial';
     else implementStatus = rowSubmitted ? 'missing' : 'pending';
     if (implementStatus === 'partial') {
+      // Every planned source path changed and a planned test did not come with it: name the test, or
+      // the author was pointed at source that was already done (2026-10-28).
+      const plannedSources = plannedProductSourcePaths(planned ?? {});
+      const missingTests = (planned?.tests ?? []).filter((candidate) => !(observed.testResults ?? []).includes(candidate));
+      const sourcesDone = (observed.observedPaths?.length ?? 0) >= plannedSources.length;
       rowFindings.push(finding(observed.verdict === 'deviated' ? 'EVIDENCE_IMPLEMENTATION_DEVIATED' : 'EVIDENCE_IMPLEMENTATION_PARTIAL',
         observed.verdict === 'deviated'
           ? `${id} was implemented differently from its plan${observed.deviation ? `: ${observed.deviation}` : ''}.`
-          : `${id} changed ${observed.observedPaths?.length ?? 0} of ${plannedProductSourcePaths(planned ?? {}).length} planned product-source path(s).`,
+          : sourcesDone && missingTests.length
+            ? `${id} changed all ${plannedSources.length} planned product-source path(s), but its planned test${missingTests.length === 1 ? '' : 's'} ${missingTests.join(', ')} ${missingTests.length === 1 ? 'is' : 'are'} not in the delivery.`
+            : `${id} changed ${observed.observedPaths?.length ?? 0} of ${plannedSources.length} planned product-source path(s).`,
         { obligationIds: [implementId] }));
     }
     // The implementing step delivered tests and no product source, and this row is planned as a

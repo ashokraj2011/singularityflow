@@ -1194,7 +1194,10 @@ export const REASONS = Object.freeze({
     render: (s) => `core.hooksPath points Git at ${slot(s.hooksDirectory)}, outside this repository, so its hooks belong to whoever configured it`
   },
   'sequence.gate-failed': {
-    render: (s) => `${slot(s.failed)} of ${slot(s.total)} sequence gates have not passed`
+    // A gate refused without counts printed "-  of  sequence gates" (2026-10-28): name the gate instead.
+    render: (s) => s.failed == null || s.total == null
+      ? `the ${slot(s.gate, 'sequence')} gate has not passed`
+      : `${slot(s.failed)} of ${slot(s.total)} sequence gates have not passed`
   },
   'artifact.missing': {
     render: (s) => `the phase requires ${slot(s.path)}, which is not present`

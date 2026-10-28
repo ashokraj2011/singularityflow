@@ -40,9 +40,17 @@ export function completionLabel({ workflow, rows = [], terminal = null, gate = n
       return { label: COMPLETION_LABELS.complete, kind: 'complete', reasons: [] };
     }
     if (terminal.decision?.gate === 'allow-with-risk') {
+      // A criterion whose only exception is the plan's reviewed "no test applies" is said as such: a
+      // documentation-only Story read as if a risk had been accepted (2026-10-28).
+      const excepted = rows.filter((row) => row.result === 'satisfied-with-exception');
+      const noTest = excepted.filter((row) => (row.obligations ?? []).filter((entry) => entry.status === 'excepted')
+        .every((entry) => entry.facets?.exception === 'not-applicable')).length;
       return {
         label: COMPLETION_LABELS.completeWithExceptions, kind: 'complete-with-exceptions',
-        reasons: [`${counts['satisfied-with-exception'] ?? 0} criterion row(s) passed through an accepted exception`]
+        reasons: [
+          ...(excepted.length - noTest || !excepted.length ? [`${(counts['satisfied-with-exception'] ?? 0) - noTest} criterion row(s) passed through an accepted exception`] : []),
+          ...(noTest ? [`${noTest} criterion row(s) need no test, as the approved plan reviewed`] : [])
+        ]
       };
     }
   }

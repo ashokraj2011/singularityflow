@@ -15,7 +15,7 @@ import {
   phaseUsesDeterministicGeneration
 } from './manual-authorship.mjs';
 import { operationContext } from './operation-context.mjs';
-import { clearApprovalDisposition, clearDecisionState, completionPhaseOf } from './lifecycle-transitions.mjs';
+import { cancelledStoryRefusal, clearApprovalDisposition, clearDecisionState, completionPhaseOf } from './lifecycle-transitions.mjs';
 import { phaseNeedsGeneration } from './phase-generation-need.mjs';
 
 export { phaseNeedsGeneration };
@@ -144,10 +144,17 @@ function sequenceMessage(workflow, gate, action, { requestedPhase = null, reason
     ? `phase '${phase.id}' is ${phase.status} at generation ${phase.generation ?? 0}`
     : `workflow '${workflow.workItem.id}' is complete`;
   const guidance = gateGuidance(workflow, gate);
+  // An approver whose clone is behind saw only the author's prepare and publish (2026-10-28): a step
+  // in progress here may have been submitted from another clone.
+  const approving = action === 'approve' && gate === 'phaseStatus' ? workflow.phases?.[target] : null;
+  const behind = approving?.status === 'in_progress'
+    ? `If ${approving.id} was submitted from another clone, bring that in first: singularity-flow refresh-branch, or approve with --fetch (singularity-flow approve ${approving.id} --work-id ${workflow.workItem.id} --fetch).`
+    : null;
   return [
     `${mode === 'soft' ? 'Soft sequence warning' : 'Out of sequence'} [${gate}]: cannot ${action}${target ? ` for phase '${target}'` : ''}.`,
     `Current state: ${current}.`,
     reason ? `Reason: ${reason}` : null,
+    behind,
     `Gate mode: ${mode}.`,
     // Hard refusals carry a narrated result whose NEXT owns the guidance, so repeating it here would
     // print the same advice twice in two different vocabularies. The soft-warning path has no
@@ -413,6 +420,9 @@ export function evaluateSequence(workflow, {
       allowed: false, gate: 'decision', targetPhase: workflow.pendingDecision.after, invalid: true,
       reason: `The Story is waiting for a decision: '${workflow.pendingDecision.label}'. Choose with singularity-flow decision choose ${workflow.workItem.id}.`
     };
+  }
+  if (workflow.status === 'cancelled') {
+    return { allowed: false, gate: 'completion', targetPhase: null, invalid: true, reason: cancelledStoryRefusal(workflow).message };
   }
   if (!phase) {
     const target = requestedPhase ? workflow.phases?.[requestedPhase] : completionPhaseOf(workflow);

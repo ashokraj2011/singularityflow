@@ -97,6 +97,7 @@ export async function activatePhaseAgent(
     ?? definition.agentCatalog?.find((agent) => agent.defaultFor.includes(phase?.id))?.id
     ?? null;
   const agent = requestedAgent ?? defaultAgent;
+  if (workflow?.status === 'cancelled') throw (await import('../lifecycle-transitions.mjs')).cancelledStoryRefusal(workflow);
   if (!agent || !definition.agents?.[agent]) throw new SingularityFlowError(`Phase '${phase?.id ?? 'unknown'}' has no valid agent.`);
   const compatible = !phase?.id || !definition.agents[agent].phases.length || definition.agents[agent].phases.includes(phase.id);
   if (requestedAgent && !compatible) {

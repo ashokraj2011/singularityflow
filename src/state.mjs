@@ -220,8 +220,8 @@ import {
 import { assertProducerAllowed, buildGenerationAuthorship, normalizeAuthorshipOptions, phasePublicationCommand } from './manual-authorship.mjs';
 import { consumeRepairAttempt, repairBudgetPhaseForRejection } from './repair-budget.mjs';
 import {
-  advanceCompletedPhase, clearApprovalDisposition, clearDecisionState, completionPhaseOf, nextPhaseAfterSkillAmendment, reopenPhaseRange,
-  resetDecisionRounds, resetPhaseRangeForRework
+  advanceCompletedPhase, cancelledStoryRefusal, clearApprovalDisposition, clearDecisionState, completionPhaseOf,
+  nextPhaseAfterSkillAmendment, reopenPhaseRange, resetDecisionRounds, resetPhaseRangeForRework
 } from './lifecycle-transitions.mjs';
 import {
   assertChoiceKeepsDependencies, decisionFedBy, decisionInputsHint, decisionOutcome, describeOutcome,
@@ -8657,6 +8657,7 @@ export async function reopenWorkflow(root, config, workflow, {
   actor = null, agent = null
 } = {}) {
   await assertNoPendingPublication(root, config, workflow, 'reopen completed work');
+  if (workflow.status === 'cancelled') throw cancelledStoryRefusal(workflow);
   if (workflow.status !== 'closed' || workflow.currentPhase != null) {
     throw new SingularityFlowError(`Story '${workflow.workItem.id}' is not closed; use reject while a phase is awaiting approval.`);
   }

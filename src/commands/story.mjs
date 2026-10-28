@@ -2337,7 +2337,7 @@ export async function storyReworkCommand(positionals, options) {
   if (!optionBoolean(options, 'confirm')) {
     console.log(`Convergence iteration ${projection.iteration} would return ${workflow.workItem.id} to implementation:`);
     for (const finding of rework) console.log(`  ${finding.id} (${finding.itemId}) ${finding.clauseIds.join(', ') || 'no clause'}: ${finding.decision?.reason ?? 'no reason recorded'}`);
-    console.log(`\nApprovals from implementation onward will be invalidated. Re-run with --confirm.`);
+    console.log(`\nApprovals from implementation onward are invalidated, except those of steps whose inputs do not change: they are kept. Re-run with --confirm.`);
     return;
   }
   const workflowBeforeRework = structuredClone(workflow);

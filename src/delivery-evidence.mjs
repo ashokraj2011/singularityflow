@@ -1434,7 +1434,13 @@ export async function evaluateCodeDeliveryPreflight(root, config, workflow, phas
     errors.push('no product source path changed; a summary, configuration or test-only edit is not an implementation');
   }
   errors.push(...fulfillment.problems);
-  if (!testPaths.length) {
+  const requiredAcIds = await acceptanceIds(root, config, workflow, phase);
+  // A test is owed only where the plan plans one. Rows the plan reviewed as needing none (a document,
+  // configuration, removal or screenshot row whose tests are not applicable, or one proven by
+  // inspection) had only a dated dispute past this, and none at all without approvers (2026-10-28).
+  const testsOwed = !obligations || requiredAcIds.length > 0 || obligations.some((obligation) =>
+    (obligation.tests ?? []).length > 0 || !['not-applicable', 'non-test'].includes(obligation.testDisposition ?? 'unspecified'));
+  if (!testPaths.length && testsOwed) {
     // A file named as a test outside every recognised test folder is counted as product source; say
     // so, or the author keeps re-tagging a test the gate never reads.
     const uncounted = changedPaths.filter((candidate) => !isAllowedTestAutomationPath(candidate) && isTestSourceName(candidate));
@@ -1443,7 +1449,6 @@ export async function evaluateCodeDeliveryPreflight(root, config, workflow, phas
       : 'no acceptance test is available for the implementation');
   }
 
-  const requiredAcIds = await acceptanceIds(root, config, workflow, phase);
   const criteria = specificationCriteria(await loadActiveSpecRecords(itemDirectory, workflow), workflow, config);
   const scanned = await taggedAcceptanceIds(root, testPaths);
   // In a namespace other Stories share, a test tag names this Story's criterion only where this Story

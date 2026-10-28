@@ -131,7 +131,8 @@ test('the bundled CLI answers exactly like the sources while opening a handful o
   // command-skills.mjs and their refusal in copilot-mutation-guard.mjs), the empty-group route in
   // refusal-remediation.mjs and cancel while a decision waits add cold-core +1,770 and cold-hooks +601 for
   // 4,481,745. No new file.
-  assert.ok(closure('cold-narrow-reads.mjs').reduce((sum, item) => sum + item.bytes, 0) < 4_485_000,
+  // 4,490,000: main f8cbcdc3 measures 4,481,745; batch 7's shapes, two-machine and wording fixes (replace-test and remove-test in plan-row-corrections.mjs, the approval hint for a clone that is behind in sequence.mjs, the cancelled-Story refusal in lifecycle-transitions.mjs, tests owed only where planned in delivery-evidence.mjs, --fetch for the current Story, the evaluator's wording) add 3,583 for 4,485,328. No new file.
+  assert.ok(closure('cold-narrow-reads.mjs').reduce((sum, item) => sum + item.bytes, 0) < 4_490_000,
     'strict next-step reads must not inherit the broad phase-review closure');
   const publicationClosure = closure('cold-publication.mjs');
   assert.ok(publicationClosure.length && publicationClosure.reduce((sum, item) => sum + item.bytes, 0) < 6 * 1024 * 1024,
@@ -256,7 +257,8 @@ test('the bundled CLI answers exactly like the sources while opening a handful o
   // (git.mjs mergedBaseChanges, delivery-evidence.mjs, governance.mjs, state.mjs), a pull request blocked by commits
   // after closing (git.mjs pathsChangedAfterMarker, pull-request.mjs) and early code taken out of an artifact-only
   // step (git.mjs commitsTouchingSince, state.mjs) add 6,010 for 7,491,568. No new file.
-  assert.ok(closure('cold-hook-context.mjs').reduce((sum, item) => sum + item.bytes, 0) < 7_495_000,
+  // 7,500,000: main f8cbcdc3 measures 7,494,199; batch 7's shapes, two-machine and wording fixes (replace-test and remove-test in plan-row-corrections.mjs, the approval hint for a clone that is behind in sequence.mjs, the cancelled-Story refusal in lifecycle-transitions.mjs, tests owed only where planned in delivery-evidence.mjs, --fetch for the current Story, the evaluator's wording) add 3,682 for 7,497,881. No new file.
+  assert.ok(closure('cold-hook-context.mjs').reduce((sum, item) => sum + item.bytes, 0) < 7_500_000,
     'phase-review reads retain their existing byte ceiling after moving families');
   assert.match(await readFile(path.join(outdir, 'cold-light.mjs'), 'utf8'), /function enterPhase\b/u,
     'phase binding must not fall through to the compatibility/admin bundle');
@@ -301,7 +303,8 @@ test('the bundled CLI answers exactly like the sources while opening a handful o
   // 5,290,154. One new file (approval-fallback.mjs).
   // 5,300,000: main ef81e85b measures 5,294,453; the same person's own terminal decisions add cold-core +1,770 and
   // cold-hooks +601 for 5,296,824. No new file.
-  assert.ok(catalogClosure.reduce((sum, item) => sum + item.bytes, 0) < 5_300_000,
+  // 5,305,000: main f8cbcdc3 measures 5,296,824; batch 7's shapes, two-machine and wording fixes (replace-test and remove-test in plan-row-corrections.mjs, the approval hint for a clone that is behind in sequence.mjs, the cancelled-Story refusal in lifecycle-transitions.mjs, tests owed only where planned in delivery-evidence.mjs, --fetch for the current Story, the evaluator's wording) add 3,583 for 5,300,407. No new file.
+  assert.ok(catalogClosure.reduce((sum, item) => sum + item.bytes, 0) < 5_305_000,
     'catalog parsing stays bounded instead of pulling in the entire administration bundle');
   for (const name of ['cold-compatibility.mjs', 'cold-models.mjs', 'cold-intake.mjs', 'cold-phases.mjs', 'cold-hook-context.mjs']) {
     assert.ok(!catalogClosure.some(item => item.file === name), `catalogs must not statically reach ${name}`);

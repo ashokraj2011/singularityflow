@@ -174,7 +174,9 @@ test('frequent lifecycle handlers do not reach the legacy dispatcher and stay un
     // onto a Story branch named, not refused, a pull request blocked by commits after closing, and early code taken
     // out of an artifact-only step add 9,016 for 9,181,597 (git.mjs, state.mjs, delivery-evidence.mjs,
     // pull-request.mjs, governance.mjs). No new file.
-    assert.ok(closure.bytes <= 9_185_000, `${file} exceeds the 9 MB eager-source budget (${closure.bytes} bytes)`);
+    // 9,195,000 (next 5,000 boundary): main f8cbcdc3 measures 9,183,252 for start.mjs; batch 7's shapes, two-machine and wording fixes (replace-test and remove-test in plan-row-corrections.mjs, the approval hint for a clone that is behind in sequence.mjs, the cancelled-Story refusal in lifecycle-transitions.mjs, tests owed only where planned in delivery-evidence.mjs, --fetch for the current Story, the evaluator's wording), with resume's
+    // waiting-publication and synced-folder lines (commands/shared/start-context.mjs), add 7,016 for 9,190,268. No new file.
+    assert.ok(closure.bytes <= 9_195_000, `${file} exceeds the 9 MB eager-source budget (${closure.bytes} bytes)`);
   }
 });
 
@@ -234,7 +236,10 @@ test('the common session projection does not import attach, state stores or publ
   // runs (upstream-routes.mjs, upstream-issues.mjs) add 4,444 for 3,906,195.
   // 3,915,000: main fddafbe0 measures 3,906,195; the merged-base, after-closing and early-code helpers in git.mjs
   // and their use in state.mjs and delivery-evidence.mjs add 6,634 for 3,912,829.
-  assert.ok(current.bytes <= 3_915_000, `session current loads ${current.bytes} source bytes`);
+  // 3,920,000: main f8cbcdc3 measures 3,914,102; plan corrections for tests delivered under other names, the approval
+  // hint for a clone that is behind and the cancelled-Story refusal add 3,842 for 3,917,944 (plan-row-corrections.mjs,
+  // sequence.mjs, lifecycle-transitions.mjs, narration/messages.mjs, command-skills.mjs).
+  assert.ok(current.bytes <= 3_920_000, `session current loads ${current.bytes} source bytes`);
 });
 
 test('early phase and grounding-path entries exclude the deferred authoring and review graphs', async () => {

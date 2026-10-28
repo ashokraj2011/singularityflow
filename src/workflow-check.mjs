@@ -271,6 +271,20 @@ async function checkWorkflow(workflow, { definition, model, locate, guidance, gr
           + 'If this workflow defines no requirements at all, declare omits for scope with a reason of at least 20 characters and the approval group that decides.',
         subject: {}, blocksStart: true });
     }
+    // One plan for several code steps: a row naming no code step in a Steps column is owed by each of
+    // them, so the second had to deliver every row again (2026-10-28). Said before a Story starts.
+    const planned = new Map();
+    for (const [codeStep, planner] of Object.entries(resolved.plannedClaims?.owners ?? {})) {
+      if (planner) planned.set(planner, [...(planned.get(planner) ?? []), codeStep]);
+    }
+    for (const [planner, codeSteps] of planned) {
+      if (codeSteps.length < 2) continue;
+      add({ code: 'CHECK_PLAN_SHARED_BY_CODE_STEPS', area: 'flow', severity: 'warning',
+        title: `${stepLabel(planner)} plans ${codeSteps.length} code steps`,
+        detail: `${codeSteps.map(stepLabel).join(' and ')} take their planned claims from ${stepLabel(planner)}. A row that names no code step in the plan's Steps column is owed by every one of them, so each must deliver it.`,
+        fix: `Give ${stepLabel(planner)}'s planned-claims table a Steps column and name the code step of each row, or give each code step a plan of its own in plannedClaims.owners.`,
+        subject: { step: planner } });
+    }
     let simulation = null;
     try { simulation = simulateWorkflowRoutes(resolved, { approvalAuthorities: definition.approvalAuthorities }); }
     catch (error) {

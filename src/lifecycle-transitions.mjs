@@ -4,6 +4,21 @@
  */
 import { SingularityFlowError } from './util.mjs';
 
+/**
+ * A cancelled Story is final. Prepare said "reopen it", reopen said "use reject", and resume named a
+ * phase 'unknown' with no agent: each pointed at another that refused too (2026-10-28).
+ */
+export function cancelledStoryRefusal(workflow) {
+  const id = workflow?.workItem?.id ?? 'this Story';
+  const start = 'singularity-flow start <NEW-WORK-ID>';
+  const release = `singularity-flow cancel ${id} --release`;
+  return new SingularityFlowError(
+    `Story '${id}' was cancelled, and a cancelled Story is final: it is not prepared, reopened or resumed again. `
+    + `Start a new Story for the work with ${start}, or release what it still holds with ${release}.`,
+    { code: 'STORY_CANCELLED', details: { workId: id, nextAction: start, recoveryCommands: [start, release] } }
+  );
+}
+
 function phaseIndex(workflow, phaseId) {
   const order = workflow.phaseOrder;
   const index = Array.isArray(order) ? order.indexOf(phaseId) : -1;

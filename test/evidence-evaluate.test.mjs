@@ -3,7 +3,7 @@ import test from 'node:test';
 
 import { evaluateEvidence } from '../src/evidence/evaluate.mjs';
 import { evidenceGraph } from '../src/evidence/graph.mjs';
-import { COMPLETION_LABELS, lifecycleWords } from '../src/evidence/labels.mjs';
+import { COMPLETION_LABELS, completionLabel, lifecycleWords } from '../src/evidence/labels.mjs';
 import { matrixCsv, matrixMarkdown, matrixPage, matrixText } from '../src/evidence/matrix.mjs';
 import { storyPullRequestBody } from '../src/pull-request.mjs';
 import { obligationId } from '../src/evidence/vocabulary.mjs';
@@ -228,6 +228,20 @@ test('a reviewed not-applicable test is an exception the matrix shows, not a pas
   const evaluation = evaluate({ workflow: story(), records: records({ ac2Disposition: 'not-applicable', ac2Tests: [] }), deliveries: [delivery()] });
   assert.equal(row(evaluation, AC2).result, 'satisfied-with-exception');
   assert.equal(row(evaluation, AC2).obligations.find((entry) => entry.responsibility === 'verify').facets.exception, 'not-applicable');
+  // Its completion reason says the plan reviewed it as needing no test, never an accepted risk.
+  const label = completionLabel({ workflow: story({ status: 'closed' }), rows: [row(evaluation, AC2)], gate: 'allow-with-risk',
+    terminal: { mode: 'decision', boundary: 'terminal', decision: { gate: 'allow-with-risk' } } });
+  assert.deepEqual(label.reasons, ['1 criterion row(s) need no test, as the approved plan reviewed']);
+});
+
+// A planned test missing from a delivery whose source is complete was reported as unchanged source.
+test('a partial row whose planned source all changed names the planned test it is missing', () => {
+  const maps = records();
+  maps.planned[0].claims[AC1].tests = ['test/one.test.mjs', 'test/edge.test.mjs'];
+  maps.observed[0].claims[AC1] = { observedPaths: ['src/value.mjs'], testResults: ['test/one.test.mjs'], commits: [], verdict: 'partial' };
+  const finding = evaluate({ workflow: story(), records: maps, deliveries: [delivery()] }).findings
+    .find((entry) => entry.code === 'EVIDENCE_IMPLEMENTATION_PARTIAL' && entry.message.includes(AC1));
+  assert.equal(finding.message, `${AC1} changed all 1 planned product-source path(s), but its planned test test/edge.test.mjs is not in the delivery.`);
 });
 
 test('in-flight work is pending; work a finished step should have delivered is missing', () => {

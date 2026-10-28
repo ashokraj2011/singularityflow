@@ -35,11 +35,15 @@ export async function loadStoryDecisionExecution(root, positionals, options, act
   }
   const selection = storyDecisionArguments(current?.workflow.phaseOrder ?? [], positionals, options, action);
   const { requestedId, implicitLegacyWorkId } = selection;
-  if (requestedId && (requestedId !== branch(root) || optionBoolean(options, 'fetch'))) {
+  // --fetch without a Work ID fetches the current Story: it was silently ignored, so an approver
+  // whose clone was behind decided over a stale state (2026-10-28).
+  const fetchCurrent = !requestedId && optionBoolean(options, 'fetch') ? current?.workflow?.workItem?.id ?? null : null;
+  const target = requestedId ?? fetchCurrent;
+  if (target && (target !== branch(root) || optionBoolean(options, 'fetch'))) {
     const bootstrap = await loadDefinition(root, { storyBootstrap: true });
     try {
       // The Story's own branch, which need not be named after its ID.
-      await checkoutStoryBranch(root, bootstrap, requestedId, { fetch: optionBoolean(options, 'fetch') });
+      await checkoutStoryBranch(root, bootstrap, target, { fetch: optionBoolean(options, 'fetch') });
     } catch (error) {
       if (implicitLegacyWorkId && /Branch .* does not exist/.test(error?.message ?? '')) {
         throw new SingularityFlowError(`'${requestedId}' is not a configured phase or an available Work ID. Use '${action} <PHASE>' for the current Story, or '${action} <PHASE> --work-id <WORK-ID>' for another Story.`);
@@ -47,6 +51,6 @@ export async function loadStoryDecisionExecution(root, positionals, options, act
       throw error;
     }
   }
-  const accepted = !requestedId && current ? current : await loadAcceptedStoryExecution(root, requestedId);
+  const accepted = !requestedId && current && !fetchCurrent ? current : await loadAcceptedStoryExecution(root, target ?? undefined);
   return { ...selection, ...accepted };
 }

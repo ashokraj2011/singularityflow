@@ -59,6 +59,15 @@ export function planCorrectionOperations(options) {
       const [clauseId, test] = pair(entry, '--add-test');
       return { op: 'add-test', clauseId, test };
     }),
+    ...optionStrings(options, 'remove-test').map((entry) => {
+      const [clauseId, test] = pair(entry, '--remove-test');
+      return { op: 'remove-test', clauseId, test };
+    }),
+    ...optionStrings(options, 'replace-test').map((entry) => {
+      const [clauseId, change] = pair(entry, '--replace-test');
+      const [from, to] = pair(change, '--replace-test <clause>=<from>', ':');
+      return { op: 'replace-test', clauseId, from, to };
+    }),
     ...optionStrings(options, 'remove-location').map((entry) => {
       const [clauseId, file] = pair(entry, '--remove-location');
       return { op: 'remove-location', clauseId, path: file };

@@ -103,3 +103,24 @@ test('an end that leaves a responsibility out to a group with nobody in it is na
   assert.deepEqual(blocked.map((entry) => entry.title), ['Nobody can decide that verify does not apply']);
   assert.match(blocked[0].fix?.text ?? blocked[0].fix, /Add people to Empty approvers/u);
 });
+
+// One plan for two code steps: every row without a Steps entry was owed by both, so the second code
+// step had to deliver every row again, and nothing said so before a Story started (MC-1, 2026-10-28).
+test('one plan shared by two code steps is named before any Story starts', async (t) => {
+  const { flow } = await repository(t, {
+    label: 'Two code steps', phases: ['intake', 'implementation', 'implementation-ui'],
+    plannedClaims: { mode: 'required', clausePhases: ['intake'], owners: { implementation: 'intake', 'implementation-ui': 'intake' } },
+    phaseOverrides: { intake: { artifact: { kind: 'requirements' } } }
+  }, (config) => {
+    config.phases['implementation-ui'] = { ...config.phases.implementation, label: 'UI implementation',
+      artifact: { ...config.phases.implementation.artifact, path: 'artifacts/implementation-ui/implementation-summary.md' },
+      approval: { ...config.phases.implementation.approval, rejectTo: ['implementation-ui'] } };
+  });
+  const result = flow(['workflow', 'validate', 'doc-only', '--json'], { fail: true });
+  const report = JSON.parse(result.stdout);
+  const findings = (report.data?.workflows ?? report.workflows ?? []).flatMap((entry) => entry.findings ?? []);
+  const shared = findings.filter((entry) => entry.code === 'CHECK_PLAN_SHARED_BY_CODE_STEPS');
+  assert.equal(shared.length, 1, JSON.stringify(findings.map((entry) => entry.code)));
+  assert.match(shared[0].title, /plans 2 code steps/u);
+  assert.match(shared[0].fix?.text ?? shared[0].fix, /Steps column/u);
+});

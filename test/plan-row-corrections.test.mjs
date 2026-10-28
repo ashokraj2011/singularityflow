@@ -97,6 +97,28 @@ test('a row planned as a product change becomes test-only when the tests are the
   assert.equal(planRowCorrections(bareFlow).length, 0);
 });
 
+// Tests delivered under other names than planned could only be renamed back or the plan returned.
+test('a planned test is replaced or removed, never leaving a row without one', () => {
+  const { record, workflow } = subject();
+  record.claims[AC2].tests = ['test/regression.test.mjs', 'test/regression-old.test.mjs'];
+  workflow.phases.planning.claimMaps.planned.sha256 = recordSha256(record);
+  correct(workflow, record, [
+    { op: 'replace-test', clauseId: AC1, from: 'test/value.test.mjs', to: 'test/value.spec.mjs' },
+    { op: 'remove-test', clauseId: AC2, test: 'test/regression-old.test.mjs' }
+  ]);
+  const corrected = applyPlanCorrections(record, workflow).claims;
+  assert.deepEqual(corrected[AC1].tests, ['test/value.spec.mjs']);
+  assert.deepEqual(corrected[AC2].tests, ['test/regression.test.mjs']);
+  assert.throws(() => correct(workflow, record, [{ op: 'remove-test', clauseId: AC2, test: 'test/regression.test.mjs' }]),
+    { code: 'PLAN_ROW_CORRECTION_INVALID' }, 'the last test is replaced, not removed');
+  assert.throws(() => correct(workflow, record, [{ op: 'remove-test', clauseId: AC1, test: 'test/missing.test.mjs' }]),
+    { code: 'PLAN_ROW_CORRECTION_INVALID' });
+  assert.deepEqual(planCorrectionOperations({ 'replace-test': `${AC1}=test/a.mjs:test/b.mjs`, 'remove-test': `${AC2}=test/c.mjs` }), [
+    { op: 'remove-test', clauseId: AC2, test: 'test/c.mjs' },
+    { op: 'replace-test', clauseId: AC1, from: 'test/a.mjs', to: 'test/b.mjs' }
+  ]);
+});
+
 test('a later approved plan supersedes its corrections, and another plan is untouched', () => {
   const { record, workflow } = subject();
   correct(workflow, record, [{ op: 'add-test', clauseId: AC1, test: 'test/value-more.test.mjs' }]);

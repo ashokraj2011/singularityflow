@@ -2358,7 +2358,7 @@ async function documentsCommand(positionals, options) {
     const pendingPrompt = records.some((record) => documentOfferedToPhase(record, workflow.currentPhase))
       ? await pendingPromptRelative(root, config, workflow) : null;
     if (optionBoolean(options, 'json')) return console.log(JSON.stringify({ documents: records, publication: result, pendingPrompt }, null, 2));
-    records.forEach((record) => console.log(`${record.id}\t${record.type}\t${record.url ?? record.path ?? documentLocation({ ...record, availability: 'available' })}\t${record.name ?? ''}\t${documentPhasesLabel(record, workflow.phaseOrder)}`)); console.log(`Committed ${result.sha.slice(0, 8)}${result.pushed ? ' and pushed' : ''}.`);
+    records.forEach((record) => console.log(`${record.id}\t${record.type}\t${record.url ?? record.path ?? documentLocation({ ...record, availability: 'available' })}\t${record.name ?? ''}\t${documentPhasesLabel(record, workflow.phaseOrder)}`)); console.log(`Committed ${result.sha.slice(0, 8)}${result.pushed ? ' and pushed' : ''}.`); if (records.some((record) => record.storage?.kind === 'local')) console.log('Kept on this machine only: anyone continuing this Story on another machine needs the original file to restore it (singularity-flow documents restore), so keep it, or upload it to the repository instead.');
     if (pendingPrompt) console.log(`The prompt already composed for ${workflow.currentPhase} (${pendingPrompt}) does not include ${records.length === 1 ? 'this document' : 'these documents'} yet; it is recomposed with them the next time it is composed (singularity-flow wm compose --phase ${workflow.currentPhase}).`);
     return;
   }
@@ -3615,7 +3615,7 @@ export { submitConfirmedConvergenceCommand } from './commands/submit.mjs';
 async function rejectCommand(positionals, options) {
   const { root, config, workflow, phase: current, session, testingRepairPlan } = await decisionWorkflow(positionals, options, 'reject');
   const target = optionString(options, 'to') ?? current.id;
-  console.log(`Requesting changes to ${current.id}, returning work to ${target} as ${session.actor.name ?? session.actor.email ?? session.actor.login}; agent ${session.agent} is audit context only. Approvals from ${target} onward will be invalidated.`);
+  console.log(`Requesting changes to ${current.id}, returning work to ${target} as ${session.actor.name ?? session.actor.email ?? session.actor.login}; agent ${session.agent} is audit context only. Approvals from ${target} onward are invalidated, except those of steps whose inputs do not change: they are kept.`);
   // Inside the transaction: rejecting used to write workflow.json and the change-request decision
   // first and publish afterwards, so a refusal in the publication preflight reported that nothing
   // had happened while leaving every downstream approval invalidated and the decision durable and

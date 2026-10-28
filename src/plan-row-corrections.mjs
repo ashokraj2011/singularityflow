@@ -30,6 +30,8 @@ const Operation = z.discriminatedUnion('op', [
   z.strictObject({ op: z.literal('add-row'), clauseId: clause, claim: z.record(z.string(), z.unknown()) }),
   z.strictObject({ op: z.literal('set-fulfillment'), clauseId: clause, fulfillment: fulfillmentKind, previousClaimSha256: sha }),
   z.strictObject({ op: z.literal('add-test'), clauseId: clause, test: portablePath, previousClaimSha256: sha }),
+  z.strictObject({ op: z.literal('remove-test'), clauseId: clause, test: portablePath, previousClaimSha256: sha }),
+  z.strictObject({ op: z.literal('replace-test'), clauseId: clause, from: portablePath, to: portablePath, previousClaimSha256: sha }),
   z.strictObject({ op: z.literal('remove-location'), clauseId: clause, path: portablePath, previousClaimSha256: sha }),
   z.strictObject({ op: z.literal('replace-location'), clauseId: clause, from: portablePath, to: portablePath,
     previousClaimSha256: sha })
@@ -108,6 +110,30 @@ function applyOperation(result, operation, { check }) {
     }
     return;
   }
+  if (operation.op === 'remove-test' || operation.op === 'replace-test') {
+    // Tests delivered under other names than the plan's could only be renamed back or returned
+    // (2026-10-28). A stated contract follows a replaced test; one naming a removed test is changed
+    // with an evidence correction instead, so a proof never loses its witness here.
+    const removed = operation.op === 'remove-test' ? operation.test : operation.from;
+    const tests = claim.tests ?? [];
+    check(tests.includes(removed), `${removed} is not a planned test of ${id}.`, { clauseId: id });
+    const stated = (result.verificationContracts ?? []).find((entry) => entry.clauseId === id);
+    const witnessed = (stated?.slots ?? []).some((entry) => entry.witness?.path === removed);
+    if (operation.op === 'remove-test') {
+      check(!witnessed, `${removed} is a witness of ${id}'s stated proof; change that proof with an evidence correction.`, { clauseId: id });
+      check(tests.length > 1, `${removed} is ${id}'s only planned test; replace it with --replace-test instead of removing it.`, { clauseId: id });
+      claim.tests = tests.filter((entry) => entry !== removed);
+      return;
+    }
+    check(!tests.includes(operation.to), `${operation.to} is already a planned test of ${id}.`, { clauseId: id });
+    claim.tests = [...new Set([...tests.filter((entry) => entry !== removed), operation.to])].sort();
+    if (witnessed) {
+      result.verificationContracts = normalizeVerificationContracts((result.verificationContracts ?? []).map((entry) =>
+        entry.clauseId !== id ? entry : { ...entry, slots: entry.slots.map((slot) => slot.witness?.path !== removed ? slot
+          : { ...slot, witness: { ...slot.witness, path: operation.to } }) }));
+    }
+    return;
+  }
   const paths = claim.expectedPaths ?? [];
   const removed = operation.op === 'remove-location' ? operation.path : operation.from;
   check(paths.includes(removed), `${removed} is not an expected path of ${id}.`, { clauseId: id });
@@ -143,7 +169,7 @@ export function recordPlanRowCorrection(workflow, {
 }) {
   if (!ownerRecord || ownerRecord.kind !== 'planned') refused('A plan correction needs the approved plan it corrects.');
   if (!operations.length || operations.length > MAX_OPERATIONS) {
-    refused(`Name 1 to ${MAX_OPERATIONS} corrections with --add-row, --set-fulfillment, --add-test, --remove-location or --replace-location.`);
+    refused(`Name 1 to ${MAX_OPERATIONS} corrections with --add-row, --set-fulfillment, --add-test, --remove-test, --replace-test, --remove-location or --replace-location.`);
   }
   const active = new Set(activeClauseIds.map((value) => String(value).toUpperCase()));
   const result = structuredClone(ownerRecord);
@@ -167,13 +193,18 @@ export function recordPlanRowCorrection(workflow, {
       if (!fulfillmentKind.safeParse(operation.fulfillment).success) refused(`Name the fulfillment of ${clauseId}, such as test-only.`, { clauseId });
     } else if (input.op === 'add-test') {
       operation = { op: 'add-test', clauseId, test: exactPath(input.test, `The planned test for ${clauseId}`) };
+    } else if (input.op === 'remove-test') {
+      operation = { op: 'remove-test', clauseId, test: exactPath(input.test, `The planned test to remove from ${clauseId}`) };
+    } else if (input.op === 'replace-test') {
+      operation = { op: 'replace-test', clauseId, from: exactPath(input.from, `The planned test to replace in ${clauseId}`),
+        to: exactPath(input.to, `The replacement test for ${clauseId}`) };
     } else if (input.op === 'remove-location') {
       operation = { op: 'remove-location', clauseId, path: exactPath(input.path, `The path to remove from ${clauseId}`) };
     } else if (input.op === 'replace-location') {
       operation = { op: 'replace-location', clauseId, from: exactPath(input.from, `The path to replace in ${clauseId}`),
         to: exactPath(input.to, `The replacement path for ${clauseId}`) };
     } else {
-      refused('A plan correction adds a row or a test, changes a row\'s fulfillment, or removes or replaces a path.');
+      refused('A plan correction adds a row or a test, changes a row\'s fulfillment, or removes or replaces a test or a path.');
     }
     if (operation.op !== 'add-row') {
       if (!result.claims[clauseId]) refused(`The plan has no row for ${clauseId}; add one with --add-row.`, { clauseId });

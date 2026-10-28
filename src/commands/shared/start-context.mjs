@@ -159,9 +159,17 @@ export async function resumeCommand(positionals, options, { selectedBranch = nul
     // navigation record must not turn that success into a second lifecycle attempt.
     console.warn(`Warning: Story '${resolved.workId}' resumed, but its active-workspace selection was not updated: ${error.message}`);
   }
+  // What this checkout still holds back: a commit waiting to be published (only doctor showed it, so
+  // other clones did not see the Story), and Git data in a cloud-synced folder (only workspace
+  // status warned), 2026-10-28.
+  const waiting = await (await import('../../story-publication-read.mjs'))
+    .storyPublicationPending(executionRoot, config, resolved.workId, { migrate: false }).catch(() => false);
+  const synced = await syncedCheckout(executionRoot);
   if (!json) {
     summary(workflow);
     console.log(`Active agent: ${session.agentLabel ?? session.agent} (${session.agent})`);
+    if (waiting) console.log(`A commit of ${resolved.workId} is waiting to be published, so other clones cannot see it yet: run singularity-flow sync ${resolved.workId}.`);
+    if (synced) console.log(`Warning: this checkout's Git data is in ${synced.folder}, which ${synced.provider} syncs. Git data there can be lost or mixed between machines: clone the repository again outside it and resume the Story there.`);
   }
   const active = currentPhase(workflow);
   if (active && !json) {
@@ -179,6 +187,8 @@ export async function resumeCommand(positionals, options, { selectedBranch = nul
       repositoryPath: executionRoot,
       ...(unpublishedLocal ? { remoteRefresh: 'unpublished-local-draft' } : {}),
       materialization: managedWorktree ? 'reused-managed-story-worktree' : 'current-checkout',
+      ...(waiting ? { publicationPending: true, nextAction: `singularity-flow sync ${resolved.workId}` } : {}),
+      ...(synced ? { syncedFolder: synced } : {}),
       ...(managedWorktree ? { sourceRepositoryPath: root } : {})
     }
   }), { json, postState: workflow });
@@ -298,4 +308,21 @@ export async function capabilityDoctorStoryPin(root) {
   } catch (error) {
     return { present: true, storyPresent, valid: false, source: null, workflow, error };
   }
+}
+
+/**
+ * The cloud-synced folder holding this checkout's Git data, or null. macOS iCloud and CloudStorage
+ * and Windows OneDrive from its environment only: resume never queries the registry.
+ */
+async function syncedCheckout(root) {
+  try {
+    const [{ gitCommonDir }, storage] = await Promise.all([import('../../git.mjs'), import('../../git-storage-availability.mjs')]);
+    const { realpathSync } = await import('node:fs');
+    const { homedir } = await import('node:os');
+    // Both sides as real paths: a home reached through a link (/var is /private/var) matched nothing.
+    const target = realpathSync(path.resolve(root, gitCommonDir(root)));
+    const homeDirectory = realpathSync(homedir());
+    return storage.syncedFolderOf(target, { homeDirectory,
+      ...(process.platform === 'darwin' ? { iCloudHomeFolders: storage.iCloudSyncedHomeFolders(homeDirectory) } : {}) });
+  } catch { return null; }
 }

@@ -67,7 +67,13 @@ function agentMappingSteps() {
 
 function step(id, label, command = null, kind = 'diagnostic', skill = null) {
   const guidance = command == null ? null : safeCommandGuidance({ command, ...(skill ? { skill } : {}) });
-  if (command != null && !guidance) return null;
+  // A command the route filter refuses is never shown, but its step stays, marked: dropping the step
+  // whole hid the include route for a source statement from every plan (2026-10-27). A test builds
+  // every known code's plan and fails on any mark, so a broken route is caught, not lost.
+  if (command != null && !guidance) return Object.freeze({
+    id, label, command: null, executable: null, skill: null, copilotCommand: null, argv: null,
+    copyable: false, platformCommands: null, kind, execution: 'user-reviewed', commandRejected: true
+  });
   return Object.freeze({
     id, label, command: guidance?.command ?? null,
     executable: guidance?.executable ?? null,
@@ -1228,6 +1234,9 @@ const KNOWN = Object.freeze({
       ?? step('continue-phase-without-clarification', label, command, 'remediation')];
   }
 });
+/** Every refusal code with its own recovery steps: a test builds each one's plan [no dead-ends]. */
+export const KNOWN_REFUSAL_CODES = Object.freeze(Object.keys(KNOWN));
+
 
 /** Every refusal code with its own registered route (the dead-end audit checks each one). */
 export const REMEDIATION_GUIDED_CODES = Object.freeze(Object.keys(KNOWN));

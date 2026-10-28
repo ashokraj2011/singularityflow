@@ -118,7 +118,10 @@ test('the bundled CLI answers exactly like the sources while opening a handful o
   // 4,465,000: main 16677122 measures 4,459,467. The edit guard turns back any file read longer than one
   // view (Copilot 1.0.100 shows about 8 KB) with its exact ranges: cold-hooks +2,263, cold-core +85 and
   // cold-worker-protocol -191 (the range builder moved beside the output folder) for 4,461,624. No new file.
-  assert.ok(closure('cold-narrow-reads.mjs').reduce((sum, item) => sum + item.bytes, 0) < 4_465_000,
+  // 4,470,000: main 12aa30f4 measures 4,464,943. A refused route keeps its marked step, and the session
+  // entry says when this build is older than main (its check is lazy): cold-core +209 and
+  // cold-narrow-reads +99 for 4,465,251. No new file in this closure.
+  assert.ok(closure('cold-narrow-reads.mjs').reduce((sum, item) => sum + item.bytes, 0) < 4_470_000,
     'strict next-step reads must not inherit the broad phase-review closure');
   const publicationClosure = closure('cold-publication.mjs');
   assert.ok(publicationClosure.length && publicationClosure.reduce((sum, item) => sum + item.bytes, 0) < 6 * 1024 * 1024,

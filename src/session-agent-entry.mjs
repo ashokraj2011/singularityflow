@@ -19,12 +19,17 @@ export function sessionAgentEntryGuard(positionals, options) {
   return mode.paused ? copilotModePresentation(mode) : null;
 }
 
+// Said only when this machine's build is provably older than main; the commands are in `update`.
+const UPDATE_SENTENCE = 'SFlow here is older than main (update.behind): after this turn, tell the person once and show update.commands.';
+
 /** Presentation only: retain the existing resolver's readiness, agent and selection checks. */
-export function sessionAgentResult(result, workItemRoot) {
+export function sessionAgentResult(result, workItemRoot, { update = null } = {}) {
   return { schemaVersion: 1, resultType: 'sflow-session-entry', paused: false, ...result,
+    ...(update ? { update } : {}),
     workItemRoot, personalization: resolvePersonalization({ root: result.repositoryPath }),
     effects: { storyAdvanced: false, committed: false, pushed: false, testsRun: false },
     // One sentence each, under 200 bytes: every skill turn starts with this result, and the skills that
     // read it carry the full personalization and binding rules. `[OUT:REQ-031]`
-    agentInstruction: 'Use personalization.replyName literally (no name if absent), never in artifacts or approval identity; reuse this binding, not its lookups. Readiness and human confirmations remain required.' };
+    agentInstruction: 'Use personalization.replyName literally (no name if absent), never in artifacts or approval identity; reuse this binding, not its lookups. Readiness and human confirmations remain required.'
+      + (update ? ` ${UPDATE_SENTENCE}` : '') };
 }

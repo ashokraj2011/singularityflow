@@ -272,6 +272,30 @@ test('a final check names an upstream issue for what an earlier step owns, and s
   assert.equal(terminalRisk(workflow, [open[2]]).eligible, false, 'a pending review is approved, never accepted as a risk');
 });
 
+// No dead-ends: every refusal SFlow has its own recovery for builds a plan whose every command the route
+// filter accepts. A refused command used to drop its whole step without a word (the include route,
+// 2026-10-27); now it stays, marked, and this test fails on any mark.
+test('every known refusal builds a recovery plan whose every command is one the route filter accepts', async () => {
+  const { KNOWN_REFUSAL_CODES } = await import('../src/refusal-remediation.mjs');
+  assert.ok(KNOWN_REFUSAL_CODES.length > 100, `${KNOWN_REFUSAL_CODES.length} codes`);
+  const details = { workId: 'W-1', phase: 'build', phaseId: 'build', currentPhase: 'build', documentId: 'DOC-001', decidableStep: 'plan',
+    issue: 'UPI-001', workType: 'feature', upstreamPhases: ['plan'], producerPhase: 'plan', restorable: true, paths: ['a.txt'],
+    recoveryCommand: 'singularity-flow recover W-1 --json', errors: ['x'], authorities: ['product'], capabilityId: 'web-app',
+    checkoutPath: '/tmp/checkout', storyId: 'W-1', expectedWorkId: 'W-1' };
+  const rejected = [];
+  for (const code of KNOWN_REFUSAL_CODES) {
+    for (const argv of [['phase', 'prepublish', 'build', '--work-id', 'W-1'], ['approve', 'build', '--work-id', 'W-1'], ['start', 'W-1']]) {
+      const plan = refusalRemediationPlan(Object.assign(new Error('refused'), { code, details }), argv);
+      for (const entry of plan.steps) if (entry.commandRejected) rejected.push(`${code} (${argv[0]}): ${entry.id}`);
+    }
+  }
+  assert.deepEqual(rejected, []);
+  // The mark itself: a command the filter refuses keeps its step and label, with no command shown.
+  const marked = refusalRemediationPlan(Object.assign(new Error('refused'), { code: 'APP_START_NOT_DECLARED',
+    details: { capabilityId: 'web-app', nextAction: { command: 'singularity-flow app suggest --capability <ID,...> --json', label: 'Draft it.' } } }), ['app', 'start']);
+  assert.ok(marked.steps.every((entry) => !entry.command || !entry.command.includes('<ID,...>')), 'an unsafe command is never shown');
+});
+
 test('a model-only step with the model off says how to turn the model back on', () => {
   assert.match(modelOffCause({ source: 'environment' }), /SINGULARITY_FLOW_NO_MODEL is set/u);
   assert.match(modelOffCause({ source: 'cli' }), /passed --no-model/u);

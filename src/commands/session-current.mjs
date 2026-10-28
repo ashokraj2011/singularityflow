@@ -157,8 +157,10 @@ export async function sessionCurrent(options, { agentEntry = null } = {}) {
     revision: { head: result.head, branch: result.branch }
   });
   // Every Story skill turn starts here: the binding, never the pinned configuration's file catalog.
+  // An SFlow older than main says so once (build-currency.mjs reads a cached answer; never the network).
   if (agentEntry) return console.log(JSON.stringify(agentEntry.sessionAgentResult(
-    { ...result, executionContext: agentExecutionContext(result.executionContext) }, definition.workItemRoot)));
+    { ...result, executionContext: agentExecutionContext(result.executionContext) }, definition.workItemRoot,
+    { update: (await import('../build-currency.mjs')).buildCurrency() })));
   if (optionBoolean(options, 'json')) return console.log(JSON.stringify(result, null, 2));
   console.log(`Repository: ${result.repositoryPath}`);
   console.log(`Story: ${result.workId ?? 'not selected'} · branch ${result.branch}`);

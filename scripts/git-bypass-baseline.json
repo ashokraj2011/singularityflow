@@ -725,6 +725,14 @@
       },
       "digest": "50e80483a9c6a0620526678c93cd5f25f450fa6e98ee891065fcebc60330e0d0"
     },
+    "src/build-currency.mjs": {
+      "counts": {
+        "command-git": 4,
+        "process-import": 1,
+        "process-launch": 2
+      },
+      "digest": "6fab2d976e6d59f6a66952c93e639d23608e55b19f698ad775ccca9a785927de"
+    },
     "src/cancelled-worktree.mjs": {
       "counts": {
         "command-run": 1

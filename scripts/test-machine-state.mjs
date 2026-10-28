@@ -44,6 +44,8 @@ export const MACHINE_STATE_LOCATIONS = Object.freeze({
   SINGULARITY_FLOW_LOCAL_MODE_ROOT: 'local-mode',
   SINGULARITY_FLOW_LOCAL_EXPORT_ROOT: 'local-mode-exports',
   SINGULARITY_FLOW_VSCODE_RESET_MARKER: 'vscode-fresh-reset-pending.json',
+  // The install record and the build-currency answer every session entry reads (src/build-currency.mjs).
+  SINGULARITY_FLOW_INSTALLATIONS_DIR: 'installations',
   SINGULARITY_FLOW_HOME: 'home'
 });
 

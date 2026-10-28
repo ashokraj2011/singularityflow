@@ -330,13 +330,13 @@ const UPGRADE_KNOWN = Object.freeze({
   // The registered (v4) and legacy-v3 World Models were removed; their commands and settings say so.
   WMB_REMOVED: () => [
     step('read-repository-brief', 'Phase prompts get the Repository brief read from the source; see what a phase receives.',
-      'singularity-flow wm brief --phase PHASE'),
+      'singularity-flow wm brief --phase <PHASE>'),
     step('read-repository-knowledge', 'Read the repository itself: rules, contracts, flows and risks, with no model.',
       'singularity-flow wm knowledge brief')
   ],
   COMMAND_REMOVED: () => [
     step('read-repository-brief', 'Phase prompts get the Repository brief read from the source; see what a phase receives.',
-      'singularity-flow wm brief --phase PHASE'),
+      'singularity-flow wm brief --phase <PHASE>'),
     step('read-repository-contracts', 'Read the endpoints, seams and storage the code declares, with no model.',
       'singularity-flow wm knowledge show contracts')
   ],
@@ -690,8 +690,9 @@ const KNOWN = Object.freeze({
     const details = error?.details ?? {};
     const instead = typeof details.decidableStep === 'string' ? lowerKebab(details.decidableStep) : null;
     if (!instead) return [];
-    const command = details.nextAction?.command
-      ?? `singularity-flow upstream-issue raise --phase ${instead} --about <ID|SECTION> --problem <TEXT>`;
+    // With the Story it is for: a /sf-decide turn raises one only for its bound Story.
+    const command = details.nextAction?.command ?? `singularity-flow upstream-issue raise${typeof details.workId === 'string'
+      ? ` --work-id ${details.workId}` : ''} --phase ${instead} --about <ID|SECTION> --problem <TEXT>`;
     return [step(details.issue ? 'supersede-upstream-issue' : 'raise-at-decidable-step',
       `${details.issue ? `Raise the same problem against ${instead}, superseding ${details.issue}` : `Raise it against ${instead}`}: its approvers can decide it.`,
       command, 'remediation', null)].filter(Boolean);
@@ -943,7 +944,7 @@ const KNOWN = Object.freeze({
   },
   UNKNOWN_COMMAND: () => [
     step('list-commands', 'Find the supported command and its exact spelling.',
-      'singularity-flow --help', 'help'),
+      'singularity-flow help', 'help'),
     step('guided-start', 'Use the guided entry point if the intended command is unclear.',
       'singularity-flow quickstart', 'help')
   ],
@@ -1211,13 +1212,23 @@ const KNOWN = Object.freeze({
     return [(override && step('confirm-soft-gate', label, override, 'remediation'))
       ?? step('confirm-soft-gate', label, null, 'remediation')];
   },
+  // A live-terminal review (action-authorization.mjs) refused where no terminal is attached: the person
+  // runs the same command in their own terminal; recover and doctor could not help (2026-10-28).
+  ACTION_TERMINAL_PRESENTATION_REQUIRED: (argv) => {
+    const own = argv.length ? step('run-in-own-terminal',
+      'This command shows its exact review in a terminal and waits for the person to type the confirmation there. The person runs this same command in their own terminal; an agent never answers it.',
+      safeCommandGuidance({ argv: [...argv] })?.command ?? null, 'remediation') : null;
+    return own?.command ? [Object.freeze({ ...own, skill: null, copilotCommand: null })] : [];
+  },
   APPROVAL_CONFIRMATION_REQUIRED: (argv) => {
     // Without a terminal the person approving adds --yes after reading the review above; the
     // refused command's own words keep its phase and Story. A receipt route never takes --yes.
     const yes = argv.length && !argv.includes('--yes') && !argv.includes('--selection-receipt')
       ? safeCommandGuidance({ argv: [...argv, '--yes'] })?.command ?? null : null;
     const label = 'Without an interactive terminal, the person approving reviews the summary above and runs the same command with --yes added. An agent never adds it for them.';
-    return [(yes && step('approve-with-yes', label, yes, 'remediation'))
+    // The person's own terminal step: a Copilot route back to /sf-approve re-entered the turn that refused.
+    const own = yes && step('approve-with-yes', label, yes, 'remediation');
+    return [own?.command ? Object.freeze({ ...own, skill: null, copilotCommand: null }) : own
       ?? step('approve-with-yes', label, null, 'remediation')];
   },
   ...Object.fromEntries(APPROVAL_IDENTITY_CODES.map((code) => [code, approvalIdentitySteps])),
@@ -1297,7 +1308,10 @@ function deduplicate(steps) {
     if (seen.has(identity)) return false;
     seen.add(identity);
     return true;
-  }).filter((entry, index) => index < PLAN_STEP_LIMIT || PLAN_RESERVED_STEP_IDS.includes(entry.id));
+  }).filter((entry, index) => index < PLAN_STEP_LIMIT || PLAN_RESERVED_STEP_IDS.includes(entry.id)
+    // The decision list is where a person ends a held Story: a producer's route to it came fourth and
+    // was cut, leaving recover and a new-turn reject (route closure, 2026-10-28).
+    || /^singularity-flow decisions\s/u.test(entry.command ?? ''));
 }
 
 const RETAINED_RETRIES = Object.freeze([['push', 'retry'], ['sync'], ['initiative', 'sync'], ['goal', 'sync'], ['story', 'branch', 'promote']]);

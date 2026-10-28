@@ -531,9 +531,11 @@ export function recoveryText(plan) {
   for (const action of plan.actions) {
     lines.push(`${action.safe ? '✓' : '!'} ${action.id}: ${action.detail}${action.automatic ? ' [can apply]' : ''}`);
     if (action.command) {
-      const guidance = safeCommandGuidance(action);
+      // A supplied skill that does not match the command gives way to the canonical route, and a person
+      // always sees their own command: "guidance unavailable" hid it (route closure, 2026-10-28).
+      const guidance = safeCommandGuidance(action) ?? safeCommandGuidance({ command: action.command });
       if (guidance) lines.push(...commandRouteLines(guidance, '  '));
-      else lines.push('  Command guidance unavailable: the supplied route was not safe or did not match.');
+      else lines.push(`  Shell: ${action.command}`);
     }
   }
   if (!plan.applied && plan.actions.some((item) => item.automatic)) {

@@ -840,10 +840,12 @@ test('every step only a person takes in their own terminal is refused in every t
   const decide = await f.enter('/sf-decide PMC-1', 'own-terminal-decider');
   const chat = `singularity-flow decisions record PMC-1 --choose d1=dismiss --choose d2=return --confirm ${digest}`;
   const issue = 'singularity-flow upstream-issue decide UPI-001 --work-id PMC-1 --outcome dismiss --reason "Already handled."';
-  for (const command of [chat, issue,
-    'singularity-flow decision test-command PMC-1 --phase custom-step --id module-tests --reason "The Nx run tests this module."']) {
+  for (const command of [chat, issue]) {
     assert.deepEqual([ownTerminalStep(command), skillForCommandLine(command)], [null, 'sf-decide'], command);
   }
+  // A test command is requested by the code step's author in its own turn; /sf-decide's turn refused it.
+  const request = 'singularity-flow decision test-command PMC-1 --phase custom-step --id module-tests --reason "The Nx run tests this module."';
+  assert.deepEqual([ownTerminalStep(request), skillForCommandLine(request)], [null, 'sf-code'], request);
   // The /sf-decide turn itself runs the first two (the record needs the list's real digest to succeed).
   for (const command of [chat, issue]) {
     assert.notEqual((await mutationToolGuard({ ...decide, toolName: 'bash', toolArgs: { command, cwd: f.root } })).permissionDecision, 'deny', command);
@@ -2284,6 +2286,13 @@ test('an expired turn says so and names its own skill, never an issuer or shell 
     /^PHASE_MUTATION_TURN_EXPIRED: .*Invoke \/sf-run-app again/u);
   // A live turn on the same step is unaffected.
   assert.deepEqual(await mutationToolGuard(asPatch(await enterAt('/sf-phase', 'live-author', Date.now()), staging)), {});
+  // An expired turn without a Story binding kept its mutations through the setup fallback (2026-10-28):
+  // only its reads remain.
+  const session = await enterAt('/sf-session', 'expired-session', past);
+  const bash = (payload, command) => mutationToolGuard({ ...payload, toolName: 'bash', toolArgs: { command, cwd: f.root } });
+  assert.deepEqual(await bash(session, 'singularity-flow session current --for-agent --json'), {});
+  assert.match((await bash(session, 'singularity-flow session attach PMC-1')).permissionDecisionReason,
+    /^PHASE_MUTATION_TURN_EXPIRED: .*Invoke \/sf-session again/u);
 });
 
 test('a propose command naming a draft not issued to this turn names the command that issues the same file', async t => {
@@ -2337,4 +2346,91 @@ test('an agent turn may preview a workflow delete and propose an archive, but co
     assert.equal(refused.permissionDecision, 'deny', label);
     assert.match(refused.permissionDecisionReason, /confirming a workflow delete is the person's own step.*Workflow Studio → Delete…/u, label);
   }
+});
+
+// Route closure (2026-10-28): every route SFlow names must run where it is handed. A route's skill was
+// picked from its command family, never checked against that skill's turn, so Copilot was sent to
+// turns that refuse the command, and a person's own step got a Copilot route. Each exception names why.
+const CLOSURE_EXCEPTIONS = new Map([
+  // A bare family ID stands for its subcommands, each with its own exact route.
+  ['capabilities -> /sf-capabilities', 'the family ID; its mutating subcommands are routed one by one'],
+  ['jira -> /sf-jira-work', 'the family ID; every jira subcommand has its own route'],
+  ['revision attachments -> /sf-revision', 'the family ID; each attachments subcommand has its own route'],
+  ['cache -> /sf-doctor', 'the family ID; `cache clear` names no skill'],
+  // /sf-revision-checks shows the exact run command for the person's own Shell review and never runs it.
+  ['revision checks run -> /sf-revision-checks', 'a relay: its skill displays the command for the person\'s Shell review'],
+  // The host runs a lifecycle hook itself, in every turn (copilot-mutation-guard.mjs HOOK_DENIAL).
+  ['hook -> /sf-hook', 'host-only; /sf-hook explains the hook and never runs it']
+]);
+const fillPlaceholders = (command) => command
+  .replace(/<(?:WORK-ID|work-id|WORK_ID)>/gu, 'PMC-1')
+  .replace(/<(?:PHASE|phase|STEP|step|PHASE-ID)>/gu, 'custom-step')
+  .replace(/"<[^>]*>"/gu, '"x"')
+  .replace(/<[^>]*>/gu, 'x');
+
+test('every route a refusal plan names runs in the turn it names, and a person\'s own step names no skill', async t => {
+  const f = await fixture(t);
+  const { refusalRemediationPlan, KNOWN_REFUSAL_CODES } = await import('../src/refusal-remediation.mjs');
+  const { agentAct } = await import('../src/agent-output.mjs');
+  const turns = new Map();
+  const shell = async (skill, command) => {
+    if (!turns.has(skill)) turns.set(skill, await f.enter(skill, `closure-${skill.replace(/\W/gu, '')}`));
+    return mutationToolGuard({ ...turns.get(skill), toolName: 'bash', toolArgs: { command, cwd: f.root } });
+  };
+  const details = { workId: 'PMC-1', phase: 'custom-step', phaseId: 'custom-step', currentPhase: 'custom-step', documentId: 'DOC-001',
+    decidableStep: 'custom-step', issue: 'UPI-001', workType: 'feature', upstreamPhases: ['custom-step'], producerPhase: 'custom-step',
+    restorable: true, paths: ['a.txt'], errors: ['x'], authorities: ['product'], capabilityId: 'web-app', storyId: 'PMC-1', expectedWorkId: 'PMC-1' };
+  const refusing = [['phase', 'prepublish', 'custom-step', '--work-id', 'PMC-1'], ['approve', 'custom-step', '--work-id', 'PMC-1'],
+    ['submit', 'custom-step'], ['prepare', 'custom-step'], ['next', 'PMC-1']];
+  const failures = new Set();
+  for (const code of KNOWN_REFUSAL_CODES) for (const argv of refusing) {
+    let plan;
+    try { plan = refusalRemediationPlan(Object.assign(new Error('refused'), { code, details }), argv); } catch { continue; }
+    for (const step of plan.steps ?? []) {
+      if (!step.command || !step.copilotCommand) continue;
+      const command = fillPlaceholders(step.command);
+      const skill = step.copilotCommand.split(/\s+/u)[0];
+      const key = `${code} ${step.id}: ${command.split(/\s+/u).slice(1, 3).join(' ')} -> ${skill}`;
+      if (CLOSURE_EXCEPTIONS.has(key)) continue;
+      if (ownTerminalStep(command)) { failures.add(`${key}: a person's own step has a Copilot route`); continue; }
+      // /sf-confirm runs only the command carrying the digest the person typed.
+      if (skill === '/sf-confirm') continue;
+      const decision = await shell(skill, command);
+      if (decision.permissionDecision === 'deny') failures.add(`${key}: refused there (${decision.permissionDecisionReason?.split('.')[0]})`);
+    }
+    const act = agentAct({ error: { code, message: 'refused', details }, remediationPlan: plan });
+    const shellLine = act?.do?.shell ?? null;
+    if (shellLine && ownTerminalStep(shellLine) && act.do.copilot) failures.add(`${code} act: a person's own step has a Copilot route`);
+    if (shellLine && act.state === 'next' && !/^singularity-flow\s/u.test(shellLine)) failures.add(`${code} act: ${shellLine.split(/\s+/u).slice(0, 2).join(' ')} is not an SFlow command`);
+  }
+  assert.deepEqual([...failures].sort(), []);
+});
+
+test('no mutating command is routed to a skill whose turn only reads', async t => {
+  const f = await fixture(t);
+  const { operationCatalog } = await import('../src/command-registry.mjs');
+  const failures = [];
+  for (const operation of operationCatalog()) {
+    if (operation.classification !== 'mutation') continue;
+    const words = operation.id.split('.').filter((word) => !['preview', 'deterministic', 'model'].includes(word));
+    const command = `singularity-flow ${words.join(' ')}`;
+    const skill = skillForCommandLine(command);
+    if (!skill || mutationTurnMode(skill) !== 'read' || CLOSURE_EXCEPTIONS.has(`${words.join(' ')} -> /${skill}`)) continue;
+    const payload = await f.enter(`/${skill}`, `closure-read-${skill}`);
+    const decision = await mutationToolGuard({ ...payload, toolName: 'bash', toolArgs: { command: `${command} --work-id PMC-1`, cwd: f.root } });
+    if (decision.permissionDecision === 'deny') failures.push(`${words.join(' ')} -> /${skill}`);
+  }
+  assert.deepEqual(failures, []);
+});
+
+test('a person\'s own step that a turn refuses shows that exact command for their terminal, not the turn\'s route', async t => {
+  const f = await fixture(t);
+  const payload = await f.enter('/sf-recover', 'own-route');
+  const command = 'singularity-flow decision witness PMC-1 --criterion PMC-1:AC-001 --slot screen --file evidence/screen.png --confirm states-the-outcome --reason "Looked at it."';
+  const denied = await mutationToolGuard({ ...payload, toolName: 'bash', toolArgs: { command, cwd: f.root } });
+  assert.equal(denied.permissionDecision, 'deny');
+  assert.equal(denied.next.length, 1);
+  assert.equal(denied.next[0].copilotCommand, null);
+  assert.match(denied.next[0].command, /^singularity-flow decision witness PMC-1 /u);
+  assert.match(denied.permissionDecisionReason, /- Copilot: no verified equivalent\n- Shell: singularity-flow decision witness PMC-1/u);
 });

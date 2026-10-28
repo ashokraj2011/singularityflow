@@ -414,7 +414,7 @@ test('the public CLI turns an otherwise plain refusal into one parseable recover
   assert.equal(envelope.error.code, 'UNKNOWN_COMMAND');
   assert.equal(envelope.remediationPlan.retry.automatic, false);
   assert.deepEqual(envelope.remediationPlan.steps.slice(0, 2).map((entry) => entry.command), [
-    'singularity-flow --help', 'singularity-flow quickstart'
+    'singularity-flow help', 'singularity-flow quickstart'
   ]);
 });
 

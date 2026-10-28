@@ -529,7 +529,7 @@ function hostOnlyCommand(positionals) {
     || (positionals[0] === 'gateway' && !['tools', 'events', 'session'].includes(positionals[1] ?? 'tools'));
 }
 
-function argvAllowed(argv, mode, value) {
+export function argvAllowed(argv, mode, value) {
   const { positionals, options } = parseCli(argv);
   if (hostOnlyCommand(positionals)) return false;
   // `run --repair-on-fault` runs the command it wraps unchecked; the guided `run` is `next` and `submit`.
@@ -810,6 +810,12 @@ function testRunRiskDecision(call, value) {
 /** `decision witness` or `decision risk`: an approver's sign-off on evidence they looked at, or a dated risk. */
 function signOff(positionals) {
   return positionals[0] === 'decision' && ['witness', 'risk'].includes(positionals[1]);
+}
+/** The denied command's own route, for the person's terminal: its Shell line and no Copilot route. */
+function personRoute(call, value) {
+  const safe = verifiedShellForm(call, value);
+  const guidance = safe ? safeCommandGuidance({ argv: safe.argv }) : null;
+  return { routes: guidance ? [{ ...guidance, skill: null, copilotCommand: null }] : [] };
 }
 function planRowCorrectionCall(call, value) {
   const safe = verifiedShellForm(call, value);
@@ -1244,7 +1250,11 @@ async function mutationToolDecision(payload, record) {
     // A read in the same batch is judged as it is alone: this guard does not govern it.
     const cached = await boundedRecord(recordFile(payload)).catch(() => null);
     const bootstrap = { ...record, repositoryRoot: cached?.contract?.repositoryRoot ?? cached?.repositoryRoot };
-    if (guarded.every(call => TERMINALS.has(call.name) && bootstrapAllowed(call, bootstrap))) return {};
+    // An expired turn keeps only its reads: sync, session attach, tests run and a confirmed digest
+    // still ran after 30 minutes through this fallback (route closure, 2026-10-28).
+    const expired = turnExpired(record);
+    if (guarded.every(call => TERMINALS.has(call.name)
+      && (expired ? shellAllowed(call, 'read', bootstrap) : bootstrapAllowed(call, bootstrap)))) return {};
     if (guarded.some(call => TERMINALS.has(call.name) && workflowDeleteConfirmation(call, bootstrap))) {
       return { permissionDecision: 'deny', next: [], permissionDecisionReason: WORKFLOW_DELETE_CONFIRMATION_DENIAL };
     }
@@ -1280,27 +1290,29 @@ async function mutationToolDecision(payload, record) {
       const kernel = shellAllowed(call, contract.turnMode, value);
       if (!kernel && value.findings.length) return mutationDenial({ ...contract, next: recoveryRoutes(contract) }, 'PHASE_MUTATION_REPAIR_REQUIRED');
       if (!kernel) {
-        if (environmentBinding(call, value)) return mutationDenial(contract, ENVIRONMENT_BINDING_DENIAL);
-        if (plannedActionExecution(call, value)) return mutationDenial(contract, PLANNED_ACTION_DENIAL);
+        // A person's own step: the denial shows the person its exact terminal line, never the turn's generic route.
+        const own = () => personRoute(call, value);
+        if (environmentBinding(call, value)) return mutationDenial(contract, ENVIRONMENT_BINDING_DENIAL, [], own());
+        if (plannedActionExecution(call, value)) return mutationDenial(contract, PLANNED_ACTION_DENIAL, [], own());
         const hostOnly = hostOnlyDenial(call, value);
         if (hostOnly) return mutationDenial(contract, hostOnly);
         if (publicationSetAsideCall(call, value)) return mutationDenial(contract,
-          'PHASE_MUTATION_OPERATION_NOT_ALLOWED: setting a waiting commit aside clears what SFlow would publish and moves the branch; the person who looked at it confirms it with the commit ID in their own terminal (the preview without --confirm may run here). Show the user the preview and the command, and stop; do not retry it');
+          'PHASE_MUTATION_OPERATION_NOT_ALLOWED: setting a waiting commit aside clears what SFlow would publish and moves the branch; the person who looked at it confirms it with the commit ID in their own terminal (the preview without --confirm may run here). Show the user the preview and the command, and stop; do not retry it', [], own());
         if (setAsideDecision(call, value)) return mutationDenial(contract,
-          'PHASE_MUTATION_OPERATION_NOT_ALLOWED: setting held changes aside removes them from the checkout (after a private recovery copy); the person who looked at them runs it in their own terminal. Show the user the listed files and the command, and stop; do not retry it');
-        if (workflowDeleteConfirmation(call, value)) return mutationDenial(contract, WORKFLOW_DELETE_CONFIRMATION_DENIAL);
+          'PHASE_MUTATION_OPERATION_NOT_ALLOWED: setting held changes aside removes them from the checkout (after a private recovery copy); the person who looked at them runs it in their own terminal. Show the user the listed files and the command, and stop; do not retry it', [], own());
+        if (workflowDeleteConfirmation(call, value)) return mutationDenial(contract, WORKFLOW_DELETE_CONFIRMATION_DENIAL, [], own());
         if (decisionListRecord(call, value)) return mutationDenial(contract,
-          'PHASE_MUTATION_OPERATION_NOT_ALLOWED: recording the decision list is the person\'s own step: they run the exact decisions record command in their own terminal (a /sf-decide turn may record only its upstream-issue options, after their explicit yes). Show the user the summary and the command, and stop; do not retry it or change its digest');
-        if (targetOriginPinCall(call, value)) return mutationDenial(contract, TARGET_ORIGIN_PIN_DENIAL);
-        if (knowledgeConfirmationCall(call, value)) return mutationDenial(contract, KNOWLEDGE_CONFIRMATION_DENIAL);
+          'PHASE_MUTATION_OPERATION_NOT_ALLOWED: recording the decision list is the person\'s own step: they run the exact decisions record command in their own terminal (a /sf-decide turn may record only its upstream-issue options, after their explicit yes). Show the user the summary and the command, and stop; do not retry it or change its digest', [], own());
+        if (targetOriginPinCall(call, value)) return mutationDenial(contract, TARGET_ORIGIN_PIN_DENIAL, [], own());
+        if (knowledgeConfirmationCall(call, value)) return mutationDenial(contract, KNOWLEDGE_CONFIRMATION_DENIAL, [], own());
         if (intentAmendmentDecisionCall(call, value)) return mutationDenial(contract,
-          'PHASE_MUTATION_OPERATION_NOT_ALLOWED: an intent amendment is decided by a person who approves the scope, in their own terminal, not by this turn. Show the user the amendment and the decide command, and stop; do not retry it');
+          'PHASE_MUTATION_OPERATION_NOT_ALLOWED: an intent amendment is decided by a person who approves the scope, in their own terminal, not by this turn. Show the user the amendment and the decide command, and stop; do not retry it', [], own());
         if (planRowCorrectionCall(call, value)) return mutationDenial(contract,
-          'PHASE_MUTATION_OPERATION_NOT_ALLOWED: correcting an approved plan\'s rows is the word of a person who approves that plan, after reviewing the exact rows in their own terminal; a preview (--dry-run) is all this turn may run. Show the user the command and stop; do not retry it');
+          'PHASE_MUTATION_OPERATION_NOT_ALLOWED: correcting an approved plan\'s rows is the word of a person who approves that plan, after reviewing the exact rows in their own terminal; a preview (--dry-run) is all this turn may run. Show the user the command and stop; do not retry it', [], own());
         if (signOffCall(call, value)) return mutationDenial(contract,
-          'PHASE_MUTATION_OPERATION_NOT_ALLOWED: witnessing a criterion\'s evidence or accepting a dated obligation risk is the word of a person who approves the step that delivered it, after looking for themselves, in their own terminal; an agent never signs off its own work. Show the user the command and stop; do not retry it');
+          'PHASE_MUTATION_OPERATION_NOT_ALLOWED: witnessing a criterion\'s evidence or accepting a dated obligation risk is the word of a person who approves the step that delivered it, after looking for themselves, in their own terminal; an agent never signs off its own work. Show the user the command and stop; do not retry it', [], own());
         if (testRunRiskDecision(call, value)) return mutationDenial(contract,
-          'PHASE_MUTATION_OPERATION_NOT_ALLOWED: accepting that a step\'s tests cannot run here or ran narrowed, reusing an earlier step\'s recorded run for it, that one of its screen sizes does not apply, or how a closed Story\'s drifted clause is resolved, is decided by a person who approves that step, in their own terminal, not by this turn. Show the user the command and stop; do not retry it');
+          'PHASE_MUTATION_OPERATION_NOT_ALLOWED: accepting that a step\'s tests cannot run here or ran narrowed, reusing an earlier step\'s recorded run for it, that one of its screen sizes does not apply, or how a closed Story\'s drifted clause is resolved, is decided by a person who approves that step, in their own terminal, not by this turn. Show the user the command and stop; do not retry it', [], own());
         if (contract.turnMode !== 'authoring' && verifiedShellForm(call, value)) {
           return mutationDenial(contract, value.decisionEnded
             ? 'PHASE_MUTATION_DECISION_TURN_ENDED: the decision turn has ended. Preserve work and inspect the returned next action in a new turn; correcting command syntax cannot reopen approval'

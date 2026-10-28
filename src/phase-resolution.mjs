@@ -24,8 +24,10 @@ const route = (kind, owner, argv, detail, skill = '/sf-recover') => {
   const command = ['singularity-flow', ...argv].map(value =>
     /^[A-Za-z0-9._:/-]+$/u.test(value) || /^<[A-Za-z][A-Za-z0-9._/|-]*>$/u.test(value)
       ? value : renderPlatformCommand([value], 'darwin')).join(' ');
-  const commandGuidance = safeCommandGuidance({ command, skill });
-  return { kind, owner, argv, command, skill, detail, automatic: false,
+  // A supplied skill that is not the command's own gives way to the canonical one: the mismatch used to
+  // null the guidance, and the route lost its Copilot line (route closure, 2026-10-28).
+  const commandGuidance = safeCommandGuidance({ command, skill }) ?? safeCommandGuidance({ command });
+  return { kind, owner, argv, command, skill: commandGuidance ? commandGuidance.skill ?? null : skill, detail, automatic: false,
     commandGuidance, copilotCommand: commandGuidance?.copilotCommand ?? null };
 };
 

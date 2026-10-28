@@ -619,8 +619,7 @@ export async function inspectPhaseRecovery(root, config, workflow, phase, {
           actions.push(activated.length ? action({
             id: `adopt-activated-test-command:${phase.id}`,
             detail: `The activated configuration now gives ${phase.id} ${activated.map((command) => command.id).join(', ')}, which this Story's pinned policy predates. A person who approves the step previews the adoption, then applies it with the returned --apply --confirm; the tests run fresh.`,
-            command: `singularity-flow story test-policy amend --work-id ${workId} --phase ${phase.id} --reason "Adopt the activated test command for this step" --json`,
-            skill: '/sf-recover'
+            command: `singularity-flow story test-policy amend --work-id ${workId} --phase ${phase.id} --reason "Adopt the activated test command for this step" --json`
           }) : action({
             id: `request-story-test-command:${phase.id}`,
             detail: `Request the exact command that runs ${phase.id}'s tests for this Story: singularity-flow decision test-command ${workId} --phase ${phase.id} --use <SUGGESTION-ID> --reason "<why>" (or --id, --argv '<JSON ARRAY>', --working-directory, --affected-root, --adapter and --report). A person who approves the step accepts it from the decision list. Or propose it for every later Story with capability test-setup --step ${phase.id}.`,

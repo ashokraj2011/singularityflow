@@ -133,7 +133,7 @@ const entries = {
   delivery: ['sf-inspect', 'sf-adhoc'],
   approve: ['sf-approve'],
   reject: ['sf-reject'],
-  decision: ['sf-decide'],
+  decision: ['sf-decide', 'sf-code'],
   decisions: ['sf-decide'],
   call: ['sf-call-add'],
   'upstream-issue': ['sf-decide'],
@@ -210,7 +210,8 @@ function route(defaultSkill, subcommands = {}) {
 export const COMMAND_LINE_SKILL_ROUTES = Object.freeze({
   // A person's own terminal steps among these (witness, risk, test-risk, ...) have no route at all:
   // OWN_TERMINAL_STEPS below.
-  decision: route('sf-decide'),
+  // A code step's author requests a Story test command in its own turn; /sf-decide's turn refused it.
+  decision: route('sf-decide', { 'test-command': 'sf-code' }),
   'review-source': route('sf-review-source', {
     'decision-context': 'sf-review-decide', decide: 'sf-review-decide'
   }),
@@ -254,7 +255,15 @@ export const COMMAND_LINE_SKILL_ROUTES = Object.freeze({
     matrix: 'sf-evidence',
     scope: 'sf-evidence'
   }),
-  delivery: route('sf-inspect'),
+  // A read-only skill never gets a mutating route (route closure, 2026-10-28): these name no skill.
+  delivery: route('sf-inspect', {
+    'promotion-apply': null, 'local-runner-create': null, 'local-runner-run': null, select: null
+  }),
+  skill: route('sf-skill', { create: null, edit: null, attach: null, detach: null, remove: null }),
+  cache: route('sf-doctor', { clear: null }),
+  'help-metrics': route('sf-help', { on: null, off: null, clear: null }),
+  repositories: route('sf-repositories', { 'cache clear': null }),
+  gateway: route('sf-home', { serve: null }),
   capabilities: route('sf-capabilities', {
     doctor: 'sf-capability-doctor'
   }),
@@ -372,7 +381,12 @@ export const COMMAND_LINE_SKILL_ROUTES = Object.freeze({
     converge: 'sf-converge',
     submit: 'sf-submit',
     advance: 'sf-submit',
-    finalize: 'sf-finalize'
+    finalize: 'sf-finalize',
+    // The start turn prepares and discards its own checkout; /sf-inspect only reads (2026-10-28).
+    'prepare-worktree': 'sf-story-start',
+    'discard-worktree': 'sf-story-start',
+    'references materialize': null,
+    'test-policy confirm': null
   }),
   workspace: route('sf-workspace', {
     create: 'sf-workspace-bootstrap',

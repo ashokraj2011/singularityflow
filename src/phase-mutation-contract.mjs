@@ -266,8 +266,10 @@ export function mutationToolProtocol(contract) {
 }
 
 export function mutationDenial(contract, reason, paths = [], { routes = null } = {}) {
-  const actions = routes ?? (contract?.next?.length ? contract.next : [route(['phase', 'enter', '--for-agent', '--json'],
-    'Preserve existing work. End an expired/corrupt turn and invoke /sf-phase in a new turn; missing selection uses /sf-session.')]);
+  // Any SFlow command, a read too, rebuilds this turn's binding (cli-entry.mjs), so the way back is a read
+  // in this turn; `phase enter` in a new /sf-phase turn sent approval and decision turns elsewhere (2026-10-28).
+  const actions = routes ?? (contract?.next?.length ? contract.next : [route(['session', 'current', '--for-agent', '--json'],
+    'Preserve existing work. Run this read in this turn: it binds the turn to the Story as it is now; a missing selection uses /sf-session.')]);
   const lines = actions.map(action => formatCommandRouteLines(action).join('\n'));
   return { permissionDecision: 'deny', permissionDecisionReason:
     `${reason}${paths.length ? ` (${paths.join(', ')})` : ''}. ${contract?.summary ?? 'No current verified mutation contract.'}${lines.length ? `\n\n${lines.join('\n\n')}` : ''}`.trimEnd(),

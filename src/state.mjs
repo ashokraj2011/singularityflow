@@ -5239,8 +5239,10 @@ async function submitPhaseTransition(root, config, workflow, {
     const currentTestInput = await testInputTreeHash(root, config, workflow);
     if (evidence.sourceTreeSha256 !== currentTree || (currentTestInput && evidence.testInputSha256 !== currentTestInput)) {
       throw new SingularityFlowError(
-        `Phase ${phase.id} code or separately hashed test inputs changed after publication. Publish a fresh generation before submission.`,
-        { code: 'CODE_DELIVERY_RECEIPT_STALE' }
+        `Phase ${phase.id} code or separately hashed test inputs changed after publication. Open a fresh generation with singularity-flow phase rollover ${phase.id}, then publish it before submission.`,
+        // Named exactly: publish refuses a consumed generation, so "publish" sent the author round in two hops.
+        { code: 'CODE_DELIVERY_RECEIPT_STALE', details: { phase: phase.id, nextAction: { command: `singularity-flow phase rollover ${phase.id}`,
+          label: 'Open a fresh generation for the changed code, then publish it.' } } }
       );
     }
     requiredTestCommands = deliveryCommands

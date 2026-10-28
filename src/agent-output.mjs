@@ -23,6 +23,7 @@ import { AGENT_OUTPUT_FOLDER, agentOutputDirectory, excludeAgentOutput, lineRang
 import { observeFindingStreak } from './finding-escalation.mjs';
 import { gitCommonDir, repoRoot } from './git-execution.mjs';
 import { CLI_PATH_REFERENCE, safeCommandGuidance, validateSafeSflowCommand } from './safe-command-guidance.mjs';
+import { ownTerminalStep } from './command-skills.mjs';
 import { validateAgentEntryRequest } from './agent-entry-options.mjs';
 import { interpretsForAgent } from './cli-json-output.mjs';
 import { parseArgs, writeAtomic } from './util.mjs';
@@ -89,7 +90,9 @@ function routes(action) {
   const copilot = guidance?.copilotCommand ?? action.copilotCommand ?? null;
   const vscode = guidance?.modelFreeCommand ?? action.modelFreeCommand ?? null;
   if (!shell && !copilot) return null;
-  return { reason: oneLine(action.reason ?? action.detail ?? action.label ?? ''), copilot, shell, vscode };
+  // A route that needs a new turn says so; dropped here, an approval turn was sent to run recover itself.
+  return { reason: oneLine(action.reason ?? action.detail ?? action.label ?? ''), copilot, shell, vscode,
+    ...(action.turn === 'new-turn' ? { turn: 'new-turn' } : {}) };
 }
 
 /** A returned action that carries a value a person must confirm (a digest or plan hash). */
@@ -115,6 +118,13 @@ function genericAction(result) {
 function withRoute(act, action) {
   const route = routes(action);
   if (!route) return act;
+  // A person's own terminal step is refused in every Copilot turn: "ask in chat, then run do.shell"
+  // sent the agent into that refusal (route closure, 2026-10-28).
+  if (route.shell && ownTerminalStep(route.shell)) return { ...act, state: 'confirm-in-terminal', do: { ...route, copilot: null },
+    said: oneLine(`${act.said ? `${act.said} ` : ''}This is the person's own step: show them do.shell to run in their own terminal; never run it.`) };
+  // A raw command (git diff, git stash) is the person's: a turn that is not authoring refuses raw shell.
+  if (route.shell && !route.copilot && !/^\s*(?:singularity-flow|sflow)\s/u.test(route.shell)) return { ...act, state: 'ask-person', do: route,
+    said: oneLine(`${act.said ? `${act.said} ` : ''}Show the person do.shell; it is theirs to run, not this turn's.`) };
   const ask = confirmation(route);
   return { ...act, ...(ask ? { state: 'confirm', ask } : {}), do: route };
 }

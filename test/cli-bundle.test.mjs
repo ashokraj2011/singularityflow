@@ -121,7 +121,8 @@ test('the bundled CLI answers exactly like the sources while opening a handful o
   // 4,470,000: main 12aa30f4 measures 4,464,943. A refused route keeps its marked step, and the session
   // entry says when this build is older than main (its check is lazy): cold-core +209 and
   // cold-narrow-reads +99 for 4,465,251. No new file in this closure.
-  assert.ok(closure('cold-narrow-reads.mjs').reduce((sum, item) => sum + item.bytes, 0) < 4_470_000,
+  // 4,475,000: main d01be67d measures 4,469,889; the route-closure fixes (a person's own step and raw commands handed to the person in agent-output.mjs, exact routes so no mutating command reaches a read-only skill in command-skills.mjs, person-only denials with their own terminal line and expired turns keeping only reads in copilot-mutation-guard.mjs, the decision list kept past the plan cap and live-terminal refusals in refusal-remediation.mjs, canonical routes kept in phase-resolution.mjs and collaboration.mjs) add 2,298 for 4,472,187. No new file.
+  assert.ok(closure('cold-narrow-reads.mjs').reduce((sum, item) => sum + item.bytes, 0) < 4_475_000,
     'strict next-step reads must not inherit the broad phase-review closure');
   const publicationClosure = closure('cold-publication.mjs');
   assert.ok(publicationClosure.length && publicationClosure.reduce((sum, item) => sum + item.bytes, 0) < 6 * 1024 * 1024,
@@ -236,7 +237,10 @@ test('the bundled CLI answers exactly like the sources while opening a handful o
   // 7,480,000: main f732f212 measures 7,473,911; the rewritten-history check at approval and at the prior code
   // receipt (state.mjs) and acceptance off on a route with no code step add cold-hook-context +3,631 and
   // cold-narrow-reads +11 for 7,477,553. No new file.
-  assert.ok(closure('cold-hook-context.mjs').reduce((sum, item) => sum + item.bytes, 0) < 7_480_000,
+  // 7,485,000: main d01be67d measures 7,477,553; the route-closure fixes (agent-output.mjs, command-skills.mjs,
+  // copilot-mutation-guard.mjs, refusal-remediation.mjs, phase-resolution.mjs, collaboration.mjs) add 2,524 for
+  // 7,480,077. No new file.
+  assert.ok(closure('cold-hook-context.mjs').reduce((sum, item) => sum + item.bytes, 0) < 7_485_000,
     'phase-review reads retain their existing byte ceiling after moving families');
   assert.match(await readFile(path.join(outdir, 'cold-light.mjs'), 'utf8'), /function enterPhase\b/u,
     'phase binding must not fall through to the compatibility/admin bundle');
@@ -276,7 +280,8 @@ test('the bundled CLI answers exactly like the sources while opening a handful o
   // 5,285,000: main 591a797a measures 5,279,984 (Playwright results 828898f3 and convergence items 591a797a
   // took the rest); the scope include route's accepted placeholder adds cold-core +22 and cold-narrow-reads
   // +16 for 5,280,022. No new file.
-  assert.ok(catalogClosure.reduce((sum, item) => sum + item.bytes, 0) < 5_285_000,
+  // 5,290,000: main d01be67d measures 5,284,968; the route-closure fixes add 2,298 for 5,287,266. No new file.
+  assert.ok(catalogClosure.reduce((sum, item) => sum + item.bytes, 0) < 5_290_000,
     'catalog parsing stays bounded instead of pulling in the entire administration bundle');
   for (const name of ['cold-compatibility.mjs', 'cold-models.mjs', 'cold-intake.mjs', 'cold-phases.mjs', 'cold-hook-context.mjs']) {
     assert.ok(!catalogClosure.some(item => item.file === name), `catalogs must not statically reach ${name}`);

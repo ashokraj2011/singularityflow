@@ -14,6 +14,7 @@ import { fileURLToPath } from 'node:url';
 
 import { copilotCommandForCommand } from '../src/copilot-guidance.mjs';
 import { safeCommandGuidance } from '../src/safe-command-guidance.mjs';
+import { ownTerminalStep } from '../src/command-skills.mjs';
 
 const root = fileURLToPath(new URL('..', import.meta.url));
 const digest = `sha256:${'d'.repeat(64)}`;
@@ -48,9 +49,10 @@ test('every reviewed-digest confirmation route carries its digest, through the e
     if (!command.includes(digest) || /[<>|]/u.test(command)) continue;
     const guidance = safeCommandGuidance({ command });
     if (!guidance) continue;
-    // Only a command no skill carries out has no route at all, so it drops no digest: an amendment's decision.
+    // Only a command no skill carries out has no route at all, so it drops no digest: a person's own
+    // terminal step (an amendment's decision, setting a waiting commit aside).
     if (guidance.copilotCommand === null) {
-      assert.match(command, /^singularity-flow story intent-amendment decide /u, `${file}: ${command} has no Copilot route`);
+      assert.ok(ownTerminalStep(command), `${file}: ${command} has no Copilot route`);
       continue;
     }
     checked.push(command);

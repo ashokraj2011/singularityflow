@@ -161,7 +161,10 @@ test('frequent lifecycle handlers do not reach the legacy dispatcher and stay un
     // nearest earlier step with approvers when the last step has none, and the validator naming an omitted
     // responsibility's empty group, add 1,029 for 9,155,969 (upstream-routes.mjs, state.mjs, workflow-check.mjs,
     // gate-recovery.mjs). No new file.
-    assert.ok(closure.bytes <= 9_160_000, `${file} exceeds the 9 MB eager-source budget (${closure.bytes} bytes)`);
+    // 9,165,000: main f732f212 measures 9,155,969 for start.mjs. A rewritten Story history named at approval and at
+    // the prior code receipt, and acceptance off on a route with no code step, add 5,940 for 9,161,909 (state.mjs,
+    // governance.mjs, config.mjs). No new file.
+    assert.ok(closure.bytes <= 9_165_000, `${file} exceeds the 9 MB eager-source budget (${closure.bytes} bytes)`);
   }
 });
 

@@ -1973,7 +1973,9 @@ export function resolveWorkType(definition, workTypeId) {
   // An explicit topology opt-out is an acceptance-policy decision, not documentation beside a
   // still-active gate. Resolve acceptance to off so every existing lifecycle consumer observes
   // the decision even before it learns about the richer plannedClaims metadata.
-  const spec = ['omitted', 'retired-opt-out'].includes(plannedClaims.mode)
+  // A work type with no code step has no plan to name tests in (disabled): enforcing acceptance there
+  // refused every clause at the final check (2026-10-28).
+  const spec = ['omitted', 'retired-opt-out', 'disabled'].includes(plannedClaims.mode)
     ? { ...configuredSpec, acceptance: 'off' }
     : configuredSpec;
   // Validated against the resolved phases: whether a rule may skip or loop depends on each phase's

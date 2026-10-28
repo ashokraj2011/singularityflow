@@ -233,7 +233,10 @@ test('the bundled CLI answers exactly like the sources while opening a handful o
   // (decision plan --set-fulfillment, now the plan approver's own terminal step), an accepted implementation risk
   // honoured by the final gate, and an upstream issue raised from /sf-decide add cold-hooks +812, cold-narrow-reads
   // +756, cold-hook-context +755 and cold-core +400 for 7,470,367. No new file.
-  assert.ok(closure('cold-hook-context.mjs').reduce((sum, item) => sum + item.bytes, 0) < 7_475_000,
+  // 7,480,000: main f732f212 measures 7,473,911; the rewritten-history check at approval and at the prior code
+  // receipt (state.mjs) and acceptance off on a route with no code step add cold-hook-context +3,631 and
+  // cold-narrow-reads +11 for 7,477,553. No new file.
+  assert.ok(closure('cold-hook-context.mjs').reduce((sum, item) => sum + item.bytes, 0) < 7_480_000,
     'phase-review reads retain their existing byte ceiling after moving families');
   assert.match(await readFile(path.join(outdir, 'cold-light.mjs'), 'utf8'), /function enterPhase\b/u,
     'phase binding must not fall through to the compatibility/admin bundle');

@@ -1572,9 +1572,9 @@
     },
     "src/state.mjs": {
       "counts": {
-        "command-run": 28
+        "command-run": 29
       },
-      "digest": "4b0390bd95ca9003706af68c337e305838b77ec49e07c40e8aa02fb76aa3000a"
+      "digest": "2d6beb35444df56596f67640bf62f01f8c1c187ffed39a67814b366d950d414c"
     },
     "src/story-intake-verification.mjs": {
       "counts": {

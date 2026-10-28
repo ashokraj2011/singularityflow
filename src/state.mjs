@@ -56,7 +56,7 @@ import { assertStoryTestRiskGate, beginStoryTestRiskRun, captureStoryTestRiskObs
 import { trpCaseInventoryDeclaration, trpExecutionEnvironment, trpNativeReportCapture } from './test-recovery-adapters.mjs';
 import { inspectRepositoryReadinessReceipt, loadRepositoryTestBaseline } from './initialization/runtime-readiness.mjs';
 import {
-  artifactChangeInventory, branch, changedFiles, commitIsAncestor, headTreeEntries, exactChangedPathsBetweenObjects, exactFileAtObject, exactRemoteBranchObservationAsync, gitCommonDir, governedCommitIdentity, head, identity,
+  artifactChangeInventory, branch, changedFiles, commitIsAncestor, headTreeEntries, refHead, exactChangedPathsBetweenObjects, exactFileAtObject, exactRemoteBranchObservationAsync, gitCommonDir, governedCommitIdentity, head, identity,
   publicationPushOutcome, pushCommitToBranchAsync, refreshStalePublishedIndex, remoteContains, shallowBoundaryCommit, untrackedFiles
 } from './git.mjs';
 import {
@@ -3310,6 +3310,9 @@ export async function assertPassedCodeDeliveryInput(root, config, workflow, phas
   // Prior code evidence remains authoritative only for its exact accepted runner epoch.
   // A later unrelated policy amendment does not rewrite this source phase's policy binding.
   await verifyTestCommandEpochValidation(root, config, workflow, source, { packet });
+  // A rewritten branch history (rebase, force-push) drops the approval commit: named, not "absent".
+  assertRecordedHistory(root, workflow, [...recordedStepCommits(source), { commit: packet.evidenceCommit, label: `${sourceId}'s approved code evidence` }],
+    { branch: workflowPublicationBranch(root, workflow), remote: config.git?.remote ?? 'origin' });
   const historical = run('git', ['show', `${packet.evidenceCommit}:${binding.path}`], {
     cwd: root, allowFailure: true
   });
@@ -5877,6 +5880,80 @@ async function writeDecision(root, config, workflow, phase, decision) {
 }
 
 /**
+ * A Story branch whose history was rewritten (rebased onto a moved main, then force-pushed) no
+ * longer holds the commits SFlow recorded as evidence. Approval then listed every rewritten commit
+ * as made after submission, and another clone said the test receipt was missing; nothing named the
+ * cause, and no route led out (2026-10-28). This names it, and the way back: put the branch on the
+ * recorded history again (this clone's reflog still has it), and bring main in with a merge, which
+ * keeps every recorded commit. SFlow never rewrites history itself.
+ */
+const historyCommitExists = (root, commit) => refHead(root, `${commit}^{commit}`) === commit;
+const historyQuoted = (value) => (/^[A-Za-z0-9._/@:-]+$/u.test(value) ? value : `"${String(value).replaceAll('"', '\\"')}"`);
+
+/** The newest tip of `branch` in this clone's reflog that still holds `commit`, or null. */
+function recordedHistoryTip(root, branch, commit) {
+  for (const ref of [`refs/heads/${branch}`, 'HEAD']) {
+    const listed = run('git', ['reflog', 'show', '--format=%H', ref], { cwd: root, allowFailure: true });
+    if (listed.status !== 0) continue;
+    const tip = listed.stdout.split(/\r?\n/u).map((line) => line.trim()).filter(Boolean)
+      .find((candidate) => commitIsAncestor(root, commit, candidate));
+    if (tip) return tip;
+  }
+  return null;
+}
+
+/** The commits a step's record names: its published generation and its submission. */
+function recordedStepCommits(phase) {
+  return [
+    { commit: phase?.generationCommit, label: `${phase?.id}'s published generation` },
+    { commit: phase?.submissionCommit, label: `${phase?.id}'s submission` },
+    { commit: phase?.publicationCommit, label: `${phase?.id}'s publication` }
+  ];
+}
+
+/**
+ * Refuse with STORY_HISTORY_REWRITTEN when a recorded commit is no longer an ancestor of HEAD.
+ * `recorded` lists `{ commit, label }`; the first one missing is named.
+ */
+function assertRecordedHistory(root, workflow, recorded, { branch = workflow.workItem.branch ?? workflow.workItem.id,
+  remote = 'origin', base = workflow.workItem.baseBranch ?? 'main' } = {}) {
+  // One Git process per distinct commit: a step's generation, submission and publication are often one.
+  const distinct = [...new Map(recorded.filter((entry) => /^[0-9a-f]{40,64}$/u.test(String(entry?.commit ?? '')))
+    .map((entry) => [entry.commit, entry])).values()];
+  const missing = distinct.find((entry) => !commitIsAncestor(root, entry.commit, 'HEAD'));
+  if (!missing) return;
+  const short = missing.commit.slice(0, 8);
+  const here = historyCommitExists(root, missing.commit);
+  const tip = here ? recordedHistoryTip(root, branch, missing.commit) : null;
+  const merge = `git merge ${historyQuoted(`${remote}/${base}`)}`;
+  const commands = tip ? [
+    `git reset --keep ${tip}`,
+    `git push --force-with-lease ${historyQuoted(remote)} ${historyQuoted(branch)}`,
+    merge
+  ] : [];
+  throw new SingularityFlowError(
+    `The history of ${branch} was rewritten (a rebase or force-push): ${missing.label} commit ${short}, which SFlow recorded, is no longer on it, so every rewritten commit reads as new. Nothing was recorded. `
+    + (tip
+      ? `Put the branch back on the recorded history with git reset --keep ${tip.slice(0, 12)} (the last ${branch} tip in this clone that still has ${short}); if the rewritten history was pushed, put the remote back with git push --force-with-lease ${remote} ${branch}. Once no step is waiting for approval, bring ${base} in with ${merge}, which keeps every recorded commit, instead of a rebase.`
+      : here
+        ? `This clone still has commit ${short}, but no ${branch} tip in its reflog holds it: restore the branch from a clone or backup that has that history, then bring ${base} in with a merge instead of a rebase.`
+        : `This clone does not have commit ${short}: restore ${branch} from a clone whose reflog still has it, then bring ${base} in with a merge instead of a rebase.`),
+    {
+      code: 'STORY_HISTORY_REWRITTEN',
+      details: {
+        branch, commit: missing.commit, label: missing.label, recordedTip: tip, availableHere: here, recoveryCommands: commands,
+        // Plain Git is the person's to run, so each step is an instruction every surface shows.
+        actions: tip ? [
+          { label: `Put ${branch} back on the history SFlow recorded: git reset --keep ${tip}` },
+          { label: `If the rewritten history was pushed, put the remote back: git push --force-with-lease ${remote} ${branch}` },
+          { label: `Once no step is waiting for approval, bring ${base} in with ${merge}: a merge keeps every recorded commit; never rebase a Story branch.` }
+        ] : [{ label: `Restore ${branch} from a clone or backup that still has commit ${missing.commit}, then bring ${base} in with a merge, never a rebase.` }]
+      }
+    }
+  );
+}
+
+/**
  * The commits after a submitted phase's review evidence, and which of them may precede its approval.
  *
  * A receipt intentionally binds HEAD when review begins, so receipt freshness alone cannot tell
@@ -5892,6 +5969,8 @@ async function writeDecision(root, config, workflow, phase, decision) {
  * commit is not already a prior approval.
  */
 export async function reviewHistoryCommits(root, config, workflow, phase, submittedReview, { reviewedRisks = async () => [] } = {}) {
+  // Approval checked first that the step's recorded commits are still on the branch (a rebase or
+  // force-push read here as every rewritten commit made after submission, 2026-10-28).
   const reviewRange = `${submittedReview.evidenceCommit}..${head(root)}`;
   const interveningCommits = storyHistoryCommits(root, [
     'rev-list', '--first-parent', reviewRange
@@ -6145,6 +6224,10 @@ export async function evaluateApproval(root, config, workflow, {
           code: 'STORY_REVIEW_EVIDENCE_INVALID'
         });
       }
+      // A rewritten history changes the source tree too, and every later check blamed that instead.
+      // The packet is found on the current history, so the step's recorded commits are what tell.
+      assertRecordedHistory(root, workflow, recordedStepCommits(phase),
+        { branch: workflowPublicationBranch(root, workflow), remote: config.git?.remote ?? 'origin' });
     }, { foundation: true });
     await stage('test-command-epoch', async () => {
       await verifyTestCommandEpochValidation(root, config, workflow, phase, { packet: submittedReview });

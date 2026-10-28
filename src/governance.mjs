@@ -740,6 +740,12 @@ export async function runGovernanceGate(root, config, workflow, { terminal = fal
       }
       else passes.push(`specification clauses: ${phaseId} generation ${phase.generation} · ${index.clauses.length}`);
     }
+    // Only a code step records an observed claim or plans a test. A route with none (a work type that
+    // builds nothing, or an end that skipped its code steps) implements and verifies its clauses
+    // through the steps that hold them, and the evidence evaluation judges those (an approved
+    // inspection that cites each criterion).
+    const codeRoute = workflow.phaseOrder.some((id) => phaseRequiresCodeDelivery(workflow.phases[id])
+      && workflow.phases[id].status !== 'skipped');
     if (specPolicy.coverage !== 'off') {
       const observedCoverage = evaluateSpecCoverage(records, changedRepositoryPaths(root, {
         base: workflow.workItem.baseCommit
@@ -748,12 +754,7 @@ export async function runGovernanceGate(root, config, workflow, { terminal = fal
         target: 'HEAD',
         pathContext: applicationPathContext(config, workflow)
       }), specPolicy, { root });
-      // Only a code step records an observed claim. A route with none (a work type that builds
-      // nothing, or an end that skipped its code steps) implements its clauses through the steps
-      // that hold implementation, and the evidence evaluation judges those; counting them here
-      // would call every such clause unimplemented.
-      const codeRoute = workflow.phaseOrder.some((id) => phaseRequiresCodeDelivery(workflow.phases[id])
-        && workflow.phases[id].status !== 'skipped');
+      // Counting a route with no code step here would call every clause unimplemented.
       const coverage = codeRoute ? observedCoverage : (() => {
         const complete = !observedCoverage.unclaimedChangedPaths.length && !observedCoverage.withdrawnButClaimed.length
           && !observedCoverage.invalidEvidence.length;
@@ -795,7 +796,10 @@ export async function runGovernanceGate(root, config, workflow, { terminal = fal
       }
       if (coverage.complete) passes.push(`clause coverage: ${coverage.totals.observed}/${coverage.totals.clauses} clauses, ${coverage.totals.changedPaths} changed paths`);
     }
-    if (specPolicy.acceptance !== 'off') {
+    // Asking such a route for planned tests refused every clause of a no-code workflow under enforce,
+    // which no step could ever plan (2026-10-28).
+    if (specPolicy.acceptance !== 'off' && !codeRoute) passes.push('specification acceptance: not applicable, no code step on this route');
+    if (specPolicy.acceptance !== 'off' && codeRoute) {
       const sourceTreeSha256 = await acceptanceSourceTree(root, records, applicationPathContext(config, workflow));
       const acceptance = evaluateSpecAcceptance(records, specPolicy, {
         workId: workflow.workItem.id,

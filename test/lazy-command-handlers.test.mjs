@@ -180,7 +180,11 @@ test('frequent lifecycle handlers do not reach the legacy dispatcher and stay un
     // phase-upstream.mjs, phase-retention.mjs, equivalence-rules.mjs), the rejected skill-version pair check
     // (approval-check.mjs) and the witness exception renewal at the final gate (governance.mjs, gate-recovery.mjs,
     // state.mjs) add 11,733 for 9,202,001. No new file.
-    assert.ok(closure.bytes <= 9_205_000, `${file} exceeds the 9 MB eager-source budget (${closure.bytes} bytes)`);
+    // 9,210,000 (next 5,000 boundary): main e97b5bd6 measures 9,203,737 for start.mjs. The step-entry guidance
+    // naming the verification contract Witness cell and each method's assurance words, and contract refusals that
+    // say what a cell holds, add 1,649 for 9,205,386 (phase-authoring-contract.mjs, verification/contracts.mjs). An
+    // office Copilot turn looped on that table for lack of them (2026-10-29). No new file.
+    assert.ok(closure.bytes <= 9_210_000, `${file} exceeds the 9 MB eager-source budget (${closure.bytes} bytes)`);
   }
 });
 

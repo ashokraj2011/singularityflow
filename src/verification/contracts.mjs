@@ -104,11 +104,29 @@ export function validateRetainedEvidenceDeclarations(markdown, plannedClaims, { 
   }
 }
 
+/** What a row's cell holds, short, so a refusal can say what it found (an agent kept guessing). */
+function shown(cell) {
+  const text = String(cell ?? '').trim().replace(/\s+/gu, ' ');
+  return text ? `'${text.length > 80 ? `${text.slice(0, 77)}...` : text}'` : 'nothing';
+}
+
+// What each method's witness and assurance look like, said in every refusal about them: an office
+// Copilot turn moved an assurance word between Witness and Required assurance for many rounds,
+// reading two separate rules as one contradiction (2026-10-29).
+const WITNESS_SHAPE = {
+  test: 'one planned test file, such as `test/orders.test.js`',
+  inspection: 'one exact file a reviewer inspects, such as `docs/runbook.md`',
+  visual: 'one screen or scenario, such as `Order confirmation page`'
+};
+
 function witnessCell(method, cell, label) {
   const source = String(cell ?? '').trim();
   const values = [...source.matchAll(/`([^`\n]+)`/gu)].map((match) => match[1]);
   const rest = source.replace(/`[^`\n]+`/gu, '').trim();
-  if (values.length !== 1 || rest) throw invalid(`${label} must name exactly one witness in backticks.`);
+  if (values.length !== 1 || rest) {
+    throw invalid(`${label} must name exactly one witness in backticks and nothing else; it holds ${shown(source)}. `
+      + `A ${method} witness is ${WITNESS_SHAPE[method]}; an assurance level goes in the Required assurance column, and why in Reason.`);
+  }
   if (method === 'visual') {
     const target = values[0].trim();
     if (!target || target.length > 200 || /[\0-\x1f\x7f]/u.test(target)) throw invalid(`${label} must name the screen or scenario its visual evidence shows, in at most 200 characters.`);
@@ -194,7 +212,8 @@ export function parseVerificationContracts(markdown, { clauseIds = [], plannedCl
       throw invalid(`${where} requires a known assurance value, not scenario or reviewer prose.`);
     }
     if (requiredAssurance && METHOD_ASSURANCE[method] && !METHOD_ASSURANCE[method].includes(requiredAssurance)) {
-      throw invalid(`${where} may require only ${METHOD_ASSURANCE[method].join(' or ')} for a ${method} witness.`);
+      throw invalid(`${where} may require only ${METHOD_ASSURANCE[method].join(' or ')} for a ${method} witness; its Required assurance holds ${shown(row.value('required assurance'))}. `
+        + `Write one of those words alone in that column, or leave it empty for the default; the Witness column holds only ${WITNESS_SHAPE[method]}.`);
     }
     });
     const combination = unwrap(row.value('combination')).toLowerCase() || null;

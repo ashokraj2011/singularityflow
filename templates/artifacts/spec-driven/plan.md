@@ -62,7 +62,18 @@ paths. The contract has a primary visual (screen/scenario) or inspection (exact 
 with source-bound assurance. Prose describing a "primary visual verification contract" is not
 a contract row. Criterion must be an exact approved AC ID, Slot a lower-hyphen identifier,
 Method test/inspection/visual, and Role primary/supporting; scenario/reviewer prose belongs
-outside these cells. Never classify the screenshot as product source or an executable test. -->
+outside these cells. Never classify the screenshot as product source or an executable test.
+The Witness cell holds one backticked value and nothing else. Required assurance holds one word
+or stays empty: module-observed or exact-local-observed for a test, declared or source-bound for
+an inspection or visual witness. For example (a fenced example is never read as a contract):
+```text
+| Criterion | Slot | Method | Witness | Role | Required assurance |
+|---|---|---|---|---|---|
+| `ORDER:AC-001` | unit | test | `test/orders.test.js` | primary | module-observed |
+| `ORDER:AC-002` | runbook | inspection | `docs/runbook.md` | primary | source-bound |
+| `ORDER:AC-003` | screen | visual | `Order confirmation page` | primary | source-bound |
+```
+-->
 
 ## Supporting files
 

@@ -46,6 +46,12 @@ test('contracts that could never verify honestly are refused with what to change
   refused(table(`| \`${AC1}\` | unit | test | \`test/value.test.js\` | | exact-authenticated | | |`), /needs qualified execution/);
   refused(table(`| \`${AC2}\` | unit | test | \`test/value.test.js\` | | | | |`), /plans no tests \(not-applicable\)/);
   refused(table(`| \`${AC1}\` | unit | test | \`test/*.test.js\` | | | | |`), /one exact repository-relative path/);
+  // Each refusal says what the cell holds and what belongs where, so an author does not trade one
+  // refusal for the other by moving the assurance word between columns (office, 2026-10-29).
+  refused(table(`| \`${AC1}\` | unit | test | \`test/value.test.js\` (exact-local-observed) | | | | |`),
+    /holds '`test\/value\.test\.js` \(exact-local-observed\)'\. A test witness is one planned test file.*Required assurance column/u);
+  refused(table(`| \`${AC1}\` | unit | test | \`test/value.test.js\` | | source-bound | | |`),
+    /may require only module-observed or exact-local-observed for a test witness; its Required assurance holds 'source-bound'\. Write one of those words alone/u);
 });
 
 test('mixed-case contract criteria use canonical identity without changing witness paths or source objects', () => {

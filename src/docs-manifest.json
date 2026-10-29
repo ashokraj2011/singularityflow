@@ -1,9 +1,9 @@
 {
   "schemaVersion": 2,
   "generatedFrom": "docs/topics",
-  "sourceCommit": "78dd99a3d66568c3a26ff3bbffd7dc99ba883f9a",
+  "sourceCommit": "bdd7b5fb43a892d9021e9b41183aa94900a4e45d",
   "topicCount": 87,
-  "contentSha256": "7aa2f0dbe77c68a2fc4dd958775d150107dcecad2929a5fd20726c7faa3a658f",
+  "contentSha256": "2db0b4b230bd7167d89311ebe5ee1e8b249e240ac4f3fd8501a36053df4525d3",
   "topics": [
     {
       "id": "activity-and-prompt-audit",
@@ -40,8 +40,8 @@
     {
       "id": "apm-packages",
       "title": "APM packages in a repository",
-      "version": 1,
-      "sha256": "3f373362c6ff25d1c2b709d469c7bb657a58e8aa368f3962c40c3c12975092aa",
+      "version": 2,
+      "sha256": "5cc32b07e4c4807db8d34b2adf871e9e9fa634dbc772c2e23952d1736e02d4fe",
       "routingSha256": "d0975723a55bd212a3bed8f0ab38a6ed941d4e63bfc60464033827ccc2c18632",
       "file": "apm-packages.md"
     },

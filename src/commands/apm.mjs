@@ -28,7 +28,7 @@ function plural(count, word) {
 function primitiveWords(primitives) {
   const kinds = ['agent', 'skill', 'instruction', 'prompt'];
   return kinds.map((kind) => {
-    const names = [...new Set(primitives.filter((entry) => entry.kind === kind && entry.target === '.github').map((entry) => entry.name))];
+    const names = [...new Set(primitives.filter((entry) => entry.kind === kind).map((entry) => entry.name))];
     return names.length ? `${kind}${names.length === 1 ? '' : 's'} ${names.join(', ')}` : null;
   }).filter(Boolean).join('; ');
 }

@@ -11,9 +11,9 @@ related:
   - importing-assets
   - agents-and-routing
   - skill-master
-version: 1
+version: 2
 ---
-APM (Microsoft's Agent Package Manager) installs agents, skills, instructions and prompts as packages. `apm.yml` declares them, `apm install` resolves each one to a commit and writes its files into `.github/`, and `apm.lock.yaml` records every file it wrote with its SHA-256. SFlow reads what APM left and says whether it is still intact.
+APM (Microsoft's Agent Package Manager) installs agents, skills, instructions and prompts as packages. `apm.yml` declares them, `apm install` resolves each one to a commit and writes its files for Copilot (agents, instructions and prompts into `.github/`, skills into `.agents/skills/`), and `apm.lock.yaml` records every file it wrote with its SHA-256. SFlow reads what APM left and says whether it is still intact.
 
 ## Purpose and prerequisites
 
@@ -42,6 +42,7 @@ Use this topic when a repository gets its agents from APM packages, for example 
 ## Troubleshooting
 
 - **"changed since apm install wrote it"**: the deployed copy was edited. `apm install` writes the locked file again; a change worth keeping belongs in the package itself.
+- **"is not a regular file"**: a symbolic link or another kind of file stands where APM wrote a file. Remove it and run `apm install`.
 - **"is missing"**: the file was deleted or never committed on this clone. Run `apm install`, then commit what it wrote.
 - **"declares … but apm.lock.yaml does not lock it"**: `apm.yml` changed after the last install. Run `apm install` and commit the lock.
 - **"still locks …, which apm.yml no longer declares"**: run `apm prune`.

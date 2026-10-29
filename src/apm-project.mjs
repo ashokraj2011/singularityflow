@@ -170,7 +170,9 @@ async function inspectFile(root, entry, expected) {
     if (info.isSymbolicLink()) return 'not-regular';
     if (index < entry.segments.length - 1 && !info.isDirectory()) return 'missing';
     if (index === entry.segments.length - 1) {
-      if (entry.directory) return info.isDirectory() ? 'ok' : 'missing';
+      // APM 0.35 lists a directory it deployed (a skill's folder) with no hash and no trailing slash.
+      if (info.isDirectory() && (entry.directory || !expected)) return 'directory';
+      if (entry.directory) return 'missing';
       if (!info.isFile()) return 'not-regular';
       if (!expected) return 'unhashed';
       if (info.size > FILE_MAX_BYTES) return 'too-large';
@@ -200,14 +202,14 @@ async function inspectDeployment(root, owner, files, hashes, budget, findings) {
     result.total += 1;
     result.named.push(value);
     const state = await inspectFile(root, entry, expectedHash(hashMap[value]));
-    // A file that is there, intact or not, is one Git should track.
-    if (!entry.directory && ['ok', 'unhashed', 'modified', 'too-large'].includes(state)) result.present.push(value);
-    if (state === 'ok' || state === 'unhashed') result[state] += 1;
+    // A file that is there, intact or not, is one Git should track; Git tracks no directories.
+    if (['ok', 'unhashed', 'modified', 'too-large'].includes(state)) result.present.push(value);
+    if (state === 'ok' || state === 'unhashed' || state === 'directory') result[state === 'directory' ? 'ok' : state] += 1;
     else {
       result[state === 'not-regular' ? 'notRegular' : state === 'too-large' ? 'tooLarge' : state] += 1;
       findings.push(finding(`deployed-${state}`, `${value} ${FILE_WORDS[state]}.`, { path: value, owner }));
     }
-    const primitive = entry.directory ? null : primitiveOf(value);
+    const primitive = entry.directory || state === 'directory' ? null : primitiveOf(value);
     if (primitive) result.primitives.push({ ...primitive, path: value });
   }
   return result;
@@ -215,6 +217,8 @@ async function inspectDeployment(root, owner, files, hashes, budget, findings) {
 
 function packageLabel(lock) {
   if (lock.marketplace_plugin_name && lock.discovered_via) return `${lock.marketplace_plugin_name}@${lock.discovered_via}`;
+  // A local package is locked as `_local/<folder>`; its own name reads better.
+  if (lock.source === 'local') return `${lock.name ?? path.posix.basename(String(lock.local_path ?? lock.repo_url))} (local)`;
   const repository = String(lock.repo_url ?? '');
   return lock.virtual_path ? `${repository}/${String(lock.virtual_path).replace(/^\/+/u, '')}` : repository;
 }

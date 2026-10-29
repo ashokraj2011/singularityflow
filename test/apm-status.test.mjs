@@ -188,6 +188,38 @@ test('apm status prints in plain words, and refuses an unknown subcommand or opt
   assert.notEqual(option.status, 0);
 });
 
+test('a lock exactly as apm 0.35.0 writes it: a skill folder listed without a slash or hash, skills in .agents, a local package', async (t) => {
+  // Shape copied from `apm install ../review-pack` with apm 0.35.0 (2026-10-29); apm audit --ci agreed with every verdict.
+  const files = {
+    '.agents/skills/code-review/SKILL.md': '---\nname: code-review\ndescription: Review code for defects\n---\n# Code review\nSteps.\n',
+    '.github/agents/reviewer.agent.md': '---\nname: reviewer\ndescription: Reviews pull requests\ntools: [read, search]\n---\nReview the change carefully.\n'
+  };
+  const deployed = ['.agents/skills/code-review', ...Object.keys(files)];
+  const lock = {
+    lockfile_version: '1', apm_version: '0.35.0',
+    dependencies: [{
+      repo_url: '_local/review-pack', name: 'review-pack', version: '1.0.0', package_type: 'apm_package',
+      deployed_files: deployed,
+      deployed_file_hashes: Object.fromEntries(Object.entries(files).map(([relative, text]) => [relative, `sha256:${sha(text)}`])),
+      source: 'local', local_path: '../review-pack', content_hash: `sha256:${'e'.repeat(64)}`, declared_license: 'MIT'
+    }],
+    deployments: deployed.map((value) => ({ kind: 'project-relative', target: 'copilot', value, runtime: null, scope: 'project',
+      owners: ['../review-pack'], active_owner: '../review-pack', content_hash: files[value] ? `sha256:${sha(files[value])}` : null }))
+  };
+  const manifest = { name: 'consumer', version: '1.0.0', targets: ['copilot'], dependencies: { apm: ['../review-pack'], mcp: [] }, includes: 'auto', scripts: {} };
+  const root = await project(t, { manifest, lock, files });
+  const status = await apmProjectStatus(root, { cliVersion: false });
+  assert.equal(status.state, 'intact', JSON.stringify(status.findings));
+  assert.equal(status.packages[0].label, 'review-pack (local)');
+  assert.equal(status.packages[0].files.ok, 3, 'the skill folder counts as present');
+  assert.deepEqual(status.packages[0].primitives.map(({ kind, name, target }) => `${kind}:${name}:${target}`),
+    ['skill:code-review:.agents', 'agent:reviewer:.github']);
+
+  await rm(path.join(root, '.agents/skills/code-review'), { recursive: true });
+  assert.deepEqual((await apmProjectStatus(root, { cliVersion: false })).findings.map((entry) => `${entry.code} ${entry.path}`),
+    ['deployed-missing .agents/skills/code-review', 'deployed-missing .agents/skills/code-review/SKILL.md']);
+});
+
 test('the readers: dependency forms, deployed paths, primitives and hashes', () => {
   assert.deepEqual(declaredDependency('acme/agents/review#v1'), { kind: 'github', label: 'acme/agents/review#v1', repository: 'acme/agents', virtualPath: 'review', ref: 'v1', confident: true });
   assert.equal(declaredDependency('planner@acme-catalog').kind, 'marketplace');

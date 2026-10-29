@@ -1356,7 +1356,7 @@ const PAGES = Object.freeze({
     summary: 'See the repository\'s APM packages as the APM CLI left them, and whether every file it deployed is intact and committed.',
     description: [
       'APM (Agent Package Manager) owns packages: apm.yml declares them, apm install resolves each one to a commit,',
-      'writes its agents, skills, instructions and prompts into .github/ and records every file with its SHA-256 in',
+      'writes its agents, instructions and prompts into .github/ and its skills into .agents/skills/, and records every file with its SHA-256 in',
       'apm.lock.yaml. Commit all three, so every clone and every Story uses the same agents.',
       'apm status reads those files and checks each deployed file against the lock: missing, changed since apm',
       'install wrote it, or not committed. It names the packages, what each one deployed, the agents in',

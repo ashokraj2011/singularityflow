@@ -155,7 +155,8 @@ test('test commands in AGENTS.md, copilot-instructions, a CI workflow and a Make
   assert.match(secret.notes.join(' '), /API_TOKEN looks like a secret, so the value was not read: declare it as a secret in singularity\/environments\.yml/u);
   const [web] = from('.github/copilot-instructions.md');
   assert.deepEqual([web.source.line, web.written, web.command.argv, web.command.env, web.command.workingDirectory, web.command.affectedRoots, web.command.result.adapter],
-    [6, 'cd web && CI=true npm run test:unit', ['npm', 'run', 'test:unit', '--', '--reporter=json', '--outputFile=.sflow/results/node-tests.json'],
+    // A named script reports under its own name, so two scripts run in one step never share a file.
+    [6, 'cd web && CI=true npm run test:unit', ['npm', 'run', 'test:unit', '--', '--reporter=json', '--outputFile=.sflow/results/test-unit-tests.json'],
       { CI: 'true' }, 'web', ['web'], 'vitest-json']);
   const [maven] = from('.github/workflows/ci.yml');
   assert.deepEqual([maven.source.line, maven.command.argv, maven.command.workingDirectory, maven.command.affectedRoots, maven.command.result],

@@ -380,6 +380,9 @@ export async function nodeTestCommands(root, module, { manager, unitOnly = false
     && (steps(candidate.runner === 'node-test' && candidate.step.entries.has('test') ? 'test' : candidate.step.script)?.length === 1
       || (!candidate.step.last && candidate.runner !== 'node-test'));
   if (unitOnly) candidates.splice(0, candidates.length, ...candidates.filter(unitSafe));
+  // A named script is judged by the runners it reaches. Other scripts' configurations made it ambiguous,
+  // so even the inspection that suggests each one refused with the same error (office, 2026-10-29).
+  if (nodeScript !== 'test') candidates.splice(0, candidates.length, ...candidates.filter((candidate) => candidate.step.entries.has(nodeScript)));
   const rank = (candidate) => [candidate.step.entries.has('test') ? 0 : 1, candidate.scriptless ? order.length : order.indexOf(candidate.step.script)];
   const before = (left, right) => { const [a, b] = [rank(left), rank(right)]; return a[0] - b[0] || a[1] - b[1]; };
   const groups = new Map();
@@ -396,8 +399,9 @@ export async function nodeTestCommands(root, module, { manager, unitOnly = false
     if (distinct.length > 1 && !(whole.length === 1 && distinct.every((candidate) => candidate.config === whole[0].config))) {
       const names = distinct.map((candidate) => candidate.script ?? candidate.config);
       throw new SingularityFlowError(`Package scripts ${names.join(' and ')} in ${module.root} run ${group[0].runner} ${group[0].level} tests with `
-        + 'different configurations or selections, and neither runs the whole of the other, so no test command was guessed. '
-        + 'Configure the one the gate runs (kind: test, argv, workingDirectory, affectedRoots and a result adapter).',
+        + 'different configurations or selections, and neither runs the whole of the other, so no single test command was guessed. '
+        + 'A step may run several: capability test-setup suggests one per script; propose each the gate should run, each covering the folders it tests '
+        + '(or give each in full: kind: test, argv, workingDirectory, affectedRoots and a result adapter).',
       { code: 'TEST_MODULE_AMBIGUOUS', details: testSetupRoute({ directory: module.root, scripts: names }) });
     }
     chosen.push(distinct.length > 1 ? whole[0] : distinct[0]);
@@ -410,7 +414,8 @@ export async function nodeTestCommands(root, module, { manager, unitOnly = false
     if (nodeScript !== 'test' && !candidate.step.entries.has(nodeScript)) continue;
     const name = unit ? (primary ? (candidate.runner.startsWith('ng') ? 'angular' : 'node') : candidate.runner)
       : candidate.runner + (candidate.level === 'component' ? (candidate.runner === 'cypress' ? '-component' : '-ct') : '');
-    const base = `.sflow/results/${primary ? 'node' : name}-tests`;
+    // A named script's command reports under its own name: two scripts run in one step otherwise wrote one file.
+    const base = `.sflow/results/${primary ? (nodeScript !== 'test' ? nodeScript.replace(/[^A-Za-z0-9._-]/gu, '-') : 'node') : name}-tests`;
     const report = candidate.adapter === 'node-tap' ? `${base}.tap` : candidate.adapter === 'karma-text' ? `${base}.karma.txt`
       : candidate.runner === 'cypress' ? base : candidate.adapter === 'junit-xml' ? `${base}.xml` : `${base}.json`;
     commands.push({

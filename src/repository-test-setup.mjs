@@ -2,7 +2,7 @@
 import { readdir } from 'node:fs/promises';
 import path from 'node:path';
 import { inferRepositoryTestCommands } from './repository-test-command-inference.mjs';
-import { resolveAffectedModule, sourceEcosystem, testCommandEcosystem } from './code-delivery-tests.mjs';
+import { inferModuleTestCommand, resolveAffectedModule, sourceEcosystem, testCommandEcosystem } from './code-delivery-tests.mjs';
 import { moduleTestCommands } from './test-module-markers.mjs';
 import { secureRepositoryPath, SingularityFlowError } from './util.mjs';
 
@@ -70,6 +70,20 @@ export async function inspectRepositoryTestSetup(root, { sourceRoots = ['.'], pl
       if (!['TEST_MODULE_UNCOVERED', 'TEST_MODULE_AMBIGUOUS', 'GRADLE_TEST_TARGET_REQUIRED', 'RUST_TEST_ADAPTER_REQUIRED', 'XCODE_TEST_TARGET_REQUIRED'].includes(error.code)) throw error;
       // A runner that needs a device or a scheme comes with the command to complete [TCE:REQ-075].
       diagnostics.push({ path: directory, code: error.code, message: error.message, ...(error.details?.proposal ? { proposal: error.details.proposal } : {}) });
+      // Several runners with different configurations: suggest each script's own command, so the person
+      // proposes every one the gate should run (a step may run several) instead of finding none.
+      if (error.code === 'TEST_MODULE_AMBIGUOUS') {
+        const moduleRoot = error.details?.directory ?? directory;
+        for (const script of error.details?.scripts ?? []) {
+          let command = null;
+          try { command = await inferModuleTestCommand(root, { root: moduleRoot, system: 'node', manifest: 'package.json' }, { platform, nodeScript: script }); }
+          catch { /* that script alone cannot be inferred either; the diagnostic says why */ }
+          if (!command) continue;
+          const id = `${moduleRoot === '.' ? '' : `${moduleRoot.replaceAll('/', '-')}-`}${script}-tests`;
+          if (!suggestions.some(entry => JSON.stringify(entry.argv) === JSON.stringify(command.argv)
+              && entry.workingDirectory === command.workingDirectory)) suggestions.push({ ...command, id });
+        }
+      }
     }
   }
   // Test commands the team wrote down, completed and kept with their file and line [TCE:REQ-061..063];

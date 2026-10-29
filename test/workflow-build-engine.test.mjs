@@ -284,9 +284,9 @@ test('a test, lint or build command in a skill becomes a step check sflow runs; 
   // A test command is completed into the full record a code step publishes with [TCE:REQ-063]: its variable,
   // folder and module, and the Vitest reporter and result; a lint check stays as written.
   assert.deepEqual(updates, {
-    verification: [{ id: 'ci-true-npm-run-test-unit', kind: 'test', argv: ['npm', 'run', 'test:unit', '--', '--reporter=json', '--outputFile=.sflow/results/node-tests.json'],
+    verification: [{ id: 'ci-true-npm-run-test-unit', kind: 'test', argv: ['npm', 'run', 'test:unit', '--', '--reporter=json', '--outputFile=.sflow/results/test-unit-tests.json'],
       env: { CI: 'true' }, workingDirectory: 'web', affectedRoots: ['web'], modelPolicy: 'never',
-      result: { adapter: 'vitest-json', path: '.sflow/results/node-tests.json', minimumDiscovered: 1 }, requirement: 'required' }],
+      result: { adapter: 'vitest-json', path: '.sflow/results/test-unit-tests.json', minimumDiscovered: 1 }, requirement: 'required' }],
     implementation: [{ id: 'npm-run-lint', modelPolicy: 'never', argv: ['npm', 'run', 'lint'], kind: 'lint', requirement: 'required' }]
   }, 'the command is the one the team wrote, never one a proposal types in');
   const { normalizeRequiredTestCommand } = await import('../src/code-delivery-tests.mjs');

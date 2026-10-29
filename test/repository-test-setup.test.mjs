@@ -116,3 +116,31 @@ test('a proposed test command that is not runnable names the field and the inspe
   const plan = refusalRemediationPlan(refused, ['capability', 'test-setup', '--step', 'implementation', '--id', 'unit']);
   assert.deepEqual(plan.steps.map((entry) => entry.command)[0], 'singularity-flow capability test-setup --json');
 });
+
+// An office repository's server and client Jest suites refused the gate's guess, and the inspection the
+// refusal names refused with the same error, so nothing could be proposed (2026-10-29).
+test('two runners with different configurations are each suggested; the gate still guesses neither', async t => {
+  const root = await fixture(t);
+  await mkdir(path.join(root, 'client'), { recursive: true });
+  await writeFile(path.join(root, 'package.json'), JSON.stringify({ name: 'split', private: true, scripts: {
+    'test-server': 'jest --config "./jest.config.ts" --detectOpenHandles',
+    'test-client': 'jest --config "./client/jest.config.ts" --detectOpenHandles',
+    'test-unit': 'npm run test-server && npm run test-client'
+  }, devDependencies: { jest: '29.7.0' } }));
+  await writeFile(path.join(root, 'package-lock.json'), '{}');
+  await writeFile(path.join(root, 'jest.config.ts'), "export default { roots: ['<rootDir>/server'] };\n");
+  await writeFile(path.join(root, 'client', 'jest.config.ts'), 'export default {};\n');
+  const inspection = await inspectRepositoryTestSetup(root);
+  assert.equal(inspection.status, 'suggestions-available');
+  const byId = Object.fromEntries(inspection.suggestions.map((entry) => [entry.id, entry]));
+  assert.deepEqual(Object.keys(byId).sort(), ['test-client-tests', 'test-server-tests']);
+  assert.notEqual(byId['test-server-tests'].result.path, byId['test-client-tests'].result.path, 'each writes its own report');
+  assert.ok(byId['test-server-tests'].argv.includes(byId['test-server-tests'].result.path));
+  assert.ok(inspection.diagnostics.some((entry) => entry.code === 'TEST_MODULE_AMBIGUOUS' && /A step may run several/u.test(entry.message)));
+  // A written command naming one of them is completed from that script alone.
+  const { inferModuleTestCommand } = await import('../src/code-delivery-tests.mjs');
+  const server = await inferModuleTestCommand(root, { root: '.', system: 'node', manifest: 'package.json' }, { nodeScript: 'test-server' });
+  assert.deepEqual(server.argv.slice(0, 3), ['npm', 'run', 'test-server']);
+  // The gate's own inference still never picks one.
+  await assert.rejects(inferModuleTestCommand(root, { root: '.', system: 'node', manifest: 'package.json' }), { code: 'TEST_MODULE_AMBIGUOUS' });
+});

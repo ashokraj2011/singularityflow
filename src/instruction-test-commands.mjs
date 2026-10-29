@@ -364,6 +364,9 @@ async function nxProjectDirectory(root, name) {
 }
 
 /** Complete one recognised command; `{ record }` or `{ reason }`, with notes either way. */
+/** Inference that declines to guess (rather than fails); the inspection reports these, never throws them. */
+const INFERENCE_REFUSALS = new Set(['TEST_MODULE_UNCOVERED', 'TEST_MODULE_AMBIGUOUS', 'GRADLE_TEST_TARGET_REQUIRED', 'RUST_TEST_ADAPTER_REQUIRED', 'XCODE_TEST_TARGET_REQUIRED']);
+
 async function completeRecognized(root, command, recognized, { platform, packageScript, scripts }) {
   const notes = [];
   const directory = recognized.prefix ? inside(command.directory, recognized.prefix) : command.directory;
@@ -534,7 +537,14 @@ export async function completeWrittenTestCommand(root, { text = null, argv = nul
   const recognized = recognize(command.argv, scripts);
   if (recognized.skip) return null;
   if (recognized.reason) return refuse(recognized.reason);
-  const completed = await completeRecognized(root, command, recognized, { platform, packageScript, scripts });
+  // A written command inference cannot complete is a candidate with its reason, never a refusal of the
+  // whole inspection: an ambiguous package refused the very inspection its refusal names (2026-10-29).
+  let completed;
+  try { completed = await completeRecognized(root, command, recognized, { platform, packageScript, scripts }); }
+  catch (error) {
+    if (!INFERENCE_REFUSALS.has(error.code)) throw error;
+    return refuse(error.message);
+  }
   // A package script read as its runner call brings the variables that script sets.
   const variables = literalVariables({ ...command.env, ...(completed.variables ?? {}) });
   const base = { runner: recognized.runner, secrets: variables.secrets, notes: [...variables.notes, ...notes, ...completed.notes] };

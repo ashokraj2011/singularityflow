@@ -241,3 +241,16 @@ test('a refresh changes only members of existing groups, and its replay refuses 
   assert.throws(() => assertApproverRefreshScope(before, widened, { additions }), { code: 'APR_REFRESH_INVALID' });
   assert.throws(() => assertApproverRefreshScope(before, { ...after, configurationSource: before.configurationSource }, { additions }), { code: 'APR_REFRESH_INVALID' });
 });
+
+// Every outcome the command emits must be a registered message: without them each preview, and each
+// confirmed refresh after its commit, ended in COMMAND_RESULT_INVALID (2026-10-29).
+test('every outcome story approvers refresh reports is a registered message', async () => {
+  const { commandResult, succeeded, noEffects } = await import('../src/narration/command-result.mjs');
+  const source = await (await import('node:fs/promises')).readFile(new URL('../src/commands/story-approvers.mjs', import.meta.url), 'utf8');
+  const ids = [...source.matchAll(/'(story\.approvers\.refresh-[a-z]+)'/gu)].map((match) => match[1]);
+  assert.deepEqual(ids.sort(), ['story.approvers.refresh-planned', 'story.approvers.refresh-recorded', 'story.approvers.refresh-unchanged']);
+  for (const id of ids) {
+    assert.doesNotThrow(() => commandResult({ operation: { id: 'story.approvers.refresh', classification: 'mutation' },
+      outcome: succeeded(id, { status: 'ready' }), effects: noEffects(), restState: 'informational', data: {} }), id);
+  }
+});

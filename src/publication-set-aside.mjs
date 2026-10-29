@@ -64,7 +64,11 @@ export async function planPublicationSetAside(root, config, workflow) {
   const parent = refHead(root, `${commit}^`);
   // Back to what the remote has when it builds on this commit's parent (a lost race), else the parent.
   const moveTo = !onBranch ? null : remoteTip && parent && isAncestor(root, parent, remoteTip) ? remoteTip : parent;
-  return { settable: true, ...shared, publishedElsewhere: false, parent, moveTo, onBranch, lostRace: Boolean(remoteTip) && moveTo === remoteTip };
+  // A race is lost only when another clone moved the remote past this commit's parent. A remote still
+  // at the parent refused the push for its own reason (a protected branch, a 403): sync called that a
+  // lost race and offered set-aside, and redoing the step was refused the same way (2026-10-29).
+  return { settable: true, ...shared, publishedElsewhere: false, parent, moveTo, onBranch,
+    lostRace: Boolean(remoteTip) && remoteTip !== parent && moveTo === remoteTip };
 }
 
 /** Set the waiting commit aside after the person confirmed its exact ID. */

@@ -492,6 +492,10 @@ export const OWN_TERMINAL_STEPS = Object.freeze([
   // The /sf-decide turn admitted it, then its live-terminal review refused the agent's shell (2026-10-28).
   ['plan-correction', planRowCorrectionStep],
   ['live-terminal-review', liveTerminalReviewStep],
+  // Approving with --confirm-evidence also records the step's planned screenshots and inspections as
+  // witnessed: a sign-off on evidence, like decision witness. A chat approval's receipt never bound
+  // that list, and its Copilot route dropped the flag and looped (2026-10-29).
+  ['approval-evidence-confirmation', ([command], options) => command === 'approve' && options['confirm-evidence'] === true],
   // `upstream-issue decide` for the bound Story is a /sf-decide turn's own; an amendment is not.
   ['upstream-amendment-decision', ([command, sub]) => command === 'upstream-issue' && ['decide-amendment', 'revalidate'].includes(sub)],
   ['environment-binding', ([command, sub]) => command === 'env' && ['bind', 'unbind'].includes(sub)]

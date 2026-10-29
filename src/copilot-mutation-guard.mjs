@@ -691,6 +691,8 @@ function decisionListChatRecord(positionals, options, workId) {
  * a test-run risk is answered in the approver's own terminal or VS Code approval form.
  */
 function approvalChatDecisions(options) {
+  // Confirming evidence with the approval is a sign-off on what the approver looked at; never a chat turn's.
+  if (options['confirm-evidence'] !== undefined) return false;
   const chosen = [options.choose].flat().filter(entry => entry !== undefined);
   if (!chosen.length) return options.decisions === undefined;
   return /^sha256:[a-f0-9]{64}$/u.test(options.decisions ?? '') && chosen.every(entry => typeof entry === 'string'
@@ -823,6 +825,12 @@ function liveTerminalReviewCall(call, value) {
   if (!safe) return false;
   const { positionals, options } = parseCli(safe.argv);
   return liveTerminalReviewStep(positionals, options);
+}
+function approvalEvidenceConfirmationCall(call, value) {
+  const safe = verifiedShellForm(call, value);
+  if (!safe) return false;
+  const { positionals, options } = parseCli(safe.argv);
+  return positionals[0] === 'approve' && options['confirm-evidence'] === true;
 }
 function planRowCorrectionCall(call, value) {
   const safe = verifiedShellForm(call, value);
@@ -1314,6 +1322,8 @@ async function mutationToolDecision(payload, record) {
         if (knowledgeConfirmationCall(call, value)) return mutationDenial(contract, KNOWLEDGE_CONFIRMATION_DENIAL, [], own());
         if (intentAmendmentDecisionCall(call, value)) return mutationDenial(contract,
           'PHASE_MUTATION_OPERATION_NOT_ALLOWED: an intent amendment is decided by a person who approves the scope, in their own terminal, not by this turn. Show the user the amendment and the decide command, and stop; do not retry it', [], own());
+        if (approvalEvidenceConfirmationCall(call, value)) return mutationDenial(contract,
+          'PHASE_MUTATION_OPERATION_NOT_ALLOWED: approving with --confirm-evidence also records the step\'s screenshots and inspections as witnessed, the word of the approver who looked at them, in their own terminal; an agent never signs off evidence. Approve here without it, or show the user the command and stop; do not retry it');
         if (planRowCorrectionCall(call, value)) return mutationDenial(contract,
           'PHASE_MUTATION_OPERATION_NOT_ALLOWED: correcting an approved plan\'s rows is the word of a person who approves that plan, after reviewing the exact rows in their own terminal; a preview (--dry-run) is all this turn may run. Show the user the command and stop; do not retry it', [], own());
         if (liveTerminalReviewCall(call, value)) return mutationDenial(contract,

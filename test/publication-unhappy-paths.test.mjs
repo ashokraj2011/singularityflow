@@ -99,6 +99,20 @@ test('a Story branch deleted from the remote is created again, by a new step and
   assert.equal(await waiting(root, id), null);
 });
 
+test('a push the remote refuses for its own reason is not called a lost race', async (t) => {
+  const id = 'DENY-1';
+  const { root, draft, refuse } = await story(t, id);
+  await draft(root, 'Publish the intake to a branch that refuses every push.');
+  await refuse(true);
+  assert.notEqual(flow(root, ['phase', 'publish', 'intake'], { fail: true }).status, 0);
+  // The remote still points at the commit's parent: a protected branch or a 403, not another clone.
+  const again = flow(root, ['sync'], { fail: true });
+  assert.notEqual(again.status, 0);
+  assert.doesNotMatch(again.stderr + again.stdout, /Another clone published/u);
+  assert.match(again.stderr + again.stdout, /Push still fails/u);
+  assert.ok(await waiting(root, id), 'the commit keeps waiting for the provider to accept it');
+});
+
 test('a waiting commit undone with git reset is never pushed, and is set aside only with its exact ID', async (t) => {
   const id = 'UNDO-1';
   const { root, draft, refuse } = await story(t, id);

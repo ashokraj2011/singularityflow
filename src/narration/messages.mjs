@@ -78,6 +78,20 @@ export const MESSAGES = Object.freeze({
     headline: (s) => `User-defined agent ${slot(s.name)}.`,
     preserves: true
   },
+  // `story approvers refresh` emitted these without entries, so every preview and every confirmed
+  // refresh (after its commit) ended in COMMAND_RESULT_INVALID (2026-10-29).
+  'story.approvers.refresh-planned': {
+    headline: (s) => `Previewed the approvers the approved configuration adds to this Story's existing groups (${slot(s.status)}). Nothing was recorded; a person in one of those groups confirms the plan digest in their own terminal.`,
+    preserves: true
+  },
+  'story.approvers.refresh-recorded': {
+    headline: (s) => `Recorded the added approvers in this Story (${slot(s.status)}). No one was removed, and earlier approvals still verify.`,
+    preserves: false
+  },
+  'story.approvers.refresh-unchanged': {
+    headline: (s) => `This Story already has every approver the approved configuration lists (${slot(s.status)}); nothing changed.`,
+    preserves: true
+  },
   'story.target-origin.previewed': {
     headline: (s) => `Previewed pinning ${slot(s.origin)} as this Story's authorized target origin. Nothing was pinned; a person who approves the step that checks it confirms the plan digest.`,
     preserves: true

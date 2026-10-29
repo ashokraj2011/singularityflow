@@ -1018,7 +1018,8 @@ test('inferred commands follow monorepo package managers and platform-native run
   const nodeCommand = await inferModuleTestCommand(root, {
     root: 'packages/web', system: 'node', manifest: 'package.json'
   });
-  assert.deepEqual(nodeCommand.argv.slice(0, 3), ['pnpm', 'test', '--']);
+  // pnpm hands `--` on to the script, where the runner reads what follows it as test filters.
+  assert.deepEqual(nodeCommand.argv.slice(0, 3), ['pnpm', 'test', '--reporter=json']);
   const pythonCommand = await inferModuleTestCommand(root, { root: '.', system: 'python', manifest: 'pyproject.toml' }, { platform: 'win32' });
   assert.deepEqual(pythonCommand.argv.slice(0, 7), [
     'py', '-3', '-B', '-m', 'pytest', '-p', 'no:cacheprovider'
@@ -1040,7 +1041,8 @@ test('a plain Vitest script yields structured evidence without editing the manif
       await writeFile(manifestPath, original);
       for (const platform of ['darwin', 'linux', 'win32']) {
         const command = await inferModuleTestCommand(root, { root: moduleRoot, system: 'node', manifest: 'package.json' }, { platform });
-        const prefix = manager === 'bun' ? ['bun', 'run', 'test', '--'] : manager === 'yarn' ? ['yarn', 'test'] : [manager, 'test', '--'];
+        // Only npm and bun take reporter arguments after `--`; pnpm and yarn pass every later word on, `--` included.
+        const prefix = manager === 'bun' ? ['bun', 'run', 'test', '--'] : ['yarn', 'pnpm'].includes(manager) ? [manager, 'test'] : [manager, 'test', '--'];
         assert.deepEqual(command.argv, [...prefix, '--reporter=json', '--outputFile=.sflow/results/node-tests.json']);
         assert.equal(command.workingDirectory, moduleRoot);
         assert.equal(command.result.adapter, 'vitest-json');

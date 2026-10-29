@@ -377,8 +377,9 @@ export async function inferModuleTestCommand(root, module, {
       const launcher = ancestor && !reactor
         ? wrapperFrom(platform, path.posix.relative(module.root, wrapperRoot === '.' ? '' : wrapperRoot), 'mvnw', 'mvnw.cmd')
         : executable(platform, './mvnw', '.\\mvnw.cmd');
-      // With the failsafe plugin, `verify` runs the integration tests and its reports sit beside surefire's.
-      const goal = await (await import('./test-module-markers.mjs')).mavenRunsIntegrationTests(root, module.root) ? 'verify' : 'test';
+      // With the failsafe plugin bound, `verify` runs the integration tests and its reports sit beside
+      // surefire's. Readiness's unit-only run stays on `test`, which never starts them or their services.
+      const goal = !unitOnly && await (await import('./test-module-markers.mjs')).mavenRunsIntegrationTests(root, module.root) ? 'verify' : 'test';
       const reports = `target/${goal === 'verify' ? 'failsafe' : 'surefire'}-reports`;
       return {
         id: `${module.root}-maven-tests`, kind: 'test',
@@ -1384,11 +1385,19 @@ export async function parseTestResult(root, command, { startedAt = null } = {}) 
   const repositoryRoot = (await secureRepositoryPath(root, '.', {
     label: 'Repository root', mustExist: true, type: 'directory'
   })).absolute;
+  // A bound failsafe plugin always writes its summary to failsafe-reports. A verify that wrote none ran
+  // no integration tests (an inactive profile, a parent that binds nothing): its surefire reports beside
+  // are the whole run, and resultFiles reads them.
+  const failsafe = normalizedCommand.result.adapter === 'junit-xml' && path.basename(normalizedCommand.result.path) === 'failsafe-reports';
   const secured = await secureRepositoryPath(
     root,
     path.join(moduleRoot, normalizedCommand.result.path),
-    { label: 'Structured test result', mustExist: true }
-  ).catch((error) => {
+    { label: 'Structured test result', mustExist: !failsafe }
+  ).then(async (target) => {
+    if (!target.exists) await secureRepositoryPath(root, path.join(moduleRoot, path.dirname(normalizedCommand.result.path), 'surefire-reports'),
+      { label: 'Structured test result', mustExist: true });
+    return target;
+  }).catch((error) => {
     throw new SingularityFlowError(`Structured test result is not securely repository-contained: ${error.message}`, {
       code: 'CODE_TEST_RESULT_REQUIRED', cause: error
     });

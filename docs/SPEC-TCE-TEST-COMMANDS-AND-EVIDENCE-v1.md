@@ -175,10 +175,20 @@ still fill an uncovered module, and that command is pinned on first use.
 - `[TCE:REQ-071]` Node: follow `npm run` references and `&&` chains to the runner; detect Jest, Vitest,
   mocha, Cypress, `react-scripts test`, `ng test` (Karma or Jest) and Playwright with `--project`,
   `--config` or an env prefix; add reporter arguments to the runner's own invocation, never the tail
-  of a chain. Mocha reports through a JUnit reporter.
+  of a chain. Mocha reports through a JUnit reporter. Reporter arguments follow `--` for npm and bun
+  only: pnpm and yarn pass `--` on, and the runner reads what follows it as test filters. A command
+  never skips setup the script runs before its runner (a `pre` hook or an earlier step other than a
+  lint, type or format check, a clean-up or another test run): such a script is refused with the
+  test-setup route instead of guessed.
 - `[TCE:REQ-072]` .NET: a product project's tests are the test projects that reference it.
-- `[TCE:REQ-073]` Maven: modules with the failsafe plugin or `*IT` tests run `verify` and read
-  `failsafe-reports`; `*IT` names are test files.
+  Readiness's unit-only run leaves out test projects named for integration, end-to-end, acceptance or
+  functional tests.
+- `[TCE:REQ-073]` Maven: a module whose POM or parent declares the failsafe plugin with an execution
+  that binds `integration-test` (there or in pluginManagement) runs `verify` and reads
+  `failsafe-reports` with surefire's beside it; a bare declaration binds nothing and keeps `test`, and a
+  parent outside the repository counts as binding. A `verify` that wrote no `failsafe-reports` ran no
+  integration tests and reads surefire's. Readiness's unit-only run uses `test`. `*IT` names are test
+  files.
 - `[TCE:REQ-074]` Python: `requirements*.txt`, `setup.py`, `setup.cfg`, tox, nox, uv and poetry
   projects infer pytest; pytest JUnit results are per test.
 - `[TCE:REQ-075]` Android device tests, Xcode and anything needing a device or scheme are proposed,

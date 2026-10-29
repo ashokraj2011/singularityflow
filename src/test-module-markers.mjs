@@ -227,14 +227,18 @@ function stepRunner(words) {
   return null;
 }
 
-/** Every runner step `entry` reaches through package-script references, within the reader's bounds. */
+/**
+ * Every runner step `entry` reaches through package-script references, within the reader's bounds, with
+ * the scripts on the way there (`chain`, `entry` first) and what runs before the runner on that way
+ * (`prior`): each script's `pre` hook and the steps before the one that leads on.
+ */
 function reachedSteps(scripts, entry, stepsOf) {
   const found = [];
   const visiting = new Set();
   const visited = new Set();
   let nodes = 0;
   let bytes = 0;
-  const visit = (name, depth) => {
+  const visit = (name, depth, chain, prior) => {
     if (depth > SCRIPT_LIMITS.depth) throw scriptFailure(`depth ${SCRIPT_LIMITS.depth}`);
     if (visited.has(name) || visiting.has(name) || typeof scripts[name] !== 'string') return;
     nodes += 1;
@@ -242,19 +246,81 @@ function reachedSteps(scripts, entry, stepsOf) {
     if (nodes > SCRIPT_LIMITS.nodes || bytes > SCRIPT_LIMITS.bytes) throw scriptFailure(`${SCRIPT_LIMITS.nodes} scripts or ${SCRIPT_LIMITS.bytes} bytes`);
     visiting.add(name);
     const steps = stepsOf(name) ?? [];
+    const here = [...chain, name];
+    const hooked = typeof scripts[`pre${name}`] === 'string' ? [...prior, { script: name, hook: `pre${name}` }] : prior;
     for (const [index, words] of steps.entries()) {
+      const before = [...hooked, ...steps.slice(0, index).map((earlier) => ({ script: name, words: earlier }))];
       const reference = scriptReference(words, scripts);
-      if (reference) visit(reference, depth + 1);
+      if (reference) visit(reference, depth + 1, here, before);
       else {
         const runner = stepRunner(words);
-        if (runner) found.push({ script: name, step: index, last: index === steps.length - 1, words, ...runner });
+        if (runner) found.push({ script: name, step: index, last: index === steps.length - 1, words, ...runner, chain: here, prior: before });
       }
     }
     visiting.delete(name);
     visited.add(name);
   };
-  visit(entry, 0);
+  visit(entry, 0, [], []);
   return found;
+}
+
+// Commands that read the source and make nothing a test reads: linters, spell checks, clean-ups, messages.
+const CHECKERS = new Set(['eslint', 'tslint', 'standard', 'xo', 'stylelint', 'oxlint', 'markdownlint', 'markdownlint-cli2', 'cspell', 'rimraf', 'echo']);
+
+/** Whether a step makes nothing a test could read: a check, a clean-up, another test run, or a script of only those. */
+function makesNothing(words, scripts, stepsOf, seen) {
+  const reference = scriptReference(words, scripts);
+  if (reference) return scriptMakesNothing(reference, scripts, stepsOf, seen);
+  if (stepRunner(words)) return true;
+  let at = 0;
+  while (ENVIRONMENT_WORD.test(words[at] ?? '') || ['npx', 'bunx', 'pnpm', 'yarn', 'exec', 'dlx', '--no-install', '--no'].includes(words[at])) at += 1;
+  const name = commandName(words[at] ?? '');
+  const rest = words.slice(at + 1);
+  if (CHECKERS.has(name)) return !rest.some((word) => /^--fix(?:=|$)/u.test(word));
+  if (name === 'prettier') return rest.some((word) => ['--check', '-c', '--list-different', '-l'].includes(word)) && !rest.some((word) => ['--write', '-w'].includes(word));
+  if (name === 'tsc' || name === 'vue-tsc') return rest.some((word) => /^--noEmit(?:=true)?$/u.test(word));
+  if (name === 'biome') return ['lint', 'check', 'ci', 'format'].includes(rest[0]) && !rest.some((word) => /^--(?:write|apply|apply-unsafe|fix)$/u.test(word));
+  return false;
+}
+
+/** Whether a script, with the hooks npm runs around it, makes nothing a test could read. */
+function scriptMakesNothing(name, scripts, stepsOf, seen = new Set()) {
+  if (seen.has(name)) return true;
+  seen.add(name);
+  const steps = stepsOf(name);
+  return Boolean(steps) && steps.every((words) => makesNothing(words, scripts, stepsOf, seen))
+    && [`pre${name}`, `post${name}`].every((hook) => typeof scripts[hook] !== 'string' || scriptMakesNothing(hook, scripts, stepsOf, seen));
+}
+
+/**
+ * What the script a command stands for runs before its runner that the command would not: a `pre` hook or
+ * an earlier step that may make what the tests read (a generated file, a build). A command that runs the
+ * runner alone skips all of it; one that runs a script skips what the scripts above that one run. Checks,
+ * clean-ups and other test runs are skipped safely. The script judged is the named one when it reaches
+ * the runner (`test` by default), else any script that does. Null when nothing is lost.
+ */
+function skippedSetup(step, invokes, nodeScript, scripts, stepsOf) {
+  let lost = null;
+  for (const entry of step.entries.has(nodeScript) ? [nodeScript] : [...step.entries]) {
+    const { chain, prior } = step.reached.get(entry);
+    const from = invokes ? chain.indexOf(invokes) : -1;
+    const setup = prior.filter((item) => (from < 0 || chain.indexOf(item.script) < from)
+      && !(item.hook ? scriptMakesNothing(item.hook, scripts, stepsOf) : makesNothing(item.words, scripts, stepsOf, new Set())));
+    if (!setup.length) return null;
+    lost ??= { entry, setup };
+  }
+  return lost;
+}
+
+function setupSkippedError(module, candidate) {
+  const { entry, setup } = candidate.skipsSetup;
+  const named = setup.map((item) => (item.hook ? `\`${item.hook}\`` : `\`${item.words.join(' ')}\`${item.script === entry ? '' : ` (in ${item.script})`}`));
+  const runs = `\`${candidate.step.words.slice(candidate.step.index).join(' ')}\``;
+  return new SingularityFlowError(`Package script ${entry} in ${module.root} runs ${named.join(' and ')} before ${runs}. A command that adds `
+    + `${candidate.runner}'s report would skip ${named.length > 1 ? 'them' : 'it'}, and the tests may need what ${named.length > 1 ? 'they make' : 'it makes'}, `
+    + `so no test command was guessed. Make ${runs} the last step of ${entry} itself (later steps can move to post${entry}): SFlow then runs ${entry} `
+    + 'with the report added, setup included. If the tests need none of it, propose a command that runs the runner alone with capability test-setup.',
+  { code: 'TEST_MODULE_UNCOVERED', details: testSetupRoute({ directory: module.root, script: entry, setup: named }) });
 }
 
 /** What a runner's arguments select (its configuration apart), without how it reports or how fast it runs. */
@@ -304,8 +370,11 @@ async function nodeCandidate(root, cwd, step, { manager, dependencies }) {
   if (runner === 'ng' && !builder) return null;
   const junitMocha = Object.hasOwn(dependencies, 'mocha-junit-reporter');
   const ownReporter = runner === 'mocha' && words.some((word) => /^(?:-[RO]|--reporter(?:-options?)?)(?:=|$)/u.test(word));
+  // The script the command runs through the package manager; null when the runner runs alone.
+  // node:test reports on stdout: the whole script runs, as `npm test` when it reaches the test.
+  const invokes = runner === 'node-test' ? (step.entries.has('test') ? 'test' : step.script) : step.last && !ownReporter ? step.script : null;
   return {
-    level, runner: builder === 'jest' ? 'ng-jest' : runner, script: step.script, config, selection, step,
+    level, runner: builder === 'jest' ? 'ng-jest' : runner, script: step.script, config, selection, step, invokes,
     adapter: runner === 'node-test' ? 'node-tap' : runner === 'playwright' ? 'playwright-json' : runner === 'cypress' || (runner === 'mocha' && junitMocha) ? 'junit-xml'
       : runner === 'mocha' ? 'mocha-json' : runner === 'vitest' ? 'vitest-json' : builder === 'karma' ? 'karma-text' : 'jest-json',
     build(report) {
@@ -320,9 +389,10 @@ async function nodeCandidate(root, cwd, step, { manager, dependencies }) {
                 : runner === 'playwright' ? ['--reporter=json'] : ['--reporter', 'junit', '--reporter-options', `mochaFile=${report}/[hash].xml`];
       const invoke = (name) => (manager === 'npm' ? (name === 'test' ? ['npm', 'test'] : ['npm', 'run', name])
         : manager === 'yarn' ? ['yarn', name] : manager === 'pnpm' ? ['pnpm', name] : ['bun', 'run', name]);
-      // node:test reports on stdout: the whole script runs, as `npm test` when it reaches the test.
-      if (runner === 'node-test') return invoke(step.entries.has('test') ? 'test' : step.script);
-      if (step.last && !ownReporter) return [...invoke(step.script), ...(manager === 'yarn' ? [] : ['--']), ...args];
+      if (runner === 'node-test') return invoke(invokes);
+      // npm and bun hand the script what follows `--`. pnpm (7 and later) and yarn hand it every word after
+      // the script's name, `--` included, and a runner reads what follows its own `--` as test filters.
+      if (invokes) return [...invoke(invokes), ...(['pnpm', 'yarn'].includes(manager) ? [] : ['--']), ...args];
       // Inside a chain, the step runs alone through the package manager's exec (never with an
       // environment prefix the shell would have applied).
       if (step.start || !EXEC[manager]) return null;
@@ -348,8 +418,9 @@ export async function nodeTestCommands(root, module, { manager, unitOnly = false
   for (const entry of order) {
     for (const step of reachedSteps(scripts, entry, steps)) {
       const key = `${step.script}\u0000${step.step}`;
-      if (!byStep.has(key)) byStep.set(key, { ...step, entries: new Set() });
+      if (!byStep.has(key)) byStep.set(key, { ...step, entries: new Set(), reached: new Map() });
       byStep.get(key).entries.add(entry);
+      byStep.get(key).reached.set(entry, step);
     }
   }
   const candidates = [];
@@ -359,7 +430,11 @@ export async function nodeTestCommands(root, module, { manager, unitOnly = false
   for (const step of byStep.values()) {
     if (hook(step.script)) continue;
     const candidate = await nodeCandidate(root, cwd, step, { manager, dependencies });
-    if (candidate && candidate.build('_')) candidates.push(candidate);
+    if (!candidate?.build('_')) continue;
+    // A command that would skip setup its script runs first (a pretest that generates a file the tests
+    // load) passes under `npm test` and fails under the gate (office review, 2026-10-29).
+    candidate.skipsSetup = skippedSetup(step, candidate.invokes, nodeScript, scripts, steps);
+    candidates.push(candidate);
   }
   // A Playwright config no script runs is run directly, by its name when that is not the default.
   if (EXEC[manager] && Object.keys(dependencies).some((name) => name === 'playwright' || name.startsWith('@playwright/'))) {
@@ -383,8 +458,10 @@ export async function nodeTestCommands(root, module, { manager, unitOnly = false
   // A named script is judged by the runners it reaches. Other scripts' configurations made it ambiguous,
   // so even the inspection that suggests each one refused with the same error (office, 2026-10-29).
   if (nodeScript !== 'test') candidates.splice(0, candidates.length, ...candidates.filter((candidate) => candidate.step.entries.has(nodeScript)));
-  const rank = (candidate) => [candidate.step.entries.has('test') ? 0 : 1, candidate.scriptless ? order.length : order.indexOf(candidate.step.script)];
-  const before = (left, right) => { const [a, b] = [rank(left), rank(right)]; return a[0] - b[0] || a[1] - b[1]; };
+  // `test` stands for the package; among other scripts, one that skips no setup is chosen over one that would.
+  const rank = (candidate) => [candidate.step.entries.has('test') ? 0 : 1, candidate.skipsSetup ? 1 : 0,
+    candidate.scriptless ? order.length : order.indexOf(candidate.step.script)];
+  const before = (left, right) => { const [a, b] = [rank(left), rank(right)]; return a[0] - b[0] || a[1] - b[1] || a[2] - b[2]; };
   const groups = new Map();
   for (const candidate of candidates.sort(before)) {
     const key = `${candidate.level}\u0000${candidate.runner}`;
@@ -404,7 +481,9 @@ export async function nodeTestCommands(root, module, { manager, unitOnly = false
         + '(or give each in full: kind: test, argv, workingDirectory, affectedRoots and a result adapter).',
       { code: 'TEST_MODULE_AMBIGUOUS', details: testSetupRoute({ directory: module.root, scripts: names }) });
     }
-    chosen.push(distinct.length > 1 ? whole[0] : distinct[0]);
+    const pick = distinct.length > 1 ? whole[0] : distinct[0];
+    if (pick.skipsSetup) throw setupSkippedError(module, pick);
+    chosen.push(pick);
   }
   chosen.sort((left, right) => LEVELS.indexOf(left.level) - LEVELS.indexOf(right.level) || before(left, right));
   const commands = [];
@@ -568,19 +647,43 @@ export async function dotnetTestCommands(root, module) {
   { code: 'TEST_MODULE_UNCOVERED', details: testSetupRoute({ manifest: own, system: 'dotnet' }) });
 }
 
+const failsafeBlocks = (text) => [...text.matchAll(/<plugin>[\s\S]*?<\/plugin>/gu)].map((match) => match[0])
+  .filter((block) => /<artifactId>\s*maven-failsafe-plugin\s*<\/artifactId>/u.test(block));
+const bindsIntegrationTest = (block) => [...block.matchAll(/<execution>([\s\S]*?)<\/execution>/gu)]
+  .some(([, execution]) => /<goal>\s*integration-test\s*<\/goal>/u.test(execution) && !/<phase>\s*none\s*<\/phase>/u.test(execution));
+
 /**
- * Whether a Maven module's build runs the failsafe plugin, declared in its POM or a POM above it in the
- * repository (outside pluginManagement): then `verify` runs its integration tests too [TCE:REQ-073].
+ * Whether a Maven module's build runs the failsafe plugin's integration tests [TCE:REQ-073]: its POM or a
+ * parent's declares the plugin (outside pluginManagement), and an execution binds the `integration-test`
+ * goal there or in a pluginManagement entry. The plugin binds no goal by itself, so a bare declaration
+ * runs nothing (office review, 2026-10-29). A parent outside the repository (spring-boot-starter-parent)
+ * may bind it, so one counts as binding; a run that wrote no failsafe-reports reads surefire's
+ * (code-delivery-tests.mjs).
  */
 export async function mavenRunsIntegrationTests(root, moduleRoot) {
-  let current = moduleRoot === '.' ? '' : moduleRoot;
-  while (true) {
-    const pom = (await packageText(root, path.posix.join(current, 'pom.xml'))).replace(/<!--[\s\S]*?-->/gu, '')
-      .replace(/<pluginManagement>[\s\S]*?<\/pluginManagement>/gu, '');
-    if (/<artifactId>\s*maven-failsafe-plugin\s*<\/artifactId>/u.test(pom)) return true;
-    if (!current) return false;
-    current = path.posix.dirname(current) === '.' ? '' : path.posix.dirname(current);
+  let file = path.posix.join(moduleRoot === '.' ? '' : moduleRoot, 'pom.xml');
+  let declared = false;
+  let bound = false;
+  for (const seen = new Set(); !seen.has(file) && seen.size < 32;) {
+    seen.add(file);
+    const pom = (await packageText(root, file)).replace(/<!--[\s\S]*?-->/gu, '');
+    const managed = [...pom.matchAll(/<pluginManagement>([\s\S]*?)<\/pluginManagement>/gu)].map((match) => match[1]).join('\n');
+    const active = pom.replace(/<pluginManagement>[\s\S]*?<\/pluginManagement>/gu, '');
+    declared ||= failsafeBlocks(active).length > 0;
+    bound ||= [...failsafeBlocks(active), ...failsafeBlocks(managed)].some(bindsIntegrationTest);
+    const parent = /<parent>([\s\S]*?)<\/parent>/u.exec(active)?.[1];
+    if (!parent) break;
+    // Maven looks for a parent at <relativePath> (../pom.xml by default; empty means the repository only).
+    const relative = /<relativePath\s*\/>/u.test(parent) ? '' : /<relativePath>\s*([^<]*?)\s*<\/relativePath>/u.exec(parent)?.[1] ?? '../pom.xml';
+    const target = relative && path.posix.normalize(path.posix.join(path.posix.dirname(file), relative.replaceAll('\\', '/')));
+    const next = target && (target.endsWith('.xml') ? target : path.posix.join(target, 'pom.xml'));
+    if (!next || next.startsWith('..') || !await packageText(root, next)) {
+      bound = true;
+      break;
+    }
+    file = next;
   }
+  return declared && bound;
 }
 
 /**

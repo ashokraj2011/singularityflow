@@ -4,6 +4,8 @@ import { inferModuleTestCommand } from './code-delivery-tests.mjs';
 import { repositoryManifestExists } from './repository-manifest.mjs';
 import { isDotnetManifest, selectDotnetManifest } from './dotnet-manifests.mjs';
 
+const NOT_UNIT_PROJECT = /(?:^|[^a-z])(?:integration|e2e|end-?to-?end|acceptance|functional)(?:tests?|[^a-z]|$)/iu;
+
 /** Repository-native, deterministic defaults. No model is needed to identify a build manifest. */
 export async function inferRepositoryTestCommands(root, { unitOnly = false, platform = process.platform } = {}) {
   // SwiftPM may coexist with another root build (for example a Node tooling package). Never
@@ -57,7 +59,9 @@ async function inferOtherRepositoryTestCommands(root, { unitOnly, platform }) {
   if (selected) {
     // A product project runs the test projects that reference it, as the module rule does [TCE:REQ-072].
     const commands = await (await import('./test-module-markers.mjs')).moduleTestCommands(root, { root: '.', system: 'dotnet', manifest: selected }, { platform });
-    return commands.map((command) => ({ ...command, id: command.id === '.-dotnet-tests' ? 'dotnet-tests' : command.id }));
+    // Readiness's unit-only run never starts a test project named for integration, end-to-end or acceptance tests.
+    return commands.filter((command) => !unitOnly || !NOT_UNIT_PROJECT.test(`${command.workingDirectory}/${command.argv[2] ?? ''}`))
+      .map((command) => ({ ...command, id: command.id === '.-dotnet-tests' ? 'dotnet-tests' : command.id }));
   }
   // A Python project without pyproject.toml or pytest.ini is still a pytest module, as a changed path's is [TCE:REQ-074].
   const python = (await readdir(root)).find((name) => /^(?:requirements[\w.-]*\.txt|setup\.py|setup\.cfg|Pipfile|tox\.ini|noxfile\.py)$/u.test(name));

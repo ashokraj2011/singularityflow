@@ -181,7 +181,7 @@ test('pnpm workspace, Turborepo and Lerna packages run their own test script, ne
     'packages/web/package.json': { name: '@mono/web', scripts: { test: 'vitest run' } }
   });
   assert.deepEqual(await changed(pnpm, 'packages/web/src/cart.ts', 'packages/web/src/cart.test.ts'), [[
-    'pnpm test -- --reporter=json --outputFile=.sflow/results/node-tests.json', 'packages/web', 'packages/web', 'vitest-json'
+    'pnpm test --reporter=json --outputFile=.sflow/results/node-tests.json', 'packages/web', 'packages/web', 'vitest-json'
   ]]);
   const turbo = await monorepo({
     'package.json': { name: 'mono', private: true, packageManager: 'npm@10.8.0', workspaces: ['apps/*', 'packages/*'], scripts: { test: 'turbo run test' } },

@@ -90,6 +90,45 @@ test('Node: Create React App, Angular with Jest or Karma, mocha, nested and chai
     ['npm run test:unit -- --json --outputFile .sflow/results/node-tests.json']);
 });
 
+test('Node: pnpm gets reporter arguments without --, and a command never skips setup its script runs before the runner', async (t) => {
+  const commands = async (scripts, extra = {}) => shape(await moduleTestCommands(await repository(t, { 'package.json': { scripts }, ...extra }), node()));
+  // pnpm hands `--` to the script, and vitest reads what follows it as filters: no report (office review, 2026-10-29).
+  assert.deepEqual(await commands({ test: 'vitest run' }, { 'pnpm-lock.yaml': 'lockfileVersion: 9\n' }),
+    [['.-node-tests', 'pnpm test --reporter=json --outputFile=.sflow/results/node-tests.json', 'vitest-json', '.sflow/results/node-tests.json']]);
+  assert.deepEqual(await commands({ test: 'vitest run' }),
+    [['.-node-tests', 'npm test -- --reporter=json --outputFile=.sflow/results/node-tests.json', 'vitest-json', '.sflow/results/node-tests.json']]);
+  const refused = async (scripts, setup) => assert.rejects(moduleTestCommands(await repository(t, { 'package.json': { scripts } }), node()), (error) => {
+    assert.equal(error.code, 'TEST_MODULE_UNCOVERED');
+    assert.deepEqual([error.details.script, error.details.setup], ['test', setup]);
+    assert.deepEqual(error.details.nextAction, { command: TEST_SETUP_COMMAND });
+    assert.match(error.message, /no test command was guessed\. Make `vitest run` the last step of test itself \(later steps can move to posttest\)/u);
+    return true;
+  });
+  // The office fixture: pretest generates vitest's setup file, and running vitest alone out of the chain skipped it.
+  await refused({ pretest: 'node gen-setup.mjs', test: 'vitest run && npm run lint', lint: 'eslint .' }, ['`pretest`']);
+  await refused({ test: 'node gen-setup.mjs && vitest run && npm run lint', lint: 'eslint .' }, ['`node gen-setup.mjs`']);
+  // A script that only runs another skips the setup the outer one runs first.
+  await refused({ pretest: 'npm run build', test: 'npm run unit', unit: 'vitest run', build: 'tsc' }, ['`pretest`']);
+  await refused({ test: 'npm run build && npm run unit', unit: 'vitest run', build: 'tsc -p .' }, ['`npm run build`']);
+  // Setup still runs when the runner ends the script: npm runs pretest and the earlier steps with it.
+  assert.deepEqual((await commands({ pretest: 'node gen-setup.mjs', test: 'node gen-other.mjs && vitest run' }))[0][1],
+    'npm test -- --reporter=json --outputFile=.sflow/results/node-tests.json');
+  // Checks, clean-ups and other test runs make nothing a test reads: skipping them is safe.
+  assert.deepEqual((await commands({ pretest: 'npm run lint', lint: 'eslint . && prettier --check .', test: 'tsc --noEmit && rimraf coverage && jest && codecov' }))[0][1],
+    'npx --no-install jest --json --outputFile .sflow/results/node-tests.json');
+  const both = await repository(t, { 'package.json': { scripts: { test: 'npm run test:unit && npm run test:e2e', 'test:unit': 'vitest run', 'test:e2e': 'playwright test' },
+    devDependencies: { '@playwright/test': '1.48.0' } } });
+  assert.deepEqual(shape(await moduleTestCommands(both, node())).map((command) => command[1]), [
+    'npm run test:unit -- --reporter=json --outputFile=.sflow/results/node-tests.json', 'npm run test:e2e -- --reporter=json']);
+  // A linter that fixes writes source the tests read: it is setup.
+  await refused({ test: 'eslint --fix . && vitest run && npm run lint', lint: 'eslint .' }, ['`eslint --fix .`']);
+  // npm test is the package's test: another script that runs the same tests without its setup does not stand in for it.
+  await refused({ pretest: 'node gen-setup.mjs', test: 'vitest run && npm run lint', 'test:ci': 'vitest run', lint: 'eslint .' }, ['`pretest`']);
+  // Among other scripts, one that skips nothing is chosen over one that would skip setup.
+  assert.deepEqual((await commands({ 'unit:gen': 'node gen-setup.mjs && vitest run && eslint .', 'unit:ci': 'vitest run' }))[0][1],
+    'npm run unit:ci -- --reporter=json --outputFile=.sflow/results/node-tests.json');
+});
+
 test('Node: each runner and level is its own command, found by its runner, and conflicting scripts are refused', async (t) => {
   const levels = await repository(t, {
     'package.json': { scripts: { test: 'vitest', 'e2e:ci': 'playwright test --project=chromium', 'test:ct': 'playwright test -c playwright-ct.config.ts',
@@ -245,9 +284,25 @@ test('.NET: a product project is tested by the test projects that reference it, 
   });
 });
 
+test('.NET: readiness\'s unit-only run leaves out integration, end-to-end and acceptance test projects', async (t) => {
+  const testProject = `<Project Sdk="Microsoft.NET.Sdk">\n  <ItemGroup>\n    <PackageReference Include="Microsoft.NET.Test.Sdk" Version="17.11.1" />\n`
+    + '    <ProjectReference Include="../../Shop.csproj" />\n  </ItemGroup>\n</Project>\n';
+  const root = await repository(t, { 'Shop.csproj': '<Project Sdk="Microsoft.NET.Sdk" />\n', 'tests/Shop.Tests/Shop.Tests.csproj': testProject,
+    'tests/Shop.IntegrationTests/Shop.IntegrationTests.csproj': testProject, 'tests/Shop.E2E.Tests/Shop.E2E.Tests.csproj': testProject,
+    'tests/Integrations.Tests/Integrations.Tests.csproj': testProject });
+  const ids = async (options) => (await inferRepositoryTestCommands(root, options)).map((command) => command.id).sort();
+  assert.deepEqual(await ids({}), ['tests/Integrations.Tests-dotnet-tests', 'tests/Shop.E2E.Tests-dotnet-tests',
+    'tests/Shop.IntegrationTests-dotnet-tests', 'tests/Shop.Tests-dotnet-tests']);
+  // A product named Integrations is not an integration suite.
+  assert.deepEqual(await ids({ unitOnly: true }), ['tests/Integrations.Tests-dotnet-tests', 'tests/Shop.Tests-dotnet-tests']);
+});
+
+const FAILSAFE_BOUND ='<plugin><artifactId>maven-failsafe-plugin</artifactId>'
+  + '<executions><execution><goals><goal>integration-test</goal><goal>verify</goal></goals></execution></executions></plugin>';
+
 test('Maven: a module with the failsafe plugin runs verify and reads failsafe and surefire reports; *IT names are tests', async (t) => {
   const failsafe = '<project>\n  <modules><module>orders</module></modules>\n</project>\n';
-  const module = '<project>\n  <build><plugins><plugin><artifactId>maven-failsafe-plugin</artifactId></plugin></plugins></build>\n</project>\n';
+  const module = `<project>\n  <build><plugins>${FAILSAFE_BOUND}</plugins></build>\n</project>\n`;
   const junit = (name) => `<testsuite name="${name}" tests="1" failures="0" errors="0" skipped="0"><testcase classname="shop.${name}" name="works"/></testsuite>\n`;
   const root = await repository(t, { 'pom.xml': failsafe, mvnw: '', 'orders/pom.xml': module, 'billing/pom.xml': '<project>\n  <!-- maven-failsafe-plugin -->\n</project>\n',
     'orders/target/surefire-reports/TEST-shop.OrderTest.xml': junit('OrderTest'), 'orders/target/failsafe-reports/TEST-shop.OrderIT.xml': junit('OrderIT'),
@@ -260,8 +315,38 @@ test('Maven: a module with the failsafe plugin runs verify and reads failsafe an
   assert.deepEqual(persistedOccurrences(parsed).map((entry) => entry.className).sort(), ['shop.OrderIT', 'shop.OrderTest']);
   // A module without the plugin keeps `test`; a commented-out plugin is not one.
   assert.deepEqual((await inferModuleTestCommand(root, { root: 'billing', system: 'maven', manifest: 'pom.xml' })).argv.at(-1), 'test');
+  // Readiness's unit-only run never starts the integration tests (or the services they need).
+  assert.deepEqual((await inferModuleTestCommand(root, { root: 'orders', system: 'maven', manifest: 'pom.xml' }, { unitOnly: true })).argv,
+    ['./mvnw', '-pl', 'orders', '-am', 'test']);
   for (const name of ['OrderIT.java', 'OrderITCase.java', 'CheckoutIT.kt']) assert.equal(isTestSourceName(name), true, name);
   for (const name of ['AUDIT.java', 'Edit.java']) assert.equal(isTestSourceName(name), false, name);
+});
+
+test('Maven: declaring failsafe binds nothing; a binding in pluginManagement or a parent outside the repository runs verify', async (t) => {
+  const goal = async (files, moduleRoot = '.') => (await inferModuleTestCommand(await repository(t, files),
+    { root: moduleRoot, system: 'maven', manifest: 'pom.xml' })).argv.at(-1);
+  const declared = '<build><plugins><plugin><artifactId>maven-failsafe-plugin</artifactId><version>3.2.5</version></plugin></plugins></build>';
+  // The office case: mvn verify passed with surefire tests, and SFlow refused the failsafe-reports it never wrote.
+  assert.equal(await goal({ 'pom.xml': `<project>${declared}</project>` }), 'test');
+  assert.equal(await goal({ 'pom.xml': `<project><build><pluginManagement><plugins>${FAILSAFE_BOUND}</plugins></pluginManagement></build></project>` }), 'test');
+  assert.equal(await goal({ 'pom.xml': `<project><build><pluginManagement><plugins>${FAILSAFE_BOUND}</plugins></pluginManagement>${declared.replace('<build>', '')}</project>` }), 'verify');
+  // An execution whose phase is none is switched off.
+  assert.equal(await goal({ 'pom.xml': `<project><build><plugins>${FAILSAFE_BOUND.replace('<goals>', '<phase>none</phase><goals>')}</plugins></build></project>` }), 'test');
+  // spring-boot-starter-parent binds failsafe's goals for the plugin its children declare.
+  const external = '<parent><groupId>org.springframework.boot</groupId><artifactId>spring-boot-starter-parent</artifactId><version>3.3.4</version><relativePath/></parent>';
+  assert.equal(await goal({ 'pom.xml': `<project>${external}${declared}</project>` }), 'verify');
+  // A parent in the repository is followed, and a binding there reaches the child that declares the plugin.
+  assert.equal(await goal({ 'pom.xml': `<project><build><pluginManagement><plugins>${FAILSAFE_BOUND}</plugins></pluginManagement></build></project>`,
+    'orders/pom.xml': `<project><parent><artifactId>shop</artifactId></parent>${declared}</project>` }, 'orders'), 'verify');
+  assert.equal(await goal({ 'pom.xml': '<project></project>', 'orders/pom.xml': `<project><parent><artifactId>shop</artifactId></parent>${declared}</project>` }, 'orders'), 'test');
+  // A verify that wrote no failsafe-reports ran no integration tests: its surefire reports are the run.
+  const junit = '<testsuite name="OrderTest" tests="1" failures="0" errors="0" skipped="0"><testcase classname="shop.OrderTest" name="works"/></testsuite>\n';
+  const ran = await repository(t, { 'pom.xml': `<project>${external}${declared}</project>`, 'target/surefire-reports/TEST-shop.OrderTest.xml': junit });
+  const [command] = await moduleTestCommands(ran, { root: '.', system: 'maven', manifest: 'pom.xml' });
+  assert.equal(command.result.path, 'target/failsafe-reports');
+  assert.deepEqual((await parseTestResult(ran, command)).tests, { discovered: 1, passed: 1, failed: 0, skipped: 0 });
+  await assert.rejects(parseTestResult(await repository(t, { 'pom.xml': '<project/>' }), command),
+    (error) => error.code === 'CODE_TEST_RESULT_REQUIRED' && /surefire-reports/u.test(error.message));
 });
 
 test('Python: requirements-only, nox, uv and poetry projects run pytest, and pytest JUnit names each test', async (t) => {
@@ -529,7 +614,7 @@ const POLYGLOT = {
   'web/e2e/value.spec.ts': "import { test, expect } from '@playwright/test';\n\ntest.describe('value', () => {\n  test('shows the approved value', async () => {});\n});\n",
   'dotnet/src/App/App.csproj': '<Project Sdk="Microsoft.NET.Sdk" />\n', 'dotnet/src/App/Value.cs': 'public static class Value { public const int Current = 1; }\n',
   'dotnet/tests/App.Tests/App.Tests.csproj': '<Project Sdk="Microsoft.NET.Sdk"><ItemGroup><ProjectReference Include="..\\..\\src\\App\\App.csproj" /></ItemGroup></Project>\n',
-  'orders/pom.xml': '<project>\n  <build><plugins><plugin><artifactId>maven-failsafe-plugin</artifactId></plugin></plugins></build>\n</project>\n',
+  'orders/pom.xml': `<project>\n  <build><plugins>${FAILSAFE_BOUND}</plugins></build>\n</project>\n`,
   'orders/src/main/java/shop/Orders.java': 'package shop;\nfinal class Orders { static final int VALUE = 1; }\n',
   'svc/pyproject.toml': '[project]\nname = "svc"\n', 'svc/uv.lock': 'version = 1\n', 'svc/app.py': 'VALUE = 1\n',
   'svc/tests/test_app.py': 'from app import VALUE\n\ndef test_value():\n    assert VALUE == 1\n',

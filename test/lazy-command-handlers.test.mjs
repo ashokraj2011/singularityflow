@@ -201,7 +201,11 @@ test('frequent lifecycle handlers do not reach the legacy dispatcher and stay un
     // apm attach (agents.mjs, config.mjs, workflow-snapshots.mjs, phase-prompt-composer.mjs, workflow-studio.mjs,
     // editor.mjs, narration/messages.mjs, command-registry.mjs, help-text.mjs) add 5,055 for 9,254,197. The lock
     // reader and the apm normalizer are lazy; no new eager file.
-    assert.ok(closure.bytes <= 9_255_000, `${file} exceeds the 9 MB eager-source budget (${closure.bytes} bytes)`);
+    // 9,260,000 (next 5,000 boundary): main 58e90b56 measures 9,254,197 for start.mjs. A Maven verify that wrote no
+    // failsafe-reports reads surefire's, readiness's unit-only run keeps Maven on `test` and leaves out .NET
+    // integration projects (code-delivery-tests.mjs, repository-test-command-inference.mjs), adding 1,130 for
+    // 9,255,327 (submit.mjs 9,177,155). The Node setup and pnpm rules live in the lazy test-module-markers.mjs.
+    assert.ok(closure.bytes <= 9_260_000, `${file} exceeds the 9 MB eager-source budget (${closure.bytes} bytes)`);
   }
 });
 

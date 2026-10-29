@@ -96,6 +96,30 @@ export function conformanceTableRows(markdown) {
   return rows;
 }
 
+/**
+ * Tables whose header lacks a clause column or a Verdict column, so none of their rows is read. A
+ * "Status" column read as no rows at all, and the report then said every clause had no row
+ * (2026-10-29). Returns each such table's line and header.
+ */
+export function unreadConformanceTables(markdown) {
+  const found = [];
+  let candidate = null;
+  for (const [index, line] of visibleTableLines(markdown).entries()) {
+    const cells = tableCells(line);
+    if (!cells) { candidate = null; continue; }
+    if (separator(cells)) {
+      if (candidate && cells.length === candidate.cells.length) {
+        const headers = candidate.cells.map(heading);
+        if (!headers.some((value) => CLAUSE_HEADERS.has(value)) || !headers.includes('verdict')) found.push({ line: candidate.line, header: candidate.cells });
+      }
+      candidate = null;
+      continue;
+    }
+    candidate = candidate ? candidate : { line: index + 1, cells };
+  }
+  return found;
+}
+
 /** Require an individual qualified row, not an incidental identifier elsewhere in prose. */
 export function missingQualifiedConformanceRows(markdown, expectedIds) {
   const reported = new Set(conformanceTableRows(markdown)

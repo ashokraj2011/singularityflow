@@ -34,8 +34,9 @@ async function stageReport(root, config, workflow, phaseId, reportJson) {
     });
   }
   let report;
-  try { report = JSON.parse(reportJson); } catch {
-    throw new SingularityFlowError('The review JSON is invalid; no staging bytes changed.', { code: 'SOURCE_REVIEW_REPORT_INVALID' });
+  try { report = JSON.parse(reportJson); } catch (error) {
+    // The reviewer's own JSON: name where it breaks, or it rewrites the whole report blind.
+    throw new SingularityFlowError(`The review JSON is invalid (${error.message}); no staging bytes changed.`, { code: 'SOURCE_REVIEW_REPORT_INVALID' });
   }
   const { sourceReviewContext, sourceReviewInput, checkSourceReviewReport } = await import('./source-review-lifecycle.mjs');
   const phase = workflow.phases[phaseId];

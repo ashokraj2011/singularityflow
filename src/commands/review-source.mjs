@@ -131,7 +131,7 @@ export async function reviewSourceCommand(positionals, options) {
     }
     let report;
     try { report = JSON.parse(await readFile(stagingPath, 'utf8')); }
-    catch { throw new SingularityFlowError('Staged source review is not valid JSON. Repair the staging file; no review was retained.', {
+    catch (error) { throw new SingularityFlowError(`Staged source review is not valid JSON (${error.message}). Repair the staging file; no review was retained.`, {
       code: 'SOURCE_REVIEW_REPORT_INVALID'
     }); }
     if (action === 'check') {

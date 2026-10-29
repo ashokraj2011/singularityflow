@@ -7,7 +7,10 @@ import { normalizeMarkdownHeading, parseMarkdownStructure } from './markdown-str
 import { qualifiedClauseMatches } from './traceability-ids.mjs';
 export { inspectManagedArtifactMetadata };
 
-const PLACEHOLDER = /\b(?:TODO|TBD|FIXME|TBC)\b|\{\{[^}]+\}\}|\[\s*(?:describe|add|insert|provide|record)[^\]]*\]/gi;
+// "todo" is also an ordinary word (a to-do list Story could never publish), so TODO counts only in
+// capitals; tbd, tbc and fixme stay case-free (2026-10-29).
+const PLACEHOLDER = /\b(?:TBD|FIXME|TBC)\b|\{\{[^}]+\}\}|\[\s*(?:describe|add|insert|provide|record)[^\]]*\]/gi;
+const UPPERCASE_TODO = /\bTODO\b/g;
 // These words are useful in ordinary prose when lower-cased. Treat only the conventional uppercase
 // authoring markers as unfinished work so a sentence such as "no placeholder remains" is not itself
 // rejected by the placeholder guard.
@@ -131,7 +134,7 @@ export function artifactPlaceholderFindings(text, { structure = null } = {}) {
     placeholderText = placeholderText.slice(0, start) + ' '.repeat(length)
       + placeholderText.slice(start + length);
   }
-  const regular = [...placeholderText.matchAll(PLACEHOLDER)].map((match) => ({
+  const regular = [...placeholderText.matchAll(PLACEHOLDER), ...placeholderText.matchAll(UPPERCASE_TODO)].map((match) => ({
     value: visible.slice(match.index, match.index + match[0].length), index: match.index
   }));
   const explicitUppercase = [...placeholderText.matchAll(EXPLICIT_UPPERCASE_PLACEHOLDER)]
@@ -158,9 +161,16 @@ function requiredHeadingFindings(structure, required, pathName) {
     const normalized = normalizeMarkdownHeading(requested);
     const index = headings.findIndex((heading) => heading.normalized === normalized);
     if (index < 0) {
+      // A numbered, bold or colon-ended heading, or a bold line, reads as missing: name it.
+      const loose = (text) => normalizeMarkdownHeading(String(text).replace(/^[\s#]*/u, '').replace(/^\d+(?:\.\d+)*[.)]?\s+/u, '')
+        .replace(/[*_`]+/gu, '').replace(/[:.]\s*$/u, ''));
+      const lines = visibleText.split('\n');
+      const near = headings.find((heading) => loose(heading.title) === normalized)
+        ?? (() => { const at = lines.findIndex((line) => /^\s*(?:\*\*|__)/u.test(line) && loose(line) === normalized);
+          return at < 0 ? null : { line: at + 1, title: lines[at].trim() }; })();
       findings.push({
-        code: 'artifact.heading.missing', category: 'authoring', path: pathName, line: null,
-        value: String(requested), bytes: null, minimumBytes: null
+        code: 'artifact.heading.missing', category: 'authoring', path: pathName, line: near?.line ?? null,
+        value: String(requested), bytes: null, minimumBytes: null, ...(near ? { near: near.title } : {})
       });
       continue;
     }
@@ -368,7 +378,7 @@ export function artifactFindingMessage(finding) {
     return `Required artifact ${finding.path} has ${finding.bytes} authored bytes; maximum ${finding.maximumBytes}.`;
   }
   if (finding.code === 'artifact.placeholder.unresolved') {
-    return `${label} ${finding.path} contains unresolved placeholder '${finding.value}' at line ${finding.line}.`;
+    return `${label} ${finding.path} contains unresolved placeholder '${finding.value}' at line ${finding.line}: TODO (in capitals), TBD, TBC, FIXME, {{...}} and [describe ...] read as unfinished work, even inside code spans; finish that text or reword it.`;
   }
   if (finding.code === 'artifact.comment.unclosed') {
     return `${label} ${finding.path} contains an unclosed HTML comment opened at line ${finding.line}.`;
@@ -377,7 +387,8 @@ export function artifactFindingMessage(finding) {
     return `Required artifact ${finding.path} still matches its prepared template.`;
   }
   if (finding.code === 'artifact.heading.missing') {
-    return `Required artifact ${finding.path} is missing required Markdown heading '${finding.value}'.`;
+    return `Required artifact ${finding.path} is missing required Markdown heading '${finding.value}'.${finding.near
+      ? ` Line ${finding.line} has '${finding.near}': write it as a heading with exactly that text, without numbering, bold or a colon.` : ''}`;
   }
   if (finding.code === 'artifact.heading.empty') {
     return `Required artifact ${finding.path} has no authored content under required heading '${finding.value}' at line ${finding.line}.`;

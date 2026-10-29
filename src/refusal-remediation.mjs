@@ -720,6 +720,16 @@ const KNOWN = Object.freeze({
     return [phase ? step('correct-citation', `Correct or remove each citation the Story's pinned constitution does not contain (${(error.details.errors ?? []).length || 'see the refusal'}), then recheck. An article added since the Story started is not in its pin.`,
       `singularity-flow phase prepublish ${phase} --for-agent --json`, 'remediation', '/sf-phase') : null].filter(Boolean);
   },
+  // A draft table or section refused at publish: the same correction prepublish names, as one step.
+  // These had only the generic recover/doctor plan (2026-10-29).
+  ...Object.fromEntries(['SPEC_PLANNED_TABLE_INVALID', 'SPEC_PLANNED_ROW_REQUIRED', 'SPEC_PLANNED_PATH_SENTINEL_INVALID',
+    'SPEC_PLANNED_FULFILLMENT_INVALID', 'SPEC_PLANNED_OBSERVABLE_INVALID', 'SPEC_PLANNED_PATH_ROLE_INVALID',
+    'SPEC_PLANNED_EVIDENCE_TYPE_INVALID', 'SPEC_PLANNED_ALLOCATION_INVALID', 'SPEC_VERIFICATION_CONTRACT_INVALID',
+    'SPEC_VERIFICATION_INTENT_INVALID', 'SPEC_SUPPORTING_FILE_INVALID', 'SPEC_PUBLICATION_GATE_REFUSED'].map((code) => [code, (argv, error) => {
+    const phase = artifactAuthoringPhase(argv, error);
+    return [phase ? step('correct-draft', 'Correct what the refusal names in the step\'s draft (it quotes the cell or line and says what belongs there), then recheck; prepublish lists every remaining finding at once.',
+      `singularity-flow phase prepublish ${phase} --for-agent --json`, 'remediation', '/sf-phase') : null].filter(Boolean);
+  }])),
   // Refused at Story start: a step nobody could approve. Its fix is in the approved configuration.
   APPROVAL_POLICY_UNATTAINABLE: (argv, error) => {
     const details = error?.details ?? {};

@@ -488,8 +488,15 @@ export function analyzeSpecification(markdown, {
   for (const marker of reconciled.vanished) add('clarification-removed-unanswered', `clarification marker removed without a recorded answer: ${marker.question}`);
 
   const present = sectionsOf(markdown);
+  // A numbered, bold or colon-ended heading read as no section: name the near miss.
+  const loose = (text) => String(text).replace(/^[\s#]*/u, '').replace(/^\d+(?:\.\d+)*[.)]?\s+/u, '').replace(/[*_`]+/gu, '')
+    .replace(/[:.]\s*$/u, '').trim().toLowerCase();
   for (const section of REQUIRED_SECTIONS) {
-    if (!present.has(section.toLowerCase())) add('missing-required-section', `the specification has no '${section}' section`, { section });
+    if (present.has(section.toLowerCase())) continue;
+    const near = String(markdown).split('\n').find((line) => (/^#{1,6}\s/u.test(line) || /^\s*(?:\*\*|__)/u.test(line))
+      && loose(line) === section.toLowerCase());
+    add('missing-required-section', `the specification has no '${section}' section${near
+      ? `; '${near.trim()}' is not that heading: write it as a heading with exactly '${section}', without numbering, bold or a colon` : ''}`, { section });
   }
 
   const witnessed = resolved.witnessedClauses

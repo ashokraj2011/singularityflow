@@ -122,7 +122,11 @@ export async function preparePhaseAppeal(root, config, workflow, { phaseId = wor
       { recoveryCommand: `singularity-flow recover ${workflow.workItem.id} --phase ${phaseId ?? workflow.currentPhase} --json` });
   }
   const parsed = z.object({ changes: z.array(change).min(1).max(50), reason: text }).strict().safeParse({ changes, reason });
-  if (!parsed.success) fail('List 1–50 unique exact portable paths and substantive reasons. Wildcards, traversal, controls and unknown fields are not allowed.');
+  if (!parsed.success) {
+    const issue = parsed.error.issues[0];
+    fail(`List 1–50 unique exact portable paths and substantive reasons. Wildcards, traversal, controls and unknown fields are not allowed. `
+      + `${issue?.path?.length ? issue.path.join('.') : 'The appeal'}: ${issue?.message ?? 'invalid'}.`);
+  }
   changes = parsed.data.changes; reason = parsed.data.reason;
   if (new Set(changes.map(entry => entry.path)).size !== changes.length) fail('An appeal cannot list a path twice.');
   const plan = await activePlan(root, config, workflow);

@@ -516,7 +516,7 @@ export function validateCitations(pin, citedIds, { label = 'artifact' } = {}) {
   const cited = [...new Set((citedIds ?? []).map((id) => String(id).trim().toUpperCase()).filter(Boolean))].sort();
   if (!pin) {
     return cited.length
-      ? { cited, errors: [`${label} cites constitution article(s) ${cited.join(', ')} but this Story pinned no constitution.`], warnings: [] }
+      ? { cited, errors: [`${label} cites constitution article(s) ${cited.join(', ')} but this Story pinned no constitution. Every ID-shaped token (letters, a hyphen, three or more digits, such as ISO-8601 or JIRA-1234) under ## Constitution articles counts as a citation: write 'None' there with no IDs.`], warnings: [] }
       : { cited, errors: [], warnings: [] };
   }
   const known = new Map(pin.articles.map((article) => [article.id.toUpperCase(), article]));
@@ -524,7 +524,7 @@ export function validateCitations(pin, citedIds, { label = 'artifact' } = {}) {
   const warnings = [];
   for (const id of cited) {
     const article = known.get(id);
-    if (!article) { errors.push(`${label} cites constitution article ${id}, which the pinned constitution does not contain.`); continue; }
+    if (!article) { errors.push(`${label} cites constitution article ${id}, which the pinned constitution does not contain. Every ID-shaped token under ## Constitution articles counts as a citation (such as ISO-8601 or JIRA-1234); keep only the article IDs there.`); continue; }
     if (article.status === 'withdrawn') warnings.push(`${label} cites ${id}, which was withdrawn.`);
   }
   return { cited, errors, warnings };

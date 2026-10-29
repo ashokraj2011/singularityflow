@@ -22,7 +22,7 @@ import { mergedVerificationContracts, normalizeVerificationContracts, parseVerif
 import { nonTestVerification, parseVerificationIntent, validatePlannedVerification } from './verification/intent.mjs';
 import { verifyPlanEvidenceAmendments } from './plan-evidence-amendments.mjs';
 import { applyPlanCorrections } from './plan-row-corrections.mjs';
-import { collectDraftDiagnostic, draftDiagnosticSummary, inspectDraftValue } from './draft-diagnostics.mjs';
+import { collectDraftDiagnostic, draftDiagnosticSummary, inspectDraftValue, pathDefect, shown } from './draft-diagnostics.mjs';
 
 const CLAUSE_TYPES = new Set(GOVERNED_CLAUSE_TYPES);
 const VERDICTS = new Set(['matched', 'partial', 'missing', 'deviated', 'unplanned']);
@@ -371,7 +371,7 @@ export function extractClauses(markdown, {
       throw new SingularityFlowError(`Clause ${id} does not use configured namespace ${namespace}.`);
     }
     if (!CLAUSE_TYPES.has(type)) throw new SingularityFlowError(`Clause ${id} has unsupported type ${type}.`);
-    if (seen.has(id)) throw new SingularityFlowError(`Clause ${id} is duplicated at lines ${seen.get(id)} and ${lineNumber(markdown, entry.index)}.`);
+    if (seen.has(id)) throw new SingularityFlowError(`Clause ${id} is duplicated at lines ${seen.get(id)} and ${lineNumber(markdown, entry.index)}. Brackets define a clause, once; cite it elsewhere as \`${id}\` in backticks, without brackets.`);
     const line = lineNumber(markdown, entry.index);
     seen.set(id, line);
     // Line numbers and source hashes come from the complete published artifact, but the body is the
@@ -511,7 +511,8 @@ function exactStructuredPath(value, label) {
     || candidate.includes('...')
     || /(?:^|\/)(?:TODO|TBD|PLACEHOLDER)(?:\.|\/|$)/i.test(candidate)
   ) {
-    throw new SingularityFlowError(`${label} must be an exact repository-relative path without traversal, globs, placeholders, or platform-specific syntax.`);
+    const defect = pathDefect(candidate);
+    throw new SingularityFlowError(`${label} must be an exact repository-relative path without traversal, globs, placeholders, or platform-specific syntax; ${shown(candidate)} is not${defect ? `: ${defect}` : ''}.`);
   }
   return candidate;
 }
@@ -539,7 +540,7 @@ function parseClauseCell(cell, known, label) {
   }
   if (value.startsWith('[') && value.endsWith(']')) value = value.slice(1, -1).trim();
   const match = value.match(new RegExp(`^(${NAMESPACE}:(?:REQ|BEH|IFC|AC|CON)-\\d{3})$`, 'i'));
-  if (!match) throw new SingularityFlowError(`${label} must contain exactly one namespace-qualified clause ID.`);
+  if (!match) throw new SingularityFlowError(`${label} must contain exactly one namespace-qualified clause ID, such as \`ORDER:REQ-001\`: the Story's namespace, a colon, REQ, BEH, IFC, AC or CON, and three digits.`);
   const id = match[1].toUpperCase();
   if (!known.has(id)) throw new SingularityFlowError(`${label} references unknown clause ${id}.`);
   return id;
@@ -560,7 +561,10 @@ function parseBacktickedPathCell(cell, label) {
     .replace(/<br\s*\/?\s*>/gi, '')
     .replace(/[\s,;]+/g, '');
   if (!paths.length || separators) {
-    throw new SingularityFlowError(`${label} must list each exact repository-relative path in backticks.`);
+    const extra = remainder.replace(/<br\s*\/?\s*>/giu, ' ').trim();
+    throw new SingularityFlowError(`${label} must list each exact repository-relative path in backticks${paths.length && extra
+      ? `; ${shown(extra)} is outside the backticks. Keep only the paths here, separated by commas, and put notes in another column`
+      : '; it names no path in backticks'}.`);
   }
   return [...new Set(paths)].sort();
 }
@@ -749,7 +753,10 @@ function supportingFilesFromPlan(lines, { classesOnly = false } = {}) {
     const entry = line.match(/^\s*[-*+]\s+`([^`]+)`(.*)$/u);
     if (!entry && classesOnly) continue;
     if (!entry) {
-      throw new SingularityFlowError(`Supporting files entry at line ${index + 1} must start with one backticked repository path, for example - \`package.json\` — adds the ledger client.`);
+      const text = line.replace(/^\s*[-*+]\s+/u, '').trim();
+      throw new SingularityFlowError(/^(?:none|n\/a|nothing|-|—)\.?$/iu.test(text)
+        ? `Supporting files entry at line ${index + 1} holds ${shown(text)}: when the plan has no supporting files, remove the whole ## Supporting files section.`
+        : `Supporting files entry at line ${index + 1} must start with one backticked repository path, for example - \`package.json\` — adds the ledger client; it holds ${shown(text)}.`);
     }
     let candidate;
     try {
@@ -800,7 +807,16 @@ export function inspectPlannedClaimMap(markdown, { clauseIds = [], clauses = [],
   for (let index = 0; index < lines.length - 1; index += 1) {
     const cells = markdownCells(lines[index]);
     const headers = tableHeader(cells);
-    if (!headers || headers.slice(0, 3).join('|') !== 'clause|expected paths|planned tests') continue;
+    if (!headers || headers.slice(0, 3).join('|') !== 'clause|expected paths|planned tests') {
+      // A table with these columns in another order was skipped in silence, and every row then read as
+      // missing while the author could see it (2026-10-29).
+      if (headers && ['clause', 'expected paths', 'planned tests'].every((name) => headers.includes(name))) {
+        collectDraftDiagnostic(diagnostics, new SingularityFlowError(
+          `Planned claim table at line ${index + 1} has its columns as ${shown(cells.join(' | '))}; the first three must be Clause | Expected paths | Planned tests, in this order, then any of Fulfillment, Steps, Observable result.`,
+          { code: 'SPEC_PLANNED_TABLE_INVALID' }), { line: index + 1, field: 'header' });
+      }
+      continue;
+    }
     const optional = headers.slice(3);
     if (optional.some((name) => !PLANNED_OPTIONAL_COLUMNS.includes(name)) || new Set(optional).size !== optional.length) {
       collectDraftDiagnostic(diagnostics, new SingularityFlowError(
@@ -883,7 +899,10 @@ export function inspectPlannedClaimMap(markdown, { clauseIds = [], clauses = [],
   const missingClauseIds = [...known].filter((id) => !claims[id]).sort();
   const missingTestClauseIds = [...known].filter((id) => !claims[id]
     || (!claims[id].tests.length && !['not-applicable', 'non-test'].includes(claims[id].testDisposition))).sort();
-  if (requireComplete) for (const id of [...new Set([...missingClauseIds, ...missingTestClauseIds])]) {
+  // A row or table already refused says why; "complete its row" on top sent authors to a row they had written.
+  const tableRefused = diagnostics.some((entry) => ['header', 'divider'].includes(entry.field));
+  if (requireComplete && !tableRefused) for (const id of [...new Set([...missingClauseIds, ...missingTestClauseIds])]
+    .filter((candidate) => !diagnostics.some((entry) => entry.clauseId === candidate))) {
     collectDraftDiagnostic(diagnostics, new SingularityFlowError(
       `Clause ${id} has no exact planned test or reviewed not-applicable reason. Complete its approved clause row.`,
       { code: 'SPEC_PLANNED_ROW_REQUIRED' }), { clauseId: id, line: locations.get(id), field: 'plannedTests' });

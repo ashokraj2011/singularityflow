@@ -67,8 +67,8 @@ async function jsonFile(root, relative, label) {
   );
   try { return JSON.parse(await readFile(secured.absolute, 'utf8')); }
   catch (error) {
-    throw new SingularityFlowError(`${label} is not valid JSON.`, {
-      code: 'GDM_MODE_REQUIRED', cause: error
+    throw new SingularityFlowError(`${label} is not valid JSON (${error.message}).`, {
+      code: 'GDM_RECORD_JSON_INVALID', cause: error
     });
   }
 }

@@ -203,5 +203,5 @@ export async function readStorySeed(root, workflow) {
   const absolute = path.join(root, relative);
   if (!(await exists(absolute))) return null;
   try { return YAML.parse(await readFile(absolute, 'utf8')); }
-  catch { throw new SingularityFlowError(`Story seed ${relative} is not valid YAML.`); }
+  catch (error) { throw new SingularityFlowError(`Story seed ${relative} is not valid YAML: ${String(error?.message ?? '').split('\n')[0]}`); }
 }

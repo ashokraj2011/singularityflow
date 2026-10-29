@@ -67,6 +67,8 @@ function trackedFiles(root) { return run('git', ['ls-files', '-z'], { cwd: root 
 
 const CONFORMANCE_CODES = Object.freeze({
   'conformance.clause-row-missing': 'gate.conformance.missing-row',
+  // A comparison table read as no table at all: the same gap as every row missing, said once.
+  'conformance.table-unrecognized': 'gate.conformance.missing-row',
   'conformance.verdict-invalid': 'gate.conformance.verdict-missing',
   'conformance.verdict-incomplete': 'gate.conformance.blocking-verdict'
 });

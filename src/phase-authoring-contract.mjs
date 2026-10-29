@@ -87,12 +87,16 @@ export function phaseAuthoringContractLines(contract, { deterministicOnly = fals
   return [
     `- Paths: ${CLI_PATH_CONTRACT}`,
     '- Repair boundary: the configured producer repairs this open draft in place; regenerate kernel-owned artifacts, never hand-edit them. Draft defects do not forbid repairs. Preserve prior approved artifacts and decisions; never re-author an earlier phase to satisfy a new template. Publication and any configured approvals remain separate checks.',
+    '- Unfinished markers: TODO (in capitals), TBD, TBC, FIXME, {{...}} and [describe ...] read as unfinished work and refuse publication, even inside code spans.',
     '- Readiness: advisories are not current blockers. Documentation comments need no human approval; unplanned-path advice names work to account for before approval. When prepublish is ready and returns commands.publish, continue that publication attempt; required tests still run there. A resolved runner does not require editing repository build/test scripts or runner configuration just to emit its configured report.',
     ...(deterministicOnly ? [] : [UPSTREAM_DISCREPANCY_PROTOCOL]),
     '- Configuration: manifests, lockfiles and build/test/CI/runtime settings are configuration, never product code or executable test declarations. Do not add code traceability tags or API documentation to them. When such a file is the requested change itself (a CI pipeline, container or runtime setting), an approved clause claims it with Fulfillment `configuration`; otherwise account for tooling under Supporting files with a reason. Keep these bytes in scope review, candidate hashes and required tests; governed configuration still uses its separate authority.',
     ...(contract.requirementCoverage && !deterministicOnly ? [REQUIREMENT_AUTHORING_PROTOCOL] : []),
+    ...(contract.requirementCoverage ? [
+      '- Clause IDs: brackets define a clause once, as `[NS:REQ-001]` (REQ, BEH, IFC, AC or CON, three digits); cite it anywhere else in backticks without brackets.'
+    ] : []),
     ...(scenarios ? [
-      '- Scenario coverage: author S-number situations with substantive Given/When/Then acceptance cases and a `## Scenario coverage` table: Clause | Scenario | Outcome (success/failure/boundary/empty). Cover every behavior and acceptance clause; repeat rows for multiple outcomes. Approved rejection/error behavior needs a distinct invalid-input case with an observable error, not only failure-state prose. Use pinned request/clarification facts, not invented error wording or extra scope. Lexical hints are advisory; independent source review still judges semantic completeness.'
+      '- Scenario coverage: author S-number situations, each a heading starting with its number (`### S1 — <situation>`), with substantive Given/When/Then acceptance cases (each keyword once per case, in that order: another "when" or "then" in the sentence starts a new field) and a `## Scenario coverage` table: Clause | Scenario | Outcome (success/failure/boundary/empty), its Scenario cell only the number. Cover every behavior and acceptance clause; repeat rows for multiple outcomes. Approved rejection/error behavior needs a distinct invalid-input case with an observable error, not only failure-state prose. Use pinned request/clarification facts, not invented error wording or extra scope. Lexical hints are advisory; independent source review still judges semantic completeness.'
     ] : []),
     ...(intent ? [
       '- Specification: author a `## Verification intent` table with Clause | Methods | Criterion, one row per declared clause. Methods = test, visual, inspection, or a comma-separated combination (all required). AC Criterion is its own ID; a visual/inspection requirement names the AC proving it, and any AC a requirement names lists every method that requirement lists (a `test, visual` requirement needs a `test, visual` AC). Test-only requirements may use -. Choose from pinned source obligations: screenshot/visual acceptance is not an executable-test exemption. Resolve material ambiguity here, not in Planning.'
@@ -100,10 +104,13 @@ export function phaseAuthoringContractLines(contract, { deterministicOnly = fals
     ...(contract.verificationIntent && !(scenarios && intent) ? [
       `- Optional tables: this step's template and policy ask for no ${[!scenarios && '`## Scenario coverage`', !intent && '`## Verification intent`'].filter(Boolean).join(' or ')} section; do not add one (a malformed optional table still refuses publication). Write each acceptance criterion as an observable pass/fail result.`
     ] : []),
+    ...(contract.roles?.includes('closure') ? [
+      '- Conformance: one comparison table with a Clause ID column and a Verdict column, one row per clause, each Verdict starting with one word of matched, partial, missing, deviated or unplanned, then any note.'
+    ] : []),
     ...(contract.planning ? [
       definesClauses
-        ? '- Planning rows: cover every requirement and acceptance ID this draft defines. Use a bare - for an empty path cell, never `-` (which names a file).'
-        : '- Planning rows: cover every approved requirement and acceptance ID from the authoritative clause capsule; preserve its meaning. Use a bare - for an empty path cell, never `-` (which names a file).',
+        ? '- Planning rows: cover every requirement and acceptance ID this draft defines, in a table whose first columns are Clause | Expected paths | Planned tests, in that order. Use a bare - for an empty path cell, never `-` (which names a file).'
+        : '- Planning rows: cover every approved requirement and acceptance ID from the authoritative clause capsule; preserve its meaning. The table\'s first columns are Clause | Expected paths | Planned tests, in that order. Use a bare - for an empty path cell, never `-` (which names a file).',
       `- Evidence planning: put retained files under ${contract.planning.retainedEvidencePrefix} in that clause's Expected paths with Fulfillment \`evidence\`; do not assign screenshot obligations to another clause.`,
       definesClauses
         ? `- Verification: this draft defines its clauses, so there are no approved methods to inherit: ${intent ? 'plan the methods its own `## Verification intent` rows state' : 'each clause is proved by its planned tests'}. Add a \`## Verification contracts\` table only for non-test proof: exact AC Criterion, lower-hyphen Slot, visual/inspection Method, Witness = one backticked value and nothing else (an exact file, or the screen a visual shows), primary Role, Required assurance empty or source-bound, and verification: <AC-ID> in Planned tests. not-applicable: <reason> is only a genuine exemption requiring human disposition. File presence is not a passing witness.`

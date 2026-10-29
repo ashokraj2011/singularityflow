@@ -16,7 +16,7 @@ import path from 'node:path';
 
 import { recordSha256 } from '../records.mjs';
 import { SingularityFlowError } from '../util.mjs';
-import { collectDraftDiagnostic, draftDiagnosticSummary, inspectDraftValue } from '../draft-diagnostics.mjs';
+import { collectDraftDiagnostic, draftDiagnosticSummary, inspectDraftValue, pathDefect, shown } from '../draft-diagnostics.mjs';
 
 export const VERIFICATION_METHODS = Object.freeze(['test', 'inspection', 'visual']);
 const UNSUPPORTED_METHODS = Object.freeze(['measurement', 'analysis', 'browser-check', 'security-scan', 'operational', 'manual']);
@@ -61,7 +61,8 @@ function exactPath(value, label) {
       || candidate.startsWith('../') || candidate === '..' || path.posix.isAbsolute(candidate)
       || candidate.includes('\\') || /^[A-Za-z]:/u.test(candidate) || /^[a-z][a-z0-9+.-]*:/iu.test(candidate)
       || /[\0-\x1f\x7f*?[\]{}<>$]/u.test(candidate) || candidate.endsWith('/')) {
-    throw invalid(`${label} must be one exact repository-relative path in backticks.`);
+    const defect = pathDefect(candidate);
+    throw invalid(`${label} must be one exact repository-relative path in backticks; ${shown(candidate)} is not${defect ? `: ${defect}` : ''}.`);
   }
   return candidate;
 }
@@ -104,11 +105,6 @@ export function validateRetainedEvidenceDeclarations(markdown, plannedClaims, { 
   }
 }
 
-/** What a row's cell holds, short, so a refusal can say what it found (an agent kept guessing). */
-function shown(cell) {
-  const text = String(cell ?? '').trim().replace(/\s+/gu, ' ');
-  return text ? `'${text.length > 80 ? `${text.slice(0, 77)}...` : text}'` : 'nothing';
-}
 
 // What each method's witness and assurance look like, said in every refusal about them: an office
 // Copilot turn moved an assurance word between Witness and Required assurance for many rounds,
@@ -190,7 +186,7 @@ export function parseVerificationContracts(markdown, { clauseIds = [], plannedCl
       return result.value;
     };
     check('criterion', () => {
-      if (!AC_ID.test(clauseId)) throw invalid(`${where} must name one namespace-qualified acceptance criterion, such as ORDER:AC-001.`);
+      if (!AC_ID.test(clauseId)) throw invalid(`${where} must name one namespace-qualified acceptance criterion, such as ORDER:AC-001: the Story's namespace, a colon, AC and three digits.`);
       if (known.size && !known.has(clauseId)) throw invalid(`${where} names ${clauseId}, which is not a criterion of this Story.`);
     });
     const slot = unwrap(row.value('slot')).toLowerCase();
@@ -209,7 +205,7 @@ export function parseVerificationContracts(markdown, { clauseIds = [], plannedCl
       throw invalid(`${where} requires exact-authenticated, which needs qualified execution this repository does not have; require exact-local-observed or less.`);
     }
     if (requiredAssurance && !Object.values(METHOD_ASSURANCE).flat().includes(requiredAssurance)) {
-      throw invalid(`${where} requires a known assurance value, not scenario or reviewer prose.`);
+      throw invalid(`${where} requires a known assurance value, not scenario or reviewer prose: write ${(METHOD_ASSURANCE[method] ?? Object.values(METHOD_ASSURANCE).flat()).join(' or ')} alone, or leave the column empty.`);
     }
     if (requiredAssurance && METHOD_ASSURANCE[method] && !METHOD_ASSURANCE[method].includes(requiredAssurance)) {
       throw invalid(`${where} may require only ${METHOD_ASSURANCE[method].join(' or ')} for a ${method} witness; its Required assurance holds ${shown(row.value('required assurance'))}. `

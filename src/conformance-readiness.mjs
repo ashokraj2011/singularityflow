@@ -2,16 +2,13 @@ import { readFile } from 'node:fs/promises';
 import path from 'node:path';
 
 import {
-  conformanceTableRows,
-  conformanceVerdictGaps,
-  contradictedConformanceVerdicts,
-  duplicateQualifiedConformanceRows,
-  missingQualifiedConformanceRows
+  conformanceTableRows, conformanceVerdictGaps, contradictedConformanceVerdicts, duplicateQualifiedConformanceRows, missingQualifiedConformanceRows, unreadConformanceTables
 } from './conformance-verdicts.mjs';
 import { loadActiveSpecRecords } from './specifications.mjs';
 import { normalizeQualifiedClauseId } from './traceability-ids.mjs';
 import { conformanceGapDecisions } from './upstream-routes.mjs';
 import { secureRepositoryPath } from './util.mjs';
+import { shown } from './draft-diagnostics.mjs';
 
 const VERDICT = /^(matched|partial|missing|deviated|unplanned)(?:\s|\(|$)/u;
 const ANY_VERDICT = /\b(matched|partial|missing|deviated|unplanned)\b/;
@@ -130,6 +127,13 @@ export function inspectQualifiedConformanceReport(markdown, clauseIds) {
   const known = new Set((clauseIds ?? []).map(normalizeQualifiedClauseId).filter(Boolean));
   if (!known.size) return [];
   const findings = [];
+  // No table read at all: say which table was skipped and why, not "no row" once per clause.
+  const unread = conformanceTableRows(markdown).length ? [] : unreadConformanceTables(markdown);
+  if (unread.length) {
+    findings.push({ code: 'conformance.table-unrecognized', clauseId: null, line: unread[0].line,
+      message: `conformance report has no comparison table: one needs a Clause ID column (or Clause, ID, Criterion) and a Verdict column; the table at line ${unread[0].line} has ${shown(unread[0].header.join(' | '))}` });
+    return findings;
+  }
   for (const id of missingQualifiedConformanceRows(markdown, known)) {
     findings.push({ code: 'conformance.clause-row-missing', clauseId: id,
       message: `conformance report has no row for ${id}`, line: null });
@@ -142,7 +146,7 @@ export function inspectQualifiedConformanceReport(markdown, clauseIds) {
     const id = normalizeQualifiedClauseId(row.clauseId);
     if (!id) {
       findings.push({ code: 'conformance.clause-row-invalid', clauseId: row.clauseId,
-        message: `conformance report has an invalid qualified clause ID on line ${row.line}`, line: row.line });
+        message: `conformance report has an invalid qualified clause ID on line ${row.line}: it holds ${shown(row.clauseId)}; write it in full, such as ORDER:REQ-001`, line: row.line });
       continue;
     }
     if (!known.has(id)) {
@@ -150,7 +154,7 @@ export function inspectQualifiedConformanceReport(markdown, clauseIds) {
         message: `conformance report references unapproved clause ${id} on line ${row.line}`, line: row.line });
     } else if (!VERDICT.test(row.verdict) || MULTIPLE_VERDICTS.test(row.verdict)) {
       findings.push({ code: 'conformance.verdict-invalid', clauseId: id,
-        message: `conformance ${id} has no recognized verdict on line ${row.line}`, line: row.line });
+        message: `conformance ${id} has no recognized verdict on line ${row.line}: its Verdict holds ${shown(row.verdict)}; start it with one word of matched, partial, missing, deviated or unplanned, then any note`, line: row.line });
     }
   }
   return findings;

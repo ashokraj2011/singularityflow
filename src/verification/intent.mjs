@@ -1,6 +1,7 @@
 /** Shared, pure scope-to-plan verification contract. A non-test method is proof, not a waiver. */
 import { SingularityFlowError } from '../util.mjs';
 import { VERIFICATION_METHODS } from './contracts.mjs';
+import { shown } from '../draft-diagnostics.mjs';
 
 const AC = /^[A-Z0-9][A-Z0-9._-]{0,63}:AC-\d{3}$/u;
 const cells = line => line.trim().startsWith('|') && line.trim().endsWith('|')
@@ -30,7 +31,7 @@ export function parseVerificationIntent(markdown, clauses = [], { externalClause
     const header = cells(lines[index]);
     if (!header) continue;
     if (header.map(cell => cell.toLowerCase()).join('|') !== 'clause|methods|criterion') {
-      throw invalid('Verification intent needs Clause | Methods | Criterion columns.', { line: index + 1 });
+      throw invalid(`Verification intent needs one table whose header is exactly Clause | Methods | Criterion; the table at line ${index + 1} has ${shown(header.join(' | '))}. Keep any legend or notes outside the table.`, { line: index + 1 });
     }
     const divider = cells(lines[++index] ?? '');
     if (divider?.length !== 3 || !divider.every(cell => /^:?-{3,}:?$/u.test(cell))) {
@@ -39,17 +40,25 @@ export function parseVerificationIntent(markdown, clauses = [], { externalClause
     while (index + 1 < lines.length && cells(lines[index + 1])) {
       const row = cells(lines[++index]);
       const id = unwrap(row[0]);
-      if (row.length !== 3 || !declaredIds.has(id) || intents.has(id)) {
-        throw invalid(`Verification intent needs one unique, declared clause per row; invalid row for ${id}.`, { clauseId: id, line: index + 1 });
+      if (row.length !== 3) {
+        throw invalid(`Verification intent row at line ${index + 1} has ${row.length} cells; Clause | Methods | Criterion has three.`, { line: index + 1 });
+      }
+      if (intents.has(id)) {
+        throw invalid(`Verification intent lists ${id} twice (line ${index + 1}); give each clause one row.`, { clauseId: id, line: index + 1 });
+      }
+      if (!declaredIds.has(id)) {
+        const local = [...declaredIds].find(candidate => candidate.endsWith(`:${id}`));
+        throw invalid(`Verification intent row at line ${index + 1} names ${shown(row[0])}, which is not a clause this draft declares; `
+          + (local ? `write it in full, as \`${local}\`.` : 'write a declared clause ID in full, such as `ORDER:REQ-001`.'), { clauseId: id, line: index + 1 });
       }
       const methods = row[1].split(',').map(method => unwrap(method).toLowerCase());
       if (!methods.length || new Set(methods).size !== methods.length || methods.some(method => !VERIFICATION_METHODS.includes(method))) {
-        throw invalid(`${id} Methods must be test, visual, inspection, or a comma-separated combination (all required).`, { clauseId: id, line: index + 1 });
+        throw invalid(`${id} Methods must be test, visual, inspection, or a comma-separated combination (all required); it holds ${shown(row[1])}.`, { clauseId: id, line: index + 1 });
       }
       const rawCriterion = unwrap(row[2]);
       const criterionId = !rawCriterion || rawCriterion === '-' ? (AC.test(id) ? id : null) : rawCriterion;
       if (criterionId && (!AC.test(criterionId) || !known.has(criterionId) || (AC.test(id) && criterionId !== id))) {
-        throw invalid(`${id} Criterion must be its own AC ID, or a declared AC proving this requirement.`, { clauseId: id, line: index + 1 });
+        throw invalid(`${id} Criterion must be its own AC ID, or a declared AC proving this requirement, such as \`ORDER:AC-001\`, or -; it holds ${shown(row[2])}.`, { clauseId: id, line: index + 1 });
       }
       if (methods.some(method => method !== 'test') && !criterionId) {
         throw invalid(`${id} needs an AC Criterion for its visual/inspection proof.`, { clauseId: id, line: index + 1 });
@@ -99,7 +108,12 @@ export function validatePlannedVerification(claims, contracts = [], clauses = []
     if (claim.testDisposition === 'non-test') {
       if ((!AC.test(id) && !intent) || (intent && claim.verificationCriterion !== intent.criterionId)
           || !nonTestVerification(id, claim, byCriterion, intent)) {
-        throw invalid(`${id} non-test proof needs its approved AC Criterion and exact primary visual/inspection contract; it cannot waive an automated test.`, { clauseId: id });
+        const criterion = claim.verificationCriterion ?? intent?.criterionId ?? (AC.test(id) ? id : null);
+        const missing = !AC.test(id) && !intent ? `${id} is not an acceptance criterion and has no approved Verification intent`
+          : intent && claim.verificationCriterion !== intent.criterionId ? `Planned tests says verification: ${claim.verificationCriterion ?? 'nothing'}, but the approved criterion is ${intent.criterionId}`
+            : !byCriterion.get(criterion) ? `the Verification contracts table has no row with Criterion \`${criterion}\``
+              : `${criterion}'s contract rows have no primary visual or inspection slot${intent ? ` for every method ${id} lists (${intent.methods.join(', ')})` : ''}`;
+        throw invalid(`${id} non-test proof needs its approved AC Criterion and exact primary visual/inspection contract; it cannot waive an automated test. Missing: ${missing}.`, { clauseId: id });
       }
     }
     if (!intent) continue;

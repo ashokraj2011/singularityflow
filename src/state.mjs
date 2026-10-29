@@ -3601,13 +3601,17 @@ export async function publishGeneration(root, config, workflow, {
   });
   gate.warnings.forEach((warning) => console.warn(`Warning: ${warning}`));
   if (gate.errors.length) {
+    const clarification = specificationGateDiagnostics(gate, requiredRepoPath(config, workflow, phase)).findings.some(finding => finding.category === 'clarification');
     throw new SingularityFlowError(
       `Phase ${phase.id} is not publishable:\n- ${gate.errors.join('\n- ')}\n`
-      + (specificationGateDiagnostics(gate, requiredRepoPath(config, workflow, phase)).findings.some(finding => finding.category === 'clarification')
+      + (clarification
         ? resolvedClarificationPolicy(config, workflow, phase).mode === 'off'
           ? `Replace each cited clarification marker with content sourced from the pinned evidence; clarification is off for ${phase.id}, so no question is recorded.`
           : `Resolve only the cited clarification questions and record their actual answers with singularity-flow clarification record ${phase.id}; do not invent or repeat answered questions.`
-        : `Repair the listed specification draft structure from the pinned source and clarifications, then rerun singularity-flow phase prepublish ${phase.id} --json. Missing scenarios are author corrections, not a new clarification interview.`)
+        : `Repair the listed specification draft structure from the pinned source and clarifications, then rerun singularity-flow phase prepublish ${phase.id} --json. Missing scenarios are author corrections, not a new clarification interview.`),
+      // A draft-structure refusal gets a code of its own, so its plan names the recheck rather than
+      // the generic recover/doctor route; a clarification refusal keeps its own wording.
+      clarification ? undefined : { code: 'SPEC_PUBLICATION_GATE_REFUSED', details: { phase: phase.id } }
     );
   }
   // Required artifact-set members are part of the declared publication bundle. Refuse before

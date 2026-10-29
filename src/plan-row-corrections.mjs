@@ -227,7 +227,10 @@ export function recordPlanRowCorrection(workflow, {
     reviewAssurance: 'live-terminal-exact-plan-review', at, upstreamIssue
   };
   const checked = PlanRowCorrectionSchema.safeParse(correction);
-  if (!checked.success) refused(`The plan correction is not well formed: ${checked.error.issues[0]?.message ?? 'invalid'}.`);
+  if (!checked.success) {
+    const issue = checked.error.issues[0];
+    refused(`The plan correction is not well formed: ${issue?.path?.length ? `${issue.path.join('.')}: ` : ''}${issue?.message ?? 'invalid'}.`);
+  }
   workflow.planAmendments.push(correction);
   return correction;
 }

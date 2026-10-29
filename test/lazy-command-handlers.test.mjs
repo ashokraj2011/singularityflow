@@ -188,7 +188,8 @@ test('frequent lifecycle handlers do not reach the legacy dispatcher and stay un
     // accepted snapshot revision kind in workflow-snapshots.mjs, +13,280: its capture, replay and dialect, with its
     // contracts loaded lazily; its review-safe commit in approval-check.mjs, +2,614; its registry, terminal-step,
     // refusal and state entries) adds 15,059 for 9,220,445 (submit.mjs 9,142,110). The contracts load lazily, so no handler gains a file.
-    assert.ok(closure.bytes <= 9_225_000, `${file} exceeds the 9 MB eager-source budget (${closure.bytes} bytes)`);
+    // 9,240,000 (next 5,000 boundary): main 0c7ca31b measures 9,221,738 for start.mjs; refusals that quote the cell or line an author wrote and say what belongs there, publish-time prepublish plans for the draft refusals, and step-entry sentences for the rules never described (draft-diagnostics, specifications, specification-scenarios, verification intent and contracts, conformance, preflight, specification quality, constitution, refusal-remediation, phase-authoring-contract), after agents looped on such refusals in the office, add 14,359 for 9,236,097. No new file.
+    assert.ok(closure.bytes <= 9_240_000, `${file} exceeds the 9 MB eager-source budget (${closure.bytes} bytes)`);
   }
 });
 
@@ -252,7 +253,9 @@ test('the common session projection does not import attach, state stores or publ
   // hint for a clone that is behind and the cancelled-Story refusal add 3,842 for 3,917,944 (plan-row-corrections.mjs,
   // sequence.mjs, lifecycle-transitions.mjs, narration/messages.mjs, command-skills.mjs).
   // 3,935,000: main 6f0e9741 measures 3,919,408; the approver refresh (a new accepted snapshot revision kind in workflow-snapshots.mjs, +13,280: its capture, replay and dialect, with its contracts loaded lazily; its review-safe commit in approval-check.mjs, +2,614; its registry, terminal-step, refusal and state entries) adds 14,512 for 3,933,920, no new file.
-  assert.ok(current.bytes <= 3_935_000, `session current loads ${current.bytes} source bytes`);
+  // 3,950,000: main 0c7ca31b measures 3,934,328; the validator refusals that quote what an author wrote and the step-entry
+  // contract sentences add 11,124 for 3,945,452 (draft-diagnostics, specifications, verification, phase-authoring-contract).
+  assert.ok(current.bytes <= 3_950_000, `session current loads ${current.bytes} source bytes`);
 });
 
 test('early phase and grounding-path entries exclude the deferred authoring and review graphs', async () => {

@@ -1,6 +1,7 @@
 /** Structural scenario coverage, not a judgment that prose implements the requested behavior. */
 import { parseMarkdownStructure } from './markdown-structure.mjs';
 import { normalizeQualifiedClauseId } from './traceability-ids.mjs';
+import { shown } from './draft-diagnostics.mjs';
 
 const OUTCOMES = new Set(['success', 'failure', 'boundary', 'empty']);
 const FAILURE_HINT = /\b(?:reject(?:s|ed|ing)?|(?:return|show|display|report|raise|produce)s?\b[^.\n]{0,60}\b(?:error|failure)|(?:error|failure)\s+(?:for|when|if|on))\b/iu;
@@ -45,10 +46,36 @@ function acceptanceCases(body) {
     }));
     groups.push({ complete: fields.length === 3 && fields.map(field => field.name).join(',') === 'given,when,then'
       && fields.every(field => /[\p{L}\p{N}]/u.test(field.text)),
-    text: fields.map(field => field.text).join(' ') });
+    text: fields.map(field => field.text).join(' '),
+    keywords: fields.map(field => field.name[0].toUpperCase() + field.name.slice(1)),
+    empty: fields.filter(field => !/[\p{L}\p{N}]/u.test(field.text)).map(field => field.name[0].toUpperCase() + field.name.slice(1)) });
     index = end - 1;
   }
   return groups;
+}
+
+/** The first line, outside headings and tables, that names a scenario ID: where an author wrote it. */
+function nearScenario(visible, scenarioId) {
+  const pattern = new RegExp(`(?:^|[^A-Za-z0-9])${scenarioId}(?![0-9])`, 'iu');
+  const lines = visible.split('\n');
+  const at = lines.findIndex(line => pattern.test(line) && !/^\s*\|/u.test(line));
+  return at < 0 ? null : { line: at + 1, text: lines[at], heading: /^\s*#/u.test(lines[at]) };
+}
+
+/**
+ * Why a scenario's cases are incomplete. Every "when" and "then", in any case and mid-sentence, starts
+ * a field, so a sentence such as "signed in when..." splits a case; the keywords found are named.
+ */
+function incompleteScenario(scenarioId, scenario) {
+  const base = `${scenarioId} needs substantive Given, When and Then fields in every acceptance case; Then must state an observable outcome.`;
+  if (!scenario.cases?.length) return `${base} No case starting with Given was found.`;
+  const at = scenario.cases.findIndex(entry => !entry.complete);
+  const entry = scenario.cases[at];
+  if (!entry) return base;
+  const order = entry.keywords.join(', ');
+  return order !== 'Given, When, Then'
+    ? `${base} Case ${at + 1} reads ${order}: every "given", "when" and "then", in any case and mid-sentence, starts a new field, so use each once per case, in that order, and reword the others (for example "once" or "so").`
+    : `${base} Case ${at + 1} has nothing after ${entry.empty.join(' and ')}.`;
 }
 
 /** A declared matrix is checked exactly; lexical failure hints are always advisories only. */
@@ -76,6 +103,8 @@ export function inspectSpecificationScenarios(markdown, clauses, { required = fa
   const clauseById = new Map(clauses.map(clause => [clause.id, clause]));
   const rows = [];
   const seen = new Set();
+  const refused = new Set();
+  let tableRefused = false;
   if (required && !declared) add('scenario-coverage-required', 'Add ## Scenario coverage with Clause | Scenario | Outcome and map each behavior/acceptance clause to a complete Given/When/Then scenario.');
   if (sections.length > 1) add('scenario-coverage-duplicate', 'Use one ## Scenario coverage table, not multiple competing coverage sections.', { line: sections[1].line });
   if (declared) {
@@ -84,7 +113,10 @@ export function inspectSpecificationScenarios(markdown, clauses, { required = fa
     const firstLine = visible.slice(0, section.contentStart).split('\n').length;
     const header = lines.findIndex(line => /^\|\s*Clause\s*\|\s*Scenario\s*\|\s*Outcome\s*\|\s*$/iu.test(line.trim()));
     if (header < 0 || !/^\|[\s:|\-]+\|$/u.test(lines[header + 1]?.trim() ?? '')) {
-      add('scenario-coverage-format', 'Scenario coverage needs a Markdown table with Clause | Scenario | Outcome and a separator row.', { line: section.line });
+      const found = lines.find(line => /^\s*\|/u.test(line));
+      tableRefused = true;
+      add('scenario-coverage-format', 'Scenario coverage needs one Markdown table whose header is exactly Clause | Scenario | Outcome, followed by a separator row'
+        + (found ? `; its first table row holds ${shown(found)}. Keep notes outside the table` : '') + '.', { line: section.line });
     } else {
       for (let index = header + 2; index < lines.length && /^\s*\|/u.test(lines[index]); index += 1) {
         const line = firstLine + index;
@@ -93,7 +125,12 @@ export function inspectSpecificationScenarios(markdown, clauses, { required = fa
         const scenarioId = String(cells[1] ?? '').toUpperCase();
         const outcome = String(cells[2] ?? '').toLowerCase();
         if (cells.length !== 3 || !clauseId || !/^S\d+$/u.test(scenarioId) || !OUTCOMES.has(outcome)) {
-          add('scenario-coverage-row-invalid', 'Use one exact clause ID, S-number scenario ID, and success/failure/boundary/empty outcome per row.', { line });
+          const problem = cells.length !== 3 ? `it has ${cells.length} cells; Clause | Scenario | Outcome has three`
+            : !clauseId ? `its Clause holds ${shown(cells[0])}; write one exact clause ID such as \`ORDER:REQ-001\``
+              : !/^S\d+$/u.test(scenarioId) ? `its Scenario holds ${shown(cells[1])}; write only the scenario's number, such as \`S1\``
+                : `its Outcome holds ${shown(cells[2])}; write success, failure, boundary or empty`;
+          add('scenario-coverage-row-invalid', `Scenario coverage row at line ${line}: ${problem}.`, { line, ...(clauseId ? { clauseId } : {}) });
+          if (clauseId) refused.add(clauseId);
           continue;
         }
         if (clausesKnown && !clauseById.has(clauseId)) add('scenario-coverage-clause-unknown', `${clauseId} is not declared by this specification.`, { line, clauseId });
@@ -101,13 +138,19 @@ export function inspectSpecificationScenarios(markdown, clauses, { required = fa
         if (seen.has(key)) add('scenario-coverage-row-duplicate', `Duplicate scenario coverage row for ${clauseId}, ${scenarioId}, ${outcome}.`, { line, clauseId, scenarioId });
         seen.add(key);
         const scenario = scenarios.get(scenarioId);
-        if (!scenario) add('scenario-coverage-scenario-missing', `${clauseId} references missing ${scenarioId}; author that scenario from the pinned request and clarifications.`, { line, clauseId, scenarioId });
-        else if (!scenario.complete) add('scenario-acceptance-incomplete', `${scenarioId} needs substantive Given, When and Then fields in every acceptance case; Then must state an observable outcome.`, { line: scenario.line, clauseId, scenarioId });
+        if (!scenario) {
+          // A scenario counts only as a heading; one written as bold text or a list item read as missing.
+          const near = nearScenario(visible, scenarioId);
+          add('scenario-coverage-scenario-missing', `${clauseId} references ${scenarioId}, but no heading starts with ${scenarioId}`
+            + (near ? ` (line ${near.line} holds ${shown(near.text)}, ${near.heading ? `a heading that does not start with ${scenarioId}` : 'which is not a heading'})` : '')
+            + `. A scenario is a heading such as \`### ${scenarioId} — <situation>\` followed by its Given/When/Then cases; author it from the pinned request and clarifications.`, { line, clauseId, scenarioId });
+        } else if (!scenario.complete) add('scenario-acceptance-incomplete', incompleteScenario(scenarioId, scenario), { line: scenario.line, clauseId, scenarioId });
         rows.push({ clauseId, scenarioId, outcome });
       }
     }
     for (const clause of clauses.filter(clause => clause.type !== 'CON')) {
-      if (!rows.some(row => row.clauseId === clause.id)) add('scenario-coverage-clause-missing', `${clause.id} has no scenario coverage row; map its stated obligation, without inventing or expanding scope.`, { line: clause.source?.line, clauseId: clause.id });
+      // A row refused above already says what to fix; "has no row" contradicted it.
+      if (!tableRefused && !rows.some(row => row.clauseId === clause.id) && !refused.has(clause.id)) add('scenario-coverage-clause-missing', `${clause.id} has no scenario coverage row; map its stated obligation, without inventing or expanding scope.`, { line: clause.source?.line, clauseId: clause.id });
     }
   }
 

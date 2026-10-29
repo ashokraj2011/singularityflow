@@ -629,6 +629,13 @@
       },
       "digest": "d7e1567276220f99b820a3e57fecedaca1fe9800c1d126d1ba338a91f01e90f4"
     },
+    "src/apm-project.mjs": {
+      "counts": {
+        "command-run": 1,
+        "process-import": 1
+      },
+      "digest": "fe59d0587e0af3dc38cb1c3536aebb4a5b30fc3352e73287cdca7701a9040107"
+    },
     "src/approved-configuration-reader.mjs": {
       "counts": {
         "command-run": 9

@@ -262,7 +262,9 @@ test('the common session projection does not import attach, state stores or publ
   // 3,935,000: main 6f0e9741 measures 3,919,408; the approver refresh (a new accepted snapshot revision kind in workflow-snapshots.mjs, +13,280: its capture, replay and dialect, with its contracts loaded lazily; its review-safe commit in approval-check.mjs, +2,614; its registry, terminal-step, refusal and state entries) adds 14,512 for 3,933,920, no new file.
   // 3,950,000: main 0c7ca31b measures 3,934,328; the validator refusals that quote what an author wrote and the step-entry
   // contract sentences add 11,124 for 3,945,452 (draft-diagnostics, specifications, verification, phase-authoring-contract).
-  assert.ok(current.bytes <= 3_950_000, `session current loads ${current.bytes} source bytes`);
+  // 3,955,000: main 78dd99a3 measures 3,949,562; the apm command's registration (command-registry.mjs,
+  // command-skills.mjs) adds 660 for 3,950,222; its reader and command load only when apm runs.
+  assert.ok(current.bytes <= 3_955_000, `session current loads ${current.bytes} source bytes`);
 });
 
 test('early phase and grounding-path entries exclude the deferred authoring and review graphs', async () => {

@@ -1,9 +1,9 @@
 {
   "schemaVersion": 2,
   "generatedFrom": "docs/topics",
-  "sourceCommit": "e3cc278ab6b9d1bdcdcb85b58831fa8be20e736c",
-  "topicCount": 86,
-  "contentSha256": "d08258f3529a460c6994d5302a3bf785ab2c7681de6cac8166ed0f19dd5d9ea8",
+  "sourceCommit": "78dd99a3d66568c3a26ff3bbffd7dc99ba883f9a",
+  "topicCount": 87,
+  "contentSha256": "7aa2f0dbe77c68a2fc4dd958775d150107dcecad2929a5fd20726c7faa3a658f",
   "topics": [
     {
       "id": "activity-and-prompt-audit",
@@ -36,6 +36,14 @@
       "sha256": "2670f95e189a884c2d825f50f4bbe97f0ebf9ce97167ef35950f9c721e256440",
       "routingSha256": "001a52719941c2f9910ffacf2306d9ded4e45e3a3d202f73a843fc33649dd603",
       "file": "agents-and-routing.md"
+    },
+    {
+      "id": "apm-packages",
+      "title": "APM packages in a repository",
+      "version": 1,
+      "sha256": "3f373362c6ff25d1c2b709d469c7bb657a58e8aa368f3962c40c3c12975092aa",
+      "routingSha256": "d0975723a55bd212a3bed8f0ab38a6ed941d4e63bfc60464033827ccc2c18632",
+      "file": "apm-packages.md"
     },
     {
       "id": "approvals",

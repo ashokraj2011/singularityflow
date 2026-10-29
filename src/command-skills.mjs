@@ -116,6 +116,8 @@ const entries = {
   import: ['sf-import'],
   imports: ['sf-import'],
   marketplace: ['sf-import'],
+  // APM packages are imported by the APM CLI; /sf-import reads what it deployed [APM A1].
+  apm: ['sf-import'],
   mcp: ['sf-mcp'],
   visual: ['sf-visual'],
   documents: ['sf-documents', 'sf-upload'],

@@ -1352,6 +1352,26 @@ const PAGES = Object.freeze({
     ],
     seeAlso: ['app', 'env', 'evidence', 'capability']
   },
+  apm: {
+    summary: 'See the repository\'s APM packages as the APM CLI left them, and whether every file it deployed is intact and committed.',
+    description: [
+      'APM (Agent Package Manager) owns packages: apm.yml declares them, apm install resolves each one to a commit,',
+      'writes its agents, skills, instructions and prompts into .github/ and records every file with its SHA-256 in',
+      'apm.lock.yaml. Commit all three, so every clone and every Story uses the same agents.',
+      'apm status reads those files and checks each deployed file against the lock: missing, changed since apm',
+      'install wrote it, or not committed. It names the packages, what each one deployed, the agents in',
+      '.github/agents that are not from APM, and the APM CLI on this machine. It fetches nothing and changes nothing;',
+      'apm install, apm audit and apm prune remain APM\'s own commands.'
+    ],
+    options: [
+      ['--json', 'Machine-readable output (sflow-apm-status).']
+    ],
+    examples: [
+      ['singularity-flow apm status', 'Lists the locked packages and says whether their deployed files are intact and committed.'],
+      ['singularity-flow apm status --json', 'The same as sflow-apm-status: state, packages, files, findings and next actions.']
+    ],
+    seeAlso: ['import', 'agents', 'skill']
+  },
   decisions: {
     summary: 'See everything people must decide before a step can move, in plain words, and record the choices at once.',
     description: [

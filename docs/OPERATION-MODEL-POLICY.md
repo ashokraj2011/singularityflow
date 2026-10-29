@@ -35,6 +35,7 @@ Every public operation is classified before its implementation module is importe
 | agents.list | read | never | — | — |
 | agents.mappings | read | never | — | — |
 | agents.status | read | never | — | — |
+| apm.status | read | never | — | — |
 | app.config | read | never | — | — |
 | app.config.reset-local | mutation | never | — | — |
 | app.config.save-local | mutation | never | — | — |

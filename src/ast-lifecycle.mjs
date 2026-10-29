@@ -9,8 +9,9 @@ import {
 } from './ast-evidence.mjs';
 import { recordSha256 } from './records.mjs';
 import { currentSchemaVersion, readRecord } from './schema-migrations.mjs';
-import { run, SingularityFlowError, writeJson } from './util.mjs';
+import { SingularityFlowError, writeJson } from './util.mjs';
 import { astDisabledForWorkflow } from './intelligence-policy.mjs';
+import { sourceFileAt } from './source-inspection.mjs';
 
 function configuredPredicates(config, workflow = null) {
   if (astDisabledForWorkflow(workflow)) return [];
@@ -133,13 +134,11 @@ async function receiptFor(root, config, workflow, phase, generation, sourceCommi
   try {
     let bytes;
     if (sourceCommit) {
-      const shown = run('git', ['show', `${sourceCommit}:${expectedPath}`], {
-        cwd: root, allowFailure: true, maxBuffer: 2 * 1024 * 1024
-      });
-      if (shown.status !== 0) {
+      const shown = sourceFileAt(root, sourceCommit, expectedPath, { maxBytes: 2 * 1024 * 1024 });
+      if (shown.status !== 'present') {
         return { summary, record: null, error: `AST lifecycle receipt was not committed at ${sourceCommit}` };
       }
-      bytes = shown.stdout;
+      bytes = shown.value;
     } else bytes = await readFile(path.join(root, expectedPath));
     const stored = JSON.parse(Buffer.isBuffer(bytes) ? bytes.toString('utf8') : String(bytes));
     const record = readRecord('ast-gate-receipt', stored).record;
@@ -158,11 +157,9 @@ async function receiptFor(root, config, workflow, phase, generation, sourceCommi
       }
       let manifestBytes;
       if (sourceCommit) {
-        const shown = run('git', ['show', `${sourceCommit}:${derivationPath}`], {
-          cwd: root, allowFailure: true, maxBuffer: 4 * 1024 * 1024
-        });
-        if (shown.status !== 0) return { summary, record, error: `AST derivation was not committed at ${sourceCommit}` };
-        manifestBytes = shown.stdout;
+        const shown = sourceFileAt(root, sourceCommit, derivationPath, { maxBytes: 4 * 1024 * 1024 });
+        if (shown.status !== 'present') return { summary, record, error: `AST derivation was not committed at ${sourceCommit}` };
+        manifestBytes = shown.value;
       } else manifestBytes = await readFile(path.join(root, derivationPath));
       derivationManifest = validateAstDerivationManifest(JSON.parse(Buffer.isBuffer(manifestBytes) ? manifestBytes.toString('utf8') : String(manifestBytes)));
       if (derivationManifest.derivationSha256 !== record.derivation.sha256

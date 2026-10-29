@@ -4,13 +4,14 @@
   "summary": {
     "gitSites": {
       "total": 1400,
-      "read": 811,
+      "read": 810,
       "write": 340,
       "remote": 157,
-      "dynamic": 92
+      "dynamic": 93
     },
-    "gitModules": 175,
-    "directLocalGitSitesOutsideGitModules": 976,
+    "gitModules": 174,
+    "directLocalGitSitesOutsideGitModules": 974,
+    "localGitReadsOutsideGitModules": 617,
     "writeSites": 1060,
     "yamlReadModules": 108,
     "lifetimes": 52,
@@ -18,7 +19,7 @@
     "byClass": {
       "shared-state": {
         "modules": 128,
-        "gitSites": 711,
+        "gitSites": 712,
         "gitWrites": 194,
         "gitRemote": 94,
         "writeSites": 361
@@ -45,15 +46,15 @@
         "writeSites": 65
       },
       "projection": {
-        "modules": 37,
-        "gitSites": 38,
+        "modules": 35,
+        "gitSites": 35,
         "gitWrites": 1,
         "gitRemote": 0,
         "writeSites": 95
       },
       "source-control": {
-        "modules": 56,
-        "gitSites": 506,
+        "modules": 57,
+        "gitSites": 508,
         "gitWrites": 113,
         "gitRemote": 45,
         "writeSites": 178
@@ -96,6 +97,7 @@
       "git": {
         "read": 1
       },
+      "localReads": 1,
       "writes": 0,
       "yamlReads": 0,
       "lifetimes": []
@@ -142,6 +144,7 @@
       "git": {
         "read": 2
       },
+      "localReads": 2,
       "writes": 0,
       "yamlReads": 0,
       "lifetimes": []
@@ -152,6 +155,7 @@
       "git": {
         "read": 3
       },
+      "localReads": 3,
       "writes": 0,
       "yamlReads": 0,
       "lifetimes": []
@@ -283,6 +287,7 @@
         "remote": 2,
         "dynamic": 1
       },
+      "localReads": 8,
       "writes": 2,
       "yamlReads": 2,
       "lifetimes": []
@@ -326,6 +331,7 @@
         "read": 7,
         "dynamic": 1
       },
+      "localReads": 7,
       "writes": 7,
       "yamlReads": 0,
       "lifetimes": [
@@ -335,16 +341,6 @@
           "kind": "timeout"
         }
       ]
-    },
-    {
-      "module": "ast-lifecycle.mjs",
-      "class": "projection",
-      "git": {
-        "read": 2
-      },
-      "writes": 0,
-      "yamlReads": 0,
-      "lifetimes": []
     },
     {
       "module": "ast-pack-registry.mjs",
@@ -370,6 +366,7 @@
       "git": {
         "read": 5
       },
+      "localReads": 5,
       "writes": 4,
       "yamlReads": 0,
       "lifetimes": [
@@ -403,6 +400,7 @@
         "remote": 1,
         "dynamic": 1
       },
+      "localReads": 8,
       "writes": 3,
       "yamlReads": 0,
       "lifetimes": [
@@ -420,6 +418,7 @@
         "read": 4,
         "remote": 2
       },
+      "localReads": 4,
       "writes": 1,
       "yamlReads": 0,
       "lifetimes": []
@@ -431,6 +430,7 @@
         "read": 4,
         "dynamic": 1
       },
+      "localReads": 4,
       "writes": 0,
       "yamlReads": 0,
       "lifetimes": []
@@ -461,6 +461,7 @@
         "read": 3,
         "write": 2
       },
+      "localReads": 3,
       "writes": 0,
       "yamlReads": 0,
       "lifetimes": []
@@ -480,6 +481,7 @@
         "read": 5,
         "remote": 1
       },
+      "localReads": 5,
       "writes": 0,
       "yamlReads": 0,
       "lifetimes": [
@@ -531,6 +533,7 @@
       "git": {
         "read": 5
       },
+      "localReads": 5,
       "writes": 0,
       "yamlReads": 0,
       "lifetimes": []
@@ -543,6 +546,7 @@
         "write": 1,
         "dynamic": 1
       },
+      "localReads": 4,
       "writes": 0,
       "yamlReads": 0,
       "lifetimes": []
@@ -619,6 +623,7 @@
         "write": 3,
         "dynamic": 1
       },
+      "localReads": 6,
       "writes": 2,
       "yamlReads": 0,
       "lifetimes": []
@@ -646,6 +651,7 @@
         "read": 3,
         "dynamic": 1
       },
+      "localReads": 3,
       "writes": 0,
       "yamlReads": 2,
       "lifetimes": []
@@ -686,6 +692,7 @@
         "remote": 2,
         "dynamic": 1
       },
+      "localReads": 12,
       "writes": 3,
       "yamlReads": 0,
       "lifetimes": []
@@ -723,6 +730,7 @@
         "remote": 2,
         "dynamic": 1
       },
+      "localReads": 4,
       "writes": 0,
       "yamlReads": 0,
       "lifetimes": []
@@ -760,6 +768,7 @@
         "write": 4,
         "remote": 1
       },
+      "localReads": 15,
       "writes": 5,
       "yamlReads": 3,
       "lifetimes": [
@@ -819,6 +828,7 @@
         "read": 2,
         "remote": 1
       },
+      "localReads": 2,
       "writes": 0,
       "yamlReads": 0,
       "lifetimes": [
@@ -848,6 +858,7 @@
       "git": {
         "read": 1
       },
+      "localReads": 1,
       "writes": 1,
       "yamlReads": 1,
       "lifetimes": []
@@ -875,6 +886,7 @@
         "read": 3,
         "write": 1
       },
+      "localReads": 3,
       "writes": 0,
       "yamlReads": 0,
       "lifetimes": []
@@ -955,6 +967,7 @@
       "git": {
         "read": 1
       },
+      "localReads": 1,
       "writes": 0,
       "yamlReads": 1,
       "lifetimes": []
@@ -1062,6 +1075,7 @@
       "git": {
         "read": 1
       },
+      "localReads": 1,
       "writes": 0,
       "yamlReads": 0,
       "lifetimes": []
@@ -1072,6 +1086,7 @@
       "git": {
         "read": 3
       },
+      "localReads": 3,
       "writes": 0,
       "yamlReads": 0,
       "lifetimes": []
@@ -1112,6 +1127,7 @@
       "git": {
         "read": 1
       },
+      "localReads": 1,
       "writes": 2,
       "yamlReads": 0,
       "lifetimes": []
@@ -1125,6 +1141,7 @@
         "remote": 12,
         "dynamic": 2
       },
+      "localReads": 18,
       "writes": 12,
       "yamlReads": 5,
       "lifetimes": [
@@ -1159,6 +1176,7 @@
         "write": 1,
         "dynamic": 1
       },
+      "localReads": 1,
       "writes": 0,
       "yamlReads": 0,
       "lifetimes": [
@@ -1185,6 +1203,7 @@
         "write": 1,
         "dynamic": 1
       },
+      "localReads": 2,
       "writes": 0,
       "yamlReads": 0,
       "lifetimes": [
@@ -1204,6 +1223,7 @@
         "remote": 1,
         "dynamic": 1
       },
+      "localReads": 1,
       "writes": 3,
       "yamlReads": 0,
       "lifetimes": [
@@ -1223,6 +1243,7 @@
         "remote": 2,
         "dynamic": 1
       },
+      "localReads": 3,
       "writes": 2,
       "yamlReads": 6,
       "lifetimes": []
@@ -1245,6 +1266,7 @@
         "write": 7,
         "remote": 10
       },
+      "localReads": 6,
       "writes": 0,
       "yamlReads": 3,
       "lifetimes": []
@@ -1265,6 +1287,7 @@
         "write": 7,
         "dynamic": 1
       },
+      "localReads": 6,
       "writes": 2,
       "yamlReads": 2,
       "lifetimes": [
@@ -1305,6 +1328,7 @@
         "write": 7,
         "dynamic": 1
       },
+      "localReads": 3,
       "writes": 3,
       "yamlReads": 3,
       "lifetimes": [
@@ -1345,6 +1369,7 @@
       "git": {
         "read": 2
       },
+      "localReads": 2,
       "writes": 0,
       "yamlReads": 0,
       "lifetimes": []
@@ -1364,6 +1389,7 @@
         "read": 1,
         "write": 1
       },
+      "localReads": 1,
       "writes": 0,
       "yamlReads": 0,
       "lifetimes": []
@@ -1470,6 +1496,7 @@
       "git": {
         "read": 6
       },
+      "localReads": 6,
       "writes": 0,
       "yamlReads": 0,
       "lifetimes": []
@@ -1480,6 +1507,7 @@
       "git": {
         "read": 2
       },
+      "localReads": 2,
       "writes": 0,
       "yamlReads": 0,
       "lifetimes": [
@@ -1535,6 +1563,7 @@
         "read": 3,
         "remote": 1
       },
+      "localReads": 3,
       "writes": 0,
       "yamlReads": 0,
       "lifetimes": []
@@ -1545,6 +1574,7 @@
       "git": {
         "read": 1
       },
+      "localReads": 1,
       "writes": 0,
       "yamlReads": 0,
       "lifetimes": []
@@ -1579,6 +1609,7 @@
       "git": {
         "read": 1
       },
+      "localReads": 1,
       "writes": 4,
       "yamlReads": 0,
       "lifetimes": []
@@ -1597,6 +1628,7 @@
       "git": {
         "read": 1
       },
+      "localReads": 1,
       "writes": 3,
       "yamlReads": 12,
       "lifetimes": []
@@ -1658,6 +1690,7 @@
         "remote": 1,
         "dynamic": 1
       },
+      "localReads": 4,
       "writes": 0,
       "yamlReads": 0,
       "lifetimes": []
@@ -1690,6 +1723,7 @@
       "git": {
         "read": 2
       },
+      "localReads": 2,
       "writes": 0,
       "yamlReads": 0,
       "lifetimes": []
@@ -1700,6 +1734,7 @@
       "git": {
         "read": 1
       },
+      "localReads": 1,
       "writes": 0,
       "yamlReads": 0,
       "lifetimes": []
@@ -1727,6 +1762,7 @@
         "read": 5,
         "write": 2
       },
+      "localReads": 5,
       "writes": 21,
       "yamlReads": 0,
       "lifetimes": []
@@ -1739,6 +1775,7 @@
         "write": 9,
         "dynamic": 2
       },
+      "localReads": 10,
       "writes": 7,
       "yamlReads": 0,
       "lifetimes": []
@@ -1792,6 +1829,7 @@
       "git": {
         "read": 3
       },
+      "localReads": 3,
       "writes": 3,
       "yamlReads": 0,
       "lifetimes": []
@@ -1827,6 +1865,7 @@
         "read": 1,
         "write": 4
       },
+      "localReads": 1,
       "writes": 0,
       "yamlReads": 0,
       "lifetimes": []
@@ -1838,6 +1877,7 @@
         "read": 2,
         "remote": 1
       },
+      "localReads": 2,
       "writes": 0,
       "yamlReads": 0,
       "lifetimes": []
@@ -1849,6 +1889,7 @@
         "read": 2,
         "dynamic": 1
       },
+      "localReads": 2,
       "writes": 0,
       "yamlReads": 0,
       "lifetimes": []
@@ -1859,6 +1900,7 @@
       "git": {
         "read": 1
       },
+      "localReads": 1,
       "writes": 0,
       "yamlReads": 0,
       "lifetimes": [
@@ -1883,6 +1925,7 @@
       "git": {
         "read": 7
       },
+      "localReads": 7,
       "writes": 10,
       "yamlReads": 0,
       "lifetimes": []
@@ -1907,6 +1950,7 @@
       "git": {
         "read": 2
       },
+      "localReads": 2,
       "writes": 0,
       "yamlReads": 0,
       "lifetimes": []
@@ -1995,6 +2039,7 @@
       "git": {
         "read": 3
       },
+      "localReads": 3,
       "writes": 0,
       "yamlReads": 0,
       "lifetimes": []
@@ -2006,6 +2051,7 @@
         "read": 7,
         "dynamic": 1
       },
+      "localReads": 7,
       "writes": 0,
       "yamlReads": 0,
       "lifetimes": []
@@ -2038,6 +2084,7 @@
       "git": {
         "read": 2
       },
+      "localReads": 2,
       "writes": 0,
       "yamlReads": 0,
       "lifetimes": []
@@ -2048,6 +2095,7 @@
       "git": {
         "read": 3
       },
+      "localReads": 3,
       "writes": 0,
       "yamlReads": 0,
       "lifetimes": []
@@ -2058,6 +2106,7 @@
       "git": {
         "read": 1
       },
+      "localReads": 1,
       "writes": 0,
       "yamlReads": 0,
       "lifetimes": []
@@ -2089,6 +2138,7 @@
         "remote": 2,
         "dynamic": 3
       },
+      "localReads": 6,
       "writes": 0,
       "yamlReads": 0,
       "lifetimes": [
@@ -2132,6 +2182,7 @@
       "git": {
         "read": 1
       },
+      "localReads": 1,
       "writes": 0,
       "yamlReads": 0,
       "lifetimes": [
@@ -2156,6 +2207,7 @@
       "git": {
         "read": 7
       },
+      "localReads": 7,
       "writes": 0,
       "yamlReads": 0,
       "lifetimes": []
@@ -2168,6 +2220,7 @@
         "write": 1,
         "remote": 1
       },
+      "localReads": 1,
       "writes": 0,
       "yamlReads": 0,
       "lifetimes": []
@@ -2216,6 +2269,7 @@
         "dynamic": 8,
         "unknown": 1
       },
+      "localReads": 126,
       "writes": 10,
       "yamlReads": 0,
       "lifetimes": [
@@ -2267,6 +2321,7 @@
       "git": {
         "read": 1
       },
+      "localReads": 1,
       "writes": 0,
       "yamlReads": 0,
       "lifetimes": []
@@ -2294,6 +2349,7 @@
         "read": 10,
         "remote": 1
       },
+      "localReads": 10,
       "writes": 0,
       "yamlReads": 0,
       "lifetimes": []
@@ -2307,6 +2363,7 @@
         "remote": 2,
         "dynamic": 1
       },
+      "localReads": 10,
       "writes": 6,
       "yamlReads": 0,
       "lifetimes": [
@@ -2325,6 +2382,7 @@
         "write": 1,
         "dynamic": 1
       },
+      "localReads": 5,
       "writes": 0,
       "yamlReads": 0,
       "lifetimes": []
@@ -2335,6 +2393,7 @@
       "git": {
         "read": 2
       },
+      "localReads": 2,
       "writes": 0,
       "yamlReads": 1,
       "lifetimes": []
@@ -2467,6 +2526,7 @@
         "read": 4,
         "write": 1
       },
+      "localReads": 4,
       "writes": 1,
       "yamlReads": 0,
       "lifetimes": []
@@ -2478,6 +2538,7 @@
         "read": 5,
         "dynamic": 1
       },
+      "localReads": 5,
       "writes": 11,
       "yamlReads": 0,
       "lifetimes": [
@@ -2495,6 +2556,7 @@
         "read": 5,
         "dynamic": 1
       },
+      "localReads": 5,
       "writes": 0,
       "yamlReads": 0,
       "lifetimes": []
@@ -2505,6 +2567,7 @@
       "git": {
         "read": 2
       },
+      "localReads": 2,
       "writes": 0,
       "yamlReads": 0,
       "lifetimes": []
@@ -2543,6 +2606,7 @@
         "write": 7,
         "remote": 4
       },
+      "localReads": 9,
       "writes": 0,
       "yamlReads": 4,
       "lifetimes": []
@@ -2585,6 +2649,7 @@
       "git": {
         "read": 1
       },
+      "localReads": 1,
       "writes": 0,
       "yamlReads": 3,
       "lifetimes": []
@@ -2715,6 +2780,7 @@
         "remote": 1,
         "dynamic": 1
       },
+      "localReads": 3,
       "writes": 0,
       "yamlReads": 0,
       "lifetimes": []
@@ -2723,11 +2789,12 @@
       "module": "ledger.mjs",
       "class": "shared-state",
       "git": {
-        "read": 51,
+        "read": 52,
         "write": 22,
         "remote": 17,
         "dynamic": 2
       },
+      "localReads": 52,
       "writes": 12,
       "yamlReads": 0,
       "lifetimes": [
@@ -2803,6 +2870,7 @@
         "read": 3,
         "write": 4
       },
+      "localReads": 3,
       "writes": 0,
       "yamlReads": 2,
       "lifetimes": []
@@ -2823,6 +2891,7 @@
         "write": 8,
         "dynamic": 1
       },
+      "localReads": 2,
       "writes": 4,
       "yamlReads": 0,
       "lifetimes": []
@@ -2834,6 +2903,7 @@
         "read": 4,
         "dynamic": 2
       },
+      "localReads": 4,
       "writes": 7,
       "yamlReads": 0,
       "lifetimes": []
@@ -3055,6 +3125,7 @@
         "remote": 11,
         "dynamic": 3
       },
+      "localReads": 42,
       "writes": 18,
       "yamlReads": 36,
       "lifetimes": [
@@ -3081,6 +3152,7 @@
         "write": 1,
         "dynamic": 1
       },
+      "localReads": 3,
       "writes": 0,
       "yamlReads": 0,
       "lifetimes": []
@@ -3129,6 +3201,7 @@
       "git": {
         "read": 1
       },
+      "localReads": 1,
       "writes": 4,
       "yamlReads": 0,
       "lifetimes": []
@@ -3147,6 +3220,7 @@
       "git": {
         "read": 1
       },
+      "localReads": 1,
       "writes": 0,
       "yamlReads": 1,
       "lifetimes": []
@@ -3335,6 +3409,7 @@
         "read": 1,
         "write": 1
       },
+      "localReads": 1,
       "writes": 10,
       "yamlReads": 0,
       "lifetimes": []
@@ -3361,6 +3436,7 @@
       "git": {
         "read": 1
       },
+      "localReads": 1,
       "writes": 0,
       "yamlReads": 0,
       "lifetimes": []
@@ -3429,6 +3505,7 @@
         "write": 2,
         "remote": 1
       },
+      "localReads": 1,
       "writes": 9,
       "yamlReads": 0,
       "lifetimes": []
@@ -3441,6 +3518,7 @@
         "write": 3,
         "remote": 4
       },
+      "localReads": 10,
       "writes": 2,
       "yamlReads": 0,
       "lifetimes": []
@@ -3452,6 +3530,7 @@
         "read": 8,
         "dynamic": 1
       },
+      "localReads": 8,
       "writes": 0,
       "yamlReads": 0,
       "lifetimes": []
@@ -3547,6 +3626,7 @@
         "write": 1,
         "dynamic": 1
       },
+      "localReads": 8,
       "writes": 0,
       "yamlReads": 0,
       "lifetimes": []
@@ -3573,6 +3653,7 @@
       "git": {
         "read": 1
       },
+      "localReads": 1,
       "writes": 0,
       "yamlReads": 0,
       "lifetimes": []
@@ -3593,16 +3674,15 @@
         "write": 7,
         "dynamic": 5
       },
+      "localReads": 16,
       "writes": 10,
       "yamlReads": 11,
       "lifetimes": []
     },
     {
       "module": "repository-subject-index.mjs",
-      "class": "projection",
-      "git": {
-        "read": 1
-      },
+      "class": null,
+      "git": {},
       "writes": 0,
       "yamlReads": 3,
       "lifetimes": []
@@ -3613,6 +3693,7 @@
       "git": {
         "read": 2
       },
+      "localReads": 2,
       "writes": 0,
       "yamlReads": 0,
       "lifetimes": []
@@ -3623,6 +3704,7 @@
       "git": {
         "read": 1
       },
+      "localReads": 1,
       "writes": 0,
       "yamlReads": 0,
       "lifetimes": []
@@ -3648,6 +3730,7 @@
         "read": 7,
         "dynamic": 1
       },
+      "localReads": 7,
       "writes": 0,
       "yamlReads": 0,
       "lifetimes": []
@@ -3706,6 +3789,7 @@
         "read": 4,
         "dynamic": 2
       },
+      "localReads": 4,
       "writes": 5,
       "yamlReads": 0,
       "lifetimes": [
@@ -3768,6 +3852,7 @@
         "read": 4,
         "dynamic": 1
       },
+      "localReads": 4,
       "writes": 0,
       "yamlReads": 0,
       "lifetimes": []
@@ -3778,6 +3863,7 @@
       "git": {
         "read": 1
       },
+      "localReads": 1,
       "writes": 0,
       "yamlReads": 0,
       "lifetimes": []
@@ -3796,6 +3882,7 @@
       "git": {
         "read": 1
       },
+      "localReads": 1,
       "writes": 0,
       "yamlReads": 2,
       "lifetimes": []
@@ -3842,6 +3929,7 @@
       "git": {
         "read": 1
       },
+      "localReads": 1,
       "writes": 0,
       "yamlReads": 0,
       "lifetimes": [
@@ -3866,6 +3954,7 @@
       "git": {
         "read": 1
       },
+      "localReads": 1,
       "writes": 4,
       "yamlReads": 0,
       "lifetimes": []
@@ -3879,6 +3968,7 @@
         "remote": 1,
         "dynamic": 1
       },
+      "localReads": 1,
       "writes": 1,
       "yamlReads": 0,
       "lifetimes": []
@@ -3916,6 +4006,7 @@
         "remote": 2,
         "dynamic": 2
       },
+      "localReads": 14,
       "writes": 4,
       "yamlReads": 0,
       "lifetimes": [
@@ -3938,6 +4029,7 @@
         "read": 4,
         "dynamic": 2
       },
+      "localReads": 4,
       "writes": 0,
       "yamlReads": 1,
       "lifetimes": []
@@ -3985,6 +4077,7 @@
       "git": {
         "read": 3
       },
+      "localReads": 3,
       "writes": 2,
       "yamlReads": 0,
       "lifetimes": []
@@ -4051,6 +4144,7 @@
       "git": {
         "read": 2
       },
+      "localReads": 2,
       "writes": 0,
       "yamlReads": 0,
       "lifetimes": []
@@ -4123,6 +4217,18 @@
       "git": {
         "read": 2
       },
+      "localReads": 1,
+      "writes": 0,
+      "yamlReads": 0,
+      "lifetimes": []
+    },
+    {
+      "module": "source-inspection.mjs",
+      "class": "source-control",
+      "git": {
+        "read": 1,
+        "dynamic": 1
+      },
       "writes": 0,
       "yamlReads": 0,
       "lifetimes": []
@@ -4133,6 +4239,7 @@
       "git": {
         "read": 2
       },
+      "localReads": 2,
       "writes": 0,
       "yamlReads": 0,
       "lifetimes": []
@@ -4143,6 +4250,7 @@
       "git": {
         "read": 4
       },
+      "localReads": 4,
       "writes": 0,
       "yamlReads": 0,
       "lifetimes": []
@@ -4163,6 +4271,7 @@
         "write": 1,
         "dynamic": 1
       },
+      "localReads": 5,
       "writes": 0,
       "yamlReads": 1,
       "lifetimes": []
@@ -4176,6 +4285,7 @@
         "dynamic": 2,
         "unknown": 1
       },
+      "localReads": 19,
       "writes": 13,
       "yamlReads": 0,
       "lifetimes": [
@@ -4315,6 +4425,7 @@
         "read": 2,
         "remote": 1
       },
+      "localReads": 2,
       "writes": 0,
       "yamlReads": 0,
       "lifetimes": []
@@ -4326,6 +4437,7 @@
         "read": 7,
         "write": 3
       },
+      "localReads": 7,
       "writes": 0,
       "yamlReads": 2,
       "lifetimes": []
@@ -4336,6 +4448,7 @@
       "git": {
         "read": 1
       },
+      "localReads": 1,
       "writes": 0,
       "yamlReads": 0,
       "lifetimes": []
@@ -4347,6 +4460,7 @@
         "read": 1,
         "dynamic": 1
       },
+      "localReads": 1,
       "writes": 0,
       "yamlReads": 0,
       "lifetimes": []
@@ -4367,6 +4481,7 @@
       "git": {
         "read": 1
       },
+      "localReads": 1,
       "writes": 0,
       "yamlReads": 0,
       "lifetimes": [
@@ -4398,6 +4513,7 @@
         "read": 2,
         "remote": 1
       },
+      "localReads": 2,
       "writes": 0,
       "yamlReads": 1,
       "lifetimes": []
@@ -4423,6 +4539,7 @@
         "read": 4,
         "write": 4
       },
+      "localReads": 4,
       "writes": 3,
       "yamlReads": 0,
       "lifetimes": []
@@ -4433,6 +4550,7 @@
       "git": {
         "read": 3
       },
+      "localReads": 1,
       "writes": 0,
       "yamlReads": 0,
       "lifetimes": []
@@ -4453,6 +4571,7 @@
       "git": {
         "read": 2
       },
+      "localReads": 2,
       "writes": 0,
       "yamlReads": 0,
       "lifetimes": []
@@ -4465,6 +4584,7 @@
         "write": 7,
         "dynamic": 1
       },
+      "localReads": 10,
       "writes": 0,
       "yamlReads": 0,
       "lifetimes": []
@@ -4624,6 +4744,7 @@
         "remote": 2,
         "dynamic": 1
       },
+      "localReads": 3,
       "writes": 1,
       "yamlReads": 0,
       "lifetimes": []
@@ -4651,6 +4772,7 @@
       "git": {
         "read": 2
       },
+      "localReads": 2,
       "writes": 10,
       "yamlReads": 0,
       "lifetimes": []
@@ -4735,6 +4857,7 @@
       "git": {
         "read": 2
       },
+      "localReads": 2,
       "writes": 0,
       "yamlReads": 0,
       "lifetimes": []
@@ -4745,6 +4868,7 @@
       "git": {
         "read": 2
       },
+      "localReads": 2,
       "writes": 4,
       "yamlReads": 0,
       "lifetimes": [
@@ -4761,6 +4885,7 @@
       "git": {
         "read": 1
       },
+      "localReads": 1,
       "writes": 0,
       "yamlReads": 0,
       "lifetimes": []
@@ -4771,6 +4896,7 @@
       "git": {
         "read": 2
       },
+      "localReads": 2,
       "writes": 0,
       "yamlReads": 0,
       "lifetimes": []
@@ -4881,6 +5007,7 @@
         "write": 4,
         "remote": 2
       },
+      "localReads": 10,
       "writes": 1,
       "yamlReads": 0,
       "lifetimes": []
@@ -4918,6 +5045,7 @@
         "read": 3,
         "dynamic": 1
       },
+      "localReads": 3,
       "writes": 4,
       "yamlReads": 0,
       "lifetimes": [
@@ -4983,6 +5111,7 @@
         "write": 1,
         "dynamic": 1
       },
+      "localReads": 1,
       "writes": 0,
       "yamlReads": 0,
       "lifetimes": [
@@ -5001,6 +5130,7 @@
         "write": 12,
         "remote": 10
       },
+      "localReads": 21,
       "writes": 33,
       "yamlReads": 8,
       "lifetimes": [
@@ -5099,6 +5229,7 @@
         "write": 2,
         "remote": 1
       },
+      "localReads": 1,
       "writes": 7,
       "yamlReads": 0,
       "lifetimes": [
@@ -5117,6 +5248,7 @@
         "write": 3,
         "dynamic": 1
       },
+      "localReads": 8,
       "writes": 9,
       "yamlReads": 0,
       "lifetimes": [
@@ -5161,6 +5293,7 @@
         "remote": 9,
         "dynamic": 4
       },
+      "localReads": 16,
       "writes": 18,
       "yamlReads": 4,
       "lifetimes": [
@@ -5184,6 +5317,7 @@
         "write": 1,
         "dynamic": 2
       },
+      "localReads": 9,
       "writes": 0,
       "yamlReads": 0,
       "lifetimes": []

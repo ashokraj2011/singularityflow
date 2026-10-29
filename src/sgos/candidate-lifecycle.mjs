@@ -936,6 +936,12 @@ export async function publishVerifiedSgosLifecycleCandidate(root, {
     fail('Lifecycle Candidate local-ref publication mode is invalid.',
       'SGOS_CANDIDATE_PUBLICATION_INVALID');
   }
+  // Every governed push names the remote revision it replaces (SDA-AC-025), checked before the
+  // local ref moves.
+  if (expectedRemoteSha !== null && !GIT_OBJECT.test(String(expectedRemoteSha ?? ''))) {
+    fail('Lifecycle Candidate publication requires the exact remote revision it replaces, or null to create.',
+      'SGOS_CANDIDATE_PUBLICATION_INVALID');
+  }
   if (!advanceLocalRef && expectedLocalSha !== undefined) {
     fail('A remote-only Candidate publication cannot carry local-ref compare-and-swap authority.',
       'SGOS_CANDIDATE_PUBLICATION_INVALID');
@@ -969,7 +975,7 @@ export async function publishVerifiedSgosLifecycleCandidate(root, {
   }
 
   const result = await pushCommitToBranchAsync(root, remote, commit, targetBranch, {
-    ...(expectedRemoteSha !== undefined ? { expectedRemoteSha } : {}),
+    expectedRemoteSha,
     ...(transportRemote !== undefined ? { transportRemote } : {}),
     ...(upstreamRemote !== undefined ? { upstreamRemote } : {})
   });

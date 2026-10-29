@@ -1920,6 +1920,7 @@ export function refusalEnvelope(error, argv = []) {
     status: 'failed',
     error: {
       code: error?.code ?? 'SINGULARITY_FLOW_ERROR',
+      ...(error?.outcomeClass ? { outcomeClass: error.outcomeClass } : {}),
       message: redactDiagnosticText(error?.message ?? String(error)),
       ...(diagnostic ? { diagnosticAction: {
         command: diagnostic.command,

@@ -59,7 +59,9 @@ test('frequent lifecycle handlers do not reach the legacy dispatcher and stay un
     // joined submit.mjs's graph through agent-output.mjs and application-paths.mjs.
     // 462: approval-fallback.mjs, who decides for a step with no approval group of its own, joined submit.mjs's
     // graph through evidence/risk-decisions.mjs, plan-row-corrections.mjs and scope/decisions.mjs.
-    assert.ok(closure.files.size <= 462, `${file} loads ${closure.files.size} local files (budget 462; retired graph 597)`);
+    // 464: SDA M1's two leaves joined submit.mjs's graph: outcome-classes.mjs (no imports; util.mjs gives every
+    // error its outcome class) and source-inspection.mjs (through repository-subject-index.mjs and ast-lifecycle.mjs).
+    assert.ok(closure.files.size <= 464, `${file} loads ${closure.files.size} local files (budget 464; retired graph 597)`);
     // 9,005,000 (next 5,000 boundary): phase-lifecycle.mjs grew from 8,993,692 (main 4a8e6c42) to 9,004,129 with the
     // capability application block's per-environment arguments and debug validation in capabilities.mjs and the
     // launcher rules it reads (RUN amendment), together with 2ca46d6d's conformance issue ownership; no new file.
@@ -205,7 +207,13 @@ test('frequent lifecycle handlers do not reach the legacy dispatcher and stay un
     // failsafe-reports reads surefire's, readiness's unit-only run keeps Maven on `test` and leaves out .NET
     // integration projects (code-delivery-tests.mjs, repository-test-command-inference.mjs), adding 1,130 for
     // 9,255,327 (submit.mjs 9,177,155). The Node setup and pnpm rules live in the lazy test-module-markers.mjs.
-    assert.ok(closure.bytes <= 9_260_000, `${file} exceeds the 9 MB eager-source budget (${closure.bytes} bytes)`);
+    // 9,275,000 (next 5,000 boundary): main 2f2069e83 measures 9,255,327 for start.mjs. SDA M1 adds 15,311 for
+    // 9,270,638: every error's outcome class (outcome-classes.mjs, util.mjs), the ledger payload digest and its
+    // snapshot readers (ledger.mjs; pages stay in the lazy ledger-pages.mjs), push-operation matching
+    // (transport-intents.mjs), the source inspection facade (source-inspection.mjs, through
+    // repository-subject-index.mjs) and named push leases (git.mjs, publication-unit-of-work.mjs and the
+    // recovery callers). Two new eager files: outcome-classes.mjs and source-inspection.mjs.
+    assert.ok(closure.bytes <= 9_275_000, `${file} exceeds the 9 MB eager-source budget (${closure.bytes} bytes)`);
   }
 });
 
@@ -273,7 +281,10 @@ test('the common session projection does not import attach, state stores or publ
   // contract sentences add 11,124 for 3,945,452 (draft-diagnostics, specifications, verification, phase-authoring-contract).
   // 3,955,000: main 78dd99a3 measures 3,949,562; the apm command's registration (command-registry.mjs,
   // command-skills.mjs) adds 660 for 3,950,222; its reader and command load only when apm runs.
-  assert.ok(current.bytes <= 3_955_000, `session current loads ${current.bytes} source bytes`);
+  // 3,965,000: main 2f2069e83 measures 3,950,222; SDA M1's outcome classes (outcome-classes.mjs, util.mjs),
+  // push-operation matching (transport-intents.mjs), the source inspection facade (source-inspection.mjs, through
+  // repository-subject-index.mjs) and named push leases (git.mjs) add 9,922 for 3,960,144. Two new files.
+  assert.ok(current.bytes <= 3_965_000, `session current loads ${current.bytes} source bytes`);
 });
 
 test('early phase and grounding-path entries exclude the deferred authoring and review graphs', async () => {

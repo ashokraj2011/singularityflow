@@ -10357,7 +10357,10 @@ export async function syncPublication(root, config, workflow, { fault = null, re
       record = { ...record, pushOutcome: 'transport-indeterminate' };
       await writePendingPublication(root, { ...subject, record });
       const result = await pushCommitToBranchAsync(root, record.remote, record.commit, record.branch, {
-        expectedRemoteSha: recoveryExpectedRemoteSha,
+        // A marker saved before exact leases has none; its recovery keeps fast-forward protection.
+        ...(recoveryExpectedRemoteSha === undefined
+          ? { unleased: 'a pending publication saved before exact leases' }
+          : { expectedRemoteSha: recoveryExpectedRemoteSha }),
         transportRemote: rootRemoteAuthority.url,
         upstreamRemote: rootRemoteAuthority.remote
       });

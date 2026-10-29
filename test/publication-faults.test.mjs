@@ -77,6 +77,12 @@ async function rejectPushes(remote) {
   return () => rm(hook, { force: true });
 }
 
+/** Origin's main as it is now: the revision a governed publication names (SDA-AC-025); null when absent. */
+function remoteMain(root) {
+  return spawnSync('git', ['ls-remote', 'origin', 'refs/heads/main'], { cwd: root, encoding: 'utf8' })
+    .stdout.split(/\s/u)[0] || null;
+}
+
 const stages = ['after-state-write', 'after-commit', 'after-push', 'after-ledger'];
 const kinds = ['story', 'initiative'];
 const publicationModule = pathToFileURL(path.join(packageRoot, 'src/publication-unit-of-work.mjs')).href;
@@ -99,7 +105,7 @@ async function crashPublication(root, subject, target, stage, { mode = 'required
     `  subject, allowedPaths: [${JSON.stringify(target)}],`,
     `  event: lifecycleEvent({ type: 'artifact-generated', subject, phaseId: 'intake', generation: 1 }),`,
     `  commit: { message: '[${subject.id}] crash identity test' },`,
-    `  publication: { mode: ${JSON.stringify(mode)}, branch: 'main', remote: 'origin' },`,
+    `  publication: ${JSON.stringify({ mode, branch: 'main', remote: 'origin', ...(mode === 'off' ? {} : { expectedRemoteSha: remoteMain(root) }) })},`,
     `  state: { write: () => writeFile(root + '/' + ${JSON.stringify(target)}, '{"status":"transaction"}\\n') },`,
     `  fault: (current) => { if (current === ${JSON.stringify(stage)}) process.exit(77); }`,
     `});`
@@ -165,7 +171,9 @@ async function retainedPublication(kind, id, { eventPayload = {}, exactLease = f
     commit: { message: `[${id}] retained exact publication` },
     publication: {
       mode: 'required', branch: 'main', remote: 'origin',
-      ...(kind === 'story' || exactLease ? { expectedRemoteSha: remoteBaseline } : {})
+      // An Initiative publication without a lease is what older clients saved; it must say so.
+      ...(kind === 'story' || exactLease ? { expectedRemoteSha: remoteBaseline }
+        : { unleased: 'an Initiative publication saved before exact leases' })
     },
     allowedPaths: [target],
     state: { write: () => writeFile(path.join(root, target), '{"status":"pending"}\n') }
@@ -1374,7 +1382,7 @@ test('push-failure recovery binds a finalized event digest to its exact governed
     subject,
     event: original,
     commit: { message: '[FINALIZED-EVENT] bind finalized result' },
-    publication: { mode: 'required', branch: 'main', remote: 'origin' },
+    publication: { mode: 'required', branch: 'main', remote: 'origin', expectedRemoteSha: remoteMain(root) },
     allowedPaths: [target],
     state: {
       write: async () => {
@@ -1492,7 +1500,7 @@ test('prewritten journals make hard process death discoverable before and after 
           `  subject,`,
           `  event: lifecycleEvent({ type: 'artifact-generated', subject, phaseId: 'intake', generation: 1 }),`,
           `  commit: { message: '[${subject.id}] crash journal' },`,
-          `  publication: { mode: 'required', branch: 'main', remote: 'origin' },`,
+          `  publication: ${JSON.stringify({ mode: 'required', branch: 'main', remote: 'origin', expectedRemoteSha: remoteMain(root) })},`,
           `  allowedPaths: [target],`,
           `  state: { write: () => writeFile(root + '/' + target, '{"status":"interrupted"}\\n') },`,
           `  fault: (current) => { if (current === ${JSON.stringify(stage)}) process.exit(73); }`,
@@ -2135,7 +2143,7 @@ test('a failure after branch ref advancement records the exact commit for public
           type: 'artifact-generated', subject, phaseId: 'intake', generation: 1
         }),
         commit: { message: `[${subject.id}] ref advanced` },
-        publication: { mode: 'required', branch: 'main', remote: 'origin' },
+        publication: { mode: 'required', branch: 'main', remote: 'origin', expectedRemoteSha: remoteMain(root) },
         allowedPaths: [target],
         state: {
           write: () => writeFile(path.join(root, target), '{"status":"committed"}\n'),
@@ -2213,7 +2221,7 @@ test('an owner-bound local ref CAS recovers when acknowledgement is lost after t
     subject,
     event: lifecycleEvent({ type: 'artifact-generated', subject, phaseId: 'intake', generation: 1 }),
     commit: { message: '[REF-CAS-ACK-LOSS] exact local publication' },
-    publication: { mode: 'required', branch: 'main', remote: 'origin' },
+    publication: { mode: 'required', branch: 'main', remote: 'origin', expectedRemoteSha: remoteMain(root) },
     allowedPaths: [target],
     state: { write: () => writeFile(path.join(root, target), '{"status":"candidate"}\n') },
     fault: (stage) => {
@@ -2291,7 +2299,7 @@ test('a nested pending commit must equal HEAD before the outer draft can release
             type: 'artifact-generated', subject, phaseId: 'intake', generation: 1
           }),
           commit: { message: '[DRAFT-NESTED-THEN-UNRELATED] nested publication' },
-          publication: { mode: 'required', branch: 'main', remote: 'origin' },
+          publication: { mode: 'required', branch: 'main', remote: 'origin', expectedRemoteSha: remoteMain(root) },
           allowedPaths: [target],
           state: { write: () => writeFile(path.join(root, target), '{"status":"nested"}\n') }
         });
@@ -2409,7 +2417,7 @@ test('an outer draft cannot erase a nested publication recovery record', async (
           type: 'artifact-generated', subject, phaseId: 'intake', generation: 1
         }),
         commit: { message: '[NESTED-RECOVERY] nested publication' },
-        publication: { mode: 'required', branch: 'main', remote: 'origin' },
+        publication: { mode: 'required', branch: 'main', remote: 'origin', expectedRemoteSha: remoteMain(root) },
         allowedPaths: [target],
         state: { write: () => writeFile(path.join(root, target), '{"status":"committed"}\n') },
         fault: (stage) => {

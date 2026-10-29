@@ -1399,6 +1399,46 @@ export function ledgerIdempotencyKey(intent, publishedCommit) {
 }
 
 /**
+ * What an event says, as one digest (SDA §7.2 item 1): everything but its per-attempt event ID and
+ * creation time. The idempotency key names the operation; this digest proves a repeat of it carries
+ * the same bytes. A Story's intent travels in its own commit, so a retry replays it exactly.
+ */
+export function ledgerPayloadDigest(intent) {
+  return sha256(canonicalJson({
+    eventType: intent.eventType,
+    capabilityId: intent.capabilityId,
+    subject: intent.subject ?? null,
+    actor: intent.actor ?? null,
+    agent: intent.agent ?? null,
+    authorityGroup: intent.authorityGroup ?? null,
+    payload: intent.payload ?? null
+  }));
+}
+
+/**
+ * The first outcome of an operation already recorded under this key, or a refusal when the repeat
+ * carries different bytes. Entries recorded before payload digests existed compare by key only, and
+ * the outcome says so.
+ */
+function recordedOutcome(recorded, intent, idempotency) {
+  if (!recorded.payloadDigest) return 'key-only';
+  if (recorded.payloadDigest === ledgerPayloadDigest(intent)) return 'key-and-payload';
+  throw new SingularityFlowError(
+    `The ledger already holds event ${recorded.eventId} under this operation's key with different content. `
+    + 'Nothing was appended. A repeated operation must carry the bytes it was first recorded with.', {
+      code: 'LEDGER_EVENT_PAYLOAD_CONFLICT',
+      details: {
+        idempotencyKey: idempotency.value,
+        recordedEventId: recorded.eventId,
+        recordedEntryHash: recorded.entryHash,
+        recordedPayloadDigest: recorded.payloadDigest,
+        payloadDigest: ledgerPayloadDigest(intent)
+      }
+    }
+  );
+}
+
+/**
  * Read a bounded suffix of the verified reachable ledger chain for operation recovery.
  *
  * This is intentionally narrower than `ledgerLog`: callers provide immutable subject fields and
@@ -1541,8 +1581,9 @@ async function publishPinAsync(root, config, intent, publishedCommit, {
       { code: existing.failure?.code ?? 'REMOTE_UNKNOWN' }
     );
   }
+  // Create-only: a pin names one commit for good, and the probe above found none.
   const pushed = await runRemoteGitAsync([
-    'push', '--no-verify', remote, `${publishedCommit}:${ref}`
+    'push', '--no-verify', `--force-with-lease=${ref}:`, remote, `${publishedCommit}:${ref}`
   ], { cwd: root, operation: 'remote-push', env: remoteEnv });
   if (pushed.status !== 0) {
     throw new SingularityFlowError(
@@ -1874,6 +1915,7 @@ async function appendOnce(root, config, intent, publishedCommit, {
     if (duplicate) {
       return {
         duplicate: true,
+        idempotency: recordedOutcome(duplicate, intent, idempotency),
         eventId: duplicate.eventId,
         entryHash: duplicate.entryHash,
         sequence: duplicate.sequence,
@@ -1896,7 +1938,12 @@ async function appendOnce(root, config, intent, publishedCommit, {
         const error = new SingularityFlowError(
           `Concurrent ledger append or push failure. ${pushed.failure?.advice ?? 'Git remote access failed.'} `
           + safeGitDiagnosticReference(pushed, 'Ledger append publication failed'),
-          { code: pushed.failure?.code ?? 'REMOTE_UNKNOWN' }
+          {
+            code: pushed.failure?.code ?? 'REMOTE_UNKNOWN',
+            // A refused lease means the state tip moved; any other failure may have landed.
+            outcomeClass: isStateBranchConcurrencyFailure(`${pushed.stderr ?? ''}\n${pushed.stdout ?? ''}`)
+              ? 'REVISION_CONFLICT' : 'OUTCOME_UNKNOWN'
+          }
         );
         error.concurrent = true;
         throw error;
@@ -1919,6 +1966,7 @@ async function appendOnce(root, config, intent, publishedCommit, {
 /** The four records one ledger append writes, and the message of the commit that records them. */
 function ledgerEntryFiles(config, intent, publishedCommit, idempotency, head, pin) {
   const entry = entryFromIntent(intent, publishedCommit, idempotency.value);
+  entry.payloadDigest = ledgerPayloadDigest(intent);
   entry.transport.pinRef = pin;
   entry.transport.pinTransport = config.pinTransport;
   entry.transport.retentionDays = config.retentionDays;
@@ -1939,6 +1987,7 @@ function ledgerEntryFiles(config, intent, publishedCommit, idempotency, head, pi
         eventId: intent.eventId,
         idempotencyKey: idempotency.value,
         idempotencyHash: idempotency.hash,
+        payloadDigest: entry.payloadDigest,
         entryHash: location.hash,
         entryPath: location.path,
         sequence: nextHead.sequence
@@ -2227,6 +2276,9 @@ export async function publishBranchWithLedgerEntry(root, rawConfig, intent, {
   commit, branch, expectedBranchSha = undefined, pushRemote, upstreamRemote, env = process.env
 } = {}) {
   const config = normalizeLedgerConfig(rawConfig);
+  // A governed branch push names the revision it replaces (SDA-AC-025). Without one this path does
+  // not apply, and the sequential branch push refuses to run unleased.
+  if (expectedBranchSha === undefined) return null;
   forgetLedgerRemoteView(config);
   let observation;
   let audit;
@@ -2243,18 +2295,16 @@ export async function publishBranchWithLedgerEntry(root, rawConfig, intent, {
   if (!audit) return null;
   const branchRef = `refs/heads/${branch}`;
   const stateRef = `refs/heads/${config.branch}`;
-  // [ref, new value, expected old value (undefined: unleased), porcelain flags that mean acquired]
+  // [ref, new value, expected old value (null: create-only), porcelain flags that mean acquired]
   const updates = [
-    [branchRef, commit, expectedBranchSha,
-      expectedBranchSha === null ? ['*'] : expectedBranchSha === undefined ? [' ', '*'] : [' ', '+']],
+    [branchRef, commit, expectedBranchSha, expectedBranchSha === null ? ['*'] : [' ', '+']],
     [stateRef, audit.ledgerCommit, audit.expectedRemoteSha, audit.expectedRemoteSha === null ? ['*'] : [' ', '+']],
     ...(audit.pinRef ? [[audit.pinRef, commit, null, ['*']]] : [])
   ];
   const frozen = frozenRemoteTransport(pushRemote, { push: true, env });
   const pushed = await observePublicationHookEffects(root, () => runRemoteGitAsync([
     'push', '--atomic', '--porcelain',
-    ...updates.filter(([, , expected]) => expected !== undefined)
-      .map(([ref, , expected]) => `--force-with-lease=${ref}:${expected ?? ''}`),
+    ...updates.map(([ref, , expected]) => `--force-with-lease=${ref}:${expected ?? ''}`),
     frozen.remote, ...updates.map(([ref, value]) => `${value}:${ref}`)
   ], { cwd: root, operation: 'remote-push', env: frozen.env, allowFailure: true }));
   // A local hook failure is not lack of atomic-push support. Do not immediately run that same
@@ -3288,6 +3338,9 @@ export async function verifyLedger(root, rawConfig, { offline = false } = {}) {
       if (!file.endsWith('.json')) continue;
       const index = readRecord('ledger-entry', contents).record;
       if (!entries.has(index.entryHash)) errors.push(`Idempotency index ${index.eventId} references missing entry ${index.entryHash}.`);
+      else if ((index.payloadDigest ?? null) !== (entries.get(index.entryHash).payloadDigest ?? null)) {
+        errors.push(`Idempotency index ${index.eventId} disagrees with its entry's payload digest.`);
+      }
     }
     const retentionExpired = new Set();
     for (const entry of entries.values()) {
@@ -3311,6 +3364,10 @@ export async function verifyLedger(root, rawConfig, { offline = false } = {}) {
     for (const [hash, entry] of entries) {
       const expected = ledgerIdempotencyKey(entry, entry.transport?.publishedCommit);
       if (entry.idempotencyKey !== expected.value) errors.push(`Entry ${hash} has an invalid idempotency key.`);
+      // Older entries have no digest and compare by key only; a digest present must be the entry's own.
+      if (entry.payloadDigest !== undefined && entry.payloadDigest !== ledgerPayloadDigest(entry)) {
+        errors.push(`Entry ${hash} has an invalid payload digest.`);
+      }
       if (!snapshot.has(idempotencyPath(expected.hash))) {
         errors.push(`Entry ${hash} is missing its idempotency index.`);
       }
@@ -3652,9 +3709,11 @@ export async function repairLedgerPins(root, rawConfig, {
     }
     if (toPush.length) {
       const refspecs = toPush.map((item) => `${item.expectedCommit}:${item.pinRef}`);
+      // Create-only: a restoration replaces nothing, even a pin created since the preview.
+      const leases = toPush.map((item) => `--force-with-lease=${item.pinRef}:`);
       const atomic = toPush.length > 1 ? ['--atomic'] : [];
       const preflight = await runRemoteGitAsync([
-        'push', '--no-verify', '--dry-run', ...atomic, remote, ...refspecs
+        'push', '--no-verify', '--dry-run', ...atomic, ...leases, remote, ...refspecs
       ], { cwd: root, operation: 'remote-push' });
       if (preflight.status !== 0) {
         throw new SingularityFlowError(
@@ -3663,7 +3722,7 @@ export async function repairLedgerPins(root, rawConfig, {
         );
       }
       const pushed = await runRemoteGitAsync([
-        'push', '--no-verify', ...atomic, remote, ...refspecs
+        'push', '--no-verify', ...atomic, ...leases, remote, ...refspecs
       ], { cwd: root, operation: 'remote-push' });
       if (pushed.status !== 0) {
         throw new SingularityFlowError(
@@ -3713,6 +3772,26 @@ export async function ledgerLog(root, rawConfig, { limit = 20, offline = false }
     }
     return output;
   }, { offline });
+}
+
+/**
+ * The commit the state ref names now, after the usual refresh; null when there is no ledger. A
+ * snapshot for readers that page through it (ledger-pages.mjs).
+ */
+export async function ledgerSnapshotCommit(root, rawConfig, { offline = false } = {}) {
+  const config = normalizeLedgerConfig(rawConfig);
+  await ensureRemoteBranchFetchedAsync(root, config, { offline });
+  const ref = ledgerHead(root, config);
+  return ref ? git(root, ['rev-parse', '--verify', `${ref}^{commit}`]).stdout.trim() : null;
+}
+
+/** The head record and the entry files at one snapshot commit; a null head when it is not held here. */
+export function ledgerAtSnapshot(root, snapshot) {
+  const head = readRefFile(root, snapshot, HEAD_PATH);
+  return {
+    head: head === null ? null : readRecord('ledger-entry', head).record,
+    entries: head === null ? new Map() : readRefTree(root, snapshot, 'ledger/entries')
+  };
 }
 
 /** Read the complete reachable Story roster from one exact state authority, not all code refs. */

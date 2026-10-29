@@ -539,6 +539,9 @@ test('an exact remote tip is reconciled after a durably indeterminate push attem
   assert.equal(recovered.status, 'succeeded');
   assert.equal(recovered.healers.at(-1).id, 'remote-push-already-succeeded');
   assert.equal(recovered.healers.at(-1).proof.remoteCommit, item.commit);
+  // The match settles this intent's own operation, named with the digest of its bytes.
+  assert.equal(recovered.healers.at(-1).proof.operationId, created.intentId);
+  assert.equal(recovered.healers.at(-1).proof.payloadDigest, created.operation.payloadDigest);
 });
 
 test('a crash in dry-run cannot claim another actor exact update', async (t) => {
@@ -708,6 +711,32 @@ test('a historical succeeded receipt is not reused as current remote publication
   assert.equal(second.status, 'pending');
   assert.equal((await retryTransportIntent(second.intentId, item.options)).status, 'succeeded');
   assert.equal(run('git', ['--git-dir', item.bare, 'rev-parse', targetRef]).stdout.trim(), item.commit);
+});
+
+test('saving a push operation again returns its first intent, and its ID with other bytes is refused', async () => {
+  const item = await fixture();
+  const targetRef = 'refs/heads/sflow/config-operation';
+  const input = {
+    repositoryRoot: item.work, sourceCommit: item.commit, targetRef, expectedRemote: null,
+    operationId: 'sflow.test:operation-1'
+  };
+  const first = await createTransportIntent(input, item.options);
+  assert.equal(first.operation.id, 'sflow.test:operation-1');
+  assert.match(first.operation.payloadDigest, /^[0-9a-f]{64}$/u);
+  assert.equal((await retryTransportIntent(first.intentId, item.options)).status, 'succeeded');
+  // The same operation after its outcome is known: the first outcome, not a second push.
+  run('git', ['--git-dir', item.bare, 'update-ref', '-d', targetRef]);
+  const again = await createTransportIntent(input, item.options);
+  assert.deepEqual([again.intentId, again.status], [first.intentId, 'succeeded']);
+  await assert.rejects(
+    createTransportIntent({ ...input, targetRef: 'refs/heads/sflow/config-elsewhere' }, item.options),
+    (error) => error.code === 'TRANSPORT_OPERATION_ID_REUSED' && error.outcomeClass === 'OPERATION_ID_REUSE'
+      && error.details.intentId === first.intentId
+  );
+  await assert.rejects(
+    createTransportIntent({ ...input, operationId: '-not an id' }, item.options),
+    (error) => error.code === 'TRANSPORT_OPERATION_ID_INVALID'
+  );
 });
 
 test('a needs-user transport retries only through explicit user authority', async () => {

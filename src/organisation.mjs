@@ -848,6 +848,13 @@ async function recoverCapabilityActivationTarget(root, definition, {
       targetBefore: entry.payload?.targetBefore ?? null,
       mergeEvidence: entry.payload?.mergeEvidence ?? 'commit-ancestry',
       protection: entry.payload?.protection ?? null,
+      // The audit as recorded: a replay carries these bytes, not ones recomputed now.
+      recorded: structuredClone({
+        schemaVersion: entry.schemaVersion, eventId: entry.eventId, eventType: entry.eventType,
+        capabilityId: entry.capabilityId, subject: entry.subject, actor: entry.actor,
+        agent: entry.agent ?? null, authorityGroup: entry.authorityGroup ?? null,
+        payload: entry.payload, createdAt: entry.createdAt
+      }),
       source: 'ledger'
     });
   }
@@ -7333,6 +7340,10 @@ export async function activateCapabilityProposal(url, branch, {
             && protection.enforced !== true && acknowledgeUnprotected === true
         }
       });
+      // Recovery replays the activation audit the ledger already holds, byte for byte. Content
+      // recomputed now (the approver, the acknowledgement, the policy commit) can differ, and the
+      // ledger refuses a repeated operation whose payload changed.
+      if (recoveredActivation?.recorded) Object.assign(intent, recoveredActivation.recorded);
       // The audit entry, its pin, the retained history and the state mirror normally move in one
       // atomic push. Anything short of a verified landing continues with the sequential publication
       // below, which keeps its audit-first recovery contract.

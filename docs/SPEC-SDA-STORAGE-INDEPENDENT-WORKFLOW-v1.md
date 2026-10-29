@@ -151,6 +151,8 @@ Every surface calls application services. Application services enforce lifecycle
 
 Phase A introduces a **source inspection facade** for local reads, the calls that read refs, objects and status. Migration to it is enforced by a ratchet test in the style of the remote boundary: the count of direct local-Git call sites may only fall. Write paths keep their current modules until Phase B.
 
+**M1:** the facade is `src/source-inspection.mjs`. Every read answers `present`, `absent` or `unavailable`. `test/source-inspection.test.mjs` holds each module's own local Git reads to `localReads` in `benchmarks/sda/inventory.json`, and fails on a rise or an unrecorded fall.
+
 The domain must not expose methods named `checkoutBranch`, `mergeRef`, `lsTree` or `readGitBlob`. Appropriate operations are `listStories`, `loadPhaseSnapshot`, `saveDraft`, `submitGeneration` and `recordDecision`.
 
 ## 5 Identity and data model
@@ -286,9 +288,11 @@ Existing refusal codes and statuses keep their names, because scripts, tests and
 
 | Outcome class | Existing codes and statuses that map to it | Required behavior |
 |---|---|---|
-| `REVISION_CONFLICT` | `SGOS_OPERATIONAL_CAS_MISMATCH`, `SGOS_AUTHORITY_CAS_MISMATCH`, `WCA_DRAFT_CONFLICT`, `PUBLICATION_JOURNAL_CONFLICT`, a rejected leased push | Return the current revision; never overwrite |
-| `OPERATION_ID_REUSE` | `WCA_OPERATION_ID_REUSED`, `IDEMPOTENCY_CONFLICT` | Same ID and bytes returns the first outcome; different bytes refuse |
-| `OUTCOME_UNKNOWN` | `transport-indeterminate` (`publicationPushOutcome`), `PUBLICATION_REF_OUTCOME_UNKNOWN`, `outcome-unknown` (transport intents, configuration journal), `WCA_DRAFT_WRITE_UNACKNOWLEDGED` | Retain; reconcile by exact operation and digest before any retry or new approval |
+| `REVISION_CONFLICT` | `SGOS_OPERATIONAL_CAS_MISMATCH`, `SGOS_AUTHORITY_CAS_MISMATCH`, `WCA_DRAFT_CONFLICT`, `PUBLICATION_JOURNAL_CONFLICT`, a rejected leased push (`remote-diverged` for a transport intent; a refused lease in a ledger append) | Return the current revision; never overwrite |
+| `OPERATION_ID_REUSE` | `WCA_OPERATION_ID_REUSED`, `IDEMPOTENCY_CONFLICT`; new in M1: `LEDGER_EVENT_PAYLOAD_CONFLICT`, `TRANSPORT_OPERATION_ID_REUSED` | Same ID and bytes returns the first outcome; different bytes refuse |
+| `OUTCOME_UNKNOWN` | `transport-indeterminate` (`publicationPushOutcome`), `PUBLICATION_REF_OUTCOME_UNKNOWN`, `PUBLICATION_OUTCOME_UNVERIFIED`, `outcome-unknown` (transport intents, configuration journal), `WCA_DRAFT_WRITE_UNACKNOWLEDGED`, any other failed ledger append push | Retain; reconcile by exact operation and digest before any retry or new approval |
+
+**M1:** the table is `src/outcome-classes.mjs`. A `SingularityFlowError` with a mapped code carries the class as `outcomeClass`, beside `code` and outside `details`, so existing details keep their shape. The CLI refusal envelope (`sflow-refusal-plan`) shows it as `error.outcomeClass`. Saved statuses map through `outcomeClassOf({ status })`. The `sflow-result` v2 contract is unchanged until the consistency-block review (Appendix A, question 2).
 
 ### 7.2 Semantic gaps to close (M1)
 
@@ -296,6 +300,13 @@ Existing refusal codes and statuses keep their names, because scripts, tests and
 2. **One push path can drop the lease.** `pushCommitToBranchAsync` omits `--force-with-lease` when no expected remote SHA is passed, which leaves only fast-forward protection. Every caller that publishes governed state must pass an expected revision. A ratchet test lists the callers allowed to omit one.
 3. **Reconciliation uses commits, not operations.** Pending pushes reconcile by exact remote match on commit and ref. Add the operation ID and payload digest to the record, so a retry after an unknown outcome is matched to its original operation.
 4. **Reads are not snapshot-bound.** Ledger event reads already report completeness. Paginated reads need continuation tokens bound to namespace and snapshot revision.
+
+**M1 results** (`benchmarks/sda/m1-contracts.md` has the detail):
+
+1. Each new ledger entry and its idempotency index carry `payloadDigest`: the event without its per-attempt ID and time. A repeat returns the first outcome with `idempotency: 'key-and-payload'`, and an older entry returns `'key-only'`. Different bytes are refused with `LEDGER_EVENT_PAYLOAD_CONFLICT`. `ledger verify` reports a digest that does not match its entry. Capability-activation recovery now replays the recorded audit byte for byte.
+2. `pushCommitToBranchAsync` refuses with `PUSH_EXPECTED_REVISION_REQUIRED` unless the caller names `expectedRemoteSha` or states `unleased` with a reason. The publication unit of work refuses the same way, before writing anything, and the combined branch-and-ledger push needs an expected branch revision. No source states an `unleased` reason for the unit of work. Ledger pins, pin restoration, Auto Candidate refs and the configuration bootstrap push are create-only. `test/governed-push-lease.test.mjs` lists the three sites that keep fast-forward protection alone, with their reasons.
+3. Each transport intent records `operation: { id, payloadDigest }`. A caller with its own operation ID gets its first intent back, whatever became of it, and that ID with other bytes is refused with `TRANSPORT_OPERATION_ID_REUSED`. An exact-remote reconciliation names the operation and digest it settles.
+4. `ledgerPage` reads one snapshot commit per listing. Its continuation names the namespace and that commit; one from another namespace refuses with `LEDGER_CONTINUATION_INVALID`, and one for a snapshot no longer held here refuses with `LEDGER_CONTINUATION_UNAVAILABLE`.
 
 ### 7.3 Required semantics (unchanged from v1.0)
 
@@ -692,10 +703,12 @@ The product never describes pending local work as globally published or approved
 1. Which Node version does the VS Code extension host provide on the supported VS Code range (`^1.90.0`)? This decides whether `node:sqlite` can serve VS Code reads directly, or whether they go through a CLI worker.
    - **M0:** VS Code 1.143.1 measured at Node 24.21.0 with `node:sqlite`. The 1.90.0 floor is Node 20.9 per its release notes, which has none. ADR 0017 needs no SQL engine in Phase A, so the floor stays.
 2. Can the consistency block be an additive optional field of `sflow-result` v2, or does the one-meaning-per-version rule require v3?
-   - Open: an M1 contract review.
+   - Open: an M1 contract review. M1 changed no `sflow-result` field.
 3. Where does the read index live: machine-wide under `~/.singularity-flow/`, or per workspace?
    - **M0 (ADR 0017):** in the existing JSON projections, where they live today, extended with freshness and last-known retention.
 4. For Phase B: which authority option (§6.2) does the team prefer, and what is the migration story for Stories already in flight?
    - Open: ADR 0018 records the options and the criteria for choosing.
 
 M0 results: `benchmarks/sda/m0-qualification.md` (inventory, macOS read baselines, VS Code runtime). Windows baselines and the CI-established DX baseline remain open.
+
+M1 results: `benchmarks/sda/m1-contracts.md` (outcome classes, ledger payload digest, operation-matched reconciliation, leased pushes, source inspection facade, conformance harness). The consistency block and the versioned contract review remain open.

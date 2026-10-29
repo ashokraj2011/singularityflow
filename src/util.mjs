@@ -18,6 +18,7 @@ import { processResultCompleted, processResultSucceeded } from './process-result
 import { assertLocalReadDeadline, localReadDeadlineRemainingMs, localReadDeadlineTimeoutMs } from './local-read-deadline.mjs';
 import { APPLE_GIT_UNAVAILABLE_MESSAGE, gitDeveloperToolsUnavailable, gitHostChildEnvironment } from './git-host-selection.mjs';
 import { cachedGitFact, gitFactRequest, gitFactSnapshot, gitFactStoreHits, rememberGitFact } from './git-fact-cache.mjs';
+import { outcomeClassOf } from './outcome-classes.mjs';
 
 export async function replaceWithSharingRetry(source, target, { renameCommand = rename, wait = delay } = {}) {
   for (let attempt = 0; ; attempt += 1) {
@@ -32,13 +33,16 @@ export async function replaceWithSharingRetry(source, target, { renameCommand = 
 }
 
 export class SingularityFlowError extends Error {
-  constructor(message, { exitCode = 1, code = null, details = null, cause = undefined } = {}) {
+  constructor(message, { exitCode = 1, code = null, details = null, cause = undefined, outcomeClass = null } = {}) {
     super(message);
     this.name = 'SingularityFlowError';
     this.exitCode = exitCode;
     if (code) this.code = code;
     if (details != null) this.details = details;
     if (cause !== undefined) this.cause = cause;
+    // The shared class over existing codes (SDA §7.1); new code may name it directly.
+    const classified = outcomeClass ?? outcomeClassOf({ code });
+    if (classified) this.outcomeClass = classified;
   }
 
   toJSON() {
@@ -47,6 +51,7 @@ export class SingularityFlowError extends Error {
       message: this.message,
       exitCode: this.exitCode,
       ...(this.code ? { code: this.code } : {}),
+      ...(this.outcomeClass ? { outcomeClass: this.outcomeClass } : {}),
       ...(this.details != null ? { details: this.details } : {})
     };
   }

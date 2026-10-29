@@ -130,6 +130,16 @@ export class GitPublicationUnitOfWork {
         { code: 'PUBLICATION_REMOTE_AUTHORITY_MISSING' }
       );
     }
+    // Every governed push names the remote revision it replaces, or null to create (SDA-AC-025). One that
+    // pushes on fast-forward protection alone says why in `unleased`; test/governed-push-lease.test.mjs
+    // lists every such caller.
+    if (publication.mode !== 'off' && publication.expectedRemoteSha === undefined
+        && !(typeof publication.unleased === 'string' && publication.unleased.trim())) {
+      throw new SingularityFlowError(
+        `${subject.kind} '${subject.id}' publication to '${publication.branch}' names no expected remote revision. Nothing was changed.`,
+        { code: 'PUSH_EXPECTED_REVISION_REQUIRED', details: { branch: publication.branch } }
+      );
+    }
   return withSubjectLock(root, subject, async (lockOwner) => withPublicationContext(root, async () => {
     const { branch: transactionBranch, head: publicationHead } = headAndBranch(root);
     if (transactionBranch !== publication.branch) {
@@ -664,6 +674,7 @@ export class GitPublicationUnitOfWork {
           publication.branch,
           {
             expectedRemoteSha: publication.expectedRemoteSha,
+            unleased: publication.unleased,
             transportRemote: publicationAuthority.url,
             upstreamRemote: publicationAuthority.remote
           }

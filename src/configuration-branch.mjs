@@ -1418,7 +1418,9 @@ export async function ensureConfigurationBranch(remote, {
         ? { status: 0, stdout: '', stderr: '' }
         : { status: 1, stdout: '', stderr: `transport ${published.intentId} is ${published.status}` };
     } else {
-      push = await runRemoteGitAsync(['push', 'origin', `HEAD:refs/heads/${CONFIGURATION_BRANCH}`], {
+      // Create-only, like the transport intent above: establishing the authority never moves one.
+      push = await runRemoteGitAsync(['push', `--force-with-lease=refs/heads/${CONFIGURATION_BRANCH}:`,
+        'origin', `HEAD:refs/heads/${CONFIGURATION_BRANCH}`], {
         cwd: scratch, operation: 'remote-push', env: frozen.env
       });
     }

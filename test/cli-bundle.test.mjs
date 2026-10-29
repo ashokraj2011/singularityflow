@@ -140,8 +140,13 @@ test('the bundled CLI answers exactly like the sources while opening a handful o
   // 4,525,000: main e3cc278a measures 4,519,481; a clarification answer from the approver's own clone (its own
   // terminal step and refusal in command-skills.mjs and copilot-mutation-guard.mjs, its routes) and a rewritten
   // history's matching commits add 1,370 for 4,520,851 (cold-hooks, cold-core). No new file in this closure.
-  assert.ok(closure('cold-narrow-reads.mjs').reduce((sum, item) => sum + item.bytes, 0) < 4_525_000,
-    'strict next-step reads must not inherit the broad phase-review closure');
+  // 4,535,000: SDA M1 measures 4,530,211 against 4,525,000. This chunk now carries every error's outcome class
+  // (outcome-classes.mjs, util.mjs), the ledger payload digest (ledger.mjs; pages stay out, in
+  // ledger-pages.mjs), push-operation matching (transport-intents.mjs), the source inspection facade and named
+  // push leases.
+  const narrowReads = closure('cold-narrow-reads.mjs').reduce((sum, item) => sum + item.bytes, 0);
+  assert.ok(narrowReads < 4_535_000,
+    `strict next-step reads must not inherit the broad phase-review closure (${narrowReads} bytes)`);
   const publicationClosure = closure('cold-publication.mjs');
   assert.ok(publicationClosure.length && publicationClosure.reduce((sum, item) => sum + item.bytes, 0) < 6 * 1024 * 1024,
     'first publication must use a bounded writer closure');
@@ -284,8 +289,13 @@ test('the bundled CLI answers exactly like the sources while opening a handful o
   // (agents.mjs, cold-catalogs +2,773), workflow.yml `apm` read at configuration load (config.mjs,
   // cold-narrow-reads +629) and the apm attach registration (cold-core +524) add 3,926 for 7,551,522. The
   // lock reader and normalizer load only where apm.lock.yaml exists (cold-phases); no new file here.
-  assert.ok(closure('cold-hook-context.mjs').reduce((sum, item) => sum + item.bytes, 0) < 7_555_000,
-    'phase-review reads retain their existing byte ceiling after moving families');
+  // 7,560,000: SDA M1 measures 7,559,288 against 7,555,000. Its additions in the chunks this closure shares: every
+  // error's outcome class (outcome-classes.mjs, loaded by util.mjs), the ledger payload digest (ledger.mjs; pages
+  // stay in ledger-pages.mjs), push-operation matching (transport-intents.mjs), the source inspection facade and
+  // named push leases.
+  const hookContext = closure('cold-hook-context.mjs').reduce((sum, item) => sum + item.bytes, 0);
+  assert.ok(hookContext < 7_560_000,
+    `phase-review reads retain their existing byte ceiling after moving families (${hookContext} bytes)`);
   assert.match(await readFile(path.join(outdir, 'cold-light.mjs'), 'utf8'), /function enterPhase\b/u,
     'phase binding must not fall through to the compatibility/admin bundle');
   const phaseCode = await readFile(path.join(outdir, 'cold-phases.mjs'), 'utf8');
@@ -338,8 +348,10 @@ test('the bundled CLI answers exactly like the sources while opening a handful o
   // diagnosis add 1,370 for 5,335,930 (cold-hooks, cold-core). No new file.
   // 5,345,000: main 4bdc665c measures 5,336,890; the same APM agent discovery, configuration read and
   // registration add 3,926 for 5,340,816. No new file.
-  assert.ok(catalogClosure.reduce((sum, item) => sum + item.bytes, 0) < 5_345_000,
-    'catalog parsing stays bounded instead of pulling in the entire administration bundle');
+  // 5,350,000: SDA M1 measures 5,348,118 against 5,345,000, from the same additions in the shared chunks.
+  const catalogBytes = catalogClosure.reduce((sum, item) => sum + item.bytes, 0);
+  assert.ok(catalogBytes < 5_350_000,
+    `catalog parsing stays bounded instead of pulling in the entire administration bundle (${catalogBytes} bytes)`);
   for (const name of ['cold-compatibility.mjs', 'cold-models.mjs', 'cold-intake.mjs', 'cold-phases.mjs', 'cold-hook-context.mjs']) {
     assert.ok(!catalogClosure.some(item => item.file === name), `catalogs must not statically reach ${name}`);
   }

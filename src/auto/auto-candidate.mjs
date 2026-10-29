@@ -646,8 +646,9 @@ export async function publishAutoCandidateRecoveryAuthority(root, binding, {
       'AUTO_CANDIDATE_RECOVERY_CONFLICT');
   }
   if (!observed) {
+    // Create-only: the journal ref is immutable, and the probe above found none.
     const pushed = await remoteGit(root, [
-      'push', '--porcelain', '--', remote, `${commit}:${ref}`
+      'push', '--porcelain', `--force-with-lease=${ref}:`, '--', remote, `${commit}:${ref}`
     ], { operation: 'remote-push', allowFailure: true });
     if (pushed.status !== 0) {
       fail(`Auto Candidate recovery authority could not be retained by the configured remote: ${gitFailureDiagnostic(pushed)}`,
@@ -809,8 +810,9 @@ export async function publishAutoCandidateAuthority(root, binding, { remote = 'o
       'AUTO_CANDIDATE_REMOTE_CONFLICT');
   }
   if (!observed) {
+    // Create-only: the Candidate ref is immutable, and the probe above found none.
     const pushed = await remoteGit(root, [
-      'push', '--porcelain', '--', remote,
+      'push', '--porcelain', `--force-with-lease=${retained.repository.retainedRef}:`, '--', remote,
       `${retained.repository.candidateCommit}:${retained.repository.retainedRef}`
     ], { operation: 'remote-push', allowFailure: true });
     if (pushed.status !== 0) {

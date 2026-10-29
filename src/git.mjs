@@ -3886,6 +3886,19 @@ export async function exactRemoteHeadsObservationAsync(root, remote) {
   return { reachable: true, heads, malformed, result: observed };
 }
 
+/**
+ * The lease a branch push names (SDA §7.2 item 2, SDA-AC-025): the commit it expects to replace, or
+ * null for create-only. A push on fast-forward protection alone says why in `unleased`, and only
+ * the callers test/governed-push-lease.test.mjs lists may do that. Checked before Git runs.
+ */
+function branchPushLease(branchName, { expectedRemoteSha, unleased } = {}) {
+  if (expectedRemoteSha !== undefined) return [`--force-with-lease=refs/heads/${branchName}:${expectedRemoteSha ?? ''}`];
+  if (typeof unleased === 'string' && unleased.trim()) return [];
+  throw new SingularityFlowError(`A push to '${branchName}' must name the revision it expects to replace. Nothing was pushed.`, {
+    code: 'PUSH_EXPECTED_REVISION_REQUIRED', details: { branch: branchName }
+  });
+}
+
 /** @deprecated Use pushCommitToBranchAsync; retained as an asynchronous compatibility alias. */
 export async function pushCommitToBranch(root, remote, commitSha, branchName, options = {}) {
   const expectedRemoteSha = options.expectedRemoteSha;
@@ -3898,9 +3911,7 @@ export async function pushCommitToBranch(root, remote, commitSha, branchName, op
   if (commit.status !== 0) {
     return { ...commit, stderr: commit.stderr || `Commit '${commitSha}' is not available locally.` };
   }
-  const lease = expectedRemoteSha !== undefined
-    ? [`--force-with-lease=refs/heads/${branchName}:${expectedRemoteSha ?? ''}`]
-    : [];
+  const lease = branchPushLease(branchName, options);
   const frozen = Object.hasOwn(options, 'transportRemote')
     ? frozenRemoteTransport(transportRemote, { push: true })
     : null;
@@ -3963,9 +3974,7 @@ export async function pushCommitToBranchAsync(root, remote, commitSha, branchNam
   if (commit.status !== 0) {
     return { ...commit, stderr: `Commit '${commitSha}' is not available locally.` };
   }
-  const lease = expectedRemoteSha !== undefined
-    ? [`--force-with-lease=refs/heads/${branchName}:${expectedRemoteSha ?? ''}`]
-    : [];
+  const lease = branchPushLease(branchName, options);
   const frozen = Object.hasOwn(options, 'transportRemote')
     ? frozenRemoteTransport(transportRemote, { push: true })
     : null;

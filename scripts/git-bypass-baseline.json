@@ -655,12 +655,6 @@
       },
       "digest": "1392de9922d90ef1b64ca8b8a8c7afc505862b395a43985047dc56b0457eb907"
     },
-    "src/ast-lifecycle.mjs": {
-      "counts": {
-        "command-run": 2
-      },
-      "digest": "4426aede19f2e45b109ce8b0cf1895577c728434de050b1e6479a56fa8f2a15e"
-    },
     "src/ast-packs/java-semantic-adapter.mjs": {
       "counts": {
         "process-import": 1,
@@ -1268,10 +1262,10 @@
     },
     "src/ledger.mjs": {
       "counts": {
-        "command-git": 79,
+        "command-git": 80,
         "command-run": 2
       },
-      "digest": "9cc3462a30a22ca3d8a5a8fd9d5cc01f84366696439948b390d361eed8a85297"
+      "digest": "639443bd6639873df3c6e7e75a77986bb20662934c33df9b9a6b4aa5f209a5c9"
     },
     "src/local-evidence-review.mjs": {
       "counts": {
@@ -1427,12 +1421,6 @@
         "command-run": 28
       },
       "digest": "34b5dd33a1120e34eeac03bc4782dd00ad313f2a12643eda1737b4cfdf68714b"
-    },
-    "src/repository-subject-index.mjs": {
-      "counts": {
-        "command-run": 1
-      },
-      "digest": "9af258135276ae3f6e13b43a6529307087ae37b20e15e6b21e3c639a3c7eeffd"
     },
     "src/return-locator.mjs": {
       "counts": {
@@ -1831,6 +1819,12 @@
         "process-launch": 3
       },
       "digest": "3b0e7dfe8f6519c0e409afcb930ac6a48cc751e4ee65b524cb0846f49b47b32d"
+    },
+    "src/source-inspection.mjs": {
+      "counts": {
+        "command-run": 1
+      },
+      "digest": "6b6b2f28b9a4071db3017d89edf9b8cce863dc1c560fea57e12ddef5c23bce79"
     }
   }
 }

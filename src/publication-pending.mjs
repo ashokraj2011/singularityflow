@@ -968,7 +968,10 @@ export async function syncPendingLifecyclePublication(root, options = {}) {
       record: { ...record, pushOutcome: 'transport-indeterminate' }
     });
     const result = await pushCommitToBranchAsync(root, record.remote, record.commit, record.branch, {
-      expectedRemoteSha: record.expectedRemoteSha,
+      // A marker saved before exact leases has none; its recovery keeps fast-forward protection.
+      ...(record.expectedRemoteSha === undefined
+        ? { unleased: 'a pending publication saved before exact leases' }
+        : { expectedRemoteSha: record.expectedRemoteSha }),
       transportRemote: authority.url,
       upstreamRemote: authority.remote
     });

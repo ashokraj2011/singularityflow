@@ -64,6 +64,14 @@ const RULES = [
   ['source-control', /^(?:git|worktree|candidate|code-|source|repository|repo-|branch|commit|merge|diff|checkout|clone|remote|fetch|push|workspace|test|quality|tce|nx-|android|dotnet|python|swift|xcode|gradle|maven|node-|instruction-test|external-command|platform-process|subprocess|process|wel|spec|cancelled-worktree|convergence-context|creation-git|harness-imports|initialization\/|pull-request|readiness-base|reference-|regression-analysis)/u]
 ];
 
+/** The modules that own starting Git: the git*.mjs modules and the source inspection facade. */
+export const GIT_BOUNDARY = /^(?:git[^/]*|source-inspection)\.mjs$/u;
+
+/** A module's own local Git reads: started directly, not through a registered query. */
+export function localReads(entry) {
+  return entry.git.filter((site) => site.kind === 'read' && site.form !== 'named-read').length;
+}
+
 function classify(relative, overrides) {
   if (overrides[relative]) return overrides[relative];
   for (const [name, pattern] of RULES) if (pattern.test(relative)) return name;
@@ -210,9 +218,12 @@ export function summarize(modules) {
     gitSites: { total: count(() => true), read: count((site) => site.kind === 'read'), write: count((site) => site.kind === 'write'),
       remote: count((site) => site.kind === 'remote'), dynamic: count((site) => ['dynamic', 'unknown'].includes(site.kind)) },
     gitModules: gitModules.length,
-    // SDA-AC-001: local Git started outside the git*.mjs modules and the remote boundary.
-    directLocalGitSitesOutsideGitModules: modules.filter((entry) => !/^git[^/]*\.mjs$/u.test(entry.module))
+    // SDA-AC-001: local Git started outside the Git boundary modules and the remote boundary.
+    directLocalGitSitesOutsideGitModules: modules.filter((entry) => !GIT_BOUNDARY.test(entry.module))
       .reduce((sum, entry) => sum + entry.git.filter((site) => site.kind !== 'remote' && site.form !== 'named-read').length, 0),
+    // The reads among them, which the source inspection facade takes over (SDA §4).
+    localGitReadsOutsideGitModules: modules.filter((entry) => !GIT_BOUNDARY.test(entry.module))
+      .reduce((sum, entry) => sum + localReads(entry), 0),
     writeSites: modules.reduce((sum, entry) => sum + entry.writes, 0),
     yamlReadModules: modules.filter((entry) => entry.yamlReads).length,
     lifetimes: modules.reduce((sum, entry) => sum + entry.lifetimes.filter((item) => item.kind === 'lifetime').length, 0),
@@ -231,6 +242,8 @@ export function baseline(modules) {
     modules: modules.map((entry) => ({ module: entry.module, class: entry.class,
       git: Object.fromEntries(['read', 'write', 'remote', 'dynamic', 'unknown'].map((kind) => [kind, entry.git.filter((site) => site.kind === kind).length])
         .filter(([, count]) => count)),
+      // test/source-inspection.test.mjs holds each module to this: it may only fall.
+      ...(localReads(entry) ? { localReads: localReads(entry) } : {}),
       writes: entry.writes, yamlReads: entry.yamlReads,
       lifetimes: entry.lifetimes.map((item) => ({ name: item.name, value: item.value, kind: item.kind })) })) };
 }

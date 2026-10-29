@@ -4,9 +4,10 @@ import YAML from 'yaml';
 import { refHead } from './git-execution.mjs';
 import { withFreshGitFacts } from './git-fact-cache.mjs';
 import { readObjectsBatch, readRefTreeResult, treeEntries } from './git-ref-tree.mjs';
-import { SingularityFlowError, exists, readJson, run } from './util.mjs';
+import { SingularityFlowError, exists, readJson } from './util.mjs';
 import { readRecord } from './schema-migrations.mjs';
 import { scopedRead } from './read-scope.mjs';
+import { sourceFileAt } from './source-inspection.mjs';
 
 function unique(values) {
   return [...new Set(values.map((value) => String(value ?? '').trim()).filter(Boolean))];
@@ -237,26 +238,14 @@ function safeRefRoot(value, fallback) {
  * ref and still falls back to the caller's definition for legacy branches without a snapshot.
  */
 function localConfigurationAtRef(root, ref, relative, env = process.env) {
-  const observed = run('git', ['show', `${ref}:${relative}`], {
-    cwd: root,
-    allowFailure: true,
-    env: {
-      ...env,
-      GIT_NO_LAZY_FETCH: '1',
-      GIT_NO_REPLACE_OBJECTS: '1',
-      GIT_TERMINAL_PROMPT: '0',
-      GCM_INTERACTIVE: 'Never'
-    }
-  });
-  if (observed.status === 0) return { status: 'ok', content: observed.stdout };
-  if (/path .* does not exist|exists on disk, but not in|not exist in/i.test(observed.stderr ?? '')) {
-    return { status: 'missing', content: null };
-  }
+  const observed = sourceFileAt(root, ref, relative, { env, offline: true });
+  if (observed.status === 'present') return { status: 'ok', content: observed.value };
+  if (observed.status === 'absent') return { status: 'missing', content: null };
   return {
     status: 'unavailable',
     content: null,
-    reason: observed.timedOut ? 'local configuration read timed out'
-      : observed.error?.code === 'ENOBUFS' ? 'local configuration output exceeded its bound'
+    reason: observed.result.timedOut ? 'local configuration read timed out'
+      : observed.result.error?.code === 'ENOBUFS' ? 'local configuration output exceeded its bound'
         : 'required configuration object is unavailable locally'
   };
 }

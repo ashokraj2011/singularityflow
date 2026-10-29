@@ -104,6 +104,38 @@ function canonical(value) {
 function digest(value) { return createHash('sha256').update(value).digest('hex'); }
 function nowIso() { return new Date().toISOString(); }
 
+/**
+ * The bytes one push operation is about (SDA §7.2 item 3): where, what, onto which expectation, and
+ * the local ref that must hold it. Two saves with this digest are the same push.
+ */
+export function transportOperationDigest(record) {
+  return digest(canonical({
+    repositoryRootFingerprint: record.repositoryRootFingerprint,
+    remoteFingerprint: record.remoteFingerprint,
+    remote: record.remote,
+    sourceCommit: record.sourceCommit,
+    targetRef: record.targetRef,
+    expectedRemote: record.expectedRemote ?? null,
+    requiredLocalRef: record.scope?.requiredLocalRef ?? null
+  }));
+}
+
+/**
+ * The operation a saved push belongs to, checked against its own bytes. A record saved before
+ * operations were recorded is its own operation, under its intent ID.
+ */
+function transportOperation(intent) {
+  const payloadDigest = transportOperationDigest(intent);
+  if (intent.operation && intent.operation.payloadDigest !== payloadDigest) {
+    throw new SingularityFlowError(`Transport intent '${intent.intentId}' no longer matches the operation it was saved for. Nothing was pushed.`, {
+      code: 'TRANSPORT_INTENT_INTEGRITY_INVALID', details: { intentId: intent.intentId, operationId: intent.operation.id }
+    });
+  }
+  return { id: intent.operation?.id ?? intent.intentId, payloadDigest };
+}
+
+const OPERATION_ID = /^[A-Za-z0-9][A-Za-z0-9._:-]{0,199}$/u;
+
 function integrityFor(record) {
   const copy = structuredClone(record);
   delete copy.integrity;
@@ -252,10 +284,20 @@ function gitResultEvidence(result) {
   };
 }
 
+/**
+ * Save one exact push before it runs. A caller with its own durable operation ID passes it: saving
+ * that operation again returns its first intent, whatever became of it, and the same ID with other
+ * bytes is refused. Without one, an unfinished save of the same bytes is reused.
+ */
 export async function createTransportIntent({
   repositoryRoot, remote = 'origin', expectedRemoteUrl = null, sourceCommit, targetRef,
-  expectedRemote = null, scope = {}
+  expectedRemote = null, scope = {}, operationId = null
 }, { env = process.env, home = os.homedir(), runCommand = run } = {}) {
+  if (operationId != null && !OPERATION_ID.test(String(operationId))) {
+    throw new SingularityFlowError('A push operation ID is 1 to 200 letters, digits, dots, colons, underscores or hyphens.', {
+      code: 'TRANSPORT_OPERATION_ID_INVALID'
+    });
+  }
   const root = await realpath(path.resolve(repositoryRoot));
   const localGitEnv = withoutGitProcessOverrides(env);
   if (!/^[A-Za-z0-9._-]+$/.test(remote) || remote.startsWith('-')) {
@@ -303,23 +345,34 @@ export async function createTransportIntent({
       : {}),
     kind: 'transport'
   };
-  const existing = (await listTransportIntents({ env, home, includeSucceeded: true })).find((candidate) =>
-    candidate.status !== 'succeeded'
-      &&
-    candidate.repositoryRootFingerprint === repositoryRootFingerprint
-      && candidate.remoteFingerprint === normalizedRemoteFingerprint
-      && candidate.remote === remote
-      && candidate.sourceCommit === commit.stdout.trim()
-      && candidate.targetRef === normalizedTargetRef
-      && candidate.expectedRemote === normalizedExpectedRemote
-      // A pre-ref reservation carries a stricter push authority than a legacy intent for the same
-      // commit and destination. Never deduplicate away that local installation proof.
-      && (candidate.scope?.requiredLocalRef ?? null) === (normalizedScope.requiredLocalRef ?? null));
+  // A pre-ref reservation carries a stricter push authority than a legacy intent for the same commit
+  // and destination, so its required local ref is part of the operation's bytes.
+  const payloadDigest = transportOperationDigest({
+    repositoryRootFingerprint, remoteFingerprint: normalizedRemoteFingerprint, remote,
+    sourceCommit: commit.stdout.trim(), targetRef: normalizedTargetRef,
+    expectedRemote: normalizedExpectedRemote, scope: normalizedScope
+  });
+  const saved = await listTransportIntents({ env, home, includeSucceeded: true });
+  if (operationId != null) {
+    const original = saved.find((candidate) => candidate.operation?.id === operationId);
+    if (original && original.operation.payloadDigest === payloadDigest) return original;
+    if (original) {
+      throw new SingularityFlowError(
+        `Push operation '${operationId}' was saved as ${original.intentId} for another commit, destination or expected remote. Nothing was pushed.`, {
+          code: 'TRANSPORT_OPERATION_ID_REUSED',
+          details: { operationId, intentId: original.intentId, status: original.status }
+        }
+      );
+    }
+  }
+  const existing = saved.find((candidate) =>
+    candidate.status !== 'succeeded' && transportOperationDigest(candidate) === payloadDigest);
   if (existing) return existing;
   const intentId = `psh_${randomUUID()}`;
   return writeIntent(outbox, {
     schemaVersion: TRANSPORT_INTENT_SCHEMA_VERSION,
     intentId,
+    operation: { id: operationId ?? intentId, payloadDigest },
     scope: normalizedScope,
     repositoryRoot: root,
     repositoryRootFingerprint,
@@ -622,12 +675,15 @@ export async function retryTransportIntent(intentId, {
     }
     if (observed.commit === intent.sourceCommit) {
       if (mayReconcileExactRemote(intent)) {
+        // The remote holds this operation's exact commit: the earlier attempt of this same
+        // operation, whose outcome was unknown, landed. Name the operation the match settles.
+        const operation = transportOperation(intent);
         recordPublishedRemoteTrackingRef(intent, { runCommand, env });
         return writeIntent(outbox, {
           ...intent, status: 'succeeded', observedRemote: observed.commit,
           healers: [...intent.healers, healerReceipt('remote-push-already-succeeded', {
             postconditions: [{ id: 'remote-target-equals-source-commit', status: 'pass' }],
-            proof: { targetRef: intent.targetRef, remoteCommit: observed.commit }
+            proof: { targetRef: intent.targetRef, remoteCommit: observed.commit, operationId: operation.id, payloadDigest: operation.payloadDigest }
           })],
           nextAction: null
         });
@@ -767,7 +823,9 @@ export async function retryTransportIntent(intentId, {
             remoteCommit: intent.sourceCommit,
             expectedRemote: intent.expectedRemote,
             transition: pushTransitionFlag(pushed, intent),
-            outputSha256: evidence.outputSha256
+            outputSha256: evidence.outputSha256,
+            operationId: transportOperation(intent).id,
+            payloadDigest: transportOperation(intent).payloadDigest
           }
         })],
         circuit: { key: null, consecutiveFailures: 0, openedAt: null },

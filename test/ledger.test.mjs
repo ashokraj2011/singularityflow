@@ -37,6 +37,7 @@ import { configuredRemoteAuthority } from '../src/git-remote-diagnostics.mjs';
 import { publicationPushOutcome } from '../src/git.mjs';
 import { gitTestWrapperEnvironment, realGitForTest, writeGitTestWrapper } from './helpers/git-test-wrapper.mjs';
 import { enterpriseGitEnvironment } from '../src/git-enterprise-environment.mjs';
+import { rewriteRecordedEntry } from './helpers/ledger-rewrite.mjs';
 
 function git(root, args) {
   return run('git', args, { cwd: root });
@@ -160,14 +161,18 @@ test('capability ledger is an orphan branch and verifies its content-addressed c
   assert.equal(appended.sequence, 1);
   const duplicate = await appendLedgerIntent(root, enabled, intent, git(root, ['rev-parse', 'HEAD']).stdout.trim());
   assert.equal(duplicate.duplicate, true);
+  // A new attempt of the same operation carries a new event ID and the same content.
   const sameOperation = createLedgerIntent({
     eventType: 'phase-approved',
     capabilityId: 'story-WORK-1',
     subject: { workId: 'WORK-1', phase: 'design', generation: 1 },
-    actor: { name: 'Reviewer', email: 'reviewer@example.com' }
+    actor: { name: 'Reviewer', email: 'reviewer@example.com' },
+    authorityGroup: 'architecture-reviewers',
+    payload: { bundleHash: 'a'.repeat(64) }
   });
   const idempotent = await appendLedgerIntent(root, enabled, sameOperation, git(root, ['rev-parse', 'HEAD']).stdout.trim());
   assert.equal(idempotent.duplicate, true);
+  assert.equal(idempotent.eventId, intent.eventId);
 
   const verified = await verifyLedger(root, enabled);
   assert.equal(verified.valid, true);
@@ -1830,4 +1835,54 @@ test('publishing nothing does nothing', async () => {
   assert.equal(result.changed, false);
   assert.deepEqual(result.published, []);
   assert.deepEqual(result.removed, []);
+});
+
+test('a repeated ledger operation returns its first outcome, and a changed payload under its key is refused (SDA-AC-005)', async () => {
+  const { root } = await repository();
+  await initializeLedger(root, enabled);
+  const commit = git(root, ['rev-parse', 'HEAD']).stdout.trim();
+  const operation = (payload) => createLedgerIntent({
+    eventType: 'phase-approved', capabilityId: 'story-WORK-5',
+    subject: { workId: 'WORK-5', phase: 'design', generation: 1 },
+    actor: { name: 'Reviewer', email: 'reviewer@example.com' }, payload
+  });
+  const first = operation({ bundleHash: 'b'.repeat(64) });
+  const recorded = await appendLedgerIntent(root, enabled, first, commit);
+  assert.equal(recorded.duplicate, false);
+  assert.match((await ledgerShow(root, enabled, first.eventId)).entry.payloadDigest, /^[0-9a-f]{64}$/u);
+
+  const replay = await appendLedgerIntent(root, enabled, operation({ bundleHash: 'b'.repeat(64) }), commit);
+  assert.deepEqual(
+    [replay.duplicate, replay.idempotency, replay.eventId, replay.entryHash, replay.sequence],
+    [true, 'key-and-payload', first.eventId, recorded.entryHash, recorded.sequence]
+  );
+  await assert.rejects(
+    appendLedgerIntent(root, enabled, operation({ bundleHash: 'c'.repeat(64) }), commit),
+    (error) => error.code === 'LEDGER_EVENT_PAYLOAD_CONFLICT' && error.outcomeClass === 'OPERATION_ID_REUSE'
+      && error.details.recordedEventId === first.eventId
+  );
+  assert.equal((await ledgerLog(root, enabled)).length, 1);
+  assert.equal((await verifyLedger(root, enabled)).valid, true);
+});
+
+test('an entry recorded before payload digests compares by key only and says so; a forged digest fails verification', async () => {
+  const { parent, root } = await repository();
+  await initializeLedger(root, enabled);
+  const commit = git(root, ['rev-parse', 'HEAD']).stdout.trim();
+  const operation = (payload) => createLedgerIntent({
+    eventType: 'phase-approved', capabilityId: 'story-WORK-6',
+    subject: { workId: 'WORK-6', phase: 'design', generation: 1 },
+    actor: { email: 'reviewer@example.com' }, payload
+  });
+  const first = operation({ bundleHash: 'd'.repeat(64) });
+  await appendLedgerIntent(root, enabled, first, commit);
+  await rewriteRecordedEntry(root, parent, first.eventId, ({ payloadDigest, ...legacy }) => legacy);
+  assert.equal((await verifyLedger(root, enabled)).valid, true);
+  const legacy = await appendLedgerIntent(root, enabled, operation({ bundleHash: 'e'.repeat(64) }), commit);
+  assert.deepEqual([legacy.duplicate, legacy.idempotency, legacy.eventId], [true, 'key-only', first.eventId]);
+
+  await rewriteRecordedEntry(root, parent, first.eventId, (entry) => ({ ...entry, payloadDigest: 'f'.repeat(64) }));
+  const forged = await verifyLedger(root, enabled);
+  assert.equal(forged.valid, false);
+  assert.match(forged.errors.join('\n'), /invalid payload digest/u);
 });

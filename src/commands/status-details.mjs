@@ -124,4 +124,7 @@ export async function run(_argv, { positionals, options }) {
   if (ledger.enabled) {
     console.log(`\nCapability ledger: ${ledger.initialized ? ledger.verification.valid ? 'verified' : 'invalid' : 'not initialized'} · pending ${ledger.pending?.length ?? 0} · local outbox ${ledger.outbox}`);
   }
+  const { buildCurrency, buildCurrencyLine } = await import('../build-currency.mjs');
+  const update = buildCurrencyLine(buildCurrency());
+  if (update) console.warn(`\n${update}`);
 }

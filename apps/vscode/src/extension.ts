@@ -33,7 +33,8 @@ import { IntakeCatalogCache } from './intake-catalog-cache.ts';
 import { BackgroundWorkGovernor } from './background-governor.ts';
 import type { CapabilityNode, DecisionInputSpec, RepositorySnapshot, StoryDecisionView } from './cli/snapshot.ts';
 import {
-  decisionChoiceItems, decisionChooseArgv, decisionInputPrompt, pendingDecisionSummary, pendingListOf, submitArgvWithDecisionValues
+  decisionChoiceItems, decisionChooseArgv, decisionInputPrompt, pendingDecisionSummary, pendingListOf, submitArgvWithDecisionValues,
+  prepareRefusal, PUBLISH_AUTHORSHIP, publishArgv
 } from './decisions.ts';
 import { ConfigurationValidator } from './validation.ts';
 import { ConfigurationSyncAction, configurationSyncConfirmation, configurationSyncInterruptedMessage } from './views/configuration-sync-model.ts';
@@ -1930,9 +1931,27 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       location, repository: process.cwd(), onOutput: (text) => output.append(text)
     });
     try {
-      const baseArgs = ['workspace', 'adopt', cloneDirectory, '--id', id.trim(), '--name', name.trim(),
+      let baseArgs = ['workspace', 'adopt', cloneDirectory, '--id', id.trim(), '--name', name.trim(),
         '--base', baseChoice[0].fsPath];
-      const preview = await client.run<any>([...baseArgs, '--dry-run', '--json']);
+      let preview: any;
+      try {
+        preview = await client.run<any>([...baseArgs, '--dry-run', '--json']);
+      } catch (error) {
+        // A clone in iCloud or OneDrive was refused with only "clone again" or a flag VS Code never
+        // passed (2026-10-29): offer both ways out here.
+        if (cliRefusalCode(error) !== 'WORKSPACE_SYNCED_FOLDER') throw error;
+        const choice = await showCompactWarningMessage(
+          'This clone is in a cloud-synced folder (iCloud, OneDrive or similar).',
+          { modal: true, detail: 'Syncing can evict or rewrite Git files while Singularity Flow works. Create a workspace that clones the repository outside it, or use this clone anyway.' },
+          'Create a Workspace', 'Use anyway');
+        if (choice === 'Create a Workspace') {
+          await vscode.commands.executeCommand('singularityFlow.createWorkspace');
+          return;
+        }
+        if (choice !== 'Use anyway') return;
+        baseArgs = [...baseArgs, '--allow-synced-folder'];
+        preview = await client.run<any>([...baseArgs, '--dry-run', '--json']);
+      }
       const repository = preview.plan?.repository;
       const dirtyHash = preview.plan?.dirtyConfirmationRequired as string | null;
       const changed = (repository?.adoption?.changedPaths ?? []) as string[];
@@ -4593,7 +4612,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     if (!target) return;
     const confirmed = await showCompactWarningMessage(
       'Initialize Singularity Flow in this repository?',
-      { modal: true, detail: `This writes singularity/ into ${target.uri.fsPath} and commits it.` },
+      { modal: true, detail: `This writes singularity/ into ${target.uri.fsPath}. It does not commit it: commit it, then push it to the base branch or open a pull request, because Start Work reads the configuration from the remote base.` },
       'Initialize');
     if (confirmed !== 'Initialize') return;
     try {
@@ -4602,7 +4621,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
         .runText(['init']);
       // The extension host has to reload: activation already decided this was not a Flow repository.
       const reload = await showCompactInformationMessage(
-        'Singularity Flow initialized. Reload the window to open it?', 'Reload');
+        'Singularity Flow initialized. Commit singularity/ and push it (or open a pull request) before Start Work. Reload the window to open it?', 'Reload');
       if (reload === 'Reload') await vscode.commands.executeCommand('workbench.action.reloadWindow');
     } catch (error) {
       showRefusal(error);
@@ -6381,9 +6400,21 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       });
     }
     if (node?.command) return runNode(node);
-    const command = action === 'prepare'
-      ? ['prepare', phaseId]
-      : ['phase', 'publish', phaseId];
+    let command: string[];
+    if (action === 'prepare') {
+      const refusal = prepareRefusal(phaseId, workflow.phases?.[phaseId]?.status);
+      if (refusal) {
+        void showCompactWarningMessage(refusal);
+        return;
+      }
+      command = ['prepare', phaseId];
+    } else {
+      const authorship = await vscode.window.showQuickPick(
+        PUBLISH_AUTHORSHIP.map((entry) => ({ label: entry.label, detail: entry.detail, entry })),
+        { title: `Who wrote the ${phaseId} draft?`, placeHolder: 'Publication records who wrote it', ignoreFocusOut: true });
+      if (!authorship) return;
+      command = publishArgv(phaseId, authorship.entry);
+    }
     await runNode({
       kind: 'action', id: `story:${phaseId}:${action}`,
       label: `${action} ${phaseId}`, command

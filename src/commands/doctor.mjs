@@ -45,7 +45,10 @@ export async function doctorCommand(positionals, options) {
   const report = optionBoolean(options, 'performance')
     ? await inspect()
     : await withApprovedConfigurationRead(root, inspect);
+  const { buildCurrency, buildCurrencyLine } = await import('../build-currency.mjs');
+  const update = buildCurrency();
+  if (update) report.update = update;
   if (optionBoolean(options, 'json')) console.log(JSON.stringify(report, null, 2));
-  else process.stdout.write(doctorText(report));
+  else process.stdout.write(`${doctorText(report)}${update ? `\n! ${buildCurrencyLine(update)}\n` : ''}`);
   if (!report.healthy) process.exitCode = 2;
 }

@@ -54,11 +54,23 @@ export function githubActionsRuns(root, remote, { branch = null, commit = null, 
     '--json', fields, ...(branch ? ['--branch', branch] : []), ...(commit ? ['--commit', commit] : [])], runCommand);
 }
 
+/**
+ * The real host behind an SSH remote's host alias (`git@github-work:owner/repo`), from `ssh -G`, which
+ * applies ~/.ssh/config exactly as Git's own push does. gh cannot sign in to an alias, so the hint
+ * `gh auth login --hostname github-work` was a dead end (2026-10-29). Anything else is unchanged.
+ */
+export function resolveGitHubSshHost(root, remote, target, { runCommand = run } = {}) {
+  if (!/^(?:[^@/\s]+@[^:/]+:|ssh:\/\/)/u.test(String(remote ?? '').trim())) return target;
+  const result = runCommand('ssh', ['-G', target.host], { cwd: root, allowFailure: true });
+  const real = result.status === 0 ? String(result.stdout ?? '').match(/^hostname\s+(\S+)\s*$/mu)?.[1] : null;
+  return real && real.toLowerCase() !== target.host.toLowerCase() ? { ...target, host: real, alias: target.host } : target;
+}
+
 export function githubAuthStatus(root, remote, { runCommand = run } = {}) {
   if (runCommand === run && !commandExists('gh')) throw new SingularityFlowError('GitHub review requires the GitHub CLI. Install gh and run gh auth login.');
-  const target = parseGitHubRemote(remote);
+  const target = resolveGitHubSshHost(root, remote, parseGitHubRemote(remote), { runCommand });
   const result = runCommand('gh', ['auth', 'status', '--hostname', target.host], { cwd: root, allowFailure: true });
-  if (result.status !== 0) throw new SingularityFlowError(`GitHub CLI is not authenticated for ${target.host}. Run gh auth login --hostname ${target.host}.`);
+  if (result.status !== 0) throw new SingularityFlowError(`GitHub CLI is not authenticated for ${target.host}${target.alias ? ` (the SSH alias ${target.alias})` : ''}. Run gh auth login --hostname ${target.host}.`);
   return target;
 }
 

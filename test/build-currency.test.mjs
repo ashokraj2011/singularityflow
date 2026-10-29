@@ -66,3 +66,14 @@ test('an SFlow older than its checkout\'s main says so, from a cached answer, an
   assert.match(session.agentInstruction, /SFlow here is older than main \(update\.behind\): after this turn, tell the person once and show update\.commands\.$/u);
   assert.doesNotMatch(sessionAgentResult({ repositoryPath: home, ready: true }, 'singularity/work-items').agentInstruction, /older than main/u);
 });
+
+// The update warning reached only Copilot's agent entry; status and doctor print this line (2026-10-29).
+test('the out-of-date-build line names how far behind and the update commands', async () => {
+  const { buildCurrencyLine } = await import('../src/build-currency.mjs');
+  assert.equal(buildCurrencyLine(null), null);
+  const commands = ['git -C /src/sflow pull --ff-only', 'singularity-flow reinstall --checkout /src/sflow --dry-run'];
+  assert.equal(buildCurrencyLine({ behind: 3, checkout: '/src/sflow', commands }),
+    'SFlow here is 3 commits behind main of /src/sflow; update with: git -C /src/sflow pull --ff-only, then singularity-flow reinstall --checkout /src/sflow --dry-run');
+  assert.match(buildCurrencyLine({ behind: 'unknown', checkout: '/src/sflow', commands }), /^SFlow here is older than main of \/src\/sflow;/u);
+  assert.match(buildCurrencyLine({ behind: 1, checkout: '/x', commands }), /1 commit behind/u);
+});

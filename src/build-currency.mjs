@@ -97,3 +97,13 @@ export function buildCurrency({ env = process.env, now = Date.now(), commit = BU
     commands: [`git -C ${quoted(checkout)} pull --ff-only`, `singularity-flow reinstall --checkout ${quoted(checkout)} --dry-run`]
   };
 }
+
+/**
+ * One line for a person: the update warning reached only Copilot's agent entry, so Shell users and
+ * VS Code never saw it (2026-10-29). Shown by `status` and `doctor`.
+ */
+export function buildCurrencyLine(update) {
+  if (!update) return null;
+  const behind = update.behind === 'unknown' ? 'older than' : `${update.behind} commit${update.behind === 1 ? '' : 's'} behind`;
+  return `SFlow here is ${behind} main of ${update.checkout}; update with: ${update.commands.join(', then ')}`;
+}

@@ -62,3 +62,25 @@ test('GitHub review evidence binds required Actions and PR observations to the e
   assert.equal(evidence.pullRequests[0].headSha, submitted);
   assert.ok(calls.some((args) => args.join(' ').includes(`/commits/${submitted}/check-runs`)));
 });
+
+// A remote through an SSH host alias (git@github-work:…) named the alias in `gh auth login
+// --hostname github-work`, which gh cannot sign in to (2026-10-29).
+test('an SSH host alias is resolved to its real host before gh is asked or suggested', async () => {
+  const { githubAuthStatus, resolveGitHubSshHost, parseGitHubRemote } = await import('../src/github-evidence.mjs');
+  const calls = [];
+  const fake = (command, args) => {
+    calls.push([command, ...args]);
+    if (command === 'ssh') return { status: 0, stdout: 'user git\nhostname ghe.example.test\nport 22\n', stderr: '' };
+    return { status: 1, stdout: '', stderr: 'not logged in' };
+  };
+  const remote = 'git@github-work:acme/app.git';
+  assert.deepEqual(resolveGitHubSshHost('.', remote, parseGitHubRemote(remote), { runCommand: fake }),
+    { host: 'ghe.example.test', owner: 'acme', repository: 'app', slug: 'acme/app', alias: 'github-work' });
+  assert.throws(() => githubAuthStatus('.', remote, { runCommand: fake }),
+    /not authenticated for ghe\.example\.test \(the SSH alias github-work\)\. Run gh auth login --hostname ghe\.example\.test\./u);
+  assert.deepEqual(calls.find(([command]) => command === 'gh'), ['gh', 'auth', 'status', '--hostname', 'ghe.example.test']);
+  // An HTTPS remote never runs ssh.
+  calls.length = 0;
+  resolveGitHubSshHost('.', 'https://ghe.example.test/acme/app.git', parseGitHubRemote('https://ghe.example.test/acme/app.git'), { runCommand: fake });
+  assert.equal(calls.length, 0);
+});

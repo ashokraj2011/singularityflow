@@ -129,3 +129,41 @@ export function inApprovalOf(listed: unknown): { digest: string; items: InApprov
     .filter((item) => item.options.length);
   return items.length ? { digest: packet.packetSha256, items } : null;
 }
+
+/**
+ * The current Story phase's Prepare and Publish buttons, as the CLI expects them. Publish ran
+ * `phase publish <phase>` with no `--authored`, which records deprecated legacy-unspecified
+ * provenance that governance counts as model-assisted; it now asks who wrote the draft. Prepare was
+ * offered while the phase waited for approval, where it withdraws the submission locally and leaves
+ * workflow.json uncommitted (2026-10-29).
+ */
+export interface PublishAuthorship {
+  readonly label: string;
+  readonly detail: string;
+  readonly authored: string;
+  readonly channel: string;
+}
+
+export const PUBLISH_AUTHORSHIP: readonly PublishAuthorship[] = Object.freeze([
+  Object.freeze({
+    label: 'I wrote or edited it myself', detail: 'Recorded as written by a person, in place.',
+    authored: 'human', channel: 'manual-in-place'
+  }),
+  Object.freeze({
+    label: 'Copilot wrote it in this Story', detail: 'Recorded as written by a governed agent through Copilot.',
+    authored: 'governed-agent', channel: 'copilot-host'
+  })
+]);
+
+export function publishArgv(phaseId: string, authorship: PublishAuthorship): string[] {
+  return ['phase', 'publish', phaseId, '--authored', authorship.authored, '--channel', authorship.channel];
+}
+
+/** Why Prepare is not offered for a phase in this status, or null when it may run. */
+export function prepareRefusal(phaseId: string, status: string | undefined): string | null {
+  if (status === 'awaiting_approval') {
+    return `${phaseId} is waiting for approval; preparing it again would withdraw its submission. Approve or reject it first (Approvals).`;
+  }
+  if (status === 'approved') return `${phaseId} is already approved; the next phase is prepared from Lifecycle.`;
+  return null;
+}

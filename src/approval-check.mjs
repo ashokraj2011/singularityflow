@@ -277,6 +277,45 @@ export async function reviewSafeBranchLinks(root, config, workflow, commits) {
   });
 }
 
+const APPROVER_REFRESH_KEYS = Object.freeze(['resolution', 'workflowSnapshot', 'approverRefreshes', 'history', 'publicationProjections']);
+
+/**
+ * Approver refreshes among the commits after a submission (2026-10-29). A refresh only adds members
+ * to groups this Story already has, so it changes nothing the submitted review saw: each commit is
+ * accepted as exactly one refresh, its policy change replayed against its own decision record
+ * (assertApproverRefreshScope), its files only the Story's state, the decision and its new snapshot
+ * revision. The snapshot chain verifies the revision itself. Anything more stales the submission.
+ */
+export async function reviewSafeApproverRefreshes(root, config, workflow, commits) {
+  if (!commits.length || !(workflow.approverRefreshes ?? []).length) return [];
+  const [{ governedStateChange, stateChangesOnly }, { assertApproverRefreshScope }] = await Promise.all([
+    import('./state.mjs'), import('./approver-refresh-contracts.mjs')]);
+  return commits.filter((commit) => {
+    const change = governedStateChange(root, config, workflow, commit);
+    const event = change?.event;
+    if (event?.type !== LIFECYCLE_EVENT.DECISION_MADE || event.payload?.decision !== 'approver-refresh'
+        || event.subject?.id !== workflow.workItem.id
+        || change.identity.eventSha256 !== `sha256:${recordSha256(event)}`) return false;
+    if (!stateChangesOnly(change, APPROVER_REFRESH_KEYS)
+        || !['approverRefreshes', 'history', 'publicationProjections'].every((key) => appendsOne(change, key))
+        || change.after.history.at(-1)?.event !== 'approvers_refreshed') return false;
+    const summary = change.after.approverRefreshes.at(-1);
+    const reference = change.after.workflowSnapshot;
+    if (reference?.revision !== Number(change.before.workflowSnapshot?.revision) + 1
+        || summary?.to?.revision !== reference.revision) return false;
+    let decision;
+    try {
+      decision = JSON.parse(exactFileAtObject(root, commit, summary.decisionPath)?.toString('utf8') ?? 'null');
+      assertApproverRefreshScope(change.before.resolution, change.after.resolution, decision);
+    } catch { return false; }
+    if (decision?.id !== summary.id || `sha256:${recordSha256(decision)}` !== summary.decisionSha256) return false;
+    const snapshot = reference.manifestPath.slice(0, reference.manifestPath.lastIndexOf('/') + 1);
+    const blobs = `${change.item}/config/wfa/blobs/`;
+    return change.changed.every((file) => change.ownPaths.includes(file) || file === summary.decisionPath
+      || file.startsWith(snapshot) || file.startsWith(blobs));
+  });
+}
+
 /**
  * The undecided intent amendments proposed among the commits after a submission, each with its
  * proposal commit [SPEC-OAP M2]. A proposal adds only its own amendment records, so it makes

@@ -184,7 +184,11 @@ test('frequent lifecycle handlers do not reach the legacy dispatcher and stay un
     // naming the verification contract Witness cell and each method's assurance words, and contract refusals that
     // say what a cell holds, add 1,649 for 9,205,386 (phase-authoring-contract.mjs, verification/contracts.mjs). An
     // office Copilot turn looped on that table for lack of them (2026-10-29). No new file.
-    assert.ok(closure.bytes <= 9_210_000, `${file} exceeds the 9 MB eager-source budget (${closure.bytes} bytes)`);
+    // 9,225,000 (next 5,000 boundary): main 6f0e9741 measures 9,205,386 for start.mjs; the approver refresh (a new
+    // accepted snapshot revision kind in workflow-snapshots.mjs, +13,280: its capture, replay and dialect, with its
+    // contracts loaded lazily; its review-safe commit in approval-check.mjs, +2,614; its registry, terminal-step,
+    // refusal and state entries) adds 15,059 for 9,220,445 (submit.mjs 9,142,110). The contracts load lazily, so no handler gains a file.
+    assert.ok(closure.bytes <= 9_225_000, `${file} exceeds the 9 MB eager-source budget (${closure.bytes} bytes)`);
   }
 });
 
@@ -247,7 +251,8 @@ test('the common session projection does not import attach, state stores or publ
   // 3,920,000: main f8cbcdc3 measures 3,914,102; plan corrections for tests delivered under other names, the approval
   // hint for a clone that is behind and the cancelled-Story refusal add 3,842 for 3,917,944 (plan-row-corrections.mjs,
   // sequence.mjs, lifecycle-transitions.mjs, narration/messages.mjs, command-skills.mjs).
-  assert.ok(current.bytes <= 3_920_000, `session current loads ${current.bytes} source bytes`);
+  // 3,935,000: main 6f0e9741 measures 3,919,408; the approver refresh (a new accepted snapshot revision kind in workflow-snapshots.mjs, +13,280: its capture, replay and dialect, with its contracts loaded lazily; its review-safe commit in approval-check.mjs, +2,614; its registry, terminal-step, refusal and state entries) adds 14,512 for 3,933,920, no new file.
+  assert.ok(current.bytes <= 3_935_000, `session current loads ${current.bytes} source bytes`);
 });
 
 test('early phase and grounding-path entries exclude the deferred authoring and review graphs', async () => {

@@ -26,7 +26,7 @@ related:
   - waivers
   - inbox-and-review
   - sequence-gates
-version: 17
+version: 18
 ---
 Approval is an authorization event, never an agent utterance. Authority comes from `approvalAuthorities` groups in pinned configuration; the ceremony shows the exact artifact and its SHA-256, then requires typing the exact confirmation — nothing auto-fills it. The record binds identity, authority group, and artifact hash, verifiable offline. If artifact bytes change afterward, the approval goes stale automatically; the old signature remains in history attached to the bytes it actually covered. Agents cannot approve. Normal team configuration defaults self-approval and first-use identity enrollment on; both are explicit `approvalSecurity` switches in **People & approvals**, while the regulated profile defaults them off. Rejections require reasons — which become pinned context the next generation literally reads.
 
@@ -54,7 +54,7 @@ Use this topic when the current goal matches **approvals**. Start in a repositor
 
 ## State and safety
 
-These commands can change repository or machine-local state: `approve`, `reject`, `decisions record`, `upstream-issue raise`, `upstream-issue decide`, `upstream-issue propose-amendment`, `upstream-issue decide-amendment`, `upstream-issue revalidate`. They remain subject to identity, authority, sequence, freshness, branch, worktree, and exact-confirmation checks. Signed handles are session-bound and are never shared between the shell, Copilot, and VS Code. Durable repository and workspace records are the shared source of truth.
+These commands can change repository or machine-local state: `approve`, `reject`, `story approvers refresh`, `decisions record`, `upstream-issue raise`, `upstream-issue decide`, `upstream-issue propose-amendment`, `upstream-issue decide-amendment`, `upstream-issue revalidate`. They remain subject to identity, authority, sequence, freshness, branch, worktree, and exact-confirmation checks. Signed handles are session-bound and are never shared between the shell, Copilot, and VS Code. Durable repository and workspace records are the shared source of truth.
 
 ## Troubleshooting
 
@@ -62,6 +62,7 @@ These commands can change repository or machine-local state: `approve`, `reject`
 - If a command refuses because state moved, refresh and use the newly rendered action instead of replaying an old handle or confirmation.
 - If publication or synchronization is pending, follow the exact recovery command in the refusal and verify with `sflow doctor`.
 - If a Copilot or VS Code action is unavailable, use the displayed CLI fallback; do not guess a command from the label.
+- If a step's approval group is empty (or its only approver left), have people added through the configuration, then run `sflow story approvers refresh <WORK-ID> --reason TEXT` to preview and, with `--confirm`, in your own terminal, record it. Only added members reach a running Story.
 
 ## Related topics
 

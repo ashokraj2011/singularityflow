@@ -450,12 +450,13 @@ export function planRowCorrectionStep([command, sub], options) {
  * risk, amendment, baseline admission or attestation applied, and a test-scope confirmation. A Copilot
  * turn admitted them, then the terminal review refused the agent's shell, or a pty let an agent type
  * the person's confirmation (2026-10-28). Their previews stay open; `evidence-accept --review-ui`
- * is the browser review /sf-appeal opens for the person.
+ * is the browser review /sf-appeal opens for the person. A confirmed approver refresh is one too.
  */
 const APPEAL_TERMINAL_REVIEWS = new Set(['decide', 'attest', 'risk-accept', 'risk-attest', 'risk-revoke', 'evidence-accept']);
 const TEST_POLICY_TERMINAL_REVIEWS = new Set(['accept-risk', 'revoke-risk', 'attest-risk', 'amend', 'baseline-admission', 'attest']);
 export function liveTerminalReviewStep([command, sub, verb], options) {
   if (command === 'appeal') return APPEAL_TERMINAL_REVIEWS.has(sub) && !(sub === 'evidence-accept' && options['review-ui'] === true);
+  if (command === 'story' && sub === 'approvers') return verb === 'refresh' && options.confirm !== undefined;
   return command === 'story' && sub === 'test-policy'
     && ((TEST_POLICY_TERMINAL_REVIEWS.has(verb) && options.apply === true) || (verb === 'confirm' && options.confirm !== undefined));
 }

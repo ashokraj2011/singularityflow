@@ -218,6 +218,8 @@
   "test-command-adoption-review": [{ "schemaVersion": 1 }, { "schemaVersion": 2 }],
   "test-command-adoption-decision": [{ "schemaVersion": 1 }, { "schemaVersion": 2 }],
   "test-command-adoption-summary": [{ "schemaVersion": 1 }, { "schemaVersion": 2 }],
+  "approver-refresh-decision": [{ "schemaVersion": 1 }],
+  "approver-refresh-summary": [{ "schemaVersion": 1 }],
   "test-command-epoch-validation": [{ "schemaVersion": 1 }],
   "story-reference-repository-set": [{ "schemaVersion": 1 }],
   "workflow-snapshot": [{ "schemaVersion": 1 }, { "schemaVersion": 2, "skillPackages": [] }, { "schemaVersion": 3, "skillPackages": [], "amendment": null }],

@@ -132,7 +132,9 @@ test('the bundled CLI answers exactly like the sources while opening a handful o
   // refusal-remediation.mjs and cancel while a decision waits add cold-core +1,770 and cold-hooks +601 for
   // 4,481,745. No new file.
   // 4,490,000: main f8cbcdc3 measures 4,481,745; batch 7's shapes, two-machine and wording fixes (replace-test and remove-test in plan-row-corrections.mjs, the approval hint for a clone that is behind in sequence.mjs, the cancelled-Story refusal in lifecycle-transitions.mjs, tests owed only where planned in delivery-evidence.mjs, --fetch for the current Story, the evaluator's wording) add 3,583 for 4,485,328. No new file.
-  assert.ok(closure('cold-narrow-reads.mjs').reduce((sum, item) => sum + item.bytes, 0) < 4_490_000,
+  // 4,500,000: main 6f0e9741 measures 4,487,197; the approver refresh (a new accepted snapshot revision kind in workflow-snapshots.mjs, +13,280: its capture, replay and dialect, with its contracts loaded lazily; its review-safe commit in approval-check.mjs, +2,614; its registry, terminal-step, refusal and state entries) adds 12,258 (cold-narrow-reads and cold-core,
+  // with its two record families in schema-migrations.mjs) for 4,499,455. No new file in the closure.
+  assert.ok(closure('cold-narrow-reads.mjs').reduce((sum, item) => sum + item.bytes, 0) < 4_500_000,
     'strict next-step reads must not inherit the broad phase-review closure');
   const publicationClosure = closure('cold-publication.mjs');
   assert.ok(publicationClosure.length && publicationClosure.reduce((sum, item) => sum + item.bytes, 0) < 6 * 1024 * 1024,
@@ -263,7 +265,9 @@ test('the bundled CLI answers exactly like the sources while opening a handful o
   // a rejected skill-version pair as review-safe (approval-check.mjs) and a lapsed witness exception's renewal at the
   // final gate (governance.mjs, gate-recovery.mjs) add 7,558 for 7,505,439. No new eager file: the renewal command,
   // its record and the publish drift warning are lazy.
-  assert.ok(closure('cold-hook-context.mjs').reduce((sum, item) => sum + item.bytes, 0) < 7_510_000,
+  // 7,520,000: main 6f0e9741 measures 7,507,332; the approver refresh (a new accepted snapshot revision kind in workflow-snapshots.mjs, +13,280: its capture, replay and dialect, with its contracts loaded lazily; its review-safe commit in approval-check.mjs, +2,614; its registry, terminal-step, refusal and state entries) adds 12,564 (cold-narrow-reads, cold-core and
+  // cold-hook-context, with its two record families) for 7,519,896. No new file in the closure.
+  assert.ok(closure('cold-hook-context.mjs').reduce((sum, item) => sum + item.bytes, 0) < 7_520_000,
     'phase-review reads retain their existing byte ceiling after moving families');
   assert.match(await readFile(path.join(outdir, 'cold-light.mjs'), 'utf8'), /function enterPhase\b/u,
     'phase binding must not fall through to the compatibility/admin bundle');
@@ -309,7 +313,8 @@ test('the bundled CLI answers exactly like the sources while opening a handful o
   // 5,300,000: main ef81e85b measures 5,294,453; the same person's own terminal decisions add cold-core +1,770 and
   // cold-hooks +601 for 5,296,824. No new file.
   // 5,305,000: main f8cbcdc3 measures 5,296,824; batch 7's shapes, two-machine and wording fixes (replace-test and remove-test in plan-row-corrections.mjs, the approval hint for a clone that is behind in sequence.mjs, the cancelled-Story refusal in lifecycle-transitions.mjs, tests owed only where planned in delivery-evidence.mjs, --fetch for the current Story, the evaluator's wording) add 3,583 for 5,300,407. No new file.
-  assert.ok(catalogClosure.reduce((sum, item) => sum + item.bytes, 0) < 5_305_000,
+  // 5,315,000: main 6f0e9741 measures 5,302,276; the approver refresh (a new accepted snapshot revision kind in workflow-snapshots.mjs, +13,280: its capture, replay and dialect, with its contracts loaded lazily; its review-safe commit in approval-check.mjs, +2,614; its registry, terminal-step, refusal and state entries) adds 12,258 for 5,314,534. No new file in the closure.
+  assert.ok(catalogClosure.reduce((sum, item) => sum + item.bytes, 0) < 5_315_000,
     'catalog parsing stays bounded instead of pulling in the entire administration bundle');
   for (const name of ['cold-compatibility.mjs', 'cold-models.mjs', 'cold-intake.mjs', 'cold-phases.mjs', 'cold-hook-context.mjs']) {
     assert.ok(!catalogClosure.some(item => item.file === name), `catalogs must not statically reach ${name}`);

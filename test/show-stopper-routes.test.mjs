@@ -38,9 +38,10 @@ test('at approval, a Story nobody else can approve says so and names a way to a 
   const details = { phase: 'implementation', workId: 'US-1', ...eligibleApprovers(lone, policy(false), { exclude: ['author@example.invalid'] }) };
   assert.deepEqual(details.eligibleApprovers, []);
   const plan = refusalRemediationPlan({ code: 'APPROVAL_SELF_APPROVAL_PROHIBITED', message: 'prohibited', details }, ['approve', 'implementation']);
-  assert.deepEqual(plan.steps.map((entry) => entry.id).slice(0, 3), ['no-other-approver', 'allow-self-approval', 'cancel-story']);
-  assert.match(plan.steps[0].label, /cannot be approved in this Story; its approval groups were fixed when it started/u);
-  assert.equal(plan.steps[2].command, 'singularity-flow cancel US-1 --reason <REASON> --confirm US-1');
+  assert.deepEqual(plan.steps.map((entry) => entry.id).slice(0, 3), ['no-other-approver', 'refresh-approvers', 'allow-self-approval']);
+  assert.match(plan.steps[0].label, /cannot be approved in this Story as its approval groups stand/u);
+  // Another person added through the configuration reaches this Story by a refresh (2026-10-29).
+  assert.equal(plan.steps[1].command, 'singularity-flow story approvers refresh US-1 --reason <REASON>');
   // Someone else listed, or a group open to any identity: the ordinary "ask another member".
   const open = { ...details, ...eligibleApprovers(authorities([], { allowAnyGitIdentity: true }), policy(false)) };
   assert.equal(open.anyIdentity, true);
@@ -48,13 +49,14 @@ test('at approval, a Story nobody else can approve says so and names a way to a 
 });
 
 // A group nobody is listed in (empty from the start, or its only member left) said "ask a member"
-// of it; a running Story's groups cannot change, so the way through is the configuration and a new Story.
-test('at approval, a group with nobody listed says so and names the configuration and a new Story', () => {
+// of it; the way through is the configuration, then an approver refresh of this Story (2026-10-29).
+test('at approval, a group with nobody listed says so and names the configuration and the approver refresh', () => {
   const empty = authorities([]);
   const details = { phase: 'implementation', workId: 'US-1', identity: 'author@example.invalid',
     ...eligibleApprovers(empty, policy(true), { exclude: ['author@example.invalid'] }) };
   const plan = refusalRemediationPlan({ code: 'APPROVAL_IDENTITY_NOT_AUTHORIZED', message: 'not a member', details }, ['approve', 'implementation']);
-  assert.deepEqual(plan.steps.map((entry) => entry.id).slice(0, 3), ['no-approver-listed', 'propose-joining-group', 'cancel-story']);
+  assert.deepEqual(plan.steps.map((entry) => entry.id).slice(0, 3), ['no-approver-listed', 'propose-joining-group', 'refresh-approvers']);
+  assert.equal(plan.steps[2].command, 'singularity-flow story approvers refresh US-1 --reason <REASON>');
   assert.match(plan.steps[0].label, /Nobody is listed in .* so implementation cannot be approved in it/u);
   assert.equal(plan.steps[1].command, 'singularity-flow configuration add-current-identity --target story:reviewers --json');
   // Someone listed: the ordinary identity check and "ask a member".

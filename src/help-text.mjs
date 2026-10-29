@@ -1039,6 +1039,7 @@ Usage:
   singularity-flow story test-policy baseline-admission WORK-ID --phase PHASE --repository ID --record-sha256 RECORD-DIGEST
     --reason TEXT --follow-up-owner ID --remediation TEXT --expires UTC-ISO [--apply --confirm PLAN-DIGEST] [--json]
     (re-review retained baseline admission after expiry/revocation; no feature execution or automatic acceptance)
+  singularity-flow story approvers refresh [WORK-ID] --reason TEXT [--confirm PLAN-DIGEST] [--json]
   singularity-flow story test-policy amend --reason TEXT [--work-id ID] [--phase PHASE] [--json]
   singularity-flow story test-policy amend --reason TEXT [--work-id ID] [--phase PHASE] --apply --confirm PLAN-DIGEST [--json]
     (current active code phase; preserves published generations; fresh epoch validation; live authorized terminal review; no tests waived)

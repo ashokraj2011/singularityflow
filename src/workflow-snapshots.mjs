@@ -596,6 +596,42 @@ function validateTestCommandDecision(config, workId, decision, { previous, next,
   return scope;
 }
 
+// The same dialect and ID as approver-refresh-contracts.mjs, whose checks load only for a Story with a
+// refresh (the contracts stay out of every eager closure that reads snapshots).
+const APPROVER_REFRESH_DIALECT = 'approver-refresh/v1';
+const APPROVER_REFRESH_ID = /^APR-[0-9]{3,6}$/u;
+const approverRefreshContracts = () => import('./approver-refresh-contracts.mjs');
+
+/** An approver refresh's immutable decision slot inside the Story. */
+export function approverRefreshDecisionPath(config, workId, id) {
+  if (!APPROVER_REFRESH_ID.test(id ?? '')) fail('Invalid approver refresh ID.', 'WFA_AMENDMENT_INVALID');
+  return storyRelative(config, workId, `context/approver-refreshes/${id}-decision.json`);
+}
+
+function approverRefreshDecisionId(config, workId, relative) {
+  const id = /\/context\/approver-refreshes\/(APR-[0-9]{3,6})-decision\.json$/u.exec(relative ?? '')?.[1];
+  if (!id || approverRefreshDecisionPath(config, workId, id) !== relative) fail('Approver refresh decision is outside its immutable Story slot.', 'WFA_PATH_REFUSED');
+  return id;
+}
+
+/** A refresh decision binds its exact accepted parent and refreshed policy, and only adds members. */
+async function validateApproverRefreshDecision(config, workId, decision, { previous, next, decisionPath }) {
+  const { assertApproverRefreshScope, validateApproverRefreshDecisionRecord } = await approverRefreshContracts();
+  validateApproverRefreshDecisionRecord(decision);
+  if (decision.workId !== workId || approverRefreshDecisionPath(config, workId, decision.id) !== decisionPath
+      || canonicalJson(decision.from) !== canonicalJson({ revision: previous.reference.revision,
+        snapshotHash: previous.reference.snapshotHash, policySha256: previous.policy.policySha256,
+        configurationCommit: previous.policy.configurationSource.commit })
+      || canonicalJson(decision.to) !== canonicalJson({ revision: previous.reference.revision + 1,
+        policySha256: next.policy.policySha256, configurationCommit: next.policy.configurationSource.commit })
+      || next.reference.revision !== decision.to.revision) fail('Approver refresh decision differs from its exact accepted parent and refreshed policy.', 'WFA_AMENDMENT_INVALID');
+  assertApproverRefreshScope(previous.policy, next.policy, decision);
+  verifySkillConfigurationAncestry(decision.configurationAncestry, {
+    repository: previous.policy.configurationSource.repository,
+    ancestorCommit: decision.from.configurationCommit, descendantCommit: decision.to.configurationCommit
+  });
+}
+
 export function assertTestCommandWorkflowScope(previous, proposed, phaseId, { replay = false, decision = null } = {}) {
   const published = decision && testCommandAmendmentVersion(decision) === 2;
   if (previous.currentPhase !== phaseId || proposed.currentPhase !== phaseId
@@ -1470,6 +1506,78 @@ export async function captureWorkflowTestCommandAmendment(root, config, currentW
   return reference;
 }
 
+/**
+ * The next accepted revision for an approver refresh: the same closure with members added to the
+ * Story's existing groups from the approved configuration (approver-refresh-contracts.mjs). Every
+ * added member must be in that configuration's group; nothing else in the policy may change.
+ */
+export async function captureWorkflowApproverRefresh(root, config, currentWorkflow,
+  proposedWorkflow, { approvedConfigurationSnapshot, refreshDecision } = {}) {
+  const workId = currentWorkflow?.workItem?.id;
+  if (!workId || proposedWorkflow?.workItem?.id !== workId || !approvedConfigurationSnapshot
+      || !refreshDecision?.path || !QUALIFIED_SHA256.test(refreshDecision.sha256 ?? '')) fail('Approver refresh needs one exact Story, approved source and decision.', 'WFA_AMENDMENT_INVALID');
+  const previous = await verifyWorkflowSnapshot(root, config, currentWorkflow, { requireAccepted: true, retainBytes: true });
+  if (!previous.enrolled || previous.revision >= MAXIMUM_AMENDMENT_REVISIONS
+      || canonicalJson(currentWorkflow.resolution) !== canonicalJson(previous.policy)) fail('Approver refresh has no exact accepted parent closure.', 'WFA_AMENDMENT_INVALID');
+  const decisionId = approverRefreshDecisionId(config, workId, refreshDecision.path);
+  const decisionFile = await secureRepositoryPath(root, refreshDecision.path, { label: 'Approver refresh decision', mustExist: true, type: 'file' });
+  const saved = await stableFile(decisionFile.absolute, 'Approver refresh decision');
+  if (saved.size > MAXIMUM_AMENDMENT_DECISION_BYTES || qualified(saved.sha256) !== refreshDecision.sha256) fail('Approver refresh decision bytes differ from their reviewed binding.', 'WFA_AMENDMENT_INVALID');
+  let decision;
+  try { decision = JSON.parse(new TextDecoder('utf-8', { fatal: true }).decode(saved.bytes)); }
+  catch { fail('Approver refresh decision is not valid JSON.', 'WFA_AMENDMENT_INVALID'); }
+  if (decision.id !== decisionId) fail('Approver refresh decision identity differs from its path.', 'WFA_AMENDMENT_INVALID');
+  const revision = previous.revision + 1;
+  await validateApproverRefreshDecision(config, workId, decision, {
+    previous: { reference: currentWorkflow.workflowSnapshot, policy: previous.policy },
+    next: { reference: { revision }, policy: proposedWorkflow.resolution }, decisionPath: refreshDecision.path });
+  // Only the configuration owner can provide this capability. A cloned snapshot object fails.
+  const { approvedStoryApprovalAuthorities } = await import('./configuration-branch.mjs');
+  const approved = approvedStoryApprovalAuthorities(approvedConfigurationSnapshot);
+  const key = (member) => canonicalJson([String(member?.email ?? '').toLowerCase() || null, String(member?.githubLogin ?? '').toLowerCase() || null]);
+  for (const [group, members] of Object.entries(decision.additions)) {
+    const offered = new Set((approved?.[group]?.members ?? []).map(key));
+    if (!members.every((member) => offered.has(key(member)))) fail(`Approver refresh adds a member the approved configuration does not list in '${group}'.`, 'WFA_AMENDMENT_INVALID');
+  }
+  if (approvedConfigurationSnapshot.sourceCommit !== proposedWorkflow.resolution.configurationSource.commit
+      || approvedConfigurationSnapshot.authority?.remote !== proposedWorkflow.resolution.configurationSource.repository) fail('Approver refresh is not bound to the exact approved configuration commit.', 'WFA_AMENDMENT_INVALID');
+  const manifestPath = storyRelative(config, workId, `config/wfa/snapshots/${String(revision).padStart(6, '0')}/manifest.json`);
+  const target = await secureRepositoryPath(root, manifestPath, { label: 'New approver refresh snapshot manifest' });
+  if (target.exists) fail(`Workflow snapshot revision ${revision} already exists.`, 'WFA_REVISION_CONFLICT');
+  const assets = structuredClone(previous.manifest.assets);
+  for (const asset of assets) {
+    const bytes = previous.assetBytes.get(asset.logicalId);
+    if (!bytes || bytes.byteLength !== asset.blob.bytes) fail('Accepted dependency bytes are unavailable.', 'WFA_DEPENDENCY_UNAVAILABLE');
+    const blob = await installBlob(root, config, workId, { bytes, size: bytes.byteLength,
+      sha256: digestHex(asset.blob.sha256, asset.logicalId), mediaType: asset.blob.mediaType });
+    if (canonicalJson(blob) !== canonicalJson(asset.blob)) fail('Approver refresh changed a retained dependency.');
+  }
+  const policyBytes = Buffer.from(canonicalJson(proposedWorkflow.resolution));
+  if (policyBytes.byteLength > MAXIMUM_BUNDLE_BYTES) fail('Refreshed policy exceeds its retained limit.', 'WFA_LIMIT_REACHED');
+  const policyBlob = await installBlob(root, config, workId, { bytes: policyBytes,
+    size: policyBytes.byteLength, sha256: sha256(policyBytes), mediaType: 'application/json; profile=singularity-flow-effective-policy-v1' });
+  const totalBytes = policyBlob.bytes + assets.reduce((sum, asset) => sum + asset.blob.bytes, 0);
+  if (totalBytes > MAXIMUM_SKILL_SNAPSHOT_BYTES) fail('Refreshed snapshot exceeds its retained limit.', 'WFA_LIMIT_REACHED');
+  const source = proposedWorkflow.resolution.configurationSource;
+  const manifest = { schemaVersion: currentSchemaVersion(SNAPSHOT_FAMILY), kind: SNAPSHOT_FAMILY,
+    story: structuredClone(previous.manifest.story), revision, parentSnapshotHash: currentWorkflow.workflowSnapshot.snapshotHash,
+    policy: policyBlob, assets, executionDependencies: structuredClone(previous.manifest.executionDependencies),
+    skillPackages: structuredClone(previous.manifest.skillPackages ?? []),
+    amendment: { schemaVersion: currentSchemaVersion('workflow-snapshot-amendment'), decisionPath: refreshDecision.path, decisionSha256: refreshDecision.sha256 },
+    provenance: { ...structuredClone(previous.manifest.provenance), configuration: {
+      repository: sanitizeRemote(source.repository) || null, commit: source.commit, filesSha256: source.filesSha256 ?? null } },
+    semantics: { ...structuredClone(previous.manifest.semantics), snapshot: 'wfa-snapshot-v3', amendment: APPROVER_REFRESH_DIALECT },
+    configFoldHash: domainHash('wfa.fold.v1', proposedWorkflow.resolution), createdAt: decision.approvedAt,
+    limits: { assets: assets.length, bytes: totalBytes }, snapshotHash: null };
+  manifest.snapshotHash = domainHash('wfa.snapshot.v3', manifestCore(manifest));
+  await mkdir(path.dirname(target.absolute), { recursive: true });
+  await writeJson(target.absolute, manifest);
+  const reference = { enrollment: 'wfa', schemaVersion: currentSchemaVersion(SNAPSHOT_REFERENCE_FAMILY), revision,
+    snapshotHash: manifest.snapshotHash, manifestPath, genesisSnapshotHash: currentWorkflow.workflowSnapshot.genesisSnapshotHash };
+  RETAINED_AMENDMENT_DRAFTS.set(proposedWorkflow, Object.freeze(structuredClone(reference)));
+  return reference;
+}
+
 /** True only before the exact in-memory Story object's first immutable creation commit exists. */
 export function hasRetainedWorkflowSnapshotDraft(root, config, workflow) {
   const retained = workflow && RETAINED_CREATION_DRAFTS.get(workflow);
@@ -1893,7 +2001,12 @@ function approvedAmendmentSummaries(workflow) {
     validateTestCommandAmendmentRecord(entry);
     if (entry.kind !== 'test-command-adoption-summary') fail('Test-command summary has the wrong kind.', 'WFA_AMENDMENT_INVALID');
   });
-  return [...amendmentSummaries(workflow).filter((entry) => entry?.status === 'approved'), ...testCommands]
+  const refreshes = workflow?.approverRefreshes ?? [];
+  if (!Array.isArray(refreshes) || refreshes.length > MAXIMUM_AMENDMENT_REVISIONS) fail('Approver refresh summaries are malformed.', 'WFA_AMENDMENT_INVALID');
+  // Its exact bytes are replayed against the decision (validateAcceptedApproverRefreshEvidence).
+  if (refreshes.some((entry) => entry?.kind !== 'approver-refresh-summary' || entry.status !== 'approved'
+      || !Number.isSafeInteger(entry.from?.revision))) fail('Approver refresh summaries are malformed.', 'WFA_AMENDMENT_INVALID');
+  return [...amendmentSummaries(workflow).filter((entry) => entry?.status === 'approved'), ...testCommands, ...refreshes]
     .sort((left, right) => left.from.revision - right.from.revision);
 }
 
@@ -2330,6 +2443,38 @@ async function validateAcceptedTestCommandEvidence(root, config, workId, {
     adoptedCommands: structuredClone(workflow.resolution.phases.find((phase) => phase.id === decision.phaseId).qualityCommands) });
 }
 
+/**
+ * Replay of one accepted approver refresh: its parent is the exact preceding accepted authority, the
+ * acceptance commit changes no application source, the person who recorded it is in one of the
+ * refreshed groups, and the Story keeps the refresh's exact append-only summary.
+ */
+async function validateAcceptedApproverRefreshEvidence(root, config, workId, {
+  workflow, workflowRelative, previousReference, previousCommit, acceptanceCommit, decision, decisionPath, decisionSha256
+}) {
+  const { approverRefreshSummary, assertApproverRefreshScope, validateApproverRefreshDecisionRecord } = await approverRefreshContracts();
+  validateApproverRefreshDecisionRecord(decision);
+  const parent = readCommittedJson(root, `${acceptanceCommit}^1`, workflowRelative,
+    'Story immediately before approver refresh').record;
+  const acceptedParent = readCommittedJson(root, previousCommit, workflowRelative,
+    'Story at the accepted authority before approver refresh').record;
+  if (canonicalJson(parent.workflowSnapshot) !== canonicalJson(previousReference)
+      || canonicalJson(parent.resolution) !== canonicalJson(acceptedParent.resolution)) fail('Approver refresh did not preserve its immediately preceding snapshot authority.', 'WFA_AMENDMENT_INVALID');
+  assertApproverRefreshScope(parent.resolution, workflow.resolution, decision);
+  const groups = Object.keys(workflow.resolution.approvalAuthorities ?? {});
+  const [email, login] = String(decision.actor).includes('@') ? [decision.actor, null] : [null, decision.actor];
+  const match = matchApprovalAuthority(workflow.resolution.approvalAuthorities, { authorities: groups }, { email, login });
+  if (!match.authorized || match.authorityGroup !== decision.authorityGroup) fail('Approver refresh was not recorded by a member of a refreshed group.', 'WFA_AMENDMENT_INVALID');
+  const { applicationPathContext, isApplicationChangeEntry } = await import('./application-paths.mjs');
+  const { buildRepositoryTreeChangeSet } = await import('./repository-change-set.mjs');
+  const changes = buildRepositoryTreeChangeSet(root, { baseTree: `${acceptanceCommit}^1`, targetTree: acceptanceCommit,
+    env: { ...withoutGitProcessOverrides(), GIT_NO_REPLACE_OBJECTS: '1', GIT_NO_LAZY_FETCH: '1' } });
+  if (changes.entries.some((entry) => isApplicationChangeEntry(entry, applicationPathContext(config, workflow)))) fail('Approver refresh changed application source bytes.', 'WFA_AMENDMENT_INVALID');
+  const expected = approverRefreshSummary(decision, { decisionPath, decisionSha256 });
+  const matches = (workflow.approverRefreshes ?? []).filter((entry) => entry.id === decision.id);
+  if (matches.length !== 1 || canonicalJson(matches[0]) !== canonicalJson(expected)
+      || (parent.approverRefreshes ?? []).some((entry) => entry.id === decision.id)) fail('Approver refresh acceptance does not retain its exact append-only summary.', 'WFA_AMENDMENT_INVALID');
+}
+
 async function acceptedAmendmentChain(root, config, workId, requestedReference, originInspection = null) {
   const initial = initialSnapshotAuthority(root, config, workId);
   const genesis = initial.workflow?.workflowSnapshot;
@@ -2421,7 +2566,9 @@ async function acceptedAmendmentChain(root, config, workId, requestedReference, 
     }
     const decisionPath = manifest.amendment.decisionPath;
     const testCommand = TEST_COMMAND_AMENDMENT_DIALECTS.includes(manifest.semantics?.amendment);
+    const approverRefresh = manifest.semantics?.amendment === APPROVER_REFRESH_DIALECT;
     if (testCommand) testCommandDecisionId(config, workId, decisionPath);
+    else if (approverRefresh) approverRefreshDecisionId(config, workId, decisionPath);
     else amendmentDecisionId(config, workId, decisionPath);
     if (firstAddedCommit(root, decisionPath,
       `Workflow snapshot revision ${revision} decision`) !== commit) {
@@ -2442,7 +2589,8 @@ async function acceptedAmendmentChain(root, config, workId, requestedReference, 
       fail(`Workflow snapshot revision ${revision} decision bytes changed.`,
         'WFA_AMENDMENT_INVALID');
     }
-    const validateEvidence = testCommand ? validateAcceptedTestCommandEvidence : validateAcceptedAmendmentEvidence;
+    const validateEvidence = testCommand ? validateAcceptedTestCommandEvidence
+      : approverRefresh ? validateAcceptedApproverRefreshEvidence : validateAcceptedAmendmentEvidence;
     await validateEvidence(root, config, workId, {
       workflow: committedWorkflow, workflowRelative: initial.workflowRelative,
       previousReference: previous, previousCommit, acceptanceCommit: commit,
@@ -2704,7 +2852,7 @@ function assertSkillPackageClosure(manifest, storedVersion, policy, assetByLogic
     }
     return;
   }
-  if (storedVersion === 3 && TEST_COMMAND_AMENDMENT_DIALECTS.includes(manifest.semantics?.amendment) && !selected.length) {
+  if (storedVersion === 3 && [...TEST_COMMAND_AMENDMENT_DIALECTS, APPROVER_REFRESH_DIALECT].includes(manifest.semantics?.amendment) && !selected.length) {
     if (!Array.isArray(manifest.skillPackages) || declared.length
         || [...assetByLogicalId.values()].some((asset) => asset.purpose === 'skill-package-file')
         || manifest.semantics.snapshot !== 'wfa-snapshot-v3' || manifest.semantics.policyReaderMinimum !== 5
@@ -2720,7 +2868,7 @@ function assertSkillPackageClosure(manifest, storedVersion, policy, assetByLogic
       || manifest.semantics?.skillTextParser !== SKP_PARSER_PROFILE
       || manifest.semantics?.skillPhaseBinding !== 'skp-contract/v1'
       || (storedVersion === 3
-        && !['skill-version-adoption/v1', ...TEST_COMMAND_AMENDMENT_DIALECTS].includes(manifest.semantics?.amendment))) {
+        && !['skill-version-adoption/v1', ...TEST_COMMAND_AMENDMENT_DIALECTS, APPROVER_REFRESH_DIALECT].includes(manifest.semantics?.amendment))) {
     fail('Story skill snapshot has an unsupported or incomplete interpretation profile.',
       'WFA_RUNTIME_INCOMPATIBLE');
   }
@@ -2834,8 +2982,10 @@ async function verifyWorkflowSnapshotCore(root, config, workflow, options = {}) 
       }));
       if (previous) {
         const testCommand = TEST_COMMAND_AMENDMENT_DIALECTS.includes(current.manifest?.semantics?.amendment);
-        const validateDecision = testCommand ? validateTestCommandDecision : validateAmendmentDecision;
-        validateDecision(config, workflow.workItem.id, authority.decision, {
+        const approverRefresh = current.manifest?.semantics?.amendment === APPROVER_REFRESH_DIALECT;
+        const validateDecision = testCommand ? validateTestCommandDecision
+          : approverRefresh ? validateApproverRefreshDecision : validateAmendmentDecision;
+        await validateDecision(config, workflow.workItem.id, authority.decision, {
           previous: {
             reference: previous.reference,
             policy: previous.result.policy
@@ -2846,7 +2996,7 @@ async function verifyWorkflowSnapshotCore(root, config, workflow, options = {}) 
           },
           decisionPath: authority.decisionPath
         });
-        assertAmendmentClosureScope(previous.result, current, testCommand ? null : authority.decision.to.skillId);
+        assertAmendmentClosureScope(previous.result, current, testCommand || approverRefresh ? null : authority.decision.to.skillId);
         if (current.manifest?.amendment?.decisionPath !== authority.decisionPath
             || current.manifest?.createdAt !== authority.decision.approvedAt
             || current.manifest?.parentSnapshotHash !== previous.reference.snapshotHash) {

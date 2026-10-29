@@ -562,13 +562,15 @@ function approvalIdentitySteps(_argv, error) {
       && Array.isArray(details.eligibleApprovers) && !details.eligibleApprovers.length) {
     const workId = typeof details.workId === 'string' ? details.workId : null;
     const group = (Array.isArray(details.authorities) ? details.authorities : []).map(lowerKebab).filter(Boolean)[0] ?? null;
+    // Another person added through the configuration reaches this Story by an approver refresh;
+    // allowing self-approval is a policy change, which applies only to Stories started after it.
     return [
-      step('no-other-approver', `Nobody else is listed in ${deciders} for this Story, and ${phase ?? 'this step'} forbids self-approval, so it cannot be approved in this Story; its approval groups were fixed when it started. Have another person added to ${deciders}, or self-approval allowed, then do the work again in a new Story.`,
+      step('no-other-approver', `Nobody else is listed in ${deciders} for this Story, and ${phase ?? 'this step'} forbids self-approval, so it cannot be approved in this Story as its approval groups stand. Have another person added to ${deciders} through the configuration, then refresh this Story's approvers; allowing self-approval instead applies only to a new Story.`,
         null, 'remediation'),
-      group ? step('allow-self-approval', `Propose allowing self-approval for ${group}: a configuration change its reviewers approve. It applies to Stories started after it is activated.`,
-        `singularity-flow configuration add-current-identity --target story:${group} --self-approval on --json`, 'remediation') : null,
-      workId ? step('cancel-story', `Then cancel this Story, with why; its work stays on its branch.`,
-        `singularity-flow cancel ${workId} --reason <REASON> --confirm ${workId}`, 'remediation') : null
+      workId ? step('refresh-approvers', `Once that person is in the approved configuration, someone in one of this Story's groups previews the refresh, then records it in their own terminal.`,
+        `singularity-flow story approvers refresh ${workId} --reason <REASON>`, 'remediation') : null,
+      group ? step('allow-self-approval', `Or propose allowing self-approval for ${group}: a configuration change its reviewers approve. It applies to Stories started after it is activated.`,
+        `singularity-flow configuration add-current-identity --target story:${group} --self-approval on --json`, 'remediation') : null
     ].filter(Boolean);
   }
   // Nobody at all is pinned in the group (empty from the start, or its only member left): "ask a
@@ -578,12 +580,12 @@ function approvalIdentitySteps(_argv, error) {
     const workId = typeof details.workId === 'string' ? details.workId : null;
     const group = (Array.isArray(details.authorities) ? details.authorities : []).map(lowerKebab).filter(Boolean)[0] ?? null;
     return [
-      step('no-approver-listed', `Nobody is listed in ${deciders} for this Story, so ${phase ?? 'this step'} cannot be approved in it; its approval groups were fixed when it started. Have people added to ${deciders} through the configuration, then do the work again in a new Story.`,
+      step('no-approver-listed', `Nobody is listed in ${deciders} for this Story, so ${phase ?? 'this step'} cannot be approved in it yet. Have people added to ${deciders} through the configuration, then refresh this Story's approvers to bring them in.`,
         null, 'remediation'),
-      group ? step('propose-joining-group', `If you should decide it, propose adding yourself to ${group}: a configuration change its reviewers approve. It applies to Stories started after it is activated.`,
+      group ? step('propose-joining-group', `If you should decide it, propose adding yourself to ${group}: a configuration change its reviewers approve.`,
         `singularity-flow configuration add-current-identity --target story:${group} --json`, 'remediation') : null,
-      workId ? step('cancel-story', `Then cancel this Story, with why; its work stays on its branch.`,
-        `singularity-flow cancel ${workId} --reason <REASON> --confirm ${workId}`, 'remediation') : null
+      workId ? step('refresh-approvers', `Once the addition is approved, someone in one of this Story's groups (the new member, say) previews the refresh, then records it in their own terminal.`,
+        `singularity-flow story approvers refresh ${workId} --reason <REASON>`, 'remediation') : null
     ].filter(Boolean);
   }
   if (error?.code === 'APPROVAL_SELF_APPROVAL_PROHIBITED') return [

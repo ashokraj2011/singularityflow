@@ -769,6 +769,11 @@ export async function storyCommand(positionals, options) {
   if (subcommand === 'return') return storyReturnCommand(positionals, options, root);
   if (subcommand === 'skill-version') return storySkillVersionCommand(positionals, options, root);
   if (subcommand === 'target-origin') return (await import('./story-target-origin.mjs')).storyTargetOriginCommand(positionals, options);
+  if (subcommand === 'approvers') {
+    if ((positionals[2] ?? null) !== 'refresh') throw new SingularityFlowError(`Unsupported approvers action '${positionals[2] ?? ''}'. Use story approvers refresh.`);
+    const { run: runApproverRefresh } = await import('./story-approvers.mjs');
+    return runApproverRefresh(positionals.slice(3), { options, root });
+  }
   if (subcommand === 'test-policy') {
     const action = positionals[2] ?? 'show';
     if (action === 'baseline') {

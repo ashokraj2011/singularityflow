@@ -2265,6 +2265,15 @@ singularity-flow approve design --work-id WORK-123 --fetch
 
 The command fetches the branch, activates its phase agent, displays reviewer identity and authority, hashes, checks, token usage, prior approvals, and any self-approval warning, then requires explicit phase confirmation. `/sf-approve` always resolves the requested Story and submitted phase first, loads the exact document payload, verifies its paths, generation, and hashes against the approval context, and reproduces every generated text artifact in the visible Copilot response before asking for a decision. Collapsed Shell output, filenames, or summaries never satisfy review. The skill issues a 15-minute receipt for the exact typed phase ID. The CLI independently revalidates the branch HEAD, submitted generation, artifact hashes, human authority, identity threshold, any explicitly required functional authority groups, and receipt before committing and pushing the decision.
 
+A Story's approval groups are fixed when it starts. When a group is empty, or its only approver left, add the people through the configuration (`singularity-flow configuration add-current-identity --target story:<group>`, then its reviewers approve the change). Then someone in one of the Story's groups carries the added members into the running Story:
+
+```bash
+singularity-flow story approvers refresh WORK-123 --reason "The new reviewer joined the group"
+singularity-flow story approvers refresh WORK-123 --reason "The new reviewer joined the group" --confirm sha256:<PLAN-DIGEST>
+```
+
+The first command is a preview; the second records it after the person reviews the exact additions in their own terminal. Only members added to the Story's existing groups are applied: removals, new groups and rule changes never reach a running Story, so every earlier approval still verifies. The refresh is refused while an appeal of the current generation is waiting for a decision, or while a quality risk, finding dispute or artifact risk is still in force, because those records bind the Story's policy; decide, revoke or let them lapse first.
+
 Reject to an allowed target:
 
 ```bash

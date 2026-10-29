@@ -4,8 +4,8 @@
   "status": "contract-only",
   "baselineCommit": "70db564e59224b03729bab0f9a340807f3086c61",
   "lastReview": {
-    "reviewedAtCommit": "48d03fc8a3ebad13b3e1cf381e007ac5d35790f2",
-    "evidence": "docs/contracts/gdp/COMPANION-LOCK-REVIEW-2026-10-26-WORKFLOW-BUNDLE-V11-AGENT-FOLDER-BYTES.md",
+    "reviewedAtCommit": "6f0e9741db7f4f6cc9939d4ffdb2e3e8ee2d6f19",
+    "evidence": "docs/contracts/gdp/COMPANION-LOCK-REVIEW-2026-10-29-APPROVER-REFRESH-RECORDS.md",
     "companionIds": [
       "migration-registry"
     ]
@@ -94,7 +94,7 @@
     {
       "id": "migration-registry",
       "path": "src/schema-migrations.mjs",
-      "sha256": "sha256:28386f08262252a675692db049015e2be323151a7b3306225514f437144c3709"
+      "sha256": "sha256:42fd772fad7125b5f8bcf5173011dc7916c0211a51d6414ccfd7f28c5d2b85ab"
     },
     {
       "id": "smart-initialization-v1",

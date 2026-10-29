@@ -2751,6 +2751,10 @@ const families = [
     paths: [/^(?:singularity|\.sdlc)\/work-items\/[^/]+\/context\/test-recovery\/command-amendments\/TCA-[0-9]{3,6}-decision\.json$/] }),
   family({ id: 'test-command-adoption-summary', currentVersion: 2, immutable: true,
     steps: [migration(1, 2, identity(2))] }),
+  // An approver refresh's reviewed decision and the summary it leaves on the Story (2026-10-29).
+  family({ id: 'approver-refresh-decision', currentVersion: 1, immutable: true,
+    paths: [/^(?:singularity|\.sdlc)\/work-items\/[^/]+\/context\/approver-refreshes\/APR-[0-9]{3,6}-decision\.json$/] }),
+  family({ id: 'approver-refresh-summary', currentVersion: 1, immutable: true }),
   family({ id: 'test-command-epoch-validation', currentVersion: 1, immutable: true,
     paths: [/^(?:singularity|\.sdlc)\/work-items\/[^/]+\/context\/test-recovery\/epochs\/TCEV-[a-f0-9-]{36}\.json$/] }),
   family({

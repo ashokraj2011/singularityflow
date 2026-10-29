@@ -823,7 +823,8 @@ test('every step only a person takes in their own terminal is refused in every t
       `singularity-flow story test-policy accept-risk PMC-1 --phase custom-step --apply --confirm ${digest}`,
       `singularity-flow story test-policy amend PMC-1 --phase custom-step --reason "The runner moved." --apply --confirm ${digest}`,
       `singularity-flow story test-policy baseline-admission PMC-1 --phase custom-step --apply --confirm ${digest}`,
-      `singularity-flow story test-policy confirm PMC-1 --phase custom-step --confirm ${digest}`]
+      `singularity-flow story test-policy confirm PMC-1 --phase custom-step --confirm ${digest}`,
+      `singularity-flow story approvers refresh PMC-1 --reason "The reviewer joined the group." --confirm ${digest}`]
   };
   assert.deepEqual(Object.keys(steps).sort(), OWN_TERMINAL_STEPS.map((step) => step.id).sort());
   for (const [id, commands] of Object.entries(steps)) {

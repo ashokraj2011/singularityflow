@@ -587,6 +587,8 @@ export const REVIEW_EFFECTS = Object.freeze({
   // A visual step approver's decision that one of its screen sizes does not apply, or its revocation (`decision visual-profile`).
   'decision-made:visual-profile': { effect: 'review-safe', lists: { visualProfileDecisions: 'visual_profile_decided' } },
   'decision-made:witness-exception': { effect: 'review-safe', lists: { witnessExceptionRenewals: 'witness_exception_renewed' } },
+  // Members the approved configuration added to the Story's own groups (approval-check.mjs verifies the commit).
+  'decision-made:approver-refresh': { effect: 'review-safe', lists: { approverRefreshes: 'approvers_refreshed' } },
   'decision-made:quality-risk': { effect: 'review-safe', lists: { qualityRiskDecisions: 'quality_risk_decided' } },
   'decision-made:witness': { effect: 'review-safe', lists: { witnessRecords: 'witness_recorded' } },
   'decision-made:upstream-issue': { effect: 'review-safe',
@@ -6068,6 +6070,10 @@ export async function reviewHistoryCommits(root, config, workflow, phase, submit
   if (amendments && unallowed().length) {
     for (const commit of await amendments.reviewSafeBranchLinks(root, config, workflow, unallowed())) allowedReviewCommits.add(commit);
   }
+  // An approver refresh only adds members to the Story's groups: its exact record change.
+  if (amendments && unallowed().length) {
+    for (const commit of await amendments.reviewSafeApproverRefreshes(root, config, workflow, unallowed())) allowedReviewCommits.add(commit);
+  }
   const pendingProposals = amendments && unallowed().length
     ? await amendments.pendingIntentAmendmentProposals(root, config, workflow, unallowed()) : [];
   for (const { proposalCommit } of pendingProposals) allowedReviewCommits.add(proposalCommit);
@@ -9827,7 +9833,7 @@ export async function verifyAcceptedSkillAmendmentRevalidation(root, config, wor
   }
   const approved = accepted.skillVersionAmendments?.filter((item) => item?.status === 'approved');
   if (!approved?.length) {
-    if (accepted.testCommandAmendments?.length) return verified;
+    if (accepted.testCommandAmendments?.length || accepted.approverRefreshes?.length) return verified;
     skillAmendmentFail('SKP_AMENDMENT_REVALIDATION_INVALID',
       'The accepted skill-version revision has no reviewed affected-phase record.');
   }

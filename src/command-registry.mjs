@@ -453,7 +453,7 @@ const STORY_TEST_POLICY_REVIEW_ACTIONS = Object.freeze(['amend', 'attest', 'acce
 const STORY_TEST_POLICY_ACTIONS = Object.freeze(['show', 'plan', 'confirm', 'repair', 'baseline', 'risks', ...STORY_TEST_POLICY_REVIEW_ACTIONS]);
 const STORY_SUBCOMMANDS = Object.freeze([
   'converge', 'enhance-description', 'interval', 'branch', 'intent-amendment', 'skill-version', 'workflow', 'references', 'test-policy', 'target-origin',
-  ...STORY_READ_SUBCOMMANDS, ...STORY_MUTATION_SUBCOMMANDS
+  'approvers', ...STORY_READ_SUBCOMMANDS, ...STORY_MUTATION_SUBCOMMANDS
 ]);
 const SESSION_READ_SUBCOMMANDS = Object.freeze(['current', 'doctor', 'context', 'candidates', 'status']);
 const SESSION_MUTATION_SUBCOMMANDS = Object.freeze(['workspace', 'attach', 'takeover', 'open-local', 'open', 'repair-selection']);
@@ -1001,6 +1001,15 @@ function resolveStoryOperation(definition, positionals, options) {
     return optionString(options, 'confirm')
       ? never('story.target-origin', definition, 'mutation')
       : never('story.target-origin.preview', definition, 'read');
+  }
+  // Carrying the approved configuration's added members into a running Story: the preview reads,
+  // the digest-confirmed refresh commits a new accepted snapshot revision.
+  if (subcommand === 'approvers') {
+    const action = positionals[2] ?? 'refresh';
+    if (action !== 'refresh') return unknownSubcommand('story approvers', action, ['refresh'], 'action');
+    return optionString(options, 'confirm')
+      ? never('story.approvers.refresh', definition, 'mutation')
+      : never('story.approvers.refresh.preview', definition, 'read');
   }
   if (subcommand === 'test-policy') {
     const action = positionals[2] ?? 'show';
@@ -2091,6 +2100,8 @@ export function operationCatalog() {
     )),
     ...STORY_WORKFLOW_ACTIONS
       .map((name) => never(`story.workflow.${name}`, storyDefinition, 'read')),
+    never('story.approvers.refresh.preview', storyDefinition, 'read'),
+    never('story.approvers.refresh', storyDefinition, 'mutation'),
     ...['show', 'plan', 'risks'].map((name) => never(`story.test-policy.${name}`, storyDefinition, 'read')),
     never('story.test-policy.repair.preview', storyDefinition, 'read'),
     never('story.test-policy.baseline.preview', storyDefinition, 'read'),

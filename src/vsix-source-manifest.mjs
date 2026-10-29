@@ -93,6 +93,8 @@ export const VSIX_REQUIRED_CLI_RUNTIME = Object.freeze([
   'src/remote-fetch.mjs',
   'src/asset-import.mjs',
   'src/marketplace.mjs',
+  // Loaded only when a repository has APM's lock or workflow.yml `apm`, by agent discovery [APM A3].
+  'src/apm-lock.mjs', 'src/apm-configuration.mjs',
   'src/mcp-client.mjs',
   'src/mcp-import.mjs',
   'src/mcp-descriptor.mjs',

@@ -1465,6 +1465,8 @@ async function loadDefinitionUncached(root, { storyBootstrap = false } = {}) {
     // Compatibility normalization and both validators may mutate their input. Share bytes and
     // parsing only, not a bootstrap result or mutable object with current-policy validation.
     const definition = applyWorkflowCompatibility(structuredClone(source.parsed));
+    // Which agents APM deployed draft which steps; discovery applies them (agents.mjs) [APM A3].
+    if (definition.apm != null) definition.apm = (await import('./apm-configuration.mjs')).normalizeApmConfiguration(definition.apm);
     // An accepted Story owns exact governed-agent bytes in its WFA closure. Parsing today's live
     // files before that closure is even located would let a deleted or malformed replacement deny
     // offline resume. Bootstrap therefore loads only the declarative workflow shape; the shared
@@ -1475,6 +1477,9 @@ async function loadDefinitionUncached(root, { storyBootstrap = false } = {}) {
     definition.agents = Object.fromEntries(agents.map((agent) => [agent.id, agent]));
     definition.agentCatalog = agents;
     definition.agentPromptsRoot = '.github/agents';
+    if (!storyBootstrap && Object.keys(definition.apm?.agents ?? {}).length && !agents.some((agent) => agent.apm)) {
+      throw new SingularityFlowError('workflow.yml apm.agents names agents APM deployed, but there is no apm.lock.yaml. Install the packages with singularity-flow apm install, or remove the bindings.', { code: 'APM_AGENT_NOT_DEPLOYED' });
+    }
     /**
      * Refusing an unknown field is right; refusing it without naming the likely cause is not.
      *

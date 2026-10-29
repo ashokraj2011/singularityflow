@@ -559,6 +559,25 @@
       "description": "Governed references to MCP servers configured by the Copilot or VS Code host. Credentials and transport details never belong here.",
       "additionalProperties": { "$ref": "#/$defs/mcpServer" }
     },
+    "apm": {
+      "type": "object",
+      "description": "Agents APM (Agent Package Manager) deployed into .github/agents, and the steps each drafts. Their files are APM's, so the steps are named here instead of in their own metadata.",
+      "additionalProperties": false,
+      "properties": {
+        "agents": {
+          "type": "object",
+          "propertyNames": { "pattern": "^[a-z0-9]+(?:-[a-z0-9]+)*$" },
+          "additionalProperties": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "steps": { "type": "array", "uniqueItems": true, "items": { "type": "string", "pattern": "^[a-z0-9]+(?:-[a-z0-9]+)*$" }, "description": "Steps it may draft; omitted means any step." },
+              "defaultFor": { "type": "array", "uniqueItems": true, "items": { "type": "string", "pattern": "^[a-z0-9]+(?:-[a-z0-9]+)*$" }, "description": "Steps it drafts unless a Story picks another agent." }
+            }
+          }
+        }
+      }
+    },
     "marketplaces": {
       "type": "object",
       "description": "Catalogs this repository trusts for imported skills, templates and agents. Each names its HTTPS index and any further origins its files may come from; an index can never widen that.",

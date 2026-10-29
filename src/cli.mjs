@@ -3714,7 +3714,7 @@ function importIdFromLink(link) {
 }
 
 /** Apply a Studio change set the way `workflow studio apply` does: proposal or local authority. */
-async function applyImportChangeSet(root, changeSet, options, { subject, message }) {
+export async function applyImportChangeSet(root, changeSet, options, { subject, message }) {
   const { planStudioChangeSet } = await import('./workflow-studio.mjs');
   const { resolveChangeSetImports } = await import('./asset-import.mjs');
   if (optionBoolean(options, 'dry-run')) {
@@ -3886,7 +3886,7 @@ async function importCommand(positionals, options) {
 }
 
 /** A dry run prints its plan; an applied import or removal is reported as a CommandResult. */
-function emitImportMutation(root, result, options, { operation, messageId, slots }) {
+export function emitImportMutation(root, result, options, { operation, messageId, slots }) {
   const json = optionBoolean(options, 'json');
   if (optionBoolean(options, 'dry-run')) {
     if (json) console.log(JSON.stringify(result, null, 2));

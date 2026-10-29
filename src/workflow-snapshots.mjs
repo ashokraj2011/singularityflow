@@ -254,6 +254,7 @@ async function capturePackagedPlanningPrompt(root, config, workId) {
 }
 
 async function captureInstalledAgent(root, config, workId, agent) {
+  if (agent.apm && agent.apm.state !== 'intact') throw (await import('./apm-lock.mjs')).apmAgentNotIntact(agent, 'a Story');
   const captured = await stableFile(agent.file, `Agent '${agent.id}'`);
   if (captured.sha256 !== digestHex(agent.sha256, `Agent '${agent.id}'`)) {
     fail(`Agent '${agent.id}' differs from its selected digest.`, 'WFA_SOURCE_STALE');

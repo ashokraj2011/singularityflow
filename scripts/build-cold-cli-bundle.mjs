@@ -78,7 +78,10 @@ const FAMILIES = Object.freeze([
     'decision-list-reads.mjs', 'decision-list.mjs', 'approval-check.mjs', 'visual-profile-decisions.mjs',
     // A gate's test run environment and toolchain record, loaded by publication and submission; test command
     // pins and narrowed runs, read at every gate run, receipt replay and decision list [TCE:REQ-010, REQ-020, REQ-030].
-    'test-run-environment.mjs', 'test-toolchain.mjs', 'test-command-pins.mjs', 'test-narrowing.mjs']],
+    'test-run-environment.mjs', 'test-toolchain.mjs', 'test-command-pins.mjs', 'test-narrowing.mjs',
+    // An APM project's lock and workflow.yml `apm` block, read by agent discovery in any command once a
+    // repository has apm.lock.yaml [APM A3]; unclaimed, every such command loaded compatibility and models.
+    'apm-lock.mjs', 'apm-configuration.mjs']],
   ['models', ['commands/wm.mjs', 'commands/comprehension.mjs']]
 ]);
 

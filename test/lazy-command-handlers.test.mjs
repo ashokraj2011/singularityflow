@@ -196,7 +196,12 @@ test('frequent lifecycle handlers do not reach the legacy dispatcher and stay un
     // approver's own clone, add 3,966 for 9,247,814 (state.mjs, copilot-mutation-guard.mjs, cli.mjs,
     // narration/messages.mjs, command-registry.mjs, command-skills.mjs, help-text.mjs). The answer and import
     // handlers are lazy; no new eager file.
-    assert.ok(closure.bytes <= 9_250_000, `${file} exceeds the 9 MB eager-source budget (${closure.bytes} bytes)`);
+    // 9,255,000 (next 5,000 boundary): main 4bdc665c measures 9,249,142 for start.mjs. Agents APM deployed
+    // marked and bound to steps at discovery, refused at snapshot capture and step entry when changed, and
+    // apm attach (agents.mjs, config.mjs, workflow-snapshots.mjs, phase-prompt-composer.mjs, workflow-studio.mjs,
+    // editor.mjs, narration/messages.mjs, command-registry.mjs, help-text.mjs) add 5,055 for 9,254,197. The lock
+    // reader and the apm normalizer are lazy; no new eager file.
+    assert.ok(closure.bytes <= 9_255_000, `${file} exceeds the 9 MB eager-source budget (${closure.bytes} bytes)`);
   }
 });
 

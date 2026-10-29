@@ -907,6 +907,8 @@ export async function compose(root, options, {
   // A user-defined agent is given the rest of its folder, checked against the manifest its pinned
   // agent names; any other agent has no such section.
   const agentProfile = config.executionContext?.agent ?? definition.agents?.[agent];
+  // A Story's saved copy is not re-read; a live agent APM deployed must be the file APM wrote.
+  if (agentProfile?.apm && agentProfile.apm.state !== 'intact') throw (await import('./apm-lock.mjs')).apmAgentNotIntact(agentProfile, 'a step');
   const userFolder = userDefinedAgentName(agentProfile)
     ? await (await import('./user-defined-agents.mjs')).renderUserDefinedFolder(configurationReadRoot(root), agentProfile, { root }) : '';
   const remote = phase ? await renderAgentSkills(root, workflow, phase, { ...(session ?? {}), agent }, {

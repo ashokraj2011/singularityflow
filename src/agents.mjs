@@ -92,11 +92,24 @@ async function discoverAgentsSnapshot(root, repositoryRoot) {
     ['bundled', path.join(PACKAGE_ROOT, 'templates/agents')]
   ];
   const agents = new Map();
+  // APM's lock and workflow.yml's `apm` block, read only when the repository has them [APM A3].
+  let apm;
+  const apmContext = async () => (apm ??= await readApmContext(repositoryRoot));
+  const unusable = new Map();
   for (const [scope, directory] of locations) {
     const localIds = new Map();
     for (const file of await agentFiles(directory)) {
       const text = await readFile(file, 'utf8');
-      const parsed = parseAgentDependencies(text, { source: posix(path.relative(repositoryRoot, file)) });
+      const relative = posix(path.relative(repositoryRoot, file));
+      let parsed;
+      try { parsed = parseAgentDependencies(text, { source: relative }); }
+      catch (error) {
+        // An agent APM deployed is written for Copilot, not for SFlow: one SFlow cannot read is
+        // left out (apm status says why), never a reason no command can load configuration.
+        if (scope !== 'repository' || !(await apmContext()).deployed?.has(relative)) throw error;
+        unusable.set(relative, error.message);
+        continue;
+      }
       if (localIds.has(parsed.id)) throw new SingularityFlowError(
         `Agent ID '${parsed.id}' is declared by both '${localIds.get(parsed.id)}' and '${file}'. Give each agent a unique ID.`,
         { code: 'AGENT_ID_COLLISION', details: { id: parsed.id, scope, files: [localIds.get(parsed.id), file] } }
@@ -112,6 +125,7 @@ async function discoverAgentsSnapshot(root, repositoryRoot) {
       }
     }
   }
+  await applyApmAgents(agents, repositoryRoot, apmContext, unusable);
   // Skills the attachments file attaches to an agent, whoever owns the agent. One naming an agent
   // that is not here is refused when configuration loads (assertAttachedLibrarySkills).
   for (const attachment of await readSkillAttachments(root)) {
@@ -122,6 +136,53 @@ async function discoverAgentsSnapshot(root, repositoryRoot) {
     }
   }
   return [...agents.values()].sort((left, right) => left.id.localeCompare(right.id));
+}
+
+async function readApmContext(repositoryRoot) {
+  const { APM_LOCKFILE, apmDeployedIndex, readApmDocument } = await import('./apm-lock.mjs');
+  const lock = await readApmDocument(repositoryRoot, APM_LOCKFILE, 'lock');
+  const workflowText = await readFile(path.join(repositoryRoot, 'singularity/workflow.yml'), 'utf8').catch(() => '');
+  let bindings = {};
+  if (/^apm:/mu.test(workflowText)) {
+    const { normalizeApmConfiguration } = await import('./apm-configuration.mjs');
+    bindings = normalizeApmConfiguration(parseYamlText(workflowText)?.apm).agents;
+  }
+  return { deployed: lock.value ? apmDeployedIndex(lock.value) : null, lockProblem: lock.problem?.message ?? null, bindings };
+}
+
+/**
+ * Agents APM deployed into .github/agents [APM A3]. Each is marked with its package, and the steps
+ * workflow.yml's `apm.agents` gives it become its steps and defaults, since APM owns its file.
+ */
+async function applyApmAgents(agents, repositoryRoot, apmContext, unusable) {
+  // Without a lock nothing here is APM's; a binding then is refused when configuration loads.
+  if (!(await exists(path.join(repositoryRoot, 'apm.lock.yaml')))) return;
+  const context = await apmContext();
+  const { agentTextState } = await import('./apm-lock.mjs');
+  for (const agent of agents.values()) {
+    if (agent.scope !== 'repository' || !agent.file) continue;
+    const relative = posix(path.relative(repositoryRoot, agent.file));
+    const owner = context.deployed?.get(relative);
+    if (owner) agent.apm = Object.freeze({ path: relative, ...owner, state: agentTextState(agent.text, owner.sha256) });
+  }
+  for (const [id, binding] of Object.entries(context.bindings)) {
+    const agent = agents.get(id);
+    const where = `workflow.yml apm.agents names '${id}'`;
+    if (!agent?.apm) {
+      const skipped = [...unusable].find(([relative]) => path.posix.basename(relative).replace(/\.agent\.md$|\.md$/iu, '') === id);
+      throw new SingularityFlowError(skipped
+        ? `${where}, but SFlow cannot read ${skipped[0]}: ${skipped[1]}`
+        : agent ? `${where}, but APM did not deploy ${agent.source} (${context.deployed ? 'apm.lock.yaml does not list it' : 'there is no readable apm.lock.yaml'}). An agent written in this repository names its steps in its own sflow-phases and sflow-default-for metadata.`
+          : `${where}, but there is no .github/agents/${id}.agent.md. Install its package with singularity-flow apm install, or remove the binding.`,
+      { code: agent ? 'APM_AGENT_NOT_DEPLOYED' : 'APM_AGENT_UNKNOWN', details: { agentId: id, ...(skipped ? { file: skipped[0] } : {}) } });
+    }
+    if (agent.metadata?.['sflow-phases'] || agent.metadata?.['sflow-default-for']) {
+      throw new SingularityFlowError(`${where}, but ${agent.source} names its own steps in sflow-phases or sflow-default-for. Bind it in one place.`,
+        { code: 'APM_AGENT_BOUND_TWICE', details: { agentId: id } });
+    }
+    agent.phases = [...binding.steps];
+    agent.defaultFor = [...binding.defaultFor];
+  }
 }
 
 export function validateAgentCatalog(agents, definition) {

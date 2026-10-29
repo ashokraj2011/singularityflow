@@ -726,6 +726,12 @@ export const MESSAGES = Object.freeze({
       : `Marketplace ${slot(s.id)} is trusted: ${slot(s.files)} file change(s) written for review.`),
     preserves: false
   },
+  'apm.attached': {
+    headline: (s) => (s.proposed
+      ? `APM agent ${slot(s.agent)} drafting ${slot(s.step)} published for review on ${slot(s.branch)}.`
+      : `APM agent ${slot(s.agent)} now drafts ${slot(s.step)}: ${slot(s.files)} file change(s) written for review.`),
+    preserves: false
+  },
   'marketplace.removed': {
     headline: (s) => (s.proposed
       ? `No longer trusting marketplace ${slot(s.id)}: published for review on ${slot(s.branch)}.`

@@ -1718,7 +1718,9 @@ export async function validateConfigurationCandidates(root, candidates, definiti
       WORKFLOW_PATH, PORTFOLIO_PATH, CAPABILITIES_PATH, IMPACT_CONFIG_PATH, AGENT_MAPPING_PATH,
       ENVIRONMENT_DECLARATION_PATH,
       definition.templatesRoot, portfolio?.templatesRoot, definition.agentPromptsRoot,
-      REPOSITORY_SKILLS_ROOT, PROMPTS_ROOT, '.github/agents', SKILL_LIBRARY_ROOT, INSTRUCTION_LIBRARY_ROOT
+      REPOSITORY_SKILLS_ROOT, PROMPTS_ROOT, '.github/agents', SKILL_LIBRARY_ROOT, INSTRUCTION_LIBRARY_ROOT,
+      // Which agents APM deployed, so a binding in workflow.yml `apm` is checked as it will load.
+      'apm.lock.yaml'
     ].filter(Boolean).map(posix));
     for (const { path: relative, content } of candidates) {
       if (relative !== WORKFLOW_PATH && relative !== PORTFOLIO_PATH) continue;

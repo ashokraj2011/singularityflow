@@ -1353,7 +1353,7 @@ const PAGES = Object.freeze({
     seeAlso: ['app', 'env', 'evidence', 'capability']
   },
   apm: {
-    summary: 'See the repository\'s APM packages as the APM CLI left them, and install one as a commit a pull request reviews.',
+    summary: 'See the repository\'s APM packages as the APM CLI left them, install one as a commit a pull request reviews, and choose the steps its agents draft.',
     description: [
       'APM (Agent Package Manager) owns packages: apm.yml declares them, apm install resolves each one to a commit,',
       'writes its agents, instructions and prompts into .github/ and its skills into .agents/skills/, and records every file with its SHA-256 in',
@@ -1365,18 +1365,25 @@ const PAGES = Object.freeze({
       '(a new apm/install-<package>, or the apm/ branch you are on), for a pull request. It first needs the APM files',
       'committed, a checkout that is not a Story\'s, and the APM CLI version apm.yml pins (x-sflow.apm-cli; the first',
       'install records it). Afterwards every deployed file must match the lock, or nothing is committed. Nothing is pushed.',
-      'Installing changes which agents run, so only a person runs it, in their own terminal; --dry-run is APM\'s preview.'
+      'Installing changes which agents run, so only a person runs it, in their own terminal; --dry-run is APM\'s preview.',
+      'apm attach makes an agent APM deployed draft a step, as a Workflow Studio change to workflow.yml apm.agents: the agent\'s',
+      'own file stays exactly as APM wrote it, and the step\'s previous agent gives it up. It is a configuration change,',
+      'reviewed like any other (--propose). A Story may also pick an APM agent with start --agent. A Story or a step uses an',
+      'APM agent only while its file matches apm.lock.yaml; one SFlow cannot read as an agent is left out and listed by apm status.'
     ],
     options: [
+      ['--step STEP', 'attach only: the step the agent drafts.'],
+      ['--propose', 'attach only: publish the change as a configuration proposal for review.'],
       ['--dev', 'install only: add the packages as development dependencies (APM\'s --dev).'],
-      ['--dry-run', 'install only: APM\'s preview; nothing is changed or committed.'],
+      ['--dry-run', 'install: APM\'s preview; attach: the Studio preview. Nothing is changed or committed.'],
       ['--json', 'Machine-readable output (sflow-apm-status, sflow-apm-install).']
     ],
     examples: [
       ['singularity-flow apm status', 'Lists the locked packages and says whether their deployed files are intact and committed.'],
       ['singularity-flow apm status --json', 'The same as sflow-apm-status: state, packages, files, findings and next actions.'],
       ['singularity-flow apm install reviewer@acme-catalog', 'Installs one package from a marketplace APM knows and commits it on apm/install-reviewer.'],
-      ['singularity-flow apm install', 'Installs what apm.yml declares (for example after a merge) and commits what changed.']
+      ['singularity-flow apm install', 'Installs what apm.yml declares (for example after a merge) and commits what changed.'],
+      ['singularity-flow apm attach reviewer --step verification --propose', 'The APM agent reviewer drafts Verification, published for review.']
     ],
     seeAlso: ['import', 'agents', 'skill']
   },

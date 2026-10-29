@@ -3,11 +3,15 @@
  * packages as the APM CLI left them (apm.yml, apm.lock.yaml and the files it deployed), and whether
  * each deployed file is still the one APM wrote and is committed; model-free and read-only.
  * install: one `apm install` committed for review (apm-install.mjs), in the person's own terminal.
+ * attach: an agent APM deployed drafts a step, as a Studio change to workflow.yml `apm.agents`
+ * (its own file stays APM's), reviewed like any configuration change [APM A3].
  */
-import { optionBoolean, SingularityFlowError } from '../util.mjs';
+import { optionBoolean, optionString, SingularityFlowError } from '../util.mjs';
 
-const SUBCOMMANDS = Object.freeze(['status', 'install']);
-const OPTIONS = Object.freeze({ status: ['json'], install: ['dev', 'dry-run', 'json'] });
+const SUBCOMMANDS = Object.freeze(['status', 'install', 'attach']);
+const OPTIONS = Object.freeze({
+  status: ['json'], install: ['dev', 'dry-run', 'json'], attach: ['step', 'dry-run', 'propose', 'background-sync', 'json']
+});
 
 const STATE_WORDS = Object.freeze({
   absent: 'This repository has no APM project (no apm.yml or apm.lock.yaml).',
@@ -59,6 +63,10 @@ function print(status) {
     const shown = names.length > 8 ? `${names.slice(0, 8).join(', ')} and ${names.length - 8} more` : names.join(', ');
     lines.push(`${plural(names.length, 'agent')} in .github/agents ${names.length === 1 ? 'is' : 'are'} the repository's own, not from APM: ${shown}.`);
   }
+  for (const [id, binding] of Object.entries(status.agents?.bindings ?? {})) {
+    lines.push(`${id} drafts ${binding.defaultFor.length ? binding.defaultFor.join(', ') : 'no step by default'}${binding.steps.length ? ` and may draft ${binding.steps.join(', ')}` : ''} (workflow.yml apm.agents).`);
+  }
+  for (const entry of status.agents?.unusable ?? []) lines.push(`SFlow cannot use agent ${entry.name} (${entry.path}, from ${entry.package}): ${entry.reason}`);
   lines.push(STATE_WORDS[status.state]);
   for (const entry of status.findings.slice(0, 20)) {
     lines.push(`  ${entry.owner && entry.code.startsWith('deployed-') ? `${entry.message.replace(/\.$/u, '')} (from ${entry.owner}).` : entry.message}`);
@@ -104,6 +112,22 @@ export async function run(_argv, { positionals, options = {} }) {
     if (optionBoolean(options, 'json')) console.log(JSON.stringify(result, null, 2));
     else printInstall(result);
     return result;
+  }
+  if (subcommand === 'attach') {
+    const agent = positionals[2];
+    const step = optionString(options, 'step');
+    if (!agent || positionals.length > 3 || !step) fail('Name the agent and its step: singularity-flow apm attach <AGENT> --step <STEP> [--propose].');
+    const root = repoRoot(process.cwd());
+    const { loadDefinition } = await import('../config.mjs');
+    const known = (await loadDefinition(root)).agents?.[agent];
+    if (!known?.apm) {
+      fail(known ? `${agent} is not an agent APM deployed (${known.source}); choose its steps in Workflow Studio.`
+        : `There is no agent '${agent}'. singularity-flow apm status lists the agents APM deployed.`, 'APM_AGENT_UNKNOWN', { agent });
+    }
+    const [router, { STUDIO_CHANGE_SET_SCHEMA }] = await Promise.all([import('../cli.mjs'), import('../workflow-studio.mjs')]);
+    const result = await router.applyImportChangeSet(root, { schema: STUDIO_CHANGE_SET_SCHEMA, changes: [{ op: 'phase.agent', phase: step, agent }] },
+      options, { subject: agent, message: `[configuration] APM agent ${agent} drafts ${step}` });
+    return router.emitImportMutation(root, result, options, { operation: 'apm.attach', messageId: 'apm.attached', slots: { agent, step } });
   }
   if (positionals.length > 2) fail(`apm ${subcommand} takes no further arguments.`);
   const { apmProjectStatus } = await import('../apm-project.mjs');

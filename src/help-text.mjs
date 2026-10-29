@@ -730,6 +730,7 @@ Usage:
   singularity-flow marketplace remove <ID> [--dry-run] [--propose] [--json]
   singularity-flow apm status [--json]
   singularity-flow apm install [PACKAGE]... [--dev] [--dry-run] [--json]
+  singularity-flow apm attach <AGENT> --step STEP [--dry-run] [--propose] [--json]
   singularity-flow mcp list|status|doctor [--json]
   singularity-flow mcp scaffold playwright|figma [--local] [--replace-server]
   singularity-flow mcp doctor [--server ID] [--network] [--json]

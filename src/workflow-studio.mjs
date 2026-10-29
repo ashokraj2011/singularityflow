@@ -750,7 +750,10 @@ class StudioCandidate {
       fileName: path.basename(agent.file ?? `${agent.id}.agent.md`),
       label: agent.label ?? agent.id, description: agent.description ?? '', tools: [...(agent.tools ?? [])],
       views: [...(agent.worldModelViews ?? [])], phases: [...(agent.phases ?? [])], defaultFor: [...(agent.defaultFor ?? [])],
-      body: null, touched: false, created: false
+      body: null, touched: false, created: false,
+      // An agent APM deployed keeps its file; only the steps it drafts change, in workflow.yml `apm`.
+      apm: agent.apm ?? null,
+      ...(agent.apm ? { authored: JSON.stringify([agent.label ?? agent.id, agent.description ?? '', agent.tools ?? [], agent.worldModelViews ?? []]) } : {})
     }]));
     this.templates = new Map();
     this.summary = [];
@@ -831,11 +834,42 @@ class StudioCandidate {
   }
 
   touch(agent) {
+    if (agent.apm) {
+      this.apmAgentsChanged = true;
+      return agent;
+    }
     // A bundled agent becomes a repository copy the moment it is changed: repository agents win
     // discovery by ID, so the copy replaces it everywhere, and the change lands in this repository.
     agent.touched = true;
     if (!agent.relative) agent.relative = posix(path.join('.github', 'agents', agent.fileName));
     return agent;
+  }
+
+  /**
+   * The steps APM-deployed agents draft, written to workflow.yml `apm.agents` [APM A3]. Anything
+   * else changed on such an agent is refused: its file is APM's, changed in its package.
+   */
+  syncApmAgents(phaseIds, problems) {
+    for (const agent of this.agents.values()) {
+      if (!agent.apm) continue;
+      if (agent.body != null || agent.authored !== JSON.stringify([agent.label, agent.description, agent.tools, agent.views])) {
+        problems.push({ code: 'STUDIO_AGENT_APM_OWNED', subject: { kind: 'agent', id: agent.id },
+          message: `${agent.label} was installed by APM (${agent.apm.package}); change it in its package and install it again. Here you choose only which steps it drafts.` });
+        continue;
+      }
+      if (agent.phases.length) agent.phases = agent.phases.filter((phase) => phaseIds.has(phase));
+      agent.defaultFor = agent.defaultFor.filter((phase) => phaseIds.has(phase));
+      if (agent.phases.length) for (const phase of agent.defaultFor) if (!agent.phases.includes(phase)) agent.phases.push(phase);
+      if (!agent.phases.length && !agent.defaultFor.length) {
+        if (this.document.hasIn(['apm', 'agents', agent.id])) this.document.deleteIn(['apm', 'agents', agent.id]);
+        continue;
+      }
+      this.document.setIn(['apm', 'agents', agent.id], this.document.createNode({
+        ...(agent.phases.length ? { steps: [...agent.phases] } : {}), defaultFor: [...agent.defaultFor]
+      }));
+    }
+    const remaining = this.document.getIn(['apm', 'agents']);
+    if (remaining != null && !Object.keys(remaining.toJSON?.() ?? {}).length) this.document.deleteIn(['apm']);
   }
 
   setDefaultAgent(phaseId, agentId) {
@@ -2749,6 +2783,7 @@ class StudioCandidate {
       catch (error) { problems.push({ code: error?.code ?? 'STUDIO_PLANNED_CLAIMS', message: error.message, subject: { kind: 'workflow', id: workflowId } }); }
     }
     const phaseIds = new Set(Object.keys(this.content.phases ?? {}));
+    if (this.apmAgentsChanged) this.syncApmAgents(phaseIds, problems);
     for (const agent of this.agents.values()) {
       if (!agent.touched) continue;
       // An edited agent is strict: every step it names must exist in this repository.

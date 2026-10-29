@@ -35,6 +35,8 @@ Every public operation is classified before its implementation module is importe
 | agents.list | read | never | — | — |
 | agents.mappings | read | never | — | — |
 | agents.status | read | never | — | — |
+| apm.attach | mutation | never | — | — |
+| apm.attach.preview | read | never | — | — |
 | apm.install | mutation | never | — | — |
 | apm.install.preview | read | never | — | — |
 | apm.status | read | never | — | — |

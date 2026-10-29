@@ -280,7 +280,11 @@ test('the bundled CLI answers exactly like the sources while opening a handful o
   // cold-hooks +57 for 7,543,198. No new file.
   // 7,550,000: main e3cc278a measures 7,543,198; the same clarification-answer route and rewritten-history
   // diagnosis add 3,438 for 7,546,636 (cold-hook-context, cold-hooks, cold-core). No new file in this closure.
-  assert.ok(closure('cold-hook-context.mjs').reduce((sum, item) => sum + item.bytes, 0) < 7_550_000,
+  // 7,555,000: main 4bdc665c measures 7,547,596; agents APM deployed marked and bound to steps at discovery
+  // (agents.mjs, cold-catalogs +2,773), workflow.yml `apm` read at configuration load (config.mjs,
+  // cold-narrow-reads +629) and the apm attach registration (cold-core +524) add 3,926 for 7,551,522. The
+  // lock reader and normalizer load only where apm.lock.yaml exists (cold-phases); no new file here.
+  assert.ok(closure('cold-hook-context.mjs').reduce((sum, item) => sum + item.bytes, 0) < 7_555_000,
     'phase-review reads retain their existing byte ceiling after moving families');
   assert.match(await readFile(path.join(outdir, 'cold-light.mjs'), 'utf8'), /function enterPhase\b/u,
     'phase binding must not fall through to the compatibility/admin bundle');
@@ -332,7 +336,9 @@ test('the bundled CLI answers exactly like the sources while opening a handful o
   // 5,335,000: main 58b20746 measures 5,326,136; refusals that name their own way out (rewritten history, approver refresh, roll-forward, a publish in flight, set-aside reasons, witness exceptions), help as a read, routed corrections and counted unchanged rechecks in agent-output.mjs, and the set-aside preview as a read add 6,131 for 5,332,267. No new file.
   // 5,340,000: main e3cc278a measures 5,334,560; the same clarification-answer route and rewritten-history
   // diagnosis add 1,370 for 5,335,930 (cold-hooks, cold-core). No new file.
-  assert.ok(catalogClosure.reduce((sum, item) => sum + item.bytes, 0) < 5_340_000,
+  // 5,345,000: main 4bdc665c measures 5,336,890; the same APM agent discovery, configuration read and
+  // registration add 3,926 for 5,340,816. No new file.
+  assert.ok(catalogClosure.reduce((sum, item) => sum + item.bytes, 0) < 5_345_000,
     'catalog parsing stays bounded instead of pulling in the entire administration bundle');
   for (const name of ['cold-compatibility.mjs', 'cold-models.mjs', 'cold-intake.mjs', 'cold-phases.mjs', 'cold-hook-context.mjs']) {
     assert.ok(!catalogClosure.some(item => item.file === name), `catalogs must not statically reach ${name}`);

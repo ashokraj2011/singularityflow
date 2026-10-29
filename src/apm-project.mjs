@@ -11,74 +11,22 @@
  * is an optional `apm --version`, which says which APM CLI this machine has.
  */
 import { spawnSync } from 'node:child_process';
-import { createHash } from 'node:crypto';
-import { lstat, readdir, readFile } from 'node:fs/promises';
+import { readdir, readFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
-import YAML from 'yaml';
+import {
+  APM_LOCKFILE, APM_MANIFEST, FILE_MAX_BYTES, deployedPath, expectedHash, finding, inspectDeployedPath, list, packageLabel,
+  normalizeApmConfiguration, primitiveOf, readApmDocument
+} from './apm-lock.mjs';
+import { parseAgentDependencies } from './agent-document-parser.mjs';
 import { trackedPaths } from './git.mjs';
+import { parseYamlText } from './yaml-parse-cache.mjs';
 import { resolvePlatformProcess } from './platform-process.mjs';
 
-export const APM_MANIFEST = 'apm.yml';
-export const APM_LOCKFILE = 'apm.lock.yaml';
+export { APM_LOCKFILE, APM_MANIFEST, bytesMatch, deployedPath, primitiveOf } from './apm-lock.mjs';
 export const APM_STATUS_RESULT = 'sflow-apm-status';
 
-const DOCUMENT_MAX_BYTES = 4 * 1024 * 1024;
-const FILE_MAX_BYTES = 16 * 1024 * 1024;
 const MAX_FILES = 5000;
-const SHA256 = /^[0-9a-f]{64}$/u;
-
-function finding(code, message, extra = {}) {
-  return { code, message, ...extra };
-}
-
-/** A lock path APM may have written: relative, portable, never leaving the repository. */
-export function deployedPath(value) {
-  if (typeof value !== 'string' || !value || value.length > 1024 || value.includes('\\') || value.includes('\0')
-      || value.startsWith('/') || /^[A-Za-z]:/u.test(value)) return null;
-  const directory = value.endsWith('/');
-  const segments = (directory ? value.slice(0, -1) : value).split('/');
-  if (segments.some((segment) => !segment || segment === '.' || segment === '..')) return null;
-  return { path: value, segments, directory };
-}
-
-function expectedHash(value) {
-  const hex = String(value ?? '').trim().toLowerCase().replace(/^sha256:/u, '');
-  return SHA256.test(hex) ? hex : null;
-}
-
-/**
- * Whether `bytes` match the lock's hash. APM hashes text after CRLF becomes LF and binary files as
- * they are; both readings are tried, so a checkout with CRLF line endings is not reported changed.
- */
-export function bytesMatch(bytes, expected) {
-  const raw = createHash('sha256').update(bytes).digest('hex');
-  if (raw === expected) return true;
-  if (bytes.includes(0)) return false;
-  const text = bytes.toString('latin1');
-  if (!text.includes('\r\n')) return false;
-  return createHash('sha256').update(Buffer.from(text.replaceAll('\r\n', '\n'), 'latin1')).digest('hex') === expected;
-}
-
-async function readDocument(root, relative, label) {
-  const file = path.join(root, relative);
-  const info = await lstat(file).catch(() => null);
-  if (!info) return { present: false };
-  if (!info.isFile()) return { present: true, problem: finding(`${label}-unreadable`, `${relative} is not a regular file.`, { path: relative }) };
-  if (info.size > DOCUMENT_MAX_BYTES) {
-    return { present: true, problem: finding(`${label}-unreadable`, `${relative} is larger than ${DOCUMENT_MAX_BYTES} bytes.`, { path: relative }) };
-  }
-  try {
-    const value = YAML.parse(await readFile(file, 'utf8'), { maxAliasCount: 100, uniqueKeys: true });
-    if (!value || typeof value !== 'object' || Array.isArray(value)) {
-      return { present: true, problem: finding(`${label}-unreadable`, `${relative} is not a YAML mapping.`, { path: relative }) };
-    }
-    return { present: true, value };
-  } catch (error) {
-    const line = error?.linePos?.[0]?.line;
-    return { present: true, problem: finding(`${label}-unreadable`, `${relative} is not valid YAML${line ? ` (line ${line})` : ''}: ${String(error?.message ?? error).split('\n')[0]}`, { path: relative }) };
-  }
-}
 
 function repositoryKey(value) {
   return String(value ?? '').trim().toLowerCase()
@@ -127,10 +75,6 @@ function locks(entry, lock) {
   return repositoryKey(lock.repo_url) === entry.repository && String(lock.virtual_path ?? '').replace(/^\/+|\/+$/gu, '') === (entry.virtualPath ?? '');
 }
 
-function list(value) {
-  return Array.isArray(value) ? value : [];
-}
-
 function manifestSummary(manifest) {
   const dependencies = manifest.dependencies && typeof manifest.dependencies === 'object' ? manifest.dependencies : {};
   const development = manifest.devDependencies && typeof manifest.devDependencies === 'object' ? manifest.devDependencies : {};
@@ -146,39 +90,6 @@ function manifestSummary(manifest) {
     marketplace: marketplace ? { owner: marketplace.owner == null ? null : String(marketplace.owner?.name ?? marketplace.owner), packages: list(marketplace.packages).length } : null,
     extensions: Object.keys(manifest).filter((key) => /^x-[a-z][a-z0-9-]*$/u.test(key))
   };
-}
-
-/** What a deployed path is: an agent, skill, instruction or prompt, and for which target directory. */
-export function primitiveOf(relative) {
-  const parts = relative.split('/');
-  const target = parts[0];
-  const kind = parts[1];
-  const name = (suffix) => (parts.length === 3 && parts[2].endsWith(suffix) ? parts[2].slice(0, -suffix.length) : null);
-  if (kind === 'agents') { const agent = name('.agent.md') ?? name('.md'); if (agent) return { kind: 'agent', name: agent, target }; }
-  if (kind === 'skills' && parts.length === 4 && parts[3] === 'SKILL.md') return { kind: 'skill', name: parts[2], target };
-  if (kind === 'instructions') { const instruction = name('.instructions.md'); if (instruction) return { kind: 'instruction', name: instruction, target }; }
-  if (kind === 'prompts') { const prompt = name('.prompt.md'); if (prompt) return { kind: 'prompt', name: prompt, target }; }
-  return null;
-}
-
-async function inspectFile(root, entry, expected) {
-  let cursor = root;
-  for (const [index, segment] of entry.segments.entries()) {
-    cursor = path.join(cursor, segment);
-    const info = await lstat(cursor).catch(() => null);
-    if (!info) return 'missing';
-    if (info.isSymbolicLink()) return 'not-regular';
-    if (index < entry.segments.length - 1 && !info.isDirectory()) return 'missing';
-    if (index === entry.segments.length - 1) {
-      // APM 0.35 lists a directory it deployed (a skill's folder) with no hash and no trailing slash.
-      if (info.isDirectory() && (entry.directory || !expected)) return 'directory';
-      if (entry.directory) return 'missing';
-      if (!info.isFile()) return 'not-regular';
-      if (!expected) return 'unhashed';
-      if (info.size > FILE_MAX_BYTES) return 'too-large';
-    }
-  }
-  return bytesMatch(await readFile(cursor), expected) ? 'ok' : 'modified';
 }
 
 const FILE_WORDS = Object.freeze({
@@ -201,7 +112,7 @@ async function inspectDeployment(root, owner, files, hashes, budget, findings) {
     budget.files += 1;
     result.total += 1;
     result.named.push(value);
-    const state = await inspectFile(root, entry, expectedHash(hashMap[value]));
+    const { state } = await inspectDeployedPath(root, entry, expectedHash(hashMap[value]));
     // A file that is there, intact or not, is one Git should track; Git tracks no directories.
     if (['ok', 'unhashed', 'modified', 'too-large'].includes(state)) result.present.push(value);
     if (state === 'ok' || state === 'unhashed' || state === 'directory') result[state === 'directory' ? 'ok' : state] += 1;
@@ -215,14 +126,6 @@ async function inspectDeployment(root, owner, files, hashes, budget, findings) {
   return result;
 }
 
-function packageLabel(lock) {
-  if (lock.marketplace_plugin_name && lock.discovered_via) return `${lock.marketplace_plugin_name}@${lock.discovered_via}`;
-  // A local package is locked as `_local/<folder>`; its own name reads better.
-  if (lock.source === 'local') return `${lock.name ?? path.posix.basename(String(lock.local_path ?? lock.repo_url))} (local)`;
-  const repository = String(lock.repo_url ?? '');
-  return lock.virtual_path ? `${repository}/${String(lock.virtual_path).replace(/^\/+/u, '')}` : repository;
-}
-
 /** The APM CLI on this machine, by `apm --version` from the home directory; null when there is none. */
 export function apmCliVersion({ run = spawnSync, environment = process.env } = {}) {
   try {
@@ -233,6 +136,25 @@ export function apmCliVersion({ run = spawnSync, environment = process.env } = {
   } catch {
     return null;
   }
+}
+
+/**
+ * The steps workflow.yml `apm.agents` gives each APM agent, and every agent APM deployed that SFlow
+ * cannot read as an agent (it is left out of SFlow's agents, never a reason configuration fails).
+ */
+async function agentUse(root, packages) {
+  let bindings = {};
+  const workflowText = await readFile(path.join(root, 'singularity/workflow.yml'), 'utf8').catch(() => '');
+  try { bindings = normalizeApmConfiguration(parseYamlText(workflowText)?.apm).agents; } catch { bindings = {}; }
+  const unusable = [];
+  for (const entry of packages.flatMap((item) => item.files.primitives.filter((primitive) => primitive.kind === 'agent' && primitive.target === '.github')
+    .map((primitive) => ({ ...primitive, package: item.label })))) {
+    const text = await readFile(path.join(root, entry.path), 'utf8').catch(() => null);
+    if (text == null) continue;
+    try { parseAgentDependencies(text, { source: entry.path }); }
+    catch (error) { unusable.push({ name: entry.name, path: entry.path, package: entry.package, reason: error.message }); }
+  }
+  return { bindings, unusable };
 }
 
 async function unmanagedAgents(root, owned) {
@@ -249,7 +171,7 @@ async function unmanagedAgents(root, owned) {
  */
 export async function apmProjectStatus(root, { cliVersion = undefined } = {}) {
   const findings = [];
-  const [manifestRead, lockRead] = await Promise.all([readDocument(root, APM_MANIFEST, 'manifest'), readDocument(root, APM_LOCKFILE, 'lock')]);
+  const [manifestRead, lockRead] = await Promise.all([readApmDocument(root, APM_MANIFEST, 'manifest'), readApmDocument(root, APM_LOCKFILE, 'lock')]);
   for (const read of [manifestRead, lockRead]) if (read.problem) findings.push(read.problem);
   const manifest = manifestRead.value ? manifestSummary(manifestRead.value) : null;
   if (manifestRead.value) {
@@ -327,6 +249,7 @@ export async function apmProjectStatus(root, { cliVersion = undefined } = {}) {
     packages: packages.map(({ files, ...entry }) => ({ ...entry, files: fileCounts(files), primitives: files.primitives })),
     local: local ? { files: fileCounts(local), primitives: local.primitives } : null,
     unmanagedAgents: await unmanagedAgents(root, owned),
+    agents: await agentUse(root, packages),
     cli: { found: cli, lockWrittenBy: lock?.apm_version == null ? null : String(lock.apm_version) },
     findings,
     nextActions: nextActions(state, codes, uncommitted)

@@ -1,0 +1,5208 @@
+{
+  "schemaVersion": 1,
+  "specification": "SDA-v1 M0 inventory",
+  "summary": {
+    "gitSites": {
+      "total": 1400,
+      "read": 811,
+      "write": 340,
+      "remote": 157,
+      "dynamic": 92
+    },
+    "gitModules": 175,
+    "directLocalGitSitesOutsideGitModules": 976,
+    "writeSites": 1060,
+    "yamlReadModules": 108,
+    "lifetimes": 52,
+    "timeouts": 162,
+    "byClass": {
+      "shared-state": {
+        "modules": 128,
+        "gitSites": 711,
+        "gitWrites": 194,
+        "gitRemote": 94,
+        "writeSites": 361
+      },
+      "artifact": {
+        "modules": 28,
+        "gitSites": 23,
+        "gitWrites": 4,
+        "gitRemote": 1,
+        "writeSites": 64
+      },
+      "installation": {
+        "modules": 21,
+        "gitSites": 27,
+        "gitWrites": 5,
+        "gitRemote": 5,
+        "writeSites": 159
+      },
+      "local-operational": {
+        "modules": 19,
+        "gitSites": 9,
+        "gitWrites": 1,
+        "gitRemote": 0,
+        "writeSites": 65
+      },
+      "projection": {
+        "modules": 37,
+        "gitSites": 38,
+        "gitWrites": 1,
+        "gitRemote": 0,
+        "writeSites": 95
+      },
+      "source-control": {
+        "modules": 56,
+        "gitSites": 506,
+        "gitWrites": 113,
+        "gitRemote": 45,
+        "writeSites": 178
+      },
+      "local-authored": {
+        "modules": 13,
+        "gitSites": 31,
+        "gitWrites": 8,
+        "gitRemote": 4,
+        "writeSites": 55
+      },
+      "surface": {
+        "modules": 39,
+        "gitSites": 55,
+        "gitWrites": 14,
+        "gitRemote": 8,
+        "writeSites": 83
+      }
+    },
+    "unclassified": []
+  },
+  "modules": [
+    {
+      "module": "about-builds.mjs",
+      "class": null,
+      "git": {},
+      "writes": 0,
+      "yamlReads": 0,
+      "lifetimes": [
+        {
+          "name": "timeoutMs",
+          "value": 30000,
+          "kind": "timeout"
+        }
+      ]
+    },
+    {
+      "module": "accepted-story-execution.mjs",
+      "class": "shared-state",
+      "git": {
+        "read": 1
+      },
+      "writes": 0,
+      "yamlReads": 0,
+      "lifetimes": []
+    },
+    {
+      "module": "action-authorization.mjs",
+      "class": "shared-state",
+      "git": {},
+      "writes": 3,
+      "yamlReads": 0,
+      "lifetimes": [
+        {
+          "name": "AUTHORIZATION_TTL_MS",
+          "value": 900000,
+          "kind": "lifetime"
+        }
+      ]
+    },
+    {
+      "module": "action-plans.mjs",
+      "class": "shared-state",
+      "git": {},
+      "writes": 2,
+      "yamlReads": 0,
+      "lifetimes": [
+        {
+          "name": "DEFAULT_TTL_MS",
+          "value": 900000,
+          "kind": "lifetime"
+        }
+      ]
+    },
+    {
+      "module": "activated-test-commands.mjs",
+      "class": null,
+      "git": {},
+      "writes": 0,
+      "yamlReads": 1,
+      "lifetimes": []
+    },
+    {
+      "module": "adhoc/landing.mjs",
+      "class": "shared-state",
+      "git": {
+        "read": 2
+      },
+      "writes": 0,
+      "yamlReads": 0,
+      "lifetimes": []
+    },
+    {
+      "module": "adhoc/session.mjs",
+      "class": "shared-state",
+      "git": {
+        "read": 3
+      },
+      "writes": 0,
+      "yamlReads": 0,
+      "lifetimes": []
+    },
+    {
+      "module": "agent-output-folder.mjs",
+      "class": "artifact",
+      "git": {},
+      "writes": 1,
+      "yamlReads": 0,
+      "lifetimes": []
+    },
+    {
+      "module": "agent-output.mjs",
+      "class": "artifact",
+      "git": {},
+      "writes": 7,
+      "yamlReads": 0,
+      "lifetimes": []
+    },
+    {
+      "module": "agent-result-keeper.mjs",
+      "class": "artifact",
+      "git": {},
+      "writes": 7,
+      "yamlReads": 0,
+      "lifetimes": [
+        {
+          "name": "RUNNING_STALE_MS",
+          "value": 21600000,
+          "kind": "lifetime"
+        }
+      ]
+    },
+    {
+      "module": "agents.mjs",
+      "class": "shared-state",
+      "git": {},
+      "writes": 1,
+      "yamlReads": 2,
+      "lifetimes": []
+    },
+    {
+      "module": "apm-install.mjs",
+      "class": "installation",
+      "git": {},
+      "writes": 1,
+      "yamlReads": 2,
+      "lifetimes": []
+    },
+    {
+      "module": "apm-lock.mjs",
+      "class": null,
+      "git": {},
+      "writes": 0,
+      "yamlReads": 1,
+      "lifetimes": []
+    },
+    {
+      "module": "apm-project.mjs",
+      "class": null,
+      "git": {},
+      "writes": 0,
+      "yamlReads": 0,
+      "lifetimes": [
+        {
+          "name": "timeout",
+          "value": 10000,
+          "kind": "timeout"
+        }
+      ]
+    },
+    {
+      "module": "app-suggestions.mjs",
+      "class": null,
+      "git": {},
+      "writes": 0,
+      "yamlReads": 1,
+      "lifetimes": []
+    },
+    {
+      "module": "application-debug.mjs",
+      "class": null,
+      "git": {},
+      "writes": 0,
+      "yamlReads": 0,
+      "lifetimes": [
+        {
+          "name": "timeout",
+          "value": 20000,
+          "kind": "timeout"
+        }
+      ]
+    },
+    {
+      "module": "application-run.mjs",
+      "class": "local-operational",
+      "git": {},
+      "writes": 2,
+      "yamlReads": 0,
+      "lifetimes": [
+        {
+          "name": "timeout",
+          "value": 2000,
+          "kind": "timeout"
+        },
+        {
+          "name": "timeout",
+          "value": 2000,
+          "kind": "timeout"
+        },
+        {
+          "name": "timeoutMs",
+          "value": 1500,
+          "kind": "timeout"
+        },
+        {
+          "name": "timeoutMs",
+          "value": 2000,
+          "kind": "timeout"
+        }
+      ]
+    },
+    {
+      "module": "approved-configuration-reader.mjs",
+      "class": "shared-state",
+      "git": {
+        "read": 8,
+        "remote": 2,
+        "dynamic": 1
+      },
+      "writes": 2,
+      "yamlReads": 2,
+      "lifetimes": []
+    },
+    {
+      "module": "artifact-sets.mjs",
+      "class": "artifact",
+      "git": {
+        "read": 1
+      },
+      "writes": 0,
+      "yamlReads": 0,
+      "lifetimes": []
+    },
+    {
+      "module": "asset-import.mjs",
+      "class": "shared-state",
+      "git": {},
+      "writes": 2,
+      "yamlReads": 1,
+      "lifetimes": [
+        {
+          "name": "STAGED_MAX_AGE_MS",
+          "value": 1209600000,
+          "kind": "lifetime"
+        }
+      ]
+    },
+    {
+      "module": "ast-evidence-store.mjs",
+      "class": "projection",
+      "git": {},
+      "writes": 2,
+      "yamlReads": 0,
+      "lifetimes": []
+    },
+    {
+      "module": "ast-intelligence.mjs",
+      "class": "projection",
+      "git": {
+        "read": 7,
+        "dynamic": 1
+      },
+      "writes": 7,
+      "yamlReads": 0,
+      "lifetimes": [
+        {
+          "name": "timeoutMs",
+          "value": 30000,
+          "kind": "timeout"
+        }
+      ]
+    },
+    {
+      "module": "ast-lifecycle.mjs",
+      "class": "projection",
+      "git": {
+        "read": 2
+      },
+      "writes": 0,
+      "yamlReads": 0,
+      "lifetimes": []
+    },
+    {
+      "module": "ast-pack-registry.mjs",
+      "class": "projection",
+      "git": {},
+      "writes": 13,
+      "yamlReads": 0,
+      "lifetimes": []
+    },
+    {
+      "module": "ast-project-binding.mjs",
+      "class": "projection",
+      "git": {
+        "read": 1
+      },
+      "writes": 0,
+      "yamlReads": 0,
+      "lifetimes": []
+    },
+    {
+      "module": "ast-replay.mjs",
+      "class": "projection",
+      "git": {
+        "read": 5
+      },
+      "writes": 4,
+      "yamlReads": 0,
+      "lifetimes": [
+        {
+          "name": "timeoutMs",
+          "value": 30000,
+          "kind": "timeout"
+        }
+      ]
+    },
+    {
+      "module": "ast-semantic-warm.mjs",
+      "class": null,
+      "git": {},
+      "writes": 0,
+      "yamlReads": 0,
+      "lifetimes": [
+        {
+          "name": "timeoutMs",
+          "value": 60000,
+          "kind": "timeout"
+        }
+      ]
+    },
+    {
+      "module": "auto/auto-candidate.mjs",
+      "class": "shared-state",
+      "git": {
+        "read": 8,
+        "write": 13,
+        "remote": 1,
+        "dynamic": 1
+      },
+      "writes": 3,
+      "yamlReads": 0,
+      "lifetimes": [
+        {
+          "name": "timeoutMs",
+          "value": 5000,
+          "kind": "timeout"
+        }
+      ]
+    },
+    {
+      "module": "auto/auto-checkpoint.mjs",
+      "class": "shared-state",
+      "git": {
+        "read": 4,
+        "remote": 2
+      },
+      "writes": 1,
+      "yamlReads": 0,
+      "lifetimes": []
+    },
+    {
+      "module": "auto/auto-continuation.mjs",
+      "class": "shared-state",
+      "git": {
+        "read": 4,
+        "dynamic": 1
+      },
+      "writes": 0,
+      "yamlReads": 0,
+      "lifetimes": []
+    },
+    {
+      "module": "auto/auto-executor.mjs",
+      "class": null,
+      "git": {},
+      "writes": 0,
+      "yamlReads": 0,
+      "lifetimes": [
+        {
+          "name": "timeoutMs",
+          "value": 5000,
+          "kind": "timeout"
+        },
+        {
+          "name": "timeoutMs",
+          "value": 5000,
+          "kind": "timeout"
+        }
+      ]
+    },
+    {
+      "module": "auto/auto-flight-store.mjs",
+      "class": "shared-state",
+      "git": {
+        "read": 3,
+        "write": 2
+      },
+      "writes": 0,
+      "yamlReads": 0,
+      "lifetimes": []
+    },
+    {
+      "module": "auto/auto-origin.mjs",
+      "class": "shared-state",
+      "git": {},
+      "writes": 2,
+      "yamlReads": 0,
+      "lifetimes": []
+    },
+    {
+      "module": "auto/auto-plan.mjs",
+      "class": "shared-state",
+      "git": {
+        "read": 5,
+        "remote": 1
+      },
+      "writes": 0,
+      "yamlReads": 0,
+      "lifetimes": [
+        {
+          "name": "AUTO_CLAIM_LEASE_MS",
+          "value": 600000,
+          "kind": "lifetime"
+        },
+        {
+          "name": "timeoutMs",
+          "value": 300000,
+          "kind": "timeout"
+        }
+      ]
+    },
+    {
+      "module": "auto/execution-unit-driver.mjs",
+      "class": null,
+      "git": {},
+      "writes": 0,
+      "yamlReads": 0,
+      "lifetimes": [
+        {
+          "name": "timeoutMs",
+          "value": 5000,
+          "kind": "timeout"
+        },
+        {
+          "name": "timeoutMs",
+          "value": 5000,
+          "kind": "timeout"
+        }
+      ]
+    },
+    {
+      "module": "bootstrap.mjs",
+      "class": "installation",
+      "git": {
+        "write": 2,
+        "remote": 3
+      },
+      "writes": 5,
+      "yamlReads": 4,
+      "lifetimes": []
+    },
+    {
+      "module": "branch-landing.mjs",
+      "class": "source-control",
+      "git": {
+        "read": 5
+      },
+      "writes": 0,
+      "yamlReads": 0,
+      "lifetimes": []
+    },
+    {
+      "module": "branch-refresh.mjs",
+      "class": "source-control",
+      "git": {
+        "read": 4,
+        "write": 1,
+        "dynamic": 1
+      },
+      "writes": 0,
+      "yamlReads": 0,
+      "lifetimes": []
+    },
+    {
+      "module": "build-currency.mjs",
+      "class": "installation",
+      "git": {
+        "remote": 1,
+        "dynamic": 1
+      },
+      "writes": 2,
+      "yamlReads": 0,
+      "lifetimes": [
+        {
+          "name": "REFRESH_MS",
+          "value": 43200000,
+          "kind": "lifetime"
+        },
+        {
+          "name": "timeout",
+          "value": 2000,
+          "kind": "timeout"
+        }
+      ]
+    },
+    {
+      "module": "build-info-stamp.mjs",
+      "class": "installation",
+      "git": {},
+      "writes": 1,
+      "yamlReads": 0,
+      "lifetimes": []
+    },
+    {
+      "module": "cancelled-worktree.mjs",
+      "class": "source-control",
+      "git": {
+        "write": 1
+      },
+      "writes": 0,
+      "yamlReads": 0,
+      "lifetimes": []
+    },
+    {
+      "module": "candidate-isolation.mjs",
+      "class": "source-control",
+      "git": {},
+      "writes": 9,
+      "yamlReads": 0,
+      "lifetimes": []
+    },
+    {
+      "module": "capabilities.mjs",
+      "class": "shared-state",
+      "git": {},
+      "writes": 1,
+      "yamlReads": 3,
+      "lifetimes": []
+    },
+    {
+      "module": "capability-application-file.mjs",
+      "class": null,
+      "git": {},
+      "writes": 0,
+      "yamlReads": 1,
+      "lifetimes": []
+    },
+    {
+      "module": "capability-authority-link.mjs",
+      "class": "shared-state",
+      "git": {
+        "read": 6,
+        "write": 3,
+        "dynamic": 1
+      },
+      "writes": 2,
+      "yamlReads": 0,
+      "lifetimes": []
+    },
+    {
+      "module": "capability-configuration-checkout.mjs",
+      "class": "shared-state",
+      "git": {
+        "write": 1
+      },
+      "writes": 0,
+      "yamlReads": 0,
+      "lifetimes": [
+        {
+          "name": "timeoutMs",
+          "value": 120000,
+          "kind": "timeout"
+        }
+      ]
+    },
+    {
+      "module": "capability-context.mjs",
+      "class": "shared-state",
+      "git": {
+        "read": 3,
+        "dynamic": 1
+      },
+      "writes": 0,
+      "yamlReads": 2,
+      "lifetimes": []
+    },
+    {
+      "module": "capability-doctor.mjs",
+      "class": "shared-state",
+      "git": {
+        "read": 1
+      },
+      "writes": 0,
+      "yamlReads": 0,
+      "lifetimes": []
+    },
+    {
+      "module": "capability-start.mjs",
+      "class": "shared-state",
+      "git": {
+        "write": 2,
+        "remote": 2
+      },
+      "writes": 0,
+      "yamlReads": 1,
+      "lifetimes": [
+        {
+          "name": "timeoutMs",
+          "value": 5000,
+          "kind": "timeout"
+        }
+      ]
+    },
+    {
+      "module": "change-flight-plan.mjs",
+      "class": "shared-state",
+      "git": {
+        "read": 12,
+        "write": 11,
+        "remote": 2,
+        "dynamic": 1
+      },
+      "writes": 3,
+      "yamlReads": 0,
+      "lifetimes": []
+    },
+    {
+      "module": "choices.mjs",
+      "class": "local-authored",
+      "git": {},
+      "writes": 6,
+      "yamlReads": 0,
+      "lifetimes": [
+        {
+          "name": "RECEIPT_TTL_MS",
+          "value": 900000,
+          "kind": "lifetime"
+        },
+        {
+          "name": "RECEIPT_LOCK_TIMEOUT_MS",
+          "value": 5000,
+          "kind": "timeout"
+        },
+        {
+          "name": "RECEIPT_LOCK_STALE_MS",
+          "value": 60000,
+          "kind": "lifetime"
+        }
+      ]
+    },
+    {
+      "module": "clarification-remote.mjs",
+      "class": "local-authored",
+      "git": {
+        "read": 4,
+        "write": 3,
+        "remote": 2,
+        "dynamic": 1
+      },
+      "writes": 0,
+      "yamlReads": 0,
+      "lifetimes": []
+    },
+    {
+      "module": "cli-entry.mjs",
+      "class": "surface",
+      "git": {
+        "remote": 1,
+        "dynamic": 1
+      },
+      "writes": 0,
+      "yamlReads": 0,
+      "lifetimes": []
+    },
+    {
+      "module": "cli-steps.mjs",
+      "class": null,
+      "git": {},
+      "writes": 0,
+      "yamlReads": 0,
+      "lifetimes": [
+        {
+          "name": "timeout",
+          "value": 1800000,
+          "kind": "timeout"
+        }
+      ]
+    },
+    {
+      "module": "cli.mjs",
+      "class": "surface",
+      "git": {
+        "read": 15,
+        "write": 4,
+        "remote": 1
+      },
+      "writes": 5,
+      "yamlReads": 3,
+      "lifetimes": [
+        {
+          "name": "timeoutMs",
+          "value": 120000,
+          "kind": "timeout"
+        },
+        {
+          "name": "timeoutMs",
+          "value": 300000,
+          "kind": "timeout"
+        },
+        {
+          "name": "timeoutMs",
+          "value": 60000,
+          "kind": "timeout"
+        }
+      ]
+    },
+    {
+      "module": "clone-strategy.mjs",
+      "class": "source-control",
+      "git": {
+        "write": 1
+      },
+      "writes": 0,
+      "yamlReads": 0,
+      "lifetimes": []
+    },
+    {
+      "module": "code-delivery-tests.mjs",
+      "class": "source-control",
+      "git": {},
+      "writes": 1,
+      "yamlReads": 0,
+      "lifetimes": []
+    },
+    {
+      "module": "collaboration.mjs",
+      "class": "shared-state",
+      "git": {},
+      "writes": 1,
+      "yamlReads": 0,
+      "lifetimes": [
+        {
+          "name": "STALE_INDEX_LOCK_MS",
+          "value": 300000,
+          "kind": "lifetime"
+        }
+      ]
+    },
+    {
+      "module": "commands/auto.mjs",
+      "class": "surface",
+      "git": {
+        "read": 2,
+        "remote": 1
+      },
+      "writes": 0,
+      "yamlReads": 0,
+      "lifetimes": [
+        {
+          "name": "timeoutMs",
+          "value": 2700000,
+          "kind": "timeout"
+        },
+        {
+          "name": "timeoutMs",
+          "value": 120000,
+          "kind": "timeout"
+        }
+      ]
+    },
+    {
+      "module": "commands/call.mjs",
+      "class": "surface",
+      "git": {},
+      "writes": 1,
+      "yamlReads": 0,
+      "lifetimes": []
+    },
+    {
+      "module": "commands/init.mjs",
+      "class": "surface",
+      "git": {
+        "read": 1
+      },
+      "writes": 1,
+      "yamlReads": 1,
+      "lifetimes": []
+    },
+    {
+      "module": "commands/input-restore.mjs",
+      "class": "surface",
+      "git": {},
+      "writes": 1,
+      "yamlReads": 0,
+      "lifetimes": []
+    },
+    {
+      "module": "commands/journal.mjs",
+      "class": "surface",
+      "git": {},
+      "writes": 1,
+      "yamlReads": 0,
+      "lifetimes": []
+    },
+    {
+      "module": "commands/secrets.mjs",
+      "class": "surface",
+      "git": {
+        "read": 3,
+        "write": 1
+      },
+      "writes": 0,
+      "yamlReads": 0,
+      "lifetimes": []
+    },
+    {
+      "module": "commands/session.mjs",
+      "class": "surface",
+      "git": {
+        "remote": 1
+      },
+      "writes": 0,
+      "yamlReads": 1,
+      "lifetimes": []
+    },
+    {
+      "module": "commands/sgos-evidence.mjs",
+      "class": "surface",
+      "git": {},
+      "writes": 2,
+      "yamlReads": 0,
+      "lifetimes": []
+    },
+    {
+      "module": "commands/sgos-extensions.mjs",
+      "class": "surface",
+      "git": {},
+      "writes": 4,
+      "yamlReads": 0,
+      "lifetimes": []
+    },
+    {
+      "module": "commands/sgos.mjs",
+      "class": "surface",
+      "git": {},
+      "writes": 1,
+      "yamlReads": 0,
+      "lifetimes": []
+    },
+    {
+      "module": "commands/sgos/authoring.mjs",
+      "class": "surface",
+      "git": {},
+      "writes": 2,
+      "yamlReads": 0,
+      "lifetimes": []
+    },
+    {
+      "module": "commands/shared/definition-at-ref.mjs",
+      "class": null,
+      "git": {},
+      "writes": 0,
+      "yamlReads": 1,
+      "lifetimes": []
+    },
+    {
+      "module": "commands/shared/git-answer.mjs",
+      "class": "surface",
+      "git": {
+        "dynamic": 1
+      },
+      "writes": 0,
+      "yamlReads": 0,
+      "lifetimes": []
+    },
+    {
+      "module": "commands/shared/session-repository-authority.mjs",
+      "class": "surface",
+      "git": {
+        "remote": 1
+      },
+      "writes": 0,
+      "yamlReads": 0,
+      "lifetimes": []
+    },
+    {
+      "module": "commands/shared/start-context.mjs",
+      "class": "surface",
+      "git": {
+        "read": 1
+      },
+      "writes": 0,
+      "yamlReads": 1,
+      "lifetimes": []
+    },
+    {
+      "module": "commands/spec-drift.mjs",
+      "class": "surface",
+      "git": {},
+      "writes": 1,
+      "yamlReads": 0,
+      "lifetimes": []
+    },
+    {
+      "module": "commands/start.mjs",
+      "class": null,
+      "git": {},
+      "writes": 0,
+      "yamlReads": 3,
+      "lifetimes": [
+        {
+          "name": "timeoutMs",
+          "value": 5000,
+          "kind": "timeout"
+        }
+      ]
+    },
+    {
+      "module": "commands/status-read.mjs",
+      "class": "surface",
+      "git": {
+        "read": 2
+      },
+      "writes": 0,
+      "yamlReads": 0,
+      "lifetimes": []
+    },
+    {
+      "module": "commands/story.mjs",
+      "class": "surface",
+      "git": {
+        "write": 1,
+        "remote": 1
+      },
+      "writes": 0,
+      "yamlReads": 1,
+      "lifetimes": [
+        {
+          "name": "timeoutMs",
+          "value": 300000,
+          "kind": "timeout"
+        }
+      ]
+    },
+    {
+      "module": "commands/tests.mjs",
+      "class": "surface",
+      "git": {
+        "read": 1
+      },
+      "writes": 0,
+      "yamlReads": 0,
+      "lifetimes": []
+    },
+    {
+      "module": "commands/workflow-build.mjs",
+      "class": "surface",
+      "git": {},
+      "writes": 1,
+      "yamlReads": 0,
+      "lifetimes": []
+    },
+    {
+      "module": "commands/workflow-import-team.mjs",
+      "class": "surface",
+      "git": {},
+      "writes": 1,
+      "yamlReads": 0,
+      "lifetimes": []
+    },
+    {
+      "module": "composition-cache.mjs",
+      "class": "projection",
+      "git": {},
+      "writes": 1,
+      "yamlReads": 0,
+      "lifetimes": []
+    },
+    {
+      "module": "comprehension/code-explanation-command.mjs",
+      "class": null,
+      "git": {},
+      "writes": 0,
+      "yamlReads": 0,
+      "lifetimes": [
+        {
+          "name": "timeoutMs",
+          "value": 120000,
+          "kind": "timeout"
+        }
+      ]
+    },
+    {
+      "module": "comprehension/diff-preview.mjs",
+      "class": "projection",
+      "git": {
+        "read": 1
+      },
+      "writes": 0,
+      "yamlReads": 0,
+      "lifetimes": []
+    },
+    {
+      "module": "comprehension/source-expansion.mjs",
+      "class": "projection",
+      "git": {
+        "read": 3
+      },
+      "writes": 0,
+      "yamlReads": 0,
+      "lifetimes": []
+    },
+    {
+      "module": "comprehension/xpl2/narration.mjs",
+      "class": null,
+      "git": {},
+      "writes": 0,
+      "yamlReads": 0,
+      "lifetimes": [
+        {
+          "name": "timeoutMs",
+          "value": 120000,
+          "kind": "timeout"
+        }
+      ]
+    },
+    {
+      "module": "comprehension/xpl2/observed-write-recorder.mjs",
+      "class": "local-operational",
+      "git": {},
+      "writes": 7,
+      "yamlReads": 0,
+      "lifetimes": []
+    },
+    {
+      "module": "comprehension/xpl2/snapshots.mjs",
+      "class": "projection",
+      "git": {},
+      "writes": 4,
+      "yamlReads": 0,
+      "lifetimes": []
+    },
+    {
+      "module": "config.mjs",
+      "class": "shared-state",
+      "git": {
+        "read": 1
+      },
+      "writes": 2,
+      "yamlReads": 0,
+      "lifetimes": []
+    },
+    {
+      "module": "configuration-branch.mjs",
+      "class": "shared-state",
+      "git": {
+        "read": 20,
+        "write": 12,
+        "remote": 12,
+        "dynamic": 2
+      },
+      "writes": 12,
+      "yamlReads": 5,
+      "lifetimes": [
+        {
+          "name": "timeoutMs",
+          "value": 30000,
+          "kind": "timeout"
+        }
+      ]
+    },
+    {
+      "module": "configuration-diagnostics.mjs",
+      "class": null,
+      "git": {},
+      "writes": 0,
+      "yamlReads": 3,
+      "lifetimes": []
+    },
+    {
+      "module": "configuration-drafts.mjs",
+      "class": "local-authored",
+      "git": {},
+      "writes": 2,
+      "yamlReads": 0,
+      "lifetimes": []
+    },
+    {
+      "module": "configuration-history-cleanup.mjs",
+      "class": "shared-state",
+      "git": {
+        "read": 1,
+        "write": 1,
+        "dynamic": 1
+      },
+      "writes": 0,
+      "yamlReads": 0,
+      "lifetimes": [
+        {
+          "name": "timeoutMs",
+          "value": 15000,
+          "kind": "timeout"
+        }
+      ]
+    },
+    {
+      "module": "configuration-intent-replay.mjs",
+      "class": null,
+      "git": {},
+      "writes": 0,
+      "yamlReads": 1,
+      "lifetimes": []
+    },
+    {
+      "module": "configuration-object-reader.mjs",
+      "class": "shared-state",
+      "git": {
+        "read": 2,
+        "write": 1,
+        "dynamic": 1
+      },
+      "writes": 0,
+      "yamlReads": 0,
+      "lifetimes": [
+        {
+          "name": "timeoutMs",
+          "value": 15000,
+          "kind": "timeout"
+        }
+      ]
+    },
+    {
+      "module": "configuration-object-store.mjs",
+      "class": "shared-state",
+      "git": {
+        "read": 1,
+        "write": 9,
+        "remote": 1,
+        "dynamic": 1
+      },
+      "writes": 3,
+      "yamlReads": 0,
+      "lifetimes": [
+        {
+          "name": "timeoutMs",
+          "value": 15000,
+          "kind": "timeout"
+        }
+      ]
+    },
+    {
+      "module": "configuration-people.mjs",
+      "class": "shared-state",
+      "git": {
+        "read": 3,
+        "write": 4,
+        "remote": 2,
+        "dynamic": 1
+      },
+      "writes": 2,
+      "yamlReads": 6,
+      "lifetimes": []
+    },
+    {
+      "module": "configuration-proposal-cleanup.mjs",
+      "class": "shared-state",
+      "git": {
+        "read": 1
+      },
+      "writes": 0,
+      "yamlReads": 0,
+      "lifetimes": []
+    },
+    {
+      "module": "configuration-proposal.mjs",
+      "class": "shared-state",
+      "git": {
+        "read": 9,
+        "write": 7,
+        "remote": 10
+      },
+      "writes": 0,
+      "yamlReads": 3,
+      "lifetimes": []
+    },
+    {
+      "module": "configuration-read-worker.mjs",
+      "class": "projection",
+      "git": {},
+      "writes": 2,
+      "yamlReads": 0,
+      "lifetimes": []
+    },
+    {
+      "module": "configuration-recreate-sync.mjs",
+      "class": "shared-state",
+      "git": {
+        "read": 6,
+        "write": 7,
+        "dynamic": 1
+      },
+      "writes": 2,
+      "yamlReads": 2,
+      "lifetimes": [
+        {
+          "name": "timeoutMs",
+          "value": 15000,
+          "kind": "timeout"
+        }
+      ]
+    },
+    {
+      "module": "configuration-reference-sync.mjs",
+      "class": null,
+      "git": {},
+      "writes": 0,
+      "yamlReads": 0,
+      "lifetimes": [
+        {
+          "name": "timeoutMs",
+          "value": 5000,
+          "kind": "timeout"
+        }
+      ]
+    },
+    {
+      "module": "configuration-review-pass.mjs",
+      "class": "shared-state",
+      "git": {},
+      "writes": 3,
+      "yamlReads": 0,
+      "lifetimes": []
+    },
+    {
+      "module": "configuration-state-git.mjs",
+      "class": "shared-state",
+      "git": {
+        "read": 3,
+        "write": 7,
+        "dynamic": 1
+      },
+      "writes": 3,
+      "yamlReads": 3,
+      "lifetimes": [
+        {
+          "name": "timeoutMs",
+          "value": 15000,
+          "kind": "timeout"
+        }
+      ]
+    },
+    {
+      "module": "configuration-state-service.mjs",
+      "class": "projection",
+      "git": {},
+      "writes": 1,
+      "yamlReads": 0,
+      "lifetimes": []
+    },
+    {
+      "module": "constitution.mjs",
+      "class": null,
+      "git": {},
+      "writes": 0,
+      "yamlReads": 2,
+      "lifetimes": []
+    },
+    {
+      "module": "context-handles.mjs",
+      "class": "local-operational",
+      "git": {},
+      "writes": 1,
+      "yamlReads": 0,
+      "lifetimes": []
+    },
+    {
+      "module": "context-history.mjs",
+      "class": "local-operational",
+      "git": {
+        "read": 2
+      },
+      "writes": 0,
+      "yamlReads": 0,
+      "lifetimes": []
+    },
+    {
+      "module": "context-packet-telemetry.mjs",
+      "class": "local-operational",
+      "git": {},
+      "writes": 2,
+      "yamlReads": 0,
+      "lifetimes": []
+    },
+    {
+      "module": "convergence-context.mjs",
+      "class": "source-control",
+      "git": {
+        "read": 1,
+        "write": 1
+      },
+      "writes": 0,
+      "yamlReads": 0,
+      "lifetimes": []
+    },
+    {
+      "module": "copilot-chat-usage.mjs",
+      "class": "surface",
+      "git": {},
+      "writes": 1,
+      "yamlReads": 0,
+      "lifetimes": [
+        {
+          "name": "PENDING_TTL_MS",
+          "value": 172800000,
+          "kind": "lifetime"
+        }
+      ]
+    },
+    {
+      "module": "copilot-hook-benchmark.mjs",
+      "class": "surface",
+      "git": {},
+      "writes": 3,
+      "yamlReads": 0,
+      "lifetimes": [
+        {
+          "name": "timeout",
+          "value": 30000,
+          "kind": "timeout"
+        }
+      ]
+    },
+    {
+      "module": "copilot-mode.mjs",
+      "class": "surface",
+      "git": {},
+      "writes": 3,
+      "yamlReads": 0,
+      "lifetimes": []
+    },
+    {
+      "module": "copilot-mutation-guard.mjs",
+      "class": "surface",
+      "git": {},
+      "writes": 7,
+      "yamlReads": 0,
+      "lifetimes": [
+        {
+          "name": "MAX_AGE",
+          "value": 1800000,
+          "kind": "lifetime"
+        }
+      ]
+    },
+    {
+      "module": "copilot-repository-boundary.mjs",
+      "class": "surface",
+      "git": {},
+      "writes": 4,
+      "yamlReads": 0,
+      "lifetimes": [
+        {
+          "name": "MAX_AGE_MS",
+          "value": 1800000,
+          "kind": "lifetime"
+        }
+      ]
+    },
+    {
+      "module": "copilot-story-follow.mjs",
+      "class": "surface",
+      "git": {},
+      "writes": 2,
+      "yamlReads": 0,
+      "lifetimes": [
+        {
+          "name": "COPILOT_STORY_FOLLOW_MAX_AGE_MS",
+          "value": 120000,
+          "kind": "lifetime"
+        }
+      ]
+    },
+    {
+      "module": "creation-git-context.mjs",
+      "class": "source-control",
+      "git": {
+        "write": 1
+      },
+      "writes": 0,
+      "yamlReads": 0,
+      "lifetimes": []
+    },
+    {
+      "module": "deferred-index-refresh.mjs",
+      "class": "projection",
+      "git": {},
+      "writes": 2,
+      "yamlReads": 0,
+      "lifetimes": []
+    },
+    {
+      "module": "delivery-evidence.mjs",
+      "class": "shared-state",
+      "git": {
+        "read": 6
+      },
+      "writes": 0,
+      "yamlReads": 0,
+      "lifetimes": []
+    },
+    {
+      "module": "delivery-modes/local-signed-runner.mjs",
+      "class": "shared-state",
+      "git": {
+        "read": 2
+      },
+      "writes": 0,
+      "yamlReads": 0,
+      "lifetimes": [
+        {
+          "name": "DEFAULT_TIMEOUT_MS",
+          "value": 600000,
+          "kind": "timeout"
+        }
+      ]
+    },
+    {
+      "module": "delivery-modes/proof-kernel.mjs",
+      "class": null,
+      "git": {},
+      "writes": 0,
+      "yamlReads": 0,
+      "lifetimes": [
+        {
+          "name": "deadlineMilliseconds",
+          "value": 10000,
+          "kind": "timeout"
+        }
+      ]
+    },
+    {
+      "module": "direct-skills.mjs",
+      "class": "installation",
+      "git": {},
+      "writes": 6,
+      "yamlReads": 0,
+      "lifetimes": []
+    },
+    {
+      "module": "distribution-build.mjs",
+      "class": "installation",
+      "git": {},
+      "writes": 8,
+      "yamlReads": 0,
+      "lifetimes": []
+    },
+    {
+      "module": "docs-topics.mjs",
+      "class": null,
+      "git": {},
+      "writes": 0,
+      "yamlReads": 1,
+      "lifetimes": []
+    },
+    {
+      "module": "doctor.mjs",
+      "class": "surface",
+      "git": {
+        "read": 3,
+        "remote": 1
+      },
+      "writes": 0,
+      "yamlReads": 0,
+      "lifetimes": []
+    },
+    {
+      "module": "document-publication.mjs",
+      "class": "artifact",
+      "git": {
+        "read": 1
+      },
+      "writes": 0,
+      "yamlReads": 0,
+      "lifetimes": []
+    },
+    {
+      "module": "document-replay.mjs",
+      "class": "artifact",
+      "git": {},
+      "writes": 4,
+      "yamlReads": 0,
+      "lifetimes": []
+    },
+    {
+      "module": "document-runtime.mjs",
+      "class": "artifact",
+      "git": {},
+      "writes": 2,
+      "yamlReads": 0,
+      "lifetimes": []
+    },
+    {
+      "module": "document-storage.mjs",
+      "class": "artifact",
+      "git": {},
+      "writes": 11,
+      "yamlReads": 0,
+      "lifetimes": []
+    },
+    {
+      "module": "documents.mjs",
+      "class": "artifact",
+      "git": {
+        "read": 1
+      },
+      "writes": 4,
+      "yamlReads": 0,
+      "lifetimes": []
+    },
+    {
+      "module": "dx-command-timing.mjs",
+      "class": "local-operational",
+      "git": {},
+      "writes": 3,
+      "yamlReads": 0,
+      "lifetimes": []
+    },
+    {
+      "module": "editor.mjs",
+      "class": "shared-state",
+      "git": {
+        "read": 1
+      },
+      "writes": 3,
+      "yamlReads": 12,
+      "lifetimes": []
+    },
+    {
+      "module": "environment-bindings.mjs",
+      "class": "local-authored",
+      "git": {},
+      "writes": 1,
+      "yamlReads": 0,
+      "lifetimes": []
+    },
+    {
+      "module": "environment-declaration.mjs",
+      "class": null,
+      "git": {},
+      "writes": 0,
+      "yamlReads": 1,
+      "lifetimes": []
+    },
+    {
+      "module": "environment-files-suggest.mjs",
+      "class": null,
+      "git": {},
+      "writes": 0,
+      "yamlReads": 1,
+      "lifetimes": []
+    },
+    {
+      "module": "environment-files-values.mjs",
+      "class": null,
+      "git": {},
+      "writes": 0,
+      "yamlReads": 1,
+      "lifetimes": []
+    },
+    {
+      "module": "environment-files.mjs",
+      "class": "local-authored",
+      "git": {},
+      "writes": 17,
+      "yamlReads": 0,
+      "lifetimes": []
+    },
+    {
+      "module": "epic-lifecycle.mjs",
+      "class": null,
+      "git": {},
+      "writes": 0,
+      "yamlReads": 2,
+      "lifetimes": []
+    },
+    {
+      "module": "epic-review.mjs",
+      "class": "shared-state",
+      "git": {
+        "read": 4,
+        "write": 4,
+        "remote": 1,
+        "dynamic": 1
+      },
+      "writes": 0,
+      "yamlReads": 0,
+      "lifetimes": []
+    },
+    {
+      "module": "epic-sources.mjs",
+      "class": "shared-state",
+      "git": {},
+      "writes": 4,
+      "yamlReads": 1,
+      "lifetimes": [
+        {
+          "name": "DEFAULT_TIMEOUT_MS",
+          "value": 60000,
+          "kind": "timeout"
+        }
+      ]
+    },
+    {
+      "module": "epic-traceability.mjs",
+      "class": null,
+      "git": {},
+      "writes": 0,
+      "yamlReads": 1,
+      "lifetimes": []
+    },
+    {
+      "module": "evidence-packet.mjs",
+      "class": "artifact",
+      "git": {
+        "read": 2
+      },
+      "writes": 0,
+      "yamlReads": 0,
+      "lifetimes": []
+    },
+    {
+      "module": "evidence-receipt.mjs",
+      "class": "artifact",
+      "git": {
+        "read": 1
+      },
+      "writes": 0,
+      "yamlReads": 0,
+      "lifetimes": []
+    },
+    {
+      "module": "evidence/obligation-compiler.mjs",
+      "class": "artifact",
+      "git": {},
+      "writes": 4,
+      "yamlReads": 0,
+      "lifetimes": []
+    },
+    {
+      "module": "evidence/refusal-memory.mjs",
+      "class": "artifact",
+      "git": {},
+      "writes": 2,
+      "yamlReads": 0,
+      "lifetimes": []
+    },
+    {
+      "module": "factory-reset.mjs",
+      "class": "installation",
+      "git": {
+        "read": 5,
+        "write": 2
+      },
+      "writes": 21,
+      "yamlReads": 0,
+      "lifetimes": []
+    },
+    {
+      "module": "fault-repair.mjs",
+      "class": "shared-state",
+      "git": {
+        "read": 10,
+        "write": 9,
+        "dynamic": 2
+      },
+      "writes": 7,
+      "yamlReads": 0,
+      "lifetimes": []
+    },
+    {
+      "module": "file-lease.mjs",
+      "class": "local-operational",
+      "git": {},
+      "writes": 7,
+      "yamlReads": 0,
+      "lifetimes": [
+        {
+          "name": "REGISTRY_LOCK_TIMEOUT_MS",
+          "value": 10000,
+          "kind": "timeout"
+        },
+        {
+          "name": "REGISTRY_LOCK_STALE_MS",
+          "value": 900000,
+          "kind": "lifetime"
+        },
+        {
+          "name": "CACHE_LEASE_STALE_MS",
+          "value": 900000,
+          "kind": "lifetime"
+        }
+      ]
+    },
+    {
+      "module": "finding-escalation.mjs",
+      "class": "shared-state",
+      "git": {},
+      "writes": 3,
+      "yamlReads": 0,
+      "lifetimes": []
+    },
+    {
+      "module": "first-run-guide.mjs",
+      "class": "surface",
+      "git": {
+        "write": 8,
+        "remote": 1
+      },
+      "writes": 10,
+      "yamlReads": 1,
+      "lifetimes": []
+    },
+    {
+      "module": "fos-benchmark-evidence.mjs",
+      "class": "artifact",
+      "git": {
+        "read": 3
+      },
+      "writes": 3,
+      "yamlReads": 0,
+      "lifetimes": []
+    },
+    {
+      "module": "fos-convenience-store.mjs",
+      "class": "artifact",
+      "git": {},
+      "writes": 3,
+      "yamlReads": 0,
+      "lifetimes": []
+    },
+    {
+      "module": "fos-derived-cache.mjs",
+      "class": "artifact",
+      "git": {},
+      "writes": 3,
+      "yamlReads": 0,
+      "lifetimes": []
+    },
+    {
+      "module": "fos-evidence-ingestion.mjs",
+      "class": "artifact",
+      "git": {},
+      "writes": 2,
+      "yamlReads": 0,
+      "lifetimes": []
+    },
+    {
+      "module": "fos-git-speed.mjs",
+      "class": "artifact",
+      "git": {
+        "read": 1,
+        "write": 4
+      },
+      "writes": 0,
+      "yamlReads": 0,
+      "lifetimes": []
+    },
+    {
+      "module": "fos-publication.mjs",
+      "class": "artifact",
+      "git": {
+        "read": 2,
+        "remote": 1
+      },
+      "writes": 0,
+      "yamlReads": 0,
+      "lifetimes": []
+    },
+    {
+      "module": "fos-release-evidence.mjs",
+      "class": "artifact",
+      "git": {
+        "read": 2,
+        "dynamic": 1
+      },
+      "writes": 0,
+      "yamlReads": 0,
+      "lifetimes": []
+    },
+    {
+      "module": "fos-sealed-input.mjs",
+      "class": "artifact",
+      "git": {
+        "read": 1
+      },
+      "writes": 0,
+      "yamlReads": 0,
+      "lifetimes": [
+        {
+          "name": "idleMs",
+          "value": 60000,
+          "kind": "lifetime"
+        }
+      ]
+    },
+    {
+      "module": "fos-story-switch.mjs",
+      "class": "artifact",
+      "git": {},
+      "writes": 3,
+      "yamlReads": 0,
+      "lifetimes": []
+    },
+    {
+      "module": "fresh-install-reset.mjs",
+      "class": "installation",
+      "git": {
+        "read": 7
+      },
+      "writes": 10,
+      "yamlReads": 0,
+      "lifetimes": []
+    },
+    {
+      "module": "gal-async-read.mjs",
+      "class": null,
+      "git": {},
+      "writes": 0,
+      "yamlReads": 0,
+      "lifetimes": [
+        {
+          "name": "timeoutMs",
+          "value": 15000,
+          "kind": "timeout"
+        }
+      ]
+    },
+    {
+      "module": "gate-recovery.mjs",
+      "class": "shared-state",
+      "git": {
+        "read": 2
+      },
+      "writes": 0,
+      "yamlReads": 0,
+      "lifetimes": []
+    },
+    {
+      "module": "gateway/audit.mjs",
+      "class": "surface",
+      "git": {},
+      "writes": 3,
+      "yamlReads": 0,
+      "lifetimes": []
+    },
+    {
+      "module": "gateway/handles.mjs",
+      "class": null,
+      "git": {},
+      "writes": 0,
+      "yamlReads": 0,
+      "lifetimes": [
+        {
+          "name": "RECEIPT_TTL_MS",
+          "value": 120000,
+          "kind": "lifetime"
+        }
+      ]
+    },
+    {
+      "module": "gateway/kernel.mjs",
+      "class": null,
+      "git": {},
+      "writes": 0,
+      "yamlReads": 0,
+      "lifetimes": [
+        {
+          "name": "INTAKE_TTL_MS",
+          "value": 1800000,
+          "kind": "lifetime"
+        }
+      ]
+    },
+    {
+      "module": "gateway/local-store.mjs",
+      "class": "surface",
+      "git": {},
+      "writes": 2,
+      "yamlReads": 0,
+      "lifetimes": [
+        {
+          "name": "GUIDE_SESSION_TTL_MS",
+          "value": 28800000,
+          "kind": "lifetime"
+        }
+      ]
+    },
+    {
+      "module": "gateway/mcp-stdio.mjs",
+      "class": null,
+      "git": {},
+      "writes": 0,
+      "yamlReads": 0,
+      "lifetimes": [
+        {
+          "name": "ELICITATION_TIMEOUT_MS",
+          "value": 600000,
+          "kind": "timeout"
+        }
+      ]
+    },
+    {
+      "module": "gateway/planners/investigation-bisect.mjs",
+      "class": "surface",
+      "git": {},
+      "writes": 2,
+      "yamlReads": 0,
+      "lifetimes": [
+        {
+          "name": "STEP_TIMEOUT_MS",
+          "value": 600000,
+          "kind": "timeout"
+        }
+      ]
+    },
+    {
+      "module": "gateway/planners/problem-investigate.mjs",
+      "class": "surface",
+      "git": {
+        "read": 3
+      },
+      "writes": 0,
+      "yamlReads": 0,
+      "lifetimes": []
+    },
+    {
+      "module": "generation-publication-store.mjs",
+      "class": "shared-state",
+      "git": {
+        "read": 7,
+        "dynamic": 1
+      },
+      "writes": 0,
+      "yamlReads": 0,
+      "lifetimes": []
+    },
+    {
+      "module": "git-access.mjs",
+      "class": "source-control",
+      "git": {
+        "remote": 4,
+        "dynamic": 1
+      },
+      "writes": 0,
+      "yamlReads": 0,
+      "lifetimes": [
+        {
+          "name": "LOCAL_DEADLINE_MS",
+          "value": 30000,
+          "kind": "timeout"
+        },
+        {
+          "name": "TYPED_GIT_TIMEOUT_MS",
+          "value": 15000,
+          "kind": "timeout"
+        }
+      ]
+    },
+    {
+      "module": "git-ancestry.mjs",
+      "class": "source-control",
+      "git": {
+        "read": 2
+      },
+      "writes": 0,
+      "yamlReads": 0,
+      "lifetimes": []
+    },
+    {
+      "module": "git-blob-batch.mjs",
+      "class": "source-control",
+      "git": {
+        "read": 3
+      },
+      "writes": 0,
+      "yamlReads": 0,
+      "lifetimes": []
+    },
+    {
+      "module": "git-diff-name-status.mjs",
+      "class": "source-control",
+      "git": {
+        "read": 1
+      },
+      "writes": 0,
+      "yamlReads": 0,
+      "lifetimes": []
+    },
+    {
+      "module": "git-enterprise-environment.mjs",
+      "class": "source-control",
+      "git": {
+        "dynamic": 1
+      },
+      "writes": 0,
+      "yamlReads": 0,
+      "lifetimes": []
+    },
+    {
+      "module": "git-exact-story-revision.mjs",
+      "class": "source-control",
+      "git": {},
+      "writes": 4,
+      "yamlReads": 1,
+      "lifetimes": []
+    },
+    {
+      "module": "git-execution.mjs",
+      "class": "source-control",
+      "git": {
+        "read": 6,
+        "write": 1,
+        "remote": 2,
+        "dynamic": 3
+      },
+      "writes": 0,
+      "yamlReads": 0,
+      "lifetimes": [
+        {
+          "name": "timeoutMs",
+          "value": 15000,
+          "kind": "timeout"
+        },
+        {
+          "name": "timeoutMs",
+          "value": 30000,
+          "kind": "timeout"
+        }
+      ]
+    },
+    {
+      "module": "git-fact-cache.mjs",
+      "class": null,
+      "git": {},
+      "writes": 0,
+      "yamlReads": 0,
+      "lifetimes": [
+        {
+          "name": "GIT_FACT_TTL_MS",
+          "value": 900000,
+          "kind": "lifetime"
+        }
+      ]
+    },
+    {
+      "module": "git-fact-store.mjs",
+      "class": "projection",
+      "git": {},
+      "writes": 5,
+      "yamlReads": 0,
+      "lifetimes": []
+    },
+    {
+      "module": "git-hook-effects.mjs",
+      "class": "source-control",
+      "git": {
+        "read": 1
+      },
+      "writes": 0,
+      "yamlReads": 0,
+      "lifetimes": [
+        {
+          "name": "timeoutMs",
+          "value": 3000,
+          "kind": "timeout"
+        }
+      ]
+    },
+    {
+      "module": "git-isolation-paths.mjs",
+      "class": "source-control",
+      "git": {},
+      "writes": 6,
+      "yamlReads": 0,
+      "lifetimes": []
+    },
+    {
+      "module": "git-ref-tree.mjs",
+      "class": "source-control",
+      "git": {
+        "read": 7
+      },
+      "writes": 0,
+      "yamlReads": 0,
+      "lifetimes": []
+    },
+    {
+      "module": "git-remote-diagnostics.mjs",
+      "class": "source-control",
+      "git": {
+        "read": 1,
+        "write": 1,
+        "remote": 1
+      },
+      "writes": 0,
+      "yamlReads": 0,
+      "lifetimes": []
+    },
+    {
+      "module": "git-storage-availability.mjs",
+      "class": null,
+      "git": {},
+      "writes": 0,
+      "yamlReads": 0,
+      "lifetimes": [
+        {
+          "name": "DEFAULT_DOWNLOAD_TIMEOUT_MS",
+          "value": 15000,
+          "kind": "timeout"
+        },
+        {
+          "name": "MAX_DOWNLOAD_TIMEOUT_MS",
+          "value": 120000,
+          "kind": "timeout"
+        },
+        {
+          "name": "AVAILABLE_TTL_MS",
+          "value": 30000,
+          "kind": "lifetime"
+        },
+        {
+          "name": "UNAVAILABLE_TTL_MS",
+          "value": 60000,
+          "kind": "lifetime"
+        },
+        {
+          "name": "REGISTRY_TIMEOUT_MS",
+          "value": 3000,
+          "kind": "timeout"
+        }
+      ]
+    },
+    {
+      "module": "git.mjs",
+      "class": "source-control",
+      "git": {
+        "read": 126,
+        "write": 59,
+        "remote": 13,
+        "dynamic": 8,
+        "unknown": 1
+      },
+      "writes": 10,
+      "yamlReads": 0,
+      "lifetimes": [
+        {
+          "name": "GITHUB_FAILURE_TTL_MS",
+          "value": 60000,
+          "kind": "lifetime"
+        },
+        {
+          "name": "timeoutMs",
+          "value": 30000,
+          "kind": "timeout"
+        },
+        {
+          "name": "timeoutMs",
+          "value": 30000,
+          "kind": "timeout"
+        },
+        {
+          "name": "timeoutMs",
+          "value": 30000,
+          "kind": "timeout"
+        },
+        {
+          "name": "timeoutMs",
+          "value": 30000,
+          "kind": "timeout"
+        },
+        {
+          "name": "timeoutMs",
+          "value": 30000,
+          "kind": "timeout"
+        },
+        {
+          "name": "timeoutMs",
+          "value": 30000,
+          "kind": "timeout"
+        },
+        {
+          "name": "timeoutMs",
+          "value": 30000,
+          "kind": "timeout"
+        }
+      ]
+    },
+    {
+      "module": "github-evidence.mjs",
+      "class": "source-control",
+      "git": {
+        "read": 1
+      },
+      "writes": 0,
+      "yamlReads": 0,
+      "lifetimes": []
+    },
+    {
+      "module": "goals.mjs",
+      "class": "shared-state",
+      "git": {},
+      "writes": 1,
+      "yamlReads": 0,
+      "lifetimes": []
+    },
+    {
+      "module": "governance-rebuild.mjs",
+      "class": "shared-state",
+      "git": {},
+      "writes": 11,
+      "yamlReads": 2,
+      "lifetimes": []
+    },
+    {
+      "module": "governance.mjs",
+      "class": "shared-state",
+      "git": {
+        "read": 10,
+        "remote": 1
+      },
+      "writes": 0,
+      "yamlReads": 0,
+      "lifetimes": []
+    },
+    {
+      "module": "governed-goals.mjs",
+      "class": "shared-state",
+      "git": {
+        "read": 10,
+        "write": 8,
+        "remote": 2,
+        "dynamic": 1
+      },
+      "writes": 6,
+      "yamlReads": 0,
+      "lifetimes": [
+        {
+          "name": "timeoutMs",
+          "value": 30000,
+          "kind": "timeout"
+        }
+      ]
+    },
+    {
+      "module": "grounding.mjs",
+      "class": "projection",
+      "git": {
+        "read": 5,
+        "write": 1,
+        "dynamic": 1
+      },
+      "writes": 0,
+      "yamlReads": 0,
+      "lifetimes": []
+    },
+    {
+      "module": "harness-imports.mjs",
+      "class": "source-control",
+      "git": {
+        "read": 2
+      },
+      "writes": 0,
+      "yamlReads": 1,
+      "lifetimes": []
+    },
+    {
+      "module": "help-metrics.mjs",
+      "class": "surface",
+      "git": {},
+      "writes": 6,
+      "yamlReads": 0,
+      "lifetimes": [
+        {
+          "name": "LOCK_STALE_MS",
+          "value": 300000,
+          "kind": "lifetime"
+        }
+      ]
+    },
+    {
+      "module": "history-index-worker.mjs",
+      "class": "projection",
+      "git": {
+        "dynamic": 1
+      },
+      "writes": 0,
+      "yamlReads": 0,
+      "lifetimes": [
+        {
+          "name": "timeoutMs",
+          "value": 1800000,
+          "kind": "timeout"
+        }
+      ]
+    },
+    {
+      "module": "history-index.mjs",
+      "class": "projection",
+      "git": {},
+      "writes": 1,
+      "yamlReads": 0,
+      "lifetimes": []
+    },
+    {
+      "module": "human-review-origin.mjs",
+      "class": "shared-state",
+      "git": {},
+      "writes": 2,
+      "yamlReads": 0,
+      "lifetimes": []
+    },
+    {
+      "module": "impact-config.mjs",
+      "class": null,
+      "git": {},
+      "writes": 0,
+      "yamlReads": 1,
+      "lifetimes": []
+    },
+    {
+      "module": "impact.mjs",
+      "class": "projection",
+      "git": {},
+      "writes": 1,
+      "yamlReads": 2,
+      "lifetimes": []
+    },
+    {
+      "module": "imports-ledger.mjs",
+      "class": null,
+      "git": {},
+      "writes": 0,
+      "yamlReads": 1,
+      "lifetimes": []
+    },
+    {
+      "module": "initialization/activation.mjs",
+      "class": "shared-state",
+      "git": {},
+      "writes": 1,
+      "yamlReads": 1,
+      "lifetimes": []
+    },
+    {
+      "module": "initialization/detectors.mjs",
+      "class": null,
+      "git": {},
+      "writes": 0,
+      "yamlReads": 0,
+      "lifetimes": [
+        {
+          "name": "timeoutMs",
+          "value": 600000,
+          "kind": "timeout"
+        },
+        {
+          "name": "timeoutMs",
+          "value": 15000,
+          "kind": "timeout"
+        }
+      ]
+    },
+    {
+      "module": "initialization/explain.mjs",
+      "class": null,
+      "git": {},
+      "writes": 0,
+      "yamlReads": 1,
+      "lifetimes": []
+    },
+    {
+      "module": "initialization/precheck.mjs",
+      "class": null,
+      "git": {},
+      "writes": 0,
+      "yamlReads": 2,
+      "lifetimes": []
+    },
+    {
+      "module": "initialization/proposal.mjs",
+      "class": null,
+      "git": {},
+      "writes": 0,
+      "yamlReads": 1,
+      "lifetimes": []
+    },
+    {
+      "module": "initialization/recovery.mjs",
+      "class": "shared-state",
+      "git": {
+        "read": 4,
+        "write": 1
+      },
+      "writes": 1,
+      "yamlReads": 0,
+      "lifetimes": []
+    },
+    {
+      "module": "initialization/runtime-readiness.mjs",
+      "class": "source-control",
+      "git": {
+        "read": 5,
+        "dynamic": 1
+      },
+      "writes": 11,
+      "yamlReads": 0,
+      "lifetimes": [
+        {
+          "name": "MAX_TIMEOUT_MS",
+          "value": 1800000,
+          "kind": "timeout"
+        }
+      ]
+    },
+    {
+      "module": "initialization/source-snapshot.mjs",
+      "class": "source-control",
+      "git": {
+        "read": 5,
+        "dynamic": 1
+      },
+      "writes": 0,
+      "yamlReads": 0,
+      "lifetimes": []
+    },
+    {
+      "module": "initiative-context.mjs",
+      "class": "shared-state",
+      "git": {
+        "read": 2
+      },
+      "writes": 0,
+      "yamlReads": 0,
+      "lifetimes": []
+    },
+    {
+      "module": "initiative-evidence.mjs",
+      "class": "shared-state",
+      "git": {},
+      "writes": 1,
+      "yamlReads": 2,
+      "lifetimes": []
+    },
+    {
+      "module": "initiative-governance.mjs",
+      "class": "shared-state",
+      "git": {
+        "remote": 1
+      },
+      "writes": 0,
+      "yamlReads": 0,
+      "lifetimes": []
+    },
+    {
+      "module": "initiative-impact.mjs",
+      "class": null,
+      "git": {},
+      "writes": 0,
+      "yamlReads": 1,
+      "lifetimes": []
+    },
+    {
+      "module": "initiative-repositories.mjs",
+      "class": "shared-state",
+      "git": {
+        "read": 9,
+        "write": 7,
+        "remote": 4
+      },
+      "writes": 0,
+      "yamlReads": 4,
+      "lifetimes": []
+    },
+    {
+      "module": "initiative-state.mjs",
+      "class": "shared-state",
+      "git": {},
+      "writes": 1,
+      "yamlReads": 0,
+      "lifetimes": []
+    },
+    {
+      "module": "inject.mjs",
+      "class": "installation",
+      "git": {},
+      "writes": 5,
+      "yamlReads": 0,
+      "lifetimes": []
+    },
+    {
+      "module": "instruction-test-commands.mjs",
+      "class": null,
+      "git": {},
+      "writes": 0,
+      "yamlReads": 1,
+      "lifetimes": []
+    },
+    {
+      "module": "intake.mjs",
+      "class": null,
+      "git": {},
+      "writes": 0,
+      "yamlReads": 1,
+      "lifetimes": []
+    },
+    {
+      "module": "jira-initiative.mjs",
+      "class": "shared-state",
+      "git": {
+        "read": 1
+      },
+      "writes": 0,
+      "yamlReads": 3,
+      "lifetimes": []
+    },
+    {
+      "module": "jira.mjs",
+      "class": null,
+      "git": {},
+      "writes": 0,
+      "yamlReads": 0,
+      "lifetimes": [
+        {
+          "name": "DEFAULT_REQUEST_TIMEOUT_MS",
+          "value": 20000,
+          "kind": "timeout"
+        },
+        {
+          "name": "MAX_REQUEST_TIMEOUT_MS",
+          "value": 120000,
+          "kind": "timeout"
+        },
+        {
+          "name": "DEFAULT_DISCOVERY_TIMEOUT_MS",
+          "value": 15000,
+          "kind": "timeout"
+        }
+      ]
+    },
+    {
+      "module": "knowledge-seed-import.mjs",
+      "class": null,
+      "git": {},
+      "writes": 0,
+      "yamlReads": 1,
+      "lifetimes": []
+    },
+    {
+      "module": "knowledge/benchmark.mjs",
+      "class": null,
+      "git": {},
+      "writes": 0,
+      "yamlReads": 1,
+      "lifetimes": []
+    },
+    {
+      "module": "knowledge/brief-polish.mjs",
+      "class": "projection",
+      "git": {},
+      "writes": 2,
+      "yamlReads": 0,
+      "lifetimes": []
+    },
+    {
+      "module": "knowledge/brief.mjs",
+      "class": "projection",
+      "git": {},
+      "writes": 2,
+      "yamlReads": 0,
+      "lifetimes": []
+    },
+    {
+      "module": "knowledge/command.mjs",
+      "class": null,
+      "git": {},
+      "writes": 0,
+      "yamlReads": 0,
+      "lifetimes": [
+        {
+          "name": "timeoutMs",
+          "value": 240000,
+          "kind": "timeout"
+        }
+      ]
+    },
+    {
+      "module": "knowledge/confirm.mjs",
+      "class": "projection",
+      "git": {},
+      "writes": 1,
+      "yamlReads": 1,
+      "lifetimes": []
+    },
+    {
+      "module": "knowledge/explain.mjs",
+      "class": "projection",
+      "git": {},
+      "writes": 2,
+      "yamlReads": 0,
+      "lifetimes": []
+    },
+    {
+      "module": "knowledge/rule-files.mjs",
+      "class": null,
+      "git": {},
+      "writes": 0,
+      "yamlReads": 1,
+      "lifetimes": []
+    },
+    {
+      "module": "knowledge/rule-meaning.mjs",
+      "class": "projection",
+      "git": {},
+      "writes": 3,
+      "yamlReads": 1,
+      "lifetimes": []
+    },
+    {
+      "module": "knowledge/store.mjs",
+      "class": "projection",
+      "git": {},
+      "writes": 3,
+      "yamlReads": 0,
+      "lifetimes": []
+    },
+    {
+      "module": "lead-repositories.mjs",
+      "class": "projection",
+      "git": {},
+      "writes": 1,
+      "yamlReads": 0,
+      "lifetimes": []
+    },
+    {
+      "module": "ledger-deployment.mjs",
+      "class": "shared-state",
+      "git": {
+        "read": 3,
+        "remote": 1,
+        "dynamic": 1
+      },
+      "writes": 0,
+      "yamlReads": 0,
+      "lifetimes": []
+    },
+    {
+      "module": "ledger.mjs",
+      "class": "shared-state",
+      "git": {
+        "read": 51,
+        "write": 22,
+        "remote": 17,
+        "dynamic": 2
+      },
+      "writes": 12,
+      "yamlReads": 0,
+      "lifetimes": [
+        {
+          "name": "timeoutMs",
+          "value": 5000,
+          "kind": "timeout"
+        },
+        {
+          "name": "timeoutMs",
+          "value": 5000,
+          "kind": "timeout"
+        },
+        {
+          "name": "timeoutMs",
+          "value": 5000,
+          "kind": "timeout"
+        },
+        {
+          "name": "timeoutMs",
+          "value": 5000,
+          "kind": "timeout"
+        },
+        {
+          "name": "timeoutMs",
+          "value": 5000,
+          "kind": "timeout"
+        },
+        {
+          "name": "timeoutMs",
+          "value": 30000,
+          "kind": "timeout"
+        },
+        {
+          "name": "timeoutMs",
+          "value": 5000,
+          "kind": "timeout"
+        },
+        {
+          "name": "timeoutMs",
+          "value": 5000,
+          "kind": "timeout"
+        },
+        {
+          "name": "timeoutMs",
+          "value": 30000,
+          "kind": "timeout"
+        },
+        {
+          "name": "timeoutMs",
+          "value": 30000,
+          "kind": "timeout"
+        },
+        {
+          "name": "ATOMIC_LEDGER_OBSERVATION_TIMEOUT_MS",
+          "value": 10000,
+          "kind": "timeout"
+        }
+      ]
+    },
+    {
+      "module": "local-application-profile.mjs",
+      "class": "local-operational",
+      "git": {},
+      "writes": 1,
+      "yamlReads": 0,
+      "lifetimes": []
+    },
+    {
+      "module": "local-identity.mjs",
+      "class": "shared-state",
+      "git": {
+        "read": 3,
+        "write": 4
+      },
+      "writes": 0,
+      "yamlReads": 2,
+      "lifetimes": []
+    },
+    {
+      "module": "local-mode/service.mjs",
+      "class": "shared-state",
+      "git": {},
+      "writes": 4,
+      "yamlReads": 0,
+      "lifetimes": []
+    },
+    {
+      "module": "local-mode/store.mjs",
+      "class": "shared-state",
+      "git": {
+        "read": 2,
+        "write": 8,
+        "dynamic": 1
+      },
+      "writes": 4,
+      "yamlReads": 0,
+      "lifetimes": []
+    },
+    {
+      "module": "local-work-journal.mjs",
+      "class": "local-authored",
+      "git": {
+        "read": 4,
+        "dynamic": 2
+      },
+      "writes": 7,
+      "yamlReads": 0,
+      "lifetimes": []
+    },
+    {
+      "module": "logging.mjs",
+      "class": "local-operational",
+      "git": {},
+      "writes": 2,
+      "yamlReads": 0,
+      "lifetimes": []
+    },
+    {
+      "module": "marketplace.mjs",
+      "class": null,
+      "git": {},
+      "writes": 0,
+      "yamlReads": 1,
+      "lifetimes": []
+    },
+    {
+      "module": "mcp-auth-profile.mjs",
+      "class": "surface",
+      "git": {},
+      "writes": 1,
+      "yamlReads": 0,
+      "lifetimes": [
+        {
+          "name": "timeout",
+          "value": 10000,
+          "kind": "timeout"
+        },
+        {
+          "name": "timeout",
+          "value": 120000,
+          "kind": "timeout"
+        },
+        {
+          "name": "timeout",
+          "value": 10000,
+          "kind": "timeout"
+        },
+        {
+          "name": "timeout",
+          "value": 10000,
+          "kind": "timeout"
+        }
+      ]
+    },
+    {
+      "module": "mcp-client.mjs",
+      "class": null,
+      "git": {},
+      "writes": 0,
+      "yamlReads": 0,
+      "lifetimes": [
+        {
+          "name": "DEFAULT_TIMEOUT_MS",
+          "value": 60000,
+          "kind": "timeout"
+        }
+      ]
+    },
+    {
+      "module": "mcp-evidence.mjs",
+      "class": "surface",
+      "git": {},
+      "writes": 6,
+      "yamlReads": 0,
+      "lifetimes": []
+    },
+    {
+      "module": "mcp-import.mjs",
+      "class": null,
+      "git": {},
+      "writes": 0,
+      "yamlReads": 1,
+      "lifetimes": []
+    },
+    {
+      "module": "mcp-readiness.mjs",
+      "class": "surface",
+      "git": {},
+      "writes": 10,
+      "yamlReads": 0,
+      "lifetimes": [
+        {
+          "name": "MCP_WARM_INSTALL_TIMEOUT_MS",
+          "value": 180000,
+          "kind": "timeout"
+        },
+        {
+          "name": "MCP_WARM_START_TIMEOUT_MS",
+          "value": 30000,
+          "kind": "timeout"
+        },
+        {
+          "name": "timeoutMs",
+          "value": 1000,
+          "kind": "timeout"
+        }
+      ]
+    },
+    {
+      "module": "mcp-target.mjs",
+      "class": null,
+      "git": {},
+      "writes": 0,
+      "yamlReads": 0,
+      "lifetimes": [
+        {
+          "name": "MCP_SMOKE_MAX_AGE_MS",
+          "value": 86400000,
+          "kind": "lifetime"
+        }
+      ]
+    },
+    {
+      "module": "model-prompt-transport.mjs",
+      "class": "local-operational",
+      "git": {},
+      "writes": 2,
+      "yamlReads": 0,
+      "lifetimes": []
+    },
+    {
+      "module": "model-provider-capability.mjs",
+      "class": null,
+      "git": {},
+      "writes": 0,
+      "yamlReads": 0,
+      "lifetimes": [
+        {
+          "name": "timeout",
+          "value": 5000,
+          "kind": "timeout"
+        }
+      ]
+    },
+    {
+      "module": "model-providers/copilot-cli.mjs",
+      "class": null,
+      "git": {},
+      "writes": 0,
+      "yamlReads": 0,
+      "lifetimes": [
+        {
+          "name": "timeout",
+          "value": 5000,
+          "kind": "timeout"
+        },
+        {
+          "name": "timeoutMs",
+          "value": 5000,
+          "kind": "timeout"
+        },
+        {
+          "name": "timeoutMs",
+          "value": 5000,
+          "kind": "timeout"
+        },
+        {
+          "name": "timeoutMs",
+          "value": 5000,
+          "kind": "timeout"
+        }
+      ]
+    },
+    {
+      "module": "model-tiers.mjs",
+      "class": null,
+      "git": {},
+      "writes": 0,
+      "yamlReads": 1,
+      "lifetimes": []
+    },
+    {
+      "module": "native-efficiency-qualification.mjs",
+      "class": "local-operational",
+      "git": {},
+      "writes": 2,
+      "yamlReads": 0,
+      "lifetimes": []
+    },
+    {
+      "module": "observation-compiler.mjs",
+      "class": "local-operational",
+      "git": {},
+      "writes": 3,
+      "yamlReads": 0,
+      "lifetimes": [
+        {
+          "name": "DEFAULT_RETENTION_MS",
+          "value": 604800000,
+          "kind": "lifetime"
+        }
+      ]
+    },
+    {
+      "module": "onboard.mjs",
+      "class": null,
+      "git": {},
+      "writes": 0,
+      "yamlReads": 1,
+      "lifetimes": [
+        {
+          "name": "OFFLINE_MAX_AGE_SECONDS",
+          "value": 2592000,
+          "kind": "lifetime"
+        }
+      ]
+    },
+    {
+      "module": "organisation.mjs",
+      "class": "shared-state",
+      "git": {
+        "read": 44,
+        "write": 17,
+        "remote": 11,
+        "dynamic": 3
+      },
+      "writes": 18,
+      "yamlReads": 36,
+      "lifetimes": [
+        {
+          "name": "CAPABILITY_PUSH_RECOVERY_TTL_MS",
+          "value": 604800000,
+          "kind": "lifetime"
+        }
+      ]
+    },
+    {
+      "module": "packaged-workflow-skills.mjs",
+      "class": null,
+      "git": {},
+      "writes": 0,
+      "yamlReads": 1,
+      "lifetimes": []
+    },
+    {
+      "module": "performance-doctor.mjs",
+      "class": "local-operational",
+      "git": {
+        "read": 3,
+        "write": 1,
+        "dynamic": 1
+      },
+      "writes": 0,
+      "yamlReads": 0,
+      "lifetimes": []
+    },
+    {
+      "module": "performance-trace-store.mjs",
+      "class": "local-operational",
+      "git": {},
+      "writes": 7,
+      "yamlReads": 0,
+      "lifetimes": []
+    },
+    {
+      "module": "personalization.mjs",
+      "class": "local-operational",
+      "git": {},
+      "writes": 3,
+      "yamlReads": 0,
+      "lifetimes": []
+    },
+    {
+      "module": "phase-continuation-runtime.mjs",
+      "class": null,
+      "git": {},
+      "writes": 0,
+      "yamlReads": 0,
+      "lifetimes": [
+        {
+          "name": "timeoutMs",
+          "value": 7260000,
+          "kind": "timeout"
+        }
+      ]
+    },
+    {
+      "module": "phase-entry-authoring.mjs",
+      "class": "shared-state",
+      "git": {},
+      "writes": 2,
+      "yamlReads": 0,
+      "lifetimes": []
+    },
+    {
+      "module": "phase-prompt-composer.mjs",
+      "class": "shared-state",
+      "git": {
+        "read": 1
+      },
+      "writes": 4,
+      "yamlReads": 0,
+      "lifetimes": []
+    },
+    {
+      "module": "phase-repair-journal.mjs",
+      "class": "local-authored",
+      "git": {},
+      "writes": 1,
+      "yamlReads": 0,
+      "lifetimes": []
+    },
+    {
+      "module": "planning.mjs",
+      "class": "shared-state",
+      "git": {
+        "read": 1
+      },
+      "writes": 0,
+      "yamlReads": 1,
+      "lifetimes": []
+    },
+    {
+      "module": "platform-process.mjs",
+      "class": null,
+      "git": {},
+      "writes": 0,
+      "yamlReads": 0,
+      "lifetimes": [
+        {
+          "name": "WINDOWS_EXECUTABLE_VERIFY_TTL_MS",
+          "value": 5000,
+          "kind": "lifetime"
+        },
+        {
+          "name": "timeout",
+          "value": 5000,
+          "kind": "timeout"
+        }
+      ]
+    },
+    {
+      "module": "plugin.mjs",
+      "class": null,
+      "git": {},
+      "writes": 0,
+      "yamlReads": 0,
+      "lifetimes": [
+        {
+          "name": "DEFAULT_PLUGIN_INVENTORY_TIMEOUT_MS",
+          "value": 30000,
+          "kind": "timeout"
+        },
+        {
+          "name": "MAX_PLUGIN_INVENTORY_TIMEOUT_MS",
+          "value": 120000,
+          "kind": "timeout"
+        }
+      ]
+    },
+    {
+      "module": "private-sidecar.mjs",
+      "class": "local-authored",
+      "git": {},
+      "writes": 3,
+      "yamlReads": 0,
+      "lifetimes": []
+    },
+    {
+      "module": "product-alignment-gate.mjs",
+      "class": null,
+      "git": {},
+      "writes": 0,
+      "yamlReads": 0,
+      "lifetimes": [
+        {
+          "name": "CONFIGURATION_REVIEW_RUNNING_STALE_MS",
+          "value": 1800000,
+          "kind": "lifetime"
+        }
+      ]
+    },
+    {
+      "module": "product-alignment.mjs",
+      "class": "installation",
+      "git": {},
+      "writes": 3,
+      "yamlReads": 0,
+      "lifetimes": [
+        {
+          "name": "READ_TIMEOUT_MS",
+          "value": 30000,
+          "kind": "timeout"
+        },
+        {
+          "name": "MUTATION_TIMEOUT_MS",
+          "value": 300000,
+          "kind": "timeout"
+        }
+      ]
+    },
+    {
+      "module": "product-requirement-gate.mjs",
+      "class": null,
+      "git": {},
+      "writes": 0,
+      "yamlReads": 0,
+      "lifetimes": [
+        {
+          "name": "UNAVAILABLE_WITHOUT_REQUIREMENT_FILE_TTL_MS",
+          "value": 21600000,
+          "kind": "lifetime"
+        }
+      ]
+    },
+    {
+      "module": "product-requirement.mjs",
+      "class": "installation",
+      "git": {},
+      "writes": 8,
+      "yamlReads": 1,
+      "lifetimes": [
+        {
+          "name": "idleMs",
+          "value": 30000,
+          "kind": "lifetime"
+        },
+        {
+          "name": "timeoutMs",
+          "value": 30000,
+          "kind": "timeout"
+        }
+      ]
+    },
+    {
+      "module": "product-uninstall.mjs",
+      "class": "installation",
+      "git": {},
+      "writes": 20,
+      "yamlReads": 0,
+      "lifetimes": [
+        {
+          "name": "PRODUCT_READ_TIMEOUT_MS",
+          "value": 30000,
+          "kind": "timeout"
+        },
+        {
+          "name": "PRODUCT_MUTATION_TIMEOUT_MS",
+          "value": 300000,
+          "kind": "timeout"
+        }
+      ]
+    },
+    {
+      "module": "projectors.mjs",
+      "class": "projection",
+      "git": {},
+      "writes": 1,
+      "yamlReads": 0,
+      "lifetimes": []
+    },
+    {
+      "module": "prompt-audit.mjs",
+      "class": "local-operational",
+      "git": {},
+      "writes": 13,
+      "yamlReads": 0,
+      "lifetimes": [
+        {
+          "name": "LOCK_STALE_MS",
+          "value": 300000,
+          "kind": "lifetime"
+        }
+      ]
+    },
+    {
+      "module": "publication-journal.mjs",
+      "class": "local-authored",
+      "git": {},
+      "writes": 5,
+      "yamlReads": 0,
+      "lifetimes": []
+    },
+    {
+      "module": "publication-machine-integrity.mjs",
+      "class": "shared-state",
+      "git": {},
+      "writes": 1,
+      "yamlReads": 0,
+      "lifetimes": []
+    },
+    {
+      "module": "publication-pending.mjs",
+      "class": "local-authored",
+      "git": {},
+      "writes": 3,
+      "yamlReads": 0,
+      "lifetimes": []
+    },
+    {
+      "module": "publication-recovery.mjs",
+      "class": "shared-state",
+      "git": {
+        "read": 1,
+        "write": 1
+      },
+      "writes": 10,
+      "yamlReads": 0,
+      "lifetimes": []
+    },
+    {
+      "module": "publication-storage.mjs",
+      "class": "shared-state",
+      "git": {},
+      "writes": 6,
+      "yamlReads": 0,
+      "lifetimes": []
+    },
+    {
+      "module": "publication-unit-of-work.mjs",
+      "class": "shared-state",
+      "git": {},
+      "writes": 1,
+      "yamlReads": 0,
+      "lifetimes": []
+    },
+    {
+      "module": "pull-request.mjs",
+      "class": "source-control",
+      "git": {
+        "read": 1
+      },
+      "writes": 0,
+      "yamlReads": 0,
+      "lifetimes": []
+    },
+    {
+      "module": "quality-command-runner.mjs",
+      "class": "source-control",
+      "git": {},
+      "writes": 1,
+      "yamlReads": 0,
+      "lifetimes": [
+        {
+          "name": "timeoutMs",
+          "value": 5000,
+          "kind": "timeout"
+        },
+        {
+          "name": "timeoutMs",
+          "value": 5000,
+          "kind": "timeout"
+        }
+      ]
+    },
+    {
+      "module": "read-worker-client.mjs",
+      "class": null,
+      "git": {},
+      "writes": 0,
+      "yamlReads": 0,
+      "lifetimes": [
+        {
+          "name": "MAX_AGE_MS",
+          "value": 300000,
+          "kind": "lifetime"
+        },
+        {
+          "name": "IDLE_MS",
+          "value": 60000,
+          "kind": "lifetime"
+        }
+      ]
+    },
+    {
+      "module": "readiness-base.mjs",
+      "class": "source-control",
+      "git": {
+        "dynamic": 1
+      },
+      "writes": 1,
+      "yamlReads": 0,
+      "lifetimes": []
+    },
+    {
+      "module": "recovery-preparation-context.mjs",
+      "class": null,
+      "git": {},
+      "writes": 0,
+      "yamlReads": 1,
+      "lifetimes": []
+    },
+    {
+      "module": "reference-prefetch.mjs",
+      "class": "source-control",
+      "git": {
+        "read": 1,
+        "write": 2,
+        "remote": 1
+      },
+      "writes": 9,
+      "yamlReads": 0,
+      "lifetimes": []
+    },
+    {
+      "module": "reference-repositories.mjs",
+      "class": "source-control",
+      "git": {
+        "read": 10,
+        "write": 3,
+        "remote": 4
+      },
+      "writes": 2,
+      "yamlReads": 0,
+      "lifetimes": []
+    },
+    {
+      "module": "regression-analysis.mjs",
+      "class": "source-control",
+      "git": {
+        "read": 8,
+        "dynamic": 1
+      },
+      "writes": 0,
+      "yamlReads": 0,
+      "lifetimes": []
+    },
+    {
+      "module": "reinstall.mjs",
+      "class": "installation",
+      "git": {},
+      "writes": 45,
+      "yamlReads": 0,
+      "lifetimes": [
+        {
+          "name": "PRODUCT_READ_TIMEOUT_MS",
+          "value": 30000,
+          "kind": "timeout"
+        },
+        {
+          "name": "PRODUCT_MUTATION_TIMEOUT_MS",
+          "value": 300000,
+          "kind": "timeout"
+        }
+      ]
+    },
+    {
+      "module": "release-artifact-receipt.mjs",
+      "class": "installation",
+      "git": {},
+      "writes": 1,
+      "yamlReads": 0,
+      "lifetimes": []
+    },
+    {
+      "module": "release-directory-promotion.mjs",
+      "class": "installation",
+      "git": {},
+      "writes": 8,
+      "yamlReads": 0,
+      "lifetimes": []
+    },
+    {
+      "module": "repositories/constants.mjs",
+      "class": null,
+      "git": {},
+      "writes": 0,
+      "yamlReads": 0,
+      "lifetimes": [
+        {
+          "name": "requestTimeoutMs",
+          "value": 10000,
+          "kind": "timeout"
+        },
+        {
+          "name": "aggregateTimeoutMs",
+          "value": 20000,
+          "kind": "timeout"
+        },
+        {
+          "name": "cursorTtlMs",
+          "value": 900000,
+          "kind": "lifetime"
+        },
+        {
+          "name": "cacheTtlMs",
+          "value": 900000,
+          "kind": "lifetime"
+        },
+        {
+          "name": "maximumAggregateTimeoutMs",
+          "value": 60000,
+          "kind": "timeout"
+        }
+      ]
+    },
+    {
+      "module": "repositories/store.mjs",
+      "class": "projection",
+      "git": {},
+      "writes": 17,
+      "yamlReads": 0,
+      "lifetimes": [
+        {
+          "name": "LOCK_TIMEOUT_MS",
+          "value": 5000,
+          "kind": "timeout"
+        }
+      ]
+    },
+    {
+      "module": "repository-change-set.mjs",
+      "class": "source-control",
+      "git": {
+        "read": 8,
+        "write": 1,
+        "dynamic": 1
+      },
+      "writes": 0,
+      "yamlReads": 0,
+      "lifetimes": []
+    },
+    {
+      "module": "repository-check-cache.mjs",
+      "class": "projection",
+      "git": {},
+      "writes": 7,
+      "yamlReads": 0,
+      "lifetimes": []
+    },
+    {
+      "module": "repository-check-settings.mjs",
+      "class": "projection",
+      "git": {},
+      "writes": 3,
+      "yamlReads": 0,
+      "lifetimes": []
+    },
+    {
+      "module": "repository-facts.mjs",
+      "class": "source-control",
+      "git": {
+        "read": 1
+      },
+      "writes": 0,
+      "yamlReads": 0,
+      "lifetimes": []
+    },
+    {
+      "module": "repository-onboarding-cleanup.mjs",
+      "class": "source-control",
+      "git": {},
+      "writes": 3,
+      "yamlReads": 0,
+      "lifetimes": []
+    },
+    {
+      "module": "repository-onboarding.mjs",
+      "class": "source-control",
+      "git": {
+        "read": 17,
+        "write": 7,
+        "dynamic": 5
+      },
+      "writes": 10,
+      "yamlReads": 11,
+      "lifetimes": []
+    },
+    {
+      "module": "repository-subject-index.mjs",
+      "class": "projection",
+      "git": {
+        "read": 1
+      },
+      "writes": 0,
+      "yamlReads": 3,
+      "lifetimes": []
+    },
+    {
+      "module": "return-locator.mjs",
+      "class": "shared-state",
+      "git": {
+        "read": 2
+      },
+      "writes": 0,
+      "yamlReads": 0,
+      "lifetimes": []
+    },
+    {
+      "module": "review.mjs",
+      "class": "shared-state",
+      "git": {
+        "read": 1
+      },
+      "writes": 0,
+      "yamlReads": 0,
+      "lifetimes": []
+    },
+    {
+      "module": "revision/code-check-runner.mjs",
+      "class": null,
+      "git": {},
+      "writes": 0,
+      "yamlReads": 0,
+      "lifetimes": [
+        {
+          "name": "DEFAULT_TIMEOUT_MS",
+          "value": 60000,
+          "kind": "timeout"
+        }
+      ]
+    },
+    {
+      "module": "revision/current-context.mjs",
+      "class": "shared-state",
+      "git": {
+        "read": 7,
+        "dynamic": 1
+      },
+      "writes": 0,
+      "yamlReads": 0,
+      "lifetimes": []
+    },
+    {
+      "module": "revision/execution-bridge.mjs",
+      "class": "shared-state",
+      "git": {},
+      "writes": 3,
+      "yamlReads": 0,
+      "lifetimes": [
+        {
+          "name": "MAX_TIMEOUT_MS",
+          "value": 60000,
+          "kind": "timeout"
+        }
+      ]
+    },
+    {
+      "module": "revision/feedback-attachment-store.mjs",
+      "class": "shared-state",
+      "git": {},
+      "writes": 5,
+      "yamlReads": 0,
+      "lifetimes": [
+        {
+          "name": "REVOCATION_PLAN_TTL_MS",
+          "value": 600000,
+          "kind": "lifetime"
+        }
+      ]
+    },
+    {
+      "module": "revision/feedback-attachments.mjs",
+      "class": null,
+      "git": {},
+      "writes": 0,
+      "yamlReads": 0,
+      "lifetimes": [
+        {
+          "name": "planTtlMs",
+          "value": 1800000,
+          "kind": "lifetime"
+        },
+        {
+          "name": "PROVIDER_TIMEOUT_MS",
+          "value": 30000,
+          "kind": "timeout"
+        }
+      ]
+    },
+    {
+      "module": "revision/isolated-attempt.mjs",
+      "class": "shared-state",
+      "git": {
+        "read": 4,
+        "dynamic": 2
+      },
+      "writes": 5,
+      "yamlReads": 0,
+      "lifetimes": [
+        {
+          "name": "timeoutMs",
+          "value": 10000,
+          "kind": "timeout"
+        },
+        {
+          "name": "timeoutMs",
+          "value": 10000,
+          "kind": "timeout"
+        }
+      ]
+    },
+    {
+      "module": "revision/loop-store.mjs",
+      "class": "shared-state",
+      "git": {},
+      "writes": 2,
+      "yamlReads": 0,
+      "lifetimes": []
+    },
+    {
+      "module": "revision/manual-capture.mjs",
+      "class": "shared-state",
+      "git": {
+        "write": 1,
+        "dynamic": 1
+      },
+      "writes": 0,
+      "yamlReads": 0,
+      "lifetimes": [
+        {
+          "name": "timeoutMs",
+          "value": 10000,
+          "kind": "timeout"
+        },
+        {
+          "name": "timeoutMs",
+          "value": 10000,
+          "kind": "timeout"
+        }
+      ]
+    },
+    {
+      "module": "revision/product-context.mjs",
+      "class": "shared-state",
+      "git": {
+        "read": 1
+      },
+      "writes": 0,
+      "yamlReads": 0,
+      "lifetimes": []
+    },
+    {
+      "module": "revision/publication-projection.mjs",
+      "class": "projection",
+      "git": {
+        "read": 4,
+        "dynamic": 1
+      },
+      "writes": 0,
+      "yamlReads": 0,
+      "lifetimes": []
+    },
+    {
+      "module": "revision/runtime.mjs",
+      "class": "shared-state",
+      "git": {
+        "read": 1
+      },
+      "writes": 0,
+      "yamlReads": 0,
+      "lifetimes": []
+    },
+    {
+      "module": "revision/store.mjs",
+      "class": "shared-state",
+      "git": {},
+      "writes": 2,
+      "yamlReads": 0,
+      "lifetimes": []
+    },
+    {
+      "module": "schema-census.mjs",
+      "class": "projection",
+      "git": {
+        "read": 1
+      },
+      "writes": 0,
+      "yamlReads": 2,
+      "lifetimes": []
+    },
+    {
+      "module": "secure-release-files.mjs",
+      "class": "installation",
+      "git": {},
+      "writes": 3,
+      "yamlReads": 0,
+      "lifetimes": []
+    },
+    {
+      "module": "seeded-workflow-protection.mjs",
+      "class": null,
+      "git": {},
+      "writes": 0,
+      "yamlReads": 1,
+      "lifetimes": []
+    },
+    {
+      "module": "session-read-service.mjs",
+      "class": "shared-state",
+      "git": {
+        "read": 1
+      },
+      "writes": 0,
+      "yamlReads": 0,
+      "lifetimes": []
+    },
+    {
+      "module": "session-remote-url-discovery.mjs",
+      "class": "shared-state",
+      "git": {
+        "remote": 11
+      },
+      "writes": 0,
+      "yamlReads": 3,
+      "lifetimes": []
+    },
+    {
+      "module": "session-state-index.mjs",
+      "class": "projection",
+      "git": {
+        "read": 1
+      },
+      "writes": 0,
+      "yamlReads": 0,
+      "lifetimes": [
+        {
+          "name": "timeoutMs",
+          "value": 30000,
+          "kind": "timeout"
+        }
+      ]
+    },
+    {
+      "module": "session-story-discovery.mjs",
+      "class": "shared-state",
+      "git": {},
+      "writes": 3,
+      "yamlReads": 2,
+      "lifetimes": []
+    },
+    {
+      "module": "session.mjs",
+      "class": "shared-state",
+      "git": {
+        "read": 1
+      },
+      "writes": 4,
+      "yamlReads": 0,
+      "lifetimes": []
+    },
+    {
+      "module": "sgos/authority-git-transport.mjs",
+      "class": "shared-state",
+      "git": {
+        "read": 1,
+        "write": 1,
+        "remote": 1,
+        "dynamic": 1
+      },
+      "writes": 1,
+      "yamlReads": 0,
+      "lifetimes": []
+    },
+    {
+      "module": "sgos/authority-transport.mjs",
+      "class": "shared-state",
+      "git": {},
+      "writes": 2,
+      "yamlReads": 0,
+      "lifetimes": [
+        {
+          "name": "timeoutMs",
+          "value": 30000,
+          "kind": "timeout"
+        }
+      ]
+    },
+    {
+      "module": "sgos/authority-trust.mjs",
+      "class": "shared-state",
+      "git": {
+        "read": 2
+      },
+      "writes": 0,
+      "yamlReads": 0,
+      "lifetimes": []
+    },
+    {
+      "module": "sgos/candidate-lifecycle.mjs",
+      "class": "shared-state",
+      "git": {
+        "read": 14,
+        "write": 14,
+        "remote": 2,
+        "dynamic": 2
+      },
+      "writes": 4,
+      "yamlReads": 0,
+      "lifetimes": [
+        {
+          "name": "timeoutMs",
+          "value": 5000,
+          "kind": "timeout"
+        },
+        {
+          "name": "timeoutMs",
+          "value": 5000,
+          "kind": "timeout"
+        }
+      ]
+    },
+    {
+      "module": "sgos/capability-pack-authority.mjs",
+      "class": "shared-state",
+      "git": {
+        "read": 4,
+        "dynamic": 2
+      },
+      "writes": 0,
+      "yamlReads": 1,
+      "lifetimes": []
+    },
+    {
+      "module": "sgos/execution-units.mjs",
+      "class": null,
+      "git": {},
+      "writes": 0,
+      "yamlReads": 0,
+      "lifetimes": [
+        {
+          "name": "timeoutMs",
+          "value": 5000,
+          "kind": "timeout"
+        },
+        {
+          "name": "timeoutMs",
+          "value": 5000,
+          "kind": "timeout"
+        }
+      ]
+    },
+    {
+      "module": "sgos/human-authority.mjs",
+      "class": "shared-state",
+      "git": {
+        "dynamic": 1
+      },
+      "writes": 0,
+      "yamlReads": 0,
+      "lifetimes": []
+    },
+    {
+      "module": "sgos/operational-store.mjs",
+      "class": "local-authored",
+      "git": {},
+      "writes": 6,
+      "yamlReads": 0,
+      "lifetimes": []
+    },
+    {
+      "module": "sgos/pinned-policy.mjs",
+      "class": "shared-state",
+      "git": {
+        "read": 3
+      },
+      "writes": 2,
+      "yamlReads": 0,
+      "lifetimes": []
+    },
+    {
+      "module": "sgos/platform/authority-store.mjs",
+      "class": "shared-state",
+      "git": {},
+      "writes": 38,
+      "yamlReads": 0,
+      "lifetimes": [
+        {
+          "name": "AUTHORITY_LOCK_TTL_MS",
+          "value": 30000,
+          "kind": "lifetime"
+        }
+      ]
+    },
+    {
+      "module": "sgos/platform/authority.mjs",
+      "class": "shared-state",
+      "git": {
+        "write": 1,
+        "remote": 1,
+        "dynamic": 2
+      },
+      "writes": 3,
+      "yamlReads": 1,
+      "lifetimes": []
+    },
+    {
+      "module": "sgos/platform/learning-workspace.mjs",
+      "class": "shared-state",
+      "git": {},
+      "writes": 1,
+      "yamlReads": 0,
+      "lifetimes": []
+    },
+    {
+      "module": "sgos/runtime.mjs",
+      "class": null,
+      "git": {},
+      "writes": 0,
+      "yamlReads": 0,
+      "lifetimes": [
+        {
+          "name": "EXECUTION_LEASE_HEARTBEAT_MS",
+          "value": 5000,
+          "kind": "lifetime"
+        }
+      ]
+    },
+    {
+      "module": "sgos/store.mjs",
+      "class": "shared-state",
+      "git": {},
+      "writes": 14,
+      "yamlReads": 0,
+      "lifetimes": []
+    },
+    {
+      "module": "sgos/story-authority.mjs",
+      "class": "shared-state",
+      "git": {
+        "read": 2
+      },
+      "writes": 0,
+      "yamlReads": 0,
+      "lifetimes": []
+    },
+    {
+      "module": "skp-amendment-audit.mjs",
+      "class": "installation",
+      "git": {
+        "write": 1,
+        "remote": 1
+      },
+      "writes": 0,
+      "yamlReads": 0,
+      "lifetimes": []
+    },
+    {
+      "module": "skp-docker-containment-probe.mjs",
+      "class": "installation",
+      "git": {},
+      "writes": 4,
+      "yamlReads": 0,
+      "lifetimes": [
+        {
+          "name": "RUN_TIMEOUT_MS",
+          "value": 15000,
+          "kind": "timeout"
+        },
+        {
+          "name": "CANCEL_TIMEOUT_MS",
+          "value": 3000,
+          "kind": "timeout"
+        },
+        {
+          "name": "CLEANUP_TIMEOUT_MS",
+          "value": 5000,
+          "kind": "timeout"
+        }
+      ]
+    },
+    {
+      "module": "skp-docker-hash-probe.mjs",
+      "class": "installation",
+      "git": {},
+      "writes": 3,
+      "yamlReads": 0,
+      "lifetimes": [
+        {
+          "name": "runTimeoutMs",
+          "value": 15000,
+          "kind": "timeout"
+        },
+        {
+          "name": "cleanupTimeoutMs",
+          "value": 5000,
+          "kind": "timeout"
+        }
+      ]
+    },
+    {
+      "module": "skp-package.mjs",
+      "class": null,
+      "git": {},
+      "writes": 0,
+      "yamlReads": 1,
+      "lifetimes": []
+    },
+    {
+      "module": "snapshot-coordinator.mjs",
+      "class": "projection",
+      "git": {
+        "read": 2
+      },
+      "writes": 0,
+      "yamlReads": 0,
+      "lifetimes": []
+    },
+    {
+      "module": "source-review-lifecycle.mjs",
+      "class": "source-control",
+      "git": {
+        "read": 2
+      },
+      "writes": 0,
+      "yamlReads": 0,
+      "lifetimes": []
+    },
+    {
+      "module": "source-review-snapshot.mjs",
+      "class": "source-control",
+      "git": {
+        "read": 4
+      },
+      "writes": 0,
+      "yamlReads": 0,
+      "lifetimes": []
+    },
+    {
+      "module": "source-review-staging.mjs",
+      "class": "source-control",
+      "git": {},
+      "writes": 2,
+      "yamlReads": 0,
+      "lifetimes": []
+    },
+    {
+      "module": "specifications.mjs",
+      "class": "source-control",
+      "git": {
+        "read": 5,
+        "write": 1,
+        "dynamic": 1
+      },
+      "writes": 0,
+      "yamlReads": 1,
+      "lifetimes": []
+    },
+    {
+      "module": "state.mjs",
+      "class": "shared-state",
+      "git": {
+        "read": 23,
+        "write": 9,
+        "dynamic": 2,
+        "unknown": 1
+      },
+      "writes": 13,
+      "yamlReads": 0,
+      "lifetimes": [
+        {
+          "name": "DEFAULT_QUALITY_COMMAND_TIMEOUT_MS",
+          "value": 1800000,
+          "kind": "timeout"
+        },
+        {
+          "name": "timeoutMs",
+          "value": 5000,
+          "kind": "timeout"
+        },
+        {
+          "name": "timeoutMs",
+          "value": 5000,
+          "kind": "timeout"
+        }
+      ]
+    },
+    {
+      "module": "step-action-delivery.mjs",
+      "class": "shared-state",
+      "git": {},
+      "writes": 4,
+      "yamlReads": 0,
+      "lifetimes": [
+        {
+          "name": "LOCK_STALE_MS",
+          "value": 120000,
+          "kind": "lifetime"
+        }
+      ]
+    },
+    {
+      "module": "step-action-pipeline.mjs",
+      "class": null,
+      "git": {},
+      "writes": 0,
+      "yamlReads": 1,
+      "lifetimes": []
+    },
+    {
+      "module": "story-base-lineage.mjs",
+      "class": null,
+      "git": {},
+      "writes": 0,
+      "yamlReads": 1,
+      "lifetimes": []
+    },
+    {
+      "module": "story-branch-name.mjs",
+      "class": null,
+      "git": {},
+      "writes": 0,
+      "yamlReads": 1,
+      "lifetimes": []
+    },
+    {
+      "module": "story-configuration-closure.mjs",
+      "class": "shared-state",
+      "git": {},
+      "writes": 1,
+      "yamlReads": 4,
+      "lifetimes": []
+    },
+    {
+      "module": "story-configuration-objects.mjs",
+      "class": null,
+      "git": {},
+      "writes": 0,
+      "yamlReads": 1,
+      "lifetimes": []
+    },
+    {
+      "module": "story-description-enhancement.mjs",
+      "class": null,
+      "git": {},
+      "writes": 0,
+      "yamlReads": 0,
+      "lifetimes": [
+        {
+          "name": "timeoutMs",
+          "value": 120000,
+          "kind": "timeout"
+        }
+      ]
+    },
+    {
+      "module": "story-epic-sources.mjs",
+      "class": "shared-state",
+      "git": {},
+      "writes": 1,
+      "yamlReads": 1,
+      "lifetimes": []
+    },
+    {
+      "module": "story-hard-cutover.mjs",
+      "class": "shared-state",
+      "git": {},
+      "writes": 1,
+      "yamlReads": 0,
+      "lifetimes": []
+    },
+    {
+      "module": "story-index.mjs",
+      "class": "projection",
+      "git": {},
+      "writes": 1,
+      "yamlReads": 0,
+      "lifetimes": [
+        {
+          "name": "LOCK_TIMEOUT_MS",
+          "value": 10000,
+          "kind": "timeout"
+        }
+      ]
+    },
+    {
+      "module": "story-intake-receipt.mjs",
+      "class": "shared-state",
+      "git": {},
+      "writes": 5,
+      "yamlReads": 0,
+      "lifetimes": [
+        {
+          "name": "STORY_INTAKE_RECEIPT_TTL_MS",
+          "value": 900000,
+          "kind": "lifetime"
+        }
+      ]
+    },
+    {
+      "module": "story-intake-verification.mjs",
+      "class": "shared-state",
+      "git": {
+        "read": 2,
+        "remote": 1
+      },
+      "writes": 0,
+      "yamlReads": 0,
+      "lifetimes": []
+    },
+    {
+      "module": "story-lineage.mjs",
+      "class": "shared-state",
+      "git": {
+        "read": 7,
+        "write": 3
+      },
+      "writes": 0,
+      "yamlReads": 2,
+      "lifetimes": []
+    },
+    {
+      "module": "story-path-history.mjs",
+      "class": "shared-state",
+      "git": {
+        "read": 1
+      },
+      "writes": 0,
+      "yamlReads": 0,
+      "lifetimes": []
+    },
+    {
+      "module": "story-policy-anchor.mjs",
+      "class": "shared-state",
+      "git": {
+        "read": 1,
+        "dynamic": 1
+      },
+      "writes": 0,
+      "yamlReads": 0,
+      "lifetimes": []
+    },
+    {
+      "module": "story-publication-preflight.mjs",
+      "class": "shared-state",
+      "git": {
+        "remote": 1
+      },
+      "writes": 0,
+      "yamlReads": 0,
+      "lifetimes": []
+    },
+    {
+      "module": "story-review-artifact-read.mjs",
+      "class": "shared-state",
+      "git": {
+        "read": 1
+      },
+      "writes": 0,
+      "yamlReads": 0,
+      "lifetimes": [
+        {
+          "name": "timeoutMs",
+          "value": 5000,
+          "kind": "timeout"
+        }
+      ]
+    },
+    {
+      "module": "story-routing.mjs",
+      "class": null,
+      "git": {},
+      "writes": 0,
+      "yamlReads": 0,
+      "lifetimes": [
+        {
+          "name": "TURN_LIFETIME_MS",
+          "value": 1800000,
+          "kind": "lifetime"
+        }
+      ]
+    },
+    {
+      "module": "story-stack.mjs",
+      "class": "shared-state",
+      "git": {
+        "read": 2,
+        "remote": 1
+      },
+      "writes": 0,
+      "yamlReads": 1,
+      "lifetimes": []
+    },
+    {
+      "module": "story-start-documents.mjs",
+      "class": "shared-state",
+      "git": {},
+      "writes": 6,
+      "yamlReads": 0,
+      "lifetimes": [
+        {
+          "name": "DEFAULT_CAPTURE_STALE_AFTER_MS",
+          "value": 86400000,
+          "kind": "lifetime"
+        }
+      ]
+    },
+    {
+      "module": "story-start-journal.mjs",
+      "class": "local-authored",
+      "git": {
+        "read": 4,
+        "write": 4
+      },
+      "writes": 3,
+      "yamlReads": 0,
+      "lifetimes": []
+    },
+    {
+      "module": "story-start.mjs",
+      "class": "shared-state",
+      "git": {
+        "read": 3
+      },
+      "writes": 0,
+      "yamlReads": 0,
+      "lifetimes": []
+    },
+    {
+      "module": "story-state-read.mjs",
+      "class": "shared-state",
+      "git": {
+        "read": 1
+      },
+      "writes": 0,
+      "yamlReads": 0,
+      "lifetimes": []
+    },
+    {
+      "module": "story-tree-read.mjs",
+      "class": "shared-state",
+      "git": {
+        "read": 2
+      },
+      "writes": 0,
+      "yamlReads": 0,
+      "lifetimes": []
+    },
+    {
+      "module": "story-worktree.mjs",
+      "class": "source-control",
+      "git": {
+        "read": 12,
+        "write": 7,
+        "dynamic": 1
+      },
+      "writes": 0,
+      "yamlReads": 0,
+      "lifetimes": []
+    },
+    {
+      "module": "studio-constitution.mjs",
+      "class": null,
+      "git": {},
+      "writes": 0,
+      "yamlReads": 1,
+      "lifetimes": []
+    },
+    {
+      "module": "subject-lock.mjs",
+      "class": "local-operational",
+      "git": {},
+      "writes": 9,
+      "yamlReads": 0,
+      "lifetimes": [
+        {
+          "name": "DEFAULT_TTL_MS",
+          "value": 10800000,
+          "kind": "lifetime"
+        }
+      ]
+    },
+    {
+      "module": "team-import/compile.mjs",
+      "class": "shared-state",
+      "git": {},
+      "writes": 1,
+      "yamlReads": 0,
+      "lifetimes": []
+    },
+    {
+      "module": "team-import/formats.mjs",
+      "class": null,
+      "git": {},
+      "writes": 0,
+      "yamlReads": 1,
+      "lifetimes": []
+    },
+    {
+      "module": "team-import/session.mjs",
+      "class": "shared-state",
+      "git": {},
+      "writes": 11,
+      "yamlReads": 0,
+      "lifetimes": []
+    },
+    {
+      "module": "team-import/stage.mjs",
+      "class": "shared-state",
+      "git": {},
+      "writes": 3,
+      "yamlReads": 3,
+      "lifetimes": []
+    },
+    {
+      "module": "telemetry-provision.mjs",
+      "class": "local-operational",
+      "git": {},
+      "writes": 1,
+      "yamlReads": 0,
+      "lifetimes": []
+    },
+    {
+      "module": "terminal-review.mjs",
+      "class": "surface",
+      "git": {},
+      "writes": 2,
+      "yamlReads": 0,
+      "lifetimes": []
+    },
+    {
+      "module": "test-baseline-risk.mjs",
+      "class": "source-control",
+      "git": {},
+      "writes": 3,
+      "yamlReads": 0,
+      "lifetimes": []
+    },
+    {
+      "module": "test-command-amendment-origin.mjs",
+      "class": "source-control",
+      "git": {},
+      "writes": 2,
+      "yamlReads": 0,
+      "lifetimes": []
+    },
+    {
+      "module": "test-module-markers.mjs",
+      "class": null,
+      "git": {},
+      "writes": 0,
+      "yamlReads": 0,
+      "lifetimes": [
+        {
+          "name": "timeoutMs",
+          "value": 10000,
+          "kind": "timeout"
+        }
+      ]
+    },
+    {
+      "module": "test-recovery-store.mjs",
+      "class": "source-control",
+      "git": {},
+      "writes": 4,
+      "yamlReads": 0,
+      "lifetimes": []
+    },
+    {
+      "module": "test-runs.mjs",
+      "class": "source-control",
+      "git": {},
+      "writes": 1,
+      "yamlReads": 0,
+      "lifetimes": []
+    },
+    {
+      "module": "test-setup-proposal.mjs",
+      "class": null,
+      "git": {},
+      "writes": 0,
+      "yamlReads": 2,
+      "lifetimes": []
+    },
+    {
+      "module": "test-toolchain.mjs",
+      "class": null,
+      "git": {},
+      "writes": 0,
+      "yamlReads": 0,
+      "lifetimes": [
+        {
+          "name": "PROBE_TIMEOUT_MS",
+          "value": 5000,
+          "kind": "timeout"
+        }
+      ]
+    },
+    {
+      "module": "token-reduction-segment-cache.mjs",
+      "class": "projection",
+      "git": {},
+      "writes": 5,
+      "yamlReads": 0,
+      "lifetimes": []
+    },
+    {
+      "module": "transport-intents.mjs",
+      "class": "local-authored",
+      "git": {
+        "read": 3,
+        "write": 1,
+        "remote": 2,
+        "dynamic": 1
+      },
+      "writes": 1,
+      "yamlReads": 0,
+      "lifetimes": []
+    },
+    {
+      "module": "trp-delivery-selection.mjs",
+      "class": "shared-state",
+      "git": {
+        "read": 1,
+        "remote": 1
+      },
+      "writes": 0,
+      "yamlReads": 0,
+      "lifetimes": [
+        {
+          "name": "timeoutMs",
+          "value": 30000,
+          "kind": "timeout"
+        }
+      ]
+    },
+    {
+      "module": "util.mjs",
+      "class": "source-control",
+      "git": {
+        "read": 2
+      },
+      "writes": 10,
+      "yamlReads": 0,
+      "lifetimes": []
+    },
+    {
+      "module": "verification-receipt.mjs",
+      "class": "artifact",
+      "git": {
+        "dynamic": 1
+      },
+      "writes": 0,
+      "yamlReads": 0,
+      "lifetimes": []
+    },
+    {
+      "module": "verification/incremental-verification-graph.mjs",
+      "class": "artifact",
+      "git": {},
+      "writes": 4,
+      "yamlReads": 0,
+      "lifetimes": []
+    },
+    {
+      "module": "verification/swift-reports.mjs",
+      "class": "artifact",
+      "git": {},
+      "writes": 1,
+      "yamlReads": 0,
+      "lifetimes": []
+    },
+    {
+      "module": "visual-compare.mjs",
+      "class": "artifact",
+      "git": {},
+      "writes": 1,
+      "yamlReads": 0,
+      "lifetimes": []
+    },
+    {
+      "module": "visual-native-capture.mjs",
+      "class": "artifact",
+      "git": {},
+      "writes": 2,
+      "yamlReads": 0,
+      "lifetimes": []
+    },
+    {
+      "module": "vsix-source-manifest.mjs",
+      "class": "installation",
+      "git": {},
+      "writes": 1,
+      "yamlReads": 0,
+      "lifetimes": []
+    },
+    {
+      "module": "wca-compiler.mjs",
+      "class": null,
+      "git": {},
+      "writes": 0,
+      "yamlReads": 2,
+      "lifetimes": []
+    },
+    {
+      "module": "wca-skp-finalization.mjs",
+      "class": null,
+      "git": {},
+      "writes": 0,
+      "yamlReads": 4,
+      "lifetimes": []
+    },
+    {
+      "module": "wca-workflow-changes.mjs",
+      "class": "shared-state",
+      "git": {},
+      "writes": 41,
+      "yamlReads": 0,
+      "lifetimes": []
+    },
+    {
+      "module": "wel-javascript.mjs",
+      "class": "source-control",
+      "git": {
+        "read": 2
+      },
+      "writes": 0,
+      "yamlReads": 0,
+      "lifetimes": []
+    },
+    {
+      "module": "wel-junit5.mjs",
+      "class": "source-control",
+      "git": {
+        "read": 2
+      },
+      "writes": 4,
+      "yamlReads": 0,
+      "lifetimes": [
+        {
+          "name": "PARSER_TIMEOUT_MS",
+          "value": 30000,
+          "kind": "timeout"
+        }
+      ]
+    },
+    {
+      "module": "witness-review-read.mjs",
+      "class": "artifact",
+      "git": {
+        "read": 1
+      },
+      "writes": 0,
+      "yamlReads": 0,
+      "lifetimes": []
+    },
+    {
+      "module": "work-intervals.mjs",
+      "class": "local-operational",
+      "git": {
+        "read": 2
+      },
+      "writes": 0,
+      "yamlReads": 0,
+      "lifetimes": []
+    },
+    {
+      "module": "work-item-location.mjs",
+      "class": null,
+      "git": {},
+      "writes": 0,
+      "yamlReads": 1,
+      "lifetimes": []
+    },
+    {
+      "module": "workflow-archive.mjs",
+      "class": null,
+      "git": {},
+      "writes": 0,
+      "yamlReads": 1,
+      "lifetimes": []
+    },
+    {
+      "module": "workflow-authoring.mjs",
+      "class": "shared-state",
+      "git": {},
+      "writes": 2,
+      "yamlReads": 1,
+      "lifetimes": []
+    },
+    {
+      "module": "workflow-build/build.mjs",
+      "class": "shared-state",
+      "git": {},
+      "writes": 3,
+      "yamlReads": 0,
+      "lifetimes": []
+    },
+    {
+      "module": "workflow-build/engine.mjs",
+      "class": "shared-state",
+      "git": {},
+      "writes": 1,
+      "yamlReads": 0,
+      "lifetimes": []
+    },
+    {
+      "module": "workflow-build/inventory.mjs",
+      "class": null,
+      "git": {},
+      "writes": 0,
+      "yamlReads": 1,
+      "lifetimes": []
+    },
+    {
+      "module": "workflow-build/store.mjs",
+      "class": "shared-state",
+      "git": {},
+      "writes": 6,
+      "yamlReads": 0,
+      "lifetimes": []
+    },
+    {
+      "module": "workflow-catalog.mjs",
+      "class": "shared-state",
+      "git": {},
+      "writes": 1,
+      "yamlReads": 3,
+      "lifetimes": []
+    },
+    {
+      "module": "workflow-check.mjs",
+      "class": null,
+      "git": {},
+      "writes": 0,
+      "yamlReads": 2,
+      "lifetimes": []
+    },
+    {
+      "module": "workflow-intent-catalog.mjs",
+      "class": "shared-state",
+      "git": {},
+      "writes": 1,
+      "yamlReads": 3,
+      "lifetimes": []
+    },
+    {
+      "module": "workflow-markup.mjs",
+      "class": "shared-state",
+      "git": {},
+      "writes": 4,
+      "yamlReads": 2,
+      "lifetimes": []
+    },
+    {
+      "module": "workflow-retirement.mjs",
+      "class": "shared-state",
+      "git": {
+        "read": 1
+      },
+      "writes": 3,
+      "yamlReads": 1,
+      "lifetimes": []
+    },
+    {
+      "module": "workflow-snapshots.mjs",
+      "class": "shared-state",
+      "git": {
+        "read": 10,
+        "write": 4,
+        "remote": 2
+      },
+      "writes": 1,
+      "yamlReads": 0,
+      "lifetimes": []
+    },
+    {
+      "module": "workflow-studio.mjs",
+      "class": "shared-state",
+      "git": {},
+      "writes": 2,
+      "yamlReads": 3,
+      "lifetimes": []
+    },
+    {
+      "module": "workflow-transfer-resolution.mjs",
+      "class": null,
+      "git": {},
+      "writes": 0,
+      "yamlReads": 1,
+      "lifetimes": []
+    },
+    {
+      "module": "workflow-transfer.mjs",
+      "class": "shared-state",
+      "git": {
+        "read": 1
+      },
+      "writes": 8,
+      "yamlReads": 3,
+      "lifetimes": []
+    },
+    {
+      "module": "workspace-bootstrap.mjs",
+      "class": "installation",
+      "git": {
+        "read": 3,
+        "dynamic": 1
+      },
+      "writes": 4,
+      "yamlReads": 0,
+      "lifetimes": [
+        {
+          "name": "LEASE_STALE_MS",
+          "value": 300000,
+          "kind": "lifetime"
+        },
+        {
+          "name": "PREFLIGHT_RECEIPT_TTL_MS",
+          "value": 900000,
+          "kind": "lifetime"
+        },
+        {
+          "name": "timeoutMs",
+          "value": 10000,
+          "kind": "timeout"
+        },
+        {
+          "name": "timeoutMs",
+          "value": 10000,
+          "kind": "timeout"
+        }
+      ]
+    },
+    {
+      "module": "workspace-branch-checkout.mjs",
+      "class": "source-control",
+      "git": {},
+      "writes": 2,
+      "yamlReads": 0,
+      "lifetimes": [
+        {
+          "name": "timeoutMs",
+          "value": 300000,
+          "kind": "timeout"
+        },
+        {
+          "name": "timeoutMs",
+          "value": 300000,
+          "kind": "timeout"
+        },
+        {
+          "name": "timeoutMs",
+          "value": 300000,
+          "kind": "timeout"
+        }
+      ]
+    },
+    {
+      "module": "workspace-checkout-inventory.mjs",
+      "class": "source-control",
+      "git": {},
+      "writes": 1,
+      "yamlReads": 0,
+      "lifetimes": []
+    },
+    {
+      "module": "workspace-clone-claim.mjs",
+      "class": "source-control",
+      "git": {
+        "read": 1,
+        "write": 1,
+        "dynamic": 1
+      },
+      "writes": 0,
+      "yamlReads": 0,
+      "lifetimes": [
+        {
+          "name": "timeoutMs",
+          "value": 30000,
+          "kind": "timeout"
+        }
+      ]
+    },
+    {
+      "module": "workspace-configuration-refresh.mjs",
+      "class": "source-control",
+      "git": {
+        "read": 21,
+        "write": 12,
+        "remote": 10
+      },
+      "writes": 33,
+      "yamlReads": 8,
+      "lifetimes": [
+        {
+          "name": "REFRESH_CACHE_MAX_AGE_MS",
+          "value": 7200000,
+          "kind": "lifetime"
+        },
+        {
+          "name": "REFRESH_CACHE_LOCK_STALE_MS",
+          "value": 60000,
+          "kind": "lifetime"
+        },
+        {
+          "name": "timeoutMs",
+          "value": 5000,
+          "kind": "timeout"
+        },
+        {
+          "name": "timeoutMs",
+          "value": 5000,
+          "kind": "timeout"
+        },
+        {
+          "name": "timeoutMs",
+          "value": 5000,
+          "kind": "timeout"
+        },
+        {
+          "name": "timeoutMs",
+          "value": 5000,
+          "kind": "timeout"
+        },
+        {
+          "name": "timeoutMs",
+          "value": 10000,
+          "kind": "timeout"
+        },
+        {
+          "name": "timeoutMs",
+          "value": 5000,
+          "kind": "timeout"
+        },
+        {
+          "name": "timeoutMs",
+          "value": 5000,
+          "kind": "timeout"
+        },
+        {
+          "name": "timeoutMs",
+          "value": 5000,
+          "kind": "timeout"
+        },
+        {
+          "name": "timeoutMs",
+          "value": 5000,
+          "kind": "timeout"
+        }
+      ]
+    },
+    {
+      "module": "workspace-consolidation.mjs",
+      "class": "source-control",
+      "git": {},
+      "writes": 10,
+      "yamlReads": 0,
+      "lifetimes": [
+        {
+          "name": "LEASE_TIMEOUT_MS",
+          "value": 60000,
+          "kind": "timeout"
+        }
+      ]
+    },
+    {
+      "module": "workspace-context.mjs",
+      "class": "source-control",
+      "git": {
+        "read": 1
+      },
+      "writes": 5,
+      "yamlReads": 1,
+      "lifetimes": [
+        {
+          "name": "ACTIVE_SELECTION_LOCK_TIMEOUT_MS",
+          "value": 10000,
+          "kind": "timeout"
+        }
+      ]
+    },
+    {
+      "module": "workspace-impact.mjs",
+      "class": "source-control",
+      "git": {
+        "read": 8,
+        "write": 2,
+        "remote": 1
+      },
+      "writes": 7,
+      "yamlReads": 0,
+      "lifetimes": [
+        {
+          "name": "timeoutMs",
+          "value": 900000,
+          "kind": "timeout"
+        }
+      ]
+    },
+    {
+      "module": "workspace-retention.mjs",
+      "class": "source-control",
+      "git": {
+        "read": 8,
+        "write": 3,
+        "dynamic": 1
+      },
+      "writes": 9,
+      "yamlReads": 0,
+      "lifetimes": [
+        {
+          "name": "intervalMinutes",
+          "value": 1440,
+          "kind": "lifetime"
+        },
+        {
+          "name": "timeoutMs",
+          "value": 30000,
+          "kind": "timeout"
+        },
+        {
+          "name": "timeoutMs",
+          "value": 30000,
+          "kind": "timeout"
+        },
+        {
+          "name": "timeoutMs",
+          "value": 30000,
+          "kind": "timeout"
+        },
+        {
+          "name": "timeoutMs",
+          "value": 30000,
+          "kind": "timeout"
+        },
+        {
+          "name": "timeoutMs",
+          "value": 1000,
+          "kind": "timeout"
+        }
+      ]
+    },
+    {
+      "module": "workspace.mjs",
+      "class": "source-control",
+      "git": {
+        "read": 20,
+        "write": 7,
+        "remote": 9,
+        "dynamic": 4
+      },
+      "writes": 18,
+      "yamlReads": 4,
+      "lifetimes": [
+        {
+          "name": "timeoutMs",
+          "value": 30000,
+          "kind": "timeout"
+        },
+        {
+          "name": "BOOTSTRAP_LEASE_FRESH_MS",
+          "value": 300000,
+          "kind": "lifetime"
+        }
+      ]
+    },
+    {
+      "module": "worktree-fingerprint.mjs",
+      "class": "source-control",
+      "git": {
+        "read": 9,
+        "write": 1,
+        "dynamic": 2
+      },
+      "writes": 0,
+      "yamlReads": 0,
+      "lifetimes": []
+    },
+    {
+      "module": "yaml-formatting.mjs",
+      "class": null,
+      "git": {},
+      "writes": 0,
+      "yamlReads": 5,
+      "lifetimes": []
+    },
+    {
+      "module": "yaml-parse-cache.mjs",
+      "class": "projection",
+      "git": {},
+      "writes": 4,
+      "yamlReads": 2,
+      "lifetimes": []
+    }
+  ]
+}

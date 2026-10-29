@@ -690,6 +690,12 @@ The product never describes pending local work as globally published or approved
 ## Appendix A Open questions for M0
 
 1. Which Node version does the VS Code extension host provide on the supported VS Code range (`^1.90.0`)? This decides whether `node:sqlite` can serve VS Code reads directly, or whether they go through a CLI worker.
+   - **M0:** VS Code 1.143.1 measured at Node 24.21.0 with `node:sqlite`. The 1.90.0 floor is Node 20.9 per its release notes, which has none. ADR 0017 needs no SQL engine in Phase A, so the floor stays.
 2. Can the consistency block be an additive optional field of `sflow-result` v2, or does the one-meaning-per-version rule require v3?
+   - Open: an M1 contract review.
 3. Where does the read index live: machine-wide under `~/.singularity-flow/`, or per workspace?
+   - **M0 (ADR 0017):** in the existing JSON projections, where they live today, extended with freshness and last-known retention.
 4. For Phase B: which authority option (§6.2) does the team prefer, and what is the migration story for Stories already in flight?
+   - Open: ADR 0018 records the options and the criteria for choosing.
+
+M0 results: `benchmarks/sda/m0-qualification.md` (inventory, macOS read baselines, VS Code runtime). Windows baselines and the CI-established DX baseline remain open.

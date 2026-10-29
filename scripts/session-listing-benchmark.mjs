@@ -9,8 +9,8 @@ import { createStoryReadinessFixture } from './story-readiness-benchmark.mjs';
 import { initializeLedger } from '../src/ledger.mjs';
 
 const packageRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
-export async function createSessionListingFixture({ cliRoot = packageRoot } = {}) {
-  const fixture = await createStoryReadinessFixture({ files: 1 });
+export async function createSessionListingFixture({ cliRoot = packageRoot, files = 1 } = {}) {
+  const fixture = await createStoryReadinessFixture({ files });
   try {
     fixture.git(fixture.remote, 'config', 'uploadpack.allowFilter', 'true');
     fixture.git(fixture.remote, 'config', 'uploadpack.allowAnySHA1InWant', 'true');

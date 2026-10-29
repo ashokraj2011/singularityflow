@@ -24,6 +24,11 @@ function clauseLines(definition, workflow, id) {
     .filter((line) => line.startsWith('- Clause IDs:'));
 }
 
+// Two sentences share the prefix: a clause step is told how its brackets define clauses (the
+// authoring contract); any other authored step is told it numbers none (the composer).
+const DEFINES = /^- Clause IDs: brackets define a clause once, as `\[NS:REQ-001\]`/u;
+const NUMBERS_NONE = /no new clauses|defines no requirement clauses/u;
+
 const owns = (workflow, id) => workflow.resolution.obligationGraph.nodes
   .find((node) => node.id === id).responsibilities.includes('scope');
 
@@ -35,8 +40,13 @@ test('a feature intake is told it numbers no clauses, and which later steps defi
   assert.match(intake, /Requirements \(`requirements`\) and Implementation specification \(`implementation-spec`\) define them later/u);
   assert.ok(intake.includes('`[HEX-201806:REQ-001]`'), 'the anchor carries the Work ID in capitals');
   assert.match(intake, /no `REQ-`\/`AC-` numbers; this overrides agent or skill guidance/u);
-  assert.deepEqual(clauseLines(definition, workflow, 'requirements'), [], 'a clause step keeps its anchored template');
-  assert.deepEqual(clauseLines(definition, workflow, 'implementation-spec'), []);
+  assert.doesNotMatch(intake, DEFINES);
+  for (const id of ['requirements', 'implementation-spec']) {
+    const lines = clauseLines(definition, workflow, id);
+    assert.equal(lines.length, 1, `${id}: a clause step is told once how its brackets define clauses`);
+    assert.match(lines[0], DEFINES);
+    assert.doesNotMatch(lines[0], NUMBERS_NONE, `${id}: a clause step is never told it numbers none`);
+  }
   const [design] = clauseLines(definition, workflow, 'design');
   assert.match(design, /defines no new clauses\. Cite an approved clause by its full ID, such as `HEX-201806:REQ-001`, never a bare `REQ-001`/u);
 });
@@ -58,8 +68,14 @@ test('across seeded workflows only authored steps outside the clause steps get t
     for (const id of workflow.phaseOrder) {
       const contract = phasePromptExecutionContract(definition, workflow, workflow.phases[id]);
       const lines = contract.lines.filter((line) => line.startsWith('- Clause IDs:'));
-      const expected = anyScope && !owns(workflow, id) && !contract.deterministicOnly ? 1 : 0;
+      if (owns(workflow, id)) {
+        assert.equal(lines.length, 1, `${name}/${id}`);
+        assert.match(lines[0], DEFINES, `${name}/${id}: a clause step defines its clauses with brackets`);
+        continue;
+      }
+      const expected = anyScope && !contract.deterministicOnly ? 1 : 0;
       assert.equal(lines.length, expected, `${name}/${id}`);
+      for (const line of lines) assert.match(line, NUMBERS_NONE, `${name}/${id}`);
       told += lines.length;
     }
     assert.deepEqual(workflow, before, 'composing the line never changes the Story');
@@ -68,10 +84,12 @@ test('across seeded workflows only authored steps outside the clause steps get t
   t.diagnostic(`${told} steps across ${Object.keys(definition.workTypes).length} seeded workflows carry the line.`);
 });
 
-test('a quick fix whose intake defines the clauses gets no line there', async () => {
+test('a quick fix whose intake defines the clauses gets only the bracket definition there', async () => {
   const definition = await seededDefinition();
   const workflow = storyOf(definition, 'quick-fix', 'fix-1');
   const first = workflow.phaseOrder[0];
   assert.equal(owns(workflow, first), true);
-  assert.deepEqual(clauseLines(definition, workflow, first), []);
+  const lines = clauseLines(definition, workflow, first);
+  assert.equal(lines.length, 1, 'only the bracket definition, never the numbering line');
+  assert.match(lines[0], DEFINES);
 });

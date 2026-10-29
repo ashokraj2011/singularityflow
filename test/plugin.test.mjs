@@ -373,7 +373,8 @@ test('authoring and evidence skills name a concrete next route at each stop they
     assert.match(await read(name), /`correction\.guidance`\/`correction\.skill`/, name);
   }
   const code = await read('sflow-code');
-  assert.match(code, /no in-scope runner: offer `\/sf-test-setup` and keep coding/);
+  // 2026-10-29: the Story-only test-command request the refusal returns is made here, beside /sf-test-setup.
+  assert.match(code, /no in-scope runner: request the returned `singularity-flow decision test-command` here, or offer `\/sf-test-setup`; keep coding/);
   assert.match(code, /No test ran: relay `testRunRisk\.command` to a step approver; never run it/);
   assert.match(await read('sflow-scenario-check'), /a verdict to record and publish, not a stop \(then name the missing tool\/environment and offer `\/sf-test-setup`\); never code repair/);
   assert.match(await read('sflow-test-setup'), /detection stays pending: say so, offer a user-supplied command or\s+adding tests in the Story; never invent one/);
@@ -518,7 +519,8 @@ test('runner policy adoption stays a reviewed recovery action outside the coding
   assert.match(code, /No adoption\/amendment for redaction\/inference/);
   assert.match(recover, /Missing policy: `singularity-flow story test-policy amend <WORK-ID> --reason "<reason>" --json`/);
   assert.match(recover, /approved-pin adoption, not config repair/);
-  assert.match(recover, /Live human review: `Amend test command` or Enter cancels; never answer/);
+  // 2026-10-29: the live review is the person's own terminal step; the guard refuses it in every turn.
+  assert.match(recover, /Its `--apply --confirm` line is the person's own terminal step \(live review\); never run or answer it/);
   assert.match(recover, /Approval refusal ends turn; `\/sf-reject` later for changed bytes/);
   assert.match(recover, /Preserve bytes\/pins\/generations/);
   assert.match(recover, /no submit\/approve/);
@@ -695,7 +697,8 @@ test('lifecycle, review and repair skills name the route each stop leaves the pe
   // IDE and build files left in an Android, Xcode or .NET checkout must not stall intake.
   assert.match(await skill('sflow-start'), /`worktree-review-required`: preserve and list its `changes`; do not create a Story\. The person commits, ignores, moves or lands them \(`\/sf-adhoc`\), then reruns `\/sf-start`/);
   // Every outcome the CLI accepts, with the link it requires; a return opens its own change request.
-  assert.match(await skill('sflow-decide'), /plan-correction \(`--link PRC-NNN`\), amend \(`--link FAM-NNN`, approved\), return \(opens its change request\), accept-risk \(`--expires YYYY-MM-DD`\) or dismiss/);
+  // The plan approver records the correction in their own terminal (2026-10-29); the turn links it.
+  assert.match(await skill('sflow-decide'), /plan-correction \(`--link` the PRC its plan approver recorded in their own terminal\), amend \(`--link FAM-NNN`, approved\), return \(opens its change request\), accept-risk \(`--expires YYYY-MM-DD`\) or dismiss/);
   // Escalation targets only a configured stronger workflow, then starts a new Story with it.
   const interval = await skill('sflow-work-interval');
   assert.match(interval, /Hand off to `\/sf-start` for a new Story whose workflow is the plan's `toWorkType`/);
@@ -711,7 +714,8 @@ test('lifecycle, review and repair skills name the route each stop leaves the pe
   // The inbox reads one repository; an empty result there is not an empty workspace.
   assert.match(await skill('sflow-inbox'), /is clear, not the whole workspace: it reads one repository[\s\S]*singularity-flow inbox --workspace <WORKSPACE-ID> --repository <ID> --json/);
   const approve = await skill('sflow-approve');
-  assert.match(approve, /Unauthorized: show its approval groups \(`\/sf-approvals`\) so an authorized approver uses `\/sf-inbox`; stop/);
+  // With nobody listed in the group, the refusal's own route (an approver refresh) is relayed (2026-10-29).
+  assert.match(approve, /Unauthorized: show its approval groups \(`\/sf-approvals`\) so an authorized approver uses `\/sf-inbox`, or `act\.do` when nobody is listed; stop/);
   assert.match(approve, /`PHASE_ALREADY_APPROVED`: offer `\/sf-next`/);
   const finalize = await skill('sflow-finalize');
   assert.match(finalize, /with its `Recover:` commands/);

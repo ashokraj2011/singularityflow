@@ -56,10 +56,11 @@ test('every public skill has a bounded class and output contract', async () => {
   // 2026-10-19: the guard and anti-stall sentences a budget trim had removed are restored; their skills
   // carry a raised override with that reason instead of losing the guard again.
   // 2026-10-26: /sf-review joins them — its repair bound names an unchanged draft, not unchanged findings.
+  // 2026-10-29: /sf-test-setup joins them — its reads carry --for-agent and its apply is the person's step.
   const overridden = ['sflow-appeal', 'sflow-approve', 'sflow-build-workflow', 'sflow-code', 'sflow-converge', 'sflow-decide', 'sflow-design', 'sflow-document-intake', 'sflow-documents',
     'sflow-home', 'sflow-mcp', 'sflow-phase', 'sflow-plan', 'sflow-ready', 'sflow-recover', 'sflow-reinstall', 'sflow-reject',
     'sflow-release', 'sflow-requirements', 'sflow-review', 'sflow-review-source', 'sflow-run-app', 'sflow-scenario-check', 'sflow-session', 'sflow-specify', 'sflow-start',
-    'sflow-story-start', 'sflow-submit', 'sflow-verify', 'sflow-workflows'];
+    'sflow-story-start', 'sflow-submit', 'sflow-test-setup', 'sflow-verify', 'sflow-workflows'];
   assert.deepEqual(result.rows.filter((row) => row.bodyTokens - row.pathContractTokens - row.commandPresentationTokens - row.artifactPresentationTokens - (row.refusalHandlingTokens ?? 0) - (row.applicabilityTokens ?? 0) - (row.approvedInputsTokens ?? 0) - (row.storyCwdTokens ?? 0) - row.pauseGuardTokens - (row.gatewayToolsTokens ?? 0) > 800).map((row) => row.name), overridden);
   for (const name of overridden) assert.ok(policy.skills[name].exception, `${name} explains its token override`);
   assert.ok(result.rows.every((row) => ['never', 'conditional'].includes(row.kernelModelPolicy)));
@@ -259,4 +260,15 @@ test('utility agent is read-only and delegates mutations to the governed workflo
   assert.match(content, /Run the narrowest named `singularity-flow` command and relay its exact status, warnings and actions/);
   assert.match(content, /not bodies, snippets or diffs/);
   assert.match(content, /request would change repository or lifecycle\s+state, stop/);
+});
+
+// /sf-test-setup and /sf-confirm relay refusals whose fix is in `act` (a test command's wrong field, a
+// stale digest), but as repository skills they lacked the act-first and cut-off-result contract that
+// every Story skill carries (2026-10-29).
+test('repository skills that relay act-borne refusals carry the complete-output contract', async () => {
+  const { COMPLETE_OUTPUT_CONTRACT } = await import('../scripts/skill-policy.mjs');
+  for (const name of ['sflow-test-setup', 'sflow-confirm']) {
+    const text = await readFile(path.join(root, 'plugin/skills', name, 'SKILL.md'), 'utf8');
+    assert.ok(text.includes(COMPLETE_OUTPUT_CONTRACT), name);
+  }
 });

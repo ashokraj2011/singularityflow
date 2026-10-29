@@ -99,6 +99,16 @@ export function applicabilityContractApplies(rule) {
   return (rule?.executionBoundary ?? 'story') === 'story' && rule?.class !== 'delegation';
 }
 
+/**
+ * Read `act` first and recover a cut-off result: every Story skill, and a repository skill whose
+ * registry entry sets `completeOutput` because it relays refusals whose fix is in `act`
+ * (/sf-test-setup and /sf-confirm: an office turn could not see why a test command was refused,
+ * 2026-10-29).
+ */
+export function completeOutputApplies(rule) {
+  return applicabilityContractApplies(rule) || rule?.completeOutput === true;
+}
+
 export function refusalHandlingApplies(rule) {
   return ['generative', 'mutation'].includes(rule?.class) && (rule?.executionBoundary ?? 'story') === 'story';
 }
@@ -478,13 +488,13 @@ function withAutomaticPolicy(text, automatic, description, file) {
   return `---\n${source}\n---\n${skill.body}`;
 }
 
-function withOutputContract(text, contract, kernelModelPolicy, file, executionBoundaryKind, refusalContract = null, applicability = false) {
+function withOutputContract(text, contract, kernelModelPolicy, file, executionBoundaryKind, refusalContract = null, applicability = false, completeOutput = applicability) {
   const skill = splitSkill(text, file);
   // Additional blocked/risk prose can separate the generated contract from its boundary. Strip
   // all maintained boundaries first so repeated generation never appends a second lookup.
   const sourceBody = skill.body.replace(/<!-- sflow-execution-boundary -->\r?\n\*\*(?:Execution boundary|Boundary):\*\*[^\n]*\r?\n?/gu, '');
   const marker = `<!-- sflow-output-contract: ${contract} -->`;
-  const contractText = `**Output contract:** ${CONTRACT_TEXT_BY_SKILL[path.basename(path.dirname(file))] ?? CONTRACT_TEXT[contract]}${approvedInputsContractApplies(contract) ? ` ${APPROVED_INPUTS_CONTRACT}` : ''} ${ARTIFACT_PRESENTATION_CONTRACT} ${COMMAND_PRESENTATION_CONTRACT}${refusalContract ? ` ${refusalContract}` : ''}${applicability ? ` ${APPLICABILITY_CONTRACT} ${COMPLETE_OUTPUT_CONTRACT}` : ''}`;
+  const contractText = `**Output contract:** ${CONTRACT_TEXT_BY_SKILL[path.basename(path.dirname(file))] ?? CONTRACT_TEXT[contract]}${approvedInputsContractApplies(contract) ? ` ${APPROVED_INPUTS_CONTRACT}` : ''} ${ARTIFACT_PRESENTATION_CONTRACT} ${COMMAND_PRESENTATION_CONTRACT}${refusalContract ? ` ${refusalContract}` : ''}${applicability ? ` ${APPLICABILITY_CONTRACT}` : ''}${completeOutput ? ` ${COMPLETE_OUTPUT_CONTRACT}` : ''}`;
   const boundaryMarker = '<!-- sflow-execution-boundary -->';
   const boundaryText = `${executionBoundary(executionBoundaryKind, path.basename(path.dirname(file)))} ${CLI_PATH_CONTRACT}`;
   if (!CONTRACT_TEXT[contract]) throw new Error(`${file}: unknown output contract '${contract}'`);
@@ -702,7 +712,7 @@ export async function auditSkillPolicy(repositoryRoot, { write = false } = {}) {
     let text = await readFile(file, 'utf8');
     if (write) {
       text = withAutomaticPolicy(text, automatic.has(name), AUTOMATIC_DESCRIPTIONS[name], file);
-      text = withOutputContract(text, classPolicy.outputContract, kernelModelPolicy, file, executionBoundaryKind, refusalContractFor(rule, name), applicabilityContractApplies(rule));
+      text = withOutputContract(text, classPolicy.outputContract, kernelModelPolicy, file, executionBoundaryKind, refusalContractFor(rule, name), applicabilityContractApplies(rule), completeOutputApplies(rule));
       text = withCopilotPauseGuard(text, pauseGuardRequired, file, name, executionBoundaryKind);
       text = withGatewayToolsClause(text, gatewayToolsApplies(rule), file);
       await writeFile(file, text);
@@ -726,8 +736,12 @@ export async function auditSkillPolicy(repositoryRoot, { write = false } = {}) {
     // Measured in this body like the approved-inputs contract, so a longer shared contract never
     // moves a skill's own prose count by rounding.
     const applicabilityText = ` ${APPLICABILITY_CONTRACT} ${COMPLETE_OUTPUT_CONTRACT}`;
-    const applicabilityTokens = !applicability ? 0 : domainBody.includes(applicabilityText)
-      ? domainBodyTokens - estimatedTokens(domainBody.replace(applicabilityText, '')) : estimatedTokens(applicabilityText);
+    const completeOutputOnly = !applicability && completeOutputApplies(rule);
+    const completeOutputText = ` ${COMPLETE_OUTPUT_CONTRACT}`;
+    const applicabilityTokens = completeOutputOnly
+      ? (domainBody.includes(completeOutputText) ? domainBodyTokens - estimatedTokens(domainBody.replace(completeOutputText, '')) : estimatedTokens(completeOutputText))
+      : !applicability ? 0 : domainBody.includes(applicabilityText)
+        ? domainBodyTokens - estimatedTokens(domainBody.replace(applicabilityText, '')) : estimatedTokens(applicabilityText);
     const approvedInputs = approvedInputsContractApplies(classPolicy.outputContract);
     // Measured in this body, so rounding a separate estimate never moves the skill's own prose count.
     const approvedInputsTokens = approvedInputs && domainBody.includes(` ${APPROVED_INPUTS_CONTRACT}`)
@@ -751,6 +765,7 @@ export async function auditSkillPolicy(repositoryRoot, { write = false } = {}) {
       errors.push(`${name}: pause guard must precede all repository/Story boundary lookups`);
     }
     if (rule.gatewayTools !== undefined && typeof rule.gatewayTools !== 'boolean') errors.push(`${name}: gatewayTools must be true or false`);
+    if (rule.completeOutput !== undefined && rule.completeOutput !== true) errors.push(`${name}: completeOutput is true or absent`);
     if (gatewayTools && mutationTurnMode(name) !== 'read') {
       errors.push(`${name}: gatewayTools is for read-turn skills; a ${mutationTurnMode(name)} turn's tool use is not reviewed here`);
     }
@@ -789,8 +804,8 @@ export async function auditSkillPolicy(repositoryRoot, { write = false } = {}) {
     if (applicability !== skill.body.includes(APPLICABILITY_CONTRACT)) {
       errors.push(`${name}: ${applicability ? 'missing' : 'unexpected'} engine applicability contract`);
     }
-    if (applicability !== skill.body.includes(COMPLETE_OUTPUT_CONTRACT)) {
-      errors.push(`${name}: ${applicability ? 'missing' : 'unexpected'} engine complete-output contract`);
+    if (completeOutputApplies(rule) !== skill.body.includes(COMPLETE_OUTPUT_CONTRACT)) {
+      errors.push(`${name}: ${completeOutputApplies(rule) ? 'missing' : 'unexpected'} engine complete-output contract`);
     }
     if (approvedInputs !== skill.body.includes(APPROVED_INPUTS_CONTRACT)) {
       errors.push(`${name}: ${approvedInputs ? 'missing' : 'unexpected'} engine approved-inputs contract`);

@@ -10,11 +10,11 @@ argument-hint: "[--source-root <MODULE>] [configure|adopt <WORK-ID>]"
 Before any boundary lookup or SFlow action, run `singularity-flow pause status --json` and follow its `data.agentInstruction`. If `data.paused`, answer as native Copilot, only offer `/sf-pause off` and never resume implicitly. This skill is already loaded; never call the skill tool for it. Unless paused, continue below in this turn.
 
 <!-- sflow-output-contract: explicit-selection -->
-**Output contract:** Collect every required choice explicitly; never infer or preselect; preserve errors, artifacts, and next actions. Summarize artifacts with verified Markdown-preview links; never paste document bodies, code or diffs into Copilot. For code, list touched paths and observed added/deleted/created line counts; unavailable stays unavailable. Use existing evidence, not extra calls solely for display. Summaries, links and opened previews are not human review or approval. After a blank line, display each next action as three separate Markdown bullets, in order: "- Copilot: `<copilotCommand>`", "- Shell: `<command>`", "- VS Code (model-free): `<modelFreeCommand>`". Preserve exact returned routes; never combine them on one line or in a table. Missing Copilot: "no verified equivalent"; missing Shell or model-free: "not available for this action". Never invent routes or make further calls for formatting.
+**Output contract:** Collect every required choice explicitly; never infer or preselect; preserve errors, artifacts, and next actions. Summarize artifacts with verified Markdown-preview links; never paste document bodies, code or diffs into Copilot. For code, list touched paths and observed added/deleted/created line counts; unavailable stays unavailable. Use existing evidence, not extra calls solely for display. Summaries, links and opened previews are not human review or approval. After a blank line, display each next action as three separate Markdown bullets, in order: "- Copilot: `<copilotCommand>`", "- Shell: `<command>`", "- VS Code (model-free): `<modelFreeCommand>`". Preserve exact returned routes; never combine them on one line or in a table. Missing Copilot: "no verified equivalent"; missing Shell or model-free: "not available for this action". Never invent routes or make further calls for formatting. Act on a result's `act` first: its state, `do` routes and any `ask`. A bounded result names `agentOutput.read` ranges and `omittedFields` text files; read all in one response with your file tool, at the exact paths in the checkout's `.sflow/out/`. If a result comes back cut off, empty, still running or saved where you cannot open it, run `singularity-flow result last --wait --for-agent --json` and act on it; never rerun the command or point back to this skill, and never read the host's copy with shell tools. If a path SFlow returned fails to open, copy it again exactly from the result and open it once more; only then report it unopened, with the path and error.
 <!-- sflow-execution-boundary -->
 **Boundary:** no Story required; cwd=opened Git root or verified `repositoryPath` from `singularity-flow workspace current --json`; refuse if neither resolves; never search `$HOME`/parents. Use exact CLI-returned paths. `repositoryPath` is command cwd, not a prefix for absolute file paths. Never rebase paths or strip `.git/worktrees`. Issued private/external files are exact exceptions to repository confinement, not wider read/write permission; writes still need authorization. Resolve relative paths only against their declared base. On failure, preserve the path and error; never search or recreate it.
 
-1. Run `singularity-flow capability test-setup --json`, retaining explicit `--source-root` arguments.
+1. Run `singularity-flow capability test-setup --for-agent --json`, retaining explicit `--source-root` arguments.
    Inspection never clones, installs, runs tests or observes a failure baseline.
    For a monorepo, ask which exact application directories to inspect; do not scan the whole tree.
 2. Read only the selected module's manifests, wrapper metadata, test scripts and reporter configuration.
@@ -30,7 +30,7 @@ Before any boundary lookup or SFlow action, run `singularity-flow pause status -
    eligible human risk decision. Unknown existing results remain unverified, not accepted failures.
 5. In VS Code offer Capabilities → Test setup, also Configuration Center → Test setup.
    Otherwise preview: `singularity-flow capability test-setup --step <STEP> [--workflow <WORKFLOW>]
-   --use <SUGGESTION-ID> --json` (keep `--source-root`), or for a supplied command `--id <ID> --argv
+   --use <SUGGESTION-ID> --for-agent --json` (keep `--source-root`), or for a supplied command `--id <ID> --argv
    '<JSON ARRAY>' --working-directory <DIR> --affected-root <DIR> --adapter <ADAPTER> --report <PATH>`
    (report relative to the working directory). Show its `diff`. Only after explicit consent run its
    `confirmCommand` with `--json`; it proposes the change for review (no sub-agent).
@@ -39,6 +39,6 @@ Before any boundary lookup or SFlow action, run `singularity-flow pause status -
    Existing Stories retain explicit pins. Only for explicit command revisions approved in sflow/config,
    use `singularity-flow story test-policy amend <WORK-ID>
    --reason "<reason>" --json` (the current step) for preview only. Preserve code/documents; show digest/authority.
-   Human confirmation/apply belong to `/sf-recover`; never approve for the user. Fresh tests required.
+   The person runs the returned `--apply --confirm` line in their own terminal; never approve for the user. Fresh tests required.
 7. Report what was inspected, configured, adopted, or not done. Pair the inspection Shell command
    with Copilot `/sf-test-setup`; use `/sf-ready` for an explicitly requested baseline run.

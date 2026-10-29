@@ -1375,7 +1375,7 @@ Before any boundary lookup or SFlow action, run `singularity-flow pause status -
           <span class="pill">review</span>
           <span class="pill">story boundary</span>
           <span class="pill">model: never</span>
-          <span class="pill">~1659 body tokens</span>
+          <span class="pill">~1667 body tokens</span>
         </div>
         <dl>
           <div><dt>Command</dt><dd><code>/sflow-approve</code></dd></div>
@@ -1410,7 +1410,7 @@ Reuse a verified pause-aware entry supplied in this invocation before any mutati
 1. A positional argument selects **PHASE-ID**, never Work ID. Run `singularity-flow choices begin approve &lt;WORK-ID&gt; --fetch --for-agent --json --review-packet`; on `approvalPacket.readiness` `terminal-obligations-required`, relay blockers/actions and stop without choices or generic recovery. On `decisions-required`, load /sf-decide and do its steps 11-14 in this turn; never print raw decision commands. Require the supplied phase to match.
 2. `approvalPacket.review` is `singularity-flow phase show &lt;phase&gt; --for-agent --json`. Match receipt, `reviewBinding`, artifacts and briefs to `approvalContext`; mismatch or missing binding stops. Do not repeat document lookup.
 3. **Review outside chat against the exact binding.** List each artifact/brief&#39;s identity, generation/hash and verified Markdown-preview link; binary: metadata/path. Require human review of complete bound documents; never infer it from opened previews. Reuse same-chat human acknowledgement only for an exactly matching non-null `displayBinding` and unchanged `reviewBinding`. New chat, changed/null binding, omissions or truncation require fresh human review. Tool output or summaries are not review. Show current `reviewBinding`; document reuse never reuses approval consent.
-4. Show identity/authority, agent, checks/usage, decisions/`owedDecisions`/self-approval warnings and `approvalCheck`/`blockingCommits` (advisory: show them, then continue). Unauthorized: show its approval groups (`/sf-approvals`) so an authorized approver uses `/sf-inbox`; stop.
+4. Show identity/authority, agent, checks/usage, decisions/`owedDecisions`/self-approval warnings and `approvalCheck`/`blockingCommits` (advisory: show them, then continue). Unauthorized: show its approval groups (`/sf-approvals`) so an authorized approver uses `/sf-inbox`, or `act.do` when nobody is listed; stop.
 5. A human `/sf-approve &lt;PHASE-ID&gt;` or exact phase answer **after** complete review of this exact `reviewBinding` is `&lt;TYPED-PHASE&gt;`: do not ask again. Otherwise ask for the exact phase ID to confirm linked-document review and approval; wait. A phase supplied before a new or changed packet review is not its confirmation, even if document bodies match. Run `singularity-flow choices answer &lt;TOKEN&gt; phase-confirmation &lt;TYPED-PHASE&gt; --json`, then `singularity-flow approve &lt;TYPED-PHASE&gt; --work-id &lt;WORK-ID&gt; --fetch --selection-receipt &lt;TOKEN&gt; --for-agent --json` only when `ready: true`. When the packet review&#39;s `approvalChecklist` lists articles, ask for one answer per article (satisfied, exception or not-applicable, with a reason for the last two) with the confirmation and add `--article &lt;ID&gt;=&lt;DECISION&gt;` per article, then `--article-reason &quot;&lt;REASON&gt;&quot;` in the same order. From /sf-decide 14, add its `withApproval.flags` (decisions in this commit). Never add `--yes`; the receipt is consumed once. `--for-agent` grants no authority.
 6. Refusal: relay, end turn (one routed to `singularity-flow decisions &lt;WORK-ID&gt;`: load /sf-decide steps 11-14 now instead); `PHASE_ALREADY_APPROVED`: offer `/sf-next`. Never `--allow-dirty`. Success: commit/push, authority/self-approval. Relay `contextBoundary` commands in order (`/clear` or `/compact`, then `/sf-next`); `keep`: next turn. The approval CLI advances and activates the next phase when the threshold is met; no second advance. End this turn before next-phase authoring.
 
@@ -2232,7 +2232,7 @@ Run `singularity-flow check --for-agent --json` once. Report freshness, mode, in
           <span class="pill">generative</span>
           <span class="pill">story boundary</span>
           <span class="pill">model: never</span>
-          <span class="pill">~2392 body tokens</span>
+          <span class="pill">~2409 body tokens</span>
         </div>
         <dl>
           <div><dt>Command</dt><dd><code>/sflow-code</code></dd></div>
@@ -2263,7 +2263,7 @@ First run `singularity-flow phase enter --compose --for-agent --json` once in ev
 Blocked: relay `resolution.issues[].choices` too. Eligible risk needs reason/expiry and authorized human confirmation. Never auto-accept risk.
 
 1. Require entry `phase`, `phaseAgent.valid: true`, `generatesCode: true`, `authoring.policyVerified`; else relay routes, never draft sign-off. Read `mutationContract`/`authoringProgress`: binding is not source permission; kernel-only `/sf-next` cannot author.
-2. Review `recovery`, `intent`, test handoff and exact diffs/untracked bytes including `workflow.json`. Pending evidence: preserve files/index, repair draft; never accept evidence. Otherwise stop on protected/unrelated/unowned edits or lifecycle/authority blockers. Repair owned open-intent actions; runner repair requires `CODE_DELIVERY_TEST_COMMAND_REQUIRED` (no in-scope runner: offer `/sf-test-setup` and keep coding). Untracked `.sflow/results/**` need no cleaning; review tracked/staged reports. Consumed-changed intent needs reviewed rollover; unchanged publication: relay `next`, stop. Require open intent; absent: `singularity-flow phase begin &lt;phase&gt; --json` with adoption/confirmation before edits/composition; never auto-adopt. Successful begin: refresh entry once. Consumed intent requires `/sf-recover`.
+2. Review `recovery`, `intent`, test handoff and exact diffs/untracked bytes including `workflow.json`. Pending evidence: preserve files/index, repair draft; never accept evidence. Otherwise stop on protected/unrelated/unowned edits or lifecycle/authority blockers. Repair owned open-intent actions; runner repair requires `CODE_DELIVERY_TEST_COMMAND_REQUIRED` (no in-scope runner: request the returned `singularity-flow decision test-command` here, or offer `/sf-test-setup`; keep coding). Untracked `.sflow/results/**` need no cleaning; review tracked/staged reports. Consumed-changed intent needs reviewed rollover; unchanged publication: relay `next`, stop. Require open intent; absent: `singularity-flow phase begin &lt;phase&gt; --json` with adoption/confirmation before edits/composition; never auto-adopt. Successful begin: refresh entry once. Consumed intent requires `/sf-recover`.
 3. Use entry `context.text`; if `not-requested` or stale, rerun it once with `&lt;phase&gt; --work-id &lt;WORK-ID&gt; --compose`. `not-admitted`: relay blockers/next, stop.
 4. Follow `clarification.checkpoint`; off skips. Reuse same-binding human replies; ask only unanswered/changed questions with `ask_user` (unavailable: show them and stop; stage chat replies). File-edit `{&quot;responses&quot;:[...]}` at `clarification.responseStagingPath`; run `checkpoint.recordAction` alone. On refusal preserve replies/staging; repair recording, not questions. Remove staging only on success; record before code mutation; refresh entry once. Staging is JSON only, never handwritten governed records. A new question while coding: never re-ask recorded ones. If the person here can decide it, `ask_user`, stage only that reply, run `checkpoint.newQuestionAction` alone. Otherwise, or none is returned: keep coding on the most conservative reading, list it under `## Upstream discrepancies`, run `singularity-flow upstream-issue raise --from-artifact`.
 5. Verify references; refuse invalid/dirty. `generation &gt; 0`: `singularity-flow revision status --for-agent --json`. Source edits need `codeAuthoringReady: true`, context/clarification. Preserve code/tests; prepare missing artifact via `authoringProgress`. Preparation is not authoring.
@@ -2418,7 +2418,7 @@ Report the exact `singularity-flow configuration ...` action on all three surfac
           <span class="pill">mutation</span>
           <span class="pill">repository boundary</span>
           <span class="pill">model: never</span>
-          <span class="pill">~717 body tokens</span>
+          <span class="pill">~884 body tokens</span>
         </div>
         <dl>
           <div><dt>Command</dt><dd><code>/sflow-confirm</code></dd></div>
@@ -2442,7 +2442,7 @@ argument-hint: &quot;&lt;the exact command a returned /sf-confirm route carried&
 Before any boundary lookup or SFlow action, run `singularity-flow pause status --json` and follow its `data.agentInstruction`. If `data.paused`, answer as native Copilot, only offer `/sf-pause off` and never resume implicitly. This skill is already loaded; never call the skill tool for it. Unless paused, continue below in this turn.
 
 &lt;!-- sflow-output-contract: deterministic-mutation --&gt;
-**Output contract:** Let the CLI validate and mutate state; preserve its exact result, warnings, publication status, artifacts, and next actions. Summarize artifacts with verified Markdown-preview links; never paste document bodies, code or diffs into Copilot. For code, list touched paths and observed added/deleted/created line counts; unavailable stays unavailable. Use existing evidence, not extra calls solely for display. Summaries, links and opened previews are not human review or approval. After a blank line, display each next action as three separate Markdown bullets, in order: &quot;- Copilot: `&lt;copilotCommand&gt;`&quot;, &quot;- Shell: `&lt;command&gt;`&quot;, &quot;- VS Code (model-free): `&lt;modelFreeCommand&gt;`&quot;. Preserve exact returned routes; never combine them on one line or in a table. Missing Copilot: &quot;no verified equivalent&quot;; missing Shell or model-free: &quot;not available for this action&quot;. Never invent routes or make further calls for formatting.
+**Output contract:** Let the CLI validate and mutate state; preserve its exact result, warnings, publication status, artifacts, and next actions. Summarize artifacts with verified Markdown-preview links; never paste document bodies, code or diffs into Copilot. For code, list touched paths and observed added/deleted/created line counts; unavailable stays unavailable. Use existing evidence, not extra calls solely for display. Summaries, links and opened previews are not human review or approval. After a blank line, display each next action as three separate Markdown bullets, in order: &quot;- Copilot: `&lt;copilotCommand&gt;`&quot;, &quot;- Shell: `&lt;command&gt;`&quot;, &quot;- VS Code (model-free): `&lt;modelFreeCommand&gt;`&quot;. Preserve exact returned routes; never combine them on one line or in a table. Missing Copilot: &quot;no verified equivalent&quot;; missing Shell or model-free: &quot;not available for this action&quot;. Never invent routes or make further calls for formatting. Act on a result&#39;s `act` first: its state, `do` routes and any `ask`. A bounded result names `agentOutput.read` ranges and `omittedFields` text files; read all in one response with your file tool, at the exact paths in the checkout&#39;s `.sflow/out/`. If a result comes back cut off, empty, still running or saved where you cannot open it, run `singularity-flow result last --wait --for-agent --json` and act on it; never rerun the command or point back to this skill, and never read the host&#39;s copy with shell tools. If a path SFlow returned fails to open, copy it again exactly from the result and open it once more; only then report it unopened, with the path and error.
 &lt;!-- sflow-execution-boundary --&gt;
 **Boundary:** no Story required; cwd=opened Git root or verified `repositoryPath` from `singularity-flow workspace current --json`; refuse if neither resolves; never search `$HOME`/parents. Use exact CLI-returned paths. `repositoryPath` is command cwd, not a prefix for absolute file paths. Never rebase paths or strip `.git/worktrees`. Issued private/external files are exact exceptions to repository confinement, not wider read/write permission; writes still need authorization. Resolve relative paths only against their declared base. On failure, preserve the path and error; never search or recreate it.
 
@@ -2643,7 +2643,7 @@ Reuse a verified pause-aware entry supplied in this invocation before any mutati
           <span class="pill">review</span>
           <span class="pill">story boundary</span>
           <span class="pill">model: never</span>
-          <span class="pill">~1956 body tokens</span>
+          <span class="pill">~1984 body tokens</span>
         </div>
         <dl>
           <div><dt>Command</dt><dd><code>/sflow-decide</code></dd></div>
@@ -2673,7 +2673,7 @@ Reuse a verified pause-aware entry supplied in this invocation before any mutati
 **Boundary:** reuse entry `ready`/`workId`, cwd=`repositoryPath`, or as is from a non-Git (chat) folder: SFlow finds the bound checkout; never refuse or wrap for it; CLI/`workItemRoot` paths only; never `$HOME`. No duplicate lookup. Use exact CLI-returned paths. `repositoryPath` is command cwd, not a prefix for absolute file paths. Never rebase paths or strip `.git/worktrees`. Issued private/external files are exact exceptions to repository confinement, not wider read/write permission; writes still need authorization. Resolve relative paths only against their declared base. On failure, preserve the path and error; never search or recreate it.
 
 &lt;!-- sflow-turn-boundary: decision-only --&gt;
-**Turn boundary — decision-only:** `singularity-flow decision choose|applicability|scope|completeness|plan`, `singularity-flow upstream-issue decide|raise`, `singularity-flow decisions record` (issue options, after an explicit yes) and /sf-approve 1-6 are the only permitted mutations. Never edit files, run tests or builds, raw `git`, submit, reject or `next`. The person types every choice and reason; never supply, infer or default one. List answers come from `ask_user`; the person accepts or replaces each default. Any refusal ends this turn.
+**Turn boundary — decision-only:** `singularity-flow decision choose|applicability|scope|completeness|plan` (plan: `--add-location`/`--add-supporting` only), `singularity-flow upstream-issue decide|raise`, `singularity-flow decisions record` (issue options, after an explicit yes) and /sf-approve 1-6 are the only permitted mutations. Never edit files, run tests or builds, raw `git`, submit, reject or `next`. The person types every choice and reason; never supply, infer or default one. List answers come from `ask_user`; the person accepts or replaces each default. Any refusal ends this turn.
 
 1. Run `singularity-flow decisions &lt;WORK-ID&gt; --for-agent --json`. An option without `action`: do 11-14, then stop; use the linked issue/owner, never duplicate it. Else give each item&#39;s `action.command` (11-12), then run `singularity-flow decision show &lt;WORK-ID&gt; --json` (a `routing-decision` item is answered at 2-5). Empty routing `decisions` is not approval readiness. Check `pending` (2), unsatisfied `applicability` (6), unlisted `upstreamIssues` (10), routed scope/completeness/plan (7-9). Only if clear, say nothing else is waiting, show `ahead`; next `approval` (`data.next.kind`) you may approve (`decidedBy.allowed`): do /sf-approve 1-6 now, else give `data.next.copilotCommand`; stop.
 2. Show `pending.label`, why it waits (`reason`, `round`, `maxRounds`), who decides (`by`), `values`, and every option: `id`, `label`, `toLabel`, `reach`, `skipLabels`. With `anyStep`, a step ID or `end` may be named instead.
@@ -2684,7 +2684,7 @@ Reuse a verified pause-aware entry supplied in this invocation before any mutati
 7. Scope statements: run `singularity-flow evidence scope &lt;WORK-ID&gt; --json`. For each `unresolved` item show `id`, `text` and `sourceId`; ask for a disposition (clauses for included or existing) and a reason. Run `singularity-flow decision scope &lt;WORK-ID&gt; --fetch --item &lt;ID&gt; --as &lt;DISPOSITION&gt; [--clause &lt;IDS&gt;] --reason &quot;&lt;REASON&gt;&quot;`.
 8. Completeness review, only when `structurallyComplete`: show `inventorySha256`; ask for each article (completeness, ambiguity, consistency, verifiability, boundary-conditions, non-functional) as satisfied, exception or not-applicable. Run `singularity-flow decision completeness &lt;WORK-ID&gt; --fetch --confirm &lt;inventorySha256&gt; --article &lt;ID&gt;=&lt;DECISION&gt;... --reason &quot;&lt;REASON&gt;&quot;`. A review, not proof of correct scope.
 9. Unplanned path: ask for its row, or its supporting class and why. Run `singularity-flow decision plan &lt;WORK-ID&gt; --fetch --add-location &lt;CLAUSE&gt;=&lt;PATH&gt; --reason &quot;&lt;REASON&gt;&quot;`.
-10. A returned `singularity-flow upstream-issue raise` route: ask what is wrong; run it with their words as `--problem`. Upstream issues: show each `id`, `phase`, `about`. Outcomes: plan-correction (`--link PRC-NNN`), amend (`--link FAM-NNN`, approved), return (opens its change request), accept-risk (`--expires YYYY-MM-DD`) or dismiss. Run `singularity-flow upstream-issue decide &lt;UPI-ID&gt; --work-id &lt;WORK-ID&gt; --outcome &lt;OUTCOME&gt; --reason &quot;&lt;REASON&gt;&quot;`.
+10. A returned `singularity-flow upstream-issue raise` route: ask what is wrong (20+ characters); run it with their words as `--problem`. Upstream issues: show each `id`, `phase`, `about`. Outcomes: plan-correction (`--link` the PRC its plan approver recorded in their own terminal), amend (`--link FAM-NNN`, approved), return (opens its change request), accept-risk (`--expires YYYY-MM-DD`) or dismiss. Run `singularity-flow upstream-issue decide &lt;UPI-ID&gt; --work-id &lt;WORK-ID&gt; --outcome &lt;OUTCOME&gt; --reason &quot;&lt;REASON&gt;&quot;`.
 11. Lead with `data.headline`; show each item&#39;s `title` and `why` (IDs and flags stay in `details`/`effects`). Not yours (`decidedBy.allowed` false): say `decidedBy.words`, give `decidedBy.share`, skip it.
 12. `ask_user` per other item: option `label`s (recommended first) plus Not now, then each `needs` value with its `default`. `action` is theirs to do: give `action.command`; never record it.
 13. Preview: `singularity-flow decisions &lt;WORK-ID&gt; --choose &lt;ID&gt;=&lt;OPTION&gt;... --for-agent --json`, adding `--reason|--expires|--cause &lt;ID&gt;=&lt;VALUE&gt;` only for changed values; show `data.preview.summary` and `refused` `words`/`share`.
@@ -8617,7 +8617,7 @@ Use the durable workspace, work-item, evidence, and repository records. Never in
           <span class="pill">mutation</span>
           <span class="pill">story boundary</span>
           <span class="pill">model: never</span>
-          <span class="pill">~1555 body tokens</span>
+          <span class="pill">~1562 body tokens</span>
         </div>
         <dl>
           <div><dt>Command</dt><dd><code>/sflow-recover</code></dd></div>
@@ -8647,7 +8647,7 @@ Reuse a verified pause-aware entry supplied in this invocation before any mutati
 
 1. `singularity-flow recover $ARGUMENTS --fetch --for-agent --json`: keep `planId`; inspection never `--apply`.
 2. Follow action classifications, not blanket dirty-tree stops. `requiresRecovery: false`/no blockers: no gate. `current-phase-review-required`/`confirmation: none`: review diff, preserve validated preparation context and exactly declared phase evidence; continue draft checks. Preserve untracked `.sflow/results/**`; tracked/staged reports and source require review. Divergence: `/sf-refresh-branch`, then a human-reviewed merge; authority, `repair-publication-authority:&lt;phase&gt;`/`repair-generation-change-set:&lt;phase&gt;`: diagnose via `/sf-doctor`/`/sf-admin` before rollover; never waive. Then the person reruns `/sf-recover`.
-3. Preserve bytes/pins/generations. `argvWithheld: true` needs no adoption; follow `testExecution.handoff`. Runner repair: the returned `authoringSkill`. Missing policy: `singularity-flow story test-policy amend &lt;WORK-ID&gt; --reason &quot;&lt;reason&gt;&quot; --json`: approved-pin adoption, not config repair. Live human review: `Amend test command` or Enter cancels; never answer. Approval refusal ends turn; `/sf-reject` later for changed bytes. Telemetry/session advisory.
+3. Preserve bytes/pins/generations. `argvWithheld: true` needs no adoption; follow `testExecution.handoff`. Runner repair: the returned `authoringSkill`. Missing policy: `singularity-flow story test-policy amend &lt;WORK-ID&gt; --reason &quot;&lt;reason&gt;&quot; --json`: approved-pin adoption, not config repair. Its `--apply --confirm` line is the person&#39;s own terminal step (live review); never run or answer it. Approval refusal ends turn; `/sf-reject` later for changed bytes. Telemetry/session advisory.
 4. Human amendment acknowledgement. Author/reviewer conflict: successor, not history edits. Differing hash domains: not stale. Automatic: human-confirm `planId`, use `applyCommand`; guided/manual never `--apply`. Reinspect stale plans.
 5. Review diffs/untracked bytes. `commit-reviewed-worktree`: human consent to exact `paths`/`planId`; returned command only, no unlisted files/`--allow-dirty`. Preserve reports/index; no gate waiver. Revalidate source/consent. Protected/unrelated/conflicted/removed/symlink paths stay separate.
    `review-evidence-contract`: preserve screenshot; returned `/sf-appeal` for plan-authority correction—not visual proof.
@@ -11245,7 +11245,7 @@ TRP: read and follow `singularity-flow explain test-recovery`; returned legal ac
           <span class="pill">review</span>
           <span class="pill">story boundary</span>
           <span class="pill">model: never</span>
-          <span class="pill">~1507 body tokens</span>
+          <span class="pill">~1523 body tokens</span>
         </div>
         <dl>
           <div><dt>Command</dt><dd><code>/sflow-submit</code></dd></div>
@@ -11281,7 +11281,7 @@ Reuse a verified pause-aware entry supplied in this invocation before any mutati
 3. Source review is part of readiness: only when it reports `source-review-required`, relay `sourceReviewFindings` and its exact review actions; never run a separate review check. Reviewer reports are not approval. Pending amendment acknowledgement requires the person&#39;s explicit choice.
 4. `confirmationRequired: true`: show full warning and returned Work-ID-pinned command; human provides `continue`.
 5. Readiness `classification` `convergence-advance-required`: never generic `singularity-flow submit`. Run returned `singularity-flow story advance` without `--confirm`; show review/digest, stop on unresolved dispositions. Invoked with `--confirm sha256:&lt;DIGEST&gt;` equal to the shown digest, or the person confirms it here: run it with `--confirm` once. Changed digest requires fresh review.
-6. Unless `submitIfReady.submitted`, run returned Work-ID-pinned submit command. `--skip-checks` requires authorization.
+6. Unless `submitIfReady.submitted`, run returned Work-ID-pinned submit command; ask the person for each `decisionInputs` value, never fill one. `--skip-checks` requires authorization.
 7. On failure, fingerprint refusal plus artifact/check hashes and diagnosed runtime evidence. Nonzero exit fails despite passing JUnit. Proven environment repair permits retry without republishing unchanged source; changed source/artifacts need reviewed rollover. Stop on an unchanged condition or after three distinct repairs. Never loop quality commands or waive tests/integrity/policy. `/sf-recover` never substitutes for terminal decisions.
 8. Use `submitIfReady.review`, else `singularity-flow phase show &lt;phase&gt; --for-agent --json`. Summarize submitted status/checks/warnings and list each artifact/brief&#39;s identity, generation/hash and verified Markdown-preview link. Preserve `displayBinding` and fresh `reviewBinding`; never reproduce document bodies, code or diffs. Tool output or summaries are not review.
 9. Offer the approval route, not an approval decision. The human must review the complete linked documents; changed/null bindings or incomplete material need fresh review before approval. Never infer review from a summary, opening a preview or successful submission.
@@ -11423,7 +11423,7 @@ The commands are the ones the capability selects, else the ones the Story&#39;s 
           <span class="pill">interactive</span>
           <span class="pill">repository boundary</span>
           <span class="pill">model: never</span>
-          <span class="pill">~1193 body tokens</span>
+          <span class="pill">~1374 body tokens</span>
         </div>
         <dl>
           <div><dt>Command</dt><dd><code>/sflow-test-setup</code></dd></div>
@@ -11447,11 +11447,11 @@ argument-hint: &quot;[--source-root &lt;MODULE&gt;] [configure|adopt &lt;WORK-ID
 Before any boundary lookup or SFlow action, run `singularity-flow pause status --json` and follow its `data.agentInstruction`. If `data.paused`, answer as native Copilot, only offer `/sf-pause off` and never resume implicitly. This skill is already loaded; never call the skill tool for it. Unless paused, continue below in this turn.
 
 &lt;!-- sflow-output-contract: explicit-selection --&gt;
-**Output contract:** Collect every required choice explicitly; never infer or preselect; preserve errors, artifacts, and next actions. Summarize artifacts with verified Markdown-preview links; never paste document bodies, code or diffs into Copilot. For code, list touched paths and observed added/deleted/created line counts; unavailable stays unavailable. Use existing evidence, not extra calls solely for display. Summaries, links and opened previews are not human review or approval. After a blank line, display each next action as three separate Markdown bullets, in order: &quot;- Copilot: `&lt;copilotCommand&gt;`&quot;, &quot;- Shell: `&lt;command&gt;`&quot;, &quot;- VS Code (model-free): `&lt;modelFreeCommand&gt;`&quot;. Preserve exact returned routes; never combine them on one line or in a table. Missing Copilot: &quot;no verified equivalent&quot;; missing Shell or model-free: &quot;not available for this action&quot;. Never invent routes or make further calls for formatting.
+**Output contract:** Collect every required choice explicitly; never infer or preselect; preserve errors, artifacts, and next actions. Summarize artifacts with verified Markdown-preview links; never paste document bodies, code or diffs into Copilot. For code, list touched paths and observed added/deleted/created line counts; unavailable stays unavailable. Use existing evidence, not extra calls solely for display. Summaries, links and opened previews are not human review or approval. After a blank line, display each next action as three separate Markdown bullets, in order: &quot;- Copilot: `&lt;copilotCommand&gt;`&quot;, &quot;- Shell: `&lt;command&gt;`&quot;, &quot;- VS Code (model-free): `&lt;modelFreeCommand&gt;`&quot;. Preserve exact returned routes; never combine them on one line or in a table. Missing Copilot: &quot;no verified equivalent&quot;; missing Shell or model-free: &quot;not available for this action&quot;. Never invent routes or make further calls for formatting. Act on a result&#39;s `act` first: its state, `do` routes and any `ask`. A bounded result names `agentOutput.read` ranges and `omittedFields` text files; read all in one response with your file tool, at the exact paths in the checkout&#39;s `.sflow/out/`. If a result comes back cut off, empty, still running or saved where you cannot open it, run `singularity-flow result last --wait --for-agent --json` and act on it; never rerun the command or point back to this skill, and never read the host&#39;s copy with shell tools. If a path SFlow returned fails to open, copy it again exactly from the result and open it once more; only then report it unopened, with the path and error.
 &lt;!-- sflow-execution-boundary --&gt;
 **Boundary:** no Story required; cwd=opened Git root or verified `repositoryPath` from `singularity-flow workspace current --json`; refuse if neither resolves; never search `$HOME`/parents. Use exact CLI-returned paths. `repositoryPath` is command cwd, not a prefix for absolute file paths. Never rebase paths or strip `.git/worktrees`. Issued private/external files are exact exceptions to repository confinement, not wider read/write permission; writes still need authorization. Resolve relative paths only against their declared base. On failure, preserve the path and error; never search or recreate it.
 
-1. Run `singularity-flow capability test-setup --json`, retaining explicit `--source-root` arguments.
+1. Run `singularity-flow capability test-setup --for-agent --json`, retaining explicit `--source-root` arguments.
    Inspection never clones, installs, runs tests or observes a failure baseline.
    For a monorepo, ask which exact application directories to inspect; do not scan the whole tree.
 2. Read only the selected module&#39;s manifests, wrapper metadata, test scripts and reporter configuration.
@@ -11467,7 +11467,7 @@ Before any boundary lookup or SFlow action, run `singularity-flow pause status -
    eligible human risk decision. Unknown existing results remain unverified, not accepted failures.
 5. In VS Code offer Capabilities → Test setup, also Configuration Center → Test setup.
    Otherwise preview: `singularity-flow capability test-setup --step &lt;STEP&gt; [--workflow &lt;WORKFLOW&gt;]
-   --use &lt;SUGGESTION-ID&gt; --json` (keep `--source-root`), or for a supplied command `--id &lt;ID&gt; --argv
+   --use &lt;SUGGESTION-ID&gt; --for-agent --json` (keep `--source-root`), or for a supplied command `--id &lt;ID&gt; --argv
    &#39;&lt;JSON ARRAY&gt;&#39; --working-directory &lt;DIR&gt; --affected-root &lt;DIR&gt; --adapter &lt;ADAPTER&gt; --report &lt;PATH&gt;`
    (report relative to the working directory). Show its `diff`. Only after explicit consent run its
    `confirmCommand` with `--json`; it proposes the change for review (no sub-agent).
@@ -11476,7 +11476,7 @@ Before any boundary lookup or SFlow action, run `singularity-flow pause status -
    Existing Stories retain explicit pins. Only for explicit command revisions approved in sflow/config,
    use `singularity-flow story test-policy amend &lt;WORK-ID&gt;
    --reason &quot;&lt;reason&gt;&quot; --json` (the current step) for preview only. Preserve code/documents; show digest/authority.
-   Human confirmation/apply belong to `/sf-recover`; never approve for the user. Fresh tests required.
+   The person runs the returned `--apply --confirm` line in their own terminal; never approve for the user. Fresh tests required.
 7. Report what was inspected, configured, adopted, or not done. Pair the inspection Shell command
    with Copilot `/sf-test-setup`; use `/sf-ready` for an explicitly requested baseline run.
 </code></pre>

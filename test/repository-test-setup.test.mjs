@@ -100,3 +100,19 @@ test('the new CLI inspection is model-free, read-only and has a packaged Copilot
   assert.equal(operation.classification, 'read');
   assert.equal(operation.modelPolicy, 'never');
 });
+
+// An office Copilot turn got only "invalid structured test configuration" and the generic recover plan,
+// so it could not tell what was wrong and went looking for the CLI's source (2026-10-29).
+test('a proposed test command that is not runnable names the field and the inspection that lists runnable ones', async () => {
+  const { planTestCommandProposal } = await import('../src/test-setup-proposal.mjs');
+  const { refusalRemediationPlan } = await import('../src/refusal-remediation.mjs');
+  const command = { id: 'unit', kind: 'test', argv: ['npm', 'test'], workingDirectory: '.', affectedRoots: ['.'],
+    result: { adapter: 'mystery', path: 'reports/unit.xml' } };
+  const refused = await planTestCommandProposal(process.cwd(), { step: 'implementation', command }).then(() => null, (error) => error);
+  assert.equal(refused?.code, 'TEST_SETUP_COMMAND_INVALID');
+  assert.match(refused.message, /^Test command 'unit' cannot be proposed: the command\.result\.adapter must be /u);
+  assert.doesNotMatch(refused.message, /invalid structured test configuration/u);
+  assert.equal(refused.details.nextAction, 'singularity-flow capability test-setup --json');
+  const plan = refusalRemediationPlan(refused, ['capability', 'test-setup', '--step', 'implementation', '--id', 'unit']);
+  assert.deepEqual(plan.steps.map((entry) => entry.command)[0], 'singularity-flow capability test-setup --json');
+});

@@ -26,6 +26,7 @@ import path from 'node:path';
 import YAML from 'yaml';
 import { withApprovedConfigurationRead } from './approved-configuration-reader.mjs';
 import { normalizeRequiredTestCommand } from './code-delivery-tests.mjs';
+import { normalizeExternalCommand } from './external-command-policy.mjs';
 import { validateDefinition, WORKFLOW_PATH } from './config.mjs';
 import { configurationReadRoot } from './configuration-read-scope.mjs';
 import { repoRoot } from './git.mjs';
@@ -68,10 +69,18 @@ export async function planTestCommandProposal(root, { step: phase, workflow = nu
   if (!STEP_ID.test(String(phase ?? ''))) throw usage('Name the workflow step the tests run in with --step <STEP>.');
   if (workflow != null && !STEP_ID.test(String(workflow))) throw usage('--workflow takes a workflow ID.');
   // The same contract publication holds the command to: argv, a structured report, nothing suppressed.
+  // Publication says only "invalid structured test configuration" so a configured argv never reaches
+  // a refusal; this is the person's own proposal, so name the field that is wrong. Without it a
+  // Copilot turn could not tell why, and went looking for the CLI's source (2026-10-29, office).
   try { normalizeRequiredTestCommand(command); }
   catch (error) {
-    throw new SingularityFlowError(`Test command '${command.id}' cannot be proposed: ${error.message}`,
-      { code: 'TEST_SETUP_COMMAND_INVALID', details: { subjectKind: 'configuration', reason: error.code ?? null } });
+    let field = null;
+    try { normalizeExternalCommand(command); } catch (shape) { field = shape.message; }
+    const reason = (field ?? error.message).replace(/^qualityCommands\[\d+\]/u, 'the command');
+    throw new SingularityFlowError(`Test command '${command.id}' cannot be proposed: ${reason} `
+      + 'Correct it and propose again, or --use a suggestion the inspection lists.',
+      { code: 'TEST_SETUP_COMMAND_INVALID', details: { subjectKind: 'configuration', reason: error.code ?? null, field: field ?? null,
+        nextAction: 'singularity-flow capability test-setup --json' } });
   }
   return withApprovedConfigurationRead(root, async () => {
     const text = await readFile(path.join(configurationReadRoot(root), WORKFLOW_PATH), 'utf8');

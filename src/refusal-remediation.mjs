@@ -1085,6 +1085,13 @@ const KNOWN = Object.freeze({
       'singularity-flow capability map <CAPABILITY-ID> --lead <LEAD-URL> --json', 'remediation')
   ],
   // Within the three-step cap: what SFlow suggests (and the repository routes from there), the
+  // A proposed test command that is not the shape publication runs: name the field (the refusal does)
+  // and the inspection, which lists commands that are; it had only the generic recover/doctor plan.
+  TEST_SETUP_COMMAND_INVALID: () => [
+    step('inspect-test-setup',
+      'The refusal names what is wrong with the command. See the runners SFlow suggests for this repository (add --source-root <DIRECTORY> for one below the root); inspection runs nothing. Then propose one with --use <SUGGESTION-ID>, or the corrected command in full.',
+      'singularity-flow capability test-setup --json', 'diagnostic', '/sf-test-setup')
+  ],
   // Story-only command a step approver accepts, and the recheck after either.
   CODE_DELIVERY_TEST_COMMAND_REQUIRED: (argv, error) => {
     const phase = artifactAuthoringPhase(argv, error);

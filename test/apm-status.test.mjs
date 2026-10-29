@@ -181,7 +181,7 @@ test('apm status prints in plain words, and refuses an unknown subcommand or opt
   assert.match(shown.stdout, /No APM CLI on this machine's PATH/u);
   const json = JSON.parse(spawnSync(process.execPath, [bin, 'apm', 'status', '--json'], { cwd: root, encoding: 'utf8', env }).stdout);
   assert.equal(json.state, 'intact');
-  const unknown = spawnSync(process.execPath, [bin, 'apm', 'install'], { cwd: root, encoding: 'utf8', env });
+  const unknown = spawnSync(process.execPath, [bin, 'apm', 'publish'], { cwd: root, encoding: 'utf8', env });
   assert.notEqual(unknown.status, 0);
   assert.match(unknown.stderr + unknown.stdout, /status/u);
   const option = spawnSync(process.execPath, [bin, 'apm', 'status', '--network'], { cwd: root, encoding: 'utf8', env });

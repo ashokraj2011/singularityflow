@@ -540,6 +540,8 @@ export function argvAllowed(argv, mode, value) {
     const planned = plannedActionArgv(positionals, options, value);
     if (!planned || planned[0] === 'action' || !argvAllowed(planned, mode, value)) return false;
   }
+  // Installing agent packages changes which agents run: the person's own step, in no turn [APM A2].
+  if (positionals[0] === 'apm' && positionals[1] === 'install' && options['dry-run'] !== true) return false;
   // Environment values come only from the person's own secret helper on standard input, in no turn.
   if (positionals[0] === 'env' && ['bind', 'unbind'].includes(positionals[1])) return false;
   // What the code means is a person's word: confirming a rule's meaning or reviewing knowledge, in no turn.

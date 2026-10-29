@@ -266,6 +266,8 @@ export const COMMAND_LINE_SKILL_ROUTES = Object.freeze({
   'help-metrics': route('sf-help', { on: null, off: null, clear: null }),
   repositories: route('sf-repositories', { 'cache clear': null }),
   gateway: route('sf-home', { serve: null }),
+  // Installing agent packages changes which agents run: the person's own step (OWN_TERMINAL_STEPS).
+  apm: route('sf-import', { install: null }),
   capabilities: route('sf-capabilities', {
     doctor: 'sf-capability-doctor'
   }),
@@ -503,7 +505,9 @@ export const OWN_TERMINAL_STEPS = Object.freeze([
   ['approval-evidence-confirmation', ([command], options) => command === 'approve' && options['confirm-evidence'] === true],
   // `upstream-issue decide` for the bound Story is a /sf-decide turn's own; an amendment is not.
   ['upstream-amendment-decision', ([command, sub]) => command === 'upstream-issue' && ['decide-amendment', 'revalidate'].includes(sub)],
-  ['environment-binding', ([command, sub]) => command === 'env' && ['bind', 'unbind'].includes(sub)]
+  ['environment-binding', ([command, sub]) => command === 'env' && ['bind', 'unbind'].includes(sub)],
+  // Which agents a repository runs; APM's own --dry-run preview stays open to a turn [APM A2].
+  ['apm-install', ([command, sub], options) => command === 'apm' && sub === 'install' && options['dry-run'] !== true]
 ].map(([id, matches]) => Object.freeze({ id, matches })));
 
 /** The id of the own-terminal step this command line is, or null. */

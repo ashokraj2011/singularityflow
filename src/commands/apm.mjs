@@ -1,12 +1,13 @@
 /**
- * `singularity-flow apm status` [APM A1, 2026-10-29]: the repository's APM packages as the APM CLI
- * left them (apm.yml, apm.lock.yaml and the files it deployed), and whether each deployed file is
- * still the one APM wrote and is committed. Model-free and read-only; APM itself installs.
+ * `singularity-flow apm status|install` [APM A1-A2, 2026-10-29]. status: the repository's APM
+ * packages as the APM CLI left them (apm.yml, apm.lock.yaml and the files it deployed), and whether
+ * each deployed file is still the one APM wrote and is committed; model-free and read-only.
+ * install: one `apm install` committed for review (apm-install.mjs), in the person's own terminal.
  */
 import { optionBoolean, SingularityFlowError } from '../util.mjs';
 
-const SUBCOMMANDS = Object.freeze(['status']);
-const OPTIONS = Object.freeze({ status: ['json'] });
+const SUBCOMMANDS = Object.freeze(['status', 'install']);
+const OPTIONS = Object.freeze({ status: ['json'], install: ['dev', 'dry-run', 'json'] });
 
 const STATE_WORDS = Object.freeze({
   absent: 'This repository has no APM project (no apm.yml or apm.lock.yaml).',
@@ -72,6 +73,20 @@ function print(status) {
   console.log(lines.join('\n'));
 }
 
+function printInstall(result) {
+  if (result.dryRun) return console.log(`That was APM's preview (apm ${result.apmVersion}); nothing was changed.`);
+  if (!result.committed) return console.log(`apm install changed nothing to commit (apm status: ${result.state}).`);
+  const lines = [`Committed ${result.commit.slice(0, 12)} on ${result.branch}${result.createdBranch ? ` (new, from ${result.from})` : ''}: ${result.changed.length} file${result.changed.length === 1 ? '' : 's'} apm ${result.apmVersion} changed.`];
+  for (const entry of result.installed) {
+    const what = primitiveWords(entry.primitives);
+    lines.push(`  ${entry.label}${entry.commit ? ` @ ${entry.commit.slice(0, 12)}` : ''}${what ? `: ${what}` : ''}.`);
+  }
+  if (result.pinRecorded) lines.push(`apm.yml now pins apm ${result.apmVersion} (x-sflow.apm-cli), so every machine installs with the same version.`);
+  lines.push('Nothing was pushed. Review and share it:');
+  for (const action of result.nextActions) lines.push(`  ${action.command}`);
+  console.log(lines.join('\n'));
+}
+
 export async function run(_argv, { positionals, options = {} }) {
   const subcommand = positionals[1] ?? 'status';
   if (!SUBCOMMANDS.includes(subcommand)) {
@@ -80,8 +95,17 @@ export async function run(_argv, { positionals, options = {} }) {
   }
   const unknown = Object.keys(options).filter((key) => ![...OPTIONS[subcommand], 'timings'].includes(key)).sort();
   if (unknown.length) fail(`apm ${subcommand} does not accept ${unknown.map((key) => `--${key}`).join(', ')}. Use: ${OPTIONS[subcommand].map((key) => `--${key}`).join(', ')}.`);
-  if (positionals.length > 2) fail(`apm ${subcommand} takes no further arguments.`);
   const { repoRoot } = await import('../git.mjs');
+  if (subcommand === 'install') {
+    const { installApmPackages } = await import('../apm-install.mjs');
+    const result = await installApmPackages(repoRoot(process.cwd()), {
+      packages: positionals.slice(2).map(String), dev: optionBoolean(options, 'dev'), dryRun: optionBoolean(options, 'dry-run')
+    });
+    if (optionBoolean(options, 'json')) console.log(JSON.stringify(result, null, 2));
+    else printInstall(result);
+    return result;
+  }
+  if (positionals.length > 2) fail(`apm ${subcommand} takes no further arguments.`);
   const { apmProjectStatus } = await import('../apm-project.mjs');
   const status = await apmProjectStatus(repoRoot(process.cwd()));
   if (optionBoolean(options, 'json')) console.log(JSON.stringify(status, null, 2));

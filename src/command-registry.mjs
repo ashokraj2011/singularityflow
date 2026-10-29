@@ -11,8 +11,8 @@ const MODEL_FREE_MIXED_COMMANDS = new Set(['skill', 'init', 'precheck', 'configu
 const APP_SUBCOMMANDS = Object.freeze(['plan', 'start', 'status', 'stop', 'suggest', 'config', 'connections']);
 const APP_READS = Object.freeze(['plan', 'status', 'suggest', 'config', 'connections']);
 const TESTS_SUBCOMMANDS = Object.freeze(['plan', 'run', 'summary']);
-// APM packages as the APM CLI left them [APM A1]: status reads; APM itself installs.
-const APM_SUBCOMMANDS = Object.freeze(['status']);
+// APM packages [APM A1-A2]: status reads; install commits one apm install (its --dry-run is APM's preview).
+const APM_SUBCOMMANDS = Object.freeze(['status', 'install']);
 const UPSTREAM_ISSUE_SUBCOMMANDS = Object.freeze(['raise', 'list', 'decide', 'propose-amendment', 'decide-amendment', 'revalidate']);
 
 const CONFIGURATION_READ_SUBCOMMANDS = Object.freeze([
@@ -1602,6 +1602,7 @@ export function resolveOperation({ requestedCommand, positionals, options = {}, 
   if (definition.name === 'apm') {
     const action = positionals[1] ?? 'status';
     if (!APM_SUBCOMMANDS.includes(action)) return unknownSubcommand('apm', action, APM_SUBCOMMANDS);
+    if (action === 'install') return optionBoolean(options, 'dry-run') ? never('apm.install.preview', definition, 'read') : never('apm.install', definition, 'mutation');
     return never(`apm.${action}`, definition, 'read');
   }
   if (definition.name === 'upstream-issue') {
@@ -1872,7 +1873,8 @@ export function operationCatalog() {
     ...APP_SUBCOMMANDS.map(name => never(`app.${name}`, commandDefinition('app'), APP_READS.includes(name) ? 'read' : 'mutation')),
     ...['save-local', 'reset-local'].map(name => never(`app.config.${name}`, commandDefinition('app'), 'mutation')),
     ...TESTS_SUBCOMMANDS.map(name => never(`tests.${name}`, commandDefinition('tests'), ['plan', 'summary'].includes(name) ? 'read' : 'mutation')),
-    ...APM_SUBCOMMANDS.map(name => never(`apm.${name}`, commandDefinition('apm'), 'read')),
+    never('apm.status', commandDefinition('apm'), 'read'),
+    never('apm.install.preview', commandDefinition('apm'), 'read'), never('apm.install', commandDefinition('apm'), 'mutation'),
     ...['create', 'edit', 'remove'].flatMap(name => [never(`instruction.${name}.preview`, commandDefinition('instruction'), 'read'), never(`instruction.${name}`, commandDefinition('instruction'), 'mutation')]),
     ...SKILL_MUTATION_SUBCOMMANDS.flatMap((name) => [
       never(`skill.${name}.preview`, commandDefinition('skill'), 'read'), never(`skill.${name}`, commandDefinition('skill'), 'mutation')

@@ -69,6 +69,13 @@
       },
       "digest": "6a70fd8bb347865b9afc10531985d1ff0ce18c1df18eb551b32e49053737a29b"
     },
+    "src/apm-install.mjs": {
+      "counts": {
+        "command-run": 1,
+        "process-import": 1
+      },
+      "digest": "60c5eb07186a144523bfa14b83c81d497d721242933c839711d5326646353a4b"
+    },
     "src/application-run.mjs": {
       "counts": {
         "process-import": 1,

@@ -814,6 +814,7 @@ test('every step only a person takes in their own terminal is refused in every t
     'upstream-amendment-decision': ['singularity-flow upstream-issue decide-amendment FAM-001 --decision approve --reason "The amendment is right." --confirm FAM-001',
       'singularity-flow upstream-issue revalidate custom-step --amendment FAM-001 --outcome unchanged --reason "Still holds."'],
     'environment-binding': ['singularity-flow env bind staging --stdin', 'singularity-flow env unbind staging --json'],
+    'apm-install': ['singularity-flow apm install acme/review-pack', 'singularity-flow apm install --dev ../local-pack --json'],
     'approval-evidence-confirmation': ['singularity-flow approve custom-step --work-id PMC-1 --confirm-evidence'],
     'clarification-answer': ['singularity-flow clarification answer custom-step --question "Is 2 right?" --answer "Yes."'],
     'plan-correction': ['singularity-flow decision plan PMC-1 --set-fulfillment PMC-1:REQ-001=test-only --reason "The tests are the whole delivery."',
@@ -839,6 +840,7 @@ test('every step only a person takes in their own terminal is refused in every t
   for (const command of ['singularity-flow appeal risk-prepare --work-id PMC-1 --phase custom-step --reason "Preview the risk."',
     `singularity-flow appeal evidence-accept --work-id PMC-1 --phase custom-step --review-ui --confirm ${digest}`,
     'singularity-flow story test-policy accept-risk PMC-1 --phase custom-step',
+    'singularity-flow apm install acme/review-pack --dry-run',
     'singularity-flow story test-policy amend PMC-1 --phase custom-step --reason "Preview the amendment."']) {
     assert.equal(ownTerminalStep(command), null, command);
   }

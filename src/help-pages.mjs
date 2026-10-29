@@ -1353,22 +1353,30 @@ const PAGES = Object.freeze({
     seeAlso: ['app', 'env', 'evidence', 'capability']
   },
   apm: {
-    summary: 'See the repository\'s APM packages as the APM CLI left them, and whether every file it deployed is intact and committed.',
+    summary: 'See the repository\'s APM packages as the APM CLI left them, and install one as a commit a pull request reviews.',
     description: [
       'APM (Agent Package Manager) owns packages: apm.yml declares them, apm install resolves each one to a commit,',
       'writes its agents, instructions and prompts into .github/ and its skills into .agents/skills/, and records every file with its SHA-256 in',
       'apm.lock.yaml. Commit all three, so every clone and every Story uses the same agents.',
       'apm status reads those files and checks each deployed file against the lock: missing, changed since apm',
       'install wrote it, or not committed. It names the packages, what each one deployed, the agents in',
-      '.github/agents that are not from APM, and the APM CLI on this machine. It fetches nothing and changes nothing;',
-      'apm install, apm audit and apm prune remain APM\'s own commands.'
+      '.github/agents that are not from APM, and the APM CLI on this machine. It fetches nothing and changes nothing.',
+      'apm install runs APM\'s own apm install in your terminal and commits exactly what it changed on an apm/ branch',
+      '(a new apm/install-<package>, or the apm/ branch you are on), for a pull request. It first needs the APM files',
+      'committed, a checkout that is not a Story\'s, and the APM CLI version apm.yml pins (x-sflow.apm-cli; the first',
+      'install records it). Afterwards every deployed file must match the lock, or nothing is committed. Nothing is pushed.',
+      'Installing changes which agents run, so only a person runs it, in their own terminal; --dry-run is APM\'s preview.'
     ],
     options: [
-      ['--json', 'Machine-readable output (sflow-apm-status).']
+      ['--dev', 'install only: add the packages as development dependencies (APM\'s --dev).'],
+      ['--dry-run', 'install only: APM\'s preview; nothing is changed or committed.'],
+      ['--json', 'Machine-readable output (sflow-apm-status, sflow-apm-install).']
     ],
     examples: [
       ['singularity-flow apm status', 'Lists the locked packages and says whether their deployed files are intact and committed.'],
-      ['singularity-flow apm status --json', 'The same as sflow-apm-status: state, packages, files, findings and next actions.']
+      ['singularity-flow apm status --json', 'The same as sflow-apm-status: state, packages, files, findings and next actions.'],
+      ['singularity-flow apm install reviewer@acme-catalog', 'Installs one package from a marketplace APM knows and commits it on apm/install-reviewer.'],
+      ['singularity-flow apm install', 'Installs what apm.yml declares (for example after a merge) and commits what changed.']
     ],
     seeAlso: ['import', 'agents', 'skill']
   },

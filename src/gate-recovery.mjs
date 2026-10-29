@@ -117,7 +117,7 @@ export function pendingOpenStory(workflow) {
  * so offer only what is legal from the final phase's status: a return of the submitted final phase
  * to the owner, repair of the final phase's own evidence, or a plain statement of what must happen.
  */
-function openStoryRecovery(workflow, code, ownerPhase, openStory) {
+function openStoryRecovery(workflow, code, ownerPhase, openStory, about = null) {
   const workId = workflow.workItem.id;
   const final = workflow.phases?.[openStory.phase] ?? completionPhaseOf(workflow);
   const finalId = final?.id ?? openStory.phase;
@@ -143,7 +143,10 @@ function openStoryRecovery(workflow, code, ownerPhase, openStory) {
     };
   }
   const raised = raiseUpstreamIssueRoute(workflow, ownerPhase, finalId);
-  if (raised) return { mode: 'guided', ownerPhase, requiresReopen: false, command: raised.command, detail: raised.label };
+  // The finding names its clause: a placeholder left for it was recorded literally, or the turn ended
+  // on the refusal that followed (2026-10-29).
+  if (raised) return { mode: 'guided', ownerPhase, requiresReopen: false,
+    command: about ? raised.command.replace('<clause-or-section>', about) : raised.command, detail: raised.label };
   return {
     mode: 'manual', ownerPhase, requiresReopen: false, command: null,
     detail: allowed.includes(ownerPhase)
@@ -218,7 +221,7 @@ function storyRecovery(workflow, code, ownerPhase, path, openStory = null, conte
     detail: 'Review the approved configuration refresh. An in-flight Story keeps its immutable snapshot; do not rewrite it silently.'
   };
 
-  if (openStory && ownerPhase) return openStoryRecovery(workflow, code, ownerPhase, openStory);
+  if (openStory && ownerPhase) return openStoryRecovery(workflow, code, ownerPhase, openStory, context.about ?? null);
   const closed = workflow.status === 'closed' && workflow.currentPhase == null;
   if (closed && ownerPhase) {
     const completion = completionPhaseOf(workflow);
@@ -355,7 +358,8 @@ export function classifyStoryGateFailures(workflow, findings, { openStory = null
       value: null,
       stableState: 'unchanged',
       details: { message, ...(entry.details ?? {}) },
-      recovery: storyRecovery(workflow, code, phase, path, openStory, { publicationPending, publication: entry.publication, details: entry.details })
+      recovery: storyRecovery(workflow, code, phase, path, openStory, { publicationPending, publication: entry.publication, details: entry.details,
+        about: String(message ?? '').match(/\b([A-Z0-9][A-Z0-9._-]{0,63}:[A-Z]{2,4}-\d{3})\b/u)?.[1] ?? null })
     };
   });
 }

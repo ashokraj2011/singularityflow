@@ -255,6 +255,13 @@ export async function storyPullRequestPlan(root, config, workflow, { mergeSequen
     // A preview never invents evidence: the body says the matrix could not be evaluated.
     evidence = null;
   }
+  // A closing commit still waiting to be pushed is not on the remote head the pull request opens from:
+  // the PR said "closed" while its head lacked the close (2026-10-29).
+  let unpublished = false;
+  try {
+    const { storyPublicationPending } = await import('./story-publication-read.mjs');
+    unpublished = await storyPublicationPending(root, config, workflow.workItem.id);
+  } catch { unpublished = false; }
   return {
     workId: workflow.workItem.id,
     base,
@@ -266,7 +273,8 @@ export async function storyPullRequestPlan(root, config, workflow, { mergeSequen
     evidenceReceipt,
     requiredChecks: seed?.story?.requiredChecks ?? [],
     blockedBy: (() => {
-      const blockers = [...storyLifecycleBlockers(workflow), ...storyChangedAfterClosing(root, config, workflow, { head, base })];
+      const blockers = [...storyLifecycleBlockers(workflow), ...storyChangedAfterClosing(root, config, workflow, { head, base }),
+        ...(unpublished ? [`${workflow.workItem.id} has a commit waiting to be published; run singularity-flow sync ${workflow.workItem.id} first`] : [])];
       const entry = mergeSequence?.stories?.find((item) => item.workId === workflow.workItem.id || item.id === workflow.workItem.id);
       if (!entry) return blockers;
       blockers.push(...(entry.blockedBy ?? []), ...(entry.mergeBlockedBy ?? []));

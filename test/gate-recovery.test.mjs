@@ -279,3 +279,16 @@ test('gate recovery classifier stays deterministic and model/AST independent', a
   assert.doesNotMatch(source, /from ['"].*(?:model|ast)/i);
   assert.doesNotMatch(source, /from ['"].*(?:runner|provider|completion)/i);
 });
+
+// The finding names its clause; the raise route left `<clause-or-section>` for the agent to record
+// literally, or for a refusal to end the turn on (2026-10-29).
+test('an open Story\'s upstream-issue route names the clause its finding is about', () => {
+  const workflow = story(['spec', 'implementation', 'release'], { code: ['implementation'] });
+  workflow.phases.spec.status = 'approved';
+  workflow.phases.implementation.status = 'approved';
+  workflow.phases.release.status = 'in_progress';
+  workflow.currentPhase = 'release';
+  const [finding] = classifyStoryGateFailures(workflow, [coded('gate.clause.unimplemented', 'clause REC-1:REQ-001 is not fully implemented')],
+    { openStory: { phase: 'release', status: 'in_progress' } });
+  assert.match(finding.recovery.command ?? '', /upstream-issue raise .*--about REC-1:REQ-001 /u, JSON.stringify(finding.recovery));
+});

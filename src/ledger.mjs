@@ -3130,13 +3130,32 @@ async function allLedgerIntents(root, config, { offline = false, workId = null }
   return [...unique.values()].sort((left, right) => left.intent.eventId.localeCompare(right.intent.eventId));
 }
 
-export async function reconcileLedger(root, rawConfig, { workId = null, offline = false } = {}) {
+export async function reconcileLedger(root, rawConfig, { workId = null, offline = false, skipPendingPublication = false } = {}) {
   const config = normalizeLedgerConfig(rawConfig);
   if (!config.enabled) return { enabled: false, appended: [], existing: [], failed: [] };
   const appended = [], existing = [], failed = [];
+  // A subject whose commit is still waiting (refused, or not sent yet) keeps its entry for the sync that
+  // publishes it: a standalone reconcile pinned the commit the branch had refused, and the entry
+  // outlived a set-aside (2026-10-29). sync reconciles after it publishes, without this.
+  const waiting = new Map();
+  const pendingFor = async (subject) => {
+    const kind = subject?.kind === 'initiative' ? 'initiative' : 'story';
+    const id = subject?.workId ?? subject?.id;
+    if (!skipPendingPublication || !id) return false;
+    const key = `${kind}\u0000${id}`;
+    if (!waiting.has(key)) {
+      const { hasPendingPublication } = await import('./publication-pending.mjs');
+      waiting.set(key, await hasPendingPublication(root, { kind, id }).catch(() => false));
+    }
+    return waiting.get(key);
+  };
   for (const candidate of await allLedgerIntents(root, config, { workId, offline })) {
     const { intent, intentPath, publishedCommit } = candidate;
     if (workId && intent.subject?.workId !== workId) continue;
+    if (await pendingFor(intent.subject)) {
+      failed.push({ eventId: intent.eventId, intentPath, error: 'Its commit is still waiting to be published; sync appends it once it is.' });
+      continue;
+    }
     if (!publishedCommit) {
       failed.push({ eventId: intent.eventId, intentPath, error: 'Intent has not been committed.' });
       continue;

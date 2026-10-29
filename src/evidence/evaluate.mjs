@@ -178,9 +178,11 @@ function scopeSummary(inventory, review) {
  * The plan correction that makes a row test-only: its approvers record it directly. A row that
  * plans no test names the delivered one as well, since a test-only row is proven by its tests.
  */
-export function testOnlyCorrection(workId, planStep, clauseId, planned) {
+export function testOnlyCorrection(workId, planStep, clauseId, planned, delivered = []) {
+  // The one test the step delivered is named; with several, the person picks the row's own.
+  const test = delivered.length === 1 && /^[A-Za-z0-9._/@+-]+$/u.test(delivered[0]) ? delivered[0] : '<TEST-PATH>';
   return `singularity-flow decision plan ${workId} --owner ${planStep} --set-fulfillment ${clauseId}=test-only`
-    + ((planned?.tests ?? []).length ? '' : ` --add-test ${clauseId}=<TEST-PATH>`)
+    + ((planned?.tests ?? []).length ? '' : ` --add-test ${clauseId}=${test}`)
     + ' --reason "<why the tests are the whole delivery>"';
 }
 
@@ -363,7 +365,7 @@ export function evaluateEvidence(graph, { boundary = 'view', mode = 'projection'
     const testsOnlyDelivery = implementStatus === 'missing' && latest?.testsOnly === true && Boolean(planned) && planned.fulfillment !== 'test-only';
     const correctionStep = testsOnlyDelivery ? owners[latest.phaseId] ?? plannedBy.at(-1) : null;
     if (implementStatus === 'missing') rowFindings.push(finding('EVIDENCE_IMPLEMENTATION_MISSING', testsOnlyDelivery
-      ? `No delivered change implements ${id}: ${latest.phaseId} delivered only test files, and ${id} is planned as a product change. If the tests are the whole delivery, someone who approves ${correctionStep} corrects the row: ${testOnlyCorrection(workId, correctionStep, id, planned)}.`
+      ? `No delivered change implements ${id}: ${latest.phaseId} delivered only test files, and ${id} is planned as a product change. If the tests are the whole delivery, someone who approves ${correctionStep} corrects the row: ${testOnlyCorrection(workId, correctionStep, id, planned, latest.testPaths ?? [])}.`
       : `No delivered change implements ${id}.`, { obligationIds: [implementId] }));
     // The binding the implementing step delivered for this row, and the reviewer's decision on it.
     const binding = [...deliveries].reverse().filter((delivery) => implementers.includes(delivery.phaseId))
@@ -379,7 +381,7 @@ export function evaluateEvidence(graph, { boundary = 'view', mode = 'projection'
       id: implementId, responsibility: 'implement', subject: id, owningSteps: implementers, status: implementStatus,
       fulfillment: noCode ? 'non-code' : planned?.fulfillment ?? (planned?.obligations ? 'mixed' : testOnly ? 'test-only' : 'new-or-modified'),
       ...(planned?.obligations ? { plannedObligations: planned.obligations } : {}),
-      ...(testsOnlyDelivery ? { correctionSteps: [correctionStep] } : {}),
+      ...(testsOnlyDelivery ? { correctionSteps: [correctionStep], deliveredTests: latest.testPaths ?? [] } : {}),
       ...(binding ? { binding: { ...binding.entry, decision: bindingDecision?.decision ?? null, reason: bindingDecision?.reason ?? null } } : {}),
       facets: {
         coverage: observed?.observedPaths?.length || testOnlyLinked ? 'linked' : 'unlinked', execution: 'not-applicable', assurance: 'not-applicable',

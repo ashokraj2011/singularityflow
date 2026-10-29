@@ -488,10 +488,13 @@ function publicationReport(initiative, breakdown, attempt, jiraPlan) {
     const receipt = attempt.stories.find((entry) => entry.storyId === story.id);
     lines.push(`| ${story.planId} | ${story.jiraKey ?? story.workId} | ${story.repository} | ${story.workId} | ${receipt?.commit?.slice(0, 12) ?? 'unavailable'} | ${story.tasks?.length ?? 0} |`);
   }
+  // A local Epic's Stories have no Jira key, and /sf-story-fetch needs Jira (2026-10-29).
+  const local = breakdown.stories.every((story) => !story.jiraKey);
   lines.push(
     '',
     'The planning workflow has finished. Developers now fetch a Story with',
-    '`/sf-story-fetch <JIRA-KEY>` and complete its repository workflow independently.',
+    local ? '`singularity-flow start <WORK-ID>` and complete its repository workflow independently.'
+      : '`/sf-story-fetch <JIRA-KEY>` and complete its repository workflow independently.',
     '',
     'Product Owner completion remains open until every blocking Story has a finalized review',
     'packet, exact-SHA checks, and approved spec-to-code conformance.',

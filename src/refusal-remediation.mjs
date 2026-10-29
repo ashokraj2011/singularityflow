@@ -700,6 +700,12 @@ function localSyncSteps(argv, error) {
     retry && step('retry-after-preserving', 'Then open the Story again.', retry.command, 'diagnostic')];
 }
 
+/** The Story `decision witness-exception` named: its positional, else --work-id; never another command's word. */
+function witnessExceptionWorkId(argv) {
+  const positional = argv?.[0] === 'decision' && argv?.[1] === 'witness-exception' && !String(argv?.[2] ?? '').startsWith('-') ? argv[2] : null;
+  return safeWorkId(positional) ?? safeWorkId(optionValueRaw(argv, 'work-id'));
+}
+
 const KNOWN = Object.freeze({
   // An upstream issue about a step with no approval group: never decidable there. Raise it, or a
   // superseding issue, at the nearest earlier step whose approvers can decide it.
@@ -707,12 +713,74 @@ const KNOWN = Object.freeze({
     const details = error?.details ?? {};
     const instead = typeof details.decidableStep === 'string' ? lowerKebab(details.decidableStep) : null;
     if (!instead) return [];
-    // With the Story it is for: a /sf-decide turn raises one only for its bound Story.
-    const command = details.nextAction?.command ?? `singularity-flow upstream-issue raise${typeof details.workId === 'string'
-      ? ` --work-id ${details.workId}` : ''} --phase ${instead} --about <ID|SECTION> --problem <TEXT>`;
+    // With the Story it is for: a /sf-decide turn raises one only for its bound Story, so a refusal
+    // that carried no workId (raise itself) takes the one the person named (2026-10-29).
+    const workId = safeWorkId(details.workId) ?? safeWorkId(optionValueRaw(argv, 'work-id'));
+    const about = typeof details.about === 'string' && /^[A-Za-z0-9][A-Za-z0-9:._-]{0,120}$/u.test(details.about)
+      ? details.about : optionValueRaw(argv, 'about');
+    const command = details.nextAction?.command ?? `singularity-flow upstream-issue raise${workId ? ` --work-id ${workId}` : ''} --phase ${instead} `
+      + `--about ${about && /^[A-Za-z0-9][A-Za-z0-9:._-]{0,120}$/u.test(about) ? about : '<ID|SECTION>'} --problem <TEXT>`;
     return [step(details.issue ? 'supersede-upstream-issue' : 'raise-at-decidable-step',
       `${details.issue ? `Raise the same problem against ${instead}, superseding ${details.issue}` : `Raise it against ${instead}`}: its approvers can decide it.`,
       command, 'remediation', null)].filter(Boolean);
+  },
+  // A rewritten Story history is put back by the person, with plain Git: never recover (which never
+  // checks history) and never a resubmit on the rewritten commits. Its steps were label-only and the
+  // three-step cap cut them behind the phase steps, so an approval turn looped on recover (2026-10-29).
+  STORY_HISTORY_REWRITTEN: (argv, error) => explicitInstructions(error).slice(0, PLAN_STEP_LIMIT)
+    .map((entry, index) => ({ ...entry, id: `restore-recorded-history-${index + 1}` })),
+  // The approver refresh's refusals name their own way out; they had only story --help and doctor.
+  APR_PUBLICATION_PENDING: (argv) => {
+    const workId = safeWorkId(argv?.[0] === 'story' ? argv?.[3] : null) ?? safeWorkId(optionValueRaw(argv, 'work-id'));
+    return [step('publish-waiting-commit', 'Publish the Story\'s waiting commit first; if sync says it can never be sent, preview setting it aside.',
+      `singularity-flow sync${workId ? ` ${workId}` : ''}`, 'remediation')];
+  },
+  APR_NOTHING_TO_ADD: () => [step('join-approval-group',
+    'The approved configuration adds nobody to this Story\'s groups yet. A person joins the group through approved configuration first; then preview the refresh again.',
+    'singularity-flow configuration add-current-identity --target story:<GROUP>', 'remediation')],
+  APR_CONFIRMATION_REQUIRED: () => [step('confirm-in-own-terminal',
+    'A person in one of the refreshed groups confirms the refresh plan digest in their own terminal; an agent never confirms it.', null, 'remediation')],
+  APR_REFRESH_BLOCKED: (argv, error) => (Array.isArray(error?.details?.blockers) ? error.details.blockers : []).slice(0, PLAN_STEP_LIMIT)
+    .map((blocker, index) => step(`clear-refresh-blocker-${index + 1}`,
+      String(blocker?.words ?? blocker?.label ?? 'Resolve this record before refreshing approvers.').slice(0, 2000),
+      typeof blocker?.command === 'string' ? blocker.command : null, 'remediation')),
+  // Rolling forward would undo a newer decision: finish the round, or send the Story back on purpose.
+  REWORK_ROLL_FORWARD_SUPERSEDED: (argv, error) => {
+    const workId = safeWorkId(optionValueRaw(argv, 'work-id')) ?? safeWorkId(error?.details?.workId);
+    return [step('finish-rework-round', 'Finish the rework round from its step: the planner names the next legal action.',
+      `singularity-flow nextsteps${workId ? ` ${workId}` : ''} --json`, 'remediation')];
+  },
+  // Another live command holds the Story while it publishes: wait for it, never recover.
+  STORY_PUBLICATION_IN_PROGRESS: () => [step('wait-for-publication',
+    'Another command is publishing this Story right now. Wait for it to finish, then run the same command once more.',
+    'singularity-flow result last --wait --for-agent --json', 'diagnostic')],
+  // A waiting commit that cannot be set aside says why, with the person's exact Git step.
+  PUBLICATION_SET_ASIDE_REFUSED: (argv, error) => {
+    const reason = error?.details?.reason;
+    const commit = /^[0-9a-f]{40,64}$/u.test(String(error?.details?.commit ?? '')) ? error.details.commit : null;
+    if (reason === 'commits-after-it') return [step('move-later-commits',
+      `Commits were made on the branch after the waiting one${commit ? ` (${commit.slice(0, 12)})` : ''}. Move them off it first (for example git branch keep-later HEAD, then git reset --keep ${commit ?? '<WAITING-COMMIT>'}), preview the set-aside again, and bring them back with git cherry-pick once the branch is up to date.`, null, 'remediation')];
+    if (reason === 'not-checked-out') return [step('switch-to-story-branch',
+      'Switch to the Story\'s branch (git switch <BRANCH>), then preview the set-aside again.', null, 'remediation')];
+    if (reason === 'already-published' || reason === 'no-pending-publication') return [step('sync-story',
+      'Nothing is waiting that could be set aside; sync finishes whatever is left.', 'singularity-flow sync', 'remediation')];
+    return [];
+  },
+  // A lapsed witness exception: the final check lists the step and the exact exception.
+  WITNESS_EXCEPTION_RENEWAL_INVALID: (argv) => {
+    const workId = witnessExceptionWorkId(argv);
+    return [step('list-final-check', 'The final check names each lapsed exception with its step and mapping digest.',
+      `singularity-flow decisions${workId ? ` ${workId}` : ' <WORK-ID>'}`, 'diagnostic', '/sf-decide')];
+  },
+  WITNESS_EXCEPTION_UNKNOWN: (argv) => {
+    const workId = witnessExceptionWorkId(argv);
+    return [step('list-final-check', 'Renew only an exception the step\'s current approval recorded; the final check lists them.',
+      `singularity-flow decisions${workId ? ` ${workId}` : ' <WORK-ID>'}`, 'diagnostic', '/sf-decide')];
+  },
+  WITNESS_EXCEPTION_STORY_CLOSED: (argv) => {
+    const workId = witnessExceptionWorkId(argv);
+    return [step('reopen-final-step', 'Reopen the Story at its final step first; a closed Story renews nothing.',
+      `singularity-flow reopen ${workId ?? '<WORK-ID>'} --to <FINAL-STEP> --reason "<why the exception is renewed>"`, 'remediation', '/sf-reject')];
   },
   // A draft citing a constitution article the Story's pin lacks: the author corrects the citation.
   CONSTITUTION_CITATION_INVALID: (argv, error) => {
@@ -1290,8 +1358,10 @@ function genericSteps(argv) {
   const command = String(argv?.[0] ?? '').trim();
   const steps = [];
   if (/^[a-z0-9-]+$/.test(command) && !['help', 'about'].includes(command)) {
+    // `help <command>` is a read every turn admits; `<command> --help` resolves to the command itself,
+    // a mutation for sync, submit, approve and others, which approval, decide and read turns refuse.
     steps.push(step('command-help', `Review the supported ${command} forms before retrying.`,
-      `singularity-flow ${command} --help`, 'help'));
+      `singularity-flow help ${command}`, 'help'));
   }
   steps.push(step('diagnose-repository', 'Run read-only diagnostics for repository, policy, and recovery state.',
     'singularity-flow doctor --json'));
@@ -1423,6 +1493,7 @@ export function refusalRemediationPlan(error, argv = []) {
   const selfGuidedBlocked = ['CONFIGURATION_APPROVE_CONFIRMATION_REQUIRED', 'CONFIGURATION_APPROVE_PROPOSAL_REQUIRED',
     'CONFIGURATION_APPROVE_NOTHING', 'CONFIGURATION_DRAFTS_EMPTY'].includes(code);
   const unknownRecoveryPhase = code === 'RECOVERY_PHASE_UNKNOWN';
+  const historyRewritten = code === 'STORY_HISTORY_REWRITTEN' && explicitInstructions(error).length > 0;
   // Refused for who decides, or for an answer the approver still owes: no phase repair, rejection or diagnostics.
   const identityBlocked = APPROVAL_IDENTITY_CODES.includes(code) || code === 'CLARIFICATION_AUTHORITY_REQUIRED'
     || code === 'APPROVAL_CHECKLIST_INCOMPLETE';
@@ -1492,7 +1563,7 @@ export function refusalRemediationPlan(error, argv = []) {
     : sessionTransportBlocked ? [...known, ...nonDuplicateExplicit]
     // A soft gate's alternative to the override is the Story's own next step: name it first.
     : softGateBlocked ? [...nonDuplicateExplicit, ...known]
-    : repositoryRunnerBlocked || pinnedTestPolicyBlocked || approvalTerminalBlocked || unknownRecoveryPhase || identityBlocked ? known : skillHostBlocked ? skillHostPrerequisiteSteps(error, phaseContext) : phaseContext
+    : repositoryRunnerBlocked || pinnedTestPolicyBlocked || approvalTerminalBlocked || unknownRecoveryPhase || identityBlocked || historyRewritten ? known : skillHostBlocked ? skillHostPrerequisiteSteps(error, phaseContext) : phaseContext
     ? amendmentPending
       // The amendment's decision first, then the instruction that ends an approval turn.
       ? [...known, ...phaseSteps.filter(entry => entry.id === 'leave-approval-turn'),

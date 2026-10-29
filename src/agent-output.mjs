@@ -87,7 +87,10 @@ function routes(action) {
     && (action.commandGuidance.command || action.commandGuidance.copilotCommand) ? action.commandGuidance : null;
   const guidance = given ?? (action.command || action.argv ? safeCommandGuidance(action) : null);
   const shell = guidance?.command ?? action.command ?? null;
-  const copilot = guidance?.copilotCommand ?? action.copilotCommand ?? null;
+  // A step that says it has no Copilot route keeps none: recomputing one sent an approval refusal
+  // back into /sf-approve with the --yes the step's own label says an agent never adds (2026-10-29).
+  const copilot = !given && Object.hasOwn(action, 'copilotCommand') && action.copilotCommand === null ? null
+    : guidance?.copilotCommand ?? action.copilotCommand ?? null;
   const vscode = guidance?.modelFreeCommand ?? action.modelFreeCommand ?? null;
   if (!shell && !copilot) return null;
   // A route that needs a new turn says so; dropped here, an approval turn was sent to run recover itself.
@@ -198,6 +201,11 @@ export function agentAct(result) {
   if (result.error && result.remediationPlan) {
     const plan = result.remediationPlan;
     const step = (plan.steps ?? []).find((entry) => entry?.command) ?? null;
+    // Every step is the person's own instruction (plain Git to put a rewritten history back, say):
+    // "refused" with nothing to do left the agent nowhere, so it went to recover (2026-10-29).
+    if (!plan.escalation && !step && (plan.steps ?? []).some((entry) => entry?.kind === 'remediation' && entry.label)) return {
+      state: 'ask-person', do: null, strategy: plan.context?.strategy ?? null, read: ['remediationPlan.steps'],
+      said: oneLine(`${result.error.code ?? 'Refused'}: ${result.error.message ?? ''} These steps are the person's to take: show each one; never run them here.`) };
     return withRoute({ state: plan.escalation ? 'escalate' : 'refused',
       said: oneLine(plan.escalation?.instruction ?? `${result.error.code ?? 'Refused'}: ${result.error.message ?? ''}`),
       strategy: plan.context?.strategy ?? null, do: null }, step && { ...step, reason: step.label });
@@ -237,8 +245,11 @@ export function agentAct(result) {
       said: 'Already published and ready: take the returned next step; do not recheck or edit the draft.' }, { ...next, reason: 'Take the next step.' });
     // A finding this author cannot fix in this turn: a person decides, or recovery comes first. Its route
     // is the way through; editing the draft again would recheck the same refusal (office, 2026-10-27).
-    if (result.correction && result.correction.sameTurn !== true && ['human-input', 'phase-recovery'].includes(result.correction.class) && next) {
-      const decide = result.correction.class === 'human-input' || result.correction.skill === '/sf-decide';
+    // code-rework (a stale receipt whose fix is a returned repair), human-context (a hold a person
+    // clears) and upstream-issue were left to "fix the findings and recheck", which cannot (2026-10-29).
+    if (result.correction && result.correction.sameTurn !== true
+        && ['human-input', 'phase-recovery', 'code-rework', 'human-context', 'upstream-issue'].includes(result.correction.class) && next) {
+      const decide = ['human-input', 'human-context', 'upstream-issue'].includes(result.correction.class) || result.correction.skill === '/sf-decide';
       return withRoute({ state: decide ? 'ask-person' : 'next', do: null, read: ['findings', 'correction', 'resolution'],
         said: oneLine(`${result.correction.guidance ?? 'Take the returned route first.'} ${decide ? 'Tell the person; never decide or record it for them.' : ''}`),
         ...correctionList(result.findings) }, { ...next, reason: oneLine(result.correction.guidance ?? '') });
@@ -310,9 +321,13 @@ function correctionList(findings) {
  * is kept on this computer only (finding-escalation.mjs's private store) and accepts nothing.
  */
 export function observeAgentLoop(root, result, act, { now = Date.now() } = {}) {
-  if (!act || UNCOUNTED_STATES.has(act.state) || !(act.do || act.ask)) return act;
+  // A correction has nothing to do but edit and recheck, so it was never counted: an agent rechecked
+  // the same unchanged findings round after round (2026-10-29). Its findings are its fingerprint.
+  const findings = act?.state === 'correct' && Array.isArray(result.findings) && result.findings.length
+    ? result.findings.map((entry) => [entry?.code ?? null, entry?.message ?? null, entry?.line ?? null]) : null;
+  if (!act || UNCOUNTED_STATES.has(act.state) || !(act.do || act.ask || findings)) return act;
   const fingerprint = sha256(JSON.stringify([result.resultType ?? null, act.state, act.do?.shell ?? act.do?.copilot ?? null,
-    act.ask?.value ?? null, result.head ?? null, result.generation ?? null, result.status ?? result.classification ?? null]));
+    act.ask?.value ?? null, result.head ?? null, result.generation ?? null, result.status ?? result.classification ?? null, findings]));
   let count = 1;
   try {
     count = observeFindingStreak(root, { workId: `agent-loop:${result.workId ?? result.resultType ?? 'result'}`,
@@ -325,6 +340,8 @@ export function observeAgentLoop(root, result, act, { now = Date.now() } = {}) {
       ? `This review has come back ${count} times in a row unconfirmed. Run do.shell once to show the digest, then ask the person now in this chat to confirm it; only on an explicit yes run the returned --confirm command once. Do not end with this route again.`
     : act.state === 'ask-person'
       ? `The same questions have been due ${count} times in a row. Ask them now with ask_user (or print them and stop); do not load the context again.`
+    : act.state === 'correct'
+      ? `The same findings have come back ${count} times unchanged, so the edits are not fixing them. Read what each finding quotes and the shape it asks for, change exactly that, or tell the person what is blocked and stop.`
       : `The same result has come back ${count} times in a row; repeating the command cannot change it. Do act.do now, or tell the person exactly what is blocked and stop.`;
   return { ...act, said: `Repeated ${count} times: ${act.said ?? ''}`.trim(), loop: { repeated: count, instruction } };
 }

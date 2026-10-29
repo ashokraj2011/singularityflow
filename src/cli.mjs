@@ -4937,7 +4937,7 @@ async function ledgerCommand(positionals, options) {
     restoreRemote: optionBoolean(options, 'restore-remote'),
     confirmation: optionString(options, 'confirm')
   });
-  else if (subcommand === 'reconcile') result = await reconcileLedger(root, ledger, { workId: positionals[2] ?? null });
+  else if (subcommand === 'reconcile') result = await reconcileLedger(root, ledger, { workId: positionals[2] ?? null, skipPendingPublication: true });
   else if (subcommand === 'log') result = await ledgerLog(root, ledger, { limit: optionNumber(options, 'limit', 20) });
   else if (subcommand === 'show') result = await ledgerShow(root, ledger, requirePositional(positionals, 2, 'ledger hash or event ID'));
   else if (subcommand === 'archive') result = await archiveLedger(

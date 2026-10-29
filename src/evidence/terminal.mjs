@@ -70,7 +70,7 @@ export function terminalRecoveryActions(workId, evaluation, gate = null, workflo
       // A tests-only delivery for a row planned as a product change is corrected in the plan, by its
       // approvers directly; a correction could not change a row's fulfillment before 2026-10-28.
       const owner = (obligation.correctionSteps ?? obligation.owningSteps)?.at(-1);
-      if (obligation.correctionSteps && owner) add(decisions, testOnlyCorrection(workId, owner, row.id, row.plan));
+      if (obligation.correctionSteps && owner) add(decisions, testOnlyCorrection(workId, owner, row.id, row.plan, obligation.deliveredTests ?? []));
       const step = owner ? decidableUpstreamStep(workflow, owner) : null;
       const route = step ? raiseUpstreamIssueRoute(workflow, step, workflow.currentPhase) : null;
       if (route) add(upstream, route.command.replace('<clause-or-section>', row.id).replace('<what-is-wrong>', obligation.correctionSteps

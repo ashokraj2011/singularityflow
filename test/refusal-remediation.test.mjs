@@ -937,7 +937,7 @@ test('incomplete authoring remediation rejects unsafe phase metadata and preserv
     details: { phase: 'planning; publish release' }
   }), ['phase', 'publish']);
 
-  assert.equal(plan.steps[0].command, 'singularity-flow phase --help');
+  assert.equal(plan.steps[0].command, 'singularity-flow help phase');
   assert.equal(plan.steps[1].command, 'singularity-flow doctor --json');
   // The repository planner, which answers in a plain `sflow init` repository; recommend needs a workspace.
   assert.equal(plan.steps[2].command, 'singularity-flow nextsteps --json');

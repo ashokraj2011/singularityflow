@@ -257,3 +257,27 @@ test('approved code evidence stale only because main was merged in names the mer
   assert.match(text, /src\/other\.mjs came from main through a merge after implementation was approved, not from this Story/u, text.slice(0, 3000));
   assert.match(text, /singularity-flow reject testing --to implementation --repair/u, 'the legal return is still named');
 });
+
+// The closing approval's push was refused, so the remote head lacks the close: the pull request said
+// "closed" over a head without it (2026-10-29).
+test('a pull request waits for a closing commit that has not been published', slowLane({ timeout: 600_000 }), async (t) => {
+  const root = await repository(t);
+  const workId = 'BASE-5';
+  flow(root, ['start', workId, '--from-branch', 'main', '--title', 'Tidy the ledger', '--description', 'Maintenance only.']);
+  for (const phaseId of ['intake', 'implementation', 'verification']) {
+    const approved = await stepThrough(root, workId, phaseId);
+    assert.equal(approved.status, 0, `${phaseId}\n${approved.stdout}\n${approved.stderr}`);
+  }
+  flow(root, ['prepare', 'conformance']);
+  await complete(root, workId, 'conformance');
+  flow(root, ['phase', 'publish', 'conformance']);
+  flow(root, ['submit']);
+  // Only the closing approval's push is refused.
+  await writeFile(path.join(`${root}.git`, 'hooks', 'pre-receive'), '#!/bin/sh\nexit 1\n', { mode: 0o755 });
+  assert.notEqual(flow(root, ['approve', '--yes'], { allowFailure: true }).status, 0);
+  const out = flow(root, ['pr', '--json']).stdout;
+  const blocked = JSON.parse(out.slice(0, out.lastIndexOf('}') + 1)).blockedBy;
+  assert.ok(blocked.some((entry) => /BASE-5 has a commit waiting to be published; run singularity-flow sync BASE-5/u.test(entry)), blocked.join('\n'));
+  const create = flow(root, ['pr', '--create', '--yes'], { allowFailure: true });
+  assert.notEqual(create.status, 0);
+});

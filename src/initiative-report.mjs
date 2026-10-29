@@ -256,7 +256,13 @@ async function resolveInitiativeNextActions(root, initiativeId) {
     reason: initiative.resolution.lifecycleMode === 'planning-only'
       ? 'Epic planning sign-off is complete; the read-only dashboard now tracks accepted canonical Story results.'
       : 'The initiative is complete; review final conformance, evidence assurance, time, tokens, and cost.'
-  }];
+  },
+  // Product Owner completion was never offered, so an Epic whose Stories were done stayed open (2026-10-29).
+  ...(initiative.resolution.lifecycleMode === 'planning-only' && initiative.delivery?.status !== 'complete' ? [{
+    action: 'complete',
+    command: `singularity-flow epic complete ${initiativeId} --dry-run`,
+    reason: 'Preview Product Owner completion: it lists every blocking Story not yet finalized, or confirms the Epic can close.'
+  }] : [])];
   const phase = initiative.phases[initiative.currentPhase];
   if (usesEpicPlanningLifecycle(initiative.resolution) && phase.id === 'epic-intake' && initiative.initiative.source?.type !== 'jira') {
     const sources = await listEpicSources(root, initiativeId);

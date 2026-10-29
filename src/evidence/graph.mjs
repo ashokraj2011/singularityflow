@@ -147,6 +147,8 @@ async function loadDelivery(root, phase, findings, workflow = null) {
     // planned as a product change is corrected in the plan, not looked for in code.
     testsOnly: Array.isArray(receipt?.changeSet?.sourcePaths) && !receipt.changeSet.sourcePaths.length
       && !(receipt.changeSet.deletedSourcePaths ?? []).length && (receipt.changeSet.executableTestPaths ?? []).length > 0,
+    // Which tests it delivered, so a test-only correction names the file instead of asking for it.
+    testPaths: Array.isArray(receipt?.changeSet?.executableTestPaths) ? receipt.changeSet.executableTestPaths.slice(0, 50) : [],
     receipt: receipt ? {
       status: receipt.status ?? null,
       traceability: {

@@ -1005,6 +1005,7 @@ function resolveStoryOperation(definition, positionals, options) {
   // Carrying the approved configuration's added members into a running Story: the preview reads,
   // the digest-confirmed refresh commits a new accepted snapshot revision.
   if (subcommand === 'approvers') {
+    // A missing verb is the preview, in the registry and the CLI alike (they disagreed, 2026-10-29).
     const action = positionals[2] ?? 'refresh';
     if (action !== 'refresh') return unknownSubcommand('story approvers', action, ['refresh'], 'action');
     return optionString(options, 'confirm')
@@ -1520,6 +1521,11 @@ export function resolveOperation({ requestedCommand, positionals, options = {}, 
     return never(`pause.${action}`, definition, action === 'status' ? 'read' : 'mutation');
   }
   if (definition.name === 'status' && optionBoolean(options, 'submit-if-ready')) return never('status.submission-readiness.submit', definition, 'mutation');
+  // Previewing a set-aside only fetches and reads; the person's --confirm form moves the branch. As a
+  // sync mutation, approval, decide and read turns refused the preview their own refusal named (2026-10-29).
+  if (definition.name === 'sync' && optionBoolean(options, 'set-aside') && options.confirm == null) {
+    return never('sync.set-aside.preview', definition, 'read');
+  }
   // Only these three catalog forms bypass the existing agent writer and its mutation lease.
   if (definition.name === 'agents' && AGENT_READ_SUBCOMMANDS.includes(positionals[1])) {
     return never(`agents.${positionals[1]}`, definition, 'read');

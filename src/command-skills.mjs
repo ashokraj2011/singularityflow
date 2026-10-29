@@ -532,6 +532,9 @@ export function skillForCommandLine(commandLine) {
   // The operand is an ID no fixed prefix can name: `sync <INTENT-ID>` retries one saved push.
   if (parsed.command === 'sync' && isTransportIntentId(parsed.arguments[0])) return 'sf-push';
   if (ownTerminalStep(commandLine)) return null;
+  // Previewing a set-aside is a read any turn runs where it is named; /sf-next only syncs, so routing
+  // it there sent a lost race straight back into the same refusal (2026-10-29).
+  if (parsed.command === 'sync' && parsed.arguments.includes('--set-aside')) return null;
   const exact = COMMAND_LINE_SKILL_ROUTES[parsed.command];
   const match = exactRoute(exact, parsed.arguments);
   if (match?.skill === null) return null;

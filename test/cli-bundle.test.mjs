@@ -136,7 +136,8 @@ test('the bundled CLI answers exactly like the sources while opening a handful o
   // with its two record families in schema-migrations.mjs) for 4,499,455. No new file in the closure.
   // 4,505,000: main 8180c46e measures 4,499,455; the approver refresh's three result messages (registered at last: every refresh ended in COMMAND_RESULT_INVALID) and approve --confirm-evidence as the approver's own terminal step add cold-core +744 and cold-hooks +680 for 4,500,879. No new file.
   // 4,515,000: main 0c7ca31b measures 4,500,879; refusals that quote the cell or line an author wrote and say what belongs there, publish-time prepublish plans for the draft refusals, and step-entry sentences for the rules never described (draft-diagnostics, specifications, specification-scenarios, verification intent and contracts, conformance, preflight, specification quality, constitution, refusal-remediation, phase-authoring-contract), after agents looped on such refusals in the office, add 10,178 for 4,511,057. No new file.
-  assert.ok(closure('cold-narrow-reads.mjs').reduce((sum, item) => sum + item.bytes, 0) < 4_515_000,
+  // 4,520,000: main 58b20746 measures 4,511,057; refusals that name their own way out (rewritten history, approver refresh, roll-forward, a publish in flight, set-aside reasons, witness exceptions), help as a read, routed corrections and counted unchanged rechecks in agent-output.mjs, and the set-aside preview as a read add 6,131 for 4,517,188. No new file.
+  assert.ok(closure('cold-narrow-reads.mjs').reduce((sum, item) => sum + item.bytes, 0) < 4_520_000,
     'strict next-step reads must not inherit the broad phase-review closure');
   const publicationClosure = closure('cold-publication.mjs');
   assert.ok(publicationClosure.length && publicationClosure.reduce((sum, item) => sum + item.bytes, 0) < 6 * 1024 * 1024,
@@ -271,7 +272,8 @@ test('the bundled CLI answers exactly like the sources while opening a handful o
   // cold-hook-context, with its two record families) for 7,519,896. No new file in the closure.
   // 7,525,000: main 8180c46e measures 7,519,896; the approver refresh's three result messages (registered at last: every refresh ended in COMMAND_RESULT_INVALID) and approve --confirm-evidence as the approver's own terminal step add cold-core +744 and cold-hooks +680 for 7,521,320. No new file.
   // 7,535,000: main 0c7ca31b measures 7,521,320; the same message and contract text adds 11,517 for 7,532,837. No new file.
-  assert.ok(closure('cold-hook-context.mjs').reduce((sum, item) => sum + item.bytes, 0) < 7_535_000,
+  // 7,540,000: main 58b20746 measures 7,532,837; refusals that name their own way out (rewritten history, approver refresh, roll-forward, a publish in flight, set-aside reasons, witness exceptions), help as a read, routed corrections and counted unchanged rechecks in agent-output.mjs, and the set-aside preview as a read add 6,316 for 7,539,153. No new file.
+  assert.ok(closure('cold-hook-context.mjs').reduce((sum, item) => sum + item.bytes, 0) < 7_540_000,
     'phase-review reads retain their existing byte ceiling after moving families');
   assert.match(await readFile(path.join(outdir, 'cold-light.mjs'), 'utf8'), /function enterPhase\b/u,
     'phase binding must not fall through to the compatibility/admin bundle');
@@ -320,7 +322,8 @@ test('the bundled CLI answers exactly like the sources while opening a handful o
   // 5,315,000: main 6f0e9741 measures 5,302,276; the approver refresh (a new accepted snapshot revision kind in workflow-snapshots.mjs, +13,280: its capture, replay and dialect, with its contracts loaded lazily; its review-safe commit in approval-check.mjs, +2,614; its registry, terminal-step, refusal and state entries) adds 12,258 for 5,314,534. No new file in the closure.
   // 5,320,000: main 8180c46e measures 5,314,534; the approver refresh's three result messages (registered at last: every refresh ended in COMMAND_RESULT_INVALID) and approve --confirm-evidence as the approver's own terminal step add cold-core +744 and cold-hooks +680 for 5,315,958. No new file.
   // 5,330,000: main 0c7ca31b measures 5,315,958; the same message and contract text adds 10,178 for 5,326,136. No new file.
-  assert.ok(catalogClosure.reduce((sum, item) => sum + item.bytes, 0) < 5_330_000,
+  // 5,335,000: main 58b20746 measures 5,326,136; refusals that name their own way out (rewritten history, approver refresh, roll-forward, a publish in flight, set-aside reasons, witness exceptions), help as a read, routed corrections and counted unchanged rechecks in agent-output.mjs, and the set-aside preview as a read add 6,131 for 5,332,267. No new file.
+  assert.ok(catalogClosure.reduce((sum, item) => sum + item.bytes, 0) < 5_335_000,
     'catalog parsing stays bounded instead of pulling in the entire administration bundle');
   for (const name of ['cold-compatibility.mjs', 'cold-models.mjs', 'cold-intake.mjs', 'cold-phases.mjs', 'cold-hook-context.mjs']) {
     assert.ok(!catalogClosure.some(item => item.file === name), `catalogs must not statically reach ${name}`);

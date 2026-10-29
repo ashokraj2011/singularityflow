@@ -1,4 +1,4 @@
-import { MANAGED_INPUTS, MANAGED_METADATA, MANAGED_METADATA_MARKER, authoredArtifactText, inspectManagedArtifactMetadata, authoredArtifactFingerprint, requiredArtifactRepoPath, readReviewArtifact, reviewableMarkdownPath } from './artifact-review-read.mjs';
+import { MANAGED_INPUTS, MANAGED_METADATA, MANAGED_METADATA_MARKER, artifactBytesAreText, authoredArtifactText, inspectManagedArtifactMetadata, authoredArtifactFingerprint, requiredArtifactRepoPath, readReviewArtifact, readReviewArtifactBytes, reviewableMarkdownPath } from './artifact-review-read.mjs';
 export { reviewArtifactIdentityDecision, reviewArtifactBytesStable, authoredArtifactText, authoredArtifactFingerprint, requiredArtifactRepoPath, phaseAuthoredReviewArtifacts } from './artifact-review-read.mjs';
 import { nextPhaseGeneration } from './phase-generation.mjs';
 import path from 'node:path';
@@ -287,12 +287,32 @@ export function inspectRequiredArtifactText(text, phase, {
 /** Complete artifact authoring preflight used by publish, recover, and host guidance. */
 export async function inspectRequiredArtifactContent(root, config, workflow, phase, options = {}) {
   const required = requiredArtifactRepoPath(config, workflow, phase);
-  const text = await readReviewArtifact(root, required, 'Required phase artifact');
-  if (text == null) return [{
+  const bytes = await readReviewArtifactBytes(root, required, 'Required phase artifact');
+  if (bytes == null) return [{
     code: 'artifact.required.missing', category: 'authoring', path: required, line: null,
     value: null, bytes: null, minimumBytes: phase.requiredArtifact.minimumBytes ?? 1
   }];
-  return inspectRequiredArtifactText(text, phase, { ...options, path: required });
+  if (!artifactBytesAreText(bytes)) return binaryArtifactFindings(bytes, phase, { ...options, path: required });
+  return inspectRequiredArtifactText(bytes.toString('utf8'), phase, { ...options, path: required });
+}
+
+/**
+ * A binary artifact (PDF, DOCX, PNG) is judged as manual import judges one: its exact byte bounds,
+ * and a contract that needs text (headings, placeholders) cannot be met. Decoding it as UTF-8 counted
+ * a 73-byte PDF as 5 authored bytes and refused it (2026-10-29).
+ */
+function binaryArtifactFindings(bytes, phase, { path: required, minimumBytes = true } = {}) {
+  const contract = phase.requiredArtifact ?? {};
+  const minimum = minimumBytes ? (contract.minimumBytes ?? 1) : 0;
+  const maximum = contract.maximumBytes ?? Number.MAX_SAFE_INTEGER;
+  const base = { category: 'authoring', path: required, line: null, value: null, bytes: bytes.length };
+  const findings = [];
+  if (bytes.length < minimum) findings.push({ ...base, code: 'artifact.required.too-short', minimumBytes: minimum });
+  if (bytes.length > maximum) findings.push({ ...base, code: 'artifact.required.too-large', maximumBytes: maximum });
+  if (contract.validation?.requiredHeadings?.length || contract.validation?.forbiddenPlaceholders?.length) {
+    findings.push({ ...base, code: 'artifact.binary.text-contract', minimumBytes: null });
+  }
+  return findings;
 }
 
 /**
@@ -370,6 +390,9 @@ export function artifactFindingMessage(finding) {
   if (finding.code === 'artifact.required.missing') return `Required artifact missing: ${finding.path}`;
   if (finding.code === 'artifact.metadata.invalid') {
     return `Required artifact ${finding.path} has ${finding.value} Singularity Flow metadata at line ${finding.line}; rerun prepare once to restore the engine-owned envelope without changing authored content.`;
+  }
+  if (finding.code === 'artifact.binary.text-contract') {
+    return `Required artifact ${finding.path} is binary, but its step's contract asks for text (required headings or placeholder checks); publish a text artifact or remove that validation from the step.`;
   }
   if (finding.code === 'artifact.required.too-short') {
     return `Required artifact ${finding.path} has ${finding.bytes} authored bytes; minimum ${finding.minimumBytes}.`;

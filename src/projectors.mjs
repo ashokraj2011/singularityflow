@@ -1,3 +1,4 @@
+import { artifactBytesAreText } from './artifact-review-read.mjs';
 import { createHash } from 'node:crypto';
 import { readFile } from 'node:fs/promises';
 import path from 'node:path';
@@ -45,7 +46,10 @@ function projection({ id, kind, relativePath, content, source }) {
 
 async function replaceManagedBlock(file, pattern, block) {
   if (!(await exists(file))) return null;
-  const authored = await readFile(file, 'utf8');
+  const bytes = await readFile(file);
+  // A binary artifact never carries the comment; projecting one into it corrupted the file.
+  if (!artifactBytesAreText(bytes)) return null;
+  const authored = bytes.toString('utf8');
   return pattern.test(authored) ? authored.replace(pattern, block) : `${block}\n\n${authored}`;
 }
 

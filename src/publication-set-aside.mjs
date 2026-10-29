@@ -1,5 +1,6 @@
 /**
- * Setting a waiting Story commit aside (`sync <WORK-ID> --set-aside`, 2026-10-28).
+ * Setting a waiting Story commit aside (`sync <WORK-ID> --set-aside`, 2026-10-28), or an Epic's or
+ * Initiative's (`initiative sync <ID> --set-aside`, 2026-10-29).
  *
  * A lifecycle commit that lost a push race to another clone, that a person already undid with
  * `git reset`, or that reached the remote outside SFlow (a hand push, which SFlow never counts as its
@@ -20,7 +21,7 @@ import { SingularityFlowError } from './util.mjs';
 const REASONS = Object.freeze({
   'no-pending-publication': 'nothing is waiting to be published',
   'commit-unavailable': 'the waiting commit is not in this checkout',
-  interrupted: 'the publication was interrupted before its commit; run singularity-flow sync to roll it back',
+  interrupted: 'the publication was interrupted before its commit; run its sync command to roll it back',
   'commits-after-it': 'commits were made on the branch after it; move them off it first',
   'not-checked-out': 'its branch is not the one checked out here'
 });
@@ -29,30 +30,47 @@ export function setAsideReason(plan) {
   return REASONS[plan?.reason] ?? plan?.reason ?? 'it cannot be set aside';
 }
 
-function pendingOptions(root, config, workId) {
-  return { kind: 'story', id: workId, legacyPath: path.join(workDir(root, config, workId), 'publication-pending.json') };
+/** A Story's waiting publication, as set-aside reads it. */
+function storySubject(root, config, workflow) {
+  const workId = workflow.workItem.id;
+  return {
+    kind: 'story', id: workId, legacyPath: path.join(workDir(root, config, workId), 'publication-pending.json'),
+    branch: workflow.workItem.branch ?? workId, remote: config.git?.remote ?? 'origin',
+    command: (commit) => `singularity-flow sync ${workId} --set-aside --confirm ${commit}`
+  };
 }
 
-/** What setting the waiting commit aside would do, or why it cannot. Fetches; changes nothing else. */
-export async function planPublicationSetAside(root, config, workflow) {
-  const workId = workflow.workItem.id;
-  const pending = await readPendingPublication(root, pendingOptions(root, config, workId));
-  const refuse = (reason, extra = {}) => ({ settable: false, reason, workId, ...extra });
+/**
+ * An Epic's or Initiative's waiting publication. A refused push froze one for good: its routes were
+ * sync and status, and every mutation waited on the commit (2026-10-29).
+ */
+export function initiativeSetAsideSubject(id, { legacyPath = null, remote = 'origin' } = {}) {
+  return {
+    kind: 'initiative', id, legacyPath, branch: id, remote,
+    command: (commit) => `singularity-flow initiative sync ${id} --set-aside --confirm ${commit}`
+  };
+}
+
+/** What setting a subject's waiting commit aside would do, or why it cannot. Fetches; changes nothing else. */
+export async function planSubjectSetAside(root, subject) {
+  const workId = subject.id;
+  const pending = await readPendingPublication(root, { kind: subject.kind, id: workId, legacyPath: subject.legacyPath });
+  const refuse = (reason, extra = {}) => ({ settable: false, reason, workId, kind: subject.kind, ...extra });
   if (!pending) return refuse('no-pending-publication');
   const record = pending.record ?? {};
   const commit = String(record.commit ?? '');
   if (record.recoveryStage === 'interrupted-before-branch-ref-advanced') return refuse('interrupted');
   if (!/^[0-9a-f]{40,64}$/u.test(commit) || !refHead(root, `${commit}^{commit}`)) return refuse('commit-unavailable', { commit });
-  const target = record.branch ?? workflow.workItem.branch ?? workId;
-  const remote = record.remote ?? config.git?.remote ?? 'origin';
+  const target = record.branch ?? subject.branch ?? workId;
+  const remote = record.remote ?? subject.remote ?? 'origin';
   await fetchRemote(root, remote);
   const remoteTip = refHead(root, `refs/remotes/${remote}/${target}`);
   const local = refHead(root, `refs/heads/${target}`);
   const shared = {
-    workId, commit, branch: target, remote, remoteTip,
+    workId, kind: subject.kind, commit, branch: target, remote, remoteTip,
     event: record.event?.type ?? null, phase: record.event?.phaseId ?? null,
     preservedRef: `refs/sflow-set-aside/${workId}/${commit}`,
-    command: `singularity-flow sync ${workId} --set-aside --confirm ${commit}`
+    command: subject.command(commit)
   };
   if (remoteTip && (remoteTip === commit || isAncestor(root, commit, remoteTip))) {
     // Already there, sent outside SFlow: the branch stays as it is; only the waiting stops.
@@ -71,14 +89,13 @@ export async function planPublicationSetAside(root, config, workflow) {
     lostRace: Boolean(remoteTip) && remoteTip !== parent && moveTo === remoteTip };
 }
 
-/** Set the waiting commit aside after the person confirmed its exact ID. */
-export async function setPublicationAside(root, config, workflow, { confirm }) {
-  const workId = workflow.workItem.id;
-  return withSubjectLock(root, { kind: 'story', id: workId }, async () => {
-    const plan = await planPublicationSetAside(root, config, workflow);
+/** Set a subject's waiting commit aside after the person confirmed its exact ID. */
+export async function setSubjectAside(root, subject, { confirm }) {
+  return withSubjectLock(root, { kind: subject.kind, id: subject.id }, async () => {
+    const plan = await planSubjectSetAside(root, subject);
     if (!plan.settable) {
       throw new SingularityFlowError(`The waiting commit cannot be set aside: ${setAsideReason(plan)}. Nothing was changed.`,
-        { code: 'PUBLICATION_SET_ASIDE_REFUSED', details: { reason: plan.reason, commit: plan.commit ?? null } });
+        { code: 'PUBLICATION_SET_ASIDE_REFUSED', details: { reason: plan.reason, commit: plan.commit ?? null, kind: subject.kind, workId: subject.id } });
     }
     if (confirm !== plan.commit) {
       throw new SingularityFlowError(`Confirm with the full ID of the waiting commit: ${plan.command}. Nothing was changed.`,
@@ -87,7 +104,17 @@ export async function setPublicationAside(root, config, workflow, { confirm }) {
     if (plan.moveTo) assertClean(root);
     preserveCommitRef(root, plan.preservedRef, plan.commit);
     if (plan.moveTo) moveCheckedOutBranch(root, plan.moveTo);
-    await clearPendingPublication(root, pendingOptions(root, config, workId));
+    await clearPendingPublication(root, { kind: subject.kind, id: subject.id, legacyPath: subject.legacyPath });
     return { ...plan, setAside: true, head: head(root) };
   });
+}
+
+/** What setting the Story's waiting commit aside would do, or why it cannot. */
+export async function planPublicationSetAside(root, config, workflow) {
+  return planSubjectSetAside(root, storySubject(root, config, workflow));
+}
+
+/** Set the Story's waiting commit aside after the person confirmed its exact ID. */
+export async function setPublicationAside(root, config, workflow, { confirm }) {
+  return setSubjectAside(root, storySubject(root, config, workflow), { confirm });
 }

@@ -327,3 +327,14 @@ export function inspectManagedArtifactMetadata(text) {
     leading
   });
 }
+
+/**
+ * Whether a step artifact's bytes can carry the managed metadata comment: UTF-8 text with no NUL.
+ * A PDF, DOCX or PNG artifact was read as UTF-8 and given a Markdown comment, which corrupted it on
+ * publish (2026-10-29). Its step record in workflow.json already holds the same metadata, and its
+ * exact bytes stay bound by the registration, review and approval digests. Pure.
+ */
+export function artifactBytesAreText(bytes) {
+  if (bytes.includes(0)) return false;
+  try { new TextDecoder('utf-8', { fatal: true }).decode(bytes); return true; } catch { return false; }
+}

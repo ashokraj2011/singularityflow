@@ -887,8 +887,10 @@ export async function materializeInitiative(root, initiativeId, {
       story.jiraKey = jira.stories[story.id]?.key ?? story.jiraKey;
       story.jiraIssueId = jira.stories[story.id]?.id ?? story.jiraIssueId;
       story.initialJiraKey ??= story.jiraKey ?? null;
+      // A local default (the plan ID, or the Epic-qualified one) gives way to the tracker key.
+      const localDefault = !story.workId || story.workId === story.id || story.workId === `${initiative.initiative.id}-${story.id}`;
       story.workId = breakdown.version === 2
-        ? (story.workId && story.workId !== story.id ? story.workId : (story.jiraKey ?? story.workId ?? story.id))
+        ? (localDefault ? (story.jiraKey ?? story.workId ?? story.id) : story.workId)
         : story.id;
       story.epicJiraKey = epic.jiraKey ?? null;
       story.epicKey = epic.jiraKey ?? story.epicKey ?? null;

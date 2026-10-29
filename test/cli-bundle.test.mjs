@@ -273,7 +273,9 @@ test('the bundled CLI answers exactly like the sources while opening a handful o
   // 7,525,000: main 8180c46e measures 7,519,896; the approver refresh's three result messages (registered at last: every refresh ended in COMMAND_RESULT_INVALID) and approve --confirm-evidence as the approver's own terminal step add cold-core +744 and cold-hooks +680 for 7,521,320. No new file.
   // 7,535,000: main 0c7ca31b measures 7,521,320; the same message and contract text adds 11,517 for 7,532,837. No new file.
   // 7,540,000: main 58b20746 measures 7,532,837; refusals that name their own way out (rewritten history, approver refresh, roll-forward, a publish in flight, set-aside reasons, witness exceptions), help as a read, routed corrections and counted unchanged rechecks in agent-output.mjs, and the set-aside preview as a read add 6,316 for 7,539,153. No new file.
-  assert.ok(closure('cold-hook-context.mjs').reduce((sum, item) => sum + item.bytes, 0) < 7_540_000,
+  // 7,545,000: main 024a6dae measures 7,539,475; a binary step artifact kept byte for byte (artifact-review-read.mjs; state.mjs prepare, publish and reconciliation; projectors.mjs; publication preflight; phase-upstream's authored digest), unique local Epic child Work IDs and an Epic's or Initiative's waiting commit set aside (its preview a read, its refusals naming its own branch) add cold-hook-context +1,752, cold-core +1,914 and
+  // cold-hooks +57 for 7,543,198. No new file.
+  assert.ok(closure('cold-hook-context.mjs').reduce((sum, item) => sum + item.bytes, 0) < 7_545_000,
     'phase-review reads retain their existing byte ceiling after moving families');
   assert.match(await readFile(path.join(outdir, 'cold-light.mjs'), 'utf8'), /function enterPhase\b/u,
     'phase binding must not fall through to the compatibility/admin bundle');

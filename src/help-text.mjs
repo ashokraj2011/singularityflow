@@ -947,6 +947,7 @@ Usage:
   singularity-flow initiative jira-plan
   singularity-flow initiative jira-apply --plan SHA256 [--confirm INIT-ID]
   singularity-flow initiative sync [INIT-ID]
+  singularity-flow initiative sync [INIT-ID] --set-aside [--confirm COMMIT] [--json]
   singularity-flow initiative recover [INIT-ID] [--json]
   singularity-flow initiative contracts [add] [--id ID --version VERSION --format FORMAT --path FILE]
   singularity-flow initiative report [INIT-ID] [--format md|json] [--out FILE]

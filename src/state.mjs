@@ -274,7 +274,7 @@ import {
   repairPreparedArtifactMetadata,
   validatePhaseAuthoredReviewContent as validatePhaseAuthoredReviewContentPreflight
 } from './publication-preflight.mjs';
-import { artifactTextCheckoutMatches } from './artifact-review-read.mjs';
+import { artifactBytesAreText, artifactTextCheckoutMatches } from './artifact-review-read.mjs';
 import {
   assertConvergencePublicationReady, loadVerifiedConvergenceProjection
 } from './convergence-context.mjs';
@@ -910,7 +910,10 @@ export function artifactMetadataBlock(metadata) {
 async function updateArtifactMetadata(root, config, workflow, phase) {
   const file = path.join(workDir(root, config, workflow.workItem.id), phase.requiredArtifact.path);
   if (!(await exists(file))) return;
-  const text = await readFile(file, 'utf8');
+  const bytes = await readFile(file);
+  // A binary artifact (PDF, DOCX, PNG) never carries the comment; its step record holds the metadata.
+  if (!artifactBytesAreText(bytes)) return;
+  const text = bytes.toString('utf8');
   const block = artifactMetadataBlock(storyArtifactMetadata(workflow, phase));
   const pattern = /^<!-- singularity-flow:metadata\r?\n[\s\S]*?\r?\n-->/;
   let updated = pattern.test(text) ? text.replace(pattern, block) : `${block}\n\n${text}`;
@@ -2226,7 +2229,8 @@ export async function preparePhaseInputs(root, config, workflow, requested = und
   const canonicalMetadata = artifactMetadataBlock(storyArtifactMetadata(workflow, phase));
   let preparedArtifactText = null;
   let metadataRepair = null;
-  if (!dryRun && artifactExistedBeforePreparation) {
+  const binaryArtifact = !dryRun && artifactExistedBeforePreparation && !artifactBytesAreText(await readFile(target));
+  if (!dryRun && artifactExistedBeforePreparation && !binaryArtifact) {
     const currentArtifactText = await readFile(target, 'utf8');
     const repaired = repairPreparedArtifactMetadata(currentArtifactText, {
       canonicalMetadata,
@@ -2326,7 +2330,11 @@ export async function preparePhaseInputs(root, config, workflow, requested = und
       };
     }
     let text;
-    if (phase.generationPolicy?.producer === 'deterministic') {
+    // A binary artifact (PDF, DOCX, PNG) keeps its exact bytes: it carries no template, sections,
+    // inputs block or metadata. Rebuilding its "text" here overwrote it on every publish (2026-10-29);
+    // its inputs are still recorded below, in the Story's context.
+    if (binaryArtifact) text = null;
+    else if (phase.generationPolicy?.producer === 'deterministic') {
       const { specificationClaimLines, storyChangedPathLines } = await import('./deterministic-summary-facts.mjs');
       const pathContext = applicationPathContext(config, workflow);
       const uncommitted = changedFiles(root).map(posix)
@@ -2396,13 +2404,13 @@ export async function preparePhaseInputs(root, config, workflow, requested = und
     // An existing draft gains it too: preparation always opens a new, unpublished generation, and
     // only missing sections are inserted, so no authored or published byte is changed. A Story
     // prepared before this rule (stuck at "Add ## Scenario coverage") recovers on its next prepare.
-    if (phase.generationPolicy?.producer !== 'deterministic') {
+    if (!binaryArtifact && phase.generationPolicy?.producer !== 'deterministic') {
       const resolvedPhase = workflow.resolution.phases.find((item) => item.id === phase.id);
       text = addMissingSections(text, requiredArtifactSections(resolvedPhase), {
         ownRef: resolvedPhase?.template, tokens: artifactTokens({ workItem: workflow.workItem, phase: resolvedPhase })
       }).text;
     }
-    text = applyInputsBlock(text, rendered.text, inputs.mode);
+    if (!binaryArtifact) text = applyInputsBlock(text, rendered.text, inputs.mode);
     // The immutable reference set is already captured by the WFA snapshot and its Story manifest.
     // Put only its bounded identifiers and local detached paths into a newly created phase artifact
     // so every authoring surface can find the sources without searching home or copying content
@@ -2413,7 +2421,7 @@ export async function preparePhaseInputs(root, config, workflow, requested = und
     }
     // One verdict source: every prepare writes, or refreshes in an existing draft, the engine-owned
     // Verdict summary read from the clause table, so no prose has to restate a verdict.
-    if (phase.requiredArtifact?.kind === 'conformance-report') {
+    if (!binaryArtifact && phase.requiredArtifact?.kind === 'conformance-report') {
       text = withVerdictSummary(text, workflow, phase.id, { reused: await conformanceEvidenceReuse(root, config, workflow, phase.id) });
     }
     if (!artifactExistedBeforePreparation && referenceContext) text = `${referenceContext}\n\n${text}`;
@@ -2429,7 +2437,7 @@ export async function preparePhaseInputs(root, config, workflow, requested = und
       text = initialized.text;
       metadataRepair = initialized.status;
     }
-    await writeText(target, text);
+    if (!binaryArtifact) await writeText(target, text);
     const targetGeneration = nextPhaseGeneration(phase);
     // Capture only bytes the kernel itself just rendered. Capturing an existing generation-one
     // artifact after an upgrade or repeated prepare would redefine completed authoring as the
@@ -2595,7 +2603,21 @@ export async function inspectRequiredArtifactRegistration(root, config, workflow
     generationCommit: exactCommit
   };
 
-  const currentText = await readRepositoryArtifactText(root, relativePath);
+  // A binary artifact (PDF, DOCX, PNG) carries no managed metadata or inputs block, so it reconciles
+  // only as the exact bytes its generation published; reading it as text refused every submit.
+  const securedCurrent = await secureRepositoryPath(root, relativePath, { label: 'Artifact', mustExist: true, type: 'file' });
+  const currentBytes = await readFile(securedCurrent.absolute);
+  if (!artifactBytesAreText(currentBytes)) {
+    const publishedBytes = exactFileAtObject(root, exactCommit, relativePath, { maximumBytes: currentBytes.length + 1 });
+    const digest = (bytes) => `sha256:${createHash('sha256').update(bytes).digest('hex')}`;
+    const binaryBase = { path: relativePath, registered, current, generationCommit: exactCommit,
+      currentAuthoredSha256: digest(currentBytes), publishedAuthoredSha256: publishedBytes ? digest(publishedBytes) : null };
+    if (!publishedBytes || !publishedBytes.equals(currentBytes)) return { ...binaryBase, status: 'unsafe', reason: 'authored-content-changed' };
+    const registeredCurrent = Boolean(registered) && registered.exists === current.exists
+      && registered.size === current.size && registered.sha256 === current.sha256;
+    return { ...binaryBase, status: registeredCurrent ? 'current' : 'repairable', reason: registeredCurrent ? null : 'managed-registration-stale' };
+  }
+  const currentText = currentBytes.toString('utf8');
   const publishedText = publishedResult.stdout;
   const currentAuthoredSha256 = exactAuthoredArtifactSha256(currentText);
   const publishedAuthoredSha256 = exactAuthoredArtifactSha256(publishedText);

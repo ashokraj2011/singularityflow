@@ -7792,6 +7792,21 @@ async function initiativeCommand(positionals, options) {
   }
   const acceptsExplicitId = new Set(['status', 'next', 'journey', 'report', 'gate', 'recover', 'sync']);
   const initiativeId = optionString(options, 'initiative') ?? (acceptsExplicitId.has(subcommand) && positionals[2] ? positionals[2] : branch(root));
+  // A refused push froze an Epic or Initiative: sync repeated the refusal and every mutation waited on
+  // the commit. Set it aside as a Story's is: a preview, then the person's own confirmation (2026-10-29).
+  if (subcommand === 'sync' && optionBoolean(options, 'set-aside')) {
+    const [aside, { legacyInitiativePendingPublicationPath }, { printSetAside }] = await Promise.all([
+      import('./publication-set-aside.mjs'), import('./initiative-state.mjs'), import('./commands/sync.mjs')
+    ]);
+    const subject = aside.initiativeSetAsideSubject(initiativeId, {
+      legacyPath: legacyInitiativePendingPublicationPath(root, portfolio, initiativeId), remote: portfolio.git?.remote ?? 'origin'
+    });
+    const confirm = optionString(options, 'confirm');
+    const result = confirm ? await aside.setSubjectAside(root, subject, { confirm }) : await aside.planSubjectSetAside(root, subject);
+    if (optionBoolean(options, 'json')) return console.log(JSON.stringify(result, null, 2));
+    printSetAside(result, aside.setAsideReason, `singularity-flow initiative next ${initiativeId}`);
+    return;
+  }
   // Pre-commit recovery must not parse the file that the interrupted command may have stopped
   // halfway through writing. Resolve the Git-local journal first; ordinary post-commit sync can
   // load the aggregate below because the committed state already passed publication validation.

@@ -119,7 +119,7 @@ export function initiativePendingPublicationPath(root, portfolio, id) {
   return localPendingPublicationPath(root, 'initiative', id);
 }
 
-function legacyInitiativePendingPublicationPath(root, portfolio, id) {
+export function legacyInitiativePendingPublicationPath(root, portfolio, id) {
   return path.join(initiativeDir(root, portfolio, id), 'publication-pending.json');
 }
 
@@ -1438,7 +1438,9 @@ export async function syncInitiativePublication(root, portfolio, initiative, { f
             prefix: 'Initiative push still fails', result, outcome: pushOutcome, subject,
             commit: currentRecord.commit, branch: currentRecord.branch, remote: currentRecord.remote,
             retryCommand: `singularity-flow initiative sync ${initiative.initiative.id}`,
-            inspectCommand: `singularity-flow initiative status ${initiative.initiative.id}`
+            // The preview says whether the commit lost a race, was sent by hand or was undone, and
+            // how to set it aside; status only printed, and nothing else could clear the commit.
+            inspectCommand: `singularity-flow initiative sync ${initiative.initiative.id} --set-aside`
           });
         }
       }

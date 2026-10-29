@@ -326,17 +326,22 @@ async function syncSetAsideCommand(root, config, requestedId, options) {
   const result = confirm ? await aside.setPublicationAside(root, config, workflow, { confirm })
     : await aside.planPublicationSetAside(root, config, workflow);
   if (optionBoolean(options, 'json')) return console.log(JSON.stringify({ ...result, pending: undefined }, null, 2));
+  printSetAside(result, aside.setAsideReason, `singularity-flow nextsteps ${result.workId}`);
+}
+
+/** A set-aside preview or result in words; a Story and an Epic or Initiative read alike. */
+export function printSetAside(result, setAsideReason, nextCommand) {
   const short = (sha) => String(sha ?? '').slice(0, 8);
   if (result.setAside) {
     console.log(result.publishedElsewhere
       ? `Stopped waiting for commit ${short(result.commit)}: ${result.remote}/${result.branch} already has it. Nothing was pushed.`
       : `Set aside commit ${short(result.commit)}; it is kept at ${result.preservedRef}. Nothing was pushed.`);
     if (result.moveTo) console.log(`${result.branch} is now at ${short(result.head)}, ${result.moveTo === result.remoteTip ? 'what the remote has' : 'the commit before it'}.`);
-    printCommandRoutes(`singularity-flow nextsteps ${result.workId}`, { label: 'Then do the step\'s action again if it still applies' });
+    printCommandRoutes(nextCommand, { label: 'Then do the step\'s action again if it still applies' });
     return;
   }
   if (!result.settable) {
-    console.log(`Nothing to set aside: ${aside.setAsideReason(result)}.`);
+    console.log(`Nothing to set aside: ${setAsideReason(result)}.`);
     return;
   }
   const what = result.publishedElsewhere ? `, but the remote already has it: it was sent outside SFlow (by hand, say), which SFlow never counts as its own publication`

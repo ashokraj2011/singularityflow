@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdir, mkdtemp, readFile, realpath, writeFile } from 'node:fs/promises';
+import { mkdir, mkdtemp, readFile, realpath, rm, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -643,4 +643,70 @@ test('approving a phase bundle harvests its artifacts, not only individually app
   // this test writes at the repository root is its own litter, so the check is scoped to the store.)
   assert.equal(git(root, ['status', '--porcelain', 'singularity/knowledge']), '');
   assert.match(git(root, ['show', '--name-only', '--format=', 'HEAD']), /singularity\/knowledge\/records\//);
+});
+
+// Plan IDs count from STORY-001 in every Epic, and a local child's Work ID (its branch) was that plan
+// ID, so a second local Epic in one repository reused STORY-001 and could never create its Stories.
+test('two local Epics in one repository plan Stories with distinct Work IDs', async () => {
+  const root = await repository();
+  const portfolioFile = path.join(root, 'singularity/portfolio.yml');
+  const portfolio = YAML.parse(await readFile(portfolioFile, 'utf8'));
+  portfolio.repositories = { app: { url: 'https://example.invalid/app.git', defaultBranch: 'main', required: true } };
+  await writeFile(portfolioFile, YAML.stringify(portfolio));
+  git(root, ['add', portfolioFile]);
+  git(root, ['commit', '-m', 'Declare the app repository']);
+  const workIds = [];
+  for (const id of ['EPIC-AAA', 'EPIC-BBB']) {
+    await epicAtPlanning(root, id);
+    const stateFile = path.join(root, `singularity/initiatives/${id}/state.json`);
+    const state = JSON.parse(await readFile(stateFile, 'utf8'));
+    state.phases['epic-planning'].status = 'in_progress';
+    await writeFile(stateFile, `${JSON.stringify(state, null, 2)}\n`);
+    git(root, ['add', stateFile]);
+    git(root, ['commit', '-m', `Reopen ${id} Planning for edits`]);
+    const added = JSON.parse(execute(root, ['epic', 'stories', 'add', '--epic', id, '--title', `${id} first Story`,
+      '--repository', 'app', '--json']).stdout);
+    assert.equal(added.story.planId, 'STORY-001', 'plan IDs still count within each Epic');
+    workIds.push(added.story.workId);
+  }
+  assert.deepEqual(workIds, ['EPIC-AAA-STORY-001', 'EPIC-BBB-STORY-001']);
+});
+
+// A refused push on an Epic or Initiative froze it: sync repeated the refusal, its other route only
+// printed status, and every mutation waited on the commit (2026-10-29).
+test('an Initiative commit whose push is refused is set aside by the person, not frozen', async () => {
+  const root = await repository();
+  const remote = await mkdtemp(path.join(os.tmpdir(), 'sflow-initiative-remote-'));
+  git(remote, ['init', '--bare', '-q', '-b', 'main']);
+  const portfolioFile = path.join(root, 'singularity/portfolio.yml');
+  const portfolio = YAML.parse(await readFile(portfolioFile, 'utf8'));
+  portfolio.git.publish = 'required';
+  await writeFile(portfolioFile, YAML.stringify(portfolio));
+  git(root, ['add', portfolioFile]);
+  git(root, ['commit', '-m', 'Publish Initiatives']);
+  git(root, ['remote', 'add', 'origin', remote]);
+  git(root, ['push', '-q', '-u', 'origin', 'main']);
+  execute(root, ['initiative', 'start', 'INIT-SA', '--title', 'Set aside']);
+  const published = git(root, ['rev-parse', 'HEAD']);
+  const hook = path.join(remote, 'hooks/pre-receive');
+  await writeFile(hook, '#!/bin/sh\nexit 1\n');
+  await (await import('node:fs/promises')).chmod(hook, 0o755);
+
+  assert.notEqual(execute(root, ['initiative', 'phase', 'define'], { allowFailure: true }).status, 0, 'the remote refuses the push');
+  const waiting = git(root, ['rev-parse', 'HEAD']);
+  assert.notEqual(waiting, published);
+  const refused = execute(root, ['initiative', 'sync', 'INIT-SA'], { allowFailure: true });
+  assert.notEqual(refused.status, 0);
+  assert.match(refused.stdout + refused.stderr, /initiative sync INIT-SA --set-aside/u, 'the refusal names the preview');
+
+  const preview = execute(root, ['initiative', 'sync', 'INIT-SA', '--set-aside']);
+  assert.match(preview.stdout, /Preview only: nothing was changed/u);
+  assert.match(preview.stdout, new RegExp(`initiative sync INIT-SA --set-aside --confirm ${waiting}`, 'u'));
+  const done = execute(root, ['initiative', 'sync', 'INIT-SA', '--set-aside', '--confirm', waiting]);
+  assert.match(done.stdout, /Set aside commit/u);
+  assert.equal(git(root, ['rev-parse', 'HEAD']), published, 'the branch is back at what the remote has');
+  assert.equal(git(root, ['rev-parse', `refs/sflow-set-aside/INIT-SA/${waiting}`]), waiting, 'the commit is kept');
+  await rm(hook);
+  execute(root, ['initiative', 'phase', 'define']);
+  assert.equal(git(remote, ['rev-parse', 'refs/heads/INIT-SA']), git(root, ['rev-parse', 'HEAD']), 'the Initiative publishes again');
 });

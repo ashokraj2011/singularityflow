@@ -43,6 +43,10 @@ function readOnlySubcommandOperation(definition, positionals, options) {
     const sub = subcommand ?? 'status';
     if (sub === 'report' && optionString(options, 'out') != null) return null;
     if (INITIATIVE_READ_SUBCOMMANDS.includes(sub)) return never(`initiative.${sub}`, definition, 'read');
+    // As a Story's: the preview fetches and reads; the person's --confirm form moves the branch.
+    if (sub === 'sync' && optionBoolean(options, 'set-aside') && options.confirm == null) {
+      return never('initiative.sync.set-aside.preview', definition, 'read');
+    }
     if (sub === 'evidence' && (action ?? 'list') === 'list') return never('initiative.evidence.list', definition, 'read');
     return null;
   }

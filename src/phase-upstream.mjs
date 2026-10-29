@@ -17,9 +17,10 @@
  * text, without the metadata and input blocks SFlow rewrites every generation [rule E9]. It is
  * not part of the aggregate digest, so approvals recorded before it existed still compare.
  */
+import { createHash } from 'node:crypto';
 import { readFile } from 'node:fs/promises';
 import path from 'node:path';
-import { authoredArtifactText } from './artifact-review-read.mjs';
+import { artifactBytesAreText, authoredArtifactText } from './artifact-review-read.mjs';
 import { phaseRequiresCodeDelivery } from './code-delivery-policy.mjs';
 import { headTreeDigest } from './git.mjs';
 import { resolvedPhaseInputs } from './inputs.mjs';
@@ -54,8 +55,14 @@ function producerDigest(phase) {
 async function producerAuthoredDigest(root, phase) {
   const artifacts = [];
   for (const artifact of [...(phase?.artifacts ?? [])].sort((left, right) => left.path.localeCompare(right.path))) {
-    const text = await readFile(path.join(root, artifact.path), 'utf8').catch(() => null);
-    artifacts.push({ path: artifact.path, authored: text == null ? null : digest(authoredArtifactText(text)) });
+    const bytes = await readFile(path.join(root, artifact.path)).catch(() => null);
+    // A binary artifact has no managed text to strip: its exact bytes are what its author made. Decoded
+    // as UTF-8, different invalid bytes collapse into the same replacement character, so two
+    // different PDFs could look unchanged to a reader (2026-10-29).
+    const authored = bytes == null ? null
+      : artifactBytesAreText(bytes) ? digest(authoredArtifactText(bytes.toString('utf8')))
+        : digest({ bytesSha256: createHash('sha256').update(bytes).digest('hex') });
+    artifacts.push({ path: artifact.path, authored });
   }
   return digest({ status: phase?.status ?? 'missing', artifacts });
 }

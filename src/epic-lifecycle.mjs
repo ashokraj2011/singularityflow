@@ -180,6 +180,15 @@ function assertStoryPlanningEditable(initiative) {
   return phase;
 }
 
+/**
+ * A planned Story's Work ID, which is also its branch. Plan IDs count from STORY-001 in every Epic,
+ * so a second local Epic in the same repository reused STORY-001 and could never create its Stories
+ * ("unrelated seed", 2026-10-29). The Epic's ID makes it unique; a tracker key still replaces it.
+ */
+export function localChildWorkId(initiativeId, planId) {
+  return `${initiativeId}-${planId}`;
+}
+
 function nextStoryPlanId(breakdown) {
   const highest = breakdown.stories.reduce((maximum, story) => {
     const match = String(story.planId ?? story.id).match(/^STORY-(\d+)$/);
@@ -320,7 +329,7 @@ export async function addEpicStory(root, initiativeId, story = {}) {
   const added = {
     id: planId,
     planId,
-    workId: planId,
+    workId: localChildWorkId(initiativeId, planId),
     title,
     description: story.description ?? '',
     specification: story.specification ?? '',
@@ -363,7 +372,7 @@ export async function splitEpicStory(root, initiativeId, sourcePlanId, changes =
     ...structuredClone(source),
     id: planId,
     planId,
-    workId: planId,
+    workId: localChildWorkId(initiativeId, planId),
     title: changes.title?.trim() || `${source.title} — split`,
     description: changes.description ?? source.description,
     specification: changes.specification ?? source.specification,

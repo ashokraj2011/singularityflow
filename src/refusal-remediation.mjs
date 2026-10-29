@@ -758,12 +758,16 @@ const KNOWN = Object.freeze({
   PUBLICATION_SET_ASIDE_REFUSED: (argv, error) => {
     const reason = error?.details?.reason;
     const commit = /^[0-9a-f]{40,64}$/u.test(String(error?.details?.commit ?? '')) ? error.details.commit : null;
+    // An Epic's or Initiative's waiting commit names its own branch and sync, never the Story's.
+    const initiative = error?.details?.kind === 'initiative' ? safeWorkId(error?.details?.workId) : null;
     if (reason === 'commits-after-it') return [step('move-later-commits',
       `Commits were made on the branch after the waiting one${commit ? ` (${commit.slice(0, 12)})` : ''}. Move them off it first (for example git branch keep-later HEAD, then git reset --keep ${commit ?? '<WAITING-COMMIT>'}), preview the set-aside again, and bring them back with git cherry-pick once the branch is up to date.`, null, 'remediation')];
-    if (reason === 'not-checked-out') return [step('switch-to-story-branch',
-      'Switch to the Story\'s branch (git switch <BRANCH>), then preview the set-aside again.', null, 'remediation')];
+    if (reason === 'not-checked-out') return [initiative
+      ? step('switch-to-initiative-branch', `Switch to the branch ${initiative} (git switch ${initiative}), then preview the set-aside again.`, null, 'remediation')
+      : step('switch-to-story-branch', 'Switch to the Story\'s branch (git switch <BRANCH>), then preview the set-aside again.', null, 'remediation')];
     if (reason === 'already-published' || reason === 'no-pending-publication') return [step('sync-story',
-      'Nothing is waiting that could be set aside; sync finishes whatever is left.', 'singularity-flow sync', 'remediation')];
+      'Nothing is waiting that could be set aside; sync finishes whatever is left.',
+      initiative ? `singularity-flow initiative sync ${initiative}` : 'singularity-flow sync', 'remediation')];
     return [];
   },
   // A lapsed witness exception: the final check lists the step and the exact exception.

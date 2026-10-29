@@ -61,6 +61,26 @@ test('the set-aside preview is a read with no skill; confirming it stays the per
   assert.equal(op({ 'set-aside': true, confirm: 'a'.repeat(40) }).classification, 'mutation');
   assert.equal(skillForCommandLine('singularity-flow sync W-1 --set-aside'), null);
   assert.equal(skillForCommandLine('singularity-flow sync W-1'), 'sf-next');
+  // An Epic's or Initiative's preview is the same read; /sf-initiative-next would sync it into the refusal.
+  const initiative = (options) => resolveOperation({ requestedCommand: 'initiative', positionals: ['initiative', 'sync', 'EPIC-1'], options });
+  assert.equal(initiative({ 'set-aside': true }).classification, 'read');
+  assert.equal(initiative({ 'set-aside': true, confirm: 'a'.repeat(40) }).classification, 'mutation');
+  assert.equal(skillForCommandLine('singularity-flow initiative sync EPIC-1 --set-aside'), null);
+  // A refusal that names either preview keeps it in its plan, as a Shell command with no skill.
+  for (const command of ['singularity-flow sync W-1 --set-aside', 'singularity-flow initiative sync EPIC-1 --set-aside']) {
+    const plan = refusalRemediationPlan(refusal('PUBLICATION_PUSH_FAILED', 'Refused.', { recoveryCommands: [{ command, label: 'Inspect it.' }] }), ['sync']);
+    assert.equal(plan.steps[0].command, command, JSON.stringify(commands(plan)));
+    assert.equal(plan.steps[0].skill, null);
+  }
+});
+
+test('an Epic\'s refused set-aside names its own branch and sync, never the Story\'s', () => {
+  const first = (reason) => refusalRemediationPlan(refusal('PUBLICATION_SET_ASIDE_REFUSED', 'Refused.',
+    { reason, commit: 'a'.repeat(40), kind: 'initiative', workId: 'EPIC-1' }), ['initiative', 'sync', 'EPIC-1', '--set-aside']).steps[0];
+  assert.match(first('not-checked-out').label, /git switch EPIC-1/u);
+  assert.equal(first('no-pending-publication').command, 'singularity-flow initiative sync EPIC-1');
+  const story = refusalRemediationPlan(refusal('PUBLICATION_SET_ASIDE_REFUSED', 'Refused.', { reason: 'no-pending-publication' }), ['sync', 'W-1', '--set-aside']);
+  assert.equal(story.steps[0].command, 'singularity-flow sync');
 });
 
 test('a step that says it has no Copilot route keeps none', () => {

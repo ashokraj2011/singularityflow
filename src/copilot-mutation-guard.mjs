@@ -780,7 +780,8 @@ const PLANNED_ACTION_DENIAL = 'PHASE_MUTATION_OPERATION_NOT_ALLOWED: action exec
 /** A verified `recover --set-aside`: a person's decision about changes held for review. */
 /** `sync --set-aside --confirm <COMMIT>`: a person's decision to drop a waiting commit from publication. */
 function publicationSetAside(positionals, options) {
-  return positionals[0] === 'sync' && options['set-aside'] === true && options.confirm !== undefined;
+  return (positionals[0] === 'sync' || (positionals[0] === 'initiative' && positionals[1] === 'sync'))
+    && options['set-aside'] === true && options.confirm !== undefined;
 }
 function publicationSetAsideCall(call, value) {
   const safe = verifiedShellForm(call, value);

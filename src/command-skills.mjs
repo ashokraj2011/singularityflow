@@ -482,7 +482,8 @@ export const OWN_TERMINAL_STEPS = Object.freeze([
       && [options.choose].flat().every((entry) => typeof entry === 'string' && CHAT_CHOICE.test(entry)))],
   ['set-aside', ([command], options) => command === 'recover' && options['set-aside'] === true],
   // Without --confirm it is a preview anyone may run.
-  ['publication-set-aside', ([command], options) => command === 'sync' && options['set-aside'] === true && options.confirm !== undefined],
+  ['publication-set-aside', ([command, sub], options) => (command === 'sync' || (command === 'initiative' && sub === 'sync'))
+    && options['set-aside'] === true && options.confirm !== undefined],
   ['workflow-delete', ([command, sub], options) => command === 'workflow' && sub === 'delete' && options.confirm !== undefined],
   ['target-origin-pin', ([command, sub], options) => command === 'story' && sub === 'target-origin' && options.confirm !== undefined],
   ['intent-amendment-decision', ([command, sub, verb]) => command === 'story' && sub === 'intent-amendment' && verb === 'decide'],
@@ -525,6 +526,15 @@ function exactRoute(routeEntry, commandArguments) {
   )) ?? null;
 }
 
+/**
+ * Previewing a set-aside is a read any turn runs where it is named; /sf-next and /sf-initiative-next
+ * only sync, so routing it there sent a lost race straight back into the same refusal (2026-10-29).
+ */
+function setAsidePreview(parsed) {
+  return (parsed.command === 'sync' || (parsed.command === 'initiative' && parsed.arguments[0] === 'sync'))
+    && parsed.arguments.includes('--set-aside');
+}
+
 /** Resolve one complete CLI invocation to the packaged skill that owns the same command family. */
 export function skillForCommandLine(commandLine) {
   const parsed = commandLineHead(commandLine);
@@ -532,9 +542,7 @@ export function skillForCommandLine(commandLine) {
   // The operand is an ID no fixed prefix can name: `sync <INTENT-ID>` retries one saved push.
   if (parsed.command === 'sync' && isTransportIntentId(parsed.arguments[0])) return 'sf-push';
   if (ownTerminalStep(commandLine)) return null;
-  // Previewing a set-aside is a read any turn runs where it is named; /sf-next only syncs, so routing
-  // it there sent a lost race straight back into the same refusal (2026-10-29).
-  if (parsed.command === 'sync' && parsed.arguments.includes('--set-aside')) return null;
+  if (setAsidePreview(parsed)) return null;
   const exact = COMMAND_LINE_SKILL_ROUTES[parsed.command];
   const match = exactRoute(exact, parsed.arguments);
   if (match?.skill === null) return null;
@@ -542,13 +550,14 @@ export function skillForCommandLine(commandLine) {
 }
 
 /**
- * True when an exact route names no skill (`null` above) or the line is a person's own terminal
- * step: a registered command that no packaged skill carries out, so every surface says it has no
- * verified Copilot equivalent.
+ * True when an exact route names no skill (`null` above), the line is a person's own terminal step
+ * or a set-aside preview: a registered command that no packaged skill carries out, so every surface
+ * says it has no verified Copilot equivalent. Without the preview here, every refusal plan dropped
+ * the set-aside it named.
  */
 export function commandLineWithoutSkill(commandLine) {
   const parsed = commandLineHead(commandLine);
-  return Boolean(parsed) && (ownTerminalStep(commandLine) !== null
+  return Boolean(parsed) && (ownTerminalStep(commandLine) !== null || setAsidePreview(parsed)
     || exactRoute(COMMAND_LINE_SKILL_ROUTES[parsed.command], parsed.arguments)?.skill === null);
 }
 

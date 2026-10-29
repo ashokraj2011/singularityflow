@@ -189,7 +189,9 @@ test('frequent lifecycle handlers do not reach the legacy dispatcher and stay un
     // contracts loaded lazily; its review-safe commit in approval-check.mjs, +2,614; its registry, terminal-step,
     // refusal and state entries) adds 15,059 for 9,220,445 (submit.mjs 9,142,110). The contracts load lazily, so no handler gains a file.
     // 9,240,000 (next 5,000 boundary): main 0c7ca31b measures 9,221,738 for start.mjs; refusals that quote the cell or line an author wrote and say what belongs there, publish-time prepublish plans for the draft refusals, and step-entry sentences for the rules never described (draft-diagnostics, specifications, specification-scenarios, verification intent and contracts, conformance, preflight, specification quality, constitution, refusal-remediation, phase-authoring-contract), after agents looped on such refusals in the office, add 14,359 for 9,236,097. No new file.
-    assert.ok(closure.bytes <= 9_240_000, `${file} exceeds the 9 MB eager-source budget (${closure.bytes} bytes)`);
+    // 9,245,000 (next 5,000 boundary): main 024a6dae measures 9,238,284 for start.mjs; a binary step artifact kept byte for byte (artifact-review-read.mjs; state.mjs prepare, publish and reconciliation; projectors.mjs; publication preflight; phase-upstream's authored digest), unique local Epic child Work IDs and an Epic's or Initiative's waiting commit set aside
+    // add 5,564 for 9,243,848. No new file.
+    assert.ok(closure.bytes <= 9_245_000, `${file} exceeds the 9 MB eager-source budget (${closure.bytes} bytes)`);
   }
 });
 

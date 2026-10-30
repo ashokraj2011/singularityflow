@@ -300,7 +300,10 @@ test('the common session projection does not import attach, state stores or publ
   // 3,985,000: SDA M4 measures 3,980,217: SDA M4's lifecycle authority adapter (sda/story-branch-authority.mjs, sda/lifecycle-authority-contract.mjs, sda/shared-state-contract.mjs), through which recovery and test-recovery reads observe the subject branch; the publication writer it wraps loads only on a transition.
   // Still 3,985,000: registering apm marketplace init and apm publish as the person's own steps (command-registry.mjs,
   // command-skills.mjs, copilot-mutation-guard.mjs) adds 448 to SDA M4's 3,980,217, for 3,980,665.
-  assert.ok(current.bytes <= 3_985_000, `session current loads ${current.bytes} source bytes`);
+  // 3,990,000: main 318c42d82 measures 3,980,854; lease identity for shared and restored homes (lease-liveness.mjs:
+  // the owner's PID namespace, and the hardware confirmed once before a dead owner is taken over) adds 4,980 for
+  // 3,985,834. No new file.
+  assert.ok(current.bytes <= 3_990_000, `session current loads ${current.bytes} source bytes`);
 });
 
 test('early phase and grounding-path entries exclude the deferred authoring and review graphs', async () => {

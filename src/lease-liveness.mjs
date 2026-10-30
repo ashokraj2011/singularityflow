@@ -12,14 +12,18 @@
  * - Same machine, PID running and the start matches or cannot be read (EPERM included): alive.
  * - Another machine: unknown. Nothing here can prove that process stopped, so only a person's
  *   reviewed release ends the lease.
+ * - Same machine ID, another PID namespace (a container sharing this home): unknown. Its PIDs are
+ *   not this process table's, so a missing PID proves nothing.
  *
  * Same machine means the same `machineId` (a random ID kept in machine state, so it survives a
  * hostname change); records without one, or a machine whose ID file cannot be written, compare by
- * hostname as before. A stale heartbeat is reported, never acted on.
+ * hostname as before. A home restored onto, or shared with, another computer carries that ID along,
+ * so before a dead owner is taken over the hardware is confirmed once (`machineStillHere`).
+ * A stale heartbeat is reported, never acted on.
  */
-import { randomUUID } from 'node:crypto';
+import { createHash, randomUUID } from 'node:crypto';
 import { spawnSync } from 'node:child_process';
-import { existsSync, linkSync, mkdirSync, readFileSync, unlinkSync, writeFileSync } from 'node:fs';
+import { existsSync, linkSync, mkdirSync, readFileSync, readlinkSync, renameSync, unlinkSync, writeFileSync } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 
@@ -85,16 +89,101 @@ export function localMachineId(env = process.env) {
   return id;
 }
 
+/** This process's PID namespace: Linux's `/proc/self/ns/pid` link (no process started), null elsewhere. */
+export function localPidNamespace({ platform = process.platform, readLink = readlinkSync } = {}) {
+  if (platform !== 'linux') return null;
+  try { return readLink('/proc/self/ns/pid') || null; } catch { return null; }
+}
+
+let pidNamespace;
+const ownPidNamespace = () => (pidNamespace === undefined ? (pidNamespace = localPidNamespace()) : pidNamespace);
+
 /** The identity fields every new lease owner record carries. */
 export function leaseOwnerIdentity() {
   const machineId = localMachineId();
+  const namespace = ownPidNamespace();
   return {
     pid: process.pid,
     host: os.hostname(),
     ...(machineId ? { machineId } : {}),
+    ...(namespace ? { pidNamespace: namespace } : {}),
     processStartedAt: LEASE_PROCESS_STARTED_AT,
     processToken: LEASE_PROCESS_TOKEN
   };
+}
+
+/** Beside the machine ID: a digest of the hardware it was confirmed on, never the hardware ID itself. */
+export function machineHardwareFile(env = process.env) {
+  return `${machineIdFile(env)}.hardware`;
+}
+
+/**
+ * This computer's hardware identity: Linux's /etc/machine-id (a file read) or the macOS platform
+ * UUID (one ioreg process, the system one). Null elsewhere or when it cannot be read.
+ */
+export function machineHardwareId({ platform = process.platform, readFile = readFileSync, spawnSyncCommand = spawnSync } = {}) {
+  try {
+    if (platform === 'linux') return /^[0-9a-f]{32}$/u.exec(String(readFile('/etc/machine-id', 'utf8')).trim())?.[0] ?? null;
+    if (platform !== 'darwin') return null;
+    const result = spawnSyncCommand('/usr/sbin/ioreg', ['-rd1', '-c', 'IOPlatformExpertDevice'], { encoding: 'utf8', timeout: 2_000 });
+    return result.status === 0 ? /"IOPlatformUUID" = "([0-9A-F-]{36})"/u.exec(String(result.stdout ?? ''))?.[1] ?? null : null;
+  } catch { return null; }
+}
+
+let hardwareProbe = machineHardwareId;
+const hardwareDigests = new Map();
+
+/** @internal Test-only: replace the hardware read (null restores it) and forget what was read. */
+export function setMachineHardwareProbeForTests(probe = null) {
+  if (probe !== null && typeof probe !== 'function') throw new TypeError('The hardware probe must be a function or null.');
+  hardwareProbe = probe ?? machineHardwareId;
+  hardwareDigests.clear();
+}
+
+function replaceFile(file, text) {
+  const pending = `${file}.${randomUUID()}.pending`;
+  writeFileSync(pending, text, { flag: 'wx', mode: 0o600 });
+  try { renameSync(pending, file); }
+  catch (error) { try { unlinkSync(pending); } catch { /* a leftover pending file is inert */ } throw error; }
+}
+
+/**
+ * Whether this machine ID still names this computer. Asked only before a dead owner is taken over,
+ * with the hardware read once per process. A home restored onto, or shared with, another computer
+ * carries the ID along; the hardware it was first confirmed on then differs, so this computer takes
+ * a new ID (derived from the old one and the hardware, so concurrent processes agree) and every owner
+ * recorded under the old one reads as another machine's. The ID is written before the hardware, so
+ * a crash between them asks again rather than keeping the old ID. A first confirmation, or hardware
+ * that cannot be read, keeps the ID; a hostname never decides.
+ */
+function machineStillHere() {
+  const file = machineIdFile();
+  const id = localMachineId();
+  if (!id) return true;
+  // Another process found this ID on other hardware and replaced it: owners under it are not ours.
+  const onDisk = readMachineId(file);
+  if (onDisk && onDisk !== id) { machineIds.set(file, onDisk); return false; }
+  if (!hardwareDigests.has(file)) {
+    const hardware = hardwareProbe();
+    hardwareDigests.set(file, hardware ? createHash('sha256').update(String(hardware)).digest('hex') : null);
+  }
+  const digest = hardwareDigests.get(file);
+  if (!digest) return true;
+  const record = machineHardwareFile();
+  let recorded = null;
+  try { recorded = readFileSync(record, 'utf8').trim(); } catch { /* not confirmed yet */ }
+  if (recorded === digest) return true;
+  const moved = /^[0-9a-f]{64}$/u.test(recorded ?? '');
+  try {
+    if (moved) {
+      const fresh = createHash('sha256').update(`${id}\0${digest}`).digest('hex').slice(0, 32)
+        .replace(/^(.{8})(.{4})(.{4})(.{4})/u, '$1-$2-$3-$4-');
+      replaceFile(file, `${fresh}\n`);
+      machineIds.set(file, fresh);
+    }
+    replaceFile(record, `${digest}\n`);
+  } catch { /* an unwritable home decides this answer only */ }
+  return !moved;
 }
 
 export function sameMachine(owner) {
@@ -154,18 +243,23 @@ function heartbeatState(heartbeatMtimeMs, heartbeatTtlMs, now) {
 
 /**
  * The full answer: `state` ('alive' | 'dead' | 'unknown'), why, and the heartbeat as reported
- * information ('fresh' | 'stale' | 'missing' | 'unknown'). `probe` replaces the start-time read.
+ * information ('fresh' | 'stale' | 'missing' | 'unknown'). `probe` replaces the start-time read,
+ * `pidNamespace` the reader's own namespace.
  */
 export function leaseOwnerAssessment(owner, {
-  now = Date.now(), heartbeatMtimeMs = null, heartbeatTtlMs = null, probe = processStartTimeMs
+  now = Date.now(), heartbeatMtimeMs = null, heartbeatTtlMs = null, probe = processStartTimeMs,
+  pidNamespace: readerNamespace = ownPidNamespace()
 } = {}) {
   const heartbeat = heartbeatState(heartbeatMtimeMs, heartbeatTtlMs, now);
   const lastHeartbeatAt = Number.isFinite(heartbeatMtimeMs) ? new Date(heartbeatMtimeMs).toISOString() : null;
   const answer = (state, reason, local) => Object.freeze({ state, reason, sameMachine: local, heartbeat, lastHeartbeatAt });
   if (!sameMachine(owner)) return answer('unknown', 'other-machine', false);
+  // A record without a namespace (an older build, or not Linux) is judged by its PID as before.
+  if (owner?.pidNamespace && owner.pidNamespace !== readerNamespace) return answer('unknown', 'other-pid-namespace', false);
+  const dead = (reason) => (machineStillHere() ? answer('dead', reason, true) : answer('unknown', 'machine-hardware-changed', false));
   const pid = owner?.pid;
-  if (!Number.isInteger(pid) || pid <= 0) return answer('dead', 'no-process', true);
-  if (pidState(pid) === 'gone') return answer('dead', 'process-exited', true);
+  if (!Number.isInteger(pid) || pid <= 0) return dead('no-process');
+  if (pidState(pid) === 'gone') return dead('process-exited');
   const recorded = owner.processStartedAt;
   // An older record has no start to compare, so a running PID keeps it (fail closed).
   if (!Number.isFinite(recorded)) return answer('alive', 'process-running', true);
@@ -173,9 +267,7 @@ export function leaseOwnerAssessment(owner, {
     return answer('alive', 'this-process', true);
   }
   const observed = probe(pid);
-  if (Number.isFinite(observed) && observed - recorded > PID_REUSE_TOLERANCE_MS) {
-    return answer('dead', 'process-id-reused', true);
-  }
+  if (Number.isFinite(observed) && observed - recorded > PID_REUSE_TOLERANCE_MS) return dead('process-id-reused');
   return answer('alive', Number.isFinite(observed) ? 'process-running' : 'process-start-unreadable', true);
 }
 

@@ -6,19 +6,24 @@
  * beside a live one. Each lease family below now follows the one predicate: a dead or recycled PID
  * is reclaimed, a live one never is, another machine's never is, and a person ends a lease nothing
  * here can prove abandoned only through a reviewed release of that exact generation.
+ *
+ * Shared and restored homes carry one machine ID onto other process tables: a container sharing the
+ * home sees another container's live PID as gone, and a home restored onto a new laptop sees the old
+ * laptop's. A different PID namespace, or hardware other than the ID was confirmed on, is unknown.
  */
 import assert from 'node:assert/strict';
 import { spawn } from 'node:child_process';
 import { randomUUID } from 'node:crypto';
-import { existsSync } from 'node:fs';
-import { mkdir, mkdtemp, readFile, rm, utimes, writeFile } from 'node:fs/promises';
+import { existsSync, readlinkSync } from 'node:fs';
+import { mkdir, mkdtemp, readFile, rm, stat, utimes, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
 
 import {
   LEASE_PROCESS_STARTED_AT, leaseOwnerAssessment, leaseOwnerIdentity, leaseOwnerState,
-  localMachineId, machineIdFile, processStartTimeMs
+  localMachineId, localPidNamespace, machineHardwareFile, machineHardwareId, machineIdFile, processStartTimeMs,
+  setMachineHardwareProbeForTests
 } from '../src/lease-liveness.mjs';
 import {
   acquireSubjectLock, activeSubjectLocks, assertNoActiveSubjectLocks, assertRepositoryResetAvailable,
@@ -29,6 +34,7 @@ import { releaseRegistryLeaseAfterReview, withRegistryFileLease } from '../src/f
 import { livePreparedPublicationOwner } from '../src/publication-pending.mjs';
 import { openFilesystemAuthorityStore } from '../src/sgos/platform/authority-store.mjs';
 import { platformSha256 } from '../src/sgos/platform/contracts.mjs';
+import { withMachineStateResetBarrier } from '../src/machine-state-reset.mjs';
 import { run } from '../src/util.mjs';
 
 const DEAD_PID = 2_147_483_647;
@@ -227,6 +233,185 @@ test('a hostname change keeps the machine; a different machine ID under the same
   const twin = { kind: 'story', id: 'TWIN' };
   await writeSubjectOwner(root, twin, { pid: DEAD_PID, host: os.hostname(), machineId: randomUUID() });
   await assert.rejects(() => acquireSubjectLock(root, twin), (error) => error.details?.liveness?.state === 'unknown');
+});
+
+/** A machine ID of this test's own, so replacing it never changes the one the rest of the run shares. */
+async function ownMachineState(t, reads, hardware) {
+  const directory = await mkdtemp(path.join(os.tmpdir(), 'sflow-machine-identity-'));
+  const previous = process.env.SINGULARITY_FLOW_MACHINE_ID_FILE;
+  process.env.SINGULARITY_FLOW_MACHINE_ID_FILE = path.join(directory, 'machine-id');
+  t.after(async () => {
+    if (previous === undefined) delete process.env.SINGULARITY_FLOW_MACHINE_ID_FILE;
+    else process.env.SINGULARITY_FLOW_MACHINE_ID_FILE = previous;
+    setMachineHardwareProbeForTests(null);
+    await rm(directory, { recursive: true, force: true });
+  });
+  setMachineHardwareProbeForTests(() => { reads.push(hardware.id); return hardware.id; });
+  return directory;
+}
+
+async function reclaimDeadOwner(root, id, owner) {
+  const subject = { kind: 'story', id };
+  await writeSubjectOwner(root, subject, { pid: DEAD_PID, host: os.hostname(), ...owner });
+  assert.equal(await releaseSubjectLock(root, subject, await acquireSubjectLock(root, subject)), true);
+}
+
+test('an owner in another PID namespace is never reclaimed, whatever its PID shows here', async (t) => {
+  const here = 'pid:[4026531836]';
+  const there = 'pid:[4026532415]';
+  assert.equal(localPidNamespace({ platform: 'linux', readLink: () => here }), here);
+  assert.equal(localPidNamespace({ platform: 'linux', readLink: () => { throw Object.assign(new Error('no /proc'), { code: 'ENOENT' }); } }), null);
+  assert.equal(localPidNamespace({ platform: 'darwin', readLink: () => assert.fail('only Linux has /proc') }), null);
+  const own = process.platform === 'linux' ? readlinkSync('/proc/self/ns/pid') : undefined;
+  assert.equal(leaseOwnerIdentity().pidNamespace, own, 'recorded where there is one, from a link read');
+  assert.notEqual(own, there);
+
+  const machineId = localMachineId();
+  const owner = { pid: DEAD_PID, host: os.hostname(), machineId, pidNamespace: there };
+  const other = leaseOwnerAssessment(owner, { pidNamespace: here });
+  assert.deepEqual([other.state, other.reason, other.sameMachine], ['unknown', 'other-pid-namespace', false]);
+  assert.equal(leaseOwnerState(owner, { pidNamespace: null }), 'unknown', 'a reader with no namespace cannot judge one either');
+  assert.equal(leaseOwnerState({ ...owner, pidNamespace: here }, { pidNamespace: here }), 'dead');
+  assert.equal(leaseOwnerState({ pid: DEAD_PID, host: os.hostname(), machineId }, { pidNamespace: here }), 'dead',
+    'a record without a namespace (an older build, or not Linux) is judged by its PID as before');
+
+  // Another container's lease, its heartbeat a day old: it waits for a person's reviewed release.
+  const root = await repository(t);
+  const subject = { kind: 'story', id: 'CONTAINER-1' };
+  const { record } = await writeSubjectOwner(root, subject, owner, { heartbeatAt: HOURS_AGO(24) });
+  await assert.rejects(() => acquireSubjectLock(root, subject, { ttlMs: 0 }), (error) => {
+    assert.equal(error.code, 'SUBJECT_LOCK_BUSY');
+    assert.deepEqual([error.details.liveness.state, error.details.liveness.reason], ['unknown', 'other-pid-namespace']);
+    assert.equal(error.details.releaseCommand, `singularity-flow lock release story CONTAINER-1 --confirm ${record.lockToken}`);
+    return true;
+  });
+  const manifest = path.join(root, 'workspace.json');
+  await writeFile(manifest, '{}\n');
+  await writeRegistryLease(`${manifest}.lock`, owner, HOURS_AGO(24));
+  await assert.rejects(() => withRegistryFileLease(manifest, async () => {}, { timeoutMs: 200 }),
+    (error) => error.code === 'WORKSPACE_REGISTRY_BUSY' && error.details.liveness.reason === 'other-pid-namespace');
+});
+
+test('a hostname change alone keeps the machine: the same hardware, the same ID, a dead owner reclaimed', async (t) => {
+  const reads = [];
+  await ownMachineState(t, reads, { id: 'HARDWARE-ONE' });
+  const root = await repository(t);
+  const machineId = localMachineId();
+  await reclaimDeadOwner(root, 'BEFORE-RENAME', { machineId });
+  await reclaimDeadOwner(root, 'RENAMED-HOST', { machineId, host: 'renamed-host.example' });
+  assert.equal(localMachineId(), machineId);
+  assert.deepEqual(reads, ['HARDWARE-ONE'], 'the hardware is read once per process');
+  const recorded = (await readFile(machineHardwareFile(), 'utf8')).trim();
+  assert.match(recorded, /^[0-9a-f]{64}$/u, 'a digest of the hardware is kept beside the machine ID');
+  assert.ok(!recorded.includes('HARDWARE-ONE'), 'never the hardware ID itself');
+});
+
+test('a machine ID found on other hardware is replaced, and owners under the old one read as another machine\'s', async (t) => {
+  const reads = [];
+  const hardware = { id: 'HARDWARE-ONE' };
+  await ownMachineState(t, reads, hardware);
+  const root = await repository(t);
+  const original = localMachineId();
+  await reclaimDeadOwner(root, 'CONFIRMED', { machineId: original });
+  const confirmedOn = (await readFile(machineHardwareFile(), 'utf8')).trim();
+
+  // The same home restored onto another computer: a process there reads other hardware.
+  hardware.id = 'HARDWARE-TWO';
+  setMachineHardwareProbeForTests(() => { reads.push(hardware.id); return hardware.id; });
+  const subject = { kind: 'story', id: 'RESTORED' };
+  const { record } = await writeSubjectOwner(root, subject, { pid: DEAD_PID, host: os.hostname(), machineId: original });
+  await assert.rejects(() => acquireSubjectLock(root, subject), (error) => {
+    assert.equal(error.code, 'SUBJECT_LOCK_BUSY');
+    assert.deepEqual([error.details.liveness.state, error.details.liveness.reason], ['unknown', 'machine-hardware-changed']);
+    assert.match(error.message, /another machine/);
+    assert.equal(error.details.releaseCommand, `singularity-flow lock release story RESTORED --confirm ${record.lockToken}`);
+    return true;
+  });
+  const fresh = localMachineId();
+  assert.notEqual(fresh, original);
+  assert.match(fresh, /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/u);
+  assert.equal((await readFile(machineIdFile(), 'utf8')).trim(), fresh, 'the new ID is kept for later processes');
+  assert.notEqual((await readFile(machineHardwareFile(), 'utf8')).trim(), confirmedOn);
+  assert.deepEqual(reads, ['HARDWARE-ONE', 'HARDWARE-TWO']);
+
+  // Every owner under the old ID is now another machine's; new leases carry the new ID, reclaimed when dead.
+  assert.equal(leaseOwnerAssessment({ pid: DEAD_PID, host: os.hostname(), machineId: original }).reason, 'other-machine');
+  assert.equal(leaseOwnerIdentity().machineId, fresh);
+  await reclaimDeadOwner(root, 'AFTER-MOVE', { machineId: fresh });
+  assert.equal(reads.length, 2, 'the hardware is not read again');
+
+  // A process still holding the ID another process replaced does not reclaim an owner under it.
+  const replaced = randomUUID();
+  await writeFile(machineIdFile(), `${replaced}\n`);
+  assert.equal(leaseOwnerAssessment({ pid: DEAD_PID, host: os.hostname(), machineId: fresh }).reason, 'machine-hardware-changed');
+  assert.equal(localMachineId(), replaced);
+
+  // Another process finding the same move derives the same new ID, so concurrent processes agree.
+  const second = await mkdtemp(path.join(os.tmpdir(), 'sflow-machine-identity-'));
+  t.after(() => rm(second, { recursive: true, force: true }));
+  process.env.SINGULARITY_FLOW_MACHINE_ID_FILE = path.join(second, 'machine-id');
+  await writeFile(machineIdFile(), `${original}\n`);
+  await writeFile(machineHardwareFile(), `${confirmedOn}\n`);
+  assert.equal(leaseOwnerState({ pid: DEAD_PID, host: os.hostname(), machineId: original }), 'unknown');
+  assert.equal(localMachineId(), fresh);
+});
+
+test('ordinary acquisition, renewal and refusal never read the hardware', async (t) => {
+  const reads = [];
+  await ownMachineState(t, reads, { id: 'HARDWARE-ONE' });
+  const root = await repository(t);
+  const subject = { kind: 'story', id: 'ORDINARY' };
+  await withSubjectLock(root, subject, async (owner) => {
+    // A one-second lease (the shortest that renews) renews every 333 ms.
+    const heartbeat = path.join(subjectLockPath(root, subject), `heartbeat-${owner.lockToken}`);
+    const before = (await stat(heartbeat)).mtimeMs;
+    await new Promise((resolve) => setTimeout(resolve, 900));
+    assert.ok((await stat(heartbeat)).mtimeMs > before, 'the lease was renewed');
+    assert.equal(leaseOwnerState(owner), 'alive');
+  }, { ttlMs: 1_000 });
+  let entered = false;
+  await withRegistryFileLease(path.join(root, 'workspace.json'), async () => { entered = true; });
+  assert.equal(entered, true);
+
+  // Refusals of a live owner here, another machine's and another namespace's read no hardware either.
+  const other = await liveProcess(t);
+  const machineId = localMachineId();
+  for (const [id, owner] of [
+    ['LIVE', { pid: other.pid, host: os.hostname(), machineId, processStartedAt: other.processStartedAt }],
+    ['REMOTE', { pid: DEAD_PID, host: 'elsewhere.example', machineId: randomUUID() }],
+    ['CONTAINER', { pid: DEAD_PID, host: os.hostname(), machineId, pidNamespace: 'pid:[4026532415]' }]
+  ]) {
+    const locked = { kind: 'story', id };
+    await writeSubjectOwner(root, locked, owner, { heartbeatAt: new Date() });
+    await assert.rejects(() => acquireSubjectLock(root, locked), (error) => error.code === 'SUBJECT_LOCK_BUSY');
+  }
+  assert.deepEqual(reads, []);
+});
+
+test('a machine reset keeps the machine ID and the hardware it was confirmed on', async (t) => {
+  const localStateRoot = await mkdtemp(path.join(os.tmpdir(), 'sflow-machine-reset-'));
+  t.after(() => rm(localStateRoot, { recursive: true, force: true }));
+  const kept = await withMachineStateResetBarrier({ localStateRoot }, async ({ lockPaths }) => lockPaths);
+  assert.ok(kept.has(path.resolve(machineIdFile())));
+  assert.ok(kept.has(path.resolve(machineHardwareFile())));
+});
+
+test('the hardware read: Linux /etc/machine-id, the macOS platform UUID through the system ioreg', () => {
+  const files = [];
+  assert.equal(machineHardwareId({ platform: 'linux', readFile: (file) => { files.push(file); return `${'a1'.repeat(16)}\n`; } }), 'a1'.repeat(16));
+  assert.deepEqual(files, ['/etc/machine-id']);
+  assert.equal(machineHardwareId({ platform: 'linux', readFile: () => { throw Object.assign(new Error('absent'), { code: 'ENOENT' }); } }), null);
+  let call;
+  const uuid = '0A1B2C3D-4E5F-6789-ABCD-EF0123456789';
+  assert.equal(machineHardwareId({ platform: 'darwin', spawnSyncCommand: (command, args) => {
+    call = [command, ...args];
+    return { status: 0, stdout: `+-o Mac  <class IOPlatformExpertDevice>\n    {\n      "IOPlatformUUID" = "${uuid}"\n    }\n` };
+  } }), uuid);
+  assert.deepEqual(call, ['/usr/sbin/ioreg', '-rd1', '-c', 'IOPlatformExpertDevice']);
+  assert.equal(machineHardwareId({ platform: 'darwin', spawnSyncCommand: () => ({ status: 1, stdout: '' }) }), null);
+  assert.equal(machineHardwareId({ platform: 'win32', spawnSyncCommand: () => assert.fail('not read on Windows') }), null);
+  // This computer's own answer, as the real takeover path reads it.
+  if (process.platform === 'darwin') assert.match(machineHardwareId(), /^[0-9A-F-]{36}$/u);
 });
 
 test('a reset barrier from another machine blocks work until a reviewed release', async (t) => {

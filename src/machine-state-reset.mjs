@@ -33,11 +33,13 @@ export async function withMachineStateResetBarrier({
   const { withRegistryFileLease } = await import('./workspace.mjs');
   // The machine's lease identity survives every reset: it names this computer, not product state.
   // Reset to a new one, this computer's own older leases would read as another machine's, and only
-  // a reviewed release could free them (src/lease-liveness.mjs).
-  const { machineIdFile } = await import('./lease-liveness.mjs');
+  // a reviewed release could free them (src/lease-liveness.mjs). The hardware it was confirmed on stays
+  // with it, so a home restored onto another computer is still recognised after a reset.
+  const { machineHardwareFile, machineIdFile } = await import('./lease-liveness.mjs');
   const acquireRegistries = (index) => index === files.length
     ? operation({
-      lockPaths: new Set([...files.map((file) => `${file}.lock`), path.resolve(machineIdFile())]),
+      lockPaths: new Set([...files.map((file) => `${file}.lock`), path.resolve(machineIdFile()),
+        path.resolve(machineHardwareFile())]),
       resetLockPath: `${resetLeaseFile}.lock`
     })
     : withRegistryFileLease(files[index], () => acquireRegistries(index + 1), leaseOptions);

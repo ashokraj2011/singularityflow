@@ -2,7 +2,8 @@
  * Transactional configuration drafts (SDA M3; SDA-AC-003, SDA-AC-005): a save survives a crash, two
  * processes saving at once both land, a proposal removes only the drafts it holds, a repeated
  * operation returns its first draft and a changed one is refused, and the drafts file of earlier
- * builds migrates once, resuming without duplicates when interrupted.
+ * builds migrates once, resuming without duplicates when interrupted, and again without loss or
+ * duplicates when an older build writes one after the migration.
  */
 import assert from 'node:assert/strict';
 import { spawn, spawnSync } from 'node:child_process';
@@ -185,6 +186,37 @@ test('the drafts file of earlier builds migrates once, and an interrupted migrat
   assert.deepEqual((await readDrafts(root)).changes.map((entry) => entry.draftId), migrated.changes.map((entry) => entry.draftId));
   // Retrying a command saved before the upgrade is the same operation as its migrated draft.
   assert.equal((await save(root, skill('b'))).saved, 'existing');
+});
+
+test('a drafts file an older build writes after the migration migrates again, losing nothing and repeating nothing', async t => {
+  // Mixed builds on one repository (SDA D6: no code fence; product.yml minimumBuild retires the older build).
+  const root = await repository(t);
+  const entry = (id, day) => ({ addedAt: `2026-10-${day}T00:00:00.000Z`, description: describeChange(skill(id)), change: skill(id) });
+  const proposed = { branch: 'sflow/config-change/workflow/old', commit: null, at: '2026-10-01T00:00:00.000Z', changes: ['Old'] };
+  const first = `${JSON.stringify({ schema: 'sflow-configuration-drafts@1', proposed, changes: [entry('a', 10), entry('b', 11)] }, null, 2)}\n`;
+  await mkdir(path.dirname(legacyDraftsPath(root)), { recursive: true });
+  await writeFile(legacyDraftsPath(root), first);
+  assert.deepEqual((await readDrafts(root)).changes.map((draft) => draft.change.id), ['a', 'b']);
+  assert.equal((await save(root, skill('c'))).saved, 'new');
+  const saved = (await readDrafts(root)).changes.map((draft) => draft.draftId);
+
+  // The older build read drafts.json before the migration renamed it and writes it back afterwards: its
+  // copies of a and b, the same command for c run again there, and a draft d only it has seen.
+  const late = `${JSON.stringify({ schema: 'sflow-configuration-drafts@1', proposed,
+    changes: [entry('a', 10), entry('b', 11), entry('c', 12), entry('d', 13)] }, null, 2)}\n`;
+  await writeFile(legacyDraftsPath(root), late);
+  const again = await readDrafts(root);
+  assert.deepEqual(again.changes.map((draft) => draft.change.id), ['a', 'b', 'c', 'd'], 'each change once, d after the others');
+  assert.deepEqual(again.changes.slice(0, 3).map((draft) => draft.draftId), saved, 'the drafts already saved are kept as they were');
+  assert.equal(new Set(again.changes.map((draft) => draft.operationId)).size, 4);
+  assert.equal(again.changes[3].addedAt, '2026-10-13T00:00:00.000Z');
+  assert.equal(again.proposed.branch, proposed.branch);
+  // Both drafts files are kept, never deleted, and the store holds exactly the four drafts.
+  await assert.rejects(readFile(legacyDraftsPath(root)), { code: 'ENOENT' });
+  assert.equal(await readFile(`${legacyDraftsPath(root)}.migrated-v2`, 'utf8'), first);
+  assert.equal(await readFile(`${legacyDraftsPath(root)}.migrated-v2-1`, 'utf8'), late);
+  assert.equal((await storeNames(root)).filter((name) => name.startsWith('cdr-')).length, 4);
+  assert.deepEqual((await readDrafts(root)).changes.map((draft) => draft.draftId), again.changes.map((draft) => draft.draftId));
 });
 
 test('a proposal recorded just before a crash hides the drafts it holds, and the next change removes them', async t => {

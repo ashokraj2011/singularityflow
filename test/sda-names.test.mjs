@@ -70,6 +70,10 @@ export const SDA_NAMES = Object.freeze({
   LOCK_COMMAND_INVALID: ['src/commands/lock.mjs'],
   'sflow-lock-': ['src/commands/lock.mjs', 'src/help-pages.mjs', 'src/narration/migration-status.mjs'],
   "'lock-release'": ['src/command-skills.mjs'],
+  // M3 leftover: lease identity for shared and restored homes (the hardware digest file follows the machine ID file)
+  pidNamespace: ['src/lease-liveness.mjs'],
+  'other-pid-namespace': ['src/lease-liveness.mjs'],
+  'machine-hardware-changed': ['src/lease-liveness.mjs'],
   // M3: capability activation and edits with no textual merge
   CAPABILITY_PROPOSAL_VALUE_CONFLICT: ['src/capability-value-replay.mjs'],
   CAPABILITY_CONFIGURATION_OBJECTS_UNAVAILABLE: ['src/git-configuration-objects.mjs'],

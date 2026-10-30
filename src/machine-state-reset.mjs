@@ -31,9 +31,13 @@ export async function withMachineStateResetBarrier({
   // `root`, and moving the reset lease with those contents would reopen the race it closes.
   const resetLeaseFile = `${root}.destructive-reset`;
   const { withRegistryFileLease } = await import('./workspace.mjs');
+  // The machine's lease identity survives every reset: it names this computer, not product state.
+  // Reset to a new one, this computer's own older leases would read as another machine's, and only
+  // a reviewed release could free them (src/lease-liveness.mjs).
+  const { machineIdFile } = await import('./lease-liveness.mjs');
   const acquireRegistries = (index) => index === files.length
     ? operation({
-      lockPaths: new Set(files.map((file) => `${file}.lock`)),
+      lockPaths: new Set([...files.map((file) => `${file}.lock`), path.resolve(machineIdFile())]),
       resetLockPath: `${resetLeaseFile}.lock`
     })
     : withRegistryFileLease(files[index], () => acquireRegistries(index + 1), leaseOptions);

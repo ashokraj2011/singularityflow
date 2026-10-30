@@ -3,7 +3,7 @@ import path from 'node:path';
 import { SingularityFlowError } from '../../util.mjs';
 import { repoRoot } from '../../git.mjs';
 import { WORKFLOW_PATH } from '../../config.mjs';
-import { readWorkspace } from '../../workspace-manifest.mjs';
+import { readWorkspace, workspaceMaterializeCommand } from '../../workspace-manifest.mjs';
 import { workspaceRegistryFile, activeWorkspaceFile, buildWorkspaceContext, readActiveWorkspaceContext } from '../../workspace-context.mjs';
 import { sessionRepositoryAuthority } from './session-repository-authority.mjs';
 import { boundExecutionContextRoot } from '../../execution-context-scope.mjs';
@@ -83,9 +83,14 @@ export async function resolveSessionRepository({
       detail: 'Select a workspace with `singularity-flow session workspace <workspace>`.'
     };
   }
-  if (context.repositoryState !== 'ready') {
+  if (context.repositoryState === 'deferred') {
     // Candidates can inspect a deferred repository without cloning. Attach will preflight the
     // exact Story before materializing only this reviewed workspace member.
+    const materialize = workspaceMaterializeCommand(context.workspacePath, context.repositoryId);
+    return { root: null, reason: 'workspace-repository-deferred', workspaceContext: context, materialize,
+      detail: `Repository '${context.repositoryId}' is not cloned yet; a Story attach or start clones it, or run ${materialize}.` };
+  }
+  if (context.repositoryState !== 'ready') {
     return {
       root: null,
       reason: 'workspace-repository-not-ready',

@@ -770,8 +770,20 @@ async function memberCheckouts(scope) {
     .map(([id, repository]) => ({ id, checkout: workspaceRepositoryPath(scope.workspace, repository) }));
 }
 
-/** The scope a command acts on: this checkout, a named member repository, or the workspace's own level. */
-export async function commandScope(root, { repository = null, workspace = false } = {}) {
+/** A member that was planned but never cloned, with the command that clones it; otherwise null. */
+async function deferredMember(workspace, repositoryId) {
+  const { workspaceMaterializeCommand, workspaceStatus } = await import('./workspace.mjs');
+  const status = await workspaceStatus(workspace.path, { level: 'readiness', repositoryId });
+  return status.repositories[0]?.state === 'deferred'
+    ? { command: workspaceMaterializeCommand(workspace.path, repositoryId) } : null;
+}
+
+/**
+ * The scope a command acts on: this checkout, a named member repository, or the workspace's own level.
+ * A command that works in a deferred member's source clones that one member first (`materialize`);
+ * a read passes `materialize: false` and reports the member as not cloned instead.
+ */
+export async function commandScope(root, { repository = null, workspace = false, materialize = true } = {}) {
   const found = await membership(root);
   if (!repository && !workspace) return repositoryScope(root, { member: found });
   if (!found.workspace) {
@@ -787,8 +799,27 @@ export async function commandScope(root, { repository = null, workspace = false 
   if (repository === found.repositoryId) return repositoryScope(root, { member: found });
   const { workspaceRepositoryPath } = await import('./workspace-manifest.mjs');
   const checkout = workspaceRepositoryPath(found.workspace, member);
-  if (!repositoryGitDirectory(checkout)) fail(`Repository '${repository}' is not cloned at ${checkout}.`, 'ENV_FILES_REPOSITORY_MISSING', { repository, checkout });
+  if (!repositoryGitDirectory(checkout)) {
+    const deferred = await deferredMember(found.workspace, repository);
+    if (deferred && materialize) {
+      // Work in this member's source clones only it, as Story start does.
+      await (await import('./workspace.mjs')).repairWorkspace(found.workspace.path, {
+        repositoryIds: [repository], returnIfSelectedReady: true, statusLevel: 'readiness'
+      });
+      if (!repositoryGitDirectory(checkout)) fail(`Repository '${repository}' could not be cloned at ${checkout}.`, 'ENV_FILES_REPOSITORY_MISSING', { repository, checkout });
+    } else if (deferred) {
+      fail(`Repository '${repository}' is not cloned yet; work in it clones it, or clone it now with ${deferred.command}.`,
+        'ENV_FILES_REPOSITORY_DEFERRED', { repository, repositoryState: 'deferred', nextAction: deferred.command });
+    } else fail(`Repository '${repository}' is not cloned at ${checkout}.`, 'ENV_FILES_REPOSITORY_MISSING', { repository, checkout });
+  }
   return repositoryScope(checkout, { member: { ...found, repositoryId: repository } });
+}
+
+/** The report row of a member that is not cloned: its files live in a checkout that is not there yet. */
+async function notClonedReport(workspace, id, checkout) {
+  const deferred = await deferredMember(workspace, id);
+  return { id, checkout: deferred ? null : checkout, store: null, declaration: 'not-cloned', environments: [], apps: [],
+    ...(deferred ? { repositoryState: 'deferred', materialize: deferred.command } : {}) };
 }
 
 /** `env files [ENV] [--repository ID | --workspace]`: every file with its status, never its contents. */
@@ -797,7 +828,16 @@ export async function environmentFilesReport(root, { environment = null, reposit
   const result = { schemaVersion: 1, resultType: 'sflow-env-files', scope: workspace ? 'workspace' : 'repository', environment,
     environments: [], roots: {}, files: [], repositories: [], workspace: null };
   if (!workspace) {
-    const scope = await commandScope(root, { repository });
+    let scope;
+    try { scope = await commandScope(root, { repository, materialize: false }); }
+    catch (error) {
+      // Listing a member that is not cloned yet is an answer, not a refusal.
+      if (error?.code !== 'ENV_FILES_REPOSITORY_DEFERRED') throw error;
+      const found = await membership(root);
+      result.repositories.push(await notClonedReport(found.workspace, repository, null));
+      result.workspace = workspaceSummary(found.workspace);
+      return finishReport(result, [], {});
+    }
     const shown = await repositoryReport(scope, environment, { strict: true });
     result.repositories.push(shown.report);
     result.files.push(...shown.files);
@@ -808,7 +848,7 @@ export async function environmentFilesReport(root, { environment = null, reposit
   const environments = [];
   for (const member of await memberCheckouts(level)) {
     if (!repositoryGitDirectory(member.checkout)) {
-      result.repositories.push({ id: member.id, checkout: member.checkout, store: null, declaration: 'not-cloned', environments: [], apps: [] });
+      result.repositories.push(await notClonedReport(level.workspace, member.id, member.checkout));
       continue;
     }
     const scope = await repositoryScope(member.checkout, { member: { repositoryId: member.id, workspace: level.workspace, mapRoot: member.checkout } });

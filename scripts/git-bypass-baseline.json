@@ -864,7 +864,7 @@
       "counts": {
         "command-run": 9
       },
-      "digest": "8ea399a2ffbf2137d3709dd3147ce39fffc44e703cb58d91a3f0a2d027301f41"
+      "digest": "3c373562aa881d27ed39bfb1db97085b87121b1c4d2cccdfbe62f31b69018eb1"
     },
     "src/configuration-object-reader.mjs": {
       "counts": {
@@ -879,6 +879,12 @@
         "command-run": 1
       },
       "digest": "4bea4c8b12afb0a50aa5be3fadfedd9f84db362b2cc2b34307267ae4081db8c9"
+    },
+    "src/configuration-projection.mjs": {
+      "counts": {
+        "command-run": 5
+      },
+      "digest": "f60f44b385d6a9ffbde6c3bc5d5afb40132f1eea9caf7f8b791a0515fee207bb"
     },
     "src/configuration-proposal-sync.mjs": {
       "counts": {
@@ -898,7 +904,7 @@
       "counts": {
         "command-run": 14
       },
-      "digest": "65db42425ed5da6e0acb0644f085dd4660237104519c168e95e2ba21f5190af2"
+      "digest": "f04b8a1e1eb846b068d1f12b4c71713db9432867dbc0b334befa293490f38665"
     },
     "src/configuration-state-git.mjs": {
       "counts": {
@@ -1105,6 +1111,13 @@
       },
       "digest": "9da92ee0655cee1bf633f1b588ced38a2131e83fd4ac305baa2028b98ad41437"
     },
+    "src/git-configuration-objects.mjs": {
+      "counts": {
+        "command-git": 19,
+        "command-run": 1
+      },
+      "digest": "cc79136b8b4c618708dab052560f727557f6f882ce0eb732f34021e4d62d0de7"
+    },
     "src/git-diff-name-status.mjs": {
       "counts": {
         "command-runCommand": 1
@@ -1260,6 +1273,12 @@
       },
       "digest": "b15b6764dc05ef2c05b8e3976364e3dd73722d3fcf159b41fb98575bd03808a6"
     },
+    "src/lease-liveness.mjs": {
+      "counts": {
+        "process-import": 1
+      },
+      "digest": "996b4aefbb4d5d92445809ef537aa71d76147b8d634f4cfde27d1f09c79f7ecc"
+    },
     "src/ledger-deployment.mjs": {
       "counts": {
         "command-git": 3,
@@ -1338,9 +1357,9 @@
     },
     "src/organisation.mjs": {
       "counts": {
-        "command-run": 64
+        "command-run": 59
       },
-      "digest": "689d50a11fb97b805c8655ec38d4bc208d2dfdb7c108aee89a467a4af8f5b5f5"
+      "digest": "c45afbac8130092c4e139ff05cf4ad8c49b6761bdf3d2da13ca7adc9a0618f77"
     },
     "src/performance-doctor.mjs": {
       "counts": {

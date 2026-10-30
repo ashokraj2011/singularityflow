@@ -1,7 +1,6 @@
 import path from 'node:path';
-import os from 'node:os';
 import { createHash, createHmac, timingSafeEqual } from 'node:crypto';
-import { readFileSync, statSync } from 'node:fs';
+import { readFileSync } from 'node:fs';
 import { readFile, readdir, unlink, writeFile } from 'node:fs/promises';
 import {
   admitExactProspectiveTree, branch, changes, commitIsAncestor,
@@ -23,6 +22,7 @@ import { currentSchemaVersion, readRecord, stampCurrentRecord } from './schema-m
 import { restorePublicationPreimage } from './publication-recovery.mjs';
 import { withSubjectLock } from './subject-lock.mjs';
 import { subjectLockPath } from './subject-lock.mjs';
+import { leaseOwnerState } from './lease-liveness.mjs';
 import {
   prepareSharedPublicationStorage, resolveSharedPublicationFile
 } from './publication-storage.mjs';
@@ -1002,14 +1002,16 @@ export async function syncPendingLifecyclePublication(root, options = {}) {
   });
 }
 
-function processIsAlive(pid) {
-  if (!Number.isInteger(pid) || pid <= 0) return null;
-  try { process.kill(pid, 0); return true; }
-  catch (error) { return error?.code === 'ESRCH' ? false : null; }
-}
-
+/**
+ * Whether the transaction that wrote a journal still holds its subject lease: the same rule every
+ * lease uses (src/lease-liveness.mjs). Only a proven-dead owner makes the journal recoverable; a
+ * live or another machine's owner is never declared interrupted because its deadline passed. A
+ * lease that is gone (released, or taken over after its owner died) no longer protects the journal.
+ */
 function journalLeaseIsLive(root, journal) {
-  if (!root || !journal?.owner?.lockToken) return processIsAlive(journal?.owner?.pid) === true;
+  if (!root || !journal?.owner?.lockToken) {
+    return Boolean(journal?.owner) && leaseOwnerState(journal.owner) !== 'dead';
+  }
   const directory = subjectLockPath(root, journal.subject);
   let owner;
   try { owner = JSON.parse(readFileSync(path.join(directory, 'owner.json'), 'utf8')); }
@@ -1017,17 +1019,7 @@ function journalLeaseIsLive(root, journal) {
   if (owner.lockToken !== journal.owner.lockToken
     || owner.processToken !== journal.owner.processToken
     || owner.host !== journal.owner.host) return false;
-  const acquired = Date.parse(owner.acquiredAt ?? '');
-  const expires = Date.parse(owner.expiresAt ?? '');
-  const ttlMs = Number.isFinite(acquired) && Number.isFinite(expires) ? expires - acquired : 0;
-  let heartbeat = 0;
-  try {
-    heartbeat = statSync(path.join(directory, `heartbeat-${encodeURIComponent(owner.lockToken).replace(/%/g, '_')}`)).mtimeMs;
-  } catch { /* Missing exact-token heartbeat cannot extend the recorded lease. */ }
-  const deadline = Math.max(Number.isFinite(expires) ? expires : 0, heartbeat + Math.max(0, ttlMs));
-  if (Date.now() > deadline) return false;
-  if (owner.host === os.hostname() && processIsAlive(owner.pid) !== true) return false;
-  return true;
+  return leaseOwnerState(owner) !== 'dead';
 }
 
 /**

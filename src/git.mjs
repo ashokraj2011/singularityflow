@@ -1548,69 +1548,6 @@ export function proposalGitFile(root, ref, file, { env = process.env } = {}) {
   return result.status === 0 ? result.stdout : null;
 }
 
-/** `null` means the local Git cannot establish a result, never that a merge is clean. */
-export function proposalGitMergeProbe(root, targetCommit, proposalRef, {
-  env = process.env, forceLegacyProbe = false
-} = {}) {
-  // The explicit fallback switch is used by the minimum-supported-Git regression fixture;
-  // production callers always take the modern probe first when their Git supports it.
-  if (!forceLegacyProbe) {
-    const result = git(['merge-tree', '--write-tree', '--quiet', targetCommit, proposalRef], {
-      cwd: root, env, allowFailure: true
-    });
-    if (result.error || result.timedOut) return null;
-    if (result.status === 0) return true;
-    if (result.status === 1) return false;
-  }
-  // Git 2.25 is still supported, but its merge-tree has no --write-tree status contract.
-  // Probe in a *local disposable clone* instead of guessing from the legacy human-readable
-  // merge-tree output. A non-zero merge result proves a conflict only when Git left unmerged
-  // index entries; auth, object, hook, and other failures remain unknown.
-  const target = proposalGitRef(root, targetCommit, { env });
-  const proposal = proposalGitRef(root, proposalRef, { env });
-  if (!target || !proposal) return null;
-  let scratch;
-  try { scratch = mkdtempSync(path.join(os.tmpdir(), 'sflow-proposal-merge-probe-')); }
-  catch { return null; }
-  const probeEnv = { ...env, GIT_TERMINAL_PROMPT: '0', GIT_NO_LAZY_FETCH: '1' };
-  let outcome = null;
-  try {
-    const cloned = git(['clone', '--quiet', '--shared', '--no-checkout', '--', root, scratch], {
-      cwd: root, env: probeEnv, allowFailure: true
-    });
-    if (cloned.status === 0) {
-      const disabledHooks = ['-c', `core.hooksPath=${path.join(scratch, '.git', 'sflow-disabled-hooks')}`];
-      const checkedOut = git([...disabledHooks, 'checkout', '--quiet', '--detach', target], {
-        cwd: scratch, env: probeEnv, allowFailure: true
-      });
-      if (checkedOut.status === 0) {
-        const merged = git([
-          ...disabledHooks,
-          '-c', 'commit.gpgsign=false',
-          '-c', 'user.name=Singularity Flow merge probe',
-          '-c', 'user.email=merge-probe@localhost',
-          'merge', '--no-commit', '--no-ff', '--no-edit', proposal
-        ], { cwd: scratch, env: probeEnv, allowFailure: true });
-        if (merged.status === 0) outcome = true;
-        else if (!merged.error && !merged.timedOut) {
-          const unmerged = git(['ls-files', '--unmerged', '-z'], {
-            cwd: scratch, env: probeEnv, allowFailure: true
-          });
-          if (unmerged.status === 0 && unmerged.stdout) outcome = false;
-        }
-      }
-    }
-  } finally {
-    try {
-      rmSync(scratch, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 });
-    } catch {
-      // A locked temporary probe is not evidence that the authority is mergeable.
-      outcome = null;
-    }
-  }
-  return outcome;
-}
-
 export function proposalGitStatus(root, { env = process.env } = {}) {
   return git(['status', '--porcelain', '-z'], { cwd: root, env }).stdout;
 }

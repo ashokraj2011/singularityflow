@@ -20,6 +20,8 @@ export const MIGRATED_NARRATION_COMMANDS = Object.freeze([
   'app', 'tests', 'call', 'apm',
   // The read index (SDA M2): its --json is its own structured result (sflow-index-*).
   'index',
+  // Lease review and release (SDA M3): sflow-lock-show, sflow-lock-release.
+  'lock',
   // Returns another command's kept result as that command returned it, or why there is none.
   'result',
   // Emits the sflow-result v2 envelope the gateway serves, which is a structured result too [INT:IFC-020].

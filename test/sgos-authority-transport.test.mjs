@@ -531,7 +531,7 @@ test('stable cutover leases honor owner publication grace and token heartbeat', 
   await liveOpen;
 });
 
-test('stable cutover leases reclaim stale remote and dead local owners into quarantine', async (t) => {
+test('stable cutover leases reclaim ownerless and dead local owners into quarantine', async (t) => {
   const parent = await directory(t, 'sflow-authority-cutover-stale-');
   const ownerlessStoreId = 'stale-ownerless-store';
   const ownerlessLock = path.join(parent, `.authority-cutover-lock-${ownerlessStoreId}`);
@@ -544,12 +544,9 @@ test('stable cutover leases reclaim stale remote and dead local owners into quar
   assert.equal((await readdir(parent)).filter((name) =>
     name.startsWith(`.authority-cutover-lock-abandoned-${ownerlessStoreId}-`)).length, 1);
 
+  // Another machine's owner is never in this list: nothing here proves it stopped, however old its
+  // lease (test/sgos-platform-profile.test.mjs covers that refusal on the shared liveness rule).
   const cases = [
-    {
-      storeId: 'stale-remote-store',
-      owner: lockOwner('stale-remote-store', { host: 'remote-host.example', pid: 17 }),
-      heartbeatAt: Date.now() - 120_000
-    },
     {
       storeId: 'dead-local-store',
       owner: lockOwner('dead-local-store', {

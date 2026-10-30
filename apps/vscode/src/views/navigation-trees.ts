@@ -48,7 +48,8 @@ export function buildWorkspaceTree(entries: WorkspaceEntry[]): TreeNode[] {
       description: row.archived ? 'preserved locally'
         : row.collides ? 'shares a directory'
         : row.sharesId ? `shares the id ${row.id}`
-          : unavailable ? `selected · repository ${row.repositoryState}`
+          : unavailable ? row.repositoryState === 'deferred' ? 'selected · not cloned yet'
+            : `selected · repository ${row.repositoryState}`
             : row.active ? 'working here' : undefined,
       tooltip: row.archived
         ? `${row.directory}${row.lead ? `\nLead repository: ${row.lead}` : ''}\n\nArchived locally. Click to inspect or restore it.`
@@ -56,7 +57,9 @@ export function buildWorkspaceTree(entries: WorkspaceEntry[]): TreeNode[] {
         ? `${row.directory}\n\nAnother workspace occupies this directory. Two sets of state writing into one tree is not a conflict to resolve later.`
         : `${row.directory}${row.lead ? `\nLead repository: ${row.lead}` : ''}\n\n${row.active
           ? unavailable
-            ? `This workspace is selected, but its repository is ${row.repositoryState}. Repair the workspace before opening Lifecycle, Inbox, or Configuration.`
+            ? row.repositoryState === 'deferred'
+              ? 'This workspace is selected. Its repository is cloned when work starts; Start Work clones it, or Repair the workspace to clone it now.'
+              : `This workspace is selected, but its repository is ${row.repositoryState}. Repair the workspace before opening Lifecycle, Inbox, or Configuration.`
             : 'Every screen is scoped to this workspace. Click to inspect its full details.'
           : 'Click to select this workspace and load its Lifecycle, Inbox, and Configuration.'}`,
       icon: row.archived ? 'archive'

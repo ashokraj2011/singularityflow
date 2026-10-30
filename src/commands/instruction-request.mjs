@@ -3,7 +3,7 @@ import { SingularityFlowError } from '../util.mjs';
 export const INSTRUCTION_READS = Object.freeze(['list', 'show']);
 export const INSTRUCTION_CHANGES = Object.freeze(['create', 'edit', 'remove']);
 const AUTHORING = ['json', 'dry-run', 'propose', 'expected-authority-kind', 'expected-authority-commit',
-  'expected-authority-remote-fingerprint', 'expected-authority-source-commit'];
+  'expected-authority-remote-fingerprint', 'expected-authority-source-commit', 'operation-id'];
 export function validateInstructionRequest({ positionals, options }) {
   const action = positionals[1];
   if (![...INSTRUCTION_READS, ...INSTRUCTION_CHANGES].includes(action)

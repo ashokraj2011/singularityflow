@@ -147,8 +147,9 @@ test('the bundled CLI answers exactly like the sources while opening a handful o
   // 4,540,000: SDA M2 measures 4,537,465. Last-known Story lists and catalogs with their freshness
   // (repository-check-cache.mjs; the refresh lease and replay stay in the lazy projection-refresh.mjs),
   // canonical finding identities (delivery-evidence.mjs) and push intents bound to a repository ID.
+  // 4,555,000: SDA M3 measures 4,552,616: the lease liveness proof (lease-liveness.mjs: machine identity, owner start time, the shared owner predicate) behind every subject lock and registry lease, deferred repositories and transactional drafts.
   const narrowReads = closure('cold-narrow-reads.mjs').reduce((sum, item) => sum + item.bytes, 0);
-  assert.ok(narrowReads < 4_540_000,
+  assert.ok(narrowReads < 4_555_000,
     `strict next-step reads must not inherit the broad phase-review closure (${narrowReads} bytes)`);
   const publicationClosure = closure('cold-publication.mjs');
   assert.ok(publicationClosure.length && publicationClosure.reduce((sum, item) => sum + item.bytes, 0) < 6 * 1024 * 1024,
@@ -300,8 +301,12 @@ test('the bundled CLI answers exactly like the sources while opening a handful o
   // and catalogs with their freshness (repository-check-cache.mjs; the refresh lease and replay stay in the lazy
   // projection-refresh.mjs), canonical finding identities (delivery-evidence.mjs), push intents bound to a
   // repository ID (transport-intents.mjs) and the Story binding finding (session discovery).
+  // 7,605,000: SDA M3 measures 7,600,938: the lease liveness proof behind every subject lock and registry lease
+  // (lease-liveness.mjs, subject-lock.mjs, file-lease.mjs), capability proposals replayed value by value with no
+  // textual merge (capability-value-replay.mjs, git-configuration-objects.mjs, organisation.mjs), deferred
+  // repositories (workspace.mjs) and transactional drafts (configuration-drafts.mjs).
   const hookContext = closure('cold-hook-context.mjs').reduce((sum, item) => sum + item.bytes, 0);
-  assert.ok(hookContext < 7_570_000,
+  assert.ok(hookContext < 7_605_000,
     `phase-review reads retain their existing byte ceiling after moving families (${hookContext} bytes)`);
   assert.match(await readFile(path.join(outdir, 'cold-light.mjs'), 'utf8'), /function enterPhase\b/u,
     'phase binding must not fall through to the compatibility/admin bundle');
@@ -358,8 +363,10 @@ test('the bundled CLI answers exactly like the sources while opening a handful o
   // 5,350,000: SDA M1 measures 5,348,118 against 5,345,000, from the same additions in the shared chunks.
   // 5,360,000: SDA M2 measures 5,356,118, from the same last-known listings, finding identities, repository-bound
   // push intents and Story binding finding in the shared chunks. No new file.
+  // 5,390,000: SDA M3 measures 5,388,142, from the same lease liveness proof, value-level capability
+  // replay, deferred repositories and transactional drafts in the shared chunks.
   const catalogBytes = catalogClosure.reduce((sum, item) => sum + item.bytes, 0);
-  assert.ok(catalogBytes < 5_360_000,
+  assert.ok(catalogBytes < 5_390_000,
     `catalog parsing stays bounded instead of pulling in the entire administration bundle (${catalogBytes} bytes)`);
   for (const name of ['cold-compatibility.mjs', 'cold-models.mjs', 'cold-intake.mjs', 'cold-phases.mjs', 'cold-hook-context.mjs']) {
     assert.ok(!catalogClosure.some(item => item.file === name), `catalogs must not statically reach ${name}`);

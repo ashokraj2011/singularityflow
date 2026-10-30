@@ -65,6 +65,10 @@ function fileLine(file) {
 function listText(result) {
   const lines = [];
   for (const repository of result.repositories) {
+    if (repository.repositoryState === 'deferred') {
+      lines.push(`Repository ${repository.id} · not cloned yet; work in it clones it, or clone it now with ${repository.materialize}`);
+      continue;
+    }
     lines.push(`${repository.id ? `Repository ${repository.id}` : 'This repository'} (${repository.checkout}) · declaration ${repository.declaration}`);
     if (!repository.apps.length) lines.push('  No environment files: declare exact paths in localFiles (singularity-flow env files suggest) or add your own with env files add <ENV> <PATH> --personal.');
     for (const app of repository.apps) {

@@ -156,9 +156,11 @@ export async function run(_argv, { options }) {
   const root = selection?.root ?? null;
   const context = selection?.context ?? { workspaceId: null, workspaceName: null, storyId: null };
   const selected = selection?.selected ?? null;
-  const leadRepositoryPath = selection?.status?.repositories?.find(
+  const lead = selection?.status?.repositories?.find(
     (repository) => repository.id === selection.status.workspace.leadRepository
-  )?.absolutePath ?? root;
+  );
+  // A lead that is not cloned yet has no path to read; never name one that does not exist.
+  const leadRepositoryPath = (lead?.state === 'ready' ? lead.absolutePath : null) ?? root;
   const identityRoot = root ?? process.cwd();
   const resolvedActor = identity(identityRoot, { offline: true });
   const actor = { ...resolvedActor, name: localGitDisplayName(identityRoot) ?? resolvedActor.name };

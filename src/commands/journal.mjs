@@ -138,6 +138,14 @@ export async function run(_argv, { positionals, options, operation }) {
   }
   if (subcommand === 'refresh') {
     const selection = await selectedWorkspace(options);
+    if (!selection.root && selection.selected?.state === 'deferred') {
+      // Nothing local has happened in a repository that is not cloned yet; nothing is recorded.
+      return emitJournal(operation, succeeded('journal.refreshed', { stored: false }), {
+        resultType: 'local-work-journal-refresh', stored: false, reason: 'repository-deferred',
+        repositoryId: selection.selected.id,
+        materialize: selection.status.deferred?.find((entry) => entry.repository === selection.selected.id)?.command ?? null
+      }, { json });
+    }
     const result = await observeRepository(selection.root, {
       workspaceId: selection.context.workspaceId,
       repositoryId: selection.selected.id,

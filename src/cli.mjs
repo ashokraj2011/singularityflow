@@ -61,7 +61,7 @@ import { gateRecoveryReopenPlan } from './gate-recovery.mjs';
 import { worldModelCommand } from './worldmodel.mjs';
 import { runDraftTransaction } from './draft-unit-of-work.mjs';
 import { launchHostSession } from './host-session-launcher.mjs';
-import { operationContext } from './operation-context.mjs';
+import { assertModelInvocationAllowed, operationContext } from './operation-context.mjs';
 import { invokeModel, resolveModelProvider } from './model-runner.mjs';
 import { summarizingRoute } from './model-tiers.mjs';
 import { effectivePhasePublicationProducer, phasePublicationCommandForProducer } from './manual-authorship.mjs';
@@ -3725,7 +3725,8 @@ export async function applyImportChangeSet(root, changeSet, options, { subject, 
   const mutate = (target) => planStudioChangeSet(target, changeSet, { write: true, imports });
   if (optionBoolean(options, 'propose')) {
     return authorProposedOrLocalConfiguration(root, {
-      operation: 'studio', subject, message, mutate, expectedAuthority: expectedConfigurationAuthority(options)
+      operation: 'studio', subject, message, mutate, expectedAuthority: expectedConfigurationAuthority(options),
+      intent: { kind: 'studio-change-set', operations: changeSet.changes ?? [] }
     }, { backgroundSync: optionBoolean(options, 'background-sync') });
   }
   assertLocalConfigurationAuthoringAllowed(root);
@@ -3736,11 +3737,12 @@ export async function applyImportChangeSet(root, changeSet, options, { subject, 
 async function applyAuthoringChange(root, changeSet, options, meta) {
   const [{ authorChange }, { planStudioChangeSet }] = await Promise.all([import('./configuration-drafts.mjs'), import('./workflow-studio.mjs')]);
   return authorChange(root, changeSet, { dryRun: optionBoolean(options, 'dry-run'), propose: optionBoolean(options, 'propose'), ...meta,
+    operationId: optionString(options, 'operation-id', null),
     apply: (set, { dryRun = false, propose = false, subject = meta.subject, message = meta.message } = {}) => applyImportChangeSet(root, set,
       { ...options, 'dry-run': dryRun || undefined, propose: propose || undefined }, { subject, message }),
-    check: async (set) => {
+    check: async (set, { refreshAuthority = true } = {}) => {
       let source = null;
-      const plan = await withApprovedConfigurationRead(root, (seen) => { source = seen; return planStudioChangeSet(root, set); }, { preferAuthority: true });
+      const plan = await withApprovedConfigurationRead(root, (seen) => { source = seen; return planStudioChangeSet(root, set); }, { preferAuthority: true, refreshAuthority });
       return { plan, source };
     } });
 }
@@ -5441,10 +5443,10 @@ async function workflowCommand(positionals, options) {
 
   const proposing = optionBoolean(options, 'propose');
   const author = async ({
-    operation, subject, message, mutate, expectedAuthority = null, requireExpectedRemoteAuthority = false
+    operation, subject, message, mutate, expectedAuthority = null, requireExpectedRemoteAuthority = false, intent = null
   }) => {
     if (proposing) return authorProposedOrLocalConfiguration(root, {
-      operation, subject, message, mutate, expectedAuthority
+      operation, subject, message, mutate, expectedAuthority, intent
     }, { requireExpectedRemoteAuthority, backgroundSync: optionBoolean(options, 'background-sync') });
     assertLocalConfigurationAuthoringAllowed(root);
     return mutate(root);
@@ -5466,7 +5468,7 @@ async function workflowCommand(positionals, options) {
       const model = await withApprovedConfigurationRead(root, (authority) => buildStudioModel(root, { authority }), { preferAuthority: true });
       // Drafts saved from the CLI or Copilot are shown, and published with the Studio's own batch.
       model.drafts = await import('./configuration-drafts.mjs').then(({ readDrafts }) => readDrafts(root))
-        .then((drafts) => drafts.changes.map((entry) => ({ description: entry.description })), () => []);
+        .then((drafts) => drafts.changes.map((entry) => ({ draftId: entry.draftId, state: entry.state, description: entry.description })), () => []);
       if (optionBoolean(options, 'json')) return console.log(JSON.stringify(model, null, 2));
       console.log(`Workflow Studio: ${model.workflows.length} workflows, ${model.agents.length} agents, ${model.groups.length} approval groups.`);
       for (const workflow of model.workflows) {
@@ -5480,7 +5482,7 @@ async function workflowCommand(positionals, options) {
     const source = optionString(options, 'change-set');
     if (!source) throw new SingularityFlowError('Provide the change set: workflow studio apply --change-set <file|->.', { code: 'STUDIO_CHANGE_SET_REQUIRED' });
     const studioChanges = readStudioChangeSet(source === '-' ? await stdinText() : await readFile(path.resolve(source), 'utf8'));
-    const { changeSet, included: drafted } = await import('./configuration-drafts.mjs').then(({ withSavedDrafts }) => withSavedDrafts(root, studioChanges));
+    const { changeSet, included: drafted, draftIds } = await import('./configuration-drafts.mjs').then(({ withSavedDrafts }) => withSavedDrafts(root, studioChanges));
     if (drafted.length && !optionBoolean(options, 'json')) console.log(`Includes ${drafted.length} saved draft${drafted.length === 1 ? '' : 's'}: ${drafted.join('; ')}.`);
     const printStudioPlan = (plan) => {
       for (const line of plan.summary) console.log(`  ${line}`);
@@ -5503,9 +5505,10 @@ async function workflowCommand(positionals, options) {
       operation: 'studio', subject,
       message: `[configuration] workflow studio: ${(changeSet.changes ?? []).length} change(s) to ${subject}`,
       expectedAuthority: expectedConfigurationAuthority(options),
+      intent: { kind: 'studio-change-set', operations: changeSet.changes ?? [] },
       mutate: (target) => planStudioChangeSet(target, changeSet, { write: true, imports })
     });
-    await import('./configuration-drafts.mjs').then(({ settleDrafts }) => settleDrafts(root, result, drafted));
+    await import('./configuration-drafts.mjs').then(({ settleDrafts }) => settleDrafts(root, result, { included: drafted, draftIds }));
     if (optionBoolean(options, 'json')) return console.log(JSON.stringify(result, null, 2));
     if (printProposal(result)) return;
     console.log(`Workflow Studio applied ${result.written?.length ?? 0} file change(s).`);
@@ -8520,6 +8523,9 @@ async function editorCommand(positionals, options, namespace = 'configuration') 
         subject: configurationProposalFileSubject(root, requestedPath),
         message: `[configuration] update ${requestedPath}`,
         expectedAuthority: expectedConfigurationAuthority(options),
+        // A whole-file save is still a typed intent: this path, these exact bytes, from that base.
+        intent: { kind: 'configuration-file', operations: [{ op: 'file.save', path: requestedPath,
+          sha256: `sha256:${createHash('sha256').update(content).digest('hex')}`, expectedSha256: saveOptions.expectedSha256 ?? null }] },
         mutate: (target) => saveConfigurationFile(target, requestedPath, content, saveOptions)
       }, { backgroundSync: optionBoolean(options, 'background-sync') });
     } else {
@@ -9551,6 +9557,13 @@ async function workspaceCommand(positionals, options) {
     });
     if (optionBoolean(options, 'json')) return console.log(JSON.stringify(context, null, 2));
     console.log(`\nActive context: ${workspacePromptLabel(context)}`);
+    if (context.repositoryState === 'deferred') {
+      console.log(`Repository: ${context.repositoryId} · checkout deferred until work starts`);
+      printCommandRoutes({ executable: 'singularity-flow', argv: ['workspace', 'repair', context.workspacePath,
+        '--repository', context.repositoryId] }, { label: 'Clone it now' });
+      printCommandRoutes('singularity-flow workspace copilot', { label: 'Start Copilot here' });
+      return;
+    }
     console.log(`Repository: ${context.repositoryPath}`);
     if (context.repositoryState !== 'ready') {
       console.log(`Repository state: ${context.repositoryState}. Repair it before starting Copilot.`);
@@ -9576,11 +9589,23 @@ async function workspaceCommand(positionals, options) {
       context = await readActiveWorkspaceContext(selectionFile, registry);
       if (!context) context = await activateWorkspaceContext(registry, selectionFile, null);
     }
-    if (context.repositoryState !== 'ready') {
-      throw new SingularityFlowError(`Repository '${context.repositoryId}' is ${context.repositoryState}; repair or clone it before starting Copilot.`);
-    }
     const mode = optionString(options, 'mode', 'interactive');
     if (!['interactive', 'plan'].includes(mode)) throw new SingularityFlowError('--mode must be interactive or plan.');
+    if (context.repositoryState === 'deferred' && !optionBoolean(options, 'dry-run')) {
+      // Copilot works in this member's source: clone only this deferred member, as Story start does.
+      // A launch this process may not make is refused before anything is downloaded.
+      assertModelInvocationAllowed();
+      await repairWorkspace(context.workspacePath, {
+        repositoryIds: [context.repositoryId], returnIfSelectedReady: true, statusLevel: 'readiness'
+      });
+      context = await activateWorkspaceContext(registry, selectionFile, context.workspacePath, {
+        repositoryId: context.repositoryId, storyId: context.storyId
+      });
+    }
+    const deferredPreview = context.repositoryState === 'deferred';
+    if (context.repositoryState !== 'ready' && !deferredPreview) {
+      throw new SingularityFlowError(`Repository '${context.repositoryId}' is ${context.repositoryState}; repair or clone it before starting Copilot.`);
+    }
     const sessionName = `${context.workspaceName}${context.storyId ? ` · ${context.storyId}` : ''}`.slice(0, 120);
     const args = ['-C', context.repositoryPath, '--name', sessionName];
     if (mode === 'plan') args.push('--mode', 'plan');
@@ -9593,6 +9618,14 @@ async function workspaceCommand(positionals, options) {
       repository: context.repositoryId,
       story: context.storyId
     };
+    if (deferredPreview) {
+      // A preview never clones; the launch itself clones this member first.
+      const { workspaceMaterializeCommand } = await import('./workspace.mjs');
+      return console.log(JSON.stringify({ ...launch, telemetry: null, materialization: {
+        repository: context.repositoryId, state: 'deferred', clonedOnLaunch: true,
+        command: workspaceMaterializeCommand(context.workspacePath, context.repositoryId)
+      } }, null, 2));
+    }
     let preparedTelemetry = await prepareTelemetryLaunch({
       root: context.repositoryPath,
       story: context.storyId,
@@ -11742,7 +11775,7 @@ async function dispatch(command, positionals, options, argv) {
     watch: () => watchCommand(positionals, options),
     recover: () => recoverCommand(positionals, options),
     appeal: async () => (await import('./commands/appeal.mjs')).run(positionals, { options }),
-    'upstream-issue': async () => (await import('./commands/upstream-issue.mjs')).run(positionals, { options }), decisions: async () => (await import('./commands/decisions.mjs')).run(positionals, { positionals, options }), app: async () => (await import('./commands/app.mjs')).run(argv, { positionals, options }), tests: async () => (await import('./commands/tests.mjs')).run(argv, { positionals, options }), call: async () => (await import('./commands/call.mjs')).run(argv, { positionals, options }), gateway: async () => (await import('./commands/gateway.mjs')).run(argv, { positionals, options }), apm: async () => (await import('./commands/apm.mjs')).run(argv, { positionals, options }), index: async () => (await import('./commands/read-index.mjs')).run(argv, { positionals, options }),
+    'upstream-issue': async () => (await import('./commands/upstream-issue.mjs')).run(positionals, { options }), decisions: async () => (await import('./commands/decisions.mjs')).run(positionals, { positionals, options }), app: async () => (await import('./commands/app.mjs')).run(argv, { positionals, options }), tests: async () => (await import('./commands/tests.mjs')).run(argv, { positionals, options }), call: async () => (await import('./commands/call.mjs')).run(argv, { positionals, options }), gateway: async () => (await import('./commands/gateway.mjs')).run(argv, { positionals, options }), apm: async () => (await import('./commands/apm.mjs')).run(argv, { positionals, options }), index: async () => (await import('./commands/read-index.mjs')).run(argv, { positionals, options }), lock: async () => (await import('./commands/lock.mjs')).run(argv, { positionals, options }),
     explain: async () => (await import('./commands/explain.mjs')).run(argv, { positionals, options }),
     why: async () => (await import('./commands/why.mjs')).run(argv, { positionals, options }), outcome: async () => (await import('./commands/outcome.mjs')).run(argv, { positionals, options }), result: async () => (await import('./commands/result.mjs')).run(argv, { positionals, options }),
     // The five verbs. Each dispatches into the same router; the registry keeps them distinct

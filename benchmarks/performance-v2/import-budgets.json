@@ -2,8 +2,8 @@
   "format": 1,
   "measurement": "Repository-local static ESM closure; dynamic first-use imports excluded. Runtime source/bundle parity is tested separately.",
   "source": [
-    { "entry": "src/commands/start.mjs", "maximumModules": 459,
-      "note": "Includes the shared import-free requirement coverage rubric; no additional Git, model or legacy-dispatch dependency. 444: the source-review batching split three helpers out of loaded modules and added its snapshot cache. 454: 1078bf60 split publication writers out of state.mjs into ten modules (+17 KB eager source). 456: main 1d40e1de already loaded 455 without a recorded raise; agent-output-folder.mjs, the leaf that keeps agent results in the checkout's Git-excluded .sflow/out, makes 456. 457: fddafbe0 added approval-fallback.mjs, the leaf that names the nearest step with approvers when the owning step has none (no Git, model or dispatch import). 459: SDA M1 (fa3094b83) added two leaves without a recorded raise: outcome-classes.mjs (constants with no import; util.mjs gives every error its outcome class) and source-inspection.mjs (the local-read facade; SDA M2 made its one Git query registry read lazy, so it imports only util and process-result).",
+    { "entry": "src/commands/start.mjs", "maximumModules": 460,
+      "note": "Includes the shared import-free requirement coverage rubric; no additional Git, model or legacy-dispatch dependency. 444: the source-review batching split three helpers out of loaded modules and added its snapshot cache. 454: 1078bf60 split publication writers out of state.mjs into ten modules (+17 KB eager source). 456: main 1d40e1de already loaded 455 without a recorded raise; agent-output-folder.mjs, the leaf that keeps agent results in the checkout's Git-excluded .sflow/out, makes 456. 457: fddafbe0 added approval-fallback.mjs, the leaf that names the nearest step with approvers when the owning step has none (no Git, model or dispatch import). 459: SDA M1 (fa3094b83) added two leaves without a recorded raise: outcome-classes.mjs (constants with no import; util.mjs gives every error its outcome class) and source-inspection.mjs (the local-read facade; SDA M2 made its one Git query registry read lazy, so it imports only util and process-result). 460: SDA M3 adds lease-liveness.mjs, the lease owner proof every subject lock reads (machine identity and the owner's start time; no Git, model or dispatch import).",
       "forbidden": ["src/cli.mjs", "src/commands/legacy.mjs", "src/worldmodel.mjs", "src/model-runner.mjs", "src/editor.mjs"] },
     { "entry": "src/commands/workspace.mjs", "maximumModules": 27 },
     { "entry": "src/commands/capability.mjs", "maximumModules": 13,
@@ -11,8 +11,8 @@
     { "entry": "src/commands/logs.mjs", "maximumModules": 30 },
     { "entry": "src/commands/session-open-local.mjs", "maximumModules": 225,
       "forbidden": ["src/cli.mjs", "src/commands/legacy.mjs", "src/commands/session.mjs", "src/context-broker.mjs", "src/model-runner.mjs", "src/session-remote-url-discovery.mjs", "src/session-story-discovery.mjs"] },
-    { "entry": "src/copilot-mutation-guard.mjs", "maximumModules": 62,
-      "note": "61: agent-output-folder.mjs, a leaf on Node built-ins only, names the checkout's agent results folder that the guard corrects misread result paths to. 62: SDA M1 (fa3094b83) added outcome-classes.mjs through util.mjs, constants with no import, without a recorded raise." }
+    { "entry": "src/copilot-mutation-guard.mjs", "maximumModules": 63,
+      "note": "61: agent-output-folder.mjs, a leaf on Node built-ins only, names the checkout's agent results folder that the guard corrects misread result paths to. 62: SDA M1 (fa3094b83) added outcome-classes.mjs through util.mjs, constants with no import, without a recorded raise. 63: SDA M3 lease-liveness.mjs, read by every subject lock." }
   ],
   "forbidden": ["src/cli.mjs", "src/commands/legacy.mjs", "src/model-runner.mjs", "src/model-provider.mjs", "src/jira.mjs", "src/initiative.mjs"],
   "bundleBudgets": "benchmarks/dx/vscode-bundle-budgets.json"

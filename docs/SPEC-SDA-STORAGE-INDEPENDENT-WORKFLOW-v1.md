@@ -390,6 +390,7 @@ In v1.1:
 - They use the machine-wide bare cache.
 - Where that cache declines (Windows), the authority commit's objects are transferred into the application repository instead.
 - Typed editing without a checkout remains M3.
+- **M3:** ordinary configuration editing (Studio, `config save --propose`, drafts, package submission, approval-group enrollment) builds from exact objects in the application repository with no clone, and records its typed intent (`Sflow-Intent-Kind`, `Sflow-Intent-Sha256`). Capability activation re-applies values and runs no textual merge.
 
 There is no top-level `storage:` block; that key belongs to document providers. Phase A needs no governed storage setting. If Phase B needs one, it uses a new top-level key, such as `lifecycleStorage`:
 
@@ -413,6 +414,13 @@ Saving a draft requires no remote access. In Phase A:
 
 Drafts show `saved-local`, never `published`, `submitted` or `approved`.
 
+**M3:** configuration drafts are transactional.
+
+- **Storage:** one fsynced, create-only file per draft, written under one lock.
+- **Idempotency:** a repeated operation ID returns the same draft; other content under that ID is refused.
+- **Proposals:** a proposal settles only the drafts it consumed.
+- **Remote:** a save makes no remote contact once the repository's approved configuration is recorded.
+
 ### Shared operations
 
 1. Resolve the common workspace and Story context.
@@ -435,6 +443,12 @@ If connectivity fails after the remote may have accepted the action, the operati
 CLI correctness must not require a permanent daemon. It can start a short-lived worker, join one, or run in the foreground. Workers use bounded queues, batches, retries and idle lifetimes.
 
 Subject locks today are reclaimed on process liveness plus a heartbeat lifetime (`src/subject-lock.mjs`), so age can still decide. M3 replaces age-based reclaim with proven lease liveness. An expired foreground deadline never justifies a second concurrent writer.
+
+**M3:** one predicate (`src/lease-liveness.mjs`) decides for subject locks, registry leases, publication journals and the SGOS authority store.
+
+- **Taken over:** an owner proven gone — its process is dead, or its process ID was reused — on this machine (by machine ID, not hostname).
+- **Never taken over:** a live owner, or one on another machine.
+- **A person's route:** `lock show` and `lock release --confirm <LOCK-TOKEN>`, an own-terminal step.
 
 ## 10 Git adapter behavior
 
@@ -462,6 +476,12 @@ A typed configuration change expresses entity-level intent; text merges of YAML 
 4. Clone application source only when the selected onboarding or work operation needs it.
 
 Changing the default is Phase B (M3), because it changes what an existing workspace contains.
+
+**M3:** a new workspace saves its manifest, journal and registry entry, and its repositories stay `deferred` (healthy) until work needs one.
+
+- **Mutating commands:** clone only the repository they need.
+- **Reads:** answer without a clone, or name the command that clones.
+- **Existing workspaces:** unchanged.
 
 ### Story intake
 
@@ -749,6 +769,8 @@ The product never describes pending local work as globally published or approved
    - **Decided (2026-10-30):** option A, keep the Story branch as lifecycle authority. No Story is migrated (ADR 0018).
 
 M0 results: `benchmarks/sda/m0-qualification.md` (inventory, macOS read baselines, VS Code runtime). Windows baselines and the CI-established DX baseline remain open.
+
+M3 results: `benchmarks/sda/m3-phase-b-writes.md` (transactional drafts, typed configuration intent with no clone, value-level capability activation, lazy workspace cloning, lease-proven lock recovery).
 
 M2 results: `benchmarks/sda/m2-read-index.md` (read index, serve-last-known, cross-process coalescing, configuration reads without a clone, identity leaks, canonical finding IDs, `index` commands). Windows measurements and the consistency block remain open.
 

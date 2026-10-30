@@ -1,6 +1,6 @@
 import { createHash, randomUUID } from 'node:crypto';
 import {
-  link, lstat, mkdir, readFile, readdir, realpath, rename, rm, writeFile
+  appendFile, link, lstat, mkdir, readFile, readdir, realpath, rename, rm, writeFile
 } from 'node:fs/promises';
 import { writeFileSync } from 'node:fs';
 import os from 'node:os';
@@ -11,10 +11,14 @@ import { gitCommonDir, gitDir } from './git.mjs';
 import { currentSchemaVersion, readRecord } from './schema-migrations.mjs';
 import { SingularityFlowError, nowIso } from './util.mjs';
 import { measureCommandSpan } from './dx-timing-context.mjs';
+import {
+  LEASE_PROCESS_TOKEN, describeLeaseOwner, leaseOwnerAssessment, leaseOwnerIdentity, localMachineId
+} from './lease-liveness.mjs';
 
-const PROCESS_TOKEN = randomUUID();
-// A heartbeat renews active `withSubjectLock` leases. Three hours is the fail-safe if a worker
-// stops unexpectedly: one configured quality command may legally run for two hours.
+const PROCESS_TOKEN = LEASE_PROCESS_TOKEN;
+// A heartbeat renews active `withSubjectLock` leases. The TTL now only paces renewal and says when a
+// heartbeat is reported stale: a lease is taken over when its owner is proven dead, never on age
+// (src/lease-liveness.mjs). One configured quality command may legally run for two hours.
 const DEFAULT_TTL_MS = 3 * 60 * 60 * 1000;
 const RECLAIM_GENERATIONS = 16;
 const heldLocks = new AsyncLocalStorage();
@@ -49,12 +53,6 @@ function subjectLockKey(root, subject) {
 export function currentSubjectLockOwner(root, subject) {
   const frame = heldLocks.getStore()?.get(subjectLockKey(root, subject));
   return frame?.active && frame.lease?.active ? frame.lease.owner : null;
-}
-
-function pidAlive(pid) {
-  if (!Number.isInteger(pid) || pid <= 0) return false;
-  try { process.kill(pid, 0); return true; }
-  catch (error) { return error?.code === 'EPERM'; }
 }
 
 async function invokeLockHook(hooks, name, value) {
@@ -96,25 +94,36 @@ async function readOwner(directory) {
  */
 const ACQUISITION_GRACE_MS = 30 * 1000;
 
-function stale(owner, ttlMs, directoryAgeMs, heartbeatModifiedAt = null, heartbeatFailed = false) {
-  if (owner === undefined || owner === null) return directoryAgeMs > ACQUISITION_GRACE_MS;
-  const acquired = Date.parse(owner.acquiredAt ?? '');
-  if (!Number.isFinite(acquired)) return true;
-  const expiry = Date.parse(owner.expiresAt ?? '');
-  const recordedDeadline = Number.isFinite(expiry) ? expiry : acquired + ttlMs;
-  const heartbeatDeadline = Number.isFinite(heartbeatModifiedAt) ? heartbeatModifiedAt + ttlMs : 0;
-  const deadline = Math.max(recordedDeadline, heartbeatDeadline);
-  // Liveness shortens the wait; it does not grant an indefinite hold. This check used to come first
-  // and return "held" outright, so a PID the OS had recycled to an unrelated live process satisfied
-  // it forever: the TTL never applied, and the only way out was deleting a file inside `.git` by
-  // hand. A dead local holder is still reclaimed immediately, which is the useful half.
-  if (owner.host === os.hostname() && !pidAlive(owner.pid)) return true;
-  // Once the dedicated renewal worker reports that it cannot continue, expiry is no longer evidence
-  // that the owner stopped. Keep the directory fail-closed until this process releases it normally;
-  // a crashed local owner remains recoverable through the PID check above. A remote failed heartbeat
-  // deliberately requires explicit recovery because this host cannot prove that process is dead.
-  if (heartbeatFailed) return false;
-  return Date.now() > deadline;
+function ownerTtlMs(owner) {
+  const ttl = Date.parse(owner?.expiresAt ?? '') - Date.parse(owner?.acquiredAt ?? '');
+  return Number.isFinite(ttl) && ttl > 0 ? ttl : DEFAULT_TTL_MS;
+}
+
+/**
+ * Whether a lock is still held, and by what kind of owner.
+ *
+ * A recorded owner is held until it is proven dead (src/lease-liveness.mjs). Age used to decide:
+ * an owner past its deadline was taken over even while its process ran, so a laptop asleep for
+ * three hours, or any lease from another machine, gained a second concurrent writer. The deadline,
+ * the heartbeat and a heartbeat-failure marker are now reported, not acted on; the owner's own TTL,
+ * not the observer's, says when its heartbeat counts as stale.
+ */
+function lockLiveness(owner, directoryAgeMs, heartbeatModifiedAt = null, heartbeatFailed = false) {
+  if (owner === undefined || owner === null) {
+    const abandoned = directoryAgeMs > ACQUISITION_GRACE_MS;
+    return Object.freeze({
+      held: !abandoned, state: abandoned ? 'dead' : 'acquiring',
+      reason: abandoned ? 'abandoned-acquisition' : 'acquiring', heartbeat: 'missing', lastHeartbeatAt: null
+    });
+  }
+  const assessment = leaseOwnerAssessment(owner, {
+    heartbeatMtimeMs: heartbeatModifiedAt, heartbeatTtlMs: ownerTtlMs(owner)
+  });
+  return Object.freeze({
+    ...assessment,
+    held: assessment.state !== 'dead',
+    heartbeat: heartbeatFailed ? 'failed' : assessment.heartbeat
+  });
 }
 
 /**
@@ -201,14 +210,14 @@ async function heartbeatFailureRecorded(directory, owner) {
   return true;
 }
 
-async function activeDirectoryOwner(directory, ttlMs = DEFAULT_TTL_MS) {
+async function activeDirectoryOwner(directory) {
   // A lock can be retired and replaced between any two pathname reads. Retry until the owner and
   // heartbeat were read from one directory generation; an unstable path is held, never absent.
   for (let attempt = 0; attempt < 3; attempt += 1) {
     const before = await pathInfo(directory);
-    if (!before) return { active: false, owner: undefined, info: null, reason: 'missing' };
+    if (!before) return { active: false, owner: undefined, info: null, reason: 'missing', liveness: null };
     if (before.isSymbolicLink() || !before.isDirectory()) {
-      return { active: true, owner: null, info: before, reason: 'unsafe-lock-entry' };
+      return { active: true, owner: null, info: before, reason: 'unsafe-lock-entry', liveness: null };
     }
     const owner = await readOwner(directory);
     const heartbeat = await heartbeatModifiedAt(directory, owner);
@@ -216,14 +225,10 @@ async function activeDirectoryOwner(directory, ttlMs = DEFAULT_TTL_MS) {
     const after = await pathInfo(directory);
     if (!after) continue;
     if (!sameDirectoryIdentity(before, after)) continue;
-    return {
-      active: !stale(owner, ttlMs, directoryAgeFromInfo(after), heartbeat, heartbeatFailed),
-      owner,
-      info: after,
-      reason: 'active'
-    };
+    const liveness = lockLiveness(owner, directoryAgeFromInfo(after), heartbeat, heartbeatFailed);
+    return { active: liveness.held, owner, info: after, reason: 'active', liveness };
   }
-  return { active: true, owner: null, info: null, reason: 'unstable-lock-entry' };
+  return { active: true, owner: null, info: null, reason: 'unstable-lock-entry', liveness: null };
 }
 
 function reclaimIdentity(state) {
@@ -284,7 +289,7 @@ async function restoreRetiredSuccessor(directory, destination, moved) {
     await mkdir(directory, { mode: 0o700 });
   } catch (error) {
     if (error?.code === 'EEXIST') {
-      const current = await activeDirectoryOwner(directory, DEFAULT_TTL_MS);
+      const current = await activeDirectoryOwner(directory);
       if (current.owner?.lockToken === moved.owner?.lockToken
           && current.owner?.processToken === moved.owner?.processToken) return;
     }
@@ -316,7 +321,7 @@ async function restoreRetiredSuccessor(directory, destination, moved) {
       const bytes = await readFile(source);
       await publishOwnerNoReplace(source, target, bytes);
     }
-    const restored = await activeDirectoryOwner(directory, DEFAULT_TTL_MS);
+    const restored = await activeDirectoryOwner(directory);
     if (ownerIdentity(restored.owner) !== ownerIdentity(moved.owner)) {
       throw lockGenerationChanged(directory);
     }
@@ -345,7 +350,6 @@ async function restoreRetiredSuccessor(directory, destination, moved) {
 async function retireObservedDirectory(directory, observed, {
   requireStale = false,
   expectedOwner = null,
-  ttlMs = DEFAULT_TTL_MS,
   hooks = null
 } = {}) {
   if (!observed?.info || !observed.info.isDirectory() || observed.info.isSymbolicLink()) return false;
@@ -387,7 +391,7 @@ async function retireObservedDirectory(directory, observed, {
         createdAt: nowIso()
       })}\n`, { flag: 'wx', mode: 0o600 });
       await invokeLockHook(hooks, 'afterReclaimClaim', { directory, claim, destination, observed });
-      const current = await activeDirectoryOwner(directory, ttlMs);
+      const current = await activeDirectoryOwner(directory);
       if (!sameObservedDirectory(current, observed)) return false;
       if (requireStale && current.active) return false;
       if (expectedOwner && (current.owner?.lockToken !== expectedOwner.lockToken
@@ -395,7 +399,7 @@ async function retireObservedDirectory(directory, observed, {
       await invokeLockHook(hooks, 'beforeRetire', { directory, claim, destination, observed });
       // Hooks model an arbitrarily delayed filesystem request. Revalidate after that delay so even
       // an older client which ignores reclaim claims cannot make us retire its successor.
-      const final = await activeDirectoryOwner(directory, ttlMs);
+      const final = await activeDirectoryOwner(directory);
       if (!sameObservedDirectory(final, observed)) return false;
       if (requireStale && final.active) return false;
       if (expectedOwner && (final.owner?.lockToken !== expectedOwner.lockToken
@@ -408,7 +412,7 @@ async function retireObservedDirectory(directory, observed, {
         if (['ENOENT', 'EEXIST', 'ENOTEMPTY', 'EISDIR', 'ENOTDIR'].includes(error?.code)) return false;
         throw error;
       }
-      const moved = await activeDirectoryOwner(destination, ttlMs);
+      const moved = await activeDirectoryOwner(destination);
       if (!sameObservedDirectory(moved, observed)) {
         // The source pathname changed in the syscall window. Preserve the moved successor under the
         // claim and restore its logical lease without replacing anything at the public pathname.
@@ -434,26 +438,70 @@ async function retireObservedDirectory(directory, observed, {
   );
 }
 
-async function reclaim(directory, observed, { ttlMs = DEFAULT_TTL_MS, hooks = null } = {}) {
-  return retireObservedDirectory(directory, observed, { requireStale: true, ttlMs, hooks });
+async function reclaim(directory, observed, { hooks = null } = {}) {
+  return retireObservedDirectory(directory, observed, { requireStale: true, hooks });
 }
 
-async function assertNoRepositoryResetBarrier(root, ttlMs = DEFAULT_TTL_MS) {
+const RESET_BARRIER_SUBJECT = Object.freeze({ kind: 'factory-reset-barrier', id: 'repository' });
+
+function shellWord(value) {
+  const text = String(value);
+  return /^[A-Za-z0-9._:@/+=-]+$/u.test(text) ? text : JSON.stringify(text);
+}
+
+/** The reviewed-release route a refusal names; `releaseLeaseAfterReview` is what it runs. */
+export function leaseReleaseCommand(subject, lockToken) {
+  return `singularity-flow lock release ${shellWord(subject.kind)} ${shellWord(subject.id)} --confirm ${shellWord(lockToken)}`;
+}
+
+/**
+ * Whether only a person can end this lease: its owner runs on another machine, or runs here but
+ * stopped renewing. A live, renewing owner here ends it by finishing or exiting.
+ */
+function needsReviewedRelease(owner, liveness) {
+  if (!owner?.lockToken || !liveness) return false;
+  if (liveness.state === 'unknown') return true;
+  return liveness.state === 'alive' && liveness.reason !== 'this-process' && liveness.heartbeat !== 'fresh';
+}
+
+function holderDescription(owner, liveness) {
+  return owner ? describeLeaseOwner(owner, liveness) : 'another process that is still acquiring it';
+}
+
+function reviewedReleaseGuidance(subject, owner, liveness) {
+  if (!needsReviewedRelease(owner, liveness)) return '';
+  const why = liveness.state === 'unknown'
+    ? 'That process runs on another machine, so this one cannot prove it stopped and never takes the lock over.'
+    : 'That process is still running here but stopped renewing the lock; it is not taken over while it runs. Stopping it frees the lock.';
+  return ` ${why} After checking that it no longer works on this ${subject.kind}, release exactly that lease with: `
+    + leaseReleaseCommand(subject, owner.lockToken);
+}
+
+function leaseDetails(liveness) {
+  return liveness ? {
+    state: liveness.state, reason: liveness.reason, heartbeat: liveness.heartbeat,
+    lastHeartbeatAt: liveness.lastHeartbeatAt
+  } : null;
+}
+
+async function assertNoRepositoryResetBarrier(root) {
   const directory = repositoryResetBarrierPath(root);
   for (let attempt = 0; attempt < 3; attempt += 1) {
-    const state = await activeDirectoryOwner(directory, ttlMs);
+    const state = await activeDirectoryOwner(directory);
     if (!state.active) {
       if (!state.info) return;
-      if (await reclaim(directory, state, { ttlMs })) continue;
+      if (await reclaim(directory, state)) continue;
       if (await directoryAge(directory) === null) return;
       continue;
     }
-    const held = state.owner
-      ? `PID ${state.owner.pid ?? 'unknown'} on ${state.owner.host ?? 'unknown'} since ${state.owner.acquiredAt ?? 'unknown'}`
-      : 'another process that is still acquiring it';
     throw new SingularityFlowError(
-      `Repository reinitialization is in progress (${held}). Wait for it to finish before starting work.`,
-      { code: 'FACTORY_RESET_IN_PROGRESS', details: { lock: directory, owner: state.owner } }
+      `Repository reinitialization is in progress (${holderDescription(state.owner, state.liveness)}). `
+      + 'Wait for it to finish before starting work.'
+      + reviewedReleaseGuidance(RESET_BARRIER_SUBJECT, state.owner, state.liveness),
+      {
+        code: 'FACTORY_RESET_IN_PROGRESS',
+        details: { lock: directory, owner: state.owner, liveness: leaseDetails(state.liveness) }
+      }
     );
   }
   throw new SingularityFlowError(
@@ -464,7 +512,7 @@ async function assertNoRepositoryResetBarrier(root, ttlMs = DEFAULT_TTL_MS) {
 
 /** Public read-only preflight for repository-scoped mutation entry points. */
 export async function assertRepositoryResetAvailable(root) {
-  return assertNoRepositoryResetBarrier(root, DEFAULT_TTL_MS);
+  return assertNoRepositoryResetBarrier(root);
 }
 
 async function subjectLockRoots(root) {
@@ -480,7 +528,12 @@ async function subjectLockRoots(root) {
   return roots;
 }
 
-export async function activeSubjectLocks(root, { ttlMs = DEFAULT_TTL_MS } = {}) {
+/**
+ * Every lock that is still held: a live owner, another machine's owner (unknown), or an acquisition
+ * in progress. Only a lock whose owner is proven dead is left out, so factory reset never proceeds
+ * over a writer it cannot prove has stopped.
+ */
+export async function activeSubjectLocks(root) {
   const active = [];
   for (const lockRoot of await subjectLockRoots(root)) {
     const entries = await readdir(lockRoot, {
@@ -493,11 +546,12 @@ export async function activeSubjectLocks(root, { ttlMs = DEFAULT_TTL_MS } = {}) 
         active.push({ directory, owner: null, reason: 'unsafe-lock-entry' });
         continue;
       }
-      const state = await activeDirectoryOwner(directory, ttlMs);
+      const state = await activeDirectoryOwner(directory);
       if (state.active) active.push({
         directory,
         owner: state.owner ?? null,
-        reason: state.reason ?? 'active'
+        reason: state.reason ?? 'active',
+        liveness: leaseDetails(state.liveness)
       });
     }
   }
@@ -511,13 +565,18 @@ export async function assertNoActiveSubjectLocks(root) {
     const owner = lock.owner;
     return owner
       ? `${owner.subject?.kind ?? 'operation'} '${owner.subject?.id ?? 'unknown'}' `
-        + `(PID ${owner.pid ?? 'unknown'} on ${owner.host ?? 'unknown'})`
+        + `(PID ${owner.pid ?? 'unknown'} on ${owner.host ?? 'unknown'}`
+        + `${lock.liveness?.state === 'unknown' ? ', another machine' : ''})`
       : path.basename(lock.directory);
   });
+  const reviewed = locks.find((lock) => lock.owner?.subject?.kind && lock.owner?.subject?.id
+    && needsReviewedRelease(lock.owner, lock.liveness));
   throw new SingularityFlowError(
     `Repository reinitialization requires a quiescent repository; active operation(s): `
     + `${descriptions.join(', ')}${locks.length > descriptions.length ? ` and ${locks.length - descriptions.length} more` : ''}. `
-    + 'Wait for them to finish or stop them through their normal recovery path, then preview again.',
+    + 'Wait for them to finish or stop them through their normal recovery path, then preview again.'
+    + (reviewed ? ' A lock from another machine, or one whose process stopped renewing it, ends only by a '
+      + `reviewed release, for example: ${leaseReleaseCommand(reviewed.owner.subject, reviewed.owner.lockToken)}` : ''),
     { code: 'FACTORY_RESET_ACTIVE_OPERATIONS', details: { locks } }
   );
 }
@@ -926,9 +985,8 @@ function newLockOwner(subject, ttlMs) {
   return {
     schemaVersion: currentSchemaVersion('subject-lock-owner'),
     subject,
-    pid: process.pid,
-    host: os.hostname(),
-    processToken: PROCESS_TOKEN,
+    // pid, host, machineId, processStartedAt, processToken: what proves this owner alive or dead.
+    ...leaseOwnerIdentity(),
     lockToken: randomUUID(),
     acquiredAt: nowIso(),
     expiresAt: new Date(Date.now() + ttlMs).toISOString()
@@ -936,15 +994,11 @@ function newLockOwner(subject, ttlMs) {
 }
 
 async function releaseOwnedDirectory(directory, owner, { hooks = null } = {}) {
-  const current = await activeDirectoryOwner(directory, DEFAULT_TTL_MS);
+  const current = await activeDirectoryOwner(directory);
   if (!current.info || !current.owner
       || current.owner.lockToken !== owner.lockToken
       || current.owner.processToken !== PROCESS_TOKEN) return false;
-  return retireObservedDirectory(directory, current, {
-    expectedOwner: owner,
-    ttlMs: DEFAULT_TTL_MS,
-    hooks
-  });
+  return retireObservedDirectory(directory, current, { expectedOwner: owner, hooks });
 }
 
 function lockGenerationChanged(directory) {
@@ -953,14 +1007,21 @@ function lockGenerationChanged(directory) {
   });
 }
 
-function busyError(subject, directory, existing = null) {
-  const held = existing
-    ? `PID ${existing.pid ?? 'unknown'} on ${existing.host ?? 'unknown'} since ${existing.acquiredAt ?? 'unknown'}`
-    : 'another process that is still acquiring it';
+function busyError(subject, directory, existing = null, liveness = null) {
+  const reviewed = reviewedReleaseGuidance(subject, existing, liveness);
+  const automatic = existing
+    ? 'it is freed when that command finishes, or taken over once its process has exited.'
+    : 'an acquisition abandoned for 30 seconds is taken over automatically.';
   return new SingularityFlowError(
-    `${subject.kind} '${subject.id}' is locked by ${held}. `
-    + `The lock is ${directory}; it is reclaimed automatically once it expires.`,
-    { code: 'SUBJECT_LOCK_BUSY', details: { subject, lock: directory, owner: existing } }
+    `${subject.kind} '${subject.id}' is locked by ${holderDescription(existing, liveness)}. `
+    + `The lock is ${directory}; ${reviewed ? reviewed.trim() : automatic}`,
+    {
+      code: 'SUBJECT_LOCK_BUSY',
+      details: {
+        subject, lock: directory, owner: existing, liveness: leaseDetails(liveness),
+        ...(reviewed ? { releaseCommand: leaseReleaseCommand(subject, existing.lockToken) } : {})
+      }
+    }
   );
 }
 
@@ -984,7 +1045,7 @@ async function publishOwnerNoReplace(pending, destination, bytes, ownerLink = li
 }
 
 async function cleanupFailedAcquisition(directory, acquiredInfo, owner, hooks) {
-  const current = await activeDirectoryOwner(directory, DEFAULT_TTL_MS);
+  const current = await activeDirectoryOwner(directory);
   if (!current.info) return;
   const publishedByUs = current.owner?.lockToken === owner.lockToken
     && current.owner?.processToken === owner.processToken;
@@ -995,7 +1056,6 @@ async function cleanupFailedAcquisition(directory, acquiredInfo, owner, hooks) {
   if (current.owner && !publishedByUs) return;
   await retireObservedDirectory(directory, current, {
     expectedOwner: publishedByUs ? owner : null,
-    ttlMs: DEFAULT_TTL_MS,
     hooks
   });
 }
@@ -1011,10 +1071,10 @@ async function acquireLockDirectory(directory, subject, ttlMs, afterAcquire = nu
       await mkdir(directory, { recursive: false });
     } catch (error) {
       if (error?.code !== 'EEXIST') throw error;
-      const existing = await activeDirectoryOwner(directory, ttlMs);
+      const existing = await activeDirectoryOwner(directory);
       if (!existing.info) continue;
-      if (existing.active) throw busyError(subject, directory, existing.owner);
-      await reclaim(directory, existing, { ttlMs, hooks });
+      if (existing.active) throw busyError(subject, directory, existing.owner, existing.liveness);
+      await reclaim(directory, existing, { hooks });
       continue;
     }
 
@@ -1037,7 +1097,7 @@ async function acquireLockDirectory(directory, subject, ttlMs, afterAcquire = nu
         pending, path.join(directory, 'owner.json'), ownerBytes, ownerLink
       );
       await rm(pending, { force: true });
-      const published = await activeDirectoryOwner(directory, ttlMs);
+      const published = await activeDirectoryOwner(directory);
       if (!published.info
           || !sameDirectoryIdentity(acquiredInfo, published.info)
           || published.owner?.lockToken !== owner.lockToken
@@ -1065,13 +1125,98 @@ export async function acquireSubjectLock(root, subject, {
 } = {}) {
   // Check on both sides of subject-lock creation. This closes the race where reset raises its
   // barrier after the first check but before this lock is published: the callback never starts.
-  await assertNoRepositoryResetBarrier(root, DEFAULT_TTL_MS);
+  await assertNoRepositoryResetBarrier(root);
   return acquireLockDirectory(subjectLockPath(root, subject), subject, ttlMs,
-    () => assertNoRepositoryResetBarrier(root, DEFAULT_TTL_MS), { hooks, ownerLink });
+    () => assertNoRepositoryResetBarrier(root), { hooks, ownerLink });
 }
 
 export async function releaseSubjectLock(root, subject, owner, { hooks = null } = {}) {
   return releaseOwnedDirectory(subjectLockPath(root, subject), owner, { hooks });
+}
+
+function reviewedLeaseDirectory(root, subject) {
+  if (!subject?.kind || !subject?.id) {
+    throw new SingularityFlowError('A lease release names the locked subject: its kind and ID.', {
+      code: 'SUBJECT_LOCK_RELEASE_INVALID', details: { subject: subject ?? null }
+    });
+  }
+  return subject.kind === RESET_BARRIER_SUBJECT.kind && subject.id === RESET_BARRIER_SUBJECT.id
+    ? repositoryResetBarrierPath(root) : subjectLockPath(root, subject);
+}
+
+/** Read-only: who holds a subject's lease and whether only a reviewed release can end it. */
+export async function inspectSubjectLease(root, subject) {
+  const directory = reviewedLeaseDirectory(root, subject);
+  const state = await activeDirectoryOwner(directory);
+  return Object.freeze({
+    subject, lock: directory, held: Boolean(state.info) && state.active, owner: state.owner ?? null,
+    liveness: leaseDetails(state.liveness),
+    releaseCommand: needsReviewedRelease(state.owner, state.liveness)
+      ? leaseReleaseCommand(subject, state.owner.lockToken) : null
+  });
+}
+
+export function releasedLeaseAuditPath(root) {
+  return path.join(gitCommonDir(root), 'singularity-flow', 'locks', 'released-leases.jsonl');
+}
+
+/**
+ * A person's way out of a lease this machine cannot prove abandoned: another machine's owner, or a
+ * live owner here that stopped renewing. `expectedLockToken` is the confirmation: exactly that
+ * reviewed generation is removed, never a successor, and one audit line records whose lease it was.
+ * A live owner here that is still renewing is refused; it ends by finishing or being stopped.
+ */
+export async function releaseLeaseAfterReview(root, subject, { expectedLockToken, hooks = null } = {}) {
+  const directory = reviewedLeaseDirectory(root, subject);
+  if (typeof expectedLockToken !== 'string' || !expectedLockToken) {
+    throw new SingularityFlowError('A lease release confirms the reviewed lock token.', {
+      code: 'SUBJECT_LOCK_RELEASE_INVALID', details: { subject, lock: directory }
+    });
+  }
+  const state = await activeDirectoryOwner(directory);
+  if (!state.info) return Object.freeze({ released: false, reason: 'already-released', subject, lock: directory });
+  if (state.owner?.lockToken !== expectedLockToken) {
+    throw new SingularityFlowError(
+      `The ${subject.kind} '${subject.id}' lease is no longer the reviewed one `
+      + `(${state.owner ? `now token ${state.owner.lockToken}, ${holderDescription(state.owner, state.liveness)}` : 'its owner is still being written'}). `
+      + 'Nothing was released; review it again.',
+      { code: 'SUBJECT_LOCK_RELEASE_MISMATCH', details: { subject, lock: directory, owner: state.owner ?? null } }
+    );
+  }
+  const liveness = state.liveness;
+  if (liveness?.state === 'alive' && (liveness.reason === 'this-process' || liveness.heartbeat === 'fresh')) {
+    throw new SingularityFlowError(
+      `The ${subject.kind} '${subject.id}' lease belongs to ${holderDescription(state.owner, liveness)}, `
+      + 'which is running on this machine and still renewing it. Nothing was released; let it finish or stop that process.',
+      { code: 'SUBJECT_LOCK_RELEASE_REFUSED', details: { subject, lock: directory, owner: state.owner, liveness: leaseDetails(liveness) } }
+    );
+  }
+  if (!await retireObservedDirectory(directory, state, { expectedOwner: state.owner, hooks })) {
+    throw new SingularityFlowError(
+      `The ${subject.kind} '${subject.id}' lease changed while it was being released. Nothing else was removed; review it again.`,
+      { code: 'SUBJECT_LOCK_RELEASE_MISMATCH', details: { subject, lock: directory } }
+    );
+  }
+  const owner = state.owner;
+  const audit = releasedLeaseAuditPath(root);
+  const entry = {
+    releasedAt: nowIso(), subject: { kind: subject.kind, id: subject.id }, lockToken: owner.lockToken,
+    owner: {
+      pid: owner.pid ?? null, host: owner.host ?? null, machineId: owner.machineId ?? null,
+      processStartedAt: owner.processStartedAt ?? null, acquiredAt: owner.acquiredAt ?? null
+    },
+    liveness: leaseDetails(liveness),
+    releasedBy: { pid: process.pid, host: os.hostname(), machineId: localMachineId() }
+  };
+  let auditWarning = null;
+  try {
+    await mkdir(path.dirname(audit), { recursive: true });
+    await appendFile(audit, `${JSON.stringify(entry)}\n`, { mode: 0o600 });
+  } catch (error) { auditWarning = `The release was not recorded in ${audit}: ${error.message}`; }
+  return Object.freeze({
+    released: true, subject, lock: directory, lockToken: owner.lockToken, owner,
+    liveness: leaseDetails(liveness), audit, ...(auditWarning ? { warnings: [auditWarning] } : {})
+  });
 }
 
 function finishInheritedFrame(frame) {
@@ -1124,9 +1269,10 @@ export async function withRepositoryResetBarrier(root, callback, {
       `The repository reinitialization barrier was taken over while reset held it: ${directory}. `
       + 'Inspect the repository before relying on the result.';
   } catch (error) {
+    // This process exits soon, and a dead owner's barrier is taken over by the next command here.
     barrierWarning = `The repository reinitialization barrier could not be cleared at `
-      + `${directory}: ${error.message}. Close other SFlow processes and remove that stale barrier `
-      + 'through the documented recovery path before starting work.';
+      + `${directory}: ${error.message}. The next command on this machine takes it over once this `
+      + `process has exited; if it remains, release it with: ${leaseReleaseCommand(RESET_BARRIER_SUBJECT, owner.lockToken)}`;
   }
   if (barrierWarning) {
     if (operationError && typeof operationError.message === 'string') {
@@ -1155,7 +1301,7 @@ export async function withSubjectLock(root, subject, callback, options = {}) {
     // Reentrant work still observes a reset which began after the outer acquisition. The outer lock
     // will make a real factory reset refuse, but admitting new nested mutation behind an already-live
     // barrier violates the public barrier contract and made tests/helpers able to bypass it outright.
-    await assertNoRepositoryResetBarrier(root, DEFAULT_TTL_MS);
+    await assertNoRepositoryResetBarrier(root);
     if (inheritedFrame.active && inheritedFrame.lease.active) {
       const lease = inheritedFrame.lease;
       const frame = { lease, active: true };
@@ -1258,8 +1404,8 @@ async function removedWithItsCheckout(lease) {
  * Reset exclusion is unchanged. The handover refuses unless every lock it covers is still present
  * and still ours, so a checkout is never moved after its fence was lost. It stops only the renewal,
  * never the lease: the directory and owner record travel with the checkout, so a reset scan finds a
- * live lease wherever the checkout is. Stopping renewal cannot expire that lease early either: its
- * last renewal still carries nearly a full TTL, and the PID that owns it is still running.
+ * live lease wherever the checkout is. Stopping renewal cannot end that lease early either: a lease
+ * is held while the PID that owns it runs, whatever its heartbeat says.
  *
  * Nothing is excused at this point. `commit(destination)` belongs at the point where the removal can
  * no longer be undone, and it marks a lock only after finding it at `destination`, intact and still
@@ -1284,7 +1430,7 @@ export async function prepareHeldLockRemoval(checkout) {
     for (const lease of leases) {
       const relative = pathInsideDirectory(container, await canonicalLocation(lease.directory));
       if (!relative) continue;
-      const current = await activeDirectoryOwner(lease.directory, DEFAULT_TTL_MS);
+      const current = await activeDirectoryOwner(lease.directory);
       if (!current.info || current.owner?.lockToken !== lease.owner.lockToken
           || current.owner?.processToken !== PROCESS_TOKEN) {
         const { subject } = lease.owner;
@@ -1308,9 +1454,7 @@ export async function prepareHeldLockRemoval(checkout) {
     async commit(destination) {
       for (const { lease, relative } of handovers) {
         try {
-          const moved = await activeDirectoryOwner(
-            path.join(await realpath(destination), relative), DEFAULT_TTL_MS
-          );
+          const moved = await activeDirectoryOwner(path.join(await realpath(destination), relative));
           if (moved.info && moved.owner?.lockToken === lease.owner.lockToken
               && moved.owner?.processToken === PROCESS_TOKEN) lease.removal.committed = true;
         } catch {

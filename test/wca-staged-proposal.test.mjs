@@ -27,7 +27,9 @@ async function fixture(t, { attributes = null, executableWorkflow = false, templ
   if (attributes) await writeFile(path.join(root, '.gitattributes'), attributes);
   git(root, 'add', '.'); if (executableWorkflow) git(root, 'update-index', '--chmod=+x', 'singularity/workflow.yml');
   git(root, 'commit', '-qm', 'approved fixture'); git(root, 'branch', 'sflow/config'); git(root, 'remote', 'add', 'origin', remote); git(root, 'push', '-q', 'origin', 'main', 'sflow/config');
-  const observe = async () => ({ head: git(root, 'rev-parse', 'HEAD'), refs: git(root, 'for-each-ref', '--format=%(refname) %(objectname)'),
+  // The configuration projection's base ref retains the fetched authority tip, never a candidate (SDA M3).
+  const observe = async () => ({ head: git(root, 'rev-parse', 'HEAD'), refs: git(root, 'for-each-ref', '--format=%(refname) %(objectname)')
+      .split('\n').filter((line) => !line.startsWith('refs/sflow/configuration-projection/')).join('\n'),
     status: git(root, 'status', '--porcelain=v1'), index: await readFile(path.join(root, '.git/index')),
     remote: git(base, '--git-dir', remote, 'for-each-ref', '--format=%(refname) %(objectname)') });
   return { base, root, remote, workflow, existing, templatesRoot, observe, before: await observe(), env: { ...process.env, NODE_ENV: 'test', SINGULARITY_FLOW_TEST_IDENTITY: 'Exact Stage Fixture' } };
@@ -128,6 +130,8 @@ test('supplying a verifier that does not inspect the exact selected closure is r
 test('a commit hook cannot publish a tree different from the exact verified index', async (t) => {
   const f = await fixture(t);
   await assert.rejects(propose(f, { mutate: async (scratch) => {
+    // A projection is created with no hook templates; a hook placed there must still not change what is published.
+    await mkdir(path.join(scratch, '.git/hooks'), { recursive: true });
     await writeFile(path.join(scratch, '.git/hooks/pre-commit'), '#!/bin/sh\nprintf "# Changed by commit hook\\n" > singularity/templates/new.md\ngit add singularity/templates/new.md\n', { mode: 0o755 });
   } }), refused);
   assert.deepEqual(await f.observe(), f.before);
@@ -136,6 +140,8 @@ test('a commit hook cannot publish a tree different from the exact verified inde
 test('a post-commit hook cannot reparent the exact reviewed tree away from the approved base', async (t) => {
   const f = await fixture(t);
   await assert.rejects(propose(f, { mutate: async (scratch) => {
+    // A projection is created with no hook templates; a hook placed there must still not change what is published.
+    await mkdir(path.join(scratch, '.git/hooks'), { recursive: true });
     await writeFile(path.join(scratch, '.git/hooks/post-commit'), '#!/bin/sh\ntree=$(git write-tree)\nforeign=$(printf "Foreign parentless commit\\n" | git commit-tree "$tree") || exit 1\ngit update-ref HEAD "$foreign"\n', { mode: 0o755 });
   } }), refused);
   assert.deepEqual(await f.observe(), f.before);

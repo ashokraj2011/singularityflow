@@ -121,6 +121,27 @@ test('concurrent refreshes of one record in several processes share one authorit
   assert.deepEqual(results.map((run) => run.result.status.source).sort(), ['fresh', 'shared', 'shared']);
 });
 
+test('a read that starts waiting after the refresh it waits on observed still takes that refresh (SDA-AC-014)', async (t) => {
+  const f = await fixture(t);
+  const { acquireFileLease } = await import('../src/file-lease.mjs');
+  let calls = 0;
+  const read = () => cachedStoryIntakeCatalog(f.root, { identity: { catalog: 'late' }, files: [f.observed], env: f.env },
+    async () => ({ choicesComplete: true, intake: { storyWorkflows: [] }, unreachable: [], n: ++calls }));
+  assert.equal((await read()).n, 1);
+  // Another process observed the authority before this read began, and holds the lease while it writes its record.
+  const file = await f.record();
+  const written = await readFile(file, 'utf8');
+  await rm(file);
+  const lease = await acquireFileLease(file.replace(/\.json$/u, '.lease'));
+  const waiting = read();
+  await new Promise((resolve) => setTimeout(resolve, 200));
+  await writeFile(file, written, { mode: 0o600 });
+  await lease.release();
+  assert.equal((await waiting).n, 1, 'the other process\'s observation, not a second one');
+  assert.equal(calls, 1);
+  assert.equal(repositoryCheckStatus(f.root).source, 'shared');
+});
+
 test('the intake catalog answers offline after expiry and after a failed refresh, and refreshes behind a stale answer', slowLane({ timeout: 300_000 }), async (t) => {
   const f = await createStoryReadinessFixture({ files: 1 }); t.after(f.cleanup);
   await f.invokeCatalog(); await f.invokeCatalog();

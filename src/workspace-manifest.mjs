@@ -203,6 +203,11 @@ export function workspaceRepositoryPath(workspace, repository) {
   return path.join(workspace.path, repository.path);
 }
 
+/** The command that clones a deferred (planned, never cloned) member now. */
+export function workspaceMaterializeCommand(workspacePath, repositoryId) {
+  return `singularity-flow workspace repair ${JSON.stringify(workspacePath)} --repository ${repositoryId}`;
+}
+
 export function validateWorkspaceManifest(input, {
   workspaceRoot = null, previousManifest = null, preserveLegacyPaths = false
 } = {}) {

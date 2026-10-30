@@ -488,6 +488,9 @@ Every public operation is classified before its implementation module is importe
 | local.status | read | never | — | — |
 | local.trust-export | mutation | never | — | — |
 | local.verify | mutation | never | — | — |
+| lock.release | mutation | never | — | — |
+| lock.release-file | mutation | never | — | — |
+| lock.show | read | never | — | — |
 | logs | read | never | — | — |
 | marketplace.add | mutation | never | — | — |
 | marketplace.browse | read | never | — | — |

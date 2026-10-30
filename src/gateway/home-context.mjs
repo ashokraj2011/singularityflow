@@ -24,7 +24,9 @@ export async function developerRepository(workspaceReference = null, { allowMiss
     ?? status.repositories.find((item) => item.id === status.workspace.leadRepository)
     ?? status.repositories[0];
   if (!selected) throw new SingularityFlowError(`Workspace '${context.workspaceId}' has no repositories.`);
-  return { context, status, selected, root: selected.absolutePath ?? null };
+  // Only a ready checkout is a repository root. A deferred (not yet cloned) or damaged member has a
+  // planned path that does not exist; projections answer from the workspace instead.
+  return { context, status, selected, root: selected.state === 'ready' ? selected.absolutePath ?? null : null };
 }
 
 /** Compatibility name retained for the existing Home command. */

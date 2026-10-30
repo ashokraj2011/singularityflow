@@ -1387,6 +1387,28 @@ const PAGES = Object.freeze({
     ],
     seeAlso: ['import', 'agents', 'skill']
   },
+  lock: {
+    summary: 'See a lock another command holds, and release one whose owner a person has checked is gone.',
+    description: [
+      'Commands that change a Story, a publication or the workspace registry hold a lock while they run. Another',
+      'command takes a lock over by itself only when its owner is proven gone: its process ended, or its process',
+      'ID now belongs to a later process. Age never decides, so a laptop that slept through a long push keeps its lock.',
+      'A lock whose owner runs on another machine, or runs here but stopped renewing, waits for a person.',
+      'lock show reads one lock: its owner, machine, last heartbeat, and the release command when one is needed.',
+      'lock release ends exactly the lock you reviewed: --confirm takes its lock token, so a lock that changed',
+      'since you looked is never removed. The release is recorded. Run it in your own terminal, after checking that',
+      'the owning command is not still running. lock release-file does the same for a workspace registry lease file.'
+    ],
+    options: [
+      ['--confirm TOKEN', 'release and release-file: the reviewed lock token the refusal or lock show printed.'],
+      ['--json', 'Machine-readable output (sflow-lock-show, sflow-lock-release).']
+    ],
+    examples: [
+      ['singularity-flow lock show publication PMC-1', 'Who holds the publication lock of Story PMC-1, and whether only a person can end it.'],
+      ['singularity-flow lock release publication PMC-1 --confirm <LOCK-TOKEN>', 'End exactly that lock, after checking its owner is gone.']
+    ],
+    seeAlso: ['recover', 'sync', 'doctor']
+  },
   index: {
     summary: 'See, refresh, rebuild or verify the local read index that Story lists and the intake catalog answer from.',
     description: [

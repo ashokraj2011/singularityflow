@@ -1304,21 +1304,23 @@ test('a selected workspace with a missing lead repository offers repair instead 
   const extension = loadExtension(api);
   await extension.activate(context());
 
+  // A --no-clone member is deferred, not damaged: the same action clones it, worded as such.
   const lifecycle = section(registered, 'lifecycle');
   const [problem] = lifecycle.getChildren();
-  assert.match(problem.label, /Workspace repository is missing/);
+  assert.match(problem.label, /Workspace repository is not cloned yet/);
   assert.doesNotMatch(problem.label, /No workspace is active/);
   assert.match(problem.tooltip, /missing-lead/);
+  assert.match(problem.tooltip, /cloned when work starts/);
   assert.equal(lifecycle.getTreeItem(problem).command.command, 'singularityFlow.repairWorkspace');
 
   const [configuration] = section(registered, 'configuration').getChildren();
-  assert.match(configuration.label, /Workspace repository is missing/);
+  assert.match(configuration.label, /Workspace repository is not cloned yet/);
   assert.equal(section(registered, 'configuration')
     .getTreeItem(configuration).command.command, 'singularityFlow.repairWorkspace');
 
   const workspaceProvider = section(registered, 'workspaces');
   const selected = await until(() => workspaceProvider.getChildren()[0]?.description ? workspaceProvider.getChildren()[0] : null);
-  assert.equal(selected.description, 'selected · repository missing');
+  assert.equal(selected.description, 'selected · not cloned yet');
   assert.equal(selected.icon, 'statusWarning');
   assert.ok(registered.commands.has('singularityFlow.repairWorkspace'));
 });
@@ -8082,7 +8084,7 @@ test('opening a workspace explicitly replaces the current window rather than sca
     'opening a deferred workspace does not implicitly materialize its lead');
   const selected = JSON.parse(await readFile(selectionFile, 'utf8'));
   assert.equal(path.resolve(selected.workspacePath), shell);
-  assert.equal(selected.repositoryState, 'missing');
+  assert.equal(selected.repositoryState, 'deferred');
 });
 
 test('opening a workspace directory works: its lead repository is what gets governed', async (t) => {
@@ -10041,7 +10043,7 @@ test('explicit selection of a deferred workspace opens its existing shell withou
   assert.equal(values.get('singularityFlow.pendingCopilotHandoff'), undefined);
   const selected = JSON.parse(await readFile(selectionFile, 'utf8'));
   assert.equal(path.resolve(selected.workspacePath), shell);
-  assert.equal(selected.repositoryState, 'missing');
+  assert.equal(selected.repositoryState, 'deferred');
   assert.equal(path.resolve(selected.repositoryPath), missingLead);
   assert.deepEqual(registered.errors, []);
 });

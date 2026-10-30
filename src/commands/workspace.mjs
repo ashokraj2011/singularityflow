@@ -73,6 +73,21 @@ export async function run(argv, context = {}) {
       { protect: [activeContext.repositoryPath].filter(Boolean) });
     if (optionBoolean(options, 'json')) return console.log(JSON.stringify(activeContext, null, 2));
     console.log(`\nActive context: ${workspacePromptLabel(activeContext)}`);
+    if (activeContext.repositoryState === 'deferred') {
+      // A planned member is not broken: the first work that needs its source clones it.
+      console.log(`Repository: ${activeContext.repositoryId} · checkout deferred until work starts`);
+      console.log('Starting a Story or Copilot here clones only this repository.');
+      const cloneArgv = ['singularity-flow', 'workspace', 'repair', activeContext.workspacePath,
+        '--repository', activeContext.repositoryId];
+      for (const line of actionCommandLines({
+        command: renderPlatformCommand(cloneArgv, process.platform),
+        skill: '/sf-workspace'
+      }, 'Clone it now')) console.log(line);
+      for (const line of actionCommandLines(copilotAction({
+        command: 'singularity-flow workspace copilot'
+      }), 'Start Copilot here')) console.log(line);
+      return;
+    }
     console.log(`Repository: ${activeContext.repositoryPath}`);
     if (activeContext.repositoryState !== 'ready') {
       console.log(`Repository state: ${activeContext.repositoryState}. Run workspace repair before starting Copilot.`);

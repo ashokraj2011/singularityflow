@@ -341,7 +341,7 @@ async function cachedCheck(root, { kind, identity, files, env, settingsRoot = ro
   // The refresh machinery loads only for a last-known record that must be recomputed.
   const promise = lastKnown && file
     ? import('./projection-refresh.mjs').then(({ coalescedRefresh }) => coalescedRefresh({
-      root, settings, directory, file, key, explicit, replay, found: lastKnownRecord, observeStamp, observe, prepareDirectory,
+      root, settings, directory, file, key, authority, explicit, replay, found: lastKnownRecord, observeStamp, observe, prepareDirectory,
       restamp: (next) => { stamp = next; }
     }, compute))
     : compute();

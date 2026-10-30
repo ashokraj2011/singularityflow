@@ -117,11 +117,11 @@ test('repair retains completed clone and resumes with no remote or second clone'
 test('retrying original workspace creation resumes the same completed clone', async t => {
   const f = await fixture(t, { create: true });
   await interceptClaim(f.target, async () => { throw locked(); }, async () => {
-    await assert.rejects(() => createWorkspace(f.input, { confirmation: 'clone-resume', env: fast }),
+    await assert.rejects(() => createWorkspace(f.input, { confirmation: 'clone-resume', clone: true, env: fast }),
       { code: 'WORKSPACE_CLONE_CLAIM_PENDING' });
   });
   await fs.rm(f.remote, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 });
-  const result = await createWorkspace(f.input, { confirmation: 'clone-resume', env: fast });
+  const result = await createWorkspace(f.input, { confirmation: 'clone-resume', clone: true, env: fast });
   assert.equal(result.resumed, true);
   assert.equal(result.repair[0].resumedClone, true);
 });

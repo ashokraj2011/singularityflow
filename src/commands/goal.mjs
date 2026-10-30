@@ -1,4 +1,5 @@
 /** `sflow goal` — personal outcomes over, never instead of, governed work. */
+import { existsSync } from 'node:fs';
 import path from 'node:path';
 
 import { head, localBranches, localRefHeads, remoteBranches, repoRoot } from '../git.mjs';
@@ -25,7 +26,7 @@ import {
   SingularityFlowError, optionBoolean, optionString, optionStrings
 } from '../util.mjs';
 import { recordSha256 } from '../records.mjs';
-import { workspaceRepositoryPath } from '../workspace.mjs';
+import { workspaceMaterializeCommand, workspaceRepositoryPath, workspaceStatus } from '../workspace.mjs';
 import { resolveSessionRepository } from './shared/session-repository-selection.mjs';
 import { stateStorySubjectIndex } from '../session-story-discovery.mjs';
 import { localStorySubjectIndex } from '../local-story-subject-index.mjs';
@@ -39,7 +40,21 @@ import { sessionDiscoveryConfiguration } from './shared/session-discovery-config
  */
 async function leadConfiguration(context) {
   const root = context.leadRepositoryPath;
+  if (!existsSync(root)) {
+    const lead = context.workspace.leadRepository;
+    const status = await workspaceStatus(context.workspace.path, { level: 'readiness', repositoryId: lead });
+    if (status.repositories[0]?.state === 'deferred') throw deferredGoalRepository(context, lead, 'Goals are kept in the lead repository');
+  }
   return withApprovedConfigurationRead(root, () => loadConfig(root));
+}
+
+/** A member that is not cloned yet: say how it is cloned, never treat it as broken. */
+function deferredGoalRepository(context, repositoryId, subject = 'Repository') {
+  const command = workspaceMaterializeCommand(context.workspace.path, repositoryId);
+  return new SingularityFlowError(
+    `${subject} '${repositoryId}', which is not cloned yet. Starting work in it clones it, or clone it now with ${command}.`,
+    { code: 'GOAL_REPOSITORY_DEFERRED', details: { repositoryId, repositoryState: 'deferred', nextAction: command } }
+  );
 }
 
 function terminalStatus(state) {
@@ -56,6 +71,9 @@ async function repositoryFor(context, repositoryId) {
   }
   const selected = await resolveSessionRepository({ workspaceReference: context.workspace.path,
     repositoryId: id, remoteProbe: false });
+  if (!selected.root && selected.reason === 'workspace-repository-deferred') {
+    throw deferredGoalRepository(context, id, 'Linked work is read from repository');
+  }
   const root = repoRoot(selected.root ?? workspaceRepositoryPath(context.workspace, configured));
   return { id, root, authority: selected.authority ?? null };
 }
@@ -213,18 +231,22 @@ async function resolveLinks(context, goal) {
   const indexCache = new Map();
   return Promise.all(goal.links.map((link) => resolveGovernedWork(context, {
     reference: link.id, kind: link.kind, repositoryId: link.repositoryId, required: false, indexCache
-  }).catch(() => ({
-    ...link, availability: 'missing', status: 'unknown', terminal: false, phase: null, commit: null
-  }))));
+  }).catch((error) => unresolvedLink(link, error))));
+}
+
+/** A link whose work cannot be read here; a not-yet-cloned repository is deferred, not missing. */
+function unresolvedLink(link, error) {
+  return {
+    ...link, availability: error?.code === 'GOAL_REPOSITORY_DEFERRED' ? 'deferred' : 'missing',
+    status: 'unknown', terminal: false, phase: null, commit: null
+  };
 }
 
 async function resolveGovernedLinks(context, contract) {
   const indexCache = new Map();
   return Promise.all(contract.linkedWork.map((link) => resolveGovernedWork(context, {
     reference: link.id, kind: link.kind, repositoryId: link.repositoryId, required: false, indexCache
-  }).catch(() => ({
-    ...link, availability: 'missing', status: 'unknown', terminal: false, phase: null, commit: null
-  }))));
+  }).catch((error) => unresolvedLink(link, error))));
 }
 
 function provenance(context) {

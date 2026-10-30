@@ -127,7 +127,7 @@ test('a workspace can be created with no tracker at all', async (t) => {
   const current = JSON.parse(cli(['workspace', 'current', '--json'], env).stdout);
   assert.equal(current.workspaceId, 'local--demo-team');
   assert.equal(current.repositoryId, 'app');
-  assert.equal(current.repositoryState, 'missing');
+  assert.equal(current.repositoryState, 'deferred');
   const conflicting = cli(['workspace', 'list', '--table', '--json'], env, { allowFailure: true });
   assert.notEqual(conflicting.status, 0);
   assert.equal(JSON.parse(conflicting.stdout).error.code, 'WORKSPACE_TABLE_FORMAT_INVALID');
@@ -135,8 +135,9 @@ test('a workspace can be created with no tracker at all', async (t) => {
   const status = JSON.parse(cli(['workspace', 'status', path.join(workspaces, 'demo-team'), '--json'], env).stdout);
   assert.equal(status.repositories.length, 1);
   assert.equal(status.repositories[0].id, 'app');
-  assert.equal(status.repositories[0].state, 'missing',
+  assert.equal(status.repositories[0].state, 'deferred',
     'workspace creation records the repository without downloading application code');
+  assert.equal(status.healthy, true, 'a deferred checkout is not a fault');
   assert.equal(await stat(path.join(workspaces, 'demo-team', 'repos', 'app')).catch(() => null), null);
 });
 
@@ -146,7 +147,7 @@ test('workspace create can explicitly clone and targeted repair materializes onl
   const created = JSON.parse(cli(['workspace', 'create', '--local', '--id', 'deferred',
     '--base', workspaces, '--lead', 'app', '--repository', `app=${source}`,
     '--confirm', 'deferred', '--json'], env).stdout);
-  assert.equal(created.status.repositories[0].state, 'missing');
+  assert.equal(created.status.repositories[0].state, 'deferred');
   const repaired = JSON.parse(cli(['workspace', 'repair', created.workspace.path,
     '--repository', 'app', '--level', 'readiness', '--json'], env).stdout);
   assert.deepEqual(repaired.repaired.map((entry) => entry.repository), ['app']);
@@ -174,11 +175,13 @@ test('workspace status and targeted repair resolve the saved workspace from its 
     { cwd: nested }).stdout);
   assert.equal(atRoot.workspace.path, workspacePath);
   assert.equal(atNested.workspace.path, workspacePath);
-  assert.equal(atNested.repositories[0].state, 'missing');
+  assert.equal(atNested.repositories[0].state, 'deferred');
 
   const selected = cli(['workspace', 'use', workspacePath], env);
-  assert.match(selected.stdout, /Repair:/);
-  assert.ok(selected.stdout.includes(workspacePath), 'the repair route should name this exact workspace');
+  assert.match(selected.stdout, /checkout deferred until work starts/);
+  assert.match(selected.stdout, /Clone it now:/);
+  assert.ok(selected.stdout.includes(workspacePath), 'the clone route should name this exact workspace');
+  assert.doesNotMatch(selected.stdout, /Shell directory:/, 'never route a shell to a checkout that is not there');
   const outside = cli(['workspace', 'status', '--json'], env, { cwd: base, allowFailure: true });
   assert.notEqual(outside.status, 0);
   const refusal = JSON.parse(outside.stdout);
@@ -274,7 +277,7 @@ test('workspace capability preview and apply remain exact across CLI processes',
   assert.deepEqual(attached.workspace.capabilities, ['payments']);
   assert.equal(attached.status.repositories.find((repository) => repository.id === 'source')?.state, 'ready',
     'the second process materializes the capability repository without repairing unrelated checkouts');
-  assert.equal(attached.status.repositories.find((repository) => repository.id === 'app')?.state, 'missing');
+  assert.equal(attached.status.repositories.find((repository) => repository.id === 'app')?.state, 'deferred');
 
   const detach = JSON.parse(cli([
     'workspace', 'detach-capability', directory, 'payments', '--drop-local', '--dry-run', '--json'

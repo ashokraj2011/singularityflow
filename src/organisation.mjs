@@ -39,9 +39,15 @@ import { currentSchemaVersion, readRecord } from './schema-migrations.mjs';
 import {
   defaultBranchName, gitCommitIdentity, gitCommitIdentityArgs,
   gitCommitIdentityEnvironment, gitCommitSigningArgs, head, identity, preflightGitCommitIdentity,
-  proposalGitChangedPaths, proposalGitFile, proposalGitLineageCommit, proposalGitMergeProbe,
+  proposalGitChangedPaths, proposalGitFile, proposalGitLineageCommit,
   proposalGitRef, proposalGitStatus, resolveGitCommitIdentity, resolveGitCommitSigning
 } from './git.mjs';
+import { CAPABILITY_VALUE_CONFLICT_CODE, replayCapabilityProposal } from './capability-value-replay.mjs';
+import {
+  commitConfigurationTree, commitProjectedConfiguration, configurationCandidateTree,
+  configurationCommitTree, initializeConfigurationObjectStore, moveConfigurationRef, projectConfigurationCommit,
+  showConfigurationTree
+} from './git-configuration-objects.mjs';
 import { GOVERNED_ROOTS, WORKFLOW_PATH, initializeDefinition, loadDefinition, refuseRetiredControlRoot } from './config.mjs';
 import {
   describeRepository, enableLedger, repositoryIdFromUrl, setDefaultBaseBranch
@@ -671,9 +677,14 @@ function proposalChangedFiles(root, base, proposal, { env = process.env } = {}) 
   return readGitNameStatusDiff(root, base, proposal, { env });
 }
 
-/** A revision-bound Git merge probe, never an authorization to activate a later authority tip. */
+/**
+ * Whether the proposal's own change re-applies onto `targetCommit` value by value
+ * (src/capability-value-replay.mjs). Revision-bound: never an authorization to activate a later
+ * authority tip. No merge, merge-tree or clone is involved; `unknown` means the exact objects
+ * could not be read, never that the proposal is clean.
+ */
 function capabilityProposalMergeability(root, proposalRef, proposalBase, targetCommit, {
-  env = process.env, valid = true, merged = false
+  env = process.env, valid = true, merged = false, replay = undefined
 } = {}) {
   const proposalCommit = proposalGitRef(root, proposalRef, { env });
   const common = {
@@ -685,24 +696,22 @@ function capabilityProposalMergeability(root, proposalRef, proposalBase, targetC
   if (proposalBase === targetCommit) {
     return { ...common, mergeable: true, status: 'mergeable' };
   }
-  // Git 2.25 remains supported. Its merge-tree lacks --write-tree; unknown is safer than claiming
-  // either a clean merge or a conflict from merely overlapping path names.
-  const probe = proposalGitMergeProbe(root, targetCommit, proposalRef, { env });
-  if (probe === true) {
-    return { ...common, mergeable: true, status: 'mergeable' };
+  let outcome = replay;
+  if (outcome === undefined) {
+    try {
+      outcome = replayCapabilityProposal(root, {
+        base: proposalBase, proposal: proposalCommit, target: targetCommit, env
+      });
+    } catch { outcome = null; }
   }
-  if (probe !== false) {
-    return { ...common, mergeable: null, status: 'unknown' };
-  }
-  const targetPaths = new Set(proposalContentPaths(root, proposalBase, targetCommit, { env }));
-  const proposalPaths = proposalContentPaths(root, proposalBase, proposalRef, { env });
-  const intersection = proposalPaths.filter((file) => targetPaths.has(file));
+  if (!outcome) return { ...common, mergeable: null, status: 'unknown' };
+  if (outcome.status === 'clean') return { ...common, mergeable: true, status: 'mergeable' };
   return {
     ...common, mergeable: false, status: 'conflicting',
-    // Git's exit status proves a conflict; this is a bounded candidate path list, not a parser of
-    // its human-readable diagnostic stream. Include every proposal path if a rename has no direct
-    // same-name intersection.
-    conflictFiles: [...new Set(intersection.length ? intersection : proposalPaths)].sort()
+    conflictFiles: [...new Set(outcome.conflicts.map((conflict) => conflict.path))].sort(),
+    // The exact fields both sides changed differently, so a reviewer sees the competing values
+    // rather than a list of files that merely overlap.
+    conflicts: outcome.conflicts
   };
 }
 
@@ -1604,15 +1613,47 @@ function organisationObservationBranches(cached) {
 }
 
 /**
+ * The configuration authority branch's exact tip in a private object store, projected as its
+ * configuration files: one shallow fetch of that one branch, no clone and no branch checkout.
+ * Returns the transfer's own result, so a failed transfer is reported exactly as a failed clone.
+ */
+async function transferCapabilityAuthorityObjects(scratch, {
+  transport, authorityCommit, runRemoteCommand
+}) {
+  initializeConfigurationObjectStore(scratch, {
+    remote: transport.remote, env: transport.env,
+    objectFormat: String(authorityCommit ?? '').length === 64 ? 'sha256' : 'sha1'
+  });
+  const tracking = `refs/remotes/origin/${CONFIGURATION_BRANCH}`;
+  const fetched = await runRemoteCommand([
+    'fetch', '--quiet', '--no-tags', '--depth=1', 'origin',
+    `+refs/heads/${CONFIGURATION_BRANCH}:${tracking}`
+  ], { cwd: scratch, operation: 'remote-configuration', env: transport.env });
+  if (fetched.status === 0) {
+    projectConfigurationCommit(scratch, tracking, {
+      branch: CONFIGURATION_BRANCH, env: transport.env
+    });
+  }
+  return fetched;
+}
+
+/**
  * Borrow a lead repository for the length of one edit.
  *
  * A shallow clone of one branch, into a temporary directory that is removed however this ends. The
  * caller mutates the checkout and says what the commit is for; pushing and cleaning up happen here
  * so that no caller can forget either.
+ *
+ * `objectProjection` replaces the clone for a plain typed edit (no history, lineage or
+ * supersession): a private object store receives only the authority branch's exact tip, its
+ * configuration files are projected from those exact objects, and the proposal commit is built
+ * with write-tree and commit-tree. Nothing is cloned, no branch is checked out, and no application
+ * repository is touched; the projection, validation, staging and push are otherwise identical.
  */
 async function withLeadCheckout(url, message, reviewBranchPrefix, mutate, {
   remoteSession = null, authorityObservation = null, fullHistory = false,
   bindProposalToBase = false, authorIdentity = null, lineageParent = null,
+  objectProjection = false,
   cleanupTemporaryTree = removeTemporaryTree,
   runRemoteCommand = runRemoteGitAsync
 } = {}) {
@@ -1686,9 +1727,14 @@ async function withLeadCheckout(url, message, reviewBranchPrefix, mutate, {
     const transport = frozenRemoteTransport(remote, {
       push: true, env: operationSession.env
     });
-    const cloned = await cloneCapabilityConfiguration(scratch, {
-      remote, transport, authorityCommit: configurationBootstrap.commit, fullHistory, runRemoteCommand
-    });
+    const projected = objectProjection && !fullHistory && !lineageParent;
+    const cloned = projected
+      ? await transferCapabilityAuthorityObjects(scratch, {
+        transport, authorityCommit: configurationBootstrap.commit, runRemoteCommand
+      })
+      : await cloneCapabilityConfiguration(scratch, {
+        remote, transport, authorityCommit: configurationBootstrap.commit, fullHistory, runRemoteCommand
+      });
     if (cloned.status !== 0) {
       const remoteFailure = publicRemoteFailure(cloned.failure);
       throw new SingularityFlowError(
@@ -1812,16 +1858,25 @@ async function withLeadCheckout(url, message, reviewBranchPrefix, mutate, {
     const safePrefix = String(reviewBranchPrefix ?? 'capability-change')
       .toLowerCase().replace(/[^a-z0-9._/-]+/g, '-').replace(/^-+|-+$/g, '');
     const reviewBranch = `sflow/config-change/${safePrefix}-${baseCommit.slice(0, 8)}`;
-    run('git', ['switch', '--quiet', '-c', reviewBranch], {
-      cwd: scratch, env: transport.env
-    });
+    let commit;
+    if (projected) {
+      // The staged tree on the exact authority commit, written as objects: the same tree, parent,
+      // author and message the switch-and-commit below produces in a clone.
+      commit = commitProjectedConfiguration(scratch, {
+        baseCommit, branch: reviewBranch, message, author: proposalAuthor, env: transport.env
+      });
+    } else {
+      run('git', ['switch', '--quiet', '-c', reviewBranch], {
+        cwd: scratch, env: transport.env
+      });
 
-    run('git', ['-c', `user.name=${proposalAuthor.name}`,
-      '-c', `user.email=${proposalAuthor.email}`,
-      'commit', '-m', message], { cwd: scratch, env: transport.env });
-    let commit = run('git', ['rev-parse', 'HEAD'], {
-      cwd: scratch, env: transport.env
-    }).stdout.trim();
+      run('git', ['-c', `user.name=${proposalAuthor.name}`,
+        '-c', `user.email=${proposalAuthor.email}`,
+        'commit', '-m', message], { cwd: scratch, env: transport.env });
+      commit = run('git', ['rev-parse', 'HEAD'], {
+        cwd: scratch, env: transport.env
+      }).stdout.trim();
+    }
     if (lineageParent) {
       commit = proposalGitLineageCommit(scratch, {
         baseCommit, sourceCommit: lineageParent.commit, message,
@@ -6934,19 +6989,45 @@ export async function activateCapabilityProposal(url, branch, {
       // A provider may have squash-merged this proposal and then advanced the same file again.
       // Its current tree can conflict with the source even though an exact accepted transition is
       // recoverable from history or the activation ledger. Resolve that history before refusing a
-      // fresh merge; otherwise an already accepted proposal becomes a false conflict dead end.
+      // fresh activation; otherwise an already accepted proposal becomes a false conflict dead end.
+      // The proposal's own change (its exact base to its tip) is re-applied value by value onto the
+      // authority this checkout holds. The same result decides mergeability and builds the
+      // activation commit below; no textual Git merge decides what becomes approved.
+      // A proposal on the current authority is its own candidate: nothing to re-apply.
+      let valueReplay = null;
+      if (!alreadyMerged) {
+        try {
+          valueReplay = proposalBase === targetBefore
+            ? { status: 'clean', changes: null, conflicts: [] }
+            : replayCapabilityProposal(root, {
+              base: proposalBase, proposal: proposalCommit, target: targetBefore, env
+            });
+        } catch { valueReplay = null; }
+      }
       const currentMergeability = capabilityProposalMergeability(
-        root, ref, proposalBase, targetBefore, { env, valid: true, merged: alreadyMerged }
+        root, ref, proposalBase, targetBefore, {
+          env, valid: true, merged: alreadyMerged, replay: valueReplay
+        }
       );
-      if (!alreadyMerged && currentMergeability.mergeable === false) {
-        const nextAction = {
+      if (!alreadyMerged && (currentMergeability.mergeable === false || !valueReplay)) {
+        const conflicting = currentMergeability.mergeable === false;
+        const nextAction = conflicting ? {
+          command: capabilityCommand('proposal', { remote, branch: proposalBranch }),
+          skill: '/sf-capability-map'
+        } : {
           command: capabilityCommand('rebase-proposal', {
             remote, branch: proposalBranch
           }), skill: '/sf-capability-map'
         };
+        const fields = conflicting
+          ? currentMergeability.conflicts.map((conflict) => `${conflict.path}${
+            conflict.pointers.some((pointer) => pointer !== '/') ? ` (${conflict.pointers.join(', ')})` : ''}`)
+          : [];
         throw new SingularityFlowError(
-          `Capability proposal cannot be merged cleanly into '${CONFIGURATION_BRANCH}' at ${targetBefore}. Preview a safe rebase or discard the exact unmergeable review branch; nothing was changed.`, {
-            code: 'CAPABILITY_PROPOSAL_UNMERGEABLE',
+          conflicting
+            ? `Capability proposal changes values that '${CONFIGURATION_BRANCH}' changed differently at ${targetBefore}: ${fields.join('; ')}. Review the competing values, then map the change again or discard the exact conflicting review branch; nothing was changed.`
+            : `Capability proposal cannot be re-applied onto '${CONFIGURATION_BRANCH}' at ${targetBefore} because its exact configuration objects could not be read. Preview a safe rebase or discard the exact review branch; nothing was changed.`, {
+            code: conflicting ? CAPABILITY_VALUE_CONFLICT_CODE : 'CAPABILITY_PROPOSAL_UNMERGEABLE',
             details: {
               ...capabilityRecovery({
                 stage: 'activation', state: 'proposal-conflicted', remote,
@@ -7008,44 +7089,35 @@ export async function activateCapabilityProposal(url, branch, {
       };
       let commitSigning = null;
       if (!alreadyMerged) {
-        // Materialize the merge without committing first. The authority may have advanced since
-        // review, and the effective merged policy—not either parent in isolation—decides whether
-        // the activation, audit, and state commits must be signed.
-        const merged = run('git', [
-          ...gitCommitIdentityArgs(frozenCommitIdentity),
-          'merge', '--no-ff', '--no-commit', ref
-        ], {
-          cwd: root,
-          env: gitCommitIdentityEnvironment(env, frozenCommitIdentity),
-          allowFailure: true
-        });
-        if (merged.status !== 0) {
-          run('git', ['merge', '--abort'], { cwd: root, env, allowFailure: true });
-          const nextAction = { command: capabilityCommand('rebase-proposal', {
-            remote, branch: proposalBranch
-          }), skill: '/sf-capability-map' };
-          throw new SingularityFlowError(
-            `Capability proposal cannot be merged cleanly into '${CONFIGURATION_BRANCH}'. `
-            + `The proposal remains on '${proposalBranch}' for review. Preview a safe rebase or discard the exact unmergeable branch.`, {
-              code: 'CAPABILITY_PROPOSAL_UNMERGEABLE',
-              details: capabilityRecovery({
-                stage: 'activation', state: 'proposal-conflicted', remote,
-                branch: proposalBranch, commit: proposalCommit, nextAction,
-                preserved: ['proposal-branch', 'approved-configuration', 'application-branches']
-              })
-            });
+        // Build the candidate from exact objects: the current authority's tree with the proposal's
+        // re-applied values written over it. The authority may have advanced since review, and the
+        // effective policy of that candidate—not either parent in isolation—decides whether the
+        // activation, audit, and state commits must be signed. Show it in this disposable checkout
+        // and validate it before any commit exists.
+        const candidateTree = valueReplay.changes
+          ? configurationCandidateTree(root, targetBefore, valueReplay.changes, { env })
+          : configurationCommitTree(root, proposalCommit, { env });
+        showConfigurationTree(root, candidateTree, { env });
+        const showAuthorityAgain = () => {
+          try { showConfigurationTree(root, 'HEAD', { env }); }
+          catch { /* The disposable checkout is removed; nothing was committed or pushed. */ }
+        };
+        try {
+          await validateEffectiveCapabilities();
+        } catch (error) {
+          showAuthorityAgain();
+          throw error;
         }
-        await validateEffectiveCapabilities();
         try {
           definition = await loadDefinition(root);
           authorityDefinition = definition;
         } catch (error) {
-          run('git', ['merge', '--abort'], { cwd: root, env, allowFailure: true });
+          showAuthorityAgain();
           const nextAction = {
             command: capabilityCommand('fsck', { remote }), skill: '/sf-capability-doctor'
           };
           throw new SingularityFlowError(
-            `Capability proposal cannot produce an operational configuration after merging with the current authority: ${redactDiagnosticText(error?.message ?? String(error))} Nothing was pushed.`, {
+            `Capability proposal cannot produce an operational configuration once re-applied onto the current authority: ${redactDiagnosticText(error?.message ?? String(error))} Nothing was pushed.`, {
               code: 'CAPABILITY_PROPOSAL_CONFIGURATION_INVALID',
               cause: error,
               details: capabilityRecovery({
@@ -7063,17 +7135,20 @@ export async function activateCapabilityProposal(url, branch, {
         preflightGitCommitIdentity(root, frozenCommitIdentity, {
           env, signing: commitSigning
         });
-        const committed = run('git', [
-          ...gitCommitIdentityArgs(frozenCommitIdentity),
-          ...gitCommitSigningArgs(commitSigning),
-          'commit', ...(commitSigning.required ? ['-S'] : []), '--no-edit'
-        ], {
-          cwd: root,
+        // Two parents keep the reviewed proposal in authority history, exactly as the merge commit
+        // did; the tree is the validated value-level candidate, never a textual merge result.
+        const committed = commitConfigurationTree(root, {
+          tree: candidateTree, parents: [targetBefore, proposalCommit],
+          message: `Merge remote-tracking branch '${ref}' into ${CONFIGURATION_BRANCH}`,
+          configArgs: [
+            ...gitCommitIdentityArgs(frozenCommitIdentity), ...gitCommitSigningArgs(commitSigning)
+          ],
+          sign: commitSigning.required,
           env: gitCommitIdentityEnvironment(env, frozenCommitIdentity),
           allowFailure: true
         });
-        if (committed.status !== 0) {
-          run('git', ['merge', '--abort'], { cwd: root, env, allowFailure: true });
+        if (!committed) {
+          showAuthorityAgain();
           const nextAction = { command: capabilityCommand('proposal', { remote, branch: proposalBranch }), skill: '/sf-capability-map' };
           throw new SingularityFlowError(
             `Capability proposal could not create its merge commit. Nothing was pushed; the proposal remains on '${proposalBranch}'.`, {
@@ -7086,6 +7161,7 @@ export async function activateCapabilityProposal(url, branch, {
             }
           );
         }
+        moveConfigurationRef(root, 'HEAD', committed, targetBefore, { env });
         // Git dry-run skips receive hooks, so it cannot distinguish an unprotected authority from a
         // protected one. Require either external review or an explicit direct-push acknowledgement;
         // the subsequent exact leased push is the only honest provider observation.
@@ -7497,9 +7573,11 @@ export async function activateCapabilityProposal(url, branch, {
 /**
  * Change a capability that is already on the map, without checking anything out.
  *
- * Same borrowed-clone path as mapping one. Requiring a full clone to correct a Confluence link or
- * add a second repository is exactly why maps go stale: the cost of the edit exceeds the cost of
- * leaving it wrong.
+ * Requiring a full clone to correct a Confluence link or add a second repository is exactly why
+ * maps go stale: the cost of the edit exceeds the cost of leaving it wrong. So an edit neither
+ * clones the lead repository nor checks out a branch: the authority's exact tip is projected from
+ * its objects, the typed edit is applied to that projection, and the proposal commit is built with
+ * write-tree and commit-tree (SDA-AC-013). Branch name, commit content and push are unchanged.
  */
 export async function editCapabilityInOrganisation(leadUrl, capabilityId, changes = {}, {
   mode = 'set', reparentChildrenTo = undefined
@@ -7529,7 +7607,7 @@ export async function editCapabilityInOrganisation(leadUrl, capabilityId, change
       reparentedChildren: result.reparentedChildren ?? [],
       state: { published: false, reason: 'awaiting review and merge' }
     };
-  });
+  }, { objectProjection: true });
 }
 
 function capabilityDigest(value) {

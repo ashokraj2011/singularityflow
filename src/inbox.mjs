@@ -29,10 +29,14 @@ function submittedEvent(workflow, phaseId) {
   return [...(workflow.history ?? [])].reverse().find((item) => item.event === 'phase_submitted' && item.phase === phaseId) ?? null;
 }
 
-export async function approvalInbox(root, definition, { fetch = true, now = new Date() } = {}) {
-  const remote = definition.git?.remote ?? 'origin';
+/**
+ * The approval inbox of one delivery repository. A `roster` already read from the remote by URL
+ * (a deferred workspace member has no clone to read) replaces discovery in `root`.
+ */
+export async function approvalInbox(root, definition, { fetch = true, now = new Date(), roster: supplied = null } = {}) {
+  const remote = supplied?.remote ?? definition?.git?.remote ?? 'origin';
   const items = [];
-  const roster = await discoverRemoteStoryCandidates(root, definition, { remote, fetch, includeState: true });
+  const roster = supplied ?? await discoverRemoteStoryCandidates(root, definition, { remote, fetch, includeState: true });
   const unavailable = roster.unavailable;
   const unavailableSubjects = new Set(unavailable.map((entry) => entry.claimedId).filter(Boolean));
   for (const subject of roster.items) {
@@ -125,8 +129,8 @@ export async function approvalInbox(root, definition, { fetch = true, now = new 
   }
   items.sort((left, right) => String(left.submittedAt ?? '').localeCompare(String(right.submittedAt ?? '')) || left.id.localeCompare(right.id));
   return {
-    remote, fetched: fetch, source: 'state-ledger', stateRef: roster.stateRef ?? null,
-    repositoryPath: path.resolve(root), generatedAt: now.toISOString(), count: items.length, items,
+    remote, fetched: fetch, source: supplied ? supplied.source ?? 'remote-url' : 'state-ledger', stateRef: roster.stateRef ?? null,
+    repositoryPath: root ? path.resolve(root) : null, generatedAt: now.toISOString(), count: items.length, items,
     unavailableCount: unavailable.length,
     unavailable
   };

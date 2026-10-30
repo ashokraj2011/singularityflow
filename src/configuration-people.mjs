@@ -18,7 +18,8 @@ import { assertCredentialFreeRemote, sanitizeRemote } from './git-remote-diagnos
 import { gitDisabledHooksPath } from './git-isolation-paths.mjs';
 import { createAndPushTransportIntent } from './transport-intents.mjs';
 import { gitReadOutput, removeTemporaryTree, run, SingularityFlowError } from './util.mjs';
-import { GitRemoteSession, gitCommonDir, runRemoteGitAsync } from './git-execution.mjs';
+import { canonicalJson } from './records.mjs';
+import { GitRemoteSession, gitCommonDir } from './git-execution.mjs';
 import { renderPreservingFormatting } from './yaml-formatting.mjs';
 
 const TARGETS = new Set(['*', 'story:*', 'initiative:*']);
@@ -334,14 +335,20 @@ export async function publishCurrentIdentityToConfiguration(root, {
   const reused = await takeStoryConfigurationCheckout(configurationSnapshot, remoteUrl, expectedSourceCommit);
   const scratch = reused ?? await mkdtemp(path.join(os.tmpdir(), 'sflow-configuration-people-'));
   try {
-    const clone = reused ? { status: 0 } : await runRemoteGitAsync([
-      '-c', 'core.autocrlf=false', 'clone', '--quiet', '--no-local', '--no-tags', '--single-branch', '--depth', '1',
-      '--branch', CONFIGURATION_BRANCH, remoteUrl, scratch
-    ], { operation: 'remote-configuration' });
-    if (clone.status !== 0) {
-      throw new SingularityFlowError(
-        `Cannot read approved configuration: ${(clone.stderr || clone.stdout).trim().split('\n')[0]}`
-      );
+    // No clone (SDA-AC-013): the authority's tip is fetched into the repository's object store, from
+    // the checkout that outlives a Story, and projected from those exact objects.
+    if (!reused) {
+      const { fetchConfigurationBase, createConfigurationProjection } = await import('./configuration-projection.mjs');
+      const base = await fetchConfigurationBase(durableCheckout(root), { remote: remoteUrl, env: process.env },
+        { branch: CONFIGURATION_BRANCH });
+      if (!base.commit) {
+        const failed = base.failure;
+        throw new SingularityFlowError(
+          `Cannot read approved configuration: ${String(failed?.stderr || failed?.stdout || '').trim().split('\n')[0]}`
+        );
+      }
+      createConfigurationProjection(durableCheckout(root), scratch, base.commit,
+        { branch: CONFIGURATION_BRANCH, config: { 'core.autocrlf': 'false' } });
     }
     const previousCommit = run('git', ['rev-parse', 'HEAD'], { cwd: scratch }).stdout.trim();
     if (expectedSourceCommit != null && previousCommit !== expectedSourceCommit) {
@@ -420,11 +427,21 @@ export async function publishCurrentIdentityToConfiguration(root, {
       files.push(PORTFOLIO_PATH);
     }
     run('git', ['add', '--', ...files], { cwd: scratch });
+    // The typed intent (SDA M3): which groups gained this person and which policy fields changed.
+    const intent = { kind: 'approval-membership', operations: [
+      ...changedGroups.map(({ id, scope }) => ({ op: 'member.add', scope, group: id,
+        member: { email: member.email ?? null, githubLogin: member.githubLogin ?? null } })),
+      ...(profileChanged ? [{ op: 'approval-security.set', field: 'profile', value: 'poc' }] : []),
+      ...(selfApprovalChanged ? [{ op: 'approval-security.set', field: 'allowSelfApproval', value: desiredSelfApproval }] : []),
+      ...(autoEnrollmentChanged ? [{ op: 'approval-security.set', field: 'autoEnrollNewIdentities', value: desiredAutoEnrollment }] : [])
+    ] };
+    const intentSha256 = `sha256:${createHash('sha256').update(canonicalJson(intent)).digest('hex')}`;
     run('git', [
       '-c', `core.hooksPath=${gitDisabledHooksPath()}`,
       '-c', `user.name=${member.name || 'Singularity Flow contributor'}`,
       '-c', `user.email=${member.email || 'unknown@invalid'}`,
-      'commit', '-m', `[configuration] add ${member.email || member.githubLogin} to approval authorities`
+      'commit', '-m', `[configuration] add ${member.email || member.githubLogin} to approval authorities`,
+      '-m', `Sflow-Intent-Kind: ${intent.kind}\nSflow-Intent-Sha256: ${intentSha256}`
     ], { cwd: scratch });
     const commit = run('git', ['rev-parse', 'HEAD'], { cwd: scratch }).stdout.trim();
 

@@ -14,7 +14,7 @@ import { branch, head, gitDir, gitCommonDir, repoRoot, fetchRemote, refHead, isA
 import { printCommandRoutes } from './shared/print-command-routes.mjs';
 import { samePlatformPath } from '../story-worktree.mjs';
 import { loadAcceptedStoryExecution } from '../accepted-story-execution.mjs';
-import { repairWorkspace, readWorkspace, workspaceRepositoryPath } from '../workspace.mjs';
+import { repairWorkspace, readWorkspace, workspaceMaterializeCommand, workspaceRepositoryPath } from '../workspace.mjs';
 import { compileObservation } from '../observation-compiler.mjs';
 import { readFile } from 'node:fs/promises';
 import { composeContextBrief } from '../context-broker.mjs';
@@ -326,6 +326,38 @@ async function sessionCommandUncached(positionals, options, renderCandidates = p
       // checked out. Only an explicit --story may pin a Story in this operation.
       detectStory: requestedStoryId != null
     });
+    if (context.repositoryState === 'deferred') {
+      // Selecting a workspace needs no source. Attaching or starting a Story clones this member.
+      const materialize = workspaceMaterializeCommand(context.workspacePath, context.repositoryId);
+      const result = {
+        attached: true,
+        workspaceId: context.workspaceId,
+        workspaceName: context.workspaceName,
+        workspacePath: context.workspacePath,
+        repositoryId: context.repositoryId,
+        repositoryPath: null,
+        repositoryState: 'deferred',
+        storyId: context.storyId,
+        prompt: workspacePromptLabel(context),
+        hostAction: 'ready',
+        editorRooted: false,
+        commands: {
+          attachStory: context.storyId
+            ? `singularity-flow session attach ${JSON.stringify(context.storyId)}`
+            : 'singularity-flow session candidates',
+          materialize
+        }
+      };
+      if (optionBoolean(options, 'json')) return console.log(JSON.stringify(result, null, 2));
+      console.log(`Attached workspace session: ${workspacePromptLabel(context)}`);
+      console.log(`Repository: ${context.repositoryId} · checkout deferred until a Story is attached or started`);
+      console.log(`Story: ${context.storyId ?? 'not selected'}`);
+      console.log(context.storyId
+        ? `Attach the Story (this clones the repository): ${result.commands.attachStory}`
+        : `Choose a Story from the remote without cloning: ${result.commands.attachStory}`);
+      console.log(`Clone the repository now: ${materialize}`);
+      return;
+    }
     if (context.repositoryState !== 'ready') {
       throw new SingularityFlowError(
         `Workspace '${context.workspaceName}' is selected, but repository '${context.repositoryId}' is ${context.repositoryState}. `

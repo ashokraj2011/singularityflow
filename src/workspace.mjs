@@ -50,14 +50,14 @@ import {
 import {
   normalizeRegistryEntry, normalizeRepository, normalizeWorkspaceAnchor, object, portableName,
   readWorkspace, readWorkspaceRegistry, safeId, safeRelative, safeUnder, storableRemote,
-  validateWorkspaceManifest, WORKSPACE_FILE, workspaceRepositoryPath
+  validateWorkspaceManifest, WORKSPACE_FILE, workspaceMaterializeCommand, workspaceRepositoryPath
 } from './workspace-manifest.mjs';
 
 // Manifest and registry reads live in workspace-manifest.mjs, which context readers can load
 // without this module's creation and materialization graph. Existing callers import them here.
 export {
   normalizeWorkspaceAnchor, readWorkspace, readWorkspaceRegistry, validateWorkspaceManifest,
-  WORKSPACE_FILE, WORKSPACE_SCHEMA_VERSION, workspaceRepositoryPath
+  WORKSPACE_FILE, WORKSPACE_SCHEMA_VERSION, workspaceMaterializeCommand, workspaceRepositoryPath
 } from './workspace-manifest.mjs';
 export const MAX_RECENT_WORKSPACES = 20;
 const WORKSPACE_REGISTRY_SCHEMA_VERSION = currentSchemaVersion('workspace-registry');
@@ -1130,8 +1130,10 @@ export async function adoptWorkspaceConfiguration({
   return { ...created, plan };
 }
 
-export async function saveWorkspaceConfiguration(options, { confirmation } = {}) {
+/** Save a workspace manifest; members are cloned when work needs them unless `clone: true`. */
+export async function saveWorkspaceConfiguration(options, { confirmation, clone = false } = {}) {
   const saved = await createWorkspaceConfiguration(options, { confirmation, clone: false });
+  if (!clone) return { ...saved, repair: [], materializationError: null };
   try {
     const materialized = await repairWorkspace(saved.workspace.path);
     return {
@@ -3965,7 +3967,9 @@ async function readRepairJournal(workspace, repositories) {
       ...materializationOperation(workspace.path, repository),
       ...(previousOperations.get(repository.id) ?? {}),
       ...materializationOperation(workspace.path, repository),
-      status: repository.state === 'ready' ? 'complete' : 'pending',
+      // An unselected deferred member stays planned, not an apparently failed clone.
+      status: repository.state === 'ready' ? 'complete'
+        : repository.state === 'deferred' ? 'planned' : 'pending',
       error: repository.state === 'ready' ? null : previousOperations.get(repository.id)?.error ?? null,
       completedAt: repository.state === 'ready'
         ? previousOperations.get(repository.id)?.completedAt ?? nowIso()
@@ -3974,9 +3978,10 @@ async function readRepairJournal(workspace, repositories) {
   };
 }
 
+/** SPEC-SDA §11: checkouts stay `deferred` until work needs them; `clone: true` clones every member now. */
 export async function createWorkspace(options, {
   confirmation,
-  clone = true,
+  clone = false,
   bootstrapId = null,
   workers = null,
   capabilityValidation = null,
@@ -4329,6 +4334,17 @@ async function repositoryStatus(root, repository, {
   };
 }
 
+/** Absent members the journal never materialized (`planned`, or added later); unreadable proves nothing. */
+async function deferredRepositoryIds(workspace, ids) {
+  if (!ids.length) return new Set();
+  const file = path.join(workspace.path, workspace.directories?.logs ?? 'logs', 'workspace-materialization.json');
+  let journal;
+  try { await assertInside(workspace.path, file); journal = JSON.parse(await readFile(file, 'utf8')); } catch { return new Set(); }
+  if (journal?.workspaceId !== workspace.id || !Array.isArray(journal.operations)) return new Set();
+  const status = new Map(journal.operations.map((operation) => [operation?.repository, operation?.status]));
+  return new Set(ids.filter((id) => !status.has(id) || status.get(id) === 'planned'));
+}
+
 export async function workspaceStatus(workspacePath, {
   level = 'full',
   env = process.env,
@@ -4354,7 +4370,7 @@ export async function workspaceStatus(workspacePath, {
   // A saved manifest may predate portable path validation. Diagnose every registered member even
   // for a selected-only read: two apparently ready aliases must not become one Story authority.
   const pathAliases = workspaceRepositoryPathAliases(workspace.repositories);
-  const repositories = await mapLimit(
+  const observed = await mapLimit(
     repositoryValues,
     gitWorkerCount(repositoryValues.length, { env }),
     (repository) => {
@@ -4373,6 +4389,13 @@ export async function workspaceStatus(workspacePath, {
           });
     }
   );
+  const deferredIds = await deferredRepositoryIds(workspace, observed
+    .filter((repository) => repository.state === 'missing' && !repository.adoption)
+    .map((repository) => repository.id));
+  const repositories = deferredIds.size
+    ? observed.map((repository) => deferredIds.has(repository.id)
+      ? { ...repository, state: 'deferred' } : repository)
+    : observed;
   const staged = level === 'full' ? await listWorkspaceDocuments(workspace.path) : [];
   const warnings = [];
   warnings.push(...repositories.filter((repository) => repository.pathAlias).map((repository) => ({
@@ -4385,14 +4408,16 @@ export async function workspaceStatus(workspacePath, {
   return {
     workspace,
     level,
-    healthy: repositories.every((repository) => repository.state === 'ready'),
+    healthy: repositories.every((repository) => ['ready', 'deferred'].includes(repository.state)),
     leadRepositoryPath: workspaceRepositoryPath(workspace, workspace.repositories[workspace.leadRepository]),
     repositories,
+    deferred: [...deferredIds].map((id) => ({ repository: id, command: workspaceMaterializeCommand(workspace.path, id) })),
     stagedDocuments: staged,
     warnings,
     counts: {
       repositories: repositories.length,
       ready: repositories.filter((repository) => repository.state === 'ready').length,
+      deferred: deferredIds.size,
       dirty: repositories.filter((repository) => repository.dirty).length,
       stagedDocuments: staged.length
     }
@@ -4882,7 +4907,7 @@ export async function repairWorkspace(workspacePath, {
     && (!selectedRepositoryIds || selectedRepositoryIds.has(repository.id)));
   const gitEnv = pending.length ? enterpriseGitEnvironment(env) : env;
   const unrepairable = pending.find(({ repository }) =>
-    !repository.adoption && !['missing', 'empty'].includes(repository.state));
+    !repository.adoption && !['missing', 'empty', 'deferred'].includes(repository.state));
   if (unrepairable) {
     unrepairable.operation.status = 'failed';
     unrepairable.operation.error = `Existing repository directory is ${unrepairable.repository.state}.`;

@@ -98,6 +98,7 @@ function authorityLockFixture({
   token = '00000000-0000-4000-8000-000000000001',
   host = os.hostname(),
   pid = 2_147_483_647,
+  processStartedAt = undefined,
   acquiredAt = '2000-01-01T00:00:00.000Z',
   expiresAt = '2000-01-01T00:01:00.000Z'
 }) {
@@ -108,6 +109,7 @@ function authorityLockFixture({
     token,
     host,
     pid,
+    ...(processStartedAt === undefined ? {} : { processStartedAt }),
     acquiredAt,
     expiresAt
   };
@@ -264,7 +266,7 @@ test('experimental filesystem Authority Store enforces CAS, append-only lineage,
     (error) => error.code === 'SGOS_AUTHORITY_PATH_UNSAFE');
 });
 
-test('Authority Store honors liveness and TTL while refusing acquiring and future-version locks', async (t) => {
+test('Authority Store honors proven liveness while refusing acquiring and future-version locks', async (t) => {
   const directory = await temporaryDirectory(t);
   const store = await openFilesystemAuthorityStore({
     root: path.join(directory, 'authority-locks'), storeId: 'authority-locks'
@@ -305,12 +307,15 @@ test('Authority Store honors liveness and TTL while refusing acquiring and futur
   }), (error) => error.code === 'SGOS_AUTHORITY_STORE_BUSY');
   assert.equal(JSON.parse(await readFile(path.join(lock, 'owner.json'), 'utf8')).pid, process.pid);
 
+  // A running PID that started long after the recorded owner did was recycled: that owner is dead.
   await rm(lock, { recursive: true });
   await mkdir(lock, { mode: 0o700 });
   await writeFile(path.join(lock, 'owner.json'), JSON.stringify(authorityLockFixture({
     storeId: store.storeId,
+    lockVersion: 2,
     token: '00000000-0000-4000-8000-000000000004',
-    pid: process.pid
+    pid: process.pid,
+    processStartedAt: Date.parse('2001-01-01T00:00:00.000Z')
   })));
   const afterReusedPid = await store.transact({
     expectedRevision: after.revision,
@@ -334,7 +339,7 @@ test('Authority Store honors liveness and TTL while refusing acquiring and futur
   await mkdir(lock, { mode: 0o700 });
   await writeFile(path.join(lock, 'owner.json'), JSON.stringify(authorityLockFixture({
     storeId: store.storeId,
-    lockVersion: 2,
+    lockVersion: 3,
     token: '00000000-0000-4000-8000-000000000003'
   })));
   await assert.rejects(() => store.transact({
@@ -343,7 +348,38 @@ test('Authority Store honors liveness and TTL while refusing acquiring and futur
     actorId: 'operator-future-refusal',
     changes: [{ op: 'put', key: 'policy:unsafe', value: true }]
   }), (error) => error.code === 'SGOS_AUTHORITY_LOCK_VERSION_UNSUPPORTED');
-  assert.equal(JSON.parse(await readFile(path.join(lock, 'owner.json'), 'utf8')).lockVersion, 2);
+  assert.equal(JSON.parse(await readFile(path.join(lock, 'owner.json'), 'utf8')).lockVersion, 3);
+});
+
+test('Authority Store never takes over another machine\'s expired lock; a reviewed release does', async (t) => {
+  const directory = await temporaryDirectory(t);
+  const store = await openFilesystemAuthorityStore({
+    root: path.join(directory, 'authority-remote'), storeId: 'authority-remote'
+  });
+  const lock = path.join(store.root, '.transaction-lock');
+  const token = '00000000-0000-4000-8000-000000000005';
+  await mkdir(lock, { mode: 0o700 });
+  await writeFile(path.join(lock, 'owner.json'), JSON.stringify(authorityLockFixture({
+    storeId: store.storeId, token, host: 'another-machine.example', pid: 17
+  })));
+  const before = await store.read();
+  const change = (key) => store.transact({
+    expectedRevision: before.revision,
+    expectedStateSha256: before.recordSha256,
+    actorId: 'operator-remote-lock',
+    changes: [{ op: 'put', key, value: true }]
+  });
+  await assert.rejects(() => change('policy:unsafe'), (error) => error.code === 'SGOS_AUTHORITY_STORE_BUSY'
+    && error.details.owner.liveness.state === 'unknown'
+    && /another-machine\.example/.test(error.message) && /after review/.test(error.message));
+  assert.equal(JSON.parse(await readFile(path.join(lock, 'owner.json'), 'utf8')).token, token);
+
+  await assert.rejects(() => store.releaseLockAfterReview({ expectedToken: '00000000-0000-4000-8000-000000000009' }),
+    (error) => error.code === 'SGOS_AUTHORITY_LOCK_RELEASE_MISMATCH');
+  const released = await store.releaseLockAfterReview({ expectedToken: token });
+  assert.equal(released.released, true);
+  assert.equal(JSON.parse(await readFile(path.join(released.retainedAt, 'owner.json'), 'utf8')).token, token);
+  assert.equal((await change('policy:after-review')).revision, before.revision + 1);
 });
 
 test('typed memory promotion is immutable, confirmation-bound, and invalidates derived dependencies', async (t) => {

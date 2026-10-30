@@ -87,6 +87,7 @@ test('bootstrap blocks unapproved capabilities before materialization and binds 
   });
 
   const withoutCapability = await prepareWorkspaceBootstrap({
+    checkout: true,
     source: { kind: 'remote', reference: fixture.remote },
     createInput: input(fixture.root, fixture.remote, 'trunk')
   }, { env });
@@ -94,6 +95,7 @@ test('bootstrap blocks unapproved capabilities before materialization and binds 
   declaredInput.capabilities = ['declared-capability'];
   declaredInput.repositories.application.capabilities = ['declared-capability'];
   const withCapability = await prepareWorkspaceBootstrap({
+    checkout: true,
     source: { kind: 'manifest', reference: fixture.remote },
     createInput: declaredInput
   }, { env });
@@ -112,6 +114,7 @@ test('bootstrap blocks unapproved capabilities before materialization and binds 
   invalidInput.capabilities = ['missing-capability'];
   invalidInput.repositories.application.capabilities = ['missing-capability'];
   const blocked = await prepareWorkspaceBootstrap({
+    checkout: true,
     source: { kind: 'manifest', reference: fixture.remote },
     createInput: invalidInput
   }, { env });
@@ -138,6 +141,7 @@ test('returned preflight diagnostics cannot mutate the held capability authority
   declaredInput.capabilities = ['declared-capability'];
   declaredInput.repositories.application.capabilities = ['declared-capability'];
   const prepared = await prepareWorkspaceBootstrap({
+    checkout: true,
     source: { kind: 'manifest', reference: fixture.remote },
     createInput: declaredInput
   }, { env });
@@ -190,7 +194,7 @@ test('the public CLI prepares and reads the same durable bootstrap receipt', asy
     '--confirm', 'cli-demo', '--json'
   ], { cwd: fixture.root, env }).stdout);
   assert.equal(registered.status, 'registered');
-  assert.equal(registered.result.status.repositories[0].state, 'missing');
+  assert.equal(registered.result.status.repositories[0].state, 'deferred');
   const refused = run(process.execPath, [
     cli, 'workspace', 'prepare', fixture.remote,
     '--id', 'invalid-initialize', '--base', path.join(fixture.root, 'workspaces'),
@@ -212,6 +216,7 @@ test('prepare persists a resumable plan before destination mutation and resume l
   const fixture = await remoteFixture('trunk');
   const env = environment(fixture.root);
   const prepared = await prepareWorkspaceBootstrap({
+    checkout: true,
     source: { kind: 'remote', reference: fixture.remote },
     createInput: input(fixture.root, fixture.remote),
     inferDefaultRepositories: ['application']
@@ -260,8 +265,8 @@ test('deferred bootstrap registers the workspace without cloning application cod
   });
   assert.equal(resumed.status, 'registered');
   assert.equal(resumed.result.status.level, 'readiness');
-  assert.equal(resumed.result.status.healthy, false);
-  assert.equal(resumed.result.status.repositories[0].state, 'missing');
+  assert.equal(resumed.result.status.healthy, true, 'a deferred checkout is not a fault');
+  assert.equal(resumed.result.status.repositories[0].state, 'deferred');
   assert.equal(await stat(path.join(resumed.result.workspace.path, 'repos', 'application'))
     .catch(() => null), null);
   assert.match(resumed.nextAction.label, /checkout is deferred/);
@@ -300,7 +305,7 @@ test('deferred workspace creation does not probe unrelated delivery remotes with
   });
   assert.equal(registered.status, 'registered');
   assert.deepEqual(registered.result.status.repositories.map((entry) => entry.state), [
-    'missing', 'missing'
+    'deferred', 'deferred'
   ]);
   assert.equal(await stat(path.join(registered.result.workspace.path, 'repos', 'application'))
     .catch(() => null), null);
@@ -358,6 +363,7 @@ test('bootstrap preflight observes each unique remote once even when multiple re
 
   const timer = commandTimer('workspace-bootstrap-preflight', { commandClass: 'read' });
   const prepared = await withCommandTiming(timer, () => prepareWorkspaceBootstrap({
+    checkout: true,
     source: { kind: 'manifest', reference: fixture.remote },
     createInput
   }, { env }));
@@ -396,6 +402,7 @@ test('capability preflight reuses the lead inventory before its single catalog t
 
   const timer = commandTimer('capability-bootstrap-preflight', { commandClass: 'read' });
   const prepared = await withCommandTiming(timer, () => prepareWorkspaceBootstrap({
+    checkout: true,
     source: { kind: 'manifest', reference: fixture.remote },
     createInput
   }, { env }));
@@ -426,6 +433,7 @@ test('a separate confirmed process reuses retained capability objects and clones
   createInput.capabilities = ['declared-capability'];
   createInput.repositories.application.capabilities = ['declared-capability'];
   const prepared = await prepareWorkspaceBootstrap({
+    checkout: true,
     source: { kind: 'manifest', reference: fixture.remote }, createInput
   }, { env });
   assert.equal(prepared.preflight.ready, true, JSON.stringify(prepared.preflight.findings));
@@ -484,6 +492,7 @@ test('a locked private capability catalog does not mask a ready bootstrap', asyn
       createInput.capabilities = ['declared-capability'];
       createInput.repositories.application.capabilities = ['declared-capability'];
       const prepared = await prepareWorkspaceBootstrap({
+        checkout: true,
         source: { kind: 'manifest', reference: fixture.remote }, createInput
       }, { env });
       assert.equal(prepared.preflight.ready, true);
@@ -668,6 +677,7 @@ test('bootstrap probes and materialization cannot be redirected away from the ex
     mode: 'blobless-sparse', sparseCone: ['src'], fallback: 'refuse'
   };
   const prepared = await prepareWorkspaceBootstrap({
+    checkout: true,
     source: { kind: 'remote', reference: approvedUrl }, createInput
   }, { env });
   assert.equal(prepared.preflight.ready, true, JSON.stringify(prepared.preflight.findings));
@@ -747,6 +757,7 @@ test('an occupied destination is a blocker and no existing byte is adopted', asy
   await writeFile(path.join(occupied, 'keep.txt'), 'mine\n');
 
   const prepared = await prepareWorkspaceBootstrap({
+    checkout: true,
     source: { kind: 'remote', reference: fixture.remote },
     createInput: input(fixture.root, fixture.remote, 'trunk')
   }, { env });
@@ -759,6 +770,7 @@ test('blocked preflight exposes classified recovery actions without losing the b
   const fixture = await remoteFixture('trunk');
   const env = { ...environment(fixture.root), SINGULARITY_FLOW_NO_NETWORK: '1' };
   const prepared = await prepareWorkspaceBootstrap({
+    checkout: true,
     source: { kind: 'remote', reference: fixture.remote },
     createInput: input(fixture.root, fixture.remote, 'trunk')
   }, { env });
@@ -785,6 +797,7 @@ test('attempt exhaustion has an explicit confirmed retry generation', async () =
   const fixture = await remoteFixture('trunk');
   const env = { ...environment(fixture.root), SINGULARITY_FLOW_NO_NETWORK: '1' };
   let session = await prepareWorkspaceBootstrap({
+    checkout: true,
     source: { kind: 'remote', reference: fixture.remote },
     createInput: input(fixture.root, fixture.remote, 'trunk')
   }, { env });
@@ -812,6 +825,7 @@ test('retry refuses a target that is not provably owned by the preserved bootstr
   const fixture = await remoteFixture('trunk');
   const env = environment(fixture.root);
   const prepared = await prepareWorkspaceBootstrap({
+    checkout: true,
     source: { kind: 'remote', reference: fixture.remote },
     createInput: input(fixture.root, fixture.remote, 'trunk')
   }, { env });
@@ -835,6 +849,7 @@ test('retry cannot bypass a bootstrap budget that still has attempts', async () 
   const fixture = await remoteFixture('trunk');
   const env = { ...environment(fixture.root), SINGULARITY_FLOW_NO_NETWORK: '1' };
   const prepared = await prepareWorkspaceBootstrap({
+    checkout: true,
     source: { kind: 'remote', reference: fixture.remote },
     createInput: input(fixture.root, fixture.remote, 'trunk')
   }, { env });
@@ -1177,6 +1192,7 @@ test('workspace doctor deduplicates the same URL and branch but preserves distin
     createInput.id = id;
     createInput.name = id;
     return prepareWorkspaceBootstrap({
+      checkout: true,
       source: { kind: 'remote', reference: fixture.remote }, createInput
     }, { env });
   };
@@ -1244,6 +1260,7 @@ test('session integrity detects local record tampering', async () => {
   const fixture = await remoteFixture();
   const env = environment(fixture.root);
   const prepared = await prepareWorkspaceBootstrap({
+    checkout: true,
     source: { kind: 'remote', reference: fixture.remote },
     createInput: input(fixture.root, fixture.remote, 'trunk')
   }, { env });
@@ -1261,6 +1278,7 @@ test('abandon is explicit and preserves an occupied workspace shell', async () =
   const fixture = await remoteFixture();
   const env = environment(fixture.root);
   const prepared = await prepareWorkspaceBootstrap({
+    checkout: true,
     source: { kind: 'remote', reference: fixture.remote },
     createInput: input(fixture.root, fixture.remote, 'trunk')
   }, { env });

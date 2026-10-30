@@ -9,7 +9,7 @@ import { nearestNames, SingularityFlowError } from '../util.mjs';
 
 export const AGENT_AUTHORING_SUBCOMMANDS = Object.freeze(['create', 'edit']);
 const ROLES = Object.freeze(['analyst', 'product-owner', 'architect', 'developer', 'tester', 'designer', 'reviewer', 'blank']);
-const AUTHORING = ['json', 'dry-run', 'propose', 'background-sync'];
+const AUTHORING = ['json', 'dry-run', 'propose', 'background-sync', 'operation-id'];
 const OPTIONS = Object.freeze({
   create: [...AUTHORING, 'label', 'description', 'role', 'from-agent', 'tools', 'instructions', 'from'],
   edit: [...AUTHORING, 'label', 'description', 'tools', 'instructions', 'from']

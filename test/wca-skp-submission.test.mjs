@@ -103,7 +103,9 @@ function heads(f) { return git(f.base, '--git-dir', f.remote, 'for-each-ref', '-
 function proposals(f) { return heads(f).split('\n').filter((line) => line.startsWith('refs/heads/sflow/config-change/')); }
 async function observation(root) {
   return { head: git(root, 'rev-parse', 'HEAD'), branch: git(root, 'branch', '--show-current'),
-    refs: git(root, 'show-ref'), status: git(root, 'status', '--porcelain=v1'),
+    // The configuration projection's base ref retains the fetched authority tip, never a candidate (SDA M3).
+    refs: git(root, 'show-ref').split('\n').filter((line) => !line.endsWith(' refs/sflow/configuration-projection/base')).join('\n'),
+    status: git(root, 'status', '--porcelain=v1'),
     index: await readFile(path.join(root, '.git/index')),
     workflow: await readFile(path.join(root, 'singularity/workflow.yml')),
     contributor: await readFile(path.join(root, 'contributor-note.txt')) };

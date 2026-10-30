@@ -70,7 +70,7 @@ async function fixture({ remoteName = 'application.git' } = {}) {
   return { base, remote, story, outbox, approved };
 }
 
-test('configuration proposal clone failures never expose credential-shaped provider output', async () => {
+test('configuration proposal authority read failures never expose credential-shaped provider output', async () => {
   const item = await fixture();
   try {
     const realGit = realGitForTest();
@@ -78,7 +78,8 @@ test('configuration proposal clone failures never expose credential-shaped provi
     await writeGitTestWrapper(wrappers, `#!/usr/bin/env node
 const { spawnSync } = require('node:child_process');
 const args = process.argv.slice(2);
-if (args[0] === 'clone') {
+// The authority is read by one fetch into the application repository (no clone, SDA-AC-013).
+if (args.includes('fetch') || args.includes('clone')) {
   process.stderr.write("fatal: could not read Username for 'https://reviewerone:supersecret@git.example.test/private.git': terminal prompts disabled\\n");
   process.exit(128);
 }
@@ -90,7 +91,7 @@ process.exit(result.status == null ? 1 : result.status);
     await assert.rejects(
       () => proposeConfigurationChange(item.story, {
         operation: 'edit-workflow', subject: 'redaction-check', message: 'redaction check',
-        async mutate() { throw new Error('clone refusal must happen before mutation'); }
+        async mutate() { throw new Error('the authority refusal must happen before mutation'); }
       }, { env: gitTestWrapperEnvironment(wrappers) }),
       (error) => {
         assert.equal(error.code, 'CONFIGURATION_PROPOSAL_AUTHORITY_UNAVAILABLE');
@@ -100,6 +101,46 @@ process.exit(result.status == null ? 1 : result.status);
         return true;
       }
     );
+  } finally {
+    await rm(item.base, { recursive: true, force: true });
+  }
+});
+
+test('a configuration proposal is built with no clone and records its typed intent (SDA-AC-013, M3)', async () => {
+  const item = await fixture();
+  try {
+    const wrappers = path.join(item.base, 'no-clone-bin');
+    await writeGitTestWrapper(wrappers, `#!/usr/bin/env node
+const { spawnSync } = require('node:child_process');
+const args = process.argv.slice(2);
+if (args.includes('clone')) { process.stderr.write('a configuration edit must not clone\\n'); process.exit(97); }
+const result = spawnSync(${JSON.stringify(realGitForTest())}, args, { cwd: process.cwd(), env: process.env, stdio: 'inherit' });
+process.exit(result.status == null ? 1 : result.status);
+`);
+    const approvedText = run('git', ['--git-dir', item.remote, 'show', 'sflow/config:singularity/workflow.yml']).stdout;
+    const desiredText = `${approvedText}\n# typed intent proposal\n`;
+    const save = () => spawnSync(process.execPath, [cli, 'configuration', 'save', 'singularity/workflow.yml',
+      '--expected-sha256', createHash('sha256').update(approvedText).digest('hex'), '--propose', '--json'], {
+      cwd: item.story, input: desiredText, encoding: 'utf8',
+      env: { ...process.env, ...gitTestWrapperEnvironment(wrappers), NODE_ENV: 'test', NO_COLOR: '1',
+        SINGULARITY_FLOW_TEST_IDENTITY: 'Workflow Author', SINGULARITY_FLOW_TRANSPORT_OUTBOX: item.outbox,
+        SINGULARITY_FLOW_WORKSPACE_REGISTRY: path.join(item.base, 'workspaces.json'),
+        SINGULARITY_FLOW_ACTIVE_WORKSPACE: path.join(item.base, 'active-workspace.json') }
+    });
+    const saved = save();
+    assert.equal(saved.status, 0, `${saved.stderr}\n${saved.stdout}`);
+    const proposal = JSON.parse(saved.stdout);
+    assert.equal(proposal.intent.kind, 'configuration-file');
+    assert.match(proposal.intent.sha256, /^sha256:[a-f0-9]{64}$/u);
+    const message = run('git', ['--git-dir', item.remote, 'log', '-1', '--format=%B', proposal.branch]).stdout;
+    assert.match(message, new RegExp(`Sflow-Intent-Kind: configuration-file\\nSflow-Intent-Sha256: ${proposal.intent.sha256}`, 'u'));
+    assert.equal(run('git', ['--git-dir', item.remote, 'show', `${proposal.branch}:singularity/workflow.yml`]).stdout, desiredText);
+    // The base stays in the application repository's own object store, kept by one private ref.
+    assert.equal(run('git', ['rev-parse', 'refs/sflow/configuration-projection/base'], { cwd: item.story }).stdout.trim(), item.approved);
+    // The same edit again is the same proposal.
+    const again = save();
+    assert.equal(again.status, 0, again.stderr);
+    assert.equal(JSON.parse(again.stdout).transportStatus, 'succeeded-existing');
   } finally {
     await rm(item.base, { recursive: true, force: true });
   }

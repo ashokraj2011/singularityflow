@@ -54,7 +54,7 @@ export const ACTIVE_WORKSPACE_ROUTING_EXCLUSIONS = new Set([
   'about', 'help', 'guide', 'show', 'quickstart', 'home', 'pause',
   'init', 'precheck', 'bootstrap', 'onboard', 'authority', 'cache',
   'factory-reset', 'reset-all', 'local-reset', 'fresh-install', 'reinstall', 'product',
-  'workspace', 'session', 'repositories', 'plugin', 'goal', 'journal', 'push', 'local'
+  'workspace', 'session', 'inbox', 'repositories', 'plugin', 'goal', 'journal', 'push', 'local'
 ]);
 
 /** Commands with a Work ID operand; story-routing.mjs says where it sits. */
@@ -363,6 +363,11 @@ export async function activeWorkspaceRepositoryRoot(command, {
     if (materialized) return materialized;
   }
   if (selectedRoot) return selectedRoot;
+  // A member not cloned yet: work clones it, a read is told what will (SPEC-SDA §11).
+  const deferred = await (await import('./workspace-story-checkout.mjs')).deferredSelectionRoot(context, {
+    env, home, selectedPath, command, subcommand, action, options
+  });
+  if (deferred) return deferred;
   throw new SingularityFlowError(
     `Active workspace '${context.workspaceName ?? context.workspaceId}' points to '${selectedPath}', which is not an available Git repository. Repair the workspace or run 'singularity-flow workspace use <WORKSPACE>'.`,
     {
@@ -457,7 +462,7 @@ async function materializeSelectedStoryRepositories(context, { env, home, select
     const raced = await workspaceStatus(workspace.path, { level: 'readiness', env });
     const states = requiredIds.map((id) => raced.repositories
       .find((item) => item.id === id)?.state);
-    if (states.some((state) => !['ready', 'missing', 'empty'].includes(state))) return null;
+    if (states.some((state) => !['ready', 'missing', 'empty', 'deferred'].includes(state))) return null;
     if (!states.every((state) => state === 'ready')) throw error;
     after = raced;
   }

@@ -17,10 +17,11 @@ commands:
   - recover
   - doctor
   - refresh-branch
+  - lock
 related:
   - checkpoints-pause-continue
   - sequence-gates
-version: 22
+version: 23
 ---
 Publication is a transaction: verified preconditions, an integrity-bound preimage written to the local journal, one isolated commit of allowlisted paths, compare-and-swap branch advance, and push without force. If the process dies before the commit, `sflow sync` reclaims its dead subject lock, preserves the partial bytes under `.git/singularity-flow/publication-rescues/`, and restores the exact pre-transaction state. If the commit exists but push failed, sync retries that exact commit once without regenerating or rewriting it. When the push was refused because another clone published to the same Story first, sync says so; if the retained commit is a document upload, `sflow sync --replay` (preview with `--dry-run`) adds the same documents again on top of the published Story, where they take the next free IDs, and keeps the retained commit under `refs/sflow-replayed/<WORK-ID>/`. Any other retained commit that lost the race, or that a person undid with `git reset`, is set aside with `sflow sync <WORK-ID> --set-aside` (a preview; the person confirms with `--confirm <COMMIT>` in their own terminal): it is kept under `refs/sflow-set-aside/<WORK-ID>/`, the branch moves to what was published, and the step's action is done again there. A retained commit the remote already has (a hand push) is never counted as SFlow's own publication; the person stops waiting for it with the same `--set-aside --confirm`. A Story branch deleted from the remote is created again, create-only, and a push refused for the remote's own reason (a protected branch, a 403) is fixed at its cause, then synced. An Epic's or Initiative's waiting commit is set aside the same way with `sflow initiative sync <ID> --set-aside`. An upload refused before it committed, because this checkout was behind, names `sflow refresh-branch`. A live command is reported as active and is never rolled back. A branch-head race refuses rather than clobbering — reload and retry. A dead laptop costs nothing already committed: clone and `sflow resume`. `sflow doctor` diagnoses; `sflow recover` produces a content-addressed, model-free plan for transport, artifact, Agent Brief, code-delivery, and generation-intent blockers. Concurrent writes to the same work item are serialized by a subject lock and caught by a state fingerprint even when uncommitted.
 
@@ -68,6 +69,13 @@ For an interrupted publication, `sflow sync` selects the recovery action from th
 - **Legacy dirty journal without a preimage:** fail closed and require manual inspection; recovery never guesses what the previous bytes were.
 
 ## State and safety
+
+A lock another command holds is taken over automatically only when its owner is proven gone: its
+process ended, or its process ID now belongs to a later process. Age never decides, so a laptop that
+slept through a long push keeps its lock. A lock whose owner runs on another machine, or runs here but
+stopped renewing, is ended by a person: `sflow lock show <KIND> <ID>` shows its owner and last
+heartbeat, and `sflow lock release <KIND> <ID> --confirm <LOCK-TOKEN>` (in your own terminal) removes
+exactly that lock and records the release. The refusal that meets such a lock prints both commands.
 
 Recovery inspection is read-only and never invokes a model or AST. `recover --apply`, `sync`, and `refresh-branch` can change repository or machine-local state and remain subject to identity, authority, sequence, freshness, branch, worktree, and exact-confirmation checks. Pre-commit rollback touches only the roots named by the integrity-checked journal; unrelated source edits and staged files are not reset. Only system-owned transport and exact preimage restoration are automatic. Source, authored artifacts, policy, approvals, and human answers are never invented or repaired by a model. AST or a language pack being unavailable is advisory and cannot block recovery or ordinary file-based work.
 

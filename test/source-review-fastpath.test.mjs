@@ -44,7 +44,9 @@ test('review readers cannot statically pull in phase authoring or lifecycle publ
   // 263: SDA M1 adds two leaves, outcome-classes.mjs (no imports; util.mjs gives every error its outcome
   // class) and source-inspection.mjs (the source facade repository-subject-index.mjs and ast-lifecycle.mjs
   // now read through); main 2f2069e83 measures 261.
-  assert.ok(visited.size < 264, `review read closure grew to ${visited.size} local modules`);
+  // 264: SDA M3 adds lease-liveness.mjs, the shared owner proof behind every subject lock (no Git, model or
+  // dispatch import); main bce954290 measures 263.
+  assert.ok(visited.size < 265, `review read closure grew to ${visited.size} local modules`);
 });
 
 test('only exact read forms share a review command scope; writers and override flags never do', () => {

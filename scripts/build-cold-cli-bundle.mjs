@@ -89,7 +89,10 @@ const FAMILIES = Object.freeze([
     // `index`), a refusing gate's finding identities, and Epic/Initiative identity records. Unclaimed,
     // each fell into compatibility, so phase entry and the listings loaded it and models.
     'projection-refresh.mjs', 'index-refresh-launcher.mjs', 'commands/read-index.mjs', 'finding-identity.mjs',
-    'subject-identity-records.mjs']],
+    'subject-identity-records.mjs',
+    // SDA M3: a configuration edit's exact-object projection, loaded only when a proposal is built,
+    // and the lease review command a busy refusal names.
+    'configuration-projection.mjs', 'commands/lock.mjs']],
   ['models', ['commands/wm.mjs', 'commands/comprehension.mjs']]
 ]);
 

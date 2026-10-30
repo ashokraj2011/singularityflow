@@ -99,19 +99,20 @@ test('the reset guard refuses rather than reporting a clean tree it could not re
   );
 });
 
-test('an expired lock whose PID has been recycled is still reclaimable', async (t) => {
+test('a lock whose PID has been recycled is reclaimable', async (t) => {
   const root = await repository('main');
   t.after(() => rm(root, { recursive: true, force: true }));
   const subject = { kind: 'story', id: 'LOCK-1', branch: 'main' };
   const directory = subjectLockPath(root, subject);
   await mkdir(directory, { recursive: true });
 
-  // `process.pid` stands in for a PID the OS recycled to an unrelated live process: the owner is
-  // long expired, but `pidAlive` says yes. The liveness check used to run before the TTL and return
-  // "held" outright, so this lock could never be broken except by hand.
+  // `process.pid` stands in for a PID the OS recycled to an unrelated live process: `kill(0)` says
+  // yes, but this process started long after the recorded owner did. The start time, not the
+  // lease's age, proves the owner gone; age alone no longer reclaims anything.
   const past = new Date(Date.now() - 60 * 60 * 1000).toISOString();
   await writeFile(path.join(directory, 'owner.json'), `${JSON.stringify({
     schemaVersion: 1, subject, pid: process.pid, host: os.hostname(),
+    processStartedAt: Date.parse('2001-01-01T00:00:00.000Z'),
     processToken: 'gone', lockToken: 'gone', acquiredAt: past, expiresAt: past
   })}\n`);
 
@@ -120,7 +121,7 @@ test('an expired lock whose PID has been recycled is still reclaimable', async (
   assert.notEqual(owner.lockToken, 'gone');
 });
 
-test('a live holder still keeps its lock until the lock expires', async (t) => {
+test('a live holder keeps its lock', async (t) => {
   const root = await repository('main');
   t.after(() => rm(root, { recursive: true, force: true }));
   const subject = { kind: 'story', id: 'LOCK-2', branch: 'main' };
@@ -164,7 +165,7 @@ test('two processes cannot both reclaim the same abandoned lock', async (t) => {
   await mkdir(directory, { recursive: true });
   const past = new Date(Date.now() - 60 * 60 * 1000).toISOString();
   await writeFile(path.join(directory, 'owner.json'), `${JSON.stringify({
-    schemaVersion: 1, subject, pid: 999_999, host: 'a-machine-that-is-not-this-one',
+    schemaVersion: 1, subject, pid: 2_147_483_647, host: os.hostname(),
     processToken: 'dead', lockToken: 'dead', acquiredAt: past, expiresAt: past
   })}\n`);
 

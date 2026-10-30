@@ -13,7 +13,7 @@
  * the same output redaction.
  */
 import { spawn, spawnSync } from 'node:child_process';
-import { realpathSync, existsSync } from 'node:fs';
+import { realpathSync } from 'node:fs';
 import http from 'node:http';
 import https from 'node:https';
 import path from 'node:path';
@@ -25,6 +25,7 @@ import {
 } from './application-debug.mjs';
 import { loopbackApplicationUrl } from './capabilities.mjs';
 import { gitCommonDir } from './git.mjs';
+import { processStartIdentity } from './lease-liveness.mjs';
 import { resolvePlatformProcess } from './platform-process.mjs';
 import { readPrivateSidecar, writeMutablePrivateSidecar } from './private-sidecar.mjs';
 import { terminateProcessTree, withoutHostSurfaceVariables } from './quality-command-runner.mjs';
@@ -78,22 +79,7 @@ export function appRunPaths(root, capabilityId, startId) {
 }
 
 /** The process-start identity of a pid, so a recycled pid is never mistaken for a recorded process. */
-export function processStartIdentity(pid, { platform = process.platform, spawnSyncCommand = spawnSync } = {}) {
-  if (!Number.isInteger(pid) || pid <= 0) return null;
-  try {
-    if (platform === 'win32') {
-      const executable = path.win32.join(process.env.SystemRoot || 'C:\\Windows', 'System32', 'WindowsPowerShell', 'v1.0', 'powershell.exe');
-      const result = spawnSyncCommand(executable, ['-NoLogo', '-NoProfile', '-NonInteractive', '-Command',
-        `[System.Diagnostics.Process]::GetProcessById(${pid}).StartTime.ToUniversalTime().Ticks`], { encoding: 'utf8', timeout: 2_000, windowsHide: true });
-      const value = String(result.stdout ?? '').trim();
-      return result.status === 0 && /^\d+$/u.test(value) ? value : null;
-    }
-    // The system ps, never one a checkout or PATH entry could shadow.
-    const result = spawnSyncCommand(existsSync('/bin/ps') ? '/bin/ps' : '/usr/bin/ps', ['-o', 'lstart=', '-p', String(pid)], { encoding: 'utf8', timeout: 2_000 });
-    const value = String(result.stdout ?? '').trim();
-    return result.status === 0 && value ? value : null;
-  } catch { return null; }
-}
+export { processStartIdentity };
 
 function pidAlive(pid, { group = false } = {}) {
   try { process.kill(group && process.platform !== 'win32' ? -pid : pid, 0); return true; }

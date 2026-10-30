@@ -2,7 +2,7 @@
 import { lstat, readFile, realpath } from 'node:fs/promises';
 import path from 'node:path';
 import { repositoryGitDirectory } from './git-directory.mjs';
-import { activeWorkspaceFile, readActiveWorkspaceContext, workspaceRegistryFile } from './workspace-context.mjs';
+import { activeWorkspaceFile, readActiveWorkspaceContext, resolveWorkspaceReference, workspaceRegistryFile } from './workspace-context.mjs';
 import { readWorkspace, workspaceRepositoryPath } from './workspace-manifest.mjs';
 import { capabilityRepositories, parseBaseSelection, assertStoryBaseSelection } from './capability-branches.mjs';
 import { workspaceBranchFolder, workspaceBranchMember } from './workspace-branch-locations.mjs';
@@ -177,6 +177,60 @@ export async function automaticWorkspaceStoryCheckout(command, positionals, opti
 }
 
 /** Only the two existing file-valued Story inputs change interpretation after a cwd handoff. */
+/**
+ * Route a command to a selected member that is not cloned yet (SPEC-SDA §11). A command that changes
+ * the repository clones only that member and runs in it, as Story start does; a read or preview never
+ * clones and is told the command that will. Null when the selection is not a deferred member.
+ */
+export async function deferredSelectionRoot(context, { env, home, selectedPath, command, subcommand, action, options }) {
+  // A selected Story names its own checkout; never substitute the canonical member for it.
+  if (context.storyId || context.requestedStoryId || context.selectionStatus === 'stale'
+      || !context.workspacePath || !context.repositoryId) return null;
+  let workspace;
+  try {
+    const registered = await resolveWorkspaceReference(workspaceRegistryFile(env, home), context.workspacePath);
+    workspace = registered.id === context.workspaceId ? await readWorkspace(registered.path) : null;
+  } catch { return null; } // An unreadable selection keeps the ordinary unavailable refusal.
+  const repository = workspace?.id === context.workspaceId ? workspace.repositories[context.repositoryId] : null;
+  const target = repository ? workspaceRepositoryPath(workspace, repository) : null;
+  if (!target || !same(await canonical(target), await canonical(selectedPath))) return null;
+  const { repairWorkspace, workspaceMaterializeCommand, workspaceStatus } = await import('./workspace.mjs');
+  const status = await workspaceStatus(workspace.path, { level: 'readiness', env, repositoryId: repository.id });
+  if (status.repositories[0]?.state !== 'deferred') return null;
+  const clone = workspaceMaterializeCommand(workspace.path, repository.id);
+  const { operationById, resolveOperation } = await import('./command-registry.mjs');
+  let mutates = false;
+  try {
+    mutates = resolveOperation({ requestedCommand: command, positionals: [command, subcommand, action]
+      .filter((value) => value != null), options }).classification === 'mutation';
+  } catch { /* An unresolvable command is treated as a read. */ }
+  // Story start materializes its capability closure before this; a preview never clones.
+  if (mutates && command !== 'start' && !optionBoolean(options, 'dry-run')) {
+    const { withOperationContext } = await import('./operation-context.mjs');
+    const { repoRoot } = await import('./git-execution.mjs');
+    const repaired = await withOperationContext({
+      operation: operationById('workspace.repair'), modelMode: { enabled: false }, root: null,
+      command: 'workspace', startedAt: new Date().toISOString()
+    }, () => repairWorkspace(workspace.path, {
+      repositoryIds: [repository.id], recoverCapabilityDrops: false, returnIfSelectedReady: true,
+      statusLevel: 'readiness', env
+    }));
+    if (repaired.status.repositories.find((item) => item.id === repository.id)?.state === 'ready') {
+      const root = repoRoot(target);
+      if (same(await canonical(root), await canonical(target))) return root;
+    }
+    return null;
+  }
+  throw new SingularityFlowError(
+    `Repository '${repository.id}' of workspace '${workspace.name}' is not cloned yet: its checkout is deferred until work needs it. `
+    + `Starting work clones it ('singularity-flow start <WORK-ID>'), or clone it now with ${clone}.`,
+    { code: 'ACTIVE_WORKSPACE_REPOSITORY_DEFERRED', details: {
+      workspaceId: workspace.id, repositoryId: repository.id, repositoryState: 'deferred',
+      nextAction: clone, recoveryCommands: [clone, 'singularity-flow start <WORK-ID>']
+    } }
+  );
+}
+
 export function rebaseAutomaticStoryFiles(options, launchDirectory) {
   if (optionString(options, 'story-file')) options['story-file'] = path.resolve(launchDirectory, optionString(options, 'story-file'));
   if (optionStrings(options, 'document').length) options.document = optionStrings(options, 'document').map(file => path.resolve(launchDirectory, file));

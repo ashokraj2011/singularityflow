@@ -237,10 +237,13 @@ function detailHtml(
   const target = duplicateDirectory(row, draft.id || '<identifier>', draft.base);
   const missingCheckout = (status?.repositories ?? []).some((repository) =>
     repository.state === 'missing' || repository.state === 'empty');
+  // A deferred checkout is not a fault: work clones it, and the same action clones it now.
+  const deferredCheckout = !missingCheckout && !edit.open
+    && (status?.repositories ?? []).some((repository) => repository.state === 'deferred');
   // Capability drop uses a private transaction directory outside workspace.json. A crash can leave
   // recovery work even when every manifest repository looks healthy, so Manage always keeps the
   // idempotent repair action discoverable.
-  const repairable = missingCheckout || edit.open;
+  const repairable = missingCheckout || deferredCheckout || edit.open;
   return `
   <div class="card-head">
     <h3>${icon('workspace')}${escape(row.name)}</h3>
@@ -253,14 +256,17 @@ function detailHtml(
 
   ${fastOnboardingHtml(row, status, loading, fosOutcome, fosBusy)}
 
-  ${repairable ? `<div class="card blocked">
+  ${repairable ? `<div class="card${deferredCheckout ? '' : ' blocked'}">
     <div class="card-head"><strong>${missingCheckout
       ? 'A required checkout needs materialization'
-      : 'Workspace recovery &amp; consistency'}</strong><span class="grow"></span>
-      <button data-repair="${escape(row.path)}"${repairBusy ? ' disabled' : ''}>${repairBusy ? 'Repairing…' : 'Repair workspace'}</button></div>
+      : deferredCheckout ? 'Repository checkouts are cloned when work starts'
+        : 'Workspace recovery &amp; consistency'}</strong><span class="grow"></span>
+      <button data-repair="${escape(row.path)}"${repairBusy ? ' disabled' : ''}>${repairBusy ? 'Repairing…'
+        : deferredCheckout ? 'Clone all now' : 'Repair workspace'}</button></div>
     <p class="muted">${missingCheckout
       ? 'Retries missing or empty workspace-owned repositories and resumes an interrupted capability detach or drop.'
-      : 'Checks for an interrupted capability detach or drop and resumes only its verified transaction. Existing Git work is preserved.'}</p>
+      : deferredCheckout ? 'Nothing is wrong: Start Work clones only the repositories it needs. Clone all now downloads every deferred repository.'
+        : 'Checks for an interrupted capability detach or drop and resumes only its verified transaction. Existing Git work is preserved.'}</p>
   </div>` : ''}
 
   ${configurationRefreshHtml(row, configuration)}

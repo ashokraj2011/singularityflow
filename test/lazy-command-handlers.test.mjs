@@ -61,7 +61,8 @@ test('frequent lifecycle handlers do not reach the legacy dispatcher and stay un
     // graph through evidence/risk-decisions.mjs, plan-row-corrections.mjs and scope/decisions.mjs.
     // 464: SDA M1's two leaves joined submit.mjs's graph: outcome-classes.mjs (no imports; util.mjs gives every
     // error its outcome class) and source-inspection.mjs (through repository-subject-index.mjs and ast-lifecycle.mjs).
-    assert.ok(closure.files.size <= 464, `${file} loads ${closure.files.size} local files (budget 464; retired graph 597)`);
+    // 465: SDA M3's lease-liveness.mjs, the lease owner proof every subject lock reads.
+    assert.ok(closure.files.size <= 465, `${file} loads ${closure.files.size} local files (budget 465; retired graph 597)`);
     // 9,005,000 (next 5,000 boundary): phase-lifecycle.mjs grew from 8,993,692 (main 4a8e6c42) to 9,004,129 with the
     // capability application block's per-environment arguments and debug validation in capabilities.mjs and the
     // launcher rules it reads (RUN amendment), together with 2ca46d6d's conformance issue ownership; no new file.
@@ -220,7 +221,10 @@ test('frequent lifecycle handlers do not reach the legacy dispatcher and stay un
     // approved-configuration-reader.mjs), Initiative identity from ledger records (initiative-state.mjs), the
     // Story binding finding (session discovery and roster) and the index command's registration. The read
     // index's refresh machinery, the finding identity module and the identity readers stay lazy; no new eager file.
-    assert.ok(closure.bytes <= 9_285_000, `${file} exceeds the 9 MB eager-source budget (${closure.bytes} bytes)`);
+    // 9,305,000 (next 5,000 boundary): main bce954290 measures 9,279,969. SDA M3 adds 22,372 for 9,302,341: the lease liveness proof (lease-liveness.mjs: machine identity, owner start time, the shared owner predicate) behind every subject lock and registry lease
+    // (+~20 KB with subject-lock.mjs and file-lease.mjs), deferred repositories (workspace.mjs) and
+    // transactional drafts. The configuration projection and the lock command stay lazy; one new eager file.
+    assert.ok(closure.bytes <= 9_305_000, `${file} exceeds the 9 MB eager-source budget (${closure.bytes} bytes)`);
   }
 });
 
@@ -291,7 +295,8 @@ test('the common session projection does not import attach, state stores or publ
   // 3,965,000: main 2f2069e83 measures 3,950,222; SDA M1's outcome classes (outcome-classes.mjs, util.mjs),
   // push-operation matching (transport-intents.mjs), the source inspection facade (source-inspection.mjs, through
   // repository-subject-index.mjs) and named push leases (git.mjs) add 9,922 for 3,960,144. Two new files.
-  assert.ok(current.bytes <= 3_965_000, `session current loads ${current.bytes} source bytes`);
+  // 3,980,000: SDA M3 measures 3,979,930 (the lease liveness proof (lease-liveness.mjs: machine identity, owner start time, the shared owner predicate) behind every subject lock and registry lease).
+  assert.ok(current.bytes <= 3_980_000, `session current loads ${current.bytes} source bytes`);
 });
 
 test('early phase and grounding-path entries exclude the deferred authoring and review graphs', async () => {

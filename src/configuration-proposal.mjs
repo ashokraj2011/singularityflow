@@ -46,6 +46,7 @@ import { prepareConfigurationStateTransaction, materializeConfigurationSnapshot,
 import { isConfigurationStatePath, configurationDigest } from './configuration-state-contract.mjs';
 import { syncConfigurationReferences } from './configuration-reference-sync.mjs';
 import { gitReadOutput, removeTemporaryTree, run, SingularityFlowError } from './util.mjs';
+import { canonicalJson } from './records.mjs';
 
 const REVIEW_PREFIX = 'sflow/config-change/workflow/';
 
@@ -919,8 +920,28 @@ export function assertLocalConfigurationAuthoringAllowed(root) {
  * authoring functions; this wrapper additionally proves every staged path belongs to configuration
  * before the commit is retained and pushed.
  */
+/**
+ * The typed intent a proposal records (SDA M3): its kind and the canonical digest of its operations,
+ * as commit trailers and in the push record. Files stay the proposal's content; the intent says what
+ * was asked, so review and replay do not have to infer it from a diff. Absent for callers with none.
+ */
+function proposalIntent(intent) {
+  if (intent == null) return null;
+  if (!/^[a-z][a-z0-9-]{1,63}$/u.test(intent.kind ?? '') || !Array.isArray(intent.operations) || !intent.operations.length) {
+    throw new SingularityFlowError('A configuration proposal intent needs a kind and at least one typed operation.', {
+      code: 'CONFIGURATION_PROPOSAL_INTENT_INVALID'
+    });
+  }
+  return Object.freeze({ kind: intent.kind, operations: intent.operations.length,
+    sha256: `sha256:${createHash('sha256').update(configurationDigestInput(intent)).digest('hex')}` });
+}
+
+function configurationDigestInput(intent) {
+  return canonicalJson({ kind: intent.kind, operations: intent.operations });
+}
+
 export async function proposeConfigurationChange(root, {
-  operation, subject, message, mutate, expectedAuthority = null, verifyStaged = null
+  operation, subject, message, mutate, expectedAuthority = null, verifyStaged = null, intent = null
 }, { transport = {}, env = transport.env ?? process.env, session = null } = {}) {
   if (typeof mutate !== 'function') {
     throw new SingularityFlowError('A configuration proposal needs a mutation.', {
@@ -971,26 +992,31 @@ export async function proposeConfigurationChange(root, {
   }
 
   const authorityTransport = frozenRemoteTransport(remoteUrl, { push: true, env: gitEnv });
+  // The typed intent this proposal carries (SDA M3): what was asked, not only the files it changed.
+  const intentRecord = proposalIntent(intent);
   const scratch = await mkdtemp(path.join(os.tmpdir(), 'sflow-workflow-proposal-'));
   try {
-    const cloned = await runRemoteGitAsync([
-      'clone', '--quiet', '--no-local', '--no-tags', '--single-branch', '--depth', '1',
-      '--branch', CONFIGURATION_BRANCH, authorityTransport.remote, scratch
-    ], { operation: 'remote-configuration', env: authorityTransport.env });
-    if (cloned.status !== 0) {
-      const advice = cloned.failure?.advice
+    // No clone (SDA-AC-013): the authority's tip is fetched into this repository's object store and
+    // projected from those exact objects into the disposable configuration repository.
+    const { fetchConfigurationBase, createConfigurationProjection } = await import('./configuration-projection.mjs');
+    const fetched = await fetchConfigurationBase(root, authorityTransport, { branch: CONFIGURATION_BRANCH });
+    if (!fetched.commit) {
+      const failure = fetched.failure?.failure;
+      const advice = failure?.advice
         ?? 'Inspect the approved Git credential, proxy, and certificate configuration.';
       throw new SingularityFlowError(
         `Cannot read approved configuration from '${sanitizeRemote(remoteUrl)}': `
         + advice, {
           code: 'CONFIGURATION_PROPOSAL_AUTHORITY_UNAVAILABLE',
           details: {
-            classification: cloned.failure?.classification ?? 'unknown',
-            evidence: cloned.failure?.evidence ?? null
+            classification: failure?.classification ?? 'unknown',
+            evidence: failure?.evidence ?? null
           }
         }
       );
     }
+    createConfigurationProjection(root, scratch, fetched.commit, { branch: CONFIGURATION_BRANCH, env: authorityTransport.env });
+    incrementCommandCounter('configuration.proposal-projection');
 
     const baseCommit = configurationRepositoryHead(scratch, authorityTransport.env);
     const expectedSourceCommit = expected?.sourceCommit
@@ -1144,7 +1170,8 @@ export async function proposeConfigurationChange(root, {
     run('git', [
       '-c', `user.name=${actor.name || 'Singularity Flow contributor'}`,
       '-c', `user.email=${actor.email || 'unknown@invalid'}`,
-      'commit', '-m', String(message ?? '').trim() || `[configuration] ${operationId} ${subjectId}`
+      'commit', '-m', String(message ?? '').trim() || `[configuration] ${operationId} ${subjectId}`,
+      ...(intentRecord ? ['-m', `Sflow-Intent-Kind: ${intentRecord.kind}\nSflow-Intent-Sha256: ${intentRecord.sha256}`] : [])
     ], { cwd: scratch, env: authorityTransport.env });
     const commit = configurationRepositoryHead(scratch, authorityTransport.env);
     if (verifiedTree) {
@@ -1184,6 +1211,7 @@ export async function proposeConfigurationChange(root, {
         baseBranch: CONFIGURATION_BRANCH,
         baseCommit,
         files,
+        ...(intentRecord ? { intent: intentRecord } : {}),
         requiredLocalRef: `refs/singularity/transport/configuration-proposals/${commit}`
       }
     }, { ...transport, env: gitEnv });
@@ -1194,7 +1222,7 @@ export async function proposeConfigurationChange(root, {
         branch: reviewBranch, proposalId, proposalRevision: commit,
         baseBranch: CONFIGURATION_BRANCH, baseCommit, commit, files,
         transportIntent: publication.intentId, transportStatus: publication.status,
-        backgroundStarted, syncStatus: 'saved-locally',
+        backgroundStarted, syncStatus: 'saved-locally', ...(intentRecord ? { intent: intentRecord } : {}),
         nextAction: `singularity-flow push status ${publication.intentId} --json` };
     }
     if (publication.status !== 'succeeded') {
@@ -1226,6 +1254,7 @@ export async function proposeConfigurationChange(root, {
       files,
       transportIntent: publication.intentId,
       transportStatus: publication.status,
+      ...(intentRecord ? { intent: intentRecord } : {}),
       nextAction
     };
   } finally {

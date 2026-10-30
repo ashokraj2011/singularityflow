@@ -185,7 +185,8 @@ test('the Copilot edit guard, run on every tool call, stays clear of the configu
   // the guard corrects misread result paths to and application-paths.mjs keeps out of application edits.
   // 62: outcome-classes.mjs, constants with no import, gives every error its SDA outcome class through
   // util.mjs; SDA M1 (fa3094b83) added it without a recorded raise.
-  assert.ok(closure.size <= 62, `the edit guard loads ${closure.size} static modules; ceiling is 62`);
+  // 63: lease-liveness.mjs, the shared lease owner proof every subject lock reads (SDA M3).
+  assert.ok(closure.size <= 63, `the edit guard loads ${closure.size} static modules; ceiling is 63`);
 });
 
 test('commands that load the legacy CLI leave the SQLite build and the ACP SDK to first use', () => {

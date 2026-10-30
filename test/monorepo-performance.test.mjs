@@ -186,7 +186,7 @@ test('workspace materialization honors blobless sparse checkout without touching
         clone: { mode: 'blobless-sparse', sparseCone: ['apps/payments'], fallback: 'refuse' }
       }
     }
-  }, { confirmation: 'payments' });
+  }, { confirmation: 'payments', clone: true });
 
   const checkout = path.join(created.workspace.path, 'repos/platform');
   assert.equal(existsSync(path.join(checkout, 'apps/payments/kept.txt')), true);
@@ -218,7 +218,7 @@ test('workspace materialization honors blobless sparse checkout without touching
       }
     }
   }, {
-    confirmation: 'explicit-full-fallback'
+    confirmation: 'explicit-full-fallback', clone: true
   }));
   assert.equal(fallback.materialization[0].fallbackUsed, true);
   assert.equal(fallback.materialization[0].requested.mode, 'blobless');
@@ -234,7 +234,7 @@ test('workspace materialization honors blobless sparse checkout without touching
     repositories: {
       platform: { url: bare, defaultBranch: 'main', clone: { mode: 'blobless', fallback: 'refuse' } }
     }
-  }, { confirmation: 'refuse-full-fallback' }), /did not establish a blobless partial clone/);
+  }, { confirmation: 'refuse-full-fallback', clone: true }), /did not establish a blobless partial clone/);
   assert.equal(existsSync(path.join(refusedRoot, 'refuse-full-fallback/repos/platform/.git')), false,
     'a server which ignores filtering leaves no accidental full clone behind');
   assert.equal(run('git', ['rev-parse', 'refs/heads/main'], { cwd: bare }).stdout.trim(), original,

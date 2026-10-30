@@ -110,7 +110,7 @@ export function verifiedWorkspaceStoryRepository(
   if (story.repositoryPath && repository.state !== 'ready') {
     throw new Error(`Repository '${story.repositoryId}' is no longer ready. Refresh Stories before attaching.`);
   }
-  if (!['missing', 'empty', 'ready'].includes(repository.state ?? '')) {
+  if (!['deferred', 'missing', 'empty', 'ready'].includes(repository.state ?? '')) {
     throw new Error(
       `Repository '${story.repositoryId}' is ${repository.state ?? 'unavailable'}; inspect Workspace details before attaching. No clone was started.`
     );

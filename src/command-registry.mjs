@@ -2,17 +2,19 @@ import { didYouMean, nearestNames, optionBoolean, optionString, SingularityFlowE
 import { REMOVED_WORLD_MODEL_SUBCOMMANDS, removedWorldModelError } from './removed-features.mjs';
 
 const READ_ONLY = new Set(['outcome', 'result', 'specify', 'plan', 'implement', 'verify', 'converge', 'about', 'help', 'show', 'why', 'choices', 'inbox', 'home', 'recommend', 'status', 'approvals', 'progress', 'receipt', 'guide', 'logs', 'doctor', 'nextsteps', 'snapshot', 'validate', 'gate', 'explain', 'comprehension', 'precheck', 'index']);
-const STRUCTURED = new Set(['outcome', 'result', 'about', 'specify', 'plan', 'implement', 'verify', 'converge', 'start', 'resume', 'return', 'home', 'recommend', 'status', 'approvals', 'progress', 'report', 'receipt', 'impact', 'telemetry', 'context', 'tokens', 'help-metrics', 'doctor', 'inputs', 'reinstall', 'snapshot', 'validate', 'gate', 'clarification', 'explain', 'why', 'fault', 'fix', 'repair', 'recover', 'goal', 'journal', 'integrations', 'run', 'auto', 'adhoc', 'land', 'intent', 'program', 'process', 'policy', 'task', 'request', 'evidence', 'comprehension', 'change', 'proof', 'delivery', 'init', 'precheck', 'configuration', 'onboard', 'authority', 'cache', 'revision', 'revise', 'env', 'skill', 'product', 'review-source', 'appeal', 'instruction', 'upstream-issue', 'decisions', 'app', 'tests', 'call', 'gateway', 'apm', 'index']);
+const STRUCTURED = new Set(['outcome', 'result', 'about', 'specify', 'plan', 'implement', 'verify', 'converge', 'start', 'resume', 'return', 'home', 'recommend', 'status', 'approvals', 'progress', 'report', 'receipt', 'impact', 'telemetry', 'context', 'tokens', 'help-metrics', 'doctor', 'inputs', 'reinstall', 'snapshot', 'validate', 'gate', 'clarification', 'explain', 'why', 'fault', 'fix', 'repair', 'recover', 'goal', 'journal', 'integrations', 'run', 'auto', 'adhoc', 'land', 'intent', 'program', 'process', 'policy', 'task', 'request', 'evidence', 'comprehension', 'change', 'proof', 'delivery', 'init', 'precheck', 'configuration', 'onboard', 'authority', 'cache', 'revision', 'revise', 'env', 'skill', 'product', 'review-source', 'appeal', 'instruction', 'upstream-issue', 'decisions', 'app', 'tests', 'call', 'gateway', 'apm', 'index', 'lock']);
 // `secrets` is here because `resolveOperation` returns `definition.operation` before it consults
 // any resolver, so a command with a single registered operation never reaches its own resolver.
 // Without this line `resolveSecretsOperation` is unreachable and the scan/protect split is inert.
-const MODEL_FREE_MIXED_COMMANDS = new Set(['skill', 'init', 'precheck', 'configuration', 'report', 'telemetry', 'doctor', 'review', 'review-source', 'inputs', 'spec', 'visual', 'mcp', 'clarification', 'story', 'session', 'constitution', 'secrets', 'env', 'fault', 'fix', 'repair', 'recover', 'goal', 'journal', 'push', 'integrations', 'next', 'return', 'impact', 'copilot', 'context', 'tokens', 'help-metrics', 'auto', 'adhoc', 'capability', 'repositories', 'intent', 'program', 'process', 'policy', 'task', 'request', 'evidence', 'candidate', 'execution-unit', 'device', 'authority-store', 'pack', 'learn', 'memory', 'meta-tool', 'comprehension', 'change', 'proof', 'delivery', 'local', 'revision', 'revise', 'explain', 'workflow', 'documents', 'jira', 'prompt-log', 'factory-reset', 'governance', 'phase', 'product', 'decision', 'import', 'imports', 'marketplace', 'appeal', 'instruction', 'upstream-issue', 'decisions', 'app', 'tests', 'call', 'gateway', 'apm']);
+const MODEL_FREE_MIXED_COMMANDS = new Set(['skill', 'init', 'precheck', 'configuration', 'report', 'telemetry', 'doctor', 'review', 'review-source', 'inputs', 'spec', 'visual', 'mcp', 'clarification', 'story', 'session', 'constitution', 'secrets', 'env', 'fault', 'fix', 'repair', 'recover', 'goal', 'journal', 'push', 'integrations', 'next', 'return', 'impact', 'copilot', 'context', 'tokens', 'help-metrics', 'auto', 'adhoc', 'capability', 'repositories', 'intent', 'program', 'process', 'policy', 'task', 'request', 'evidence', 'candidate', 'execution-unit', 'device', 'authority-store', 'pack', 'learn', 'memory', 'meta-tool', 'comprehension', 'change', 'proof', 'delivery', 'local', 'revision', 'revise', 'explain', 'workflow', 'documents', 'jira', 'prompt-log', 'factory-reset', 'governance', 'phase', 'product', 'decision', 'import', 'imports', 'marketplace', 'appeal', 'instruction', 'upstream-issue', 'decisions', 'app', 'tests', 'call', 'gateway', 'apm', 'lock']);
 // Run and test from a capability [RUN]: plan, status and summary read; start, stop and run execute code.
 const APP_SUBCOMMANDS = Object.freeze(['plan', 'start', 'status', 'stop', 'suggest', 'config', 'connections']);
 const APP_READS = Object.freeze(['plan', 'status', 'suggest', 'config', 'connections']);
 const TESTS_SUBCOMMANDS = Object.freeze(['plan', 'run', 'summary']);
 // APM packages [APM A1-A2]: status reads; install commits one apm install (its --dry-run is APM's preview).
 const APM_SUBCOMMANDS = Object.freeze(['status', 'install', 'attach']);
+// Leases (SDA M3): show reads; a reviewed release ends exactly one lease generation.
+const LOCK_SUBCOMMANDS = Object.freeze(['show', 'release', 'release-file']);
 const UPSTREAM_ISSUE_SUBCOMMANDS = Object.freeze(['raise', 'list', 'decide', 'propose-amendment', 'decide-amendment', 'revalidate']);
 
 const CONFIGURATION_READ_SUBCOMMANDS = Object.freeze([
@@ -154,6 +156,7 @@ const LAZY_MODULES = Object.freeze({
   tests: './commands/tests.mjs',
   apm: './commands/apm.mjs',
   index: './commands/read-index.mjs',
+  lock: './commands/lock.mjs',
   // Machine-level like `reinstall`: product surfaces, never a repository or workspace.
   product: './commands/product.mjs',
   help: './commands/help.mjs',
@@ -226,7 +229,9 @@ export const COMMAND_REGISTRY = Object.freeze([
   // door; the flag still works.
   ['quickstart', ['first-run']], ['check'],
   // The local read index (SDA M2): status, refresh, rebuild and verify of the advisory projections.
-  ['index']
+  ['index'],
+  // Leases a person reviews and releases when their owner cannot be proven gone (SDA M3).
+  ['lock']
 ].map(command));
 
 const canonical = new Map(COMMAND_REGISTRY.flatMap((entry) => [
@@ -542,6 +547,7 @@ export const RESOLVER_SUBCOMMANDS = Object.freeze({
   imports: IMPORTS_SUBCOMMANDS,
   marketplace: MARKETPLACE_SUBCOMMANDS,
   apm: APM_SUBCOMMANDS,
+  lock: LOCK_SUBCOMMANDS,
   telemetry: TELEMETRY_SUBCOMMANDS,
   visual: VISUAL_SUBCOMMANDS,
   mcp: MCP_SUBCOMMANDS,
@@ -1609,6 +1615,11 @@ export function resolveOperation({ requestedCommand, positionals, options = {}, 
     if (action === 'attach') return optionBoolean(options, 'dry-run') ? never('apm.attach.preview', definition, 'read') : never('apm.attach', definition, 'mutation');
     return never(`apm.${action}`, definition, 'read');
   }
+  if (definition.name === 'lock') {
+    const action = positionals[1] ?? 'show';
+    if (!LOCK_SUBCOMMANDS.includes(action)) return unknownSubcommand('lock', action, LOCK_SUBCOMMANDS);
+    return never(`lock.${action}`, definition, action === 'show' ? 'read' : 'mutation');
+  }
   if (definition.name === 'upstream-issue') {
     const action = positionals[1] ?? 'list';
     if (!UPSTREAM_ISSUE_SUBCOMMANDS.includes(action)) return unknownSubcommand('upstream-issue', action, UPSTREAM_ISSUE_SUBCOMMANDS);
@@ -1880,6 +1891,7 @@ export function operationCatalog() {
     never('apm.status', commandDefinition('apm'), 'read'),
     never('apm.install.preview', commandDefinition('apm'), 'read'), never('apm.install', commandDefinition('apm'), 'mutation'),
     never('apm.attach.preview', commandDefinition('apm'), 'read'), never('apm.attach', commandDefinition('apm'), 'mutation'),
+    ...LOCK_SUBCOMMANDS.map(name => never(`lock.${name}`, commandDefinition('lock'), name === 'show' ? 'read' : 'mutation')),
     ...['create', 'edit', 'remove'].flatMap(name => [never(`instruction.${name}.preview`, commandDefinition('instruction'), 'read'), never(`instruction.${name}`, commandDefinition('instruction'), 'mutation')]),
     ...SKILL_MUTATION_SUBCOMMANDS.flatMap((name) => [
       never(`skill.${name}.preview`, commandDefinition('skill'), 'read'), never(`skill.${name}`, commandDefinition('skill'), 'mutation')

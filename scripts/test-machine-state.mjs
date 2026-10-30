@@ -46,6 +46,8 @@ export const MACHINE_STATE_LOCATIONS = Object.freeze({
   SINGULARITY_FLOW_VSCODE_RESET_MARKER: 'vscode-fresh-reset-pending.json',
   // The install record and the build-currency answer every session entry reads (src/build-currency.mjs).
   SINGULARITY_FLOW_INSTALLATIONS_DIR: 'installations',
+  // The machine ID every lease owner records (src/lease-liveness.mjs).
+  SINGULARITY_FLOW_MACHINE_ID_FILE: 'machine-id',
   SINGULARITY_FLOW_HOME: 'home'
 });
 

@@ -1497,7 +1497,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     if (!await isCurrent()) return true;
     void showCompactInformationMessage(ready
       ? `${selected.workspaceName} selected. Opening its repository in this window. Start a fresh Copilot chat or terminal for this workspace.`
-      : ['missing', 'empty'].includes(selected.repositoryState ?? '')
+      : ['deferred', 'missing', 'empty'].includes(selected.repositoryState ?? '')
         ? `${selected.workspaceName} selected. Opening its workspace folder; Start Work will prepare the repository when needed.`
         : `${selected.workspaceName} selected. Opening its workspace folder; inspect Workspace details to repair its repository before starting work.`);
     // VS Code owns unsaved-file handling and preserves the old checkout, branches, and chat history.
@@ -1538,7 +1538,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       if (!await selectionIsCurrent()) return true;
       if (!pending.length && repositoryRuntime && current.repositoryPath
           && sameStoryAttachPath(activeRepositoryContext()?.root ?? '', current.repositoryPath)) return false;
-      if (pending.some((entry) => !['missing', 'empty'].includes(entry.state))) {
+      if (pending.some((entry) => !['deferred', 'missing', 'empty'].includes(entry.state))) {
         void showCompactWarningMessage(
           'The selected workspace has a repository that needs review before work can start. Open Workspace details to inspect it.');
         return true;
@@ -9950,6 +9950,15 @@ async function activeWorkspaceRepository(
       label: 'Workspace lead repository is not configured',
       reason: `${current.workspaceName ?? directory} is selected, but it has no resolvable lead repository. Edit the workspace details.`,
       contextValue: 'sflow.workspace.repositoryUnavailable'
+    };
+  }
+  if (current.repositoryState === 'deferred') {
+    // Not a fault: the member was planned and is cloned by the first work that needs it.
+    return {
+      label: 'Workspace repository is not cloned yet',
+      reason: `${current.workspaceName ?? directory} is selected. Its repository is cloned when work starts; Start Work clones only what it needs, or Repair workspace clones it now.`,
+      contextValue: 'sflow.workspace.repositoryUnavailable',
+      lead: selectedRepository
     };
   }
   if (current.repositoryState && current.repositoryState !== 'ready') {

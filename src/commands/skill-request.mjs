@@ -3,7 +3,7 @@ import { SingularityFlowError } from '../util.mjs';
 export const SKILL_MASTER_READS = Object.freeze(['list', 'show']);
 export const SKILL_MASTER_CHANGES = Object.freeze(['create', 'edit', 'attach', 'detach', 'remove']);
 const AUTHORING = ['json', 'dry-run', 'propose', 'expected-authority-kind', 'expected-authority-commit',
-  'expected-authority-remote-fingerprint', 'expected-authority-source-commit'];
+  'expected-authority-remote-fingerprint', 'expected-authority-source-commit', 'operation-id'];
 const RETAINED = ['work-id', 'phase', 'agent', 'generation', 'snapshot-sha256', 'expected-sha256'];
 const OPTIONS = Object.freeze({
   list: ['json'], show: ['json', ...RETAINED],

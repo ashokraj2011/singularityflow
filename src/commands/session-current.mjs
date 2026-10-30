@@ -10,6 +10,7 @@ import { agentSessionStatus } from '../session.mjs';
 import { sessionRepositoryAuthority } from './shared/session-repository-authority.mjs';
 import { sessionDiscoveryConfiguration } from './shared/session-discovery-configuration.mjs';
 import { resolveSessionRepository } from './shared/session-repository-selection.mjs';
+import { workspaceMaterializeCommand } from '../workspace-manifest.mjs';
 import { printCommandRoutes } from './shared/print-command-routes.mjs';
 import { withCommandObservability } from '../command-observability.mjs';
 import { withCommandConfirmation } from '../command-confirmation.mjs';
@@ -62,6 +63,14 @@ export async function sessionCurrent(options, { agentEntry = null } = {}) {
       }, null, 2));
     }
     throw error;
+  }
+  if (context?.repositoryState === 'deferred') {
+    // Not cloned yet: report the selection, never a checkout that is not there.
+    const materialize = workspaceMaterializeCommand(context.workspacePath, context.repositoryId);
+    const detail = `Repository '${context.repositoryId}' is not cloned yet; a Story attach or start clones it, or run ${materialize}.`;
+    return console.log(optionBoolean(options, 'json') ? JSON.stringify({ ready: false, workId: null,
+      workspaceId: context.workspaceId, repositoryId: context.repositoryId, repositoryPath: null,
+      reason: 'workspace-repository-deferred', detail, materialize }, null, 2) : detail);
   }
   if (!context) {
     const resolved = await resolveSessionRepository();

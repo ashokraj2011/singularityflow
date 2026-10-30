@@ -448,10 +448,11 @@ test('Story entry materializes only the selected capability repository closure',
   const docsPath = path.join(created.workspace.path, 'repos', 'docs');
   assert.equal(await stat(platformPath).catch(() => null), null);
   await assert.rejects(() => activeWorkspaceRepositoryRoot('status', { env }),
-    (error) => error.code === 'ACTIVE_WORKSPACE_REPOSITORY_UNAVAILABLE');
+    (error) => error.code === 'ACTIVE_WORKSPACE_REPOSITORY_DEFERRED'
+      && error.details.nextAction.includes('--repository platform'));
   await assert.rejects(() => activeWorkspaceRepositoryRoot('start', {
     env, options: { 'dry-run': true }
-  }), (error) => error.code === 'ACTIVE_WORKSPACE_REPOSITORY_UNAVAILABLE');
+  }), (error) => error.code === 'ACTIVE_WORKSPACE_REPOSITORY_DEFERRED');
   assert.equal(await stat(platformPath).catch(() => null), null,
     'read and preview routes cannot cause a checkout');
 
@@ -3135,7 +3136,7 @@ test('workspace creation claims an empty repository folder and clones the config
   const target = path.join(reserved.workspace.path, 'repos/platform');
   await mkdir(target);
 
-  const saved = await saveWorkspaceConfiguration(options, { confirmation: 'branch-workspace' });
+  const saved = await saveWorkspaceConfiguration(options, { confirmation: 'branch-workspace', clone: true });
   assert.equal(saved.status.healthy, true);
   assert.equal(saved.status.repositories[0].branch, 'release/2026.07');
   assert.equal(await readFile(path.join(target, 'BRANCH.txt'), 'utf8'), 'configured branch\n');
@@ -3195,7 +3196,7 @@ test('workspace creates isolated clones, stages ungoverned documents, and can be
   assert.equal(preview.operations.length, 2);
   await assert.rejects(() => createWorkspace(input, { confirmation: 'WRONG' }), /exact Jira-key confirmation/);
 
-  const created = await createWorkspace(input, { confirmation: 'PAY-100' });
+  const created = await createWorkspace(input, { confirmation: 'PAY-100', clone: true });
   assert.equal(created.created, true);
   assert.equal(created.status.healthy, true);
   assert.equal(created.status.level, 'readiness');
@@ -3237,7 +3238,7 @@ test('workspace creates isolated clones, stages ungoverned documents, and can be
     'workspace clones must retain remote governed branches'
   );
   await writeFile(path.join(lead, 'local.txt'), 'dirty');
-  const resumed = await createWorkspace(input, { confirmation: 'PAY-100' });
+  const resumed = await createWorkspace(input, { confirmation: 'PAY-100', clone: true });
   assert.equal(resumed.resumed, true);
   assert.equal(resumed.status.level, 'full', 'an existing workspace may contain user work, unlike a just-sealed clone');
   assert.equal(resumed.status.repositories.find(item => item.id === 'platform').dirty, true);
@@ -3328,7 +3329,7 @@ test('workspace registry discards explicit non-v2 workflows without deleting wor
   const platform = await remoteRepository(root, 'platform');
   const created = await createWorkspace(workspaceInput(path.join(root, 'workspaces'), {
     platform: { url: platform, defaultBranch: 'main', required: true, path: 'repos/platform' }
-  }), { confirmation: 'PAY-100' });
+  }), { confirmation: 'PAY-100', clone: true });
   await rememberWorkspace(registry, created.workspace, created.status);
   const lead = created.status.leadRepositoryPath;
   await mkdir(path.join(lead, 'singularity'), { recursive: true });
@@ -3377,7 +3378,7 @@ test('workspace registry retains uninitialized and repairable malformed workflow
   const platform = await remoteRepository(root, 'platform');
   const created = await createWorkspace(workspaceInput(path.join(root, 'workspaces'), {
     platform: { url: platform, defaultBranch: 'main', required: true, path: 'repos/platform' }
-  }), { confirmation: 'PAY-100' });
+  }), { confirmation: 'PAY-100', clone: true });
   await rememberWorkspace(registry, created.workspace, created.status);
 
   assert.equal((await discardUnsupportedWorkflowWorkspaces(registry)).removed.length, 0,
@@ -3396,7 +3397,7 @@ test('active workspace context resolves friendly references and adds governed St
   const platform = await remoteRepository(root, 'platform');
   const created = await createWorkspace(workspaceInput(path.join(root, 'workspaces'), {
     platform: { url: platform, defaultBranch: 'main', required: true, path: 'repos/platform' }
-  }), { confirmation: 'PAY-100' });
+  }), { confirmation: 'PAY-100', clone: true });
   await rememberWorkspace(registry, created.workspace, created.status);
 
   const lead = created.status.leadRepositoryPath;
@@ -3470,7 +3471,7 @@ test('active workspace context checks only its selected member and still rejects
   const created = await createWorkspace(workspaceInput(path.join(root, 'workspaces'), {
     platform: { url: platform, defaultBranch: 'main', required: true, path: 'repos/platform' },
     mobile: { url: mobile, defaultBranch: 'main', required: true, path: 'repos/mobile' }
-  }), { confirmation: 'PAY-100' });
+  }), { confirmation: 'PAY-100', clone: true });
   await rememberWorkspace(registry, created.workspace, created.status);
 
   const selectedObservations = [];
@@ -3525,7 +3526,7 @@ test('workspace Copilot launcher dry-run uses the selected repository and sessio
   const platform = await remoteRepository(root, 'platform');
   const created = await createWorkspace(workspaceInput(path.join(root, 'workspaces'), {
     platform: { url: platform, defaultBranch: 'main', required: true, path: 'repos/platform' }
-  }), { confirmation: 'PAY-100' });
+  }), { confirmation: 'PAY-100', clone: true });
   await rememberWorkspace(registry, created.workspace, created.status);
   const env = {
     ...process.env,
@@ -3569,7 +3570,7 @@ test('a session can attach to a saved workspace from outside every repository', 
   const platform = await governedRemoteRepository(root, 'platform');
   const created = await createWorkspace(workspaceInput(path.join(root, 'workspaces'), {
     platform: { url: platform, defaultBranch: 'main', required: true, path: 'repos/platform' }
-  }), { confirmation: 'PAY-100' });
+  }), { confirmation: 'PAY-100', clone: true });
   await rememberWorkspace(registry, created.workspace, created.status);
   const unrelated = await mkdtemp(path.join(os.tmpdir(), 'sflow-session-unrelated-'));
   const env = {
@@ -3621,7 +3622,7 @@ test('a workspace-only session does not adopt the Story checked out in its repos
   const platform = await governedRemoteRepository(root, 'platform');
   const created = await createWorkspace(workspaceInput(path.join(root, 'workspaces'), {
     platform: { url: platform, defaultBranch: 'main', required: true, path: 'repos/platform' }
-  }), { confirmation: 'PAY-100' });
+  }), { confirmation: 'PAY-100', clone: true });
   await rememberWorkspace(registry, created.workspace, created.status);
 
   const lead = created.status.leadRepositoryPath;
@@ -3673,7 +3674,7 @@ test('the working directory still wins over a workspace selected somewhere else'
   const platform = await governedRemoteRepository(root, 'platform');
   const created = await createWorkspace(workspaceInput(path.join(root, 'workspaces'), {
     platform: { url: platform, defaultBranch: 'main', required: true, path: 'repos/platform' }
-  }), { confirmation: 'PAY-100' });
+  }), { confirmation: 'PAY-100', clone: true });
   await rememberWorkspace(registry, created.workspace, created.status);
   const env = {
     ...process.env,
@@ -3930,12 +3931,14 @@ test('stale workspace-manifest lease recovery cannot retire its live successor',
   assert.equal((await stat(path.join(root, tombstones[0], 'retired.lock'))).isFile(), true);
 });
 
-test('workspace-manifest lease expiry is not preserved by a recycled PID', async (t) => {
+test('workspace-manifest lease held by a recycled PID is reclaimed', async (t) => {
   const root = await mkdtemp(path.join(os.tmpdir(), 'sflow-workspace-lease-pid-reuse-'));
   t.after(() => rm(root, { recursive: true, force: true }));
   const manifest = path.join(root, 'workspace.json');
   const lock = `${manifest}.lock`;
   await writeFile(manifest, '{}\n');
+  // A running PID whose process started long after the recorded owner did: the OS recycled it, so
+  // the owner is dead. Only that proof reclaims it, never the lease's age (src/lease-liveness.mjs).
   await writeFile(lock, `${JSON.stringify({
     pid: process.pid,
     host: os.hostname(),
@@ -3944,7 +3947,7 @@ test('workspace-manifest lease expiry is not preserved by a recycled PID', async
     token: '00000000-0000-4000-8000-000000000002',
     createdAt: '2000-01-01T00:00:00.000Z'
   })}\n`, { mode: 0o600 });
-  const staleTime = new Date(Date.now() - (16 * 60_000));
+  const staleTime = new Date(Date.now() - 31_000);
   await utimes(lock, staleTime, staleTime);
 
   let entered = false;
@@ -4183,11 +4186,12 @@ test('reopening an incomplete workspace resumes missing clones and refreshes its
     mobile: { url: mobile, defaultBranch: 'main', required: true, path: 'repos/mobile' }
   });
   const created = await createWorkspace(input, { confirmation: 'PAY-100', clone: false });
-  assert.equal(created.status.healthy, false);
+  assert.equal(created.status.healthy, true, 'a deferred checkout is the expected state of a new workspace');
+  assert.deepEqual(created.status.repositories.map((repository) => repository.state), ['deferred', 'deferred']);
   const planned = JSON.parse(await readFile(path.join(created.workspace.path, 'logs', 'workspace-materialization.json'), 'utf8'));
   assert.deepEqual(planned.operations.map((operation) => operation.status), ['planned', 'planned']);
 
-  const resumed = await createWorkspace(input, { confirmation: 'PAY-100' });
+  const resumed = await createWorkspace(input, { confirmation: 'PAY-100', clone: true });
   assert.equal(resumed.created, false);
   assert.equal(resumed.resumed, true);
   assert.equal(resumed.status.healthy, true);
@@ -4215,7 +4219,7 @@ test('reopening an incomplete workspace retains explicit clone-wave execution op
   };
 
   await assert.rejects(() => createWorkspace(input, {
-    confirmation: 'PAY-100', workers: 1, cloneOperation
+    confirmation: 'PAY-100', clone: true, workers: 1, cloneOperation
   }), /forwarded clone operation/);
   assert.equal(calls, 1, 'resume delegates through the caller-selected bounded clone operation');
 });
@@ -4410,7 +4414,7 @@ test('workspace creation discards every unclaimed staging directory when finaliz
   };
 
   await assert.rejects(() => createWorkspace(input, {
-    confirmation: 'PAY-100', workers: 2, cloneOperation
+    confirmation: 'PAY-100', clone: true, workers: 2, cloneOperation
   }), /create claim callback exploded/);
   assert.deepEqual(discarded.sort(), [0, 1],
     'creation releases the entire still-private staging wave');
@@ -4444,13 +4448,13 @@ test('a failed clone leaves no partial repository and can resume when the remote
   });
   const preview = previewWorkspace(input);
   await assert.rejects(
-    () => createWorkspace(input, { confirmation: 'PAY-100' }),
+    () => createWorkspace(input, { confirmation: 'PAY-100', clone: true }),
     /retained for repair/
   );
   assert.deepEqual(await readdir(path.join(preview.root, 'repos')), []);
 
   assert.equal(await remoteRepository(root, 'later'), futureRemote);
-  const resumed = await createWorkspace(input, { confirmation: 'PAY-100' });
+  const resumed = await createWorkspace(input, { confirmation: 'PAY-100', clone: true });
   assert.equal(resumed.resumed, true);
   assert.equal(resumed.status.healthy, true);
 });
@@ -4704,7 +4708,7 @@ test('parallel workspace staging claims no repository when any required clone fa
   });
   const preview = previewWorkspace(input);
   await assert.rejects(
-    () => createWorkspace(input, { confirmation: 'PAY-100', workers: 2 }),
+    () => createWorkspace(input, { confirmation: 'PAY-100', clone: true, workers: 2 }),
     /retained for repair/
   );
   const retained = await readdir(path.join(preview.root, 'repos'));
@@ -4721,7 +4725,7 @@ test('workspace repair names a configured branch that the remote does not have',
   });
   await createWorkspace(input, { confirmation: 'PAY-100', clone: false });
 
-  await assert.rejects(() => createWorkspace(input, { confirmation: 'PAY-100' }), (error) => {
+  await assert.rejects(() => createWorkspace(input, { confirmation: 'PAY-100', clone: true }), (error) => {
     assert.match(error.message, /remote does not have that branch/);
     assert.match(error.message, /Configure a valid default branch or create 'main'/);
     assert.doesNotMatch(error.message, /Cloning into/);
@@ -4751,7 +4755,7 @@ test('workspace configuration stays saved when repository materialization fails'
     }
   };
 
-  const saved = await saveWorkspaceConfiguration(options, { confirmation: 'payments-platform' });
+  const saved = await saveWorkspaceConfiguration(options, { confirmation: 'payments-platform', clone: true });
   assert.equal(saved.created, true);
   assert.equal(saved.status.healthy, false);
   assert.equal(saved.status.repositories[0].state, 'missing');
@@ -4759,7 +4763,7 @@ test('workspace configuration stays saved when repository materialization fails'
   assert.equal((await readWorkspace(saved.workspace.path)).name, 'Payments platform');
 
   await remoteRepository(root, 'unavailable');
-  const resumed = await saveWorkspaceConfiguration(options, { confirmation: 'payments-platform' });
+  const resumed = await saveWorkspaceConfiguration(options, { confirmation: 'payments-platform', clone: true });
   assert.equal(resumed.resumed, true);
   assert.equal(resumed.status.healthy, true);
   assert.equal(resumed.materializationError, null);
@@ -4845,7 +4849,7 @@ test('workspace CLI can provision an approved offline clone plan outside a Git r
   assert.equal(result.status, 0, result.stderr);
   const created = JSON.parse(result.stdout);
   assert.equal(created.workspace.anchor.key, 'APP-42');
-  assert.equal(created.status.repositories[0].state, 'missing');
+  assert.equal(created.status.repositories[0].state, 'deferred');
   const listed = spawnSync(process.execPath, [cli, 'workspace', 'list', '--json'], {
     cwd: root,
     encoding: 'utf8',
@@ -4871,5 +4875,5 @@ test('workspace CLI can provision an approved offline clone plan outside a Git r
   assert.equal(aggregate.status, 0, aggregate.stderr);
   const aggregateStatus = JSON.parse(aggregate.stdout);
   assert.equal(aggregateStatus.archiveReadiness.eligible, false);
-  assert.match(aggregateStatus.archiveReadiness.blockers[0], /missing/);
+  assert.match(aggregateStatus.archiveReadiness.blockers[0], /is deferred/);
 });

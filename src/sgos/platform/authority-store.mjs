@@ -2,10 +2,10 @@ import { constants as fsConstants } from 'node:fs';
 import {
   lstat, mkdir, open, readdir, realpath, rename, rm, utimes
 } from 'node:fs/promises';
-import os from 'node:os';
 import path from 'node:path';
 import { createHmac, randomBytes, randomUUID, timingSafeEqual } from 'node:crypto';
 
+import { describeLeaseOwner, leaseOwnerAssessment, leaseOwnerIdentity } from '../../lease-liveness.mjs';
 import { canonicalJson } from '../../records.mjs';
 import { scanText } from '../../secrets.mjs';
 import { SingularityFlowError } from '../../util.mjs';
@@ -26,7 +26,9 @@ const MAX_AUTHORITY_TRANSPORT_BYTES = 64 * 1024 * 1024;
 // deliberately not named `schemaVersion`: a lock is operational coordination state and must never
 // masquerade as one of Singularity Flow's registered record families.
 const AUTHORITY_LOCK_FORMAT = 'sflow.sgos.authority-store-lock';
-const AUTHORITY_LOCK_VERSION = 1;
+// v2 adds the owner's machineId and processStartedAt, which prove it dead (src/lease-liveness.mjs).
+const AUTHORITY_LOCK_VERSION = 2;
+// Paces the heartbeat and says when it is reported stale; a lock is never taken over on age.
 const AUTHORITY_LOCK_TTL_MS = 30 * 1000;
 const AUTHORITY_LOCK_ACQUISITION_GRACE_MS = 30 * 1000;
 const AUTHORITY_LOCK_ATTEMPTS = 3;
@@ -780,28 +782,69 @@ async function recoverInterruptedTransportCutover(requestedRoot, storeId) {
     });
 }
 
-function processAlive(pid) {
-  if (!Number.isInteger(pid) || pid <= 0) return false;
-  try {
-    process.kill(pid, 0);
-    return true;
-  } catch (error) {
-    return error?.code === 'EPERM';
-  }
-}
-
 function authorityLockOwner(storeId, now = Date.now()) {
+  const identity = leaseOwnerIdentity();
   const core = {
     lockFormat: AUTHORITY_LOCK_FORMAT,
     lockVersion: AUTHORITY_LOCK_VERSION,
     storeId,
     token: randomUUID(),
-    host: os.hostname(),
-    pid: process.pid,
+    host: identity.host,
+    ...(identity.machineId ? { machineId: identity.machineId } : {}),
+    pid: identity.pid,
+    processStartedAt: identity.processStartedAt,
     acquiredAt: new Date(now).toISOString(),
     expiresAt: new Date(now + AUTHORITY_LOCK_TTL_MS).toISOString()
   };
   return Object.freeze({ ...core, ownerSha256: platformSha256(core) });
+}
+
+/**
+ * The shared liveness rule: only a proven-dead owner is reclaimable. A v1 owner (no start time or
+ * machine ID) on this host with a running PID is held; another machine's owner is never reclaimed.
+ */
+function authorityLockLiveness(lock) {
+  return leaseOwnerAssessment(lock.owner, {
+    heartbeatMtimeMs: lock.heartbeatModifiedAt, heartbeatTtlMs: AUTHORITY_LOCK_TTL_MS
+  });
+}
+
+function authorityLockReclaimable(lock, now = Date.now()) {
+  if (!lock?.owner) {
+    // mkdir is the acquisition boundary; owner publication follows it. Never interpret this
+    // bounded, ownerless window as abandonment before the full acquisition grace has elapsed.
+    return Boolean(lock) && now - lock.info.mtimeMs > AUTHORITY_LOCK_ACQUISITION_GRACE_MS;
+  }
+  return authorityLockLiveness(lock).state === 'dead';
+}
+
+function authorityLockHolder(lock) {
+  if (!lock?.owner) return null;
+  const liveness = authorityLockLiveness(lock);
+  return {
+    host: lock.owner.host,
+    machineId: lock.owner.machineId ?? null,
+    pid: lock.owner.pid,
+    acquiredAt: lock.owner.acquiredAt,
+    expiresAt: lock.owner.expiresAt,
+    token: lock.owner.token,
+    liveness: {
+      state: liveness.state, reason: liveness.reason, heartbeat: liveness.heartbeat,
+      lastHeartbeatAt: liveness.lastHeartbeatAt
+    },
+    description: describeLeaseOwner(lock.owner, liveness)
+  };
+}
+
+function authorityBusyMessage(prefix, holder) {
+  if (!holder) return `${prefix}.`;
+  const { state, reason, heartbeat } = holder.liveness;
+  const review = state === 'unknown'
+    ? ' That process runs on another machine, so this one never takes the lock over; after checking it stopped, release exactly that lock after review.'
+    : state === 'alive' && reason !== 'this-process' && heartbeat !== 'fresh'
+      ? ' That process is still running here but stopped renewing the lock; stop it, or release exactly that lock after review.'
+      : '';
+  return `${prefix}: held by ${holder.description}.${review}`;
 }
 
 function authorityHeartbeatPath(directory, owner) {
@@ -840,8 +883,13 @@ function validateAuthorityLockOwner(value, storeId) {
   }
   exactObject(value, [
     'lockFormat', 'lockVersion', 'storeId', 'token', 'host', 'pid', 'acquiredAt', 'expiresAt',
-    'ownerSha256'
+    'ownerSha256', ...(value.lockVersion >= 2 ? ['machineId', 'processStartedAt'] : [])
   ], 'Authority Store lock owner');
+  if (value.lockVersion >= 2 && (!Number.isSafeInteger(value.processStartedAt) || value.processStartedAt < 0
+      || (value.machineId !== undefined
+        && (typeof value.machineId !== 'string' || value.machineId.length < 1 || value.machineId.length > 64)))) {
+    fail('Authority Store lock process identity is invalid.', 'SGOS_AUTHORITY_LOCK_CORRUPT');
+  }
   if (value.storeId !== storeId) {
     fail('Authority Store lock belongs to another store.', 'SGOS_AUTHORITY_STORE_MISMATCH');
   }
@@ -912,19 +960,7 @@ async function withStableCutoverLock(parent, storeId, operation) {
     return Object.freeze({ info, owner, heartbeatModifiedAt });
   }
 
-  function reclaimable(lock, now = Date.now()) {
-    if (!lock?.owner) {
-      // mkdir is the acquisition boundary; owner publication follows it. Never interpret this
-      // bounded, ownerless window as abandonment before the full acquisition grace has elapsed.
-      return Boolean(lock) && now - lock.info.mtimeMs > AUTHORITY_LOCK_ACQUISITION_GRACE_MS;
-    }
-    if (lock.owner.acquired > now) return false;
-    if (lock.owner.host === os.hostname() && !processAlive(lock.owner.pid)) return true;
-    const heartbeatExpiry = Number.isFinite(lock.heartbeatModifiedAt)
-      ? lock.heartbeatModifiedAt + AUTHORITY_LOCK_TTL_MS
-      : 0;
-    return now > Math.max(lock.owner.expires, heartbeatExpiry);
-  }
+  const reclaimable = authorityLockReclaimable;
 
   function sameObserved(left, right) {
     if (!left || !right || !sameFileIdentity(left.info, right.info)) return false;
@@ -947,6 +983,7 @@ async function withStableCutoverLock(parent, storeId, operation) {
     return true;
   }
 
+  let lastSeen = null;
   for (let attempt = 0; attempt < AUTHORITY_CUTOVER_LOCK_ATTEMPTS; attempt += 1) {
     let created = false;
     let createdIdentity = null;
@@ -994,6 +1031,7 @@ async function withStableCutoverLock(parent, storeId, operation) {
       }
       const existing = await inspect();
       if (existing && reclaimable(existing) && await reclaim(existing)) continue;
+      lastSeen = existing;
       await waitBriefly();
     }
     if (acquiredOwner) {
@@ -1016,7 +1054,10 @@ async function withStableCutoverLock(parent, storeId, operation) {
       }
     }
   }
-  fail('Authority Store cutover is busy.', 'SGOS_AUTHORITY_STORE_BUSY', { storeId });
+  const holder = authorityLockHolder(lastSeen);
+  fail(authorityBusyMessage('Authority Store cutover is busy', holder), 'SGOS_AUTHORITY_STORE_BUSY', {
+    storeId, lock: directory, owner: holder
+  });
 }
 
 function normalizeChanges(changes, entries) {
@@ -1508,23 +1549,9 @@ export async function openFilesystemAuthorityStore({
     return Object.freeze({ info, owner, heartbeatModifiedAt });
   }
 
-  function reclaimableLock(lock, now = Date.now()) {
-    if (!lock.owner) {
-      // A newly-created directory precedes atomic owner publication by a few filesystem calls. It
-      // is an acquiring lock throughout this bounded grace period, never evidence of abandonment.
-      return now - lock.info.mtimeMs > AUTHORITY_LOCK_ACQUISITION_GRACE_MS;
-    }
-    if (lock.owner.acquired > now) return false;
-    // A dead same-host owner is conclusive and can be recovered before its conservative lease
-    // deadline. Otherwise expiry is authoritative only when the token-specific heartbeat also
-    // expired. This prevents a recycled/live PID from stranding the store forever while ensuring a
-    // genuinely active operation continually extends its lease.
-    if (lock.owner.host === os.hostname() && !processAlive(lock.owner.pid)) return true;
-    const heartbeatExpiry = Number.isFinite(lock.heartbeatModifiedAt)
-      ? lock.heartbeatModifiedAt + AUTHORITY_LOCK_TTL_MS
-      : 0;
-    return now > Math.max(lock.owner.expires, heartbeatExpiry);
-  }
+  // A dead owner (gone, or its PID recycled) is recovered at once; a live or another machine's
+  // owner is never taken over on age (src/lease-liveness.mjs).
+  const reclaimableLock = authorityLockReclaimable;
 
   function sameObservedLock(left, right) {
     if (!left || !right || !sameFileIdentity(left.info, right.info)) return false;
@@ -1561,14 +1588,10 @@ export async function openFilesystemAuthorityStore({
           await waitBriefly();
           continue;
         }
-        fail('Authority Store is busy.', 'SGOS_AUTHORITY_STORE_BUSY', {
+        const holder = authorityLockHolder(existing);
+        fail(authorityBusyMessage('Authority Store is busy', holder), 'SGOS_AUTHORITY_STORE_BUSY', {
           lock: lockDirectory,
-          owner: existing.owner ? {
-            host: existing.owner.host,
-            pid: existing.owner.pid,
-            acquiredAt: existing.owner.acquiredAt,
-            expiresAt: existing.owner.expiresAt
-          } : null
+          owner: holder
         });
       }
       // Publish a complete, fsynced owner atomically. Readers either see no owner (and observe the
@@ -2064,6 +2087,43 @@ export async function openFilesystemAuthorityStore({
     async read() {
       const { head } = await verifiedSnapshot();
       return clonePlatformJson(head);
+    },
+
+    /**
+     * A person's way out of a transaction lock this machine cannot prove abandoned (another
+     * machine's owner, or a live one that stopped renewing). Only the reviewed token's generation
+     * moves, and it is retained under a unique name for inspection. A live, renewing owner here
+     * is refused.
+     */
+    async releaseLockAfterReview({ expectedToken } = {}) {
+      const seen = await inspectLock();
+      if (!seen) return Object.freeze({ released: false, reason: 'already-released', lock: lockDirectory });
+      if (!seen.owner || seen.owner.token !== expectedToken) {
+        fail('Authority Store lock is no longer the reviewed one; nothing was released.',
+          'SGOS_AUTHORITY_LOCK_RELEASE_MISMATCH', { lock: lockDirectory, owner: authorityLockHolder(seen) });
+      }
+      const holder = authorityLockHolder(seen);
+      const { state, reason, heartbeat } = holder.liveness;
+      if (state === 'alive' && (reason === 'this-process' || heartbeat === 'fresh')) {
+        fail(`Authority Store lock belongs to ${holder.description}, which is running here and still renewing it; nothing was released.`,
+          'SGOS_AUTHORITY_LOCK_RELEASE_REFUSED', { lock: lockDirectory, owner: holder });
+      }
+      const current = await inspectLock();
+      if (!sameObservedLock(seen, current)) {
+        fail('Authority Store lock changed while it was being released; nothing was released.',
+          'SGOS_AUTHORITY_LOCK_RELEASE_MISMATCH', { lock: lockDirectory });
+      }
+      const retained = path.join(canonicalRoot,
+        `.transaction-lock.released-after-review-${seen.owner.token}-${randomUUID()}`);
+      try { await rename(lockDirectory, retained); } catch (error) {
+        if (['ENOENT', 'EEXIST', 'ENOTEMPTY'].includes(error?.code)) {
+          fail('Authority Store lock changed while it was being released; nothing was released.',
+            'SGOS_AUTHORITY_LOCK_RELEASE_MISMATCH', { lock: lockDirectory });
+        }
+        throw error;
+      }
+      await fsyncDirectory(canonicalRoot);
+      return Object.freeze({ released: true, lock: lockDirectory, retainedAt: retained, owner: holder });
     },
 
     /** Read one verified snapshot only when its immutable lineage contains the approved floor. */

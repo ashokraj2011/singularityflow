@@ -31,6 +31,7 @@ const entries = {
   authority: ['sf-init'],
   cache: ['sf-doctor'],
   index: ['sf-doctor'],
+  lock: ['sf-doctor'],
   'factory-reset': ['sf-factory-reset'],
   governance: ['sf-governance-rebuild'],
   'reset-all': ['sf-reset-all'],
@@ -265,6 +266,8 @@ export const COMMAND_LINE_SKILL_ROUTES = Object.freeze({
   skill: route('sf-skill', { create: null, edit: null, attach: null, detach: null, remove: null }),
   cache: route('sf-doctor', { clear: null }),
   index: route('sf-doctor'),
+  // Releasing a lease is a person's reviewed step (OWN_TERMINAL_STEPS); a turn may only show one.
+  lock: route('sf-doctor', { release: null, 'release-file': null }),
   'help-metrics': route('sf-help', { on: null, off: null, clear: null }),
   repositories: route('sf-repositories', { 'cache clear': null }),
   gateway: route('sf-home', { serve: null }),
@@ -509,7 +512,9 @@ export const OWN_TERMINAL_STEPS = Object.freeze([
   ['upstream-amendment-decision', ([command, sub]) => command === 'upstream-issue' && ['decide-amendment', 'revalidate'].includes(sub)],
   ['environment-binding', ([command, sub]) => command === 'env' && ['bind', 'unbind'].includes(sub)],
   // Which agents a repository runs; APM's own --dry-run preview stays open to a turn [APM A2].
-  ['apm-install', ([command, sub], options) => command === 'apm' && sub === 'install' && options['dry-run'] !== true]
+  ['apm-install', ([command, sub], options) => command === 'apm' && sub === 'install' && options['dry-run'] !== true],
+  // Ending a lease another process holds: only a person who checked that process is gone (SDA M3).
+  ['lock-release', ([command, sub]) => command === 'lock' && ['release', 'release-file'].includes(sub)]
 ].map(([id, matches]) => Object.freeze({ id, matches })));
 
 /** The id of the own-terminal step this command line is, or null. */

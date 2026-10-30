@@ -5,17 +5,17 @@ import path from "node:path";
 import { Worker } from "node:worker_threads";
 import { constants, fstatSync, lstatSync, readSync, unlinkSync } from 'node:fs';
 import { incrementCommandCounter } from './dx-command-timing.mjs';
+import {
+  LEASE_PROCESS_STARTED_AT, LEASE_PROCESS_TOKEN, describeLeaseOwner, leaseOwnerAssessment, leaseOwnerIdentity
+} from './lease-liveness.mjs';
 import { SingularityFlowError } from "./util.mjs";
 
 const REGISTRY_LOCK_TIMEOUT_MS = 10_000;
+// Paces the heartbeat and says when it is reported stale. It never ends a live owner's lease.
 const REGISTRY_LOCK_STALE_MS = 15 * 60_000;
 const REGISTRY_LOCK_ACQUISITION_GRACE_MS = 30_000;
 const REGISTRY_RECLAIM_GRACE_MS = 30_000;
 const REGISTRY_RECLAIM_GENERATIONS = 32;
-const REGISTRY_LEASE_PROCESS_STARTED_AT = Math.max(
-  0, Math.trunc(Date.now() - process.uptime() * 1_000)
-);
-const REGISTRY_LEASE_PROCESS_TOKEN = randomUUID();
 const heldFileLeases = new Map();
 const leaseSignalHandlers = new Map();
 const CACHE_LEASE_STALE_MS = 15 * 60_000;
@@ -24,22 +24,12 @@ const LEASE_BYTES = 4096;
 
 function nowIso() { return new Date().toISOString(); }
 
-function registryLeaseOwnerAlive(owner) {
-  if (!Number.isInteger(owner?.pid) || owner.pid <= 0) return false;
-  // A process-local token distinguishes this process instance from an old lease whose PID the OS
-  // recycled back to us. Other PIDs cannot expose their token portably, so their heartbeat age is
-  // the authoritative cross-platform fence below; kill(0) only shortens recovery after a crash.
-  if (owner.host === os.hostname() && owner.pid === process.pid) {
-    return owner.processStartedAt === REGISTRY_LEASE_PROCESS_STARTED_AT
-      && owner.processToken === REGISTRY_LEASE_PROCESS_TOKEN;
-  }
-  if (owner.host && owner.host !== os.hostname()) return true;
-  try {
-    process.kill(owner.pid, 0);
-    return true;
-  } catch (error) {
-    return error?.code === 'EPERM';
-  }
+/** The shared liveness answer (src/lease-liveness.mjs) for a parsed owner record, or null. */
+function registryLeaseLiveness(owner, info = null, staleMs = REGISTRY_LOCK_STALE_MS) {
+  if (!owner || typeof owner !== 'object' || Array.isArray(owner)) return null;
+  return leaseOwnerAssessment(owner, {
+    heartbeatMtimeMs: info ? Number(info.mtimeMs) : null, heartbeatTtlMs: staleMs
+  });
 }
 
 function registryLeaseReclaimIdentity(ownerBytes, info) {
@@ -80,16 +70,18 @@ async function registryLeaseState(lock, {
   let owner = null;
   try { owner = JSON.parse(ownerBytes); } catch { /* malformed abandoned lock */ }
   const ageMs = registryLeaseAgeMs(info);
-  const ownerAlive = registryLeaseOwnerAlive(owner);
-  // The inode-bound heartbeat is authoritative. A live recycled PID therefore cannot preserve an
-  // old lock forever, while a definitely dead owner permits recovery after the short acquisition
-  // grace used for a crash between open and owner-record publication.
-  const stale = ageMs > staleMs || (!ownerAlive && ageMs > acquisitionGraceMs);
+  const liveness = registryLeaseLiveness(owner, info, staleMs);
+  const ownerAlive = Boolean(liveness) && liveness.state !== 'dead';
+  // Only a proven-dead owner is taken over (after the short grace that also covers a crash between
+  // open and owner publication). The inode heartbeat is reported, never decisive: a 15-minute age
+  // used to retire a live owner's lease, and another machine's, while it was still writing.
+  const stale = !ownerAlive && ageMs > acquisitionGraceMs;
   return {
     info,
     ownerBytes,
     owner,
     ownerAlive,
+    liveness,
     ageMs,
     stale,
     reclaimIdentity: registryLeaseReclaimIdentity(ownerBytes, info)
@@ -150,9 +142,10 @@ async function registryReclaimClaimState(claim, {
   return {
     destination,
     destinationState,
+    // A claim is a fence, not a lease: fencing a slow claimant never adds a writer, so age may end it.
     stale: destinationState === 'missing'
       && (ageMs > reclaimGraceMs
-        || (!registryLeaseOwnerAlive(owner) && ageMs > acquisitionGraceMs))
+        || ((registryLeaseLiveness(owner)?.state ?? 'dead') === 'dead' && ageMs > acquisitionGraceMs))
   };
 }
 
@@ -189,7 +182,10 @@ async function invokeRegistryLeaseHook(hooks, name, value) {
  * authority over the acquisition pathname.
  */
 async function reclaimRegistryFileLease(lock, observed, options = {}) {
-  if (!observed?.stale || !observed.reclaimIdentity) return false;
+  // A reviewed release names the exact owner token a person checked; it stands in for staleness.
+  const permitted = (state) => state.stale
+    || (typeof options.reviewedToken === 'string' && state.owner?.token === options.reviewedToken);
+  if (!observed || !permitted(observed) || !observed.reclaimIdentity) return false;
   for (let generation = 0; generation < REGISTRY_RECLAIM_GENERATIONS; generation += 1) {
     const claim = registryReclaimClaimPath(lock, observed.reclaimIdentity, generation, options);
     let created = false;
@@ -215,10 +211,7 @@ async function reclaimRegistryFileLease(lock, observed, options = {}) {
 
     const claimToken = randomUUID();
     await writeFile(path.join(claim, 'claim.json'), `${JSON.stringify({
-      pid: process.pid,
-      host: os.hostname(),
-      processStartedAt: REGISTRY_LEASE_PROCESS_STARTED_AT,
-      processToken: REGISTRY_LEASE_PROCESS_TOKEN,
+      ...leaseOwnerIdentity(),
       claimToken,
       reclaimIdentity: observed.reclaimIdentity,
       createdAt: nowIso()
@@ -229,7 +222,7 @@ async function reclaimRegistryFileLease(lock, observed, options = {}) {
 
     const current = options.cachePolicy
       ? await cacheFileLeaseState(lock, options) : await registryLeaseState(lock, options);
-    if (!current || !current.stale
+    if (!current || !permitted(current)
         || current.reclaimIdentity !== observed.reclaimIdentity
         || current.ownerBytes !== observed.ownerBytes
         || String(current.info.dev) !== String(observed.info.dev)
@@ -300,6 +293,79 @@ async function removeOwnedRegistryLeaseCandidate(lock, handle, acquiredInfo) {
   }
 }
 
+function registryLeaseNeedsReview(observed) {
+  const liveness = observed?.liveness;
+  if (!liveness || typeof observed.owner?.token !== 'string') return false;
+  return liveness.state === 'unknown'
+    || (liveness.state === 'alive' && liveness.reason !== 'this-process' && liveness.heartbeat !== 'fresh');
+}
+
+/** The reviewed-release route a registry refusal names; `releaseRegistryLeaseAfterReview` runs it. */
+export function registryLeaseReleaseCommand(lock, token) {
+  return `singularity-flow lock release-file ${JSON.stringify(lock)} --confirm ${token}`;
+}
+
+function registryBusyError(lock, observed) {
+  let message = 'The local workspace registry is busy in another process. Retry the same command.';
+  const details = { lock };
+  if (registryLeaseNeedsReview(observed)) {
+    const { owner, liveness } = observed;
+    details.owner = owner;
+    details.liveness = { state: liveness.state, reason: liveness.reason, heartbeat: liveness.heartbeat, lastHeartbeatAt: liveness.lastHeartbeatAt };
+    details.releaseCommand = registryLeaseReleaseCommand(lock, owner.token);
+    message = `The local workspace registry lease ${lock} is held by ${describeLeaseOwner(owner, liveness)}. `
+      + (liveness.state === 'unknown'
+        ? 'That process runs on another machine, so this one cannot prove it stopped and never takes the lease over. '
+        : 'That process is still running here but stopped renewing the lease; stopping it frees the lease. ')
+      + `After checking that it no longer uses this file, release exactly that lease with: ${details.releaseCommand}`;
+  }
+  return new SingularityFlowError(message, { code: 'WORKSPACE_REGISTRY_BUSY', details });
+}
+
+/**
+ * A person's way out of a registry lease this machine cannot prove abandoned. `expectedToken` is
+ * the reviewed owner token: only that inode generation moves, into a retained reclaim claim (the
+ * audit record), never a successor. A live owner here that still renews it is refused.
+ */
+export async function releaseRegistryLeaseAfterReview(lockFile, { expectedToken, hooks = null } = {}) {
+  const lock = path.resolve(lockFile);
+  if (typeof expectedToken !== 'string' || !expectedToken) {
+    throw new SingularityFlowError('A lease release confirms the reviewed lease token.', {
+      code: 'WORKSPACE_REGISTRY_RELEASE_INVALID', details: { lock }
+    });
+  }
+  const observed = await registryLeaseState(lock);
+  if (!observed) return Object.freeze({ released: false, reason: 'already-released', lock });
+  if (observed.owner?.token !== expectedToken) {
+    throw new SingularityFlowError(`The lease ${lock} is no longer the reviewed one. Nothing was released; review it again.`, {
+      code: 'WORKSPACE_REGISTRY_RELEASE_MISMATCH', details: { lock, owner: observed.owner }
+    });
+  }
+  const liveness = observed.liveness;
+  if (liveness?.state === 'alive' && (liveness.reason === 'this-process' || liveness.heartbeat === 'fresh')) {
+    throw new SingularityFlowError(
+      `The lease ${lock} belongs to ${describeLeaseOwner(observed.owner, liveness)}, which is running on this machine and still renewing it. `
+      + 'Nothing was released; let it finish or stop that process.',
+      { code: 'WORKSPACE_REGISTRY_RELEASE_REFUSED', details: { lock, owner: observed.owner } }
+    );
+  }
+  let claim = null;
+  const released = await reclaimRegistryFileLease(lock, observed, {
+    reviewedToken: expectedToken,
+    hooks: { ...hooks, beforeRetire: async (value) => { claim = value.claim; await hooks?.beforeRetire?.(value); } }
+  });
+  if (!released) {
+    throw new SingularityFlowError(`The lease ${lock} changed while it was being released. Nothing else was removed; review it again.`, {
+      code: 'WORKSPACE_REGISTRY_RELEASE_MISMATCH', details: { lock }
+    });
+  }
+  return Object.freeze({
+    released: true, lock, token: expectedToken, owner: observed.owner,
+    liveness: liveness ? { state: liveness.state, heartbeat: liveness.heartbeat, lastHeartbeatAt: liveness.lastHeartbeatAt } : null,
+    retainedAt: claim ? path.join(claim, 'retired.lock') : null
+  });
+}
+
 /** @internal Cross-process manifest lease; exported so its race contract can be process-tested. */
 export async function withRegistryFileLease(file, operation, options = {}) {
   const lock = `${path.resolve(file)}.lock`;
@@ -328,12 +394,7 @@ export async function withRegistryFileLease(file, operation, options = {}) {
         });
         if (reclaimed) continue;
       }
-      if (Date.now() - started >= timeoutMs) {
-        throw new SingularityFlowError(
-          'The local workspace registry is busy in another process. Retry the same command.',
-          { code: 'WORKSPACE_REGISTRY_BUSY' }
-        );
-      }
+      if (Date.now() - started >= timeoutMs) throw registryBusyError(lock, observed);
       await new Promise((resolve) => setTimeout(resolve, 25 + Math.floor(Math.random() * 50)));
       continue;
     }
@@ -347,10 +408,7 @@ export async function withRegistryFileLease(file, operation, options = {}) {
         lock, token, acquiredInfo
       });
       const ownerBytes = `${JSON.stringify({
-        pid: process.pid,
-        host: os.hostname(),
-        processStartedAt: REGISTRY_LEASE_PROCESS_STARTED_AT,
-        processToken: REGISTRY_LEASE_PROCESS_TOKEN,
+        ...leaseOwnerIdentity(),
         token,
         createdAt: nowIso()
       })}\n`;
@@ -379,8 +437,8 @@ export async function withRegistryFileLease(file, operation, options = {}) {
       try {
         const owner = JSON.parse(current.ownerBytes);
         if (owner?.token === token
-            && owner.processToken === REGISTRY_LEASE_PROCESS_TOKEN
-            && owner.processStartedAt === REGISTRY_LEASE_PROCESS_STARTED_AT) {
+            && owner.processToken === LEASE_PROCESS_TOKEN
+            && owner.processStartedAt === LEASE_PROCESS_STARTED_AT) {
           await rm(lock, { force: true }).catch(() => {});
         }
       } catch { /* A changed or malformed successor is never removed. */ }

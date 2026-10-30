@@ -1,13 +1,13 @@
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
-import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
+import { mkdir, mkdtemp, readdir, readFile, rename, rm, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
 import { fileURLToPath } from 'node:url';
 import { initializeDefinition } from '../src/config.mjs';
 import {
-  approveProposal, authorChange, describeChange, discardDrafts, draftLines, draftsPath, proposeDrafts, readDrafts
+  approveProposal, authorChange, describeChange, discardDrafts, draftLines, draftsDirectory, legacyDraftsPath, proposeDrafts, readDrafts
 } from '../src/configuration-drafts.mjs';
 import { childTimeout } from './helpers/child-timeout.mjs';
 
@@ -31,15 +31,15 @@ const attach = { op: 'skill.attach', skill: 'review', agent: 'qa', phases: ['ver
 
 /** A fake applier and authority, recording what the real ones would have been asked. */
 function harness({ authority = true, valid = true } = {}) {
-  const calls = [];
+  const calls = []; const checks = [];
   return {
-    calls,
+    calls, checks,
     apply: async (set, options = {}) => {
       calls.push({ changes: set.changes.map((change) => change.op), ...options });
       if (options.propose) return { reviewRequired: true, branch: 'sflow/config-change/workflow/studio-x', commit: 'a'.repeat(40), files: [] };
       return { valid: true, files: [{ path: 'x', action: 'create' }], summary: ['planned'] };
     },
-    check: async (set) => ({
+    check: async (set, options = {}) => (checks.push(options), {
       plan: valid ? { valid: true, summary: set.changes.map(describeChange), warnings: [] }
         : { valid: false, problems: [{ message: 'There is no skill review.' }], summary: [], files: [] },
       source: authority ? { kind: 'remote', commit: 'b'.repeat(40) } : { kind: 'working-tree' }
@@ -52,16 +52,23 @@ test('with an approved configuration each change becomes a draft, checked togeth
   const fake = harness();
   const first = await authorChange(root, { schema: SET, changes: [skill] }, { subject: 'review', message: 'm', ...fake });
   assert.equal(first.draft, true);
-  assert.deepEqual(first.drafts, { pending: 1, added: ['New skill Review (review)'] });
+  assert.deepEqual(first.drafts, { pending: 1, added: ['New skill Review (review)'], ids: [first.drafts.ids[0]] });
+  assert.match(first.drafts.ids[0], /^cdr-[0-9a-f]{24}$/);
   const second = await authorChange(root, { schema: SET, changes: [attach] }, { subject: 'review', message: 'm', ...fake });
   assert.equal(second.drafts.pending, 2);
   assert.deepEqual(second.summary, ['New skill Review (review)', 'Attach skill review to agent qa in verification'],
     'the attach was checked on top of the draft that creates the skill');
   assert.deepEqual(fake.calls, [], 'saving a draft writes no configuration and proposes nothing');
+  assert.deepEqual(fake.checks, [{ refreshAuthority: false }, { refreshAuthority: false }],
+    'each save is checked against the configuration held on this machine, without asking the remote');
   const saved = await readDrafts(root);
   assert.deepEqual(saved.changes.map((entry) => entry.change.op), ['skill.create', 'skill.attach']);
-  assert.match(draftsPath(root), /singularity-flow[\\/]configuration-drafts[\\/]drafts\.json$/);
-  assert.match(draftLines(saved).join('\n'), /2 drafts, not used by any Story until approved:\n {2}1\. New skill Review \(review\)/);
+  assert.deepEqual(saved.changes.map((entry) => entry.state), ['saved-local', 'saved-local']);
+  assert.deepEqual(saved.changes[0].checkedAgainst, { commit: 'b'.repeat(40), source: 'remote' });
+  assert.deepEqual(second.drafts.ids, [saved.changes[1].draftId]);
+  assert.match(draftsDirectory(root), /singularity-flow[\\/]configuration-drafts[\\/]v2$/);
+  assert.match(draftLines(saved).join('\n'), /2 drafts saved on this machine, not used by any Story until approved:\n {2}1\. New skill Review \(review\)/);
+  assert.match(draftLines(saved).join('\n'), new RegExp(`configuration discard <NUMBER> --listing ${saved.listing} `));
 });
 
 test('without an approved configuration the change is written to the working tree as before', async t => {
@@ -94,25 +101,44 @@ test('dry runs and --propose include the drafts; one proposal holds the whole ba
   const after = await readDrafts(root);
   assert.deepEqual(after.changes, []);
   assert.equal(after.proposed.branch, 'sflow/config-change/workflow/studio-x');
+  assert.equal(after.proposed.draftIds.length, 1, 'the proposal names the one draft it holds');
+  assert.equal(after.revision, 1);
   await assert.rejects(proposeDrafts(root, fake), (error) => error.code === 'CONFIGURATION_DRAFTS_EMPTY'
     && /ready for approval: singularity-flow configuration approve/.test(error.message));
 });
 
-test('drafts can be discarded one at a time or all together', async t => {
+test('drafts can be discarded by number from a list, by ID, or all together; a list that moved is refused', async t => {
   const root = await repository(t);
   const fake = harness();
-  await authorChange(root, { schema: SET, changes: [skill] }, { subject: 'review', message: 'm', ...fake });
-  await authorChange(root, { schema: SET, changes: [attach] }, { subject: 'review', message: 'm', ...fake });
-  await assert.rejects(discardDrafts(root, { number: 3 }), (error) => error.code === 'CONFIGURATION_DRAFT_UNKNOWN');
-  assert.deepEqual((await discardDrafts(root, { number: 1 })).removed, ['New skill Review (review)']);
+  const other = { op: 'instruction.create', id: 'tone', description: 'Tone.', instructions: 'Be kind.' };
+  for (const change of [skill, attach, other]) await authorChange(root, { schema: SET, changes: [change] }, { subject: 'x', message: 'm', ...fake });
+  const shown = await readDrafts(root);
+  await assert.rejects(discardDrafts(root, { number: 4 }), (error) => error.code === 'CONFIGURATION_DRAFT_UNKNOWN');
+  const first = await discardDrafts(root, { number: 1, listing: shown.listing });
+  assert.deepEqual(first.removed, ['New skill Review (review)']);
+  assert.deepEqual(first.removedIds, [shown.changes[0].draftId]);
+  await assert.rejects(discardDrafts(root, { number: 1, listing: shown.listing }), (error) => error.code === 'CONFIGURATION_DRAFTS_CHANGED'
+    && error.outcomeClass === 'REVISION_CONFLICT' && error.details.listing === first.listing, 'the numbers of an old list mean other drafts now');
+  assert.equal((await readDrafts(root)).changes.length, 2, 'nothing was dropped by the refused discard');
+  await assert.rejects(discardDrafts(root, { ids: ['cdr-000000000000000000000000'] }), (error) => error.code === 'CONFIGURATION_DRAFT_UNKNOWN');
+  assert.deepEqual((await discardDrafts(root, { ids: [shown.changes[2].draftId] })).removed, ['New instruction tone']);
   assert.equal((await discardDrafts(root, { all: true })).pending, 0);
+  await assert.rejects(discardDrafts(root, { all: true }), (error) => error.code === 'CONFIGURATION_DRAFTS_EMPTY');
 });
 
-test('a damaged drafts file is refused, never silently emptied', async t => {
+test('a damaged drafts file is refused and left in place, never silently emptied', async t => {
   const root = await repository(t);
-  await mkdir(path.dirname(draftsPath(root)), { recursive: true });
-  await writeFile(draftsPath(root), '{"schema":"other"}');
+  await mkdir(path.dirname(legacyDraftsPath(root)), { recursive: true });
+  await writeFile(legacyDraftsPath(root), '{"schema":"other"}');
   await assert.rejects(readDrafts(root), (error) => error.code === 'CONFIGURATION_DRAFTS_INVALID');
+  assert.equal(await readFile(legacyDraftsPath(root), 'utf8'), '{"schema":"other"}');
+  await rm(legacyDraftsPath(root));
+  await authorChange(root, { schema: SET, changes: [skill] }, { subject: 'review', message: 'm', ...harness() });
+  const [entry] = (await readDrafts(root)).changes;
+  const file = path.join(draftsDirectory(root), `${entry.draftId}.json`);
+  await writeFile(file, (await readFile(file, 'utf8')).replace('Reviews.', 'Something else.'));
+  await assert.rejects(readDrafts(root), (error) => error.code === 'CONFIGURATION_DRAFTS_INVALID' && error.details.file === file,
+    'a draft whose bytes no longer match its digest is refused');
 });
 
 test('approving shows what changes, needs a yes, and activates exactly the revision that was shown', async t => {
@@ -171,8 +197,29 @@ test('end to end: three dependent changes become one proposal, approved with one
 
   assert.match(flow(checkout, ['instruction', 'create', 'tone', '--description', 'How to phrase comments.', '--instructions', 'Be kind and specific.']).stdout,
     /Saved as a draft; no Story uses it until it is approved\. Drafts waiting: 1\./);
-  flow(checkout, ['skill', 'create', 'review', '--description', 'Reviews a change.', '--from', skillFile]);
+  // The first save learned that the repository has an approved configuration. Later saves ask no
+  // remote: with it gone, the change is checked against this checkout's configuration, and a retry
+  // of the same operation returns the same draft.
+  assert.equal(JSON.parse(await readFile(path.join(draftsDirectory(checkout), 'authority.json'), 'utf8')).source, 'sflow/config');
+  await rename(remote, `${remote}.offline`);
+  const create = ['skill', 'create', 'review', '--description', 'Reviews a change.', '--from', skillFile, '--operation-id', 'e2e-review'];
+  assert.match(flow(checkout, create).stdout, /Drafts waiting: 2\./);
+  const retried = JSON.parse(flow(checkout, [...create, '--json']).stdout);
+  assert.equal(retried.saved, 'existing');
+  assert.equal(retried.drafts.pending, 2);
+  await rename(`${remote}.offline`, remote);
   assert.match(flow(checkout, ['skill', 'attach', 'review', '--agent', 'qa', '--phases', 'verification']).stdout, /Drafts waiting: 3\./);
+  const listed = JSON.parse(flow(checkout, ['configuration', 'drafts', '--json']).stdout);
+  assert.deepEqual(listed.drafts.map((entry) => [entry.number, entry.state]), [[1, 'saved-local'], [2, 'saved-local'], [3, 'saved-local']]);
+  assert.equal(listed.drafts[1].operationId, 'e2e-review');
+  assert.match(listed.drafts[0].checkedAgainst.commit, /^[0-9a-f]{40}$/);
+  assert.deepEqual(listed.drafts[1].checkedAgainst, { commit: null, source: 'checkout-configuration' });
+  // An index rebuild touches no draft (SDA-AC-003).
+  const store = draftsDirectory(checkout);
+  const snapshot = async () => Promise.all((await readdir(store)).sort().map(async (name) => [name, await readFile(path.join(store, name), 'utf8')]));
+  const kept = await snapshot();
+  flow(checkout, ['index', 'rebuild', '--json']);
+  assert.deepEqual(await snapshot(), kept);
   assert.match(flow(checkout, ['skill', 'list']).stdout, /Drafts, not used by any Story until approved:\n {2}New skill review\n {2}Attach skill review to agent qa in verification/);
   const before = git(remote, 'rev-parse', 'sflow/config');
   assert.match(flow(checkout, ['configuration', 'propose']).stdout, /Proposed 3 drafts as one review\./);
@@ -184,5 +231,5 @@ test('end to end: three dependent changes become one proposal, approved with one
   assert.match(git(remote, 'show', 'sflow/config:singularity/skill-library/review/SKILL.md'), /<instruction>tone<\/instruction>/);
   assert.match(git(remote, 'show', 'sflow/config:singularity/skill-library/attachments.yml'), /review/);
   assert.match(flow(checkout, ['configuration', 'drafts']).stdout, /^No drafts\./);
-  assert.equal(JSON.parse(await readFile(draftsPath(checkout), 'utf8')).proposed, null);
+  assert.equal(JSON.parse(await readFile(path.join(draftsDirectory(checkout), 'proposed.json'), 'utf8')).proposed, null);
 });

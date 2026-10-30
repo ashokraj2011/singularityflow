@@ -77,26 +77,42 @@ export async function refreshBehind(directory, file, refreshRecipe, env, found) 
  * depends on has changed since. An explicit refresh waits too, then makes its own observation. When
  * the authority cannot be reached, a record already held is served as `refresh-failed`.
  */
-export async function coalescedRefresh({ root, settings, directory, file, key, explicit, replay, found, observeStamp,
+export async function coalescedRefresh({ root, settings, directory, file, key, authority, explicit, replay, found, observeStamp,
   observe, prepareDirectory, restamp }, compute) {
   const { lease: leaseFile } = projectionSidecars(file);
+  // Another process's refresh answers this read when its record is newer than the one this read
+  // judged, for the same authority; a waiter that started late must not miss it (SDA-AC-014).
+  const newerShared = () => {
+    if (explicit) return null;
+    const shared = readProjectionRecord(file, key);
+    return shared && shared.stamp && shared.authority === authority && shared.checkedAt > (found?.checkedAt ?? -Infinity) ? shared : null;
+  };
+  const serveShared = (shared) => {
+    incrementCommandCounter('repository-checks.shared');
+    observe(root, settings, 'shared', shared.checkedAt, null, { freshness: 'fresh', completeness: 'complete' });
+    return shared.value;
+  };
   let lease = null;
   if (await prepareDirectory(directory).catch(() => false)) {
     const { acquireFileLease, inspectFileLease } = await import('./file-lease.mjs');
     const acquire = () => acquireFileLease(leaseFile, { staleMs: REFRESH_LEASE_STALE_MS }).catch(() => null);
     lease = await acquire();
     if (!lease && replay) return found ? found.value : compute();
+    if (lease && !replay) {
+      // That refresh can also finish between this read's look at the record and this lease.
+      const shared = newerShared();
+      if (shared && shared.stamp === observeStamp()) {
+        await lease.release().catch(() => {});
+        return serveShared(shared);
+      }
+    }
     if (!lease) {
       const waited = Date.now();
       incrementCommandCounter('repository-checks.refresh-waits');
       await waitForRefreshLease(leaseFile, inspectFileLease, waited + COALESCE_WAIT_MS);
       const current = observeStamp();
-      const shared = explicit ? null : readProjectionRecord(file, key);
-      if (shared && current && shared.stamp === current && shared.checkedAt >= waited) {
-        incrementCommandCounter('repository-checks.shared');
-        observe(root, settings, 'shared', shared.checkedAt, null, { freshness: 'fresh', completeness: 'complete' });
-        return shared.value;
-      }
+      const shared = newerShared();
+      if (shared && current && shared.stamp === current) return serveShared(shared);
       restamp(current);
       lease = await acquire();
     }

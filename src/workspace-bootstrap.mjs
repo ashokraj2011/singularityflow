@@ -542,7 +542,7 @@ function probeCredentialFree(url) {
 }
 
 function planFromInput(input, {
-  initialize = false, stateBranch = 'state', inferDefaultRepositories = [], checkout = true,
+  initialize = false, stateBranch = 'state', inferDefaultRepositories = [], checkout = false,
   allowSyncedFolder = false
 } = {}) {
   const { createInput, preview } = normalizeCreateInput(input);
@@ -580,7 +580,9 @@ export async function prepareWorkspaceBootstrap({
   initialize = false,
   stateBranch = 'state',
   inferDefaultRepositories = [],
-  checkout = true,
+  // Application checkouts are deferred until work needs them (SPEC-SDA §11). State
+  // initialization writes into the lead checkout, so it alone opts into cloning by default.
+  checkout = initialize === true,
   allowSyncedFolder = false
 }, { env = process.env, home = os.homedir(), runCommand = run } = {}) {
   if (initialize && !checkout) {

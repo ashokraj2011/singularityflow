@@ -9,7 +9,7 @@ import { SingularityFlowError } from '../util.mjs';
 
 export const CONFIGURATION_DRAFT_SUBCOMMANDS = Object.freeze(['drafts', 'propose', 'discard', 'approve']);
 const OPTIONS = Object.freeze({
-  drafts: ['json'], propose: ['json', 'message', 'background-sync'], discard: ['json', 'all'], approve: ['json', 'yes']
+  drafts: ['json'], propose: ['json', 'message', 'background-sync'], discard: ['json', 'all', 'listing'], approve: ['json', 'yes']
 });
 
 function validate(subcommand, positionals, options) {
@@ -38,8 +38,9 @@ export async function run({ subcommand, positionals, options, root, apply, print
   if (subcommand === 'drafts') {
     const value = await drafts.readDrafts(root);
     if (json) {
-      return console.log(JSON.stringify({ schemaVersion: 1, resultType: 'configuration-drafts',
-        drafts: value.changes.map((entry, index) => ({ number: index + 1, description: entry.description, addedAt: entry.addedAt, change: entry.change })),
+      return console.log(JSON.stringify({ schemaVersion: 1, resultType: 'configuration-drafts', listing: value.listing,
+        drafts: value.changes.map((entry, index) => ({ number: index + 1, draftId: entry.draftId, state: entry.state, description: entry.description,
+          addedAt: entry.addedAt, operationId: entry.operationId, checkedAgainst: entry.checkedAgainst, change: entry.change })),
         proposed: value.proposed }, null, 2));
     }
     return console.log(drafts.draftLines(value).join('\n'));
@@ -51,8 +52,15 @@ export async function run({ subcommand, positionals, options, root, apply, print
     return printResult({ ...result, drafts: undefined }, { dryRun: false });
   }
   if (subcommand === 'discard') {
-    const number = positionals[2] == null ? null : Number(positionals[2]);
-    const result = await drafts.discardDrafts(root, { number, all: options.all === true });
+    // A number is a place in the list `configuration drafts` showed; --listing names that list, so a
+    // list that changed since is refused rather than dropping a different draft. A draft ID is exact.
+    const target = positionals[2] ?? null;
+    const byId = target != null && drafts.DRAFT_ID.test(target);
+    if (options.listing !== undefined && typeof options.listing !== 'string') {
+      throw new SingularityFlowError('--listing takes the listing shown by singularity-flow configuration drafts.', { code: 'CONFIGURATION_DRAFTS_OPTION_UNSUPPORTED' });
+    }
+    const result = await drafts.discardDrafts(root, { ids: byId ? [target] : [], number: target == null || byId ? null : Number(target),
+      listing: options.listing ?? null, all: options.all === true });
     if (json) return console.log(JSON.stringify(result, null, 2));
     for (const line of result.removed) console.log(`Discarded: ${line}`);
     return console.log(`${result.pending} draft${result.pending === 1 ? '' : 's'} left.`);

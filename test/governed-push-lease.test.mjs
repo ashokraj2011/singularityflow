@@ -62,6 +62,11 @@ function enclosingFunction(node) {
   return '<module>';
 }
 
+/** `Object.freeze([...])` is a constant list (`PENDING_OPERATION_KINDS`), never a process's arguments. */
+function frozenConstant(array, sourceFile) {
+  return ts.isCallExpression(array.parent) && array.parent.expression.getText(sourceFile) === 'Object.freeze';
+}
+
 /** Whether one argument-list element carries a lease: its text, or a variable named for one. */
 function carriesLease(element, sourceFile) {
   if (element.getText(sourceFile).includes('--force-with-lease')) return true;
@@ -91,7 +96,8 @@ export async function governedPushSites(sourceRoot = path.join(root, 'src')) {
     const relative = path.relative(sourceRoot, file).split(path.sep).join('/');
     const line = (node) => sourceFile.getLineAndCharacterOfPosition(node.getStart(sourceFile)).line + 1;
     const visit = (node) => {
-      if (ts.isArrayLiteralExpression(node) && (ts.isCallExpression(node.parent) || ts.isVariableDeclaration(node.parent))) {
+      if (ts.isArrayLiteralExpression(node) && (ts.isCallExpression(node.parent) || ts.isVariableDeclaration(node.parent))
+          && !frozenConstant(node, sourceFile)) {
         const verb = pushVerbIndex(node);
         if (verb >= 0) {
           const rest = node.elements.slice(verb + 1);

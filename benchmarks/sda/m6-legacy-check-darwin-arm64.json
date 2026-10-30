@@ -1,0 +1,140 @@
+{
+  "schemaVersion": 1,
+  "specification": "SDA-v1 M6 legacy compatibility check",
+  "legacyEngine": "c6a65e33b",
+  "engine": "e34fb6dbf",
+  "runtime": {
+    "platform": "darwin",
+    "architecture": "arm64",
+    "node": "v22.14.0",
+    "git": "git version 2.54.0"
+  },
+  "fixture": {
+    "stories": 2,
+    "ledger": "enabled",
+    "remote": "local bare repository",
+    "laptops": 2
+  },
+  "passed": true,
+  "checks": [
+    {
+      "step": "reads",
+      "check": "status LEG-1 answers",
+      "passed": true
+    },
+    {
+      "step": "reads",
+      "check": "nextsteps LEG-1 answers",
+      "passed": true
+    },
+    {
+      "step": "reads",
+      "check": "session candidates answers",
+      "passed": true
+    },
+    {
+      "step": "reads",
+      "check": "the ledger verifies with the same entries",
+      "passed": true,
+      "detail": {
+        "entries": 5
+      }
+    },
+    {
+      "step": "reads",
+      "check": "every stored record reads through its family",
+      "passed": true,
+      "detail": {
+        "families": {
+          "artifact-sidecar": 1,
+          "generation-publication": 1,
+          "governed-reference": 1,
+          "ledger-entry": 16,
+          "ledger-intent": 5,
+          "phase-approval": 1,
+          "phase-telemetry": 1,
+          "return-locator": 2,
+          "story-submission-packet": 1,
+          "story-test-policy": 2,
+          "story-workflow": 2,
+          "workflow-snapshot": 2
+        },
+        "unreadable": []
+      }
+    },
+    {
+      "step": "reads",
+      "check": "remote bytes the older build wrote are unchanged",
+      "passed": true
+    },
+    {
+      "step": "reads",
+      "check": "local bytes the older build wrote are unchanged",
+      "passed": true
+    },
+    {
+      "step": "index rebuild",
+      "check": "remote bytes the older build wrote are unchanged",
+      "passed": true
+    },
+    {
+      "step": "index rebuild",
+      "check": "local bytes the older build wrote are unchanged",
+      "passed": true
+    },
+    {
+      "step": "takeover",
+      "check": "another laptop takes the Story over",
+      "passed": true,
+      "detail": {
+        "ready": true
+      }
+    },
+    {
+      "step": "takeover",
+      "check": "the Story arrives exactly as the older build published it",
+      "passed": true
+    },
+    {
+      "step": "takeover",
+      "check": "the ledger verifies there with the same entries",
+      "passed": true,
+      "detail": {
+        "entries": 5
+      }
+    },
+    {
+      "step": "takeover",
+      "check": "remote bytes the older build wrote are unchanged",
+      "passed": true
+    },
+    {
+      "step": "takeover",
+      "check": "local bytes the older build wrote are unchanged",
+      "passed": true
+    },
+    {
+      "step": "advance",
+      "check": "the new transitions are committed on top of the older history",
+      "passed": true
+    },
+    {
+      "step": "advance",
+      "check": "the advanced Story is published",
+      "passed": true
+    },
+    {
+      "step": "advance",
+      "check": "the ledger verifies, with the older entries and the new ones",
+      "passed": true,
+      "detail": {
+        "entries": 8
+      }
+    },
+    {
+      "step": "advance",
+      "check": "the approved Story the older build wrote is unchanged",
+      "passed": true
+    }
+  ]
+}

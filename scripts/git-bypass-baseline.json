@@ -875,10 +875,10 @@
     },
     "src/configuration-object-store.mjs": {
       "counts": {
-        "command-git": 12,
+        "command-git": 11,
         "command-run": 1
       },
-      "digest": "3d373bd42e932dc7ea61713efb0b1a83973410eca2c73f72aa2f4289e44a1d90"
+      "digest": "4bea4c8b12afb0a50aa5be3fadfedd9f84db362b2cc2b34307267ae4081db8c9"
     },
     "src/configuration-projection.mjs": {
       "counts": {
@@ -1839,12 +1839,21 @@
       },
       "digest": "91d2fad3ea43aed7561d06bdd8c3adfeab63d977bd7c6039d1ac9dcd60962319"
     },
+    "scripts/sda-legacy-check.mjs": {
+      "counts": {
+        "command-git": 19,
+        "command-run": 6,
+        "process-import": 1,
+        "process-launch": 4
+      },
+      "digest": "136ed61b45920d13da42e3322a8ee1fd7b93f330c93a43bd44923cbe4ad4ea42"
+    },
     "scripts/sda-read-baseline.mjs": {
       "counts": {
         "process-import": 1,
-        "process-launch": 3
+        "process-launch": 4
       },
-      "digest": "3b0e7dfe8f6519c0e409afcb930ac6a48cc751e4ee65b524cb0846f49b47b32d"
+      "digest": "81c5c17ec76713ea0834b2d598598d1c757bee57ab070c2bd6eb19fb91c68e35"
     },
     "src/source-inspection.mjs": {
       "counts": {

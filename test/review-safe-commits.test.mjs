@@ -19,7 +19,9 @@ function run(command, args, cwd, { fail = false } = {}) {
   return result;
 }
 const flow = (root, args, options) => run(process.execPath, [bin, ...args], root, options);
-const git = (root, ...args) => run('git', args, root).stdout.trim();
+// No detached automatic maintenance: it would still be writing objects/pack when the test removes
+// the directory (Git 2.54, test/git-automatic-maintenance.test.mjs).
+const git = (root, ...args) => run('git', ['-c', 'gc.auto=0', '-c', 'maintenance.auto=false', ...args], root).stdout.trim();
 
 /** A Story whose first step is submitted and awaits approval. */
 async function submitted(t, id) {

@@ -1,0 +1,1508 @@
+{
+  "schemaVersion": 2,
+  "specification": "SDA-v1 read and write baseline (M0, M6)",
+  "engine": "c6a65e33b",
+  "harness": "e34fb6dbf",
+  "runtime": {
+    "platform": "darwin",
+    "architecture": "arm64",
+    "node": "v22.14.0",
+    "git": "git version 2.54.0",
+    "cpu": "Apple M4"
+  },
+  "fixture": {
+    "trackedFiles": 100,
+    "stories": 3,
+    "ledger": "enabled",
+    "remote": "local bare repository",
+    "checkout": "Story SDA-001"
+  },
+  "protocol": {
+    "samples": 5,
+    "process": "fresh CLI process per sample",
+    "osCachesFlushed": false,
+    "network": "none (local bare remote)",
+    "model": "none",
+    "offline": "remote repository moved away for the offline conditions",
+    "expired": "every repository-check record aged 31 minutes before each sample; background refresh off",
+    "fill": "one unmeasured online run in the condition's own mode before each read's samples",
+    "takeover": "a clone made before any Story existed, with its own machine state and home, per sample"
+  },
+  "reads": {
+    "story-list": [
+      "session",
+      "candidates",
+      "--workspace",
+      "<workspace>",
+      "--repository",
+      "app",
+      "--diagnostics"
+    ],
+    "status": [
+      "status",
+      "SDA-001"
+    ],
+    "nextsteps": [
+      "nextsteps",
+      "SDA-001"
+    ],
+    "intake-catalog": [
+      "workspace",
+      "branches",
+      "--intake"
+    ],
+    "repository-snapshot": [
+      "snapshot",
+      "--include",
+      "repository"
+    ],
+    "check": [
+      "check"
+    ]
+  },
+  "results": [
+    {
+      "read": "story-list",
+      "condition": "fresh-cache",
+      "mode": "cached",
+      "offline": false,
+      "freshness": null,
+      "answered": true,
+      "outcome": "ok",
+      "medianMs": 253,
+      "p95Ms": 258,
+      "processes": {
+        "min": 0,
+        "max": 0
+      },
+      "git": {
+        "min": 0,
+        "max": 0
+      },
+      "otherProcesses": {
+        "min": 0,
+        "max": 0
+      },
+      "remoteGit": {
+        "min": 0,
+        "max": 0,
+        "source": "probe"
+      },
+      "remoteGitSeenByProbe": {
+        "min": 0,
+        "max": 0
+      }
+    },
+    {
+      "read": "status",
+      "condition": "fresh-cache",
+      "mode": "cached",
+      "offline": false,
+      "freshness": null,
+      "answered": true,
+      "outcome": "ok",
+      "medianMs": 113,
+      "p95Ms": 114,
+      "processes": {
+        "min": 0,
+        "max": 0
+      },
+      "git": {
+        "min": 0,
+        "max": 0
+      },
+      "otherProcesses": {
+        "min": 0,
+        "max": 0
+      },
+      "remoteGit": {
+        "min": 0,
+        "max": 0,
+        "source": "probe"
+      },
+      "remoteGitSeenByProbe": {
+        "min": 0,
+        "max": 0
+      }
+    },
+    {
+      "read": "nextsteps",
+      "condition": "fresh-cache",
+      "mode": "cached",
+      "offline": false,
+      "freshness": null,
+      "answered": true,
+      "outcome": "ok",
+      "medianMs": 237,
+      "p95Ms": 237,
+      "processes": {
+        "min": 2,
+        "max": 2
+      },
+      "git": {
+        "min": 2,
+        "max": 2
+      },
+      "otherProcesses": {
+        "min": 0,
+        "max": 0
+      },
+      "remoteGit": {
+        "min": 0,
+        "max": 0,
+        "source": "probe"
+      },
+      "remoteGitSeenByProbe": {
+        "min": 0,
+        "max": 0
+      }
+    },
+    {
+      "read": "intake-catalog",
+      "condition": "fresh-cache",
+      "mode": "cached",
+      "offline": false,
+      "freshness": null,
+      "answered": true,
+      "outcome": "ok",
+      "medianMs": 76,
+      "p95Ms": 78,
+      "processes": {
+        "min": 0,
+        "max": 0
+      },
+      "git": {
+        "min": 0,
+        "max": 0
+      },
+      "otherProcesses": {
+        "min": 0,
+        "max": 0
+      },
+      "remoteGit": {
+        "min": 0,
+        "max": 0,
+        "source": "probe"
+      },
+      "remoteGitSeenByProbe": {
+        "min": 0,
+        "max": 0
+      }
+    },
+    {
+      "read": "repository-snapshot",
+      "condition": "fresh-cache",
+      "mode": "cached",
+      "offline": false,
+      "freshness": null,
+      "answered": true,
+      "outcome": "ok",
+      "medianMs": 99,
+      "p95Ms": 101,
+      "processes": {
+        "min": 3,
+        "max": 3
+      },
+      "git": {
+        "min": 3,
+        "max": 3
+      },
+      "otherProcesses": {
+        "min": 0,
+        "max": 0
+      },
+      "remoteGit": {
+        "min": 0,
+        "max": 0,
+        "source": "probe"
+      },
+      "remoteGitSeenByProbe": {
+        "min": 0,
+        "max": 0
+      }
+    },
+    {
+      "read": "check",
+      "condition": "fresh-cache",
+      "mode": "cached",
+      "offline": false,
+      "freshness": null,
+      "answered": true,
+      "outcome": "ok",
+      "medianMs": 583,
+      "p95Ms": 617,
+      "processes": {
+        "min": 43,
+        "max": 43
+      },
+      "git": {
+        "min": 43,
+        "max": 43
+      },
+      "otherProcesses": {
+        "min": 0,
+        "max": 0
+      },
+      "remoteGit": {
+        "min": 0,
+        "max": 0,
+        "source": "probe"
+      },
+      "remoteGitSeenByProbe": {
+        "min": 0,
+        "max": 0
+      }
+    },
+    {
+      "read": "story-list",
+      "condition": "expired",
+      "mode": "cached",
+      "offline": false,
+      "freshness": null,
+      "answered": true,
+      "outcome": "ok",
+      "medianMs": 435,
+      "p95Ms": 453,
+      "processes": {
+        "min": 15,
+        "max": 16
+      },
+      "git": {
+        "min": 15,
+        "max": 16
+      },
+      "otherProcesses": {
+        "min": 0,
+        "max": 0
+      },
+      "remoteGit": {
+        "min": 1,
+        "max": 1,
+        "source": "probe"
+      },
+      "remoteGitSeenByProbe": {
+        "min": 1,
+        "max": 1
+      }
+    },
+    {
+      "read": "status",
+      "condition": "expired",
+      "mode": "cached",
+      "offline": false,
+      "freshness": null,
+      "answered": true,
+      "outcome": "ok",
+      "medianMs": 112,
+      "p95Ms": 113,
+      "processes": {
+        "min": 0,
+        "max": 0
+      },
+      "git": {
+        "min": 0,
+        "max": 0
+      },
+      "otherProcesses": {
+        "min": 0,
+        "max": 0
+      },
+      "remoteGit": {
+        "min": 0,
+        "max": 0,
+        "source": "probe"
+      },
+      "remoteGitSeenByProbe": {
+        "min": 0,
+        "max": 0
+      }
+    },
+    {
+      "read": "nextsteps",
+      "condition": "expired",
+      "mode": "cached",
+      "offline": false,
+      "freshness": null,
+      "answered": true,
+      "outcome": "ok",
+      "medianMs": 237,
+      "p95Ms": 241,
+      "processes": {
+        "min": 2,
+        "max": 2
+      },
+      "git": {
+        "min": 2,
+        "max": 2
+      },
+      "otherProcesses": {
+        "min": 0,
+        "max": 0
+      },
+      "remoteGit": {
+        "min": 0,
+        "max": 0,
+        "source": "probe"
+      },
+      "remoteGitSeenByProbe": {
+        "min": 0,
+        "max": 0
+      }
+    },
+    {
+      "read": "intake-catalog",
+      "condition": "expired",
+      "mode": "cached",
+      "offline": false,
+      "freshness": null,
+      "answered": true,
+      "outcome": "ok",
+      "medianMs": 749,
+      "p95Ms": 758,
+      "processes": {
+        "min": 20,
+        "max": 20
+      },
+      "git": {
+        "min": 20,
+        "max": 20
+      },
+      "otherProcesses": {
+        "min": 0,
+        "max": 0
+      },
+      "remoteGit": {
+        "min": 1,
+        "max": 1,
+        "source": "probe"
+      },
+      "remoteGitSeenByProbe": {
+        "min": 1,
+        "max": 1
+      }
+    },
+    {
+      "read": "repository-snapshot",
+      "condition": "expired",
+      "mode": "cached",
+      "offline": false,
+      "freshness": null,
+      "answered": true,
+      "outcome": "ok",
+      "medianMs": 100,
+      "p95Ms": 101,
+      "processes": {
+        "min": 3,
+        "max": 3
+      },
+      "git": {
+        "min": 3,
+        "max": 3
+      },
+      "otherProcesses": {
+        "min": 0,
+        "max": 0
+      },
+      "remoteGit": {
+        "min": 0,
+        "max": 0,
+        "source": "probe"
+      },
+      "remoteGitSeenByProbe": {
+        "min": 0,
+        "max": 0
+      }
+    },
+    {
+      "read": "check",
+      "condition": "expired",
+      "mode": "cached",
+      "offline": false,
+      "freshness": null,
+      "answered": true,
+      "outcome": "ok",
+      "medianMs": 577,
+      "p95Ms": 594,
+      "processes": {
+        "min": 43,
+        "max": 43
+      },
+      "git": {
+        "min": 43,
+        "max": 43
+      },
+      "otherProcesses": {
+        "min": 0,
+        "max": 0
+      },
+      "remoteGit": {
+        "min": 0,
+        "max": 0,
+        "source": "probe"
+      },
+      "remoteGitSeenByProbe": {
+        "min": 0,
+        "max": 0
+      }
+    },
+    {
+      "read": "story-list",
+      "condition": "forced-refresh",
+      "mode": "always",
+      "offline": false,
+      "freshness": null,
+      "answered": true,
+      "outcome": "ok",
+      "medianMs": 448,
+      "p95Ms": 494,
+      "processes": {
+        "min": 15,
+        "max": 15
+      },
+      "git": {
+        "min": 15,
+        "max": 15
+      },
+      "otherProcesses": {
+        "min": 0,
+        "max": 0
+      },
+      "remoteGit": {
+        "min": 1,
+        "max": 1,
+        "source": "probe"
+      },
+      "remoteGitSeenByProbe": {
+        "min": 1,
+        "max": 1
+      }
+    },
+    {
+      "read": "status",
+      "condition": "forced-refresh",
+      "mode": "always",
+      "offline": false,
+      "freshness": null,
+      "answered": true,
+      "outcome": "ok",
+      "medianMs": 115,
+      "p95Ms": 116,
+      "processes": {
+        "min": 0,
+        "max": 0
+      },
+      "git": {
+        "min": 0,
+        "max": 0
+      },
+      "otherProcesses": {
+        "min": 0,
+        "max": 0
+      },
+      "remoteGit": {
+        "min": 0,
+        "max": 0,
+        "source": "probe"
+      },
+      "remoteGitSeenByProbe": {
+        "min": 0,
+        "max": 0
+      }
+    },
+    {
+      "read": "nextsteps",
+      "condition": "forced-refresh",
+      "mode": "always",
+      "offline": false,
+      "freshness": null,
+      "answered": true,
+      "outcome": "ok",
+      "medianMs": 303,
+      "p95Ms": 313,
+      "processes": {
+        "min": 8,
+        "max": 8
+      },
+      "git": {
+        "min": 8,
+        "max": 8
+      },
+      "otherProcesses": {
+        "min": 0,
+        "max": 0
+      },
+      "remoteGit": {
+        "min": 0,
+        "max": 0,
+        "source": "probe"
+      },
+      "remoteGitSeenByProbe": {
+        "min": 0,
+        "max": 0
+      }
+    },
+    {
+      "read": "intake-catalog",
+      "condition": "forced-refresh",
+      "mode": "always",
+      "offline": false,
+      "freshness": null,
+      "answered": true,
+      "outcome": "ok",
+      "medianMs": 734,
+      "p95Ms": 743,
+      "processes": {
+        "min": 20,
+        "max": 20
+      },
+      "git": {
+        "min": 20,
+        "max": 20
+      },
+      "otherProcesses": {
+        "min": 0,
+        "max": 0
+      },
+      "remoteGit": {
+        "min": 1,
+        "max": 1,
+        "source": "probe"
+      },
+      "remoteGitSeenByProbe": {
+        "min": 1,
+        "max": 1
+      }
+    },
+    {
+      "read": "repository-snapshot",
+      "condition": "forced-refresh",
+      "mode": "always",
+      "offline": false,
+      "freshness": null,
+      "answered": true,
+      "outcome": "ok",
+      "medianMs": 106,
+      "p95Ms": 107,
+      "processes": {
+        "min": 3,
+        "max": 3
+      },
+      "git": {
+        "min": 3,
+        "max": 3
+      },
+      "otherProcesses": {
+        "min": 0,
+        "max": 0
+      },
+      "remoteGit": {
+        "min": 0,
+        "max": 0,
+        "source": "probe"
+      },
+      "remoteGitSeenByProbe": {
+        "min": 0,
+        "max": 0
+      }
+    },
+    {
+      "read": "check",
+      "condition": "forced-refresh",
+      "mode": "always",
+      "offline": false,
+      "freshness": null,
+      "answered": true,
+      "outcome": "ok",
+      "medianMs": 610,
+      "p95Ms": 790,
+      "processes": {
+        "min": 43,
+        "max": 43
+      },
+      "git": {
+        "min": 43,
+        "max": 43
+      },
+      "otherProcesses": {
+        "min": 0,
+        "max": 0
+      },
+      "remoteGit": {
+        "min": 0,
+        "max": 0,
+        "source": "probe"
+      },
+      "remoteGitSeenByProbe": {
+        "min": 0,
+        "max": 0
+      }
+    },
+    {
+      "read": "story-list",
+      "condition": "offline-fresh-cache",
+      "mode": "cached",
+      "offline": true,
+      "freshness": null,
+      "answered": true,
+      "outcome": "ok",
+      "medianMs": 252,
+      "p95Ms": 253,
+      "processes": {
+        "min": 0,
+        "max": 0
+      },
+      "git": {
+        "min": 0,
+        "max": 0
+      },
+      "otherProcesses": {
+        "min": 0,
+        "max": 0
+      },
+      "remoteGit": {
+        "min": 0,
+        "max": 0,
+        "source": "probe"
+      },
+      "remoteGitSeenByProbe": {
+        "min": 0,
+        "max": 0
+      }
+    },
+    {
+      "read": "status",
+      "condition": "offline-fresh-cache",
+      "mode": "cached",
+      "offline": true,
+      "freshness": null,
+      "answered": true,
+      "outcome": "ok",
+      "medianMs": 112,
+      "p95Ms": 117,
+      "processes": {
+        "min": 0,
+        "max": 0
+      },
+      "git": {
+        "min": 0,
+        "max": 0
+      },
+      "otherProcesses": {
+        "min": 0,
+        "max": 0
+      },
+      "remoteGit": {
+        "min": 0,
+        "max": 0,
+        "source": "probe"
+      },
+      "remoteGitSeenByProbe": {
+        "min": 0,
+        "max": 0
+      }
+    },
+    {
+      "read": "nextsteps",
+      "condition": "offline-fresh-cache",
+      "mode": "cached",
+      "offline": true,
+      "freshness": null,
+      "answered": true,
+      "outcome": "ok",
+      "medianMs": 239,
+      "p95Ms": 241,
+      "processes": {
+        "min": 2,
+        "max": 2
+      },
+      "git": {
+        "min": 2,
+        "max": 2
+      },
+      "otherProcesses": {
+        "min": 0,
+        "max": 0
+      },
+      "remoteGit": {
+        "min": 0,
+        "max": 0,
+        "source": "probe"
+      },
+      "remoteGitSeenByProbe": {
+        "min": 0,
+        "max": 0
+      }
+    },
+    {
+      "read": "intake-catalog",
+      "condition": "offline-fresh-cache",
+      "mode": "cached",
+      "offline": true,
+      "freshness": null,
+      "answered": true,
+      "outcome": "ok",
+      "medianMs": 76,
+      "p95Ms": 89,
+      "processes": {
+        "min": 0,
+        "max": 0
+      },
+      "git": {
+        "min": 0,
+        "max": 0
+      },
+      "otherProcesses": {
+        "min": 0,
+        "max": 0
+      },
+      "remoteGit": {
+        "min": 0,
+        "max": 0,
+        "source": "probe"
+      },
+      "remoteGitSeenByProbe": {
+        "min": 0,
+        "max": 0
+      }
+    },
+    {
+      "read": "repository-snapshot",
+      "condition": "offline-fresh-cache",
+      "mode": "cached",
+      "offline": true,
+      "freshness": null,
+      "answered": true,
+      "outcome": "ok",
+      "medianMs": 103,
+      "p95Ms": 104,
+      "processes": {
+        "min": 3,
+        "max": 3
+      },
+      "git": {
+        "min": 3,
+        "max": 3
+      },
+      "otherProcesses": {
+        "min": 0,
+        "max": 0
+      },
+      "remoteGit": {
+        "min": 0,
+        "max": 0,
+        "source": "probe"
+      },
+      "remoteGitSeenByProbe": {
+        "min": 0,
+        "max": 0
+      }
+    },
+    {
+      "read": "check",
+      "condition": "offline-fresh-cache",
+      "mode": "cached",
+      "offline": true,
+      "freshness": null,
+      "answered": true,
+      "outcome": "ok",
+      "medianMs": 594,
+      "p95Ms": 610,
+      "processes": {
+        "min": 43,
+        "max": 43
+      },
+      "git": {
+        "min": 43,
+        "max": 43
+      },
+      "otherProcesses": {
+        "min": 0,
+        "max": 0
+      },
+      "remoteGit": {
+        "min": 0,
+        "max": 0,
+        "source": "probe"
+      },
+      "remoteGitSeenByProbe": {
+        "min": 0,
+        "max": 0
+      }
+    },
+    {
+      "read": "story-list",
+      "condition": "offline-expired",
+      "mode": "cached",
+      "offline": true,
+      "freshness": null,
+      "answered": false,
+      "outcome": "SESSION_STATE_REFRESH_UNAVAILABLE",
+      "medianMs": 406,
+      "p95Ms": 418,
+      "processes": {
+        "min": 11,
+        "max": 11
+      },
+      "git": {
+        "min": 11,
+        "max": 11
+      },
+      "otherProcesses": {
+        "min": 0,
+        "max": 0
+      },
+      "remoteGit": {
+        "min": 1,
+        "max": 1,
+        "source": "probe"
+      },
+      "remoteGitSeenByProbe": {
+        "min": 1,
+        "max": 1
+      }
+    },
+    {
+      "read": "status",
+      "condition": "offline-expired",
+      "mode": "cached",
+      "offline": true,
+      "freshness": null,
+      "answered": true,
+      "outcome": "ok",
+      "medianMs": 114,
+      "p95Ms": 139,
+      "processes": {
+        "min": 0,
+        "max": 0
+      },
+      "git": {
+        "min": 0,
+        "max": 0
+      },
+      "otherProcesses": {
+        "min": 0,
+        "max": 0
+      },
+      "remoteGit": {
+        "min": 0,
+        "max": 0,
+        "source": "probe"
+      },
+      "remoteGitSeenByProbe": {
+        "min": 0,
+        "max": 0
+      }
+    },
+    {
+      "read": "nextsteps",
+      "condition": "offline-expired",
+      "mode": "cached",
+      "offline": true,
+      "freshness": null,
+      "answered": true,
+      "outcome": "ok",
+      "medianMs": 240,
+      "p95Ms": 245,
+      "processes": {
+        "min": 2,
+        "max": 2
+      },
+      "git": {
+        "min": 2,
+        "max": 2
+      },
+      "otherProcesses": {
+        "min": 0,
+        "max": 0
+      },
+      "remoteGit": {
+        "min": 0,
+        "max": 0,
+        "source": "probe"
+      },
+      "remoteGitSeenByProbe": {
+        "min": 0,
+        "max": 0
+      }
+    },
+    {
+      "read": "intake-catalog",
+      "condition": "offline-expired",
+      "mode": "cached",
+      "offline": true,
+      "freshness": null,
+      "answered": false,
+      "outcome": "REMOTE_REMOTE_NOT_FOUND",
+      "medianMs": 277,
+      "p95Ms": 278,
+      "processes": {
+        "min": 6,
+        "max": 6
+      },
+      "git": {
+        "min": 6,
+        "max": 6
+      },
+      "otherProcesses": {
+        "min": 0,
+        "max": 0
+      },
+      "remoteGit": {
+        "min": 2,
+        "max": 2,
+        "source": "probe"
+      },
+      "remoteGitSeenByProbe": {
+        "min": 2,
+        "max": 2
+      }
+    },
+    {
+      "read": "repository-snapshot",
+      "condition": "offline-expired",
+      "mode": "cached",
+      "offline": true,
+      "freshness": null,
+      "answered": true,
+      "outcome": "ok",
+      "medianMs": 102,
+      "p95Ms": 111,
+      "processes": {
+        "min": 3,
+        "max": 3
+      },
+      "git": {
+        "min": 3,
+        "max": 3
+      },
+      "otherProcesses": {
+        "min": 0,
+        "max": 0
+      },
+      "remoteGit": {
+        "min": 0,
+        "max": 0,
+        "source": "probe"
+      },
+      "remoteGitSeenByProbe": {
+        "min": 0,
+        "max": 0
+      }
+    },
+    {
+      "read": "check",
+      "condition": "offline-expired",
+      "mode": "cached",
+      "offline": true,
+      "freshness": null,
+      "answered": true,
+      "outcome": "ok",
+      "medianMs": 572,
+      "p95Ms": 600,
+      "processes": {
+        "min": 43,
+        "max": 43
+      },
+      "git": {
+        "min": 43,
+        "max": 43
+      },
+      "otherProcesses": {
+        "min": 0,
+        "max": 0
+      },
+      "remoteGit": {
+        "min": 0,
+        "max": 0,
+        "source": "probe"
+      },
+      "remoteGitSeenByProbe": {
+        "min": 0,
+        "max": 0
+      }
+    },
+    {
+      "read": "story-list",
+      "condition": "offline-forced-refresh",
+      "mode": "always",
+      "offline": true,
+      "freshness": null,
+      "answered": false,
+      "outcome": "SESSION_STATE_REFRESH_UNAVAILABLE",
+      "medianMs": 412,
+      "p95Ms": 421,
+      "processes": {
+        "min": 11,
+        "max": 11
+      },
+      "git": {
+        "min": 11,
+        "max": 11
+      },
+      "otherProcesses": {
+        "min": 0,
+        "max": 0
+      },
+      "remoteGit": {
+        "min": 1,
+        "max": 1,
+        "source": "probe"
+      },
+      "remoteGitSeenByProbe": {
+        "min": 1,
+        "max": 1
+      }
+    },
+    {
+      "read": "status",
+      "condition": "offline-forced-refresh",
+      "mode": "always",
+      "offline": true,
+      "freshness": null,
+      "answered": true,
+      "outcome": "ok",
+      "medianMs": 115,
+      "p95Ms": 121,
+      "processes": {
+        "min": 0,
+        "max": 0
+      },
+      "git": {
+        "min": 0,
+        "max": 0
+      },
+      "otherProcesses": {
+        "min": 0,
+        "max": 0
+      },
+      "remoteGit": {
+        "min": 0,
+        "max": 0,
+        "source": "probe"
+      },
+      "remoteGitSeenByProbe": {
+        "min": 0,
+        "max": 0
+      }
+    },
+    {
+      "read": "nextsteps",
+      "condition": "offline-forced-refresh",
+      "mode": "always",
+      "offline": true,
+      "freshness": null,
+      "answered": true,
+      "outcome": "ok",
+      "medianMs": 309,
+      "p95Ms": 311,
+      "processes": {
+        "min": 8,
+        "max": 8
+      },
+      "git": {
+        "min": 8,
+        "max": 8
+      },
+      "otherProcesses": {
+        "min": 0,
+        "max": 0
+      },
+      "remoteGit": {
+        "min": 0,
+        "max": 0,
+        "source": "probe"
+      },
+      "remoteGitSeenByProbe": {
+        "min": 0,
+        "max": 0
+      }
+    },
+    {
+      "read": "intake-catalog",
+      "condition": "offline-forced-refresh",
+      "mode": "always",
+      "offline": true,
+      "freshness": null,
+      "answered": false,
+      "outcome": "REMOTE_REMOTE_NOT_FOUND",
+      "medianMs": 273,
+      "p95Ms": 281,
+      "processes": {
+        "min": 6,
+        "max": 6
+      },
+      "git": {
+        "min": 6,
+        "max": 6
+      },
+      "otherProcesses": {
+        "min": 0,
+        "max": 0
+      },
+      "remoteGit": {
+        "min": 2,
+        "max": 2,
+        "source": "probe"
+      },
+      "remoteGitSeenByProbe": {
+        "min": 2,
+        "max": 2
+      }
+    },
+    {
+      "read": "repository-snapshot",
+      "condition": "offline-forced-refresh",
+      "mode": "always",
+      "offline": true,
+      "freshness": null,
+      "answered": true,
+      "outcome": "ok",
+      "medianMs": 100,
+      "p95Ms": 101,
+      "processes": {
+        "min": 3,
+        "max": 3
+      },
+      "git": {
+        "min": 3,
+        "max": 3
+      },
+      "otherProcesses": {
+        "min": 0,
+        "max": 0
+      },
+      "remoteGit": {
+        "min": 0,
+        "max": 0,
+        "source": "probe"
+      },
+      "remoteGitSeenByProbe": {
+        "min": 0,
+        "max": 0
+      }
+    },
+    {
+      "read": "check",
+      "condition": "offline-forced-refresh",
+      "mode": "always",
+      "offline": true,
+      "freshness": null,
+      "answered": true,
+      "outcome": "ok",
+      "medianMs": 586,
+      "p95Ms": 601,
+      "processes": {
+        "min": 43,
+        "max": 43
+      },
+      "git": {
+        "min": 43,
+        "max": 43
+      },
+      "otherProcesses": {
+        "min": 0,
+        "max": 0
+      },
+      "remoteGit": {
+        "min": 0,
+        "max": 0,
+        "source": "probe"
+      },
+      "remoteGitSeenByProbe": {
+        "min": 0,
+        "max": 0
+      }
+    }
+  ],
+  "writes": [
+    {
+      "write": "draft-save",
+      "condition": "online",
+      "answered": true,
+      "outcome": "ok",
+      "medianMs": 1086,
+      "p95Ms": 1116,
+      "processes": {
+        "min": 19,
+        "max": 19
+      },
+      "git": {
+        "min": 19,
+        "max": 19
+      },
+      "otherProcesses": {
+        "min": 0,
+        "max": 0
+      },
+      "remoteGit": {
+        "min": 1,
+        "max": 1,
+        "source": "probe"
+      },
+      "remoteGitSeenByProbe": {
+        "min": 1,
+        "max": 1
+      },
+      "commands": [
+        {
+          "calls": 1,
+          "command": "git -c core.autocrlf=false"
+        },
+        {
+          "calls": 1,
+          "command": "git read-tree -mu"
+        },
+        {
+          "calls": 3,
+          "command": "git rev-parse --verify"
+        },
+        {
+          "calls": 3,
+          "command": "git ls-tree -r"
+        },
+        {
+          "calls": 1,
+          "command": "git ls-remote --symref"
+        },
+        {
+          "calls": 1,
+          "command": "git config --local"
+        },
+        {
+          "calls": 1,
+          "command": "git show 0a9664667acb0db937b4a973d1933e2616a8af1c:singularity/workflow.yml"
+        },
+        {
+          "calls": 1,
+          "command": "git config --null"
+        },
+        {
+          "calls": 1,
+          "command": "git rev-parse --absolute-git-dir"
+        },
+        {
+          "calls": 1,
+          "command": "git show 0a9664667acb0db937b4a973d1933e2616a8af1c:singularity/portfolio.yml"
+        },
+        {
+          "calls": 1,
+          "command": "git remote"
+        },
+        {
+          "calls": 1,
+          "command": "git config --system"
+        },
+        {
+          "calls": 1,
+          "command": "git show HEAD:singularity/workflow.yml"
+        },
+        {
+          "calls": 1,
+          "command": "git config --global"
+        },
+        {
+          "calls": 1,
+          "command": "git show HEAD:singularity/portfolio.yml"
+        }
+      ]
+    },
+    {
+      "write": "draft-save",
+      "condition": "offline",
+      "answered": false,
+      "outcome": "REMOTE_REMOTE_NOT_FOUND",
+      "medianMs": 378,
+      "p95Ms": 407,
+      "processes": {
+        "min": 5,
+        "max": 5
+      },
+      "git": {
+        "min": 5,
+        "max": 5
+      },
+      "otherProcesses": {
+        "min": 0,
+        "max": 0
+      },
+      "remoteGit": {
+        "min": 1,
+        "max": 1,
+        "source": "probe"
+      },
+      "remoteGitSeenByProbe": {
+        "min": 1,
+        "max": 1
+      },
+      "commands": [
+        {
+          "calls": 1,
+          "command": "git ls-remote --symref"
+        },
+        {
+          "calls": 1,
+          "command": "git config --local"
+        },
+        {
+          "calls": 1,
+          "command": "git config --system"
+        },
+        {
+          "calls": 1,
+          "command": "git remote"
+        },
+        {
+          "calls": 1,
+          "command": "git config --global"
+        }
+      ]
+    },
+    {
+      "write": "takeover",
+      "condition": "another-laptop",
+      "ready": true,
+      "answered": true,
+      "outcome": "ok",
+      "medianMs": 2068,
+      "p95Ms": 2293,
+      "processes": {
+        "min": 28,
+        "max": 28
+      },
+      "git": {
+        "min": 28,
+        "max": 28
+      },
+      "otherProcesses": {
+        "min": 0,
+        "max": 0
+      },
+      "remoteGit": {
+        "min": 0,
+        "max": 0,
+        "source": "timings"
+      },
+      "remoteGitSeenByProbe": {
+        "min": 0,
+        "max": 0
+      },
+      "commands": [
+        {
+          "calls": 4,
+          "command": "git ls-tree -r"
+        },
+        {
+          "calls": 3,
+          "command": "git rev-parse --path-format=absolute"
+        },
+        {
+          "calls": 3,
+          "command": "git cat-file --batch"
+        },
+        {
+          "calls": 2,
+          "command": "git rev-parse --show-toplevel"
+        },
+        {
+          "calls": 2,
+          "command": "git rev-parse --show-object-format"
+        },
+        {
+          "calls": 1,
+          "command": "git branch --show-current"
+        },
+        {
+          "calls": 1,
+          "command": "git log --format=%H"
+        },
+        {
+          "calls": 1,
+          "command": "git log --full-history"
+        },
+        {
+          "calls": 1,
+          "command": "git rev-parse --absolute-git-dir"
+        },
+        {
+          "calls": 1,
+          "command": "git config --null"
+        },
+        {
+          "calls": 1,
+          "command": "git ls-tree -z"
+        },
+        {
+          "calls": 1,
+          "command": "git remote get-url"
+        },
+        {
+          "calls": 1,
+          "command": "git rev-parse HEAD"
+        },
+        {
+          "calls": 1,
+          "command": "git rev-parse --git-dir"
+        },
+        {
+          "calls": 1,
+          "command": "git rev-parse --is-shallow-repository"
+        },
+        {
+          "calls": 1,
+          "command": "git config --local"
+        },
+        {
+          "calls": 1,
+          "command": "git symbolic-ref --quiet"
+        },
+        {
+          "calls": 1,
+          "command": "git rev-parse --verify"
+        },
+        {
+          "calls": 1,
+          "command": "git rev-parse --is-bare-repository"
+        }
+      ]
+    }
+  ],
+  "gaps": {
+    "startsGitWithFreshCache": [
+      "nextsteps",
+      "repository-snapshot",
+      "check"
+    ],
+    "contactsRemoteWithFreshCache": [],
+    "waitsOnRemoteWhenExpired": [
+      "story-list",
+      "intake-catalog"
+    ],
+    "refusesOfflineAfterExpiry": [
+      {
+        "read": "story-list",
+        "outcome": "SESSION_STATE_REFRESH_UNAVAILABLE"
+      },
+      {
+        "read": "intake-catalog",
+        "outcome": "REMOTE_REMOTE_NOT_FOUND"
+      }
+    ],
+    "refusesOfflineWithFreshCache": [],
+    "refusesOfflineOnForcedRefresh": [
+      {
+        "read": "story-list",
+        "outcome": "SESSION_STATE_REFRESH_UNAVAILABLE"
+      },
+      {
+        "read": "intake-catalog",
+        "outcome": "REMOTE_REMOTE_NOT_FOUND"
+      }
+    ],
+    "draftSave": {
+      "localGit": 19,
+      "otherProcesses": 0,
+      "remoteGit": 1,
+      "answersOffline": false
+    }
+  }
+}

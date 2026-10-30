@@ -8,7 +8,7 @@ import { spawnSync } from 'node:child_process';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { operationContext } from './operation-context.mjs';
-import { SingularityFlowError, parseArgs } from './util.mjs';
+import { SingularityFlowError, parseArgs, recordSubprocessTiming } from './util.mjs';
 import { resolveOperation } from './command-registry.mjs';
 import { withoutReadScope } from './read-scope.mjs';
 import { withoutConfigurationReadScope } from './configuration-read-scope.mjs';
@@ -23,11 +23,21 @@ function processStep(args, cwd) {
   // A command started with --no-model runs its steps the same way.
   const model = operationContext()?.modelMode?.enabled === false && !args.includes('--no-model') ? ['--no-model'] : [];
   // A step's result is read whole by the command that ran it; only that command's own output is bounded.
+  const started = performance.now();
   const child = spawnSync(process.execPath, [CLI, ...model, ...args], {
     cwd, env: { ...process.env,
       ...(boundExecutionContextRoot() ? { [SURFACE_CONTEXT_ENV]: JSON.stringify({ schemaVersion: 1, repositoryPath: path.resolve(cwd) }) } : {}),
       SINGULARITY_FLOW_AGENT_OUTPUT: 'raw', SINGULARITY_FLOW_REFUSAL_ENVELOPE: 'stderr-v1' }, encoding: 'utf8', maxBuffer: 64 * 1024 * 1024, timeout: 30 * 60 * 1000
   });
+  // With the subprocess probe on, the step and every process it started count in this command's
+  // report: the step printed its own report on the stderr captured here (SDA M6).
+  if (process.env.SINGULARITY_FLOW_SUBPROCESS_PROBE) {
+    recordSubprocessTiming('singularity-flow', args, performance.now() - started);
+    const report = child.stderr?.lastIndexOf('\nsubprocesses: ') ?? -1;
+    for (const [, calls, ms, key] of report < 0 ? [] : child.stderr.slice(report).matchAll(/^\s+(\d+)x\s+(\d+) ms {2}(.+)$/gmu)) {
+      for (let call = 0; call < Number(calls); call++) recordSubprocessTiming(key, [], Number(ms) / Number(calls));
+    }
+  }
   return capturedStepResult(child);
 }
 

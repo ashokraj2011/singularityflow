@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import { spawnSync } from 'node:child_process';
 import { mkdtemp, mkdir, rm } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
@@ -157,4 +158,23 @@ test('composed reads restore cwd, output streams, exit status and start time on 
     process.exitCode = exit;
     for (const [key, value] of Object.entries(previous)) value === undefined ? delete process.env[key] : process.env[key] = value;
   }
+});
+
+test('a step run as its own process counts in the subprocess probe with every process it started (SDA M6)', async t => {
+  const root = await mkdtemp(path.join(os.tmpdir(), 'sflow-cli-steps-probe-'));
+  t.after(() => rm(root, { recursive: true, force: true }));
+  assert.equal(spawnSync('git', ['init', '-q', root]).status, 0);
+  const module = new URL('../src/cli-steps.mjs', import.meta.url).href;
+  // The composing process starts no Git itself: every Git row in its report is the step's.
+  const child = spawnSync(process.execPath, ['--input-type=module', '-e',
+    `const { step } = await import(${JSON.stringify(module)}); await step(['status', '--json'], process.argv[1]);`, root], {
+    encoding: 'utf8', env: { ...process.env, SINGULARITY_FLOW_SUBPROCESS_PROBE: '1', SINGULARITY_FLOW_COMPOSED_READS: 'off',
+      SINGULARITY_FLOW_PRODUCT_ALIGNMENT: 'off', SINGULARITY_FLOW_PRODUCT_UPDATE: 'off', SINGULARITY_FLOW_DISABLE_TIMING_LOG: '1' }
+  });
+  assert.equal(child.status, 0, child.stderr);
+  const report = child.stderr.slice(child.stderr.lastIndexOf('subprocesses: '));
+  assert.match(report, /^\s+1x\s+\d+ ms {2}singularity-flow status --json$/mu, report);
+  const rows = [...report.matchAll(/^\s+(\d+)x\s+\d+ ms {2}(.+)$/gmu)];
+  assert.ok(rows.some(([, , key]) => key.startsWith('git ')), `the step's own Git processes are counted:\n${report}`);
+  assert.equal(Number(/^subprocesses: (\d+) calls/mu.exec(report)[1]), rows.reduce((sum, [, calls]) => sum + Number(calls), 0));
 });

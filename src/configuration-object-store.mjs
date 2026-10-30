@@ -253,11 +253,11 @@ export async function prepareConfigurationObjectCheckout(root, scratch, {
       return lease.release({ cleanupConfirmed });
     };
     if (!checkout) {
+      // The reader lists the files as recreation does (regular files only, bounded, lazy fetch
+      // sealed off), so this module starts no Git read of its own for them (SDA-AC-001).
       const includeFiles = async (commit, paths) => {
-        const blobs = git(store, ['ls-tree', '-z', commit, '--', ...paths]).stdout.split('\0')
-          .map(row => /^\d{6} blob ([a-f0-9]{40}|[a-f0-9]{64})\t/u.exec(row)?.[1]).filter(Boolean);
-        if (blobs.length) await new ConfigurationObjectReader(store, transport.remote, transport.env, download)
-          .hydrate(blobs.map(oid => ({ oid })));
+        const reader = new ConfigurationObjectReader(store, transport.remote, transport.env, download);
+        await reader.hydrate(reader.inventory(commit, paths));
       };
       incrementCommandCounter('configuration.object-store-read');
       return { store, download, includeBranches, includeFiles, release };

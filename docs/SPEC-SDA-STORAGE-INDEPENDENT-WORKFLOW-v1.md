@@ -301,7 +301,7 @@ There are three kinds of local data.
 
 A command needing several namespaces binds their exact revisions. It extends the existing publication journal rather than adding a second completion protocol. Readers do not interpret intermediate states as completed transitions. An uncertain outcome enters recovery.
 
-**M4:** lifecycle persistence sits behind the lifecycle authority contract (`src/sda/lifecycle-authority-contract.mjs`, `sda-lifecycle-authority/draft-1`).
+**M4:** lifecycle persistence sits behind the lifecycle authority contract (`src/sda/lifecycle-authority-contract.mjs`, `sda-lifecycle-authority/draft-1`, `v1` since M6).
 
 - **The production adapter** is each subject's own branch (`src/sda/story-branch-authority.mjs`, id `subject-branch`). It wraps the publication unit of work and the exact `ls-remote` observation, and adds no namespace.
 - **Every lifecycle transition** runs through it: Story, Initiative, Initiative seeds, Goal, ad hoc and local identity. So does **every observation of a lifecycle branch on the remote**: the final fresh binding, pending-publication recovery, test-recovery admission, step-action recovery and promotion.
@@ -316,11 +316,11 @@ A command needing several namespaces binds their exact revisions. It extends the
 
 The interfaces of v1.0 §7 stay as behavioral specifications: `SharedStateAdapter`, `WorkspaceStore`, `ArtifactStore` and `SourceControlAdapter`. Final names and schemas need a versioned contract review in M1.
 
-**Contract versions.** Two contracts are still drafts: the shared-state contract (`src/sda/shared-state-contract.mjs`, `sda-shared-state/draft-1`) and the lifecycle authority contract (`src/sda/lifecycle-authority-contract.mjs`, `sda-lifecycle-authority/draft-1`). Each still has one change to take:
-- the consistency block, which adds freshness and pending-operation detail to results (Appendix A, question 2), changes what the shared-state contract reports;
-- cancellation of a publication up to its push changes the lifecycle contract's cancellation behavior.
+**Contract versions.** The shared-state contract (`src/sda/shared-state-contract.mjs`) and the lifecycle authority contract (`src/sda/lifecycle-authority-contract.mjs`) are `sda-shared-state/v1` and `sda-lifecycle-authority/v1`. Both were `draft-1` until each had taken its last change:
+- the consistency block, which adds freshness and pending-operation detail to results (Appendix A, question 2), for the shared-state contract;
+- cancellation of a publication up to its push, for the lifecycle contract.
 
-Both move to `v1` together, in M6, once those two changes have landed and M6's qualification passes. The M6 report is the evidence. Until then, a change to either contract's names or schema keeps `draft-1`.
+Both moved to `v1` together in M6, with the M6 report as the evidence (`benchmarks/sda/m6-qualification-rollout.md`). A change to a name, capability, qualification or outcome of either is a new version with its own review: `test/sda-contract-v1.test.mjs` holds `v1`.
 
 ### 7.1 One vocabulary over existing codes
 
@@ -701,6 +701,8 @@ Migration is per authority and namespace, never inferred from the installed buil
 - Concurrent refreshes share one authority observation per scope, across processes.
 - No ordinary listing creates a checkout or temporary clone, walks source history or reads every artifact body.
 
+**M6 (decision D2):** the draft-save budget is restated. A local draft save starts no remote or model process, and its local Git processes may only fall. `test/configuration-drafts.test.mjs` holds the ceiling at 9. The M6 baseline measures 11 from a checkout with its remote reachable: the editor's batched baseline read falls back there (`benchmarks/sda/m6-qualification-rollout.md`, open items).
+
 ### Bundle budgets
 
 New code lands under the existing size tests:
@@ -724,6 +726,11 @@ Benchmark native macOS and Windows with:
 - offline, slow-network and expired-cache cases.
 
 Report process-cold, first-worker, warm-worker, first-synchronization and repeated-read runs separately, as median and p95 over matched fixtures.
+
+**M6** (`benchmarks/sda/m6-qualification-rollout.md`), on macOS only: Windows is parked.
+- `scripts/sda-read-baseline.mjs` times six reads in fresh, expired and forced conditions, online and offline, and two writes: a draft save, and a takeover on another laptop. It runs at 100 and 10,000 files, and with 3 and 30 Stories. With `--cli-root` it runs another build, so the build before SDA and this one compare on one machine, back to back.
+- Legacy Stories: `scripts/sda-legacy-check.mjs`, against the build before SDA. Pinned and amended Stories: `test/sda-acceptance-009.test.mjs`. Seeded, custom and imported workflows: `test/sda-acceptance-007-010-020.test.mjs`, which checks behavior, not timing.
+- Not measured: slow networks, and process-cold apart from warm runs (every sample is a fresh process, and OS caches are not flushed).
 
 ## 18 Acceptance criteria
 
@@ -803,6 +810,13 @@ SDA v1 Phase A is complete when:
 
 Phase B is complete when its ADR's decision is implemented with every governance and recovery contract preserved.
 
+**Status after M6** (`benchmarks/sda/m6-qualification-rollout.md`):
+- **Phase A.**
+  - Reads: the Story list, the intake catalog and `status` start no Git and never wait on the network, fresh or expired, online or offline. `nextsteps` and the repository snapshot still start 2 and 3–4 local Git processes, without the network.
+  - Identity no longer leaks branches or paths (M2), and write outcomes share one vocabulary with the ledger's idempotency gap closed (M1).
+  - Native qualification is on macOS. Windows is parked.
+- **Phase B (ADR 0018, option A)** is implemented: M3 to M5 and the batches finished before M6. Every governance and recovery contract is preserved, and the shared-state and lifecycle authority contracts are at `v1`.
+
 The product never describes pending local work as globally published or approved. Git becomes replaceable persistence and source-control infrastructure, while Singularity Flow remains responsible for workflow meaning, evidence and authorized decisions.
 
 ## Appendix A Open questions for M0
@@ -810,13 +824,15 @@ The product never describes pending local work as globally published or approved
 1. Which Node version does the VS Code extension host provide on the supported VS Code range (`^1.90.0`)? This decides whether `node:sqlite` can serve VS Code reads directly, or whether they go through a CLI worker.
    - **M0:** VS Code 1.143.1 measured at Node 24.21.0 with `node:sqlite`. The 1.90.0 floor is Node 20.9 per its release notes, which has none. ADR 0017 needs no SQL engine in Phase A, so the floor stays.
 2. Can the consistency block be an additive optional field of `sflow-result` v2, or does the one-meaning-per-version rule require v3?
-   - Open: an M1 contract review. M1 changed no `sflow-result` field.
+   - **Decided (decision D1, landed before M6):** an additive, optional field of `sflow-result` v2, `consistency`. A result without it is unchanged byte for byte, and an older v2 reader ignores it. The gateway's `work.list` and `home.overview` attach it.
 3. Where does the read index live: machine-wide under `~/.singularity-flow/`, or per workspace?
    - **M0 (ADR 0017, accepted 2026-10-30):** in the existing JSON projections, where they live today, extended with freshness and last-known retention.
 4. For Phase B: which authority option (§6.2) does the team prefer, and what is the migration story for Stories already in flight?
    - **Decided (2026-10-30):** option A, keep the Story branch as lifecycle authority. No Story is migrated (ADR 0018).
 
 M0 results: `benchmarks/sda/m0-qualification.md` (inventory, macOS read baselines, VS Code runtime). Windows baselines and the CI-established DX baseline remain open.
+
+M6 results: `benchmarks/sda/m6-qualification-rollout.md` (matched macOS reports against the build before SDA, legacy and pinned Stories, the contracts at `v1`, operator recovery documentation in `docs/SDA-OPERATOR-RECOVERY.md`, and the staged rollout).
 
 M5 results: `benchmarks/sda/m5-takeover-cleanup-backup.md` (takeover's disclosure across two laptops, the backup tooling, cleanup of rebuildable projections, the local writer fences and legacy import).
 

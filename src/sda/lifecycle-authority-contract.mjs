@@ -1,5 +1,6 @@
 /**
- * The lifecycle authority contract, draft 1 (SDA §6.2, §7, M4; ADR 0018 option A).
+ * The lifecycle authority contract, version 1 (SDA §6.2, §7, M4; ADR 0018 option A). Version 1 since
+ * SDA M6: a change to a name, shape, capability or outcome here is a new version.
  *
  * Lifecycle authority answers what a Story, Initiative, ad hoc session or Goal is doing and what its
  * current governed state is. Under ADR 0018 it stays the subject's own branch. M4 puts that branch
@@ -29,7 +30,7 @@
  */
 import { adapterDescriptor, selectAdapterAuthority } from './shared-state-contract.mjs';
 
-export const LIFECYCLE_AUTHORITY_CONTRACT = 'sda-lifecycle-authority/draft-1';
+export const LIFECYCLE_AUTHORITY_CONTRACT = 'sda-lifecycle-authority/v1';
 export const LIFECYCLE_AUTHORITY_CAPABILITIES = Object.freeze([
   'exact-observation', 'conditional-transition', 'pending-recovery', 'cancellation'
 ]);

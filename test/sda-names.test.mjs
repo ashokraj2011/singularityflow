@@ -30,6 +30,8 @@ export const SDA_NAMES = Object.freeze({
   SDA_ADAPTER_NOT_PRODUCTION: ['src/sda/shared-state-contract.mjs'],
   SDA_ADAPTER_CONTRACT_MISMATCH: ['src/sda/shared-state-contract.mjs'],
   SDA_ADAPTER_CAPABILITY_UNSUPPORTED: ['src/sda/lifecycle-authority-contract.mjs', 'src/sda/shared-state-contract.mjs'],
+  // M1's shared-state contract (v1 since M6; the lifecycle contract's prefix is with M4)
+  'sda-shared-state/': ['src/sda/shared-state-contract.mjs'],
   // M2: the read index
   INDEX_COMMAND_INVALID: ['src/commands/read-index.mjs'],
   SINGULARITY_FLOW_INDEX_REFRESH: ['src/index-refresh-launcher.mjs', 'src/projection-refresh.mjs', 'src/repository-check-cache.mjs', 'scripts/test-machine-state.mjs'],

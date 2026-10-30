@@ -1,10 +1,11 @@
 /**
- * The shared-state adapter contract, draft 1 (SDA §7, SDA-AC-017).
+ * The shared-state adapter contract, version 1 (SDA §7, SDA-AC-017).
  *
  * An event-log adapter appends events under an operation key and reads them back in pages. Every
  * adapter is checked by the same conformance suite (test/helpers/sda-conformance.mjs) for
  * conditional acceptance, idempotency, snapshot pagination, integrity, bounded pages and
- * cancellation. Names and schemas here are a draft for the versioned contract review M1 calls for.
+ * cancellation. Version 1 since SDA M6 (benchmarks/sda/m6-qualification-rollout.md): a change to a
+ * name, shape, capability or outcome here is a new version, never an edit of this one.
  *
  *   descriptor  { id, contract, qualification, capabilities, limits: { maxPage } }
  *   append(event, { signal })   -> { status: 'accepted' | 'duplicate', id, sequence, comparison? }
@@ -22,7 +23,7 @@
  */
 import { SingularityFlowError } from '../util.mjs';
 
-export const SHARED_STATE_CONTRACT = 'sda-shared-state/draft-1';
+export const SHARED_STATE_CONTRACT = 'sda-shared-state/v1';
 export const ADAPTER_QUALIFICATIONS = Object.freeze(['production', 'test-only']);
 export const ADAPTER_CAPABILITIES = Object.freeze([
   'conditional-append', 'idempotent-append', 'snapshot-pages', 'integrity-verification', 'bounded-pages', 'cancellation'

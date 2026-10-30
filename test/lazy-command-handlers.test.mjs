@@ -260,7 +260,10 @@ test('root dispatch stays small and orchestration entrypoints load their handler
   // 810,000: main a2719813's 804,965 grows to 805,409 with `sync <INTENT-ID>` (SPEC-OAP M3): util.mjs +220
   // (isTransportIntentId), cli-entry.mjs +193 (its routing exclusion) and command-registry.mjs +31 (the sync
   // module); no new file.
-  assert.ok(root.bytes <= 810_000, `root dispatch loads ${root.bytes} source bytes`);
+  // 815,000: main b6fd24fae (SDA M5) measures 805,059; lease identity for shared and restored homes (lease-liveness.mjs
+  // +4,980: the owner's PID namespace, and the hardware confirmed once before a dead owner is taken over, a synchronous
+  // check inside the lease assessment) gives 810,039. No new file.
+  assert.ok(root.bytes <= 815_000, `root dispatch loads ${root.bytes} source bytes`);
   assert.equal(root.files.has(path.join(sourceRoot, 'git.mjs')), false);
   assert.equal(root.files.has(path.join(sourceRoot, 'config.mjs')), false);
   // Only the pause-checking entries and Story creation read these; most commands never do.

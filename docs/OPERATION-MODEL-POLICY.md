@@ -127,6 +127,9 @@ Every public operation is classified before its implementation module is importe
 | auto.switch-unit | mutation | never | — | — |
 | auto.switch-unit.plan | read | never | — | — |
 | auto.takeover | mutation | never | — | — |
+| backup.create | mutation | never | — | — |
+| backup.inspect | read | never | — | — |
+| backup.restore | mutation | never | — | — |
 | bootstrap | mutation | never | — | — |
 | cache | mutation | never | — | — |
 | call.add | mutation | never | — | — |

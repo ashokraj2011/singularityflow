@@ -101,6 +101,14 @@ async function machineOnlyDocumentEntries(store) {
   return entries;
 }
 
+/** Configuration drafts saved in the shared runtime root: the only copy of each, and the reset removes them. */
+async function savedConfigurationDrafts(sharedRuntime) {
+  const names = await readdir(path.join(sharedRuntime, 'configuration-drafts', 'v2')).catch((error) => (
+    ['ENOENT', 'ENOTDIR'].includes(error?.code) ? [] : Promise.reject(error)));
+  const legacy = await lstat(path.join(sharedRuntime, 'configuration-drafts', 'drafts.json')).catch(() => null);
+  return names.filter((name) => /^cdr-[0-9a-f]{24}\.json$/u.test(name)).length + (legacy?.isFile() ? 1 : 0);
+}
+
 async function regularFiles(root, relative = '', output = []) {
   const directory = path.join(root, relative);
   for (const entry of await readdir(directory, { withFileTypes: true }).catch((error) => {
@@ -886,6 +894,8 @@ export async function factoryResetPlan(root, { packageVersion = null, includeLoc
   // A store an earlier build kept inside the runtime directory moves out on first use.
   const unmovedMachineOnlyDocuments = await machineOnlyDocumentEntries(path.join(sharedLocalRuntime, 'local-documents'));
   const localDocumentRoots = includeLocalDocuments && storeState.exists ? [localDocumentStore] : [];
+  // Drafts live inside the shared runtime root, so the reset takes them: the preview names them (SDA M5).
+  const savedDrafts = await savedConfigurationDrafts(sharedLocalRuntime);
   // The token binds to this checkout at this commit, not just to its name. `RESET <name>` alone is
   // derivable from the directory you are standing in, so a token copied out of shell history — or
   // computed by an agent that never showed anybody the preview — matched a different clone of the
@@ -964,7 +974,9 @@ export async function factoryResetPlan(root, { packageVersion = null, includeLoc
           ? 'repository-shared runtime for all linked worktrees: ' : ''}`
         + 'sessions, choices, locks, telemetry, caches, and pending-publication recovery'
         + `${localRuntime === sharedLocalRuntime && unmovedMachineOnlyDocuments.length
-          ? `, and ${unmovedMachineOnlyDocuments.length} machine-only Story document(s) an earlier build kept there` : ''})`),
+          ? `, and ${unmovedMachineOnlyDocuments.length} machine-only Story document(s) an earlier build kept there` : ''}`
+        + `${localRuntime === sharedLocalRuntime && savedDrafts
+          ? `, and ${savedDrafts} saved configuration draft file(s), the only copy of each: save them first with singularity-flow backup create --out <DIRECTORY>` : ''})`),
       ...localDocumentRoots.map((store) => `${store} (${machineOnlyDocuments.length} machine-only Story document(s), the only copy of each)`)
     ],
     replace: [
@@ -983,6 +995,7 @@ export async function factoryResetPlan(root, { packageVersion = null, includeLoc
     ],
     localRuntimeRoots,
     localDocumentRoots,
+    savedConfigurationDrafts: savedDrafts,
     machineOnlyDocuments: {
       store: localDocumentStore,
       included: localDocumentRoots.length > 0,

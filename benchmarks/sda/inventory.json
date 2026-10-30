@@ -12,8 +12,8 @@
     "gitModules": 176,
     "directLocalGitSitesOutsideGitModules": 974,
     "localGitReadsOutsideGitModules": 617,
-    "writeSites": 1083,
-    "yamlReadModules": 108,
+    "writeSites": 1091,
+    "yamlReadModules": 109,
     "lifetimes": 53,
     "timeouts": 162,
     "byClass": {
@@ -32,11 +32,11 @@
         "writeSites": 64
       },
       "installation": {
-        "modules": 21,
+        "modules": 23,
         "gitSites": 27,
         "gitWrites": 5,
         "gitRemote": 5,
-        "writeSites": 159
+        "writeSites": 166
       },
       "local-operational": {
         "modules": 20,
@@ -60,11 +60,11 @@
         "writeSites": 182
       },
       "local-authored": {
-        "modules": 13,
+        "modules": 14,
         "gitSites": 31,
         "gitWrites": 8,
         "gitRemote": 4,
-        "writeSites": 60
+        "writeSites": 61
       },
       "surface": {
         "modules": 40,
@@ -202,7 +202,7 @@
       "module": "apm-install.mjs",
       "class": "installation",
       "git": {},
-      "writes": 1,
+      "writes": 2,
       "yamlReads": 2,
       "lifetimes": []
     },
@@ -212,6 +212,22 @@
       "git": {},
       "writes": 0,
       "yamlReads": 1,
+      "lifetimes": []
+    },
+    {
+      "module": "apm-marketplace.mjs",
+      "class": "installation",
+      "git": {},
+      "writes": 4,
+      "yamlReads": 1,
+      "lifetimes": []
+    },
+    {
+      "module": "apm-policy.mjs",
+      "class": "installation",
+      "git": {},
+      "writes": 2,
+      "yamlReads": 0,
       "lifetimes": []
     },
     {
@@ -2901,6 +2917,14 @@
     {
       "module": "local-application-profile.mjs",
       "class": "local-operational",
+      "git": {},
+      "writes": 1,
+      "yamlReads": 0,
+      "lifetimes": []
+    },
+    {
+      "module": "local-backup.mjs",
+      "class": "local-authored",
       "git": {},
       "writes": 1,
       "yamlReads": 0,

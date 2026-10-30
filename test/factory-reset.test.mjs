@@ -219,6 +219,18 @@ test('factory reset keeps machine-only Story documents unless the reviewed reset
   assert.equal(await missing(store), true);
 });
 
+test('factory reset names the saved configuration drafts it removes and how to save them first (SDA M5)', async () => {
+  const root = await initializedRepository('sflow-factory-reset-drafts-');
+  const draft = path.join(root, '.git', 'singularity-flow', 'configuration-drafts', 'v2', `cdr-${'c'.repeat(24)}.json`);
+  await mkdir(path.dirname(draft), { recursive: true });
+  await writeFile(draft, '{}');
+  const plan = JSON.parse(command(process.execPath, [cli, 'factory-reset', '--dry-run', '--json'], root).stdout);
+  assert.equal(plan.savedConfigurationDrafts, 1);
+  assert.ok(plan.remove.some((item) => item.includes(
+    '1 saved configuration draft file(s), the only copy of each: save them first with singularity-flow backup create --out <DIRECTORY>')),
+  JSON.stringify(plan.remove));
+});
+
 test('factory reset refuses while an earlier build kept machine-only documents inside the runtime directory', async () => {
   const root = await initializedRepository('sflow-factory-reset-legacy-documents-');
   const legacy = path.join(root, '.git', 'singularity-flow', 'local-documents', 'WORK-2', 'b'.repeat(64), 'notes.md');

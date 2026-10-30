@@ -32,6 +32,7 @@ const entries = {
   cache: ['sf-doctor'],
   index: ['sf-doctor'],
   lock: ['sf-doctor'],
+  backup: ['sf-doctor'],
   'factory-reset': ['sf-factory-reset'],
   governance: ['sf-governance-rebuild'],
   'reset-all': ['sf-reset-all'],
@@ -118,8 +119,9 @@ const entries = {
   import: ['sf-import'],
   imports: ['sf-import'],
   marketplace: ['sf-import'],
-  // APM packages are imported by the APM CLI; /sf-import reads what it deployed [APM A1].
-  apm: ['sf-apm'],
+  // APM packages are imported by the APM CLI; /sf-import reads what it deployed [APM A1] and reviews
+  // apm attach, a configuration change.
+  apm: ['sf-apm', 'sf-import'],
   mcp: ['sf-mcp'],
   visual: ['sf-visual'],
   documents: ['sf-documents', 'sf-upload'],
@@ -268,6 +270,8 @@ export const COMMAND_LINE_SKILL_ROUTES = Object.freeze({
   index: route('sf-doctor'),
   // Releasing a lease is a person's reviewed step (OWN_TERMINAL_STEPS); a turn may only show one.
   lock: route('sf-doctor', { release: null, 'release-file': null }),
+  // A backup copies the only copy of local documents to a directory a person chooses; restore saves drafts.
+  backup: route('sf-doctor', { create: null, restore: null }),
   'help-metrics': route('sf-help', { on: null, off: null, clear: null }),
   repositories: route('sf-repositories', { 'cache clear': null }),
   gateway: route('sf-home', { serve: null }),

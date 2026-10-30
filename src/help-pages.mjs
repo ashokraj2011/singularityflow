@@ -1419,6 +1419,31 @@ const PAGES = Object.freeze({
     ],
     seeAlso: ['import', 'agents', 'skill']
   },
+  backup: {
+    summary: 'Save the drafts and documents kept only on this laptop, and restore them on another laptop or this one.',
+    description: [
+      'Two kinds of work stay on the laptop where they were made: configuration drafts waiting to be proposed, and',
+      'Story documents kept laptop-local. Taking a Story over on another laptop does not bring them along.',
+      'backup create saves both, for this clone, into a new or empty directory outside every checkout of the',
+      'repository (the documents must never be committed). It never carries locks, sessions, caches, journals,',
+      'temporary files, or publications and pushes still waiting here: those are recovered on this laptop with sync,',
+      'and the backup names them. backup inspect checks every byte against its SHA-256 and says what restoring here',
+      'would do. backup restore saves each draft again under its original operation ID, checked against the approved',
+      'configuration as it is now, and restores a document only where the Story still holds that exact document.',
+      'A document the Story replaced or detached since stays in the backup. Restoring twice changes nothing, and',
+      'nothing is proposed, approved, committed or pushed. A backup made by a newer Singularity Flow is refused whole.'
+    ],
+    options: [
+      ['--out DIRECTORY', 'create only: a new or empty directory outside this repository.'],
+      ['--json', 'Machine-readable output (sflow-backup-create, sflow-backup-inspect, sflow-backup-restore).']
+    ],
+    examples: [
+      ['singularity-flow backup create --out ~/sflow-backups/app-2026-10-30', 'Save this laptop\'s drafts and local documents before handing the Story over.'],
+      ['singularity-flow backup inspect ~/sflow-backups/app-2026-10-30', 'Check the backup and see what restoring it here would do.'],
+      ['singularity-flow backup restore ~/sflow-backups/app-2026-10-30', 'Restore it on the laptop that took the Story over.']
+    ],
+    seeAlso: ['session', 'documents', 'configuration', 'sync']
+  },
   lock: {
     summary: 'See a lock another command holds, and release one whose owner a person has checked is gone.',
     description: [

@@ -3298,6 +3298,9 @@ const families = [
     ]
   }),
   family({ id: 'transport-intent', currentVersion: 1, paths: [/^\$local\/transport-outbox\/intents\/[^/]+\.json$/] }),
+  // backup create (src/local-backup.mjs, SDA M5): the manifest of one backup of a clone's drafts and
+  // laptop-local documents, in a directory the person chose outside every checkout of the repository.
+  family({ id: 'local-backup-manifest', currentVersion: 1, paths: [/^\$backup\/manifest\.json$/] }),
   family({ id: 'workspace-bootstrap', currentVersion: 1, paths: [/^\$local\/workspace-bootstrap\/sessions\/[^/]+\.json$/] }),
   family({ id: 'workspace-bootstrap-index', currentVersion: 1, paths: [/^\$local\/workspace-bootstrap\/index\.json$/] }),
   // workflow import-team: the machine-local conversion session, and the one candidate file the

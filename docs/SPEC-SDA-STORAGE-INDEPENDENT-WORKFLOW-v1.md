@@ -528,6 +528,21 @@ The required additions:
 - Takeover discloses that unsynchronized drafts on the original laptop are not recoverable unless they were exported or shared.
 - Takeover never reuses another laptop's paths, session handles, locks, cache receipts or temporary files.
 
+**M5:** takeover's result carries `localWorkNotCarried`: drafts, laptop-local documents, and publications or pushes still waiting on the other laptop did not come along, and are recoverable only if they were published or backed up there.
+
+- **`backup create|inspect|restore`** (`src/local-backup.mjs`) carries the two kinds of work that exist only on one laptop: configuration drafts and laptop-local documents.
+  - A backup goes into a new or empty directory outside every checkout of the repository, as a manifest (record family `local-backup-manifest`) and content-addressed objects.
+  - It never carries locks, sessions, caches, journals, temporary files, absolute paths, or pending publications and pushes. It names those that wait on the laptop that made it.
+- **Restore changes no shared state.**
+  - A draft is saved again through the ordinary save, under its original operation ID, so it is checked against the approved configuration as it is now (§19 item 14). One the configuration has since approved is refused, not saved again.
+  - A document's bytes are restored only where the Story holds that exact record. One the Story replaced or detached is reported as superseded.
+  - Restoring twice changes nothing. Nothing is proposed, approved, committed or pushed.
+- **`test/sda-m5-multi-laptop.test.mjs`** runs two laptops with separate homes, machine state and machine IDs, sharing only the remote. It shows:
+  - the disclosure;
+  - none of laptop A's paths, machine ID or lock tokens in laptop B's state;
+  - the restore on B;
+  - the refusal of an approved draft on a third laptop.
+
 ## 12 Storage layout and cleanup
 
 v1.1 uses the existing layout and adds no `.sflow/` tree. `.sflow/` stays disposable per-checkout output.
@@ -551,6 +566,15 @@ Rules for any new location:
   - unresolved recovery;
   - evidence under retention hold.
 - Projection cleanup deletes only rebuildable indexes. Corruption never justifies deleting drafts, the outbox or recovery.
+
+**M5 (SDA-AC-016):**
+
+- **Unused clones.** Cleanup of an unused clone takes M2's read-index Story summaries (`story-summaries.json`) and derived caches (`cache/`) with it, because any read rebuilds them. Before M5 they kept, forever, every clone that had answered a listing.
+  - Everything else in the runtime directory still keeps the clone: drafts, journals, outboxes, pending publications, an unfinished Story start, and laptop-local documents.
+- **Story worktrees.** Worktree cleanup also waits while a Story start in the clone has not finished (`story-start/`).
+- **Factory reset** removes the runtime directory, and drafts with it. Its preview now names the saved drafts it would remove and the `backup create` command that saves them first.
+- **Locations.** M5 adds no machine location. A backup lives where the person chooses, outside every checkout.
+- **Evidence holds.** No evidence-hold record exists in code. Signed evidence lives on published branches, which no cleanup deletes.
 
 ## 13 Artifacts and knowledge
 
@@ -637,6 +661,13 @@ Migration is per authority and namespace, never inferred from the installed buil
 - An "adapter epoch" does not exist today. If Phase B needs one, it is defined in the authority ADR.
 - Rollback never deletes accepted events.
 - Staged installation and product-installation recovery stay outside workspace-store cleanup and migration.
+
+**M5 (legacy import and writer fences, under ADR 0018 option A):** no authority migrates, so SDA-AC-019 does not apply, and `minimumBuild` stays an update the next mutation installs. The writer fences M5 adds are those of the local namespaces SDA introduced:
+
+- The draft store refuses a record a newer build wrote with `SCHEMA_VERSION_FUTURE`, and writes nothing beside it. Before M5 it called such a record damaged and asked for it to be moved aside.
+- An older build's `drafts.json`, written after the v2 migration, is imported once, without duplicates.
+- A backup manifest a newer build wrote is refused whole: nothing is restored.
+- Legacy layouts are migrated where they live before a backup reads them: the single `drafts.json` and the document store inside the runtime directory. Both keep their exact operation IDs and SHA-256 digests.
 
 ## 16 Security and governance
 
@@ -780,6 +811,8 @@ The product never describes pending local work as globally published or approved
    - **Decided (2026-10-30):** option A, keep the Story branch as lifecycle authority. No Story is migrated (ADR 0018).
 
 M0 results: `benchmarks/sda/m0-qualification.md` (inventory, macOS read baselines, VS Code runtime). Windows baselines and the CI-established DX baseline remain open.
+
+M5 results: `benchmarks/sda/m5-takeover-cleanup-backup.md` (takeover's disclosure across two laptops, the backup tooling, cleanup of rebuildable projections, the local writer fences and legacy import).
 
 M4 results: `benchmarks/sda/m4-lifecycle-authority.md` (the subject branch behind the lifecycle authority adapter, its conformance suite and boundary, and the final fresh binding).
 

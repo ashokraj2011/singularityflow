@@ -16,6 +16,11 @@ const ordinary = async file => {
   return Boolean(info?.isDirectory() && !info.isSymbolicLink());
 };
 
+// The runtime entries a retired clone may take with it. Besides its checkout record and this
+// transaction's lease: projections any read rebuilds (SDA §12), the read index's Story summaries
+// (M2) and derived caches. Anything else, drafts, journals, outboxes and recovery included, keeps it.
+const DISPOSABLE_RUNTIME = new Set(['branch-checkout.json', 'locks', 'story-summaries.json', 'cache']);
+
 async function checkoutPrivateState(root, common, permittedTokens = null) {
   const runtime = path.join(common, 'singularity-flow');
   const runtimeInfo = await lstat(runtime).catch(error => error.code === 'ENOENT' ? null : Promise.reject(error));
@@ -23,7 +28,7 @@ async function checkoutPrivateState(root, common, permittedTokens = null) {
   const metadata = await readdir(runtime).catch(error => {
     if (error.code === 'ENOENT') return []; throw error;
   });
-  if (metadata.some(name => !['branch-checkout.json', 'locks'].includes(name))) return true;
+  if (metadata.some(name => !DISPOSABLE_RUNTIME.has(name))) return true;
   try { await lstat(path.join(common, 'singularity-flow-documents')); return true; }
   catch (error) { if (error.code !== 'ENOENT') throw error; }
   // Only this transaction's reset-fencing lease may accompany a retired clone. Foreign,

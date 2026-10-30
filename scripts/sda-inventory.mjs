@@ -54,7 +54,7 @@ const LIFETIME_NAME = /(?:TTL|MAX_?AGE|STALE|FRESH|EXPIR|LIFETIME|INTERVAL|IDLE|
  * only through services).
  */
 const RULES = [
-  ['installation', /^(?:install|reinstall|product-|distribution|bootstrap|workspace-bootstrap|vsix|runtime|staged-install|installation|uninstall|factory-reset|local-install|direct-skills|plugin|update-|self-update|package-|apm-install|build-currency|build-info|fresh-install|inject\.mjs$|release-|secure-release|skp-)/u],
+  ['installation', /^(?:install|reinstall|product-|distribution|bootstrap|workspace-bootstrap|vsix|runtime|staged-install|installation|uninstall|factory-reset|local-install|direct-skills|plugin|update-|self-update|package-|apm-(?:install|marketplace|policy)|build-currency|build-info|fresh-install|inject\.mjs$|release-|secure-release|skp-)/u],
   ['surface', /^(?:commands\/|gateway\/|cli\.mjs$|cli-entry\.mjs$|vscode|host-|copilot-|chat-|acp|mcp|narration\/|help-|first-run-guide|doctor\.mjs$|terminal-review)/u],
   ['local-authored', /(?:journal|transport-intents|outbox|publication-pending|draft|clarification|^inputs|scratch|^choices|^environment-|private-sidecar)/u],
   ['local-operational', /^(?:logging|telemetry|dx-|performance-|personalization|prompt-audit|model-prompt|native-efficiency|observation-compiler|file-lease|subject-lock|context-|application-run|local-application|comprehension\/xpl2\/observed|work-intervals|lease)/u],
@@ -97,6 +97,8 @@ const OVERRIDES = {
   'session-state-index.mjs': 'projection',
   // Configuration drafts are the one place a configuration edit is saved before it is proposed.
   'configuration-drafts.mjs': 'local-authored',
+  // A backup holds a laptop's drafts and local documents, carried to another laptop (SDA M5).
+  'local-backup.mjs': 'local-authored',
   // The configuration read model is rebuildable (docs/CONFIGURATION-STATE-SERVICE.md).
   'configuration-state-service.mjs': 'projection',
   // Shared helpers every class uses.

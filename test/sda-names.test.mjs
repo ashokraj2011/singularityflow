@@ -85,7 +85,22 @@ export const SDA_NAMES = Object.freeze({
   "'retained-locally'": ['src/sda/lifecycle-authority-contract.mjs'],
   "'subject-branch'": ['src/sda/story-branch-authority.mjs'],
   // An existing code, now also thrown by the unit of work, with its one meaning: a retained transition.
-  "'PUBLICATION_PENDING'": ['src/publication-unit-of-work.mjs', 'src/state-planes.mjs']
+  "'PUBLICATION_PENDING'": ['src/publication-unit-of-work.mjs', 'src/state-planes.mjs'],
+  // M5: backups of the drafts and documents that exist only on one laptop
+  'local-backup-manifest': ['src/local-backup.mjs', 'src/schema-migrations.mjs'],
+  'sflow-backup-': ['src/commands/backup.mjs', 'src/help-pages.mjs', 'src/local-backup.mjs', 'src/narration/migration-status.mjs'],
+  BACKUP_COMMAND_INVALID: ['src/commands/backup.mjs'],
+  BACKUP_DESTINATION_INVALID: ['src/local-backup.mjs'],
+  BACKUP_INSIDE_CHECKOUT: ['src/local-backup.mjs'],
+  "'BACKUP_INVALID'": ['src/local-backup.mjs'],
+  BACKUP_INTEGRITY_FAILED: ['src/local-backup.mjs'],
+  BACKUP_REPOSITORY_MISMATCH: ['src/local-backup.mjs'],
+  BACKUP_TOO_LARGE: ['src/local-backup.mjs'],
+  BACKUP_DRAFTS_UNAPPROVED: ['src/local-backup.mjs'],
+  "'story-not-here'": ['src/commands/backup.mjs', 'src/local-backup.mjs'],
+  // M5: takeover's disclosure, and the drafts a factory reset removes
+  localWorkNotCarried: ['src/commands/session-takeover.mjs'],
+  savedConfigurationDrafts: ['src/factory-reset.mjs']
 });
 
 async function sources(directory, output = []) {
@@ -112,6 +127,14 @@ test('lock is one command with its own module, no alias and no removed meaning',
   assert.deepEqual(entries[0].aliases, []);
   assert.equal(commandDefinition('lock').modulePath, './commands/lock.mjs');
   assert.ok(!Object.hasOwn(REMOVED_COMMANDS, 'lock'));
+});
+
+test('backup is one command with its own module, no alias and no removed meaning', () => {
+  const entries = COMMAND_REGISTRY.filter((entry) => entry.name === 'backup' || entry.aliases.includes('backup'));
+  assert.equal(entries.length, 1);
+  assert.deepEqual(entries[0].aliases, []);
+  assert.equal(commandDefinition('backup').modulePath, './commands/backup.mjs');
+  assert.ok(!Object.hasOwn(REMOVED_COMMANDS, 'backup'));
 });
 
 test('index is one command with its own module, no alias and no removed meaning', () => {

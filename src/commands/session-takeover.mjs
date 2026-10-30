@@ -6,6 +6,13 @@ import { optionString, requirePositional, SingularityFlowError } from '../util.m
 import { agentExecutionContext, captureExecutionContext, boundExecutionContextRoot } from '../execution-context.mjs';
 import { readCopilotMode, copilotModePresentation } from '../copilot-mode.mjs';
 
+const LOCAL_WORK_NOT_CARRIED = Object.freeze({
+  message: 'Work saved only on the laptop that worked on this Story before did not come with it: configuration drafts, '
+    + 'laptop-local documents, and publications or pushes still waiting there. It is not recoverable here unless it was '
+    + 'published, or saved there with singularity-flow backup create --out <DIRECTORY> and restored here.',
+  restore: 'singularity-flow backup restore <DIRECTORY>'
+});
+
 export function validateSessionTakeoverRequest({ positionals, options }) {
   const allowed = new Set(['workspace', 'repository', 'json', 'for-agent', 'timings']);
   if (positionals.length !== 3 || Object.keys(options).some(key => !allowed.has(key))
@@ -128,6 +135,8 @@ export async function run(_argv, { positionals, options }) {
       repositories: bindings, unavailableDocuments: unavailable,
       documentsToRestore: restoreNow.length ? { phase, documents: restoreNow.map(document => document.id),
         message: `Phase '${phase}' uses ${restoreNow.length === 1 ? 'a document' : 'documents'} kept only on the laptop that added ${restoreNow.length === 1 ? 'it' : 'them'}. Ask for the same original file and upload it here with ${restoreNow.map(document => document.restore).join('; ')}. This keeps its ID and changes no approval.` } : null,
+      // What a takeover can never bring (SDA §11): work saved only on the laptop that had the Story.
+      localWorkNotCarried: LOCAL_WORK_NOT_CARRIED,
       remoteSynchronized: true, exclusiveOwnership: false,
       effects: { storyAdvanced: false, committed: false, pushed: false, testsRun: false } };
     if (options['for-agent']) Object.assign(result, { executionContext: agentExecutionContext(primary),

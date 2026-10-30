@@ -202,7 +202,8 @@ export async function terminalStoryWorktreeProof(workspace, clone, entry, { sett
   }
   const sharedRuntime = path.join(common, 'singularity-flow');
   for (const name of await readdir(sharedRuntime).catch(error => error.code === 'ENOENT' ? [] : Promise.reject(error))) {
-    if (!/recovery|pending|rescue|outbox|intent|journal/iu.test(name)) continue;
+    // `story-start` holds a Story start that has not finished; its journal is removed when it does.
+    if (!/recovery|pending|rescue|outbox|intent|journal|story-start/iu.test(name)) continue;
     const file = path.join(sharedRuntime, name), info = await lstat(file);
     if (!info.isDirectory() || info.isSymbolicLink() || (await readdir(file)).length) fail('Shared publication/recovery state is retained.');
   }

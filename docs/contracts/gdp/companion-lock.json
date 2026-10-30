@@ -4,11 +4,10 @@
   "status": "contract-only",
   "baselineCommit": "70db564e59224b03729bab0f9a340807f3086c61",
   "lastReview": {
-    "reviewedAtCommit": "804e00ee4c7387fc720ca9766988bf9484907bcb",
-    "evidence": "docs/contracts/gdp/COMPANION-LOCK-REVIEW-2026-10-30-SDA-LIFECYCLE-AUTHORITY.md",
+    "reviewedAtCommit": "97ad71b413797668bdb3316d04d4fc6e65750727",
+    "evidence": "docs/contracts/gdp/COMPANION-LOCK-REVIEW-2026-10-30-SDA-LOCAL-BACKUP.md",
     "companionIds": [
-      "code-assurance-bridge-architecture-contract",
-      "publication-unit-of-work"
+      "migration-registry"
     ]
   },
   "companions": [
@@ -95,7 +94,7 @@
     {
       "id": "migration-registry",
       "path": "src/schema-migrations.mjs",
-      "sha256": "sha256:42fd772fad7125b5f8bcf5173011dc7916c0211a51d6414ccfd7f28c5d2b85ab"
+      "sha256": "sha256:a8ec48d5f731946f0bbb06689e1b3c57a3a8e55364a67a83979c1b73f4df65c8"
     },
     {
       "id": "smart-initialization-v1",

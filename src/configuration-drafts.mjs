@@ -107,6 +107,17 @@ function damaged(file) {
     'CONFIGURATION_DRAFTS_INVALID', { file });
 }
 
+/**
+ * The writer fence of the draft store (SDA M5): a record a newer build wrote is refused with the
+ * upgrade, never offered as damaged and moved aside, and this build writes nothing beside it.
+ */
+function refuseNewer(file, value) {
+  const match = /^(sflow-configuration-drafts?(?:-proposed|-authority)?)@(\d+)$/u.exec(value?.schema ?? '');
+  if (!match || Number(match[2]) <= 2) return;
+  fail(`The configuration draft store holds ${file}, written by a newer Singularity Flow (${value.schema}). Upgrade to read or change drafts; nothing was changed.`,
+    'SCHEMA_VERSION_FUTURE', { family: match[1], storedVersion: Number(match[2]), readable: { minimum: 2, maximum: 2 }, file });
+}
+
 async function regularFile(file) {
   const info = await lstat(file).catch((error) => (missing(error) ? null : Promise.reject(error)));
   if (info && (!info.isFile() || info.isSymbolicLink())) damaged(file);
@@ -137,6 +148,7 @@ async function readAuthority(directory) {
   if (!await regularFile(file)) return null;
   const value = await readJson(file);
   if (value === undefined) return null;
+  refuseNewer(file, value);
   if (value?.schema !== AUTHORITY_SCHEMA || (value.commit !== null && typeof value.commit !== 'string')) damaged(file);
   return value;
 }
@@ -146,6 +158,7 @@ async function readProposed(directory) {
   if (!await regularFile(file)) return { proposed: null, revision: 0 };
   const value = await readJson(file);
   if (value === undefined) return { proposed: null, revision: 0 };
+  refuseNewer(file, value);
   if (value?.schema !== PROPOSED_SCHEMA || !Number.isSafeInteger(value.revision) || value.revision < 0
       || (value.proposed !== null && (typeof value.proposed !== 'object' || Array.isArray(value.proposed)))) damaged(file);
   return { proposed: value.proposed, revision: value.revision };
@@ -171,6 +184,7 @@ async function readStore(root) {
     if (!await regularFile(file)) continue;
     const value = await readJson(file);
     if (value === undefined) continue;
+    refuseNewer(file, value);
     if (!validDraft(value, match[1])) damaged(file);
     (held.has(value.draftId) ? consumed : drafts).push(value);
   }

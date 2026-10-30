@@ -45,8 +45,9 @@ async function captureDirectory({ name, expectedParent, expectedOutput, staged, 
     }
   }
 }
-async function stageDirectory(directory, stagingIdentity) {
+async function stageDirectory(directory, stagingIdentity, injectFault) {
   await verifyDirectories(directory.chain);
+  await injectFault('before-output-capture', directory);
   const request = { name: path.basename(directory.absolute), expectedParent: directory.chain.at(-2).identity,
     expectedOutput: directory.chain.at(-1).identity, staged: directory.staged, expectedStaging: stagingIdentity };
   await new Promise((resolve, reject) => {
@@ -69,7 +70,11 @@ async function stageDirectory(directory, stagingIdentity) {
 }
 
 /** Discard only ignored, regenerable outputs, never tracked source, links or recovery material. */
-export async function cleanInstallBuildOutputs(root) {
+export async function cleanInstallBuildOutputs(root, { faultInjector = null } = {}) {
+  // Tests change the filesystem at an exact boundary through this; the installer never passes one.
+  const injectFault = async (boundary, directory) => {
+    if (typeof faultInjector === 'function') await faultInjector(boundary, directory.relative);
+  };
   const tracked = spawnSync('git', ['ls-files', '--cached', '-z', '--', ...GENERATED_PRIVACY_DIRECTORIES], {
     cwd: root, encoding: 'utf8', timeout: 10_000, windowsHide: true
   });
@@ -108,15 +113,17 @@ export async function cleanInstallBuildOutputs(root) {
     // inspection: its identity must agree after the atomic move before deletion is admitted.
     for (const directory of staged) {
       await verifyDirectories([quarantineIdentity]);
-      await stageDirectory(directory, quarantineIdentity.identity);
+      await stageDirectory(directory, quarantineIdentity.identity, injectFault);
       const captured = await inspectDirectory(directory.staged);
       if (captured.identity !== directory.chain.at(-1).identity) throw new Error('Build output changed while being staged');
+      await injectFault('after-output-staged', directory);
     }
     for (const directory of staged) {
       await verifyDirectories([quarantineIdentity, { absolute: directory.staged, identity: directory.chain.at(-1).identity }]);
       // Antivirus and indexing can briefly hold generated files on Windows. Retry deletion only
       // inside this invocation's private staging directory, never through the live output paths.
       await rm(directory.staged, { recursive: true, force: true, maxRetries: 8, retryDelay: 150 });
+      await injectFault('after-output-deleted', directory);
     }
     await rm(path.join(quarantine, 'retained.json'));
     await rm(quarantine, { recursive: true });

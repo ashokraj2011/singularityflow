@@ -1,7 +1,6 @@
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
-import { existsSync, renameSync, symlinkSync, watch } from 'node:fs';
-import { lstat, mkdir, mkdtemp, readFile, readdir, rm, symlink, writeFile } from 'node:fs/promises';
+import { lstat, mkdir, mkdtemp, readFile, readdir, rename, rm, symlink, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
@@ -87,42 +86,45 @@ test('a file at an expected output directory is preserved and stops preparation'
   assert.equal(await readFile(path.join(root, 'bundle'), 'utf8'), 'retained fixture bytes');
 });
 
-test('a parent swapped after preflight cannot redirect deletion into another checkout', async t => {
-  const root = await fixture(t);
-  const outside = await fixture(t);
-  await put(outside, 'dist/keep.txt', 'outside checkout must survive');
-  await put(root, 'apps/vscode/dist/old.cjs');
-  // Watch the stable parent: Windows does not keep reporting changes to a watched directory
-  // after that directory is moved. The bundle entry changes during staging or live deletion.
-  for (let batch = 0; batch < 10; batch++) {
-    await Promise.all(Array.from({ length: 100 }, (_, index) => put(root, `bundle/old-${batch}-${index}.mjs`)));
-  }
-  let swapped = false;
-  let swapError;
-  const vscode = path.join(root, 'apps/vscode');
-  const watcher = watch(root, (_event, filename) => {
-    if (String(filename) !== 'bundle') return;
-    if (swapped || swapError) return;
-    try {
-      renameSync(vscode, `${vscode}-original`);
-      symlinkSync(outside, vscode, linkType);
-      swapped = true;
-    } catch (error) { swapError = error; }
+// Cleanup reaches each boundary at an exact moment, so the swap never depends on when a
+// filesystem watcher happens to deliver its event: before the capture child pins its working
+// directory, after an earlier output moved, and after deletion but before a build may follow.
+for (const [boundary, at, refusal] of [
+  ['before-output-capture', 'apps/vscode/dist', /directory identity changed|linked or is not a directory/],
+  ['after-output-staged', 'bundle', /linked or is not a directory/],
+  ['after-output-deleted', 'apps/vscode/dist', /linked or is not a directory/]
+]) {
+  test(`a parent swapped after preflight (${boundary} ${at}) cannot redirect deletion into another checkout`, async t => {
+    const root = await fixture(t);
+    const outside = await fixture(t);
+    await put(outside, 'dist/keep.txt', 'outside checkout must survive');
+    await put(root, 'apps/vscode/dist/old.cjs');
+    await put(root, 'bundle/old.mjs');
+    let swapped = false;
+    let swapError;
+    const vscode = path.join(root, 'apps/vscode');
+    const faultInjector = async (reached, relative) => {
+      if (reached !== boundary || relative !== at || swapped || swapError) return;
+      try {
+        await rename(vscode, `${vscode}-original`);
+        await symlink(outside, vscode, linkType);
+        swapped = true;
+      } catch (error) { swapError = error; }
+    };
+    const result = await cleanInstallBuildOutputs(root, { faultInjector }).catch(error => error);
+    assert.ifError(swapError);
+    assert.equal(swapped, true, 'the parent changed while cleanup was in progress');
+    assert.ok(result instanceof Error, 'a changed ancestor must stop installation before a new build');
+    assert.match(result.message, refusal);
+    assert.equal(await readFile(path.join(outside, 'dist/keep.txt'), 'utf8'), 'outside checkout must survive');
+    assert.equal((await lstat(vscode)).isSymbolicLink(), true, 'cleanup does not mutate the replacement parent');
+    // If staging was interrupted, its private recovery record and captured outputs are retained.
+    for (const name of (await readdir(root)).filter(name => name.startsWith('bundle.building-cleanup-'))) {
+      const record = JSON.parse(await readFile(path.join(root, name, 'retained.json'), 'utf8'));
+      for (const entry of record) assert.ok(entry.original.startsWith(root));
+    }
   });
-  t.after(() => watcher.close());
-  const result = await cleanInstallBuildOutputs(root).catch(error => error);
-  watcher.close();
-  assert.ifError(swapError);
-  assert.equal(swapped, true, 'the parent changed while cleanup was in progress');
-  assert.ok(result instanceof Error, 'a changed ancestor must stop installation before a new build');
-  assert.equal(await readFile(path.join(outside, 'dist/keep.txt'), 'utf8'), 'outside checkout must survive');
-  assert.equal((await lstat(vscode)).isSymbolicLink(), true, 'cleanup does not mutate the replacement parent');
-  // If staging was interrupted, its private recovery record and captured outputs are retained.
-  for (const name of (await readdir(root)).filter(name => name.startsWith('bundle.building-cleanup-'))) {
-    const record = JSON.parse(await readFile(path.join(root, name, 'retained.json'), 'utf8'));
-    for (const entry of record) assert.ok(entry.original.startsWith(root));
-  }
-});
+}
 
 test('capture refuses a replacement working directory before moving any of its files', async t => {
   const root = await fixture(t);
@@ -146,27 +148,27 @@ test('capture refuses a replacement working directory before moving any of its f
   await missing(request.staged);
 });
 
-test('an output recreated as a link during cleanup stops preparation before a build can follow it', async t => {
-  const root = await fixture(t);
-  const outside = await fixture(t);
-  await put(root, 'bundle/old.mjs');
-  await put(root, 'apps/vscode/dist/old.cjs');
-  await put(outside, 'keep.txt', 'outside checkout must survive');
-  let replaced = false;
-  let replacementError;
-  const output = path.join(root, 'bundle');
-  const watcher = watch(path.dirname(output), (_event, filename) => {
-    if (String(filename) !== 'bundle' || replaced || replacementError || existsSync(output)) return;
-    try { symlinkSync(outside, output, linkType); replaced = true; }
-    catch (error) { replacementError = error; }
+for (const boundary of ['after-output-staged', 'after-output-deleted']) {
+  test(`an output recreated as a link during cleanup (${boundary}) stops preparation before a build can follow it`, async t => {
+    const root = await fixture(t);
+    const outside = await fixture(t);
+    await put(root, 'bundle/old.mjs');
+    await put(root, 'apps/vscode/dist/old.cjs');
+    await put(outside, 'keep.txt', 'outside checkout must survive');
+    let replaced = false;
+    let replacementError;
+    const output = path.join(root, 'bundle');
+    const faultInjector = async (reached, relative) => {
+      if (reached !== boundary || relative !== 'bundle' || replaced || replacementError) return;
+      try { await symlink(outside, output, linkType); replaced = true; }
+      catch (error) { replacementError = error; }
+    };
+    await assert.rejects(cleanInstallBuildOutputs(root, { faultInjector }), /recreated during cleanup/);
+    assert.ifError(replacementError);
+    assert.equal(replaced, true, 'the output path was recreated while cleanup was in progress');
+    assert.equal(await readFile(path.join(outside, 'keep.txt'), 'utf8'), 'outside checkout must survive');
   });
-  t.after(() => watcher.close());
-  await assert.rejects(cleanInstallBuildOutputs(root), /recreated during cleanup/);
-  watcher.close();
-  assert.ifError(replacementError);
-  assert.equal(replaced, true);
-  assert.equal(await readFile(path.join(outside, 'keep.txt'), 'utf8'), 'outside checkout must survive');
-});
+}
 
 test('freshly rebuilt bundles and maps still fail privacy validation with exact file and line', async t => {
   const root = await fixture(t);

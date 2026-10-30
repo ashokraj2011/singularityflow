@@ -398,4 +398,4 @@ The new scripts are qualification tools: they are not part of the command regist
 - **Mixed builds** keep the one gap described under the rollout until `minimumBuild` is raised.
 - **Not measured:** slow networks, and process-cold apart from warm runs.
 - **Evidence holds:** no hold record exists in code (SDA-AC-016).
-- **The specification's status** is still "Proposed". Changing it is the owner's decision.
+- **Decided after M6: the specification's status.** The repository owner accepted it on 2026-10-31.

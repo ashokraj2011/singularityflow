@@ -2,11 +2,11 @@
 
 Specification ID: `SDA-v1`
 
-Version: `1.1` (draft)
+Version: `1.1`
 
-Status: Proposed
+Status: Accepted (2026-10-31), with M0 to M6 on `main` (§21)
 
-Date: 2026-10-29
+Date: 2026-10-29 (proposed); 2026-10-31 (accepted)
 
 Supersedes: the SDA v1.0 draft of 2026-10-21, which was never added to this repository
 
@@ -816,6 +816,8 @@ Phase B is complete when its ADR's decision is implemented with every governance
   - Identity no longer leaks branches or paths (M2), and write outcomes share one vocabulary with the ledger's idempotency gap closed (M1).
   - Native qualification is on macOS. Windows is parked.
 - **Phase B (ADR 0018, option A)** is implemented: M3 to M5 and the batches finished before M6. Every governance and recovery contract is preserved, and the shared-state and lifecycle authority contracts are at `v1`.
+
+**Accepted** by the repository owner on 2026-10-31, with M0 to M6 on `main`. Accepting the specification does not close the items the M6 report leaves open (Windows is parked); each stays open under it.
 
 The product never describes pending local work as globally published or approved. Git becomes replaceable persistence and source-control infrastructure, while Singularity Flow remains responsible for workflow meaning, evidence and authorized decisions.
 

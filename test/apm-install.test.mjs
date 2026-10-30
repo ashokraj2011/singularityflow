@@ -6,7 +6,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { spawnSync } from 'node:child_process';
 import YAML from 'yaml';
-import { auditWorkflowText, installApmPackages, installBranchName, pinnedApmCli } from '../src/apm-install.mjs';
+import { auditWorkflowText, installApmPackages, installBranchName, pinnedApmCli, updateApmPackages } from '../src/apm-install.mjs';
 
 // APM A2 (2026-10-29): `apm install` framed as one commit a pull request reviews. The stand-in APM
 // CLI below writes what apm 0.35.0 wrote for `apm install ../review-pack` (a skill folder listed
@@ -29,25 +29,38 @@ if (args[0] === 'audit') {
       details: denied ? [denied + ': not in allowed sources'] : [] }] }));
   process.exit(denied ? 1 : 0);
 }
+// install deploys a package at 1.0.0; update moves the locked one to 1.1.0 (its agent rewritten, or
+// gone with FAKE_APM_UPDATE_DROP), or changes nothing with FAKE_APM_UPDATE_NONE.
+function deploy(name, version, { agent = 'Review the change.\\n', dropAgent = false } = {}) {
+  const agentFile = '.github/agents/' + name + '.agent.md';
+  const files = { ['.agents/skills/' + name + '-skill/SKILL.md']: '---\\nname: ' + name + '-skill\\n---\\nSteps.\\n' };
+  if (!dropAgent) files[agentFile] = '---\\nname: ' + name + '\\ndescription: Reviews the change\\n---\\n' + agent;
+  else fs.rmSync(agentFile, { force: true });
+  for (const [file, text] of Object.entries(files)) { fs.mkdirSync(path.dirname(file), { recursive: true }); fs.writeFileSync(file, text); }
+  const sha = (text) => 'sha256:' + crypto.createHash('sha256').update(process.env.FAKE_APM_DRIFT ? text + 'x' : text).digest('hex');
+  const deployed = ['.agents/skills/' + name + '-skill', ...Object.keys(files)].sort();
+  fs.writeFileSync('apm.lock.yaml', [
+    "lockfile_version: '1'", 'apm_version: 0.35.0', 'dependencies:', '- repo_url: _local/' + name, '  name: ' + name, '  version: ' + version,
+    '  deployed_files:', ...deployed.map((file) => '  - ' + file), '  deployed_file_hashes:',
+    ...Object.entries(files).sort().map(([file, text]) => '    ' + file + ': ' + sha(text)), '  source: local', '  local_path: ../' + name, ''
+  ].join('\\n'));
+}
+if (args[0] === 'update') {
+  if (args.includes('--dry-run')) { console.log('[i] Dry run: apm ' + args.join(' ')); process.exit(0); }
+  if (process.env.FAKE_APM_UPDATE_NONE) { console.log('[+] All dependencies are up to date.'); process.exit(0); }
+  const name = /\\n {2}name: (\\S+)/u.exec(fs.readFileSync('apm.lock.yaml', 'utf8'))[1];
+  deploy(name, '1.1.0', { agent: 'Review the change, test by test.\\n', dropAgent: Boolean(process.env.FAKE_APM_UPDATE_DROP) });
+  console.log('[*] Updated 1 APM dependency.');
+  process.exit(0);
+}
 if (args[0] !== 'install') process.exit(2);
 if (process.env.FAKE_APM_FAIL) { console.error('[x] All packages failed validation. Nothing to install.'); process.exit(1); }
 if (args.includes('--dry-run')) { console.log('[i] Dry run: apm ' + args.join(' ')); process.exit(0); }
 const name = path.basename(args.filter((arg) => !arg.startsWith('--')).pop() || 'review-pack');
-const files = {
-  ['.github/agents/' + name + '.agent.md']: '---\\nname: ' + name + '\\n---\\nReview the change.\\n',
-  ['.agents/skills/' + name + '-skill/SKILL.md']: '---\\nname: ' + name + '-skill\\n---\\nSteps.\\n'
-};
-for (const [file, text] of Object.entries(files)) { fs.mkdirSync(path.dirname(file), { recursive: true }); fs.writeFileSync(file, text); }
-const sha = (text) => 'sha256:' + crypto.createHash('sha256').update(process.env.FAKE_APM_DRIFT ? text + 'x' : text).digest('hex');
 let manifest = fs.existsSync('apm.yml') ? fs.readFileSync('apm.yml', 'utf8') : 'name: consumer\\nversion: 1.0.0\\n';
 if (!manifest.includes('../' + name)) manifest = manifest.replace(/apm: \\[\\]/u, 'apm:\\n    - ../' + name);
 fs.writeFileSync('apm.yml', manifest);
-const deployed = ['.agents/skills/' + name + '-skill', ...Object.keys(files)].sort();
-fs.writeFileSync('apm.lock.yaml', [
-  "lockfile_version: '1'", 'apm_version: 0.35.0', 'dependencies:', '- repo_url: _local/' + name, '  name: ' + name, '  version: 1.0.0',
-  '  deployed_files:', ...deployed.map((file) => '  - ' + file), '  deployed_file_hashes:',
-  ...Object.entries(files).map(([file, text]) => '    ' + file + ': ' + sha(text)), '  source: local', '  local_path: ../' + name, ''
-].join('\\n'));
+deploy(name, '1.0.0');
 const ignore = fs.existsSync('.gitignore') ? fs.readFileSync('.gitignore', 'utf8') : '';
 if (!ignore.includes('apm_modules/')) fs.writeFileSync('.gitignore', ignore + '\\n# APM dependencies\\napm_modules/\\n');
 console.log('[*] Installed 1 APM dependency.');
@@ -165,6 +178,35 @@ test('on an apm/ branch the install is committed there, and APM\'s --dry-run cha
   assert.equal(git(root, 'status', '--porcelain'), 'M apm.yml', 'a preview runs even with uncommitted APM files');
   assert.equal(installBranchName(root, ['acme/review-pack#v2']), 'apm/install-review-pack');
   assert.equal(installBranchName(root, ['planner@acme-catalog']), 'apm/install-planner');
+});
+
+test('apm update commits each package\'s move to its latest allowed version, and says which step went back to its workflow\'s agent', async (t) => {
+  const { root, apm } = await repository(t);
+  await installApmPackages(root, { packages: ['../review-pack'], ...injected(apm) });
+  git(root, 'switch', '-q', 'main');
+  git(root, 'merge', '-q', '--ff-only', 'apm/install-review-pack');
+  const preview = await updateApmPackages(root, { dryRun: true, ...injected(apm) });
+  assert.deepEqual([preview.resultType, preview.committed], ['sflow-apm-update', false]);
+  const none = await updateApmPackages(root, { ...injected(apm, { FAKE_APM_UPDATE_NONE: '1' }) });
+  assert.equal(none.committed, false);
+
+  const result = await updateApmPackages(root, { packages: ['review-pack'], ...injected(apm) });
+  assert.deepEqual([result.branch, result.createdBranch], ['apm/update-review-pack', true]);
+  assert.deepEqual(result.updated.map(({ label, from, version }) => [label, from.version, version]), [['review-pack (local)', '1.0.0', '1.1.0']]);
+  assert.deepEqual(git(root, 'show', '--name-only', '--format=', 'HEAD').split('\n').sort(), ['.github/agents/review-pack.agent.md', 'apm.lock.yaml']);
+  assert.match(git(root, 'log', '-1', '--format=%B'), /^Update APM package review-pack \(local\)\n\napm update --yes review-pack \(apm 0\.35\.0\)\n- review-pack \(local\): 1\.0\.0 -> 1\.1\.0/u);
+  assert.equal(result.workflowWritten, false, 'the pull-request check came with the first install');
+
+  // An update that removes an agent bound to a step: the step waits for it and keeps its workflow's agent.
+  git(root, 'switch', '-q', 'main');
+  await mkdir(path.join(root, 'singularity'), { recursive: true });
+  await writeFile(path.join(root, 'singularity/workflow.yml'), 'apm:\n  agents:\n    review-pack:\n      defaultFor: [verification]\n');
+  git(root, 'add', '-A');
+  git(root, 'commit', '-q', '-m', 'review-pack drafts verification');
+  const dropped = await updateApmPackages(root, { ...injected(apm, { FAKE_APM_UPDATE_DROP: '1' }) });
+  assert.deepEqual(dropped.waiting, [{ agent: 'review-pack', steps: ['verification'], waiting: 'APM did not deploy .github/agents/review-pack.agent.md' }]);
+  assert.equal(dropped.branch, 'apm/update-review-pack-local', 'named after the package APM moved');
+  assert.match(git(root, 'log', '-1', '--format=%B'), /- review-pack no longer drafts verification: APM did not deploy/u);
 });
 
 test('apm install from the CLI: plain words, the Story checkout refusal, and Copilot never runs it', { skip: process.platform === 'win32' && 'the stand-in APM CLI is a POSIX script' }, async (t) => {

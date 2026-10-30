@@ -11,7 +11,7 @@ related:
   - importing-assets
   - agents-and-routing
   - skill-master
-version: 6
+version: 7
 ---
 APM (Microsoft's Agent Package Manager) installs agents, skills, instructions and prompts as packages. `apm.yml` declares them, `apm install` resolves each one to a commit and writes its files for Copilot (agents, instructions and prompts into `.github/`, skills into `.agents/skills/`), and `apm.lock.yaml` records every file it wrote with its SHA-256. SFlow reads what APM left, says whether it is still intact, commits an install for review, lets its agents draft your workflow's steps, publishes your own agents to your organisation's APM marketplace, and writes the organisation's policy of which packages may be installed.
 
@@ -34,6 +34,12 @@ Your organisation's marketplace is one Git repository in APM's monorepo-hybrid s
 3. Push the branch and open the pull request it prints (`git push -u origin apm/install-reviewer`, `gh pr create --fill`). Reviewers see the new agents, skills and instructions as files.
 4. Once it is merged, choose the steps its agents draft: `singularity-flow apm attach reviewer --step verification --propose` (or choose it in Workflow Studio). `workflow.yml` records the step under `apm.agents`, and no agent file is edited: the step's previous agent keeps it in its own file and drafts it again whenever the APM agent cannot be used. This works for SFlow's own workflows too. A developer may also pick an APM agent for one Story: `singularity-flow start <WORK-ID> --agent reviewer`.
 5. Later, run `singularity-flow apm status` before relying on the agents. Each package is listed with its commit and what it deployed; a deployed file edited by hand or deleted is reported with the package it came from, and agents in `.github/agents` that APM did not deploy are listed as the repository's own.
+
+## Keep packages up to date
+
+1. See which packages are behind with APM's own `apm outdated`.
+2. From the base branch's checkout, preview with `singularity-flow apm update --dry-run`, then run `singularity-flow apm update` (every package) or `singularity-flow apm update reviewer@acme-catalog` (one). APM moves each one to the latest version its `apm.yml` entry allows and rewrites the lock; SFlow checks every file against the lock, runs `apm audit --ci`, and commits on `apm/update-<package>` with each package's old and new version in the message.
+3. Push it and open its pull request. Stories already running keep the agents they started with; Stories started after the merge get the new files. If an update removes an agent that drafts a step, the result says so and the step goes back to its workflow's own agent.
 
 ## Publish your own agents
 
@@ -84,7 +90,8 @@ When APM cannot tell the organisation (a local remote, or no policy published), 
 - **"Commit these first, so the package is what a reviewer saw here"**: commit the agents and skills you are publishing.
 - **"The marketplace has this package at …; publish a later version"**: give a later `--version`, or none for the next patch.
 - **"was not published by SFlow"** or **"already lists … from …"**: the marketplace has that name already; publish under another `--package` name.
-- **"apm audit --ci failed after the install: dependency-allowlist …"**: the organisation's policy does not allow that package. Install one from your marketplace, or change the policy in its own pull request.
+- **"Every package is already at the latest version its apm.yml entry allows"**: nothing to update; widen the version in `apm.yml` in its own change to move further.
+- **"apm audit --ci failed after the install: dependency-allowlist …"** (or after the update): the organisation's policy does not allow that package. Install one from your marketplace, or change the policy in its own pull request.
 - **"APM does not accept the policy"**: APM's own check refused the file; nothing was written.
 - **"These look like secrets and would be published"**: remove them from the agent or skill and commit; nothing was written.
 - **"No APM CLI on this machine's PATH"**: install the APM CLI to change packages; reading them needs nothing.

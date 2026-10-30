@@ -1366,6 +1366,10 @@ const PAGES = Object.freeze({
       'committed, a checkout that is not a Story\'s, and the APM CLI version apm.yml pins (x-sflow.apm-cli; the first',
       'install records it). Afterwards every deployed file must match the lock, or nothing is committed. Nothing is pushed.',
       'Installing changes which agents run, so only a person runs it, in their own terminal; --dry-run is APM\'s preview.',
+      'apm update [PACKAGE]... is the same for APM\'s apm update: each package moves to the latest version its apm.yml entry',
+      'allows, and the commit on apm/update-<package> names each old and new version. apm outdated (APM\'s own) shows which',
+      'are behind. Running Stories keep the agents they started with; a step whose APM agent an update removed goes back to',
+      'its workflow\'s own agent.',
       'apm attach makes an agent APM deployed draft a step, as a Workflow Studio change to workflow.yml apm.agents: the agent\'s',
       'own file stays exactly as APM wrote it, and the step\'s previous agent keeps the step in its own file. It is a configuration change,',
       'reviewed like any other (--propose). A Story may also pick an APM agent with start --agent. A Story or a step uses an',
@@ -1399,14 +1403,15 @@ const PAGES = Object.freeze({
       ['--description TEXT', 'marketplace init and publish: the one-line description.'],
       ['--propose', 'attach only: publish the change as a configuration proposal for review.'],
       ['--dev', 'install only: add the packages as development dependencies (APM\'s --dev).'],
-      ['--dry-run', 'install: APM\'s preview; attach: the Studio preview; marketplace init, publish and policy init: what would be written. Nothing is changed or committed.'],
-      ['--json', 'Machine-readable output (sflow-apm-status, sflow-apm-install, sflow-apm-marketplace-init, sflow-apm-publish, sflow-apm-policy-init).']
+      ['--dry-run', 'install and update: APM\'s preview; attach: the Studio preview; marketplace init, publish and policy init: what would be written. Nothing is changed or committed.'],
+      ['--json', 'Machine-readable output (sflow-apm-status, sflow-apm-install, sflow-apm-update, sflow-apm-marketplace-init, sflow-apm-publish, sflow-apm-policy-init).']
     ],
     examples: [
       ['singularity-flow apm status', 'Lists the locked packages and says whether their deployed files are intact and committed.'],
       ['singularity-flow apm status --json', 'The same as sflow-apm-status: state, packages, files, findings and next actions.'],
       ['singularity-flow apm install reviewer@acme-catalog', 'Installs one package from a marketplace APM knows and commits it on apm/install-reviewer.'],
       ['singularity-flow apm install', 'Installs what apm.yml declares (for example after a merge) and commits what changed.'],
+      ['singularity-flow apm update reviewer@acme-catalog', 'Moves reviewer to its latest allowed version, committed on apm/update-reviewer with the old and new versions.'],
       ['singularity-flow apm attach reviewer --step verification --propose', 'The APM agent reviewer drafts Verification, published for review.'],
       ['singularity-flow apm marketplace init --name acme-catalog --owner "Platform Team"', 'Makes this checkout the acme-catalog marketplace, committed on apm/marketplace-init.'],
       ['singularity-flow apm publish reviewer --marketplace ../acme-catalog', 'Publishes the agent reviewer and its skills as package reviewer 1.0.0, committed in ../acme-catalog.'],

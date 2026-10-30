@@ -542,7 +542,7 @@ export function argvAllowed(argv, mode, value) {
   }
   // Installing agent packages changes which agents run, and publishing them what other teams run:
   // the person's own steps, in no turn [APM A2/A4].
-  if (positionals[0] === 'apm' && ['install', 'publish', 'marketplace', 'policy'].includes(positionals[1]) && options['dry-run'] !== true) return false;
+  if (positionals[0] === 'apm' && ['install', 'update', 'publish', 'marketplace', 'policy'].includes(positionals[1]) && options['dry-run'] !== true) return false;
   // Ending another process's lease is for a person who checked that process is gone, in no turn (SDA M3).
   if (positionals[0] === 'lock' && ['release', 'release-file'].includes(positionals[1])) return false;
   // Environment values come only from the person's own secret helper on standard input, in no turn.

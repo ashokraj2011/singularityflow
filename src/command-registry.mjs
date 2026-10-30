@@ -11,11 +11,11 @@ const MODEL_FREE_MIXED_COMMANDS = new Set(['skill', 'init', 'precheck', 'configu
 const APP_SUBCOMMANDS = Object.freeze(['plan', 'start', 'status', 'stop', 'suggest', 'config', 'connections']);
 const APP_READS = Object.freeze(['plan', 'status', 'suggest', 'config', 'connections']);
 const TESTS_SUBCOMMANDS = Object.freeze(['plan', 'run', 'summary']);
-// APM packages [APM A1-A5]: status reads; install, attach, marketplace init, publish and policy init
-// each make one reviewed change, and each --dry-run is a read.
-const APM_SUBCOMMANDS = Object.freeze(['status', 'install', 'attach', 'marketplace', 'publish', 'policy']);
+// APM packages [APM A1-A6]: status reads; install, update, attach, marketplace init, publish and
+// policy init each make one reviewed change, and each --dry-run is a read.
+const APM_SUBCOMMANDS = Object.freeze(['status', 'install', 'update', 'attach', 'marketplace', 'publish', 'policy']);
 const APM_OPERATIONS = Object.freeze({
-  install: 'apm.install', attach: 'apm.attach', marketplace: 'apm.marketplace.init', publish: 'apm.publish', policy: 'apm.policy.init'
+  install: 'apm.install', update: 'apm.update', attach: 'apm.attach', marketplace: 'apm.marketplace.init', publish: 'apm.publish', policy: 'apm.policy.init'
 });
 // Leases (SDA M3): show reads; a reviewed release ends exactly one lease generation.
 const LOCK_SUBCOMMANDS = Object.freeze(['show', 'release', 'release-file']);

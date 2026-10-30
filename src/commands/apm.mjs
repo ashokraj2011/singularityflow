@@ -12,9 +12,9 @@
  */
 import { optionBoolean, optionString, optionStrings, SingularityFlowError } from '../util.mjs';
 
-const SUBCOMMANDS = Object.freeze(['status', 'install', 'attach', 'marketplace', 'publish', 'policy']);
+const SUBCOMMANDS = Object.freeze(['status', 'install', 'update', 'attach', 'marketplace', 'publish', 'policy']);
 const OPTIONS = Object.freeze({
-  status: ['json'], install: ['dev', 'dry-run', 'json'], attach: ['step', 'dry-run', 'propose', 'background-sync', 'json'],
+  status: ['json'], install: ['dev', 'dry-run', 'json'], update: ['dry-run', 'json'], attach: ['step', 'dry-run', 'propose', 'background-sync', 'json'],
   marketplace: ['name', 'owner', 'description', 'dry-run', 'json'],
   publish: ['marketplace', 'package', 'version', 'description', 'skill', 'dry-run', 'json'],
   policy: ['name', 'marketplace', 'allow', 'enforcement', 'dry-run', 'json']
@@ -90,14 +90,24 @@ function print(status) {
   console.log(lines.join('\n'));
 }
 
+const versionWords = ({ commit, version }) => [version, commit ? `@ ${commit.slice(0, 12)}` : null].filter(Boolean).join(' ') || 'unversioned';
+
 function printInstall(result) {
+  const verb = result.resultType === 'sflow-apm-update' ? 'update' : 'install';
+  const waiting = (result.waiting ?? []).map((entry) => `${entry.agent} no longer drafts ${entry.steps.join(', ') || 'its steps'} (${entry.waiting}); each step goes back to its workflow's own agent.`);
   if (result.dryRun) return console.log(`That was APM's preview (apm ${result.apmVersion}); nothing was changed.`);
-  if (!result.committed) return console.log(`apm install changed nothing to commit (apm status: ${result.state}).`);
+  if (!result.committed) {
+    return console.log([verb === 'update' ? 'Every package is already at the latest version its apm.yml entry allows; nothing to commit.'
+      : `apm install changed nothing to commit (apm status: ${result.state}).`, ...waiting].join('\n'));
+  }
   const lines = [`Committed ${result.commit.slice(0, 12)} on ${result.branch}${result.createdBranch ? ` (new, from ${result.from})` : ''}: ${result.changed.length} file${result.changed.length === 1 ? '' : 's'} apm ${result.apmVersion} changed.`];
-  for (const entry of result.installed) {
+  for (const entry of result.installed ?? []) {
     const what = primitiveWords(entry.primitives);
     lines.push(`  ${entry.label}${entry.commit ? ` @ ${entry.commit.slice(0, 12)}` : ''}${what ? `: ${what}` : ''}.`);
   }
+  for (const entry of result.updated ?? []) lines.push(`  ${entry.label}: ${entry.from ? `${versionWords(entry.from)} -> ` : 'new, '}${versionWords(entry)}.`);
+  lines.push(...waiting);
+  if (verb === 'update') lines.push('Stories already running keep the agents they started with; new Stories get these once the pull request is merged.');
   if (result.pinRecorded) lines.push(`apm.yml now pins apm ${result.apmVersion} (x-sflow.apm-cli), so every machine installs with the same version.`);
   lines.push(`apm audit --ci passed.${result.audit?.policyNote ? ` APM: ${result.audit.policyNote}` : ''}`);
   if (result.workflowWritten) lines.push('.github/workflows/apm-audit.yml runs the same audit on every pull request.');
@@ -158,11 +168,12 @@ export async function run(_argv, { positionals, options = {} }) {
   const unknown = Object.keys(options).filter((key) => ![...OPTIONS[subcommand], 'timings'].includes(key)).sort();
   if (unknown.length) fail(`apm ${subcommand} does not accept ${unknown.map((key) => `--${key}`).join(', ')}. Use: ${OPTIONS[subcommand].map((key) => `--${key}`).join(', ')}.`);
   const { repoRoot } = await import('../git.mjs');
-  if (subcommand === 'install') {
-    const { installApmPackages } = await import('../apm-install.mjs');
-    const result = await installApmPackages(repoRoot(process.cwd()), {
-      packages: positionals.slice(2).map(String), dev: optionBoolean(options, 'dev'), dryRun: optionBoolean(options, 'dry-run')
-    });
+  if (subcommand === 'install' || subcommand === 'update') {
+    const { installApmPackages, updateApmPackages } = await import('../apm-install.mjs');
+    const packages = positionals.slice(2).map(String);
+    const result = subcommand === 'install'
+      ? await installApmPackages(repoRoot(process.cwd()), { packages, dev: optionBoolean(options, 'dev'), dryRun: optionBoolean(options, 'dry-run') })
+      : await updateApmPackages(repoRoot(process.cwd()), { packages, dryRun: optionBoolean(options, 'dry-run') });
     if (optionBoolean(options, 'json')) console.log(JSON.stringify(result, null, 2));
     else printInstall(result);
     return result;

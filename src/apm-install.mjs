@@ -1,6 +1,6 @@
 /**
- * `singularity-flow apm install [PACKAGE]...` [APM A2, 2026-10-29]: one APM install as one commit a
- * pull request reviews.
+ * `singularity-flow apm install [PACKAGE]...` [APM A2, 2026-10-29] and `apm update [PACKAGE]...`
+ * [APM A6]: one APM install or update as one commit a pull request reviews.
  *
  * APM installs; SFlow only frames it. Before: the repository's APM files are committed, the checkout
  * is not a Story's, and this machine's APM CLI is the version `apm.yml` pins (`x-sflow.apm-cli`; the
@@ -21,6 +21,7 @@ import { resolvePlatformProcess } from './platform-process.mjs';
 import { SingularityFlowError } from './util.mjs';
 
 export const APM_INSTALL_RESULT = 'sflow-apm-install';
+export const APM_UPDATE_RESULT = 'sflow-apm-update';
 const PIN_KEY = 'x-sflow';
 const PIN_FIELD = 'apm-cli';
 // Copilot's target directories: agents, instructions and prompts in .github, skills in .agents.
@@ -69,12 +70,12 @@ export async function requireApmCli(root, cliVersion = apmCliVersion) {
   return { found, pinned };
 }
 
-/** A branch name for this install: `apm/install-<first package>`, made unique. */
-export function installBranchName(root, packages) {
+/** A branch name for this install (or update): `apm/install-<first package>`, made unique. */
+export function installBranchName(root, packages, verb = 'install') {
   const first = String(packages[0] ?? 'packages').split('#')[0].split('@')[0].replace(/\/+$/u, '');
   const slug = (path.posix.basename(first.replaceAll('\\', '/')) || 'packages').toLowerCase()
     .replace(/[^a-z0-9]+/gu, '-').replace(/^-+|-+$/gu, '').slice(0, 40) || 'packages';
-  const base = `apm/install-${slug}`;
+  const base = `apm/${verb}-${slug}`;
   for (let index = 1; index < 100; index += 1) {
     const name = index === 1 ? base : `${base}-${index}`;
     if (!refExists(root, `refs/heads/${name}`)) return name;
@@ -172,89 +173,121 @@ export function runApm(root, args, { run = spawnSync, environment = process.env 
   return result.status ?? 1;
 }
 
-function lockedCommits(status) {
-  return new Map(status.packages.map((entry) => [entry.label, entry.commit ?? entry.version ?? null]));
+function lockedVersions(status) {
+  return new Map(status.packages.map((entry) => [entry.label, { commit: entry.commit ?? null, version: entry.version ?? null }]));
 }
 
+const at = ({ commit: locked, version }) => [version, locked ? `@ ${locked.slice(0, 12)}` : null].filter(Boolean).join(' ') || 'unversioned';
+
 /**
- * Install with APM and commit what it changed. `apm` runs the APM CLI and `cliVersion` reports it;
- * both are injected by tests.
+ * Install with APM and commit what it changed. `apm` runs the APM CLI, `capture` reads its JSON and
+ * `cliVersion` reports it; all three are injected by tests.
  */
 export async function installApmPackages(root, {
   packages = [], dev = false, dryRun = false, apm = runApm, capture = captureApm, cliVersion = apmCliVersion
 } = {}) {
+  return changeApmPackages(root, 'install', { packages, dev, dryRun, apm, capture, cliVersion });
+}
+
+/**
+ * `apm update [PACKAGE]...` [APM A6, 2026-10-30]: APM moves each package to the latest version its
+ * apm.yml entry allows and rewrites the lock; SFlow frames it exactly like an install, and the commit
+ * names each package's old and new version. Stories already running keep the agents they started
+ * with; new ones get the updated files once the pull request is merged.
+ */
+export async function updateApmPackages(root, {
+  packages = [], dryRun = false, apm = runApm, capture = captureApm, cliVersion = apmCliVersion
+} = {}) {
+  return changeApmPackages(root, 'update', { packages, dryRun, apm, capture, cliVersion });
+}
+
+async function changeApmPackages(root, verb, { packages, dev = false, dryRun, apm, capture, cliVersion }) {
+  const code = verb === 'install' ? 'APM_INSTALL' : 'APM_UPDATE';
+  const resultType = verb === 'install' ? APM_INSTALL_RESULT : APM_UPDATE_RESULT;
   const { found, pinned } = await requireApmCli(root, cliVersion);
-  const args = ['install', ...(dev ? ['--dev'] : []), ...(dryRun ? ['--dry-run'] : []), ...packages];
+  const args = verb === 'install'
+    ? ['install', ...(dev ? ['--dev'] : []), ...(dryRun ? ['--dry-run'] : []), ...packages]
+    : ['update', dryRun ? '--dry-run' : '--yes', ...packages];
   if (dryRun) {
     const status = apm(root, args);
-    if (status !== 0) fail(`apm install --dry-run exited with status ${status}. Nothing was changed.`, 'APM_INSTALL_FAILED', { status });
-    return { schemaVersion: 1, resultType: APM_INSTALL_RESULT, dryRun: true, apmVersion: found, packages, committed: false };
+    if (status !== 0) fail(`apm ${verb} --dry-run exited with status ${status}. Nothing was changed.`, `${code}_FAILED`, { status });
+    return { schemaVersion: 1, resultType, dryRun: true, apmVersion: found, packages, committed: false };
   }
 
   const current = checkedOutBranch(root);
-  if (!current) fail('Check out a branch first; an install is committed on a branch for review.', 'APM_INSTALL_DETACHED');
+  if (!current) fail(`Check out a branch first; an ${verb} is committed on a branch for review.`, `${code}_DETACHED`);
   const story = await storyOnBranch(root, current);
   if (story) {
-    fail(`This checkout is Story ${story}'s. Install packages from the base branch's checkout; Stories started after its pull request is merged have them.`,
-      'APM_INSTALL_STORY_CHECKOUT', { workId: story });
+    fail(`This checkout is Story ${story}'s. ${verb === 'install' ? 'Install' : 'Update'} packages from the base branch's checkout; Stories started after its pull request is merged have them.`,
+      `${code}_STORY_CHECKOUT`, { workId: story });
   }
   const before = await apmProjectStatus(root, { cliVersion: false });
   const scope = apmPaths(before);
   const dirty = changedPaths(root, scope);
   if (dirty.length) {
-    fail(`Commit or stash these first, so the install's commit holds only what APM changed: ${dirty.slice(0, 8).join(', ')}${dirty.length > 8 ? ', …' : ''}.`,
-      'APM_INSTALL_DIRTY', { paths: dirty });
+    fail(`Commit or stash these first, so the ${verb}'s commit holds only what APM changed: ${dirty.slice(0, 8).join(', ')}${dirty.length > 8 ? ', …' : ''}.`,
+      `${code}_DIRTY`, { paths: dirty });
   }
 
   const exit = apm(root, args);
   if (exit !== 0) {
-    fail(`apm install exited with status ${exit}. Nothing was committed; git status shows anything it changed.`, 'APM_INSTALL_FAILED', { status: exit });
+    fail(`apm ${verb} exited with status ${exit}. Nothing was committed; git status shows anything it changed.`, `${code}_FAILED`, { status: exit });
   }
   if (!pinned) await recordPin(root, found);
   const after = await apmProjectStatus(root, { cliVersion: false });
   if (!['intact', 'uncommitted'].includes(after.state)) {
-    fail(`After apm install, apm status says ${after.state}: ${after.findings.slice(0, 3).map((entry) => entry.message).join(' ')} Nothing was committed.`,
-      'APM_INSTALL_NOT_INTACT', { state: after.state, findings: after.findings });
+    fail(`After apm ${verb}, apm status says ${after.state}: ${after.findings.slice(0, 3).map((entry) => entry.message).join(' ')} Nothing was committed.`,
+      `${code}_NOT_INTACT`, { state: after.state, findings: after.findings });
   }
   // The same audit the pull request's check runs; a package the organisation does not allow stops here.
   const audit = apmAudit(root, capture);
   if (!audit.passed) {
     const said = audit.failed.map((check) => `${check.name}: ${check.message}${check.details.length ? ` (${check.details.join('; ')})` : ''}`).join(' ');
-    fail(`apm audit --ci failed after the install: ${said} Nothing was committed; git status shows what apm install wrote.`,
-      'APM_INSTALL_AUDIT_FAILED', { failed: audit.failed });
+    fail(`apm audit --ci failed after the ${verb}: ${said} Nothing was committed; git status shows what apm ${verb} wrote.`,
+      `${code}_AUDIT_FAILED`, { failed: audit.failed });
   }
   const writesWorkflow = !pinned && !(await lstat(path.join(root, APM_AUDIT_WORKFLOW)).catch(() => null));
   if (writesWorkflow) {
     await mkdir(path.join(root, path.dirname(APM_AUDIT_WORKFLOW)), { recursive: true });
     await writeFile(path.join(root, APM_AUDIT_WORKFLOW), auditWorkflowText(found));
   }
+  // A step whose APM agent this change removed goes back to its workflow's own agent (agents.mjs).
+  const wasActive = new Set(Object.entries(before.agents?.bindings ?? {}).filter(([, binding]) => binding.active).map(([id]) => id));
+  const waiting = Object.entries(after.agents?.bindings ?? {}).filter(([id, binding]) => wasActive.has(id) && !binding.active)
+    .map(([agent, binding]) => ({ agent, steps: binding.defaultFor, waiting: binding.waiting }));
   const changed = changedPaths(root, [...new Set([...scope, ...apmPaths(after)])]);
   if (!changed.length) {
-    return { schemaVersion: 1, resultType: APM_INSTALL_RESULT, dryRun: false, apmVersion: found, packages, committed: false, changed: [], state: after.state };
+    return { schemaVersion: 1, resultType, dryRun: false, apmVersion: found, packages, committed: false, changed: [], state: after.state, waiting };
   }
 
-  const earlier = lockedCommits(before);
-  const touched = after.packages.filter((entry) => earlier.get(entry.label) !== (entry.commit ?? entry.version ?? null));
-  const target = current.startsWith('apm/') ? current : installBranchName(root, packages);
+  const earlier = lockedVersions(before);
+  const moved = after.packages.filter((entry) => {
+    const previous = earlier.get(entry.label);
+    return !previous || previous.commit !== (entry.commit ?? null) || previous.version !== (entry.version ?? null);
+  }).map(({ label, commit: locked, version, primitives }) => ({
+    label, commit: locked, version, primitives, from: earlier.get(label) ?? null
+  }));
+  // Named after the package asked for, or else the first one APM moved.
+  const target = current.startsWith('apm/') ? current : installBranchName(root, packages.length ? packages : moved.map((entry) => entry.label), verb);
   if (target !== current) await checkout(root, target, { base: current });
   add(root, changed);
-  const words = touched.length ? touched.map((entry) => entry.label).join(', ') : packages.join(', ') || 'the locked packages';
+  const words = moved.length ? moved.map((entry) => entry.label).join(', ') : packages.join(', ') || 'the locked packages';
   const message = [
-    `Install APM package${touched.length === 1 ? '' : 's'} ${words}`,
+    `${verb === 'install' ? 'Install' : 'Update'} APM package${moved.length === 1 ? '' : 's'} ${words}`,
     '',
     `apm ${args.join(' ')} (apm ${found})`,
-    ...touched.map((entry) => `- ${entry.label}${entry.commit ? ` @ ${entry.commit}` : ''}${entry.version ? ` (${entry.version})` : ''}`)
+    ...moved.map((entry) => `- ${entry.label}: ${entry.from ? `${at(entry.from)} -> ` : ''}${at(entry)}`),
+    ...waiting.map((entry) => `- ${entry.agent} no longer drafts ${entry.steps.join(', ') || 'its steps'}: ${entry.waiting}`)
   ].join('\n');
   const sha = commit(root, message, changed);
   return {
-    schemaVersion: 1, resultType: APM_INSTALL_RESULT, dryRun: false, apmVersion: found, pinRecorded: !pinned, packages,
+    schemaVersion: 1, resultType, dryRun: false, apmVersion: found, pinRecorded: !pinned, packages,
     committed: true, commit: sha, branch: target, createdBranch: target !== current, from: current, changed,
-    audit: { passed: true, checks: audit.checks, policyNote: audit.policyNote }, workflowWritten: writesWorkflow,
-    installed: touched.map(({ label, commit: locked, version, primitives }) => ({ label, commit: locked, version, primitives })),
+    audit: { passed: true, checks: audit.checks, policyNote: audit.policyNote }, workflowWritten: writesWorkflow, waiting,
+    [verb === 'install' ? 'installed' : 'updated']: moved,
     nextActions: [
       { command: `git push -u origin ${target}`, why: 'Send the branch.' },
-      { command: 'gh pr create --fill', why: 'Open the pull request that reviews the agents this install adds.' }
+      { command: 'gh pr create --fill', why: `Open the pull request that reviews the agents this ${verb} ${verb === 'install' ? 'adds' : 'changes'}.` }
     ]
   };
 }
-

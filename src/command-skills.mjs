@@ -273,7 +273,7 @@ export const COMMAND_LINE_SKILL_ROUTES = Object.freeze({
   gateway: route('sf-home', { serve: null }),
   // Installing agent packages changes which agents run, and publishing them what other teams run:
   // the person's own steps (OWN_TERMINAL_STEPS).
-  apm: route('sf-import', { install: null, publish: null, marketplace: null, policy: null }),
+  apm: route('sf-import', { install: null, update: null, publish: null, marketplace: null, policy: null }),
   capabilities: route('sf-capabilities', {
     doctor: 'sf-capability-doctor'
   }),
@@ -513,7 +513,7 @@ export const OWN_TERMINAL_STEPS = Object.freeze([
   ['upstream-amendment-decision', ([command, sub]) => command === 'upstream-issue' && ['decide-amendment', 'revalidate'].includes(sub)],
   ['environment-binding', ([command, sub]) => command === 'env' && ['bind', 'unbind'].includes(sub)],
   // Which agents a repository runs; APM's own --dry-run preview stays open to a turn [APM A2].
-  ['apm-install', ([command, sub], options) => command === 'apm' && sub === 'install' && options['dry-run'] !== true],
+  ['apm-install', ([command, sub], options) => command === 'apm' && ['install', 'update'].includes(sub) && options['dry-run'] !== true],
   // What the organisation's marketplace offers every team, and what its policy allows; each --dry-run
   // preview stays open [APM A4-A5].
   ['apm-organisation', ([command, sub], options) => command === 'apm' && ['publish', 'marketplace', 'policy'].includes(sub) && options['dry-run'] !== true],

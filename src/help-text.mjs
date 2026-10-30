@@ -730,6 +730,7 @@ Usage:
   singularity-flow marketplace remove <ID> [--dry-run] [--propose] [--json]
   singularity-flow apm status [--json]
   singularity-flow apm install [PACKAGE]... [--dev] [--dry-run] [--json]
+  singularity-flow apm update [PACKAGE]... [--dry-run] [--json]
   singularity-flow apm attach <AGENT> --step STEP [--dry-run] [--propose] [--json]
   singularity-flow apm marketplace init --name NAME --owner OWNER [--description TEXT] [--dry-run] [--json]
   singularity-flow apm publish <AGENT>... --marketplace CHECKOUT [--package NAME] [--version X.Y.Z] [--skill ID]... [--description TEXT] [--dry-run] [--json]

@@ -206,15 +206,16 @@ test('end to end: three dependent changes become one proposal, approved with one
   const counted = flow(checkout, create, 0, { SINGULARITY_FLOW_SUBPROCESS_PROBE: '1' });
   assert.match(counted.stdout, /Drafts waiting: 2\./);
   // SDA §17, restated by decision D2: a draft save starts no remote or model process, and its local
-  // Git reads only fall. Measured 11 (macOS, 2026-10-30): the CLI's repository probe and command log
-  // (2), the held authority's ref (1) and objects (4), and the Studio check's two approved files
-  // read by ref and `show` (4). Lower the ceiling with the count; never raise it.
+  // Git reads only fall. Measured 9 (macOS, 2026-10-30; 11 before B6b batched the editor's two
+  // committed files): the CLI's repository probe and command log (2), the held authority's ref (1)
+  // and objects (4), and the Studio check's committed path-authority baseline in one batch (2).
+  // Lower the ceiling with the count; never raise it.
   const probe = /^subprocesses: (\d+) calls/mu.exec(counted.stderr);
   assert.ok(probe, counted.stderr);
   const rows = counted.stderr.slice(probe.index).split('\n').slice(1).map((line) => /^\s+\d+x\s+\d+ ms {2}(.+)$/u.exec(line)?.[1]).filter(Boolean);
   assert.deepEqual(rows.filter((row) => !row.startsWith('git ')), [], 'a draft save starts no process but local Git');
   assert.deepEqual(rows.filter((row) => /^git (?:fetch|ls-remote|push|pull|clone)\b/u.test(row)), [], 'a draft save makes no remote contact');
-  assert.ok(Number(probe[1]) <= 11, `a draft save starts at most 11 local Git processes, not ${probe[1]}:\n${counted.stderr.slice(probe.index)}`);
+  assert.ok(Number(probe[1]) <= 9, `a draft save starts at most 9 local Git processes, not ${probe[1]}:\n${counted.stderr.slice(probe.index)}`);
   const retried = JSON.parse(flow(checkout, [...create, '--json']).stdout);
   assert.equal(retried.saved, 'existing');
   assert.equal(retried.drafts.pending, 2);

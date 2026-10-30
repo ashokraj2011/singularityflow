@@ -556,10 +556,48 @@ export async function configurationProposalCommitStatus(root, requestedBranch, r
   const remoteSession = session ?? new GitRemoteSession({ env: gitEnv });
   const remote = await proposalRemote(root, remoteSession);
   const transport = frozenRemoteTransport(remote, { env: gitEnv });
+  const proposalRef = `refs/heads/${branch}`;
+  // The answer, read from one repository that holds the authority's complete history: a post-merge
+  // branch deletion removes the review ref, but the exact proposal commit stays reachable through
+  // the merge or fast-forward ancestry.
+  const statusAt = async (readRoot, targetCommit, branchCommit, runRemoteCommand) => {
+    const registry = await configurationStateAtRef(readRoot, transport.remote, targetCommit, transport.env, runRemoteCommand);
+    const included = (commit) => gitCommitObjectExists(readRoot, commit, { env: transport.env })
+      && gitIsAncestor(readRoot, commit, targetCommit, { env: transport.env });
+    return {
+      remote: sanitizeRemote(remote),
+      branch,
+      proposalCommit,
+      targetBranch: CONFIGURATION_BRANCH,
+      targetCommit,
+      merged: included(proposalCommit),
+      candidateIncluded: candidateCommit === null ? null : included(candidateCommit),
+      branchStatus: branchCommit == null ? 'absent'
+        : branchCommit === proposalCommit ? 'matching' : 'replaced',
+      branchCommit,
+      transaction: registry.transactions.findLast(record => record.branch === branch && record.proposalRevision === proposalCommit) ?? null
+    };
+  };
+  // Exact objects first (SDA-AC-013): the configuration object pool fetches the advertised
+  // authority with its complete history and is read in place, with no clone.
+  const advertised = await remoteSession.observeAsync(remote, {
+    refs: [`refs/heads/${CONFIGURATION_BRANCH}`, proposalRef], includeHead: false, refresh: true
+  });
+  requireRemoteObservation(advertised, `configuration proposal '${branch}'`);
+  const authorityCommit = advertised.refs.get(`refs/heads/${CONFIGURATION_BRANCH}`) ?? null;
+  const advertisedBranch = advertised.refs.get(proposalRef) ?? null;
+  const objectStore = authorityCommit ? await prepareConfigurationObjectCheckout(root, null, {
+    remote, transport, env, authorityCommit, runRemoteCommand: runRemoteGitAsync, checkout: false,
+    branches: advertisedBranch ? [{ branch, proposalCommit: advertisedBranch }] : []
+  }) : null;
+  if (objectStore) {
+    try { return await statusAt(objectStore.store, authorityCommit, advertisedBranch, objectStore.download); }
+    finally { await objectStore.release({ cleanupConfirmed: true }); }
+  }
+  // The pool declined (busy, over its authority budget, unqualified storage, or turned off): a
+  // blobless temporary clone with the same history, listed in test/sda-clone-boundary.test.mjs.
   const scratch = await mkdtemp(path.join(os.tmpdir(), 'sflow-workflow-proposal-status-'));
   try {
-    // Full approved history is required: a post-merge branch deletion removes the review ref, but
-    // the exact proposal commit remains reachable through the merge/fast-forward ancestry.
     const cloned = await runRemoteGitAsync([
       'clone', '--quiet', '--no-local', '--no-tags', '--single-branch',
       '--no-checkout', '--filter=blob:none',
@@ -571,7 +609,6 @@ export async function configurationProposalCommitStatus(root, requestedBranch, r
         { code: cloned.failure?.code ?? 'WORKFLOW_PROPOSAL_AUTHORITY_UNAVAILABLE' }
       );
     }
-    const proposalRef = `refs/heads/${branch}`;
     const observed = await remoteSession.observeAsync(remote, {
       refs: [proposalRef], includeHead: false, refresh: true
     });
@@ -587,25 +624,7 @@ export async function configurationProposalCommitStatus(root, requestedBranch, r
         { code: fetched.failure?.code ?? 'WORKFLOW_PROPOSAL_AUTHORITY_UNAVAILABLE' }
       );
     }
-    const targetCommit = configurationRepositoryHead(scratch, transport.env);
-    const registry = await configurationStateAtRef(scratch, transport.remote, targetCommit, transport.env, runRemoteGitAsync);
-    const merged = gitCommitObjectExists(scratch, proposalCommit, { env: transport.env })
-      ? gitIsAncestor(scratch, proposalCommit, 'HEAD', { env: transport.env })
-      : false;
-    return {
-      remote: sanitizeRemote(remote),
-      branch,
-      proposalCommit,
-      targetBranch: CONFIGURATION_BRANCH,
-      targetCommit,
-      merged,
-      candidateIncluded: candidateCommit === null ? null : gitCommitObjectExists(scratch, candidateCommit, { env: transport.env })
-        && gitIsAncestor(scratch, candidateCommit, 'HEAD', { env: transport.env }),
-      branchStatus: branchCommit == null ? 'absent'
-        : branchCommit === proposalCommit ? 'matching' : 'replaced',
-      branchCommit,
-      transaction: registry.transactions.findLast(record => record.branch === branch && record.proposalRevision === proposalCommit) ?? null
-    };
+    return await statusAt(scratch, configurationRepositoryHead(scratch, transport.env), branchCommit, runRemoteGitAsync);
   } finally {
     await removeTemporaryTree(scratch);
   }

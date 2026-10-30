@@ -3393,7 +3393,7 @@ export async function listRepositoryOnboardingProposals(remote, {
 export async function activateRepositoryOnboardingProposal(remote, requestedBranch, {
   confirm = null, acknowledgeUnprotected = false,
   env = process.env, runRemoteCommand = runRemoteGitAsync,
-  cleanupQueueRoot = null
+  cleanupQueueRoot = null, cacheRoot = process.cwd()
 } = {}) {
   const repository = await repositoryInputRemote(canonicalRepositoryLocator(remote), env);
   const branch = setupProposalBranch(requestedBranch);
@@ -3416,19 +3416,27 @@ export async function activateRepositoryOnboardingProposal(remote, requestedBran
     const targetCommit = observed.ok ? observed.refs.get(CONFIGURATION_REF) ?? null : null;
     if (!targetCommit || observed.refs.has(`refs/heads/${branch}`)) throw error;
     const transport = frozenRemoteTransport(repository, { env: gitEnv });
-    const scratch = await mkdtemp(path.join(os.tmpdir(), 'sflow-setup-activation-recheck-'));
+    const alreadyMerged = (root) => executeGitQuery(root, 'repository.head', {}, { env: transport.env }) === targetCommit
+      && gitCommitObjectExists(root, confirm, { env: transport.env })
+      && gitIsAncestor(root, confirm, targetCommit, { env: transport.env });
+    // The approved ancestry, from exact objects in place: the configuration object pool fetches
+    // the advertised commit with its complete history, and no clone is made (SDA-AC-013). Only when
+    // the pool declines is that history cloned. A failed transfer keeps the original refusal.
+    const { prepareConfigurationObjectCheckout } = await import('./configuration-object-store.mjs');
+    const pool = await prepareConfigurationObjectCheckout(cacheRoot, null, {
+      remote: repository, transport, authorityCommit: targetCommit, runRemoteCommand, env: gitEnv, checkout: false
+    }).catch((failure) => { throw failure.remoteResult ? error : failure; });
+    let scratch = null;
     try {
-      const cloned = await runRemoteCommand([
-        'clone', '--quiet', '--no-local', '--no-tags', '--single-branch',
-        '--branch', CONFIGURATION_BRANCH, transport.remote, scratch
-      ], { operation: 'remote-configuration', env: transport.env });
-      if (cloned.status !== 0) throw error;
-      const localHead = executeGitQuery(scratch, 'repository.head', {}, {
-        env: transport.env
-      });
-      if (localHead !== targetCommit
-          || !gitCommitObjectExists(scratch, confirm, { env: transport.env })
-          || !gitIsAncestor(scratch, confirm, targetCommit, { env: transport.env })) throw error;
+      if (!pool) {
+        scratch = await mkdtemp(path.join(os.tmpdir(), 'sflow-setup-activation-recheck-'));
+        const cloned = await runRemoteCommand([
+          'clone', '--quiet', '--no-local', '--no-tags', '--single-branch',
+          '--branch', CONFIGURATION_BRANCH, transport.remote, scratch
+        ], { operation: 'remote-configuration', env: transport.env });
+        if (cloned.status !== 0) throw error;
+      }
+      if (!alreadyMerged(pool?.store ?? scratch)) throw error;
       return {
         remote: sanitizeRemote(repository), branch,
         proposalCommit: confirm, targetBranch: CONFIGURATION_BRANCH, targetCommit,
@@ -3437,7 +3445,10 @@ export async function activateRepositoryOnboardingProposal(remote, requestedBran
         proposalCleanup: { branch, proposalCommit: confirm, status: 'already-absent' },
         nextAction: onboardingCommand(repository)
       };
-    } finally { await removeTemporaryTree(scratch); }
+    } finally {
+      if (scratch) await removeTemporaryTree(scratch);
+      await pool?.release({ cleanupConfirmed: true });
+    }
   }
   if (String(confirm ?? '').trim() !== reviewed.proposalCommit) throw new SingularityFlowError(
     `Confirmation must be the full current setup proposal commit '${reviewed.proposalCommit}'. Nothing was changed.`, {

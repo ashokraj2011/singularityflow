@@ -886,6 +886,10 @@ test('delivery locator previews reuse exact-ref lead cache and revalidate moved 
       };
     };
     const remoteCount = (counters, verb) => counters[`git.remote.command.${verb}`] ?? 0;
+    // The lead's approved configuration is re-read in place from the configuration object pool when
+    // one is available (SDA-AC-013), or cloned; its state mirror is still cloned.
+    const leadReads = (sample) => remoteCount(sample.counters, 'clone') - sample.deliveryClones
+      + (sample.counters['configuration.object-store-read'] ?? 0);
 
     const first = await inspectTimed();
     assert.equal(first.plan.routing.verified, true);
@@ -913,8 +917,7 @@ test('delivery locator previews reuse exact-ref lead cache and revalidate moved 
 
     const refreshed = await inspectTimed({ refresh: true });
     assert.equal(refreshed.plan.routing.verified, true);
-    assert.ok(remoteCount(refreshed.counters, 'clone') > refreshed.deliveryClones,
-      'explicit refresh must re-read the lead authority');
+    assert.ok(leadReads(refreshed) > 0, 'explicit refresh must re-read the lead authority');
 
     const applyTimer = commandTimer('delivery-locator-apply');
     const beforeApplyDeliveryClones = deliveryClones;
@@ -931,8 +934,7 @@ test('delivery locator previews reuse exact-ref lead cache and revalidate moved 
     const unmapped = await inspectTimed();
     assert.equal(unmapped.plan.routing.verified, false);
     assert.equal(unmapped.plan.canApply, false);
-    assert.ok(remoteCount(unmapped.counters, 'clone') > unmapped.deliveryClones,
-      'a moved lead configuration ref invalidates the warm cache');
+    assert.ok(leadReads(unmapped) > 0, 'a moved lead configuration ref invalidates the warm cache');
 
     run('git', ['update-ref', `refs/heads/${CONFIGURATION_BRANCH}`, mapped.commit], {
       cwd: lead.remote
@@ -951,8 +953,7 @@ test('delivery locator previews reuse exact-ref lead cache and revalidate moved 
     run('git', ['push', '-q', 'origin', 'HEAD:state'], { cwd: stateEditor });
     const advancedState = await inspectTimed();
     assert.equal(advancedState.plan.routing.verified, true);
-    assert.ok(remoteCount(advancedState.counters, 'clone') > advancedState.deliveryClones,
-      'a moved lead state ref must revalidate before the mapping stays trusted');
+    assert.ok(leadReads(advancedState) > 0, 'a moved lead state ref must revalidate before the mapping stays trusted');
 
     const wrongLink = createCapabilityAuthorityLink({
       authorityRemote: lead.remote, repositoryRemote: delivery.remote,
@@ -2109,11 +2110,25 @@ test('a setup proposal is visible, reviewable, and activates only its exact revi
     assert.equal(run('git', [
       'show-ref', '--verify', '--quiet', `refs/heads/${applied.proposal.branch}`
     ], { cwd: fixture.remote, allowFailure: true }).status, 1);
+    // The proposal is gone, so its exact commit is proven merged through the approved ancestry. The
+    // object pool holds that history and is read in place, with no clone (SDA-AC-013); with the pool
+    // off, the clone gives the same answer.
+    const repeatCommands = [];
     const repeated = await activateRepositoryOnboardingProposal(
-      fixture.remote, applied.proposal.branch, { confirm: applied.proposal.commit }
+      fixture.remote, applied.proposal.branch, {
+        confirm: applied.proposal.commit, cacheRoot: checkout,
+        env: { ...process.env, SINGULARITY_FLOW_CONFIGURATION_OBJECT_STORE: 'on' },
+        runRemoteCommand: async (args, options) => { repeatCommands.push(args[0]); return runRemoteGitAsync(args, options); }
+      }
     );
     assert.equal(repeated.alreadyMerged, true);
     assert.equal(repeated.proposalCleanup.status, 'already-absent');
+    assert.deepEqual([repeatCommands.includes('fetch'), repeatCommands.includes('clone')], [true, false],
+      'the repeated activation reads the pool in place');
+    assert.deepEqual(repeated, await activateRepositoryOnboardingProposal(fixture.remote, applied.proposal.branch, {
+      confirm: applied.proposal.commit, cacheRoot: checkout,
+      env: { ...process.env, SINGULARITY_FLOW_CONFIGURATION_OBJECT_STORE: 'off' }
+    }), 'the pool and the clone give the same answer');
     const repeatedCli = run(process.execPath, [
       path.resolve('bin/singularity-flow.mjs'), 'capability', 'setup-activate',
       applied.proposal.branch, '--lead', fixture.remote,

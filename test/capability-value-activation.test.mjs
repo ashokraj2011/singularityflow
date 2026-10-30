@@ -16,8 +16,10 @@ import { removeTemporaryTree, run } from '../src/util.mjs';
 import {
   activateCapabilityProposal, addCapabilityRepository, adoptManagedCapabilityMap, discardStaleCapabilityProposal,
   editCapabilityInOrganisation, inspectCapabilityProposal, listCapabilityProposals, mapCapability, mapCapabilityTeam,
-  previewManagedCapabilityAdoption, proposeProgressiveCapabilityChange, rebaseCapabilityProposal
+  previewManagedCapabilityAdoption, proposeProgressiveCapabilityChange, publishOrganisationCapabilityMap,
+  readOrganisation, rebaseCapabilityProposal
 } from '../src/organisation.mjs';
+import { workspaceRemoteCapabilities } from '../src/workspace.mjs';
 import { editCapability } from '../src/capabilities.mjs';
 import { initializeDefinition } from '../src/config.mjs';
 import { replayCapabilityProposal } from '../src/capability-value-replay.mjs';
@@ -108,7 +110,7 @@ const { appendFileSync } = require('node:fs');
 const args = process.argv.slice(2);
 let index = 0;
 while (index < args.length && args[index].startsWith('-')) index += ['-c', '-C'].includes(args[index]) ? 2 : 1;
-appendFileSync(${JSON.stringify(log)}, (args[index] ?? '') + '\\n');
+appendFileSync(${JSON.stringify(log)}, JSON.stringify(args.slice(index)) + '\\n');
 const result = spawnSync(${JSON.stringify(realGit)}, args, { stdio: 'inherit' });
 process.exit(result.status == null ? 1 : result.status);
 `);
@@ -119,7 +121,8 @@ process.exit(result.status == null ? 1 : result.status);
   let result;
   try { result = await action(); }
   finally { process.env.PATH = previous; }
-  return { result, verbs: (await readFile(log, 'utf8')).split('\n').filter(Boolean) };
+  const commands = (await readFile(log, 'utf8')).split('\n').filter(Boolean).map((line) => JSON.parse(line));
+  return { result, commands, verbs: commands.map((command) => command[0] ?? '') };
 }
 
 const count = (verbs, verb) => verbs.filter((entry) => entry === verb).length;
@@ -349,6 +352,42 @@ test('map, team, repository, adoption and policy proposals are built from exact 
   }));
   assert.equal(YAML.parse(run('git', ['show', `${policy.commit}:singularity/capabilities.yml`], { cwd: org.platform }).stdout)
     .capabilities['platform-app'].policy.auto.eligibility, 'bounded');
+});
+
+test('the capability map and a lead\'s catalog are read from exact objects in place, and match the clone', posixOnly, async (t) => {
+  const org = await remotes(t, 'platform', 'worker');
+  await mergeProposal(org.platform, await mapCapability(org.platform, {
+    capabilityId: 'platform-app', name: 'Platform app', kind: 'delivery', repositoryUrl: org.platform
+  }));
+  await mergeProposal(org.platform, await mapCapability(org.platform, {
+    capabilityId: 'worker-api', name: 'Worker API', kind: 'delivery', repositoryUrl: org.worker
+  }));
+  await publishOrganisationCapabilityMap(org.platform);
+  // The pool lives in the repository a command runs in; this file otherwise keeps it off.
+  const cacheRoot = path.join(org.base, 'platform-seed');
+  const pooled = async (action) => {
+    const previous = process.env.SINGULARITY_FLOW_CONFIGURATION_OBJECT_STORE;
+    process.env.SINGULARITY_FLOW_CONFIGURATION_OBJECT_STORE = 'on';
+    try { return await gitVerbs(org.base, action); }
+    finally { process.env.SINGULARITY_FLOW_CONFIGURATION_OBJECT_STORE = previous; }
+  };
+  const clonesOf = (commands, branch) => commands.filter((command) => command[0] === 'clone' && command.includes(branch));
+
+  const { result: organisation, commands } = await pooled(() => readOrganisation(org.platform, { refresh: true, cacheRoot }));
+  assert.deepEqual(clonesOf(commands, 'sflow/config'), [], 'the approved configuration is read in place, not cloned');
+  assert.equal(organisation.stateProjection.status, 'current', 'the asset comparison with the state mirror ran on pool objects');
+  assert.deepEqual(organisation.capabilities.map((capability) => capability.id).sort(), ['platform-app', 'worker-api']);
+  assert.deepEqual(organisation, await readOrganisation(org.platform, { refresh: true, cacheRoot }),
+    'the pool and the clone read the same organisation');
+
+  const { result: catalog, verbs } = await pooled(() => workspaceRemoteCapabilities(org.platform, {
+    cacheRoot, env: { ...process.env, SINGULARITY_FLOW_CONFIGURATION_OBJECT_STORE: 'on' }
+  }));
+  assert.equal(count(verbs, 'clone'), 0, 'a lead\'s catalog is read in place, not cloned');
+  assert.deepEqual(catalog.deliveries.map((delivery) => [delivery.id, delivery.url]).sort(),
+    [['platform-app', org.platform], ['worker-api', org.worker]]);
+  assert.deepEqual(catalog, await workspaceRemoteCapabilities(org.platform, { cacheRoot }),
+    'the pool and the clone read the same catalog');
 });
 
 test('a capability edit still refuses an unknown capability and a map with nothing to edit', async (t) => {

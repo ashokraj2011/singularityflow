@@ -101,6 +101,8 @@ async function qualifiedConfig(root, store) {
  * `checkout: false` is for a read that needs only exact objects (proposal listing and inspection,
  * SDA-AC-013): no `scratch` is cloned, the pool's own `store` is returned to read from directly,
  * and `refs/heads/<branch>` there names each included proposal for as long as the lease is held.
+ * `includeFiles(commit, paths)` then makes those files' blobs readable in place (a blobless pool
+ * holds commits and trees only).
  */
 export async function prepareConfigurationObjectCheckout(root, scratch, {
   remote, transport, authorityCommit, branches = [], runRemoteCommand, env = process.env,
@@ -251,8 +253,14 @@ export async function prepareConfigurationObjectCheckout(root, scratch, {
       return lease.release({ cleanupConfirmed });
     };
     if (!checkout) {
+      const includeFiles = async (commit, paths) => {
+        const blobs = git(store, ['ls-tree', '-z', commit, '--', ...paths]).stdout.split('\0')
+          .map(row => /^\d{6} blob ([a-f0-9]{40}|[a-f0-9]{64})\t/u.exec(row)?.[1]).filter(Boolean);
+        if (blobs.length) await new ConfigurationObjectReader(store, transport.remote, transport.env, download)
+          .hydrate(blobs.map(oid => ({ oid })));
+      };
       incrementCommandCounter('configuration.object-store-read');
-      return { store, download, includeBranches, release };
+      return { store, download, includeBranches, includeFiles, release };
     }
     git(root, ['clone', '--quiet', '--shared', ...(independent
       ? ['--dissociate', '--single-branch', '--branch', 'sflow/config'] : []),

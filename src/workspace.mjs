@@ -532,7 +532,8 @@ export async function workspaceRemoteCapabilities(url, {
   configurationBranch = 'sflow/config',
   env = process.env,
   remoteSession = null,
-  objectStoreDirectory = null
+  objectStoreDirectory = null,
+  cacheRoot = process.cwd()
 } = {}) {
   const remote = String(url ?? '').trim();
   if (!remote) throw new SingularityFlowError('A repository URL is required.');
@@ -563,8 +564,8 @@ export async function workspaceRemoteCapabilities(url, {
     );
     await mkdir(path.dirname(persistentStore), { recursive: true, mode: 0o700 });
   }
-  const scratch = persistentStore
-    ?? await mkdtemp(path.join(os.tmpdir(), 'sflow-lead-map-'));
+  let scratch = persistentStore;
+  let pool = null;
   try {
     // Organisation configuration is intentionally independent of application `main`. Workspaces
     // must therefore read the approved configuration branch, never whichever application branch
@@ -585,7 +586,28 @@ export async function workspaceRemoteCapabilities(url, {
     const branch = configurationBranch;
     const authorityCommit = configured.refs.get(`refs/heads/${configurationBranch}`);
     const transport = frozenRemoteTransport(remote, { env: gitEnv });
-    const cloned = await runRemoteGitAsync([
+    if (!persistentStore) {
+      // A plain read takes exact objects in place from the configuration object pool of the
+      // repository this runs in (SDA-AC-013); a failed transfer is reported as a failed clone was.
+      // Bootstrap's catalog store is the clone below, kept as the catalog's proof.
+      const { prepareConfigurationObjectCheckout } = await import('./configuration-object-store.mjs');
+      try {
+        pool = await prepareConfigurationObjectCheckout(cacheRoot, null, {
+          remote, transport, authorityCommit, runRemoteCommand: runRemoteGitAsync, env: gitEnv, checkout: false
+        });
+      } catch (error) {
+        if (!error.remoteResult) throw error;
+        throw new SingularityFlowError(
+          `Cannot read '${sanitizeRemote(remote)}'. ${error.remoteResult.failure?.advice ?? 'Git remote access failed.'}`,
+          { code: error.remoteResult.failure?.code ?? 'REMOTE_UNKNOWN' }
+        );
+      }
+      if (pool) {
+        scratch = pool.store;
+        await pool.includeFiles(authorityCommit, [capabilitiesPath, portfolioPath]);
+      } else scratch = await mkdtemp(path.join(os.tmpdir(), 'sflow-lead-map-'));
+    }
+    const cloned = pool ? { status: 0 } : await runRemoteGitAsync([
       'clone', '--quiet', '--depth', '1', '--filter=blob:none', '--no-tags', '--no-checkout', '--branch', branch,
       transport.remote, scratch
     ], { operation: 'remote-configuration', env: transport.env });
@@ -678,7 +700,8 @@ export async function workspaceRemoteCapabilities(url, {
       } : null
     };
   } finally {
-    if (!persistentStore) {
+    if (pool) await pool.release({ cleanupConfirmed: true });
+    else if (!persistentStore && scratch) {
       try {
         await removeTemporaryTree(scratch);
       } catch (error) {

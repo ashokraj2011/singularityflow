@@ -313,7 +313,9 @@ test('the bundled CLI answers exactly like the sources while opening a handful o
   // only on a transition.
   const hookContext = closure('cold-hook-context.mjs').reduce((sum, item) => sum + item.bytes, 0);
   // 7,615,000: main 38b61ada9 measures 7,605,407; the same SDA B1, B4 and B5 code in the hook closures adds 8,902 for 7,614,309.
-  assert.ok(hookContext < 7_615_000,
+  // 7,620,000: SDA B6b measures 7,616,401 against 7,614,309: configuration reads that take the object pool in place
+  // (organisation.mjs, workspace.mjs, the pool itself loading lazily) and the editor's one-batch baseline (editor.mjs).
+  assert.ok(hookContext < 7_620_000,
     `phase-review reads retain their existing byte ceiling after moving families (${hookContext} bytes)`);
   assert.match(await readFile(path.join(outdir, 'cold-light.mjs'), 'utf8'), /function enterPhase\b/u,
     'phase binding must not fall through to the compatibility/admin bundle');

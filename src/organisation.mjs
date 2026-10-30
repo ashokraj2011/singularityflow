@@ -2387,7 +2387,9 @@ async function capabilityMapFromState(remote, branch = 'state', {
  * When the remote is unreachable, only a previously validated cache is served, clearly marked
  * stale with its age and the remote failure.
  */
-export async function readOrganisation(url, { refresh = false, routingTrail = [], remoteSession = null } = {}) {
+export async function readOrganisation(url, {
+  refresh = false, routingTrail = [], remoteSession = null, cacheRoot = process.cwd()
+} = {}) {
   const remote = String(url ?? '').trim();
   if (!remote) throw new SingularityFlowError('A lead repository URL is required.', {
     code: 'CAPABILITY_LEAD_REQUIRED',
@@ -2602,18 +2604,39 @@ export async function readOrganisation(url, { refresh = false, routingTrail = []
       remoteError: null
     };
   }
-  const scratch = await mkdtemp(path.join(os.tmpdir(), 'sflow-read-'));
+  const transport = frozenRemoteTransport(remote, { env: gitEnv });
+  let scratch = null;
+  let objectStore = null;
   try {
-    const transport = frozenRemoteTransport(remote, { env: gitEnv });
-    const cloned = await runRemoteGitAsync([
-      'clone', '--quiet', '--no-local', '--no-tags', '--single-branch', '--depth', '1',
-      '--no-checkout', '--branch', branch, transport.remote, scratch
-    ], { operation: 'remote-configuration', env: transport.env });
-    if (cloned.status !== 0) {
-      const remoteFailure = publicRemoteFailure(cloned.failure);
+    // Exact objects first (SDA-AC-013): the advertised commit, read in place from the
+    // configuration object pool of the repository this runs in. Outside a repository, or when the
+    // pool declines, one shallow clone with no checkout. A failed transfer is reported as a failed
+    // clone was, and is never retried through one.
+    let failedTransfer = null;
+    let transferVerb = 'transfer';
+    try {
+      objectStore = await prepareConfigurationObjectCheckout(cacheRoot, null, {
+        remote, transport, authorityCommit: tip.sha, runRemoteCommand: runRemoteGitAsync, env: gitEnv,
+        checkout: false
+      });
+    } catch (error) {
+      if (!error.remoteResult) throw error;
+      failedTransfer = error.remoteResult;
+    }
+    if (!objectStore && !failedTransfer) {
+      transferVerb = 'clone';
+      scratch = await mkdtemp(path.join(os.tmpdir(), 'sflow-read-'));
+      const cloned = await runRemoteGitAsync([
+        'clone', '--quiet', '--no-local', '--no-tags', '--single-branch', '--depth', '1',
+        '--no-checkout', '--branch', branch, transport.remote, scratch
+      ], { operation: 'remote-configuration', env: transport.env });
+      if (cloned.status !== 0) failedTransfer = cloned;
+    }
+    if (failedTransfer) {
+      const remoteFailure = publicRemoteFailure(failedTransfer.failure);
       const diagnosis = remoteFailure
-        ? `Git configuration clone failed (${remoteFailure.classification}). ${remoteFailure.advice}`
-        : 'Git configuration clone failed. Correct Git access and retry.';
+        ? `Git configuration ${transferVerb} failed (${remoteFailure.classification}). ${remoteFailure.advice}`
+        : `Git configuration ${transferVerb} failed. Correct Git access and retry.`;
       throw new SingularityFlowError(
         `Cannot read '${sanitizeRemote(remote)}': ${diagnosis}`, {
           code: 'CAPABILITY_AUTHORITY_UNAVAILABLE',
@@ -2631,17 +2654,19 @@ export async function readOrganisation(url, { refresh = false, routingTrail = []
           }
         });
     }
-    // The authority can advance between the cache probe and this clone. Bind every comparison and
-    // the resulting cache entry to the revision actually cloned; the next read will observe and
-    // refresh again if the remote has already advanced beyond it.
+    // The pool reads the advertised commit; a clone may have taken a later one. Bind every
+    // comparison and the resulting cache entry to the revision actually read; the next read will
+    // observe and refresh again if the remote has already advanced beyond it.
+    const readRoot = objectStore?.store ?? scratch;
+    if (objectStore) await objectStore.includeFiles(tip.sha, [CAPABILITIES_PATH, WORKFLOW_PATH, PORTFOLIO_PATH]);
     const configurationCommit = run('git', ['rev-parse', 'HEAD'], {
-      cwd: scratch, env: transport.env
+      cwd: readRoot, env: transport.env
     }).stdout.trim();
     const configured = run('git', ['show', `HEAD:${CAPABILITIES_PATH}`], {
-      cwd: scratch, allowFailure: true, env: transport.env
+      cwd: readRoot, allowFailure: true, env: transport.env
     });
     const workflow = run('git', ['show', `HEAD:${WORKFLOW_PATH}`], {
-      cwd: scratch, allowFailure: true, env: transport.env
+      cwd: readRoot, allowFailure: true, env: transport.env
     });
     const stateBranch = workflow.status === 0
       ? (YAML.parse(workflow.stdout)?.ledger?.branch ?? 'state')
@@ -2656,7 +2681,7 @@ export async function readOrganisation(url, { refresh = false, routingTrail = []
         observation: stateBranch === 'state' ? configurationObservation : null
       }) : null;
     const configuredAssets = configured.status === 0
-      ? configurationAssetsFromRef(scratch, 'HEAD', { env: transport.env }) : new Map();
+      ? configurationAssetsFromRef(readRoot, 'HEAD', { env: transport.env }) : new Map();
     const configuredPaths = [...configuredAssets.keys()].sort();
     // The state branch is a mirror, never a second authority. An interrupted projection may leave
     // it behind `sflow/config`; in that case read the approved bytes rather than presenting stale
@@ -2695,7 +2720,7 @@ export async function readOrganisation(url, { refresh = false, routingTrail = []
 
     const definition = validateCapabilities(YAML.parse(shown.text));
     const portfolio = run('git', ['show', `HEAD:${PORTFOLIO_PATH}`], {
-      cwd: scratch, allowFailure: true, env: transport.env
+      cwd: readRoot, allowFailure: true, env: transport.env
     });
     const organisation = {
       url: remote,
@@ -2721,7 +2746,9 @@ export async function readOrganisation(url, { refresh = false, routingTrail = []
       remoteError: null
     };
   } finally {
-    await removeTemporaryTree(scratch);
+    let cleaned = !scratch;
+    try { if (scratch) { await removeTemporaryTree(scratch); cleaned = true; } }
+    finally { await objectStore?.release({ cleanupConfirmed: cleaned }); }
   }
 }
 

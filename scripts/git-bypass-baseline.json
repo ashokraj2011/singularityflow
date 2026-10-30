@@ -875,10 +875,10 @@
     },
     "src/configuration-object-store.mjs": {
       "counts": {
-        "command-git": 11,
+        "command-git": 12,
         "command-run": 1
       },
-      "digest": "4bea4c8b12afb0a50aa5be3fadfedd9f84db362b2cc2b34307267ae4081db8c9"
+      "digest": "3d373bd42e932dc7ea61713efb0b1a83973410eca2c73f72aa2f4289e44a1d90"
     },
     "src/configuration-projection.mjs": {
       "counts": {
@@ -1359,7 +1359,7 @@
       "counts": {
         "command-run": 59
       },
-      "digest": "c45afbac8130092c4e139ff05cf4ad8c49b6761bdf3d2da13ca7adc9a0618f77"
+      "digest": "528b813d8987c67cea6183e6c5fec498896173cd798a4c2b3717267a739a9c95"
     },
     "src/performance-doctor.mjs": {
       "counts": {

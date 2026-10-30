@@ -100,6 +100,7 @@ import { storyDecisionView } from './workflow-decisions.mjs';
 import { storyApprovalView } from './approval-authority.mjs';
 import { loadAcceptedStoryExecution } from './accepted-story-execution.mjs';
 import { INSPECTION_READ, withApprovedConfigurationRead } from './approved-configuration-reader.mjs';
+import { readObjectsBatch } from './git-ref-tree.mjs';
 import { loadSgosCommandCenter } from './sgos/command-center.mjs';
 import { workflowCodeGeneration } from './code-delivery-policy.mjs';
 import { captureEnvironmentDeclaration, ENVIRONMENT_DECLARATION_PATH, validateEnvironmentQualityCommandCatalog } from './environment-declaration.mjs';
@@ -1558,8 +1559,17 @@ function editorConfigurationPaths(definition = {}, portfolio = null) {
 }
 
 function configurationAtRef(root, ref) {
+  // Both committed files in one object batch, rather than a ref read and a `show` for each (four
+  // Git processes in every draft save, SDA §17). Anything but a blob the batch read is read the
+  // old way, including an absent path, which a partial clone may only be missing locally.
+  const specs = typeof ref === 'string' && ref ? [WORKFLOW_PATH, PORTFOLIO_PATH].map((relative) => `${ref}:${relative}`) : [];
+  const batch = specs.length ? readObjectsBatch(root, specs) : null;
+  const committed = (relative) => {
+    const answer = batch?.get(`${ref}:${relative}`);
+    return answer?.status === 'ok' && answer.type === 'blob' ? answer.bytes.toString('utf8') : fileAtRef(root, ref, relative);
+  };
   const parse = (relative, label) => {
-    const content = fileAtRef(root, ref, relative);
+    const content = committed(relative);
     if (content == null) return null;
     try { return YAML.parse(content) ?? {}; }
     catch (error) {

@@ -13,8 +13,8 @@ import {
   inspectApprovedSkillPackage, loadStoryConfigurationSnapshot
 } from '../src/configuration-branch.mjs';
 import {
-  activateWorkflowConfigurationProposal, assertLocalConfigurationAuthoringAllowed, inspectWorkflowConfigurationProposal,
-  listWorkflowConfigurationProposals, proposeConfigurationChange
+  activateWorkflowConfigurationProposal, assertLocalConfigurationAuthoringAllowed, configurationProposalCommitStatus,
+  inspectWorkflowConfigurationProposal, listWorkflowConfigurationProposals, proposeConfigurationChange
 } from '../src/configuration-proposal.mjs';
 import { remoteFingerprint } from '../src/git-remote-diagnostics.mjs';
 import { run } from '../src/util.mjs';
@@ -869,6 +869,65 @@ process.exit(result.status == null ? 1 : result.status);
     for (const verb of ['clone', 'checkout', 'checkout-index', 'read-tree', 'switch']) {
       assert.equal(verbs.filter((entry) => entry === verb).length, 0, `listing and inspection run no '${verb}'`);
     }
+  } finally {
+    await rm(item.base, { recursive: true, force: true });
+  }
+});
+
+test('proposal status reads exact objects in place and answers as the clone did: pending, replaced, and merged with its branch gone', async () => {
+  const item = await fixture();
+  const authoring = path.join(item.base, 'status-proposal');
+  const proposalBranch = 'sflow/config-change/workflow/status-in-place';
+  try {
+    run('git', ['clone', '-q', '-b', 'sflow/config', item.remote, authoring]);
+    run('git', ['switch', '-q', '-c', proposalBranch], { cwd: authoring });
+    const workflowPath = path.join(authoring, 'singularity/workflow.yml');
+    const commitLabel = async (label) => {
+      await writeFile(workflowPath, (await readFile(workflowPath, 'utf8')).replace(/\n {4}label: [^\n]+\n/u, `\n    label: ${label}\n`));
+      run('git', ['-c', 'user.name=Workflow Author', '-c', 'user.email=workflow@example.test', 'commit', '-qam', label], { cwd: authoring });
+      run('git', ['push', '-q', '-f', 'origin', `HEAD:refs/heads/${proposalBranch}`], { cwd: authoring });
+      return run('git', ['rev-parse', 'HEAD'], { cwd: authoring }).stdout.trim();
+    };
+    const first = await commitLabel('Reviewed feature');
+
+    const log = path.join(item.base, 'status-verbs.log');
+    const wrappers = path.join(item.base, 'status-bin');
+    await writeGitTestWrapper(wrappers, `#!/usr/bin/env node
+const { spawnSync } = require('node:child_process');
+const { appendFileSync } = require('node:fs');
+const args = process.argv.slice(2);
+let index = 0;
+while (index < args.length && args[index].startsWith('-')) index += ['-c', '-C'].includes(args[index]) ? 2 : 1;
+appendFileSync(${JSON.stringify(log)}, (args[index] ?? '') + '\\n');
+const result = spawnSync(${JSON.stringify(realGitForTest())}, args, { cwd: process.cwd(), env: process.env, stdio: 'inherit' });
+process.exit(result.status == null ? 1 : result.status);
+`);
+    const pooled = gitTestWrapperEnvironment(wrappers);
+    const cloned = { ...pooled, SINGULARITY_FLOW_CONFIGURATION_OBJECT_STORE: 'off' };
+    const both = async (commit, options = {}) => {
+      await writeFile(log, '');
+      const inPlace = await configurationProposalCommitStatus(item.story, proposalBranch, commit, { ...options, env: pooled });
+      const verbs = (await readFile(log, 'utf8')).split('\n').filter(Boolean);
+      assert.equal(verbs.filter((verb) => verb === 'clone').length, 0, `status reads the object pool in place, with no clone: ${verbs.join(' ')}`);
+      assert.ok(verbs.includes('merge-base'), 'ancestry was read in the pool');
+      assert.deepEqual(inPlace, await configurationProposalCommitStatus(item.story, proposalBranch, commit, { ...options, env: cloned }),
+        'the pool and the clone give the same answer');
+      return inPlace;
+    };
+
+    const pending = await both(first);
+    assert.deepEqual([pending.merged, pending.branchStatus, pending.targetCommit], [false, 'matching', item.approved]);
+    const second = await commitLabel('Reviewed feature, again');
+    const replaced = await both(first, { candidateCommit: second });
+    assert.deepEqual([replaced.merged, replaced.branchStatus, replaced.branchCommit, replaced.candidateIncluded],
+      [false, 'replaced', second, false]);
+    // An external review fast-forwards the authority and deletes the source branch: ancestry alone
+    // proves both revisions merged.
+    run('git', ['--git-dir', item.remote, 'update-ref', 'refs/heads/sflow/config', second]);
+    run('git', ['--git-dir', item.remote, 'update-ref', '-d', `refs/heads/${proposalBranch}`]);
+    const merged = await both(first, { candidateCommit: second });
+    assert.deepEqual([merged.merged, merged.branchStatus, merged.candidateIncluded, merged.targetCommit],
+      [true, 'absent', true, second]);
   } finally {
     await rm(item.base, { recursive: true, force: true });
   }

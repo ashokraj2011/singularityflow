@@ -1,8 +1,9 @@
 /**
  * Every clone in src/ is listed with its reason (SDA-AC-013, §10, §17; decision D3).
  *
- * Ordinary configuration editing, and listing or inspecting workflow proposals, read exact objects
- * and create no clone or checkout. What still clones is listed below. Two shapes are read from src/
+ * Ordinary configuration editing, listing or inspecting workflow proposals, proposal status, the
+ * capability map and a lead's catalog read exact objects and create no clone or checkout. What
+ * still clones is listed below. Two shapes are read from src/
  * as syntax trees, as in test/governed-push-lease.test.mjs:
  *
  * - a Git argument list (an array whose verb is `clone`, after any `-c key=value` pairs), keyed
@@ -27,6 +28,9 @@ import ts from 'typescript';
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 
 const APPLICATION = 'An application repository checkout, not configuration (source control, §10).';
+const POOL_DECLINED = 'Only when the configuration object pool declines.';
+const STATE_BRANCH = 'A state branch carries the ledger\'s whole history, which the configuration object pool would keep; a depth-one read stays cheaper.';
+const VALIDATION = 'Validating a proposal materializes its tree as a working tree, because the definition is loaded from files.';
 
 /** Each clone that remains, and why. */
 const CLONES = Object.freeze({
@@ -69,24 +73,28 @@ const CLONES = Object.freeze({
   'workspace-configuration-refresh.mjs#prepareBootstrapInspectionCandidate':
     'The would-be first authority of a repository with none, so preview and apply bind the same bytes.',
 
-  // Configuration reads not yet moved to exact objects (open after B6).
-  'configuration-proposal.mjs#listWorkflowConfigurationProposals':
-    'Only when the configuration object pool declines (busy, over budget, unqualified or off): blobless, no checkout.',
-  'organisation.mjs#listCapabilityProposals':
-    'Only when the configuration object pool declines; the pool path itself still borrows a checkout (listed below).',
-  'configuration-proposal.mjs#configurationProposalCommitStatus':
-    'Proposal status proves a merge by ancestry over full history; it could read the object pool instead.',
+  // Configuration reads that take exact objects from the configuration object pool, in place.
+  // Each clones only when the pool declines: outside a Git repository, busy (250 ms), over its
+  // authority budget, unqualified storage, or SINGULARITY_FLOW_CONFIGURATION_OBJECT_STORE=off.
+  'configuration-proposal.mjs#listWorkflowConfigurationProposals': `${POOL_DECLINED} Blobless, no checkout.`,
+  'configuration-proposal.mjs#configurationProposalCommitStatus': `${POOL_DECLINED} Blobless, with the history that proves a merge.`,
+  'organisation.mjs#readOrganisation': `${POOL_DECLINED} Shallow, no checkout.`,
+  'repository-onboarding.mjs#activateRepositoryOnboardingProposal':
+    `${POOL_DECLINED} A repeated setup activation whose proposal is gone proves it was already merged.`,
+  'workspace.mjs#workspaceRemoteCapabilities':
+    `${POOL_DECLINED} Workspace bootstrap's catalog store is this clone too, kept as the catalog's proof.`,
+  'organisation.mjs#listCapabilityProposals': `${POOL_DECLINED} The pool path still borrows a checkout (listed below).`,
+
+  // Configuration reads still cloning, each with why it was not moved.
   'configuration-branch.mjs#cloneConfiguration':
     'Approved configuration read without the object cache (Story start, `inspectApprovedConfiguration`), or after every exact-object path declined.',
-  'configuration-branch.mjs#copyVerifiedStateConfiguration': 'Reading a verified state mirror when there is no `sflow/config`.',
+  'configuration-branch.mjs#copyVerifiedStateConfiguration':
+    `${STATE_BRANCH} Reading a verified state mirror when there is no \`sflow/config\`.`,
   'configuration-branch.mjs#legacyMirrorRetainedHistoryMatches':
-    'A legacy state mirror with no repository binding proves ownership through its retained history.',
-  'organisation.mjs#loadCapabilityStateSnapshot': 'Verifying a state mirror on a custom-named ledger branch.',
-  'organisation.mjs#readOrganisation': 'Reading the capability map on a cache miss or `--refresh`.',
-  'repository-onboarding.mjs#cloneFilteredSnapshot': 'Onboarding\'s bounded snapshot of a state, configuration or application branch.',
-  'repository-onboarding.mjs#activateRepositoryOnboardingProposal':
-    'A repeated setup activation whose proposal is gone proves it was already merged.',
-  'workspace.mjs#workspaceRemoteCapabilities': 'Reading a lead\'s capability map and portfolio for `workspace capabilities`.'
+    `${STATE_BRANCH} A legacy state mirror with no repository binding proves ownership through its retained history.`,
+  'organisation.mjs#loadCapabilityStateSnapshot': `${STATE_BRANCH} Verifying a state mirror on a custom-named ledger branch.`,
+  'repository-onboarding.mjs#cloneFilteredSnapshot':
+    'Onboarding\'s bounded snapshot of a state, configuration or application branch: a blobless survey sizes a filtered, quota-checked second pass, which the object pool does not bound.'
 });
 
 /** Each route into a configuration checkout that remains, and why. */
@@ -105,12 +113,10 @@ const CHECKOUT_ROUTES = Object.freeze({
     'Activation\'s review checkout, where the ledger audit and proposal cleanup run.',
   'organisation.mjs#repairCapabilityProposal>withCapabilityProposalCheckout':
     'Repair commits a packaged-compatibility change on top of the proposal and pushes it.',
-  'organisation.mjs#inspectCapabilityProposal>withCapabilityProposalCheckout':
-    'Capability proposal inspection: a read, not yet moved to the object pool.',
-  'organisation.mjs#inspectCapabilityRebase>withCapabilityProposalCheckout':
-    'The rebase preview reads base, source and target at once; a read, not yet moved.',
+  'organisation.mjs#inspectCapabilityProposal>withCapabilityProposalCheckout': `${VALIDATION} Capability proposal inspection.`,
+  'organisation.mjs#inspectCapabilityRebase>withCapabilityProposalCheckout': `${VALIDATION} The rebase preview.`,
   'organisation.mjs#listCapabilityProposals>prepareConfigurationObjectCheckout':
-    'The capability inbox validates each proposal in a worktree made from this checkout; not yet moved.',
+    `${VALIDATION} The capability inbox, from a no-checkout shared clone of the complete-object pool.`,
   'configuration-proposal.mjs#withWorkflowProposalCheckout>prepareConfigurationObjectCheckout':
     'Workflow activation\'s checkout, from the object pool.',
   'configuration-proposal.mjs#activateWorkflowConfigurationProposal>withWorkflowProposalCheckout':
@@ -119,9 +125,13 @@ const CHECKOUT_ROUTES = Object.freeze({
 
 /** The routes that must stay without a clone or checkout. */
 const EXACT_OBJECT_ROUTES = Object.freeze([
+  'configuration-proposal.mjs#configurationProposalCommitStatus>prepareConfigurationObjectCheckout',
   'configuration-proposal.mjs#inspectWorkflowConfigurationProposal>withWorkflowProposalCheckout',
   'configuration-proposal.mjs#listWorkflowConfigurationProposals>prepareConfigurationObjectCheckout',
   'configuration-proposal.mjs#withWorkflowProposalCheckout>prepareConfigurationObjectCheckout',
+  'organisation.mjs#readOrganisation>prepareConfigurationObjectCheckout',
+  'repository-onboarding.mjs#activateRepositoryOnboardingProposal>prepareConfigurationObjectCheckout',
+  'workspace.mjs#workspaceRemoteCapabilities>prepareConfigurationObjectCheckout',
   'organisation.mjs#addCapabilityRepository>withLeadCheckout',
   'organisation.mjs#adoptManagedCapabilityMap>withLeadCheckout',
   'organisation.mjs#editCapabilityInOrganisation>withLeadCheckout',

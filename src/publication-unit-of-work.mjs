@@ -34,6 +34,7 @@ import {
 import {
   bindRevisionPublicationCommit, prepareRevisionPublicationAttestation
 } from './revision/publication-attestation.mjs';
+import { assertNotCancelled } from './sda/shared-state-contract.mjs';
 
 const PUBLICATION_DIAGNOSTIC_MAX_BYTES = 4096;
 
@@ -91,7 +92,10 @@ export class GitPublicationUnitOfWork {
   stabilityGuard = null,
   fault = null,
   transactionId = null,
-  recoveryPreimage: suppliedRecoveryPreimage = null
+  recoveryPreimage: suppliedRecoveryPreimage = null,
+  // Honoured at the stage boundaries up to the push, and no further (SDA §7.3): before the commit
+  // the transaction rolls back, after it the commit is retained for the subject's sync.
+  signal = null
   } = {}) {
   const root = this.root;
   let envelope = assertLifecycleEvent(event, subject);
@@ -239,6 +243,8 @@ export class GitPublicationUnitOfWork {
         );
       }
     }
+    // Cancelled while it waited for the subject lock or ran its preflight: nothing is written yet.
+    assertNotCancelled(signal, 'transition');
     // Persist the exact pre-transaction bytes before the journal authorizes the first state write.
     // An ordinary exception can use the same preimage immediately; a hard process death leaves it
     // in the journal for the next `sync` to restore after reclaiming the dead owner's lock.
@@ -445,6 +451,9 @@ export class GitPublicationUnitOfWork {
           revisionSelectionSha256: revisionPrepared.selection.selectionSha256
         }, { transactionId: journal.transactionId });
       }
+      // The last boundary before `commit-created`. A cancellation here unwinds exactly as a dead
+      // pre-commit transaction is recovered: the preimage is restored and the journal cleared.
+      assertNotCancelled(signal, 'transition');
     } catch (error) { await unwind(error); }
     // The commit is bounded by the same set that was staged. `allowedPaths` named a containment the
     // bare commit never delivered: it staged these and then committed the whole index, so anything
@@ -639,7 +648,63 @@ export class GitPublicationUnitOfWork {
     let replayed = false;
     let publishedCommit = sourceCommit;
     let combinedPublication = null;
+    // The marker a later sync publishes from: this exact commit, Candidate and event under the lease
+    // the transaction was made against. A failed push leaves it, and so does a cancelled one.
+    const retainedPublication = (error, pushOutcome) => ({
+      ...(pendingRecord?.({ sourceCommit, error, envelope }) ?? {}),
+      schemaVersion: currentSchemaVersion('pending-publication'),
+      subject,
+      branch: publication.branch,
+      remote: publication.remote ?? 'origin',
+      remoteFingerprint: publicationRemoteFingerprint,
+      commit: sourceCommit,
+      transactionId: journal.transactionId,
+      tree: transactionTree,
+      // state.write may finalize actor/document identities inside the transaction. Bind the
+      // recovery marker to that exact event, just like the governed commit trailer and the
+      // ref-advancement recovery path, rather than to the pre-result journal intent.
+      eventSha256: transactionEventSha256,
+      stateSha256: transactionStateSha256,
+      publicationMode: journal.publicationMode,
+      candidate: candidateBinding,
+      ...(revisionPrepared
+        ? { revisionSelectionSha256: revisionPrepared.selection.selectionSha256 }
+        : {}),
+      event: envelope,
+      createdAt: nowIso(),
+      error,
+      pushOutcome,
+      ...(publication.expectedRemoteSha !== undefined
+        ? { expectedRemoteSha: publication.expectedRemoteSha }
+        : {})
+    });
+    // The sync that publishes this exact commit (it never authors again).
+    const sync = subject.kind === 'story' ? `singularity-flow sync ${subject.id}`
+      : subject.kind === 'initiative' ? `singularity-flow initiative sync ${subject.id}` : null;
     if (publication.mode !== 'off') {
+      // The last boundary at which cancellation is honoured (SDA §7.3). The commit is already the
+      // branch's, so it is retained as a push that never started would leave it, for the subject's
+      // sync. A push once begun runs to its own deadline: abandoned midway, its outcome is unknown.
+      if (signal?.aborted) {
+        await writePendingPublication(root, {
+          kind: subject.kind,
+          id: subject.id,
+          record: {
+            ...retainedPublication('The transition was cancelled after its commit and before its push.', 'not-attempted'),
+            recoveryStage: 'branch-ref-advanced-before-publication'
+          }
+        });
+        await clearPublicationJournal(root, subject, { transactionId: journal.transactionId });
+        const cancelled = new SingularityFlowError(
+          `${subject.kind} commit ${sourceCommit.slice(0, 8)} was retained locally: the transition was cancelled before its push. `
+          + `Run ${sync ?? 'the appropriate sync command'} to publish it.`,
+          { code: 'PUBLICATION_CANCELLED_BEFORE_PUSH', details: { ...(sync ? { nextAction: sync } : {}) } }
+        );
+        cancelled.publicationRefAdvanced = true;
+        cancelled.publicationCommit = sourceCommit;
+        cancelled.pushOutcome = 'not-attempted';
+        throw cancelled;
+      }
       // Publish the exact commit this transaction created. HEAD is mutable repository state: a
       // hook, another subject transaction, or a person at the keyboard may advance it after our
       // compare-and-swap commit and before this push. Using HEAD here would let those unrelated
@@ -714,34 +779,7 @@ export class GitPublicationUnitOfWork {
         await writePendingPublication(root, {
           kind: subject.kind,
           id: subject.id,
-          record: {
-            ...(pendingRecord?.({ sourceCommit, error, envelope }) ?? {}),
-            schemaVersion: currentSchemaVersion('pending-publication'),
-            subject,
-            branch: publication.branch,
-            remote: publication.remote ?? 'origin',
-            remoteFingerprint: publicationRemoteFingerprint,
-            commit: sourceCommit,
-            transactionId: journal.transactionId,
-            tree: transactionTree,
-            // state.write may finalize actor/document identities inside the transaction. Bind the
-            // recovery marker to that exact event, just like the governed commit trailer and the
-            // ref-advancement recovery path, rather than to the pre-result journal intent.
-            eventSha256: transactionEventSha256,
-            stateSha256: transactionStateSha256,
-            publicationMode: journal.publicationMode,
-            candidate: candidateBinding,
-            ...(revisionPrepared
-              ? { revisionSelectionSha256: revisionPrepared.selection.selectionSha256 }
-              : {}),
-            event: envelope,
-            createdAt: nowIso(),
-            error,
-            pushOutcome,
-            ...(publication.expectedRemoteSha !== undefined
-              ? { expectedRemoteSha: publication.expectedRemoteSha }
-              : {})
-          }
+          record: retainedPublication(error, pushOutcome)
         });
         await clearPublicationJournal(root, subject, { transactionId: journal.transactionId });
         const message = `${subject.kind} commit ${sourceCommit.slice(0, 8)} was retained locally but push failed.${error ? ` Git reported: ${error}` : ''}`;
@@ -750,11 +788,8 @@ export class GitPublicationUnitOfWork {
           event: envelope, ledger: null, candidate: candidateBinding,
           ...(revisionSelection ? { revisionSelection } : {})
         };
-        // The commit is on its branch; only the push failed. Name the sync that publishes this exact
-        // commit (it never authors again), so recovery routes it instead of repeating the command,
-        // or rejecting a step whose approval is already committed.
-        const sync = subject.kind === 'story' ? `singularity-flow sync ${subject.id}`
-          : subject.kind === 'initiative' ? `singularity-flow initiative sync ${subject.id}` : null;
+        // The commit is on its branch; only the push failed. Name the sync, so recovery routes it
+        // instead of repeating the command, or rejecting a step whose approval is already committed.
         // The class says what the authority did with this transition (SDA §7.1): it may have accepted
         // it, or it refused a lease another writer had moved; otherwise the commit is only retained.
         const remoteDiverged = pushOutcome === 'rejected'

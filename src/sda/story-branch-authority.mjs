@@ -6,8 +6,11 @@
  * lock, the publication journal and its preimage, the commit, the atomic push of branch, ledger entry
  * and pin under exact leases, signing, and the pending record a failed push leaves. An observation is
  * one exact `ls-remote` of the subject's branch, or the same question already asked at command start
- * when the caller allows it. Cancellation is honoured before an operation starts; once a push may
- * have reached the remote, the outcome is the push's, never a false `cancelled`.
+ * when the caller allows it. Cancellation is honoured before an operation starts and, inside a
+ * transition, at the unit of work's stage boundaries up to its push: before the commit the
+ * transition rolls back (`cancelled`), after it the commit is kept for the subject's sync
+ * (`retained-locally`). A push once begun runs to its own deadline, so its outcome is the push's,
+ * never a false `cancelled`.
  *
  * The unit of work loads on the first transition only, so a command that only observes (recovery,
  * test-recovery admission, promotion) never loads the publication writer.
@@ -52,7 +55,7 @@ export function createStoryBranchAuthority(root) {
     async publish(transition, { signal = null } = {}) {
       assertNotCancelled(signal, 'transition');
       const { GitPublicationUnitOfWork } = await import('../publication-unit-of-work.mjs');
-      return new GitPublicationUnitOfWork(root).execute(transition);
+      return new GitPublicationUnitOfWork(root).execute(signal ? { ...transition, signal } : transition);
     },
 
     async pending(subject, { signal = null } = {}) {

@@ -4,10 +4,10 @@
   "status": "contract-only",
   "baselineCommit": "70db564e59224b03729bab0f9a340807f3086c61",
   "lastReview": {
-    "reviewedAtCommit": "97ad71b413797668bdb3316d04d4fc6e65750727",
-    "evidence": "docs/contracts/gdp/COMPANION-LOCK-REVIEW-2026-10-30-SDA-LOCAL-BACKUP.md",
+    "reviewedAtCommit": "b6fd24faef1699db2a6ac87656db5d199f5133a4",
+    "evidence": "docs/contracts/gdp/COMPANION-LOCK-REVIEW-2026-10-30-SDA-LIFECYCLE-CANCELLATION.md",
     "companionIds": [
-      "migration-registry"
+      "publication-unit-of-work"
     ]
   },
   "companions": [
@@ -84,7 +84,7 @@
     {
       "id": "publication-unit-of-work",
       "path": "src/publication-unit-of-work.mjs",
-      "sha256": "sha256:00fa6a094b8b278f9e1a881891d9ba5b3f4df018b9be16a3cc084d1c0259b427"
+      "sha256": "sha256:04a059bc53149704fa7e2464e505b565bf419787a61c280df994b798da53d6e1"
     },
     {
       "id": "action-authorization",

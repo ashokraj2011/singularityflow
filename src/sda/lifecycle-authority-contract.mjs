@@ -14,6 +14,9 @@
  *       -> { sha, pushed, replayed, pending?, event, ledger, candidate, ... }
  *     transition: one lifecycle change, bound to the revision it extends
  *       (`publication.expectedRemoteSha`, or a stated `unleased` reason; SDA-AC-025).
+ *     signal: honoured up to the push and no further (SDA §7.3). Before the change is made it is
+ *       refused as `cancelled`, leaving nothing; once made and before it is published it is
+ *       `retained-locally`, and the subject's sync publishes it; a push in flight is never abandoned.
  *   pending(subject, { signal }) -> the transition retained for recovery, or null
  *
  * A refusal reads through `lifecycleAuthorityOutcome`: REVISION_CONFLICT (the authority no longer

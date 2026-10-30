@@ -60,7 +60,8 @@ M1's descriptor and selection helpers are shared, and M1's codes keep their mean
 - **An observation is one exact `ls-remote`,** or the same question already asked at command start
   where the Story publication used it before.
 - **Cancellation** is honoured before an operation starts and passed to the observation's `ls-remote`.
-  Once a push may have reached the remote, the outcome is the push's.
+  Inside a transition, the unit of work checks it at its stage boundaries up to the push (added after
+  M4, below). Once a push may have reached the remote, the outcome is the push's.
 
 ### What now goes through it
 
@@ -179,8 +180,18 @@ machine location.
 
 ## Open after M4
 
-- **Cancellation mid-transition.** The unit of work takes no signal, so a transition is cancelled only
-  before it starts (§7.3 asks for propagation to the underlying operation).
+- **Cancellation mid-transition: closed after M4.** The adapter passes its signal to the unit of work,
+  which honours it up to the push and no further (§7.3):
+  - once the subject lock is held, before anything is written, and again just before `commit-created`,
+    where the transaction unwinds as a dead pre-commit transaction does (preimage restored, journal
+    cleared): class `cancelled`;
+  - after the commit and before `publishing`: the commit is retained as a push that never started
+    (`pushOutcome: not-attempted`), refusal `PUBLICATION_CANCELLED_BEFORE_PUSH`, class
+    `retained-locally`, and the subject's sync publishes it. A local-only (`mode: off`) transition has
+    no push, so it completes;
+  - a push in flight runs to its own deadline.
+
+  The conformance suite holds both adapters to the three cases. No caller passes a signal yet.
 - **Recovery** (`sync`, `recover`) stays with the existing commands. The contract exposes the pending
   record, not a reconcile operation.
 - **Lifecycle state is still read from the checkout.** Under option A the Story's state lives on its

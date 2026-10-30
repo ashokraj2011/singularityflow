@@ -2,11 +2,13 @@
  * The lifecycle authority conformance suite (SDA M4): one set of checks every lifecycle authority
  * adapter must pass, registered once per adapter.
  *
- * `createFixture()` returns `{ authority, subject, target, transition({ expectedRemoteSha, content }),
- * moveAuthority(), loseNextResponse(), cleanup() }`. `target` is the `{ branch, remote }` the
- * subject's authority is observed at; `transition` builds one lifecycle change for this adapter;
- * `moveAuthority` makes another writer advance the subject's branch; `loseNextResponse` lets the next
- * transition reach the authority and loses its response.
+ * `createFixture()` returns `{ authority, subject, target, transition({ expectedRemoteSha, content,
+ * cancelAt }), moveAuthority(), loseNextResponse(), cleanup() }`. `target` is the `{ branch, remote }`
+ * the subject's authority is observed at; `transition` builds one lifecycle change for this adapter,
+ * and with `cancelAt: { stage, controller }` it aborts `controller` when the change reaches `stage`
+ * ('before-commit', 'before-publishing' or 'during-push'); `moveAuthority` makes another writer advance the
+ * subject's branch; `loseNextResponse` lets the next transition reach the authority and loses its
+ * response.
  */
 import test from 'node:test';
 import assert from 'node:assert/strict';
@@ -77,6 +79,51 @@ export function lifecycleAuthorityConformance(label, createFixture, { skip = fal
     await assert.rejects(authority.pending(transitionSubject(transition), { signal }), refusedAs('cancelled'));
     assert.equal((await authority.observe(target)).state, 'absent');
   });
+
+  // Cancellation propagates into a running transition up to its push, and no further (SDA §7.3).
+  run('a transition cancelled before its commit is rolled back: nothing is kept and the next one lands',
+    async ({ authority, target, transition }) => {
+      const created = await authority.publish(transition({ expectedRemoteSha: null, content: 'created' }));
+      const controller = new AbortController();
+      await assert.rejects(authority.publish(transition({
+        expectedRemoteSha: created.sha, content: 'cancelled', cancelAt: { stage: 'before-commit', controller }
+      }), { signal: controller.signal }), refusedAs('cancelled'));
+      assert.equal(controller.signal.aborted, true, 'the transition had started when it was cancelled');
+      assert.equal((await authority.observe(target)).revision, created.sha);
+      assert.equal(await authority.pending(transitionSubject(transition)), null);
+      const next = await authority.publish(transition({ expectedRemoteSha: created.sha, content: 'after' }));
+      assert.equal((await authority.observe(target)).revision, next.sha);
+    });
+
+  run('a transition cancelled after its commit and before its push is retained locally for recovery',
+    async ({ authority, target, transition }) => {
+      const created = await authority.publish(transition({ expectedRemoteSha: null, content: 'created' }));
+      const controller = new AbortController();
+      let cancelled;
+      await assert.rejects(authority.publish(transition({
+        expectedRemoteSha: created.sha, content: 'cancelled', cancelAt: { stage: 'before-publishing', controller }
+      }), { signal: controller.signal }), (error) => { cancelled = error; return refusedAs('retained-locally')(error); });
+      assert.match(cancelled.publicationCommit ?? '', /^[0-9a-f]{40}$/u);
+      assert.equal((await authority.observe(target)).revision, created.sha, 'the push never started');
+      const retained = await authority.pending(transitionSubject(transition));
+      assert.deepEqual([retained?.commit, retained?.pushOutcome], [cancelled.publicationCommit, 'not-attempted']);
+      await assert.rejects(authority.publish(transition({ expectedRemoteSha: created.sha, content: 'after' })),
+        refusedAs('pending-recovery'));
+      assert.equal((await authority.observe(target)).revision, created.sha);
+    });
+
+  run('a push in flight runs to its end: a cancellation during it never abandons the transition',
+    async ({ authority, target, transition }) => {
+      const created = await authority.publish(transition({ expectedRemoteSha: null, content: 'created' }));
+      const controller = new AbortController();
+      const advanced = await authority.publish(transition({
+        expectedRemoteSha: created.sha, content: 'pushing', cancelAt: { stage: 'during-push', controller }
+      }), { signal: controller.signal });
+      assert.equal(controller.signal.aborted, true, 'it was cancelled while its push was in flight');
+      assert.equal(advanced.pushed, true);
+      assert.equal((await authority.observe(target)).revision, advanced.sha);
+      assert.equal(await authority.pending(transitionSubject(transition)), null);
+    });
 }
 
 function transitionSubject(transition) {

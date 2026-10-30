@@ -100,7 +100,9 @@ export const SDA_NAMES = Object.freeze({
   "'story-not-here'": ['src/commands/backup.mjs', 'src/local-backup.mjs'],
   // M5: takeover's disclosure, and the drafts a factory reset removes
   localWorkNotCarried: ['src/commands/session-takeover.mjs'],
-  savedConfigurationDrafts: ['src/factory-reset.mjs']
+  savedConfigurationDrafts: ['src/factory-reset.mjs'],
+  // M4 leftover: cancellation inside a transition. Cancelled after its commit, before its push: retained.
+  PUBLICATION_CANCELLED_BEFORE_PUSH: ['src/publication-unit-of-work.mjs']
 });
 
 async function sources(directory, output = []) {

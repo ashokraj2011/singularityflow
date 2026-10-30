@@ -5,7 +5,11 @@
  * and selectLifecycleAuthority refuses it. It follows the subject branch's rules so one suite holds
  * both to one behaviour: a transition names the revision it extends, lands only while the authority
  * still holds it, and a transition whose response was lost is retained and holds the subject's next
- * transition until it is recovered.
+ * transition until it is recovered. Cancellation is honoured at the same two stage boundaries: before
+ * the commit nothing is kept, and after it, before the push, the commit is retained for recovery.
+ *
+ * A transition may carry `reachedStage(stage)`, called at 'before-commit', 'before-publishing' and
+ * 'during-push', so the suite can cancel it there, as a Git transition's `fault` hook does.
  */
 import { createHash } from 'node:crypto';
 import { SingularityFlowError } from '../../src/util.mjs';
@@ -50,7 +54,22 @@ export function createMemoryLifecycleAuthority() {
           code: 'PUBLICATION_REMOTE_LEASE_PARENT_MISMATCH'
         });
       }
+      await transition.reachedStage?.('before-commit');
+      assertNotCancelled(signal, 'transition');
       const sha = revisionOf(publication.branch, current, transition.event?.payload ?? null);
+      await transition.reachedStage?.('before-publishing');
+      if (signal?.aborted) {
+        retained.set(subjectKey(subject), { subject, branch: publication.branch, commit: sha, pushOutcome: 'not-attempted' });
+        const cancelled = new SingularityFlowError('The transition was cancelled before its push; its commit is retained.', {
+          code: 'PUBLICATION_CANCELLED_BEFORE_PUSH'
+        });
+        cancelled.publicationRefAdvanced = true;
+        cancelled.publicationCommit = sha;
+        cancelled.pushOutcome = 'not-attempted';
+        throw cancelled;
+      }
+      // The push: begun, it runs to its end whatever the signal says.
+      await transition.reachedStage?.('during-push');
       tips.set(publication.branch, sha);
       if (loseNext) {
         loseNext = false;

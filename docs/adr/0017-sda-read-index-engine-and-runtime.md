@@ -1,7 +1,8 @@
 # ADR 0017 — SDA read index: no new storage engine in Phase A
 
-- **Status:** Proposed (SDA M0 decision, `docs/SPEC-SDA-STORAGE-INDEPENDENT-WORKFLOW-v1.md` §6.3)
-- **Date:** 2026-10-29
+- **Status:** Accepted (2026-10-30). Phase A adds no storage engine. SDA M0 decision,
+  `docs/SPEC-SDA-STORAGE-INDEPENDENT-WORKFLOW-v1.md` §6.3.
+- **Date:** 2026-10-29 (proposed); 2026-10-30 (accepted)
 - **Baseline:** `main@c6a65e33b`
 - **Decision owner:** Singularity Flow repository maintainers
 
@@ -70,3 +71,11 @@ Runtime facts measured or read for this decision:
 - The VS Code extension keeps its `^1.90.0` floor through Phase A.
 - SDA §6.3's open question is answered, and §17's bundle budgets are untouched by the index.
 - A future engine change is a new ADR with measured query needs, not an assumption in the spec.
+
+## Acceptance
+
+Accepted on 2026-10-30, after M2 to M5 shipped on this decision. M2's read index is the existing JSON
+projections with freshness, last-known retention and cross-process coalescing
+(`benchmarks/sda/m2-read-index.md`). No milestone needed a query the projections could not answer, and
+M3 to M5 added no engine either. The extension keeps its `^1.90.0` floor, and the index changed no
+bundle budget. M6 reruns the read baselines on this design.

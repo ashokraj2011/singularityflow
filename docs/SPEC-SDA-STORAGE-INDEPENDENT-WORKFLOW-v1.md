@@ -284,7 +284,7 @@ There are three kinds of local data.
 2. **Rebuildable projections:** indexes and materialized accepted state derived from verified records. They can be rebuilt without creating events or approvals.
 3. **Verified object cache:** immutable bytes retained by digest. Deletion requires reachability and retention checks.
 
-**Index engine and runtime.** The engine for type 2 is chosen in the M0 ADR against these constraints:
+**Index engine and runtime.** The engine for type 2 is chosen in the M0 ADR against these constraints. ADR 0017, accepted on 2026-10-30, chose no new engine: the existing JSON projections.
 
 - The package declares Node `>=20`. The installer bundles Node 26.12.0. The VS Code extension loads its gateway runtime inside the editor's extension host; M0 must measure which Node version that is.
 - `node:sqlite` needs Node 22.5 or later.
@@ -315,6 +315,12 @@ A command needing several namespaces binds their exact revisions. It extends the
 ## 7 Adapter contracts
 
 The interfaces of v1.0 §7 stay as behavioral specifications: `SharedStateAdapter`, `WorkspaceStore`, `ArtifactStore` and `SourceControlAdapter`. Final names and schemas need a versioned contract review in M1.
+
+**Contract versions.** Two contracts are still drafts: the shared-state contract (`src/sda/shared-state-contract.mjs`, `sda-shared-state/draft-1`) and the lifecycle authority contract (`src/sda/lifecycle-authority-contract.mjs`, `sda-lifecycle-authority/draft-1`). Each still has one change to take:
+- the consistency block, which adds freshness and pending-operation detail to results (Appendix A, question 2), changes what the shared-state contract reports;
+- cancellation of a publication up to its push changes the lifecycle contract's cancellation behavior.
+
+Both move to `v1` together, in M6, once those two changes have landed and M6's qualification passes. The M6 report is the evidence. Until then, a change to either contract's names or schema keeps `draft-1`.
 
 ### 7.1 One vocabulary over existing codes
 
@@ -782,7 +788,7 @@ Existing lifecycle, source-review, publication, signing, installation-recovery a
 | M3 | (Phase B; ADR 0018 accepted option A) Transactional drafts, typed configuration intent, lazy workspace cloning, lease-proven lock recovery | Crash and duplicate-operation tests pass. No checkout for ordinary configuration editing. |
 | M4 | (Phase B) Lifecycle persistence behind adapters. Under ADR 0018 option A, this means the Story-branch authority behind the lifecycle authority adapter, with no new namespace. | All workflow families keep final fresh binding and existing governance tests. |
 | M5 | Takeover, cleanup, backup and migration tooling | Multi-laptop, retention, legacy import and writer-fencing cases pass. |
-| M6 | Performance qualification and staged rollout | Matched native reports, compatibility evidence and operator recovery documentation approved. |
+| M6 | Performance qualification and staged rollout; the shared-state and lifecycle authority contracts move from `draft-1` to `v1` (§7) | Matched native reports, compatibility evidence and operator recovery documentation approved. |
 
 The first production profile remains Git-backed. A server-backed authority is a later specification.
 
@@ -806,7 +812,7 @@ The product never describes pending local work as globally published or approved
 2. Can the consistency block be an additive optional field of `sflow-result` v2, or does the one-meaning-per-version rule require v3?
    - Open: an M1 contract review. M1 changed no `sflow-result` field.
 3. Where does the read index live: machine-wide under `~/.singularity-flow/`, or per workspace?
-   - **M0 (ADR 0017):** in the existing JSON projections, where they live today, extended with freshness and last-known retention.
+   - **M0 (ADR 0017, accepted 2026-10-30):** in the existing JSON projections, where they live today, extended with freshness and last-known retention.
 4. For Phase B: which authority option (§6.2) does the team prefer, and what is the migration story for Stories already in flight?
    - **Decided (2026-10-30):** option A, keep the Story branch as lifecycle authority. No Story is migrated (ADR 0018).
 

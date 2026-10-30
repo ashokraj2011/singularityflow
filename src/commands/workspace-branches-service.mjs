@@ -135,6 +135,9 @@ async function readAtRoot(options, root) {
       .filter((workflow) => workflow.installed === false);
     let intake = intakeRequested ? {
         ...intakeProfiles,
+        // The approved configuration commit these choices came from, the catalog's accepted
+        // revision (SDA §14). Null for a legacy repository, whose workflows come from the base.
+        authorityCommit: approvedConfigurationSnapshot?.authority?.commit ?? null,
         // Intake may offer only installed work types: these are the exact profiles Story start can
         // pin from this already-validated approved definition. Re-reading the packaged workflow
         // catalog would load configuration again only to filter every uninstalled row back out.

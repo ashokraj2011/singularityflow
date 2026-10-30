@@ -233,19 +233,24 @@ export async function listTransportIntents({
  * Intents for this repository: pushed from this checkout, or to the same push remote from another
  * checkout of it (a Story worktree, the lead clone). A configuration proposal whose upload has not
  * succeeded exists only on this computer and is in no remote review list; this is how a person finds it.
+ * `remoteUrls`, read by a caller that starts no Git process, stands in for the configured push remote.
  */
 export async function transportIntentsForRepository(repositoryRoot, {
-  env = process.env, home = os.homedir(), includeSucceeded = false, runCommand = run, remote = 'origin'
+  env = process.env, home = os.homedir(), includeSucceeded = false, runCommand = run, remote = 'origin', remoteUrls = null
 } = {}) {
   const root = await realpath(path.resolve(repositoryRoot));
   const fingerprint = await repositoryFingerprint(root);
-  let pushRemote = null;
-  try {
-    const configured = configuredRemoteIdentity(root, remote, { direction: 'push', env: withoutGitProcessOverrides(env), runCommand });
-    if (configured.configured && !configured.ambiguous && configured.url) pushRemote = `sha256:${remoteFingerprint(configured.url)}`;
-  } catch { /* No usable push remote: this checkout's own intents still match. */ }
+  const pushRemotes = new Set();
+  if (remoteUrls) {
+    for (const url of remoteUrls) pushRemotes.add(`sha256:${remoteFingerprint(url)}`);
+  } else {
+    try {
+      const configured = configuredRemoteIdentity(root, remote, { direction: 'push', env: withoutGitProcessOverrides(env), runCommand });
+      if (configured.configured && !configured.ambiguous && configured.url) pushRemotes.add(`sha256:${remoteFingerprint(configured.url)}`);
+    } catch { /* No usable push remote: this checkout's own intents still match. */ }
+  }
   return (await listTransportIntents({ env, home, includeSucceeded })).filter((intent) =>
-    intent.repositoryRootFingerprint === fingerprint || (pushRemote && intent.remoteFingerprint === pushRemote));
+    intent.repositoryRootFingerprint === fingerprint || pushRemotes.has(intent.remoteFingerprint));
 }
 
 async function repositoryFingerprint(root) {

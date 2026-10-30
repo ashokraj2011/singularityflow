@@ -354,3 +354,36 @@ export async function workRecords(root, {
   const groups = Object.fromEntries(WORK_GROUP_ORDER.map((group) => [group, items.filter((item) => item.group === group)]));
   return { items, groups, groupOrder: [...WORK_GROUP_ORDER] };
 }
+
+/**
+ * The `consistency` block of a read of this view (SDA §14): a local read, and where the repository's
+ * Story list stood against its authority when the read index last verified it, with the pushes that
+ * have not reached it yet. From the index's own files, so the view still starts no Git process.
+ *
+ * Null rather than a guess when the pending pushes cannot be read and nothing else is known; with a
+ * verified list, the same gap makes the answer `partial`.
+ */
+export async function workConsistency(root, { env = process.env } = {}) {
+  try {
+    const { checkoutRemoteUrls, lastKnownStoryList } = await import('../projection-refresh.mjs');
+    const list = await lastKnownStoryList(root, { env });
+    const block = { policy: 'local', scope: 'shared', freshness: null, checkedAt: null, acceptedRevision: null,
+      completeness: null, pendingOperations: [], ...(list ?? {}) };
+    if (list?.refreshError) {
+      const { code, remoteFailure } = list.refreshError;
+      block.refreshError = { code, stage: remoteFailure?.stage ?? null, classification: remoteFailure?.classification ?? null,
+        retryable: remoteFailure ? remoteFailure.retryable === true : null, timedOut: remoteFailure?.timedOut === true };
+    }
+    try {
+      const { transportIntentsForRepository } = await import('../transport-intents.mjs');
+      const intents = await transportIntentsForRepository(root, { env, remoteUrls: checkoutRemoteUrls(root) });
+      block.pendingOperations = intents.map((intent) => ({ id: intent.intentId, kind: 'push', status: intent.status }));
+    } catch {
+      if (!list) return null;
+      block.completeness = 'partial';
+    }
+    return block;
+  } catch {
+    return null;
+  }
+}

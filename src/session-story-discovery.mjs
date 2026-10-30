@@ -260,7 +260,8 @@ export async function discoverRemoteStoryCandidates(root, definition, {
       const restored = [...merged.values()].sort(compareStoryCreation);
       rememberProvenSummaries(cache, kept, pointers, restored, [...remaining, ...recovered.unavailable]);
       return {
-        source: 'materialized-metadata-recovery', stateRef: roster.ref, repositoryPath: path.resolve(root),
+        source: 'materialized-metadata-recovery', stateRef: roster.ref, ledgerCommit: roster.commitOid,
+        repositoryPath: path.resolve(root),
         remote, fetched: fetch,
         count: merged.size, items: restored,
         unavailableCount: remaining.length + recovered.unavailable.length,
@@ -276,7 +277,8 @@ export async function discoverRemoteStoryCandidates(root, definition, {
   }
   rememberProvenSummaries(cache, kept, pointers, items, unavailable);
   return {
-    source: 'state-ledger', stateRef: roster.ref,
+    // The ledger snapshot this list was read from: its accepted revision (SDA §14).
+    source: 'state-ledger', stateRef: roster.ref, ledgerCommit: roster.commitOid,
     repositoryPath: path.resolve(root), remote, fetched: fetch,
     count: items.length, items: items.sort(compareStoryCreation),
     unavailableCount: unavailable.length, unavailable

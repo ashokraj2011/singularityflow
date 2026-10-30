@@ -18,7 +18,7 @@ import { subjectWith } from '../handles.mjs';
 import { noEffects, plannerNavigation, repositoryReference, sflowResult } from '../result.mjs';
 import { localChangesFor } from './work-continue.mjs';
 import { deriveHomeState } from '../home-work-projection.mjs';
-import { WORK_GROUP_ORDER, workRecords } from '../work-records.mjs';
+import { WORK_GROUP_ORDER, workConsistency, workRecords } from '../work-records.mjs';
 import { personalizationFromGitIdentity } from '../../personalization.mjs';
 import { branch as gitBranch } from '../../git.mjs';
 import { normalizeHomeLens } from '../home-projection-v2.mjs';
@@ -294,7 +294,9 @@ export function homeOverviewResult({
    * Passed in rather than read here: this function is the deterministic core and its unit fixtures
    * must not depend on whatever registry happens to exist on the machine running the tests.
    */
-  otherWorkspaces = null
+  otherWorkspaces = null,
+  /** The repository's synchronization status (SDA §14), from `workConsistency`; null declares none. */
+  consistency = null
 } = {}) {
   const homeState = state ?? deriveHomeState(records ?? {}, { repositoryScoped: true, ...current });
   const groups = homeState.groups;
@@ -657,7 +659,8 @@ export function homeOverviewResult({
         work: 'not-checked'
       }),
       choiceSet: shown.map((entry) => entry.id)
-    }
+    },
+    consistency
   });
 }
 
@@ -810,6 +813,9 @@ export async function homeOverview({ subject = null, root = null, context = {} }
      * is promoted. Three surfaces counting changed paths three ways is how they come to disagree in
      * front of someone who has all three open.
      */
-    localChanges: context.localChanges ?? localChangesFor(root)
+    localChanges: context.localChanges ?? localChangesFor(root),
+    // A local read; where this repository's Story list last stood against its authority (SDA §14).
+    consistency: context.consistency !== undefined ? context.consistency
+      : await workConsistency(root, { env: context.env ?? process.env })
   });
 }

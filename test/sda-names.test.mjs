@@ -106,7 +106,15 @@ export const SDA_NAMES = Object.freeze({
   localWorkNotCarried: ['src/commands/session-takeover.mjs'],
   savedConfigurationDrafts: ['src/factory-reset.mjs'],
   // M4 leftover: cancellation inside a transition. Cancelled after its commit, before its push: retained.
-  PUBLICATION_CANCELLED_BEFORE_PUSH: ['src/publication-unit-of-work.mjs']
+  PUBLICATION_CANCELLED_BEFORE_PUSH: ['src/publication-unit-of-work.mjs'],
+  // The consistency block of sflow-result v2 (SDA §14, optional and additive). Its field is scoped as
+  // `consistency.freshness`, apart from the home projection's per-source `freshness` words.
+  "'refresh-if-stale'": ['src/gateway/result.mjs'],
+  PENDING_OPERATION_STATUSES: ['src/gateway/result.mjs'],
+  // The shared revision a result or last-known record was accepted at. The warm-read benchmark
+  // fixture already named its pinned workflow snapshot's accepted revision so: the same idea.
+  acceptedRevision: ['src/gateway/result.mjs', 'src/gateway/work-records.mjs', 'src/projection-refresh.mjs',
+    'src/repository-check-cache.mjs', 'scripts/warm-read-fixture.mjs']
 });
 
 async function sources(directory, output = []) {

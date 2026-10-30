@@ -1,13 +1,18 @@
 /**
  * Refreshing a last-known projection (SDA §8, M2): the cross-process lease, the replay behind a stale
  * answer, and the last refresh attempt kept beside its record. Loaded only when a Story list or
- * intake catalog record must be recomputed or served stale, so a cache hit never pays for it.
+ * intake catalog record must be recomputed or served stale, so a cache hit never pays for it, and by
+ * a local read that reports where its repository's Story list stands (SDA §14, `lastKnownStoryList`).
  */
 import { randomUUID } from 'node:crypto';
-import { rename, unlink, writeFile } from 'node:fs/promises';
+import { readdir, rename, unlink, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import { incrementCommandCounter } from './dx-timing-context.mjs';
-import { PROJECTION_RECORD_FORMAT as FORMAT, projectionSidecars, readProjectionRecord, readRefreshAttempt } from './repository-check-cache.mjs';
+import {
+  PROJECTION_RECORD_FORMAT as FORMAT, configuredRemoteUrls, projectionSidecars, readProjectionRecord, readRefreshAttempt,
+  remoteAuthority, sessionListingDirectory
+} from './repository-check-cache.mjs';
+import { repositoryCheckSettings } from './repository-check-settings.mjs';
 
 const REFRESH_LEASE_STALE_MS = 10 * 60_000;
 // How long a read waits for another process's refresh of the same record before doing its own.
@@ -89,7 +94,8 @@ export async function coalescedRefresh({ root, settings, directory, file, key, a
   };
   const serveShared = (shared) => {
     incrementCommandCounter('repository-checks.shared');
-    observe(root, settings, 'shared', shared.checkedAt, null, { freshness: 'fresh', completeness: 'complete' });
+    observe(root, settings, 'shared', shared.checkedAt, null, { freshness: 'fresh', completeness: 'complete',
+      acceptedRevision: shared.acceptedRevision });
     return shared.value;
   };
   let lease = null;
@@ -128,7 +134,49 @@ export async function coalescedRefresh({ root, settings, directory, file, key, a
     if (!found) throw error;
     incrementCommandCounter('repository-checks.refresh-failed');
     observe(root, settings, 'last-known', found.checkedAt, null, { freshness: 'refresh-failed', completeness: 'complete',
+      acceptedRevision: found.acceptedRevision,
       refreshError: refreshError(error), refreshFailedAt: failedAt });
     return found.value;
   } finally { await lease?.release().catch(() => {}); }
+}
+
+/**
+ * How the Story list of the repository at `root` last stood against its authority (SDA §14), read
+ * from the read index alone: no Git process, no network, no payload decoded. The newest verified
+ * listing whose read ran in this repository, for the authority its configuration still names, with
+ * the freshness `index status` reports for it. Null when there is none: never synchronized.
+ */
+export async function lastKnownStoryList(root, { env = process.env, now = Date.now() } = {}) {
+  const repository = path.resolve(root);
+  const inside = (child) => {
+    const relative = path.relative(repository, path.resolve(child));
+    return relative === '' || (!relative.startsWith('..') && !path.isAbsolute(relative));
+  };
+  const directory = sessionListingDirectory(env);
+  let newest = null;
+  for (const name of await readdir(directory).catch(() => [])) {
+    if (!/^[a-f0-9]{64}\.json$/u.test(name)) continue;
+    const file = path.join(directory, name);
+    const found = readProjectionRecord(file, null, now, { decode: false });
+    const cwd = found?.kind === 'session-listing' ? found.refresh?.cwd : null;
+    // The read ran here, alone or with this repository selected; a changed remote ends the record.
+    if (typeof cwd !== 'string' || !inside(cwd)
+        || ![remoteAuthority([cwd]), remoteAuthority([cwd, repository])].includes(found.authority)) continue;
+    if (!newest || found.checkedAt > newest.found.checkedAt) newest = { file, found };
+  }
+  if (!newest) return null;
+  const { file, found } = newest;
+  const settings = repositoryCheckSettings(repository, { env });
+  const attempt = readRefreshAttempt(file);
+  const failed = attempt?.error && Date.parse(attempt.failedAt ?? '') > found.checkedAt ? attempt.error : null;
+  const expired = settings.mode === 'always'
+    || settings.mode === 'cached' && found.age >= settings.intervalMinutes * 60_000;
+  return { freshness: failed ? 'refresh-failed' : expired ? 'stale' : 'fresh',
+    checkedAt: new Date(found.checkedAt).toISOString(), acceptedRevision: found.acceptedRevision, completeness: 'complete',
+    ...(failed ? { refreshError: failed } : {}) };
+}
+
+/** The remote URLs of the checkout at `root`, as its Git configuration file names them; no process. */
+export function checkoutRemoteUrls(root) {
+  return [...new Set((configuredRemoteUrls(root) ?? []).map((entry) => entry.url))];
 }

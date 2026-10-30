@@ -97,8 +97,9 @@ function readJson(file, maximum = MAXIMUM_BYTES) {
 /**
  * A verified record for this key, whatever its age or dependencies. A negative age (the clock moved
  * back) or a payload that fails its digest is no record at all, so it can never be served.
+ * `decode: false` verifies the payload without deserializing it, for a reader of the record alone.
  */
-export function readProjectionRecord(file, key, now = Date.now()) {
+export function readProjectionRecord(file, key, now = Date.now(), { decode = true } = {}) {
   const record = readJson(file);
   if (!record) return null;
   const age = now - record.checkedAt;
@@ -107,10 +108,42 @@ export function readProjectionRecord(file, key, now = Date.now()) {
   try {
     const payload = Buffer.from(record.payload, 'base64');
     if (createHash('sha256').update(payload).digest('hex') !== record.sha256) return null;
-    return { value: deserialize(payload), checkedAt: record.checkedAt, stamp: record.stamp, age, sha256: record.sha256,
-      authority: record.authority ?? null,
+    return { value: decode ? deserialize(payload) : undefined, checkedAt: record.checkedAt, stamp: record.stamp, age,
+      sha256: record.sha256, authority: record.authority ?? null, acceptedRevision: acceptedRevisionOf(record.acceptedRevision),
       kind: record.kind ?? null, refresh: record.refresh ?? null, bytes: payload.byteLength };
   } catch { return null; }
+}
+
+const COMMIT_ID = /^(?:[0-9a-f]{40}|[0-9a-f]{64})$/u;
+
+/**
+ * The shared revision a last-known record was computed from (SDA §14 `acceptedRevision`): the
+ * ledger snapshot commit a Story list read, the configuration authority commit a catalog read.
+ * Null when neither is known, as for a record an older build wrote.
+ */
+function acceptedRevisionOf(value) {
+  const commit = (candidate) => typeof candidate === 'string' && COMMIT_ID.test(candidate) ? candidate : null;
+  const ledgerCommit = commit(value?.ledgerCommit);
+  const authorityCommit = commit(value?.authorityCommit);
+  return ledgerCommit || authorityCommit ? { ledgerCommit, authorityCommit } : null;
+}
+
+/** Each remote URL a checkout's Git configuration names, read from the file with no Git process. */
+export function configuredRemoteUrls(root) {
+  const checkout = gitFactCheckout(root);
+  if (!checkout) return null;
+  let text = '';
+  try { text = readFileSync(path.join(checkout.commonDir, 'config'), 'utf8'); } catch { /* no configuration, no remote */ }
+  const remotes = [];
+  let section = null;
+  for (const line of text.split(/\r?\n/u)) {
+    const header = /^\s*\[\s*remote\s+"([^"]*)"\s*\]/u.exec(line);
+    if (header) { section = header[1]; continue; }
+    if (/^\s*\[/u.test(line)) { section = null; continue; }
+    const url = section === null ? null : /^\s*(url|pushurl)\s*=\s*(.*?)\s*$/iu.exec(line);
+    if (url) remotes.push({ remote: section, key: url[1].toLowerCase(), url: url[2] });
+  }
+  return remotes;
 }
 
 /**
@@ -118,21 +151,12 @@ export function readProjectionRecord(file, key, now = Date.now()) {
  * URLs their Git configuration names, read from the files with no Git process. A changed remote or
  * another selected repository ends last-known eligibility (SDA §8: an authority change).
  */
-function remoteAuthority(roots) {
+export function remoteAuthority(roots) {
   const remotes = [];
   for (const root of new Set(roots.filter(Boolean).map((entry) => path.resolve(entry)))) {
-    const checkout = gitFactCheckout(root);
-    if (!checkout) { remotes.push([root, null, null, null]); continue; }
-    let text = '';
-    try { text = readFileSync(path.join(checkout.commonDir, 'config'), 'utf8'); } catch { /* no configuration, no remote */ }
-    let section = null;
-    for (const line of text.split(/\r?\n/u)) {
-      const header = /^\s*\[\s*remote\s+"([^"]*)"\s*\]/u.exec(line);
-      if (header) { section = header[1]; continue; }
-      if (/^\s*\[/u.test(line)) { section = null; continue; }
-      const url = section === null ? null : /^\s*(url|pushurl)\s*=\s*(.*?)\s*$/iu.exec(line);
-      if (url) remotes.push([root, section, url[1].toLowerCase(), url[2]]);
-    }
+    const configured = configuredRemoteUrls(root);
+    if (!configured) { remotes.push([root, null, null, null]); continue; }
+    for (const entry of configured) remotes.push([root, entry.remote, entry.key, entry.url]);
   }
   return repositoryCheckKey(remotes.map((entry) => JSON.stringify(entry)).sort());
 }
@@ -187,7 +211,8 @@ function dependencyStamp(root, files, env, advisoryPreview = false, metadataOnly
 /**
  * `freshness` (SDA §8): `fresh` within the interval or just verified, `stale` past it and served while
  * a refresh runs behind it, `refresh-failed` when the authority could not be reached (`refreshError`
- * keeps why). Records are stored only complete, so a served record is `complete`.
+ * keeps why). Records are stored only complete, so a served record is `complete`. `acceptedRevision`
+ * is the shared revision the record was computed from (SDA §14).
  */
 function observe(root, settings, source, checkedAt, reason = null, consistency = null) {
   const result = { mode: settings.mode, intervalMinutes: settings.intervalMinutes, source,
@@ -222,6 +247,7 @@ export async function cachedStoryReadinessPreview(root, { identity, files = [], 
 /** Selection inventory only. A complete catalog is still not Story-start authority. */
 export async function cachedStoryIntakeCatalog(root, { identity, files = [], env = process.env, settingsRoot = root, refreshRecipe = null }, verify) {
   return cachedCheck(root, { kind: 'story-intake-catalog', identity, files, env, settingsRoot, refreshRecipe,
+    revision: value => ({ authorityCommit: value?.intake?.authorityCommit }),
     accept: value => value?.choicesComplete === true && Array.isArray(value.intake?.storyWorkflows)
       && !value.unreachable?.length && !value.intake.workflowReason && !value.intake.workflowCatalogReason }, verify);
 }
@@ -239,6 +265,7 @@ export async function cachedSessionListing(root, { identity, files = [], env = p
   return cachedCheck(root, { kind: 'session-listing', identity, files, env, settingsRoot, metadataOnly: true, refreshRecipe,
     storageDirectory: sessionListingDirectory(env),
     partition: repositoryCheckKey(identity), firstReadLocal: true,
+    revision: value => ({ ledgerCommit: value?.discovered?.ledgerCommit }),
     accept: value => Array.isArray(value?.discovered?.items) && value.discovered.count === value.discovered.items.length
       && !value.discovered.unavailableCount && !value.discovered.unavailable?.length
       // Read from the remote only because the clone was unreadable: never reused once it is readable.
@@ -246,7 +273,8 @@ export async function cachedSessionListing(root, { identity, files = [], env = p
 }
 
 async function cachedCheck(root, { kind, identity, files, env, settingsRoot = root, accept = () => true,
-  metadataOnly = false, storageDirectory = null, partition = null, firstReadLocal = false, refreshRecipe = null }, verify) {
+  metadataOnly = false, storageDirectory = null, partition = null, firstReadLocal = false, refreshRecipe = null,
+  revision = () => null }, verify) {
   const settings = repositoryCheckSettings(settingsRoot, { env });
   const advisoryPreview = metadataOnly || kind === 'story-readiness-preview' || kind === 'story-intake-catalog';
   const lastKnown = lastKnownKinds.has(kind);
@@ -295,7 +323,8 @@ async function cachedCheck(root, { kind, identity, files, env, settingsRoot = ro
   const lastKnownRecord = lastKnown && found?.authority === authority ? found : null;
   if (!forced && settings.mode !== 'always' && freshRecord(found, stamp, settings)) {
     incrementCommandCounter('repository-checks.hits');
-    observe(root, settings, 'cache', found.checkedAt, null, lastKnown ? { freshness: 'fresh', completeness: 'complete' } : null);
+    observe(root, settings, 'cache', found.checkedAt, null, lastKnown
+      ? { freshness: 'fresh', completeness: 'complete', acceptedRevision: found.acceptedRevision } : null);
     return found.value;
   }
   // Expired, with nothing it depends on changed here: serve it now and refresh behind it (SDA §17:
@@ -305,7 +334,8 @@ async function cachedCheck(root, { kind, identity, files, env, settingsRoot = ro
     const failed = attempt?.error && Date.parse(attempt.failedAt ?? '') > found.checkedAt ? attempt : null;
     incrementCommandCounter('repository-checks.last-known');
     observe(root, settings, 'last-known', found.checkedAt, null, { freshness: failed ? 'refresh-failed' : 'stale',
-      completeness: 'complete', ...(failed ? { refreshError: failed.error, refreshFailedAt: failed.failedAt } : {}),
+      completeness: 'complete', acceptedRevision: found.acceptedRevision,
+      ...(failed ? { refreshError: failed.error, refreshFailedAt: failed.failedAt } : {}),
       backgroundRefresh: await (await import('./projection-refresh.mjs')).refreshBehind(directory, file, refreshRecipe, env, found) });
     return found.value;
   }
@@ -317,7 +347,8 @@ async function cachedCheck(root, { kind, identity, files, env, settingsRoot = ro
     const value = firstReadLocal ? await verify({ allowLocal: missing && !forced && settings.mode !== 'always' }) : await verify();
     const checkedAt = Date.now();
     observe(root, settings, 'fresh', checkedAt, stamp ? null : 'Dependency observation unavailable; verification was fresh.',
-      lastKnown ? { freshness: 'fresh', completeness: accept(value) ? 'complete' : 'partial' } : null);
+      lastKnown ? { freshness: 'fresh', completeness: accept(value) ? 'complete' : 'partial',
+        acceptedRevision: acceptedRevisionOf(revision(value)) } : null);
     if (!accept(value) || !stamp || observeStamp() !== stamp) return value;
     let temporary;
     try {
@@ -326,7 +357,8 @@ async function cachedCheck(root, { kind, identity, files, env, settingsRoot = ro
       const payload = serialize(value);
       if (payload.byteLength > MAXIMUM_PAYLOAD_BYTES) return value;
       const record = JSON.stringify({ format: FORMAT, key, stamp, checkedAt,
-        kind, ...(lastKnown ? { authority, ...(refreshRecipe ? { refresh: refreshRecipe } : {}) } : {}),
+        kind, ...(lastKnown ? { authority, acceptedRevision: acceptedRevisionOf(revision(value)),
+          ...(refreshRecipe ? { refresh: refreshRecipe } : {}) } : {}),
         sha256: createHash('sha256').update(payload).digest('hex'), payload: payload.toString('base64') });
       if (Buffer.byteLength(record) > MAXIMUM_BYTES) return value;
       temporary = path.join(directory, `.${randomUUID()}.tmp`);

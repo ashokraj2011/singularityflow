@@ -26,6 +26,10 @@
  * The reset is deliberate `[INT:CON-042]`: a touched producer moves to v2 whole, and schema version
  * 1 keeps exactly one meaning. Two live meanings for one version number is the defect this contract
  * exists to prevent.
+ *
+ * `consistency` (SDA §14) is optional and additive within v2, so it is no second meaning: every v2
+ * field keeps its meaning, a result without the block is unchanged byte for byte, and a v2 reader
+ * that predates it rebuilds the result without it (`validateSflowResult`) and ignores it.
  */
 import { createHash } from 'node:crypto';
 
@@ -185,6 +189,35 @@ export const CHECKLIST_STATES = Object.freeze(['met', 'unmet', 'unknown']);
  * easiest to check, and a refusal is entitled to make it because a refusal may declare no effects.
  */
 export const PRESERVATION_SCOPES = Object.freeze(['all', ...EFFECT_KEYS]);
+
+/**
+ * How a result's state relates to the shared authority. (SDA §8, §14)
+ *
+ * `policy` is the read or write policy the producer followed: `local` did no remote work,
+ * `refresh-if-stale` refreshed an expired record, `confirmed` had the authority confirm it. A
+ * succeeded `confirmed` result is the v1.0 `accepted` outcome and names its accepted revision.
+ */
+export const CONSISTENCY_POLICIES = Object.freeze(['local', 'refresh-if-stale', 'confirmed']);
+/**
+ * The served snapshot's freshness, as the read index reports it. Null is no verified snapshot at
+ * all: never synchronized, which is not an empty verified inventory.
+ */
+export const CONSISTENCY_FRESHNESS = Object.freeze(['fresh', 'stale', 'refresh-failed']);
+export const CONSISTENCY_COMPLETENESS = Object.freeze(['complete', 'partial']);
+/** `local`: the outcome exists on this computer only, with no shared acceptance (`saved-local`). */
+export const CONSISTENCY_SCOPES = Object.freeze(['shared', 'local']);
+/** Kinds of pending operation. A saved push (`transport-intents.mjs`) is the one that exists. */
+export const PENDING_OPERATION_KINDS = Object.freeze(['push']);
+/**
+ * A saved push keeps its own status (`TRANSPORT_INTENT_STATUSES`; a test keeps them equal). A
+ * succeeded one is not pending, so it is the one status left out.
+ */
+export const PENDING_OPERATION_STATUSES = Object.freeze([
+  'pending', 'pushing', 'outcome-unknown', 'remote-diverged', 'needs-user', 'attempt-budget-exhausted'
+]);
+const CONSISTENCY_KEYS = new Set(['policy', 'scope', 'freshness', 'checkedAt', 'acceptedRevision', 'completeness',
+  'pendingOperations', 'refreshError']);
+const COMMIT_ID = /^(?:[0-9a-f]{40}|[0-9a-f]{64})$/u;
 
 function invalid(detail) {
   throw new SingularityFlowError(`Invalid sflow-result: ${detail}`, { code: 'SFLOW_RESULT_INVALID' });
@@ -480,6 +513,98 @@ function frozenEffects(declared) {
 }
 
 /**
+ * The consistency block: where this result stands against the shared authority. (SDA §14)
+ *
+ * The seven v1.0 outcomes are a status plus this block, never new statuses: `saved-local` is
+ * `scope: local`, `pending-sync` names `pendingOperations[]`, `accepted` is a succeeded `confirmed`
+ * result with its `acceptedRevision`, and `refresh-failed` is a read served last-known with the
+ * error it kept. On a local read it is the synchronization status of what was read; the revision
+ * the answer itself was computed from stays in `subject.revision`.
+ *
+ * Closed, like every other channel: an unknown key is rejected rather than carried, because a
+ * reader cannot tell an unrecognized field from one that does not matter.
+ */
+function frozenConsistency(block, status) {
+  if (!block || typeof block !== 'object' || Array.isArray(block)) invalid('consistency must be an object');
+  const unknown = Object.keys(block).filter((key) => !CONSISTENCY_KEYS.has(key));
+  if (unknown.length) invalid(`consistency has unknown field ${unknown.join(', ')}`);
+  if (!CONSISTENCY_POLICIES.includes(block.policy)) {
+    invalid(`consistency.policy '${block.policy}' is not one of ${CONSISTENCY_POLICIES.join(', ')}`);
+  }
+  if (!CONSISTENCY_SCOPES.includes(block.scope)) {
+    invalid(`consistency.scope '${block.scope}' is not one of ${CONSISTENCY_SCOPES.join(', ')}`);
+  }
+  const freshness = block.freshness ?? null;
+  if (freshness !== null && !CONSISTENCY_FRESHNESS.includes(freshness)) {
+    invalid(`consistency.freshness '${freshness}' is not null or one of ${CONSISTENCY_FRESHNESS.join(', ')}`);
+  }
+  const checkedAt = block.checkedAt ?? null;
+  const completeness = block.completeness ?? null;
+  if (freshness === null) {
+    // Nothing was verified, so nothing can be dated or called complete.
+    if (checkedAt !== null || completeness !== null || block.acceptedRevision != null) {
+      invalid('consistency with no freshness (never synchronized) has no checkedAt, completeness or acceptedRevision');
+    }
+  } else {
+    if (typeof checkedAt !== 'string' || !/^\d{4}-\d{2}-\d{2}T/u.test(checkedAt) || Number.isNaN(Date.parse(checkedAt))) {
+      invalid(`consistency.checkedAt '${checkedAt}' must be the ISO 8601 time the snapshot was verified`);
+    }
+    if (!CONSISTENCY_COMPLETENESS.includes(completeness)) {
+      invalid(`consistency.completeness '${completeness}' is not one of ${CONSISTENCY_COMPLETENESS.join(', ')}`);
+    }
+  }
+  let acceptedRevision = null;
+  if (block.acceptedRevision != null) {
+    const { ledgerCommit = null, authorityCommit = null, ...other } = block.acceptedRevision;
+    if (Object.keys(other).length) invalid(`consistency.acceptedRevision has unknown field ${Object.keys(other).join(', ')}`);
+    for (const [name, value] of [['ledgerCommit', ledgerCommit], ['authorityCommit', authorityCommit]]) {
+      if (value !== null && !COMMIT_ID.test(value)) invalid(`consistency.acceptedRevision.${name} must be a full commit ID or null`);
+    }
+    if (ledgerCommit === null && authorityCommit === null) invalid('consistency.acceptedRevision names no revision; use null');
+    acceptedRevision = Object.freeze({ ledgerCommit, authorityCommit });
+  }
+  // A local outcome was accepted by nobody; a confirmed one was accepted at a revision it can name.
+  if (block.scope === 'local' && (acceptedRevision || block.policy === 'confirmed')) {
+    invalid('consistency.scope local has no shared acceptance: no confirmed policy and no acceptedRevision');
+  }
+  if (block.policy === 'confirmed' && status === 'succeeded' && !acceptedRevision) {
+    invalid('a succeeded confirmed result names the acceptedRevision the authority confirmed');
+  }
+  if (!Array.isArray(block.pendingOperations ?? [])) invalid('consistency.pendingOperations must be an array');
+  const pendingOperations = Object.freeze((block.pendingOperations ?? []).map((operation, index) => {
+    if (!operation?.id || typeof operation.id !== 'string') invalid(`consistency.pendingOperations[${index}] has no id`);
+    if (!PENDING_OPERATION_KINDS.includes(operation.kind)) {
+      invalid(`consistency.pendingOperations[${index}].kind '${operation.kind}' is not one of ${PENDING_OPERATION_KINDS.join(', ')}`);
+    }
+    if (!PENDING_OPERATION_STATUSES.includes(operation.status)) {
+      invalid(`consistency.pendingOperations[${index}].status '${operation.status}' is not one of ${PENDING_OPERATION_STATUSES.join(', ')}`);
+    }
+    return Object.freeze({ id: operation.id, kind: operation.kind, status: operation.status });
+  }));
+  // The real error stays beside the last-known state, and only there. Structured: its code and the
+  // Git diagnosis, never its message, which is prose a surface could not translate.
+  if ((freshness === 'refresh-failed') !== (block.refreshError != null)) {
+    invalid('consistency.refreshError is present exactly when freshness is refresh-failed');
+  }
+  let refreshError = null;
+  if (block.refreshError != null) {
+    const error = block.refreshError;
+    if (typeof error.code !== 'string' || !error.code) invalid('consistency.refreshError has no code');
+    refreshError = Object.freeze({
+      code: error.code,
+      stage: error.stage ?? null,
+      classification: error.classification ?? null,
+      retryable: typeof error.retryable === 'boolean' ? error.retryable : null,
+      timedOut: error.timedOut === true
+    });
+  }
+  return Object.freeze({
+    policy: block.policy, scope: block.scope, freshness, checkedAt, acceptedRevision, completeness, pendingOperations,
+    ...(refreshError ? { refreshError } : {})
+  });
+}
+
+/**
  * The whole-world preservation claim, for a result that did not act `[DHR:REQ-061]`.
  *
  * A helper rather than a default, because a producer that did act must say what specifically it left
@@ -534,7 +659,8 @@ export function sflowResult({
   checklist = [],
   next = [],
   restState = null,
-  data = {}
+  data = {},
+  consistency = null
 } = {}) {
   if (!RESULT_KINDS.includes(kind)) invalid(`kind '${kind}' is not one of ${RESULT_KINDS.join(', ')}`);
   if (!operation?.id) invalid('operation.id is required');
@@ -657,7 +783,9 @@ export function sflowResult({
     checklist: resolvedChecklist,
     next: resolvedNext,
     restState: restState ?? null,
-    data: Object.freeze({ ...data })
+    data: Object.freeze({ ...data }),
+    // Present only when declared, so a result without it keeps its shape and its hash.
+    ...(consistency == null ? {} : { consistency: frozenConsistency(consistency, outcome.status) })
   });
 }
 

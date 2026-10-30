@@ -7,6 +7,26 @@ import { optionString, SingularityFlowError } from '../util.mjs';
 import { validatePortableWorkId } from '../work-id.mjs';
 import { resolvePersonalization } from '../personalization.mjs';
 
+/**
+ * A deferred member has no checkout until work needs one (SPEC-SDA §11), and intake needs the
+ * selected one's. Clone only that repository, through the readiness-scoped repair `session attach`
+ * uses, and read the selection again. A clone that does not come out ready keeps its state, so the
+ * caller still answers `workspace-repair-required`; a missing or unavailable member is never cloned here.
+ */
+async function materializeDeferredSelection(workspace) {
+  const [{ repairWorkspace }, { operationById }, { withOperationContext }] = await Promise.all([
+    import('../workspace.mjs'), import('../command-registry.mjs'), import('../operation-context.mjs')]);
+  // Attributed to repair, as Story start and a repository-changing command attribute theirs.
+  await withOperationContext({
+    operation: operationById('workspace.repair'), modelMode: { enabled: false }, root: null,
+    command: 'workspace', startedAt: new Date().toISOString()
+  }, () => repairWorkspace(workspace.workspacePath, {
+    repositoryIds: [workspace.repositoryId], recoverCapabilityDrops: false, returnIfSelectedReady: true,
+    statusLevel: 'readiness'
+  }));
+  return readActiveWorkspaceContext(activeWorkspaceFile(), workspaceRegistryFile(), { refresh: true });
+}
+
 export async function readIntakeEntry(options = {}) {
   const mode = readCopilotMode();
   if (mode.paused) return { resultType: 'intake-entry', status: 'paused', paused: true,
@@ -19,9 +39,12 @@ export async function readIntakeEntry(options = {}) {
   validatePortableWorkId(workId);
   const { automaticWorkspaceStoryCheckout } = await import('../workspace-story-checkout.mjs');
   const checkout = await automaticWorkspaceStoryCheckout('workspace', ['workspace', 'branches'], options);
-  const workspace = await readActiveWorkspaceContext(activeWorkspaceFile(), workspaceRegistryFile(), { refresh: !checkout });
+  let workspace = await readActiveWorkspaceContext(activeWorkspaceFile(), workspaceRegistryFile(), { refresh: !checkout });
+  const deferred = !checkout && workspace?.repositoryState === 'deferred' ? workspace.repositoryId : null;
+  if (deferred) workspace = await materializeDeferredSelection(workspace);
   const base = { resultType: 'intake-entry', workId, paused: false,
-    build: versionLine(), workspace: workspace ?? null, creationAuthorized: false };
+    build: versionLine(), workspace: workspace ?? null, creationAuthorized: false,
+    ...(deferred ? { materialization: { repositoryId: deferred, previousState: 'deferred', cloned: workspace?.repositoryState === 'ready' } } : {}) };
   if (!checkout && workspace?.repositoryState && workspace.repositoryState !== 'ready') return { ...base, status: 'workspace-repair-required',
     ready: false, commandGuidance: { copilotCommand: '/sf-workspace',
       command: 'singularity-flow workspace repair --help', modelFreeCommand: null } };

@@ -490,7 +490,8 @@ export async function discoverRemoteStoryCandidatesByUrl(url, {
       }
     }
     return {
-      source: 'remote-url', discovery: 'state-ledger', stateRef, repositoryPath: null, remote: 'origin', fetched: true,
+      source: 'remote-url', discovery: 'state-ledger', stateRef, ledgerCommit: heads.get(authority.branch) ?? null,
+      repositoryPath: null, remote: 'origin', fetched: true,
       count: items.size, items: [...items.values()].sort(compareStoryCreation),
       unavailableCount: diagnostics.length, unavailable: diagnostics
     };

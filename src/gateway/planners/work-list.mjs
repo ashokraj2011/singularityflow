@@ -11,9 +11,9 @@
  */
 import { SingularityFlowError } from '../../util.mjs';
 import { noEffects, plannerNavigation, repositoryReference, sflowResult } from '../result.mjs';
-import { WORK_GROUP_ORDER, workRecords } from '../work-records.mjs';
+import { WORK_GROUP_ORDER, workConsistency, workRecords } from '../work-records.mjs';
 
-export function workListResult(records, { subject = null, group = null, repositoryScope = null } = {}) {
+export function workListResult(records, { subject = null, group = null, repositoryScope = null, consistency = null } = {}) {
   const shown = group ? records.items.filter((item) => item.group === group) : records.items;
 
   return sflowResult({
@@ -60,7 +60,9 @@ export function workListResult(records, { subject = null, group = null, reposito
       groups: Object.fromEntries(WORK_GROUP_ORDER.map((name) => [name, records.groups[name] ?? []])),
       items: shown,
       repositoryScope
-    }
+    },
+    // A local read, and how the repository's Story list last stood against its authority (SDA §14).
+    consistency
   });
 }
 
@@ -74,5 +76,6 @@ export async function workList({ arguments: args = {}, subject = null, root = nu
    */
   if (!root) throw new SingularityFlowError('work.list requires the repository root it should read.', { code: 'WORK_LIST_NO_ROOT' });
   const records = await workRecords(root, { includeCompleted: Boolean(args.includeCompleted), ...context });
-  return workListResult(records, { subject, group: args.group ?? null, repositoryScope: context.repositoryId ?? repositoryReference(root) });
+  return workListResult(records, { subject, group: args.group ?? null, repositoryScope: context.repositoryId ?? repositoryReference(root),
+    consistency: context.consistency !== undefined ? context.consistency : await workConsistency(root, { env: context.env ?? process.env }) });
 }

@@ -4,9 +4,12 @@ import assert from 'node:assert/strict';
 import {
   CONFIRMATION_CLASSES, EFFECT_KEYS, RESULT_KINDS, RESULT_STATUSES,
   ACTION_EMPHASIS, CHECKLIST_STATES, INTERACTION_CLASSES, PRESERVATION_SCOPES,
+  CONSISTENCY_COMPLETENESS, CONSISTENCY_FRESHNESS, CONSISTENCY_POLICIES, CONSISTENCY_SCOPES,
+  PENDING_OPERATION_KINDS, PENDING_OPERATION_STATUSES,
   checklistSummary, effects, noEffects, preservedAll, preservedEverything, primaryAction,
   resultHash, sflowResult, SFLOW_RESULT_SCHEMA_VERSION, validateSflowResult
 } from '../src/gateway/result.mjs';
+import { TRANSPORT_INTENT_STATUSES } from '../src/transport-intents.mjs';
 import { childTimeout } from './helpers/child-timeout.mjs';
 
 const read = (over = {}) => sflowResult({
@@ -419,6 +422,103 @@ test('no producer emits a model-consent interaction in v1', () => {
   // [UXH:AC-015] as a gate rather than a promise. The class exists so the day a model enters a
   // journey there is somewhere to ask; until then the silence is asserted, not assumed.
   assert.ok(INTERACTION_CLASSES.includes('model-consent'));
+});
+
+// ---------------------------------------------------------------------------
+// consistency: the v1.0 outcomes as a status plus one optional block (SDA §14, decision D1)
+
+const LEDGER = 'a'.repeat(40);
+const AUTHORITY = 'b'.repeat(64);
+const lastKnown = (over = {}) => ({
+  policy: 'local', scope: 'shared', freshness: 'stale', checkedAt: '2026-10-30T09:00:00.000Z',
+  acceptedRevision: { ledgerCommit: LEDGER, authorityCommit: null }, completeness: 'complete', pendingOperations: [], ...over
+});
+
+test('the consistency block is optional and additive: without it a result keeps its shape and its hash', () => {
+  const plain = read();
+  assert.equal(Object.hasOwn(plain, 'consistency'), false, 'absent, not null, so no existing result changes');
+  assert.equal(Object.hasOwn(read({ consistency: null }), 'consistency'), false);
+  assert.equal(resultHash(read({ consistency: null })), resultHash(plain));
+  assert.equal(SFLOW_RESULT_SCHEMA_VERSION, 2, 'one more optional field is not a new version');
+
+  const carried = read({ consistency: lastKnown() });
+  assert.equal(validateSflowResult(carried), carried);
+  assert.ok(Object.isFrozen(carried.consistency) && Object.isFrozen(carried.consistency.acceptedRevision)
+    && Object.isFrozen(carried.consistency.pendingOperations));
+  assert.notEqual(resultHash(carried), resultHash(plain), 'the block is content: it counts in the hash');
+  // Every other field is exactly what it was without the block.
+  const { consistency, ...rest } = carried;
+  assert.deepEqual(rest, plain);
+  assert.deepEqual(consistency, lastKnown());
+
+  // An older v2 reader rebuilds a result from the fields it knows and ignores any other top-level
+  // key; that is what lets a reader that predates the block accept a result that carries it.
+  const fromNewer = { ...plain, someLaterField: { anything: true } };
+  assert.equal(validateSflowResult(fromNewer), fromNewer);
+});
+
+test('the consistency vocabularies are closed and pinned, and pending statuses are the saved push statuses', () => {
+  assert.deepEqual([...CONSISTENCY_POLICIES], ['local', 'refresh-if-stale', 'confirmed']);
+  assert.deepEqual([...CONSISTENCY_FRESHNESS], ['fresh', 'stale', 'refresh-failed']);
+  assert.deepEqual([...CONSISTENCY_COMPLETENESS], ['complete', 'partial']);
+  assert.deepEqual([...CONSISTENCY_SCOPES], ['shared', 'local']);
+  assert.deepEqual([...PENDING_OPERATION_KINDS], ['push']);
+  // A succeeded push is not pending; every other saved status keeps its own name.
+  assert.deepEqual([...PENDING_OPERATION_STATUSES], TRANSPORT_INTENT_STATUSES.filter((status) => status !== 'succeeded'));
+});
+
+test('the seven v1.0 outcomes map onto status plus the block, and validation accepts each', () => {
+  const failed = { preserved: preservedAll('work.nothing-was-carried-out'), restState: 'blocked' };
+  // saved-local: succeeded, local scope, no shared acceptance.
+  assert.equal(act({ consistency: { policy: 'local', scope: 'local', freshness: null, pendingOperations: [] } }).consistency.scope, 'local');
+  // pending-sync: succeeded, with the operations still to reach the authority.
+  assert.deepEqual(act({ consistency: lastKnown({ pendingOperations: [{ id: 'psh_1', kind: 'push', status: 'outcome-unknown' }] }) })
+    .consistency.pendingOperations, [{ id: 'psh_1', kind: 'push', status: 'outcome-unknown' }]);
+  // accepted: succeeded, confirmed, at the revision the authority accepted.
+  assert.equal(act({ consistency: lastKnown({ policy: 'confirmed', freshness: 'fresh',
+    acceptedRevision: { ledgerCommit: LEDGER, authorityCommit: AUTHORITY } }) }).consistency.policy, 'confirmed');
+  // conflict and recovery-required: refused; outcome-unknown: failed. The block may say where they stand.
+  assert.equal(sflowResult({ kind: 'refusal', operation: { id: 'work.publish', classification: 'mutation' },
+    outcome: { status: 'refused', messageId: 'work.published' }, effects: noEffects(), ...failed,
+    consistency: lastKnown({ policy: 'confirmed', freshness: 'fresh' }) }).consistency.freshness, 'fresh');
+  assert.equal(sflowResult({ kind: 'refusal', operation: { id: 'work.publish', classification: 'mutation' },
+    outcome: { status: 'failed', messageId: 'work.published' }, effects: noEffects(), ...failed,
+    consistency: lastKnown({ policy: 'confirmed', freshness: null, checkedAt: null, completeness: null, acceptedRevision: null }) })
+    .consistency.freshness, null);
+  // refresh-failed: a succeeded read, served last-known, with its preserved error.
+  const kept = read({ consistency: lastKnown({ freshness: 'refresh-failed',
+    refreshError: { code: 'SESSION_STATE_REFRESH_UNAVAILABLE', stage: 'fetch', classification: 'authorization-denied', retryable: false } }) });
+  assert.deepEqual(kept.consistency.refreshError, { code: 'SESSION_STATE_REFRESH_UNAVAILABLE', stage: 'fetch',
+    classification: 'authorization-denied', retryable: false, timedOut: false });
+  // Never synchronized: no freshness, nothing dated, nothing complete. Not an empty verified inventory.
+  assert.equal(read({ consistency: { policy: 'local', scope: 'shared', freshness: null } }).consistency.completeness, null);
+});
+
+test('the consistency block refuses what a reader could not trust', () => {
+  const rejects = (block, pattern) => assert.throws(() => read({ consistency: block }), pattern);
+  rejects([], /consistency must be an object/);
+  rejects(lastKnown({ freshnessNote: 'stale-ish' }), /consistency has unknown field freshnessNote/);
+  rejects(lastKnown({ policy: 'cached' }), /consistency\.policy 'cached' is not one of/);
+  rejects(lastKnown({ scope: undefined }), /consistency\.scope 'undefined' is not one of/);
+  rejects(lastKnown({ freshness: 'current-read' }), /consistency\.freshness 'current-read' is not null or one of/);
+  rejects(lastKnown({ checkedAt: 'yesterday' }), /checkedAt 'yesterday' must be the ISO 8601 time/);
+  rejects(lastKnown({ completeness: null }), /consistency\.completeness 'null' is not one of/);
+  rejects(lastKnown({ freshness: null }), /never synchronized\) has no checkedAt, completeness or acceptedRevision/);
+  rejects(lastKnown({ acceptedRevision: { ledgerCommit: 'abc123' } }), /acceptedRevision\.ledgerCommit must be a full commit ID/);
+  rejects(lastKnown({ acceptedRevision: { ledgerCommit: LEDGER, branch: 'state' } }), /acceptedRevision has unknown field branch/);
+  rejects(lastKnown({ acceptedRevision: {} }), /acceptedRevision names no revision; use null/);
+  rejects(lastKnown({ scope: 'local' }), /scope local has no shared acceptance/);
+  rejects(lastKnown({ scope: 'local', acceptedRevision: null, policy: 'confirmed' }), /scope local has no shared acceptance/);
+  rejects(lastKnown({ policy: 'confirmed', acceptedRevision: null }), /a succeeded confirmed result names the acceptedRevision/);
+  rejects(lastKnown({ pendingOperations: {} }), /pendingOperations must be an array/);
+  rejects(lastKnown({ pendingOperations: [{ kind: 'push', status: 'pending' }] }), /pendingOperations\[0\] has no id/);
+  rejects(lastKnown({ pendingOperations: [{ id: 'd1', kind: 'draft', status: 'pending' }] }), /\.kind 'draft' is not one of push/);
+  rejects(lastKnown({ pendingOperations: [{ id: 'psh_1', kind: 'push', status: 'succeeded' }] }), /\.status 'succeeded' is not one of/);
+  rejects(lastKnown({ freshness: 'refresh-failed' }), /refreshError is present exactly when freshness is refresh-failed/);
+  rejects(lastKnown({ refreshError: { code: 'REMOTE_OFFLINE' } }), /refreshError is present exactly when freshness is refresh-failed/);
+  rejects(lastKnown({ freshness: 'refresh-failed', refreshError: { message: 'offline' } }), /refreshError has no code/);
+  // Validation rebuilds, so a result from elsewhere is held to the same rules.
+  assert.throws(() => validateSflowResult({ ...read(), consistency: lastKnown({ policy: 'eventual' }) }), /consistency\.policy 'eventual'/);
 });
 
 test('one-canonical-result-contract', async () => {

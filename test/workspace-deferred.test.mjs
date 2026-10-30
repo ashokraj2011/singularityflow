@@ -250,3 +250,52 @@ test('workspace copilot clones only its selected deferred member, and its previe
   assert.deepEqual(Object.fromEntries(status.repositories.map((repository) => [repository.id, repository.state])),
     { app: 'deferred', api: 'ready' });
 });
+
+/** A member whose default branch carries an initialized workflow, so intake reaches its catalog. */
+async function governedRepository(base, name, env) {
+  const bare = path.join(base, `${name}.git`);
+  const seed = path.join(base, `${name}-seed`);
+  run('git', ['init', '--bare', '-q', '-b', 'main', bare], { cwd: base });
+  run('git', ['init', '-q', '-b', 'main', seed], { cwd: base });
+  run('git', ['config', 'user.name', 'Packager'], { cwd: seed });
+  run('git', ['config', 'user.email', 'packager@example.com'], { cwd: seed });
+  run('git', ['remote', 'add', 'origin', bare], { cwd: seed });
+  await writeFile(path.join(seed, 'README.md'), `# ${name}\n`);
+  cli(['init'], env, { cwd: seed });
+  run('git', ['add', '-A'], { cwd: seed });
+  run('git', ['commit', '-qm', 'init'], { cwd: seed });
+  run('git', ['push', '-q', 'origin', 'main'], { cwd: seed });
+  return bare;
+}
+
+test('intake on a deferred member clones only that member and continues; a missing one still asks for repair', async (t) => {
+  const fixture = await environment(t);
+  const app = await governedRepository(fixture.base, 'governed-app', fixture.env);
+  const created = JSON.parse(cli(['workspace', 'create', '--local', '--id', 'intake', '--base',
+    path.join(fixture.base, 'workspaces'), '--lead', 'app', '--repository', `app=${app}`,
+    '--repository', `api=${fixture.api}`, '--confirm', 'intake', '--json'], fixture.env).stdout);
+  const workspacePath = created.workspace.path;
+  cli(['workspace', 'use', workspacePath, '--repository', 'app'], fixture.env);
+  const entry = () => JSON.parse(cli(['workspace', 'branches', '--entry', '--intake', '--work-id', 'NEW-1', '--json'],
+    fixture.env, { cwd: fixture.base }).stdout);
+
+  const packet = entry();
+  assert.notEqual(packet.status, 'workspace-repair-required', 'a deferred member is not damage: intake clones it');
+  assert.equal(packet.status, 'choices-ready', JSON.stringify(packet).slice(0, 2000));
+  assert.deepEqual(packet.materialization, { repositoryId: 'app', previousState: 'deferred', cloned: true });
+  assert.equal(packet.workspace.repositoryState, 'ready');
+  assert.equal(packet.creationAuthorized, false, 'cloning for intake authorizes no Story');
+  assert.ok(await stat(path.join(workspacePath, 'repos', 'app', '.git')), 'the selected member is cloned');
+  await absent(path.join(workspacePath, 'repos', 'api'));
+
+  // Repeated, the entry finds the member ready and clones nothing again.
+  assert.equal(entry().materialization, undefined);
+
+  // A clone that existed and is gone is damage: intake refuses it and never clones it back.
+  await rm(path.join(workspacePath, 'repos', 'app'), { recursive: true, force: true });
+  const missing = entry();
+  assert.equal(missing.status, 'workspace-repair-required');
+  assert.equal(missing.workspace.repositoryState, 'missing');
+  assert.equal(missing.materialization, undefined);
+  await absent(path.join(workspacePath, 'repos', 'app'));
+});

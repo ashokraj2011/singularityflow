@@ -16,7 +16,7 @@ related:
   - developer-home
   - capability-management
   - repository-state-and-snapshots
-version: 24
+version: 25
 ---
 A workspace is the machine-local collection of capability repositories used for one delivery context. Sessions bind a contributor and selected work item without replacing repository state.
 
@@ -173,10 +173,11 @@ selection updates do not force other VS Code windows to switch folders.
 
 Workspace registration normally records the approved capability bindings and planned repository
 paths without cloning application code. `workspace use` can select that workspace and reports the
-repository as `missing` until files are needed. Starting work materializes the repositories
+repository as `deferred` until files are needed. Starting work materializes the repositories
 required by an unambiguous Story capability; attaching an existing Story can materialize its
-selected deferred repository and safely select its branch. Generic intake
-reports missing repositories without cloning or materializing application files. After Start,
+selected deferred repository and safely select its branch. The `/sf-start` intake entry clones
+only its selected deferred repository before it reads the catalog. Intake reports a missing
+repository (a clone that existed and is gone) without cloning or materializing application files. After Start,
 existing workspace objects are reused for the direct Story worktree; only a missing repository
 needs a download. If files are needed earlier, run
 `sflow workspace repair <WORKSPACE-DIRECTORY> --repository <REPOSITORY-ID>`.

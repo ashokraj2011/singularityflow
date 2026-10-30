@@ -1465,8 +1465,12 @@ async function loadDefinitionUncached(root, { storyBootstrap = false } = {}) {
     // Compatibility normalization and both validators may mutate their input. Share bytes and
     // parsing only, not a bootstrap result or mutable object with current-policy validation.
     const definition = applyWorkflowCompatibility(structuredClone(source.parsed));
-    // Which agents APM deployed draft which steps; discovery applies them (agents.mjs) [APM A3].
-    if (definition.apm != null) definition.apm = (await import('./apm-configuration.mjs')).normalizeApmConfiguration(definition.apm);
+    // Which agents APM deployed draft which steps; discovery applies them (agents.mjs) [APM A3]. One
+    // that cannot be read binds nothing and never stops configuration loading; apm status says why.
+    if (definition.apm != null) {
+      try { definition.apm = (await import('./apm-configuration.mjs')).normalizeApmConfiguration(definition.apm); }
+      catch { definition.apm = { agents: {} }; }
+    }
     // An accepted Story owns exact governed-agent bytes in its WFA closure. Parsing today's live
     // files before that closure is even located would let a deleted or malformed replacement deny
     // offline resume. Bootstrap therefore loads only the declarative workflow shape; the shared

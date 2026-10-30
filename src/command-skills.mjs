@@ -119,7 +119,7 @@ const entries = {
   imports: ['sf-import'],
   marketplace: ['sf-import'],
   // APM packages are imported by the APM CLI; /sf-import reads what it deployed [APM A1].
-  apm: ['sf-import'],
+  apm: ['sf-apm'],
   mcp: ['sf-mcp'],
   visual: ['sf-visual'],
   documents: ['sf-documents', 'sf-upload'],
@@ -273,7 +273,8 @@ export const COMMAND_LINE_SKILL_ROUTES = Object.freeze({
   gateway: route('sf-home', { serve: null }),
   // Installing agent packages changes which agents run, and publishing them what other teams run:
   // the person's own steps (OWN_TERMINAL_STEPS).
-  apm: route('sf-import', { install: null, update: null, publish: null, marketplace: null, policy: null }),
+  // attach is a configuration change reviewed like an import, so its turn is the import skill's.
+  apm: route('sf-apm', { install: null, update: null, publish: null, marketplace: null, policy: null, attach: 'sf-import' }),
   capabilities: route('sf-capabilities', {
     doctor: 'sf-capability-doctor'
   }),

@@ -6930,6 +6930,32 @@ test('with a repository, every contributed command actually does something', asy
   assert.doesNotMatch(registered.warnings.join(' '), /Open the repository that contains/);
 });
 
+test('Agent Packages opens its read-only page, and installs and updates are typed for the person to run', async (t) => {
+  if (!requireBundle(t)) return;
+  const { root, registered } = await activated();
+  await registered.commands.get('singularityFlow.openApmPackages')();
+  const panel = registered.panels.find((entry) => entry.id === 'singularityFlow.apmPackages');
+  assert.ok(panel, 'the command opened its panel');
+  for (let wait = 0; wait < 150 && !/no APM project yet|could not be read/u.test(panel.webview.html); wait += 1) {
+    await new Promise((resolve) => setTimeout(resolve, 20));
+  }
+  assert.match(panel.webview.html, /Agent packages/u);
+  assert.match(panel.webview.html, /This repository has no APM project yet/u);
+  registered.typed = '--force';
+  await panel.post({ type: 'action', action: 'install' });
+  assert.equal(registered.terminals.length, 0, 'an option is never typed as a package');
+  registered.typed = 'reviewer@team-catalog';
+  await panel.post({ type: 'action', action: 'install' });
+  await panel.post({ type: 'action', action: 'update' });
+  const sent = registered.terminals.flatMap((terminal) => terminal.sent).filter((entry) => /apm (install|update)/u.test(entry.text));
+  assert.deepEqual(sent, [
+    { text: 'singularity-flow apm install reviewer@team-catalog', addNewLine: false },
+    { text: 'singularity-flow apm update --dry-run', addNewLine: false }
+  ], 'typed, never entered: the person runs it');
+  assert.equal(registered.terminals.every((terminal) => terminal.options.name === 'Singularity Flow APM'), true);
+  assert.ok(root);
+});
+
 test('Check the Outcome opens its own read-only page, and a target it never loaded does nothing', async (t) => {
   if (!requireBundle(t)) return;
   const { registered } = await activated();

@@ -747,6 +747,20 @@ export async function compose(root, options, {
     definition = config.definition ?? await loadDefinition(root);
     workflow = config.workflow ?? workflow;
   }
+  // APM never blocks [2026-10-30]: a live agent APM deployed whose file is not the one apm install
+  // wrote is not used; the step's own workflow agent drafts it, with a warning. A Story's saved copy
+  // is never re-read, so it is never swapped.
+  const liveApmAgent = config.executionContext?.agent ? null : definition.agents?.[agent];
+  if (liveApmAgent?.apm && liveApmAgent.apm.state !== 'intact') {
+    const fallback = definition.agentCatalog?.find((entry) => !entry.apm && entry.defaultFor.includes(selectedPhaseId))?.id ?? null;
+    if (fallback) {
+      console.warn(`Warning: agent '${agent}' was installed by APM (${liveApmAgent.apm.package}) and ${liveApmAgent.apm.path} is not the one apm install wrote, so '${fallback}' drafts this step. Run apm install to restore it.`);
+      agent = fallback;
+      config = await load(root, { agent, workId, phase: selectedPhaseId });
+      definition = config.definition ?? await loadDefinition(root);
+      workflow = config.workflow ?? workflow;
+    }
+  }
   const workItemRoot = definition.workItemRoot ?? 'singularity/work-items';
   if (workflow && !dryRun && !renderOnly) {
     const overridesBefore = workflow.sequenceOverrides?.length ?? 0;
@@ -907,7 +921,7 @@ export async function compose(root, options, {
   // A user-defined agent is given the rest of its folder, checked against the manifest its pinned
   // agent names; any other agent has no such section.
   const agentProfile = config.executionContext?.agent ?? definition.agents?.[agent];
-  // A Story's saved copy is not re-read; a live agent APM deployed must be the file APM wrote.
+  // A live APM agent not as APM wrote it was swapped above; only a step no other agent drafts gets here.
   if (agentProfile?.apm && agentProfile.apm.state !== 'intact') throw (await import('./apm-lock.mjs')).apmAgentNotIntact(agentProfile, 'a step');
   const userFolder = userDefinedAgentName(agentProfile)
     ? await (await import('./user-defined-agents.mjs')).renderUserDefinedFolder(configurationReadRoot(root), agentProfile, { root }) : '';

@@ -96,6 +96,13 @@ export async function activatePhaseAgent(
   const defaultAgent = phase?.defaultAgent
     ?? definition.agentCatalog?.find((agent) => agent.defaultFor.includes(phase?.id))?.id
     ?? null;
+  // APM never blocks [2026-10-30]: an APM agent whose file is not the one apm install wrote is not
+  // used, even when asked for by name; the step's own agent drafts it, with a warning.
+  const requested = requestedAgent ? definition.agents?.[requestedAgent] : null;
+  if (requested?.apm && requested.apm.state !== 'intact' && defaultAgent) {
+    console.warn(`Warning: agent '${requestedAgent}' was installed by APM (${requested.apm.package}) and ${requested.apm.path} is not the one apm install wrote, so '${defaultAgent}' drafts ${phase?.id ?? 'this step'} instead. Run apm install to restore it.`);
+    requestedAgent = null;
+  }
   const agent = requestedAgent ?? defaultAgent;
   if (workflow?.status === 'cancelled') throw (await import('../lifecycle-transitions.mjs')).cancelledStoryRefusal(workflow);
   if (!agent || !definition.agents?.[agent]) throw new SingularityFlowError(`Phase '${phase?.id ?? 'unknown'}' has no valid agent.`);

@@ -144,8 +144,9 @@ export function apmCliVersion({ run = spawnSync, environment = process.env } = {
  */
 async function agentUse(root, packages) {
   let bindings = {};
+  let problem = null;
   const workflowText = await readFile(path.join(root, 'singularity/workflow.yml'), 'utf8').catch(() => '');
-  try { bindings = normalizeApmConfiguration(parseYamlText(workflowText)?.apm).agents; } catch { bindings = {}; }
+  try { bindings = normalizeApmConfiguration(parseYamlText(workflowText)?.apm).agents; } catch (error) { problem = error.message; }
   const unusable = [];
   for (const entry of packages.flatMap((item) => item.files.primitives.filter((primitive) => primitive.kind === 'agent' && primitive.target === '.github')
     .map((primitive) => ({ ...primitive, package: item.label })))) {
@@ -167,7 +168,7 @@ async function agentUse(root, packages) {
             : null;
     states[id] = { ...binding, active: !waiting, ...(waiting ? { waiting } : {}) };
   }
-  return { bindings: states, unusable };
+  return { bindings: states, unusable, ...(problem ? { problem } : {}) };
 }
 
 async function unmanagedAgents(root, owned) {
@@ -247,6 +248,10 @@ export async function apmProjectStatus(root, { cliVersion = undefined } = {}) {
       : [...codes].some((code) => /^deployed-(?:missing|modified|not-regular)$/u.test(code)) ? 'drifted'
         : codes.has('lock-missing') || codes.has('declared-not-locked') ? 'unlocked'
           : codes.has('not-committed') ? 'uncommitted' : 'intact';
+  const agents = await agentUse(root, packages);
+  if (agents.problem) {
+    findings.push(finding('apm-bindings-unreadable', `workflow.yml apm cannot be read (${agents.problem}); no APM agent drafts a step until it is fixed, and each step keeps its workflow's own agent.`, { path: 'singularity/workflow.yml' }));
+  }
   return {
     schemaVersion: 1,
     resultType: APM_STATUS_RESULT,
@@ -262,7 +267,7 @@ export async function apmProjectStatus(root, { cliVersion = undefined } = {}) {
     packages: packages.map(({ files, ...entry }) => ({ ...entry, files: fileCounts(files), primitives: files.primitives })),
     local: local ? { files: fileCounts(local), primitives: local.primitives } : null,
     unmanagedAgents: await unmanagedAgents(root, owned),
-    agents: await agentUse(root, packages),
+    agents,
     cli: { found: cli, lockWrittenBy: lock?.apm_version == null ? null : String(lock.apm_version) },
     findings,
     nextActions: nextActions(state, codes, uncommitted)

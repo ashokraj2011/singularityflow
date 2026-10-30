@@ -145,7 +145,8 @@ async function readApmContext(repositoryRoot) {
   let bindings = {};
   if (/^apm:/mu.test(workflowText)) {
     const { normalizeApmConfiguration } = await import('./apm-configuration.mjs');
-    bindings = normalizeApmConfiguration(parseYamlText(workflowText)?.apm).agents;
+    // A block that cannot be read binds nothing: each step keeps its workflow's agent (apm status says why).
+    try { bindings = normalizeApmConfiguration(parseYamlText(workflowText)?.apm).agents; } catch { bindings = {}; }
   }
   return { deployed: lock.value ? apmDeployedIndex(lock.value) : null, lockProblem: lock.problem?.message ?? null, bindings };
 }

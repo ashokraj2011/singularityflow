@@ -455,6 +455,9 @@ export function commandClass(args: string[]): 'read' | 'mutation' | 'unknown' {
   if (args[0] === 'import') return args[1] === 'preview' ? 'read' : 'mutation';
   if (args[0] === 'imports') return ['list', 'check'].includes(args[1] ?? 'list') ? 'read' : 'mutation';
   if (args[0] === 'marketplace') return ['list', 'browse'].includes(args[1] ?? 'list') ? 'read' : 'mutation';
+  // APM packages: status reads; install, update, attach, marketplace init, publish and policy init each
+  // make one reviewed change, and each --dry-run is a read, as the CLI resolves them [APM A7].
+  if (args[0] === 'apm') return (args[1] ?? 'status') === 'status' || args.includes('--dry-run') ? 'read' : 'mutation';
   if (args[0] === 'workflow' && args[1] === 'author') {
     return ['list', 'read', 'show', 'history', 'op-status', 'preview', 'catalog'].includes(args[2] ?? 'list') ? 'read' : 'mutation';
   }

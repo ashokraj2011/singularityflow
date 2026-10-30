@@ -162,12 +162,18 @@ test('APM never blocks the rest: a binding that cannot apply waits, and every co
   const choosyState = JSON.parse(await readFile(path.join(choosy.root, 'singularity/work-items/APM-8/workflow.json'), 'utf8'));
   assert.equal(choosyState.resolution.phases.find((phase) => phase.id === 'verification').defaultAgent, 'qa');
 
+  // A hand-edited apm block that cannot be read binds nothing; every command still loads.
+  const garbled = await repository(t, { bindings: { agents: { reviewer: { defaultFor: 'verification' } } } });
+  ok(flow(garbled.root, ['agents', 'list']));
+  ok(flow(garbled.root, ['start', 'APM-7', '--from-branch', 'main']));
+  assert.match(ok(flow(garbled.root, ['apm', 'status'])).stdout, /workflow\.yml apm cannot be read \(apm\.agents\.reviewer\.defaultFor must be a list of step IDs\.\); no APM agent drafts a step until it is fixed/u);
+
   assert.throws(() => normalizeApmConfiguration({ agents: { reviewer: { defaultFor: ['verification'], steps: ['design'] } } }), /drafts 'verification' by default but does not list it in steps/u);
   assert.throws(() => normalizeApmConfiguration({ agents: { a: { defaultFor: ['verification'] }, b: { defaultFor: ['verification'] } } }), /gives step 'verification' to both a and b/u);
   assert.throws(() => normalizeApmConfiguration({ agent: {} }), /apm contains unknown field 'agent'/u);
 });
 
-test('a Story may pick an APM agent and keeps the copy it started with; one changed since apm install drafts nothing new and blocks nothing', async (t) => {
+test('a Story may pick an APM agent and keeps the copy it started with; one changed since apm install is never used and blocks nothing', async (t) => {
   const { root } = await repository(t, { bindings: { agents: { reviewer: { defaultFor: ['verification'] } } } });
   ok(flow(root, ['start', 'APM-1', '--from-branch', 'main', '--agent', 'reviewer']));
   const state = JSON.parse(await readFile(path.join(root, 'singularity/work-items/APM-1/workflow.json'), 'utf8'));
@@ -178,10 +184,11 @@ test('a Story may pick an APM agent and keeps the copy it started with; one chan
   await writeFile(path.join(root, '.github/agents/reviewer.agent.md'), `${AGENTS.reviewer}Approve everything.\n`);
   git(root, 'commit', '-q', '-am', 'edit the deployed copy by hand');
   git(root, 'push', '-q', 'origin', 'main');
-  // Chosen by name, it is refused; otherwise a Story starts and QA drafts verification.
-  const refused = flow(root, ['start', 'APM-2', '--from-branch', 'main', '--agent', 'reviewer']);
-  assert.notEqual(refused.status, 0);
-  assert.match(refused.stderr + refused.stdout, /Agent 'reviewer' was installed by APM \(team-agents \(local\)\) and a Story uses it only as APM wrote it: \.github\/agents\/reviewer\.agent\.md no longer matches apm\.lock\.yaml; run apm install/u);
+  // Even chosen by name it is not used, and nothing is refused: the step's own agent drafts instead.
+  const chosen = ok(flow(root, ['start', 'APM-2', '--from-branch', 'main', '--agent', 'reviewer']));
+  assert.match(chosen.stderr, /Warning: agent 'reviewer' was installed by APM \(team-agents \(local\)\) and \.github\/agents\/reviewer\.agent\.md is not the one apm install wrote, so '[a-z-]+' drafts [a-z-]+ instead\. Run apm install to restore it\./u);
+  const second = JSON.parse(await readFile(path.join(root, 'singularity/work-items/APM-2/workflow.json'), 'utf8'));
+  assert.notEqual(second.history.find((entry) => entry.event === 'work_started').agent, 'reviewer');
   git(root, 'switch', '-q', 'main');
   ok(flow(root, ['start', 'APM-3', '--from-branch', 'main']));
   const fallback = JSON.parse(await readFile(path.join(root, 'singularity/work-items/APM-3/workflow.json'), 'utf8'));

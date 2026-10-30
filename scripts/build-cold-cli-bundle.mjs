@@ -55,7 +55,8 @@ const FAMILIES = Object.freeze([
   // One additional coarse file avoids loading the legacy generation/model engine on first writes.
   // The ordinary product requirement verdict must not import the entire phase/installer family.
   // Its actual installer dependencies are lazy; share this existing bounded local-gate slot.
-  ['publication', ['story-publication-store.mjs', 'story-publication-service.mjs', 'product-requirement.mjs']],
+  ['publication', ['story-publication-store.mjs', 'story-publication-service.mjs', 'product-requirement.mjs',
+    'publication-unit-of-work.mjs']],
   ['hook-context', ['commands/phase-show.mjs', 'commands/shared/session-repository-authority.mjs', 'agent-hooks.mjs',
     'accepted-story-execution.mjs', 'delivery-evidence.mjs', 'worktree-fingerprint.mjs']],
   // The test-module walk's other-ecosystem build files and the node --test fallback's runner check load

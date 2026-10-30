@@ -301,6 +301,17 @@ There are three kinds of local data.
 
 A command needing several namespaces binds their exact revisions. It extends the existing publication journal rather than adding a second completion protocol. Readers do not interpret intermediate states as completed transitions. An uncertain outcome enters recovery.
 
+**M4:** lifecycle persistence sits behind the lifecycle authority contract (`src/sda/lifecycle-authority-contract.mjs`, `sda-lifecycle-authority/draft-1`).
+
+- **The production adapter** is each subject's own branch (`src/sda/story-branch-authority.mjs`, id `subject-branch`). It wraps the publication unit of work and the exact `ls-remote` observation, and adds no namespace.
+- **Every lifecycle transition** runs through it: Story, Initiative, Initiative seeds, Goal, ad hoc and local identity. So does **every observation of a lifecycle branch on the remote**: the final fresh binding, pending-publication recovery, test-recovery admission, step-action recovery and promotion.
+- **`test/sda-lifecycle-boundary.test.mjs`** keeps it that way. The three remaining direct observations are not lifecycle subjects, and each is listed with its reason.
+- **Conformance.** The adapter and a test-only in-memory adapter pass one suite (`test/helpers/sda-lifecycle-conformance.mjs`). It covers exact observation, conditional transitions, a lost response retained as `OUTCOME_UNKNOWN`, the expected-revision requirement and cancellation.
+- **Outcome classes.** Lifecycle refusals carry the §7.1 classes:
+  - `PUBLICATION_LOCAL_PARENT_CHANGED`, `PUBLICATION_REMOTE_LEASE_PARENT_MISMATCH` and `STORY_PUBLICATION_REMOTE_DIVERGED` are `REVISION_CONFLICT`.
+  - A retained commit whose push response was lost is `OUTCOME_UNKNOWN`; one whose lease another writer moved is `REVISION_CONFLICT`.
+  - A transition held by an earlier retained one is refused with `PUBLICATION_PENDING`.
+
 ## 7 Adapter contracts
 
 The interfaces of v1.0 §7 stay as behavioral specifications: `SharedStateAdapter`, `WorkspaceStore`, `ArtifactStore` and `SourceControlAdapter`. Final names and schemas need a versioned contract review in M1.
@@ -769,6 +780,8 @@ The product never describes pending local work as globally published or approved
    - **Decided (2026-10-30):** option A, keep the Story branch as lifecycle authority. No Story is migrated (ADR 0018).
 
 M0 results: `benchmarks/sda/m0-qualification.md` (inventory, macOS read baselines, VS Code runtime). Windows baselines and the CI-established DX baseline remain open.
+
+M4 results: `benchmarks/sda/m4-lifecycle-authority.md` (the subject branch behind the lifecycle authority adapter, its conformance suite and boundary, and the final fresh binding).
 
 M3 results: `benchmarks/sda/m3-phase-b-writes.md` (transactional drafts, typed configuration intent with no clone, value-level capability activation, lazy workspace cloning, lease-proven lock recovery).
 

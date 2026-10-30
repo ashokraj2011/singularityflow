@@ -62,7 +62,8 @@ test('frequent lifecycle handlers do not reach the legacy dispatcher and stay un
     // 464: SDA M1's two leaves joined submit.mjs's graph: outcome-classes.mjs (no imports; util.mjs gives every
     // error its outcome class) and source-inspection.mjs (through repository-subject-index.mjs and ast-lifecycle.mjs).
     // 465: SDA M3's lease-liveness.mjs, the lease owner proof every subject lock reads.
-    assert.ok(closure.files.size <= 465, `${file} loads ${closure.files.size} local files (budget 465; retired graph 597)`);
+    // 466: SDA M4's lifecycle authority adapter (sda/story-branch-authority.mjs, sda/lifecycle-authority-contract.mjs, sda/shared-state-contract.mjs), through which recovery and test-recovery reads observe the subject branch; the publication writer it wraps loads only on a transition.
+    assert.ok(closure.files.size <= 466, `${file} loads ${closure.files.size} local files (budget 466; retired graph 597)`);
     // 9,005,000 (next 5,000 boundary): phase-lifecycle.mjs grew from 8,993,692 (main 4a8e6c42) to 9,004,129 with the
     // capability application block's per-environment arguments and debug validation in capabilities.mjs and the
     // launcher rules it reads (RUN amendment), together with 2ca46d6d's conformance issue ownership; no new file.
@@ -296,7 +297,8 @@ test('the common session projection does not import attach, state stores or publ
   // push-operation matching (transport-intents.mjs), the source inspection facade (source-inspection.mjs, through
   // repository-subject-index.mjs) and named push leases (git.mjs) add 9,922 for 3,960,144. Two new files.
   // 3,980,000: SDA M3 measures 3,979,930 (the lease liveness proof (lease-liveness.mjs: machine identity, owner start time, the shared owner predicate) behind every subject lock and registry lease).
-  assert.ok(current.bytes <= 3_980_000, `session current loads ${current.bytes} source bytes`);
+  // 3,985,000: SDA M4 measures 3,980,217: SDA M4's lifecycle authority adapter (sda/story-branch-authority.mjs, sda/lifecycle-authority-contract.mjs, sda/shared-state-contract.mjs), through which recovery and test-recovery reads observe the subject branch; the publication writer it wraps loads only on a transition.
+  assert.ok(current.bytes <= 3_985_000, `session current loads ${current.bytes} source bytes`);
 });
 
 test('early phase and grounding-path entries exclude the deferred authoring and review graphs', async () => {

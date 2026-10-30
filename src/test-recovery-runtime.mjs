@@ -6,7 +6,8 @@ import os from 'node:os';
 import path from 'node:path';
 import { canonicalJson } from './records.mjs';
 import { projectedLedgerIntentFile } from './lifecycle-event.mjs';
-import { assertClean, exactChangedPathsBetweenObjects, exactFileAtObject, exactRemoteBranchObservationAsync, gitDir, governedCommitIdentity, head } from './git.mjs';
+import { assertClean, exactChangedPathsBetweenObjects, exactFileAtObject, gitDir, governedCommitIdentity, head } from './git.mjs';
+import { lifecycleAuthority } from './sda/story-branch-authority.mjs';
 import { appendTrpRecord, loadTrpRecords, loadTrpAuthorityVerifier } from './test-recovery-store.mjs';
 import { evaluateTestRecoveryGate, sealTrpRecord, trpDigest, validateTrpRecord } from './test-recovery-policy.mjs';
 import { nowIso, secureRepositoryPath, ensureSecureRepositoryDirectory, SingularityFlowError } from './util.mjs';
@@ -443,7 +444,7 @@ export async function loadStoryTestRiskContext(root, config, workflow, {
   const localCommit = mode === 'historical' ? evidenceCommit : head(root);
   let remoteAcknowledgedCommit = null;
   if (!localOnly && !pending) {
-    const remote = await exactRemoteBranchObservationAsync(root, config.git?.remote ?? 'origin', workflowPublicationBranch(root, workflow));
+    const remote = await lifecycleAuthority(root).observe({ remote: config.git?.remote ?? 'origin', branch: workflowPublicationBranch(root, workflow) });
     remoteAcknowledgedCommit = remote?.sha ?? remote?.commit ?? null;
   }
   let verifyAuthority = () => null;

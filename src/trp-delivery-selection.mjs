@@ -10,7 +10,8 @@ import { isTestQualityCommand } from './delivery-evidence.mjs';
 import { planTestSelection, normalizeTestSelectionPath } from './test-selection-policy.mjs';
 import { sealTrpRecord, trpDigest, validateTrpRecord } from './test-recovery-policy.mjs';
 import { appendTrpRecord, loadTrpAuthorityVerifier, readTrpRecord } from './test-recovery-store.mjs';
-import { exactRemoteBranchObservationAsync, governedCommitIdentity } from './git.mjs';
+import { governedCommitIdentity } from './git.mjs';
+import { lifecycleAuthority } from './sda/story-branch-authority.mjs';
 import { runRemoteGitAsync } from './git-execution.mjs';
 import { withoutGitProcessOverrides } from './git-enterprise-environment.mjs';
 import { executeGitQuery } from './git-query.mjs';
@@ -140,7 +141,7 @@ async function confirmationFor(root, config, workflow, agreement, preview, phase
     const localOnly = config.git?.publish === 'off' && workflow.resolution?.capability?.policy?.gitPublication !== 'required';
     let acknowledged = null;
     if (!localOnly) {
-      const observed = await exactRemoteBranchObservationAsync(root, config.git?.remote ?? 'origin', workflowPublicationBranch(root, workflow));
+      const observed = await lifecycleAuthority(root).observe({ remote: config.git?.remote ?? 'origin', branch: workflowPublicationBranch(root, workflow) });
       acknowledged = observed?.sha ?? observed?.commit ?? null;
     }
     const verifyAuthority = await loadTrpAuthorityVerifier({ root, workRoot, ...authority,

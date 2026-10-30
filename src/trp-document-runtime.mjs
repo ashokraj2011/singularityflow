@@ -4,7 +4,8 @@ import { lstat, open, readdir, realpath } from 'node:fs/promises';
 import { createHash, randomUUID } from 'node:crypto';
 import os from 'node:os';
 import path from 'node:path';
-import { exactFileAtObject, exactTreePathsAtObject, exactRemoteBranchObservationAsync, gitDir, head } from './git.mjs';
+import { exactFileAtObject, exactTreePathsAtObject, gitDir, head } from './git.mjs';
+import { lifecycleAuthority } from './sda/story-branch-authority.mjs';
 import { canonicalJson } from './records.mjs';
 import { evaluateProtectedPaths } from './repository-change-set.mjs';
 import { appendTrpRecord, loadTrpAuthorityVerifier, loadTrpRecords } from './test-recovery-store.mjs';
@@ -174,7 +175,7 @@ export async function loadStoryDocumentRiskContext(root, config, workflow, {
   const localCommit = head(root);
   let remoteAcknowledgedCommit = null;
   if (!localOnly && !pending) {
-    const remote = await exactRemoteBranchObservationAsync(root, config.git?.remote ?? 'origin', workflowPublicationBranch(root, workflow));
+    const remote = await lifecycleAuthority(root).observe({ remote: config.git?.remote ?? 'origin', branch: workflowPublicationBranch(root, workflow) });
     remoteAcknowledgedCommit = remote?.sha ?? remote?.commit ?? null;
   }
   let verifyAuthority = () => null; let publicationPending = Boolean(pending);

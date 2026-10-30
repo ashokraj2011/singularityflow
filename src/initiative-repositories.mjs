@@ -29,7 +29,7 @@ import {
   DEFAULT_WORK_ITEM_ROOT, workItemRootFromDefinitionText, workItemWorkflowRelative
 } from './work-item-location.mjs';
 import { LIFECYCLE_EVENT, lifecycleEvent } from './lifecycle-event.mjs';
-import { publishLifecycleChange } from './publication-unit-of-work.mjs';
+import { lifecycleAuthority } from './sda/story-branch-authority.mjs';
 import {
   readPendingPublication, syncPendingLifecyclePublication
 } from './publication-pending.mjs';
@@ -733,7 +733,7 @@ async function materializeStory(root, portfolio, initiative, story, actor, {
     baseCommit: baseCommit.status === 0 ? baseCommit.stdout.trim() : null,
     governedContext
   });
-  const publishSeed = async (message, paths, seedContents) => publishLifecycleChange(target, {
+  const publishSeed = async (message, paths, seedContents) => lifecycleAuthority(target).publish({
     subject: { kind: 'story', id: branchName, branch: branchName },
     expectedRevision: { head: head(target) },
     allowedPaths: paths,

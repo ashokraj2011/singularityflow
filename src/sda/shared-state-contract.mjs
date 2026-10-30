@@ -51,29 +51,34 @@ export function assertNotCancelled(signal, operation) {
   }
 }
 
-export function adapterDescriptor({ id, qualification, capabilities, limits }) {
+/**
+ * An adapter's descriptor under one contract. `known` is that contract's capability list; the
+ * lifecycle authority contract (lifecycle-authority-contract.mjs) describes its adapters the same way.
+ */
+export function adapterDescriptor({ id, qualification, capabilities, limits = {},
+  contract = SHARED_STATE_CONTRACT, known = ADAPTER_CAPABILITIES }) {
   if (!ADAPTER_QUALIFICATIONS.includes(qualification)) throw new TypeError(`Unknown adapter qualification '${qualification}'.`);
-  const unknown = capabilities.filter((capability) => !ADAPTER_CAPABILITIES.includes(capability));
+  const unknown = capabilities.filter((capability) => !known.includes(capability));
   if (unknown.length) throw new TypeError(`Unknown adapter capabilities: ${unknown.join(', ')}.`);
   return Object.freeze({
-    id, contract: SHARED_STATE_CONTRACT, qualification,
+    id, contract, qualification,
     capabilities: Object.freeze([...capabilities]), limits: Object.freeze({ ...limits })
   });
 }
 
 /**
- * The adapter, if it may serve as shared-state authority. A test-only adapter never may; a missing
- * required capability is refused rather than simulated (§7.3).
+ * The adapter, if it may serve as `role` authority under `contract`. A test-only adapter never may;
+ * a missing required capability is refused rather than simulated (§7.3).
  */
-export function selectSharedStateAuthority(adapter, { require = [] } = {}) {
+export function selectAdapterAuthority(adapter, { contract, role, require = [] }) {
   const descriptor = adapter?.descriptor;
-  if (descriptor?.contract !== SHARED_STATE_CONTRACT) {
-    throw new SingularityFlowError('This adapter does not implement the shared-state contract.', {
-      code: 'SDA_ADAPTER_CONTRACT_MISMATCH', details: { contract: descriptor?.contract ?? null }
+  if (descriptor?.contract !== contract) {
+    throw new SingularityFlowError(`This adapter does not implement the ${role} contract.`, {
+      code: 'SDA_ADAPTER_CONTRACT_MISMATCH', details: { contract: descriptor?.contract ?? null, expected: contract }
     });
   }
   if (descriptor.qualification !== 'production') {
-    throw new SingularityFlowError(`Adapter '${descriptor.id}' is qualified for tests only and can never be shared-state authority.`, {
+    throw new SingularityFlowError(`Adapter '${descriptor.id}' is qualified for tests only and can never be ${role} authority.`, {
       code: 'SDA_ADAPTER_NOT_PRODUCTION', details: { adapter: descriptor.id, qualification: descriptor.qualification }
     });
   }
@@ -84,4 +89,9 @@ export function selectSharedStateAuthority(adapter, { require = [] } = {}) {
     });
   }
   return adapter;
+}
+
+/** The adapter, if it may serve as shared-state authority. */
+export function selectSharedStateAuthority(adapter, { require = [] } = {}) {
+  return selectAdapterAuthority(adapter, { contract: SHARED_STATE_CONTRACT, role: 'shared-state', require });
 }

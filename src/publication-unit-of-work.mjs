@@ -164,7 +164,8 @@ export class GitPublicationUnitOfWork {
       }
     }
     if (await readPendingPublication(root, { kind: subject.kind, id: subject.id })) {
-      throw new SingularityFlowError(`${subject.kind} '${subject.id}' has a pending publication. Synchronize it before another mutation.`);
+      throw new SingularityFlowError(`${subject.kind} '${subject.id}' has a pending publication. Synchronize it before another mutation.`,
+        { code: 'PUBLICATION_PENDING' });
     }
     if (ledger?.config?.enabled && ledger.config.behind === 'block') {
       const status = await ledgerStatus(root, ledger.config, { offline: true });
@@ -754,12 +755,18 @@ export class GitPublicationUnitOfWork {
         // or rejecting a step whose approval is already committed.
         const sync = subject.kind === 'story' ? `singularity-flow sync ${subject.id}`
           : subject.kind === 'initiative' ? `singularity-flow initiative sync ${subject.id}` : null;
+        // The class says what the authority did with this transition (SDA §7.1): it may have accepted
+        // it, or it refused a lease another writer had moved; otherwise the commit is only retained.
+        const remoteDiverged = pushOutcome === 'rejected'
+          && /non-fast-forward|fetch first|stale info/iu.test(`${result.stderr ?? ''}\n${result.stdout ?? ''}`);
         const failure = new SingularityFlowError(`${message} ${sync ? `Run ${sync}` : 'Run the appropriate sync command'} after ${result.failure?.hook ? 'repairing the local hook or runtime' : 'fixing remote access'}.`, {
           ...(result.failure?.hook ? { code: result.failure.code } : {}),
+          outcomeClass: pushOutcome === 'transport-indeterminate' ? 'OUTCOME_UNKNOWN' : remoteDiverged ? 'REVISION_CONFLICT' : null,
           details: { ...(result.failure?.hook ? { remoteFailure: result.failure } : {}), ...(sync ? { nextAction: sync } : {}) }
         });
         failure.publicationRefAdvanced = true;
         failure.publicationCommit = sourceCommit;
+        failure.pushOutcome = pushOutcome;
         throw failure;
       }
       pushed = true;
@@ -864,8 +871,4 @@ export class GitPublicationUnitOfWork {
     };
   }));
   }
-}
-
-export function publishLifecycleChange(root, specification) {
-  return new GitPublicationUnitOfWork(root).execute(specification);
 }

@@ -7,7 +7,7 @@ import { usesEpicPlanningLifecycle } from './initiative-phase-roles.mjs';
 import { existsSync } from 'node:fs';
 import YAML from 'yaml';
 import {
-  branch, exactRemoteBranchObservationAsync, fileAtRef, head, identity,
+  branch, fileAtRef, head, identity,
   localBranches, publicationPushOutcome, pushCommitToBranchAsync, remoteBranches
 } from './git.mjs';
 import { loadPortfolio, resolveInitiativeProfile, snapshotInitiativeResolution } from './initiative-config.mjs';
@@ -38,7 +38,7 @@ import { configuredRemoteAuthority } from './git-remote-diagnostics.mjs';
 import { restorePublicationPreimage } from './publication-recovery.mjs';
 import { withSubjectLock } from './subject-lock.mjs';
 import { lifecycleEvent, recordPublicationProjection } from './lifecycle-event.mjs';
-import { publishLifecycleChange } from './publication-unit-of-work.mjs';
+import { lifecycleAuthority } from './sda/story-branch-authority.mjs';
 import { currentSchemaVersion, readRecord } from './schema-migrations.mjs';
 import { captureAggregateRecovery, restoreAggregateRecovery } from './aggregate-recovery.mjs';
 
@@ -1115,9 +1115,9 @@ export async function commitInitiativeChange(root, portfolio, initiative, event,
         { code: 'INITIATIVE_PUBLICATION_REMOTE_MISSING' }
       );
     }
-    const observation = await exactRemoteBranchObservationAsync(
-      root, publicationAuthority.url, initiative.initiative.branch
-    );
+    const observation = await lifecycleAuthority(root).observe({
+      remote: publicationAuthority.url, branch: initiative.initiative.branch
+    });
     if (!observation.reachable || observation.malformed) {
       throw new SingularityFlowError(
         `Initiative '${initiative.initiative.id}' cannot bind its publication to one exact remote branch state. `
@@ -1146,7 +1146,7 @@ export async function commitInitiativeChange(root, portfolio, initiative, event,
     initiative, rollbackInitiative ?? structuredClone(initiative)
   );
   const initiativeDirectory = initiativeRelative(portfolio, initiative.initiative.id);
-  const result = await publishLifecycleChange(root, {
+  const result = await lifecycleAuthority(root).publish({
     subject: envelope.subject,
     expectedRevision: initiative[Symbol.for('singularity-flow.state-revision')] ?? null,
     allowedPaths: [initiativeDirectory, ...extraPaths, ...claimHealedTemplatePaths(root, portfolio.templatesRoot)],
@@ -1383,9 +1383,9 @@ export async function syncInitiativePublication(root, portfolio, initiative, { f
 
     let rootPublished = currentRecord.rootPublished === true;
     if (rootPublished) {
-      const remoteCommit = (await exactRemoteBranchObservationAsync(
-        root, remoteAuthority.url, currentRecord.branch
-      )).sha;
+      const remoteCommit = (await lifecycleAuthority(root).observe({
+        remote: remoteAuthority.url, branch: currentRecord.branch
+      })).sha;
       if (remoteCommit !== currentRecord.commit) {
         throw new SingularityFlowError(
           `Initiative '${initiative.initiative.id}' pending marker says its ref was published, but remote '${currentRecord.remote}' `
@@ -1426,9 +1426,9 @@ export async function syncInitiativePublication(root, portfolio, initiative, { f
         const mayReconcile = priorOutcome === 'transport-indeterminate'
           || pushOutcome === 'transport-indeterminate';
         const reconciled = mayReconcile
-          && (await exactRemoteBranchObservationAsync(
-            root, remoteAuthority.url, currentRecord.branch
-          )).sha === currentRecord.commit;
+          && (await lifecycleAuthority(root).observe({
+            remote: remoteAuthority.url, branch: currentRecord.branch
+          })).sha === currentRecord.commit;
         if (!reconciled) {
           const error = (result.stderr || result.stdout).trim();
           // The pre-attempt marker already records an ambiguous result. Only a definitive outcome

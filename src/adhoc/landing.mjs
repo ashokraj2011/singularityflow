@@ -9,7 +9,7 @@ import { lifecycleEvent, LIFECYCLE_EVENT } from '../lifecycle-event.mjs';
 import {
   clearPendingPublication, syncPendingLifecyclePublication
 } from '../publication-pending.mjs';
-import { publishLifecycleChange } from '../publication-unit-of-work.mjs';
+import { lifecycleAuthority } from '../sda/story-branch-authority.mjs';
 import {
   buildRepositoryChangeSet, changeSetPaths, evaluateProtectedPaths
 } from '../repository-change-set.mjs';
@@ -604,7 +604,7 @@ export async function publishAdhocLanding(root, definition, requested, { confirm
       origin: 'reverse-converged-adhoc'
     }
   });
-  const publication = await publishLifecycleChange(root, {
+  const publication = await lifecycleAuthority(root).publish({
     subject: { kind: 'adhoc', id: session.sessionId },
     expectedRevision: { head: packet.publication.expectedHead },
     allowedPaths,

@@ -166,7 +166,7 @@ import { configuredRemoteAuthority, redactDiagnosticText } from './git-remote-di
 import { prefetchRemoteBranchObservation, takeRemoteBranchObservation } from './remote-observation-prefetch.mjs';
 import { executeGitQuery } from './git-query.mjs';
 import { LIFECYCLE_EVENT, lifecycleEvent, projectedLedgerIntentFile, recordPublicationProjection } from './lifecycle-event.mjs';
-import { publishLifecycleChange } from './publication-unit-of-work.mjs';
+import { lifecycleAuthority } from './sda/story-branch-authority.mjs';
 import { captureAggregateRecovery, restoreAggregateRecovery } from './aggregate-recovery.mjs';
 import { validateDocumentPublicationTree } from './document-publication.mjs';
 import {
@@ -10299,9 +10299,9 @@ export async function syncPublication(root, config, workflow, { fault = null, re
     }
     let rootPushed = record.rootPublished === true;
     if (rootPushed) {
-      const remoteCommit = (await exactRemoteBranchObservationAsync(
-        root, rootRemoteAuthority.url, record.branch
-      )).sha;
+      const remoteCommit = (await lifecycleAuthority(root).observe({
+        remote: rootRemoteAuthority.url, branch: record.branch
+      })).sha;
       if (remoteCommit !== record.commit) {
         throw new SingularityFlowError(
           `Story '${workflow.workItem.id}' pending marker says its root ref was published, but remote '${record.remote}' `
@@ -10330,7 +10330,7 @@ export async function syncPublication(root, config, workflow, { fault = null, re
       const observableLease = current.integrityVerified === true
         && ['implicit-local-parent', 'observed-remote', 'observed-absent'].includes(record.expectedRemoteShaSource);
       const observation = observableLease
-        ? await exactRemoteBranchObservationAsync(root, rootRemoteAuthority.url, record.branch)
+        ? await lifecycleAuthority(root).observe({ remote: rootRemoteAuthority.url, branch: record.branch })
         : null;
       const observed = observation?.reachable === true && !observation.malformed;
       // A remote that already has this commit (or builds on it) is never claimed as this
@@ -10373,9 +10373,9 @@ export async function syncPublication(root, config, workflow, { fault = null, re
         // it. That is the only way a crash after a successful receive-pack can converge safely.
         const remoteCommit = priorPushOutcome === 'transport-indeterminate'
           || pushOutcome === 'transport-indeterminate'
-          ? (await exactRemoteBranchObservationAsync(
-              root, rootRemoteAuthority.url, record.branch
-            )).sha
+          ? (await lifecycleAuthority(root).observe({
+              remote: rootRemoteAuthority.url, branch: record.branch
+            })).sha
           : null;
         if (remoteCommit !== record.commit) {
           if (pushOutcome !== 'transport-indeterminate') {
@@ -10418,9 +10418,9 @@ export async function syncPublication(root, config, workflow, { fault = null, re
           continue;
         }
         if (pendingIdentities.has(capabilityPublicationEntrySha256(completed))) continue;
-        if ((await exactRemoteBranchObservationAsync(
-          completed.root, completedAuthority.url, completed.branch
-        )).sha !== completed.commit) {
+        if ((await lifecycleAuthority(completed.root).observe({
+          remote: completedAuthority.url, branch: completed.branch
+        })).sha !== completed.commit) {
           progressFailures.push(`completed capability publication '${completed.repository}' exact remote ref is not proven`);
         }
       }

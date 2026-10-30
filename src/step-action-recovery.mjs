@@ -2,7 +2,8 @@
  * Never sends: a lost local outbox cannot establish whether another machine already sent it.
  */
 import path from 'node:path';
-import { commitIsAncestor, exactRemoteBranchObservationAsync, firstParentCommitsMentioning, governedCommitIdentity, remoteContains } from './git.mjs';
+import { commitIsAncestor, firstParentCommitsMentioning, governedCommitIdentity, remoteContains } from './git.mjs';
+import { lifecycleAuthority } from './sda/story-branch-authority.mjs';
 import { configuredRemoteAuthority } from './git-remote-diagnostics.mjs';
 import { recordSha256 } from './records.mjs';
 import { enqueueStepActions, readStepActionDelivery } from './step-action-delivery.mjs';
@@ -40,7 +41,7 @@ export async function reconstructRequiredStepActions(root, config, workflow, { k
         // making a new waiting record that `sync` cannot release when its pending marker is gone.
         try {
           const authority = configuredRemoteAuthority(root, config.git?.remote ?? 'origin');
-          const observed = await exactRemoteBranchObservationAsync(root, authority.url, committed.workItem.branch);
+          const observed = await lifecycleAuthority(root).observe({ remote: authority.url, branch: committed.workItem.branch });
           published = observed.reachable && !observed.malformed && observed.sha
             && commitIsAncestor(root, commit, observed.sha);
         } catch { /* No publication proof: keep the delivery absent and offer a recoverable route. */ }

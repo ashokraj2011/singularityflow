@@ -63,7 +63,7 @@
       "fact": "publication",
       "authority": "lifecycle-publication-unit-of-work",
       "module": "src/publication-unit-of-work.mjs",
-      "symbol": "publishLifecycleChange",
+      "symbol": "GitPublicationUnitOfWork",
       "plane": "authority",
       "cabMayAuthorize": false
     }

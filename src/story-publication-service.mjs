@@ -7,7 +7,7 @@ import { buildDesignSourceSet } from "./design-sources.mjs";
 import { capabilityPublicationPlanSha256 } from './capability-publication-identity.mjs';
 import { captureAggregateRecovery, restoreAggregateRecovery } from "./aggregate-recovery.mjs";
 import { clearPendingPublication } from "./publication-pending.mjs";
-import { commitIsAncestor, exactRemoteBranchObservationAsync, head, identity } from "./git.mjs";
+import { commitIsAncestor, head, identity } from "./git.mjs";
 import { configuredRemoteAuthority } from "./git-remote-diagnostics.mjs";
 import { createLedgerIntent } from "./ledger.mjs";
 import { deliverLifecycleNotifications, warnNotificationFailures } from "./notifications.mjs";
@@ -19,14 +19,13 @@ import { lifecycleEvent, recordPublicationProjection } from "./lifecycle-event.m
 import { normalizeLedgerConfig } from "./ledger-config.mjs";
 import { default as path } from "node:path";
 import { phaseRequiresCodeDelivery } from "./code-delivery-policy.mjs";
-import { publishLifecycleChange } from "./publication-unit-of-work.mjs";
+import { lifecycleAuthority } from "./sda/story-branch-authority.mjs";
 import { repositoryLogger } from "./logging.mjs";
 import { restorePublicationPreimage } from "./publication-recovery.mjs";
 import { runStepActionsAfterTransition, stepActionWarning } from "./step-action-delivery.mjs";
 import { storyLedgerSummary, workflowPublicationBranch, workflowPublicationMode } from "./story-publication-binding.mjs";
 import { storyPublicationPending } from "./story-publication-read.mjs";
 import { storyRequiresStepActions } from "./step-action-receipts.mjs";
-import { takeRemoteBranchObservation } from "./remote-observation-prefetch.mjs";
 import { validateDocumentPublicationTree } from "./document-publication.mjs";
 import { validateWorkflow } from "./story-state-validation.mjs";
 import { workDir, workDirRelative } from "./story-paths.mjs";
@@ -159,8 +158,8 @@ export async function commitAndPublish(root, config, workflow, event, message, e
       root, config.git?.remote ?? 'origin'
     );
     const observation = governedPublicationAuthority?.url
-      ? await takeRemoteBranchObservation(root, governedPublicationAuthority.url, targetBranch)
-        ?? await exactRemoteBranchObservationAsync(root, governedPublicationAuthority.url, targetBranch)
+      ? await lifecycleAuthority(root).observe({ remote: governedPublicationAuthority.url, branch: targetBranch },
+        { allowPrefetched: true })
       : { reachable: false, malformed: false, sha: null };
     if (observation.reachable && !observation.malformed && observation.sha !== null) {
       if (!commitIsAncestor(root, observation.sha, governedLocalParent)) {
@@ -247,7 +246,7 @@ export async function commitAndPublish(root, config, workflow, event, message, e
       return revisionSelection;
     }
   };
-  const result = await publishLifecycleChange(root, {
+  const result = await lifecycleAuthority(root).publish({
     subject: envelope.subject,
     expectedRevision: workflow[Symbol.for('singularity-flow.state-revision')] ?? null,
     allowedPaths: exactWorkItemPaths === null ? [workDirectory, ...extraPaths]

@@ -26,10 +26,10 @@ export const SDA_NAMES = Object.freeze({
   LEDGER_PAGE_LIMIT_INVALID: ['src/ledger-pages.mjs', 'src/sda/shared-state-contract.mjs'],
   LEDGER_CONTINUATION_INVALID: ['src/ledger-pages.mjs', 'src/sda/shared-state-contract.mjs'],
   LEDGER_CONTINUATION_UNAVAILABLE: ['src/ledger-pages.mjs', 'src/sda/shared-state-contract.mjs'],
-  SDA_OPERATION_CANCELLED: ['src/sda/shared-state-contract.mjs'],
+  SDA_OPERATION_CANCELLED: ['src/sda/lifecycle-authority-contract.mjs', 'src/sda/shared-state-contract.mjs'],
   SDA_ADAPTER_NOT_PRODUCTION: ['src/sda/shared-state-contract.mjs'],
   SDA_ADAPTER_CONTRACT_MISMATCH: ['src/sda/shared-state-contract.mjs'],
-  SDA_ADAPTER_CAPABILITY_UNSUPPORTED: ['src/sda/shared-state-contract.mjs'],
+  SDA_ADAPTER_CAPABILITY_UNSUPPORTED: ['src/sda/lifecycle-authority-contract.mjs', 'src/sda/shared-state-contract.mjs'],
   // M2: the read index
   INDEX_COMMAND_INVALID: ['src/commands/read-index.mjs'],
   SINGULARITY_FLOW_INDEX_REFRESH: ['src/index-refresh-launcher.mjs', 'src/projection-refresh.mjs', 'src/repository-check-cache.mjs', 'scripts/test-machine-state.mjs'],
@@ -76,7 +76,16 @@ export const SDA_NAMES = Object.freeze({
   // M3: lazy workspace cloning
   ACTIVE_WORKSPACE_REPOSITORY_DEFERRED: ['src/workspace-story-checkout.mjs'],
   GOAL_REPOSITORY_DEFERRED: ['src/commands/goal.mjs'],
-  ENV_FILES_REPOSITORY_DEFERRED: ['src/environment-files.mjs']
+  ENV_FILES_REPOSITORY_DEFERRED: ['src/environment-files.mjs'],
+  // M4: the subject branch behind the lifecycle authority adapter
+  'sda-lifecycle-authority/': ['src/sda/lifecycle-authority-contract.mjs'],
+  'exact-observation': ['src/sda/lifecycle-authority-contract.mjs'],
+  'conditional-transition': ['src/sda/lifecycle-authority-contract.mjs'],
+  "'pending-recovery'": ['src/sda/lifecycle-authority-contract.mjs'],
+  "'retained-locally'": ['src/sda/lifecycle-authority-contract.mjs'],
+  "'subject-branch'": ['src/sda/story-branch-authority.mjs'],
+  // An existing code, now also thrown by the unit of work, with its one meaning: a retained transition.
+  "'PUBLICATION_PENDING'": ['src/publication-unit-of-work.mjs', 'src/state-planes.mjs']
 });
 
 async function sources(directory, output = []) {

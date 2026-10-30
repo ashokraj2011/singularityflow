@@ -4,7 +4,7 @@ import { readFileSync } from 'node:fs';
 import { readFile, readdir, unlink, writeFile } from 'node:fs/promises';
 import {
   admitExactProspectiveTree, branch, changes, commitIsAncestor,
-  exactRemoteBranchObservationAsync, gitCommonDir, governedCommitIdentity, head,
+  gitCommonDir, governedCommitIdentity, head,
   publicationPushOutcome, pushCommitToBranchAsync, refExists, refHead, refreshStalePublishedIndex, remoteContains
 } from './git.mjs';
 import { configuredRemoteAuthority } from './git-remote-diagnostics.mjs';
@@ -18,6 +18,7 @@ import { bindLifecycleEvent } from './lifecycle-event.mjs';
 import { recordSha256 } from './records.mjs';
 import { exists, readJson, SingularityFlowError, writeJson } from './util.mjs';
 import { subjectRef } from './subject-ref.mjs';
+import { lifecycleAuthority } from './sda/story-branch-authority.mjs';
 import { currentSchemaVersion, readRecord, stampCurrentRecord } from './schema-migrations.mjs';
 import { restorePublicationPreimage } from './publication-recovery.mjs';
 import { withSubjectLock } from './subject-lock.mjs';
@@ -604,7 +605,7 @@ export async function completePendingStoryBranchPromotion(root, pending, {
     const mayReconcile = priorOutcome === 'transport-indeterminate'
       || outcome === 'transport-indeterminate';
     const observed = mayReconcile
-      ? await exactRemoteBranchObservationAsync(root, authority.url, record.targetBranch) : null;
+      ? await lifecycleAuthority(root).observe({ remote: authority.url, branch: record.targetBranch }) : null;
     if (!observed || !observed.reachable || observed.malformed || observed.sha !== record.commit) {
       if (outcome !== 'transport-indeterminate') {
         await writePendingPublication(root, {
@@ -947,7 +948,7 @@ export async function syncPendingLifecyclePublication(root, options = {}) {
       });
     }
     if (record.rootPublished === true) {
-      const observed = await exactRemoteBranchObservationAsync(root, authority.url, record.branch);
+      const observed = await lifecycleAuthority(root).observe({ remote: authority.url, branch: record.branch });
       if (!observed.reachable || observed.malformed || observed.sha !== record.commit) {
         throw new SingularityFlowError('Pending publication claims an unproven remote commit.', {
           code: 'PENDING_PUBLICATION_ROOT_UNPROVEN', details: { subject }
@@ -980,7 +981,7 @@ export async function syncPendingLifecyclePublication(root, options = {}) {
       const mayReconcile = priorOutcome === 'transport-indeterminate'
         || outcome === 'transport-indeterminate';
       const observed = mayReconcile
-        ? await exactRemoteBranchObservationAsync(root, authority.url, record.branch) : null;
+        ? await lifecycleAuthority(root).observe({ remote: authority.url, branch: record.branch }) : null;
       if (!observed || !observed.reachable || observed.malformed || observed.sha !== record.commit) {
         if (outcome !== 'transport-indeterminate') {
           await writePendingPublication(root, {

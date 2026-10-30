@@ -1,7 +1,8 @@
 /** Exact pre-feature failure review. No serialized value substitutes for host evidence or live consent. */
 import { captureTerminalActionAuthorization } from './action-authorization.mjs';
 import { requireApprovalAuthority } from './approval-authority.mjs';
-import { exactFileAtObject, exactRemoteBranchObservationAsync, head, identity } from './git.mjs';
+import { exactFileAtObject, head, identity } from './git.mjs';
+import { lifecycleAuthority } from './sda/story-branch-authority.mjs';
 import path from 'node:path';
 import { canonicalJson } from './records.mjs';
 import { storyTestRiskAuthorityContext } from './story-test-risk.mjs';
@@ -90,7 +91,7 @@ export async function qualifiedTrpIntakeDecisions(root, config, workflow, agreem
   const workRoot = workDir(root, config, workflow.workItem.id);
   const authority = storyTestRiskAuthorityContext(workflow, agreement);
   const localOnly = config.git?.publish === 'off' && workflow.resolution?.capability?.policy?.gitPublication !== 'required';
-  const remote = localOnly ? null : await exactRemoteBranchObservationAsync(root, config.git?.remote ?? 'origin', workflowPublicationBranch(root, workflow));
+  const remote = localOnly ? null : await lifecycleAuthority(root).observe({ remote: config.git?.remote ?? 'origin', branch: workflowPublicationBranch(root, workflow) });
   const records = await loadTrpRecords(workRoot);
   const verifyAuthority = await loadTrpAuthorityVerifier({ root, workRoot, ...authority, localCommit: head(root),
     localOnly, remoteAcknowledgedCommit: remote?.sha ?? remote?.commit ?? null, records });

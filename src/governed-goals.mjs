@@ -23,7 +23,7 @@ import { SingularityFlowError, run } from './util.mjs';
 import { runRemoteGitAsync } from './git-execution.mjs';
 import { gitDisabledHooksPath } from './git-isolation-paths.mjs';
 import { LIFECYCLE_EVENT, lifecycleEvent } from './lifecycle-event.mjs';
-import { publishLifecycleChange } from './publication-unit-of-work.mjs';
+import { lifecycleAuthority } from './sda/story-branch-authority.mjs';
 
 export const GOVERNED_GOAL_AUTHORITY = 'governed-execution';
 export const GOVERNED_GOAL_ID = /^GEX-[0-9A-HJKMNP-TV-Z]{26}$/;
@@ -610,7 +610,7 @@ async function commitDetached(root, baseCommit, id, policy, message, writer, {
     await materializeGoalProjection(root, temporary, baseCommit, id);
     const relative = governedGoalRelative(id);
     const subject = { kind: 'goal', id, branch: id };
-    const result = await publishLifecycleChange(temporary, {
+    const result = await lifecycleAuthority(temporary).publish({
       subject,
       expectedRevision: { head: baseCommit },
       allowedPaths: [relative],

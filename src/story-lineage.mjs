@@ -6,9 +6,10 @@ import { pathToFileURL } from 'node:url';
 import { PACKAGE_ROOT } from './package-root.mjs';
 import {
   assertNotDefaultBranch, branch, changes, commitIsAncestor, defaultBranchName,
-  exactRemoteBranchObservationAsync, head, identity
+  head, identity
 } from './git.mjs';
 import { loadSession, setAgentSession } from './session.mjs';
+import { lifecycleAuthority } from './sda/story-branch-authority.mjs';
 import { loadWorkflow } from './story-workflow-read.mjs';
 import { workflowBranchAllowed, workDir } from './story-paths.mjs';
 import { commitAndPublish, saveStoryDraft, sourceTreeHash, testInputTreeHash, storyWelEnrollmentStatus, workflowPublicationBranch } from './state-stores.mjs';
@@ -921,7 +922,7 @@ export async function promoteStoryBranch(root, config, workflow, {
       );
     }
     const authority = configuredRemoteAuthority(root, remote);
-    const observed = await exactRemoteBranchObservationAsync(root, authority.url, canonical);
+    const observed = await lifecycleAuthority(root).observe({ remote: authority.url, branch: canonical });
     if (!observed.reachable || observed.malformed) {
       throw new SingularityFlowError(
         `Direct promotion could not observe one exact remote '${canonical}' tip. `

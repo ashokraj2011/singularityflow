@@ -4,10 +4,10 @@
   "status": "contract-only",
   "baselineCommit": "70db564e59224b03729bab0f9a340807f3086c61",
   "lastReview": {
-    "reviewedAtCommit": "fa3094b83c6c1ec2308d0b6516dd8bc6dec16ab5",
-    "evidence": "docs/contracts/gdp/COMPANION-LOCK-REVIEW-2026-10-30-SDA-LEASED-PUSHES.md",
+    "reviewedAtCommit": "804e00ee4c7387fc720ca9766988bf9484907bcb",
+    "evidence": "docs/contracts/gdp/COMPANION-LOCK-REVIEW-2026-10-30-SDA-LIFECYCLE-AUTHORITY.md",
     "companionIds": [
-      "candidate-custody",
+      "code-assurance-bridge-architecture-contract",
       "publication-unit-of-work"
     ]
   },
@@ -60,7 +60,7 @@
     {
       "id": "code-assurance-bridge-architecture-contract",
       "path": "docs/contracts/cab/architecture-v0.2.json",
-      "sha256": "sha256:e71e748f53d7608e545cb19cc2472daf4c91553c4ad3561469df8252d0ad3731"
+      "sha256": "sha256:032e0bc4fc6f8318ff80a47f92faa3be113a0961ff13379ab86c08413e6683dc"
     },
     {
       "id": "code-assurance-bridge-architecture-schema",
@@ -85,7 +85,7 @@
     {
       "id": "publication-unit-of-work",
       "path": "src/publication-unit-of-work.mjs",
-      "sha256": "sha256:c89fcdd32611be18fcbe57d015c08068717b8b4d7039363d3bc8998b45f7b7e9"
+      "sha256": "sha256:00fa6a094b8b278f9e1a881891d9ba5b3f4df018b9be16a3cc084d1c0259b427"
     },
     {
       "id": "action-authorization",

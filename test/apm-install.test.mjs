@@ -6,7 +6,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { spawnSync } from 'node:child_process';
 import YAML from 'yaml';
-import { installApmPackages, installBranchName, pinnedApmCli } from '../src/apm-install.mjs';
+import { auditWorkflowText, installApmPackages, installBranchName, pinnedApmCli } from '../src/apm-install.mjs';
 
 // APM A2 (2026-10-29): `apm install` framed as one commit a pull request reviews. The stand-in APM
 // CLI below writes what apm 0.35.0 wrote for `apm install ../review-pack` (a skill folder listed
@@ -19,6 +19,16 @@ const path = require('node:path');
 const crypto = require('node:crypto');
 const args = process.argv.slice(2);
 if (args[0] === '--version') { console.log('Agent Package Manager (APM) CLI version ' + (process.env.FAKE_APM_VERSION || '0.35.0')); process.exit(0); }
+if (args[0] === 'audit') {
+  // apm audit --ci -f json, as apm 0.35.0 prints it; a package outside the organisation's allow list fails.
+  const denied = process.env.FAKE_APM_AUDIT_DENY;
+  if (process.env.FAKE_APM_AUDIT_GARBLED) { console.error('[x] audit crashed'); process.exit(1); }
+  if (!denied) console.error('[!] Could not determine org from git remote; enforcement skipped');
+  console.log(JSON.stringify({ passed: !denied, checks: [{ name: 'lockfile-exists', passed: true, message: 'ok', details: [] },
+    { name: 'dependency-allowlist', passed: !denied, message: denied ? '1 dependency(ies) not in allow list' : 'All dependencies match allow list',
+      details: denied ? [denied + ': not in allowed sources'] : [] }] }));
+  process.exit(denied ? 1 : 0);
+}
 if (args[0] !== 'install') process.exit(2);
 if (process.env.FAKE_APM_FAIL) { console.error('[x] All packages failed validation. Nothing to install.'); process.exit(1); }
 if (args.includes('--dry-run')) { console.log('[i] Dry run: apm ' + args.join(' ')); process.exit(0); }
@@ -68,11 +78,18 @@ async function repository(t, { manifest = 'name: consumer\nversion: 1.0.0\ntarge
   git(root, 'add', '-A');
   git(root, 'commit', '-q', '-m', 'init');
   const env = { ...process.env, NODE_ENV: 'test', PATH: `${tools}${path.delimiter}${process.env.PATH}` };
-  const apm = (cwd, args, extra = {}) => run(path.join(tools, 'apm'), args, cwd, { ...env, ...extra }).status;
+  const call = (cwd, args, extra = {}) => run(path.join(tools, 'apm'), args, cwd, { ...env, ...extra });
+  const apm = (cwd, args, extra = {}) => call(cwd, args, extra).status;
+  apm.capture = (cwd, args, extra = {}) => {
+    const result = call(cwd, args, extra);
+    return { status: result.status, stdout: result.stdout, stderr: result.stderr };
+  };
   return { base, root, env, apm, flow: (args, extra = {}) => run(process.execPath, [bin, ...args], root, { ...env, ...extra }) };
 }
 
-const injected = (apm, extra = {}) => ({ apm: (cwd, args) => apm(cwd, args, extra), cliVersion: () => '0.35.0' });
+const injected = (apm, extra = {}) => ({
+  apm: (cwd, args) => apm(cwd, args, extra), capture: (cwd, args) => apm.capture(cwd, args, extra), cliVersion: () => '0.35.0'
+});
 
 test('an install is committed on its own apm/ branch with exactly what APM changed, and records the pinned CLI', async (t) => {
   const { root, apm } = await repository(t);
@@ -85,8 +102,12 @@ test('an install is committed on its own apm/ branch with exactly what APM chang
   assert.equal(git(root, 'branch', '--show-current'), 'apm/install-review-pack');
   assert.equal(git(root, 'rev-parse', 'main'), git(root, 'rev-parse', 'HEAD~1'), 'main is untouched');
   assert.deepEqual(git(root, 'show', '--name-only', '--format=', 'HEAD').split('\n').sort(), [
-    '.agents/skills/review-pack-skill/SKILL.md', '.github/agents/review-pack.agent.md', '.gitignore', 'apm.lock.yaml', 'apm.yml'
+    '.agents/skills/review-pack-skill/SKILL.md', '.github/agents/review-pack.agent.md', '.github/workflows/apm-audit.yml', '.gitignore', 'apm.lock.yaml', 'apm.yml'
   ]);
+  assert.equal(result.workflowWritten, true, 'the first install adds the pull-request check');
+  assert.equal(await readFile(path.join(root, '.github/workflows/apm-audit.yml'), 'utf8'), auditWorkflowText('0.35.0'));
+  assert.match(auditWorkflowText('0.35.0'), /microsoft\/apm-action@[0-9a-f]{40} # v1\.10\.0[\s\S]*apm-version: '0\.35\.0'[\s\S]*run: apm audit --ci\n/u);
+  assert.deepEqual([result.audit.passed, result.audit.policyNote], [true, 'Could not determine org from git remote; enforcement skipped']);
   assert.equal(git(root, 'status', '--porcelain'), '?? notes.txt', 'unrelated work stays out of the commit');
   assert.equal(await pinnedApmCli(root), '0.35.0');
   assert.match(await readFile(path.join(root, 'apm.yml'), 'utf8'), /- \.\.\/review-pack[\s\S]*x-sflow:\n {2}apm-cli: 0\.35\.0\n$/u, 'the pin is added, the rest kept');
@@ -120,6 +141,17 @@ test('a failed install or one whose files do not match its own lock commits noth
     (error) => error.code === 'APM_INSTALL_NOT_INTACT' && error.details.state === 'drifted');
   assert.equal(git(root, 'rev-list', '--count', 'HEAD'), '1', 'nothing was committed');
   assert.equal(git(root, 'branch', '--show-current'), 'main');
+  git(root, 'checkout', '-q', '--', '.');
+  git(root, 'clean', '-q', '-fd');
+  // A package the organisation's apm-policy.yml does not allow, or an audit that says nothing, stops the commit.
+  await assert.rejects(installApmPackages(root, { packages: ['../review-pack'], ...injected(apm, { FAKE_APM_AUDIT_DENY: 'untrusted/review-pack' }) }),
+    (error) => error.code === 'APM_INSTALL_AUDIT_FAILED'
+      && /dependency-allowlist: 1 dependency\(ies\) not in allow list \(untrusted\/review-pack: not in allowed sources\)/u.test(error.message));
+  git(root, 'checkout', '-q', '--', '.');
+  git(root, 'clean', '-q', '-fd');
+  await assert.rejects(installApmPackages(root, { packages: ['../review-pack'], ...injected(apm, { FAKE_APM_AUDIT_GARBLED: '1' }) }),
+    (error) => error.code === 'APM_AUDIT_UNREADABLE' && /audit crashed/u.test(error.message));
+  assert.equal(git(root, 'rev-list', '--count', 'HEAD'), '1', 'still nothing committed');
 });
 
 test('on an apm/ branch the install is committed there, and APM\'s --dry-run changes nothing anywhere', async (t) => {
@@ -142,7 +174,8 @@ test('apm install from the CLI: plain words, the Story checkout refusal, and Cop
   git(root, 'push', '-q', '-u', 'origin', 'main');
   const installed = flow(['apm', 'install', '../review-pack']);
   assert.equal(installed.status, 0, installed.stderr);
-  assert.match(installed.stdout, /Committed [0-9a-f]{12} on apm\/install-review-pack \(new, from main\): 5 files apm 0\.35\.0 changed\./u);
+  assert.match(installed.stdout, /Committed [0-9a-f]{12} on apm\/install-review-pack \(new, from main\): 6 files apm 0\.35\.0 changed\./u);
+  assert.match(installed.stdout, /apm audit --ci passed\. APM: Could not determine org from git remote; enforcement skipped\n\.github\/workflows\/apm-audit\.yml runs the same audit on every pull request\./u);
   assert.match(installed.stdout, /review-pack \(local\): agent review-pack; skill review-pack-skill\./u);
   assert.match(installed.stdout, /apm\.yml now pins apm 0\.35\.0/u);
   assert.match(installed.stdout, /git push -u origin apm\/install-review-pack\n {2}gh pr create --fill/u);

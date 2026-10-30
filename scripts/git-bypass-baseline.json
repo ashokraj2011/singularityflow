@@ -71,10 +71,10 @@
     },
     "src/apm-install.mjs": {
       "counts": {
-        "command-run": 1,
+        "command-run": 2,
         "process-import": 1
       },
-      "digest": "60c5eb07186a144523bfa14b83c81d497d721242933c839711d5326646353a4b"
+      "digest": "1c41fe5747778053135ff2e2762d1897eb79ed001ca89b39b08a43d26e0662b6"
     },
     "src/application-run.mjs": {
       "counts": {

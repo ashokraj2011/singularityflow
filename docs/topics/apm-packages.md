@@ -11,20 +11,20 @@ related:
   - importing-assets
   - agents-and-routing
   - skill-master
-version: 5
+version: 6
 ---
-APM (Microsoft's Agent Package Manager) installs agents, skills, instructions and prompts as packages. `apm.yml` declares them, `apm install` resolves each one to a commit and writes its files for Copilot (agents, instructions and prompts into `.github/`, skills into `.agents/skills/`), and `apm.lock.yaml` records every file it wrote with its SHA-256. SFlow reads what APM left, says whether it is still intact, commits an install for review, lets its agents draft your workflow's steps, and publishes your own agents to your organisation's APM marketplace.
+APM (Microsoft's Agent Package Manager) installs agents, skills, instructions and prompts as packages. `apm.yml` declares them, `apm install` resolves each one to a commit and writes its files for Copilot (agents, instructions and prompts into `.github/`, skills into `.agents/skills/`), and `apm.lock.yaml` records every file it wrote with its SHA-256. SFlow reads what APM left, says whether it is still intact, commits an install for review, lets its agents draft your workflow's steps, publishes your own agents to your organisation's APM marketplace, and writes the organisation's policy of which packages may be installed.
 
 ## Purpose and prerequisites
 
-Use this topic when a repository gets its agents from APM packages, for example from your organisation's catalog. `apm.yml`, `apm.lock.yaml` and the deployed files are committed together, so every clone and every Story uses the same agents. `singularity-flow apm status` needs no APM CLI and no network: it reads the committed files. `singularity-flow apm install`, `apm marketplace init` and `apm publish` need the APM CLI (macOS: `brew install apm`; Windows: `winget install --id Microsoft.APM --exact`) at the version `apm.yml` pins.
+Use this topic when a repository gets its agents from APM packages, for example from your organisation's catalog. `apm.yml`, `apm.lock.yaml` and the deployed files are committed together, so every clone and every Story uses the same agents. `singularity-flow apm status` needs no APM CLI and no network: it reads the committed files. `singularity-flow apm install`, `apm marketplace init`, `apm publish` and `apm policy init` need the APM CLI (macOS: `brew install apm`; Windows: `winget install --id Microsoft.APM --exact`) at the version `apm.yml` pins.
 
 Your organisation's marketplace is one Git repository in APM's monorepo-hybrid shape: its `apm.yml` has a `marketplace:` block, each package lives in `plugins/<name>/` (its own `apm.yml` and `.apm/` folder), and `apm pack` compiles the Copilot index `.github/plugin/marketplace.json`. Every change to it is a pull request its reviewers approve.
 
 ## Use it from each surface
 
-- **Shell:** `sflow apm status` prints the locked packages, what each one deployed and whether it is intact; `sflow apm install <PACKAGE>` installs with APM and commits the result on an `apm/` branch; `sflow apm attach <AGENT> --step <STEP> --propose` makes an APM agent draft a step; `sflow apm marketplace init --name <NAME> --owner <OWNER>` starts a marketplace in its repository's checkout; `sflow apm publish <AGENT>... --marketplace <CHECKOUT>` publishes this repository's agents to it.
-- **Copilot:** ask it to run `singularity-flow apm status`, or a `--dry-run` of `apm install`, `apm marketplace init` or `apm publish`. Installing changes which agents run and publishing what other teams run, so Copilot never runs them itself; run them in your own terminal.
+- **Shell:** `sflow apm status` prints the locked packages, what each one deployed and whether it is intact; `sflow apm install <PACKAGE>` installs with APM and commits the result on an `apm/` branch; `sflow apm attach <AGENT> --step <STEP> --propose` makes an APM agent draft a step; `sflow apm marketplace init --name <NAME> --owner <OWNER>` starts a marketplace in its repository's checkout; `sflow apm publish <AGENT>... --marketplace <CHECKOUT>` publishes this repository's agents to it; `sflow apm policy init --marketplace <OWNER/REPOSITORY>` writes the organisation's policy.
+- **Copilot:** ask it to run `singularity-flow apm status`, or a `--dry-run` of `apm install`, `apm marketplace init`, `apm publish` or `apm policy init`. Installing changes which agents run and publishing what other teams run, so Copilot never runs them itself; run them in your own terminal.
 - **VS Code:** run the same commands in the integrated terminal. In **Workflow Studio**, an agent APM deployed can be chosen to draft a step like any other; only its steps change, never its file.
 
 ## Guided workflow
@@ -44,6 +44,16 @@ Your organisation's marketplace is one Git repository in APM's monorepo-hybrid s
 5. Each machine registers the marketplace once with `apm marketplace add <owner>/<repository>`; then any repository installs from it: `singularity-flow apm install reviewer@acme-catalog`.
 
 What travels: the agent's file without this repository's step choices (`sflow-phases`, `sflow-default-for`) and without its `## Attached skills` table. The skills it attaches travel as the package's own; APM deploys them to `.agents/skills`, where Copilot finds each one by its description. A repository that installs the package chooses the agent's steps with `apm attach`.
+
+## Your organisation's policy
+
+APM reads one policy for the whole organisation: `apm-policy.yml` at the root of its `.github-private`, `.github`, `.apm` or `_apm` repository, found from each project's Git remote. Every `apm install` checks it before writing anything, and `apm audit --ci` checks it on every pull request.
+
+1. In the checkout of your organisation's `.github` repository: `singularity-flow apm policy init --marketplace acme/acme-catalog`. It allows every package in that marketplace (`acme/acme-catalog/**`; APM matches each package's source without its host), with `enforcement: block`, so anything else is refused. Add `--allow <pattern>` for other sources, or `--enforcement warn` to only warn while you roll it out. APM's own `apm policy status --check` must accept the file; then it is committed on `apm/policy-init`. Push it and open its pull request.
+2. Every `singularity-flow apm install` then runs `apm audit --ci` before it commits: the lock, the deployed files and the policy. A package the policy does not allow is refused (`dependency-allowlist`), and nothing is committed.
+3. The first install in a repository also adds `.github/workflows/apm-audit.yml`, which runs the same audit on every pull request (with `microsoft/apm-action` at the pinned version), so a package committed by hand is checked too. Make it a required check on the default branch. A private policy or package needs a token in the `APM_PAT` secret.
+
+When APM cannot tell the organisation (a local remote, or no policy published), the audit passes and says the policy was not applied.
 
 ## State and safety
 
@@ -74,6 +84,8 @@ What travels: the agent's file without this repository's step choices (`sflow-ph
 - **"Commit these first, so the package is what a reviewer saw here"**: commit the agents and skills you are publishing.
 - **"The marketplace has this package at …; publish a later version"**: give a later `--version`, or none for the next patch.
 - **"was not published by SFlow"** or **"already lists … from …"**: the marketplace has that name already; publish under another `--package` name.
+- **"apm audit --ci failed after the install: dependency-allowlist …"**: the organisation's policy does not allow that package. Install one from your marketplace, or change the policy in its own pull request.
+- **"APM does not accept the policy"**: APM's own check refused the file; nothing was written.
 - **"These look like secrets and would be published"**: remove them from the agent or skill and commit; nothing was written.
 - **"No APM CLI on this machine's PATH"**: install the APM CLI to change packages; reading them needs nothing.
 - **"This repository runs apm …; this machine has apm …"**: install the pinned version, or change `x-sflow.apm-cli` in `apm.yml` in its own reviewed change.

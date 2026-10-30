@@ -7,15 +7,17 @@
  * (its own file stays APM's), reviewed like any configuration change [APM A3].
  * marketplace init and publish: the organisation's own APM marketplace, and this repository's
  * agents published to it as a package, each one commit for a pull request (apm-marketplace.mjs)
- * [APM A4].
+ * [APM A4]. policy init: the organisation's apm-policy.yml, which apm install and apm audit apply
+ * (apm-policy.mjs) [APM A5].
  */
 import { optionBoolean, optionString, optionStrings, SingularityFlowError } from '../util.mjs';
 
-const SUBCOMMANDS = Object.freeze(['status', 'install', 'attach', 'marketplace', 'publish']);
+const SUBCOMMANDS = Object.freeze(['status', 'install', 'attach', 'marketplace', 'publish', 'policy']);
 const OPTIONS = Object.freeze({
   status: ['json'], install: ['dev', 'dry-run', 'json'], attach: ['step', 'dry-run', 'propose', 'background-sync', 'json'],
   marketplace: ['name', 'owner', 'description', 'dry-run', 'json'],
-  publish: ['marketplace', 'package', 'version', 'description', 'skill', 'dry-run', 'json']
+  publish: ['marketplace', 'package', 'version', 'description', 'skill', 'dry-run', 'json'],
+  policy: ['name', 'marketplace', 'allow', 'enforcement', 'dry-run', 'json']
 });
 
 const STATE_WORDS = Object.freeze({
@@ -97,6 +99,8 @@ function printInstall(result) {
     lines.push(`  ${entry.label}${entry.commit ? ` @ ${entry.commit.slice(0, 12)}` : ''}${what ? `: ${what}` : ''}.`);
   }
   if (result.pinRecorded) lines.push(`apm.yml now pins apm ${result.apmVersion} (x-sflow.apm-cli), so every machine installs with the same version.`);
+  lines.push(`apm audit --ci passed.${result.audit?.policyNote ? ` APM: ${result.audit.policyNote}` : ''}`);
+  if (result.workflowWritten) lines.push('.github/workflows/apm-audit.yml runs the same audit on every pull request.');
   lines.push('Nothing was pushed. Review and share it:');
   for (const action of result.nextActions) lines.push(`  ${action.command}`);
   console.log(lines.join('\n'));
@@ -134,6 +138,17 @@ function printPublish(result) {
   console.log(lines.join('\n'));
 }
 
+function printPolicy(result) {
+  const lines = [`${result.dryRun ? 'Would write' : 'Wrote'} ${result.file}: ${result.name}, allowing ${result.allow.join(', ')}, enforcement ${result.enforcement}.`];
+  for (const note of result.notes) lines.push(note);
+  if (result.dryRun) return console.log([...lines, result.text.trimEnd(), 'Nothing was changed.'].join('\n'));
+  for (const warning of result.warnings) lines.push(`APM: ${warning}`);
+  lines.push(`Committed ${result.commit.slice(0, 12)} on ${result.branch}${result.createdBranch ? ` (new, from ${result.from})` : ''}; apm ${result.apmVersion} accepts it.`);
+  lines.push('Nothing was pushed. Review and share it:');
+  for (const action of result.nextActions) lines.push(`  ${action.command}${action.why.startsWith('Once') ? `  (${action.why})` : ''}`);
+  console.log(lines.join('\n'));
+}
+
 export async function run(_argv, { positionals, options = {} }) {
   const subcommand = positionals[1] ?? 'status';
   if (!SUBCOMMANDS.includes(subcommand)) {
@@ -161,6 +176,17 @@ export async function run(_argv, { positionals, options = {} }) {
     });
     if (optionBoolean(options, 'json')) console.log(JSON.stringify(result, null, 2));
     else printMarketplaceInit(result);
+    return result;
+  }
+  if (subcommand === 'policy') {
+    if (positionals[2] !== 'init' || positionals.length > 3) fail('Use: singularity-flow apm policy init --marketplace <OWNER/REPOSITORY> [--allow PATTERN]... [--name TEXT] [--enforcement block|warn] [--dry-run].');
+    const { initApmPolicy } = await import('../apm-policy.mjs');
+    const result = await initApmPolicy(repoRoot(process.cwd()), {
+      name: optionString(options, 'name') ?? null, marketplaces: optionStrings(options, 'marketplace'), allow: optionStrings(options, 'allow'),
+      enforcement: optionString(options, 'enforcement') ?? 'block', dryRun: optionBoolean(options, 'dry-run')
+    });
+    if (optionBoolean(options, 'json')) console.log(JSON.stringify(result, null, 2));
+    else printPolicy(result);
     return result;
   }
   if (subcommand === 'publish') {

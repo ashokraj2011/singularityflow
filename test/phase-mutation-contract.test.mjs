@@ -815,8 +815,9 @@ test('every step only a person takes in their own terminal is refused in every t
       'singularity-flow upstream-issue revalidate custom-step --amendment FAM-001 --outcome unchanged --reason "Still holds."'],
     'environment-binding': ['singularity-flow env bind staging --stdin', 'singularity-flow env unbind staging --json'],
     'apm-install': ['singularity-flow apm install acme/review-pack', 'singularity-flow apm install --dev ../local-pack --json'],
-    'apm-publish': ['singularity-flow apm publish reviewer --marketplace ../acme-catalog',
-      'singularity-flow apm marketplace init --name acme-catalog --owner "Platform Team" --json'],
+    'apm-organisation': ['singularity-flow apm publish reviewer --marketplace ../acme-catalog',
+      'singularity-flow apm marketplace init --name acme-catalog --owner "Platform Team" --json',
+      'singularity-flow apm policy init --marketplace acme/acme-catalog'],
     'lock-release': ['singularity-flow lock release publication PMC-1 --confirm 0123456789abcdef',
       'singularity-flow lock release-file /tmp/workspaces.json.lock --confirm 0123456789abcdef --json'],
     'approval-evidence-confirmation': ['singularity-flow approve custom-step --work-id PMC-1 --confirm-evidence'],
@@ -847,6 +848,7 @@ test('every step only a person takes in their own terminal is refused in every t
     'singularity-flow apm install acme/review-pack --dry-run',
     'singularity-flow apm publish reviewer --marketplace ../acme-catalog --dry-run',
     'singularity-flow apm marketplace init --name acme-catalog --owner acme --dry-run',
+    'singularity-flow apm policy init --marketplace acme/acme-catalog --dry-run',
     'singularity-flow story test-policy amend PMC-1 --phase custom-step --reason "Preview the amendment."']) {
     assert.equal(ownTerminalStep(command), null, command);
   }

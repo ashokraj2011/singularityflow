@@ -16,7 +16,7 @@ import { lstat, mkdir, readdir, readFile, realpath, rm, writeFile } from 'node:f
 import path from 'node:path';
 import YAML from 'yaml';
 import { APM_MANIFEST } from './apm-lock.mjs';
-import { recordPin, requireApmCli, runApm, storyOnBranch } from './apm-install.mjs';
+import { APM_ACTION, CHECKOUT_ACTION, recordPin, requireApmCli, runApm, storyOnBranch } from './apm-install.mjs';
 import { add, changedPaths, checkedOutBranch, checkout, commit, head, refExists, remoteUrl, repoRoot } from './git.mjs';
 import { SingularityFlowError } from './util.mjs';
 import { renderPreservingFormatting } from './yaml-formatting.mjs';
@@ -32,9 +32,6 @@ const STEP_METADATA = Object.freeze(['sflow-phases', 'sflow-default-for']);
 const NAME = /^[a-z0-9]+(?:-[a-z0-9]+)*$/u;
 const VERSION = /^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)$/u;
 const MAX_DESCRIPTION = 1024;
-// The actions the marketplace workflow runs, pinned to reviewed commits.
-const CHECKOUT_ACTION = 'actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0';
-const APM_ACTION = 'microsoft/apm-action@d723bb64ed70c135bbaf87d126b721dd2dae0439 # v1.10.0';
 
 function fail(message, code, details = null) {
   throw new SingularityFlowError(message, { code, details });
@@ -98,7 +95,7 @@ async function writeYamlDocument(file, document) {
 }
 
 /** The branch this change is committed on: the checked-out `apm/` branch, or a new unique one. */
-function targetBranch(root, current, base) {
+export function targetBranch(root, current, base) {
   if (current.startsWith('apm/')) return current;
   for (let index = 1; index < 100; index += 1) {
     const name = index === 1 ? base : `${base}-${index}`;
@@ -112,7 +109,7 @@ function targetBranch(root, current, base) {
  * uncommitted, so the commit holds exactly what SFlow and `apm pack` wrote, whichever indexes the
  * marketplace compiles.
  */
-function requireCleanBranch(root, label) {
+export function requireCleanBranch(root, label) {
   const current = checkedOutBranch(root);
   if (!current) fail(`Check out a branch in ${label} first; the change is committed on a branch for review.`, 'APM_DETACHED');
   try { head(root); } catch { fail(`${label} has no commit yet; commit something first (a README is enough).`, 'APM_NO_COMMIT'); }

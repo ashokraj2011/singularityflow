@@ -1379,7 +1379,12 @@ const PAGES = Object.freeze({
       'skills they attach, as one package: plugins/<name>/ (its apm.yml and .apm/ folder) and its entry in the marketplace\'s',
       'apm.yml, compiled by apm pack. The agents\' own steps (sflow-phases, sflow-default-for) stay here; a repository that',
       'installs the package chooses them with apm attach. Each is one commit on an apm/ branch of that checkout for a pull',
-      'request; nothing is pushed. Publishing decides what other teams run, so only a person runs it; --dry-run previews it.'
+      'request; nothing is pushed. Publishing decides what other teams run, so only a person runs it; --dry-run previews it.',
+      'apm policy init, run in the checkout of your organisation\'s .github repository, writes apm-policy.yml allowing your',
+      'marketplaces\' packages (dependencies.allow), checks it with apm policy status --check and commits it for a pull',
+      'request. Every apm install in the organisation then refuses a package it does not allow before writing anything.',
+      'apm install also runs apm audit --ci (the lock, the deployed files and the policy) before it commits, and the first',
+      'install adds .github/workflows/apm-audit.yml, which runs the same audit on every pull request.'
     ],
     options: [
       ['--step STEP', 'attach only: the step the agent drafts.'],
@@ -1388,11 +1393,14 @@ const PAGES = Object.freeze({
       ['--version X.Y.Z', 'publish only: the version (default 1.0.0, or the next patch of the published one).'],
       ['--skill ID', 'publish only: also publish this skill from the skill master (repeatable).'],
       ['--name NAME / --owner OWNER', 'marketplace init only: the marketplace\'s name and its owner.'],
+      ['--marketplace OWNER/REPOSITORY', 'policy init only: allow every package in this marketplace (repeatable).'],
+      ['--allow PATTERN', 'policy init only: also allow packages whose source matches, such as acme/** (repeatable).'],
+      ['--enforcement block|warn', 'policy init only: refuse a package the policy does not allow (block, the default) or only warn.'],
       ['--description TEXT', 'marketplace init and publish: the one-line description.'],
       ['--propose', 'attach only: publish the change as a configuration proposal for review.'],
       ['--dev', 'install only: add the packages as development dependencies (APM\'s --dev).'],
-      ['--dry-run', 'install: APM\'s preview; attach: the Studio preview; marketplace init and publish: what would be written. Nothing is changed or committed.'],
-      ['--json', 'Machine-readable output (sflow-apm-status, sflow-apm-install, sflow-apm-marketplace-init, sflow-apm-publish).']
+      ['--dry-run', 'install: APM\'s preview; attach: the Studio preview; marketplace init, publish and policy init: what would be written. Nothing is changed or committed.'],
+      ['--json', 'Machine-readable output (sflow-apm-status, sflow-apm-install, sflow-apm-marketplace-init, sflow-apm-publish, sflow-apm-policy-init).']
     ],
     examples: [
       ['singularity-flow apm status', 'Lists the locked packages and says whether their deployed files are intact and committed.'],
@@ -1401,7 +1409,8 @@ const PAGES = Object.freeze({
       ['singularity-flow apm install', 'Installs what apm.yml declares (for example after a merge) and commits what changed.'],
       ['singularity-flow apm attach reviewer --step verification --propose', 'The APM agent reviewer drafts Verification, published for review.'],
       ['singularity-flow apm marketplace init --name acme-catalog --owner "Platform Team"', 'Makes this checkout the acme-catalog marketplace, committed on apm/marketplace-init.'],
-      ['singularity-flow apm publish reviewer --marketplace ../acme-catalog', 'Publishes the agent reviewer and its skills as package reviewer 1.0.0, committed in ../acme-catalog.']
+      ['singularity-flow apm publish reviewer --marketplace ../acme-catalog', 'Publishes the agent reviewer and its skills as package reviewer 1.0.0, committed in ../acme-catalog.'],
+      ['singularity-flow apm policy init --marketplace acme/acme-catalog', 'In the organisation\'s .github checkout: allows only acme-catalog\'s packages, committed on apm/policy-init.']
     ],
     seeAlso: ['import', 'agents', 'skill']
   },

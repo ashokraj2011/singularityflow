@@ -733,6 +733,7 @@ Usage:
   singularity-flow apm attach <AGENT> --step STEP [--dry-run] [--propose] [--json]
   singularity-flow apm marketplace init --name NAME --owner OWNER [--description TEXT] [--dry-run] [--json]
   singularity-flow apm publish <AGENT>... --marketplace CHECKOUT [--package NAME] [--version X.Y.Z] [--skill ID]... [--description TEXT] [--dry-run] [--json]
+  singularity-flow apm policy init --marketplace OWNER/REPOSITORY... [--allow PATTERN]... [--name TEXT] [--enforcement block|warn] [--dry-run] [--json]
   singularity-flow index status|refresh|rebuild [--all] [--json]
   singularity-flow index verify [--authority] [--all] [--json]
   singularity-flow lock show <KIND> <ID> [--json]

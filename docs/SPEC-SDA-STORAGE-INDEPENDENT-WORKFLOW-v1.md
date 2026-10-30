@@ -701,7 +701,7 @@ Migration is per authority and namespace, never inferred from the installed buil
 - Concurrent refreshes share one authority observation per scope, across processes.
 - No ordinary listing creates a checkout or temporary clone, walks source history or reads every artifact body.
 
-**M6 (decision D2):** the draft-save budget is restated. A local draft save starts no remote or model process, and its local Git processes may only fall. `test/configuration-drafts.test.mjs` holds the ceiling at 9. The M6 baseline measures 11 from a checkout with its remote reachable: the editor's batched baseline read falls back there (`benchmarks/sda/m6-qualification-rollout.md`, open items).
+**M6 (decision D2):** the draft-save budget is restated. A local draft save starts no remote or model process, and its local Git processes may only fall. `test/configuration-drafts.test.mjs` holds the ceiling at 9. The M6 baseline measured 11 from a Story checkout: the editor's baseline read asked Git in the approved-configuration read's copy, which has none. With that fixed it measures 6, online and offline (`benchmarks/sda/m6-qualification-rollout.md`, open items).
 
 ### Bundle budgets
 

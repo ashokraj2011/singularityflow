@@ -43,6 +43,12 @@ export function configurationReadScope(root) {
   return scope && path.resolve(root) === scope.applicationRoot ? scope : null;
 }
 
+/** Whether `root` is the scope's copy of the approved configuration rather than a checkout. */
+export function isConfigurationReadCopy(root) {
+  const scope = scopes.getStore();
+  return Boolean(scope) && scope.configurationRoot !== scope.applicationRoot && path.resolve(root) === scope.configurationRoot;
+}
+
 export function configurationReadRoot(root) {
   const scope = scopes.getStore();
   return scope && path.resolve(root) === scope.applicationRoot

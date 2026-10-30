@@ -31,7 +31,7 @@ The other half of finishing SDA was done in batches, on `main` before this chang
 | `7303327b5` (B6) | Capability edits and workflow proposal reads by exact objects; every remaining clone listed |
 | `21c3414dd` (B3) | SDA-AC-007, 010 and 020 tests; `status` says when its last transition is unpublished |
 | `66d819745` (B2) | Takeover ready after a first publication; a lost approval answer stays unknown; SDA-AC-004 and 006 |
-| `1445e4653` (B6b) | More exact-object reads; a draft save measures 9 local Git processes in its test's fixture (11 in this report's, see open items) |
+| `1445e4653` (B6b) | More exact-object reads; a draft save measures 9 local Git processes in its test's fixture (11 in this report's, 6 after the fix under open items) |
 
 ## Matched reports (macOS)
 
@@ -190,7 +190,7 @@ node scripts/sda-legacy-check.mjs --legacy-cli-root=../sf-before --output=legacy
 | Budget (§17) | Measured, this build | Met |
 |---|---|---|
 | An initialized Story list or catalog read with a verified snapshot starts zero Git, remote or model processes | 0 Git, 0 remote, fresh or expired, online or offline | Yes |
-| A local draft save starts zero remote or model processes; local Git only falls (decision D2) | 0 remote, 0 model, 11 local Git (B6b's test fixture measures 9; see open items) | Remote and model: yes. Local: 11, down from 19 |
+| A local draft save starts zero remote or model processes; local Git only falls (decision D2) | 0 remote, 0 model, 11 local Git (6 after the fix under open items) | Remote and model: yes. Local: 11, down from 19; 6 after the fix |
 | An expired advisory read returns last-known state without waiting on the network | `stale` at once, 0 remote | Yes |
 | Concurrent refreshes share one authority observation per scope, across processes | `test/sda-read-index.test.mjs` (three processes, one observation) | Yes |
 | No ordinary listing creates a checkout or temporary clone, walks source history or reads every artifact body | The Story list and catalog start no Git at all | Yes |
@@ -388,12 +388,13 @@ The new scripts are qualification tools: they are not part of the command regist
   (decision D8).
 - **Cancellation:** no production command passes a signal yet (B4). The two cancellation refusals
   exist, are tested, and appear once a command cancels.
-- **A draft save takes 11 local Git processes here, not 9.** B6b reads the editor's baseline, the
-  committed `workflow.yml` and `portfolio.yml`, in one object batch. During a save, that batch runs
-  inside the approved-configuration read and finds neither file. The save then reads both the old way,
-  so it runs the batch-check and the four reads it replaced. The same happens from the repository's
-  own checkout and from a Story's, online and offline. `test/configuration-drafts.test.mjs` measures 9
-  in its own fixture, where the save is checked against the checkout's own configuration.
+- **Fixed after M6: a draft save took 11 local Git processes here, not 9.** The save checks the
+  change in the approved-configuration read's copy of the approved files, which has no Git. B6b's
+  batched read of the editor's baseline, the committed `workflow.yml` and `portfolio.yml` at `HEAD`,
+  failed there, and so did the four reads it falls back to; the baseline came back empty, as it did
+  before B6b. The editor now asks no Git for that copy and the baseline is the same. The same harness
+  then measures 6 local Git processes and 0 remote, online and offline (`--samples=3 --files=100
+  --stories=1`). The tables above are the measurement at `6a0d0a650`.
 - **Mixed builds** keep the one gap described under the rollout until `minimumBuild` is raised.
 - **Not measured:** slow networks, and process-cold apart from warm runs.
 - **Evidence holds:** no hold record exists in code (SDA-AC-016).

@@ -101,6 +101,7 @@ import { storyApprovalView } from './approval-authority.mjs';
 import { loadAcceptedStoryExecution } from './accepted-story-execution.mjs';
 import { INSPECTION_READ, withApprovedConfigurationRead } from './approved-configuration-reader.mjs';
 import { readObjectsBatch } from './git-ref-tree.mjs';
+import { isConfigurationReadCopy } from './configuration-read-scope.mjs';
 import { loadSgosCommandCenter } from './sgos/command-center.mjs';
 import { workflowCodeGeneration } from './code-delivery-policy.mjs';
 import { captureEnvironmentDeclaration, ENVIRONMENT_DECLARATION_PATH, validateEnvironmentQualityCommandCatalog } from './environment-declaration.mjs';
@@ -1562,6 +1563,10 @@ function configurationAtRef(root, ref) {
   // Both committed files in one object batch, rather than a ref read and a `show` for each (four
   // Git processes in every draft save, SDA §17). Anything but a blob the batch read is read the
   // old way, including an absent path, which a partial clone may only be missing locally.
+  // A draft save validates in the approved-configuration read's copy of the approved files, which
+  // has no Git: the baseline there has always come back empty, after five Git processes that could
+  // only fail (or find a repository the copy happens to sit in), so it is empty without them.
+  if (isConfigurationReadCopy(root) && !existsSync(path.join(root, '.git'))) return { definition: null, portfolio: null };
   const specs = typeof ref === 'string' && ref ? [WORKFLOW_PATH, PORTFOLIO_PATH].map((relative) => `${ref}:${relative}`) : [];
   const batch = specs.length ? readObjectsBatch(root, specs) : null;
   const committed = (relative) => {

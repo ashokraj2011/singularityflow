@@ -195,8 +195,16 @@ test('end to end: three dependent changes become one proposal, approved with one
   const skillFile = path.join(base, 'skill.md');
   await writeFile(skillFile, 'Write each comment <instruction>tone</instruction> and name the line.\n');
 
-  assert.match(flow(checkout, ['instruction', 'create', 'tone', '--description', 'How to phrase comments.', '--instructions', 'Be kind and specific.']).stdout,
-    /Saved as a draft; no Story uses it until it is approved\. Drafts waiting: 1\./);
+  const first = flow(checkout, ['instruction', 'create', 'tone', '--description', 'How to phrase comments.', '--instructions', 'Be kind and specific.'],
+    0, { SINGULARITY_FLOW_SUBPROCESS_PROBE: '1' });
+  assert.match(first.stdout, /Saved as a draft; no Story uses it until it is approved\. Drafts waiting: 1\./);
+  // Checked in the approved-configuration read's copy, which has no Git, the editor's committed
+  // baseline is not asked of Git at HEAD there: the batch, ref read and `show`s could only fail (a
+  // steady-state save from a Story checkout fell from 11 Git processes to 6, SDA M6).
+  const firstProbe = /^subprocesses: (\d+) calls/mu.exec(first.stderr);
+  assert.ok(firstProbe, first.stderr);
+  assert.deepEqual(first.stderr.slice(firstProbe.index).split('\n').slice(1).map((line) => /^\s+\d+x\s+\d+ ms {2}(.+)$/u.exec(line)?.[1])
+    .filter((row) => /^git show HEAD:singularity\//u.test(row ?? '')), [], first.stderr.slice(firstProbe.index));
   // The first save learned that the repository has an approved configuration. Later saves ask no
   // remote: with it gone, the change is checked against this checkout's configuration, and a retry
   // of the same operation returns the same draft.

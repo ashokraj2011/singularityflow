@@ -379,7 +379,10 @@ export async function restoreBackup(root, directory) {
       const result = await replayDraft(root, item.draft);
       if (result?.valid === false) {
         drafts.push({ ...publicItem(item), status: 'refused', problems: (result.problems ?? []).map((problem) => problem.message ?? String(problem)) });
-      } else drafts.push({ ...publicItem(item), status: result?.saved === 'existing' ? 'already-saved' : 'restored' });
+      } else {
+        // A draft the approved configuration holds by now (approved since the backup) is not saved again.
+        drafts.push({ ...publicItem(item), status: result?.saved === 'existing' ? 'already-saved' : result?.saved === 'unchanged' ? 'already-approved' : 'restored' });
+      }
     } catch (error) { drafts.push({ ...publicItem(item), status: 'refused', refusal: refusal(error) }); }
   }
   if (drafts.some((item) => item.status === 'restored')) {
@@ -402,7 +405,7 @@ export async function restoreBackup(root, directory) {
       documents.push({ ...publicItem(item), status: 'restored' });
     } catch (error) { documents.push({ ...publicItem(item), status: 'refused', refusal: refusal(error) }); }
   }
-  const draftCounts = counts(drafts, ['restored', 'already-saved', 'refused']);
+  const draftCounts = counts(drafts, ['restored', 'already-saved', 'already-approved', 'refused']);
   const documentCounts = counts(documents, ['restored', 'already-present', 'superseded', 'story-not-here', 'refused']);
   return { schemaVersion: 1, resultType: 'sflow-backup-restore', ...plan.summary, // schema-transient: command result
     status: drafts.some((item) => item.status === 'refused') || documents.some((item) => item.status === 'refused') ? 'partial' : 'restored',

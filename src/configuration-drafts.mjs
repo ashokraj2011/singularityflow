@@ -21,6 +21,12 @@
  * draft already saved, and a different change under that operation is refused. A proposal records
  * the exact drafts it holds and removes only those, so a draft saved meanwhile stays waiting. The
  * single `drafts.json` of earlier builds is migrated once and kept beside the store, never deleted.
+ *
+ * A draft's relation to the approved configuration can change after it is saved, and every draft
+ * keeps a correct state and a way out (SDA sweep, batch 2): one approved from another clone is
+ * settled when proposed and left out of other batches; one that conflicts is named with its discard
+ * route; a proposal holds its drafts (`held`) even when its upload failed, and one that is gone from
+ * the remote is recorded when merged and gives its drafts back when it was closed.
  */
 import { createHash, randomBytes } from 'node:crypto';
 import { link, lstat, mkdir, open, readFile, readdir, rename, rm } from 'node:fs/promises';
@@ -300,9 +306,13 @@ async function migrateLegacyDrafts(root, directory) {
   const store = await readStore(root);
   const known = new Set([...store.drafts, ...store.consumed].map((draft) => draft.operationId));
   let sequence = nextSequence(store.drafts);
+  // The same change twice in the file (an edit back to an earlier value) is two drafts: the second
+  // gets the next derived ID, by its place in the file, so a resumed migration names it the same.
+  const repeats = new Set();
   for (const entry of value.changes) {
     const description = typeof entry.description === 'string' ? entry.description : describeChange(entry.change);
-    const operationId = defaultDraftOperationId(entry.change, description);
+    const operationId = freeOperationId(defaultDraftOperationId(entry.change, description), repeats);
+    repeats.add(operationId);
     if (known.has(operationId)) continue;
     known.add(operationId);
     await writeDraft(directory, { operationId, change: entry.change, description, sequence: sequence++,
@@ -391,6 +401,22 @@ const approvalNext = (result) => (result?.reviewRequired && result.branch
   ? { ...result, nextAction: `singularity-flow configuration approve ${result.branch}` } : result);
 const combine = (drafts, changes) => ({ schema: CHANGE_SET_SCHEMA, changes: [...drafts.map((entry) => entry.change), ...changes] });
 
+/**
+ * What a change is about: the skill, instruction or agent it creates, edits or removes, or the one
+ * attachment it adds or drops. Saving the same subject twice is two changes unless nothing came between.
+ */
+export function changeSubject(change) {
+  const [kind, action] = String(change?.op ?? '').split('.');
+  if (action === 'attach' || action === 'detach') return `attachment:${change.skill}:${change.workflow ? `workflow:${change.workflow}` : `agent:${change.agent}`}`;
+  return `${kind}:${change?.id}`;
+}
+
+/** `operationId`, or the first `operationId.N` no draft in `taken` has. */
+function freeOperationId(operationId, taken) {
+  if (!taken.has(operationId)) return operationId;
+  for (let suffix = 2; ; suffix += 1) if (!taken.has(`${operationId}.${suffix}`)) return `${operationId}.${suffix}`;
+}
+
 /** Each change of a save as one operation: its ID, its digest and the line describing it. */
 function saveIntents(changes, operationId) {
   if (operationId != null && (typeof operationId !== 'string' || operationId.length > OPERATION_ID_INPUT_LENGTH || !OPERATION_ID.test(operationId))) {
@@ -403,16 +429,34 @@ function saveIntents(changes, operationId) {
     const id = operationId == null ? defaultDraftOperationId(change, description)
       : changes.length === 1 ? operationId : `${operationId}:${index + 1}`;
     // The same change twice in one save is one operation, saved once.
-    if (!intents.has(id)) intents.set(id, { operationId: id, change, description, payloadDigest: draftPayloadDigest(change, description) });
+    if (!intents.has(id)) {
+      intents.set(id, { operationId: id, change, description, payloadDigest: draftPayloadDigest(change, description),
+        derived: operationId == null, subject: changeSubject(change) });
+    }
   });
   return [...intents.values()];
 }
 
-/** Split a save into the operations already saved and those still to save; a reused ID with other bytes is refused. */
+/**
+ * Split a save into the operations already saved and those still to save; a reused ID with other bytes is refused.
+ *
+ * A save that names no operation is a retry only of the latest draft of its subject. An edit back to
+ * an earlier value (First, Second, First) is a change: it is saved, under the next free derived ID,
+ * so it is never mistaken for the first draft and dropped while the second one wins.
+ */
 function replayOf(drafts, intents) {
   const saved = new Map(drafts.map((draft) => [draft.operationId, draft]));
+  const taken = new Set(saved.keys());
   const existing = []; const pending = [];
   for (const intent of intents) {
+    if (intent.derived) {
+      const latest = drafts.filter((draft) => changeSubject(draft.change) === intent.subject).at(-1);
+      if (latest?.payloadDigest === intent.payloadDigest) { existing.push(latest); continue; }
+      const operationId = freeOperationId(intent.operationId, taken);
+      taken.add(operationId);
+      pending.push({ ...intent, operationId });
+      continue;
+    }
     const draft = saved.get(intent.operationId);
     if (!draft) { pending.push(intent); continue; }
     if (draft.payloadDigest !== intent.payloadDigest) {
@@ -466,41 +510,63 @@ function savedResult({ plan = null, added, pending, saved }) {
   };
 }
 
+/** A save the approved configuration already holds, with no draft waiting: nothing is saved or proposed. */
+function unchangedResult(intents) {
+  return {
+    schemaVersion: 1, resultType: 'configuration-draft', valid: true, draft: true, changed: false, saved: 'unchanged', state: null,
+    summary: [], warnings: [], problems: [], files: [],
+    drafts: { pending: 0, added: [], ids: [], unchanged: intents.map((intent) => intent.description) }, nextAction: null
+  };
+}
+
 /**
  * Author one agent, skill or instruction change.
  *
  * - `--dry-run` previews it on top of the saved drafts, so a change that depends on a draft checks.
- * - `--propose` proposes the saved drafts and this change as one review.
+ * - `--propose` proposes the saved drafts and this change as one review (see `proposeWithDrafts`).
  * - Otherwise, when an approved configuration exists, it is checked with the drafts and saved as a
- *   draft; when none exists, it is written to the working tree as before.
+ *   draft; when none exists, it is written to the working tree as before. A change the approved
+ *   configuration already holds, with no draft waiting, is not saved (`saved: 'unchanged'`).
  *
  * `apply(changeSet, { dryRun, propose, subject, message })` is the CLI's normal applier and
  * `check(changeSet, { refreshAuthority })` plans against the approved configuration, returning
  * `{ plan, source }`, where `source.kind === 'working-tree'` means none was found; with
  * `refreshAuthority: false` it reads only what this machine holds (see `checkForSave`).
+ * `planner(work, { refreshAuthority })` runs `work(plan)` in one read of the approved configuration,
+ * for checking the drafts one by one when a proposal is refused.
  * `operationId` names the save (default: derived from the change), so a retry returns the draft
  * already saved (`saved: 'existing'`) and a different change under that ID is refused.
  */
-export async function authorChange(root, changeSet, { dryRun = false, propose = false, subject, message, apply, check, operationId = null }) {
+export async function authorChange(root, changeSet, { dryRun = false, propose = false, subject, message, apply, check, planner = null, operationId = null }) {
   if (!changeSet.changes.every((change) => DRAFTABLE.has(change.op))) return apply(changeSet, { dryRun, propose, subject, message });
   let drafts = await readDrafts(root);
   const included = drafts.changes.length;
-  if (dryRun) return withDrafts(await apply(combine(drafts.changes, changeSet.changes), { dryRun: true, subject, message }), { pending: included, included });
-  if (propose) {
-    const combined = combine(drafts.changes, changeSet.changes);
-    const result = await apply(combined, { propose: true, ...batchIdentity(combined.changes, subject, message) });
-    const pending = result?.reviewRequired && result.branch
-      ? await recordProposal(root, result, { draftIds: drafts.changes.map((entry) => entry.draftId), changes: combined.changes.map(describeChange) })
-      : included;
-    return withDrafts(approvalNext(result), { pending, included });
+  if (dryRun) {
+    // A draft that no longer applies is left out of the preview, and named, rather than failing it.
+    const preview = await runWithDrafts(root, changeSetOf(changeSet.changes), (set) => apply(set, { dryRun: true, subject, message }), { planner, preview: true });
+    return withDrafts(leftOutWarnings(preview.result, preview.leftOut), { pending: included, included: preview.included.length });
   }
+  if (propose) return proposeWithDrafts(root, drafts, changeSet.changes, { apply, planner, subject, message });
   const intents = saveIntents(changeSet.changes, operationId);
   let replay = replayOf(drafts.changes, intents);
   if (!replay.pending.length) return savedResult({ added: replay.existing, pending: drafts.changes.length, saved: 'existing' });
   for (let attempt = 0; attempt < SAVE_ATTEMPTS; attempt += 1) {
-    const { plan, source, record } = await checkForSave(check, combine(drafts.changes, replay.pending.map((intent) => intent.change)), drafts.authority);
+    const changes = replay.pending.map((intent) => intent.change);
+    let { plan, source, record } = await checkForSave(check, combine(drafts.changes, changes), drafts.authority);
     if (!approvedSource(source)) return apply(changeSet, { subject, message });
+    // A draft approved elsewhere or in conflict must not block saving another change: this one is
+    // checked without it, and the save names it.
+    const leftOut = plan?.valid === false && drafts.changes.length && planner ? await staleDrafts(drafts, planner) : [];
+    if (leftOut.length) {
+      ({ plan, source, record } = await checkForSave(check,
+        combine(drafts.changes.filter((entry) => !leftOut.some((out) => out.draftId === entry.draftId)), changes), drafts.authority));
+      if (!approvedSource(source)) return apply(changeSet, { subject, message });
+      if (plan?.valid !== false) plan = leftOutWarnings(plan, leftOut);
+    }
     if (plan?.valid === false) return withDrafts(plan, { pending: drafts.changes.length, included: drafts.changes.length });
+    // Checked against the approved configuration itself (not this checkout's), it changes nothing
+    // there: an edit or create already approved, say from a backup of a draft approved since.
+    if (!drafts.changes.length && plan?.changed === false && source.kind !== CHECKOUT_SOURCE.kind) return unchangedResult(replay.pending);
     const checked = drafts.changes;
     const outcome = await withDraftStore(root, async (directory) => {
       const current = (await readStore(root)).drafts;
@@ -529,6 +595,9 @@ export async function authorChange(root, changeSet, { dryRun = false, propose = 
   return fail('The drafts kept changing while this change was checked against them. Run the command again.', 'CONFIGURATION_DRAFTS_CHANGED');
 }
 
+/** How a waiting draft stands against the approved configuration (`draftStandings`). */
+export const DRAFT_STANDINGS = Object.freeze(['waiting', 'already-approved', 'redundant', 'conflicts']);
+
 /**
  * A command's save that did not check is refused, as the same change is without an approved
  * configuration: a non-zero exit naming the problem, not a list of files that were never written.
@@ -542,50 +611,261 @@ export function refuseUncheckedSave(result, { dryRun = false } = {}) {
 }
 
 /**
- * Record a proposal holding exactly `draftIds`, then remove exactly those drafts; one saved meanwhile
- * keeps waiting. The proposal is written first, so a crash in between leaves drafts it already holds,
- * which are hidden at once and removed by the next change to the store. Returns the drafts left.
+ * A create as the edit that makes an existing subject exactly what the create would write: every
+ * field the create leaves to its default is that default, not the existing value. Null for a change
+ * with no such edit.
  */
-async function recordProposal(root, result, { draftIds, changes }) {
+async function asReplacement(change) {
+  if (change.op === 'instruction.create') return { ...change, op: 'instruction.update', label: change.label, tags: change.tags };
+  if (change.op !== 'skill.create') return null;
+  const { defaultSkillLabel } = await import('./skill-library.mjs');
+  return { ...change, op: 'skill.update', label: change.label ?? defaultSkillLabel(change.id), loading: change.loading ?? 'eager',
+    instructionRefs: change.instructionRefs ?? [] };
+}
+const changeSetOf = (changes) => ({ schema: CHANGE_SET_SCHEMA, changes });
+// What a plan writes, comparable across plans; null when it does not check.
+const planFiles = (plan) => (plan?.valid === false ? null
+  : JSON.stringify((plan?.files ?? []).map((file) => [file.path, file.action, file.diff ?? '']).sort(([left], [right]) => left.localeCompare(right))));
+
+/**
+ * How each draft stands against the approved configuration, in order, each checked with the waiting
+ * drafts before it. `plan(changeSet)` plans a change set against the approved configuration.
+ *
+ * - `waiting`: it still changes something there;
+ * - `already-approved`: it changes nothing there: an edit approved from another clone, or a create
+ *   whose subject now exists saying what the draft says;
+ * - `redundant`: it changes nothing the waiting drafts before it do not already change;
+ * - `conflicts`: it cannot be applied there, and `problem` says why: a create whose subject now exists
+ *   with other content, or an edit or removal of something that is gone.
+ */
+export async function draftStandings(entries, plan) {
+  const standings = []; const kept = [];
+  const nothing = planFiles({ files: [] });
+  let before = nothing;
+  for (const [index, entry] of entries.entries()) {
+    const base = { draftId: entry.draftId, number: index + 1, description: entry.description ?? describeChange(entry.change) };
+    const after = await plan(changeSetOf([...kept, entry.change]));
+    const files = planFiles(after);
+    if (files !== null) {
+      if (files !== before) { kept.push(entry.change); before = files; standings.push({ ...base, standing: 'waiting' }); continue; }
+      const alone = kept.length ? planFiles(await plan(changeSetOf([entry.change]))) : nothing;
+      standings.push({ ...base, standing: alone === nothing ? 'already-approved' : 'redundant' });
+      continue;
+    }
+    const replacement = await asReplacement(entry.change);
+    const replaced = replacement ? planFiles(await plan(changeSetOf([...kept, replacement]))) : null;
+    if (replaced !== null && replaced === before) {
+      standings.push({ ...base, standing: 'already-approved' });
+      continue;
+    }
+    const problem = String(after?.problems?.[0]?.message ?? 'It no longer applies to the approved configuration.');
+    standings.push({ ...base, standing: 'conflicts',
+      problem: replaced === null ? problem : `${problem.replace(/\.$/u, '')}, with other content than this draft.` });
+  }
+  return standings;
+}
+
+/** The exact way to drop one listed draft: by its number while it is the only one, else by its ID. */
+function discardRoute(entry, listing, several) {
+  return several ? `singularity-flow configuration discard ${entry.draftId}` : `singularity-flow configuration discard ${entry.number} --listing ${listing}`;
+}
+
+/** Refuse a proposal one or more drafts no longer apply to, naming each with its discard route. */
+function conflictRefusal(standings, listing, cause = null) {
+  const conflicts = standings.filter((entry) => entry.standing === 'conflicts');
+  const several = conflicts.length > 1;
+  const routes = conflicts.map((entry) => discardRoute(entry, listing, several));
+  const lines = conflicts.map((entry, index) => `  ${entry.number}. ${entry.description}: ${entry.problem}\n     Discard it: ${routes[index]}`);
+  return fail(`${several ? `${conflicts.length} saved drafts no longer apply` : 'A saved draft no longer applies'} to the approved configuration, so nothing was proposed:\n${lines.join('\n')}\n`
+    + `Discard ${several ? 'them' : 'it'}, or save a change that applies, then propose again. See every draft: singularity-flow configuration drafts`,
+  'STUDIO_CHANGES_INVALID', { problems: cause?.details?.problems ?? [], listing,
+    conflicts: conflicts.map(({ draftId, number, description, problem }, index) => ({ draftId, number, description, problem, discard: routes[index] })),
+    nextAction: { command: routes[0], label: `Discard draft ${conflicts[0].number} (${conflicts[0].description}), which no longer applies.` },
+    recoveryCommands: [...conflicts.slice(1).map((entry, index) => ({ command: routes[index + 1],
+      label: `Discard draft ${entry.number} (${entry.description}), which no longer applies.` })),
+    { command: 'singularity-flow configuration drafts', label: 'See every draft and how it stands against the approved configuration.' }] });
+}
+
+/** A draft as a proposal holds it, so a proposal that is gone without approval can give it back. */
+const heldRecord = ({ draftId, operationId, payloadDigest, sequence, addedAt, description, change, checkedAgainst }) => (
+  { draftId, operationId, payloadDigest, sequence, addedAt, description, change, checkedAgainst: checkedAgainst ?? null });
+
+/** What a batch holds of the drafts: their IDs, every change's line, and the drafts themselves. */
+const holding = (entries, changes) => ({ draftIds: entries.map((entry) => entry.draftId),
+  changes: changes.map((change) => describeChange(change)), held: entries });
+
+/**
+ * A proposal whose upload was refused or failed is retained, and its sync publishes it: it holds its
+ * drafts all the same, so they are not offered again while it waits, and approving it finishes them.
+ */
+async function holdForUpload(root, error, held, settled = []) {
+  const details = error?.details;
+  if (error?.code !== 'CONFIGURATION_PROPOSAL_PUBLICATION_PENDING' || !details?.branch || !held.draftIds.length) return;
+  try {
+    await recordProposal(root, { branch: details.branch, commit: details.commit ?? null }, {
+      ...held, upload: details.intentId ? { intentId: details.intentId } : null }, settled);
+  } catch { /* the refusal says what happened; the drafts stay waiting */ }
+}
+
+/** Drop drafts the approved configuration already holds; returns how many are left waiting. */
+async function settleApproved(root, settled) {
+  if (!settled.length) return (await readDrafts(root)).changes.length;
   return withDraftStore(root, async (directory) => {
-    const { drafts, revision } = await readStore(root);
-    await writeProposed(directory, revision + 1, {
-      branch: result.branch, commit: result.commit ?? result.proposalRevision ?? null,
-      at: new Date().toISOString(), changes, draftIds
-    });
-    const held = new Set(draftIds);
-    await removeDrafts(directory, drafts.filter((draft) => held.has(draft.draftId)).map((draft) => draft.draftId));
-    return drafts.filter((draft) => !held.has(draft.draftId)).length;
+    const { drafts } = await readStore(root);
+    const gone = new Set(settled.map((draft) => draft.draftId));
+    await removeDrafts(directory, drafts.filter((draft) => gone.has(draft.draftId)).map((draft) => draft.draftId));
+    return drafts.filter((draft) => !gone.has(draft.draftId)).length;
   });
 }
 
 /**
- * A change set with the saved drafts in front, for surfaces that build their own batch (Workflow
- * Studio): what they publish carries every waiting draft, so pending work still gets one review.
- * `draftIds` names exactly the drafts included, for `settleDrafts`.
+ * Propose the waiting drafts, and `changes` after them, as one review.
+ *
+ * A draft approved from another clone since it was saved is not proposed again. A batch that changes
+ * nothing in the approved configuration settles every draft in it (`drafts.nothingToPropose`). A batch
+ * refused because something no longer applies is checked draft by draft (`planner`): the drafts
+ * already approved are settled and the rest proposed; a draft that conflicts is named with its discard
+ * route and nothing is proposed. A proposal whose upload failed holds its drafts all the same.
+ */
+async function proposeWithDrafts(root, drafts, changes, { apply, planner = null, subject = null, message = null, overrideMessage = null }) {
+  let entries = drafts.changes;
+  const settled = [];
+  for (let attempt = 0; ; attempt += 1) {
+    const combined = combine(entries, changes);
+    const held = holding(entries, combined.changes);
+    const report = (pending) => ({ pending, included: entries.length, settled: settled.map((draft) => draft.description) });
+    if (!combined.changes.length) {
+      return { schemaVersion: 1, resultType: 'configuration-drafts-settled', valid: true, changed: false, reviewRequired: false,
+        summary: [], warnings: [], problems: [], files: [], nextAction: null,
+        drafts: { ...report(await settleApproved(root, settled)), nothingToPropose: true } };
+    }
+    const first = combined.changes[0];
+    const identity = batchIdentity(combined.changes, subject ?? first.id ?? first.skill ?? 'change', message ?? `[configuration] ${describeChange(first)}`);
+    let result;
+    try { result = await apply(combined, { propose: true, ...identity, ...(overrideMessage ? { message: overrideMessage } : {}) }); }
+    catch (error) {
+      await holdForUpload(root, error, held, settled);
+      const review = attempt === 0 && entries.length && planner && error?.code === 'STUDIO_CHANGES_INVALID'
+        ? await planner((plan) => draftStandings(entries, plan)).catch(() => null) : null;
+      if (!review) throw error;
+      if (review.some((entry) => entry.standing === 'conflicts')) conflictRefusal(review, drafts.listing, error);
+      const approved = new Set(review.filter((entry) => entry.standing === 'already-approved').map((entry) => entry.draftId));
+      if (!approved.size) throw error;
+      settled.push(...entries.filter((entry) => approved.has(entry.draftId)));
+      entries = entries.filter((entry) => !approved.has(entry.draftId));
+      continue;
+    }
+    if (result?.reviewRequired && result.branch) return withDrafts(approvalNext(result), report(await recordProposal(root, result, held, settled)));
+    if (result && result.valid !== false && result.changed === false) {
+      // The approved configuration already holds everything in the batch: nothing was proposed.
+      settled.push(...entries);
+      return withDrafts({ ...result, nextAction: null }, { ...report(await settleApproved(root, settled)), nothingToPropose: true });
+    }
+    return withDrafts(approvalNext(result), report(settled.length ? await settleApproved(root, settled) : drafts.changes.length));
+  }
+}
+
+/**
+ * Record a proposal holding exactly `draftIds` (with the drafts themselves, `held`), then remove those
+ * drafts and any `settled` ones; one saved meanwhile keeps waiting. The proposal is written first, so a
+ * crash in between leaves drafts it already holds, which are hidden at once and removed by the next
+ * change to the store. `upload` names a retained upload still to finish. Returns the drafts left.
+ */
+async function recordProposal(root, result, { draftIds, changes, held = [], upload = null }, settled = []) {
+  return withDraftStore(root, async (directory) => {
+    const { drafts, revision } = await readStore(root);
+    await writeProposed(directory, revision + 1, {
+      branch: result.branch, commit: result.commit ?? result.proposalRevision ?? null,
+      at: new Date().toISOString(), changes, draftIds, held: held.map(heldRecord), ...(upload ? { upload } : {})
+    });
+    const gone = new Set([...draftIds, ...settled.map((draft) => draft.draftId)]);
+    await removeDrafts(directory, drafts.filter((draft) => gone.has(draft.draftId)).map((draft) => draft.draftId));
+    return drafts.filter((draft) => !gone.has(draft.draftId)).length;
+  });
+}
+
+/**
+ * A change set with the saved drafts in front, for surfaces that build their own batch: what they
+ * publish carries every waiting draft, so pending work still gets one review. `draftIds` names
+ * exactly the drafts included, for `settleDrafts`. `runWithDrafts` also keeps a stale draft from
+ * blocking the batch.
  */
 export async function withSavedDrafts(root, changeSet) {
   const drafts = await readDrafts(root);
   if (!drafts.changes.length) return { changeSet, included: [], draftIds: [] };
   return { included: drafts.changes.map((entry) => entry.description ?? describeChange(entry.change)),
-    draftIds: drafts.changes.map((entry) => entry.draftId),
+    draftIds: drafts.changes.map((entry) => entry.draftId), held: drafts.changes,
     changeSet: { ...changeSet, changes: [...drafts.changes.map((entry) => entry.change), ...(changeSet.changes ?? [])] } };
 }
 
 /** After a batch carrying the drafts `draftIds` was proposed or written, exactly those are no longer waiting. */
-export async function settleDrafts(root, result, { included = [], draftIds = [] } = {}) {
-  if (!draftIds.length) return;
-  if (result?.reviewRequired && result.branch) await recordProposal(root, result, { draftIds, changes: included });
-  else if (result && result.valid !== false) {
-    await withDraftStore(root, async (directory) => {
-      const held = new Set(draftIds);
-      await removeDrafts(directory, (await readStore(root)).drafts.filter((draft) => held.has(draft.draftId)).map((draft) => draft.draftId));
-    });
+export async function settleDrafts(root, result, { included = [], draftIds = [], held = [] } = {}, settled = []) {
+  if (!draftIds.length && !settled.length) return;
+  if (result?.reviewRequired && result.branch) await recordProposal(root, result, { draftIds, changes: included, held }, settled);
+  else if (result && result.valid !== false) await settleApproved(root, [...draftIds.map((draftId) => ({ draftId })), ...settled]);
+}
+
+/**
+ * Run a batch a surface builds itself (Workflow Studio, `workflow check`) with the waiting drafts in
+ * front: `perform(changeSet)` previews, proposes or writes it. A draft must not block an unrelated batch:
+ * when the batch is refused or does not check, the drafts are checked one by one (`planner`), those
+ * already approved and those that conflict are left out, and the batch runs again without them. Each
+ * draft left out is returned (`leftOut`) with why and, when it conflicts, its discard route; it stays
+ * waiting, unless it is already approved and the batch was applied (`preview: false`), which settles it.
+ */
+export async function runWithDrafts(root, changeSet, perform, { planner = null, preview = false } = {}) {
+  const drafts = await readDrafts(root);
+  let entries = drafts.changes;
+  let leftOut = [];
+  for (let attempt = 0; ; attempt += 1) {
+    const batch = { ...changeSet, changes: [...entries.map((entry) => entry.change), ...(changeSet.changes ?? [])] };
+    const held = holding(entries, entries.map((entry) => entry.change));
+    const approved = drafts.changes.filter((entry) => leftOut.some((out) => out.draftId === entry.draftId && out.standing === 'already-approved'));
+    let result = null; let refusal = null;
+    try { result = await perform(batch); }
+    catch (error) {
+      if (!preview) await holdForUpload(root, error, held, approved);
+      refusal = error;
+    }
+    const refused = refusal ? refusal.code === 'STUDIO_CHANGES_INVALID' : result?.valid === false;
+    if (refused && attempt === 0 && entries.length && planner) {
+      const out = await staleDrafts(drafts, planner);
+      if (out.length) {
+        leftOut = out;
+        entries = entries.filter((entry) => !out.some((skip) => skip.draftId === entry.draftId));
+        continue;
+      }
+    }
+    if (refusal) throw refusal;
+    if (!preview && result && result.valid !== false) await settleDrafts(root, result, held, approved);
+    return { result, included: held.changes, leftOut };
   }
 }
 
-/** Propose every saved draft as one review. */
-export async function proposeDrafts(root, { apply, message = null }) {
+/** The waiting drafts that no longer apply (approved elsewhere or in conflict), each with its discard route when it conflicts. */
+async function staleDrafts(drafts, planner) {
+  const review = await planner((plan) => draftStandings(drafts.changes, plan)).catch(() => null);
+  const out = (review ?? []).filter((entry) => entry.standing === 'already-approved' || entry.standing === 'conflicts');
+  const several = out.filter((entry) => entry.standing === 'conflicts').length > 1;
+  return out.map((entry) => ({ ...entry, ...(entry.standing === 'conflicts' ? { discard: discardRoute(entry, drafts.listing, several) } : {}) }));
+}
+
+/** A plan with each draft left out of it named as a warning, as every surface shows warnings. */
+export function leftOutWarnings(plan, leftOut) {
+  if (!leftOut.length || !plan || typeof plan !== 'object') return plan;
+  return { ...plan, warnings: [...(plan.warnings ?? []), ...leftOut.map((entry) => ({ code: 'CONFIGURATION_DRAFT_LEFT_OUT', message: leftOutLine(entry),
+    draft: { draftId: entry.draftId, number: entry.number, standing: entry.standing, discard: entry.discard ?? null } }))] };
+}
+
+/** A draft left out of a batch, as a line a person reads. */
+export function leftOutLine(entry) {
+  return entry.standing === 'conflicts'
+    ? `Draft ${entry.number}, ${entry.description}, was left out: ${entry.problem} It stays waiting; discard it: ${entry.discard}`
+    : `Draft ${entry.number}, ${entry.description}, was left out: the approved configuration already has it.`;
+}
+
+/** Propose every saved draft as one review (see `proposeWithDrafts`). */
+export async function proposeDrafts(root, { apply, planner = null, message = null }) {
   const drafts = await readDrafts(root);
   if (!drafts.changes.length) {
     fail(drafts.proposed
@@ -594,13 +874,7 @@ export async function proposeDrafts(root, { apply, message = null }) {
     'CONFIGURATION_DRAFTS_EMPTY',
     drafts.proposed ? { nextAction: `singularity-flow configuration approve ${drafts.proposed.branch}` } : null);
   }
-  const changes = drafts.changes.map((entry) => entry.change);
-  const identity = batchIdentity(changes, changes[0].id ?? changes[0].skill ?? 'change', `[configuration] ${describeChange(changes[0])}`);
-  const result = await apply({ schema: CHANGE_SET_SCHEMA, changes }, { propose: true, ...identity, ...(message ? { message } : {}) });
-  const pending = result?.reviewRequired && result.branch
-    ? await recordProposal(root, result, { draftIds: drafts.changes.map((entry) => entry.draftId), changes: changes.map(describeChange) })
-    : changes.length;
-  return withDrafts(approvalNext(result), { pending, included: changes.length });
+  return proposeWithDrafts(root, drafts, [], { apply, planner, overrideMessage: message });
 }
 
 /**
@@ -644,10 +918,78 @@ export async function forgetProposal(root, branch) {
   });
 }
 
+const validHeld = (entry) => Boolean(entry) && typeof entry === 'object' && DRAFTABLE.has(entry.change?.op)
+  && typeof entry.description === 'string' && typeof entry.operationId === 'string' && OPERATION_ID.test(entry.operationId)
+  && Number.isSafeInteger(entry.sequence) && entry.sequence >= 0 && (entry.addedAt === null || typeof entry.addedAt === 'string')
+  && entry.payloadDigest === draftPayloadDigest(entry.change, entry.description);
+
+/**
+ * Forget the last proposal, which is gone without being approved, and give back the drafts it held
+ * as waiting again. The drafts are written before the proposal is forgotten, so a crash in between
+ * leaves both; doing it again repeats no draft. Returns the lines of the drafts given back.
+ */
+async function restoreProposal(root, branch) {
+  return withDraftStore(root, async (directory) => {
+    const store = await readStore(root);
+    if (store.proposed?.branch !== branch) return { restored: [], pending: store.drafts.length };
+    const taken = new Set(store.drafts.map((draft) => draft.operationId));
+    const restored = [];
+    for (const entry of (Array.isArray(store.proposed.held) ? store.proposed.held : []).filter(validHeld)) {
+      // Given back already (an earlier attempt stopped before forgetting the proposal), or saved again since.
+      if (store.drafts.some((draft) => draft.payloadDigest === entry.payloadDigest
+        && (draft.operationId === entry.operationId || draft.operationId.startsWith(`${entry.operationId}.`)))) continue;
+      const operationId = freeOperationId(entry.operationId, taken);
+      taken.add(operationId);
+      restored.push(await writeDraft(directory, { operationId, change: entry.change, description: entry.description,
+        sequence: entry.sequence, addedAt: entry.addedAt, checkedAgainst: entry.checkedAgainst ?? null }));
+    }
+    await writeProposed(directory, store.revision + 1, null);
+    return { restored: restored.map((draft) => draft.description), pending: store.drafts.length + restored.length };
+  });
+}
+
+// An upload a sync can still finish: retained, and not refused for good.
+const UPLOAD_RETRYABLE = new Set(['pending', 'pushing', 'outcome-unknown', 'needs-user', 'attempt-budget-exhausted']);
+
+/**
+ * The proposal this machine recorded is no longer on the remote. Merged into sflow/config through
+ * the Git host, which then deleted its branch: it is recorded as approved and forgotten. Not merged:
+ * an upload a sync can still finish is finished first; otherwise the proposal is forgotten and the
+ * drafts it held are waiting again, to propose anew. `status(root, branch, commit)` reads whether
+ * the exact proposal commit reached sflow/config; `upload(intentId)` reads a retained upload.
+ */
+async function settleGoneProposal(root, proposed, { status, upload, print }) {
+  const { branch, commit } = proposed;
+  const seen = commit ? await status(root, branch, commit) : null;
+  if (seen?.merged) {
+    await forgetProposal(root, branch);
+    print(`Proposal ${branch} was merged into ${seen.targetBranch ?? 'sflow/config'} through your Git host, which then removed its branch. Recorded as approved: new Stories use these changes; Stories already running keep the configuration they started with.`);
+    return { schemaVersion: 1, resultType: 'configuration-approval', status: 'merged', activated: true, branch,
+      proposalCommit: commit, targetCommit: seen.targetCommit ?? null };
+  }
+  const intentId = proposed.upload?.intentId ?? null;
+  if (intentId && typeof upload === 'function') {
+    const intent = await upload(intentId).catch(() => null);
+    if (UPLOAD_RETRYABLE.has(intent?.status)) {
+      fail(`Proposal ${branch} has not been uploaded yet, so there is nothing to approve. Finish its upload: singularity-flow sync ${intentId}, then approve it.`,
+        'CONFIGURATION_PROPOSAL_PUBLICATION_PENDING', { branch, commit, intentId, status: intent.status,
+          nextAction: `singularity-flow sync ${intentId}`, recoveryCommands: [`singularity-flow push status ${intentId}`] });
+    }
+  }
+  const { restored, pending } = await restoreProposal(root, branch);
+  const back = restored.length
+    ? ` The ${restored.length === 1 ? 'draft it held is' : `${restored.length} drafts it held are`} waiting again: ${restored.join('; ')}.`
+    : ` Its changes were: ${(proposed.changes ?? []).join('; ') || 'not recorded here'}; save them again to propose them.`;
+  return fail(`Proposal ${branch} is no longer on the remote and its changes are not in sflow/config, so there is nothing to approve.${back} `
+    + `Propose ${pending ? 'the waiting drafts' : 'your changes'} again: singularity-flow configuration propose`,
+  'CONFIGURATION_APPROVE_NOTHING', { branch, restored, pending, nextAction: 'singularity-flow configuration propose' });
+}
+
 /**
  * The drafts of one kind ('skill', 'instruction' or 'agent') as lines to print after a list of the
  * approved ones, so a draft is visible where people look for it and plainly not in use yet. Never
- * fails the list it decorates.
+ * fails the list it decorates, and never hides drafts without a word: a store this build cannot
+ * read is named, with the way to read it.
  */
 export async function draftNotice(root, kind) {
   try {
@@ -659,25 +1001,50 @@ export async function draftNotice(root, kind) {
       lines: ['', 'Drafts, not used by any Story until approved:', ...mine.map((entry) => `  ${entry.description}`),
         'Propose them for one review: singularity-flow configuration propose']
     };
-  } catch {
-    return { lines: [], entries: [] };
+  } catch (error) {
+    const newer = error?.code === 'SCHEMA_VERSION_FUTURE';
+    const nextAction = newer ? 'singularity-flow product status' : 'singularity-flow configuration drafts';
+    return { lines: ['', `Drafts saved on this machine are not shown: ${error?.message ?? error}`, `See why: ${nextAction}`], entries: [],
+      unavailable: { code: error?.code ?? 'CONFIGURATION_DRAFTS_INVALID', message: String(error?.message ?? error), nextAction } };
   }
 }
 
-/** The drafts and the last proposal as lines a person reads. */
-export function draftLines(drafts) {
+const STANDING_NOTE = Object.freeze({
+  'already-approved': 'already approved: the approved configuration has it, so proposing settles it',
+  redundant: 'changes nothing the drafts above it do not'
+});
+
+/**
+ * The drafts and the last proposal as lines a person reads. `standings` (from `draftStandings`), when
+ * known, say how each draft stands against the approved configuration, with the way out of a conflict;
+ * `uploadFinished` says a proposal whose upload failed has been uploaded since.
+ */
+export function draftLines(drafts, standings = null, { uploadFinished = false } = {}) {
   const lines = [];
+  const listing = drafts.listing ?? draftListing(drafts.changes);
+  const known = new Map((standings ?? []).map((entry) => [entry.draftId, entry]));
+  const conflicts = (standings ?? []).filter((entry) => entry.standing === 'conflicts');
   if (!drafts.changes.length) lines.push('No drafts. Each agent, skill or instruction change you make is saved here until you propose it.');
   else {
     lines.push(`${drafts.changes.length} draft${drafts.changes.length === 1 ? '' : 's'} saved on this machine, not used by any Story until approved:`);
-    drafts.changes.forEach((entry, index) => lines.push(`  ${index + 1}. ${entry.description ?? describeChange(entry.change)}`));
-    lines.push('', 'Next: singularity-flow configuration propose   (one review for all of them)');
-    lines.push(`Drop one: singularity-flow configuration discard <NUMBER> --listing ${drafts.listing ?? draftListing(drafts.changes)}   (or --all)`);
+    drafts.changes.forEach((entry, index) => {
+      const standing = known.get(entry.draftId);
+      lines.push(`  ${index + 1}. ${entry.description ?? describeChange(entry.change)}${STANDING_NOTE[standing?.standing] ? ` (${STANDING_NOTE[standing.standing]})` : ''}`);
+      if (standing?.standing === 'conflicts') {
+        lines.push(`     Conflicts with the approved configuration: ${standing.problem}`);
+        lines.push(`     Discard it: ${discardRoute(standing, listing, conflicts.length > 1)}`);
+      }
+    });
+    lines.push('', conflicts.length
+      ? `Next: discard or replace the draft${conflicts.length === 1 ? '' : 's'} that conflict, then singularity-flow configuration propose`
+      : 'Next: singularity-flow configuration propose   (one review for all of them)');
+    lines.push(`Drop one: singularity-flow configuration discard <NUMBER> --listing ${listing}   (or --all)`);
   }
   if (drafts.proposed) {
     lines.push('', `Waiting for approval: ${drafts.proposed.branch}`);
     for (const change of drafts.proposed.changes ?? []) lines.push(`  - ${change}`);
-    lines.push('Approve: singularity-flow configuration approve');
+    lines.push(`Approve: singularity-flow configuration approve ${drafts.proposed.branch}`);
+    if (drafts.proposed.upload?.intentId && !uploadFinished) lines.push(`Its upload has not finished; finish it first: singularity-flow sync ${drafts.proposed.upload.intentId}`);
   }
   return lines;
 }
@@ -708,7 +1075,7 @@ export function proposalSummaryLines(reviewed) {
  */
 export async function approveProposal(root, requested, {
   yes = false, interactive = false, ask = null, print = (line) => console.log(line),
-  list, inspect, activate
+  list, inspect, activate, status = null, upload = null
 }) {
   const drafts = await readDrafts(root);
   let branch = requested ?? drafts.proposed?.branch ?? null;
@@ -724,7 +1091,13 @@ export async function approveProposal(root, requested, {
     }
     branch = open[0].branch;
   }
-  const reviewed = await inspect(root, branch);
+  let reviewed;
+  try { reviewed = await inspect(root, branch); }
+  catch (error) {
+    // The proposal recorded here is gone: merged and deleted by the Git host, or closed (SDA sweep C6).
+    if (error?.code !== 'WORKFLOW_PROPOSAL_UNAVAILABLE' || drafts.proposed?.branch !== branch || typeof status !== 'function') throw error;
+    return settleGoneProposal(root, drafts.proposed, { status, upload, print });
+  }
   for (const line of proposalSummaryLines(reviewed)) print(line);
   if (reviewed.valid === false) {
     fail(`Proposal ${branch} cannot be approved: it changes files outside the configuration${reviewed.invalidFiles?.length ? ` (${reviewed.invalidFiles.join(', ')})` : ''}.`,

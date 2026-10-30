@@ -22,7 +22,7 @@ import { liveWorkflows, refusalOf, workflowArchiveArgs } from './workflow-delete
 import { chooseNewDefault, WorkflowDeletePanel, type WorkflowRetireOutcome } from './workflow-delete-panel.ts';
 import { INTEGRATION_SECRET_NAME, type IntegrationSecretSource } from '../credentials.ts';
 import {
-  BUILD_ID, BUILD_PROPOSAL_ID, BUILD_QUESTION_ID, PROPOSAL_BRANCH, STUDIO_FOCUS_VIEWS, buildChatQuery, buildsForRepository, studioBuildArgs, STUDIO_MODEL_ARGS, STUDIO_PREVIEW_ARGS, WORKFLOW_STUDIO_SCRIPT, studioCheckArgs, localProposalUploads, proposalSummaries,
+  BUILD_ID, BUILD_PROPOSAL_ID, BUILD_QUESTION_ID, PROPOSAL_BRANCH, SAVED_DRAFT_ID, STUDIO_FOCUS_VIEWS, buildChatQuery, buildsForRepository, studioBuildArgs, STUDIO_MODEL_ARGS, STUDIO_PREVIEW_ARGS, WORKFLOW_STUDIO_SCRIPT, studioCheckArgs, localProposalUploads, proposalSummaries,
   studioPublishArgs, workflowStudioBody, type LocalProposalUpload, type StudioAuthority, type StudioFocusView
 } from './workflow-studio-page.ts';
 import * as os from 'node:os';
@@ -35,7 +35,7 @@ export { STUDIO_FOCUS_VIEWS, proposalSummaries, type StudioFocusView };
 
 
 interface StudioModel { authority?: StudioAuthority; base?: unknown; [key: string]: unknown }
-interface StudioPlan { valid: boolean; changed: boolean; summary: string[]; problems: Array<{ message: string }>; warnings: Array<{ message: string }>; files: Array<{ path: string }> }
+interface StudioPlan { valid: boolean; changed: boolean; summary: string[]; problems: Array<{ message: string }>; warnings: Array<{ message: string; code?: string }>; files: Array<{ path: string }> }
 interface StudioApplyResult extends StudioPlan { reviewRequired?: boolean; branch?: string | null; authorityMode?: string; written?: string[] }
 
 const MAX_CHANGE_SET_BYTES = 1024 * 1024;
@@ -260,6 +260,7 @@ export class WorkflowStudioPanel implements vscode.Disposable {
     'studio.exportWorkflows': (message) => this.exportWorkflows((message as { workflowIds?: unknown }).workflowIds),
     'studio.importWorkflows': (message) => this.importWorkflows(integerField(message, 'pending') ?? 0),
     'studio.retryUpload': (message) => this.retryUpload(stringField(message, 'intentId')),
+    'studio.discardSavedDraft': (message) => this.discardSavedDraft(stringField(message, 'draftId')),
     'studio.checkSignIn': (message) => this.checkSignIn(stringField(message, 'intentId')),
     'studio.importTeam': () => this.actions.importTeam?.(),
     'studio.addUserAgent': () => this.actions.addUserAgent?.(),
@@ -314,6 +315,22 @@ export class WorkflowStudioPanel implements vscode.Disposable {
     } catch (error) {
       this.post({ type: 'studio.proposals', proposals: [], uploads: this.uploads, error: (error as Error).message });
     }
+  }
+
+  /**
+   * Drop one saved agent, skill or instruction draft, as the person confirmed on the page: the same
+   * `configuration discard <DRAFT-ID>` the command line runs. A draft approved from another computer
+   * or one that no longer applies otherwise stays in every batch the Studio publishes.
+   */
+  private async discardSavedDraft(draftId: string | null): Promise<void> {
+    if (!draftId || !SAVED_DRAFT_ID.test(draftId)) { this.post({ type: 'studio.failed', message: 'That is not a saved draft.' }); return; }
+    const command = ['configuration', 'discard', draftId, '--json'];
+    this.output.appendLine(`\n$ singularity-flow ${formatCliArgsForDisplay(command)}`);
+    let removed: string[];
+    try { removed = ((await this.client.run<{ removed?: unknown }>(command))?.removed as string[] | undefined) ?? []; }
+    catch (error) { this.post({ type: 'studio.failed', message: (error as Error).message }); return; }
+    await this.load(false);
+    this.post({ type: 'studio.savedDraftDiscarded', message: `Discarded the saved draft${removed.length ? `: ${removed.join('; ')}` : ''}.` });
   }
 
   /** Try a not-yet-uploaded proposal's upload again, as the person asked (one attempt, never automatic). */
@@ -837,9 +854,12 @@ export class WorkflowStudioPanel implements vscode.Disposable {
         () => this.client.runWithInput<StudioApplyResult>(args, changeSet)
       );
       for (const line of result.summary ?? []) this.output.appendLine(`  ${line}`);
-      const summary = result.reviewRequired && result.branch
+      // Saved drafts approved elsewhere or no longer applying were left out of the batch: say which.
+      const leftOut = (result.warnings ?? []).filter((warning) => warning.code === 'CONFIGURATION_DRAFT_LEFT_OUT').map((warning) => warning.message);
+      for (const line of leftOut) this.output.appendLine(`  ${line}`);
+      const summary = `${result.reviewRequired && result.branch
         ? `Published for review as ${result.branch}.`
-        : `Wrote ${(result.written ?? []).length} file(s) to this repository.`;
+        : `Wrote ${(result.written ?? []).length} file(s) to this repository.`}${leftOut.length ? ` ${leftOut.join(' ')}` : ''}`;
       this.post({ type: 'studio.published', summary });
       await this.clearDraft();
       await this.load(true);

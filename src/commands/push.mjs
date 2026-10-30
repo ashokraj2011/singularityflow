@@ -21,10 +21,23 @@ function faultSlots(intent) {
  * `push status` itself, or a raw `git fetch`): the retry while one can land the commit, nothing once
  * it landed or the branch moved past it (the advice says to repeat the operation).
  */
+/** The review branch a configuration proposal's upload published, when the intent is one. */
+function configurationProposalBranch(intent) {
+  if (!String(intent?.scope?.operation ?? '').startsWith('sflow.configuration.workflow.')) return null;
+  const branch = /^refs\/heads\/(sflow\/config-change\/.+)$/u.exec(String(intent?.targetRef ?? ''))?.[1];
+  return branch ?? null;
+}
+
 function nextActions(intent) {
   // Its checkout is gone: nothing can run there (the advice says to repeat the operation).
   if (transportCheckoutMissing(intent)) return [];
   const retry = `singularity-flow sync ${intent?.intentId}`;
+  // An uploaded configuration proposal is not finished: approving it is (SDA sweep C5).
+  const proposal = intent?.status === 'succeeded' ? configurationProposalBranch(intent) : null;
+  if (proposal) {
+    return [action({ id: 'configuration-approve', label: 'Read what the proposal changes and approve it',
+      command: `singularity-flow configuration approve ${proposal}`, kind: 'remediation' })];
+  }
   if (['pending', 'pushing', 'outcome-unknown'].includes(intent?.status)) {
     return [action({ id: 'transport-next-action', label: 'Retry this preserved publication', command: retry, kind: 'remediation' })];
   }
@@ -42,7 +55,7 @@ function result(operation, outcome, { intent = null, intents = null, changed = f
     outcome,
     effects: changed ? effects({ stateChanged: true, filesChanged: true }) : noEffects(),
     next: intent ? nextActions(intent) : [],
-    restState: intent?.status === 'succeeded' ? 'complete' : 'informational',
+    restState: intent?.status === 'succeeded' && !configurationProposalBranch(intent) ? 'complete' : 'informational',
     data: intent ? { intent } : { intents }
   });
 }
@@ -83,7 +96,7 @@ export async function run(_argv, { positionals, options, operation }) {
         : { count: result.length }),
       effects: noEffects(),
       next: intent ? nextActions(intent) : [],
-      restState: intent?.status === 'succeeded' ? 'complete' : 'informational',
+      restState: intent?.status === 'succeeded' && !configurationProposalBranch(intent) ? 'complete' : 'informational',
       data: intent ? { intent } : { intents: result }
     }), { json });
   }

@@ -123,7 +123,7 @@ test('a Story taken over on another laptop discloses what stayed behind, reuses 
   assert.deepEqual(preview.documents.map((document) => [document.status, document.name]), [['to-restore', 'Laptop brief']]);
   const restored = b.json(b.checkout, ['backup', 'restore', carry]);
   assert.equal(restored.status, 'restored', JSON.stringify(restored, null, 2));
-  assert.deepEqual(restored.counts.configurationDrafts, { restored: 1, 'already-saved': 0, refused: 0 });
+  assert.deepEqual(restored.counts.configurationDrafts, { restored: 1, 'already-saved': 0, 'already-approved': 0, refused: 0 });
   assert.equal(restored.counts.documents.restored, 1);
   assert.deepEqual(restored.effects, { shared: false, committed: false, pushed: false, proposed: false, approvalsChanged: false });
   const draftA = JSON.parse(manifest).configurationDrafts[0];

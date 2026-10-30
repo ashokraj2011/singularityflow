@@ -3735,9 +3735,10 @@ export async function applyImportChangeSet(root, changeSet, options, { subject, 
 
 /** Agent, skill and instruction changes: saved as drafts while an approved configuration exists. */
 async function applyAuthoringChange(root, changeSet, options, meta) {
-  const [{ authorChange, refuseUncheckedSave }, { planStudioChangeSet }] = await Promise.all([import('./configuration-drafts.mjs'), import('./workflow-studio.mjs')]);
+  const [{ authorChange, refuseUncheckedSave }, { planStudioChangeSet }, { approvedConfigurationPlanner }] = await Promise.all([
+    import('./configuration-drafts.mjs'), import('./workflow-studio.mjs'), import('./commands/configuration-drafts.mjs')]);
   return authorChange(root, changeSet, { dryRun: optionBoolean(options, 'dry-run'), propose: optionBoolean(options, 'propose'), ...meta,
-    operationId: optionString(options, 'operation-id', null),
+    operationId: optionString(options, 'operation-id', null), planner: approvedConfigurationPlanner(root),
     apply: (set, { dryRun = false, propose = false, subject = meta.subject, message = meta.message } = {}) => applyImportChangeSet(root, set,
       { ...options, 'dry-run': dryRun || undefined, propose: propose || undefined }, { subject, message }),
     check: async (set, { refreshAuthority = true } = {}) => {
@@ -3748,8 +3749,20 @@ async function applyAuthoringChange(root, changeSet, options, meta) {
 }
 
 function printImportResult(result, { dryRun }) {
+  // A change that was refused, or did not check, exits non-zero: "Problem:" never ends in success.
+  if (result?.valid === false) process.exitCode = 1;
+  for (const line of result?.drafts?.settled ?? []) console.log(`Already approved, no longer waiting: ${line}`);
+  if (result?.drafts?.nothingToPropose) return console.log('Nothing to propose: the approved configuration already has these changes.');
+  if (result?.saved === 'unchanged') {
+    console.log('Nothing to save: the approved configuration already has this change. No draft was saved.');
+    for (const line of result.drafts.unchanged ?? []) console.log(`  ${line}`);
+    return;
+  }
   if (result?.draft) {
-    console.log(`Saved as a draft; no Story uses it until it is approved. Drafts waiting: ${result.drafts.pending}.`);
+    // A retry of the save just made returns that draft: say so, never as a new save.
+    console.log(result.saved === 'existing'
+      ? `Already saved as a draft; nothing new was saved. Drafts waiting: ${result.drafts.pending}.`
+      : `Saved as a draft; no Story uses it until it is approved. Drafts waiting: ${result.drafts.pending}.`);
     for (const line of result.drafts.added ?? []) console.log(`  ${line}`);
     for (const warning of result.warnings ?? []) console.log(`  Warning: ${warning.message}`);
     console.log('  See them: singularity-flow configuration drafts');
@@ -5467,8 +5480,10 @@ async function workflowCommand(positionals, options) {
       // The Studio edits what a proposal would edit: the approved configuration when one exists.
       const model = await withApprovedConfigurationRead(root, (authority) => buildStudioModel(root, { authority }), { preferAuthority: true });
       // Drafts saved from the CLI or Copilot are shown, and published with the Studio's own batch.
+      // A store this build cannot read is named, never shown as no drafts.
       model.drafts = await import('./configuration-drafts.mjs').then(({ readDrafts }) => readDrafts(root))
-        .then((drafts) => drafts.changes.map((entry) => ({ draftId: entry.draftId, state: entry.state, description: entry.description })), () => []);
+        .then((drafts) => drafts.changes.map((entry) => ({ draftId: entry.draftId, state: entry.state, description: entry.description })),
+          (error) => { model.draftsUnavailable = { code: error?.code ?? 'CONFIGURATION_DRAFTS_INVALID', message: String(error?.message ?? error) }; return []; });
       if (optionBoolean(options, 'json')) return console.log(JSON.stringify(model, null, 2));
       console.log(`Workflow Studio: ${model.workflows.length} workflows, ${model.agents.length} agents, ${model.groups.length} approval groups.`);
       for (const workflow of model.workflows) {
@@ -5482,8 +5497,15 @@ async function workflowCommand(positionals, options) {
     const source = optionString(options, 'change-set');
     if (!source) throw new SingularityFlowError('Provide the change set: workflow studio apply --change-set <file|->.', { code: 'STUDIO_CHANGE_SET_REQUIRED' });
     const studioChanges = readStudioChangeSet(source === '-' ? await stdinText() : await readFile(path.resolve(source), 'utf8'));
-    const { changeSet, included: drafted, draftIds } = await import('./configuration-drafts.mjs').then(({ withSavedDrafts }) => withSavedDrafts(root, studioChanges));
-    if (drafted.length && !optionBoolean(options, 'json')) console.log(`Includes ${drafted.length} saved draft${drafted.length === 1 ? '' : 's'}: ${drafted.join('; ')}.`);
+    const json = optionBoolean(options, 'json');
+    const [drafts, { approvedConfigurationPlanner }] = await Promise.all([import('./configuration-drafts.mjs'), import('./commands/configuration-drafts.mjs')]);
+    // The waiting drafts go out in front of the Studio's batch; one approved elsewhere or in conflict is left out, not a blocker.
+    const withDrafts = async (perform, preview) => {
+      const { result, included, leftOut } = await drafts.runWithDrafts(root, studioChanges, perform, { planner: approvedConfigurationPlanner(root), preview });
+      if (!json && included.length) console.log(`Includes ${included.length} saved draft${included.length === 1 ? '' : 's'}: ${included.join('; ')}.`);
+      if (!json) for (const entry of leftOut) console.log(drafts.leftOutLine(entry));
+      return json ? drafts.leftOutWarnings(result, leftOut) : result;
+    };
     const printStudioPlan = (plan) => {
       for (const line of plan.summary) console.log(`  ${line}`);
       for (const problem of plan.problems) console.log(`  Problem: ${problem.message}`);
@@ -5491,25 +5513,30 @@ async function workflowCommand(positionals, options) {
       for (const file of plan.files) console.log(`  ${file.action === 'create' ? 'new' : file.action === 'delete' ? 'removed' : 'changed'}: ${file.path}`);
     };
     if (optionBoolean(options, 'dry-run')) {
-      const plan = await withApprovedConfigurationRead(root, () => planStudioChangeSet(root, changeSet), { preferAuthority: true });
-      if (optionBoolean(options, 'json')) return console.log(JSON.stringify(plan, null, 2));
+      const plan = await withDrafts((changeSet) => withApprovedConfigurationRead(root, () => planStudioChangeSet(root, changeSet), { preferAuthority: true }), true);
+      if (json) return console.log(JSON.stringify(plan, null, 2));
       console.log(plan.valid ? `Workflow Studio preview: ${plan.files.length} file(s) would change.` : 'Workflow Studio preview: these changes cannot be applied yet.');
       printStudioPlan(plan);
+      if (!plan.valid) process.exitCode = 1;
       return;
     }
-    const subject = String((changeSet.changes ?? []).map((change) => change?.id ?? change?.phase).find((id) => /^[a-z0-9]+(?:-[a-z0-9]+)*$/.test(String(id ?? ''))) ?? 'changes');
-    // Imported bytes were previewed and staged in this checkout; a proposal clone has none of them.
-    const { resolveChangeSetImports } = await import('./asset-import.mjs');
-    const imports = await resolveChangeSetImports(root, changeSet);
-    const result = await author({
-      operation: 'studio', subject,
-      message: `[configuration] workflow studio: ${(changeSet.changes ?? []).length} change(s) to ${subject}`,
-      expectedAuthority: expectedConfigurationAuthority(options),
-      intent: { kind: 'studio-change-set', operations: changeSet.changes ?? [] },
-      mutate: (target) => planStudioChangeSet(target, changeSet, { write: true, imports })
-    });
-    await import('./configuration-drafts.mjs').then(({ settleDrafts }) => settleDrafts(root, result, { included: drafted, draftIds }));
-    if (optionBoolean(options, 'json')) return console.log(JSON.stringify(result, null, 2));
+    const result = await withDrafts(async (changeSet) => {
+      if (proposing && !(changeSet.changes ?? []).length) {
+        throw new SingularityFlowError('There is nothing to propose: the change set holds no changes and no drafts are waiting.', { code: 'STUDIO_NOTHING_TO_PROPOSE' });
+      }
+      const subject = String((changeSet.changes ?? []).map((change) => change?.id ?? change?.phase).find((id) => /^[a-z0-9]+(?:-[a-z0-9]+)*$/.test(String(id ?? ''))) ?? 'changes');
+      // Imported bytes were previewed and staged in this checkout; a proposal clone has none of them.
+      const { resolveChangeSetImports } = await import('./asset-import.mjs');
+      const imports = await resolveChangeSetImports(root, changeSet);
+      return author({
+        operation: 'studio', subject,
+        message: `[configuration] workflow studio: ${(changeSet.changes ?? []).length} change(s) to ${subject}`,
+        expectedAuthority: expectedConfigurationAuthority(options),
+        intent: { kind: 'studio-change-set', operations: changeSet.changes ?? [] },
+        mutate: (target) => planStudioChangeSet(target, changeSet, { write: true, imports })
+      });
+    }, false);
+    if (json) return console.log(JSON.stringify(result, null, 2));
     if (printProposal(result)) return;
     console.log(`Workflow Studio applied ${result.written?.length ?? 0} file change(s).`);
     printStudioPlan(result);

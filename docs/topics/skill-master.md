@@ -16,7 +16,7 @@ related:
   - agents-and-routing
   - importing-assets
   - workflow-authoring
-version: 7
+version: 8
 ---
 The skill master is the repository's collection of named skills. Attach a skill to a **workflow** to apply it only within that workflow, or to an **agent** to apply it wherever that agent is selected. Each attachment can restrict its steps and say when to use it. Both scopes eagerly inject exact instructions by default; explicitly optional procedures can instead use a retained catalog.
 
@@ -144,7 +144,7 @@ These skills are not the compiled skill packages under `singularity/skills/` tha
   - `sflow skill attach <ID> --workflow <WORKFLOW> [--phases a,b] [--use "<when>"]` and `sflow skill detach <ID> --workflow <WORKFLOW>` change workflow-local use.
   - `sflow skill remove <ID>` deletes it.
 
-  A change is saved as a draft while the repository has an approved configuration authority; `--dry-run` previews it on top of your drafts, and `--propose` proposes your drafts and this change together. `sflow configuration drafts` lists the drafts, and `sflow configuration discard <NUMBER>` drops one.
+  A change is saved as a draft while the repository has an approved configuration authority; `--dry-run` previews it on top of your drafts, and `--propose` proposes your drafts and this change together. `sflow configuration drafts` lists the drafts, and `sflow configuration discard <NUMBER> --listing <LISTING>` (the listing it printed) or `sflow configuration discard <DRAFT-ID>` drops one.
 - **Copilot:** `/sf-help` followed by the `skill` commands above. The skill must preserve the CLI result and ask before it changes anything.
 - **VS Code:**
   - **Singularity Flow: Skills** in the command palette, or **Configuration Center → Skills**, opens **Workflow Studio → Skill master**. It lists every skill and the workflows and agents that use it.

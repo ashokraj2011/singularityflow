@@ -19,7 +19,8 @@ export async function readAgents({ positionals, options }) {
     const notice = await import('../configuration-drafts.mjs').then(({ draftNotice }) => draftNotice(root, 'agent'));
     const rows = agents.map(agent => ({ id: agent.id, label: agent.label ?? agent.id, scope: agent.scope,
       source: agent.source, dependencies: agent.dependencies.length }));
-    if (json) return console.log(JSON.stringify({ schemaVersion: 1, resultType: 'agent-catalog', agents: rows, drafts: notice.entries }, null, 2));
+    if (json) return console.log(JSON.stringify({ schemaVersion: 1, resultType: 'agent-catalog', agents: rows, drafts: notice.entries,
+      ...(notice.unavailable ? { draftsUnavailable: notice.unavailable } : {}) }, null, 2));
     return console.log([rows.length ? table(rows, [
       { key: 'id', label: 'AGENT' }, { key: 'scope', label: 'SCOPE' },
       { key: 'source', label: 'SOURCE' }, { key: 'dependencies', label: 'REMOTE' }

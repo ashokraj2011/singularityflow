@@ -47,7 +47,8 @@ function printItems(label, items) {
     const name = item.description ?? (item.documentId ? `${item.documentId} — ${item.name} (${item.workId})` : `${item.key} (${item.workId})`);
     const reason = item.refusal?.message ?? item.problems?.join(' ') ?? (item.status === 'superseded'
       ? 'the Story no longer holds this document; its bytes stay in the backup'
-      : item.status === 'story-not-here' ? `the Story is not on this laptop; take it over first: ${item.next}` : null);
+      : item.status === 'story-not-here' ? `the Story is not on this laptop; take it over first: ${item.next}`
+        : item.status === 'already-approved' ? 'the approved configuration has it by now, so it is not saved again' : null);
     console.log(`  ${label} ${item.status}: ${name}${reason ? ` — ${reason}` : ''}`);
   }
 }

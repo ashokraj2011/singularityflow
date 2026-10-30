@@ -161,6 +161,51 @@ test('a repeated operation returns its first draft; another change under that op
   assert.equal((await readDrafts(root)).changes.filter((entry) => entry.operationId === 'op-race').length, 1);
 });
 
+test('an edit back to an earlier value is a new change; only a retry of the latest save of its subject is the same operation', async t => {
+  // First, Second, then First again: the third save is a change. Treating it as a retry of the first
+  // draft saved nothing and approved "Second" (sweep C2).
+  const root = await repository(t);
+  const edit = (instructions) => ({ op: 'instruction.update', id: 'tone', instructions });
+  const first = await save(root, edit('First.'));
+  assert.equal((await save(root, edit('Second.'))).saved, 'new');
+  const back = await save(root, edit('First.'));
+  assert.equal(back.saved, 'new', 'an edit back to an earlier value is saved');
+  assert.equal(back.drafts.pending, 3);
+  assert.notDeepEqual(back.drafts.ids, first.drafts.ids);
+  const retried = await save(root, edit('First.'));
+  assert.equal(retried.saved, 'existing', 'the same command again is a retry of the latest save');
+  assert.deepEqual(retried.drafts.ids, back.drafts.ids);
+  const drafts = await readDrafts(root);
+  assert.deepEqual(drafts.changes.map((entry) => entry.change.instructions), ['First.', 'Second.', 'First.'],
+    'the last draft of the subject is the value proposed last');
+  const derived = defaultDraftOperationId(edit('First.'));
+  assert.deepEqual([drafts.changes[0].operationId, drafts.changes[2].operationId], [derived, `${derived}.2`]);
+  // Another subject saved in between does not make a retry a new change.
+  await save(root, skill('other'));
+  assert.equal((await save(root, edit('First.'))).saved, 'existing');
+  // An attachment is its own subject: attach, detach, attach again is three changes.
+  const attach = { op: 'skill.attach', skill: 'other', agent: 'qa', phases: [], use: '' };
+  await save(root, attach);
+  await save(root, { op: 'skill.detach', skill: 'other', agent: 'qa' });
+  assert.equal((await save(root, attach)).saved, 'new');
+  // A named operation keeps its exact meaning: the same ID with the same change is a retry.
+  assert.equal((await save(root, edit('Second.'), { operationId: 'op-second' })).saved, 'new');
+  assert.equal((await save(root, edit('Second.'), { operationId: 'op-second' })).saved, 'existing');
+});
+
+test('a drafts file of earlier builds holding an edit back to an earlier value migrates every change', async t => {
+  const root = await repository(t);
+  const edit = (instructions) => ({ op: 'instruction.update', id: 'tone', instructions });
+  const legacy = { schema: 'sflow-configuration-drafts@1', proposed: null,
+    changes: ['First.', 'Second.', 'First.'].map((value) => ({ addedAt: null, description: describeChange(edit(value)), change: edit(value) })) };
+  await mkdir(path.dirname(legacyDraftsPath(root)), { recursive: true });
+  await writeFile(legacyDraftsPath(root), `${JSON.stringify(legacy, null, 2)}\n`);
+  const migrated = await readDrafts(root);
+  assert.deepEqual(migrated.changes.map((entry) => entry.change.instructions), ['First.', 'Second.', 'First.']);
+  const derived = defaultDraftOperationId(edit('First.'));
+  assert.deepEqual(migrated.changes.map((entry) => entry.operationId), [derived, defaultDraftOperationId(edit('Second.')), `${derived}.2`]);
+});
+
 test('the drafts file of earlier builds migrates once, and an interrupted migration resumes without duplicates', async t => {
   const root = await repository(t);
   const legacy = { schema: 'sflow-configuration-drafts@1', proposed: { branch: 'sflow/config-change/workflow/old', commit: null, at: '2026-10-01T00:00:00.000Z', changes: ['Old'] },

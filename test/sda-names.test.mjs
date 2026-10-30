@@ -63,6 +63,15 @@ export const SDA_NAMES = Object.freeze({
   CONFIGURATION_DRAFT_OPERATION_INVALID: ['src/configuration-drafts.mjs'],
   SINGULARITY_FLOW_TEST_CRASH_AT: ['src/configuration-drafts.mjs'],
   'sflow-configuration-draft@2': ['src/configuration-drafts.mjs'],
+  // Sweep batch 2: every draft keeps a correct state and a way out
+  DRAFT_STANDINGS: ['src/configuration-drafts.mjs'],
+  "'already-approved'": ['src/commands/backup.mjs', 'src/configuration-drafts.mjs', 'src/local-backup.mjs'],
+  nothingToPropose: ['src/cli.mjs', 'src/commands/configuration-drafts.mjs', 'src/configuration-drafts.mjs'],
+  uploadFinished: ['src/commands/configuration-drafts.mjs', 'src/configuration-drafts.mjs'],
+  CONFIGURATION_DRAFT_LEFT_OUT: ['src/configuration-drafts.mjs'],
+  draftsLeftOut: ['src/commands/workflow-check.mjs'],
+  draftsUnavailable: ['src/cli.mjs', 'src/commands/agents.mjs', 'src/commands/instruction.mjs', 'src/commands/skill-master.mjs'],
+  STUDIO_NOTHING_TO_PROPOSE: ['src/cli.mjs'],
   // M3: lease-proven lock recovery
   SINGULARITY_FLOW_MACHINE_ID_FILE: ['scripts/test-machine-state.mjs', 'src/lease-liveness.mjs'],
   SUBJECT_LOCK_RELEASE_: ['src/subject-lock.mjs'],

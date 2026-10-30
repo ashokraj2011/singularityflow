@@ -24,6 +24,7 @@ export async function run(argv, { positionals, options, applyChangeSet, printRes
       : { schemaVersion: 1, resultType: 'instruction-library', instructions: model.instructions.map(({ instructions: body, ...summary }) => summary), problems: model.instructionProblems };
     const notice = action === 'list' ? await import('../configuration-drafts.mjs').then(({ draftNotice }) => draftNotice(root, 'instruction')) : { lines: [], entries: [] };
     if (notice.entries.length) result.drafts = notice.entries;
+    if (notice.unavailable) result.draftsUnavailable = notice.unavailable;
     const text = item ? `${item.label} (${item.id})\n${item.path}\nUsed by skills: ${item.usedBy.join(', ') || 'none'}\n\n${item.instructions}`
       : [model.instructions.map(item => `${item.label} (${item.id}) — ${item.description}`).join('\n') || 'No reusable instructions yet.', ...notice.lines].join('\n');
     return emitCommandResult(commandResult({ operation: { id: `instruction.${action}`, classification: 'read' },
@@ -42,6 +43,8 @@ export async function run(argv, { positionals, options, applyChangeSet, printRes
     subject: change.id, message: `[configuration] instruction ${action}: ${change.id}`
   });
   const preview = options['dry-run'] === true;
+  // A change that does not check was refused: never exit 0 with a problem. A JSON preview reports it in `valid`.
+  if (result?.valid === false && !preview) process.exitCode = 1;
   // People read the same lines skill changes print: what changed, any problem, and the next step.
   if (!options.json && printResult) return printResult(result, { dryRun: preview });
   return emitCommandResult(commandResult({ operation: { id: `instruction.${action}${preview ? '.preview' : ''}`, classification: preview ? 'read' : 'mutation' },

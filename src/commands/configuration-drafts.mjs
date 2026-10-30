@@ -31,23 +31,58 @@ async function ask(question) {
   try { return await io.question(question); } finally { io.close(); }
 }
 
+/**
+ * `planner(work, { refreshAuthority })`: runs `work(plan, source)` in one read of the approved
+ * configuration, where `plan(changeSet)` plans a Studio change set against it. Checking the drafts one
+ * by one takes several plans; with `refreshAuthority: false` it reads only what this machine holds.
+ */
+export function approvedConfigurationPlanner(root) {
+  return async (work, { refreshAuthority = true } = {}) => {
+    const [{ withApprovedConfigurationRead }, { planStudioChangeSet }] = await Promise.all([
+      import('../approved-configuration-reader.mjs'), import('../workflow-studio.mjs')]);
+    return withApprovedConfigurationRead(root, (source) => work((set) => planStudioChangeSet(root, set), source),
+      { preferAuthority: true, refreshAuthority });
+  };
+}
+
+/**
+ * How each draft stands against the approved configuration, read as `skill list` reads it, or null
+ * when there is none or it cannot be read (the list is shown all the same).
+ */
+async function currentStandings(root, drafts, module) {
+  if (!drafts.changes.length) return null;
+  return approvedConfigurationPlanner(root)((plan, source) => (source?.kind === 'working-tree' ? null : module.draftStandings(drafts.changes, plan)))
+    .catch(() => null);
+}
+
 export async function run({ subcommand, positionals, options, root, apply, printResult }) {
   validate(subcommand, positionals, options);
   const json = options.json === true;
   const drafts = await import('../configuration-drafts.mjs');
   if (subcommand === 'drafts') {
     const value = await drafts.readDrafts(root);
+    const standings = await currentStandings(root, value, drafts);
+    const standing = new Map((standings ?? []).map((entry) => [entry.draftId, entry]));
     if (json) {
       return console.log(JSON.stringify({ schemaVersion: 1, resultType: 'configuration-drafts', listing: value.listing,
         drafts: value.changes.map((entry, index) => ({ number: index + 1, draftId: entry.draftId, state: entry.state, description: entry.description,
-          addedAt: entry.addedAt, operationId: entry.operationId, checkedAgainst: entry.checkedAgainst, change: entry.change })),
+          addedAt: entry.addedAt, operationId: entry.operationId, checkedAgainst: entry.checkedAgainst, change: entry.change,
+          standing: standing.get(entry.draftId)?.standing ?? null, ...(standing.get(entry.draftId)?.problem ? { problem: standing.get(entry.draftId).problem } : {}) })),
         proposed: value.proposed }, null, 2));
     }
-    return console.log(drafts.draftLines(value).join('\n'));
+    const upload = value.proposed?.upload?.intentId
+      ? await import('../transport-intents.mjs').then(({ readTransportIntent }) => readTransportIntent(value.proposed.upload.intentId)).catch(() => null) : null;
+    return console.log(drafts.draftLines(value, standings, { uploadFinished: upload?.status === 'succeeded' }).join('\n'));
   }
   if (subcommand === 'propose') {
-    const result = await drafts.proposeDrafts(root, { apply, message: typeof options.message === 'string' ? options.message : null });
+    const result = await drafts.proposeDrafts(root, { apply, planner: approvedConfigurationPlanner(root),
+      message: typeof options.message === 'string' ? options.message : null });
     if (json) return console.log(JSON.stringify(result, null, 2));
+    for (const line of result?.drafts?.settled ?? []) console.log(`Already approved, no longer waiting: ${line}`);
+    if (result?.drafts?.nothingToPropose) {
+      const left = result.drafts.pending;
+      return console.log(`Nothing to propose: the approved configuration already has these changes. ${left ? `${left} draft${left === 1 ? '' : 's'} still waiting: singularity-flow configuration drafts` : 'No drafts are waiting.'}`);
+    }
     if (result?.reviewRequired) console.log(`Proposed ${result.drafts.included} draft${result.drafts.included === 1 ? '' : 's'} as one review.`);
     return printResult({ ...result, drafts: undefined }, { dryRun: false });
   }
@@ -65,12 +100,16 @@ export async function run({ subcommand, positionals, options, root, apply, print
     for (const line of result.removed) console.log(`Discarded: ${line}`);
     return console.log(`${result.pending} draft${result.pending === 1 ? '' : 's'} left.`);
   }
-  const { activateWorkflowConfigurationProposal, inspectWorkflowConfigurationProposal, listWorkflowConfigurationProposals } = await import('../configuration-proposal.mjs');
+  const { activateWorkflowConfigurationProposal, configurationProposalCommitStatus, inspectWorkflowConfigurationProposal,
+    listWorkflowConfigurationProposals } = await import('../configuration-proposal.mjs');
   const result = await drafts.approveProposal(root, positionals[2] ?? null, {
     yes: options.yes === true, interactive: !json && Boolean(input.isTTY && output.isTTY), ask,
     print: json ? () => {} : (line) => console.log(line),
     list: (repository) => listWorkflowConfigurationProposals(repository),
-    inspect: inspectWorkflowConfigurationProposal, activate: activateWorkflowConfigurationProposal
+    inspect: inspectWorkflowConfigurationProposal, activate: activateWorkflowConfigurationProposal,
+    // A recorded proposal that is gone: did its exact commit reach sflow/config, and is its upload still to finish?
+    status: (repository, branch, commit) => configurationProposalCommitStatus(repository, branch, commit),
+    upload: (intentId) => import('../transport-intents.mjs').then(({ readTransportIntent }) => readTransportIntent(intentId))
   });
   if (json) console.log(JSON.stringify(result, null, 2));
   if (result.status === 'review-required' || result.status === 'activation-pending') process.exitCode = 2;

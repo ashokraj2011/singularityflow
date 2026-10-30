@@ -363,6 +363,8 @@ body:has(#studio-root) .page-nav .link,body:has(#studio-root) .page-nav .nav-cur
  */
 /** A configuration proposal branch, as `workflow proposals --json` names one. */
 export const PROPOSAL_BRANCH = /^sflow\/config-change\/[A-Za-z0-9][A-Za-z0-9._/-]{0,200}$/;
+/** A saved agent, skill or instruction draft, as `configuration drafts` names it. */
+export const SAVED_DRAFT_ID = /^cdr-[0-9a-f]{24}$/;
 const MAX_LISTED_PROPOSALS = 100;
 /** The sections the page can be opened at, for screens that send a person to one. */
 export const STUDIO_FOCUS_VIEWS = Object.freeze(['home', 'build', 'agents', 'skills', 'instructions', 'constitution', 'artifacts', 'library', 'people', 'integrations', 'changes'] as const);
@@ -994,6 +996,7 @@ export const WORKFLOW_STUDIO_SCRIPT = CATALOG_SEARCH_SCRIPT + String.raw`
     createWorkflowFromWizard: function () { return createWorkflowFromWizard.apply(null, arguments); },
     removeNewWorkflow: function () { return removeNewWorkflow.apply(null, arguments); }, orphanedSteps: function () { return orphanedSteps.apply(null, arguments); },
     confirmAction: function () { return confirmAction.apply(null, arguments); }, discardDraft: function () { return discardDraft.apply(null, arguments); },
+    discardSavedDraft: function () { return discardSavedDraft.apply(null, arguments); },
     restorableDraft: function () { return restorableDraft.apply(null, arguments); },
     // Artifacts: templates, the section designer, artifact sets, and what a step chooses.
     templateFromSections: function () { return templateFromSections.apply(null, arguments); }, newSection: function () { return newSection.apply(null, arguments); },
@@ -5787,6 +5790,17 @@ export const WORKFLOW_STUDIO_SCRIPT = CATALOG_SEARCH_SCRIPT + String.raw`
 
   /** Agent, skill and instruction drafts saved from the command line or Copilot; they publish with this batch. */
   function savedDrafts() { return (state.model && Array.isArray(state.model.drafts)) ? state.model.drafts : []; }
+  /**
+   * Drop one saved draft, after the person confirms: a draft approved from another computer, or one
+   * that no longer applies, has this way out here too. The host runs the same configuration discard
+   * the command line does, by the draft's ID.
+   */
+  function discardSavedDraft(draft) {
+    if (!draft || !draft.draftId) return;
+    confirmAction('Discard the saved draft "' + draft.description + '"?',
+      'It was saved from the command line or Copilot on this computer. Only this draft is dropped; the approved configuration does not change.',
+      'Discard draft', function () { state.busy = 'discard'; render(); post({ type: 'studio.discardSavedDraft', draftId: draft.draftId }); });
+  }
   function renderChanges(main) {
     var changeSet = changeSetFrom(state.model, state.draft);
     var key = JSON.stringify(changeSet);
@@ -5794,12 +5808,16 @@ export const WORKFLOW_STUDIO_SCRIPT = CATALOG_SEARCH_SCRIPT + String.raw`
     var total = changeSet.changes.length + drafts.length;
     main.appendChild(el('header', null, el('h1', { text: total ? total + (total === 1 ? ' change ready' : ' changes ready') : 'No changes yet' }),
       el('p', { class: 'studio-lede', text: 'Changes are published together as one change, so nothing is ever half-applied. Check them first; Singularity Flow validates the whole configuration.' })));
+    if (state.model.draftsUnavailable) main.appendChild(el('div', { class: 'callout wait', text: 'Saved drafts on this computer are not shown: ' + state.model.draftsUnavailable.message }));
     if (!total) { main.appendChild(el('p', { class: 'muted', text: 'Edit a workflow, an agent or an approval group and your changes collect here.' })); renderProposals(main); return; }
     if (changeSet.changes.length) main.appendChild(el('ol', { class: 'change-list' }, changeSet.changes.map(function (change) { return el('li', { text: describe(change, state.draft) }); })));
     if (drafts.length) main.appendChild(el('section', { class: 'studio-card', 'aria-label': 'Saved drafts' },
       el('h2', { text: drafts.length === 1 ? 'Also included: 1 saved draft' : 'Also included: ' + drafts.length + ' saved drafts' }),
       el('p', { class: 'muted', text: 'Saved from the command line or Copilot. No Story uses them until they are approved; they are published with this batch as one review.' }),
-      el('ol', { class: 'change-list' }, drafts.map(function (draft) { return el('li', { text: draft.description }); }))));
+      el('ol', { class: 'change-list' }, drafts.map(function (draft) {
+        return el('li', null, el('span', { text: draft.description }), ' ',
+          button('Discard', function () { discardSavedDraft(draft); }, { class: 'secondary', disabled: Boolean(state.busy) || !draft.draftId }));
+      }))));
     var fresh = state.plan && state.planKey === key;
     main.appendChild(el('div', { class: 'studio-row' },
       button(state.busy === 'check' ? 'Checking…' : 'Check changes', function () { state.busy = 'check'; render(); post({ type: 'studio.preview', changeSet: key }); }, { class: fresh && state.plan.valid ? 'secondary' : 'primary', disabled: Boolean(state.busy) }),
@@ -6859,6 +6877,10 @@ export const WORKFLOW_STUDIO_SCRIPT = CATALOG_SEARCH_SCRIPT + String.raw`
       // The team-import panel wrote a bundle; the host holds its path and Import… previews it.
       if (state.busy) { setStatus('Import… will offer ' + (message.name || 'the team bundle') + ' once the current action finishes.'); render(); }
       else importWorkflows();
+    } else if (message.type === 'studio.savedDraftDiscarded') {
+      if (state.busy === 'discard') state.busy = null;
+      state.plan = null; state.planKey = null;
+      setStatus(message.message || 'Draft discarded.'); render();
     } else if (message.type === 'studio.uploadRetried') {
       if (state.busy === 'upload') state.busy = null;
       setStatus(message.message || 'Upload attempted.'); render();

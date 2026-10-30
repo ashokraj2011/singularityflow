@@ -2266,3 +2266,26 @@ test('imported and proposed workflows appear in Workflows and Epic workflows wit
   assert.match(extensionSource, /proposeWorkflowChange\(\['workflow', 'import'[\s\S]*?'Importing workflows',\s*\{\s*propose:\s*Boolean\(plan\.destinationAuthority\)\s*\}\)/);
 });
 
+
+test('a saved draft that is stale is discarded from Changes after a confirmation, by its ID, with the CLI command', async () => {
+  // A draft approved from another computer or no longer applying has a way out in VS Code too (SDA sweep C1).
+  const { logic, posted, reply } = studioWithHost();
+  const draft = { draftId: 'cdr-0123456789abcdef01234567', state: 'saved-local', description: 'New instruction tone' };
+  reply({ type: 'studio.model', model: { workflows: [], phases: [], drafts: [draft] } });
+  logic.discardSavedDraft(draft);
+  const confirm = posted.at(-1);
+  assert.equal(confirm.type, 'studio.confirm');
+  assert.match(confirm.text, /Discard the saved draft "New instruction tone"\?/);
+  assert.equal(posted.some((message) => message.type === 'studio.discardSavedDraft'), false, 'nothing is discarded before the person confirms');
+  reply({ type: 'studio.confirmed', id: confirm.id, ok: true });
+  assert.deepEqual(posted.at(-1), { type: 'studio.discardSavedDraft', draftId: draft.draftId });
+  assert.equal(logic.state().busy, 'discard');
+  reply({ type: 'studio.savedDraftDiscarded', message: 'Discarded the saved draft: New instruction tone.' });
+  assert.equal(logic.state().busy, null);
+  assert.equal(logic.state().status, 'Discarded the saved draft: New instruction tone.');
+  const host = await readFile(path.join(packageRoot, 'apps/vscode/src/views/workflow-studio.ts'), 'utf8');
+  assert.match(host, /'studio\.discardSavedDraft': \(message\) => this\.discardSavedDraft\(stringField\(message, 'draftId'\)\)/);
+  assert.match(host, /!SAVED_DRAFT_ID\.test\(draftId\)[\s\S]*\['configuration', 'discard', draftId, '--json'\][\s\S]*await this\.load\(false\)/,
+    'the host checks the ID, runs the CLI discard, and reloads keeping unpublished edits');
+  assert.match(host, /warning\.code === 'CONFIGURATION_DRAFT_LEFT_OUT'/, 'publishing says which saved drafts were left out');
+});

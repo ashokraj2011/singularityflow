@@ -382,19 +382,21 @@ Usage:
   singularity-flow skill show <ID> [--json]
   singularity-flow instruction list [--json]            reusable instruction catalog; no implicit global application
   singularity-flow instruction show <ID> [--json]
-  singularity-flow instruction create <ID> --description TEXT (--from FILE | --instructions TEXT) [--label TEXT] [--dry-run] [--propose] [--json]
-  singularity-flow instruction edit <ID> [--label TEXT] [--description TEXT] [--from FILE | --instructions TEXT] [--dry-run] [--propose] [--json]
-  singularity-flow instruction remove <ID> [--dry-run] [--propose] [--json]
+  singularity-flow instruction create <ID> --description TEXT (--from FILE | --instructions TEXT) [--label TEXT] [--operation-id ID] [--dry-run] [--propose] [--json]
+  singularity-flow instruction edit <ID> [--label TEXT] [--description TEXT] [--from FILE | --instructions TEXT] [--operation-id ID] [--dry-run] [--propose] [--json]
+  singularity-flow instruction remove <ID> [--operation-id ID] [--dry-run] [--propose] [--json]
                                                         detach references first; changes use configuration approval
-  singularity-flow skill create <ID> --description TEXT (--from FILE | --instructions TEXT) [--label TEXT] [--dry-run] [--propose] [--json]
-  singularity-flow skill edit <ID> [--label TEXT] [--description TEXT] [--from FILE | --instructions TEXT] [--dry-run] [--propose] [--json]
+  singularity-flow skill create <ID> --description TEXT (--from FILE | --instructions TEXT) [--label TEXT] [--operation-id ID] [--dry-run] [--propose] [--json]
+  singularity-flow skill edit <ID> [--label TEXT] [--description TEXT] [--from FILE | --instructions TEXT] [--operation-id ID] [--dry-run] [--propose] [--json]
                                                         create/edit: --instruction-refs ID,ID (empty on edit clears refs)
-  singularity-flow skill attach <ID> --agent AGENT [--phases A,B] [--use TEXT] [--dry-run] [--propose] [--json]
-  singularity-flow skill attach <ID> --workflow WORKFLOW [--phases A,B] [--use TEXT] [--dry-run] [--propose] [--json]
+  singularity-flow skill attach <ID> --agent AGENT [--phases A,B] [--use TEXT] [--operation-id ID] [--dry-run] [--propose] [--json]
+  singularity-flow skill attach <ID> --workflow WORKFLOW [--phases A,B] [--use TEXT] [--operation-id ID] [--dry-run] [--propose] [--json]
                                                         the agent reads and applies the skill in those steps (all steps by default)
-  singularity-flow skill detach <ID> --agent AGENT [--dry-run] [--propose] [--json]
-  singularity-flow skill detach <ID> --workflow WORKFLOW [--dry-run] [--propose] [--json]
-  singularity-flow skill remove <ID> [--dry-run] [--propose] [--json]    also detaches it from every agent
+  singularity-flow skill detach <ID> --agent AGENT [--operation-id ID] [--dry-run] [--propose] [--json]
+  singularity-flow skill detach <ID> --workflow WORKFLOW [--operation-id ID] [--dry-run] [--propose] [--json]
+  singularity-flow skill remove <ID> [--operation-id ID] [--dry-run] [--propose] [--json]    also detaches it from every agent
+                                                        --operation-id names a draft save: the same ID again returns that draft;
+                                                        without it, repeating the latest save of a subject is the same save
   singularity-flow workflow skills-recipe <ID> --label TEXT --phases a,b,c [--planned-claims required --clause-phases CRITERIA --claim-owners CODE=PLAN] [--json]
   singularity-flow workflow studio [show] [--json]
   singularity-flow workflow markup example [--json]
@@ -706,8 +708,8 @@ Usage:
   singularity-flow delivery local-runner-verify --attestation-file FILE --signer ID [--json]
   singularity-flow delivery readiness [--provider-file FILE] [--runner-provider-file FILE] [--json]
   singularity-flow agents list
-  singularity-flow agents create <ID> --label TEXT --description TEXT [--role ROLE] [--from-agent AGENT] [--tools a,b] [--instructions TEXT | --from FILE] [--dry-run | --propose] [--json]
-  singularity-flow agents edit <ID> [--label TEXT] [--description TEXT] [--tools a,b] [--instructions TEXT | --from FILE] [--dry-run | --propose] [--json]
+  singularity-flow agents create <ID> --label TEXT --description TEXT [--role ROLE] [--from-agent AGENT] [--tools a,b] [--instructions TEXT | --from FILE] [--operation-id ID] [--dry-run | --propose] [--json]
+  singularity-flow agents edit <ID> [--label TEXT] [--description TEXT] [--tools a,b] [--instructions TEXT | --from FILE] [--operation-id ID] [--dry-run | --propose] [--json]
   singularity-flow agents mappings
   singularity-flow agents lock <PACK> [--update]
   singularity-flow agents sync <PACK>
@@ -917,9 +919,10 @@ Usage:
   singularity-flow plugin uninstall | list | verify [--json] | path
   singularity-flow snapshot [WORK-ID] [--include SLICE] [--if-revision HASH] [--timings] [--git-shadow] --json
   singularity-flow configuration validate [--json]       Lists every workflow.yml problem with its line and fix
-  singularity-flow configuration drafts [--json]         Agent, skill and instruction changes saved as drafts (no Story uses them yet)
-  singularity-flow configuration propose [--message TEXT] [--json]  Propose every draft as one review
-  singularity-flow configuration discard <NUMBER> | --all [--json]
+  singularity-flow configuration drafts [--json]         Agent, skill and instruction changes saved as drafts (no Story uses them yet), and any approved elsewhere or in conflict
+  singularity-flow configuration propose [--message TEXT] [--json]  Propose every draft as one review; drafts already approved are settled, not proposed
+  singularity-flow configuration discard <NUMBER> --listing LISTING | <DRAFT-ID> | --all [--json]
+                                                        drop drafts: a number from the list with that list's --listing, or a draft ID
   singularity-flow configuration approve [<PROPOSAL>] [--yes] [--json]  Show what a proposal changes, confirm, and activate exactly that revision
   singularity-flow configuration recreate-sync [--apply --confirm sha256:<PREVIEW>] [--json]  Preview lists every proposal it replays (teammates' unreviewed ones too) and its confirmation; apply replays only that reviewed list and refuses if it changed
   singularity-flow configuration cleanup-history [--keep-recent 10] [--apply --confirm <HASH>] [--json]  Preview exact snapshot branches; archive commits as tags before retiring old branch refs (up to 100 per confirmed batch)

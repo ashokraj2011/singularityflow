@@ -76,11 +76,16 @@ export async function run(argv, { positionals, options }) {
     const { readStdinText } = await import('../read-stdin.mjs');
     const { planStudioChangeSet, readStudioChangeSet } = await import('../workflow-studio.mjs');
     const changes = readStudioChangeSet(source === '-' ? await readStdinText() : await readFile(commandLineFile(root, source, { reads: true }), 'utf8'));
-    // Saved drafts go out with the Studio's own batch, so they are part of what is checked.
-    const { changeSet } = await import('../configuration-drafts.mjs').then(({ withSavedDrafts }) => withSavedDrafts(root, changes));
-    const plan = await withApprovedConfigurationRead(root, () => planStudioChangeSet(root, changeSet,
-      { inspect: (candidateRoot) => checkWorkflowConfiguration(candidateRoot, { workflows: only }) }), { preferAuthority: true });
-    if (plan.valid) result = { ...plan.inspection, changeSet: { valid: true, summary: plan.summary } };
+    // Saved drafts go out with the Studio's own batch, so they are part of what is checked; one
+    // approved elsewhere or in conflict is left out and named, never a blocker for this batch.
+    const [drafts, { approvedConfigurationPlanner }] = await Promise.all([import('../configuration-drafts.mjs'), import('./configuration-drafts.mjs')]);
+    const { result: plan, leftOut } = await drafts.runWithDrafts(root, changes, (changeSet) => withApprovedConfigurationRead(root, () => planStudioChangeSet(root, changeSet,
+      { inspect: (candidateRoot) => checkWorkflowConfiguration(candidateRoot, { workflows: only }) }), { preferAuthority: true }),
+    { planner: approvedConfigurationPlanner(root), preview: true });
+    if (leftOut.length && !optionBoolean(options, 'json')) for (const entry of leftOut) console.log(drafts.leftOutLine(entry));
+    const leftOutDrafts = leftOut.length ? { draftsLeftOut: leftOut.map((entry) => ({ draftId: entry.draftId, number: entry.number,
+      description: entry.description, standing: entry.standing, problem: entry.problem ?? null, discard: entry.discard ?? null })) } : {};
+    if (plan.valid) result = { ...plan.inspection, changeSet: { valid: true, summary: plan.summary, ...leftOutDrafts } };
     else {
       const findings = plan.problems.map((problem) => ({
         id: `change-${plan.problems.indexOf(problem) + 1}`, code: problem.code, area: 'flow', severity: 'problem',
@@ -89,7 +94,7 @@ export async function run(argv, { positionals, options }) {
         ...(problem.located?.[0]?.line ? { location: { file: problem.located[0].file, line: problem.located[0].line } } : {})
       }));
       const counts = { problem: findings.length, warning: 0, note: 0 };
-      result = { schemaVersion: 1, resultType: 'workflow-check', configuration: { valid: false }, changeSet: { valid: false, summary: plan.summary },
+      result = { schemaVersion: 1, resultType: 'workflow-check', configuration: { valid: false }, changeSet: { valid: false, summary: plan.summary, ...leftOutDrafts },
         counts, workflows: [], repository: { counts, findings } };
     }
   } else {

@@ -105,7 +105,8 @@ export async function runSkillMaster({ positionals, options, applyChangeSet, pri
     const model = await withApprovedConfigurationRead(root, () => readAssetCatalog(root), { preferAuthority: true });
     if (action === 'list') {
       const notice = await import('../configuration-drafts.mjs').then(({ draftNotice }) => draftNotice(root, 'skill'));
-      if (json) return console.log(JSON.stringify({ schemaVersion: 1, resultType: 'skill-master', skills: model.skills, problems: model.skillProblems ?? [], drafts: notice.entries }, null, 2));
+      if (json) return console.log(JSON.stringify({ schemaVersion: 1, resultType: 'skill-master', skills: model.skills, problems: model.skillProblems ?? [], drafts: notice.entries,
+        ...(notice.unavailable ? { draftsUnavailable: notice.unavailable } : {}) }, null, 2));
       printSkills(model);
       for (const line of notice.lines) console.log(line);
       return;
@@ -127,6 +128,8 @@ export async function runSkillMaster({ positionals, options, applyChangeSet, pri
   const { STUDIO_CHANGE_SET_SCHEMA } = await import('../workflow-studio.mjs');
   const changeSet = { schema: STUDIO_CHANGE_SET_SCHEMA, changes: [await changeFor(action, id, options)] };
   const result = await applyChangeSet(root, changeSet, { subject: id, message: `[configuration] skill ${action}: ${id}` });
+  // A change that does not check was refused: never exit 0 with a problem. A JSON preview reports it in `valid`.
+  if (result?.valid === false && options['dry-run'] !== true) process.exitCode = 1;
   if (json) return console.log(JSON.stringify(result, null, 2));
   return printResult(result, { dryRun: options['dry-run'] === true });
 }

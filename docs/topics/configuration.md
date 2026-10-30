@@ -10,7 +10,7 @@ related:
   - pins
   - quick-fix
   - escalation
-version: 13
+version: 14
 commands:
   - configuration
   - workflow
@@ -149,7 +149,7 @@ These commands can change repository or machine-local state: `configuration`, `w
 
 ## Change agents, skills and instructions
 
-In a repository with an approved configuration authority (`sflow/config`), `agents create|edit`, `skill create|edit|attach|detach|remove` and `instruction create|edit|remove` save each change as a draft on this machine. A draft is checked against the approved configuration together with every earlier draft, so a skill that is still a draft can already be attached. A change that does not check is refused with the problem, and nothing is saved. No Story uses a draft. `singularity-flow configuration drafts` lists them (`skill list`, `instruction list` and `agents list` show them too), `configuration discard <NUMBER>` drops one, and `configuration propose` sends all of them as one review. `configuration approve` then shows what the proposal changes, asks once, and activates exactly that revision; nobody copies a commit. Workflow Studio shows the same drafts under **Changes** and publishes them with its own edits. Without an authority, changes are written to the working tree as before.
+In a repository with an approved configuration authority (`sflow/config`), `agents create|edit`, `skill create|edit|attach|detach|remove` and `instruction create|edit|remove` save each change as a draft on this machine. A draft is checked against the approved configuration together with every earlier draft, so a skill that is still a draft can already be attached. A change that does not check is refused with the problem, and nothing is saved. No Story uses a draft. `singularity-flow configuration drafts` lists them (`skill list`, `instruction list` and `agents list` show them too) with any that the approved configuration already has or that no longer apply to it, `configuration discard <NUMBER> --listing <LISTING>` (the listing it printed) or `configuration discard <DRAFT-ID>` drops one, and `configuration propose` sends all of them as one review. A draft approved from another clone is settled when you propose, not proposed again; a draft that conflicts is named with its discard command. A save names its operation with `--operation-id ID`, so running it again returns the same draft; without one, repeating the latest save of the same skill, instruction or agent is the same save, and an edit back to an earlier value is a new change. When the Git host merged a proposal and deleted its branch, `configuration approve` records it; when the proposal was closed unmerged, its drafts are waiting again. `configuration approve` then shows what the proposal changes, asks once, and activates exactly that revision; nobody copies a commit. Workflow Studio shows the same drafts under **Changes**, each with a Discard button, and publishes them with its own edits; a draft already approved or no longer applying is left out, and the result says so. Without an authority, changes are written to the working tree as before.
 
 ## Troubleshooting
 

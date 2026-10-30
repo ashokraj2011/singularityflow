@@ -67,6 +67,8 @@ export async function run({ positionals, options, applyChangeSet, printResult })
   const id = positionals[2];
   const changeSet = { schema: STUDIO_CHANGE_SET_SCHEMA, changes: [await changeFor(action, id, options)] };
   const result = await applyChangeSet(repoRoot(), changeSet, { subject: id, message: `[configuration] agent ${action}: ${id}` });
+  // A change that does not check was refused: never exit 0 with a problem. A JSON preview reports it in `valid`.
+  if (result?.valid === false && options['dry-run'] !== true) process.exitCode = 1;
   if (options.json === true) return console.log(JSON.stringify(result, null, 2));
   return printResult(result, { dryRun: options['dry-run'] === true });
 }

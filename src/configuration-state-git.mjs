@@ -64,19 +64,36 @@ async function install(root, relative, file, env, { stage = true } = {}) {
   git(root, ['update-index', '--add', '--cacheinfo', file.mode, oid, relative], env);
 }
 
-/** A configuration transaction never needs an application checkout or its blob population. */
-export async function materializeConfigurationSnapshot(root, remote, commit, env, runRemoteCommand) {
-  const reader = new ConfigurationObjectReader(root, remote, env, runRemoteCommand);
+/** `commit`'s admitted configuration assets, hydrated through `reader`; nothing is written. */
+async function admittedConfigurationSnapshot(reader, commit) {
   await reader.hydrate(reader.inventory(commit, ['singularity/workflow.yml', 'singularity/portfolio.yml']));
   const assetPolicy = policy(reader, commit);
   const entries = reader.inventory(commit, configurationAssetSearchRoots(assetPolicy), relative => isConfigurationAssetPath(relative, assetPolicy));
   assertConfigurationAssetPathIdentities(entries.map(entry => entry.path));
   await reader.hydrate(entries);
-  git(root, ['read-tree', commit], env);
   for (const entry of entries) {
     if (isConfigurationStatePath(entry.path) && entry.path !== CONFIGURATION_STATE_PATH) fail('Ambiguous kernel receipt path.');
-    await install(root, entry.path, reader.file(commit, entry.path), env, { stage: false });
   }
+  return entries;
+}
+
+/** A configuration transaction never needs an application checkout or its blob population. */
+export async function materializeConfigurationSnapshot(root, remote, commit, env, runRemoteCommand) {
+  const reader = new ConfigurationObjectReader(root, remote, env, runRemoteCommand);
+  const entries = await admittedConfigurationSnapshot(reader, commit);
+  git(root, ['read-tree', commit], env);
+  for (const entry of entries) await install(root, entry.path, reader.file(commit, entry.path), env, { stage: false });
+  return reader;
+}
+
+/**
+ * The same admitted snapshot as `materializeConfigurationSnapshot`, with the same refusals, read in
+ * place from an object store (a configuration object pool): no index, file or checkout is written,
+ * so listing and inspecting proposals create none (SDA-AC-013).
+ */
+export async function readConfigurationSnapshot(root, remote, commit, env, runRemoteCommand) {
+  const reader = new ConfigurationObjectReader(root, remote, env, runRemoteCommand);
+  await admittedConfigurationSnapshot(reader, commit);
   return reader;
 }
 

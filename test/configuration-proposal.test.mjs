@@ -13,7 +13,7 @@ import {
   inspectApprovedSkillPackage, loadStoryConfigurationSnapshot
 } from '../src/configuration-branch.mjs';
 import {
-  activateWorkflowConfigurationProposal, assertLocalConfigurationAuthoringAllowed,
+  activateWorkflowConfigurationProposal, assertLocalConfigurationAuthoringAllowed, inspectWorkflowConfigurationProposal,
   listWorkflowConfigurationProposals, proposeConfigurationChange
 } from '../src/configuration-proposal.mjs';
 import { remoteFingerprint } from '../src/git-remote-diagnostics.mjs';
@@ -819,6 +819,56 @@ test('a newly added migration-required Story workflow is listed as blocked, and 
       item.approved,
       'rejected proposal must not move approved configuration'
     );
+  } finally {
+    await rm(item.base, { recursive: true, force: true });
+  }
+});
+
+test('listing and inspecting workflow proposals read exact objects in place: no clone and no checkout (SDA-AC-013)', async () => {
+  const item = await fixture();
+  const authoring = path.join(item.base, 'listed-proposal');
+  const proposalBranch = 'sflow/config-change/workflow/relabel-feature';
+  try {
+    run('git', ['clone', '-q', '-b', 'sflow/config', item.remote, authoring]);
+    run('git', ['switch', '-q', '-c', proposalBranch], { cwd: authoring });
+    const workflowPath = path.join(authoring, 'singularity/workflow.yml');
+    await writeFile(workflowPath, (await readFile(workflowPath, 'utf8')).replace('    label: Feature\n', '    label: Reviewed feature\n'));
+    run('git', ['-c', 'user.name=Workflow Author', '-c', 'user.email=workflow@example.test', 'commit', '-qam', 'relabel feature'], { cwd: authoring });
+    run('git', ['push', '-q', 'origin', `HEAD:refs/heads/${proposalBranch}`], { cwd: authoring });
+    const commit = run('git', ['rev-parse', 'HEAD'], { cwd: authoring }).stdout.trim();
+
+    // Every Git process, by verb, through a PATH wrapper around the real Git.
+    const log = path.join(item.base, 'git-verbs.log');
+    const wrappers = path.join(item.base, 'verb-bin');
+    await writeGitTestWrapper(wrappers, `#!/usr/bin/env node
+const { spawnSync } = require('node:child_process');
+const { appendFileSync } = require('node:fs');
+const args = process.argv.slice(2);
+let index = 0;
+while (index < args.length && args[index].startsWith('-')) index += ['-c', '-C'].includes(args[index]) ? 2 : 1;
+appendFileSync(${JSON.stringify(log)}, (args[index] ?? '') + '\\n');
+const result = spawnSync(${JSON.stringify(realGitForTest())}, args, { cwd: process.cwd(), env: process.env, stdio: 'inherit' });
+process.exit(result.status == null ? 1 : result.status);
+`);
+    await writeFile(log, '');
+    const env = gitTestWrapperEnvironment(wrappers);
+    const listed = (await listWorkflowConfigurationProposals(item.story, { env })).find((entry) => entry.branch === proposalBranch);
+    assert.equal(listed.proposalCommit, commit);
+    assert.equal(listed.valid, true);
+    assert.deepEqual(listed.workflows.map((row) => [row.id, row.change]), [['feature', 'modified']]);
+    const previous = process.env.PATH;
+    process.env.PATH = env.PATH;
+    let inspected;
+    try { inspected = await inspectWorkflowConfigurationProposal(item.story, proposalBranch); }
+    finally { process.env.PATH = previous; }
+    assert.equal(inspected.proposalCommit, commit);
+    assert.equal(inspected.targetCommit, item.approved);
+    assert.match(inspected.diff, /\+ {4}label: Reviewed feature/);
+    const verbs = (await readFile(log, 'utf8')).split('\n').filter(Boolean);
+    assert.ok(verbs.includes('fetch'), 'the object pool received the exact objects');
+    for (const verb of ['clone', 'checkout', 'checkout-index', 'read-tree', 'switch']) {
+      assert.equal(verbs.filter((entry) => entry === verb).length, 0, `listing and inspection run no '${verb}'`);
+    }
   } finally {
     await rm(item.base, { recursive: true, force: true });
   }

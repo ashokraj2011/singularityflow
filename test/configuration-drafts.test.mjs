@@ -178,8 +178,8 @@ test('end to end: three dependent changes become one proposal, approved with one
     SINGULARITY_FLOW_BOOTSTRAP_MIN_DISK_BYTES: '1',
     GIT_CONFIG_COUNT: '2', GIT_CONFIG_KEY_0: 'user.name', GIT_CONFIG_VALUE_0: 'Draft Author',
     GIT_CONFIG_KEY_1: 'user.email', GIT_CONFIG_VALUE_1: 'draft.author@example.invalid' };
-  const flow = (cwd, args, status = 0) => {
-    const result = spawnSync(process.execPath, [cli, ...args], { cwd, env, encoding: 'utf8', timeout: childTimeout(180_000) });
+  const flow = (cwd, args, status = 0, extra = {}) => {
+    const result = spawnSync(process.execPath, [cli, ...args], { cwd, env: { ...env, ...extra }, encoding: 'utf8', timeout: childTimeout(180_000) });
     assert.equal(result.status, status, `singularity-flow ${args.join(' ')}\n${result.stdout}\n${result.stderr}`);
     return result;
   };
@@ -203,7 +203,18 @@ test('end to end: three dependent changes become one proposal, approved with one
   assert.equal(JSON.parse(await readFile(path.join(draftsDirectory(checkout), 'authority.json'), 'utf8')).source, 'sflow/config');
   await rename(remote, `${remote}.offline`);
   const create = ['skill', 'create', 'review', '--description', 'Reviews a change.', '--from', skillFile, '--operation-id', 'e2e-review'];
-  assert.match(flow(checkout, create).stdout, /Drafts waiting: 2\./);
+  const counted = flow(checkout, create, 0, { SINGULARITY_FLOW_SUBPROCESS_PROBE: '1' });
+  assert.match(counted.stdout, /Drafts waiting: 2\./);
+  // SDA §17, restated by decision D2: a draft save starts no remote or model process, and its local
+  // Git reads only fall. Measured 11 (macOS, 2026-10-30): the CLI's repository probe and command log
+  // (2), the held authority's ref (1) and objects (4), and the Studio check's two approved files
+  // read by ref and `show` (4). Lower the ceiling with the count; never raise it.
+  const probe = /^subprocesses: (\d+) calls/mu.exec(counted.stderr);
+  assert.ok(probe, counted.stderr);
+  const rows = counted.stderr.slice(probe.index).split('\n').slice(1).map((line) => /^\s+\d+x\s+\d+ ms {2}(.+)$/u.exec(line)?.[1]).filter(Boolean);
+  assert.deepEqual(rows.filter((row) => !row.startsWith('git ')), [], 'a draft save starts no process but local Git');
+  assert.deepEqual(rows.filter((row) => /^git (?:fetch|ls-remote|push|pull|clone)\b/u.test(row)), [], 'a draft save makes no remote contact');
+  assert.ok(Number(probe[1]) <= 11, `a draft save starts at most 11 local Git processes, not ${probe[1]}:\n${counted.stderr.slice(probe.index)}`);
   const retried = JSON.parse(flow(checkout, [...create, '--json']).stdout);
   assert.equal(retried.saved, 'existing');
   assert.equal(retried.drafts.pending, 2);

@@ -14,8 +14,9 @@ import path from 'node:path';
 import YAML from 'yaml';
 import { removeTemporaryTree, run } from '../src/util.mjs';
 import {
-  activateCapabilityProposal, discardStaleCapabilityProposal, editCapabilityInOrganisation,
-  inspectCapabilityProposal, listCapabilityProposals, mapCapability, rebaseCapabilityProposal
+  activateCapabilityProposal, addCapabilityRepository, adoptManagedCapabilityMap, discardStaleCapabilityProposal,
+  editCapabilityInOrganisation, inspectCapabilityProposal, listCapabilityProposals, mapCapability, mapCapabilityTeam,
+  previewManagedCapabilityAdoption, proposeProgressiveCapabilityChange, rebaseCapabilityProposal
 } from '../src/organisation.mjs';
 import { editCapability } from '../src/capabilities.mjs';
 import { initializeDefinition } from '../src/config.mjs';
@@ -303,6 +304,51 @@ test('a capability edit builds the clone path\'s exact tree without cloning or c
   assert.equal(
     run('git', ['rev-parse', `${removal.commit}^{tree}`], { cwd: org.platform }).stdout.trim(),
     run('git', ['write-tree'], { cwd: oracle }).stdout.trim());
+});
+
+test('map, team, repository, adoption and policy proposals are built from exact objects, with no clone or checkout', posixOnly, async (t) => {
+  // The same projection as an edit (SDA-AC-013). Each was compared, commit for commit, with the
+  // clone path it replaces; the line-level shape of each proposal is pinned in organisation.test.mjs.
+  const org = await remotes(t, 'platform', 'worker');
+  await mergeProposal(org.platform, await mapCapability(org.platform, {
+    capabilityId: 'platform-app', name: 'Platform app', kind: 'delivery', repositoryUrl: org.platform
+  }));
+  const projected = async (label, action) => {
+    const { result, verbs } = await gitVerbs(org.base, action);
+    for (const verb of ['clone', 'checkout', 'switch', 'merge', 'commit']) {
+      assert.equal(count(verbs, verb), 0, `${label} runs no '${verb}'`);
+    }
+    assert.equal(count(verbs, 'commit-tree'), 1, `${label} writes its proposal commit from exact objects`);
+    assert.equal(count(verbs, 'push'), 1, label);
+    assert.deepEqual(run('git', ['rev-list', '--parents', '-n', '1', result.commit], { cwd: org.platform })
+      .stdout.trim().split(' ').slice(1), [result.baseCommit], `${label} sits on the authority it read`);
+    return result;
+  };
+  const mapped = await projected('a map', () => mapCapability(org.platform, {
+    capabilityId: 'worker-api', name: 'Worker API', kind: 'delivery', repositoryUrl: org.worker
+  }));
+  assert.equal(YAML.parse(run('git', ['show', `${mapped.commit}:singularity/portfolio.yml`], { cwd: org.platform }).stdout)
+    .repositories.worker.url, org.worker);
+  const added = await projected('a repository addition', () => addCapabilityRepository(org.platform, 'platform-app', org.worker));
+  assert.deepEqual(YAML.parse(run('git', ['show', `${added.commit}:singularity/capabilities.yml`], { cwd: org.platform }).stdout)
+    .capabilities['platform-app'].repositories, ['platform', 'worker']);
+  const team = await projected('a team map', () => mapCapabilityTeam(org.platform, {
+    teamId: 'worker-team', name: 'Worker Team',
+    members: [{ capabilityId: 'worker-app', name: 'Worker App', repositoryUrl: org.worker }], links: ['platform-app']
+  }));
+  assert.equal(YAML.parse(run('git', ['show', `${team.commit}:singularity/capabilities.yml`], { cwd: org.platform }).stdout)
+    .capabilities['platform-app'].parent, 'worker-team');
+  const preview = await previewManagedCapabilityAdoption(org.platform);
+  const adoption = await projected('a managed adoption', () => adoptManagedCapabilityMap(org.platform, {
+    confirm: preview.plan.planSha256
+  }));
+  await mergeProposal(org.platform, adoption);
+  const policy = await projected('a policy change', () => proposeProgressiveCapabilityChange(org.platform, {
+    operation: 'auto', capabilityId: 'platform-app',
+    auto: { eligibility: 'bounded', forbiddenWhenProtectedScopePredicted: true, maximumTouchedPaths: 6 }
+  }));
+  assert.equal(YAML.parse(run('git', ['show', `${policy.commit}:singularity/capabilities.yml`], { cwd: org.platform }).stdout)
+    .capabilities['platform-app'].policy.auto.eligibility, 'bounded');
 });
 
 test('a capability edit still refuses an unknown capability and a map with nothing to edit', async (t) => {

@@ -97,10 +97,14 @@ async function qualifiedConfig(root, store) {
  * Acquire one bounded private authority pool. Returns null before transport if cache admission is
  * unsupported/busy. No remote failure is retried through a second clone. The lease outlives the
  * disposable checkout and its alternate readers; no GC or pack removal occurs while borrowed.
+ *
+ * `checkout: false` is for a read that needs only exact objects (proposal listing and inspection,
+ * SDA-AC-013): no `scratch` is cloned, the pool's own `store` is returned to read from directly,
+ * and `refs/heads/<branch>` there names each included proposal for as long as the lease is held.
  */
 export async function prepareConfigurationObjectCheckout(root, scratch, {
   remote, transport, authorityCommit, branches = [], runRemoteCommand, env = process.env,
-  completeObjects = false, independent = false
+  completeObjects = false, independent = false, checkout = true
 }) {
   if (env.SINGULARITY_FLOW_CONFIGURATION_OBJECT_STORE === 'off' || !OID.test(authorityCommit ?? '')
       || branches.length > 100 || branches.some(entry => !OID.test(entry.proposalCommit ?? ''))) return null;
@@ -226,7 +230,7 @@ export async function prepareConfigurationObjectCheckout(root, scratch, {
     // One transaction per page, not two Git processes per retained proposal on Windows.
     git(store, ['update-ref', '--stdin'], { input: entries.map(entry =>
       `update refs/heads/${entry.branch} ${entry.proposalCommit}\n`).join('') });
-    git(scratch, ['update-ref', '--stdin'], { input: entries.map(entry =>
+    if (checkout) git(scratch, ['update-ref', '--stdin'], { input: entries.map(entry =>
       `update refs/remotes/origin/${entry.branch} ${entry.proposalCommit}\n`).join('') });
   };
   try {
@@ -240,18 +244,23 @@ export async function prepareConfigurationObjectCheckout(root, scratch, {
     // created it successfully with longpaths enabled. Compact only our leased, bounded private
     // retention refs; application refs, objects, hooks and remote authority are untouched.
     if (process.platform === 'win32') git(store, ['pack-refs', '--all', '--prune']);
+    const release = async ({ cleanupConfirmed = true } = {}) => {
+      // Scratch must already be removed. Retain an uncertain borrow rather than deleting/pruning
+      // objects from beneath a child whose completion the caller could not prove.
+      if (!cleanupConfirmed) await lease.retainQuarantine({ unknownChildren: true });
+      return lease.release({ cleanupConfirmed });
+    };
+    if (!checkout) {
+      incrementCommandCounter('configuration.object-store-read');
+      return { store, download, includeBranches, release };
+    }
     git(root, ['clone', '--quiet', '--shared', ...(independent
       ? ['--dissociate', '--single-branch', '--branch', 'sflow/config'] : []),
       '--no-checkout', '--', store, scratch]);
     exposed = true;
     git(scratch, ['remote', 'set-url', 'origin', transport.remote]);
     incrementCommandCounter('configuration.object-store-checkout');
-    return { download, includeBranches, async release({ cleanupConfirmed = true } = {}) {
-      // Scratch must already be removed. Retain an uncertain borrow rather than deleting/pruning
-      // objects from beneath a child whose completion the caller could not prove.
-      if (!cleanupConfirmed) await lease.retainQuarantine({ unknownChildren: true });
-      return lease.release({ cleanupConfirmed });
-    } };
+    return { download, includeBranches, release };
   } catch (error) {
     if (error.temporaryGitCleanupUnproven) {
       await lease.retainQuarantine({ unknownChildren: true }).catch(() => {});

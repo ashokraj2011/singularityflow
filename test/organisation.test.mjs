@@ -718,7 +718,10 @@ test('the first capability governs the repository it is mapped into', async () =
   assert.equal(mapCounters['git.remote.total'], 6,
     'first map combines authority and HEAD discovery, then revalidates the authority at mutation');
   assert.equal(mapCounters['git.remote.command.ls-remote'], 2);
-  assert.equal(mapCounters['git.remote.command.clone'], 2);
+  // One clone imports the application's configuration to create the authority; the proposal is
+  // then built from one exact fetch of that authority, not a second clone (SDA-AC-013).
+  assert.equal(mapCounters['git.remote.command.clone'], 1);
+  assert.equal(mapCounters['git.remote.command.fetch'], 1);
   assert.equal(mapCounters['git.remote.command.push'], 2);
   assert.equal(first.capabilityId, 'commerce');
 
@@ -5449,9 +5452,11 @@ test('map and review checkout failures preserve classified Git evidence and doct
     }
   });
 
+  // A map transfers the authority with one fetch into a private object store, not a clone
+  // (SDA-AC-013); its failure is reported exactly as a failed clone was.
   await assert.rejects(mapCapability(org.platform, {
     capabilityId: 'clone-failure', kind: 'collection',
-    runRemoteCommand: async (args, options) => args[0] === 'clone'
+    runRemoteCommand: async (args, options) => args[0] === 'fetch'
       ? failed('authentication', 'd') : runRemoteGitAsync(args, options)
   }), (error) => {
     assert.equal(error.code, 'CAPABILITY_AUTHORITY_UNAVAILABLE');

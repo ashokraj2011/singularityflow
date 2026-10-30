@@ -41,7 +41,7 @@ import { prepareConfigurationObjectCheckout } from './configuration-object-store
 import { readGitNameStatusDiff } from './git-diff-name-status.mjs';
 import { createAndPushTransportIntent, createTransportIntent, transportRetryAction } from './transport-intents.mjs';
 import { openConfigurationStateService, readConfigurationTransactionJournals } from './configuration-state-service.mjs';
-import { prepareConfigurationStateTransaction, materializeConfigurationSnapshot,
+import { prepareConfigurationStateTransaction, materializeConfigurationSnapshot, readConfigurationSnapshot,
   hydrateConfigurationProposal, configurationStateAtRef } from './configuration-state-git.mjs';
 import { isConfigurationStatePath, configurationDigest } from './configuration-state-contract.mjs';
 import { syncConfigurationReferences } from './configuration-reference-sync.mjs';
@@ -338,8 +338,13 @@ async function proposalRemote(root, session) {
   return remote;
 }
 
+/**
+ * Run `operation` over one advertised proposal and the current authority. Activation needs a
+ * disposable checkout; `checkout: false` (inspection) reads the configuration object pool in place,
+ * so it creates none, and falls back to the checkout only when the pool declines (SDA-AC-013).
+ */
 async function withWorkflowProposalCheckout(root, requestedBranch, operation, {
-  env = process.env, session = null
+  env = process.env, session = null, checkout = true
 } = {}) {
   const branch = workflowProposalBranch(requestedBranch);
   const identityEnv = withoutGitProcessOverrides(env);
@@ -347,7 +352,7 @@ async function withWorkflowProposalCheckout(root, requestedBranch, operation, {
   const remoteSession = session ?? new GitRemoteSession({ env: gitEnv });
   const remote = await proposalRemote(root, remoteSession);
   const transport = frozenRemoteTransport(remote, { push: true, env: gitEnv });
-  const scratch = await mkdtemp(path.join(os.tmpdir(), 'sflow-workflow-review-'));
+  let scratch = null;
   let objectStore = null;
   try {
     const authorityRef = `refs/heads/${CONFIGURATION_BRANCH}`;
@@ -359,9 +364,21 @@ async function withWorkflowProposalCheckout(root, requestedBranch, operation, {
     if (!advertised.refs.get(proposalRef)) throw new SingularityFlowError(`Workflow proposal '${branch}' is no longer advertised.`, {
       code: 'WORKFLOW_PROPOSAL_UNAVAILABLE'
     });
-    objectStore = await prepareConfigurationObjectCheckout(root, scratch, { remote, transport, env,
+    const pool = { remote, transport, env,
       authorityCommit: advertised.refs.get(authorityRef),
-      branches: [{ branch, proposalCommit: advertised.refs.get(proposalRef) }], runRemoteCommand: runRemoteGitAsync });
+      branches: [{ branch, proposalCommit: advertised.refs.get(proposalRef) }], runRemoteCommand: runRemoteGitAsync };
+    if (!checkout) objectStore = await prepareConfigurationObjectCheckout(root, null, { ...pool, checkout: false });
+    if (objectStore) {
+      const reader = await measureCommandSpan('proposal.materialize', () => readConfigurationSnapshot(objectStore.store, transport.remote,
+        configurationRepositoryHead(objectStore.store, transport.env), transport.env, objectStore.download));
+      const binding = await measureCommandSpan('proposal.hydrate', () => hydrateConfigurationProposal(reader, proposalRef, transport.env));
+      return await operation(objectStore.store, remote, branch, proposalRef, {
+        env: transport.env, identityEnv, remote: transport.remote, session: remoteSession, reader, binding
+      });
+    }
+    scratch = await mkdtemp(path.join(os.tmpdir(), 'sflow-workflow-review-'));
+    // A pool that just declined an inspection is not asked again for a checkout.
+    if (checkout) objectStore = await prepareConfigurationObjectCheckout(root, scratch, pool);
     if (!objectStore) {
     const cloned = await runRemoteGitAsync([
       'clone', '--quiet', '--no-local', '--no-tags', '--single-branch',
@@ -395,8 +412,8 @@ async function withWorkflowProposalCheckout(root, requestedBranch, operation, {
       }
     );
   } finally {
-    let cleaned = false;
-    try { await removeTemporaryTree(scratch); cleaned = true; }
+    let cleaned = !scratch;
+    try { if (scratch) { await removeTemporaryTree(scratch); cleaned = true; } }
     finally { await objectStore?.release({ cleanupConfirmed: cleaned }); }
   }
 }
@@ -434,36 +451,50 @@ export async function listWorkflowConfigurationProposals(root, {
     }
   }
   const transport = frozenRemoteTransport(remote, { env: gitEnv });
-  const scratch = await mkdtemp(path.join(os.tmpdir(), 'sflow-workflow-proposals-'));
+  let scratch = null;
   let objectStore = null;
   try {
-    objectStore = await prepareConfigurationObjectCheckout(root, scratch, { remote, transport, env,
-      authorityCommit, branches, runRemoteCommand: runRemoteGitAsync });
-    if (!objectStore) {
-    const cloned = await runRemoteGitAsync([
-      'clone', '--quiet', '--no-local', '--no-tags', '--single-branch', '--no-checkout',
-      '--filter=blob:none',
-      '--branch', CONFIGURATION_BRANCH, transport.remote, scratch
-    ], { operation: 'remote-configuration', env: transport.env });
-    if (cloned.status !== 0) throw new SingularityFlowError(cloned.failure?.advice ?? 'Workflow authority clone failed.');
-    const fetched = await runRemoteGitAsync([
-      'fetch', '--quiet', '--no-tags', '--filter=blob:none', '--', transport.remote,
-      `+refs/heads/${REVIEW_PREFIX}*:refs/remotes/origin/${REVIEW_PREFIX}*`
-    ], { cwd: scratch, operation: 'remote-configuration', env: transport.env });
-    if (fetched.status !== 0) throw new SingularityFlowError(fetched.failure?.advice ?? 'Workflow proposals could not be fetched.');
+    // Exact objects, read in place from the configuration object pool: no checkout and no clone
+    // (SDA-AC-013, §17). The pool names each proposal `refs/heads/<branch>` while it is leased.
+    objectStore = await prepareConfigurationObjectCheckout(root, null, { remote, transport, env,
+      authorityCommit, branches, runRemoteCommand: runRemoteGitAsync, checkout: false });
+    let readRoot;
+    let reviewRef;
+    if (objectStore) {
+      readRoot = objectStore.store;
+      reviewRef = (branch) => `refs/heads/${branch}`;
+    } else {
+      // The pool declined (busy, over its authority budget, unqualified storage, or turned off):
+      // the one remaining temporary clone, blobless and with no checkout. It is a listed exception
+      // in test/sda-clone-boundary.test.mjs.
+      scratch = await mkdtemp(path.join(os.tmpdir(), 'sflow-workflow-proposals-'));
+      const cloned = await runRemoteGitAsync([
+        'clone', '--quiet', '--no-local', '--no-tags', '--single-branch', '--no-checkout',
+        '--filter=blob:none',
+        '--branch', CONFIGURATION_BRANCH, transport.remote, scratch
+      ], { operation: 'remote-configuration', env: transport.env });
+      if (cloned.status !== 0) throw new SingularityFlowError(cloned.failure?.advice ?? 'Workflow authority clone failed.');
+      const fetched = await runRemoteGitAsync([
+        'fetch', '--quiet', '--no-tags', '--filter=blob:none', '--', transport.remote,
+        `+refs/heads/${REVIEW_PREFIX}*:refs/remotes/origin/${REVIEW_PREFIX}*`
+      ], { cwd: scratch, operation: 'remote-configuration', env: transport.env });
+      if (fetched.status !== 0) throw new SingularityFlowError(fetched.failure?.advice ?? 'Workflow proposals could not be fetched.');
+      readRoot = scratch;
+      reviewRef = (branch) => `refs/remotes/origin/${branch}`;
     }
-    if (configurationRepositoryHead(scratch, transport.env) !== authorityCommit) {
+    if (configurationRepositoryHead(readRoot, transport.env) !== authorityCommit) {
       throw new SingularityFlowError('Approved configuration changed during proposal inspection. Refresh its exact snapshot and retry.', { code: 'CONFIGURATION_SNAPSHOT_STALE' });
     }
-    const reader = await materializeConfigurationSnapshot(scratch, transport.remote,
-      authorityCommit, transport.env, objectStore?.download ?? runRemoteGitAsync);
+    const reader = objectStore
+      ? await readConfigurationSnapshot(readRoot, transport.remote, authorityCommit, transport.env, objectStore.download)
+      : await materializeConfigurationSnapshot(scratch, transport.remote, authorityCommit, transport.env, runRemoteGitAsync);
     const proposals = [];
     for (const entry of branches) {
-      const ref = `refs/remotes/origin/${entry.branch}`;
+      const ref = reviewRef(entry.branch);
       try {
         const binding = await hydrateConfigurationProposal(reader, ref, transport.env);
         const inspected = await inspectWorkflowProposalCheckout(
-          scratch, remote, entry.branch, ref, { includeDiff, env: transport.env, reader, binding }
+          readRoot, remote, entry.branch, ref, { includeDiff, env: transport.env, reader, binding }
         );
         if (inspected.proposalCommit !== entry.proposalCommit) {
           throw new SingularityFlowError('Proposal revision changed during inspection. Refresh before reviewing it.', { code: 'CONFIGURATION_SNAPSHOT_STALE' });
@@ -486,8 +517,8 @@ export async function listWorkflowConfigurationProposals(root, {
     }
     return includeMerged ? proposals : proposals.filter(record => !record.merged);
   } finally {
-    let cleaned = false;
-    try { await removeTemporaryTree(scratch); cleaned = true; }
+    let cleaned = !scratch;
+    try { if (scratch) { await removeTemporaryTree(scratch); cleaned = true; } }
     finally { await objectStore?.release({ cleanupConfirmed: cleaned }); }
   }
 }
@@ -498,7 +529,7 @@ export async function inspectWorkflowConfigurationProposal(root, branch) {
     scratch, remote, proposalBranch, ref, transport
   ) => inspectWorkflowProposalCheckout(scratch, remote, proposalBranch, ref, {
     env: transport.env, reader: transport.reader, binding: transport.binding
-  }));
+  }), { checkout: false });
 }
 
 /**

@@ -4020,7 +4020,10 @@ export async function mapCapability(leadUrl, {
   }, {
     remoteSession,
     authorityObservation,
+    // Classifying a retained same-ID proposal needs the authority's history, which only the
+    // clone carries; every other map is projected from exact objects (SDA-AC-013).
     fullHistory: matchingProposalRefs.length > 0,
+    objectProjection: true,
     bindProposalToBase: true,
     authorIdentity,
     cleanupTemporaryTree,
@@ -4429,7 +4432,9 @@ export async function mapCapabilityTeam(leadUrl, {
     }, {
       remoteSession,
       authorityObservation,
+      // As for a map: only a retained same-team proposal needs the history a clone carries.
       fullHistory: matchingProposalRefs.length > 0,
+      objectProjection: true,
       bindProposalToBase: true,
       authorIdentity,
       cleanupTemporaryTree,
@@ -4524,7 +4529,7 @@ export async function addCapabilityRepository(leadUrl, capabilityId, repositoryU
         leadRepositoryId: makeLead ? repositoryId : previousLead,
         state: { published: false, reason: 'awaiting review and merge' }
       };
-    }, { remoteSession, authorityObservation: observations.get(leadKey) });
+    }, { remoteSession, authorityObservation: observations.get(leadKey), objectProjection: true });
 }
 
 /**
@@ -7709,7 +7714,7 @@ export async function adoptManagedCapabilityMap(leadUrl, { confirm = null } = {}
       await mkdir(path.dirname(path.join(root, receiptPath)), { recursive: true });
       await writeFile(path.join(root, receiptPath), canonicalJson(receipt), 'utf8');
       return { adopted: true, preview: false, plan, receipt, receiptPath };
-    });
+    }, { objectProjection: true });
 }
 
 function materializationEquivalence(implicit, explicitRoot) {
@@ -7943,7 +7948,7 @@ export async function proposeProgressiveCapabilityChange(leadUrl, {
         receipt, receiptPath, materialized: Boolean(implicit),
         state: { published: false, reason: 'awaiting review and activation' }
       };
-    });
+    }, { objectProjection: true });
 }
 
 /**

@@ -16,7 +16,7 @@ related:
   - developer-home
   - capability-management
   - repository-state-and-snapshots
-version: 25
+version: 26
 ---
 A workspace is the machine-local collection of capability repositories used for one delivery context. Sessions bind a contributor and selected work item without replacing repository state.
 
@@ -117,6 +117,19 @@ A Story has one checkout on this computer, whichever workspace or clone holds it
 One workspace can hold two clones of a repository: the one its manifest declares and a branch download (`repos/<branch>--<hash>/<repository>`) that owns some Story checkouts. `sflow workspace consolidate <WORKSPACE>` previews moving those checkouts onto the declared clone: it names that canonical clone, each checkout that moves, and why any stays (local changes, untracked files, commits not on the remote, a live lease or bound Copilot turn, an operation in progress, another copy of the same Story, an unfinished start or publication). `--confirm-plan <PLAN-ID>` applies exactly that plan after the same checks. A move changes no file in the checkout: the Story branch is fetched into the declared clone and the checkout's Git administration is moved there, then Git must report it clean, on its branch and at its commit, or the move is put back. Machine-local documents are copied. Nothing is deleted: the old clone keeps its objects and branches, a clone that then owns nothing has its branch-download pointer set aside, and `sflow workspace cleanup <WORKSPACE>` can retire it after its own preview. The Story index follows.
 
 The index is a lookup and a cache, never authority. Every read checks an entry against the checkout's own Git files (folder, branch, Git directory, remote, the Story's `workflow.json`) and drops one that no longer matches; Git stays the truth. Phase and status are refreshed after each lifecycle command; no gate reads them. A checkout whose files are cloud placeholders is reported as unavailable, not read.
+
+### Taking a Story over on another laptop
+
+`sflow session takeover <WORK-ID>` makes a published Story's checkout on this laptop from the shared remote. It fetches only the Story's branch, verifies its configuration pin and reads no application branch or other history. It uses none of the other laptop's paths, sessions, locks or caches. Without `--json` it answers in plain words.
+
+Work that laptop saved without sharing is not on the remote, so takeover cannot recover it; its result says so (`localWorkNotCarried`). To bring that work, share it from the other laptop first:
+
+- configuration drafts not proposed: `sflow configuration propose`;
+- phase edits not published: `sflow phase publish <PHASE>`;
+- commits that did not reach the remote: `sflow sync <WORK-ID>`;
+- documents kept only on that laptop: `sflow documents store <DOCUMENT-ID> --store git`. A document the current phase uses can instead be uploaded again here with the `documents restore` command the result gives.
+
+Or save it there with `sflow backup create --out <DIRECTORY>` and restore it here with `sflow backup restore <DIRECTORY>`.
 
 ### Workspace selection and the editor
 

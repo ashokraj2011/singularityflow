@@ -540,6 +540,17 @@ export function isPendingStoryBranchPromotion(record) {
  * The caller owns the Story subject lock. A durable transport-indeterminate marker is written
  * before the remote compare-and-swap so process death can reconcile only exact remote equality.
  */
+/**
+ * Whether an earlier attempt's lost answer is still unknown after this attempt failed.
+ *
+ * A retry that cannot read the remote says nothing about the earlier attempt, which may have
+ * landed. Recording it as rejected made the remote's later answer (it took the exact commit) read
+ * as a push sent outside SFlow, and sync refused to finish its own publication (SDA-AC-004).
+ */
+function earlierOutcomeStillUnknown(priorOutcome, observed) {
+  return priorOutcome === 'transport-indeterminate' && (observed?.reachable !== true || observed.malformed === true);
+}
+
 export async function completePendingStoryBranchPromotion(root, pending, {
   subject, targetBranch, remote
 } = {}) {
@@ -607,7 +618,8 @@ export async function completePendingStoryBranchPromotion(root, pending, {
     const observed = mayReconcile
       ? await lifecycleAuthority(root).observe({ remote: authority.url, branch: record.targetBranch }) : null;
     if (!observed || !observed.reachable || observed.malformed || observed.sha !== record.commit) {
-      if (outcome !== 'transport-indeterminate') {
+      // An earlier lost answer stays unknown while the remote cannot be read (SDA-AC-004).
+      if (outcome !== 'transport-indeterminate' && !earlierOutcomeStillUnknown(priorOutcome, observed)) {
         await writePendingPublication(root, {
           ...subject,
           record: { ...record, pushOutcome: 'rejected' }
@@ -983,7 +995,8 @@ export async function syncPendingLifecyclePublication(root, options = {}) {
       const observed = mayReconcile
         ? await lifecycleAuthority(root).observe({ remote: authority.url, branch: record.branch }) : null;
       if (!observed || !observed.reachable || observed.malformed || observed.sha !== record.commit) {
-        if (outcome !== 'transport-indeterminate') {
+        // An earlier lost answer stays unknown while the remote cannot be read (SDA-AC-004).
+        if (outcome !== 'transport-indeterminate' && !earlierOutcomeStillUnknown(priorOutcome, observed)) {
           await writePendingPublication(root, {
             ...subject, record: { ...record, pushOutcome: 'rejected' }
           });

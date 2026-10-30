@@ -16,7 +16,8 @@ import {
 } from '../src/git-remote-diagnostics.mjs';
 import {
   discardCleanPreparedPublication, livePreparedPublicationOwner, readPendingPublication,
-  recoverPreparedPublication, recoverPreparedPublicationBySubject, writePendingPublication
+  recoverPreparedPublication, recoverPreparedPublicationBySubject, syncPendingLifecyclePublication,
+  writePendingPublication
 } from '../src/publication-pending.mjs';
 import {
   capturePublicationPreimage, publicationReworkRefNamespace, restorePublicationPreimage
@@ -678,6 +679,44 @@ test('Story sync accepts exact remote equality only after an indeterminate push 
   );
   assert.equal(synced.pushed, pending.record.commit);
   assert.equal(await readPendingPublication(root, subject), null);
+});
+
+// A retry that cannot reach the remote says nothing about an earlier one whose answer was lost.
+// It was recorded as rejected, and once the remote was back the commit it had taken read as one
+// sent outside SFlow: sync refused to finish its own publication (SDA-AC-004).
+test('an earlier lost answer stays unknown through a retry that cannot reach the remote, then reconciles once', async (t) => {
+  const crash = { story: 'after-root-push-before-receipt', initiative: 'after-recovery-push' };
+  const sync = {
+    story: (f, options) => syncPublication(f.root, { git: { remote: 'origin' }, ledger: { enabled: false } },
+      storyFor(f.subject), options),
+    initiative: (f, options) => syncInitiativePublication(f.root, { git: { remote: 'origin' } },
+      initiativeFor(f.subject), options),
+    lifecycle: (f) => syncPendingLifecyclePublication(f.root, { ...f.subject, remote: 'origin' })
+  };
+  for (const route of ['story', 'initiative', 'lifecycle']) {
+    await t.test(route, async () => {
+      const kind = route === 'initiative' ? 'initiative' : 'story';
+      const f = await retainedPublication(kind, `${route.toUpperCase()}-LOST-THEN-UNREACHABLE`, { exactLease: true });
+      await assert.rejects(() => sync[kind](f, {
+        fault: (stage) => { if (stage === crash[kind]) throw new Error('answer lost'); }
+      }), /answer lost/);
+      assert.equal((await readPendingPublication(f.root, f.subject)).record.pushOutcome, 'transport-indeterminate');
+      assert.equal(git(['--git-dir', f.remote, 'rev-parse', 'refs/heads/main'], f.root), f.marker.commit,
+        'the remote took the commit');
+
+      await rename(f.remote, `${f.remote}-away`);
+      await assert.rejects(() => sync[route](f));
+      const held = await readPendingPublication(f.root, f.subject);
+      assert.equal(held.integrityVerified, true);
+      assert.equal(held.record.pushOutcome, 'transport-indeterminate', 'a retry that read nothing settles nothing');
+
+      await rename(`${f.remote}-away`, f.remote);
+      const synced = await sync[route](f);
+      assert.equal(synced.pushed, f.marker.commit);
+      assert.equal(await readPendingPublication(f.root, f.subject), null);
+      assert.equal(git(['--git-dir', f.remote, 'rev-parse', 'refs/heads/main'], f.root), f.marker.commit);
+    });
+  }
 });
 
 test('Story sync durably recovers a crash after its root retry reached receive-pack', async () => {

@@ -13,6 +13,28 @@ const LOCAL_WORK_NOT_CARRIED = Object.freeze({
   restore: 'singularity-flow backup restore <DIRECTORY>'
 });
 
+/**
+ * The session, brief and next steps read one command at a time, as `session open` does when the
+ * shared read declines a Story: a published generation, a review or a recovery. Without this, every
+ * Story taken over after its first publication came back not ready, with no session. A read that
+ * fails leaves its part null, so the takeover is reported not ready rather than failed.
+ */
+async function sessionReadsOneByOne(root, id) {
+  const status = await step(['session', 'status', '--json'], root);
+  const context = await step(['session', 'context', '--work-id', id, '--slice', 'brief', '--max-output-bytes', '32768', '--json'], root);
+  const next = await step(['nextsteps', id, '--json'], root);
+  return { session: status.ok ? status.value : null, context: context.ok ? context.value : null, nextsteps: next.ok ? next.value : null };
+}
+
+/** The takeover in plain words, for a person at a terminal; --json keeps the full result. */
+function takeoverText(result) {
+  const lines = [`Took over ${result.workId} at phase ${result.phase ?? 'closed'}: ${result.repositoryPath}`];
+  lines.push(result.documentsToRestore ? result.documentsToRestore.message
+    : result.ready ? 'It is ready to continue here.' : 'It is here; its session is not ready yet.');
+  lines.push(result.localWorkNotCarried.message);
+  return lines.join('\n');
+}
+
 export function validateSessionTakeoverRequest({ positionals, options }) {
   const allowed = new Set(['workspace', 'repository', 'json', 'for-agent', 'timings']);
   if (positionals.length !== 3 || Object.keys(options).some(key => !allowed.has(key))
@@ -127,7 +149,8 @@ export async function run(_argv, { positionals, options }) {
         neededNow: phase != null && documentOfferedToPhase(document, phase),
         restore: `singularity-flow documents restore ${document.id} --file <LOCAL-FILE> --work-id ${id}` }));
     const restoreNow = unavailable.filter(document => document.neededNow);
-    const opened = await (await import('../session-read-service.mjs')).readOpenedSession(root, { workId: id });
+    const opened = await (await import('../session-read-service.mjs')).readOpenedSession(root, { workId: id })
+      ?? await sessionReadsOneByOne(root, id);
     const result = { schemaVersion: 1, resultType: 'story-takeover', ready: restoreNow.length === 0 && opened?.session?.ready === true,
       workId: id, repositoryPath: root, phase: workflow.currentPhase, executionContext: primary,
       open: attached.value, session: opened?.session ?? null, context: opened?.context ?? null,
@@ -141,7 +164,7 @@ export async function run(_argv, { positionals, options }) {
       effects: { storyAdvanced: false, committed: false, pushed: false, testsRun: false } };
     if (options['for-agent']) Object.assign(result, { executionContext: agentExecutionContext(primary),
       repositories: bindings.map(agentExecutionContext) });
-    console.log(JSON.stringify(result, null, 2));
+    console.log(options.json ? JSON.stringify(result, null, 2) : takeoverText(result));
     return result;
   } catch (error) {
     error.details = { ...(error.details ?? {}), completedRepositoryPaths: completed,

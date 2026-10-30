@@ -3,7 +3,7 @@ import { formatCommandRouteLines } from '../../model-free-commands.mjs';
 import { repoRoot, branch } from '../../git.mjs';
 import { optionString, optionBoolean, SingularityFlowError } from '../../util.mjs';
 import { loadStoryDecisionExecution } from '../../story-decision-context.mjs';
-import { prefetchStoryPublicationObservation, assertNoPendingPublication, previewTestingRepair } from '../../state-stores.mjs';
+import { prefetchStoryPublicationObservation, assertNoPendingPublication, previewTestingRepair, storyPublicationPending } from '../../state-stores.mjs';
 import { assertPhaseSequence } from '../../sequence.mjs';
 import { assertLifecycleWorktreeClean } from '../../lifecycle-worktree.mjs';
 import { resolveSelectionReceipt } from '../../choices.mjs';
@@ -16,6 +16,9 @@ export async function decisionWorkflow(positionals, options, action) {
   const { requestedPhase, definition: config, workflow } = await loadStoryDecisionExecution(root, positionals, options, action);
   prefetchStoryPublicationObservation(root, config, workflow);
   if (action === 'approve' && requestedPhase && workflow.phases[requestedPhase]?.status === 'approved') {
+    // An approval whose commit has not reached the remote is not shared yet (SDA-AC-004). Publish it
+    // first, or refuse as pending, before saying it was already approved.
+    if (await storyPublicationPending(root, config, workflow.workItem.id)) await assertNoPendingPublication(root, config, workflow, action);
     await assertPhaseSequence(root, workflow, action, { requestedPhase });
   }
   if (receiptToken) assertLifecycleWorktreeClean(root, null, null, { workId: optionString(options, 'work-id') ?? branch(root) });

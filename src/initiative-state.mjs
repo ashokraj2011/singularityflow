@@ -1425,15 +1425,20 @@ export async function syncInitiativePublication(root, portfolio, initiative, { f
         // claim another actor's byte-identical update.
         const mayReconcile = priorOutcome === 'transport-indeterminate'
           || pushOutcome === 'transport-indeterminate';
-        const reconciled = mayReconcile
-          && (await lifecycleAuthority(root).observe({
+        const observation = mayReconcile
+          ? await lifecycleAuthority(root).observe({
             remote: remoteAuthority.url, branch: currentRecord.branch
-          })).sha === currentRecord.commit;
+          })
+          : null;
+        const reconciled = mayReconcile && observation.sha === currentRecord.commit;
         if (!reconciled) {
           const error = (result.stderr || result.stdout).trim();
           // The pre-attempt marker already records an ambiguous result. Only a definitive outcome
           // supersedes it; persist that rejection before returning control to another sync process.
-          if (pushOutcome !== 'transport-indeterminate') {
+          // An earlier lost answer stays unknown while the remote cannot be read (SDA-AC-004).
+          const earlierUnknown = priorOutcome === 'transport-indeterminate'
+            && (observation?.reachable !== true || observation.malformed === true);
+          if (pushOutcome !== 'transport-indeterminate' && !earlierUnknown) {
             await writePendingPublication(root, {
               ...subject,
               record: {

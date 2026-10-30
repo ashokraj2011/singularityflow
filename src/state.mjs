@@ -10371,14 +10371,20 @@ export async function syncPublication(root, config, workflow, { fault = null, re
         // pending receipt is the authority that makes this exact equality an idempotent success.
         // Check an older durable ambiguity before letting this retry's expected collision supersede
         // it. That is the only way a crash after a successful receive-pack can converge safely.
-        const remoteCommit = priorPushOutcome === 'transport-indeterminate'
+        const observation = priorPushOutcome === 'transport-indeterminate'
           || pushOutcome === 'transport-indeterminate'
-          ? (await lifecycleAuthority(root).observe({
+          ? await lifecycleAuthority(root).observe({
               remote: rootRemoteAuthority.url, branch: record.branch
-            })).sha
+            })
           : null;
+        const remoteCommit = observation?.sha ?? null;
         if (remoteCommit !== record.commit) {
-          if (pushOutcome !== 'transport-indeterminate') {
+          // An earlier attempt whose answer was lost stays unknown while the remote cannot be read:
+          // this attempt failing to reach it says nothing about that one. Recorded as rejected, the
+          // remote's later answer (it took the commit) was refused as "sent outside SFlow" (SDA-AC-004).
+          const earlierUnknown = priorPushOutcome === 'transport-indeterminate'
+            && (observation?.reachable !== true || observation.malformed === true);
+          if (pushOutcome !== 'transport-indeterminate' && !earlierUnknown) {
             record = { ...record, pushOutcome: 'rejected' };
             await writePendingPublication(root, { ...subject, record });
           }

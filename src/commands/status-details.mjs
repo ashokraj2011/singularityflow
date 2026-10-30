@@ -38,7 +38,7 @@ function summary(workflow) {
  * Do not replace this with the general repository facade: status needs only one worktree-local
  * symbolic ref, and paying discovery plus HEAD stability probes was a measured 10x regression.
  */
-import { galStatusBranchCandidate, galStatusBranch, galStatusRepositoryRoot, galStatusSelection, readStatus } from './status-read.mjs';
+import { galStatusBranchCandidate, galStatusBranch, galStatusRepositoryRoot, galStatusSelection, readStatus, retainedStoryPublication } from './status-read.mjs';
 export { galStatusBranchCandidate, galStatusBranch, galStatusRepositoryRoot, galStatusSelection, readStatus };
 
 export async function run(_argv, { positionals, options }) {
@@ -92,6 +92,7 @@ export async function run(_argv, { positionals, options }) {
     required: true
   });
   const workflow = selected.state;
+  const retained = await retainedStoryPublication(root, selected);
   let gitShadowSummary = null;
   if (gitShadow) {
     const { summarizeFosGitShadowObservations } = await import('../fos-git-shadow.mjs');
@@ -102,10 +103,12 @@ export async function run(_argv, { positionals, options }) {
   if (optionBoolean(options, 'json')) return console.log(JSON.stringify({
     ...workflow,
     ...(gitShadowSummary ? { gitShadow: gitShadowSummary } : {}),
-    authoringRoutes: workflowAuthoringRoutes(workflow)
+    authoringRoutes: workflowAuthoringRoutes(workflow),
+    ...(retained ? { publicationPending: retained } : {})
   }, null, 2));
 
   summary(workflow);
+  if (retained) console.log(`Publication: pending. ${retained.message} Publish it: ${retained.nextAction.command}`);
   if (gitShadowSummary) {
     console.log(`Git shadow: ${gitShadowSummary.equivalent}/${gitShadowSummary.comparisons} equivalent · reference remains authoritative`);
   }

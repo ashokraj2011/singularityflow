@@ -4,10 +4,11 @@
   "status": "contract-only",
   "baselineCommit": "70db564e59224b03729bab0f9a340807f3086c61",
   "lastReview": {
-    "reviewedAtCommit": "6f0e9741db7f4f6cc9939d4ffdb2e3e8ee2d6f19",
-    "evidence": "docs/contracts/gdp/COMPANION-LOCK-REVIEW-2026-10-29-APPROVER-REFRESH-RECORDS.md",
+    "reviewedAtCommit": "fa3094b83c6c1ec2308d0b6516dd8bc6dec16ab5",
+    "evidence": "docs/contracts/gdp/COMPANION-LOCK-REVIEW-2026-10-30-SDA-LEASED-PUSHES.md",
     "companionIds": [
-      "migration-registry"
+      "candidate-custody",
+      "publication-unit-of-work"
     ]
   },
   "companions": [
@@ -79,12 +80,12 @@
     {
       "id": "candidate-custody",
       "path": "src/auto/auto-candidate.mjs",
-      "sha256": "sha256:03b1245b4a315a452c1d8e3c339214af53fd815011ab4299673a5f47ce210f5d"
+      "sha256": "sha256:262e2465b186372c381224b2f3eb568cefa00968d41a3cccf6fd6a8a1f7d1161"
     },
     {
       "id": "publication-unit-of-work",
       "path": "src/publication-unit-of-work.mjs",
-      "sha256": "sha256:bbff2a3a9cc255c7c697fa45862e1be57bf92e74bb6a3944813e61e6f32ce807"
+      "sha256": "sha256:c89fcdd32611be18fcbe57d015c08068717b8b4d7039363d3bc8998b45f7b7e9"
     },
     {
       "id": "action-authorization",

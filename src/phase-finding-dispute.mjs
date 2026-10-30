@@ -58,8 +58,34 @@ async function observeCodeDelivery(root, config, workflow, phase) {
         + `Its documented routes: ${findingDocumentation({ code: error?.code ?? 'UNKNOWN' }).command}`,
       'PHASE_FINDING_DISPUTE_NOT_ELIGIBLE');
     }
-    return { problems: [...error.details.problems], candidateSha256: error.details.candidateSha256 };
+    return { problems: [...error.details.problems], findings: [...error.details.findings ?? []],
+      candidateSha256: error.details.candidateSha256 };
   }
+}
+
+const ENTRY_ID = /^(FND-[a-f0-9]{24}) /u;
+const ENTRY_LIMIT = 2000;
+
+/**
+ * The entries a new dispute records: each problem keyed by its canonical finding ID, the sentence
+ * kept for the reviewer and cut to the schema's entry limit [SDA-AC-022]. The schema is unchanged,
+ * so an older client still reads the record; it compares whole sentences, so it fails closed on it.
+ */
+export function disputeEntries(problems, findings = []) {
+  return problems.map((problem, index) => {
+    const id = findings[index]?.id;
+    return id ? `${id} ${problem}`.slice(0, ENTRY_LIMIT) : problem;
+  });
+}
+
+/**
+ * Whether a recorded dispute covers every current problem: an ID-keyed entry covers the finding
+ * with that ID whatever its sentence now says; a sentence-only entry (a record made before IDs) is
+ * the migration alias and covers exactly that sentence, as before.
+ */
+export function disputeCovers(entries, current) {
+  const ids = new Set(entries.map((entry) => ENTRY_ID.exec(entry)?.[1]).filter(Boolean));
+  return current.every(({ id, problem }) => (id && ids.has(id)) || entries.includes(problem));
 }
 
 export async function prepareCodeDeliveryDispute(root, config, workflow, phase, { evidence = [], expires, reason } = {}) {
@@ -77,22 +103,23 @@ export async function prepareCodeDeliveryDispute(root, config, workflow, phase, 
       || time <= Date.now() || time - Date.now() > 90 * 86400000) fail('Expiry must be a valid future date within 90 days.');
   const observed = await observeCodeDelivery(root, config, workflow, phase);
   if (!observed) fail('The code delivery passes; there is no finding to dispute.', 'PHASE_FINDING_DISPUTE_NOT_ELIGIBLE');
+  const problems = disputeEntries(observed.problems, observed.findings);
   const core = { schemaVersion: 3, kind: 'phase-quality-risk',
     binding: findingDisputeBinding(workflow, phase, observed.candidateSha256),
     gateMode: 'dispute', enablesPilotForPhase: false, gate: 'CODE_DELIVERY_EVIDENCE_REQUIRED', clauses: [],
-    problems: observed.problems, evidence: await Promise.all(paths.map((candidate) => evidenceItem(root, candidate))),
+    problems, evidence: await Promise.all(paths.map((candidate) => evidenceItem(root, candidate))),
     transitions: ['publish'], expiresAt, reason: typeof reason === 'string' ? reason.trim() : reason,
-    observationSha256: digest(observed.problems) };
+    observationSha256: digest(problems) };
   const parsed = FindingDisputePacketSchema.safeParse({ ...core, packetSha256: digest(core) });
   if (!parsed.success) fail(`The dispute is incomplete: ${parsed.error.issues.map((issue) => `${issue.path.join('.') || 'packet'} ${issue.message}`).join('; ')}. Give a reason of at least 20 characters.`);
   return parsed.data;
 }
 
 /**
- * The accepted dispute that covers these exact problems for this candidate, if any, with every
+ * The accepted dispute that covers these exact findings for this candidate, if any, with every
  * dispute's status for display. Reads nothing when the Story records no dispute.
  */
-export async function codeDeliveryDisputeStatus(root, config, workflow, phase, { problems, candidateSha256, at = nowIso() } = {}) {
+export async function codeDeliveryDisputeStatus(root, config, workflow, phase, { problems, findings = [], candidateSha256, at = nowIso() } = {}) {
   const recorded = (workflow.qualityRiskDecisions ?? []).filter((record) => isFindingDispute(record)
     && record.gate === 'CODE_DELIVERY_EVIDENCE_REQUIRED' && record.binding?.phaseId === phase.id);
   if (!recorded.length) return { active: null, items: [] };
@@ -102,7 +129,7 @@ export async function codeDeliveryDisputeStatus(root, config, workflow, phase, {
   const binding = findingDisputeBinding(workflow, phase, candidateSha256);
   let active = null; const items = [];
   for (const record of retained.filter((entry) => isFindingDispute(entry) && entry.binding.phaseId === phase.id)) {
-    const covered = problems.every((problem) => record.problems.includes(problem));
+    const covered = disputeCovers(record.problems, problems.map((problem, index) => ({ id: findings[index]?.id ?? null, problem })));
     const status = revoked.has(record.id) ? 'revoked'
       : Date.parse(record.expiresAt) <= Date.parse(at) ? 'expired'
         : canonicalJson(record.binding) !== canonicalJson(binding) ? 'stale'

@@ -10,6 +10,9 @@ import {
 import { checkout, fetchRemote, governedCommitIdentity, hasUpstream, refExists } from '../src/git.mjs';
 import { listInitiatives } from '../src/initiative-state.mjs';
 import {
+  IDENTITY_SOURCE, initiativeIdentityRecords, resolveInitiativeIdentity
+} from '../src/subject-identity-records.mjs';
+import {
   readPendingPublication, verifyPendingPublicationCommit, writePendingPublication
 } from '../src/publication-pending.mjs';
 import { run } from '../src/util.mjs';
@@ -41,12 +44,60 @@ async function repository() {
   return root;
 }
 
-test('local Epic allocation scans governed directories and branches', async () => {
+const LEDGER_ON = Object.freeze({ enabled: true });
+
+test('with the ledger off, local Epic allocation scans governed directories and branches', async () => {
   const root = await repository();
   await mkdir(path.join(root, 'singularity/initiatives/SF-E-002'), { recursive: true });
   run('git', ['branch', 'SF-E-004'], { cwd: root });
+  // No workflow definition declares a ledger here, so there is no authority record to read.
   const next = await nextLocalEpicId(root, policy());
   assert.equal(next.id, 'SF-E-005');
+  assert.equal(next.identitySource, IDENTITY_SOURCE.LEDGER_OFF);
+  assert.equal((await nextLocalEpicId(root, policy(), { ledger: { enabled: false } })).id, 'SF-E-005');
+});
+
+test('with the ledger on, Epic allocation reads identity records and ignores look-alike branches', async () => {
+  const root = await repository();
+  const actor = { name: 'Planner', email: 'planner@example.com' };
+  const first = await reserveLocalEpicBranch(root, policy(), { base: 'main', actor, ledger: LEDGER_ON });
+  assert.equal(first.id, 'SF-E-001');
+  const identities = await initiativeIdentityRecords(root, LEDGER_ON);
+  assert.equal(identities.source, IDENTITY_SOURCE.LEDGER);
+  assert.deepEqual(identities.records.map((record) => [record.id, record.branch, record.reservedAs]),
+    [['SF-E-001', 'SF-E-001', 'epic']]);
+  assert.equal(identities.records[0].event.publishedCommit, first.reservationCommit);
+  assert.equal(JSON.parse(await readFile(path.join(root, 'singularity/identity-reservations/SF-E-001.json'), 'utf8')).branch,
+    'SF-E-001', 'the reservation records its branch binding');
+
+  run('git', ['switch', 'main'], { cwd: root });
+  // A branch that merely looks like an Epic ID is not an identity record.
+  run('git', ['branch', 'SF-E-009'], { cwd: root });
+  const next = await nextLocalEpicId(root, policy(), { ledger: LEDGER_ON });
+  assert.equal(next.id, 'SF-E-002');
+  assert.equal(next.identitySource, IDENTITY_SOURCE.LEDGER);
+  assert.equal((await nextLocalEpicId(root, policy(), { ledger: { enabled: false } })).id, 'SF-E-010',
+    'the ledger-off fallback is the only path that still reads branches');
+
+  // An existing branch carrying the next free name is passed over, never adopted as the Epic.
+  run('git', ['branch', 'SF-E-002'], { cwd: root });
+  const second = await reserveLocalEpicBranch(root, policy(), { base: 'main', actor, ledger: LEDGER_ON });
+  assert.equal(second.id, 'SF-E-003');
+  const current = await currentLocalEpicReservation(root, policy());
+  assert.equal(current.id, 'SF-E-003');
+  assert.equal(current.branch, 'SF-E-003');
+  assert.deepEqual((await initiativeIdentityRecords(root, LEDGER_ON)).records.map((record) => record.id),
+    ['SF-E-001', 'SF-E-003']);
+});
+
+test('identity records resolve an ID or recorded branch alias and refuse what they do not know', () => {
+  const identities = {
+    source: IDENTITY_SOURCE.LEDGER,
+    records: [{ id: 'EPIC-1', branch: 'feature/epic-1', aliases: ['feature/epic-1'] }]
+  };
+  assert.equal(resolveInitiativeIdentity(identities, 'EPIC-1').branch, 'feature/epic-1');
+  assert.equal(resolveInitiativeIdentity(identities, 'feature/epic-1').id, 'EPIC-1');
+  assert.throws(() => resolveInitiativeIdentity(identities, 'EPIC-2'), { code: 'INITIATIVE_IDENTITY_UNRECORDED' });
 });
 
 test('local Story IDs retain plan IDs and are scoped by reserved Epic', () => {
@@ -469,4 +520,36 @@ test('an Epic whose branch was never pushed is still listed from another branch'
   assert.deepEqual(items.map((item) => item.id), ['SF-E-002']);
   assert.equal(items[0].source, 'local/SF-E-002');
   assert.equal(items[0].currentPhaseLabel, 'Requirements');
+});
+
+test('with the ledger on, the Epic list reads each recorded identity at its recorded branch only', async () => {
+  const root = await repository();
+  const reserved = await reserveLocalEpicBranch(root, policy(), {
+    base: 'main', actor: { name: 'Planner', email: 'planner@example.com' }, ledger: LEDGER_ON
+  });
+  const writeEpic = async (id, title) => {
+    const directory = path.join(root, 'singularity/initiatives', id);
+    await mkdir(directory, { recursive: true });
+    await writeFile(path.join(directory, 'state.json'), JSON.stringify({
+      initiative: { id, branch: id, title, profile: 'epic-planning', createdAt: '2026-10-30T00:00:00.000Z' },
+      lineage: { idAuthority: 'local', primaryId: id, aliases: [] },
+      phaseOrder: ['epic-intake'],
+      phases: { 'epic-intake': { id: 'epic-intake', label: 'Epic intake', status: 'in_progress' } },
+      currentPhase: 'epic-intake',
+      status: 'in_progress',
+      history: [{ at: '2026-10-30T01:00:00.000Z', actor: 'owner@example.com', event: 'initiative_started' }]
+    }));
+    run('git', ['add', '.'], { cwd: root });
+    run('git', ['commit', '-m', `Start ${id}`], { cwd: root });
+  };
+  await writeEpic(reserved.id, 'Recorded Epic');
+  run('git', ['switch', '-c', 'SF-E-007', 'main'], { cwd: root });
+  await writeEpic('SF-E-007', 'Unrecorded look-alike');
+  run('git', ['switch', 'main'], { cwd: root });
+
+  const listed = await listInitiatives(root, policy('required'), { ledger: LEDGER_ON });
+  assert.deepEqual(listed.map((item) => [item.id, item.source]), [['SF-E-001', 'local/SF-E-001']]);
+  const scanned = await listInitiatives(root, policy('required'), { ledger: { enabled: false } });
+  assert.deepEqual(scanned.map((item) => item.id).sort(), ['SF-E-001', 'SF-E-007'],
+    'the ledger-off fallback still lists branches');
 });

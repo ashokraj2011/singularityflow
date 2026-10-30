@@ -48,6 +48,11 @@ export function ledgerDisabledDiscoveryError(authority, cause = undefined) {
   );
 }
 
+/** A Story is its Work ID [SDA §5]: state the ledger found off its recorded branch is listed there, with this finding. */
+export function storyBranchBindingFinding(recordedBranch, ledgerBranch) {
+  return recordedBranch === ledgerBranch ? null : { code: 'STORY_BRANCH_BINDING_MISMATCH', recordedBranch, ledgerBranch };
+}
+
 /**
  * The candidate row for a Story the ledger summarized, or null to read its committed state.
  *
@@ -455,11 +460,11 @@ export async function discoverRemoteStoryCandidatesByUrl(url, {
                 || !workflow?.phases || !Array.isArray(workflow?.phaseOrder)) {
               throw new Error('Story state identity or workflow structure is invalid');
             }
-            const canonical = workflow.lineage?.canonicalBranch ?? workflow.workItem.branch ?? claimedId;
-            if (canonical !== branch) throw new Error('The state-indexed Story canonical branch does not match its ledger location.');
+            const bindingFinding = storyBranchBindingFinding(
+              workflow.lineage?.canonicalBranch ?? workflow.workItem.branch ?? claimedId, branch);
             if (items.has(claimedId)) throw new Error('Story ID is claimed by more than one canonical branch');
             items.set(claimedId, {
-              id: claimedId, branch: canonical, title: workflow.workItem.title,
+              id: claimedId, branch, ...(bindingFinding ? { bindingFinding } : {}), title: workflow.workItem.title,
               createdAt: workflow.workItem.createdAt ?? null, createdBy: storyCreatorName(workflow.workItem.createdBy),
               status: workflow.status, phase: workflow.currentPhase,
               workType: workflow.workItem.workType ?? null,

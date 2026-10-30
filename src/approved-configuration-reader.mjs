@@ -462,11 +462,16 @@ export async function withRepositoryConfigurationCommitRead(root, {
  * only. Ordinary Story/workspace reads do not pay for or expose that extra private byte profile.
  * `useObjectCache` explicitly opts CLI online reads into exact-commit object transfer reuse. It
  * preserves fresh authority observation and validation; default/gateway reads remain cache-off.
+ * The CLI's configuration inspection commands opt in (`INSPECTION_READ`), so inspecting
+ * configuration creates no temporary clone (SDA-AC-013).
  * `reuseAuthorityObservation` lets that cached read admit the authority this same call observed a
  * moment earlier instead of listing the remote a second time. Only a read whose answer is advisory
  * opts in: the intake catalog and its readiness preview, which Story start recomputes before any
  * mutation. Every other reader keeps its own fresh admission observation.
  */
+/** The read options of a CLI configuration inspection command: exact objects, never a temporary clone. */
+export const INSPECTION_READ = Object.freeze({ useObjectCache: true });
+
 export async function withApprovedConfigurationRead(root, fn, {
   preferAuthority = false,
   allowLocalHeads = true,
@@ -525,7 +530,8 @@ export async function withApprovedConfigurationRead(root, fn, {
     const resolved = await resolveStoryConfigurationAuthority(root, 'origin', { captureAuthoringBytes, session });
     if (resolved) {
       const snapshot = await loadStoryConfigurationSnapshot(resolved, {
-        captureAuthoringBytes, useObjectCache, session, reuseAuthorityObservation: Boolean(session)
+        captureAuthoringBytes, useObjectCache, session, reuseAuthorityObservation: Boolean(session),
+        objectRoot: useObjectCache ? root : null
       });
       return withStoryConfigurationSnapshotRead(root, snapshot, fn, { selectPaths });
     }

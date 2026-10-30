@@ -10,12 +10,13 @@ commands:
   - onboard
   - authority
   - cache
+  - index
   - doctor
   - repositories
 related:
   - getting-started
   - starting-work
-version: 5
+version: 6
 ---
 Fast onboarding attaches an existing Git checkout to one exact reviewed configuration authority.
 It performs no clone, source scan, AST or World-Model build, model call, application checkout, or
@@ -65,6 +66,13 @@ Repeated onboarding returns `already-attached` without silently advancing author
 route is a rebind and needs normal reviewed authority configuration. Derived caches are
 non-authoritative; clearing them preserves pins, journals, receipts, evidence, Story state, and
 recovery checkpoints. Git speed changes are repository-local, explicit, verified, and receipted.
+
+The read index is the same kind of derived state: the Story list and the intake catalog kept on this
+computer. Past the repository-check interval they are shown at once as stale and refreshed in the
+background; a refresh the remote cannot answer keeps the last list with its real error.
+`singularity-flow index status` shows their freshness and pending pushes, `index refresh` asks the
+remote again, and `index rebuild` discards what cannot be verified without touching drafts, journals,
+pending pushes or Story state.
 
 ## Troubleshooting
 

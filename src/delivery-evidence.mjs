@@ -824,6 +824,7 @@ export async function discoverAcceptanceWitnesses(root, phase, {
     }
   }
   const errors = [];
+  const errorFindings = [];
   for (const clauseId of requiredAcIds) {
     const sources = bindings.filter((binding) => binding.clauseId === clauseId).map((binding) => binding.testSource);
     if (!sources.length || !sources.every((file) => profileIsExact(fileProfile.get(file)?.profile ?? 'module-counts-v1'))) continue;
@@ -831,6 +832,7 @@ export async function discoverAcceptanceWitnesses(root, phase, {
     const where = unattachedTags.filter((tag) => tag.clauseIds.includes(clauseId))
       .map((tag) => `${tag.testSource}${tag.line ? `:${tag.line}` : ''} (${tag.message})`);
     errors.push(`@ac:${clauseId} is not on a test: ${where.join('; ') || sources.join(', ')}. Put the tag in a comment on the line directly above the test that verifies ${clauseId}.`);
+    errorFindings.push({ code: 'code.delivery.acceptance-tag-unattached', value: clauseId });
   }
   return {
     witnesses: witnesses.sort((left, right) => left.clauseId.localeCompare(right.clauseId)
@@ -838,7 +840,7 @@ export async function discoverAcceptanceWitnesses(root, phase, {
     unattachedTags,
     profiles: [...fileProfile.entries()].map(([testSource, entry]) => ({ testSource, ...entry,
       ceiling: testAdapterProfile(entry.profile).ceiling })),
-    errors
+    errors, errorFindings
   };
 }
 
@@ -901,6 +903,12 @@ async function fulfillmentEvidence(root, obligations, changedPaths, deletedPaths
   const changed = new Set([...changedPaths, ...deletedPaths]);
   const entries = [];
   const problems = [];
+  // Each sentence's identity, in the same order [SDA-AC-022]: the obligation and its exact path.
+  const problemFindings = [];
+  const problem = (code, clauseId, candidate, sentence) => {
+    problems.push(sentence);
+    problemFindings.push({ code, path: candidate, value: clauseId });
+  };
   for (const obligation of obligations ?? []) {
     if (!['existing', 'removed', 'document', 'configuration', 'evidence'].includes(obligation.fulfillment)) continue;
     const paths = [];
@@ -913,18 +921,18 @@ async function fulfillmentEvidence(root, obligations, changedPaths, deletedPaths
       if (['existing', 'evidence'].includes(obligation.fulfillment)) {
         paths.push({ path: candidate, state: present ? 'present' : 'missing',
           sha256: present ? createHash('sha256').update(await readFile(secured.absolute)).digest('hex') : null });
-        if (!present) problems.push(`${obligation.clauseId} requires ${obligation.fulfillment}, but ${candidate} does not exist`);
+        if (!present) problem(`code.delivery.${obligation.fulfillment}-path-missing`, obligation.clauseId, candidate, `${obligation.clauseId} requires ${obligation.fulfillment}, but ${candidate} does not exist`);
       } else if (obligation.fulfillment === 'removed') {
         paths.push({ path: candidate, state: present ? 'present' : 'absent' });
-        if (present) problems.push(`${obligation.clauseId} removes ${candidate}, but it still exists`);
+        if (present) problem('code.delivery.removed-path-present', obligation.clauseId, candidate, `${obligation.clauseId} removes ${candidate}, but it still exists`);
       } else {
         paths.push({ path: candidate, state: changed.has(candidate) ? 'changed' : 'unchanged' });
-        if (!changed.has(candidate)) problems.push(`${obligation.clauseId} is a ${obligation.fulfillment} change, but ${candidate} did not change`);
+        if (!changed.has(candidate)) problem(`code.delivery.${obligation.fulfillment}-path-unchanged`, obligation.clauseId, candidate, `${obligation.clauseId} is a ${obligation.fulfillment} change, but ${candidate} did not change`);
       }
     }
     entries.push({ clauseId: obligation.clauseId, fulfillment: obligation.fulfillment, paths });
   }
-  return { obligations: entries, problems };
+  return { obligations: entries, problems, problemFindings };
 }
 
 export async function plannedSourceClauseBindings(root, config, workflow, phase, sourcePaths, {
@@ -1419,6 +1427,11 @@ export async function evaluateCodeDeliveryPreflight(root, config, workflow, phas
   );
   const sourcePaths = [...new Set([...changedSourcePaths, ...reusableSourcePaths])].sort();
   const errors = [];
+  // Each sentence is presentation; its identity {code, path, value} (never a line or wording) names
+  // the finding a dispute or an escalation matches [SDA-AC-022]. Kept in the same order as errors.
+  const identities = [];
+  const report = (problem, identity) => { errors.push(problem); identities.push(identity); };
+  const reportAll = (problems, findings) => problems.forEach((problem, index) => report(problem, findings[index]));
   // What this step owes comes from its allocated obligations [E2G-010]: existing behaviour changes
   // nothing, and test-only, document, configuration and removal work need no new product source.
   const fulfillment = await fulfillmentEvidence(root, obligations, changedPaths, deletedPaths);
@@ -1427,13 +1440,14 @@ export async function evaluateCodeDeliveryPreflight(root, config, workflow, phas
 
   const unchangedGeneration = !applicationEntries.length && !intentRevalidation && !withdrawnRepair && !earlierReturn && changeRequired;
   if (unchangedGeneration) {
-    errors.push('no application source or test paths changed during the work interval');
+    report('no application source or test paths changed during the work interval', { code: 'code.delivery.generation-unchanged' });
   }
   const implementationMissing = phase.sourceBoundary !== 'test-automation' && !sourcePaths.length && sourceRequired;
   if (implementationMissing) {
-    errors.push('no product source path changed; a summary, configuration or test-only edit is not an implementation');
+    report('no product source path changed; a summary, configuration or test-only edit is not an implementation',
+      { code: 'code.delivery.product-source-missing' });
   }
-  errors.push(...fulfillment.problems);
+  reportAll(fulfillment.problems, fulfillment.problemFindings);
   const requiredAcIds = await acceptanceIds(root, config, workflow, phase);
   // A test is owed only where the plan plans one. Rows the plan reviewed as needing none (a document,
   // configuration, removal or screenshot row whose tests are not applicable, or one proven by
@@ -1444,9 +1458,9 @@ export async function evaluateCodeDeliveryPreflight(root, config, workflow, phas
     // A file named as a test outside every recognised test folder is counted as product source; say
     // so, or the author keeps re-tagging a test the gate never reads.
     const uncounted = changedPaths.filter((candidate) => !isAllowedTestAutomationPath(candidate) && isTestSourceName(candidate));
-    errors.push(uncounted.length
+    report(uncounted.length
       ? `no acceptance test is available for the implementation: ${uncounted.slice(0, 5).join(', ')}${uncounted.length > 5 ? ` and ${uncounted.length - 5} more` : ''} ${uncounted.length === 1 ? 'is' : 'are'} named as tests but not in a recognised test folder (test, tests, spec, __tests__, e2e, src/<name>Test, <Target>Tests, <Project>.Tests), so ${uncounted.length === 1 ? 'it counts' : 'they count'} as product source`
-      : 'no acceptance test is available for the implementation');
+      : 'no acceptance test is available for the implementation', { code: 'code.delivery.acceptance-test-missing' });
   }
 
   const criteria = specificationCriteria(await loadActiveSpecRecords(itemDirectory, workflow), workflow, config);
@@ -1463,8 +1477,9 @@ export async function evaluateCodeDeliveryPreflight(root, config, workflow, phas
   const taggedAcIds = tags.ids;
   const missingAcIds = requiredAcIds.filter((id) => !taggedAcIds.includes(id));
   if (missingAcIds.length) {
-    errors.push(`changed tests do not contain required traceability tags: ${missingAcIds.map((id) => `@ac:${id}${otherStoryTagsNote(othersTags
-      .filter((location) => location.clauseId === id).map((location) => ({ path: location.testSource, line: location.line })), 'criterion')}`).join(', ')}`);
+    report(`changed tests do not contain required traceability tags: ${missingAcIds.map((id) => `@ac:${id}${otherStoryTagsNote(othersTags
+      .filter((location) => location.clauseId === id).map((location) => ({ path: location.testSource, line: location.line })), 'criterion')}`).join(', ')}`,
+    { code: 'code.delivery.acceptance-tag-missing', value: missingAcIds });
   }
   // A test carries the nearest tag with its ID at or above its line.
   const othersTag = ({ testSource, clauseId, line }) => line != null && othersTags.some((location) =>
@@ -1475,7 +1490,7 @@ export async function evaluateCodeDeliveryPreflight(root, config, workflow, phas
     testPaths, sourcePaths, requiredAcIds: requiredAcIds.filter((id) => taggedAcIds.includes(id)), bindings: tags.bindings,
     othersTag, executionMode: workflow.resolution?.testExecutionMode
   });
-  errors.push(...witnessDiscovery.errors);
+  reportAll(witnessDiscovery.errors, witnessDiscovery.errorFindings);
   // A tag naming a criterion the specification does not hold is refused while this generation is
   // still editable, not at submission once it has been spent [E2G-015].
   const unknownCriteria = unknownCriterionTags(criteria, {
@@ -1487,6 +1502,7 @@ export async function evaluateCodeDeliveryPreflight(root, config, workflow, phas
     const named = unknownCriteria.map((finding) => `@ac:${finding.clauseId} at ${finding.path}${finding.line ? `:${finding.line}` : ''}`).join('; ');
     errors.unshift(criteria ? `tests name criteria the active specification does not hold: ${named}`
       : `tests name criteria, but this Story has no specification index, so no test can witness one: ${named}`);
+    identities.unshift({ code: 'code.delivery.criterion-tag-unknown', value: unknownCriteria.map((finding) => finding.clauseId) });
   }
   const sourceBindings = await plannedSourceClauseBindings(root, config, workflow, phase, sourcePaths, {
     deletedSourcePaths, changeSet: applicationChangeSet
@@ -1495,18 +1511,20 @@ export async function evaluateCodeDeliveryPreflight(root, config, workflow, phas
   const bound = sourceBindings.mode === 'enforce' && sourceBindings.required.length
     ? await implementationBindings(root, { changeSet, required: sourceBindings.required, tags: sourceBindings.bindings })
     : null;
-  if (bound) errors.push(...bound.problems);
+  if (bound) reportAll(bound.problems, bound.problemFindings);
   const absentTags = sourceBindings.missing.filter((missing) => !missing.unchangedTags?.length);
   if (absentTags.length) {
-    errors.push(`planned product source does not contain required clause comments: ${absentTags
-      .map(({ clauseId, expectedPaths, otherStoryTags }) => `@clause:${clauseId} in ${expectedPaths.join(' or ')}${otherStoryTagsNote(otherStoryTags)}`).join('; ')}`);
+    report(`planned product source does not contain required clause comments: ${absentTags
+      .map(({ clauseId, expectedPaths, otherStoryTags }) => `@clause:${clauseId} in ${expectedPaths.join(' or ')}${otherStoryTagsNote(otherStoryTags)}`).join('; ')}`,
+    { code: 'code.delivery.source-clause-tag-missing', value: absentTags.map((missing) => missing.clauseId) });
   }
   // The file holds the tag, but this generation does not deliver that file: say so, and what counts.
   const undeliveredTags = sourceBindings.missing.filter((missing) => missing.unchangedTags?.length);
   if (undeliveredTags.length) {
-    errors.push(`required clause comments are only in planned source this generation does not deliver: ${undeliveredTags
+    report(`required clause comments are only in planned source this generation does not deliver: ${undeliveredTags
       .map(({ clauseId, unchangedTags }) => `@clause:${clauseId} at ${unchangedTags.map((tag) => `${tag.path}:${tag.line}`).join(', ')}`).join('; ')}`
-      + '. A clause comment counts in planned source the generation changes, or in the previous generation\'s unchanged source when a reviewer\'s return asked only for tests');
+      + '. A clause comment counts in planned source the generation changes, or in the previous generation\'s unchanged source when a reviewer\'s return asked only for tests',
+    { code: 'code.delivery.source-clause-tag-undelivered', value: undeliveredTags.map((missing) => missing.clauseId) });
   }
   const enforceCornerCases = workflow.resolution?.codeDelivery?.cornerCaseObligations === 'enforce'
     || config.governance?.requireCornerCaseCoverage === true;
@@ -1519,15 +1537,18 @@ export async function evaluateCodeDeliveryPreflight(root, config, workflow, phas
     cornerCaseGate = await evaluateDeliveryCornerCaseGate(root, {
       changeSet, sourcePaths, testPaths, enforceCornerCases, enforceAssertionAdequacy
     });
-    errors.push(...cornerCaseGate.problems);
+    reportAll(cornerCaseGate.problems, cornerCaseGate.problemFindings);
     cornerCaseGate.compactMatrix = compactCornerCaseMatrix(cornerCaseGate.matrix);
   }
   // The step's approvers may accept these exact problems for this exact candidate as a disputed
   // finding [recoverable-findings M2]; anything else, or any change, still refuses.
   const candidateSha256 = errors.length ? (await import('./phase-finding-dispute.mjs')).codeDeliveryCandidateSha256(applicationEntries) : null;
+  // Loaded only on a refusal, like the dispute module, so no passing gate pays for it.
+  const { canonicalFinding } = errors.length ? await import('./finding-identity.mjs') : {};
+  const findings = errors.length ? identities.map((identity) => canonicalFinding(identity)) : [];
   const acceptedDispute = errors.length && !unknownCriteria.length && !ignoreDisputes
     ? (await (await import('./phase-finding-dispute.mjs')).codeDeliveryDisputeStatus(root, config, workflow, phase,
-      { problems: errors, candidateSha256 })).active : null;
+      { problems: errors, findings, candidateSha256 })).active : null;
   if (errors.length && !acceptedDispute) {
     const unknown = unknownCriteria.length > 0;
     // Without an index, a criterion the step owes is named only by an earlier artifact's text, so no
@@ -1561,8 +1582,11 @@ export async function evaluateCodeDeliveryPreflight(root, config, workflow, phas
             label: `If no change is needed, a reviewer of the returning step previews withdrawing ${deliveryRoute.changeRequestId}.` } } : {}),
           ...(cornerCaseGate?.findings?.length ? { cornerCaseFindings: cornerCaseGate.findings,
             cornerCaseHarness: cornerCaseGate.harness } : {}),
-          // The exact problems and candidate a dispute would bind to (appeal risk-prepare --finding).
-          ...(!unknown ? { problems: [...errors], candidateSha256 } : {}),
+          // The exact problems and candidate a dispute would bind to (appeal risk-prepare --finding),
+          // and each problem's canonical identity in the same order; an unknown criterion keeps its
+          // own findings, so only its IDs are added.
+          ...(!unknown ? { problems: [...errors], findings, candidateSha256 } : {}),
+          findingIds: findings.map((finding) => finding.id),
           // Each planned evidence file this step owes but has not produced, so recovery can name
           // the file and its route instead of a prose-only shortfall.
           retainedEvidenceMissing: fulfillment.obligations.filter((entry) => entry.fulfillment === 'evidence')

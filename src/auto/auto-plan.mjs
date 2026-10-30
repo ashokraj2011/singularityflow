@@ -15,7 +15,7 @@ import { isStoryBaseBranch } from '../capability-branches.mjs';
 import { storyBaseCatalog } from '../capability-start.mjs';
 import { previewChangeFlightPlan, readChangeFlightPlan } from '../change-flight-plan.mjs';
 import { loadDefinition, resolveWorkType } from '../config.mjs';
-import { branch, gitCommonDir, head, identity } from '../git.mjs';
+import { branch, gitCommonDir, head, identity, validBranch } from '../git.mjs';
 import { generationTaskForPhase } from '../model-tasks.mjs';
 import { phaseRequiresCodeDelivery } from '../code-delivery-policy.mjs';
 import { resolveDeliveryQualityCommands } from '../delivery-evidence.mjs';
@@ -80,7 +80,7 @@ async function claimedEffects(root, plan, authorization) {
         authorization.flightId, repository.id)
     : null;
   const localStory = run('git', [
-    'show-ref', '--verify', '--quiet', `refs/heads/${plan.story.workId}`
+    'show-ref', '--verify', '--quiet', `refs/heads/${plan.story.branch}`
   ], { cwd: root, allowFailure: true }).status === 0;
   const stagingBranch = `sflow-cfp-${sha256([
     plan.bindings.flightPlanId, plan.story.workId
@@ -512,6 +512,15 @@ async function createAutoPlanInScope(root, requirementValue, proposalValue, opti
   if (!(new RegExp(definition.idPattern ?? '^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$')).test(workId)) {
     throw new SingularityFlowError(`Auto Work ID '${workId}' does not match ${definition.idPattern}.`, { code: 'AUTO_PLAN_INVALID' });
   }
+  // The Story branch is chosen once, here, and recorded in the Plan; every later step reads that
+  // binding. Story start names a new Story's branch by its Work ID, so that is the name chosen.
+  const storyBranch = workId;
+  try {
+    if (storyBranch.startsWith('-') || storyBranch.includes('@{')) throw new Error('reserved syntax');
+    validBranch(root, storyBranch);
+  } catch {
+    throw new SingularityFlowError(`Auto Story branch '${storyBranch}' is not a valid Git branch name.`, { code: 'AUTO_PLAN_INVALID' });
+  }
   const baseBranch = String(options.fromBranch ?? definition.defaultBaseBranch).trim();
   if (!isStoryBaseBranch(baseBranch, { stateBranch: definition.ledger?.branch })) {
     throw new SingularityFlowError(
@@ -642,7 +651,7 @@ async function createAutoPlanInScope(root, requirementValue, proposalValue, opti
       acceptanceCriteria: proposal.acceptanceCriteria
     },
     story: {
-      workId, workType, branch: workId,
+      workId, workType, branch: storyBranch,
       generatedIdentity: allocated.generated,
       collisionSuffix: allocated.collisionSuffix ?? null,
       phaseRail: resolution.phases.map((phase) => phase.id)

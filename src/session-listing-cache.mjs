@@ -9,6 +9,9 @@ import { activeWorkspaceFile, workspaceRegistryFile, resolveWorkspaceReference }
 import { readWorkspace, workspaceRepositoryPath } from './workspace-manifest.mjs';
 import { optionBoolean, optionString } from './util.mjs';
 
+// Options that change how a listing is shown or whether it is refreshed, never which listing it is.
+const LISTING_PRESENTATION = ['json', 'for-agent', 'table', 'diagnostics', 'timings', 'refresh'];
+
 export async function sessionListingSnapshot(positionals, options, read) {
   const cwd = process.cwd();
   const selectionFile = activeWorkspaceFile(), registryFile = workspaceRegistryFile();
@@ -51,13 +54,19 @@ export async function sessionListingSnapshot(positionals, options, read) {
     }
   }
   const identity = { cwd, positionals, options: Object.entries(options)
-    .filter(([key]) => !['json', 'for-agent', 'table', 'diagnostics', 'timings', 'refresh'].includes(key))
+    .filter(([key]) => !LISTING_PRESENTATION.includes(key))
     .sort(([a], [b]) => a.localeCompare(b)) };
-  const inspect = () => cachedSessionListing(cwd, { identity, files: [...new Set(files)], settingsRoot }, read);
+  // The read that produced this listing, replayed to refresh it behind a stale answer.
+  const { indexReadArgv } = await import('./index-refresh-launcher.mjs');
+  const argv = indexReadArgv(positionals, options, LISTING_PRESENTATION);
+  const refreshRecipe = argv ? { argv, cwd } : null;
+  const inspect = () => cachedSessionListing(cwd, { identity, files: [...new Set(files)], settingsRoot, refreshRecipe }, read);
   const value = await (optionBoolean(options, 'refresh') ? withFreshRepositoryChecks(inspect) : inspect());
   if (!value?.discovered) return value;
   const status = repositoryCheckStatus(cwd);
-  return { ...value, discovered: { ...value.discovered, items: value.discovered.items.map(item => ({ ...item, createdBy: storyCreatorName(item.createdBy) })).sort(compareStoryCreation), ...(status.source === 'cache' ? { fetched: false } : {}), listingSnapshot: {
+  // A record served from the cache was fetched when it was checked, not now.
+  const reused = ['cache', 'last-known', 'shared'].includes(status.source);
+  return { ...value, discovered: { ...value.discovered, items: value.discovered.items.map(item => ({ ...item, createdBy: storyCreatorName(item.createdBy) })).sort(compareStoryCreation), ...(reused ? { fetched: false } : {}), listingSnapshot: {
     ...status, source: status.source === 'fresh' && value.discovered.fetched === false ? 'local' : status.source,
     scope: 'session-candidate-listing', advisory: true,
     remoteCheckedAt: value.discovered.fetched === true ? status.checkedAt : null,

@@ -17,7 +17,7 @@ import { formatCommandRouteLines } from './model-free-commands.mjs';
  * folder makes an entry "unavailable" instead of a read that waits for a download. No gate reads
  * the phase recorded here; it is for display and lookup.
  *
- * Identity is the repository (its normalized remote URL) plus the Work ID, across every workspace:
+ * Identity is the repository (its normalized remote URL, else its local repository ID) plus the Work ID, across every workspace:
  * one Story has one checkout on this machine. Each entry records the workspace that holds it.
  * Checkouts outside every registered workspace are not indexed.
  */
@@ -26,8 +26,9 @@ import os from 'node:os';
 import path from 'node:path';
 import { cloudSyncedFolder } from './git-storage-availability.mjs';
 import { withRegistryFileLease } from './file-lease.mjs';
+import { localRepositoryId } from './repository-local-id.mjs';
 import { currentSchemaVersion, readRecord } from './schema-migrations.mjs';
-import { nowIso, samePlatformPath, SingularityFlowError, writeAtomic } from './util.mjs';
+import { nowIso, run, samePlatformPath, SingularityFlowError, writeAtomic } from './util.mjs';
 import { DEFAULT_WORK_ITEM_ROOT, workItemRootFromDefinitionText } from './work-item-location.mjs';
 import { readWorkspace, readWorkspaceRegistry, workspaceRepositoryPath } from './workspace-manifest.mjs';
 
@@ -115,10 +116,26 @@ async function originUrl(commonDir, synced) {
   return null;
 }
 
-/** The comparison key of a repository: its normalized remote, else its own Git storage. */
-export async function repositoryKey(url, commonDir) {
-  return (url ? await remoteKey(url) : null) ?? `gitdir:${commonDir}`;
+/**
+ * The comparison key of a repository: its normalized remote, else its stable local repository ID,
+ * `repo:<id>`, which registration (`create`) assigns. The path is only a local binding: until a
+ * repository without a remote has an ID it keeps the `gitdir:` key entries were recorded under.
+ */
+export async function repositoryKey(url, commonDir, { create = false } = {}) {
+  const remote = url ? await remoteKey(url) : null;
+  if (remote) return remote;
+  const id = localRepositoryId(commonDir, { create });
+  return id ? `repo:${id}` : `gitdir:${commonDir}`;
 }
+
+/** An entry's key now: one recorded as `gitdir:<its commonDir>` names that repository's ID once it has one. */
+function currentRepositoryKey(entry) {
+  if (entry.repository.key !== `gitdir:${entry.commonDir}`) return entry.repository.key;
+  const id = localRepositoryId(entry.commonDir);
+  return id ? `repo:${id}` : entry.repository.key;
+}
+
+const entryInRepository = (entry, key) => entry.repository.key === key || currentRepositoryKey(entry) === key;
 
 // Lazy: the identity rules belong to the catalog reads' bundle chunk, which this module must not take.
 async function remoteKey(url) {
@@ -173,6 +190,8 @@ export async function storyInCheckout(checkout, { facts = null, workId = null, w
     const state = await workflowAt(git.checkoutPath, relative, git.synced, git.branch);
     return state?.workItem?.id === id && storyBranches(state).includes(git.branch) ? { state, relative } : null;
   };
+  // The branch is tried as a directory name only to find the record sooner: `read` accepts it only
+  // when that record's own Work ID matches and it records this branch, a verified binding.
   let found = workId ? await read(workId) : await read(git.branch);
   if (!found && !workId) {
     const entries = await readdir(path.join(git.checkoutPath, ...root.split('/')), { withFileTypes: true }).catch(() => []);
@@ -238,8 +257,10 @@ async function updateStoryIndex(change, { env = process.env, file = storyIndexFi
   }, { timeoutMs: LOCK_TIMEOUT_MS });
 }
 
-const sameEntry = (left, right) => left.workId === right.workId && left.repository.key === right.repository.key
-  && samePlatformPath(left.checkoutPath, right.checkoutPath);
+// An entry recorded under the legacy `gitdir:` key is the same entry as its re-recording under `repo:<id>`.
+const sameEntry = (left, right) => left.workId === right.workId && samePlatformPath(left.checkoutPath, right.checkoutPath)
+  && (left.repository.key === right.repository.key
+    || [left, right].some((entry) => entry.repository.key === `gitdir:${entry.commonDir}`) && samePlatformPath(left.commonDir, right.commonDir));
 
 /**
  * A Story that spans several repositories keeps its record in one, its lifecycle checkout; the
@@ -277,7 +298,7 @@ export async function verifyStoryEntry(entry) {
       if (!directories || unreadable.placeholders.length || unreadable.special.length) throw unavailable(directories?.commonDirectory ?? entry.checkoutPath);
     }
     const url = await originUrl(facts.commonDir, facts.synced);
-    if (url && await repositoryKey(url, facts.commonDir) !== entry.repository.key) {
+    if (url && !entryInRepository(entry, await repositoryKey(url, facts.commonDir))) {
       return { status: 'stale', reason: 'the checkout has another remote' };
     }
     const story = entry.role === 'secondary' ? await lifecycleStory(entry)
@@ -286,7 +307,9 @@ export async function verifyStoryEntry(entry) {
     if (!story) return { status: 'stale', reason: entry.role === 'secondary'
       ? `${entry.lifecycle.checkoutPath} no longer holds ${entry.workId} delivering in ${entry.repository.id ?? 'this repository'} on ${entry.branch}`
       : `the checkout no longer holds ${entry.workId}` };
+    const key = currentRepositoryKey(entry);
     return { status: 'valid', entry: { ...entry, checkoutPath: facts.checkoutPath, title: story.title ?? entry.title ?? null,
+      ...(key === entry.repository.key ? {} : { repository: { ...entry.repository, key } }),
       createdAt: story.createdAt ?? null, createdBy: storyCreatorName(story.createdBy),
       workflowPath: story.workflowPath, phase: story.phase, phaseStatus: story.phaseStatus, storyStatus: story.storyStatus,
       aliases: story.aliases } };
@@ -311,7 +334,7 @@ async function applyVerification(results, options) {
 
 const DISPLAY = ['createdAt', 'createdBy', 'phase', 'phaseStatus', 'storyStatus', 'title', 'workflowPath', 'checkoutPath'];
 function changedDisplay(left, right) {
-  return DISPLAY.some((key) => (left?.[key] ?? null) !== (right?.[key] ?? null))
+  return DISPLAY.some((key) => (left?.[key] ?? null) !== (right?.[key] ?? null)) || left?.repository?.key !== right?.repository?.key
     || JSON.stringify(left?.aliases ?? []) !== JSON.stringify(right?.aliases ?? []);
 }
 
@@ -359,7 +382,7 @@ async function entryFor(checkout, { workspace, repositoryId, repository, facts, 
     workId: story.workId,
     createdAt: story.createdAt ?? null, createdBy: storyCreatorName(story.createdBy),
     title: story.title,
-    repository: { key: await repositoryKey(repository.url, facts.commonDir), url: repository.url, id: repositoryId },
+    repository: { key: await repositoryKey(repository.url, facts.commonDir, { create: true }), url: repository.url, id: repositoryId },
     workspace: workspaceSummary(workspace),
     checkoutPath: facts.checkoutPath,
     commonDir: facts.commonDir,
@@ -398,7 +421,7 @@ async function secondaryStoryCheckouts(lifecycle, workspace, story, source) {
     for (const checkout of await cloneCheckouts(clone)) {
       const facts = await checkoutGitFacts(checkout).catch(() => null);
       if (!facts?.branch || !story.branches.includes(facts.branch) || found.has(facts.checkoutPath)) continue;
-      const key = await repositoryKey(repository.url, facts.commonDir);
+      const key = await repositoryKey(repository.url, facts.commonDir, { create: true });
       const url = await originUrl(facts.commonDir, facts.synced);
       if (url && await repositoryKey(url, facts.commonDir) !== key) continue;
       found.set(facts.checkoutPath, { ...lifecycle, repository: { key, url: repository.url, id: repositoryId },
@@ -494,15 +517,17 @@ export async function recordStoryCheckout(checkout, { env = process.env, source 
 }
 
 /**
- * Verified checkouts of a Story, matched by Work ID (or a branch or alias it records). Stale entries
- * are dropped on the way. Stories made before the index existed are found by a bounded backfill the
- * first time a lookup misses.
+ * Verified checkouts of a Story, matched by Work ID or an alias its entry records (its branches among
+ * them). Stale entries are dropped on the way. Stories made before the index existed are found by a
+ * bounded backfill the first time a lookup misses.
  */
 export async function lookupStoryCheckouts(reference, { env = process.env, repositoryKey: key = null, backfill = true } = {}) {
   const requested = String(reference ?? '').trim();
   if (!requested) return { valid: [], unavailable: [] };
-  const matches = (entry) => (!key || entry.repository.key === key)
-    && (entry.workId === requested || entry.branch === requested || (entry.aliases ?? []).includes(requested));
+  // A branch names a Story only as a recorded alias, never inferred; an entry from before aliases records its branch.
+  const recorded = (entry) => Array.isArray(entry.aliases) ? entry.aliases : [entry.branch];
+  const matches = (entry) => (!key || entryInRepository(entry, key))
+    && (entry.workId === requested || recorded(entry).includes(requested));
   let index = await readStoryIndex({ env });
   if (backfill && !index.entries.some(matches)) {
     const workspaces = await registeredWorkspaces(env);
@@ -534,6 +559,43 @@ export async function listStoryIndex({ env = process.env, rebuild = false } = {}
   return { file: storyIndexFile(env), entries, dropped: results.filter((result) => result.status === 'stale')
     .map((result) => ({ workId: result.original.workId, checkoutPath: result.original.checkoutPath, reason: result.reason })),
   backfill };
+}
+
+/** The identity records carry for the repository at `checkout` [SDA §5]: its remote's key, else its local ID (assigned here). */
+export async function repositoryIdentity(checkout, url) {
+  const facts = await checkoutGitFacts(checkout);
+  const key = facts && await repositoryKey(url, facts.commonDir, { create: true });
+  return key && !key.startsWith('gitdir:') ? { id: key.replace(/^repo:/u, ''), key } : null;
+}
+
+/**
+ * Where a saved push (transport-intents.mjs) runs: its recorded checkout while that is one of its
+ * repository, else a checkout the index records under the repository's key that pushes to the same URL
+ * and holds the commit (at its required local ref). A `repo:` repository is matched by its local ID.
+ */
+export async function savedPushCheckout({ repositoryRoot, repository: { id, key }, remote, remoteUrl, sourceCommit, scope }, {
+  env = process.env, home = os.homedir(), runCommand = run
+} = {}) {
+  const holds = async (checkout) => {
+    const facts = await checkoutGitFacts(checkout).catch(() => null);
+    return Boolean(facts) && (!key.startsWith('repo:') || localRepositoryId(facts.commonDir) === id);
+  };
+  if (await holds(repositoryRoot)) return repositoryRoot;
+  const [{ configuredRemoteIdentity }, { withoutGitProcessOverrides }, { sourceRevision }] = await Promise.all([
+    import('./git-remote-diagnostics.mjs'), import('./git-enterprise-environment.mjs'), import('./source-inspection.mjs')]);
+  const gitEnv = withoutGitProcessOverrides(env);
+  const pushes = (cwd) => {
+    try {
+      const held = sourceRevision(cwd, scope?.requiredLocalRef ?? sourceCommit, { env: gitEnv, offline: true });
+      return held.status === 'present' && held.value === sourceCommit
+        && configuredRemoteIdentity(cwd, remote, { direction: 'push', env: gitEnv, runCommand }).url === remoteUrl;
+    } catch { return false; }
+  };
+  const { entries } = await readStoryIndex({ file: storyIndexFile(env, home) });
+  for (const checkout of new Set(entries.filter((entry) => entryInRepository(entry, key)).map((entry) => entry.checkoutPath))) {
+    if (!samePlatformPath(checkout, repositoryRoot) && await holds(checkout) && pushes(checkout)) return checkout;
+  }
+  return null;
 }
 
 /** An entry for the checkout that holds the Story's record, not one of its other repositories'. */

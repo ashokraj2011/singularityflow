@@ -9,7 +9,8 @@ import { ledgerStoryPointers } from './ledger.mjs';
 import { normalizeLedgerConfig } from './ledger-config.mjs';
 import { configuredRemoteIdentity } from './git-remote-diagnostics.mjs';
 import {
-  discoverRemoteStoryCandidatesByUrl, isStoryDiscoveryBranch, ledgerDisabledDiscoveryError, ledgerSummaryCandidate
+  discoverRemoteStoryCandidatesByUrl, isStoryDiscoveryBranch, ledgerDisabledDiscoveryError, ledgerSummaryCandidate,
+  storyBranchBindingFinding
 } from './session-remote-url-discovery.mjs';
 import { readRecord } from './schema-migrations.mjs';
 import { storyLifecycleProgress } from './session-roster.mjs';
@@ -69,8 +70,8 @@ function rememberProvenSummaries(cache, kept, pointers, items, unavailable) {
   const byId = new Map(items.map((item) => [item.id, item]));
   for (const pointer of pointers) {
     const item = byId.get(pointer.id);
-    // A Story with any unreadable or conflicting claim is proven again, so its refusal stays.
-    if (unavailable.some((entry) => entry.claimedId === pointer.id || entry.branch === pointer.branch)) continue;
+    // A Story with any unreadable or conflicting claim, or a binding finding, is proven again, so it stays.
+    if (item?.bindingFinding || unavailable.some((entry) => entry.claimedId === pointer.id || entry.branch === pointer.branch)) continue;
     const row = item?.branch === pointer.branch && item.commitOid === pointer.commitOid ? provenRow(item) : null;
     if (row) rows.set(provenKey(row), row);
   }
@@ -196,11 +197,14 @@ export async function discoverRemoteStoryCandidates(root, definition, {
     try {
       const { definition: pinnedDefinition, workflow, retainedWorkflow } = validatedRemoteStoryDefinition(root, subject.location.ref, subject,
         { files, definitions });
-      const canonicalBranch = workflow.lineage?.canonicalBranch ?? workflow.workItem.branch ?? workflow.workItem.id;
-      if (canonicalBranch !== pointer.branch || !workflow.phases || !Array.isArray(workflow.phaseOrder)) throw new Error('Story ownership does not match its state-ledger location.');
+      if (!workflow.phases || !Array.isArray(workflow.phaseOrder)) throw new Error('The state-indexed Story has no workflow structure.');
+      // Resolved by its Work ID (proven above), where the ledger found its state.
+      const bindingFinding = storyBranchBindingFinding(
+        workflow.lineage?.canonicalBranch ?? workflow.workItem.branch ?? workflow.workItem.id, pointer.branch);
       items.push({
         id: subject.id,
-        branch: canonicalBranch,
+        branch: pointer.branch,
+        ...(bindingFinding ? { bindingFinding } : {}),
         title: workflow.workItem.title,
         createdAt: workflow.workItem.createdAt ?? null, createdBy: storyCreatorName(workflow.workItem.createdBy),
         status: workflow.status,

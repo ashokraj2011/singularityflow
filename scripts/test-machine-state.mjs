@@ -91,12 +91,14 @@ export function isolatedHomeEnvironment(root, env = process.env) {
 /**
  * `env` as a test run sees it: its own machine state under `root` and a home of its own.
  * Automatic workspace cleanup is off: a background worker launched by a fixture's `workspace use`
- * or `session open` would outlive the test and race its fixture's removal. Tests of cleanup
- * pass their own environment.
+ * or `session open` would outlive the test and race its fixture's removal. Background index
+ * refreshes are off for the same reason: a stale listing would replay its read after the test ended
+ * (src/index-refresh-launcher.mjs). Tests of either pass their own environment.
  */
 export function isolatedTestEnvironment(root, env = process.env) {
   const { set, unset } = isolatedHomeEnvironment(root, env);
-  const isolated = { ...env, ...isolatedMachineEnvironment(root), ...set, SINGULARITY_FLOW_AUTOMATIC_CLEANUP: 'off' };
+  const isolated = { ...env, ...isolatedMachineEnvironment(root), ...set, SINGULARITY_FLOW_AUTOMATIC_CLEANUP: 'off',
+    SINGULARITY_FLOW_INDEX_REFRESH: 'off' };
   for (const name of unset) delete isolated[name];
   return isolated;
 }

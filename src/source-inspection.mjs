@@ -11,7 +11,6 @@
  * output bound, a missing object), which carries the process result for the caller's diagnostics.
  * `offline: true` forbids a partial clone from fetching a missing object.
  */
-import { executeGitQuery } from './git-query.mjs';
 import { processResultCompleted, processResultSucceeded } from './process-result.mjs';
 import { run } from './util.mjs';
 
@@ -59,7 +58,11 @@ export function sourceContains(root, ancestor, descendant, { env = process.env, 
   return { status: 'unavailable', result: checked };
 }
 
-/** The checkout's branch, head and changed paths, through the registered revision query. */
-export function sourceWorkingState(root, { env = process.env } = {}) {
+/**
+ * The checkout's branch, head and changed paths, through the registered revision query. The query
+ * registry loads only here: the facade's readers sit in startup read graphs that never ask this.
+ */
+export async function sourceWorkingState(root, { env = process.env } = {}) {
+  const { executeGitQuery } = await import('./git-query.mjs');
   return { status: 'present', value: executeGitQuery(root, 'repository.revision', {}, { env }) };
 }

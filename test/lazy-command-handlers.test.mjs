@@ -213,7 +213,14 @@ test('frequent lifecycle handlers do not reach the legacy dispatcher and stay un
     // (transport-intents.mjs), the source inspection facade (source-inspection.mjs, through
     // repository-subject-index.mjs) and named push leases (git.mjs, publication-unit-of-work.mjs and the
     // recovery callers). Two new eager files: outcome-classes.mjs and source-inspection.mjs.
-    assert.ok(closure.bytes <= 9_275_000, `${file} exceeds the 9 MB eager-source budget (${closure.bytes} bytes)`);
+    // 9,285,000 (next 5,000 boundary): main fa3094b83 measures 9,270,638. SDA M2 adds 9,331 for 9,279,969: each
+    // gate problem's canonical finding identity (delivery-evidence.mjs +2,286, implementation-bindings.mjs),
+    // the Auto plan's recorded branch (change-flight-plan.mjs +1,664), push intents bound to a repository ID
+    // (transport-intents.mjs +1,511), exact-object configuration inspection (configuration-branch.mjs +1,398,
+    // approved-configuration-reader.mjs), Initiative identity from ledger records (initiative-state.mjs), the
+    // Story binding finding (session discovery and roster) and the index command's registration. The read
+    // index's refresh machinery, the finding identity module and the identity readers stay lazy; no new eager file.
+    assert.ok(closure.bytes <= 9_285_000, `${file} exceeds the 9 MB eager-source budget (${closure.bytes} bytes)`);
   }
 });
 

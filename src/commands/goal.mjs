@@ -1,7 +1,7 @@
 /** `sflow goal` — personal outcomes over, never instead of, governed work. */
 import path from 'node:path';
 
-import { head, localBranches, remoteBranches, repoRoot } from '../git.mjs';
+import { head, localBranches, localRefHeads, remoteBranches, repoRoot } from '../git.mjs';
 import {
   RepositorySubjectIndex, buildRepositorySubjectIndex, buildRepositorySubjectIndexFromRefs, resolveContext
 } from '../repository-subject-index.mjs';
@@ -78,6 +78,19 @@ function combinedIndex(working, references) {
   return index;
 }
 
+/** The refs held here for each recorded Initiative branch, observed in bounded exact batches. */
+function recordedInitiativeRefs(root, remote, records) {
+  const candidates = records.flatMap(({ branch }) => [
+    { branch, ref: `${remote}/${branch}`, full: `refs/remotes/${remote}/${branch}` },
+    { branch, ref: branch, full: `refs/heads/${branch}` }
+  ]);
+  const held = new Set();
+  for (let index = 0; index < candidates.length; index += 32) {
+    for (const ref of localRefHeads(root, candidates.slice(index, index + 32).map((item) => item.full)).keys()) held.add(ref);
+  }
+  return candidates.filter((item) => held.has(item.full)).map(({ branch, ref }) => ({ branch, ref }));
+}
+
 async function subjectIndex(root, kind, authority = null) {
   const config = kind === 'story' && authority
     ? await withApprovedConfigurationRead(root, async () =>
@@ -87,9 +100,12 @@ async function subjectIndex(root, kind, authority = null) {
     : await buildRepositorySubjectIndex(root);
   if (kind === 'story') return config?.ledger?.enabled
     ? combinedIndex(working, await stateStorySubjectIndex(root, config, { fetch: false })) : working;
-  // Initiative lookup is separate from Story discovery and retains its existing explicit policy.
+  // Initiatives are read at the branch their ledger identity record binds (SDA-AC-024), remote copy
+  // first. With the ledger off nothing is recorded, so the branch inventories remain the source.
   const remote = config?.git?.remote ?? 'origin';
-  const refs = [
+  const { definitionLedgerConfig, initiativeIdentityRecords } = await import('../subject-identity-records.mjs');
+  const identities = await initiativeIdentityRecords(root, config?.ledger ?? await definitionLedgerConfig(root), { offline: true });
+  const refs = identities.records ? recordedInitiativeRefs(root, remote, identities.records) : [
     ...remoteBranches(root, remote).map((branch) => ({ branch, ref: `${remote}/${branch}` })),
     ...localBranches(root).map((branch) => ({ branch, ref: branch }))
   ];

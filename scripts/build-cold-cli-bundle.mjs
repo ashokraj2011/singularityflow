@@ -40,7 +40,10 @@ const FAMILIES = Object.freeze([
     'commands/intake-entry.mjs', 'commands/snapshot.mjs', 'commands/phase.mjs', 'phase-entry.mjs', 'agent-output.mjs', 'agent-catalog-presentation.mjs',
     'commands/logs.mjs', 'commands/help.mjs', 'commands/explain.mjs',
     // A command naming a Story finds its checkout here; that must not load the compatibility handler.
-    'story-routing.mjs', 'story-index.mjs', 'commands/workspace-stories.mjs']],
+    'story-routing.mjs', 'story-index.mjs', 'commands/workspace-stories.mjs',
+    // Every --for-agent result is kept (cli-entry.mjs imports the keeper lazily, e5dd29cfa). Unclaimed, it
+    // fell into compatibility, so each --for-agent read, phase entry and nextsteps among them, loaded it and models.
+    'agent-result-keeper.mjs']],
   // Claim catalog definitions before authoring closures. Leaving these dynamic roots unassigned
   // put every list/show in compatibility, importing the entire administration/model dispatcher.
   // Keep the broad reads slot too: making Home/Inbox fall into compatibility would shift the cost.
@@ -81,7 +84,12 @@ const FAMILIES = Object.freeze([
     'test-run-environment.mjs', 'test-toolchain.mjs', 'test-command-pins.mjs', 'test-narrowing.mjs',
     // An APM project's lock and workflow.yml `apm` block, read by agent discovery in any command once a
     // repository has apm.lock.yaml [APM A3]; unclaimed, every such command loaded compatibility and models.
-    'apm-lock.mjs', 'apm-configuration.mjs']],
+    'apm-lock.mjs', 'apm-configuration.mjs',
+    // SDA M2, imported only dynamically: the read index's refresh and replay (Story list, intake catalog,
+    // `index`), a refusing gate's finding identities, and Epic/Initiative identity records. Unclaimed,
+    // each fell into compatibility, so phase entry and the listings loaded it and models.
+    'projection-refresh.mjs', 'index-refresh-launcher.mjs', 'commands/read-index.mjs', 'finding-identity.mjs',
+    'subject-identity-records.mjs']],
   ['models', ['commands/wm.mjs', 'commands/comprehension.mjs']]
 ]);
 

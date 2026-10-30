@@ -36,10 +36,18 @@ test('first listing can verify a retained local index without waiting for an una
   assert.equal(local.metrics.remoteOperations, 0);
   assert.match(local.child.stderr, /Using local Story listing.*remote checked at unavailable/u);
   assert.equal((await f.invoke()).packet.listingSnapshot.source, 'cache');
-  assert.notEqual((await f.invoke({ options: ['--refresh'] })).child.status, 0);
+  // An explicit refresh the remote cannot answer keeps the verified listing beside the real error
+  // instead of refusing (SDA-AC-021).
+  const kept = await f.invoke({ options: ['--refresh'] });
+  assert.equal(kept.child.status, 0, kept.child.stderr + kept.child.stdout);
+  assert.equal(kept.packet.listingSnapshot.source, 'last-known');
+  assert.equal(kept.packet.listingSnapshot.freshness, 'refresh-failed');
+  assert.equal(kept.packet.listingSnapshot.refreshError.code, 'SESSION_STATE_REFRESH_UNAVAILABLE');
+  assert.equal(kept.packet.fetched, false);
+  assert.match(kept.child.stderr, /Using the last-known \(refresh failed: SESSION_STATE_REFRESH_UNAVAILABLE/u);
 });
 
-test('session candidates and composed open reuse advisory listings; explicit refresh refuses with the real error', async t => {
+test('session candidates and composed open reuse advisory listings; a failed refresh keeps them with the real error', async t => {
   const f = await createSessionListingFixture(); t.after(f.cleanup);
   await f.invoke(); // First authority materialization can invalidate its pre-read observation.
   const second = await f.invoke();
@@ -57,17 +65,26 @@ test('session candidates and composed open reuse advisory listings; explicit ref
   // The successful preview is intentionally historical while the selected remote is offline.
   await rename(f.remote, f.remote + '.offline');
   assert.equal((await f.invoke()).packet.listingSnapshot.source, 'cache');
-  const refused = await f.invoke({ command: ['session', 'open'], options: ['--refresh', '--for-agent'] });
-  assert.notEqual(refused.child.status, 0);
-  assert.equal(refused.packet.error.code, 'SESSION_STATE_REFRESH_UNAVAILABLE', JSON.stringify(refused.packet));
-  assert.notEqual(refused.packet.error.code, 'SESSION_OPEN_STEP_FAILED');
-  assert.match(refused.packet.error.message, /REMOTE_|observation|fetch/u);
-  assert.ok(refused.packet.error.remoteFailure?.failure?.classification);
-  assert.equal(refused.packet.error.remoteFailure.stage, 'observation');
-  assert.equal(refused.packet.error.remoteFailure.evidence.timedOut, false);
+  // A refresh the remote cannot answer no longer refuses the listing: the verified one stays, marked
+  // refresh-failed, with the real error beside it (SDA-AC-021).
+  const kept = await f.invoke({ command: ['session', 'open'], options: ['--refresh', '--for-agent'] });
+  assert.equal(kept.child.status, 0, kept.child.stderr + kept.child.stdout);
+  assert.equal(kept.packet.status, 'choose', JSON.stringify(kept.packet));
+  // The roster is Markdown, so the code's underscores are escaped.
+  assert.match(kept.packet.table, /Listing: last-known \(refresh-failed: SESSION\\_STATE\\_REFRESH\\_UNAVAILABLE\)/u);
+  // The explicit refresh disproved the earlier success: a routine read refreshes again, fails again,
+  // and still answers from the verified listing with the diagnosis, never a fresh claim.
   const retry = await f.invoke();
-  assert.notEqual(retry.child.status, 0, 'a failed explicit refresh invalidates the earlier success');
-  assert.equal(retry.packet.error.code, refused.packet.error.code);
+  assert.equal(retry.child.status, 0, retry.child.stderr + retry.child.stdout);
+  const snapshot = retry.packet.listingSnapshot;
+  assert.equal(snapshot.source, 'last-known');
+  assert.equal(snapshot.freshness, 'refresh-failed');
+  assert.equal(snapshot.refreshError.code, 'SESSION_STATE_REFRESH_UNAVAILABLE');
+  assert.match(snapshot.refreshError.message, /REMOTE_|observation|fetch/u);
+  assert.ok(snapshot.refreshError.remoteFailure?.classification);
+  assert.equal(snapshot.refreshError.remoteFailure.stage, 'observation');
+  assert.equal(snapshot.refreshError.remoteFailure.timedOut, false);
+  assert.equal(retry.packet.fetched, false);
   t.diagnostic(JSON.stringify({ first: second.metrics, cached: hit.metrics }));
 });
 
@@ -88,7 +105,13 @@ test('session listing shares configurable TTL and always/manual modes; invalidat
     record.checkedAt = Date.now() - 61_000;
     await writeFile(file, JSON.stringify(record));
   }
-  assert.equal((await invoke(oneMinute)).packet.listingSnapshot.source, 'fresh');
+  // Expired with nothing it depends on changed: served at once as stale, and refreshed behind it
+  // (off in test runs, so the listing says so) instead of waiting on the remote (SDA-AC-021).
+  const expired = (await invoke(oneMinute)).packet.listingSnapshot;
+  assert.equal(expired.source, 'last-known');
+  assert.equal(expired.freshness, 'stale');
+  assert.equal(expired.backgroundRefresh, 'off');
+  assert.equal(expired.completeness, 'complete');
   const manual = { SINGULARITY_FLOW_REPOSITORY_CHECK_MODE: 'manual' };
   await invoke(manual); await invoke(manual);
   for (const name of files) {

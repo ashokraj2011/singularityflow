@@ -12,7 +12,7 @@ export async function readWorkspaceBranches(options = {}, { root: launchRoot = n
   const result = await storyReadinessSnapshot(root, options, checkout, () => measureCommandSpan('start.readiness', async () => {
     const { readWorkspaceBranchesAtRoot } = await import('./workspace-branches-service.mjs');
     return readWorkspaceBranchesAtRoot(options, root);
-  }));
+  }), { launchCwd: launchRoot ?? process.cwd() });
   return { ...result, repositoryPath: root, ...(checkout?.independent ? { branchCheckout: {
     repositoryPath: checkout.repositoryPath, branch: checkout.branch, reused: checkout.reused, originalPreserved: true
   } } : {}), ...(checkout ? { workspaceReuse: true } : {}) };

@@ -24,14 +24,19 @@ export const ESCALATION_THRESHOLD = 3;
 const MAX_KEYS = 64;
 const digest = (value) => `sha256:${createHash('sha256').update(canonicalJson(value)).digest('hex')}`;
 
-/** What makes two observations "the same finding": its code and exact problems, not its wording. */
+/**
+ * What makes two observations "the same finding": its identity, never its wording [SDA-AC-022]. A
+ * gate that names its problems by canonical finding ID is that set of IDs; any other finding is its
+ * code, path and value. Messages and problem sentences are presentation, so rewording one, or moving
+ * a line, keeps the streak.
+ */
 export function findingFingerprint(findings) {
-  return digest([...findings].map((finding) => ({
-    code: String(finding?.details?.sourceCode ?? finding?.code ?? 'UNKNOWN'),
-    problems: Array.isArray(finding?.details?.problems) ? finding.details.problems : null,
-    path: finding?.path ?? null, value: finding?.value ?? finding?.details?.clauseId ?? null,
-    message: Array.isArray(finding?.details?.problems) ? null : String(finding?.message ?? '')
-  })).sort((left, right) => canonicalJson(left).localeCompare(canonicalJson(right))));
+  return digest([...findings].map((finding) => {
+    const code = String(finding?.details?.sourceCode ?? finding?.code ?? 'UNKNOWN');
+    const ids = finding?.details?.findingIds;
+    return Array.isArray(ids) ? { code, findingIds: [...ids].map(String).sort() }
+      : { code, path: finding?.path ?? null, value: finding?.value ?? finding?.details?.clauseId ?? null };
+  }).sort((left, right) => canonicalJson(left).localeCompare(canonicalJson(right))));
 }
 
 /**

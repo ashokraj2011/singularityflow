@@ -14,7 +14,7 @@ import {
 } from '../src/configuration-branch.mjs';
 import { loadDefinition } from '../src/config.mjs';
 import { GitRemoteSession } from '../src/git-execution.mjs';
-import { withApprovedConfigurationRead } from '../src/approved-configuration-reader.mjs';
+import { INSPECTION_READ, withApprovedConfigurationRead } from '../src/approved-configuration-reader.mjs';
 import { readApprovedProductRequirement } from '../src/product-requirement.mjs';
 import { configurationReadRoot, configurationReadSnapshot } from '../src/configuration-read-scope.mjs';
 import { commandTimer, withCommandTiming } from '../src/dx-command-timing.mjs';
@@ -413,6 +413,26 @@ test('approved online reader requires explicit cache opt-in, reuses warm transfe
     assert.deepEqual(gateway.value, ordinary.value);
   });
   assert.deepEqual(await f.before(), before);
+});
+
+test('configuration inspection reads exact objects and never a temporary clone, with or without the machine cache (SDA-AC-013)', async (t) => {
+  const f = await fixture(t);
+  await onlineReaderEnvironment(f, async () => {
+    const ordinary = await approvedReader(f);
+    if (process.platform !== 'win32') {
+      const inspected = await approvedReader(f, INSPECTION_READ);
+      assert.equal(inspected.counters['git.remote.command.clone'] ?? 0, 0);
+      assert.deepEqual(inspected.value, ordinary.value);
+    }
+    // Where the machine cache declines (always on Windows; here, a relative cache path), the
+    // authority commit's objects are transferred into the application repository and read there.
+    process.env.SINGULARITY_FLOW_STORY_CONFIGURATION_CACHE = 'relative-path-declines';
+    const exact = await approvedReader(f, INSPECTION_READ);
+    assert.equal(exact.counters['git.remote.command.clone'] ?? 0, 0, 'no temporary clone');
+    assert.equal(exact.counters['configuration.exact-object-transfer'], 1);
+    assert.equal(git(f.source, 'rev-parse', 'refs/sflow/intake-configuration/selected'), f.commit);
+    assert.deepEqual(exact.value, ordinary.value);
+  });
 });
 
 test('fresh owner capture forwards only explicit online cache opt-in', cacheProfile, async (t) => {

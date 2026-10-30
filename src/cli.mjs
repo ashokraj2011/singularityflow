@@ -141,7 +141,7 @@ import { analyzeWorkspaceImpact, listWorkspaceImpacts, previewWorkspaceImpact, p
 import { activateWorkspaceContext, activeWorkspaceFile, clearActiveWorkspaceContext, discardUnsupportedWorkflowWorkspaces, readActiveWorkspaceContext, workspacePromptLabel, workspaceRegistryFile } from './workspace-context.mjs';
 import { refreshWorkspaceConfigurations } from './workspace-configuration-refresh.mjs';
 import { reinitializeWorkspaces } from './workspace-reinitialize.mjs';
-import { withApprovedConfigurationRead } from './approved-configuration-reader.mjs';
+import { INSPECTION_READ, withApprovedConfigurationRead } from './approved-configuration-reader.mjs';
 import { appendLedgerIntent, archiveLedger, createLedgerIntent, initializeLedger, ledgerDoctor, ledgerLog, ledgerShow, ledgerStatus, pinRepairHeadline, reconcileLedger, repairLedgerPins, verifyLedger } from './ledger.mjs';
 import { validateLedgerDeployment } from './ledger-deployment.mjs';
 import { CAPABILITY_KINDS, CAPABILITY_TYPES, CAPABILITIES_PATH, capabilityDeliveries, capabilityForRepository, capabilityTree, editCapability, flattenCapabilityTree, loadCapabilities, resolveCapabilityPolicy, resolveEffectiveCapabilityPolicy, validateCapabilities } from './capabilities.mjs';
@@ -7767,20 +7767,37 @@ async function initiativeCommand(positionals, options) {
     const reference = requirePositional(positionals, 2, 'initiative ID or branch alias');
     const fetch = optionBoolean(options, 'fetch');
     const remote = config.git?.remote ?? 'origin';
-    if (fetch) await fetchRemote(root, remote);
-    const refs = [
-      { branch: branch(root), ref: branch(root) },
-      ...localBranches(root).map((branchName) => ({ branch: branchName, ref: branchName })),
-      ...remoteBranches(root, remote).map((branchName) => ({ branch: branchName, ref: `${remote}/${branchName}` }))
-    ];
-    const index = await buildRepositorySubjectIndexFromRefs(root, { definition: config, portfolio, refs });
-    // A remote ref is the materialization source: resume checks out that exact lifecycle branch.
-    // It is not ledger-only evidence and must remain eligible for checkout.
-    const resolved = resolveContext(index, { reference, kind: 'initiative' });
-    const initiativeId = resolved.id;
-    const targetBranch = resolved.selectedBranch;
+    // The ID (or its recorded branch alias) resolves through the state ledger's identity record to
+    // its recorded branch (SDA-AC-024). Only with the ledger off, where nothing is recorded, are
+    // branches listed; an identity the records do not know refuses rather than adopting a branch.
+    const { initiativeIdentityRecords, resolveInitiativeReference } = await import('./subject-identity-records.mjs');
+    const identities = await initiativeIdentityRecords(root, config.ledger ?? {}, { offline: !fetch });
+    let initiativeId;
+    let targetBranch;
+    if (identities.records) {
+      ({ id: initiativeId, branch: targetBranch } = await resolveInitiativeReference(root, identities, reference, {
+        definition: config, portfolio, currentBranch: branch(root)
+      }));
+      // A never-published Initiative has only its local branch; anything once published must refresh.
+      if (fetch) await fetchRemote(root, remote, { branches: [targetBranch] }).catch((error) => {
+        if (!refHead(root, `refs/heads/${targetBranch}`) || refHead(root, `refs/remotes/${remote}/${targetBranch}`)) throw error;
+      });
+    } else {
+      if (fetch) await fetchRemote(root, remote);
+      const refs = [
+        { branch: branch(root), ref: branch(root) },
+        ...localBranches(root).map((branchName) => ({ branch: branchName, ref: branchName })),
+        ...remoteBranches(root, remote).map((branchName) => ({ branch: branchName, ref: `${remote}/${branchName}` }))
+      ];
+      const index = await buildRepositorySubjectIndexFromRefs(root, { definition: config, portfolio, refs });
+      // A remote ref is the materialization source: resume checks out that exact lifecycle branch.
+      // It is not ledger-only evidence and must remain eligible for checkout.
+      const resolved = resolveContext(index, { reference, kind: 'initiative' });
+      initiativeId = resolved.id;
+      targetBranch = resolved.selectedBranch;
+    }
     if (branch(root) !== targetBranch) assertClean(root);
-    await checkout(root, targetBranch, { base: config.defaultBaseBranch, fetch, existingOnly: true, remote });
+    await checkout(root, targetBranch, { base: config.defaultBaseBranch, fetched: fetch, existingOnly: true, remote });
     const loaded = await loadInitiativeAggregate(root, initiativeId);
     const session = await activateInitiativeAgent(
       root, config, initiativeId, loaded.initiative.resolution.phases[loaded.initiative.currentPhase], optionString(options, 'agent') ?? null
@@ -8489,7 +8506,7 @@ async function editorCommand(positionals, options, namespace = 'configuration') 
   ));
   else if (subcommand === 'snapshot') result = await repositorySnapshot(root, positionals[2], optionString(options, 'initiative'));
   else if (subcommand === 'validate') {
-    result = await withApprovedConfigurationRead(root, () => validateEditorConfiguration(root));
+    result = await withApprovedConfigurationRead(root, () => validateEditorConfiguration(root), INSPECTION_READ);
     // A failure is a refusal listing every problem with its line; success needs one plain sentence.
     if (!optionBoolean(options, 'json')) return void console.log(`Configuration is valid: ${result.workTypes} work type(s), ${result.phases} phase(s), ${result.agents} agent(s).`);
   }
@@ -8517,7 +8534,7 @@ async function editorCommand(positionals, options, namespace = 'configuration') 
         // A configuration editor must see the same approved bytes it will propose against. Without
         // this preference an application checkout that still carries an older projection wins the
         // early working-tree shortcut, so reload faithfully returns the wrong file forever.
-        preferAuthority: true
+        preferAuthority: true, ...INSPECTION_READ
       }
     );
   }
@@ -11725,7 +11742,7 @@ async function dispatch(command, positionals, options, argv) {
     watch: () => watchCommand(positionals, options),
     recover: () => recoverCommand(positionals, options),
     appeal: async () => (await import('./commands/appeal.mjs')).run(positionals, { options }),
-    'upstream-issue': async () => (await import('./commands/upstream-issue.mjs')).run(positionals, { options }), decisions: async () => (await import('./commands/decisions.mjs')).run(positionals, { positionals, options }), app: async () => (await import('./commands/app.mjs')).run(argv, { positionals, options }), tests: async () => (await import('./commands/tests.mjs')).run(argv, { positionals, options }), call: async () => (await import('./commands/call.mjs')).run(argv, { positionals, options }), gateway: async () => (await import('./commands/gateway.mjs')).run(argv, { positionals, options }), apm: async () => (await import('./commands/apm.mjs')).run(argv, { positionals, options }),
+    'upstream-issue': async () => (await import('./commands/upstream-issue.mjs')).run(positionals, { options }), decisions: async () => (await import('./commands/decisions.mjs')).run(positionals, { positionals, options }), app: async () => (await import('./commands/app.mjs')).run(argv, { positionals, options }), tests: async () => (await import('./commands/tests.mjs')).run(argv, { positionals, options }), call: async () => (await import('./commands/call.mjs')).run(argv, { positionals, options }), gateway: async () => (await import('./commands/gateway.mjs')).run(argv, { positionals, options }), apm: async () => (await import('./commands/apm.mjs')).run(argv, { positionals, options }), index: async () => (await import('./commands/read-index.mjs')).run(argv, { positionals, options }),
     explain: async () => (await import('./commands/explain.mjs')).run(argv, { positionals, options }),
     why: async () => (await import('./commands/why.mjs')).run(argv, { positionals, options }), outcome: async () => (await import('./commands/outcome.mjs')).run(argv, { positionals, options }), result: async () => (await import('./commands/result.mjs')).run(argv, { positionals, options }),
     // The five verbs. Each dispatches into the same router; the registry keeps them distinct

@@ -16,6 +16,10 @@ import test from 'node:test';
 import { fileURLToPath } from 'node:url';
 import YAML from 'yaml';
 import { completeAgentResult } from '../src/agent-output.mjs';
+import { evaluateCodeDeliveryPreflight } from '../src/delivery-evidence.mjs';
+import { CANONICAL_FINDING_ID, canonicalFindingId } from '../src/finding-identity.mjs';
+import { loadConfig } from '../src/state.mjs';
+import { loadWorkflow } from '../src/story-workflow-read.mjs';
 
 const CLI = path.join(path.dirname(fileURLToPath(import.meta.url)), '..', 'bin/singularity-flow.mjs');
 const ENV = { ...process.env, NODE_ENV: 'test', SINGULARITY_FLOW_TEST_IDENTITY: 'Dispute Tester' };
@@ -121,7 +125,9 @@ test('a disputed code-delivery finding is accepted live and honoured for exactly
   const prepared = completeAgentResult(cli('appeal', 'risk-prepare', ...disputeArgs, '--json').stdout).data.packet;
   assert.equal(prepared.gateMode, 'dispute');
   assert.equal(prepared.gate, 'CODE_DELIVERY_EVIDENCE_REQUIRED');
-  assert.ok(prepared.problems.some((problem) => /no acceptance test is available/u.test(problem)));
+  // Each problem is keyed by its canonical finding ID; the sentence is for the reviewer [SDA-AC-022].
+  assert.ok(prepared.problems.some((problem) => /^FND-[a-f0-9]{24} no acceptance test is available/u.test(problem)));
+  assert.ok(prepared.problems.every((problem) => /^FND-[a-f0-9]{24} /u.test(problem)), JSON.stringify(prepared.problems));
   assert.deepEqual(prepared.evidence.map((item) => item.path), ['.sflow/dispute/test-output.txt', TEST_PATH]);
   assert.match(prepared.evidence[0].excerpt, /pass 1/u);
   const id = `PQR-${prepared.packetSha256.slice(7, 31)}`;
@@ -150,7 +156,23 @@ test('a disputed code-delivery finding is accepted live and honoured for exactly
 });
 
 test('a dispute covers only a code-delivery finding, and needs evidence and a real reason', async (t) => {
-  const { attempt } = await story(t);
+  const { root, attempt } = await story(t);
+  // Every problem sentence carries its canonical finding, in the same order [SDA-AC-022].
+  const config = await loadConfig(root);
+  const workflow = await loadWorkflow(root, config, W);
+  await assert.rejects(evaluateCodeDeliveryPreflight(root, config, workflow, workflow.phases.implementation), (error) => {
+    assert.equal(error.code, 'CODE_DELIVERY_EVIDENCE_REQUIRED');
+    const { problems, findings, findingIds } = error.details;
+    assert.equal(findings.length, problems.length);
+    assert.deepEqual(findingIds, findings.map((finding) => finding.id));
+    for (const finding of findings) {
+      assert.match(finding.id, CANONICAL_FINDING_ID);
+      assert.equal(finding.id, canonicalFindingId(finding));
+    }
+    const index = problems.findIndex((problem) => /^no acceptance test is available/u.test(problem));
+    assert.equal(findings[index]?.code, 'code.delivery.acceptance-test-missing', JSON.stringify({ problems, findings }));
+    return true;
+  });
   const without = attempt('appeal', 'risk-prepare', '--phase', 'implementation', '--finding', 'CODE_DELIVERY_EVIDENCE_REQUIRED',
     '--expires', EXPIRES, '--reason', REASON, '--json');
   assert.notEqual(without.status, 0);

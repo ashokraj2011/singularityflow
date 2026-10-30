@@ -150,7 +150,7 @@ export const PUBLISH_AUTHORSHIP: readonly PublishAuthorship[] = Object.freeze([
     authored: 'human', channel: 'manual-in-place'
   }),
   Object.freeze({
-    label: 'Copilot wrote it in this Story', detail: 'Recorded as written by a governed agent through Copilot.',
+    label: 'Copilot wrote it in this Story', detail: 'Recorded as written by a Story agent through Copilot.',
     authored: 'governed-agent', channel: 'copilot-host'
   })
 ]);

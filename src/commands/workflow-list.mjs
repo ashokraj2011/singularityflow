@@ -1,6 +1,6 @@
 /** Catalog reads do not load the legacy model/authoring dispatcher. */
 import { repoRoot } from '../git.mjs';
-import { withApprovedConfigurationRead } from '../approved-configuration-reader.mjs';
+import { INSPECTION_READ, withApprovedConfigurationRead } from '../approved-configuration-reader.mjs';
 import { workflowCatalog, workflowCatalogMetadata } from '../workflow-catalog.mjs';
 import { inCommandReadScope } from '../read-scope.mjs';
 import { measureCommandSpan } from '../dx-timing-context.mjs';
@@ -38,5 +38,5 @@ export async function listWorkflowCatalog({ options }) {
       { key: 'id', label: 'WORKFLOW' }, { key: 'label', label: 'LABEL' },
       { key: 'governs', label: 'GOVERNS' }, { key: 'phases', label: 'PHASES' }, { key: 'status', label: 'STATUS' }
     ]));
-  }, { preferAuthority: optionBoolean(options, 'for-start') });
+  }, { preferAuthority: optionBoolean(options, 'for-start'), ...INSPECTION_READ });
 }

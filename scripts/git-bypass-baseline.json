@@ -713,7 +713,7 @@
       "counts": {
         "command-run": 5
       },
-      "digest": "4e862511886bfe65209ffb4c6b57778a9cf65313fe252e2fbcff9cc55254e21e"
+      "digest": "8b01d80bb6df71050f25b189a52de7d0ec58951e8868ffb10f4e49a1e9268f20"
     },
     "src/auto/execution-unit-driver.mjs": {
       "counts": {
@@ -783,7 +783,7 @@
       "counts": {
         "command-run": 24
       },
-      "digest": "a67fa2a801f4fa8783d56a956c03ea6bb13cffc8e0b7f2a4ed83f73137b2935f"
+      "digest": "d91ac406c111b4da8b312373ae5b9bb017a026de789596da100a10b2ce711522"
     },
     "src/cli-entry.mjs": {
       "counts": {
@@ -816,7 +816,7 @@
       "counts": {
         "command-git-literal": 3
       },
-      "digest": "a72fe79193312699c478ca76454dfb6b0d9e10955ba02a477ce82ffefcb6d568"
+      "digest": "db0480447e3cba0a9be5fbdfc5be49e888750abe51c479c8b192b7217059c983"
     },
     "src/commands/init.mjs": {
       "counts": {
@@ -1200,6 +1200,13 @@
         "process-launch": 1
       },
       "digest": "a15d2d344ba185467eb17daea6256b2f0bfc95e7fde88cbbda937b12d30b41b0"
+    },
+    "src/index-refresh-launcher.mjs": {
+      "counts": {
+        "process-import": 1,
+        "process-launch": 2
+      },
+      "digest": "8a2d1bcc629b963fc5621599b60bc62abd0f2648e13f2ad62758a68523f84f7d"
     },
     "src/host-session-launcher.mjs": {
       "counts": {

@@ -76,6 +76,7 @@ export async function implementationBindings(root, { changeSet, required = [], t
   };
   const bindings = [];
   const problems = [];
+  const problemFindings = [];
   const explanationsMissing = [];
   for (const obligation of [...required].sort((left, right) => left.clauseId.localeCompare(right.clauseId))) {
     const regions = [];
@@ -117,10 +118,11 @@ export async function implementationBindings(root, { changeSet, required = [], t
       explanationsMissing.push({ clauseId: obligation.clauseId, path: where?.sourcePath ?? null, line: where?.line ?? null });
       problems.push(`${obligation.clauseId} needs an explanation of how the change meets it, after its @clause tag${where ? ` in ${where.sourcePath}:${where.line}` : ''}`
         + ` (${EXPLANATION_LIMITS.minimum} to ${EXPLANATION_LIMITS.maximum} characters)`);
+      problemFindings.push({ code: 'code.delivery.clause-explanation-missing', path: where?.sourcePath ?? null, value: obligation.clauseId });
     }
     bindings.push({ clauseId: obligation.clauseId, explanation, regions });
   }
-  return { bindings, bindingsSha256: `sha256:${recordSha256(bindings)}`, problems, explanationsMissing };
+  return { bindings, bindingsSha256: `sha256:${recordSha256(bindings)}`, problems, problemFindings, explanationsMissing };
 }
 
 /** The digest a reviewer approves: the exact bindings, in order. */

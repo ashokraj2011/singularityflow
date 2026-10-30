@@ -244,3 +244,41 @@ test('every AST-derived finding carries a complete derivation key or AST remains
     }
   } else assert.ok(plan.unknowns.some((finding) => finding.subject === 'ast'));
 });
+
+test('an Auto start reads the Plan-recorded Story branch, never one derived from the Work ID', async () => {
+  const { gitCommonDir } = await import('../src/git.mjs');
+  const { recordSha256 } = await import('../src/records.mjs');
+  const root = await repository();
+  const cfp = await previewChangeFlightPlan(root, { symbol: 'PaymentNotifier.send', ast: false });
+  const flightId = 'flt-recorded-branch';
+  const autoFor = (branch) => {
+    const plan = {
+      planId: 'aplan-recorded-branch', planSha256: 'sha256:recorded-branch',
+      bindings: { flightPlanId: cfp.planId, flightPlanSha256: `sha256:${recordSha256(cfp)}` },
+      story: { workId: 'PAY-AUTO', branch },
+      repositories: [{ id: 'app', remote: 'origin', baseCommit: cfp.baseline.revision }]
+    };
+    return {
+      plan, flightId,
+      executionOrigin: { mode: 'auto', flightId, planId: plan.planId, planSha256: plan.planSha256 },
+      ratification: { planId: plan.planId, planSha256: plan.planSha256 }
+    };
+  };
+  const worktree = path.join(gitCommonDir(root), 'singularity-flow', 'auto-worktrees', flightId, 'app');
+  const start = (branch) => startChangeFlightPlan(root, cfp.planId, {
+    confirm: cfp.planId, workId: 'PAY-AUTO', workType: 'feature', worktree, recoverClaim: true, auto: autoFor(branch)
+  });
+
+  await assert.rejects(() => start('bad..branch'), (error) => error.code === 'CFP_RECOVERY_REQUIRED'
+    && error.details.mismatches.includes('story-branch'));
+  // A branch named by the Work ID is not the recorded binding, so recovery does not consult it.
+  run('git', ['branch', 'PAY-AUTO'], root);
+  await assert.rejects(() => start('feature/pay-auto'), (error) => error.code === 'AUTO_STORY_BRANCH_UNSUPPORTED'
+    && error.details.branch === 'feature/pay-auto');
+  assert.equal(run('git', ['show-ref', '--verify', '--quiet', 'refs/heads/feature/pay-auto'], root, { allowFailure: true }).status, 1);
+  assert.doesNotMatch(worktrees(root), /auto-worktrees/);
+  // A branch at the recorded name is what recovery inspects, and an ungoverned one is refused.
+  run('git', ['branch', 'feature/pay-auto'], root);
+  await assert.rejects(() => start('feature/pay-auto'), (error) => error.code === 'CFP_RECOVERY_REQUIRED'
+    && /exact Auto recovery binding/.test(error.message) && error.details.workId === 'PAY-AUTO');
+});

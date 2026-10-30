@@ -920,7 +920,7 @@ export async function prepareInitiativePhase(root, id = branch(root), requestedP
   return { portfolio, initiative, phase, outputs: prepared };
 }
 
-export async function listInitiatives(root, portfolio = null) {
+export async function listInitiatives(root, portfolio = null, { ledger = undefined } = {}) {
   const definition = portfolio ?? await loadPortfolio(root, { required: false });
   if (!definition) return [];
   const base = await secureRepositoryPath(root, definition.initiativeRoot, {
@@ -982,23 +982,33 @@ export async function listInitiatives(root, portfolio = null) {
     }
   }
   const remote = definition.git?.remote ?? 'origin';
-  // Local branches as well as remote ones. An Epic whose push failed exists on exactly one branch
-  // and nowhere else, so from any other branch it vanished from this list entirely — while
-  // `initiative start` still refused to create it, leaving the Epic unreachable from the app.
-  // Remote first, so a branch that exists in both places is reported as the shared copy it is;
-  // a local branch only wins when its state is strictly newer, or when there is no remote one.
-  const branches = [
-    ...remoteBranches(root, remote).map((name) => ({ name, ref: `${remote}/${name}`, source: `${remote}/${name}` })),
-    ...localBranches(root).map((name) => ({ name, ref: name, source: `local/${name}` }))
+  // Each Initiative is read where the state ledger records it is bound (SDA-AC-024): its recorded
+  // branch, remote copy first, then the local one. An Epic whose push failed exists on exactly one
+  // local branch, so it must still be listed from any other branch; a local branch only wins when its
+  // state is strictly newer, or when there is no remote one. With the ledger off there is no record,
+  // and the remote and local branch inventories remain the only way to find them.
+  const { definitionLedgerConfig, initiativeIdentityRecords } = await import('./subject-identity-records.mjs');
+  const identities = await initiativeIdentityRecords(
+    root, ledger === undefined ? await definitionLedgerConfig(root) : (ledger ?? {}), { offline: true }
+  );
+  const located = (name, branchName) => [
+    { name, branchName, ref: `${remote}/${branchName}`, source: `${remote}/${branchName}` },
+    { name, branchName, ref: branchName, source: `local/${branchName}` }
   ];
-  for (const { name, ref, source } of branches) {
+  const branches = identities.records
+    ? identities.records.flatMap((record) => located(record.id, record.branch))
+    : [
+      ...remoteBranches(root, remote).map((name) => located(name, name)[0]),
+      ...localBranches(root).map((name) => located(name, name)[1])
+    ];
+  for (const { name, branchName, ref, source } of branches) {
     try { validateInitiativeId(name); } catch { continue; }
     const statePath = posix(path.join(definition.initiativeRoot, name, 'state.json'));
     const content = fileAtRef(root, ref, statePath);
     if (!content) continue;
     try {
       const state = JSON.parse(content);
-      if (state.initiative?.id !== name || state.initiative?.branch !== name) continue;
+      if (state.initiative?.id !== name || state.initiative?.branch !== branchName) continue;
       const candidate = summarize(state, name, source);
       const current = results.get(name);
       if (!current || String(candidate.updatedAt ?? '') > String(current.updatedAt ?? '')) results.set(name, candidate);

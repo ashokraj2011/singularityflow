@@ -217,12 +217,26 @@ export async function exactStoryMetadataAtRef(root, remote, item, expectedCommit
   };
 }
 
+/** How a reused listing reads to a person: its freshness, and the real error a failed refresh kept (SDA §8). */
+export function listingFreshness(snapshot) {
+  if (snapshot.freshness === 'refresh-failed') {
+    return `the last-known (refresh failed: ${snapshot.refreshError?.code ?? 'unknown'}${snapshot.refreshFailedAt ? ` at ${snapshot.refreshFailedAt}` : ''})`;
+  }
+  if (snapshot.freshness === 'stale') {
+    const behind = { started: 'refreshing in the background', 'in-flight': 'a refresh is already running',
+      'recently-started': 'a refresh started recently' }[snapshot.backgroundRefresh] ?? 'not refreshed in the background';
+    return `a stale (${behind})`;
+  }
+  return snapshot.source;
+}
+
 export async function printSessionCandidateResult(discovered, options, scope = {}) {
   if (discovered.localClone?.available === false && !optionBoolean(options, 'table')) console.error(
     `Listed from the remote: the local clone ${discovered.localClone.repositoryPath} cannot be read. ${discovered.localClone.blocked} ${discovered.localClone.remedy}`);
-  if (['cache', 'local'].includes(discovered.listingSnapshot?.source) && !optionBoolean(options, 'table')) console.error(
-    `Using ${discovered.listingSnapshot.source} Story listing checked at ${discovered.listingSnapshot.checkedAt}; `
-    + `remote checked at ${discovered.listingSnapshot.remoteCheckedAt ?? 'unavailable'}. `
+  const snapshot = discovered.listingSnapshot;
+  if (['cache', 'local', 'last-known'].includes(snapshot?.source) && !optionBoolean(options, 'table')) console.error(
+    `Using ${listingFreshness(snapshot)} Story listing checked at ${snapshot.checkedAt}; `
+    + `remote checked at ${snapshot.remoteCheckedAt ?? 'unavailable'}. `
     + 'Attachment revalidates the selected Story. Use --refresh for a fresh listing.');
   if (optionBoolean(options, 'json')) return console.log(JSON.stringify(
     optionBoolean(options, 'diagnostics') ? discovered : discovered.items, null, 2

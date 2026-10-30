@@ -2799,7 +2799,7 @@ async function cachedStoryConfigurationSnapshot(authority, {
  */
 export async function loadStoryConfigurationSnapshot(authority, {
   env = process.env, captureAuthoringBytes = false, useObjectCache = false, session = null,
-  reuseAuthorityObservation = false
+  reuseAuthorityObservation = false, objectRoot = null
 } = {}) {
   // Freeze scalar selectors before the request cache can yield to another consumer. Spread drops a
   // state-mirror resolution's non-enumerable retained snapshot; carry it for the verified reuse check.
@@ -2814,12 +2814,12 @@ export async function loadStoryConfigurationSnapshot(authority, {
   env = inheritEnterpriseGitEnvironment(admittedEnv, { ...admittedEnv });
   return creationConfiguration(authority, { env, captureAuthoringBytes }, () =>
     loadStoryConfigurationSnapshotFresh(authority, {
-      env, captureAuthoringBytes, useObjectCache, session, reuseAuthorityObservation
+      env, captureAuthoringBytes, useObjectCache, session, reuseAuthorityObservation, objectRoot
     }), verifiedStoryDefinition);
 }
 
 async function loadStoryConfigurationSnapshotFresh(authority, {
-  env, captureAuthoringBytes, useObjectCache, session, reuseAuthorityObservation
+  env, captureAuthoringBytes, useObjectCache, session, reuseAuthorityObservation, objectRoot = null
 }) {
   if (!authority?.remote || !authority?.branch) {
     throw new SingularityFlowError('A Story configuration definition requires a resolved authority.');
@@ -2862,6 +2862,13 @@ async function loadStoryConfigurationSnapshotFresh(authority, {
       env, captureAuthoringBytes, session, reuseAuthorityObservation
     });
     if (cached) return cached;
+    // Where the machine-wide cache declines (Windows, where its ACL trust cannot be established, or
+    // an unusual remote), transfer only the authority commit's objects into the application
+    // repository and read them there: no clone and no checkout (SDA-AC-013).
+    const exact = objectRoot ? await exactObjectStoryConfigurationSnapshot(objectRoot, authority, {
+      env, captureAuthoringBytes
+    }) : null;
+    if (exact) return exact;
     incrementCommandCounter('configuration.object-cache-declined');
   }
   let lastMoved = null;
@@ -3018,11 +3025,11 @@ function preparedConfigurationRef() {
 }
 
 /** Speculative exact-object transfer only: no checkout, Story, policy write, enrollment or approval. */
-export async function prepareSelectedStoryConfiguration(root, authority, { env = process.env } = {}) {
+export async function prepareSelectedStoryConfiguration(root, authority, { env = process.env, session = null } = {}) {
   if (env.SINGULARITY_FLOW_STORY_CONFIGURATION_CACHE === 'off' || authority?.branch !== CONFIGURATION_BRANCH
       || !/^(?:[a-f0-9]{40}|[a-f0-9]{64})$/u.test(authority?.commit ?? '')) return { status: 'unavailable' };
   const transport = frozenRemoteTransport(assertCredentialFreeRemote(authority.remote), { env });
-  const session = new GitRemoteSession({ cwd: root, env });
+  session ??= new GitRemoteSession({ cwd: root, env });
   const head = await configurationBranchHead(authority.remote, { session, refresh: true });
   requireRemoteObservation(head.observation, 'Selected configuration preparation');
   if (head.sha !== authority.commit) return { status: 'unavailable', reason: 'authority-moved' };
@@ -3038,6 +3045,22 @@ export async function prepareSelectedStoryConfiguration(root, authority, { env =
     env: enterpriseGitEnvironment(env) });
   incrementCommandCounter('configuration.selected-prepared');
   return { status: 'prepared', commit: authority.commit };
+}
+
+/**
+ * An inspection read's exact objects, transferred into the application repository it runs in and
+ * read there (the same exact transfer Story intake prepares). One authority observation serves the
+ * transfer and the read; a moved authority declines, and the reader falls back as before.
+ */
+async function exactObjectStoryConfigurationSnapshot(root, authority, { env, captureAuthoringBytes }) {
+  if (!repositoryGitDirectory(root)) return null;
+  const session = new GitRemoteSession({ cwd: root, env });
+  const prepared = await prepareSelectedStoryConfiguration(root, authority, { env, session }).catch(() => null);
+  if (prepared?.status !== 'prepared') return null;
+  incrementCommandCounter('configuration.exact-object-transfer');
+  return preparedStoryConfigurationSnapshot(root, authority, {
+    env, captureAuthoringBytes, session, reuseAuthorityObservation: true
+  });
 }
 
 async function preparedStoryConfigurationSnapshot(root, authority, {

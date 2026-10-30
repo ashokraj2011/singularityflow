@@ -381,6 +381,7 @@ Every public operation is classified before its implementation module is importe
 | imports.list | read | never | — | — |
 | imports.remove | mutation | never | — | — |
 | inbox | read | never | — | — |
+| index | read | never | — | — |
 | init.check | read | never | — | — |
 | init.legacy | mutation | never | — | — |
 | init.smart-detect.activate | mutation | never | — | — |

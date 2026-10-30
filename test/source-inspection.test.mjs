@@ -51,5 +51,5 @@ test('the facade keeps present, absent and unavailable apart', async () => {
   assert.deepEqual(sourceContains(work, second, first), { status: 'present', value: false });
   assert.equal(sourceContains(work, first, 'f'.repeat(40)).status, 'unavailable');
 
-  assert.equal(sourceWorkingState(work).value.commit, second);
+  assert.equal((await sourceWorkingState(work)).value.commit, second);
 });

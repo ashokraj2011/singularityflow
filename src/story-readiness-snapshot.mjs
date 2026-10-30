@@ -7,7 +7,7 @@ import { activeWorkspaceFile, workspaceRegistryFile } from './workspace-context.
 import { optionBoolean, optionString, optionStrings } from './util.mjs';
 
 const presentation = new Set(['json', 'for-agent', 'timings', 'timing', 'refresh-readiness']);
-export async function storyReadinessSnapshot(root, options, checkout, read) {
+export async function storyReadinessSnapshot(root, options, checkout, read, { launchCwd = process.cwd() } = {}) {
   const story = optionString(options, 'preflight-story');
   const catalog = optionBoolean(options, 'intake') && !story && !optionString(options, 'work-id');
   if (!catalog && (!optionBoolean(options, 'selected-base-only') || !story)) return read();
@@ -32,8 +32,10 @@ export async function storyReadinessSnapshot(root, options, checkout, read) {
     else files.push(path.join(common, 'refs/remotes/origin'), path.join(common, 'refs/heads'));
   }
   const cached = catalog ? cachedStoryIntakeCatalog : cachedStoryReadinessPreview;
+  // Only the catalog serves last-known; this is the read that refreshes it behind a stale answer.
+  const argv = catalog ? (await import('./index-refresh-launcher.mjs')).indexReadArgv(['workspace', 'branches'], options, [...presentation]) : null;
   const inspect = () => cached(root, { identity, files,
-    settingsRoot: checkout?.originalRepositoryPath ?? root }, read);
+    settingsRoot: checkout?.originalRepositoryPath ?? root, refreshRecipe: argv ? { argv, cwd: launchCwd } : null }, read);
   const value = await (optionBoolean(options, 'refresh-readiness') ? withFreshRepositoryChecks(inspect) : inspect());
   // A receipt ID is only a handoff to the separately sealed, single-use record. Start still
   // verifies every remote input in one fresh wave. Never extend its independent 15-minute expiry.

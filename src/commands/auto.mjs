@@ -479,22 +479,26 @@ export async function run(_argv, { positionals, options }) {
     const definition = await loadDefinition(root);
     const { loadStoryAggregate } = await import('../state-stores.mjs');
     let workflow = null;
+    let storyBranch = null;
     try { workflow = await loadStoryAggregate(root, definition, workId); }
     catch (localError) {
       // A recovery command is specifically required to work after clone/crash, where main need
       // not contain the Story. Read only the named remote Story workflow to discover its committed
       // execution origin; rebuildAutoFlightState then clones and verifies the complete authority.
-      const checked = runProcess('git', ['check-ref-format', '--branch', workId], {
+      // The branch is the Story's recorded binding (state index), not one derived from the ID.
+      const { storyBranchForWorkId } = await import('../story-branch-name.mjs');
+      storyBranch = await storyBranchForWorkId(root, definition, workId) ?? workId;
+      const checked = runProcess('git', ['check-ref-format', '--branch', storyBranch], {
         cwd: root, allowFailure: true
       });
-      if (checked.status !== 0) throw localError;
+      if (checked.status !== 0 || checked.stdout.trim() !== storyBranch || storyBranch.startsWith('-')) throw localError;
       const fetched = runProcess('git', [
         'fetch', '--no-tags', 'origin',
-        `refs/heads/${workId}:refs/remotes/origin/${workId}`
+        `refs/heads/${storyBranch}:refs/remotes/origin/${storyBranch}`
       ], { cwd: root, allowFailure: true, timeoutMs: 120_000 });
       const relative = `${definition.workItemRoot ?? 'singularity/work-items'}/${workId}/workflow.json`;
       const shown = fetched.status === 0 ? runProcess('git', [
-        'show', `refs/remotes/origin/${workId}:${relative}`
+        'show', `refs/remotes/origin/${storyBranch}:${relative}`
       ], { cwd: root, allowFailure: true }) : fetched;
       if (shown.status !== 0) throw new SingularityFlowError(
         `Story '${workId}' is not available locally or on origin for Auto recovery.`, {
@@ -508,8 +512,8 @@ export async function run(_argv, { positionals, options }) {
           code: 'AUTO_CHECKPOINT_INVALID', cause: error
         }
       ); }
-      if (workflow.workItem?.id !== workId) throw new SingularityFlowError(
-        `Remote Story workflow identity does not match '${workId}'.`, {
+      if (workflow.workItem?.id !== workId || (workflow.workItem?.branch ?? workId) !== storyBranch) throw new SingularityFlowError(
+        `Remote Story workflow identity does not match '${workId}' on branch '${storyBranch}'.`, {
           code: 'AUTO_CHECKPOINT_INVALID'
         }
       );
@@ -529,7 +533,7 @@ export async function run(_argv, { positionals, options }) {
       );
     }
     const state = await rebuildAutoFlightState(root, {
-      storyRoot: root, workId, flightId
+      storyRoot: root, workId, flightId, ...(storyBranch ? { branch: storyBranch } : {})
     });
     return emitAuto(state, {
       operation: 'auto.recover', classification: 'mutation', state,

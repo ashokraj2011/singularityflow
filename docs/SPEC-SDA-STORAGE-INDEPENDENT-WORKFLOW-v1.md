@@ -55,7 +55,7 @@ v1.1 proceeds in two phases with different risk:
   - Drafts and typed configuration intent move to transactional local storage.
   - Separately reviewed, Phase B decides whether lifecycle authority moves off the Story branch (§6.2).
 
-  Phase B needs its own architecture decision record (ADR) before any build.
+  Phase B needs its own architecture decision record (ADR) before any build. ADR 0018, accepted on 2026-10-30, chose option A: the Story branch stays lifecycle authority.
 
 There must be one configured authority for each domain namespace. Local saved work, cached accepted state and remotely accepted state are distinct. A local write cannot silently become a shared approval.
 
@@ -172,6 +172,13 @@ A Story's identity is its Work ID. The branch is chosen once and recorded (`work
 | Repository without a remote | Keyed by a `gitdir:` path | Assign a stable repository ID at registration; the path is a local binding |
 | Push intents | Store the absolute checkout path | Store the repository and checkout IDs; resolve the path locally |
 
+**M2:** each row is closed, with two exceptions:
+
+- `session attach` still refuses a Story listed with a binding finding.
+- Auto refuses a recorded branch other than the Work ID until Story start can take one.
+
+The details are in `benchmarks/sda/m2-read-index.md`.
+
 Git remotes remain credential-free source locators. `gitRepositoryComparisonKey` (`src/git-repository-identity.mjs`) treats GitHub's SSH and HTTPS spellings of one repository as the same repository; GitHub documents that equivalence. v1.1 keeps it, recorded as a built-in equivalence rule. Any other alias needs the approved mapping or a reviewed equivalence record.
 
 ### Decisions and findings
@@ -181,7 +188,12 @@ Decisions must use canonical finding or obligation identity rather than a displa
 - **Code-delivery disputes** store and match the problem sentences the gate printed (`src/phase-finding-dispute-schema.mjs`), so a rewording breaks a dispute.
 - **The finding fingerprint** falls back to message text (`src/finding-escalation.mjs`).
 
-M2 introduces canonical finding IDs for gate problems. Existing records stay readable through a sentence-to-ID alias recorded at migration. Repeated commands must not produce duplicate decisions. An amendment records a new event linked to the earlier one; it does not overwrite it.
+M2 introduces canonical finding IDs for gate problems. Existing records stay readable through a sentence-to-ID alias recorded at migration.
+
+**M2:** the ID is `FND-` plus the digest of `{code, path, value}` (`src/finding-identity.mjs`).
+
+- New disputes store `<ID> <sentence>` entries and match by ID.
+- Disputes are append-only and hash-bound, so the alias for an older record is resolved when it is read: its exact sentences still match. Repeated commands must not produce duplicate decisions. An amendment records a new event linked to the earlier one; it does not overwrite it.
 
 ### Revisions and source identity
 
@@ -246,6 +258,17 @@ The ADR must state the treatment of:
 - signing and trust tiers;
 - takeover;
 - what an old client does after cutover.
+
+**Decided (2026-10-30): keep the Story branch as lifecycle authority** (ADR 0018, option A).
+
+- **Unchanged:**
+  - Stories created before the decision keep their exact meaning.
+  - The atomic push, signing and trust tiers, and takeover.
+- **No cutover.** There is no migration, so no old client needs fencing.
+- **The ledger** remains proof and projection.
+- **M4** puts the existing Story-branch authority behind the lifecycle authority adapter.
+- **The other two options** stay recorded in the ADR. Choosing either needs a new record that
+  supersedes it.
 
 ### 6.3 Local data
 
@@ -352,7 +375,21 @@ In v1.1:
 - Known successful writes update or invalidate the affected projections immediately.
 - Clock rollback, an authority change, a schema change or an integrity failure ends freshness eligibility. A negative cache age is already a miss.
 
+**M2:** the Story list and the intake catalog serve last-known state (`LAST_KNOWN_KINDS` in `src/repository-check-cache.mjs`).
+
+- **Past the interval:** the record is served at once as `stale`, and a replay of its read (`src/index-refresh-launcher.mjs`) refreshes it in the background.
+- **When the authority cannot be reached:** the record is served as `refresh-failed`, with the real error.
+- **Coalescing:** refreshes share one observation across processes through a lease beside each record.
+- **Verification records** (phase entry, next steps, readiness preview) are unchanged.
+- **Results:** `benchmarks/sda/m2-read-index.md`.
+
 ### Configuration
+
+**M2 (SDA-AC-013):** the CLI's configuration inspection commands (`workflow list`, `config read`, `config validate`, `config snapshot`) read exact authority objects and create no temporary clone.
+
+- They use the machine-wide bare cache.
+- Where that cache declines (Windows), the authority commit's objects are transferred into the application repository instead.
+- Typed editing without a checkout remains M3.
 
 There is no top-level `storage:` block; that key belongs to document providers. Phase A needs no governed storage setting. If Phase B needs one, it uses a new top-level key, such as `lifecycleStorage`:
 
@@ -530,7 +567,9 @@ Every actionable result provides a canonical next action in Copilot, Shell and m
 | Verify the index against authority | `index verify` | Top-level `verify` already exists |
 | Reconcile unknown outcomes | Existing `sync <INTENT-ID>` and `ledger`/`state reconcile` | — |
 
-`index` is not a command today. Before M2, the names are checked against the command registry, help pages, skills and narration migration lists. Existing `session`, `status`, `nextsteps`, `phase`, `decision`, `check` and `sync` forms keep their meanings and delegate to the services.
+`index` is not a command today. Before M2, the names are checked against the command registry, help pages, skills and narration migration lists.
+
+**M2:** `index status|refresh|rebuild|verify` is `src/commands/read-index.mjs`, and `test/sda-names.test.mjs` holds every SDA name to the modules that own it. Existing `session`, `status`, `nextsteps`, `phase`, `decision`, `check` and `sync` forms keep their meanings and delegate to the services.
 
 Errors preserve the failed stage, operation ID, scope, elapsed time, deadline, retryability and a bounded, redacted underlying cause. Missing authority is not an empty Story list. A confirmed shared write followed by a local read failure is not a failed shared write.
 
@@ -553,7 +592,7 @@ Migration is per authority and namespace, never inferred from the installed buil
   - Read configuration without a clone.
   - Fix the identity leaks (§5).
   - Existing Stories stay on their existing authority.
-- **Stage 3, Drafts and typed configuration intent (M3).** This is Phase B and needs the ADR.
+- **Stage 3, Drafts and typed configuration intent (M3).** This is Phase B. It needed the authority ADR, which was accepted with option A on 2026-10-30.
 - **Stage 4, Lifecycle persistence behind adapters (M4).** Phase B. It follows the authority ADR's decision and preserves existing packets, signing and publication recovery.
 - **Stage 5, Alternate shared storage.** It needs a separate specification.
 
@@ -640,7 +679,7 @@ Report process-cold, first-worker, warm-worker, first-synchronization and repeat
 | SDA-AC-016 | Cleanup preserves unpushed source, local-only attachments, pending operations, evidence holds and active recovery. New locations appear in the machine-state list and the retention allow-list. |
 | SDA-AC-017 | Adapter conformance verifies conditional acceptance, snapshot pagination, idempotency, integrity, boundedness and cancellation against Git and a deterministic test adapter, which can never be selected as production authority. |
 | SDA-AC-018 | Native macOS and Windows reports measure cold and warm scenarios and call counts, meet the budgets in §17, and disclose remaining bottlenecks. |
-| SDA-AC-019 | Authority migration (Phase B only) fences old writers through `minimumBuild` and cannot create two authorities. |
+| SDA-AC-019 | Authority migration (Phase B only) fences old writers through `minimumBuild` and cannot create two authorities. Not applicable under ADR 0018 option A, which migrates no authority. |
 | SDA-AC-020 | No installer, migration or cache repair rewrites original signed evidence or clears active staged-installation recovery. |
 | SDA-AC-021 | An expired or failed advisory refresh returns last-known verified state with `stale` or `refresh-failed` freshness and the real error, never `SESSION_STATE_REFRESH_UNAVAILABLE`, while final checks still refuse on stale bindings. |
 | SDA-AC-022 | Gate-problem disputes and finding escalation match by canonical finding ID. Existing sentence-keyed disputes keep matching through their migration alias. |
@@ -678,8 +717,8 @@ Existing lifecycle, source-review, publication, signing, installation-recovery a
 | M0 | Call-site and lifetime inventory; macOS and Windows baselines (DX baseline established, warm-read on Windows); measured VS Code host Node version; two ADRs (index engine and runtime; Phase B authority options) | Every persistence path classified. Current authority and recovery semantics recorded. Baselines accepted. |
 | M1 | Outcome classes over existing codes; ledger payload digest; operation-matched reconciliation; leased governed pushes; source inspection facade for reads; conformance harness; consistency block in the result contract | Existing behavior wrapped with no lifecycle change. Test adapter proven non-authoritative. SDA-AC-005, 017 and 025. |
 | M2 | Read index; serve-last-known; cross-process refresh coalescing; configuration reads without clone; identity leaks closed; canonical finding IDs; `index status/refresh/rebuild/verify` | Lists, catalogs and advisory sessions meet the zero-Git budgets on macOS and Windows. SDA-AC-002, 013, 014, 021–024. |
-| M3 | (Phase B, after ADR) Transactional drafts, typed configuration intent, lazy workspace cloning, lease-proven lock recovery | Crash and duplicate-operation tests pass. No checkout for ordinary configuration editing. |
-| M4 | (Phase B) Lifecycle persistence behind adapters, as the authority ADR decides | All workflow families keep final fresh binding and existing governance tests. |
+| M3 | (Phase B; ADR 0018 accepted option A) Transactional drafts, typed configuration intent, lazy workspace cloning, lease-proven lock recovery | Crash and duplicate-operation tests pass. No checkout for ordinary configuration editing. |
+| M4 | (Phase B) Lifecycle persistence behind adapters. Under ADR 0018 option A, this means the Story-branch authority behind the lifecycle authority adapter, with no new namespace. | All workflow families keep final fresh binding and existing governance tests. |
 | M5 | Takeover, cleanup, backup and migration tooling | Multi-laptop, retention, legacy import and writer-fencing cases pass. |
 | M6 | Performance qualification and staged rollout | Matched native reports, compatibility evidence and operator recovery documentation approved. |
 
@@ -707,8 +746,10 @@ The product never describes pending local work as globally published or approved
 3. Where does the read index live: machine-wide under `~/.singularity-flow/`, or per workspace?
    - **M0 (ADR 0017):** in the existing JSON projections, where they live today, extended with freshness and last-known retention.
 4. For Phase B: which authority option (§6.2) does the team prefer, and what is the migration story for Stories already in flight?
-   - Open: ADR 0018 records the options and the criteria for choosing.
+   - **Decided (2026-10-30):** option A, keep the Story branch as lifecycle authority. No Story is migrated (ADR 0018).
 
 M0 results: `benchmarks/sda/m0-qualification.md` (inventory, macOS read baselines, VS Code runtime). Windows baselines and the CI-established DX baseline remain open.
+
+M2 results: `benchmarks/sda/m2-read-index.md` (read index, serve-last-known, cross-process coalescing, configuration reads without a clone, identity leaks, canonical finding IDs, `index` commands). Windows measurements and the consistency block remain open.
 
 M1 results: `benchmarks/sda/m1-contracts.md` (outcome classes, ledger payload digest, operation-matched reconciliation, leased pushes, source inspection facade, conformance harness). The consistency block and the versioned contract review remain open.

@@ -3527,6 +3527,8 @@ singularity-flow onboard <LOCAL-PATH> --bootstrap --policy unmanaged-local-v1 --
 singularity-flow onboard <LOCAL-PATH> --bootstrap --policy POLICY-ID --remote NAME --publish [--json]
 singularity-flow authority refresh <LOCAL-PATH> [--json]
 singularity-flow cache clear --derived --repo <LOCAL-PATH> [--json]
+singularity-flow index status|refresh|rebuild [--all] [--json]
+singularity-flow index verify [--authority] [--all] [--json]
 singularity-flow local start <NAME> --intent <TEXT> --input <ABSOLUTE-PATH>... --classification public|internal|confidential|restricted [--allow-empty-output] [--json]
 singularity-flow local list [--json]
 singularity-flow local status --story <LOC-ID> [--json]

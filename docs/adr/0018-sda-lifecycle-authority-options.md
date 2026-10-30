@@ -1,7 +1,7 @@
 # ADR 0018 — SDA Phase B: where lifecycle authority lives
 
-- **Status:** Proposed. The options are recorded; the decision is open and gates SDA Stage 3 onward.
-- **Date:** 2026-10-29
+- **Status:** Accepted, option A (2026-10-30). The Story branch stays lifecycle authority.
+- **Date:** 2026-10-29 (proposed); 2026-10-30 (accepted)
 - **Baseline:** `main@c6a65e33b`
 - **Decision owner:** Singularity Flow repository maintainers
 
@@ -85,13 +85,39 @@ Authenticated, conditional transactions in a hosted service (SDA Stage 5).
 
 ## Decision
 
-Open. Until it is made:
+**Option A.** The maintainers chose it on 2026-10-30, after SDA M2. The Story's `<WORK-ID>` branch
+remains lifecycle authority, and the `state` ledger remains proof and projection.
 
-- **Phase A proceeds under option A.** That is SDA's stated position: M0–M2 change no authority.
-- **M1's ledger idempotency fix lands regardless of the choice.** B needs it, and A benefits from it.
-- **Stage 3 (M3) does not start until this record is accepted with a chosen option.**
+Against the criteria:
+
+1. **Read cost.** M2 (`benchmarks/sda/m2-read-index.md`) serves the Story list and the intake
+   catalog from verified local records, with no Git process and no network when they are past their
+   interval or the remote is unreachable.
+   - What remains is two local Git reads in `nextsteps` and the snapshot's `git status`. None of it is
+     in writes, takeover or source-history size, the costs that would have argued for B.
+   - The measurements are macOS only; Windows remains open in Phase A.
+2. **Migration.** None. No in-flight or `legacy-live` Story is touched.
+3. **Ledger prerequisite.** None. A repository with the ledger disabled keeps its lifecycle authority.
+4. **Signing and trust tiers.** Unchanged.
+5. **Old clients.** There is no cutover, so no `minimumBuild` fence is needed.
 
 ## Consequences
 
-- No lifecycle write path changes before this record is accepted.
-- The SDA M2 report will carry the measurements criterion 1 asks for.
+- **The lifecycle write path is unchanged:**
+  - `publishBranchWithLedgerEntry`'s atomic push of branch, ledger entry and pin under exact leases;
+  - the publication journal;
+  - the transport outbox;
+  - signing;
+  - takeover's fetch of the Story branch.
+- **SDA Stage 3 (M3) may start.** Its deliverables change no authority: transactional drafts, typed
+  configuration intent, lazy workspace cloning and lease-proven lock recovery.
+- **M4 is narrowed.** "Lifecycle persistence behind adapters" puts the existing Story-branch
+  authority behind the lifecycle authority adapter. No new namespace is introduced. The Git adapter
+  that M1's conformance harness runs is that production adapter.
+- **SDA-AC-019 does not apply.** It covers authority migration and writer fencing, and there is no
+  migration.
+- **Source history and lifecycle history stay coupled.** This is option A's accepted cost: replacing
+  source control would still need lifecycle state from it.
+- **Revisiting the decision.** A move to B or C needs a new record that supersedes this one, with
+  measurements showing that the remaining cost is in writes, takeover or source-history size. Option
+  C needs its own specification (SDA Stage 5).

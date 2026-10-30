@@ -161,11 +161,12 @@ test('startup read entrypoints do not statically reach the legacy monolith', asy
   // module with only a builtin import). Every Git spawn also selects the host Git through
   // git-host-selection.mjs (38e44423), another builtin-only leaf, and answers repeated local questions
   // through git-fact-cache.mjs, a third. Keep the ceiling at that verified baseline so new eager
-  // startup imports still fail this test.
+  // startup imports still fail this test. Capability leads gained outcome-classes.mjs (constants with
+  // no import, through util.mjs) in SDA M1; the workspace graph had headroom for it and the source facade.
   assert.ok(workspaceClosure.size <= 27,
     `workspace startup reads load ${workspaceClosure.size} static modules; ceiling is 27`);
-  assert.ok(capabilityClosure.size <= 12,
-    `capability leads loads ${capabilityClosure.size} static modules; ceiling is 12`);
+  assert.ok(capabilityClosure.size <= 13,
+    `capability leads loads ${capabilityClosure.size} static modules; ceiling is 13`);
   for (const file of [...workspaceClosure, ...capabilityClosure]) {
     assert.doesNotMatch(path.basename(file), /^(?:cli|jira|initiative|visual|model-runner|model-provider)\.mjs$/,
       `startup read graph reaches unrelated heavyweight domain ${file}`);
@@ -182,7 +183,9 @@ test('the Copilot edit guard, run on every tool call, stays clear of the configu
   }
   // 61: agent-output-folder.mjs, a leaf on Node built-ins only, names the checkout's agent results folder, which
   // the guard corrects misread result paths to and application-paths.mjs keeps out of application edits.
-  assert.ok(closure.size <= 61, `the edit guard loads ${closure.size} static modules; ceiling is 61`);
+  // 62: outcome-classes.mjs, constants with no import, gives every error its SDA outcome class through
+  // util.mjs; SDA M1 (fa3094b83) added it without a recorded raise.
+  assert.ok(closure.size <= 62, `the edit guard loads ${closure.size} static modules; ceiling is 62`);
 });
 
 test('commands that load the legacy CLI leave the SQLite build and the ACP SDK to first use', () => {

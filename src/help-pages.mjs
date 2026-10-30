@@ -1387,6 +1387,34 @@ const PAGES = Object.freeze({
     ],
     seeAlso: ['import', 'agents', 'skill']
   },
+  index: {
+    summary: 'See, refresh, rebuild or verify the local read index that Story lists and the intake catalog answer from.',
+    description: [
+      'The read index is the advisory answers kept on this computer: the Story list (session candidates) and the',
+      'intake catalog (workspace branches --intake), and the checks phase entry and next steps reuse. A list past',
+      'the repository-check interval is shown at once as stale while it is refreshed in the background; a refresh',
+      'the remote cannot answer keeps the last list, marked refresh-failed, with the real error. None of it is',
+      'authority: publishing, submitting, approving and starting a Story check the remote themselves.',
+      'index status shows each answer\'s freshness, its last refresh and its error, whether a refresh is running,',
+      'and this repository\'s pending pushes. It changes nothing.',
+      'index refresh asks the remote again now for each answer, and runs the first lists on a computer that has none.',
+      'index rebuild discards what cannot be verified or asked again (its next read rebuilds it) and refreshes the',
+      'rest. It never touches drafts, journals, pending pushes or Story state.',
+      'index verify checks every answer\'s integrity here; with --authority it also asks the remote again and says',
+      'whether each answer still matches. The interval is the repository-check setting.'
+    ],
+    options: [
+      ['--all', 'Every Story list on this computer, not only this repository\'s.'],
+      ['--authority', 'verify only: ask the remote again and compare.'],
+      ['--json', 'Machine-readable output (sflow-index-status, -refresh, -rebuild, -verify).']
+    ],
+    examples: [
+      ['singularity-flow index status', 'How fresh the Story list and intake catalog are, and any pending pushes.'],
+      ['singularity-flow index refresh', 'Ask the remote again now.'],
+      ['singularity-flow index verify --authority --json', 'Check every answer, and compare it with the remote.']
+    ],
+    seeAlso: ['session', 'workspace', 'sync', 'check']
+  },
   decisions: {
     summary: 'See everything people must decide before a step can move, in plain words, and record the choices at once.',
     description: [

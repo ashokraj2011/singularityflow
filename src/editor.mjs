@@ -99,7 +99,7 @@ import { submissionReadiness } from './submission-readiness.mjs';
 import { storyDecisionView } from './workflow-decisions.mjs';
 import { storyApprovalView } from './approval-authority.mjs';
 import { loadAcceptedStoryExecution } from './accepted-story-execution.mjs';
-import { withApprovedConfigurationRead } from './approved-configuration-reader.mjs';
+import { INSPECTION_READ, withApprovedConfigurationRead } from './approved-configuration-reader.mjs';
 import { loadSgosCommandCenter } from './sgos/command-center.mjs';
 import { workflowCodeGeneration } from './code-delivery-policy.mjs';
 import { captureEnvironmentDeclaration, ENVIRONMENT_DECLARATION_PATH, validateEnvironmentQualityCommandCatalog } from './environment-declaration.mjs';
@@ -1202,7 +1202,7 @@ async function configurationEditorSlice(root) {
   const approved = await withApprovedConfigurationRead(root, (selectedAuthority) => {
     authority = selectedAuthority;
     return withDefinitionCache(() => configurationSlice(root));
-  }, { preferAuthority: true });
+  }, { preferAuthority: true, ...INSPECTION_READ });
   const effective = configurationSourceRecord(approved, authority);
 
   // A repository without an external approved authority already reads its working tree directly.
@@ -1377,14 +1377,14 @@ export async function repositorySnapshot(root, requestedWorkId = null, requested
             included: other,
             revision
           })
-        ))
+        ), INSPECTION_READ)
       : {};
     const configuration = await configurationEditorSlice(root);
     return { ...result, configuration };
   }
   return withApprovedConfigurationRead(root, () => withDefinitionCache(
     () => repositorySnapshotInScope(root, requestedWorkId, requestedInitiativeId, { included, revision })
-  ));
+  ), INSPECTION_READ);
 }
 
 async function repositorySnapshotInScope(root, requestedWorkId, requestedInitiativeId, { included, revision }) {

@@ -12,9 +12,9 @@
     "gitModules": 174,
     "directLocalGitSitesOutsideGitModules": 974,
     "localGitReadsOutsideGitModules": 617,
-    "writeSites": 1060,
+    "writeSites": 1071,
     "yamlReadModules": 108,
-    "lifetimes": 52,
+    "lifetimes": 53,
     "timeouts": 162,
     "byClass": {
       "shared-state": {
@@ -46,18 +46,18 @@
         "writeSites": 65
       },
       "projection": {
-        "modules": 35,
+        "modules": 36,
         "gitSites": 35,
         "gitWrites": 1,
         "gitRemote": 0,
-        "writeSites": 95
+        "writeSites": 98
       },
       "source-control": {
-        "modules": 57,
+        "modules": 58,
         "gitSites": 508,
         "gitWrites": 113,
         "gitRemote": 45,
-        "writeSites": 178
+        "writeSites": 182
       },
       "local-authored": {
         "modules": 13,
@@ -67,11 +67,11 @@
         "writeSites": 55
       },
       "surface": {
-        "modules": 39,
+        "modules": 40,
         "gitSites": 55,
         "gitWrites": 14,
         "gitRemote": 8,
-        "writeSites": 83
+        "writeSites": 87
       }
     },
     "unclassified": []
@@ -876,6 +876,14 @@
       "class": "surface",
       "git": {},
       "writes": 1,
+      "yamlReads": 0,
+      "lifetimes": []
+    },
+    {
+      "module": "commands/read-index.mjs",
+      "class": "surface",
+      "git": {},
+      "writes": 4,
       "yamlReads": 0,
       "lifetimes": []
     },
@@ -3357,6 +3365,20 @@
       ]
     },
     {
+      "module": "projection-refresh.mjs",
+      "class": "projection",
+      "git": {},
+      "writes": 3,
+      "yamlReads": 0,
+      "lifetimes": [
+        {
+          "name": "REFRESH_LEASE_STALE_MS",
+          "value": 600000,
+          "kind": "lifetime"
+        }
+      ]
+    },
+    {
       "module": "projectors.mjs",
       "class": "projection",
       "git": {},
@@ -3655,6 +3677,14 @@
       },
       "localReads": 1,
       "writes": 0,
+      "yamlReads": 0,
+      "lifetimes": []
+    },
+    {
+      "module": "repository-local-id.mjs",
+      "class": "source-control",
+      "git": {},
+      "writes": 4,
       "yamlReads": 0,
       "lifetimes": []
     },

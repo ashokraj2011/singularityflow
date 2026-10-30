@@ -535,6 +535,10 @@ export function renderWorkspaceBranches(result) {
   const orphanNames = [...new Set(Object.values(result.orphaned).flat())].sort();
   if (orphanNames.length) console.log(`Not offered, because they share no history with the default branch: ${orphanNames.join(', ')}`);
   for (const entry of result.unreachable) console.warn(`Warning: could not read ${entry.repository} (${entry.url || result.remote}).`);
+  const snapshot = result.readinessSnapshot;
+  if (['stale', 'refresh-failed'].includes(snapshot?.freshness)) console.warn(snapshot.freshness === 'stale'
+    ? `This list was checked at ${snapshot.checkedAt}, past the repository-check interval; it is being refreshed.`
+    : `This is the list checked at ${snapshot.checkedAt}: the refresh failed (${snapshot.refreshError?.code ?? 'unknown'}). Start checks every branch again.`);
   return result;
 }
 

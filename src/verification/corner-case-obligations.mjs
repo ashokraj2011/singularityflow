@@ -677,6 +677,10 @@ export async function evaluateDeliveryCornerCaseGate(root, {
     harness: evaluated.harness,
     matrixSha256: evaluated.matrix.matrixSha256,
     problems: blockingFindings.map((finding) => finding.message),
+    // Each problem's identity, in the same order [SDA-AC-022]. An obligation's own ID carries its
+    // line, so an uncovered one is named by its symbol and category instead.
+    problemFindings: blockingFindings.map((finding) => ({ code: finding.code, path: finding.path ?? null,
+      value: finding.code === 'EVIDENCE_CORNER_CASE_UNCOVERED' ? `${finding.symbol}:${finding.obligationCategory}` : finding.value ?? null })),
     findings: blockingFindings,
     allFindings: evaluated.findings,
     advisories: evaluated.advisories

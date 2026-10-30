@@ -5,7 +5,7 @@ import path from 'node:path';
 import { applicationPathContext } from '../application-paths.mjs';
 import { loadAcceptedStoryExecution } from '../accepted-story-execution.mjs';
 import { activatePhaseAgent } from '../commands/kernel.mjs';
-import { branch, gitCommonDir, head } from '../git.mjs';
+import { branch, gitCommonDir, head, validBranch } from '../git.mjs';
 import {
   assertCredentialFreeRemote, configuredRemoteIdentity, remoteFingerprint
 } from '../git-remote-diagnostics.mjs';
@@ -607,6 +607,20 @@ export async function discoverLatestGovernedAutoCheckpoint(storyRoot, workflow, 
   return readGovernedAutoCheckpoint(storyRoot, workflow, projections[0]);
 }
 
+/** The recorded Story branch, exactly as Git accepts it; recovery never derives it from the Work ID. */
+function recordedStoryBranch(root, value, details) {
+  const name = typeof value === 'string' ? value : '';
+  try {
+    if (!name || name.startsWith('-') || name.includes('@{')) throw new Error('reserved syntax');
+    validBranch(root, name);
+  } catch {
+    throw new SingularityFlowError('Auto recovery has no valid recorded Story branch.', {
+      code: 'AUTO_RECOVERY_CHECKOUT_FAILED', details: { ...details, branch: value ?? null }
+    });
+  }
+  return name;
+}
+
 async function ensureManagedRecoveryCheckout(controlRoot, storyRoot, pointer, acceptedPlan) {
   const record = pointer.record;
   const repository = acceptedPlan.repositories[0];
@@ -623,12 +637,15 @@ async function ensureManagedRecoveryCheckout(controlRoot, storyRoot, pointer, ac
   const remote = assertCredentialFreeRemote(
     repository.remoteUrl ?? configured.url
   );
+  const storyBranch = recordedStoryBranch(controlRoot, acceptedPlan.story?.branch, {
+    workId: acceptedPlan.story?.workId ?? null
+  });
   await mkdir(path.dirname(managed), { recursive: true });
   const clone = await runRemoteGitAsync([
     // A filesystem remote otherwise enables Git's `--local` object hard-link/copy shortcut.
     // That shortcut is explicitly unsafe when receive-pack/maintenance can change loose objects
     // concurrently. Recovery must materialize one transport-consistent snapshot instead.
-    'clone', '--no-local', '--single-branch', '--no-tags', '--branch', acceptedPlan.story.branch,
+    'clone', '--no-local', '--single-branch', '--no-tags', '--branch', storyBranch,
     '--', remote, managed
   ], { cwd: controlRoot, operation: 'auto-recovery-clone', allowFailure: true });
   if (clone.status !== 0) {
@@ -646,7 +663,7 @@ async function ensureManagedRecoveryCheckout(controlRoot, storyRoot, pointer, ac
   return managed;
 }
 
-async function bootstrapRecoveryCheckout(controlRoot, workId, flightId) {
+async function bootstrapRecoveryCheckout(controlRoot, workId, flightId, storyBranch = workId) {
   if (!FLIGHT_ID.test(String(flightId ?? ''))) {
     throw new SingularityFlowError(`Invalid Auto flight ID '${flightId}'.`, {
       code: 'AUTO_FLIGHT_NOT_FOUND'
@@ -664,16 +681,17 @@ async function bootstrapRecoveryCheckout(controlRoot, workId, flightId) {
   const managed = path.join(
     gitCommonDir(controlRoot), 'singularity-flow', 'auto-worktrees', flightId, 'recovery'
   );
+  const recorded = recordedStoryBranch(controlRoot, storyBranch, { workId, flightId });
   await mkdir(path.dirname(managed), { recursive: true });
   const clone = await runRemoteGitAsync([
-    'clone', '--no-local', '--single-branch', '--no-tags', '--branch', workId,
+    'clone', '--no-local', '--single-branch', '--no-tags', '--branch', recorded,
     '--', remote, managed
   ], { cwd: controlRoot, operation: 'auto-recovery-clone', allowFailure: true });
   if (clone.status !== 0) {
     throw new SingularityFlowError(
-      `Auto recovery could not materialize Story branch '${workId}': ${(clone.stderr || clone.stdout).trim()}`, {
+      `Auto recovery could not materialize Story branch '${recorded}': ${(clone.stderr || clone.stdout).trim()}`, {
         code: 'AUTO_RECOVERY_CHECKOUT_FAILED',
-        details: { workId, flightId }
+        details: { workId, flightId, branch: recorded }
       }
     );
   }
@@ -682,7 +700,7 @@ async function bootstrapRecoveryCheckout(controlRoot, workId, flightId) {
 
 /** Rebuild disposable .git flight state from the latest governed Story checkpoint. */
 export async function rebuildAutoFlightState(controlRoot, {
-  storyRoot = controlRoot, workId, flightId
+  storyRoot = controlRoot, workId, flightId, branch: storyBranch = null
 }) {
   try {
     await readAutoFlightState(controlRoot, flightId);
@@ -701,8 +719,13 @@ export async function rebuildAutoFlightState(controlRoot, {
     // A fresh clone normally has only the application base branch. Materialize the exact Story
     // branch first; its committed execution origin and checkpoint evidence are the authority used
     // below, not any reconstructed local Plan bytes.
-    storyRoot = await bootstrapRecoveryCheckout(controlRoot, workId, flightId);
+    storyRoot = await bootstrapRecoveryCheckout(controlRoot, workId, flightId, storyBranch ?? workId);
     ({ definition, workflow } = await loadAcceptedStoryExecution(storyRoot, workId));
+  }
+  if (storyBranch && (workflow.workItem?.branch ?? workId) !== storyBranch) {
+    throw new SingularityFlowError(`Story '${workId}' is not bound to the recorded branch '${storyBranch}'.`, {
+      code: 'AUTO_FLIGHT_BINDING_MISMATCH', details: { workId, branch: storyBranch, recorded: workflow.workItem?.branch ?? null }
+    });
   }
   const pointer = await discoverLatestGovernedAutoCheckpoint(storyRoot, workflow, flightId);
   const record = pointer.record;

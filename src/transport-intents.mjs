@@ -1,6 +1,6 @@
 /** Durable, exact commit-to-ref transport intents for pushes outside Story publication. */
 import { createHash, randomUUID } from 'node:crypto';
-import { existsSync } from 'node:fs';
+import { existsSync, readFileSync } from 'node:fs';
 import { readFile, readdir, realpath } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
@@ -72,11 +72,23 @@ export function pendingPublicationNote(intent) {
 }
 
 /**
- * Whether the checkout a push was saved in is gone (a failed Story start removes its own folder):
- * nothing can run there, so no retry is offered and the operation that made the commit is repeated.
+ * Whether a push's checkout is gone (a failed Story start removes its own) and the Story index holds no
+ * other checkout of its repository: no retry is offered; the operation that made the commit is repeated.
  */
-export function transportCheckoutMissing(intent) {
-  return Boolean(intent?.repositoryRoot) && intent.status !== 'succeeded' && !existsSync(intent.repositoryRoot);
+export function transportCheckoutMissing(intent, { env = process.env, home = os.homedir() } = {}) {
+  if (!intent?.repositoryRoot || intent.status === 'succeeded' || existsSync(intent.repositoryRoot)) return false;
+  // storyIndexFile's rule (story-index.mjs), read synchronously; a retry verifies the checkout it uses.
+  try {
+    return !intent.repository || !JSON.parse(readFileSync(env.SINGULARITY_FLOW_STORY_INDEX
+      || path.join(path.dirname(workspaceRegistryFile(env, home)), 'story-index.json'))).entries
+      .some((entry) => entry.repository?.key === intent.repository.key && existsSync(entry.checkoutPath));
+  } catch { return true; }
+}
+
+/** Where a saved push runs (story-index.mjs savedPushCheckout), else its recorded path, whose checks refuse as before. */
+export async function resolveTransportCheckout(intent, options = {}) {
+  const recorded = existsSync(intent?.repositoryRoot ?? '') ? intent.repositoryRoot : null;
+  return intent?.repository && await (await import('./story-index.mjs')).savedPushCheckout(intent, options).catch(() => null) || recorded;
 }
 
 export const CHECKOUT_MISSING_ADVICE = 'The checkout this push was saved in no longer exists, so it cannot be retried. '
@@ -369,11 +381,14 @@ export async function createTransportIntent({
     candidate.status !== 'succeeded' && transportOperationDigest(candidate) === payloadDigest);
   if (existing) return existing;
   const intentId = `psh_${randomUUID()}`;
+  // [SDA §5] A push whose repository cannot be named still saves, bound to its path.
+  const repository = await (await import('./story-index.mjs')).repositoryIdentity(root, safeRemoteUrl).catch(() => null);
   return writeIntent(outbox, {
     schemaVersion: TRANSPORT_INTENT_SCHEMA_VERSION,
     intentId,
     operation: { id: operationId ?? intentId, payloadDigest },
     scope: normalizedScope,
+    ...(repository ? { repository } : {}),
     repositoryRoot: root,
     repositoryRootFingerprint,
     remote,
@@ -441,7 +456,7 @@ async function observeRemoteTargetForRetry(intent, {
   return remoteTargetObservation(intent, result);
 }
 
-async function withIntentLease(intentId, { env, home }, operation) {
+async function withIntentLease(intentId, { env, home, checkout }, operation) {
   // Resolve the integrity-bound repository before locking, then re-read the intent inside the
   // critical section. Transport intents used to create an ownerless `wx` file in the user outbox;
   // a killed process left that file forever and every future retry was permanently blocked. Use
@@ -449,7 +464,7 @@ async function withIntentLease(intentId, { env, home }, operation) {
   const observed = await readTransportIntent(intentId, { env, home });
   try {
     return await withSubjectLock(
-      observed.repositoryRoot,
+      checkout ?? observed.repositoryRoot,
       { kind: 'transport-intent', id: intentId },
       operation
     );
@@ -592,15 +607,18 @@ export async function retryTransportIntent(intentId, {
   // The lease and every Git step run in the checkout the push was saved in; when that folder is gone
   // (a failed Story start removes its own), say so rather than fail to start Git there.
   const saved = await readTransportIntent(intentId, { env, home });
-  if (transportCheckoutMissing(saved)) {
+  const checkout = await resolveTransportCheckout(saved, { env, home, runCommand });
+  if (!checkout && saved.status !== 'succeeded') {
     throw new SingularityFlowError(`Transport intent '${intentId}' cannot be retried: the checkout it was saved in (${saved.repositoryRoot}) `
       + 'no longer exists. Nothing was pushed. Repeat the operation that made the commit; a Story start adds you to the approval groups again.', {
         code: 'TRANSPORT_REPOSITORY_MISSING', details: { intentId, status: saved.status, repositoryRoot: saved.repositoryRoot }
       });
   }
-  return withIntentLease(intentId, { env, home }, async () => {
+  return withIntentLease(intentId, { env, home, checkout }, async () => {
     const localGitEnv = withoutGitProcessOverrides(env);
     let intent = await readTransportIntent(intentId, { env, home });
+    // [SDA §5] The path is a local binding: a push runs, and is kept, where its repository resolved.
+    if (checkout) intent = { ...intent, repositoryRoot: checkout };
     if (intent.status === 'succeeded') return intent;
     if (intent.status === 'remote-diverged' || (intent.status === 'needs-user' && !allowNeedsUser)) {
       const why = intent.status === 'remote-diverged' ? ` ${REMOTE_DIVERGED_ADVICE}` : transportFaultSentence(intent);
@@ -612,7 +630,7 @@ export async function retryTransportIntent(intentId, {
         details: { status: intent.status, intentId, ...(retry ? { nextAction: retry } : {}) }
       });
     }
-    if (await repositoryFingerprint(intent.repositoryRoot) !== intent.repositoryRootFingerprint) {
+    if (!intent.repository && await repositoryFingerprint(intent.repositoryRoot) !== intent.repositoryRootFingerprint) {
       throw new SingularityFlowError('The repository no longer matches the transport intent.', {
         code: 'TRANSPORT_REPOSITORY_DRIFTED'
       });

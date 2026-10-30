@@ -11,6 +11,7 @@ import test from 'node:test';
 import {
   ESCALATION_THRESHOLD, escalateRefusalEnvelope, findingEscalation, findingFingerprint, observeFindingStreak, worktreeAttempt
 } from '../src/finding-escalation.mjs';
+import { canonicalFindingId } from '../src/finding-identity.mjs';
 import { refusalEnvelope, renderRefusalPlan } from '../src/refusal-remediation.mjs';
 
 test('a repeat counts only when the attempt changed, and a different finding starts again', async (t) => {
@@ -19,8 +20,8 @@ test('a repeat counts only when the attempt changed, and a different finding sta
   const git = (...args) => spawnSync('git', args, { cwd: root, encoding: 'utf8' });
   git('init', '-q', '-b', 'main');
   git('-c', 'user.name=Streak Tester', '-c', 'user.email=streak@example.test', 'commit', '-q', '--allow-empty', '-m', 'initial');
-  const same = findingFingerprint([{ code: 'CODE_DELIVERY_EVIDENCE_REQUIRED', details: { problems: ['no acceptance test'] } }]);
-  const other = findingFingerprint([{ code: 'CODE_DELIVERY_EVIDENCE_REQUIRED', details: { problems: ['a different problem'] } }]);
+  const same = findingFingerprint([{ code: 'CODE_DELIVERY_EVIDENCE_REQUIRED', details: { findingIds: [canonicalFindingId({ code: 'code.delivery.acceptance-test-missing' })] } }]);
+  const other = findingFingerprint([{ code: 'CODE_DELIVERY_EVIDENCE_REQUIRED', details: { findingIds: [canonicalFindingId({ code: 'code.delivery.product-source-missing' })] } }]);
   const observe = (fingerprint, attempt) => observeFindingStreak(root, { workId: 'ESC-1', phaseId: 'implementation', generation: 1, fingerprint, attempt });
   assert.equal(observe(same, 'a'), 1);
   assert.equal(observe(same, 'a'), 1, 'a recheck with nothing changed is not a repair');
@@ -37,6 +38,23 @@ test('a repeat counts only when the attempt changed, and a different finding sta
   await new Promise((resolve) => setTimeout(resolve, 20));
   await writeFile(path.join(root, 'file.txt'), 'one two\n');
   assert.notEqual(worktreeAttempt(root, 'draft'), before, 'an edit is a new attempt');
+});
+
+test('the fingerprint is the finding identity, never its wording [SDA-AC-022]', () => {
+  const tag = canonicalFindingId({ code: 'code.delivery.acceptance-tag-unattached', value: 'W:AC-001' });
+  const gate = (problems, findingIds, message = 'Phase implementation has no publishable code delivery.') =>
+    findingFingerprint([{ code: 'CODE_DELIVERY_EVIDENCE_REQUIRED', message, details: { problems, findingIds } }]);
+  const first = gate(['@ac:W:AC-001 is not on a test: test/a.test.mjs:4 (no declaration)'], [tag]);
+  assert.equal(gate(['@ac:W:AC-001 sits on no test at test/a.test.mjs:9'], [tag], 'Reworded refusal.'), first,
+    'a reworded sentence, a moved line or a new message is the same finding');
+  assert.notEqual(gate(['@ac:W:AC-002 is not on a test'], [canonicalFindingId({ code: 'code.delivery.acceptance-tag-unattached', value: 'W:AC-002' })]), first);
+  const product = canonicalFindingId({ code: 'code.delivery.product-source-missing' });
+  assert.equal(gate(['a', 'b'], [tag, product]), gate(['b', 'a'], [product, tag]), 'the IDs are a set');
+  // Without IDs a finding is its code, path and value; its message never counts.
+  const plain = (message) => findingFingerprint([{ code: 'artifact.heading.empty', path: 'a.md', value: 'Scope', message }]);
+  assert.equal(plain('Heading Scope is empty.'), plain('The Scope heading has no text.'));
+  assert.notEqual(plain('x'), findingFingerprint([{ code: 'artifact.heading.empty', path: 'b.md', value: 'Scope', message: 'x' }]));
+  assert.equal(findingFingerprint([{ code: 'SOME_REFUSAL', message: 'one wording' }]), findingFingerprint([{ code: 'SOME_REFUSAL', message: 'another' }]));
 });
 
 test('the escalation names a dispute only where the gate honours one, and always the documentation', () => {

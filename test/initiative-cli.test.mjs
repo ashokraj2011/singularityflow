@@ -228,7 +228,8 @@ test('initiative resume materializes an Initiative that exists only on a remote 
   const remote = path.join(remoteParent, 'origin.git');
   git(remoteParent, ['init', '--bare', remote]);
   git(source, ['remote', 'add', 'origin', remote]);
-  git(source, ['push', 'origin', 'main:main', 'INIT-REMOTE:INIT-REMOTE']);
+  // The state ledger carries the Initiative's identity record; resume reads it, not branch lists.
+  git(source, ['push', 'origin', 'main:main', 'INIT-REMOTE:INIT-REMOTE', 'state:state']);
 
   const cloneParent = await mkdtemp(path.join(os.tmpdir(), 'sflow-initiative-resume-'));
   const clone = path.join(cloneParent, 'lead');
@@ -254,6 +255,33 @@ test('initiative resume materializes an Initiative that exists only on a remote 
   );
   const state = JSON.parse(await readFile(path.join(clone, 'singularity/initiatives/INIT-REMOTE/state.json'), 'utf8'));
   assert.equal(state.initiative.id, 'INIT-REMOTE');
+});
+
+test('initiative resume resolves through the ledger identity record and refuses an unrecorded look-alike branch', async () => {
+  const root = await repository();
+  execute(root, ['initiative', 'start', 'INIT-REC', '--title', 'Recorded initiative']);
+  // A branch carrying Initiative-shaped state is not an identity the ledger records.
+  git(root, ['switch', '-c', 'INIT-GHOST']);
+  const recorded = JSON.parse(await readFile(path.join(root, 'singularity/initiatives/INIT-REC/state.json'), 'utf8'));
+  recorded.initiative.id = 'INIT-GHOST';
+  recorded.initiative.branch = 'INIT-GHOST';
+  await mkdir(path.join(root, 'singularity/initiatives/INIT-GHOST'), { recursive: true });
+  await writeFile(path.join(root, 'singularity/initiatives/INIT-GHOST/state.json'), JSON.stringify(recorded));
+  git(root, ['add', '.']);
+  git(root, ['commit', '-m', 'Unrecorded look-alike']);
+  git(root, ['switch', 'main']);
+
+  const refused = execute(root, ['initiative', 'resume', 'INIT-GHOST'], { allowFailure: true });
+  assert.notEqual(refused.status, 0);
+  assert.match(refused.stderr, /No Initiative identity 'INIT-GHOST' is recorded in the state ledger/);
+  assert.equal(git(root, ['branch', '--show-current']), 'main', 'a refused resume switches nothing');
+  const unknown = execute(root, ['initiative', 'resume', 'INIT-NOWHERE'], { allowFailure: true });
+  assert.notEqual(unknown.status, 0);
+  assert.match(unknown.stderr, /No Initiative identity 'INIT-NOWHERE' is recorded/);
+
+  const resumed = execute(root, ['initiative', 'resume', 'INIT-REC']);
+  assert.match(resumed.stdout, /Resumed INIT-REC at define/);
+  assert.equal(git(root, ['branch', '--show-current']), 'INIT-REC');
 });
 
 test('Epic Planning approval is an explicit business review, available outside the desktop', async () => {

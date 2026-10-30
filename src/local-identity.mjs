@@ -9,6 +9,8 @@ import {
   ensureDir, exists, gitHeadIsUnborn, gitReadOutput, nowIso, posix, run, SingularityFlowError, writeJson
 } from './util.mjs';
 import { LIFECYCLE_EVENT, lifecycleEvent } from './lifecycle-event.mjs';
+import { createLedgerIntent } from './ledger.mjs';
+import { normalizeLedgerConfig } from './ledger-config.mjs';
 import { publishLifecycleChange } from './publication-unit-of-work.mjs';
 import {
   clearPendingPublication, readPendingPublication, syncPendingLifecyclePublication
@@ -87,28 +89,62 @@ function remoteBreakdownIds(root, portfolio, remote, branches) {
   return values;
 }
 
-export async function scanLocalIdentities(root, portfolio, {
-  remote = portfolio.git?.remote ?? 'origin',
-  fetch = false
-} = {}) {
-  if (fetch && hasRemote(root, remote)) await fetchRemote(root, remote);
-  const localRefs = run('git', ['for-each-ref', '--format=%(refname:short)', 'refs/heads'], { cwd: root }).stdout
-    .split(/\r?\n/).map((value) => value.trim()).filter(Boolean);
-  const remotes = remoteBranches(root, remote);
-  const initiatives = await directoryNames(path.join(root, portfolio.initiativeRoot));
-  const breakdownIds = [
-    ...await workingTreeBreakdownIds(root, portfolio),
-    ...remoteBreakdownIds(root, portfolio, remote, remotes)
-  ];
-  const values = [...initiatives, ...localRefs.map(branchId), ...remotes.map(branchId), ...breakdownIds];
+// Identity records (and the ledger page reader behind them) load only when an allocation runs.
+const identityRecords = () => import('./subject-identity-records.mjs');
+
+/** The ledger configuration identity reads use: the caller's, else the workflow definition's. */
+async function identityLedger(root, ledger) {
+  return ledger === undefined ? (await identityRecords()).definitionLedgerConfig(root) : (ledger ?? {});
+}
+
+function identityScan(values, identitySource) {
   const counts = new Map();
   for (const value of values) counts.set(value, (counts.get(value) ?? 0) + 1);
   return {
+    identitySource,
     values: [...new Set(values)].sort(),
     duplicates: [...counts.entries()]
       .filter(([, count]) => count > 1)
       .map(([id, count]) => ({ id, count }))
   };
+}
+
+/**
+ * Every identity an allocation must not reuse: the state ledger's Epic and Initiative records plus
+ * this working tree's own Initiative directories and breakdown IDs (local authored state). `taken`
+ * names IDs a concurrent reservation already won in this allocation. Only with the ledger off,
+ * where no authority record exists, are local and remote branches scanned instead.
+ */
+export async function scanLocalIdentities(root, portfolio, {
+  remote = portfolio.git?.remote ?? 'origin',
+  fetch = false,
+  ledger = undefined,
+  taken = []
+} = {}) {
+  const { IDENTITY_SOURCE, initiativeIdentityRecords } = await identityRecords();
+  const identities = await initiativeIdentityRecords(root, await identityLedger(root, ledger), { offline: !fetch });
+  const initiatives = await directoryNames(path.join(root, portfolio.initiativeRoot));
+  if (identities.records) {
+    return {
+      ...identityScan([
+        ...identities.records.map((record) => record.id), ...initiatives,
+        ...await workingTreeBreakdownIds(root, portfolio), ...taken
+      ], IDENTITY_SOURCE.LEDGER),
+      recorded: identities.records.length
+    };
+  }
+  // Ledger off: no authority records exist, so the branch inventory is the only shared evidence.
+  if (fetch && hasRemote(root, remote)) await fetchRemote(root, remote);
+  const localRefs = run('git', ['for-each-ref', '--format=%(refname:short)', 'refs/heads'], { cwd: root }).stdout
+    .split(/\r?\n/).map((value) => value.trim()).filter(Boolean);
+  const remotes = remoteBranches(root, remote);
+  const breakdownIds = [
+    ...await workingTreeBreakdownIds(root, portfolio),
+    ...remoteBreakdownIds(root, portfolio, remote, remotes)
+  ];
+  return identityScan([
+    ...initiatives, ...localRefs.map(branchId), ...remotes.map(branchId), ...breakdownIds, ...taken
+  ], IDENTITY_SOURCE.LEDGER_OFF);
 }
 
 export async function nextLocalEpicId(root, portfolio, options = {}) {
@@ -124,8 +160,58 @@ export async function nextLocalEpicId(root, portfolio, options = {}) {
   return {
     id: `${policy.epicPrefix}-${String(sequence).padStart(policy.pad, '0')}`,
     sequence,
+    identitySource: scan.identitySource,
     scan
   };
+}
+
+const RESERVATION_ROOT = posix(path.join('singularity', 'identity-reservations'));
+
+/**
+ * The reservation bound to this checkout, read from its recorded ID and branch rather than inferred
+ * from the branch name. A reservation whose Initiative already started is spent.
+ */
+async function boundLocalEpicReservation(root, portfolio, policy) {
+  const current = branch(root);
+  const pattern = identityPattern(policy.epicPrefix, policy.pad);
+  let names;
+  try { names = await readdir(path.join(root, RESERVATION_ROOT), { withFileTypes: true }); } catch (error) {
+    if (error?.code === 'ENOENT') return null;
+    throw error;
+  }
+  const bound = [];
+  for (const entry of names) {
+    if (!entry.isFile() || !entry.name.endsWith('.json')) continue;
+    const stem = entry.name.slice(0, -'.json'.length);
+    const relative = posix(path.join(RESERVATION_ROOT, entry.name));
+    let record;
+    try {
+      record = readRecord('local-identity-reservation', await readFile(path.join(root, relative))).record;
+    } catch {
+      // An unreadable record is only this checkout's problem when its name is this branch.
+      if (stem === current) throw new SingularityFlowError(`Local Epic reservation ${relative} is not valid JSON.`);
+      continue;
+    }
+    const recordedBranch = text(record?.branch) ?? text(record?.id);
+    if (recordedBranch !== current && stem !== current) continue;
+    if (record?.id !== stem || recordedBranch !== current || record?.kind !== 'epic'
+        || record?.authority !== 'local' || !pattern.test(record.id)) {
+      throw new SingularityFlowError(`Local Epic reservation ${relative} does not match branch '${current}'.`);
+    }
+    if (await exists(path.join(root, portfolio.initiativeRoot, record.id, 'state.json'))) continue;
+    bound.push({ record, relative });
+  }
+  if (bound.length > 1) {
+    throw new SingularityFlowError(
+      `Branch '${current}' holds more than one unstarted local Epic reservation: ${bound.map((item) => item.record.id).join(', ')}.`,
+      { code: 'LOCAL_EPIC_RESERVATION_AMBIGUOUS' }
+    );
+  }
+  return bound[0] ?? null;
+}
+
+function text(value) {
+  return typeof value === 'string' && value.trim() ? value.trim() : null;
 }
 
 export async function currentLocalEpicReservation(root, portfolio, {
@@ -133,22 +219,11 @@ export async function currentLocalEpicReservation(root, portfolio, {
   fetch = false
 } = {}) {
   const policy = localPolicy(portfolio);
-  const id = branch(root);
-  if (!identityPattern(policy.epicPrefix, policy.pad).test(id)) return null;
-  const relative = posix(path.join('singularity', 'identity-reservations', `${id}.json`));
-  const absolute = path.join(root, relative);
-  if (!await exists(absolute)) return null;
-  const state = path.join(root, portfolio.initiativeRoot, id, 'state.json');
-  if (await exists(state)) return null;
-  let record;
-  try {
-    record = readRecord('local-identity-reservation', await readFile(absolute)).record;
-  } catch {
-    throw new SingularityFlowError(`Local Epic reservation ${relative} is not valid JSON.`);
-  }
-  if (record?.id !== id || record?.kind !== 'epic' || record?.authority !== 'local') {
-    throw new SingularityFlowError(`Local Epic reservation ${relative} does not match branch '${id}'.`);
-  }
+  const bound = await boundLocalEpicReservation(root, portfolio, policy);
+  if (!bound) return null;
+  const { record, relative } = bound;
+  const id = record.id;
+  const reservedBranch = text(record.branch) ?? id;
   if (fetch && hasRemote(root, remote)) await fetchRemote(root, remote);
   // Only a history Git could read may say the reservation "has not been committed".
   const reservationCommit = (gitReadOutput(run(
@@ -161,9 +236,10 @@ export async function currentLocalEpicReservation(root, portfolio, {
   }
   return {
     id,
+    branch: reservedBranch,
     reservationCommit,
-    pushed: refExists(root, `refs/remotes/${remote}/${id}`)
-      && refHead(root, `refs/remotes/${remote}/${id}`) === reservationCommit,
+    pushed: refExists(root, `refs/remotes/${remote}/${reservedBranch}`)
+      && refHead(root, `refs/remotes/${remote}/${reservedBranch}`) === reservationCommit,
     recoverable: true,
     reservedAt: record.reservedAt ?? null,
     reservedBy: record.reservedBy ?? null
@@ -211,16 +287,36 @@ export async function reserveLocalEpicBranch(root, portfolio, {
   actor,
   remote = portfolio.git?.remote ?? 'origin',
   maxAttempts = 5,
-  fault = null
+  fault = null,
+  ledger = undefined
 } = {}) {
   if (branch(root) !== base) {
     throw new SingularityFlowError(`Local Epic allocation must start on base branch '${base}', not '${branch(root)}'.`);
   }
+  const { EPIC_RESERVATION_OPERATION, IDENTITY_SOURCE } = await identityRecords();
+  const ledgerConfig = normalizeLedgerConfig(await identityLedger(root, ledger));
+  // IDs this allocation must pass over: lost to a concurrent create-only lease, or whose branch
+  // name is already bound here. Records lag a concurrent winner's push; the lease does not.
+  const taken = new Set();
+  let collisions = 0;
   for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
-    const allocation = await nextLocalEpicId(root, portfolio, { remote, fetch: true });
+    const allocation = await nextLocalEpicId(root, portfolio, {
+      remote, fetch: true, ledger: ledgerConfig, taken: [...taken]
+    });
     const id = allocation.id;
-    // Allocation fetched the organisation remote to discover concurrent reservations. The new
-    // Epic must also fork from that refreshed base; otherwise it can omit configuration and a
+    if (allocation.identitySource === IDENTITY_SOURCE.LEDGER) {
+      // The chosen name only, never an inventory: an existing branch of that name is not this Epic.
+      if (refExists(root, `refs/heads/${id}`) || refExists(root, `refs/remotes/${remote}/${id}`)) {
+        taken.add(id);
+        if ((collisions += 1) > 100) break;
+        attempt -= 1;
+        continue;
+      }
+      // The ledger refresh read no application branch. Refresh only the base the Epic forks from.
+      if (hasRemote(root, remote)) await fetchRemote(root, remote, { branches: [base] });
+    }
+    // Allocation refreshed the organisation authority to discover concurrent reservations. The new
+    // Epic must also fork from the refreshed base; otherwise it can omit configuration and a
     // repository world model already published by another contributor.
     await checkout(root, id, { base, remote, preferRemoteBase: true });
     const relative = posix(path.join('singularity', 'identity-reservations', `${id}.json`));
@@ -231,21 +327,33 @@ export async function reserveLocalEpicBranch(root, portfolio, {
       kind: 'epic',
       authority: 'local',
       reservedAt: nowIso(),
-      reservedBy: actor ?? null
+      reservedBy: actor ?? null,
+      branch: id
     };
     const subject = { kind: 'initiative', id, branch: id };
     const publicationMode = portfolio.git?.publish === 'off' ? 'off' : 'required';
     const expectedHead = head(root);
+    const event = lifecycleEvent({
+      type: LIFECYCLE_EVENT.BINDING, subject, actor,
+      payload: { operation: EPIC_RESERVATION_OPERATION, authority: 'local' }
+    });
+    // The reservation is an identity record: the state ledger carries it, so the next allocation
+    // reads it there instead of listing this branch.
+    const ledgerIntent = ledgerConfig.enabled ? createLedgerIntent({
+      eventId: event.eventId, eventType: event.type, capabilityId: `initiative-${id}`,
+      subject: { workId: id, branch: id }, actor,
+      payload: { lifecycleEventId: event.eventId, lifecyclePayload: event.payload, reservationPath: relative }
+    }) : null;
     let publication;
     try {
       publication = await publishLifecycleChange(root, {
         subject,
         expectedRevision: { head: expectedHead },
         allowedPaths: [relative],
-        event: lifecycleEvent({
-          type: LIFECYCLE_EVENT.BINDING, subject, actor,
-          payload: { operation: 'reserve-local-epic-identity', authority: 'local' }
-        }),
+        event,
+        ...(ledgerIntent ? {
+          ledger: { config: ledgerConfig, intent: ledgerIntent, intentDirectory: posix(path.join(RESERVATION_ROOT, id)) }
+        } : {}),
         commit: { message: `[${id}][identity:reserve] Reserve local Epic ID` },
         publication: {
           mode: publicationMode, branch: id, remote,
@@ -315,6 +423,7 @@ export async function reserveLocalEpicBranch(root, portfolio, {
       await clearPendingPublication(root, subject);
       run('git', ['switch', base], { cwd: root });
       run('git', ['branch', '-D', id], { cwd: root });
+      taken.add(id);
       continue;
     }
     const reservationCommit = publication.sha;
@@ -340,6 +449,7 @@ export async function syncLocalEpicReservation(root, portfolio, reservation = nu
     });
   }
   const subject = { kind: 'initiative', id: current.id };
+  const reservedBranch = current.branch ?? current.id;
   const pending = await readPendingPublication(root, { ...subject, migrate: false });
   if (!pending) {
     if (current.pushed) return { ...current, recovered: false, noOp: true };
@@ -350,7 +460,7 @@ export async function syncLocalEpicReservation(root, portfolio, reservation = nu
     );
   }
   const result = await syncPendingLifecyclePublication(root, {
-    ...subject, branch: current.id, remote
+    ...subject, branch: reservedBranch, remote
   });
   return {
     ...current,

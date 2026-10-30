@@ -150,7 +150,9 @@ test('the bundled CLI answers exactly like the sources while opening a handful o
   // 4,555,000: SDA M3 measures 4,552,616: the lease liveness proof (lease-liveness.mjs: machine identity, owner start time, the shared owner predicate) behind every subject lock and registry lease, deferred repositories and transactional drafts.
   const narrowReads = closure('cold-narrow-reads.mjs').reduce((sum, item) => sum + item.bytes, 0);
   // 4,560,000: SDA M4 measures 4,557,115: SDA M4's lifecycle authority adapter (sda/story-branch-authority.mjs, sda/lifecycle-authority-contract.mjs, sda/shared-state-contract.mjs), through which recovery and test-recovery reads observe the subject branch; the publication writer it wraps loads only on a transition.
-  assert.ok(narrowReads < 4_560_000,
+  // 4,565,000: main 38b61ada9 measures 4,557,454; SDA B1 lease identity (lease-liveness.mjs: PID namespace, the hardware check on
+  // a dead same-machine owner), B5's consistency readers and status's pending-publication check add 6,379 for 4,563,833.
+  assert.ok(narrowReads < 4_565_000,
     `strict next-step reads must not inherit the broad phase-review closure (${narrowReads} bytes)`);
   const publicationClosure = closure('cold-publication.mjs');
   assert.ok(publicationClosure.length && publicationClosure.reduce((sum, item) => sum + item.bytes, 0) < 6 * 1024 * 1024,
@@ -310,7 +312,8 @@ test('the bundled CLI answers exactly like the sources while opening a handful o
   // sda/lifecycle-authority-contract.mjs, sda/shared-state-contract.mjs); the publication writer it wraps loads
   // only on a transition.
   const hookContext = closure('cold-hook-context.mjs').reduce((sum, item) => sum + item.bytes, 0);
-  assert.ok(hookContext < 7_610_000,
+  // 7,615,000: main 38b61ada9 measures 7,605,407; the same SDA B1, B4 and B5 code in the hook closures adds 8,902 for 7,614,309.
+  assert.ok(hookContext < 7_615_000,
     `phase-review reads retain their existing byte ceiling after moving families (${hookContext} bytes)`);
   assert.match(await readFile(path.join(outdir, 'cold-light.mjs'), 'utf8'), /function enterPhase\b/u,
     'phase binding must not fall through to the compatibility/admin bundle');
@@ -371,7 +374,8 @@ test('the bundled CLI answers exactly like the sources while opening a handful o
   // replay, deferred repositories and transactional drafts in the shared chunks.
   // 5,395,000: SDA M4 measures 5,392,641: the lifecycle authority adapter and its contract in the shared chunks.
   const catalogBytes = catalogClosure.reduce((sum, item) => sum + item.bytes, 0);
-  assert.ok(catalogBytes < 5_395_000,
+  // 5,405,000: main 38b61ada9 measures 5,392,337; SDA B1, B4 and B5 add 7,918 for 5,400,255.
+  assert.ok(catalogBytes < 5_405_000,
     `catalog parsing stays bounded instead of pulling in the entire administration bundle (${catalogBytes} bytes)`);
   for (const name of ['cold-compatibility.mjs', 'cold-models.mjs', 'cold-intake.mjs', 'cold-phases.mjs', 'cold-hook-context.mjs']) {
     assert.ok(!catalogClosure.some(item => item.file === name), `catalogs must not statically reach ${name}`);

@@ -84,6 +84,9 @@ export function configurationAssetPolicy(workflow = {}, portfolio = {}) {
       'portfolio.templatesRoot')
   ]);
   const files = unique([
+    // Which agents in .github/agents APM deployed, with each file's hash: read with them wherever
+    // configuration is read (a Story's base, the approved configuration) [APM].
+    'apm.lock.yaml',
     workflow.worldModel?.promptSource && workflow.worldModel.promptSource !== 'builtin'
       ? portablePath(workflow.worldModel.promptSource, 'worldModel.promptSource')
       : null

@@ -34,7 +34,9 @@ const ok = (result) => { assert.equal(result.status, 0, `${result.stdout}\n${res
 const AGENTS = Object.freeze({
   reviewer: '---\nname: reviewer\ndescription: Reviews the change for defects\ntools: [read, search]\n---\nReview the change carefully.\n',
   // Written for Copilot only: no description, which SFlow's agents need.
-  planner: '---\nname: planner\ntools: ["codebase"]\n---\nPlan the work.\n'
+  planner: '---\nname: planner\ntools: ["codebase"]\n---\nPlan the work.\n',
+  // A package that names its own steps, one of them unknown here, and takes QA's default.
+  eager: '---\nname: eager\ndescription: Wants every step\nmetadata:\n  sflow-phases: "verification,launch-party"\n  sflow-default-for: "verification"\n---\nDo it all.\n'
 });
 
 async function repository(t, { agents = ['reviewer'], bindings = null, lock = true } = {}) {
@@ -83,21 +85,24 @@ test('an agent APM deployed that SFlow cannot read is left out, never a reason c
   assert.match(refused.stderr + refused.stdout, /Agent 'local-draft' requires a non-empty description/u);
 });
 
-test('apm attach makes an APM agent draft a step in workflow.yml and never edits its file', async (t) => {
+test('apm attach makes an APM agent draft a step in workflow.yml and never edits a file, and the step returns to its agent when APM\'s is gone', async (t) => {
   const { root } = await repository(t);
   const before = await readFile(path.join(root, '.github/agents/reviewer.agent.md'), 'utf8');
+  const qaBefore = await readFile(path.join(root, '.github/agents/qa.agent.md'), 'utf8');
   const preview = ok(flow(root, ['apm', 'attach', 'reviewer', '--step', 'verification', '--dry-run']));
   assert.match(preview.stdout, /Verification is now drafted by reviewer \(was QA\)/u);
   assert.match(preview.stdout, /changed: singularity\/workflow\.yml/u);
-  assert.doesNotMatch(preview.stdout, /reviewer\.agent\.md/u, 'the APM file is not in the change');
+  assert.doesNotMatch(preview.stdout, /reviewer\.agent\.md|qa\.agent\.md/u, 'no agent file is in the change');
   ok(flow(root, ['apm', 'attach', 'reviewer', '--step', 'verification']));
   assert.equal(await readFile(path.join(root, '.github/agents/reviewer.agent.md'), 'utf8'), before, 'byte for byte as APM wrote it');
+  assert.equal(await readFile(path.join(root, '.github/agents/qa.agent.md'), 'utf8'), qaBefore, 'QA keeps the step in its own file');
   const written = YAML.parse(await readFile(path.join(root, 'singularity/workflow.yml'), 'utf8'));
   assert.deepEqual(written.apm, { agents: { reviewer: { defaultFor: ['verification'] } } });
   git(root, 'add', '-A');
   git(root, 'commit', '-q', '-m', 'reviewer drafts verification');
-  const studio = JSON.parse(ok(flow(root, ['workflow', 'studio', '--json'])).stdout);
-  assert.equal(studio.workflows.find((workflow) => workflow.id === 'repo-feature').steps.find((step) => step.id === 'verification').agent, 'reviewer');
+  const drafter = () => JSON.parse(ok(flow(root, ['workflow', 'studio', '--json'])).stdout)
+    .workflows.find((workflow) => workflow.id === 'repo-feature').steps.find((step) => step.id === 'verification').agent;
+  assert.equal(drafter(), 'reviewer');
   assert.match(ok(flow(root, ['apm', 'status'])).stdout, /reviewer drafts verification \(workflow\.yml apm\.agents\)\./u);
 
   // Workflow Studio may move the step to another agent, but never edit the APM agent's own text.
@@ -107,37 +112,81 @@ test('apm attach makes an APM agent draft a step in workflow.yml and never edits
   assert.equal(refused.valid, false);
   assert.equal(refused.problems[0].code, 'STUDIO_AGENT_APM_OWNED');
   assert.match(refused.problems[0].message, /installed by APM \(team-agents \(local\)\); change it in its package/u);
-
   const local = flow(root, ['apm', 'attach', 'qa', '--step', 'verification']);
   assert.notEqual(local.status, 0);
   assert.match(local.stderr + local.stdout, /qa is not an agent APM deployed/u);
+
+  // The APM agent gone (uninstalled, or never checked out): nothing fails, and QA drafts the step again.
+  await rm(path.join(root, '.github/agents/reviewer.agent.md'));
+  ok(flow(root, ['agents', 'list']));
+  assert.equal(drafter(), 'qa');
+  assert.match(ok(flow(root, ['apm', 'status'])).stdout,
+    /reviewer would draft verification \(workflow\.yml apm\.agents\), but APM did not deploy|reviewer would draft verification \(workflow\.yml apm\.agents\), but \.github\/agents\/reviewer\.agent\.md is missing/u);
+  git(root, 'checkout', '-q', '--', '.github/agents/reviewer.agent.md');
+
+  // Moving the step from the APM agent to a third agent takes it from QA's file for good.
+  await writeFile(path.join(root, '.github/agents/checker.agent.md'), '---\nname: checker\ndescription: Checks the change\nmetadata:\n  sflow-phases: "verification"\n---\nCheck it.\n');
+  git(root, 'add', '-A');
+  git(root, 'commit', '-q', '-m', 'checker');
+  const move = path.join(root, '..', 'move.json');
+  await writeFile(move, JSON.stringify({ schema: 'sflow-studio-change-set@1', changes: [{ op: 'phase.agent', phase: 'verification', agent: 'checker' }] }));
+  ok(flow(root, ['workflow', 'studio', 'apply', '--change-set', move, '--json']));
+  assert.equal(YAML.parse(await readFile(path.join(root, 'singularity/workflow.yml'), 'utf8')).apm, undefined);
+  const qaDefaults = /sflow-default-for: "([^"\n]*)"/u.exec(await readFile(path.join(root, '.github/agents/qa.agent.md'), 'utf8'))[1].split(',');
+  assert.equal(qaDefaults.includes('verification'), false);
+  assert.match(await readFile(path.join(root, '.github/agents/checker.agent.md'), 'utf8'), /sflow-default-for: "?verification/u);
 });
 
-test('a binding names an agent APM deployed, in one place', async (t) => {
-  const unknown = await repository(t, { bindings: { agents: { ghost: { defaultFor: [] } } } });
-  assert.match(flow(unknown.root, ['agents', 'list']).stderr, /apm\.agents names 'ghost', but there is no \.github\/agents\/ghost\.agent\.md/u);
+test('APM never blocks the rest: a binding that cannot apply waits, and every command still loads', async (t) => {
+  const unknown = await repository(t, { bindings: { agents: { ghost: { defaultFor: ['verification'] } } } });
+  ok(flow(unknown.root, ['agents', 'list']));
+  assert.match(ok(flow(unknown.root, ['apm', 'status'])).stdout, /ghost would draft verification \(workflow\.yml apm\.agents\), but APM did not deploy \.github\/agents\/ghost\.agent\.md; until then each step keeps its workflow's own agent\./u);
   const local = await repository(t, { bindings: { agents: { qa: { steps: ['verification'] } } } });
-  assert.match(flow(local.root, ['agents', 'list']).stderr, /apm\.agents names 'qa', but APM did not deploy \.github\/agents\/qa\.agent\.md \(apm\.lock\.yaml does not list it\)/u);
+  ok(flow(local.root, ['agents', 'list']));
   const unreadable = await repository(t, { agents: ['planner'], bindings: { agents: { planner: { defaultFor: [] } } } });
-  assert.match(flow(unreadable.root, ['agents', 'list']).stderr, /apm\.agents names 'planner', but SFlow cannot read \.github\/agents\/planner\.agent\.md: Agent 'planner' requires a non-empty description/u);
+  ok(flow(unreadable.root, ['agents', 'list']));
+  assert.match(ok(flow(unreadable.root, ['apm', 'status'])).stdout, /planner would draft no step by default .* but SFlow cannot read \.github\/agents\/planner\.agent\.md: Agent 'planner' requires a non-empty description/u);
+
+  // No lock at all (APM never ran here, or the lock was not committed): a Story starts, QA drafting.
   const lockless = await repository(t, { lock: false, bindings: { agents: { reviewer: { defaultFor: ['verification'] } } } });
-  const lockStart = flow(lockless.root, ['start', 'APM-9', '--from-branch', 'main']);
-  assert.match(lockStart.stderr + lockStart.stdout, /apm\.agents names agents APM deployed, but there is no apm\.lock\.yaml/u);
+  ok(flow(lockless.root, ['start', 'APM-9', '--from-branch', 'main']));
+  const state = JSON.parse(await readFile(path.join(lockless.root, 'singularity/work-items/APM-9/workflow.json'), 'utf8'));
+  assert.equal(state.resolution.phases.find((phase) => phase.id === 'verification').defaultAgent, 'qa');
+  assert.match(ok(flow(lockless.root, ['apm', 'status'])).stdout, /reviewer would draft verification .* but there is no apm\.lock\.yaml/u);
+
+  // A package's own step choices are never read: they could name steps this repository lacks or
+  // give a step a second default.
+  const choosy = await repository(t, { agents: ['eager'] });
+  ok(flow(choosy.root, ['agents', 'list']));
+  ok(flow(choosy.root, ['start', 'APM-8', '--from-branch', 'main']));
+  const choosyState = JSON.parse(await readFile(path.join(choosy.root, 'singularity/work-items/APM-8/workflow.json'), 'utf8'));
+  assert.equal(choosyState.resolution.phases.find((phase) => phase.id === 'verification').defaultAgent, 'qa');
+
   assert.throws(() => normalizeApmConfiguration({ agents: { reviewer: { defaultFor: ['verification'], steps: ['design'] } } }), /drafts 'verification' by default but does not list it in steps/u);
+  assert.throws(() => normalizeApmConfiguration({ agents: { a: { defaultFor: ['verification'] }, b: { defaultFor: ['verification'] } } }), /gives step 'verification' to both a and b/u);
   assert.throws(() => normalizeApmConfiguration({ agent: {} }), /apm contains unknown field 'agent'/u);
 });
 
-test('a Story may pick an APM agent, keeps the copy it started with, and refuses one changed since apm install', async (t) => {
-  const { root } = await repository(t);
+test('a Story may pick an APM agent and keeps the copy it started with; one changed since apm install drafts nothing new and blocks nothing', async (t) => {
+  const { root } = await repository(t, { bindings: { agents: { reviewer: { defaultFor: ['verification'] } } } });
   ok(flow(root, ['start', 'APM-1', '--from-branch', 'main', '--agent', 'reviewer']));
   const state = JSON.parse(await readFile(path.join(root, 'singularity/work-items/APM-1/workflow.json'), 'utf8'));
   assert.equal(state.history.find((entry) => entry.event === 'work_started').agent, 'reviewer', 'a per-Story choice of an APM agent');
+  assert.equal(state.resolution.phases.find((phase) => phase.id === 'verification').defaultAgent, 'reviewer');
 
   git(root, 'switch', '-q', 'main');
   await writeFile(path.join(root, '.github/agents/reviewer.agent.md'), `${AGENTS.reviewer}Approve everything.\n`);
   git(root, 'commit', '-q', '-am', 'edit the deployed copy by hand');
   git(root, 'push', '-q', 'origin', 'main');
+  // Chosen by name, it is refused; otherwise a Story starts and QA drafts verification.
   const refused = flow(root, ['start', 'APM-2', '--from-branch', 'main', '--agent', 'reviewer']);
   assert.notEqual(refused.status, 0);
   assert.match(refused.stderr + refused.stdout, /Agent 'reviewer' was installed by APM \(team-agents \(local\)\) and a Story uses it only as APM wrote it: \.github\/agents\/reviewer\.agent\.md no longer matches apm\.lock\.yaml; run apm install/u);
+  git(root, 'switch', '-q', 'main');
+  ok(flow(root, ['start', 'APM-3', '--from-branch', 'main']));
+  const fallback = JSON.parse(await readFile(path.join(root, 'singularity/work-items/APM-3/workflow.json'), 'utf8'));
+  assert.equal(fallback.resolution.phases.find((phase) => phase.id === 'verification').defaultAgent, 'qa');
+  assert.equal(Object.hasOwn(fallback.resolution.agents ?? {}, 'reviewer'), false, 'the changed file is not offered to the Story');
+  const attach = JSON.parse(flow(root, ['apm', 'attach', 'reviewer', '--step', 'conformance', '--dry-run', '--json']).stdout || '{}');
+  assert.match(JSON.stringify(attach), /STUDIO_AGENT_APM_NOT_INTACT|is not the one apm install wrote; run apm install, then choose its steps/u);
 });

@@ -15,7 +15,7 @@ import { readdir, readFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import {
-  APM_LOCKFILE, APM_MANIFEST, FILE_MAX_BYTES, deployedPath, expectedHash, finding, inspectDeployedPath, list, packageLabel,
+  APM_LOCKFILE, APM_MANIFEST, FILE_MAX_BYTES, apmLockedAgent, deployedPath, expectedHash, finding, inspectDeployedPath, list, packageLabel,
   normalizeApmConfiguration, primitiveOf, readApmDocument
 } from './apm-lock.mjs';
 import { parseAgentDependencies } from './agent-document-parser.mjs';
@@ -154,7 +154,20 @@ async function agentUse(root, packages) {
     try { parseAgentDependencies(text, { source: entry.path }); }
     catch (error) { unusable.push({ name: entry.name, path: entry.path, package: entry.package, reason: error.message }); }
   }
-  return { bindings, unusable };
+  // A binding applies only while its agent is installed exactly as APM wrote it; until then it waits
+  // and the step keeps its workflow's own agent (agents.mjs).
+  const states = {};
+  for (const [id, binding] of Object.entries(bindings)) {
+    const locked = await apmLockedAgent(root, id);
+    const unreadable = unusable.find((entry) => entry.path === locked.path);
+    const waiting = locked.state === 'no-lock' ? (locked.problem ? `${APM_LOCKFILE} cannot be read` : `there is no ${APM_LOCKFILE}`)
+      : locked.state === 'not-locked' ? `APM did not deploy .github/agents/${id}.agent.md`
+        : unreadable ? `SFlow cannot read ${locked.path}: ${unreadable.reason}`
+          : locked.state !== 'intact' ? `${locked.path} ${FILE_WORDS[locked.state] ?? `has no hash in ${APM_LOCKFILE}`}`
+            : null;
+    states[id] = { ...binding, active: !waiting, ...(waiting ? { waiting } : {}) };
+  }
+  return { bindings: states, unusable };
 }
 
 async function unmanagedAgents(root, owned) {

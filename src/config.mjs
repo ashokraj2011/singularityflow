@@ -1477,9 +1477,6 @@ async function loadDefinitionUncached(root, { storyBootstrap = false } = {}) {
     definition.agents = Object.fromEntries(agents.map((agent) => [agent.id, agent]));
     definition.agentCatalog = agents;
     definition.agentPromptsRoot = '.github/agents';
-    if (!storyBootstrap && Object.keys(definition.apm?.agents ?? {}).length && !agents.some((agent) => agent.apm)) {
-      throw new SingularityFlowError('workflow.yml apm.agents names agents APM deployed, but there is no apm.lock.yaml. Install the packages with singularity-flow apm install, or remove the bindings.', { code: 'APM_AGENT_NOT_DEPLOYED' });
-    }
     /**
      * Refusing an unknown field is right; refusing it without naming the likely cause is not.
      *
@@ -2074,6 +2071,9 @@ export async function snapshotResolution(root, definition, resolved) {
   for (const agent of definition.agentCatalog ?? []) {
     if (agent.phases?.length && !agent.phases.some((id) => phaseIds.has(id))
         && !requiredAgents.has(agent.id)) continue;
+    // An APM agent whose file is not the one apm install wrote is not offered to a new Story; it
+    // never stops one from starting. Choosing it by name is still refused when it is captured.
+    if (agent.apm && agent.apm.state !== 'intact' && !requiredAgents.has(agent.id)) continue;
     agents[agent.id] = {
       source: agent.source,
       sha256: agent.sha256,

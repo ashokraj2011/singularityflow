@@ -100,7 +100,7 @@ test('a pinned CLI that is not this machine\'s, uncommitted APM files and a miss
   let calls = 0;
   const counted = { apm: (cwd, args) => { calls += 1; return apm(cwd, args); } };
   await assert.rejects(installApmPackages(root, { packages: ['../review-pack'], ...counted, cliVersion: () => '0.35.0' }),
-    (error) => error.code === 'APM_CLI_VERSION_MISMATCH' && /installs with apm 0\.34\.2[^]*has apm 0\.35\.0/u.test(error.message));
+    (error) => error.code === 'APM_CLI_VERSION_MISMATCH' && /runs apm 0\.34\.2[^]*has apm 0\.35\.0/u.test(error.message));
   await assert.rejects(installApmPackages(root, { packages: ['../review-pack'], ...counted, cliVersion: () => null }),
     (error) => error.code === 'APM_CLI_MISSING' && /brew install apm/u.test(error.message));
   await writeFile(path.join(root, 'apm.yml'), 'name: consumer\nversion: 1.0.0\ndependencies:\n  apm: []\n');

@@ -298,6 +298,8 @@ test('the common session projection does not import attach, state stores or publ
   // repository-subject-index.mjs) and named push leases (git.mjs) add 9,922 for 3,960,144. Two new files.
   // 3,980,000: SDA M3 measures 3,979,930 (the lease liveness proof (lease-liveness.mjs: machine identity, owner start time, the shared owner predicate) behind every subject lock and registry lease).
   // 3,985,000: SDA M4 measures 3,980,217: SDA M4's lifecycle authority adapter (sda/story-branch-authority.mjs, sda/lifecycle-authority-contract.mjs, sda/shared-state-contract.mjs), through which recovery and test-recovery reads observe the subject branch; the publication writer it wraps loads only on a transition.
+  // Still 3,985,000: registering apm marketplace init and apm publish as the person's own steps (command-registry.mjs,
+  // command-skills.mjs, copilot-mutation-guard.mjs) adds 448 to SDA M4's 3,980,217, for 3,980,665.
   assert.ok(current.bytes <= 3_985_000, `session current loads ${current.bytes} source bytes`);
 });
 

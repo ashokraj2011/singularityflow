@@ -95,7 +95,6 @@ async function discoverAgentsSnapshot(root, repositoryRoot) {
   // APM's lock and workflow.yml's `apm` block, read only when the repository has them [APM A3].
   let apm;
   const apmContext = async () => (apm ??= await readApmContext(repositoryRoot));
-  const unusable = new Map();
   for (const [scope, directory] of locations) {
     const localIds = new Map();
     for (const file of await agentFiles(directory)) {
@@ -105,9 +104,10 @@ async function discoverAgentsSnapshot(root, repositoryRoot) {
       try { parsed = parseAgentDependencies(text, { source: relative }); }
       catch (error) {
         // An agent APM deployed is written for Copilot, not for SFlow: one SFlow cannot read is
-        // left out (apm status says why), never a reason no command can load configuration.
-        if (scope !== 'repository' || !(await apmContext()).deployed?.has(relative)) throw error;
-        unusable.set(relative, error.message);
+        // left out (apm status says why), never a reason no command can load configuration. With a
+        // lock that cannot be read, which files are APM's is unknown, so none of them stops loading.
+        const context = scope === 'repository' ? await apmContext() : null;
+        if (!context || !(context.deployed?.has(relative) || context.lockProblem)) throw error;
         continue;
       }
       if (localIds.has(parsed.id)) throw new SingularityFlowError(
@@ -125,7 +125,7 @@ async function discoverAgentsSnapshot(root, repositoryRoot) {
       }
     }
   }
-  await applyApmAgents(agents, repositoryRoot, apmContext, unusable);
+  await applyApmAgents(agents, repositoryRoot, apmContext);
   // Skills the attachments file attaches to an agent, whoever owns the agent. One naming an agent
   // that is not here is refused when configuration loads (assertAttachedLibrarySkills).
   for (const attachment of await readSkillAttachments(root)) {
@@ -152,10 +152,16 @@ async function readApmContext(repositoryRoot) {
 
 /**
  * Agents APM deployed into .github/agents [APM A3]. Each is marked with its package, and the steps
- * workflow.yml's `apm.agents` gives it become its steps and defaults, since APM owns its file.
+ * workflow.yml's `apm.agents` gives it become its steps and defaults, since APM owns its file; the
+ * file's own sflow-phases and sflow-default-for are never read, so no package can choose a step.
+ *
+ * APM never blocks the rest [2026-10-30]: a binding applies only while its agent is installed and
+ * exactly as APM wrote it. Otherwise it waits, the step keeps the agent its workflow already had,
+ * and `apm status` says why. An agent that gives a step to an APM agent keeps it in its own file
+ * (`apmYielded`), so it drafts that step again whenever the APM agent cannot be used.
  */
-async function applyApmAgents(agents, repositoryRoot, apmContext, unusable) {
-  // Without a lock nothing here is APM's; a binding then is refused when configuration loads.
+async function applyApmAgents(agents, repositoryRoot, apmContext) {
+  // Without a lock nothing here is APM's, and no binding applies.
   if (!(await exists(path.join(repositoryRoot, 'apm.lock.yaml')))) return;
   const context = await apmContext();
   const { agentTextState } = await import('./apm-lock.mjs');
@@ -163,25 +169,23 @@ async function applyApmAgents(agents, repositoryRoot, apmContext, unusable) {
     if (agent.scope !== 'repository' || !agent.file) continue;
     const relative = posix(path.relative(repositoryRoot, agent.file));
     const owner = context.deployed?.get(relative);
-    if (owner) agent.apm = Object.freeze({ path: relative, ...owner, state: agentTextState(agent.text, owner.sha256) });
+    if (!owner) continue;
+    agent.apm = Object.freeze({ path: relative, ...owner, state: agentTextState(agent.text, owner.sha256) });
+    agent.phases = [];
+    agent.defaultFor = [];
   }
   for (const [id, binding] of Object.entries(context.bindings)) {
     const agent = agents.get(id);
-    const where = `workflow.yml apm.agents names '${id}'`;
-    if (!agent?.apm) {
-      const skipped = [...unusable].find(([relative]) => path.posix.basename(relative).replace(/\.agent\.md$|\.md$/iu, '') === id);
-      throw new SingularityFlowError(skipped
-        ? `${where}, but SFlow cannot read ${skipped[0]}: ${skipped[1]}`
-        : agent ? `${where}, but APM did not deploy ${agent.source} (${context.deployed ? 'apm.lock.yaml does not list it' : 'there is no readable apm.lock.yaml'}). An agent written in this repository names its steps in its own sflow-phases and sflow-default-for metadata.`
-          : `${where}, but there is no .github/agents/${id}.agent.md. Install its package with singularity-flow apm install, or remove the binding.`,
-      { code: agent ? 'APM_AGENT_NOT_DEPLOYED' : 'APM_AGENT_UNKNOWN', details: { agentId: id, ...(skipped ? { file: skipped[0] } : {}) } });
-    }
-    if (agent.metadata?.['sflow-phases'] || agent.metadata?.['sflow-default-for']) {
-      throw new SingularityFlowError(`${where}, but ${agent.source} names its own steps in sflow-phases or sflow-default-for. Bind it in one place.`,
-        { code: 'APM_AGENT_BOUND_TWICE', details: { agentId: id } });
-    }
+    if (!agent?.apm || agent.apm.state !== 'intact') continue;
     agent.phases = [...binding.steps];
     agent.defaultFor = [...binding.defaultFor];
+    for (const other of agents.values()) {
+      if (other === agent || other.apm) continue;
+      const yielded = other.defaultFor.filter((step) => binding.defaultFor.includes(step));
+      if (!yielded.length) continue;
+      other.defaultFor = other.defaultFor.filter((step) => !yielded.includes(step));
+      other.apmYielded = [...new Set([...(other.apmYielded ?? []), ...yielded])];
+    }
   }
 }
 
@@ -209,7 +213,9 @@ export function validateAgentCatalog(agents, definition) {
     // repository, including repositories created before an optional profile/phase was added to the
     // package. Their extra declarations are dormant unless that phase exists locally; rejecting
     // them made an otherwise valid older v2 workflow unload when the extension was upgraded.
-    if (agent.scope === 'repository' && !EXACT_PACKAGED_REPOSITORY_AGENTS.has(agent)) {
+    // An APM agent's steps come from workflow.yml apm.agents; one naming a step this repository no
+    // longer has waits, like a packaged agent's, never a reason configuration fails.
+    if (agent.scope === 'repository' && !agent.apm && !EXACT_PACKAGED_REPOSITORY_AGENTS.has(agent)) {
       for (const phase of [...agent.phases, ...agent.defaultFor]) {
         if (!phaseIds.has(phase)) {
           const [suggestion] = nearestNames(phase, [...phaseIds], { limit: 1 });

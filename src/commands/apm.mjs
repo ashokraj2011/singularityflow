@@ -5,12 +5,17 @@
  * install: one `apm install` committed for review (apm-install.mjs), in the person's own terminal.
  * attach: an agent APM deployed drafts a step, as a Studio change to workflow.yml `apm.agents`
  * (its own file stays APM's), reviewed like any configuration change [APM A3].
+ * marketplace init and publish: the organisation's own APM marketplace, and this repository's
+ * agents published to it as a package, each one commit for a pull request (apm-marketplace.mjs)
+ * [APM A4].
  */
-import { optionBoolean, optionString, SingularityFlowError } from '../util.mjs';
+import { optionBoolean, optionString, optionStrings, SingularityFlowError } from '../util.mjs';
 
-const SUBCOMMANDS = Object.freeze(['status', 'install', 'attach']);
+const SUBCOMMANDS = Object.freeze(['status', 'install', 'attach', 'marketplace', 'publish']);
 const OPTIONS = Object.freeze({
-  status: ['json'], install: ['dev', 'dry-run', 'json'], attach: ['step', 'dry-run', 'propose', 'background-sync', 'json']
+  status: ['json'], install: ['dev', 'dry-run', 'json'], attach: ['step', 'dry-run', 'propose', 'background-sync', 'json'],
+  marketplace: ['name', 'owner', 'description', 'dry-run', 'json'],
+  publish: ['marketplace', 'package', 'version', 'description', 'skill', 'dry-run', 'json']
 });
 
 const STATE_WORDS = Object.freeze({
@@ -64,7 +69,9 @@ function print(status) {
     lines.push(`${plural(names.length, 'agent')} in .github/agents ${names.length === 1 ? 'is' : 'are'} the repository's own, not from APM: ${shown}.`);
   }
   for (const [id, binding] of Object.entries(status.agents?.bindings ?? {})) {
-    lines.push(`${id} drafts ${binding.defaultFor.length ? binding.defaultFor.join(', ') : 'no step by default'}${binding.steps.length ? ` and may draft ${binding.steps.join(', ')}` : ''} (workflow.yml apm.agents).`);
+    const steps = `${binding.defaultFor.length ? binding.defaultFor.join(', ') : 'no step by default'}${binding.steps.length ? ` and may draft ${binding.steps.join(', ')}` : ''}`;
+    lines.push(binding.active ? `${id} drafts ${steps} (workflow.yml apm.agents).`
+      : `${id} would draft ${steps} (workflow.yml apm.agents), but ${binding.waiting}; until then each step keeps its workflow's own agent.`);
   }
   for (const entry of status.agents?.unusable ?? []) lines.push(`SFlow cannot use agent ${entry.name} (${entry.path}, from ${entry.package}): ${entry.reason}`);
   lines.push(STATE_WORDS[status.state]);
@@ -95,6 +102,38 @@ function printInstall(result) {
   console.log(lines.join('\n'));
 }
 
+function printMarketplaceInit(result) {
+  if (result.dryRun) {
+    return console.log([`Would make this repository the ${result.name} APM marketplace on ${result.branch}, with apm ${result.apmVersion}: ${result.files.join(', ')}.`,
+      'Nothing was changed.'].join('\n'));
+  }
+  const lines = [`Committed ${result.commit.slice(0, 12)} on ${result.branch}${result.createdBranch ? ` (new, from ${result.from})` : ''}: the ${result.name} APM marketplace, with no packages yet.`,
+    `apm.yml pins apm ${result.apmVersion} (x-sflow.apm-cli); apm pack compiled .github/plugin/marketplace.json.`];
+  if (result.workflowWritten) lines.push('.github/workflows/apm-marketplace.yml runs APM\'s gates on every pull request.');
+  lines.push('Nothing was pushed. Review and share it:');
+  for (const action of result.nextActions) lines.push(`  ${action.command}${action.why.startsWith('Once') ? `  (${action.why})` : ''}`);
+  console.log(lines.join('\n'));
+}
+
+function printPublish(result) {
+  const what = [`agent${result.agents.length === 1 ? '' : 's'} ${result.agents.join(', ')}`,
+    result.skills.length ? `skill${result.skills.length === 1 ? '' : 's'} ${result.skills.join(', ')}` : null].filter(Boolean).join('; ');
+  if (result.unchanged) return console.log(`${result.package} ${result.version} in ${result.marketplace} already has exactly these files (${what}); nothing to publish.`);
+  const lines = [];
+  const version = result.previousVersion ? `${result.version} (was ${result.previousVersion})` : `${result.version} (new)`;
+  lines.push(`${result.dryRun ? 'Would publish' : 'Published'} ${result.package} ${version} to ${result.marketplace}: ${what}.`);
+  for (const file of result.files) lines.push(`  ${file.path} (${file.bytes} bytes)`);
+  for (const { agent, steps } of result.stepsKeptHere) {
+    lines.push(`${agent}'s steps here (${steps.join(', ')}) stay in this repository; a repository that installs the package chooses them with apm attach.`);
+  }
+  if (result.skills.length) lines.push('The skills travel as the package\'s own: APM deploys them to .agents/skills, where Copilot finds each one by its description.');
+  if (result.dryRun) return console.log([...lines, 'Nothing was changed.'].join('\n'));
+  lines.push(`Committed ${result.commit.slice(0, 12)} on ${result.branch}${result.createdBranch ? ` (new, from ${result.from})` : ''} in the marketplace's checkout; apm pack listed it in ${result.indexed.join(', ')}.`);
+  lines.push('Nothing was pushed. Review and share it:');
+  for (const action of result.nextActions) lines.push(`  ${action.command}${action.why.startsWith('Once') ? `  (${action.why})` : ''}`);
+  console.log(lines.join('\n'));
+}
+
 export async function run(_argv, { positionals, options = {} }) {
   const subcommand = positionals[1] ?? 'status';
   if (!SUBCOMMANDS.includes(subcommand)) {
@@ -111,6 +150,28 @@ export async function run(_argv, { positionals, options = {} }) {
     });
     if (optionBoolean(options, 'json')) console.log(JSON.stringify(result, null, 2));
     else printInstall(result);
+    return result;
+  }
+  if (subcommand === 'marketplace') {
+    if (positionals[2] !== 'init' || positionals.length > 3) fail('Use: singularity-flow apm marketplace init --name <NAME> --owner <OWNER> [--description TEXT] [--dry-run].');
+    const { initApmMarketplace } = await import('../apm-marketplace.mjs');
+    const result = await initApmMarketplace(repoRoot(process.cwd()), {
+      name: optionString(options, 'name'), owner: optionString(options, 'owner'), description: optionString(options, 'description') ?? null,
+      dryRun: optionBoolean(options, 'dry-run')
+    });
+    if (optionBoolean(options, 'json')) console.log(JSON.stringify(result, null, 2));
+    else printMarketplaceInit(result);
+    return result;
+  }
+  if (subcommand === 'publish') {
+    const { publishApmPackage } = await import('../apm-marketplace.mjs');
+    const result = await publishApmPackage(repoRoot(process.cwd()), {
+      agents: positionals.slice(2).map(String), skills: optionStrings(options, 'skill'), marketplace: optionString(options, 'marketplace'),
+      packageName: optionString(options, 'package') ?? null, version: optionString(options, 'version') ?? null,
+      description: optionString(options, 'description') ?? null, dryRun: optionBoolean(options, 'dry-run')
+    });
+    if (optionBoolean(options, 'json')) console.log(JSON.stringify(result, null, 2));
+    else printPublish(result);
     return result;
   }
   if (subcommand === 'attach') {

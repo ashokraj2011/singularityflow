@@ -1353,7 +1353,7 @@ const PAGES = Object.freeze({
     seeAlso: ['app', 'env', 'evidence', 'capability']
   },
   apm: {
-    summary: 'See the repository\'s APM packages as the APM CLI left them, install one as a commit a pull request reviews, and choose the steps its agents draft.',
+    summary: 'See the repository\'s APM packages as the APM CLI left them, install one as a commit a pull request reviews, choose the steps its agents draft, and publish your own agents to your organisation\'s APM marketplace.',
     description: [
       'APM (Agent Package Manager) owns packages: apm.yml declares them, apm install resolves each one to a commit,',
       'writes its agents, instructions and prompts into .github/ and its skills into .agents/skills/, and records every file with its SHA-256 in',
@@ -1367,23 +1367,41 @@ const PAGES = Object.freeze({
       'install records it). Afterwards every deployed file must match the lock, or nothing is committed. Nothing is pushed.',
       'Installing changes which agents run, so only a person runs it, in their own terminal; --dry-run is APM\'s preview.',
       'apm attach makes an agent APM deployed draft a step, as a Workflow Studio change to workflow.yml apm.agents: the agent\'s',
-      'own file stays exactly as APM wrote it, and the step\'s previous agent gives it up. It is a configuration change,',
+      'own file stays exactly as APM wrote it, and the step\'s previous agent keeps the step in its own file. It is a configuration change,',
       'reviewed like any other (--propose). A Story may also pick an APM agent with start --agent. A Story or a step uses an',
-      'APM agent only while its file matches apm.lock.yaml; one SFlow cannot read as an agent is left out and listed by apm status.'
+      'APM agent only while its file matches apm.lock.yaml; one SFlow cannot read as an agent is left out and listed by apm status.',
+      'APM never blocks the rest: a binding whose agent is not installed exactly as APM wrote it waits, the step keeps its',
+      'workflow\'s own agent, and apm status says why. Only install, marketplace init and publish need the APM CLI.',
+      'apm marketplace init, run in the checkout of the repository that will be your organisation\'s marketplace, runs APM\'s own',
+      'apm marketplace init, sets it to compile the Copilot index .github/plugin/marketplace.json, pins the APM CLI, and adds',
+      '.github/workflows/apm-marketplace.yml, which runs apm pack --check-clean, apm marketplace check and apm audit on every',
+      'pull request. apm publish <AGENT>... --marketplace <CHECKOUT> publishes agents written in this repository, with the',
+      'skills they attach, as one package: plugins/<name>/ (its apm.yml and .apm/ folder) and its entry in the marketplace\'s',
+      'apm.yml, compiled by apm pack. The agents\' own steps (sflow-phases, sflow-default-for) stay here; a repository that',
+      'installs the package chooses them with apm attach. Each is one commit on an apm/ branch of that checkout for a pull',
+      'request; nothing is pushed. Publishing decides what other teams run, so only a person runs it; --dry-run previews it.'
     ],
     options: [
       ['--step STEP', 'attach only: the step the agent drafts.'],
+      ['--marketplace CHECKOUT', 'publish only: the marketplace repository\'s checkout, where the commit is made.'],
+      ['--package NAME', 'publish only: the package name (default: the one agent\'s ID; needed for several agents).'],
+      ['--version X.Y.Z', 'publish only: the version (default 1.0.0, or the next patch of the published one).'],
+      ['--skill ID', 'publish only: also publish this skill from the skill master (repeatable).'],
+      ['--name NAME / --owner OWNER', 'marketplace init only: the marketplace\'s name and its owner.'],
+      ['--description TEXT', 'marketplace init and publish: the one-line description.'],
       ['--propose', 'attach only: publish the change as a configuration proposal for review.'],
       ['--dev', 'install only: add the packages as development dependencies (APM\'s --dev).'],
-      ['--dry-run', 'install: APM\'s preview; attach: the Studio preview. Nothing is changed or committed.'],
-      ['--json', 'Machine-readable output (sflow-apm-status, sflow-apm-install).']
+      ['--dry-run', 'install: APM\'s preview; attach: the Studio preview; marketplace init and publish: what would be written. Nothing is changed or committed.'],
+      ['--json', 'Machine-readable output (sflow-apm-status, sflow-apm-install, sflow-apm-marketplace-init, sflow-apm-publish).']
     ],
     examples: [
       ['singularity-flow apm status', 'Lists the locked packages and says whether their deployed files are intact and committed.'],
       ['singularity-flow apm status --json', 'The same as sflow-apm-status: state, packages, files, findings and next actions.'],
       ['singularity-flow apm install reviewer@acme-catalog', 'Installs one package from a marketplace APM knows and commits it on apm/install-reviewer.'],
       ['singularity-flow apm install', 'Installs what apm.yml declares (for example after a merge) and commits what changed.'],
-      ['singularity-flow apm attach reviewer --step verification --propose', 'The APM agent reviewer drafts Verification, published for review.']
+      ['singularity-flow apm attach reviewer --step verification --propose', 'The APM agent reviewer drafts Verification, published for review.'],
+      ['singularity-flow apm marketplace init --name acme-catalog --owner "Platform Team"', 'Makes this checkout the acme-catalog marketplace, committed on apm/marketplace-init.'],
+      ['singularity-flow apm publish reviewer --marketplace ../acme-catalog', 'Publishes the agent reviewer and its skills as package reviewer 1.0.0, committed in ../acme-catalog.']
     ],
     seeAlso: ['import', 'agents', 'skill']
   },

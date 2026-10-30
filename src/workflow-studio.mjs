@@ -622,9 +622,14 @@ function renderAgent(entry) {
   }
   const metadata = document.get('metadata') ?? document.createNode({});
   if (!document.has('metadata')) document.set('metadata', metadata);
+  // A step this agent gives to an APM agent stays in its file, where the file had it: it drafts the
+  // step again whenever the APM agent cannot be used.
+  const drafts = new Set([...entry.defaultFor, ...(entry.yielded ?? [])]);
+  const written = String(document.getIn(['metadata', 'sflow-default-for']) ?? '').split(',').map((step) => step.trim()).filter((step) => drafts.has(step));
+  const defaultFor = [...new Set([...written, ...entry.defaultFor, ...(entry.yielded ?? [])])];
   for (const [key, value] of [
     ['sflow-label', entry.label], ['sflow-phases', entry.phases.join(',')],
-    ['sflow-default-for', entry.defaultFor.join(',')]
+    ['sflow-default-for', defaultFor.join(',')]
     // An old sflow-world-model-views header is left as authored; nothing reads it any more.
   ]) if (document.getIn(['metadata', key]) !== value) document.setIn(['metadata', key], quoted(document, value));
   const text = entry.body != null ? `\n${entry.body.trim()}\n` : body;
@@ -752,7 +757,7 @@ class StudioCandidate {
       views: [...(agent.worldModelViews ?? [])], phases: [...(agent.phases ?? [])], defaultFor: [...(agent.defaultFor ?? [])],
       body: null, touched: false, created: false,
       // An agent APM deployed keeps its file; only the steps it drafts change, in workflow.yml `apm`.
-      apm: agent.apm ?? null,
+      apm: agent.apm ?? null, yielded: [...(agent.apmYielded ?? [])],
       ...(agent.apm ? { authored: JSON.stringify([agent.label ?? agent.id, agent.description ?? '', agent.tools ?? [], agent.worldModelViews ?? []]) } : {})
     }]));
     this.templates = new Map();
@@ -836,6 +841,7 @@ class StudioCandidate {
   touch(agent) {
     if (agent.apm) {
       this.apmAgentsChanged = true;
+      agent.apmChanged = true;
       return agent;
     }
     // A bundled agent becomes a repository copy the moment it is changed: repository agents win
@@ -851,7 +857,8 @@ class StudioCandidate {
    */
   syncApmAgents(phaseIds, problems) {
     for (const agent of this.agents.values()) {
-      if (!agent.apm) continue;
+      // Only an APM agent changed here is written: a binding waiting for its agent is kept as it is.
+      if (!agent.apm || !agent.apmChanged) continue;
       if (agent.body != null || agent.authored !== JSON.stringify([agent.label, agent.description, agent.tools, agent.views])) {
         problems.push({ code: 'STUDIO_AGENT_APM_OWNED', subject: { kind: 'agent', id: agent.id },
           message: `${agent.label} was installed by APM (${agent.apm.package}); change it in its package and install it again. Here you choose only which steps it drafts.` });
@@ -862,6 +869,11 @@ class StudioCandidate {
       if (agent.phases.length) for (const phase of agent.defaultFor) if (!agent.phases.includes(phase)) agent.phases.push(phase);
       if (!agent.phases.length && !agent.defaultFor.length) {
         if (this.document.hasIn(['apm', 'agents', agent.id])) this.document.deleteIn(['apm', 'agents', agent.id]);
+        continue;
+      }
+      if (agent.apm.state !== 'intact') {
+        problems.push({ code: 'STUDIO_AGENT_APM_NOT_INTACT', subject: { kind: 'agent', id: agent.id },
+          message: `${agent.label}'s file (${agent.apm.path}) is not the one apm install wrote; run apm install, then choose its steps.` });
         continue;
       }
       this.document.setIn(['apm', 'agents', agent.id], this.document.createNode({
@@ -878,7 +890,21 @@ class StudioCandidate {
     if (previous.length === 1 && previous[0].id === agentId) return null;
     for (const agent of previous) {
       if (agent.id === agentId) continue;
+      if (target.apm && !agent.apm) {
+        // It yields the step while the APM agent can be used; its file keeps the step [APM].
+        agent.defaultFor = agent.defaultFor.filter((phase) => phase !== phaseId);
+        agent.yielded = [...new Set([...(agent.yielded ?? []), phaseId])];
+        continue;
+      }
       this.touch(agent).defaultFor = agent.defaultFor.filter((phase) => phase !== phaseId);
+    }
+    if (!target.apm) {
+      // The step leaves APM: an agent that only yielded it takes it back or gives it up for good.
+      for (const agent of this.agents.values()) {
+        if (!agent.yielded?.includes(phaseId)) continue;
+        agent.yielded = agent.yielded.filter((phase) => phase !== phaseId);
+        if (agent.id !== agentId) this.touch(agent);
+      }
     }
     this.touch(target);
     if (!target.defaultFor.includes(phaseId)) target.defaultFor = [...target.defaultFor, phaseId];
@@ -2178,7 +2204,8 @@ class StudioCandidate {
       // The packaged default agent for this phase, kept as the default even when the repository
       // carries a trimmed copy of that agent which no longer lists the phase.
       const packagedDefault = this.sources.bundledAgents.find((agent) => agent.defaultFor.includes(phaseId));
-      if (packagedDefault && !this.agents.get(packagedDefault.id)?.defaultFor.includes(phaseId)) {
+      if (packagedDefault && !this.agents.get(packagedDefault.id)?.defaultFor.includes(phaseId)
+          && !this.agents.get(packagedDefault.id)?.yielded?.includes(phaseId)) {
         if (!this.agents.has(packagedDefault.id)) {
           this.agents.set(packagedDefault.id, {
             id: packagedDefault.id, scope: 'bundled', text: packagedDefault.text, relative: null,
@@ -2785,6 +2812,10 @@ class StudioCandidate {
     const phaseIds = new Set(Object.keys(this.content.phases ?? {}));
     if (this.apmAgentsChanged) this.syncApmAgents(phaseIds, problems);
     for (const agent of this.agents.values()) {
+      if (agent.yielded?.some((phase) => !phaseIds.has(phase))) {
+        agent.yielded = agent.yielded.filter((phase) => phaseIds.has(phase));
+        this.touch(agent);
+      }
       if (!agent.touched) continue;
       // An edited agent is strict: every step it names must exist in this repository.
       if (agent.phases.length) agent.phases = agent.phases.filter((phase) => phaseIds.has(phase));

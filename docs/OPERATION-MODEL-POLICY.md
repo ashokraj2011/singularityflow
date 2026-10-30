@@ -39,6 +39,10 @@ Every public operation is classified before its implementation module is importe
 | apm.attach.preview | read | never | — | — |
 | apm.install | mutation | never | — | — |
 | apm.install.preview | read | never | — | — |
+| apm.marketplace.init | mutation | never | — | — |
+| apm.marketplace.init.preview | read | never | — | — |
+| apm.publish | mutation | never | — | — |
+| apm.publish.preview | read | never | — | — |
 | apm.status | read | never | — | — |
 | app.config | read | never | — | — |
 | app.config.reset-local | mutation | never | — | — |

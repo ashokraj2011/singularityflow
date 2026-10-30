@@ -540,8 +540,9 @@ export function argvAllowed(argv, mode, value) {
     const planned = plannedActionArgv(positionals, options, value);
     if (!planned || planned[0] === 'action' || !argvAllowed(planned, mode, value)) return false;
   }
-  // Installing agent packages changes which agents run: the person's own step, in no turn [APM A2].
-  if (positionals[0] === 'apm' && positionals[1] === 'install' && options['dry-run'] !== true) return false;
+  // Installing agent packages changes which agents run, and publishing them what other teams run:
+  // the person's own steps, in no turn [APM A2/A4].
+  if (positionals[0] === 'apm' && ['install', 'publish', 'marketplace'].includes(positionals[1]) && options['dry-run'] !== true) return false;
   // Ending another process's lease is for a person who checked that process is gone, in no turn (SDA M3).
   if (positionals[0] === 'lock' && ['release', 'release-file'].includes(positionals[1])) return false;
   // Environment values come only from the person's own secret helper on standard input, in no turn.

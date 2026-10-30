@@ -271,8 +271,9 @@ export const COMMAND_LINE_SKILL_ROUTES = Object.freeze({
   'help-metrics': route('sf-help', { on: null, off: null, clear: null }),
   repositories: route('sf-repositories', { 'cache clear': null }),
   gateway: route('sf-home', { serve: null }),
-  // Installing agent packages changes which agents run: the person's own step (OWN_TERMINAL_STEPS).
-  apm: route('sf-import', { install: null }),
+  // Installing agent packages changes which agents run, and publishing them what other teams run:
+  // the person's own steps (OWN_TERMINAL_STEPS).
+  apm: route('sf-import', { install: null, publish: null, marketplace: null }),
   capabilities: route('sf-capabilities', {
     doctor: 'sf-capability-doctor'
   }),
@@ -513,6 +514,8 @@ export const OWN_TERMINAL_STEPS = Object.freeze([
   ['environment-binding', ([command, sub]) => command === 'env' && ['bind', 'unbind'].includes(sub)],
   // Which agents a repository runs; APM's own --dry-run preview stays open to a turn [APM A2].
   ['apm-install', ([command, sub], options) => command === 'apm' && sub === 'install' && options['dry-run'] !== true],
+  // What the organisation's marketplace offers every team; each --dry-run preview stays open [APM A4].
+  ['apm-publish', ([command, sub], options) => command === 'apm' && ['publish', 'marketplace'].includes(sub) && options['dry-run'] !== true],
   // Ending a lease another process holds: only a person who checked that process is gone (SDA M3).
   ['lock-release', ([command, sub]) => command === 'lock' && ['release', 'release-file'].includes(sub)]
 ].map(([id, matches]) => Object.freeze({ id, matches })));

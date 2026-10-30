@@ -38,11 +38,29 @@ export async function pinnedApmCli(root) {
 }
 
 /** Record the pin in `apm.yml`, keeping the rest of the file as APM wrote it. */
-async function recordPin(root, version) {
+export async function recordPin(root, version) {
   const file = path.join(root, APM_MANIFEST);
   const document = YAML.parseDocument(await readFile(file, 'utf8'));
   document.setIn([PIN_KEY, PIN_FIELD], version);
   await writeFile(file, String(document));
+}
+
+/**
+ * This machine's APM CLI version and the one `root`'s apm.yml pins (null before the first run that
+ * records it), refusing a machine without APM or with another version than the pin.
+ */
+export async function requireApmCli(root, cliVersion = apmCliVersion) {
+  const found = cliVersion();
+  if (!found) {
+    fail('No APM CLI on this machine\'s PATH. Install it (macOS: brew install apm; Windows: winget install --id Microsoft.APM --exact), then run this again.',
+      'APM_CLI_MISSING', { nextAction: 'brew install apm' });
+  }
+  const pinned = await pinnedApmCli(root);
+  if (pinned && pinned !== found) {
+    fail(`This repository runs apm ${pinned} (apm.yml ${PIN_KEY}.${PIN_FIELD}); this machine has apm ${found}. Install apm ${pinned}, or change the pin in its own reviewed change.`,
+      'APM_CLI_VERSION_MISMATCH', { pinned, found });
+  }
+  return { found, pinned };
 }
 
 /** A branch name for this install: `apm/install-<first package>`, made unique. */
@@ -65,7 +83,7 @@ function apmPaths(status) {
 }
 
 /** The Story this checkout's branch belongs to, or null (also when SFlow is not set up here). */
-async function storyOnBranch(root, name) {
+export async function storyOnBranch(root, name) {
   try {
     const { loadDefinition } = await import('./config.mjs');
     const { buildRepositorySubjectIndex, resolveContext } = await import('./repository-subject-index.mjs');
@@ -76,7 +94,8 @@ async function storyOnBranch(root, name) {
   }
 }
 
-function runApm(root, args, { run = spawnSync, environment = process.env } = {}) {
+/** One run of this machine's APM CLI in `root`, with APM's own output in the person's terminal. */
+export function runApm(root, args, { run = spawnSync, environment = process.env } = {}) {
   const launch = resolvePlatformProcess('apm', args, { environment, cwd: root });
   const result = run(launch.executable, launch.arguments, { cwd: root, env: environment, stdio: 'inherit', ...launch.spawnOptions });
   if (result.error) fail(`The APM CLI could not be started: ${result.error.message}`, 'APM_CLI_UNAVAILABLE');
@@ -92,16 +111,7 @@ function lockedCommits(status) {
  * both are injected by tests.
  */
 export async function installApmPackages(root, { packages = [], dev = false, dryRun = false, apm = runApm, cliVersion = apmCliVersion } = {}) {
-  const found = cliVersion();
-  if (!found) {
-    fail('No APM CLI on this machine\'s PATH. Install it (macOS: brew install apm; Windows: winget install --id Microsoft.APM --exact), then run this again.',
-      'APM_CLI_MISSING', { nextAction: 'brew install apm' });
-  }
-  const pinned = await pinnedApmCli(root);
-  if (pinned && pinned !== found) {
-    fail(`This repository installs with apm ${pinned} (apm.yml ${PIN_KEY}.${PIN_FIELD}); this machine has apm ${found}. Install apm ${pinned}, or change the pin in its own reviewed change.`,
-      'APM_CLI_VERSION_MISMATCH', { pinned, found });
-  }
+  const { found, pinned } = await requireApmCli(root, cliVersion);
   const args = ['install', ...(dev ? ['--dev'] : []), ...(dryRun ? ['--dry-run'] : []), ...packages];
   if (dryRun) {
     const status = apm(root, args);

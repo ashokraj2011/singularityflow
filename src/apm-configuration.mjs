@@ -28,6 +28,7 @@ export function normalizeApmConfiguration(value) {
   const agents = value.agents ?? {};
   if (!agents || typeof agents !== 'object' || Array.isArray(agents)) throw new SingularityFlowError('apm.agents must map agent IDs to the steps they draft.', { code: 'APM_CONFIGURATION_INVALID' });
   const normalized = {};
+  const drafters = new Map();
   for (const [id, binding] of Object.entries(agents)) {
     if (!STEP_ID.test(id)) throw new SingularityFlowError(`apm.agents key '${id}' must be a lower-case kebab-case agent ID.`, { code: 'APM_CONFIGURATION_INVALID' });
     if (!binding || typeof binding !== 'object' || Array.isArray(binding)) throw new SingularityFlowError(`apm.agents.${id} must be an object with steps and defaultFor.`, { code: 'APM_CONFIGURATION_INVALID' });
@@ -37,6 +38,10 @@ export function normalizeApmConfiguration(value) {
     const defaultFor = stepList(binding.defaultFor, `apm.agents.${id}.defaultFor`);
     const outside = defaultFor.find((step) => steps.length && !steps.includes(step));
     if (outside) throw new SingularityFlowError(`apm.agents.${id} drafts '${outside}' by default but does not list it in steps.`, { code: 'APM_CONFIGURATION_INVALID' });
+    for (const step of defaultFor) {
+      if (drafters.has(step)) throw new SingularityFlowError(`apm.agents gives step '${step}' to both ${drafters.get(step)} and ${id}; choose one.`, { code: 'APM_CONFIGURATION_INVALID' });
+      drafters.set(step, id);
+    }
     normalized[id] = { steps, defaultFor };
   }
   return { agents: normalized };

@@ -11,8 +11,10 @@ const MODEL_FREE_MIXED_COMMANDS = new Set(['skill', 'init', 'precheck', 'configu
 const APP_SUBCOMMANDS = Object.freeze(['plan', 'start', 'status', 'stop', 'suggest', 'config', 'connections']);
 const APP_READS = Object.freeze(['plan', 'status', 'suggest', 'config', 'connections']);
 const TESTS_SUBCOMMANDS = Object.freeze(['plan', 'run', 'summary']);
-// APM packages [APM A1-A2]: status reads; install commits one apm install (its --dry-run is APM's preview).
-const APM_SUBCOMMANDS = Object.freeze(['status', 'install', 'attach']);
+// APM packages [APM A1-A4]: status reads; install, attach, marketplace init and publish each make
+// one reviewed change, and each --dry-run is a read.
+const APM_SUBCOMMANDS = Object.freeze(['status', 'install', 'attach', 'marketplace', 'publish']);
+const APM_OPERATIONS = Object.freeze({ install: 'apm.install', attach: 'apm.attach', marketplace: 'apm.marketplace.init', publish: 'apm.publish' });
 // Leases (SDA M3): show reads; a reviewed release ends exactly one lease generation.
 const LOCK_SUBCOMMANDS = Object.freeze(['show', 'release', 'release-file']);
 const UPSTREAM_ISSUE_SUBCOMMANDS = Object.freeze(['raise', 'list', 'decide', 'propose-amendment', 'decide-amendment', 'revalidate']);
@@ -1611,8 +1613,8 @@ export function resolveOperation({ requestedCommand, positionals, options = {}, 
   if (definition.name === 'apm') {
     const action = positionals[1] ?? 'status';
     if (!APM_SUBCOMMANDS.includes(action)) return unknownSubcommand('apm', action, APM_SUBCOMMANDS);
-    if (action === 'install') return optionBoolean(options, 'dry-run') ? never('apm.install.preview', definition, 'read') : never('apm.install', definition, 'mutation');
-    if (action === 'attach') return optionBoolean(options, 'dry-run') ? never('apm.attach.preview', definition, 'read') : never('apm.attach', definition, 'mutation');
+    const operation = APM_OPERATIONS[action];
+    if (operation) return optionBoolean(options, 'dry-run') ? never(`${operation}.preview`, definition, 'read') : never(operation, definition, 'mutation');
     return never(`apm.${action}`, definition, 'read');
   }
   if (definition.name === 'lock') {
@@ -1889,8 +1891,7 @@ export function operationCatalog() {
     ...['save-local', 'reset-local'].map(name => never(`app.config.${name}`, commandDefinition('app'), 'mutation')),
     ...TESTS_SUBCOMMANDS.map(name => never(`tests.${name}`, commandDefinition('tests'), ['plan', 'summary'].includes(name) ? 'read' : 'mutation')),
     never('apm.status', commandDefinition('apm'), 'read'),
-    never('apm.install.preview', commandDefinition('apm'), 'read'), never('apm.install', commandDefinition('apm'), 'mutation'),
-    never('apm.attach.preview', commandDefinition('apm'), 'read'), never('apm.attach', commandDefinition('apm'), 'mutation'),
+    ...Object.values(APM_OPERATIONS).flatMap((id) => [never(`${id}.preview`, commandDefinition('apm'), 'read'), never(id, commandDefinition('apm'), 'mutation')]),
     ...LOCK_SUBCOMMANDS.map(name => never(`lock.${name}`, commandDefinition('lock'), name === 'show' ? 'read' : 'mutation')),
     ...['create', 'edit', 'remove'].flatMap(name => [never(`instruction.${name}.preview`, commandDefinition('instruction'), 'read'), never(`instruction.${name}`, commandDefinition('instruction'), 'mutation')]),
     ...SKILL_MUTATION_SUBCOMMANDS.flatMap((name) => [

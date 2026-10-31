@@ -275,6 +275,19 @@ The same change as on macOS:
   Git shims written as shell scripts, a PID 1 assumed running, a working directory restored after its
   fixture was deleted, and a refresh switch the suite runner sets but a bare `node --test` does not
   (`605e0019e`, `5e3f6df63`, `6573faa93`).
+- **After the run:** a proposal upload started with `--background-sync` ended with its command too;
+  it now starts through the same launcher, whose Windows relay carries its ready handshake
+  (`3e5184763`). SDA-AC-020's test had been refused `REPOSITORY_CONTEXT_REQUIRED` ("Run Singularity
+  Flow from inside a Git repository") because Git refused its hand-written gitconfig; a repository
+  Git refuses to read is now named with Git's own reason (`GIT_READ_UNAVAILABLE`, `1eaaa5a8b`).
+  Run with a smaller set of files, SDA-AC-014's cross-process refresh failed on Windows in 4 runs out
+  of 4, on `main` too: three readers made three observations. A read whose lease attempt lost to a
+  refresh just ending found no running refresh and observed for itself; a lease file just released
+  is delete-pending on Windows and refuses a new one for a moment. Such a read now tries the lease
+  again briefly, then takes the record written or becomes the one refresh (`b71997878`). With these
+  fixes, run 41198267005 (the earlier set plus `test/configuration-proposal-sync.test.mjs`,
+  `test/git-read-failures.test.mjs` and `test/session-listing-cache.test.mjs`): 156 tests, 156
+  passed, 0 skipped, 0 failed.
 
 ## Budgets (§17, SDA-AC-002, SDA-AC-018, SDA-AC-021)
 
@@ -470,9 +483,6 @@ The new scripts are qualification tools: they are not part of the command regist
 - **Windows:** measured 2026-10-31 (above), and every SDA test passes there with the slow lane. Open
   there:
   - the Story list with a fresh cache starts 2 Git processes in some samples (SDA-AC-018);
-  - a proposal upload started with `--background-sync` still ends with its command: it forks with an
-    IPC handshake rather than starting through `src/background-process.mjs`. The outbox keeps the
-    proposal, and the next `sync` uploads it;
   - the destructive proof's own `git status` reads run without the system `core.autocrlf`, so a
     racily clean CRLF file can read as modified there. That keeps a checkout; it never removes one;
   - that the relay opens no console window was not observed: the hosted runner has no desktop.

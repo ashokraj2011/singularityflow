@@ -23,6 +23,7 @@ import { configuredRemoteIdentity } from '../git-remote-diagnostics.mjs';
 import { renderChangeDirectoryCommand } from '../safe-command-guidance.mjs';
 import { acceptedStoryExecutionIfPresent } from './shared/accepted-story-execution-if-present.mjs';
 import { runRemoteGitAsync } from '../git-execution.mjs';
+import { gitConfigValue } from '../git-config-value.mjs';
 import { withUnansweredRemoteReuse } from '../git-child-groups.mjs';
 import YAML from 'yaml';
 import { readRecord } from '../schema-migrations.mjs';
@@ -59,8 +60,8 @@ function readableOriginUrl(commonDirectory) {
     for (const line of readFileSync(file, 'utf8').split(/\r?\n/u)) {
       const section = /^\s*\[\s*([^\]]+?)\s*\]/u.exec(line);
       if (section) { origin = /^remote\s+"origin"$/u.test(section[1]); continue; }
-      const url = origin && /^\s*url\s*=\s*(.+?)\s*$/u.exec(line);
-      if (url) return url[1].replace(/^"(.*)"$/u, '$1');
+      const url = origin && /^\s*url\s*=(.*)$/u.exec(line);
+      if (url) return gitConfigValue(url[1]) || null;
     }
   } catch { /* unreadable: no remote listing */ }
   return null;

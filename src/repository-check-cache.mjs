@@ -14,6 +14,7 @@ import { repositoryCheckKey, repositoryCheckSettings, repositoryCheckPreferences
 import { operationContext } from './operation-context.mjs';
 import { incrementCommandCounter } from './dx-timing-context.mjs';
 import { BUILD_INFO } from './build-info.mjs';
+import { gitConfigValue } from './git-config-value.mjs';
 
 const FORMAT = 1;
 export const PROJECTION_RECORD_FORMAT = FORMAT;
@@ -140,8 +141,9 @@ export function configuredRemoteUrls(root) {
     const header = /^\s*\[\s*remote\s+"([^"]*)"\s*\]/u.exec(line);
     if (header) { section = header[1]; continue; }
     if (/^\s*\[/u.test(line)) { section = null; continue; }
-    const url = section === null ? null : /^\s*(url|pushurl)\s*=\s*(.*?)\s*$/iu.exec(line);
-    if (url) remotes.push({ remote: section, key: url[1].toLowerCase(), url: url[2] });
+    const entry = section === null ? null : /^\s*(url|pushurl)\s*=(.*)$/iu.exec(line);
+    const url = entry ? gitConfigValue(entry[2]) : null;
+    if (url) remotes.push({ remote: section, key: entry[1].toLowerCase(), url });
   }
   return remotes;
 }

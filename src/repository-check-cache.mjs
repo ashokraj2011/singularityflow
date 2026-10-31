@@ -11,6 +11,7 @@ import { serialize, deserialize } from 'node:v8';
 import path from 'node:path';
 import { freshGitFactsRequired, gitFactCheckout, gitFactFingerprint, gitFactRequest, gitFactSnapshot } from './git-fact-cache.mjs';
 import { gitConfigRemotes } from './git-config-value.mjs';
+import { gitRepositoryComparisonKey } from './git-repository-identity.mjs';
 import { repositoryCheckKey, repositoryCheckSettings, repositoryCheckPreferencesFile } from './repository-check-settings.mjs';
 import { operationContext } from './operation-context.mjs';
 import { incrementCommandCounter } from './dx-timing-context.mjs';
@@ -154,10 +155,13 @@ export function configuredRemoteUrls(root) {
 
 /**
  * Which authority a last-known record answers for: the repositories it was read in, always, and the
- * remotes their Git configuration names, read from the files with no Git process. A changed remote,
- * a moved checkout or another selected repository ends last-known eligibility (SDA §8: an authority
- * change). Null when a configuration cannot be read with confidence: an unknown authority is never
- * served as last-known, where an empty one would match every checkout without remotes (U1).
+ * remotes their Git configuration names, read from the files with no Git process. Each remote is its
+ * repository comparison key, so one repository written another way (a local path as a `file://`
+ * URL, an HTTPS or SSH spelling of a public GitHub repository) stays the same authority (A1).
+ * Another remote, a moved checkout or another selected repository ends last-known eligibility
+ * (SDA §8: an authority change). Null when a configuration cannot be read with confidence: an
+ * unknown authority is never served as last-known, where an empty one would match every checkout
+ * without remotes (U1).
  */
 export function remoteAuthority(roots) {
   const entries = [];
@@ -166,7 +170,9 @@ export function remoteAuthority(roots) {
     const configuration = checkoutRemoteConfiguration(root);
     if (!configuration) continue;
     if (!configuration.confident) return null;
-    for (const entry of configuration.remotes) entries.push([root, entry.remote, entry.key, entry.url]);
+    for (const entry of configuration.remotes) {
+      entries.push([root, entry.remote, entry.key, gitRepositoryComparisonKey(entry.url) ?? entry.url]);
+    }
     for (const entry of configuration.rewrites) entries.push([root, `url ${entry.base}`, entry.key, entry.value]);
   }
   return repositoryCheckKey(entries.map((entry) => JSON.stringify(entry)).sort());
@@ -323,8 +329,9 @@ export async function cachedSessionListing(root, { identity, files = [], env = p
 /**
  * How a projection record answers here: the exact key (the build, the checkout, the read and the
  * environment, A1) and, for last-known kinds, the authority it was read from. A record this process
- * cannot use counts as missing: the first read may answer from the local clone again, and a
- * successful read replaces it.
+ * cannot read counts as missing: the first read may answer from the local clone again, and a
+ * successful read replaces it. A record of another authority does not: only a read from the new
+ * authority answers.
  */
 async function cachedCheck(root, { kind, identity, files, env, settingsRoot = root, accept = () => true, partial = () => null,
   metadataOnly = false, storageDirectory = null, partition = null, firstReadLocal = false, refreshRecipe = null,
@@ -378,6 +385,9 @@ async function cachedCheck(root, { kind, identity, files, env, settingsRoot = ro
   const authority = lastKnown ? lastKnownAuthority(authoritySource) : null;
   // Only a record of this same, known authority may stand in for a refresh.
   const lastKnownRecord = lastKnown && authority !== null && found?.authority === authority ? found : null;
+  // A record of another authority means this clone's remote-tracking refs were read from it too, so
+  // an authority change answers only from the new authority, never from the local clone (SDA §8).
+  const otherAuthority = Boolean(lastKnown && found && found.authority !== authority);
   const usable = lastKnown ? lastKnownRecord : found;
   if (!forced && settings.mode !== 'always' && freshRecord(usable, stamp, settings)) {
     incrementCommandCounter('repository-checks.hits');
@@ -401,8 +411,10 @@ async function cachedCheck(root, { kind, identity, files, env, settingsRoot = ro
   const outcome = { kept: null, reason: null };
   const compute = async () => {
     incrementCommandCounter('repository-checks.refreshes');
-    // A record this process cannot use counts as missing, so the first read answers locally (A1).
-    const value = firstReadLocal ? await verify({ allowLocal: !usable && !forced && settings.mode !== 'always' }) : await verify();
+    // A record this process cannot read (another build, checkout or environment) counts as missing,
+    // so the first read answers locally (A1); one of another authority does not.
+    const value = firstReadLocal
+      ? await verify({ allowLocal: !usable && !otherAuthority && !forced && settings.mode !== 'always' }) : await verify();
     const checkedAt = Date.now();
     const complete = accept(value);
     observe(root, settings, 'fresh', checkedAt, stamp ? null : 'Dependency observation unavailable; verification was fresh.',

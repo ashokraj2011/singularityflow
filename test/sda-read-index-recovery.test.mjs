@@ -148,6 +148,26 @@ test('A1: a record this process cannot use counts as missing, and VS Code and a 
   assert.equal(calls.length, before);
 });
 
+test('A1: a respelled remote is the same authority, and another repository\'s record never lets the clone answer', async (t) => {
+  const f = await fixture(t);
+  const remote = path.join(f.base, 'team', 'app.git');
+  const repo = await f.repository('app', `[remote "origin"]\n\turl = ${remote}\n`);
+  const calls = [];
+  const read = (verify) => cachedSessionListing(repo.root, { identity: { list: 'app' }, files: [repo.observed], env: f.env },
+    async ({ allowLocal } = {}) => { calls.push(allowLocal); return verify(); });
+  await read(listed({ items: [{ id: 'APP-1' }], count: 1 }));
+  await age((await records(sessionListingDirectory(f.env)))[0], 31 * 60_000);
+  // The same path as a `file://` URL names the same repository: its last-known Stories still answer offline.
+  repo.git('remote', 'set-url', 'origin', pathToFileURL(remote).href);
+  assert.deepEqual((await read(unreachable)).discovered.items.map((item) => item.id), ['APP-1']);
+  // Another repository: neither its record nor this clone's remote-tracking refs, read from the old
+  // repository, answer. Only a read of the new one does.
+  repo.git('remote', 'set-url', 'origin', path.join(f.base, 'team', 'other.git'));
+  calls.length = 0;
+  await assert.rejects(read(unreachable), { code: 'REMOTE_REMOTE_NOT_FOUND' });
+  assert.deepEqual(calls, [false], 'the local first read is not offered after an authority change');
+});
+
 test('A1, A4, A10: index status names a record it cannot use, verify names the rebuild that reaches it, rebuild discards it', async (t) => {
   const f = await fixture(t);
   const repo = await f.repository('app');

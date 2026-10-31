@@ -34,10 +34,13 @@ catalog's freshness as a note, never a blocker.
 - Remotes are read as Git reads its configuration: any case, the legacy `[remote "x"]` and
   `[remote.x]` forms, and `insteadOf` rewrites. A configuration with `[include]` or `[includeIf]`
   makes the authority unknown, so no last-known answer is served for it.
-- A record this process cannot use (another build, a moved checkout, a changed remote) counts as
+- A record this process cannot read (another build, a moved checkout, another environment) counts as
   missing: the next read answers from the local clone and replaces it. Such records never block the
   offline Story list. VS Code and a terminal keep separate records. After an upgrade, existing records
   are not usable once, because their file names change.
+- A changed remote is an authority change. The same repository written another way (a local path as
+  a `file://` URL) keeps its record. Another repository's record answers nothing, and neither does
+  this clone's copy of the old remote's refs, until a read of the new repository succeeds.
 
 **What to run.**
 1. `singularity-flow index status` shows each record's freshness, last refresh and error, whether a

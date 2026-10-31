@@ -158,7 +158,8 @@ async function retryRuntimeProcessContention(operation) {
       // The Process lock is shared by the bounded parallel wave. A busy result proves the
       // callback did not run, so retrying this exact content-addressed publication cannot repeat
       // an execution handler or create a second record identity.
-      if (error?.code !== 'SUBJECT_LOCK_BUSY' || attempt === maximumAttempts - 1) throw error;
+      // A lock only a person can end (its refusal names the reviewed release) never frees by retrying.
+      if (error?.code !== 'SUBJECT_LOCK_BUSY' || error.details?.releaseCommand || attempt === maximumAttempts - 1) throw error;
       await new Promise((resolve) => setTimeout(resolve, 20));
     }
   }
@@ -1377,10 +1378,11 @@ async function mutateActiveAttemptWithRetry(root, context, mutate, options = {})
       // lock helper's single acquisition window while it roots immutable evidence and receipts.
       // No callback ran when acquisition returned busy, so a bounded retry is safe and cannot
       // repeat a handler or a partial mutation.
-      if (error?.code === 'SUBJECT_LOCK_BUSY') {
+      if (error?.code === 'SUBJECT_LOCK_BUSY' && !error.details?.releaseCommand) {
         await new Promise((resolve) => setTimeout(resolve, 20));
         continue;
       }
+      if (error?.code === 'SUBJECT_LOCK_BUSY') throw error;
       if (error?.code !== 'SGOS_PROCESS_REVISION_STALE') throw error;
       current = await readSgosProcess(root, current.processId);
       const task = current.taskInstances[context.task.taskInstanceId];
@@ -2576,6 +2578,9 @@ async function dispatchOneParallelTask(root, processId, taskInstanceId, options)
       // run until that begin is durable. Terminal CAS retries happen inside runNextSgosTask and
       // never re-invoke a handler.
       if (!['SGOS_PROCESS_REVISION_STALE', 'SUBJECT_LOCK_BUSY'].includes(error?.code)) throw error;
+      // A lock only a person can end keeps its own refusal (holder and reviewed release); relabeled
+      // a stale revision after the retries, it named neither.
+      if (error.details?.releaseCommand) throw error;
       if (error?.code === 'SUBJECT_LOCK_BUSY') {
         await new Promise((resolve) => setTimeout(resolve, 20));
       }

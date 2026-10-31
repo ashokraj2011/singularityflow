@@ -154,7 +154,11 @@ test('the bundled CLI answers exactly like the sources while opening a handful o
   // a dead same-machine owner), B5's consistency readers and status's pending-publication check add 6,379 for 4,563,833.
   // 4,570,000: main 6a0d0a650 (SDA M6) measures 4,564,864; the approved-configuration read's copy is told from a checkout
   // (configuration-read-scope.mjs isConfigurationReadCopy), so a draft save asks it no Git, adding 234 for 4,565,098.
-  assert.ok(narrowReads < 4_570_000,
+  // 4,580,000: main 6585b9b0b measures 4,565,098; locks only a person can end (sweep batch 1: each owner record's hardware
+  // digest in lease-liveness.mjs, the lock's read and reviewed release in every refusal and its plan in subject-lock.mjs,
+  // file-lease.mjs and refusal-remediation.mjs, the own-terminal refusals in copilot-mutation-guard.mjs, `lock` outside
+  // the mutation lease in cli-entry.mjs) add 8,898 for 4,573,996. No new file.
+  assert.ok(narrowReads < 4_580_000,
     `strict next-step reads must not inherit the broad phase-review closure (${narrowReads} bytes)`);
   const publicationClosure = closure('cold-publication.mjs');
   assert.ok(publicationClosure.length && publicationClosure.reduce((sum, item) => sum + item.bytes, 0) < 6 * 1024 * 1024,
@@ -317,7 +321,8 @@ test('the bundled CLI answers exactly like the sources while opening a handful o
   // 7,615,000: main 38b61ada9 measures 7,605,407; the same SDA B1, B4 and B5 code in the hook closures adds 8,902 for 7,614,309.
   // 7,620,000: SDA B6b measures 7,616,401 against 7,614,309: configuration reads that take the object pool in place
   // (organisation.mjs, workspace.mjs, the pool itself loading lazily) and the editor's one-batch baseline (editor.mjs).
-  assert.ok(hookContext < 7_620_000,
+  // 7,630,000: main 6585b9b0b measures 7,618,395; the same sweep batch 1 lock-release code adds 8,651 for 7,627,046.
+  assert.ok(hookContext < 7_630_000,
     `phase-review reads retain their existing byte ceiling after moving families (${hookContext} bytes)`);
   assert.match(await readFile(path.join(outdir, 'cold-light.mjs'), 'utf8'), /function enterPhase\b/u,
     'phase binding must not fall through to the compatibility/admin bundle');
@@ -379,7 +384,8 @@ test('the bundled CLI answers exactly like the sources while opening a handful o
   // 5,395,000: SDA M4 measures 5,392,641: the lifecycle authority adapter and its contract in the shared chunks.
   const catalogBytes = catalogClosure.reduce((sum, item) => sum + item.bytes, 0);
   // 5,405,000: main 38b61ada9 measures 5,392,337; SDA B1, B4 and B5 add 7,918 for 5,400,255.
-  assert.ok(catalogBytes < 5_405_000,
+  // 5,415,000: main 6585b9b0b measures 5,403,968; the same sweep batch 1 lock-release code adds 8,898 for 5,412,866.
+  assert.ok(catalogBytes < 5_415_000,
     `catalog parsing stays bounded instead of pulling in the entire administration bundle (${catalogBytes} bytes)`);
   for (const name of ['cold-compatibility.mjs', 'cold-models.mjs', 'cold-intake.mjs', 'cold-phases.mjs', 'cold-hook-context.mjs']) {
     assert.ok(!catalogClosure.some(item => item.file === name), `catalogs must not statically reach ${name}`);

@@ -25,6 +25,7 @@ import {
 } from './capability-context.mjs';
 import { buildRepositorySubjectIndex, resolveContext } from './repository-subject-index.mjs';
 import {
+  activePublicationRefusal,
   clearPendingPublication,
   livePreparedPublicationOwner,
   localPendingPublicationPath,
@@ -1270,12 +1271,10 @@ export async function syncInitiativePublication(root, portfolio, initiative, { f
   if (record.recoveryStage === 'interrupted-before-branch-ref-advanced') {
     const liveOwner = livePreparedPublicationOwner(pending, root);
     if (liveOwner) {
-      throw new SingularityFlowError(
-        `Initiative '${initiative.initiative.id}' has an active publication command (PID ${liveOwner.pid}`
-        + `${liveOwner.createdAt ? `, started ${liveOwner.createdAt}` : ''}). `
-        + 'Return to that terminal and complete or interrupt the command; do not start another mutation. '
-        + 'After interrupting it, run singularity-flow initiative sync again.'
-      );
+      throw await activePublicationRefusal(root, pending, liveOwner, {
+        what: `Initiative '${initiative.initiative.id}'`, retry: `singularity-flow initiative sync ${initiative.initiative.id}`,
+        code: 'INITIATIVE_PUBLICATION_ACTIVE'
+      });
     }
     const recovery = await recoverPreparedPublication(root, pending);
     if (recovery) {

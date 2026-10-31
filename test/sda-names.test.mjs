@@ -72,10 +72,20 @@ export const SDA_NAMES = Object.freeze({
   LOCK_COMMAND_INVALID: ['src/commands/lock.mjs'],
   'sflow-lock-': ['src/commands/lock.mjs', 'src/help-pages.mjs', 'src/narration/migration-status.mjs'],
   "'lock-release'": ['src/command-skills.mjs'],
-  // M3 leftover: lease identity for shared and restored homes (the hardware digest file follows the machine ID file)
-  pidNamespace: ['src/lease-liveness.mjs'],
+  // M3 leftover: lease identity for shared and restored homes (the hardware digest file follows the machine ID file).
+  // The Authority Store's lock owner (v3) records the same identity as every other owner record.
+  pidNamespace: ['src/lease-liveness.mjs', 'src/sgos/platform/authority-store.mjs'],
   'other-pid-namespace': ['src/lease-liveness.mjs'],
   'machine-hardware-changed': ['src/lease-liveness.mjs'],
+  // Sweep fix (D4): each owner record names the hardware it ran on, so two computers sharing one home tell their leases apart
+  hardwareDigest: ['src/lease-liveness.mjs', 'src/sgos/platform/authority-store.mjs'],
+  'other-hardware': ['src/lease-liveness.mjs'],
+  // Sweep fix (E1/D6/E4): a lease named by its path, read and released from any folder
+  'show-file': ['src/cli-entry.mjs', 'src/command-registry.mjs', 'src/commands/lock.mjs', 'src/copilot-mutation-guard.mjs',
+    'src/file-lease.mjs', 'src/help-pages.mjs', 'src/help-text.mjs', 'src/refusal-remediation.mjs',
+    'src/sgos/platform/authority-store.mjs'],
+  // Sweep fix (D3/E3): an Initiative publication another process holds, with its owner and reviewed release
+  INITIATIVE_PUBLICATION_ACTIVE: ['src/cli.mjs', 'src/initiative-state.mjs'],
   // M3: capability activation and edits with no textual merge
   CAPABILITY_PROPOSAL_VALUE_CONFLICT: ['src/capability-value-replay.mjs'],
   CAPABILITY_CONFIGURATION_OBJECTS_UNAVAILABLE: ['src/git-configuration-objects.mjs'],

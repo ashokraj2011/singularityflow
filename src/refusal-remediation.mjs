@@ -1426,11 +1426,39 @@ function deduplicate(steps) {
 
 const RETAINED_RETRIES = Object.freeze([['push', 'retry'], ['sync'], ['initiative', 'sync'], ['goal', 'sync'], ['story', 'branch', 'promote']]);
 
+/**
+ * A lock only a person can end names its reviewed release (`details.releaseCommand`, SDA M3): the
+ * person reads the lock, then runs that exact release in their own terminal; then the command again.
+ * Help, doctor or a phase recover met the same lock and looped, and age never ends it (E5/D2).
+ */
+function reviewedLockReleasePlan(error, code) {
+  const release = typeof error?.details?.releaseCommand === 'string'
+    ? safeCommandGuidance({ command: error.details.releaseCommand }) : null;
+  const [command, form, ...rest] = release?.argv ?? [];
+  const confirm = rest.indexOf('--confirm');
+  if (command !== 'lock' || !['release', 'release-file'].includes(form) || release.skill || confirm < 1) return null;
+  const show = safeCommandGuidance({ argv: ['lock', form === 'release' ? 'show' : 'show-file', ...rest.slice(0, confirm)] });
+  const steps = [
+    step('release-reviewed-lock', 'Only a person ends this lock: its owner runs on another machine, or here but stopped renewing it, '
+      + 'so waiting never frees it. After checking that the process named above no longer works on it, the person runs this '
+      + 'exact release in their own terminal; an agent never runs it.', release.command, 'remediation'),
+    show && step('review-lock', 'Read the lock first: its owner, machine, last heartbeat and the release it needs.', show.command, 'diagnostic')
+  ].filter(Boolean);
+  return Object.freeze({
+    schemaVersion: 1, // schema-transient: process-boundary guidance, never persisted
+    status: 'blocked', code,
+    steps: Object.freeze(steps),
+    retry: Object.freeze({ label: 'Run the original command again once the lock is released.', automatic: false })
+  });
+}
+
 export function refusalRemediationPlan(error, argv = []) {
   // The CLI drops the global --no-model before dispatching; the phase this refusal belongs to is
   // read from the same command words, or a no-model run loses its phase scope.
   argv = stripGlobalModelOptions(argv);
   const code = String(error?.code ?? 'SINGULARITY_FLOW_ERROR');
+  const lockRelease = reviewedLockReleasePlan(error, code);
+  if (lockRelease) return lockRelease;
   if (code === 'WORKFLOW_MARKUP_COMPILER_FAILED') return Object.freeze({
     schemaVersion: 1,
     status: 'blocked', code,
@@ -1687,6 +1715,21 @@ export function refusalDetails(details) {
     exitCode: Number.isInteger(details.execution.exitCode) ? details.execution.exitCode : null
   });
   for (const key of ['workId', 'phase', 'currentPhase', 'operation', 'repositoryPath', 'preservation']) if (text(details[key])) projected[key] = text(details[key]);
+  // A lock only a person can end: who holds it and the exact reviewed release (SDA M3), so every
+  // surface can show that owner and that command, not only the message.
+  if (text(details.releaseCommand)) {
+    const owner = details.owner && typeof details.owner === 'object' ? details.owner : {};
+    const liveness = details.liveness ?? owner.liveness;
+    Object.assign(projected, compact({
+      releaseCommand: text(details.releaseCommand), lock: text(details.lock),
+      holder: compact({
+        pid: Number.isSafeInteger(owner.pid) ? owner.pid : null, host: text(owner.host),
+        machine: text(owner.machineId)?.slice(0, 8) ?? null, since: text(owner.acquiredAt ?? owner.createdAt),
+        liveness: text(liveness?.state), reason: text(liveness?.reason), heartbeat: text(liveness?.heartbeat),
+        lastHeartbeatAt: text(liveness?.lastHeartbeatAt)
+      })
+    }));
+  }
   // Where a Story's one checkout is on this computer (story-index.mjs), so a surface can go there.
   const checkout = details.storyCheckout;
   if (checkout && typeof checkout === 'object') projected.storyCheckout = compact({

@@ -305,21 +305,47 @@ export function registryLeaseReleaseCommand(lock, token) {
   return `singularity-flow lock release-file ${JSON.stringify(lock)} --confirm ${token}`;
 }
 
+/** The read a person reviews before that release: `inspectRegistryLease` answers it. */
+export function registryLeaseShowCommand(lock) {
+  return `singularity-flow lock show-file ${JSON.stringify(lock)}`;
+}
+
+function livenessDetails(liveness) {
+  return liveness ? { state: liveness.state, reason: liveness.reason, heartbeat: liveness.heartbeat, lastHeartbeatAt: liveness.lastHeartbeatAt } : null;
+}
+
 function registryBusyError(lock, observed) {
   let message = 'The local workspace registry is busy in another process. Retry the same command.';
   const details = { lock };
+  if (observed?.owner && observed.liveness) {
+    details.owner = observed.owner;
+    details.liveness = livenessDetails(observed.liveness);
+  }
   if (registryLeaseNeedsReview(observed)) {
     const { owner, liveness } = observed;
-    details.owner = owner;
-    details.liveness = { state: liveness.state, reason: liveness.reason, heartbeat: liveness.heartbeat, lastHeartbeatAt: liveness.lastHeartbeatAt };
     details.releaseCommand = registryLeaseReleaseCommand(lock, owner.token);
-    message = `The local workspace registry lease ${lock} is held by ${describeLeaseOwner(owner, liveness)}. `
+    message = `The lease ${lock} is held by ${describeLeaseOwner(owner, liveness)}. `
       + (liveness.state === 'unknown'
         ? 'That process runs on another machine, so this one cannot prove it stopped and never takes the lease over. '
         : 'That process is still running here but stopped renewing the lease; stopping it frees the lease. ')
+      + `Review it with: ${registryLeaseShowCommand(lock)}. `
       + `After checking that it no longer uses this file, release exactly that lease with: ${details.releaseCommand}`;
   }
   return new SingularityFlowError(message, { code: 'WORKSPACE_REGISTRY_BUSY', details });
+}
+
+/**
+ * Read-only: who holds a registry lease file and whether only a reviewed release can end it. The
+ * same answer `lock show` gives a subject lease, for the lease files a refusal names by path.
+ */
+export async function inspectRegistryLease(lockFile) {
+  const lock = path.resolve(lockFile);
+  const observed = await registryLeaseState(lock);
+  if (!observed) return Object.freeze({ lock, held: false, owner: null, liveness: null, releaseCommand: null });
+  return Object.freeze({
+    lock, held: true, owner: observed.owner, liveness: livenessDetails(observed.liveness),
+    releaseCommand: registryLeaseNeedsReview(observed) ? registryLeaseReleaseCommand(lock, observed.owner.token) : null
+  });
 }
 
 /**
@@ -337,8 +363,8 @@ export async function releaseRegistryLeaseAfterReview(lockFile, { expectedToken,
   const observed = await registryLeaseState(lock);
   if (!observed) return Object.freeze({ released: false, reason: 'already-released', lock });
   if (observed.owner?.token !== expectedToken) {
-    throw new SingularityFlowError(`The lease ${lock} is no longer the reviewed one. Nothing was released; review it again.`, {
-      code: 'WORKSPACE_REGISTRY_RELEASE_MISMATCH', details: { lock, owner: observed.owner }
+    throw new SingularityFlowError(`The lease ${lock} is no longer the reviewed one. Nothing was released; review it again with: ${registryLeaseShowCommand(lock)}`, {
+      code: 'WORKSPACE_REGISTRY_RELEASE_MISMATCH', details: { lock, owner: observed.owner, nextAction: registryLeaseShowCommand(lock) }
     });
   }
   const liveness = observed.liveness;
@@ -355,8 +381,8 @@ export async function releaseRegistryLeaseAfterReview(lockFile, { expectedToken,
     hooks: { ...hooks, beforeRetire: async (value) => { claim = value.claim; await hooks?.beforeRetire?.(value); } }
   });
   if (!released) {
-    throw new SingularityFlowError(`The lease ${lock} changed while it was being released. Nothing else was removed; review it again.`, {
-      code: 'WORKSPACE_REGISTRY_RELEASE_MISMATCH', details: { lock }
+    throw new SingularityFlowError(`The lease ${lock} changed while it was being released. Nothing else was removed; review it again with: ${registryLeaseShowCommand(lock)}`, {
+      code: 'WORKSPACE_REGISTRY_RELEASE_MISMATCH', details: { lock, nextAction: registryLeaseShowCommand(lock) }
     });
   }
   return Object.freeze({

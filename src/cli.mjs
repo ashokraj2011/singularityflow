@@ -7838,10 +7838,11 @@ async function initiativeCommand(positionals, options) {
   if (subcommand === 'sync') {
     const direct = await recoverPreparedPublicationBySubject(root, { kind: 'initiative', id: initiativeId });
     if (direct.status === 'active') {
-      throw new SingularityFlowError(
-        `Initiative '${initiativeId}' has an active publication command (PID ${direct.active.pid}). `
-        + 'Return to that terminal and complete or interrupt it; recovery never rolls back a live owner.'
-      );
+      const { activePublicationRefusal } = await import('./publication-pending.mjs');
+      throw await activePublicationRefusal(root, direct.pending, direct.active, {
+        what: `Initiative '${initiativeId}'`, retry: `singularity-flow initiative sync ${initiativeId}`,
+        code: 'INITIATIVE_PUBLICATION_ACTIVE'
+      });
     }
     if (direct.status === 'recovered') {
       console.log(`Rolled back the interrupted pre-commit Initiative publication for ${initiativeId}.`);

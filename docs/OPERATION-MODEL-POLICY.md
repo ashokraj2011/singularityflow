@@ -502,6 +502,7 @@ Every public operation is classified before its implementation module is importe
 | lock.release | mutation | never | — | — |
 | lock.release-file | mutation | never | — | — |
 | lock.show | read | never | — | — |
+| lock.show-file | read | never | — | — |
 | logs | read | never | — | — |
 | marketplace.add | mutation | never | — | — |
 | marketplace.browse | read | never | — | — |

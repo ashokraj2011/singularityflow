@@ -104,10 +104,10 @@ async function publishStory(root, explicit, options, say) {
   const { recoverPreparedPublicationBySubject } = await import('../publication-pending.mjs');
   const direct = await recoverPreparedPublicationBySubject(root, { kind: 'story', id: requestedId });
   if (direct.status === 'active') {
-    throw new SingularityFlowError(
-      `Story '${requestedId}' has an active publication command (PID ${direct.active.pid}). `
-      + 'Return to that terminal and complete or interrupt it; recovery never rolls back a live owner.'
-    );
+    const { activePublicationRefusal } = await import('../publication-pending.mjs');
+    throw await activePublicationRefusal(root, direct.pending, direct.active, {
+      what: `Story '${requestedId}'`, retry: `singularity-flow sync ${requestedId}`, code: 'STORY_PUBLICATION_IN_PROGRESS'
+    });
   }
   if (direct.status === 'recovered') {
     say.text(`Rolled back the interrupted pre-commit publication for ${requestedId} to its exact durable pre-transaction state.`);
@@ -213,8 +213,10 @@ async function retrySavedPushes(root, say) {
     }
     const published = !failure && after.status === 'succeeded';
     const summary = failure ? { reason: failure.message } : transport.transportFaultSummary(after) ?? {};
+    // A lock only a person can end names its reviewed release, their own step, before any retry.
+    const release = failure?.details?.releaseCommand ?? null;
     const retry = !failure ? transport.transportRetryAction(after)
-      : failure.details?.nextAction ?? (RETRY_AFTER_FIX.has(failure.code) ? transport.transportRetryAction(after) : null);
+      : release ?? failure.details?.nextAction ?? (RETRY_AFTER_FIX.has(failure.code) ? transport.transportRetryAction(after) : null);
     const nextAction = published || !retry ? null : typeof retry === 'string' ? { command: retry, skill: null } : retry;
     retried.push({
       intentId: intent.intentId, kind: label, targetRef: intent.targetRef, commit: intent.sourceCommit,
@@ -226,7 +228,10 @@ async function retrySavedPushes(root, say) {
       ? `Did not publish the ${where}: ${failure.message}`
       : `Did not publish the ${where}: it is ${after.status}.${transport.transportFaultSentence(after)}`);
     if (nextAction) {
-      say.route(nextAction.command, {
+      say.route(nextAction.command, release ? {
+        label: 'After checking that process is gone, release its lock in your own terminal, then run sync again',
+        detail: `Release the lock another process holds on the ${label}`, skill: null, indent: '  '
+      } : {
         label: 'Once that is fixed, retry it', detail: `Retry the ${label} once its cause is fixed`,
         skill: nextAction.skill ?? null, indent: '  '
       });

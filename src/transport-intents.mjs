@@ -475,8 +475,11 @@ async function withIntentLease(intentId, { env, home, checkout }, operation) {
     );
   } catch (error) {
     if (error?.code !== 'SUBJECT_LOCK_BUSY') throw error;
-    throw new SingularityFlowError(`Transport intent '${intentId}' is already being changed.`, {
-      code: 'TRANSPORT_INTENT_BUSY', details: { intentId }
+    // The holder and, when only a person can end its lock, the reviewed release: a bare "busy"
+    // sent sync back to `sync <INTENT-ID>` forever behind another machine's lock (E2).
+    const { subject: _subject, ...held } = error.details ?? {};
+    throw new SingularityFlowError(`Transport intent '${intentId}' is already being changed. ${error.message}`, {
+      code: 'TRANSPORT_INTENT_BUSY', details: { intentId, ...held }, cause: error
     });
   }
 }

@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { chmod, mkdtemp, readFile, rename, rm, writeFile } from 'node:fs/promises';
+import { chmod, mkdir, mkdtemp, readFile, rename, rm, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -188,4 +188,36 @@ test('a publish still running in another command is said to be running, not stuc
   const busy = flow(root, ['submit', 'intake'], { fail: true });
   assert.notEqual(busy.status, 0);
   assert.match(busy.stderr + busy.stdout, /is publishing Story 'BUSY-1' right now/u);
+});
+
+test('a publish another machine holds names its owner and the reviewed release, and the release lets sync finish it', async (t) => {
+  // Before SDA a remote owner expired after its TTL; now nothing takes it over, so "wait, then retry"
+  // and sync's "return to that terminal" never ended (D3/E3).
+  const id = 'HELD-2';
+  const { root, draft, refuse } = await story(t, id);
+  await draft(root, 'Publish the intake while another laptop holds the Story.');
+  await refuse(true);
+  assert.notEqual(flow(root, ['phase', 'publish', 'intake'], { fail: true }).status, 0);
+  await refuse(false);
+  const { subjectLockPath } = await import('../src/subject-lock.mjs');
+  const lock = subjectLockPath(root, { kind: 'story', id });
+  const lockToken = '5d1e7c3a-2b4f-4e6a-9c8d-7f6e5d4c3b2a';
+  await mkdir(lock, { recursive: true });
+  await writeFile(path.join(lock, 'owner.json'), `${JSON.stringify({ schemaVersion: 1, subject: { kind: 'story', id }, pid: 4242,
+    host: 'other-laptop.example', machineId: '0a1b2c3d-0000-4000-8000-000000000000', processToken: 'elsewhere', lockToken,
+    acquiredAt: '2026-10-01T00:00:00.000Z', expiresAt: '2026-10-01T03:00:00.000Z' })}\n`);
+  const release = `singularity-flow lock release story ${id} --confirm ${lockToken}`;
+  const held = flow(root, ['submit', 'intake', '--json'], { fail: true });
+  const envelope = JSON.parse(held.stdout);
+  assert.equal(envelope.error.code, 'STORY_PUBLICATION_IN_PROGRESS');
+  assert.doesNotMatch(envelope.error.message, /wait for it to finish/u);
+  assert.match(envelope.error.message, /PID 4242 on other-laptop\.example/u);
+  assert.equal(envelope.error.details.releaseCommand, release);
+  assert.deepEqual(envelope.remediationPlan.steps.map((step) => step.command), [release, `singularity-flow lock show story ${id}`]);
+  const synced = flow(root, ['sync', id, '--json'], { fail: true });
+  assert.notEqual(synced.status, 0);
+  assert.equal(JSON.parse(synced.stdout).error.details.releaseCommand, release, 'sync names the same release');
+  flow(root, ['lock', 'release', 'story', id, '--confirm', lockToken]);
+  flow(root, ['sync', id]);
+  assert.equal(await waiting(root, id), null, 'the waiting commit was published');
 });

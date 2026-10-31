@@ -42,7 +42,10 @@ const REPOSITORY_MUTATION_LEASE_EXCLUSIONS = new Set([
   'fresh-install',
   // A governance rebuild holds the repository reset barrier itself and refuses while any subject
   // lock is held, so an ordinary mutation lease around it would refuse it.
-  'governance'
+  'governance',
+  // `lock` touches only the lease it names. Its release is the way out of a reset barrier another
+  // machine left behind; a mutation lease around it met that barrier and refused its own release.
+  'lock'
 ]);
 
 // These commands either operate on machine-local installation/workspace state, explain the product,
@@ -91,6 +94,9 @@ export const MACHINE_LOCAL_TELEMETRY_SUBCOMMANDS = new Set([
 // check action remains Story/repository-bound, so the exclusion is deliberately action-specific.
 export const REPOSITORY_INDEPENDENT_REVISION_CHECK_ACTIONS = new Set(['capabilities']);
 
+/** `lock` forms that name a lease by its path, not by a subject of the current repository. */
+const LOCK_FILE_SUBCOMMANDS = new Set(['show-file', 'release-file']);
+
 export function excludesActiveWorkspaceRouting(
   command, subcommand = null, options = {}, action = null
 ) {
@@ -117,6 +123,9 @@ export function excludesActiveWorkspaceRouting(
     || (command === 'doctor' && (options.performance === true || options['git-speed'] === true))
     || (command === 'telemetry'
       && MACHINE_LOCAL_TELEMETRY_SUBCOMMANDS.has(subcommand ?? 'status'))
+    // A lease file or lock directory is named by its own path: registry leases live in the home, so
+    // reading or releasing one needs no repository (D6).
+    || (command === 'lock' && LOCK_FILE_SUBCOMMANDS.has(subcommand))
     || (command === 'capability' && REPOSITORY_INDEPENDENT_CAPABILITY_SUBCOMMANDS.has(subcommand))
     || (command === 'revision' && subcommand === 'checks'
       && REPOSITORY_INDEPENDENT_REVISION_CHECK_ACTIONS.has(action))

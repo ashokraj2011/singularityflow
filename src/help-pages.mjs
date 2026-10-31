@@ -1454,15 +1454,17 @@ const PAGES = Object.freeze({
       'lock show reads one lock: its owner, machine, last heartbeat, and the release command when one is needed.',
       'lock release ends exactly the lock you reviewed: --confirm takes its lock token, so a lock that changed',
       'since you looked is never removed. The release is recorded. Run it in your own terminal, after checking that',
-      'the owning command is not still running. lock release-file does the same for a workspace registry lease file.'
+      'the owning command is not still running. lock show-file and lock release-file do the same for a lease a refusal',
+      'names by its path: a registry lease file in your home (they run from any folder) or an Authority Store lock.'
     ],
     options: [
-      ['--confirm TOKEN', 'release and release-file: the reviewed lock token the refusal or lock show printed.'],
+      ['--confirm TOKEN', 'release and release-file: the reviewed lock token the refusal, lock show or lock show-file printed.'],
       ['--json', 'Machine-readable output (sflow-lock-show, sflow-lock-release).']
     ],
     examples: [
       ['singularity-flow lock show publication PMC-1', 'Who holds the publication lock of Story PMC-1, and whether only a person can end it.'],
-      ['singularity-flow lock release publication PMC-1 --confirm <LOCK-TOKEN>', 'End exactly that lock, after checking its owner is gone.']
+      ['singularity-flow lock release publication PMC-1 --confirm <LOCK-TOKEN>', 'End exactly that lock, after checking its owner is gone.'],
+      ['singularity-flow lock show-file ~/.singularity-flow/active-workspace.json.lock', 'Who holds the workspace selection lease the refusal named.']
     ],
     seeAlso: ['recover', 'sync', 'doctor']
   },

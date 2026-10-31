@@ -339,7 +339,7 @@ test('Authority Store honors proven liveness while refusing acquiring and future
   await mkdir(lock, { mode: 0o700 });
   await writeFile(path.join(lock, 'owner.json'), JSON.stringify(authorityLockFixture({
     storeId: store.storeId,
-    lockVersion: 3,
+    lockVersion: 4,
     token: '00000000-0000-4000-8000-000000000003'
   })));
   await assert.rejects(() => store.transact({
@@ -348,7 +348,7 @@ test('Authority Store honors proven liveness while refusing acquiring and future
     actorId: 'operator-future-refusal',
     changes: [{ op: 'put', key: 'policy:unsafe', value: true }]
   }), (error) => error.code === 'SGOS_AUTHORITY_LOCK_VERSION_UNSUPPORTED');
-  assert.equal(JSON.parse(await readFile(path.join(lock, 'owner.json'), 'utf8')).lockVersion, 3);
+  assert.equal(JSON.parse(await readFile(path.join(lock, 'owner.json'), 'utf8')).lockVersion, 4);
 });
 
 test('Authority Store never takes over another machine\'s expired lock; a reviewed release does', async (t) => {

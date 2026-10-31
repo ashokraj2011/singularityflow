@@ -18,7 +18,8 @@ const APM_OPERATIONS = Object.freeze({
   install: 'apm.install', update: 'apm.update', attach: 'apm.attach', marketplace: 'apm.marketplace.init', publish: 'apm.publish', policy: 'apm.policy.init'
 });
 // Leases (SDA M3): show reads; a reviewed release ends exactly one lease generation.
-const LOCK_SUBCOMMANDS = Object.freeze(['show', 'release', 'release-file']);
+const LOCK_SUBCOMMANDS = Object.freeze(['show', 'release', 'show-file', 'release-file']);
+const LOCK_READS = Object.freeze(['show', 'show-file']);
 // Backups of this laptop's drafts and local documents (SDA M5): inspect reads; restore saves drafts and bytes here only.
 const BACKUP_SUBCOMMANDS = Object.freeze(['create', 'inspect', 'restore']);
 const UPSTREAM_ISSUE_SUBCOMMANDS = Object.freeze(['raise', 'list', 'decide', 'propose-amendment', 'decide-amendment', 'revalidate']);
@@ -1628,7 +1629,7 @@ export function resolveOperation({ requestedCommand, positionals, options = {}, 
   if (definition.name === 'lock') {
     const action = positionals[1] ?? 'show';
     if (!LOCK_SUBCOMMANDS.includes(action)) return unknownSubcommand('lock', action, LOCK_SUBCOMMANDS);
-    return never(`lock.${action}`, definition, action === 'show' ? 'read' : 'mutation');
+    return never(`lock.${action}`, definition, LOCK_READS.includes(action) ? 'read' : 'mutation');
   }
   if (definition.name === 'backup') {
     const action = positionals[1];
@@ -1905,7 +1906,7 @@ export function operationCatalog() {
     ...TESTS_SUBCOMMANDS.map(name => never(`tests.${name}`, commandDefinition('tests'), ['plan', 'summary'].includes(name) ? 'read' : 'mutation')),
     never('apm.status', commandDefinition('apm'), 'read'),
     ...Object.values(APM_OPERATIONS).flatMap((id) => [never(`${id}.preview`, commandDefinition('apm'), 'read'), never(id, commandDefinition('apm'), 'mutation')]),
-    ...LOCK_SUBCOMMANDS.map(name => never(`lock.${name}`, commandDefinition('lock'), name === 'show' ? 'read' : 'mutation')),
+    ...LOCK_SUBCOMMANDS.map(name => never(`lock.${name}`, commandDefinition('lock'), LOCK_READS.includes(name) ? 'read' : 'mutation')),
     ...BACKUP_SUBCOMMANDS.map(name => never(`backup.${name}`, commandDefinition('backup'), name === 'inspect' ? 'read' : 'mutation')),
     ...['create', 'edit', 'remove'].flatMap(name => [never(`instruction.${name}.preview`, commandDefinition('instruction'), 'read'), never(`instruction.${name}`, commandDefinition('instruction'), 'mutation')]),
     ...SKILL_MUTATION_SUBCOMMANDS.flatMap((name) => [

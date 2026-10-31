@@ -5,7 +5,7 @@ import os from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
 
-import { refusalRemediationPlan } from '../src/refusal-remediation.mjs';
+import { refusalEnvelope, refusalRemediationPlan, renderRefusalPlan } from '../src/refusal-remediation.mjs';
 import { agentAct, observeAgentLoop } from '../src/agent-output.mjs';
 import { skillForCommandLine } from '../src/command-skills.mjs';
 import { resolveOperation } from '../src/command-registry.mjs';
@@ -122,4 +122,55 @@ test('story approvers with no verb is the refresh preview, in the registry as in
   assert.equal(resolveOperation({ requestedCommand: 'story', positionals: ['story', 'approvers'], options: {} }).classification, 'read');
   const source = await (await import('node:fs/promises')).readFile(new URL('../src/commands/story.mjs', import.meta.url), 'utf8');
   assert.match(source, /positionals\[2\] \?\? 'refresh'\) !== 'refresh'/u, 'the CLI takes no verb as refresh too');
+});
+
+test('a lock only a person can end: its reviewed release is the person\'s first step on every surface, then the read', () => {
+  // SUBJECT_LOCK_BUSY, the reset barrier, registry, selection, transport and Authority Store leases carry
+  // their release as details.releaseCommand; the plan was recover/phase show or help/doctor (E5/D2).
+  const token = '3f2c1a9e-8b7d-4e6f-9a0b-1c2d3e4f5a6b';
+  const owner = { pid: 4242, host: 'other-laptop.example', machineId: '0a1b2c3d-0000-4000-8000-000000000000',
+    acquiredAt: '2026-10-30T10:00:00.000Z', lockToken: token };
+  const liveness = { state: 'unknown', reason: 'other-machine', heartbeat: 'stale', lastHeartbeatAt: '2026-10-30T10:01:00.000Z' };
+  const lease = '/home/someone/.singularity-flow/active-workspace.json.lock';
+  const cases = [
+    ['SUBJECT_LOCK_BUSY', ['phase', 'publish', 'build', '--work-id', 'PMC-1'], `singularity-flow lock release story PMC-1 --confirm ${token}`,
+      'singularity-flow lock show story PMC-1'],
+    ['FACTORY_RESET_IN_PROGRESS', ['start', 'PMC-1'], `singularity-flow lock release factory-reset-barrier repository --confirm ${token}`,
+      'singularity-flow lock show factory-reset-barrier repository'],
+    ['STORY_PUBLICATION_IN_PROGRESS', ['submit'], `singularity-flow lock release story PMC-1 --confirm ${token}`,
+      'singularity-flow lock show story PMC-1'],
+    ['TRANSPORT_INTENT_BUSY', ['sync', 'ti-1'], `singularity-flow lock release transport-intent ti-1 --confirm ${token}`,
+      'singularity-flow lock show transport-intent ti-1'],
+    ['ACTIVE_WORKSPACE_SELECTION_BUSY', ['workspace', 'use', 'x'], `singularity-flow lock release-file ${JSON.stringify(lease)} --confirm ${token}`,
+      `singularity-flow lock show-file ${lease}`],
+    ['SGOS_AUTHORITY_STORE_BUSY', ['authority-store', 'status'], `singularity-flow lock release-file "/r/.git/x/.transaction-lock" --confirm ${token}`,
+      'singularity-flow lock show-file /r/.git/x/.transaction-lock']
+  ];
+  for (const [code, argv, release, show] of cases) {
+    const error = refusal(code, `Held by PID 4242 on other-laptop.example. Release exactly that lease with: ${release}`,
+      { lock: '/r/.git/singularity-flow/locks/story--PMC-1.lock', owner, liveness, releaseCommand: release });
+    const envelope = refusalEnvelope(error, argv);
+    const [first, second, ...rest] = envelope.remediationPlan.steps;
+    assert.deepEqual([first.id, first.command, first.skill, first.copilotCommand], ['release-reviewed-lock', release, null, null], code);
+    assert.equal(second.command, show, code);
+    assert.deepEqual(rest, [], `${code}: no help, doctor, recover or wait step meets the same lock again`);
+    assert.equal(envelope.remediationPlan.context, undefined, code);
+    assert.match(envelope.remediationPlan.retry.label, /once the lock is released/u, code);
+    assert.deepEqual(envelope.error.details.holder, { pid: 4242, host: 'other-laptop.example', machine: '0a1b2c3d',
+      since: '2026-10-30T10:00:00.000Z', liveness: 'unknown', reason: 'other-machine', heartbeat: 'stale',
+      lastHeartbeatAt: '2026-10-30T10:01:00.000Z' }, code);
+    assert.equal(envelope.error.details.releaseCommand, release, code);
+    const act = agentAct(envelope);
+    assert.deepEqual([act.state, act.do.shell, act.do.copilot], ['confirm-in-terminal', release, null], code);
+    const text = renderRefusalPlan(envelope.remediationPlan);
+    assert.ok(text.includes(release) && text.includes(show), code);
+  }
+  // A live owner here that still renews its lock carries no release: waiting is still right.
+  const live = refusalRemediationPlan(refusal('STORY_PUBLICATION_IN_PROGRESS', 'Publishing now.', { pid: 7 }), ['submit']);
+  assert.match(live.steps[0].command, /result last --wait/u);
+  // A release that is not a lock release, or a forged skill route, never becomes the person's step.
+  for (const releaseCommand of ['singularity-flow sync PMC-1', 'singularity-flow lock show story PMC-1', 'rm -rf .git/singularity-flow/locks']) {
+    const plan = refusalRemediationPlan(refusal('SUBJECT_LOCK_BUSY', 'Held.', { releaseCommand }), ['sync']);
+    assert.ok(!plan.steps.some((entry) => entry.id === 'release-reviewed-lock'), releaseCommand);
+  }
 });

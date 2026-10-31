@@ -30,7 +30,7 @@ import {
   validateWorkObject
 } from '../src/sgos/contracts.mjs';
 import { withOperationContext } from '../src/operation-context.mjs';
-import { withSubjectLock } from '../src/subject-lock.mjs';
+import { subjectLockPath, withSubjectLock } from '../src/subject-lock.mjs';
 import {
   compileSgosProgram, registrySnapshotDigest, SGOS_COMPILER_ID
 } from '../src/sgos/compiler.mjs';
@@ -1010,6 +1010,31 @@ test('opt-in parallel wave launches one deterministic compatible ready set and q
     JSON.stringify(wave.results.map((entry) => ({ status: entry.status, error: entry.error }))));
   const ended = await runNextSgosTask(fixture.root, started.process.processId, { clock: T1 });
   assert.equal(ended.process.status, 'succeeded');
+});
+
+test('a Process lock another machine holds keeps its own refusal: its holder and reviewed release, never a stale revision', async () => {
+  // A parallel wave retried a lock-busy refusal, then relabeled it SGOS_PROCESS_REVISION_STALE: neither
+  // the holder nor the reviewed release that alone ends another machine's lock reached the person (D3/E3).
+  const fixture = await repository('SGOS-STORY-HELD');
+  const compiled = program([task('10-alpha', 'NOOP'), task('20-beta', 'NOOP'), task('90-end', 'END', ['10-alpha', '20-beta'])]);
+  const started = await start(fixture.root, fixture.storyId, compiled);
+  const subject = { kind: 'sgos-process', id: started.process.processId };
+  const lock = subjectLockPath(fixture.root, subject);
+  const lockToken = '6e2d4c1b-3a5f-4b7e-8d9c-0a1b2c3d4e5f';
+  await mkdir(lock, { recursive: true });
+  await writeFile(path.join(lock, 'owner.json'), `${JSON.stringify({ schemaVersion: 1, subject, pid: 4242,
+    host: 'other-laptop.example', machineId: '0a1b2c3d-0000-4000-8000-000000000000', processToken: 'elsewhere', lockToken,
+    acquiredAt: '2026-10-01T00:00:00.000Z', expiresAt: '2026-10-01T03:00:00.000Z' })}\n`);
+  const began = Date.now();
+  const outcome = await runReadySgosTasks(fixture.root, started.process.processId, { program: compiled, maximumParallel: 2, clock: T1 })
+    .then((value) => ({ value }), (error) => ({ error }));
+  const errors = outcome.error ? [outcome.error] : (outcome.value?.results ?? []).map((entry) => entry.error).filter(Boolean);
+  assert.ok(errors.length > 0, JSON.stringify(outcome.value ?? null));
+  for (const error of errors) {
+    assert.equal(error.code, 'SUBJECT_LOCK_BUSY', error.message);
+    assert.equal(error.details?.releaseCommand, `singularity-flow lock release sgos-process ${started.process.processId} --confirm ${lockToken}`);
+  }
+  assert.ok(Date.now() - began < 2_000, 'a lock only a person can end is not waited on');
 });
 
 test('all-success JOIN persists one exact receipt after every predecessor succeeds', async () => {

@@ -147,6 +147,7 @@ import {
   ensurePendingRevisionAttestation,
   hasPendingPublication,
   isPendingStoryBranchPromotion,
+  activePublicationRefusal,
   livePreparedPublicationOwner,
   localPendingPublicationPath,
   readPendingPublication,
@@ -10122,12 +10123,10 @@ export async function syncPublication(root, config, workflow, { fault = null, re
   if (pending?.record?.recoveryStage === 'interrupted-before-branch-ref-advanced') {
     const liveOwner = livePreparedPublicationOwner(pending, root);
     if (liveOwner) {
-      throw new SingularityFlowError(
-        `Story '${workflow.workItem.id}' has an active publication command (PID ${liveOwner.pid}`
-        + `${liveOwner.createdAt ? `, started ${liveOwner.createdAt}` : ''}). `
-        + 'Return to that terminal and complete or interrupt the command; do not start another mutation. '
-        + 'After interrupting it, run singularity-flow sync again.'
-      );
+      throw await activePublicationRefusal(root, pending, liveOwner, {
+        what: `Story '${workflow.workItem.id}'`, retry: `singularity-flow sync ${workflow.workItem.id}`,
+        code: 'STORY_PUBLICATION_IN_PROGRESS'
+      });
     }
     const recovery = await recoverPreparedPublication(root, pending);
     if (recovery) {

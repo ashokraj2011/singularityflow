@@ -26,8 +26,12 @@ const MAX_AUTHORITY_TRANSPORT_BYTES = 64 * 1024 * 1024;
 // deliberately not named `schemaVersion`: a lock is operational coordination state and must never
 // masquerade as one of Singularity Flow's registered record families.
 const AUTHORITY_LOCK_FORMAT = 'sflow.sgos.authority-store-lock';
-// v2 adds the owner's machineId and processStartedAt, which prove it dead (src/lease-liveness.mjs).
-const AUTHORITY_LOCK_VERSION = 2;
+// v2 adds the owner's machineId and processStartedAt, which prove it dead (src/lease-liveness.mjs);
+// v3 its pidNamespace and hardwareDigest, so a container or a computer sharing this repository's
+// home is never judged dead by a PID that belongs to another process table.
+const AUTHORITY_LOCK_VERSION = 3;
+const AUTHORITY_TRANSACTION_LOCK = '.transaction-lock';
+const AUTHORITY_CUTOVER_LOCK_PREFIX = '.authority-cutover-lock-';
 // Paces the heartbeat and says when it is reported stale; a lock is never taken over on age.
 const AUTHORITY_LOCK_TTL_MS = 30 * 1000;
 const AUTHORITY_LOCK_ACQUISITION_GRACE_MS = 30 * 1000;
@@ -791,6 +795,8 @@ function authorityLockOwner(storeId, now = Date.now()) {
     token: randomUUID(),
     host: identity.host,
     ...(identity.machineId ? { machineId: identity.machineId } : {}),
+    ...(identity.pidNamespace ? { pidNamespace: identity.pidNamespace } : {}),
+    ...(identity.hardwareDigest ? { hardwareDigest: identity.hardwareDigest } : {}),
     pid: identity.pid,
     processStartedAt: identity.processStartedAt,
     acquiredAt: new Date(now).toISOString(),
@@ -836,15 +842,141 @@ function authorityLockHolder(lock) {
   };
 }
 
-function authorityBusyMessage(prefix, holder) {
-  if (!holder) return `${prefix}.`;
+/** Only a person ends this lock: another machine's owner, or one here that stopped renewing it. */
+function authorityLockNeedsReview(holder) {
+  if (!holder) return false;
   const { state, reason, heartbeat } = holder.liveness;
-  const review = state === 'unknown'
-    ? ' That process runs on another machine, so this one never takes the lock over; after checking it stopped, release exactly that lock after review.'
-    : state === 'alive' && reason !== 'this-process' && heartbeat !== 'fresh'
-      ? ' That process is still running here but stopped renewing the lock; stop it, or release exactly that lock after review.'
-      : '';
-  return `${prefix}: held by ${holder.description}.${review}`;
+  return state === 'unknown' || (state === 'alive' && reason !== 'this-process' && heartbeat !== 'fresh');
+}
+
+/** The read and the reviewed release a refusal names for one Authority Store lock directory (`lock`). */
+function authorityLockShowCommand(directory) {
+  return `singularity-flow lock show-file ${JSON.stringify(directory)}`;
+}
+
+function authorityLockReleaseCommand(directory, token) {
+  return `singularity-flow lock release-file ${JSON.stringify(directory)} --confirm ${token}`;
+}
+
+function authorityBusyMessage(prefix, holder, directory) {
+  if (!holder) return `${prefix}.`;
+  if (!authorityLockNeedsReview(holder)) return `${prefix}: held by ${holder.description}.`;
+  const why = holder.liveness.state === 'unknown'
+    ? 'That process runs on another machine, so this one never takes the lock over.'
+    : 'That process is still running here but stopped renewing the lock; stopping it frees the lock.';
+  return `${prefix}: held by ${holder.description}. ${why} Review it with: ${authorityLockShowCommand(directory)}. `
+    + 'After checking that it stopped, release exactly that lock after review with: '
+    + authorityLockReleaseCommand(directory, holder.token);
+}
+
+function authorityBusyDetails(directory, holder) {
+  return { lock: directory, owner: holder,
+    ...(authorityLockNeedsReview(holder) ? { releaseCommand: authorityLockReleaseCommand(directory, holder.token) } : {}) };
+}
+
+/**
+ * One Authority Store lock directory as it is now: its validated owner and heartbeat, or null when
+ * there is none. Shared by the transaction lock, the cutover lock and a person's reviewed release.
+ */
+async function readAuthorityLock(directory, storeId, label) {
+  let info;
+  try { info = await lstat(directory); } catch (error) {
+    if (error?.code === 'ENOENT') return null;
+    throw error;
+  }
+  if (info.isSymbolicLink() || !info.isDirectory()) {
+    fail(`${label} must be a real directory.`, 'SGOS_AUTHORITY_PATH_UNSAFE');
+  }
+  let rawOwner = null;
+  try {
+    rawOwner = await safeReadJson(path.join(directory, 'owner.json'), `${label} owner`);
+  } catch (error) {
+    if (error?.code !== 'ENOENT') throw error;
+  }
+  const owner = rawOwner === null ? null : validateAuthorityLockOwner(rawOwner, storeId ?? rawOwner?.storeId);
+  let heartbeatModifiedAt = null;
+  if (owner) {
+    const heartbeat = await lstat(authorityHeartbeatPath(directory, owner)).catch((error) => {
+      if (error?.code === 'ENOENT') return null;
+      throw error;
+    });
+    if (heartbeat) {
+      if (heartbeat.isSymbolicLink() || !heartbeat.isFile()) {
+        fail(`${label} heartbeat must be a regular file.`, 'SGOS_AUTHORITY_PATH_UNSAFE');
+      }
+      heartbeatModifiedAt = heartbeat.mtimeMs;
+    }
+  }
+  return Object.freeze({ info, owner, heartbeatModifiedAt });
+}
+
+function sameObservedAuthorityLock(left, right) {
+  if (!left || !right || !sameFileIdentity(left.info, right.info)) return false;
+  return (left.owner?.ownerSha256 ?? null) === (right.owner?.ownerSha256 ?? null)
+    && left.heartbeatModifiedAt === right.heartbeatModifiedAt;
+}
+
+/** A transaction lock (`<store>/.transaction-lock`) or a cutover lock (`.authority-cutover-lock-<STORE>`). */
+function authorityLockLocation(directory) {
+  const name = path.basename(directory);
+  if (name === AUTHORITY_TRANSACTION_LOCK) return { label: 'Authority Store lock', storeId: null };
+  if (name.startsWith(AUTHORITY_CUTOVER_LOCK_PREFIX) && name.length > AUTHORITY_CUTOVER_LOCK_PREFIX.length) {
+    return { label: 'Authority cutover lock', storeId: name.slice(AUTHORITY_CUTOVER_LOCK_PREFIX.length) };
+  }
+  return null;
+}
+
+/** Read-only: who holds an Authority Store lock and whether only a reviewed release can end it. */
+export async function inspectAuthorityStoreLock(directory) {
+  const lock = path.resolve(directory);
+  const location = authorityLockLocation(lock);
+  if (!location) fail(`${lock} is not an Authority Store lock directory.`, 'SGOS_AUTHORITY_PATH_UNSAFE', { lock });
+  const seen = await readAuthorityLock(lock, location.storeId, location.label);
+  const holder = authorityLockHolder(seen);
+  return Object.freeze({
+    lock, held: Boolean(seen), owner: holder, liveness: holder?.liveness ?? null,
+    releaseCommand: authorityLockNeedsReview(holder) ? authorityLockReleaseCommand(lock, holder.token) : null
+  });
+}
+
+/**
+ * A person's way out of an Authority Store lock this machine cannot prove abandoned (another
+ * machine's owner, or a live one here that stopped renewing). Only the reviewed token's generation
+ * moves, retained under a unique name beside it for inspection; a live, renewing owner here is
+ * refused. The cutover lock had no way out at all: opening the store waits on it.
+ */
+export async function releaseAuthorityStoreLockAfterReview(directory, { expectedToken } = {}) {
+  const lock = path.resolve(directory);
+  const location = authorityLockLocation(lock);
+  if (!location) fail(`${lock} is not an Authority Store lock directory.`, 'SGOS_AUTHORITY_PATH_UNSAFE', { lock });
+  const seen = await readAuthorityLock(lock, location.storeId, location.label);
+  if (!seen) return Object.freeze({ released: false, reason: 'already-released', lock });
+  if (!seen.owner || seen.owner.token !== expectedToken) {
+    fail(`${location.label} is no longer the reviewed one; nothing was released. Review it again with: ${authorityLockShowCommand(lock)}`,
+      'SGOS_AUTHORITY_LOCK_RELEASE_MISMATCH', { lock, owner: authorityLockHolder(seen), nextAction: authorityLockShowCommand(lock) });
+  }
+  const holder = authorityLockHolder(seen);
+  const { state, reason, heartbeat } = holder.liveness;
+  if (state === 'alive' && (reason === 'this-process' || heartbeat === 'fresh')) {
+    fail(`${location.label} belongs to ${holder.description}, which is running here and still renewing it; nothing was released.`,
+      'SGOS_AUTHORITY_LOCK_RELEASE_REFUSED', { lock, owner: holder });
+  }
+  const current = await readAuthorityLock(lock, location.storeId, location.label);
+  if (!sameObservedAuthorityLock(seen, current)) {
+    fail(`${location.label} changed while it was being released; nothing was released.`,
+      'SGOS_AUTHORITY_LOCK_RELEASE_MISMATCH', { lock, nextAction: authorityLockShowCommand(lock) });
+  }
+  const parent = path.dirname(lock);
+  const retained = path.join(parent, `${path.basename(lock)}.released-after-review-${seen.owner.token}-${randomUUID()}`);
+  try { await rename(lock, retained); } catch (error) {
+    if (['ENOENT', 'EEXIST', 'ENOTEMPTY'].includes(error?.code)) {
+      fail(`${location.label} changed while it was being released; nothing was released.`,
+        'SGOS_AUTHORITY_LOCK_RELEASE_MISMATCH', { lock, nextAction: authorityLockShowCommand(lock) });
+    }
+    throw error;
+  }
+  await fsyncDirectory(parent);
+  return Object.freeze({ released: true, lock, retainedAt: retained, owner: holder });
 }
 
 function authorityHeartbeatPath(directory, owner) {
@@ -883,11 +1015,16 @@ function validateAuthorityLockOwner(value, storeId) {
   }
   exactObject(value, [
     'lockFormat', 'lockVersion', 'storeId', 'token', 'host', 'pid', 'acquiredAt', 'expiresAt',
-    'ownerSha256', ...(value.lockVersion >= 2 ? ['machineId', 'processStartedAt'] : [])
+    'ownerSha256', ...(value.lockVersion >= 2 ? ['machineId', 'processStartedAt'] : []),
+    ...(value.lockVersion >= 3 ? ['pidNamespace', 'hardwareDigest'] : [])
   ], 'Authority Store lock owner');
   if (value.lockVersion >= 2 && (!Number.isSafeInteger(value.processStartedAt) || value.processStartedAt < 0
       || (value.machineId !== undefined
-        && (typeof value.machineId !== 'string' || value.machineId.length < 1 || value.machineId.length > 64)))) {
+        && (typeof value.machineId !== 'string' || value.machineId.length < 1 || value.machineId.length > 64))
+      || (value.pidNamespace !== undefined
+        && (typeof value.pidNamespace !== 'string' || value.pidNamespace.length < 1 || value.pidNamespace.length > 128))
+      || (value.hardwareDigest !== undefined
+        && (typeof value.hardwareDigest !== 'string' || !/^[0-9a-f]{16,64}$/u.test(value.hardwareDigest))))) {
     fail('Authority Store lock process identity is invalid.', 'SGOS_AUTHORITY_LOCK_CORRUPT');
   }
   if (value.storeId !== storeId) {
@@ -923,50 +1060,10 @@ async function waitBriefly() {
 }
 
 async function withStableCutoverLock(parent, storeId, operation) {
-  const directory = path.join(parent, `.authority-cutover-lock-${storeId}`);
-
-  async function inspect() {
-    let info;
-    try { info = await lstat(directory); } catch (error) {
-      if (error?.code === 'ENOENT') return null;
-      throw error;
-    }
-    if (info.isSymbolicLink() || !info.isDirectory()) {
-      fail('Authority cutover lock must be a real directory.', 'SGOS_AUTHORITY_PATH_UNSAFE');
-    }
-    let rawOwner = null;
-    try {
-      rawOwner = await safeReadJson(
-        path.join(directory, 'owner.json'), 'Authority cutover lock owner'
-      );
-    } catch (error) {
-      if (error?.code !== 'ENOENT') throw error;
-    }
-    const owner = rawOwner === null ? null : validateAuthorityLockOwner(rawOwner, storeId);
-    let heartbeatModifiedAt = null;
-    if (owner) {
-      const heartbeat = await lstat(authorityHeartbeatPath(directory, owner)).catch((error) => {
-        if (error?.code === 'ENOENT') return null;
-        throw error;
-      });
-      if (heartbeat) {
-        if (heartbeat.isSymbolicLink() || !heartbeat.isFile()) {
-          fail('Authority cutover lock heartbeat must be a regular file.',
-            'SGOS_AUTHORITY_PATH_UNSAFE');
-        }
-        heartbeatModifiedAt = heartbeat.mtimeMs;
-      }
-    }
-    return Object.freeze({ info, owner, heartbeatModifiedAt });
-  }
-
+  const directory = path.join(parent, `${AUTHORITY_CUTOVER_LOCK_PREFIX}${storeId}`);
+  const inspect = () => readAuthorityLock(directory, storeId, 'Authority cutover lock');
   const reclaimable = authorityLockReclaimable;
-
-  function sameObserved(left, right) {
-    if (!left || !right || !sameFileIdentity(left.info, right.info)) return false;
-    return (left.owner?.ownerSha256 ?? null) === (right.owner?.ownerSha256 ?? null)
-      && left.heartbeatModifiedAt === right.heartbeatModifiedAt;
-  }
+  const sameObserved = sameObservedAuthorityLock;
 
   async function reclaim(seen) {
     const current = await inspect();
@@ -1055,8 +1152,8 @@ async function withStableCutoverLock(parent, storeId, operation) {
     }
   }
   const holder = authorityLockHolder(lastSeen);
-  fail(authorityBusyMessage('Authority Store cutover is busy', holder), 'SGOS_AUTHORITY_STORE_BUSY', {
-    storeId, lock: directory, owner: holder
+  fail(authorityBusyMessage('Authority Store cutover is busy', holder, directory), 'SGOS_AUTHORITY_STORE_BUSY', {
+    storeId, ...authorityBusyDetails(directory, holder)
   });
 }
 
@@ -1502,7 +1599,7 @@ export async function openFilesystemAuthorityStore({
   await mkdir(eventsDirectory, { recursive: true, mode: 0o700 });
   await assertNotSymlink(eventsDirectory, 'Authority Store events directory', { directory: true });
   const stateFile = path.join(canonicalRoot, 'state.json');
-  const lockDirectory = path.join(canonicalRoot, '.transaction-lock');
+  const lockDirectory = path.join(canonicalRoot, AUTHORITY_TRANSACTION_LOCK);
 
   async function assertLayout() {
     const reboundRoot = await realpath(requestedRoot).catch((error) => {
@@ -1518,46 +1615,12 @@ export async function openFilesystemAuthorityStore({
     await assertNotSymlink(stateFile, 'Authority Store state', { optional: true });
   }
 
-  async function inspectLock() {
-    let info;
-    try { info = await lstat(lockDirectory); } catch (error) {
-      if (error?.code === 'ENOENT') return null;
-      throw error;
-    }
-    if (info.isSymbolicLink() || !info.isDirectory()) {
-      fail('Authority Store lock must be a real directory.', 'SGOS_AUTHORITY_PATH_UNSAFE');
-    }
-    let rawOwner;
-    try { rawOwner = await safeReadJson(path.join(lockDirectory, 'owner.json'), 'Authority Store lock owner'); } catch (error) {
-      if (error?.code !== 'ENOENT') throw error;
-      rawOwner = null;
-    }
-    const owner = rawOwner === null ? null : validateAuthorityLockOwner(rawOwner, storeId);
-    let heartbeatModifiedAt = null;
-    if (owner) {
-      let heartbeatInfo;
-      try { heartbeatInfo = await lstat(authorityHeartbeatPath(lockDirectory, owner)); } catch (error) {
-        if (error?.code !== 'ENOENT') throw error;
-      }
-      if (heartbeatInfo) {
-        if (heartbeatInfo.isSymbolicLink() || !heartbeatInfo.isFile()) {
-          fail('Authority Store lock heartbeat must be a regular file.', 'SGOS_AUTHORITY_PATH_UNSAFE');
-        }
-        heartbeatModifiedAt = heartbeatInfo.mtimeMs;
-      }
-    }
-    return Object.freeze({ info, owner, heartbeatModifiedAt });
-  }
+  const inspectLock = () => readAuthorityLock(lockDirectory, storeId, 'Authority Store lock');
 
   // A dead owner (gone, or its PID recycled) is recovered at once; a live or another machine's
   // owner is never taken over on age (src/lease-liveness.mjs).
   const reclaimableLock = authorityLockReclaimable;
-
-  function sameObservedLock(left, right) {
-    if (!left || !right || !sameFileIdentity(left.info, right.info)) return false;
-    return (left.owner?.ownerSha256 ?? null) === (right.owner?.ownerSha256 ?? null)
-      && left.heartbeatModifiedAt === right.heartbeatModifiedAt;
-  }
+  const sameObservedLock = sameObservedAuthorityLock;
 
   async function reclaimLock(seen) {
     const current = await inspectLock();
@@ -1589,10 +1652,8 @@ export async function openFilesystemAuthorityStore({
           continue;
         }
         const holder = authorityLockHolder(existing);
-        fail(authorityBusyMessage('Authority Store is busy', holder), 'SGOS_AUTHORITY_STORE_BUSY', {
-          lock: lockDirectory,
-          owner: holder
-        });
+        fail(authorityBusyMessage('Authority Store is busy', holder, lockDirectory), 'SGOS_AUTHORITY_STORE_BUSY',
+          authorityBusyDetails(lockDirectory, holder));
       }
       // Publish a complete, fsynced owner atomically. Readers either see no owner (and observe the
       // acquisition grace) or the exact self-hashed record; they never accept a partial JSON write.
@@ -2090,40 +2151,11 @@ export async function openFilesystemAuthorityStore({
     },
 
     /**
-     * A person's way out of a transaction lock this machine cannot prove abandoned (another
-     * machine's owner, or a live one that stopped renewing). Only the reviewed token's generation
-     * moves, and it is retained under a unique name for inspection. A live, renewing owner here
-     * is refused.
+     * A person's way out of a transaction lock this machine cannot prove abandoned; the same
+     * reviewed release `singularity-flow lock release-file <LOCK> --confirm <TOKEN>` runs.
      */
     async releaseLockAfterReview({ expectedToken } = {}) {
-      const seen = await inspectLock();
-      if (!seen) return Object.freeze({ released: false, reason: 'already-released', lock: lockDirectory });
-      if (!seen.owner || seen.owner.token !== expectedToken) {
-        fail('Authority Store lock is no longer the reviewed one; nothing was released.',
-          'SGOS_AUTHORITY_LOCK_RELEASE_MISMATCH', { lock: lockDirectory, owner: authorityLockHolder(seen) });
-      }
-      const holder = authorityLockHolder(seen);
-      const { state, reason, heartbeat } = holder.liveness;
-      if (state === 'alive' && (reason === 'this-process' || heartbeat === 'fresh')) {
-        fail(`Authority Store lock belongs to ${holder.description}, which is running here and still renewing it; nothing was released.`,
-          'SGOS_AUTHORITY_LOCK_RELEASE_REFUSED', { lock: lockDirectory, owner: holder });
-      }
-      const current = await inspectLock();
-      if (!sameObservedLock(seen, current)) {
-        fail('Authority Store lock changed while it was being released; nothing was released.',
-          'SGOS_AUTHORITY_LOCK_RELEASE_MISMATCH', { lock: lockDirectory });
-      }
-      const retained = path.join(canonicalRoot,
-        `.transaction-lock.released-after-review-${seen.owner.token}-${randomUUID()}`);
-      try { await rename(lockDirectory, retained); } catch (error) {
-        if (['ENOENT', 'EEXIST', 'ENOTEMPTY'].includes(error?.code)) {
-          fail('Authority Store lock changed while it was being released; nothing was released.',
-            'SGOS_AUTHORITY_LOCK_RELEASE_MISMATCH', { lock: lockDirectory });
-        }
-        throw error;
-      }
-      await fsyncDirectory(canonicalRoot);
-      return Object.freeze({ released: true, lock: lockDirectory, retainedAt: retained, owner: holder });
+      return releaseAuthorityStoreLockAfterReview(lockDirectory, { expectedToken });
     },
 
     /** Read one verified snapshot only when its immutable lineage contains the approved floor. */

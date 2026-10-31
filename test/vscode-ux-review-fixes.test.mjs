@@ -64,6 +64,22 @@ test('a disabled Record approval button says what is still needed', async () => 
   assert.match(review, /missing\.push\('the typed confirmation'\)/);
 });
 
+test('a lock only a person can end: the card offers its reviewed release first, then the read, never a Copilot route', async () => {
+  // The card showed recover/phase show or help/doctor, which met the same lock again (sweep batch 1, E5/D2).
+  const { refusalEnvelope } = await import('../src/refusal-remediation.mjs');
+  const { SingularityFlowError } = await import('../src/util.mjs');
+  const { refusalFor } = await import('../apps/vscode/src/views/refusal.ts');
+  const release = 'singularity-flow lock release story SF-7 --confirm 3f2c1a9e-8b7d-4e6f-9a0b-1c2d3e4f5a6b';
+  const envelope = refusalEnvelope(new SingularityFlowError(
+    `story 'SF-7' is locked by PID 4242 on other-laptop.example. Release exactly that lease with: ${release}`,
+    { code: 'SUBJECT_LOCK_BUSY', details: { owner: { pid: 4242, host: 'other-laptop.example' }, liveness: { state: 'unknown' }, releaseCommand: release } }),
+  ['phase', 'publish', 'build', '--work-id', 'SF-7', '--json']);
+  const { view } = refusalFor({ result: envelope, message: envelope.error.message });
+  assert.deepEqual(view.actions.map((action) => action.command), [release, 'singularity-flow lock show story SF-7']);
+  assert.deepEqual([view.actions[0].emphasis, view.actions[0].copilotCommand, view.actions[0].executable], ['primary', null, false]);
+  assert.match(view.why[0].label, /other-laptop\.example/u);
+});
+
 test('a refusal plan is headed by what the person was doing, not a generic sentence', async () => {
   const { refusalEnvelope } = await import('../src/refusal-remediation.mjs');
   const { SingularityFlowError } = await import('../src/util.mjs');

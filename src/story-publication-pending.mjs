@@ -44,11 +44,20 @@ export async function assertNoPendingPublication(root, config, workflow, action 
   const pending = await storyPublicationPending(root, config, workflow.workItem.id);
   const busy = pending ? await publishingNow(root, workflow.workItem.id) : null;
   if (busy) {
-    throw new SingularityFlowError(
-      `Another command${busy.owner?.pid ? ` (PID ${busy.owner.pid})` : ''} is publishing Story '${workflow.workItem.id}' right now. `
-      + `Nothing was changed; wait for it to finish, then ${action === 'continue' ? 'retry' : `${action} again`}.`,
-      { code: 'STORY_PUBLICATION_IN_PROGRESS', details: { pid: busy.owner?.pid ?? null } }
-    );
+    // Waiting ends only a live owner here that still renews the lock. Another machine's owner, or
+    // one here that stopped renewing, is ended by a person's reviewed release: since SDA nothing
+    // takes it over by age, so "wait" became a loop (D3/E3).
+    const { heldLeaseDetails, reviewedReleaseGuidance } = await import('./subject-lock.mjs');
+    const subject = { kind: 'story', id: workflow.workItem.id };
+    const details = { pid: busy.owner?.pid ?? null, ...heldLeaseDetails(subject, busy.directory, busy.owner, busy.liveness) };
+    const again = action === 'continue' ? 'retry' : `${action} again`;
+    throw new SingularityFlowError(details.releaseCommand
+      ? `Story '${workflow.workItem.id}' is held by another command that is publishing it (PID ${busy.owner?.pid ?? 'unknown'}`
+        + ` on ${busy.owner?.host ?? 'an unknown host'}). Nothing was changed, and waiting does not end it.`
+        + `${reviewedReleaseGuidance(subject, busy.owner, busy.liveness)}. Then ${again}.`
+      : `Another command${busy.owner?.pid ? ` (PID ${busy.owner.pid})` : ''} is publishing Story '${workflow.workItem.id}' right now. `
+        + `Nothing was changed; wait for it to finish, then ${again}.`,
+    { code: 'STORY_PUBLICATION_IN_PROGRESS', details });
   }
   if (pending && !(await repairRetainedPublication(root, config, workflow, action))) {
     await enforceSequenceGate(root, workflow, 'publicationPending', action, {

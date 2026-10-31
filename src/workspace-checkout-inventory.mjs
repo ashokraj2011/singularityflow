@@ -8,7 +8,7 @@ import { captureExecutionContext } from './execution-context.mjs';
 import { SingularityFlowError, removeTemporaryTree } from './util.mjs';
 import { worktreeInventory, withCheckoutLifecycleLease } from './story-worktree.mjs';
 import { activeSubjectLocks, currentSubjectLockOwner, prepareHeldLockRemoval,
-  withRepositoryMutationLease } from './subject-lock.mjs';
+  RELEASED_LEASE_AUDIT, withRepositoryMutationLease } from './subject-lock.mjs';
 
 const hash = value => `sha256:${createHash('sha256').update(JSON.stringify(value)).digest('hex')}`;
 const ordinary = async file => {
@@ -37,7 +37,12 @@ async function checkoutPrivateState(root, common, permittedTokens = null) {
   if (metadata.includes('locks') && !await ordinary(lockRoot)) return true;
   const lockEntries = await readdir(lockRoot).catch(error => error.code === 'ENOENT' ? [] : Promise.reject(error));
   const locks = await activeSubjectLocks(root);
-  if (lockEntries.some(name => !locks.some(lock => lock.directory === path.join(lockRoot, name)))) return true;
+  // The release audit records what a person released in this clone; it holds nothing, so it goes
+  // with the clone instead of keeping it forever as private state (D8). Only a regular file is it.
+  const audit = lockEntries.includes(RELEASED_LEASE_AUDIT) && await lstat(path.join(lockRoot, RELEASED_LEASE_AUDIT))
+    .then(info => info.isFile() && !info.isSymbolicLink(), () => false);
+  if (lockEntries.some(name => !(audit && name === RELEASED_LEASE_AUDIT)
+    && !locks.some(lock => lock.directory === path.join(lockRoot, name)))) return true;
   return locks.some(lock => {
     if (!lock.owner?.subject) return true;
     const held = permittedTokens?.has(lock.owner.lockToken)

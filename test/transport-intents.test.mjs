@@ -9,7 +9,7 @@ import { runRemoteGitAsync } from '../src/git-execution.mjs';
 import {
   createTransportIntent, observeRemoteTarget, readTransportIntent, retryTransportIntent
 } from '../src/transport-intents.mjs';
-import { subjectLockPath } from '../src/subject-lock.mjs';
+import { releaseLeaseAfterReview, subjectLockPath } from '../src/subject-lock.mjs';
 
 async function fixture() {
   const base = await mkdtemp(path.join(os.tmpdir(), 'sflow-transport-'));
@@ -367,6 +367,36 @@ test('transport retry does not steal a fresh acquisition and reclaims an abandon
   assert.equal(run('git', [
     '--git-dir', item.bare, 'rev-parse', 'refs/heads/stale-lease'
   ]).stdout.trim(), item.commit);
+});
+
+test('a transport lock another machine holds names its owner and reviewed release, never a retry', async () => {
+  // TRANSPORT_INTENT_BUSY kept only the intent ID, and sync retried the same intent behind a lock
+  // nothing here ever takes over (E2).
+  const item = await fixture();
+  const created = await createTransportIntent({
+    repositoryRoot: item.work, sourceCommit: item.commit,
+    targetRef: 'refs/heads/held-elsewhere', expectedRemote: null
+  }, item.options);
+  const subject = { kind: 'transport-intent', id: created.intentId };
+  const lock = subjectLockPath(item.work, subject);
+  const lockToken = '7c0f2a51-9a36-4d0b-8b5e-0f6a1d2c3b4e';
+  await mkdir(lock, { recursive: true });
+  await writeFile(path.join(lock, 'owner.json'), `${JSON.stringify({ schemaVersion: 1, subject, pid: 4242,
+    host: 'other-laptop.example', machineId: '0a1b2c3d-0000-4000-8000-000000000000', processToken: 'elsewhere',
+    lockToken, acquiredAt: '2026-10-01T00:00:00.000Z', expiresAt: '2026-10-01T03:00:00.000Z' })}\n`);
+  const release = `singularity-flow lock release transport-intent ${created.intentId} --confirm ${lockToken}`;
+  await assert.rejects(() => retryTransportIntent(created.intentId, item.options), (error) => {
+    assert.equal(error.code, 'TRANSPORT_INTENT_BUSY');
+    assert.equal(error.details.intentId, created.intentId);
+    assert.equal(error.details.releaseCommand, release);
+    assert.equal(error.details.owner.host, 'other-laptop.example');
+    assert.match(error.message, /PID 4242 on other-laptop\.example/u);
+    assert.ok(error.message.includes(release), error.message);
+    return true;
+  });
+  assert.equal((await readTransportIntent(created.intentId, item.options)).attemptBudget.used, 0);
+  await releaseLeaseAfterReview(item.work, subject, { expectedLockToken: lockToken });
+  assert.equal((await retryTransportIntent(created.intentId, item.options)).status, 'succeeded');
 });
 
 test('a successful exact push remains proven when its post-push observation is unavailable', async () => {

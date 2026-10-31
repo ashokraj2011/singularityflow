@@ -454,6 +454,11 @@ export function leaseReleaseCommand(subject, lockToken) {
   return `singularity-flow lock release ${shellWord(subject.kind)} ${shellWord(subject.id)} --confirm ${shellWord(lockToken)}`;
 }
 
+/** The read a person reviews before that release; `inspectSubjectLease` answers it. */
+export function leaseShowCommand(subject) {
+  return `singularity-flow lock show ${shellWord(subject.kind)} ${shellWord(subject.id)}`;
+}
+
 /**
  * Whether only a person can end this lease: its owner runs on another machine, or runs here but
  * stopped renewing. A live, renewing owner here ends it by finishing or exiting.
@@ -468,13 +473,28 @@ function holderDescription(owner, liveness) {
   return owner ? describeLeaseOwner(owner, liveness) : 'another process that is still acquiring it';
 }
 
-function reviewedReleaseGuidance(subject, owner, liveness) {
+/**
+ * The words a refusal over a held lease adds when only a person can end it: why waiting never ends
+ * it, the read to review, then the exact reviewed release. Empty for a live, renewing owner here.
+ */
+export function reviewedReleaseGuidance(subject, owner, liveness) {
   if (!needsReviewedRelease(owner, liveness)) return '';
   const why = liveness.state === 'unknown'
     ? 'That process runs on another machine, so this one cannot prove it stopped and never takes the lock over.'
     : 'That process is still running here but stopped renewing the lock; it is not taken over while it runs. Stopping it frees the lock.';
-  return ` ${why} After checking that it no longer works on this ${subject.kind}, release exactly that lease with: `
-    + leaseReleaseCommand(subject, owner.lockToken);
+  return ` ${why} Review it with: ${leaseShowCommand(subject)}. After checking that it no longer works on this `
+    + `${subject.kind}, release exactly that lease with: ${leaseReleaseCommand(subject, owner.lockToken)}`;
+}
+
+/**
+ * The details every refusal over a held lease carries: the lock, its owner and liveness, and, when
+ * only a person can end it, the exact reviewed release (the recovery plan's own-terminal step).
+ */
+export function heldLeaseDetails(subject, directory, owner, liveness) {
+  return {
+    lock: directory, owner: owner ?? null, liveness: leaseDetails(liveness),
+    ...(needsReviewedRelease(owner, liveness) ? { releaseCommand: leaseReleaseCommand(subject, owner.lockToken) } : {})
+  };
 }
 
 function leaseDetails(liveness) {
@@ -494,13 +514,13 @@ async function assertNoRepositoryResetBarrier(root) {
       if (await directoryAge(directory) === null) return;
       continue;
     }
+    const reviewed = reviewedReleaseGuidance(RESET_BARRIER_SUBJECT, state.owner, state.liveness);
     throw new SingularityFlowError(
       `Repository reinitialization is in progress (${holderDescription(state.owner, state.liveness)}). `
-      + 'Wait for it to finish before starting work.'
-      + reviewedReleaseGuidance(RESET_BARRIER_SUBJECT, state.owner, state.liveness),
+      + (reviewed ? `Waiting does not end it.${reviewed}` : 'Wait for it to finish before starting work.'),
       {
         code: 'FACTORY_RESET_IN_PROGRESS',
-        details: { lock: directory, owner: state.owner, liveness: leaseDetails(state.liveness) }
+        details: heldLeaseDetails(RESET_BARRIER_SUBJECT, directory, state.owner, state.liveness)
       }
     );
   }
@@ -577,7 +597,9 @@ export async function assertNoActiveSubjectLocks(root) {
     + 'Wait for them to finish or stop them through their normal recovery path, then preview again.'
     + (reviewed ? ' A lock from another machine, or one whose process stopped renewing it, ends only by a '
       + `reviewed release, for example: ${leaseReleaseCommand(reviewed.owner.subject, reviewed.owner.lockToken)}` : ''),
-    { code: 'FACTORY_RESET_ACTIVE_OPERATIONS', details: { locks } }
+    { code: 'FACTORY_RESET_ACTIVE_OPERATIONS', details: {
+      locks, ...(reviewed ? { releaseCommand: leaseReleaseCommand(reviewed.owner.subject, reviewed.owner.lockToken) } : {})
+    } }
   );
 }
 
@@ -1015,13 +1037,7 @@ function busyError(subject, directory, existing = null, liveness = null) {
   return new SingularityFlowError(
     `${subject.kind} '${subject.id}' is locked by ${holderDescription(existing, liveness)}. `
     + `The lock is ${directory}; ${reviewed ? reviewed.trim() : automatic}`,
-    {
-      code: 'SUBJECT_LOCK_BUSY',
-      details: {
-        subject, lock: directory, owner: existing, liveness: leaseDetails(liveness),
-        ...(reviewed ? { releaseCommand: leaseReleaseCommand(subject, existing.lockToken) } : {})
-      }
-    }
+    { code: 'SUBJECT_LOCK_BUSY', details: { subject, ...heldLeaseDetails(subject, directory, existing, liveness) } }
   );
 }
 
@@ -1156,8 +1172,11 @@ export async function inspectSubjectLease(root, subject) {
   });
 }
 
+/** The release audit beside the locks: a record of what a person released, never a held lock. */
+export const RELEASED_LEASE_AUDIT = 'released-leases.jsonl';
+
 export function releasedLeaseAuditPath(root) {
-  return path.join(gitCommonDir(root), 'singularity-flow', 'locks', 'released-leases.jsonl');
+  return path.join(gitCommonDir(root), 'singularity-flow', 'locks', RELEASED_LEASE_AUDIT);
 }
 
 /**
@@ -1179,8 +1198,10 @@ export async function releaseLeaseAfterReview(root, subject, { expectedLockToken
     throw new SingularityFlowError(
       `The ${subject.kind} '${subject.id}' lease is no longer the reviewed one `
       + `(${state.owner ? `now token ${state.owner.lockToken}, ${holderDescription(state.owner, state.liveness)}` : 'its owner is still being written'}). `
-      + 'Nothing was released; review it again.',
-      { code: 'SUBJECT_LOCK_RELEASE_MISMATCH', details: { subject, lock: directory, owner: state.owner ?? null } }
+      + `Nothing was released; review it again with: ${leaseShowCommand(subject)}`,
+      { code: 'SUBJECT_LOCK_RELEASE_MISMATCH', details: {
+        subject, lock: directory, owner: state.owner ?? null, nextAction: leaseShowCommand(subject)
+      } }
     );
   }
   const liveness = state.liveness;
@@ -1193,8 +1214,9 @@ export async function releaseLeaseAfterReview(root, subject, { expectedLockToken
   }
   if (!await retireObservedDirectory(directory, state, { expectedOwner: state.owner, hooks })) {
     throw new SingularityFlowError(
-      `The ${subject.kind} '${subject.id}' lease changed while it was being released. Nothing else was removed; review it again.`,
-      { code: 'SUBJECT_LOCK_RELEASE_MISMATCH', details: { subject, lock: directory } }
+      `The ${subject.kind} '${subject.id}' lease changed while it was being released. Nothing else was removed; `
+      + `review it again with: ${leaseShowCommand(subject)}`,
+      { code: 'SUBJECT_LOCK_RELEASE_MISMATCH', details: { subject, lock: directory, nextAction: leaseShowCommand(subject) } }
     );
   }
   const owner = state.owner;

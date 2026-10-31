@@ -15,7 +15,7 @@ import { assertPhaseSequence } from '../src/sequence.mjs';
 import { readFileSync } from 'node:fs';
 import YAML from 'yaml';
 import { resolveWorkType } from '../src/config.mjs';
-import { CLI_PATH_CONTRACT, CLI_PATH_REFERENCE, renderPlatformCommand, validateSafeSflowCommand, validateSflowExecutionCommand } from '../src/safe-command-guidance.mjs';
+import { CLI_PATH_CONTRACT, CLI_PATH_REFERENCE, renderPlatformCommand, safeCommandGuidance, validateSafeSflowCommand, validateSflowExecutionCommand } from '../src/safe-command-guidance.mjs';
 import { readCopilotStoryFollow } from '../src/copilot-story-follow.mjs';
 import { gitDir } from '../src/git-execution.mjs';
 import { recordCopilotSession } from '../src/session.mjs';
@@ -855,14 +855,23 @@ test('every step only a person takes in their own terminal is refused in every t
     assert.equal(ownTerminalStep(command), null, command);
   }
   const allowed = [];
+  // Each is refused for what it is, with the person's exact terminal line as the route: a generic
+  // turn-mode or tool-form refusal pointed a lock release at "no chains or wrappers" (E5/D2, 2026-10-31).
+  const generic = /PHASE_MUTATION_SHELL_COMMAND_UNVERIFIED|not permitted by the bound turn mode|PHASE_MUTATION_TOOL_PROTOCOL|PHASE_MUTATION_DECISION_TURN_ENDED/u;
+  const unrouted = [];
   for (const [skill, session] of [['/sf-phase', 'author'], ['/sf-recover', 'kernel'], ['/sf-decide PMC-1', 'own-terminal-decider']]) {
     const payload = await f.enter(skill, session);
     for (const command of Object.values(steps).flat()) {
       const decision = await mutationToolGuard({ ...payload, toolName: 'bash', toolArgs: { command, cwd: f.root } });
       if (decision.permissionDecision !== 'deny') allowed.push(`${skill}: ${command}`);
+      else if (generic.test(decision.permissionDecisionReason) || !(decision.next ?? []).some((route) =>
+        JSON.stringify(route.argv) === JSON.stringify(safeCommandGuidance({ command })?.argv))) {
+        unrouted.push(`${skill}: ${command} -> ${decision.permissionDecisionReason.split('.')[0]} | ${JSON.stringify((decision.next ?? []).map((route) => route.command))}`);
+      }
     }
   }
   assert.deepEqual(allowed, []);
+  assert.deepEqual(unrouted, [], 'every own-terminal step is refused for what it is and routed to its exact command');
   // An authoring agent ran under the person's Git identity, so a witness from it was the person's sign-off.
   const author = await f.enter('/sf-phase', 'author');
   for (const command of [...steps.witness, ...steps.risk]) {

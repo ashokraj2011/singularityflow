@@ -17,8 +17,14 @@
  *
  * Same machine means the same `machineId` (a random ID kept in machine state, so it survives a
  * hostname change); records without one, or a machine whose ID file cannot be written, compare by
- * hostname as before. A home restored onto, or shared with, another computer carries that ID along,
- * so before a dead owner is taken over the hardware is confirmed once (`machineStillHere`).
+ * hostname as before. A home restored onto, or shared with, another computer carries that ID along:
+ * - Each owner record carries a digest of the hardware it ran on (`hardwareDigest`, read once per
+ *   process). An owner whose PID is gone is judged by it first: other hardware is unknown, the same
+ *   hardware is this computer. Two computers sharing one home at the same time read one machine ID,
+ *   so only the record itself can tell them apart.
+ * - A record without one (an older build, or hardware that cannot be read) is confirmed against the
+ *   hardware the machine ID was first confirmed on (`machineStillHere`), which catches a restored
+ *   home but not a home two computers share at once.
  * A stale heartbeat is reported, never acted on.
  */
 import { createHash, randomUUID } from 'node:crypto';
@@ -102,11 +108,13 @@ const ownPidNamespace = () => (pidNamespace === undefined ? (pidNamespace = loca
 export function leaseOwnerIdentity() {
   const machineId = localMachineId();
   const namespace = ownPidNamespace();
+  const hardwareDigest = ownLeaseHardwareDigest();
   return {
     pid: process.pid,
     host: os.hostname(),
     ...(machineId ? { machineId } : {}),
     ...(namespace ? { pidNamespace: namespace } : {}),
+    ...(hardwareDigest ? { hardwareDigest } : {}),
     processStartedAt: LEASE_PROCESS_STARTED_AT,
     processToken: LEASE_PROCESS_TOKEN
   };
@@ -132,12 +140,35 @@ export function machineHardwareId({ platform = process.platform, readFile = read
 
 let hardwareProbe = machineHardwareId;
 const hardwareDigests = new Map();
+// This computer's hardware ID, read at most once per process (undefined: not read yet).
+let probedHardware;
+let leaseHardwareDigest;
+
+function ownHardware() {
+  if (probedHardware === undefined) probedHardware = hardwareProbe() || null;
+  return probedHardware;
+}
+
+/**
+ * The hardware digest an owner record carries: domain-separated and shortened, so it tells two
+ * computers apart without being the hardware ID, or the digest kept beside the machine ID.
+ */
+function ownLeaseHardwareDigest() {
+  if (leaseHardwareDigest === undefined) {
+    const hardware = ownHardware();
+    leaseHardwareDigest = hardware
+      ? createHash('sha256').update(`singularity-flow lease owner hardware\0${hardware}`).digest('hex').slice(0, 16) : null;
+  }
+  return leaseHardwareDigest;
+}
 
 /** @internal Test-only: replace the hardware read (null restores it) and forget what was read. */
 export function setMachineHardwareProbeForTests(probe = null) {
   if (probe !== null && typeof probe !== 'function') throw new TypeError('The hardware probe must be a function or null.');
   hardwareProbe = probe ?? machineHardwareId;
   hardwareDigests.clear();
+  probedHardware = undefined;
+  leaseHardwareDigest = undefined;
 }
 
 function replaceFile(file, text) {
@@ -164,7 +195,7 @@ function machineStillHere() {
   const onDisk = readMachineId(file);
   if (onDisk && onDisk !== id) { machineIds.set(file, onDisk); return false; }
   if (!hardwareDigests.has(file)) {
-    const hardware = hardwareProbe();
+    const hardware = ownHardware();
     hardwareDigests.set(file, hardware ? createHash('sha256').update(String(hardware)).digest('hex') : null);
   }
   const digest = hardwareDigests.get(file);
@@ -256,7 +287,15 @@ export function leaseOwnerAssessment(owner, {
   if (!sameMachine(owner)) return answer('unknown', 'other-machine', false);
   // A record without a namespace (an older build, or not Linux) is judged by its PID as before.
   if (owner?.pidNamespace && owner.pidNamespace !== readerNamespace) return answer('unknown', 'other-pid-namespace', false);
-  const dead = (reason) => (machineStillHere() ? answer('dead', reason, true) : answer('unknown', 'machine-hardware-changed', false));
+  const dead = (reason) => {
+    // The owner's own record of its hardware decides first: a computer sharing this home at the same
+    // time carries this machine ID and its PIDs are not this process table's (D4).
+    const recorded = typeof owner?.hardwareDigest === 'string' && owner.hardwareDigest ? owner.hardwareDigest : null;
+    const here = recorded ? ownLeaseHardwareDigest() : null;
+    if (here && here !== recorded) return answer('unknown', 'other-hardware', false);
+    if (here) return answer('dead', reason, true);
+    return machineStillHere() ? answer('dead', reason, true) : answer('unknown', 'machine-hardware-changed', false);
+  };
   const pid = owner?.pid;
   if (!Number.isInteger(pid) || pid <= 0) return dead('no-process');
   if (pidState(pid) === 'gone') return dead('process-exited');

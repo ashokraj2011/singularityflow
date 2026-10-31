@@ -2016,7 +2016,8 @@ async function withProcessLock(root, processId, callback, timeoutMs = 2_000, {
         && error.details.subject.id === processId
         && (holder === null || (holder.pid === process.pid && holder.host === os.hostname()));
       const waitMs = sibling ? Math.max(timeoutMs, SIBLING_PROCESS_LOCK_WAIT_MS) : timeoutMs;
-      if (Date.now() - startedAt >= waitMs) throw error;
+      // A lock only a person can end (its refusal names the reviewed release) never frees by waiting.
+      if (error.details?.releaseCommand || Date.now() - startedAt >= waitMs) throw error;
       await new Promise((resolve) => setTimeout(resolve, 10));
     }
   }

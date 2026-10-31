@@ -306,7 +306,11 @@ test('the common session projection does not import attach, state stores or publ
   // 3,990,000: main 318c42d82 measures 3,980,854; lease identity for shared and restored homes (lease-liveness.mjs:
   // the owner's PID namespace, and the hardware confirmed once before a dead owner is taken over) adds 4,980 for
   // 3,985,834. No new file.
-  assert.ok(current.bytes <= 3_990_000, `session current loads ${current.bytes} source bytes`);
+  // 3,995,000: main 6585b9b0b measures 3,987,796; locks only a person can end (sweep batch 1): each owner record's
+  // hardware digest (lease-liveness.mjs, +1,970), the lock's read and its reviewed release in every refusal's details
+  // (subject-lock.mjs, +1,365), the selection refusal keeping them (workspace-context.mjs, +321) and lock show-file
+  // (command-registry.mjs, +90) add 3,746 for 3,991,542. No new file.
+  assert.ok(current.bytes <= 3_995_000, `session current loads ${current.bytes} source bytes`);
 });
 
 test('early phase and grounding-path entries exclude the deferred authoring and review graphs', async () => {

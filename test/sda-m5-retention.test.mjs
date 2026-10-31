@@ -85,6 +85,9 @@ test('an unused clone holding only rebuildable projections is cleaned up; author
   await place(path.join(runtime, 'cache', 'repository-checks', 'refresh.json'));
   await place(path.join(runtime, 'cache', 'publishing-commits.json'));
   assert.equal(await eligible(), true, 'the read index and derived caches are rebuilt by the next read');
+  // A person's reviewed lock release, recorded beside the locks, holds nothing: it kept the clone forever (D8).
+  await place(path.join(runtime, 'locks', 'released-leases.jsonl'), '{"releasedAt":"2026-10-31T00:00:00.000Z"}\n');
+  assert.equal(await eligible(), true, 'the release audit holds no lock');
   // Authored or recovery state keeps it, each on its own.
   for (const [what, file, directory] of [
     ['a configuration draft', path.join(runtime, 'configuration-drafts', 'v2', `cdr-${'b'.repeat(24)}.json`), path.join(runtime, 'configuration-drafts')],

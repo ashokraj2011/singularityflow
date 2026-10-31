@@ -13,7 +13,7 @@ const stagingPaths = () => import('./phase-staging-paths.mjs');
 import { parseArgs } from './util.mjs';
 import { AGENT_OUTPUT_FOLDER, lineRanges, READ_CHUNK_BYTES } from './agent-output-folder.mjs';
 import { canonicalCommand, resolveOperation } from './command-registry.mjs';
-import { DECISION_LIST_CHAT_OPTIONS, liveTerminalReviewStep, planRowCorrectionStep } from './command-skills.mjs';
+import { DECISION_LIST_CHAT_OPTIONS, liveTerminalReviewStep, OWN_TERMINAL_STEPS, planRowCorrectionStep } from './command-skills.mjs';
 import { currentSchemaVersion, readRecord } from './schema-migrations.mjs';
 import { CLI_PATH_REFERENCE, safeCommandGuidance, validateSflowExecutionCommand } from './safe-command-guidance.mjs';
 
@@ -759,6 +759,30 @@ function environmentBinding(call, value) {
 }
 const ENVIRONMENT_BINDING_DENIAL = 'PHASE_MUTATION_OPERATION_NOT_ALLOWED: environment values are bound and removed only by the person: they pipe their own secret helper into `singularity-flow env bind <ENV> --stdin`, or run `singularity-flow env unbind <ENV> --json`, in their own terminal. Give them that command; never ask for, type or pipe a value';
 
+/** A verified `lock release` or `release-file`: ending another process's lock is a person's reviewed step (SDA M3). */
+function lockReleaseCall(call, value) {
+  const safe = verifiedShellForm(call, value);
+  if (!safe) return false;
+  const { positionals } = parseCli(safe.argv);
+  return positionals[0] === 'lock' && ['release', 'release-file'].includes(positionals[1]);
+}
+/** The OWN_TERMINAL_STEPS entry (command-skills.mjs) a verified command is, or null. */
+function ownTerminalStepCall(call, value) {
+  const safe = verifiedShellForm(call, value);
+  if (!safe) return null;
+  const { positionals, options } = parseCli(safe.argv);
+  return OWN_TERMINAL_STEPS.find((step) => step.matches(positionals, options))?.id ?? null;
+}
+// What each person's own step is, for the ones no earlier refusal names; any later entry still gets
+// the person's exact terminal line instead of a turn-mode or tool-form refusal (E5/D2, 2026-10-31).
+const OWN_STEP_DENIALS = Object.freeze({
+  'apm-install': 'PHASE_MUTATION_OPERATION_NOT_ALLOWED: installing or updating agent packages changes which agents run in this repository; the person runs it in their own terminal (its --dry-run preview may run here). Show the user the preview and the command, and stop; do not retry it',
+  'apm-organisation': 'PHASE_MUTATION_OPERATION_NOT_ALLOWED: publishing agents, or changing the organisation\'s marketplace or policy, changes what other teams run; the person runs it in their own terminal (its --dry-run preview may run here). Show the user the preview and the command, and stop; do not retry it',
+  'upstream-amendment-decision': 'PHASE_MUTATION_OPERATION_NOT_ALLOWED: an amendment of an earlier step, and its revalidation, is decided by that step\'s approvers in their own terminal, not by this turn. Show the user the command and stop; do not retry it'
+});
+const OWN_STEP_DENIAL = 'PHASE_MUTATION_OPERATION_NOT_ALLOWED: this is the person\'s own step; they run this exact command in their own terminal and no turn runs it. Show the user the command and stop; do not retry it';
+const LOCK_RELEASE_DENIAL = 'PHASE_MUTATION_OPERATION_NOT_ALLOWED: ending a lock another process holds is the person\'s own step: they check that the process the refusal named no longer works on it (`singularity-flow lock show` or `lock show-file` reads it), then run this exact release in their own terminal. Show the user who holds the lock and the command, and stop; do not retry it or wait for the lock';
+
 /** A verified `action execute` this turn refused for the planned command it would run. */
 function plannedActionExecution(call, value) {
   const safe = verifiedShellForm(call, value);
@@ -1290,6 +1314,8 @@ async function mutationToolDecision(payload, record) {
     if (guarded.some(call => TERMINALS.has(call.name) && targetOriginPinCall(call, bootstrap))) {
       return { permissionDecision: 'deny', next: [], permissionDecisionReason: TARGET_ORIGIN_PIN_DENIAL };
     }
+    const release = guarded.find(call => TERMINALS.has(call.name) && lockReleaseCall(call, bootstrap));
+    if (release) return mutationDenial(null, LOCK_RELEASE_DENIAL, [], personRoute(release, bootstrap));
     const hostOnly = guarded.map(call => TERMINALS.has(call.name) && hostOnlyDenial(call, bootstrap)).find(Boolean);
     if (hostOnly) {
       return { permissionDecision: 'deny', next: [], permissionDecisionReason: hostOnly };
@@ -1322,6 +1348,7 @@ async function mutationToolDecision(payload, record) {
         // A person's own step: the denial shows the person its exact terminal line, never the turn's generic route.
         const own = () => personRoute(call, value);
         if (environmentBinding(call, value)) return mutationDenial(contract, ENVIRONMENT_BINDING_DENIAL, [], own());
+        if (lockReleaseCall(call, value)) return mutationDenial(contract, LOCK_RELEASE_DENIAL, [], own());
         if (plannedActionExecution(call, value)) return mutationDenial(contract, PLANNED_ACTION_DENIAL, [], own());
         const hostOnly = hostOnlyDenial(call, value);
         if (hostOnly) return mutationDenial(contract, hostOnly);
@@ -1337,7 +1364,7 @@ async function mutationToolDecision(payload, record) {
         if (intentAmendmentDecisionCall(call, value)) return mutationDenial(contract,
           'PHASE_MUTATION_OPERATION_NOT_ALLOWED: an intent amendment is decided by a person who approves the scope, in their own terminal, not by this turn. Show the user the amendment and the decide command, and stop; do not retry it', [], own());
         if (approvalEvidenceConfirmationCall(call, value)) return mutationDenial(contract,
-          'PHASE_MUTATION_OPERATION_NOT_ALLOWED: approving with --confirm-evidence also records the step\'s screenshots and inspections as witnessed, the word of the approver who looked at them, in their own terminal; an agent never signs off evidence. Approve here without it, or show the user the command and stop; do not retry it');
+          'PHASE_MUTATION_OPERATION_NOT_ALLOWED: approving with --confirm-evidence also records the step\'s screenshots and inspections as witnessed, the word of the approver who looked at them, in their own terminal; an agent never signs off evidence. Approve here without it, or show the user the command and stop; do not retry it', [], own());
         if (clarificationAnswerCall(call, value)) return mutationDenial(contract,
           'PHASE_MUTATION_OPERATION_NOT_ALLOWED: a clarification answer from another clone is the approver\'s own word, committed under their Git identity, in their own terminal (singularity-flow clarification answer <step> --question "<QUESTION>" --answer "<ANSWER>"); the author\'s checkout then runs singularity-flow clarification import <step>. Show the user the command and stop; do not retry it', [], own());
         if (planRowCorrectionCall(call, value)) return mutationDenial(contract,
@@ -1348,6 +1375,8 @@ async function mutationToolDecision(payload, record) {
           'PHASE_MUTATION_OPERATION_NOT_ALLOWED: witnessing a criterion\'s evidence or accepting a dated obligation risk is the word of a person who approves the step that delivered it, after looking for themselves, in their own terminal; an agent never signs off its own work. Show the user the command and stop; do not retry it', [], own());
         if (testRunRiskDecision(call, value)) return mutationDenial(contract,
           'PHASE_MUTATION_OPERATION_NOT_ALLOWED: accepting that a step\'s tests cannot run here or ran narrowed, reusing an earlier step\'s recorded run for it, that one of its screen sizes does not apply, or how a closed Story\'s drifted clause is resolved, is decided by a person who approves that step, in their own terminal, not by this turn. Show the user the command and stop; do not retry it', [], own());
+        const ownStep = ownTerminalStepCall(call, value);
+        if (ownStep) return mutationDenial(contract, OWN_STEP_DENIALS[ownStep] ?? OWN_STEP_DENIAL, [], own());
         if (contract.turnMode !== 'authoring' && verifiedShellForm(call, value)) {
           return mutationDenial(contract, value.decisionEnded
             ? 'PHASE_MUTATION_DECISION_TURN_ENDED: the decision turn has ended. Preserve work and inspect the returned next action in a new turn; correcting command syntax cannot reopen approval'

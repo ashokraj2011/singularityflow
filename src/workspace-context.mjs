@@ -49,10 +49,13 @@ async function withActiveSelectionLease(selectionFile, operation) {
     });
   } catch (error) {
     if (error?.code !== 'WORKSPACE_REGISTRY_BUSY') throw error;
-    throw new SingularityFlowError(
-      'The active workspace selection is busy in another process. Retry the command.',
-      { code: 'ACTIVE_WORKSPACE_SELECTION_BUSY' }
-    );
+    // Keep who holds it and, when only a person can end it, the exact reviewed release: "retry"
+    // looped forever on a lease another machine left behind (E1).
+    const details = { ...(error.details ?? {}) };
+    throw new SingularityFlowError(details.releaseCommand
+      ? `The active workspace selection is held. ${error.message}`
+      : 'The active workspace selection is busy in another process. Retry the command.',
+    { code: 'ACTIVE_WORKSPACE_SELECTION_BUSY', details, cause: error });
   }
 }
 

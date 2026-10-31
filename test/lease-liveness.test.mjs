@@ -12,13 +12,14 @@
  * laptop's. A different PID namespace, or hardware other than the ID was confirmed on, is unknown.
  */
 import assert from 'node:assert/strict';
-import { spawn } from 'node:child_process';
+import { spawn, spawnSync } from 'node:child_process';
 import { randomUUID } from 'node:crypto';
 import { existsSync, readlinkSync } from 'node:fs';
 import { mkdir, mkdtemp, readFile, rm, stat, utimes, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
+import { fileURLToPath } from 'node:url';
 
 import {
   LEASE_PROCESS_STARTED_AT, leaseOwnerAssessment, leaseOwnerIdentity, leaseOwnerState,
@@ -31,13 +32,27 @@ import {
   repositoryResetBarrierPath, subjectLockPath, withSubjectLock
 } from '../src/subject-lock.mjs';
 import { releaseRegistryLeaseAfterReview, withRegistryFileLease } from '../src/file-lease.mjs';
-import { livePreparedPublicationOwner } from '../src/publication-pending.mjs';
+import { activePublicationRefusal, livePreparedPublicationOwner } from '../src/publication-pending.mjs';
 import { openFilesystemAuthorityStore } from '../src/sgos/platform/authority-store.mjs';
+import { lockCommand } from '../src/commands/lock.mjs';
 import { platformSha256 } from '../src/sgos/platform/contracts.mjs';
 import { withMachineStateResetBarrier } from '../src/machine-state-reset.mjs';
 import { run } from '../src/util.mjs';
 
 const DEAD_PID = 2_147_483_647;
+const CLI = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../bin/singularity-flow.mjs');
+
+/** The real CLI, as a person runs it: `json` parses its output (a result, or a refusal envelope). */
+function sflow(cwd, args, env = {}) {
+  const result = spawnSync(process.execPath, [CLI, ...args], { cwd, env: { ...process.env, ...env }, encoding: 'utf8', timeout: 120_000 });
+  return { status: result.status, out: `${result.stdout}${result.stderr}`, json: () => JSON.parse(result.stdout) };
+}
+
+/** A lease owner record from another computer: nothing here can prove it stopped. */
+function remoteOwner(extra = {}) {
+  return { pid: 4242, host: 'other-laptop.example', machineId: randomUUID(), processToken: randomUUID(),
+    processStartedAt: Date.parse('2026-10-01T00:00:00.000Z'), ...extra };
+}
 const HOURS_AGO = (hours) => new Date(Date.now() - hours * 60 * 60 * 1000);
 
 async function repository(t) {
@@ -356,7 +371,7 @@ test('a machine ID found on other hardware is replaced, and owners under the old
   assert.equal(localMachineId(), fresh);
 });
 
-test('ordinary acquisition, renewal and refusal never read the hardware', async (t) => {
+test('ordinary acquisition reads the hardware once per process; renewal and refusal never do', async (t) => {
   const reads = [];
   await ownMachineState(t, reads, { id: 'HARDWARE-ONE' });
   const root = await repository(t);
@@ -385,7 +400,9 @@ test('ordinary acquisition, renewal and refusal never read the hardware', async 
     await writeSubjectOwner(root, locked, owner, { heartbeatAt: new Date() });
     await assert.rejects(() => acquireSubjectLock(root, locked), (error) => error.code === 'SUBJECT_LOCK_BUSY');
   }
-  assert.deepEqual(reads, []);
+  // Read once, for the digest every owner record this process writes carries (two computers sharing
+  // one home read one machine ID, so only the record can tell them apart).
+  assert.deepEqual(reads, ['HARDWARE-ONE']);
 });
 
 test('a machine reset keeps the machine ID and the hardware it was confirmed on', async (t) => {
@@ -534,4 +551,196 @@ test('the SGOS Authority Store keeps a live owner whose heartbeat stopped', asyn
   }), (error) => error.code === 'SGOS_AUTHORITY_STORE_BUSY' && error.details.owner.liveness.state === 'alive'
     && error.details.owner.liveness.heartbeat === 'missing');
   assert.equal(JSON.parse(await readFile(path.join(lock, 'owner.json'), 'utf8')).token, core.token);
+});
+
+test('two computers sharing one home at the same time never take over each other\'s lease', async (t) => {
+  // Computer B used to take computer A's live lease over once B had rotated the shared machine ID:
+  // A's new owners carried that ID, A's PIDs were not in B's process table, and B's hardware matched
+  // the shared record (D4). Each owner record now names the hardware it ran on.
+  const reads = [];
+  const hardware = { id: 'COMPUTER-A' };
+  await ownMachineState(t, reads, hardware);
+  const root = await repository(t);
+  const onA = leaseOwnerIdentity();
+  assert.match(onA.hardwareDigest, /^[0-9a-f]{16}$/u, 'a digest of the hardware, never the hardware ID');
+  assert.ok(!JSON.stringify(onA).includes('COMPUTER-A'));
+  const machineId = localMachineId();
+
+  // B: the same machine ID, other hardware, and A's PID is not running here.
+  setMachineHardwareProbeForTests(() => { reads.push('COMPUTER-B'); return 'COMPUTER-B'; });
+  const fromA = { ...onA, pid: DEAD_PID };
+  assert.deepEqual([leaseOwnerAssessment(fromA).state, leaseOwnerAssessment(fromA).reason], ['unknown', 'other-hardware']);
+  const subject = { kind: 'story', id: 'SHARED-HOME' };
+  const { record } = await writeSubjectOwner(root, subject, fromA);
+  await assert.rejects(() => acquireSubjectLock(root, subject), (error) => {
+    assert.equal(error.code, 'SUBJECT_LOCK_BUSY');
+    assert.deepEqual([error.details.liveness.state, error.details.liveness.reason], ['unknown', 'other-hardware']);
+    assert.equal(error.details.releaseCommand, `singularity-flow lock release story SHARED-HOME --confirm ${record.lockToken}`);
+    assert.match(error.message, /Review it with: singularity-flow lock show story SHARED-HOME\./u);
+    return true;
+  });
+  assert.equal(localMachineId(), machineId, 'nothing rotated the shared machine ID');
+  const manifest = path.join(root, 'workspace.json');
+  await writeFile(manifest, '{}\n');
+  await writeRegistryLease(`${manifest}.lock`, fromA, HOURS_AGO(1));
+  await assert.rejects(() => withRegistryFileLease(manifest, async () => {}, { timeoutMs: 200 }),
+    (error) => error.code === 'WORKSPACE_REGISTRY_BUSY' && error.details.liveness.reason === 'other-hardware');
+  await rm(`${manifest}.lock`);
+
+  // Back on A: its own dead owner is its own, and is taken over as before.
+  setMachineHardwareProbeForTests(() => 'COMPUTER-A');
+  assert.equal(leaseOwnerState(fromA), 'dead');
+  assert.equal(await releaseSubjectLock(root, subject, await acquireSubjectLock(root, subject)), true);
+});
+
+test('the lock command runs while another machine\'s reset barrier holds the repository, and ends it', async (t) => {
+  // `lock release` was wrapped in the repository mutation lease, which met the barrier it was meant to
+  // release: every command, the release included, refused with the same release command (D1).
+  const root = await repository(t);
+  run('git', ['commit', '-q', '--allow-empty', '-m', 'init'], { cwd: root });
+  const barrier = repositoryResetBarrierPath(root);
+  await mkdir(barrier, { recursive: true });
+  const lockToken = randomUUID();
+  await writeFile(path.join(barrier, 'owner.json'), `${JSON.stringify({ schemaVersion: 1,
+    subject: { kind: 'factory-reset-barrier', id: 'repository' }, ...remoteOwner(), lockToken,
+    acquiredAt: '2026-10-01T00:00:00.000Z', expiresAt: '2026-10-01T03:00:00.000Z' })}\n`);
+  const release = `singularity-flow lock release factory-reset-barrier repository --confirm ${lockToken}`;
+
+  const refused = sflow(root, ['sync', '--json']);
+  assert.equal(refused.status, 1, refused.out);
+  const envelope = refused.json();
+  assert.equal(envelope.error.code, 'FACTORY_RESET_IN_PROGRESS');
+  assert.doesNotMatch(envelope.error.message, /Wait for it to finish/u);
+  assert.match(envelope.error.message, /PID 4242 on other-laptop\.example/u);
+  assert.equal(envelope.error.details.releaseCommand, release);
+  assert.deepEqual(envelope.remediationPlan.steps.map((step) => step.command),
+    [release, 'singularity-flow lock show factory-reset-barrier repository']);
+
+  // Another lock's reviewed release runs while the barrier is up, and so does the barrier's own.
+  const story = { kind: 'story', id: 'BARRIER-1' };
+  const { record } = await writeSubjectOwner(root, story, remoteOwner());
+  const storyRelease = sflow(root, ['lock', 'release', 'story', 'BARRIER-1', '--confirm', record.lockToken, '--json']);
+  assert.equal(storyRelease.status, 0, storyRelease.out);
+  assert.equal(storyRelease.json().released, true);
+  const shown = sflow(root, ['lock', 'show', 'factory-reset-barrier', 'repository', '--json']);
+  assert.equal(shown.status, 0, shown.out);
+  assert.equal(shown.json().releaseCommand, release);
+  const released = sflow(root, ['lock', 'release', 'factory-reset-barrier', 'repository', '--confirm', lockToken, '--json']);
+  assert.equal(released.status, 0, released.out);
+  assert.equal(released.json().released, true);
+  assert.equal(existsSync(barrier), false, 'the barrier is gone');
+  const after = sflow(root, ['sync', '--json']);
+  assert.notEqual(JSON.parse(after.out.slice(after.out.indexOf('{'))).error?.code, 'FACTORY_RESET_IN_PROGRESS', after.out);
+});
+
+test('a lease named by its path is read and released from any folder; the selection refusal names both', async (t) => {
+  // `workspace use` said "busy, retry" forever behind another machine's selection lease, `lock show`
+  // could not read it, and `lock release-file` refused outside a Git repository (E1, D6).
+  const folder = await mkdtemp(path.join(os.tmpdir(), 'sflow-lease-folder-'));
+  t.after(() => rm(folder, { recursive: true, force: true }));
+  const selection = path.join(folder, 'active-workspace.json');
+  const env = { SINGULARITY_FLOW_ACTIVE_WORKSPACE: selection, SINGULARITY_FLOW_WORKSPACE_REGISTRY: path.join(folder, 'workspaces.json') };
+  const lease = `${selection}.lock`;
+  const token = await writeRegistryLease(lease, remoteOwner(), HOURS_AGO(3));
+  const release = `singularity-flow lock release-file ${JSON.stringify(lease)} --confirm ${token}`;
+
+  const refused = sflow(folder, ['workspace', 'use', 'ABSENT', '--json'], env);
+  assert.equal(refused.status, 1, refused.out);
+  const envelope = refused.json();
+  assert.equal(envelope.error.code, 'ACTIVE_WORKSPACE_SELECTION_BUSY');
+  assert.doesNotMatch(envelope.error.message, /Retry/u);
+  assert.match(envelope.error.message, /PID 4242 on other-laptop\.example/u);
+  assert.ok(envelope.error.message.includes(`lock show-file ${JSON.stringify(lease)}`), envelope.error.message);
+  assert.equal(envelope.error.details.releaseCommand, release);
+  assert.equal(envelope.error.details.holder.host, 'other-laptop.example');
+  assert.deepEqual(envelope.remediationPlan.steps.map((step) => step.argv), [
+    ['lock', 'release-file', lease, '--confirm', token], ['lock', 'show-file', lease]]);
+
+  const shown = sflow(folder, ['lock', 'show-file', lease, '--json'], env);
+  assert.equal(shown.status, 0, shown.out);
+  assert.deepEqual([shown.json().held, shown.json().owner.host, shown.json().releaseCommand], [true, 'other-laptop.example', release]);
+  const mismatch = sflow(folder, ['lock', 'release-file', lease, '--confirm', randomUUID(), '--json'], env);
+  assert.equal(mismatch.json().error.code, 'WORKSPACE_REGISTRY_RELEASE_MISMATCH');
+  assert.deepEqual(mismatch.json().remediationPlan.steps[0].argv, ['lock', 'show-file', lease]);
+  const released = sflow(folder, ['lock', 'release-file', lease, '--confirm', token, '--json'], env);
+  assert.equal(released.status, 0, released.out);
+  assert.equal(released.json().released, true);
+  assert.equal(existsSync(lease), false);
+  const after = sflow(folder, ['workspace', 'use', 'ABSENT', '--json'], env);
+  assert.notEqual(JSON.parse(after.out.slice(after.out.indexOf('{'))).error?.code, 'ACTIVE_WORKSPACE_SELECTION_BUSY', after.out);
+});
+
+test('an Authority Store lock from another machine names its reviewed release, and the lock command ends it', async (t) => {
+  // "Release exactly that lock after review" named no command, and the cutover lock had no release at
+  // all: opening the store waited on it forever (E4/D5).
+  const directory = await mkdtemp(path.join(os.tmpdir(), 'sflow-authority-release-'));
+  t.after(() => rm(directory, { recursive: true, force: true }));
+  const storeId = 'cutover-store';
+  const cutover = path.join(directory, `.authority-cutover-lock-${storeId}`);
+  const token = randomUUID();
+  const core = { lockFormat: 'sflow.sgos.authority-store-lock', lockVersion: 2, storeId, token, host: 'other-laptop.example',
+    machineId: randomUUID(), pid: 4242, processStartedAt: 0, acquiredAt: HOURS_AGO(3).toISOString(), expiresAt: HOURS_AGO(2).toISOString() };
+  await mkdir(cutover, { mode: 0o700 });
+  await writeFile(path.join(cutover, 'owner.json'), JSON.stringify({ ...core, ownerSha256: platformSha256(core) }));
+  const release = `singularity-flow lock release-file ${JSON.stringify(cutover)} --confirm ${token}`;
+  await assert.rejects(() => openFilesystemAuthorityStore({ root: path.join(directory, storeId), storeId }), (error) => {
+    assert.equal(error.code, 'SGOS_AUTHORITY_STORE_BUSY');
+    assert.equal(error.details.releaseCommand, release);
+    assert.ok(error.message.includes(`lock show-file ${JSON.stringify(cutover)}`), error.message);
+    return true;
+  });
+  const shown = await lockCommand(['lock', 'show-file', cutover]);
+  assert.deepEqual([shown.held, shown.owner.host, shown.liveness.state, shown.releaseCommand], [true, 'other-laptop.example', 'unknown', release]);
+  await assert.rejects(() => lockCommand(['lock', 'release-file', cutover], { confirm: randomUUID() }),
+    (error) => error.code === 'SGOS_AUTHORITY_LOCK_RELEASE_MISMATCH');
+  const released = await lockCommand(['lock', 'release-file', cutover], { confirm: token });
+  assert.equal(released.released, true);
+  assert.equal(JSON.parse(await readFile(path.join(released.retainedAt, 'owner.json'), 'utf8')).token, token, 'retained for inspection');
+  const store = await openFilesystemAuthorityStore({ root: path.join(directory, storeId), storeId });
+
+  // The transaction lock: the same route, through the path a refusal prints.
+  const transaction = path.join(store.root, '.transaction-lock');
+  const held = { ...core, token: randomUUID(), lockVersion: 3, pidNamespace: 'pid:[4026532415]', hardwareDigest: 'ab'.repeat(8) };
+  delete held.ownerSha256;
+  await mkdir(transaction, { mode: 0o700 });
+  await writeFile(path.join(transaction, 'owner.json'), JSON.stringify({ ...held, ownerSha256: platformSha256(held) }));
+  const before = await store.read();
+  await assert.rejects(() => store.transact({ expectedRevision: before.revision, expectedStateSha256: before.recordSha256,
+    actorId: 'operator-release', changes: [{ op: 'put', key: 'policy:held', value: true }] }), (error) => error.code === 'SGOS_AUTHORITY_STORE_BUSY'
+    && error.details.releaseCommand === `singularity-flow lock release-file ${JSON.stringify(transaction)} --confirm ${held.token}`);
+  assert.equal((await lockCommand(['lock', 'release-file', transaction], { confirm: held.token })).released, true);
+  assert.equal((await store.transact({ expectedRevision: before.revision, expectedStateSha256: before.recordSha256,
+    actorId: 'operator-release', changes: [{ op: 'put', key: 'policy:after', value: true }] })).revision, before.revision + 1);
+});
+
+test('a publication another machine holds names its owner and reviewed release; a live one here is waited for', async (t) => {
+  // sync said "Return to that terminal" with no code and no machine, and every other mutation said
+  // "wait": since SDA nothing takes another machine's lock over by age, so both looped (D3/E3).
+  const root = await repository(t);
+  const subject = { kind: 'story', id: 'HELD-1' };
+  const pending = (owner) => ({
+    journal: true,
+    record: { recoveryStage: 'interrupted-before-branch-ref-advanced' },
+    journalRecord: { stage: 'prepared', subject, commit: null, createdAt: '2026-10-01T00:00:00.000Z',
+      owner: { pid: owner.pid, processId: 'held', host: owner.host, processToken: owner.processToken, lockToken: owner.lockToken } }
+  });
+  const remote = await writeSubjectOwner(root, subject, remoteOwner());
+  const journal = pending(remote.record);
+  const refusal = await activePublicationRefusal(root, journal, livePreparedPublicationOwner(journal, root),
+    { what: 'Story \'HELD-1\'', retry: 'singularity-flow sync HELD-1', code: 'STORY_PUBLICATION_IN_PROGRESS' });
+  assert.equal(refusal.code, 'STORY_PUBLICATION_IN_PROGRESS');
+  assert.equal(refusal.details.releaseCommand, `singularity-flow lock release story HELD-1 --confirm ${remote.record.lockToken}`);
+  assert.match(refusal.message, /PID 4242 on other-laptop\.example/u);
+  assert.match(refusal.message, /Waiting does not end it\..*lock show story HELD-1\..*--confirm \S+\. Then run singularity-flow sync HELD-1 again\./u);
+  assert.doesNotMatch(refusal.message, /Return to that terminal/u);
+  await rm(remote.directory, { recursive: true });
+
+  const other = await liveProcess(t);
+  const live = await writeSubjectOwner(root, subject, { pid: other.pid, host: os.hostname(), machineId: localMachineId(),
+    processStartedAt: other.processStartedAt }, { heartbeatAt: new Date() });
+  const here = pending(live.record);
+  const waiting = await activePublicationRefusal(root, here, livePreparedPublicationOwner(here, root),
+    { what: 'Story \'HELD-1\'', retry: 'singularity-flow sync HELD-1', code: 'STORY_PUBLICATION_IN_PROGRESS' });
+  assert.equal(waiting.details.releaseCommand, undefined);
+  assert.match(waiting.message, new RegExp(`PID ${other.pid}.*Return to that terminal`, 'u'));
 });

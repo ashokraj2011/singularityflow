@@ -21,9 +21,10 @@ import { subjectRef } from './subject-ref.mjs';
 import { lifecycleAuthority } from './sda/story-branch-authority.mjs';
 import { currentSchemaVersion, readRecord, stampCurrentRecord } from './schema-migrations.mjs';
 import { restorePublicationPreimage } from './publication-recovery.mjs';
-import { withSubjectLock } from './subject-lock.mjs';
-import { subjectLockPath } from './subject-lock.mjs';
-import { leaseOwnerState } from './lease-liveness.mjs';
+import {
+  inspectSubjectLease, reviewedReleaseGuidance, subjectLockPath, withSubjectLock
+} from './subject-lock.mjs';
+import { describeLeaseOwner, leaseOwnerState } from './lease-liveness.mjs';
 import {
   prepareSharedPublicationStorage, resolveSharedPublicationFile
 } from './publication-storage.mjs';
@@ -1058,6 +1059,34 @@ export function livePreparedPublicationOwner(pending, root = null) {
     createdAt: journal.createdAt ?? null,
     updatedAt: journal.updatedAt ?? null
   });
+}
+
+/**
+ * The refusal for a pre-commit publication whose owner still holds its lock. An owner here that is
+ * still renewing it is finished or interrupted in its own terminal. Another machine's owner, or one
+ * here that stopped renewing, never ends by waiting (SDA M3, a lock is never taken over by age): the
+ * refusal names the holder, the read a person reviews and the exact reviewed release, then the retry.
+ */
+export async function activePublicationRefusal(root, pending, active, { what, retry, code }) {
+  const subject = pending?.journalRecord?.subject;
+  const lease = subject?.kind && subject?.id ? await inspectSubjectLease(root, subject).catch(() => null) : null;
+  const held = lease?.held ? { lock: lease.lock, owner: lease.owner, liveness: lease.liveness } : {};
+  const details = { subject: subject ?? null, pid: active?.pid ?? null, ...held,
+    ...(lease?.releaseCommand ? { releaseCommand: lease.releaseCommand } : {}) };
+  if (lease?.releaseCommand) {
+    return new SingularityFlowError(
+      `${what} has a publication command held by ${describeLeaseOwner(lease.owner, lease.liveness)}. `
+      + `Waiting does not end it.${reviewedReleaseGuidance(subject, lease.owner, lease.liveness)}. Then run ${retry} again.`,
+      { code, details }
+    );
+  }
+  return new SingularityFlowError(
+    `${what} has an active publication command (PID ${active?.pid ?? 'unknown'}`
+    + `${active?.createdAt ? `, started ${active.createdAt}` : ''}). `
+    + 'Return to that terminal and complete or interrupt it; recovery never rolls back a live owner. '
+    + `After interrupting it, run ${retry} again.`,
+    { code, details }
+  );
 }
 
 /**

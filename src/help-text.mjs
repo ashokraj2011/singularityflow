@@ -739,6 +739,7 @@ Usage:
   singularity-flow index verify [--authority] [--all] [--json]
   singularity-flow lock show <KIND> <ID> [--json]
   singularity-flow lock release <KIND> <ID> --confirm <LOCK-TOKEN> [--json]
+  singularity-flow lock show-file <LEASE-FILE> [--json]
   singularity-flow lock release-file <LEASE-FILE> --confirm <TOKEN> [--json]
   singularity-flow backup create --out <DIRECTORY> [--json]
   singularity-flow backup inspect <DIRECTORY> [--json]

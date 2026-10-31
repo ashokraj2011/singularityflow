@@ -14,7 +14,7 @@ import path from 'node:path';
 
 import { branch, gitCommonDir, head, identity } from './git.mjs';
 import {
-  livePreparedPublicationOwner, readPendingPublication,
+  activePublicationRefusal, livePreparedPublicationOwner, readPendingPublication,
   recoverPreparedPublication, sealMachineLocalPublicationReceipt,
   syncPendingLifecyclePublication, verifyMachineLocalPublicationReceipt
 } from './publication-pending.mjs';
@@ -854,10 +854,10 @@ export async function syncGovernedGoal(context, id, { config = {} } = {}) {
   if (pending.record.recoveryStage === 'interrupted-before-branch-ref-advanced') {
     const active = livePreparedPublicationOwner(pending, recoveryRoot);
     if (active) {
-      throw new SingularityFlowError(
-        `Repository Goal '${goalId}' still has an active publication command (PID ${active.pid}).`,
-        { code: 'GOVERNED_GOAL_PUBLICATION_ACTIVE' }
-      );
+      throw await activePublicationRefusal(recoveryRoot, pending, active, {
+        what: `Repository Goal '${goalId}'`, retry: `singularity-flow goal sync ${goalId}`,
+        code: 'GOVERNED_GOAL_PUBLICATION_ACTIVE'
+      });
     }
     if (!lifecycleWorktree) {
       throw new SingularityFlowError(

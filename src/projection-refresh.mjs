@@ -136,6 +136,13 @@ export async function coalescedRefresh({ root, settings, directory, file, key, a
       return held?.state === 'busy' && held.active === true;
     };
     lease = await acquire();
+    // The refresh this read lost to can end between that attempt and the look at its lease, and on
+    // Windows a lease just released refuses a new one for a moment. Try again briefly: the record it
+    // wrote then answers below, or this read holds the lease and later readers wait on it.
+    for (let attempt = 0; !lease && attempt < 5 && !await running(); attempt++) {
+      await new Promise((resolve) => setTimeout(resolve, 50));
+      lease = await acquire();
+    }
     if (lease && !replay) {
       // That refresh can also finish between this read's look at the record and this lease.
       const shared = newerShared();

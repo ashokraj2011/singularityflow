@@ -32,8 +32,9 @@ const TEST_PATH = /(^|\/)(tests?|__tests__|spec)\//i;
  * Which declared capabilities a changed path touches.
  *
  * Prefix matching against the workspace manifest's own repository paths — the same map the clone
- * and branch logic uses. No inference from names: a directory called `payments` in a repository
- * that declares no payments capability is not a payments change.
+ * and branch logic uses — so `paths` are relative to the workspace (`repos/<id>/...`). No inference
+ * from names: a directory called `payments` in a repository that declares no payments capability is
+ * not a payments change.
  */
 export function affectedCapabilities(workspace, paths) {
   const repositories = Object.values(workspace?.repositories ?? {});
@@ -50,6 +51,63 @@ export function affectedCapabilities(workspace, paths) {
   return [...hits.entries()]
     .map(([capability, repositoryIds]) => ({ capability, repositories: repositoryIds.sort() }))
     .sort((left, right) => left.capability.localeCompare(right.capability));
+}
+
+/**
+ * The workspace repository `root` is a checkout of, as `{ id, capabilities }`, or null.
+ *
+ * Hosts name the workspace by ID alone, so its manifest is read here: the registry entries with that
+ * ID, and the member `root` belongs to by Git identity, never by path. The declared clone, a linked
+ * Story worktree of it (one Git common directory) and a recorded branch checkout are members exactly
+ * as workspace membership decides elsewhere; failing those, a second clone is the member whose
+ * declared remote has the same comparison key as its origin. Local files and `git config` only.
+ */
+async function workspaceRepositoryOf(root, workspaceId, env) {
+  if (!workspaceId) return null;
+  const [{ readWorkspace, readWorkspaceRegistry }, { workspaceRegistryFile }, { findWorkspaceMembership },
+    { configuredRemoteIdentity }, { resolvedGitRepositoryComparisonKey }] = await Promise.all([
+    import('../../workspace-manifest.mjs'), import('../../workspace-context.mjs'), import('../../workspace-membership.mjs'),
+    import('../../git-remote-diagnostics.mjs'), import('../../git-repository-identity.mjs')
+  ]);
+  const entries = await readWorkspaceRegistry(workspaceRegistryFile(env)).catch(() => []);
+  let origin;
+  for (const entry of entries.filter((candidate) => candidate.id === workspaceId && !candidate.archivedAt)) {
+    // Membership throws on an unreadable manifest and on an origin not spelled exactly as declared;
+    // the comparison key below still recognises a respelled one.
+    const member = await findWorkspaceMembership(root, { workspacePath: entry.path }).catch(() => null);
+    if (member) return { id: member.repositoryId, capabilities: [...member.repositoryCapabilities] };
+    const workspace = await readWorkspace(entry.path).catch(() => null);
+    if (!workspace) continue;
+    if (origin === undefined) {
+      try { origin = await resolvedGitRepositoryComparisonKey(configuredRemoteIdentity(root, 'origin', { env }).url); }
+      catch { origin = null; }
+    }
+    if (!origin) return null;
+    const matches = [];
+    for (const [id, repository] of Object.entries(workspace.repositories)) {
+      if (await resolvedGitRepositoryComparisonKey(repository.url) !== origin) continue;
+      matches.push({ id, capabilities: [...repository.capabilities] });
+    }
+    // Two members declaring one remote cannot say which of them this clone is.
+    if (matches.length === 1) return matches[0];
+  }
+  return null;
+}
+
+/**
+ * The capabilities a change in `root` touches, or null when they cannot be known.
+ *
+ * Changed paths are relative to `root`, so every one of them is that repository's and its declared
+ * capabilities are the ones touched: the repository-level reading `affectedCapabilities` gives, not
+ * path-level ownership. A context that carries the manifest itself names paths in the workspace's
+ * frame and is matched as it always was.
+ */
+async function changedCapabilities(root, context, paths, env) {
+  if (context.workspace?.repositories) return affectedCapabilities(context.workspace, paths);
+  if (!paths.length) return [];
+  const repository = await workspaceRepositoryOf(root, context.workspace?.id ?? null, env);
+  if (!repository) return null;
+  return repository.capabilities.sort().map((capability) => ({ capability, repositories: [repository.id] }));
 }
 
 export function impactQuickResult({
@@ -231,7 +289,10 @@ async function deterministicImpact({ arguments: args = {}, subject = null, root 
       providerReference: build.providerReference, ...buildRelation(build, revisions.target, { isAncestor })
     })) };
   }
-  const capabilities = affectedCapabilities(context.workspace, paths);
+  const changed = await changedCapabilities(root, context, paths, env);
+  // No workspace, or no member `root` is a checkout of: a named gap, never "no capabilities touched".
+  if (changed == null) gaps.push('capability-map');
+  const capabilities = changed ?? [];
   // Work in the same area, from records rather than from proximity.
   const records = await workRecords(root, context);
   const touched = new Set(capabilities.map((entry) => entry.capability));

@@ -81,7 +81,7 @@ async function registeredRepositories(context, env) {
   const workspace = await readWorkspace(entry.path);
   const { existsSync } = await import('node:fs');
   return Object.entries(workspace.repositories ?? {}).map(([id, repository]) => {
-    const location = workspaceRepositoryPath(workspace, id);
+    const location = workspaceRepositoryPath(workspace, repository);
     return { id, capabilities: [...(repository.capabilities ?? [])], onThisMachine: Boolean(location && existsSync(location)) };
   }).sort((a, b) => a.id.localeCompare(b.id));
 }

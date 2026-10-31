@@ -153,3 +153,34 @@ test('a typed query is reached only through resolution and a read handle', async
   const argv = await kernel.resolve({ utterance: 'who changed this line', arguments: { query: 'blame', argv: ['--upload-pack=x'] } });
   assert.equal(argv.kind, 'refusal');
 });
+
+test('the repositories a selected workspace registers come from its manifest, and the others are named', async (t) => {
+  const { root } = await repository(t);
+  const base = await mkdtemp(path.join(os.tmpdir(), 'sflow-repository-workspace-'));
+  t.after(() => rm(base, { recursive: true, force: true }));
+  const workspacePath = path.join(base, 'workspace');
+  await mkdir(path.join(workspacePath, 'repos', 'checkout-service'), { recursive: true });
+  await writeFile(path.join(workspacePath, 'workspace.json'), JSON.stringify({
+    version: 1, id: 'acme', name: 'Acme', anchor: { provider: 'workspace', key: 'acme' }, leadRepository: 'checkout-service',
+    repositories: {
+      'checkout-service': { url: 'https://git.example.test/acme/checkout.git', path: 'repos/checkout-service', capabilities: ['checkout'] },
+      billing: { url: 'https://git.example.test/acme/billing.git', path: 'repos/billing', capabilities: ['payments'] }
+    }
+  }));
+  const registry = path.join(base, 'workspaces.json');
+  await writeFile(registry, JSON.stringify([{ id: 'acme', name: 'Acme', path: workspacePath }]));
+  // The context host.mjs builds: the workspace by ID and name, never its manifest.
+  const ask = (args) => repositoryQuery({ arguments: validateArguments('repository-query-v1', args), root,
+    env: { ...process.env, SINGULARITY_FLOW_WORKSPACE_REGISTRY: registry },
+    context: { workspace: { id: 'acme', name: 'acme' }, repositoryId: 'checkout-service' } });
+
+  const listed = await ask({ query: 'repositories' });
+  assert.deepEqual(listed.data.facts, [
+    { id: 'billing', capabilities: ['payments'], onThisMachine: false },
+    { id: 'checkout-service', capabilities: ['checkout'], onThisMachine: true }
+  ]);
+  assert.deepEqual(listed.warnings, []);
+  const other = await ask({ query: 'status', repositoryId: 'billing' });
+  assert.deepEqual([other.kind, other.why[0].code, other.why[0].slots.onThisMachine],
+    ['refusal', 'repository.query.switch-to-repository', 'false']);
+});

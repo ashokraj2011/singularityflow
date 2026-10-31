@@ -106,7 +106,7 @@ export async function workspaceMaterializePlan({ arguments: args = {}, env = pro
       repositories: missing.map((repository) => ({
         id: repository.id,
         state: repository.state,
-        remote: credentialFreeRemote(workspace.repositories?.[repository.id]?.repository?.url)
+        remote: credentialFreeRemote(workspace.repositories?.[repository.id]?.url)
       })),
       network: 'clone each listed repository from its remote',
       storageEstimate: null

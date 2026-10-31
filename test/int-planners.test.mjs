@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdir, mkdtemp, writeFile } from 'node:fs/promises';
+import { mkdir, mkdtemp, realpath, rm, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 
@@ -9,6 +9,7 @@ import { EXPLAIN_PREVIEW_BYTES, helpExplain } from '../src/gateway/planners/help
 import { reviewPacket, reviewPacketResult } from '../src/gateway/planners/review-packet.mjs';
 import { workHandoff, workHandoffResult } from '../src/gateway/planners/work-handoff.mjs';
 import { WORKSPACE_LIST_EVIDENCE_GAPS, workspaceList } from '../src/gateway/planners/workspace-list.mjs';
+import { workspaceMaterializePlan } from '../src/gateway/planners/workspace-switch.mjs';
 import { workStartIntake } from '../src/gateway/planners/work-start-intake.mjs';
 import { homeOverviewResult } from '../src/gateway/planners/home-overview.mjs';
 import { gatewayRegistry, unimplementedPlanners } from '../src/gateway/operations.mjs';
@@ -326,6 +327,26 @@ test('a workspace row is selectable but never switchable from the list', async (
   assert.equal(result.next[0].executable, false);
   assert.equal(result.next[0].confirmation, 'host-confirm');
   assert.match(result.next[0].fallback.command, /^sflow workspace use /);
+});
+
+test('a materialize plan names the remote it would clone each repository from', async (t) => {
+  const directory = await realpath(await mkdtemp(path.join(os.tmpdir(), 'sflow-gateway-materialize-')));
+  t.after(() => rm(directory, { recursive: true, force: true }));
+  const workspacePath = path.join(directory, 'payments');
+  await mkdir(workspacePath);
+  await writeFile(path.join(workspacePath, 'workspace.json'), JSON.stringify({
+    version: 1, id: 'payments', name: 'Payments', anchor: { provider: 'workspace', key: 'payments' }, leadRepository: 'api',
+    repositories: {
+      api: { url: 'https://git.example.test/acme/payments-api.git', path: 'repos/api' },
+      ledger: { url: 'git@git.example.test:acme/ledger.git', path: 'repos/ledger' }
+    }
+  }));
+  const { env } = await fixtureRegistry([{ id: 'payments', name: 'Payments', path: workspacePath }]);
+  const plan = await workspaceMaterializePlan({ arguments: { workspaceId: 'payments', targetPath: workspacePath }, env });
+  // The manifest's own remote, credential-free, so the confirmation says where each clone comes from.
+  assert.deepEqual(plan.review.preview.repositories.map((repository) => [repository.id, repository.remote]), [
+    ['api', 'https://git.example.test/acme/payments-api.git'], ['ledger', 'git.example.test:acme/ledger.git']
+  ]);
 });
 
 test('the kernel routes a resolved read to the planner that now exists', async () => {

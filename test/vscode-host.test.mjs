@@ -10520,14 +10520,27 @@ test('Git URL maintenance renders no-match recovery as a shell-safe exact comman
   const extension = loadExtension(api);
   await extension.activate(context());
   const remote = 'https://git.example.test/team/repo$(touch-never-run).git';
+  // The Shell line carries this machine's temporary folder, Node and CLI paths. When they take the
+  // detail past the native dialog's bound, the dialog shows an excerpt and View details opens the
+  // complete text, so the exact command is read wherever the person reads it.
+  registered.warningAnswers = ['View details'];
   await registered.commands.get('singularityFlow.refreshRepositorySetup')({ repositoryUrl: remote });
 
-  const detail = String(registered.warningDetails.at(-1) ?? '');
-  assert.match(detail, new RegExp(`'${remote.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}'`),
-    'the remote is a single quoted argument, not shell syntax');
-  assert.doesNotMatch(detail, /--repository\s+"https:/,
-    'JSON double-quote rendering would still evaluate command substitution in POSIX shells');
-  assert.match(detail, /Copilot: \/sf-workspace-bootstrap/,
+  const detail = String(registered.warningDetails[0] ?? '');
+  const review = registered.openedDocuments.find((document) =>
+    document.content?.includes('No registered workspace or open folder'))?.content ?? detail;
+  const recoveryLine = String(registered.output.find((line) =>
+    /No registered workspace matched the requested repository/.test(String(line))) ?? '');
+  const quoted = new RegExp(`'${remote.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}'`);
+  assert.match(review, quoted, 'the remote is a single quoted argument, not shell syntax');
+  assert.match(recoveryLine, quoted, 'the output channel carries the same exact command');
+  for (const [surface, text] of Object.entries({ dialog: detail, review, output: recoveryLine })) {
+    assert.ok(!text.replaceAll(`'${remote}'`, '').includes(remote),
+      `${surface}: the remote appears only as one single-quoted argument`);
+    assert.doesNotMatch(text, /--repository\s+"https:/,
+      'JSON double-quote rendering would still evaluate command substitution in POSIX shells');
+  }
+  assert.match(review, /Copilot: \/sf-workspace-bootstrap/,
     'the same recovery is also available through the canonical Copilot journey');
   assert.match(detail, /Nothing was changed/);
 });

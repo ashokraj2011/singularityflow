@@ -42,6 +42,16 @@ export function replayConfigurationIntent(base, proposed, current, { conflictPol
   return { value, replacements };
 }
 
+/**
+ * A file's Git mode, re-applied by the same rule as its values: the side that changed it wins, and
+ * `null` means both sides changed it differently. A side without the file has no mode to keep.
+ */
+export function replayFileMode(baseMode, proposedMode, currentMode) {
+  if (baseMode === proposedMode) return currentMode ?? proposedMode;
+  if (currentMode == null || currentMode === baseMode || currentMode === proposedMode) return proposedMode;
+  return null;
+}
+
 /** Formatting-only churn cannot roll current policy back to an older proposal's value. */
 export function replayConfigurationYaml(baseText, proposedText, currentText, options = {}) {
   const parse = text => text == null ? {} : YAML.parse(text, { maxAliasCount: 100 });

@@ -271,6 +271,93 @@ test('an unrelated field changed on the authority keeps a capability edit activa
   assert.deepEqual(foundation.metadata, { purpose: 'Shared services' });
 });
 
+/** The Git file mode of `relative` at `ref`, as the approved tree records it. */
+const approvedMode = (remote, relative = 'singularity/capabilities.yml', ref = 'sflow/config') => run('git', [
+  'ls-tree', ref, '--', relative
+], { cwd: remote }).stdout.split(' ')[0];
+
+// Configuration files may be executable: the approved-configuration reader and the state mirror
+// both keep 100755. A file's mode is one more value of that file, re-applied like its fields.
+test('a file mode the proposal changed is re-applied when the authority changed the same file\'s values', posixOnly, async (t) => {
+  const org = await remotes(t, 'platform');
+  await mergeProposal(org.platform, await mapCapability(org.platform, { capabilityId: 'foundation', name: 'Foundation', kind: 'collection' }));
+  const proposal = await handProposal(org.platform, 'mode-foundation', (checkout) =>
+    chmod(path.join(checkout, 'singularity/capabilities.yml'), 0o755));
+  const target = await changeAuthority(org.platform, async (checkout) => {
+    const file = path.join(checkout, 'singularity/capabilities.yml');
+    const document = YAML.parseDocument(await readFile(file, 'utf8'));
+    document.setIn(['capabilities', 'foundation', 'metadata'], document.createNode({ purpose: 'Shared services' }));
+    await writeFile(file, document.toString(), 'utf8');
+  });
+  assert.equal(approvedMode(org.platform), '100644');
+
+  const replay = replayCapabilityProposal(org.platform, { base: proposal.base, proposal: proposal.commit, target });
+  assert.equal(replay.status, 'clean');
+  assert.deepEqual(replay.changes.map(({ path: relative, mode }) => ({ path: relative, mode })),
+    [{ path: 'singularity/capabilities.yml', mode: '100755' }], 'the same bytes in a new mode are a change');
+  assert.deepEqual(replay.changes[0].bytes, Buffer.from(run('git', ['show', `${target}:singularity/capabilities.yml`], {
+    cwd: org.platform }).stdout), 'the authority\'s values are kept');
+
+  const activated = await activateCapabilityProposal(org.platform, proposal.branch, {
+    confirm: proposal.commit, acknowledgeUnprotected: true
+  });
+  assert.equal(activated.status, 'activated');
+  assert.equal(approvedMode(org.platform), '100755');
+  assert.deepEqual(approved(org.platform).capabilities.foundation.metadata, { purpose: 'Shared services' });
+});
+
+test('a file mode the authority changed is kept, not a conflict, when the proposal changed only values', posixOnly, async (t) => {
+  const org = await remotes(t, 'platform');
+  await mergeProposal(org.platform, await mapCapability(org.platform, { capabilityId: 'foundation', name: 'Foundation', kind: 'collection' }));
+  const edited = await editCapabilityInOrganisation(org.platform, 'foundation', { name: 'Foundation platform' });
+  const target = await changeAuthority(org.platform, (checkout) =>
+    chmod(path.join(checkout, 'singularity/capabilities.yml'), 0o755), 'Make the map executable');
+  assert.equal(approvedMode(org.platform), '100755');
+
+  const replay = replayCapabilityProposal(org.platform, {
+    base: run('git', ['rev-parse', `${edited.commit}^`], { cwd: org.platform }).stdout.trim(),
+    proposal: edited.commit, target
+  });
+  assert.deepEqual(replay.conflicts, [], 'only the authority changed the mode');
+  assert.deepEqual(replay.changes.map(({ path: relative, mode }) => ({ path: relative, mode })),
+    [{ path: 'singularity/capabilities.yml', mode: '100755' }]);
+
+  const activated = await activateCapabilityProposal(org.platform, edited.branch, {
+    confirm: edited.commit, acknowledgeUnprotected: true
+  });
+  assert.equal(activated.status, 'activated');
+  assert.equal(approvedMode(org.platform), '100755');
+  assert.equal(approved(org.platform).capabilities.foundation.name, 'Foundation platform');
+});
+
+test('a record rebase refuses a map proposal that also changes a file mode, which records do not carry', posixOnly, async (t) => {
+  const org = await remotes(t, 'platform');
+  await mergeProposal(org.platform, await mapCapability(org.platform, { capabilityId: 'foundation', kind: 'collection' }));
+  const proposal = await handProposal(org.platform, 'map-billing', async (checkout) => {
+    const file = path.join(checkout, 'singularity/capabilities.yml');
+    const document = YAML.parseDocument(await readFile(file, 'utf8'));
+    document.setIn(['capabilities', 'billing'], document.createNode({ name: 'Billing', kind: 'collection', parent: null }));
+    await writeFile(file, document.toString(), 'utf8');
+    await chmod(file, 0o755);
+  });
+  // Bytes the value replay cannot decode make the proposal conflicting, so a rebase is offered.
+  await changeAuthority(org.platform, async (checkout) => {
+    const file = path.join(checkout, 'singularity/capabilities.yml');
+    await writeFile(file, Buffer.concat([await readFile(file), Buffer.from('# legacy \xff note\n', 'latin1')]));
+  });
+  assert.equal((await inspectCapabilityProposal(org.platform, proposal.branch)).mergeable, false);
+  const branches = () => run('git', ['for-each-ref', '--format=%(refname)', 'refs/heads/sflow/config-change/'], {
+    cwd: org.platform }).stdout;
+  const before = branches();
+  await assert.rejects(rebaseCapabilityProposal(org.platform, proposal.branch), (error) => {
+    assert.equal(error.code, 'CAPABILITY_PROPOSAL_REBASE_UNSUPPORTED');
+    assert.match(error.message, /file mode of singularity\/capabilities\.yml/u);
+    assert.deepEqual(error.details.modeChangedFiles, ['singularity/capabilities.yml']);
+    return true;
+  });
+  assert.equal(branches(), before, 'no rebased proposal without the mode change');
+});
+
 test('a capability edit builds the clone path\'s exact tree without cloning or checking out the lead', posixOnly, async (t) => {
   const org = await remotes(t, 'platform');
   await mergeProposal(org.platform, await mapCapability(org.platform, { capabilityId: 'foundation', name: 'Foundation', kind: 'collection' }));

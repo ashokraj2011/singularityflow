@@ -45,8 +45,8 @@ import {
 import { CAPABILITY_VALUE_CONFLICT_CODE, replayCapabilityProposal } from './capability-value-replay.mjs';
 import {
   commitConfigurationTree, commitProjectedConfiguration, configurationCandidateTree,
-  configurationCommitTree, initializeConfigurationObjectStore, moveConfigurationRef, projectConfigurationCommit,
-  showConfigurationTree
+  configurationCommitTree, configurationTreeChanges, initializeConfigurationObjectStore, moveConfigurationRef,
+  projectConfigurationCommit, showConfigurationTree
 } from './git-configuration-objects.mjs';
 import { GOVERNED_ROOTS, WORKFLOW_PATH, initializeDefinition, loadDefinition, refuseRetiredControlRoot } from './config.mjs';
 import {
@@ -6328,6 +6328,18 @@ async function inspectCapabilityRebase(url, branch) {
         'This proposal can already be reviewed and activated against the current authority.',
         'CAPABILITY_PROPOSAL_REBASE_NOT_REQUIRED', remote, proposalBranch,
         { mergeability: inspected.mergeability }
+      );
+    }
+    // The rebase rebuilds records on the current authority's files, so a file mode the proposal
+    // changed would be dropped without a word. Such a proposal is never rebased.
+    const modeChangedFiles = configurationTreeChanges(root, sourceBaseCommit, sourceCommit, { env })
+      .filter((entry) => entry.before && entry.after && entry.before.mode !== entry.after.mode)
+      .map((entry) => entry.path);
+    if (modeChangedFiles.length) {
+      capabilityRebaseRefusal(
+        `The proposal also changes the file mode of ${modeChangedFiles.join(', ')}, which a record rebase does not carry. Map the change again, and change the mode in a proposal of its own.`,
+        'CAPABILITY_PROPOSAL_REBASE_UNSUPPORTED', remote, proposalBranch,
+        { sourceCommit, targetCommit, modeChangedFiles }
       );
     }
     const capabilityId = typed[1];

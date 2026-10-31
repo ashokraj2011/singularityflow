@@ -6,7 +6,7 @@ import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import YAML from 'yaml';
 import { initializeDefinition } from '../src/config.mjs';
 import { recreateAndSyncConfiguration } from '../src/configuration-recreate-sync.mjs';
-import { replayConfigurationIntent, replayConfigurationJson, replayConfigurationYaml } from '../src/configuration-intent-replay.mjs';
+import { replayConfigurationIntent, replayConfigurationJson, replayConfigurationYaml, replayFileMode } from '../src/configuration-intent-replay.mjs';
 import { runRemoteGitAsync } from '../src/git-execution.mjs';
 import { recreateSyncCommand as runRecreateCommand, recreateSyncReviewLines } from '../src/commands/configuration-recreate-sync.mjs';
 import { refusalDetails } from '../src/refusal-remediation.mjs';
@@ -38,6 +38,15 @@ test('deletions, null, false, arrays and prototype-shaped keys retain their exac
   assert.equal(result.value.extra, 5);
   assert.deepEqual(Object.getOwnPropertyDescriptor(result.value, '__proto__').value, { safe: true });
   assert.equal({}.safe, undefined);
+});
+
+test('a file mode is re-applied like a value: the side that changed it wins', () => {
+  assert.equal(replayFileMode('100644', '100644', '100755'), '100755');
+  assert.equal(replayFileMode('100644', '100755', '100644'), '100755');
+  assert.equal(replayFileMode('100644', '100755', '100755'), '100755');
+  assert.equal(replayFileMode('100644', '100644', null), '100644', 'a removed current side has no mode to keep');
+  assert.equal(replayFileMode(null, '100755', null), '100755');
+  assert.equal(replayFileMode(null, '100755', '100644'), null, 'both sides created the file in different modes');
 });
 
 test('JSON replay requires exact JSON syntax and retains unrelated current fields', () => {
@@ -285,6 +294,33 @@ test('all proposal kinds and custom skill/instruction assets survive recreation 
   assert.equal(result.proposals.length, 2);
   assert.match(run('git', ['--git-dir', item.remote, 'show',
     'sflow/config:singularity/instruction-library/demo/INSTRUCTIONS.md']).stdout, /Preserve the custom instructions/u);
+});
+
+test('a file mode only the approved side changed is kept under a whole-file edit, and reported when a removal drops it', async t => {
+  const item = await fixture(t);
+  const prompt = 'singularity/prompts/copilot-planning.md';
+  const readme = 'singularity/user-defined/careful-change/README.md';
+  const branch = 'sflow/config-change/workflow/edit-prompt-old';
+  run('git', ['switch', '-q', '-c', 'edit-prompt', `${item.approved}^`], { cwd: item.seed });
+  await writeFile(path.join(item.seed, prompt), `${await readFile(path.join(item.seed, prompt), 'utf8')}\nPlan in small steps.\n`);
+  run('git', ['add', prompt], { cwd: item.seed });
+  run('git', ['rm', '-q', readme], { cwd: item.seed });
+  run('git', ['commit', '-qm', 'pending prompt edit'], { cwd: item.seed });
+  run('git', ['push', '-q', 'origin', `HEAD:refs/heads/${branch}`], { cwd: item.seed });
+  // Approved meanwhile: both files become executable, their bytes unchanged.
+  run('git', ['switch', '-q', 'approved-current'], { cwd: item.seed });
+  run('git', ['update-index', '--chmod=+x', prompt, readme], { cwd: item.seed });
+  run('git', ['commit', '-qm', 'executable assets'], { cwd: item.seed });
+  run('git', ['push', '-q', 'origin', 'HEAD:refs/heads/sflow/config'], { cwd: item.seed });
+
+  const result = await confirmed(item.caller);
+  assert.equal(result.status, 'synced', JSON.stringify(result));
+  assert.equal(run('git', ['--git-dir', item.remote, 'ls-tree', 'sflow/config', '--', prompt]).stdout.split(' ')[0], '100755',
+    'the proposal left the mode alone, so the approved mode is kept');
+  assert.match(run('git', ['--git-dir', item.remote, 'show', `sflow/config:${prompt}`]).stdout, /Plan in small steps\./u);
+  assert.equal(run('git', ['--git-dir', item.remote, 'ls-tree', 'sflow/config', '--', readme]).stdout, '');
+  assert.deepEqual(result.replacements.filter(entry => entry.branch === branch), [{ branch, path: readme, pointer: '/' }],
+    'removing a file drops the approved mode change, and says so; the kept mode replaces nothing');
 });
 
 const branchExists = (item, branch) => run('git', ['--git-dir', item.remote, 'show-ref', '--verify', `refs/heads/${branch}`],

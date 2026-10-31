@@ -15,7 +15,7 @@ import { gitCommitIdentity } from './git.mjs';
 import { gitIsAncestor } from './git-ancestry.mjs';
 import { validateEditorConfiguration } from './editor.mjs';
 import { validateDefinition } from './config.mjs';
-import { replayConfigurationJson, replayConfigurationYaml } from './configuration-intent-replay.mjs';
+import { replayConfigurationJson, replayConfigurationYaml, replayFileMode } from './configuration-intent-replay.mjs';
 import { loadSkillLibrary } from './skill-library.mjs';
 import { readInstruction } from './instruction-library.mjs';
 import { syncConfigurationReferences } from './configuration-reference-sync.mjs';
@@ -34,6 +34,7 @@ const HASH = /^(?:[a-f0-9]{40}|[a-f0-9]{64})$/u;
 const backupRef = (kind, commit) => `refs/tags/sflow-config-recreate/${kind}-${commit}`;
 const hash = bytes => createHash('sha256').update(bytes).digest('hex');
 const utf8 = bytes => new TextDecoder('utf-8', { fatal: true }).decode(bytes);
+const differs = (left, right) => (left?.sha256 ?? null) !== (right?.sha256 ?? null);
 const fail = (message, code = 'CONFIGURATION_RECREATE_UNSAFE', details = {}) => {
   throw new SingularityFlowError(message, { code, details });
 };
@@ -194,17 +195,26 @@ export async function recreateAndSyncConfiguration(root, {
         bytesRead += (original?.bytes.length ?? 0) + (proposed?.bytes.length ?? 0) + (current?.bytes.length ?? 0);
         if (bytesRead > MAX_BYTES || files.size >= MAX_FILES) fail('Configuration recreation exceeded its bounded asset budget.');
         let result = proposed;
+        let pointers = [];
+        if (proposed) {
+          // A file's mode is one of its values: a mode only the current side changed is kept, and
+          // one both sides changed differently is the proposal's, reported like a replaced field.
+          const mode = replayFileMode(original?.mode ?? null, proposed.mode, current?.mode ?? null);
+          if (mode == null) pointers.push('/mode');
+          result = { ...proposed, mode: mode ?? proposed.mode };
+        }
         if (proposed && /\.(?:ya?ml|json)$/iu.test(relative)) {
           const replay = (/\.json$/iu.test(relative) ? replayConfigurationJson : replayConfigurationYaml)(
             original ? utf8(original.bytes) : null, utf8(proposed.bytes), current ? utf8(current.bytes) : null);
           const bytes = Buffer.from(replay.text);
-          result = { bytes, sha256: hash(bytes), mode: original?.mode === proposed.mode
-            ? current?.mode ?? proposed.mode : proposed.mode };
-          replacements.push(...replay.replacements.map(pointer => ({ branch: item.branch, path: relative, pointer })));
-        } else if ((original?.sha256 ?? null) !== (current?.sha256 ?? null)
-            && (proposed?.sha256 ?? null) !== (current?.sha256 ?? null)) {
-          replacements.push({ branch: item.branch, path: relative, pointer: '/' });
+          result = { bytes, sha256: hash(bytes), mode: result.mode };
+          pointers.push(...replay.replacements);
+        } else if (proposed ? differs(original, current) && differs(proposed, current)
+          // A removal also drops a mode the current side changed.
+          : current && (differs(original, current) || original?.mode !== current.mode)) {
+          pointers = ['/'];
         }
+        replacements.push(...pointers.map(pointer => ({ branch: item.branch, path: relative, pointer })));
         files.set(relative, result);
       }
     }

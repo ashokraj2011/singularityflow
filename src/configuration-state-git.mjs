@@ -10,7 +10,7 @@ import { readGitNameStatusDiff } from './git-diff-name-status.mjs';
 import { validateDefinition } from './config.mjs';
 import { loadSkillLibrary } from './skill-library.mjs';
 import { readInstruction } from './instruction-library.mjs';
-import { replayConfigurationYaml, replayConfigurationJson } from './configuration-intent-replay.mjs';
+import { replayConfigurationYaml, replayConfigurationJson, replayFileMode } from './configuration-intent-replay.mjs';
 import { CONFIGURATION_STATE_PATH, CONFIGURATION_OID, readConfigurationState,
   createConfigurationTransaction, appendConfigurationTransaction, isConfigurationStatePath } from './configuration-state-contract.mjs';
 import { run, SingularityFlowError } from './util.mjs';
@@ -143,13 +143,14 @@ export async function prepareConfigurationStateTransaction(root, remote, reviewe
     if (same(proposed, current)) continue;
     if (same(original, current)) result = proposed;
     else if (original && proposed && current && /\.(?:json|ya?ml)$/iu.test(relative)) {
-      if (original.mode !== current.mode && current.mode !== proposed.mode) {
+      const mode = replayFileMode(original.mode, proposed.mode, current.mode);
+      if (mode == null) {
         fail(`Configuration file mode changed concurrently: ${relative}`, 'CONFIGURATION_ENTITY_CONFLICT', { path: relative, pointers: ['/mode'] });
       }
       try {
         const replay = (/\.json$/iu.test(relative) ? replayConfigurationJson : replayConfigurationYaml)(
           text(original), text(proposed), text(current), { conflictPolicy: 'reject' });
-        result = { bytes: Buffer.from(replay.text), mode: original.mode === proposed.mode ? current.mode : proposed.mode };
+        result = { bytes: Buffer.from(replay.text), mode };
       } catch (error) {
         if (error.code === 'CONFIGURATION_ENTITY_CONFLICT') error.details = { ...error.details, path: relative,
           proposalId, proposalRevision: reviewed.proposalCommit, currentRevision: reviewed.targetCommit,

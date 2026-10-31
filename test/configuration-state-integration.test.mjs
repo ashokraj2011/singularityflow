@@ -162,6 +162,33 @@ test('a proposal that removes a whole skill folder activates: no empty folder is
   } finally { await rm(f.base, { recursive: true, force: true }); }
 });
 
+test('a workflow file mode is one of its values: a mode one side changed is kept, never a conflict', { skip: process.platform === 'win32' }, async () => {
+  const f = await fixture();
+  const setMode = (mode) => proposeConfigurationChange(f.story, { operation: 'edit-workflow', subject: 'feature',
+    async mutate(root) { await chmod(path.join(root, 'singularity/workflow.yml'), mode); return { id: 'feature' }; }
+  }, { env: f.env });
+  const approvedMode = () => run('git', ['--git-dir', f.remote, 'ls-tree', 'sflow/config', '--', 'singularity/workflow.yml']).stdout.split(' ')[0];
+  const label = () => YAML.parse(remoteText(f, 'singularity/workflow.yml')).workTypes['spec-driven-standard'].label;
+  try {
+    // The authority's mode changes after a values-only proposal was made on the earlier base.
+    const relabel = await propose(f, 'Relabelled specification');
+    const executable = await setMode(0o755);
+    assert.equal((await activate(f, executable)).activated, true);
+    assert.equal(approvedMode(), '100755');
+    assert.equal((await activate(f, relabel)).activated, true, 'only the authority changed the mode');
+    assert.equal(approvedMode(), '100755');
+    assert.equal(label(), 'Relabelled specification');
+    // The proposal's mode change is re-applied over values the authority changed meanwhile.
+    run('git', ['pull', '-q', '--ff-only', 'origin', 'sflow/config'], { cwd: f.story });
+    const plain = await setMode(0o644);
+    const again = await propose(f, 'Relabelled again');
+    assert.equal((await activate(f, again)).activated, true);
+    assert.equal((await activate(f, plain)).activated, true);
+    assert.equal(approvedMode(), '100644');
+    assert.equal(label(), 'Relabelled again');
+  } finally { await rm(f.base, { recursive: true, force: true }); }
+});
+
 test('kernel transaction receipts cannot be authored in a proposal', async () => {
   const f = await fixture();
   try {

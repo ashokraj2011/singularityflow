@@ -11,14 +11,15 @@
  * - already equal on both sides: nothing to do;
  * - changed on both sides in a YAML or JSON file: re-applied field by field
  *   (src/configuration-intent-replay.mjs, `conflictPolicy: 'reject'`), so another capability or
- *   repository added meanwhile is kept and the same field changed differently is a conflict;
+ *   repository added meanwhile is kept and the same field changed differently is a conflict. The
+ *   file's mode is one more of its values: a mode only one side changed is kept;
  * - any other change on both sides (Markdown, a removed file, a created file, a binary): a conflict.
  *
  * A conflict is a value the two sides changed differently. That includes cases a line merge would
  * have resolved silently: a list edited at both ends (a list is one value), or one side removing a
  * record the other side edited.
  */
-import { replayConfigurationJson, replayConfigurationYaml } from './configuration-intent-replay.mjs';
+import { replayConfigurationJson, replayConfigurationYaml, replayFileMode } from './configuration-intent-replay.mjs';
 import { configurationTreeChanges, readConfigurationObjects } from './git-configuration-objects.mjs';
 
 /** Refusal code for a proposal whose values conflict with the current authority. */
@@ -53,11 +54,12 @@ export function replayCapabilityProposal(root, { base, proposal, target, env = p
       continue;
     }
     if (original && wanted && current && structured(entry.path, original, wanted, current)) {
-      if (original.mode !== current.mode && current.mode !== wanted.mode) {
+      const mode = replayFileMode(original.mode, wanted.mode, current.mode);
+      if (mode == null) {
         conflicts.push({ path: entry.path, pointers: ['/mode'] });
         continue;
       }
-      replays.push({ path: entry.path, original, wanted, current });
+      replays.push({ path: entry.path, original, wanted, current, mode });
       continue;
     }
     conflicts.push({ path: entry.path, pointers: ['/'] });
@@ -65,7 +67,7 @@ export function replayCapabilityProposal(root, { base, proposal, target, env = p
   if (replays.length) {
     const blobs = readConfigurationObjects(root,
       replays.flatMap(({ original, wanted, current }) => [original.oid, wanted.oid, current.oid]), { env });
-    for (const { path: relative, original, wanted, current } of replays) {
+    for (const { path: relative, original, wanted, current, mode } of replays) {
       let replayed;
       try {
         const texts = [original, wanted, current].map((side) => decode(blobs.get(side.oid)));
@@ -80,11 +82,9 @@ export function replayCapabilityProposal(root, { base, proposal, target, env = p
         continue;
       }
       const bytes = Buffer.from(replayed.text, 'utf8');
-      if (bytes.equals(blobs.get(current.oid))) continue;
-      changes.push({
-        path: relative, bytes,
-        mode: original.mode === wanted.mode ? current.mode : wanted.mode
-      });
+      // The authority's own bytes in another mode are still a change.
+      if (mode === current.mode && bytes.equals(blobs.get(current.oid))) continue;
+      changes.push({ path: relative, bytes, mode });
     }
   }
   return { status: conflicts.length ? 'conflicting' : 'clean', changes, conflicts };

@@ -174,7 +174,10 @@ test('the bundled CLI answers exactly like the sources while opening a handful o
   // 4,615,000: main 8133a15db measures 4,609,860; a refused witness that names the step that published the image, both
   // digests and both ways on (verification/witness-records.mjs), its recovery steps (refusal-remediation.mjs) and the
   // capture guidance in the evidence routes add 1,643 for 4,611,503. No new file.
-  assert.ok(narrowReads < 4_615_000,
+  // 4,620,000: main 8dd691421 measures 4,614,358; SDA on native Windows adds 4,324 for 4,618,682: canonical path
+  // spellings (util.mjs), the checkout-form comparison of line endings Git converted (worktree-fingerprint.mjs,
+  // source-inspection.mjs) and native realpath at the swept sites. No new file.
+  assert.ok(narrowReads < 4_620_000,
     `strict next-step reads must not inherit the broad phase-review closure (${narrowReads} bytes)`);
   const publicationClosure = closure('cold-publication.mjs');
   assert.ok(publicationClosure.length && publicationClosure.reduce((sum, item) => sum + item.bytes, 0) < 6 * 1024 * 1024,
@@ -352,7 +355,9 @@ test('the bundled CLI answers exactly like the sources while opening a handful o
   // 7,690,000: main 2831e34fd measures 7,683,325; a listing's authority read from the worktree file, the user-level and
   // system rewrites and the legacy remote files (repository-check-cache.mjs, git-config-value.mjs) adds 2,855 for
   // 7,686,180. No new file.
-  assert.ok(hookContext < 7_690_000,
+  // 7,695,000: main 8dd691421 measures 7,686,180; the same SDA on native Windows code adds 4,332 for 7,690,512.
+  // No new file.
+  assert.ok(hookContext < 7_695_000,
     `phase-review reads retain their existing byte ceiling after moving families (${hookContext} bytes)`);
   assert.match(await readFile(path.join(outdir, 'cold-light.mjs'), 'utf8'), /function enterPhase\b/u,
     'phase binding must not fall through to the compatibility/admin bundle');
@@ -420,7 +425,9 @@ test('the bundled CLI answers exactly like the sources while opening a handful o
   // 5,445,000: main fc7b10482 measures 5,428,019; the same sweep batch 3 publication-outcome code adds 10,169 for 5,438,188.
   // 5,455,000: sweep batches 3 and 4 together measure 5,447,779; the same batch 4 read index code adds 9,591 alone.
   // 5,465,000: main eb137a8f5 measures 5,447,779; the same sweep batch 5 routes add 11,004 for 5,458,783.
-  assert.ok(catalogBytes < 5_465_000,
+  // 5,470,000: main 8dd691421 measures 5,463,846; the same SDA on native Windows code adds 4,325 for 5,468,171.
+  // No new file.
+  assert.ok(catalogBytes < 5_470_000,
     `catalog parsing stays bounded instead of pulling in the entire administration bundle (${catalogBytes} bytes)`);
   for (const name of ['cold-compatibility.mjs', 'cold-models.mjs', 'cold-intake.mjs', 'cold-phases.mjs', 'cold-hook-context.mjs']) {
     assert.ok(!catalogClosure.some(item => item.file === name), `catalogs must not statically reach ${name}`);

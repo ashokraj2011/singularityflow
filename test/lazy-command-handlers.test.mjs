@@ -317,7 +317,10 @@ test('the common session projection does not import attach, state stores or publ
   // 4,000,000: main fc7b10482 measures 3,991,542; the read index fix (sweep batch 4) adds git-fact-cache.mjs +3,658
   // (remotes read from a configuration file as Git reads it, U1) and git-remote-diagnostics.mjs +1,493 (a refresh
   // failure's cause and way out, A3) for 3,996,693. No new file.
-  assert.ok(current.bytes <= 4_000_000, `session current loads ${current.bytes} source bytes`);
+  // 4,005,000: main 8dd691421 measures 3,994,852; SDA on native Windows adds 6,647 for 4,001,499: the checkout-form
+  // comparison of line endings Git converted (source-inspection.mjs +2,815, worktree-fingerprint.mjs +2,540),
+  // canonical path spellings (util.mjs +1,271) and native realpath (git.mjs, environment-declaration.mjs +21). No new file.
+  assert.ok(current.bytes <= 4_005_000, `session current loads ${current.bytes} source bytes`);
 });
 
 test('early phase and grounding-path entries exclude the deferred authoring and review graphs', async () => {

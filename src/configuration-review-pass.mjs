@@ -12,7 +12,7 @@
  * later by the next window or mutation.
  */
 import { randomUUID } from 'node:crypto';
-import { spawn } from 'node:child_process';
+import { spawnBackground } from './background-process.mjs';
 import { chmod, mkdir, readFile, rename, rm, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
@@ -239,18 +239,13 @@ export async function runConfigurationReviewPass({
 function launchWorker({ environment, homeDirectory }) {
   // The worker claims the pass itself, so a worker that never starts leaves nothing to go stale. It
   // never starts another pass, alignment or update of its own.
-  const child = spawn(process.execPath, [WORKER], {
+  const child = spawnBackground(process.execPath, [WORKER], {
     cwd: homeDirectory,
     env: {
       ...environment,
       [PRODUCT_ALIGNMENT_SWITCH]: 'off', [PRODUCT_UPDATE_SWITCH]: 'off', [CONFIGURATION_REVIEWS_SWITCH]: 'off'
-    },
-    detached: process.platform !== 'win32',
-    stdio: 'ignore',
-    windowsHide: true
+    }
   });
-  child.once('error', () => {});
-  child.unref();
   return { pid: child.pid ?? null };
 }
 

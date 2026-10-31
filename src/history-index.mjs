@@ -14,7 +14,7 @@
  * cannot write a commit graph there), in a partial clone that left out trees (writing would
  * download every tree), or when `SINGULARITY_FLOW_HISTORY_INDEX=off`.
  */
-import { spawn } from 'node:child_process';
+import { spawnBackground } from './background-process.mjs';
 import { closeSync, lstatSync, mkdirSync, openSync, readdirSync, readFileSync, readSync, statSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -118,10 +118,6 @@ export function refreshHistoryIndex(root, {
 }
 
 function launchWorker(root, env) {
-  const child = spawn(process.execPath, [WORKER, root], {
-    cwd: root, env, detached: process.platform !== 'win32', stdio: 'ignore', windowsHide: true
-  });
-  child.once('error', () => {});
-  child.unref();
+  const child = spawnBackground(process.execPath, [WORKER, root], { cwd: root, env });
   return { pid: child.pid ?? null };
 }

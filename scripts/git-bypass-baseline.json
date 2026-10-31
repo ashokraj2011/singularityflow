@@ -125,13 +125,6 @@
       },
       "digest": "effe11585e329d5029a14663b37bcf7343505ef6b8cff9e3db67e2ace86678f6"
     },
-    "src/workspace-retention-background.mjs": {
-      "counts": {
-        "process-import": 1,
-        "process-launch": 1
-      },
-      "digest": "4ef037612e7c099464e64de6e615fe59ec92348b3db2ca1b6db5c48a643dc2e2"
-    },
     "scripts/session-listing-benchmark.mjs": {
       "counts": {
         "process-import": 1,
@@ -933,13 +926,6 @@
       },
       "digest": "3042ab4a55109ff3e266ff0b57cd6b5253b10758ab37c25a092ebadf63545469"
     },
-    "src/configuration-review-pass.mjs": {
-      "counts": {
-        "process-import": 1,
-        "process-launch": 1
-      },
-      "digest": "031abecbc768db8eb250e9c4a7089dee1bb2c1a4da0bc3de44029dceb6ed03e5"
-    },
     "src/context-history.mjs": {
       "counts": {
         "command-run": 2
@@ -1207,19 +1193,19 @@
       },
       "digest": "91f5ce551ca59a3542bf1032d57c408a3aa5d32d1ca2abef2ed8a3fbb18f96d2"
     },
-    "src/history-index.mjs": {
+    "src/background-process.mjs": {
       "counts": {
         "process-import": 1,
         "process-launch": 1
       },
-      "digest": "a15d2d344ba185467eb17daea6256b2f0bfc95e7fde88cbbda937b12d30b41b0"
+      "digest": "1494b4dc8eb5cbb827c753425b98328ad23b4fbc89bcb83ddaca5ed8bee6fd32"
     },
     "src/index-refresh-launcher.mjs": {
       "counts": {
         "process-import": 1,
-        "process-launch": 2
+        "process-launch": 1
       },
-      "digest": "8a2d1bcc629b963fc5621599b60bc62abd0f2648e13f2ad62758a68523f84f7d"
+      "digest": "e09b1b210d560a5cb2a4d4345dafecef581fbab98a2cfca05a8c3c12692cc3e3"
     },
     "src/host-session-launcher.mjs": {
       "counts": {
@@ -1798,13 +1784,6 @@
         "process-launch": 2
       },
       "digest": "0f40e9e361221f38ba34cb0265fdb1c3f877859326602d496f92d73bd5840584"
-    },
-    "src/ast-warm-launcher.mjs": {
-      "counts": {
-        "process-import": 1,
-        "process-launch": 1
-      },
-      "digest": "40cb67586c519f95866fdc9d5c9c1c106b25eab89dcf573de2316c15cfd064ad"
     },
     "scripts/intake-creation-benchmark.mjs": {
       "counts": {

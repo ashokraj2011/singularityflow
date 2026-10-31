@@ -1,5 +1,5 @@
 /** Bounded opportunistic maintenance, outside foreground Story/approval transactions. */
-import { spawn } from 'node:child_process';
+import { spawnBackground } from './background-process.mjs';
 import { fileURLToPath } from 'node:url';
 import path from 'node:path';
 import { readFile, lstat } from 'node:fs/promises';
@@ -35,11 +35,10 @@ export async function scheduleWorkspaceRetention(workspacePath, { protect = [], 
     const packet = JSON.stringify({ workspacePath: path.resolve(workspacePath), protect: protectedPaths });
     if (packet.length > MAXIMUM_PACKET_CHARACTERS) return false;
     // The shipped source worker is intentionally not part of the foreground cold bundle closure.
-    const child = spawn(process.execPath, [fileURLToPath(new URL('../src/workspace-retention-worker.mjs', import.meta.url))], {
-      cwd: workspacePath, env: { ...env, [RETENTION_WORKER_PACKET]: packet }, windowsHide: true, stdio: 'ignore'
+    // A worker launch cannot fail the successful workspace/session operation.
+    spawnBackground(process.execPath, [fileURLToPath(new URL('../src/workspace-retention-worker.mjs', import.meta.url))], {
+      cwd: workspacePath, env: { ...env, [RETENTION_WORKER_PACKET]: packet }
     });
-    child.once('error', () => { /* Worker launch cannot fail the successful workspace/session operation. */ });
-    child.unref();
     return true;
   } catch { return false; /* Invalid preferences suspend maintenance; the explicit command reports them. */ }
 }

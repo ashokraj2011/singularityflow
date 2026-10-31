@@ -319,7 +319,7 @@ test('the intake catalog answers offline after expiry and after a failed refresh
     if (stored.checkedAt > expiredAt + 60_000) { refreshed = stored; break; }
     await new Promise((resolve) => setTimeout(resolve, 250));
   }
-  assert.ok(refreshed, 'the replayed read refreshed the record');
+  assert.ok(refreshed, `the replayed read refreshed the record; its last attempt: ${JSON.stringify(readRefreshAttempt(await catalogRecord()))}`);
   assert.equal(refreshed.refresh.argv.slice(0, 2).join(' '), 'workspace branches');
   assert.equal((await f.invokeCatalog()).metrics.snapshot, 'cache');
 });

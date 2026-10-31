@@ -9,6 +9,7 @@
  */
 import { spawn } from 'node:child_process';
 import path from 'node:path';
+import { spawnBackground } from './background-process.mjs';
 import { PACKAGE_ROOT } from './package-root.mjs';
 
 // Through the package root, so the bundled CLI (bundle/, one level deep) finds the same file.
@@ -46,14 +47,10 @@ function environment(env) {
   return next;
 }
 
-/** Detached: no command waits for it, and its output is discarded. */
+/** In the background: no command waits for it, and its output is discarded. */
 export function launchIndexRefresh({ argv, cwd }, env = process.env) {
   if (!replayableIndexRead(argv)) return null;
-  const child = spawn(process.execPath, [BIN, ...argv], {
-    cwd, env: environment(env), detached: process.platform !== 'win32', stdio: 'ignore', windowsHide: true
-  });
-  child.once('error', () => {});
-  child.unref();
+  const child = spawnBackground(process.execPath, [BIN, ...argv], { cwd, env: environment(env) });
   return { pid: child.pid ?? null };
 }
 

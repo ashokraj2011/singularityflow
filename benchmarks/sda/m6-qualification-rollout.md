@@ -237,7 +237,12 @@ The same change as on macOS:
   pushes, a Windows defect fixed below.
 - With the slow lane, after the fixes (run 41172364199, `main@1345ec001`): 96 tests, 81 passed, 9
   skipped and 6 failed. The work list now passes its pending-push check and fails later, on a Git shim
-  the test writes as a POSIX shell script. The other five are open (below).
+  the test writes as a POSIX shell script.
+- With the slow lane, after the Windows fixes below (run 41192722032, those fixes on `main@8dd691421`;
+  the set adds `test/util.test.mjs`, `test/background-process.test.mjs` and
+  `test/worktree-fingerprint.test.mjs`): 141 tests, 141 passed, 0 skipped, 0 failed. No SDA test
+  skips on Windows any more: the Git ledger's shared-state conformance suite had skipped there since
+  it was written, with no reason given, and its six cases pass.
 
 **Found by the Windows run and fixed on `main`:**
 - **Node 22.12 to 22.16 and 23 misreport files on this Windows.** A path `lstat` or `stat` reports
@@ -249,6 +254,27 @@ The same change as on macOS:
   Git writes a Windows path with its backslashes doubled (`C:\\<HOME>\\...`), so a push another checkout made to the same remote
   was missing from the work list's consistency block. The readers now decode the value as Git does
   (`55ce8103b`).
+- **One directory has two spellings.** A Windows process keeps the spelling its working directory
+  was given, an 8.3 short name such as `RUNNER~1`, while Git reports the long one, and
+  `fs.realpathSync` keeps short names. `index status`, the work list's consistency block and
+  retention's in-use check compared the two as strings, so a checkout a command was running in could
+  read as unprotected. They now compare canonical spellings (`platformPathWithin` in `util.mjs`), and
+  22 calls in 16 modules use `realpathSync.native` (`605e0019e`, `20e3b86e9`).
+- **Background work ended with its command.** Windows ends a child started without `detached` when
+  its parent exits, so a refresh behind a stale answer never finished. The index refresh, the history
+  index, the AST warm-up, configuration reviews and workspace retention now start through
+  `src/background-process.mjs`, which on Windows starts the work from a detached relay with a hidden
+  console (`d4954756c`).
+- **Retention never removed a Story worktree.** Git for Windows sets `core.autocrlf=true` for the
+  whole machine, so a checked-out text file holds CRLF and its blob LF. The exhaustive fingerprint
+  compared raw bytes, with Git's system configuration off, so every such file read as changed and
+  "Detach & drop local" always refused. A file now counts as unchanged when its bytes are exactly
+  what Git's checkout writes, with the person's own `core.autocrlf` and `core.eol`; a line-ending-only
+  edit is still a change (`d89e68154`).
+- **Test fixtures that assumed POSIX:** a signing gitconfig written by hand with raw Windows paths,
+  Git shims written as shell scripts, a PID 1 assumed running, a working directory restored after its
+  fixture was deleted, and a refresh switch the suite runner sets but a bare `node --test` does not
+  (`605e0019e`, `5e3f6df63`, `6573faa93`).
 
 ## Budgets (§17, SDA-AC-002, SDA-AC-018, SDA-AC-021)
 
@@ -441,14 +467,15 @@ The new scripts are qualification tools: they are not part of the command regist
 
 ## Open after M6
 
-- **Windows:** measured 2026-10-31 (above). Open there:
-  - five slow-lane SDA tests fail: SDA-AC-020's `start --isolated-worktree` refuses
-    `REPOSITORY_CONTEXT_REQUIRED` (`test/sda-acceptance-007-010-020.test.mjs`), the index commands
-    (`test/sda-index-command.test.mjs`), the retention of a worktree whose Story start has not finished
-    (`test/sda-m5-retention.test.mjs`), SDA-AC-015's distinguishable failures
-    (`test/sda-m5-surfaces.test.mjs`), and the intake catalog's refresh behind a stale answer
-    (`test/sda-read-index.test.mjs`); the work list's test needs a Git shim that runs on Windows;
-  - the Git ledger's shared-state conformance suite skips on Windows (`test/sda-conformance.test.mjs`).
+- **Windows:** measured 2026-10-31 (above), and every SDA test passes there with the slow lane. Open
+  there:
+  - the Story list with a fresh cache starts 2 Git processes in some samples (SDA-AC-018);
+  - a proposal upload started with `--background-sync` still ends with its command: it forks with an
+    IPC handshake rather than starting through `src/background-process.mjs`. The outbox keeps the
+    proposal, and the next `sync` uploads it;
+  - the destructive proof's own `git status` reads run without the system `core.autocrlf`, so a
+    racily clean CRLF file can read as modified there. That keeps a checkout; it never removes one;
+  - that the relay opens no console window was not observed: the hosted runner has no desktop.
 - **SDA-AC-008:** hooks are not compared with the CLI, the gateway and the read worker.
 - **SDA-AC-013:** the clones that remain are listed, with their reasons, in
   `test/sda-clone-boundary.test.mjs`:

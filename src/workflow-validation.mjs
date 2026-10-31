@@ -29,7 +29,7 @@ const uniqueById = (findings) => [...new Map(findings.map((entry) => [entry.id, 
 /** The private file a fix draft for this repository (and workflow) goes in: outside the repository, never created here. */
 export function workflowFixDraftPath(root, workflowId = null, { env = process.env } = {}) {
   let resolved = path.resolve(root);
-  try { resolved = realpathSync(resolved); } catch { /* the path as given */ }
+  try { resolved = realpathSync.native(resolved); } catch { /* the path as given */ }
   const repository = createHash('sha256').update(resolved).digest('hex').slice(0, 16);
   return path.join(workflowBuildStateRoot(env), 'workflow-fixes', repository, `${workflowId ?? 'all-workflows'}.change-set.json`);
 }

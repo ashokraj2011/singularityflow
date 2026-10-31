@@ -307,8 +307,8 @@ function validateSourceSync(root, { optional }) {
   let canonicalRoot;
   let canonicalTarget;
   try {
-    canonicalRoot = realpathSync(configuredRoot);
-    canonicalTarget = realpathSync(target);
+    canonicalRoot = realpathSync.native(configuredRoot);
+    canonicalTarget = realpathSync.native(target);
   } catch (error) {
     fail(`declaration identity cannot be verified: ${error.message}`);
   }

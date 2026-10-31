@@ -5,6 +5,7 @@ import { mkdir, mkdtemp, readFile, readdir, rename, rm, symlink, writeFile } fro
 import os from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
+import { fileURLToPath } from 'node:url';
 import {
   NETWORK_TIMEOUT_MS, SUBPROCESS_MAX_BUFFER_BYTES, canonicalPathSync, defaultTimeoutFor, networkDisabled, parseArgs,
   platformPathWithin, run, writeJson, writeText
@@ -306,4 +307,22 @@ test('two spellings of one directory are one path, by the spelling Git reports',
   assert.notEqual(realpathSync(short), realpathSync.native(checkout), 'fs.realpathSync keeps the short name');
   assert.equal(canonicalPathSync(short), realpathSync.native(checkout));
   assert.ok(platformPathWithin(path.join(short, 'nested'), checkout));
+});
+
+test('src/ takes a canonical spelling from realpathSync.native or fs/promises realpath, never fs.realpathSync', async () => {
+  // On Windows fs.realpathSync (and fs.realpath) keep an 8.3 short name and the case they were
+  // given, so a comparison with the spelling Git reports fails for the same directory. Only
+  // platform-process.mjs keeps it, as an injectable default compared with itself alone.
+  const source = path.join(path.dirname(fileURLToPath(import.meta.url)), '..', 'src');
+  const offenders = [];
+  for (const name of await readdir(source, { recursive: true })) {
+    if (!/\.m?js$/u.test(name)) continue;
+    const text = await readFile(path.join(source, name), 'utf8');
+    text.split('\n').forEach((line, index) => {
+      if (/\brealpathSync\s*\(/u.test(line) || /import\s*\{[^}]*\brealpath\b[^}]*\}\s*from\s*'node:fs'/u.test(line)) {
+        offenders.push(`${name.replaceAll('\\', '/')}:${index + 1}`);
+      }
+    });
+  }
+  assert.deepEqual(offenders, []);
 });

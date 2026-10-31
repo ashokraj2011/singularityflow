@@ -94,7 +94,7 @@ function normalizedContext(context, policy) {
   }
   if (scanText(feedbackText).length) fail('REV_FEEDBACK_SECRET', 'Feedback may contain a credential; no attachment was registered.');
   let canonicalCommonGitDir;
-  try { canonicalCommonGitDir = realpathSync(gitCommonDir(context.repositoryRoot)); }
+  try { canonicalCommonGitDir = realpathSync.native(gitCommonDir(context.repositoryRoot)); }
   catch { fail('REV_ATTACHMENT_CONTEXT', 'Selected repository has no verifiable common Git directory.'); }
   return Object.freeze({
     workId, phaseId, phaseGeneration: context.phaseGeneration,

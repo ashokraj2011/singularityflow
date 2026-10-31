@@ -26,7 +26,7 @@ const ALLOWED_ENV_FILES = new Set(['', 'list', 'path', 'suggest', 'create', 'pla
 const KNOWN_ENV_FILES = Object.freeze(['list', 'path', 'suggest', 'override', 'create', 'place', 'link', 'unlink', 'adopt', 'add', 'remove', 'root']);
 
 function exists(file) { try { return lstatSync(file); } catch { return null; } }
-function canonical(file) { try { return realpathSync(file); } catch { return path.resolve(file); } }
+function canonical(file) { try { return realpathSync.native(file); } catch { return path.resolve(file); } }
 function within(directory, target) {
   const relative = path.relative(directory, target);
   return relative === '' || (!relative.startsWith(`..${path.sep}`) && relative !== '..' && !path.isAbsolute(relative));

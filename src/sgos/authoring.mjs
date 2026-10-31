@@ -143,7 +143,7 @@ function canonicalRepositoryRoot(root) {
     fail('SGOS human authoring requires an existing Git repository root.',
       'SGOS_AUTHORING_REPOSITORY_REQUIRED', { cause: error.message });
   }
-  const receivedRoot = realpathSync(root);
+  const receivedRoot = realpathSync.native(root);
   if (receivedRoot !== selectedRoot) {
     fail('SGOS human authoring requires the canonical selected repository root, not a subdirectory or alias.',
       'SGOS_AUTHORING_REPOSITORY_REQUIRED', { received: receivedRoot, expected: selectedRoot });

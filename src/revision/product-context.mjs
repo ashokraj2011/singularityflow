@@ -304,7 +304,7 @@ export async function readRevisionContext(active) {
   });
   const clauses = await activeRevisionClauses(active);
   let canonicalCommonGitDir;
-  try { canonicalCommonGitDir = realpathSync(gitCommonDir(active.root)); }
+  try { canonicalCommonGitDir = realpathSync.native(gitCommonDir(active.root)); }
   catch { fail('REV_CONTEXT_UNAVAILABLE', 'The selected repository has no verifiable common Git directory.'); }
   const context = {
     // Keep this byte-for-byte compatible with feedback-attachment receipts. The path itself is

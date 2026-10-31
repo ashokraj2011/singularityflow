@@ -18,7 +18,7 @@ export async function applicationDraftPath(root, capabilityId, { env = process.e
   const [{ createHash }, { realpathSync }, { workflowBuildStateRoot }] = await Promise.all([
     import('node:crypto'), import('node:fs'), import('../workflow-build/store.mjs')]);
   let resolved = path.resolve(root);
-  try { resolved = realpathSync(resolved); } catch { /* the path as given */ }
+  try { resolved = realpathSync.native(resolved); } catch { /* the path as given */ }
   const repository = createHash('sha256').update(resolved).digest('hex').slice(0, 16);
   const name = /^[a-z0-9][a-z0-9._-]{0,127}$/u.test(String(capabilityId ?? '')) ? capabilityId : 'capability';
   return path.join(workflowBuildStateRoot(env), 'application-drafts', repository, `${name}.application.yml`);

@@ -370,7 +370,7 @@ const STAGING_ISSUERS = Object.freeze({
 });
 
 function sameDirectory(left, right) {
-  const canonical = value => { try { return realpathSync(value); } catch { return path.resolve(value); } };
+  const canonical = value => { try { return realpathSync.native(value); } catch { return path.resolve(value); } };
   return Boolean(left && right) && canonical(left) === canonical(right);
 }
 
@@ -460,7 +460,7 @@ function scopedShellCommand(call, value) {
     const target = scoped[1] ?? scoped[2] ?? scoped[3];
     const root = value.contract?.repositoryRoot ?? value.repositoryRoot;
     if (!root || !path.isAbsolute(target)) return null;
-    try { if (realpathSync(target) !== root) return null; } catch { return null; }
+    try { if (realpathSync.native(target) !== root) return null; } catch { return null; }
     command = scoped[4];
   }
   // The launcher's verified Node + CLI entry, which the turn names when the CLI is off PATH, is the CLI.

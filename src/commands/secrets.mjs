@@ -19,7 +19,7 @@ const HOOK_LINE = 'sflow secrets scan --staged || exit 1';
 function canonical(target) {
   const missing = [];
   for (let current = path.resolve(target); ; current = path.dirname(current)) {
-    try { return path.join(realpathSync(current), ...missing.reverse()); }
+    try { return path.join(realpathSync.native(current), ...missing.reverse()); }
     catch { /* not there yet: resolve its parent */ }
     if (path.dirname(current) === current) return path.resolve(target);
     missing.push(path.basename(current));

@@ -50,7 +50,7 @@ async function backupBundle(root, plan) {
   const [{ exportWorkflowBundle }, { workflowBuildStateRoot }, { realpathSync }] = await Promise.all([
     import('../workflow-transfer.mjs'), import('../workflow-build/store.mjs'), import('node:fs')]);
   let resolved = path.resolve(root);
-  try { resolved = realpathSync(resolved); } catch { /* the path as given */ }
+  try { resolved = realpathSync.native(resolved); } catch { /* the path as given */ }
   const repository = createHash('sha256').update(resolved).digest('hex').slice(0, 16);
   const stamp = new Date().toISOString().replace(/[:.]/gu, '-');
   const file = path.join(workflowBuildStateRoot(), 'workflow-backups', repository,

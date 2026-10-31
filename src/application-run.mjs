@@ -68,7 +68,7 @@ export function appRecordPath(root, capabilityId, startId) {
   const common = gitCommonDir(root);
   const own = repositoryWorktreeDirectory(root);
   if (!own) throw new SingularityFlowError('The application checkout is unavailable.', { code: 'APP_CHECKOUT_UNAVAILABLE' });
-  const scope = path.resolve(own) === realpathSync(common) ? []
+  const scope = path.resolve(own) === realpathSync.native(common) ? []
     : ['worktrees', createHash('sha256').update(path.resolve(own)).digest('hex').slice(0, 32)];
   return path.join(common, 'singularity-flow', 'app', ...scope, capabilityId, `${startId}.json`);
 }

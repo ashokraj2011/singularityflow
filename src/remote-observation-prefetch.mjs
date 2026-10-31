@@ -28,7 +28,7 @@ const asked = new Map();
 // The entry and the handler may spell the same checkout differently; one ask must serve both.
 function askKey(root, remote, branch) {
   let checkout = root;
-  try { checkout = realpathSync(root); } catch { /* the spelling given */ }
+  try { checkout = realpathSync.native(root); } catch { /* the spelling given */ }
   return JSON.stringify([checkout, remote, branch]);
 }
 

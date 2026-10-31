@@ -112,7 +112,7 @@ function caseInsensitiveCheckout(root) {
 export function deriveMutationContract({ root = null, definition, workflow, phase = workflow?.phases?.[workflow.currentPhase],
   turnMode = 'authoring', staging = [], evidence = [] }) {
   const workId = workflow?.workItem?.id ?? null;
-  const repositoryRoot = root ? realpathSync(root) : null;
+  const repositoryRoot = root ? realpathSync.native(root) : null;
   const ownership = applicationPathContext(definition, workflow);
   const workItemRoot = workflow?.resolution?.workItemRoot ?? definition?.workItemRoot ?? 'singularity/work-items';
   const item = `${workItemRoot}/${workId}`;
@@ -204,10 +204,10 @@ export function mutationPathDecision(contract, target, cwd = contract.repository
   if (target.startsWith('file:')) {
     try { target = fileURLToPath(target); } catch { return { allowed: false, reason: 'invalid-file-uri' }; }
   }
-  const root = realpathSync(contract.repositoryRoot);
+  const root = realpathSync.native(contract.repositoryRoot);
   let absolute = path.resolve(cwd, target);
   try {
-    const realCwd = realpathSync(cwd);
+    const realCwd = realpathSync.native(cwd);
     if (contained(root, realCwd) && contained(path.resolve(cwd), absolute)) {
       absolute = path.resolve(realCwd, path.relative(path.resolve(cwd), absolute));
     }

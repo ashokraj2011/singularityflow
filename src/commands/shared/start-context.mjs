@@ -320,8 +320,8 @@ async function syncedCheckout(root) {
     const { realpathSync } = await import('node:fs');
     const { homedir } = await import('node:os');
     // Both sides as real paths: a home reached through a link (/var is /private/var) matched nothing.
-    const target = realpathSync(path.resolve(root, gitCommonDir(root)));
-    const homeDirectory = realpathSync(homedir());
+    const target = realpathSync.native(path.resolve(root, gitCommonDir(root)));
+    const homeDirectory = realpathSync.native(homedir());
     return storage.syncedFolderOf(target, { homeDirectory,
       ...(process.platform === 'darwin' ? { iCloudHomeFolders: storage.iCloudSyncedHomeFolders(homeDirectory) } : {}) });
   } catch { return null; }

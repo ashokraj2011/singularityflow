@@ -100,6 +100,8 @@ test('a compatible manually started service is reused and not stopped by a depen
 
 test('a service failure prevents the parent from starting and preserves no owned processes', async t => {
   const bad = entry('api', await port()); bad.argv = ['node', '-e', 'process.exit(7)'];
+  // Its exit is what this proves: a loaded machine took over 5 s to start Node, and readiness refused first.
+  bad.ready = { ...bad.ready, timeoutMs: 120_000 };
   const repo = await fixture(t, [bad, entry('web', await port(), ['api'])]);
   await withMachineState(repo.env, async () => {
     const c = await context(repo.root);

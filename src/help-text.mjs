@@ -987,7 +987,7 @@ Usage:
   singularity-flow epic stories list|show|add|update|split|adopt|validate|metadata|tasks
     add --title TEXT --repository ID [--description TEXT] [--specification TEXT]
       [--requirements REQ-nnn,...] [--acceptance-criteria AC-nnn,...] [--depends-on PLAN-ID,...]
-      [--epic-plan-id ID]                                (the only way in without a tracker)
+      [--workflow ID] [--epic-plan-id ID]                (the only way in without a tracker)
     update <PLAN-ID> [--metadata KEY=VALUE]... [--tasks-file FILE]
     split <PLAN-ID> [--title TEXT] [--repository ID] [--metadata KEY=VALUE]...
     adopt <JIRA-KEY> --repository ID --requirements REQ-nnn --acceptance-criteria AC-nnn

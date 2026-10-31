@@ -25,6 +25,7 @@ import { loadSession } from './session.mjs';
 import { renderAgentSkills } from './agents.mjs';
 import { approvedInputPhases, collectInputs, phaseInputsNotReadyError } from './inputs.mjs';
 import { requestedOutcomeLine } from './story-request-summary.mjs';
+import { storyEpicContext } from './story-epic-context.mjs';
 import { renderPromptInputsBlock } from './prompt-input-projection.mjs';
 import { assertNoPendingPublication, saveStoryDraft } from './state-stores.mjs';
 import { generationSkillForPhase } from './code-delivery-policy.mjs';
@@ -278,8 +279,11 @@ export function intentConflictRecovery(definition, workflow, phase) {
   return `${confirm} After \`${scope.id}\` is approved, an active later step can use ${propose}; no convergence finding or revision loop is required. Recompose after authorized approval and acknowledgement. Before that approval, ${record}revise/review the scope draft normally. ${never}`;
 }
 
-/** The immutable Story request, projected without provider payloads or empty fields. */
-function workSourcePromptContext(workflow, source, sourceRecord, { definition = {}, phase = null } = {}) {
+/**
+ * The immutable Story request, projected without provider payloads or empty fields. A Story released
+ * from an Epic also carries the Epic context its seed pins (src/story-epic-context.mjs).
+ */
+function workSourcePromptContext(workflow, source, sourceRecord, { definition = {}, phase = null, epicContext = null } = {}) {
   if (!workflow) return { text: '', record: null };
   if (!source || !sourceRecord?.sha256) {
     throw new SingularityFlowError(`Pinned Story source is missing for ${workflow.workItem.id}.`, {
@@ -304,7 +308,8 @@ function workSourcePromptContext(workflow, source, sourceRecord, { definition = 
     '',
     '```json',
     JSON.stringify(projection, null, 2),
-    '```'
+    '```',
+    ...(epicContext ? ['', epicContext.text] : [])
   ].join('\n');
   return { text, record: sourceRecord };
 }
@@ -781,9 +786,10 @@ export async function compose(root, options, {
     });
     sourceInfo = { ...sourceInfo, sha256: workflow.resolution.sourceSha256, size: canonical.length };
   }
+  const epicContext = workflow ? await storyEpicContext(root, workflow.workItem.id) : null;
   const workSource = workSourcePromptContext(workflow, source, sourceInfo?.exists ? {
     path: sourceRelative, sha256: sourceInfo.sha256, bytes: sourceInfo.size
-  } : null, { definition, phase: workflow?.phases?.[requestedPhase ?? workflow?.currentPhase] ?? null });
+  } : null, { definition, phase: workflow?.phases?.[requestedPhase ?? workflow?.currentPhase] ?? null, epicContext });
   const signals = {
     agent,
     phase: requestedPhase ?? workflow?.currentPhase ?? null,
@@ -1126,6 +1132,7 @@ export async function compose(root, options, {
   promptComposition.inputDigests = inputDigests(governed.inputRecords);
   promptComposition.stakeholderProjection = stakeholderContext.projection;
   if (constitution.record) promptComposition.constitution = constitution.record;
+  if (epicContext) promptComposition.epicContext = epicContext.records;
   if (executionEvidence) promptComposition.executionEvidence = {
     projectionSha256: executionEvidence.projectionSha256, packets: executionEvidence.entries.length,
     omittedPackets: executionEvidence.omittedPackets, diagnostics: executionEvidence.diagnostics };

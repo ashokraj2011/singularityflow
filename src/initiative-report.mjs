@@ -6,8 +6,9 @@ import {
   interfaceContractStatus
 } from './initiative-contracts.mjs';
 import {
-  loadInitiativeBreakdown
+  isLeadRepository, loadInitiativeBreakdown
 } from './initiative-repositories.mjs';
+import { localRefHeads } from './git.mjs';
 import {
   initiativeMilestoneReadiness, milestonePhases
 } from './initiative-milestones.mjs';
@@ -246,6 +247,32 @@ export function renderInitiativeReport(report) {
   return `${lines.join('\n')}\n`;
 }
 
+/**
+ * `start` for each Story an Epic released into this repository that has no local branch yet; a
+ * Story started here, isolated or not, has one. After release `epic next` named only the report.
+ */
+function releasedStoryStarts(root, portfolio, initiative) {
+  const lead = new Map();
+  const stories = (initiative.materialization?.attempts?.at(-1)?.stories ?? []).filter((story) => {
+    if (story.status === 'failed' || !story.branch) return false;
+    if (!lead.has(story.repository)) lead.set(story.repository, isLeadRepository(root,
+      initiative.resolution.repositories?.[story.repository] ?? portfolio.repositories?.[story.repository]));
+    return lead.get(story.repository);
+  });
+  if (!stories.length) return [];
+  // One observation reads at most 32 refs.
+  const local = new Map();
+  for (let index = 0; index < stories.length; index += 32) {
+    for (const entry of localRefHeads(root, stories.slice(index, index + 32).map((story) => `refs/heads/${story.branch}`))) local.set(...entry);
+  }
+  const parent = initiative.initiative.branch ?? initiative.initiative.id;
+  return stories.filter((story) => !local.has(`refs/heads/${story.branch}`)).map((story) => ({
+    action: 'start',
+    command: `singularity-flow start ${story.branch} --isolated-worktree --from-branch ${parent}`,
+    reason: `Released Story ${story.branch} (${story.storyId}) is ready to start in its own checkout, beside any other.`
+  }));
+}
+
 async function resolveInitiativeNextActions(root, initiativeId) {
   const { portfolio, initiative } = await loadInitiative(root, initiativeId);
   if (initiative.status === 'complete') return [{
@@ -262,7 +289,8 @@ async function resolveInitiativeNextActions(root, initiativeId) {
     action: 'complete',
     command: `singularity-flow epic complete ${initiativeId} --dry-run`,
     reason: 'Preview Product Owner completion: it lists every blocking Story not yet finalized, or confirms the Epic can close.'
-  }] : [])];
+  }] : []),
+  ...(initiative.resolution.lifecycleMode === 'planning-only' ? releasedStoryStarts(root, portfolio, initiative) : [])];
   const phase = initiative.phases[initiative.currentPhase];
   if (usesEpicPlanningLifecycle(initiative.resolution) && phase.id === 'epic-intake' && initiative.initiative.source?.type !== 'jira') {
     const sources = await listEpicSources(root, initiativeId);

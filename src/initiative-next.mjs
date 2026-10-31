@@ -24,6 +24,7 @@ export const NEXT_ACTIONS = Object.freeze({
   // asked to take, so they belong in the same vocabulary rather than a second one.
   SOURCES: 'sources',
   MATERIALIZE: 'materialize',
+  START: 'start',
   REPORT: 'report',
   STATUS: 'status'
 });

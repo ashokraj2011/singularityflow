@@ -1260,7 +1260,9 @@ async function startCommandAtRoot(positionals, options) {
   }
   const baseCommitAtStart = materializedSeed?.baseCommit ?? selectedRefs.get(remoteBaseRef);
   const launchBaseCommit = optionString(options, 'story-launch-base-commit');
-  if (launchBaseCommit && baseCommitAtStart !== launchBaseCommit) {
+  // A released Epic Story's base is pinned by its seed, not observed at launch: the Epic branch
+  // moves on (release's own branches commit is one), and readiness below evaluates the pinned base.
+  if (launchBaseCommit && !materializedSeed && baseCommitAtStart !== launchBaseCommit) {
     throw new SingularityFlowError(
       `Selected base '${baseAtStart}' moved after repository readiness was checked. Refresh Story intake and retry; nothing was changed.`,
       {

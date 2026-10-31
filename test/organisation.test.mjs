@@ -5303,6 +5303,45 @@ test('concurrent same-ID mappings publish exactly one proposal bound to the appr
     'proposal publication never advances the approved configuration branch');
 });
 
+test('a proposal push refused because a concurrent writer created the same commit is a duplicate, not a success', {
+  skip: process.platform === 'win32'
+}, async () => {
+  // Two same-ID mappings in the same second author byte-identical commits. The loser reads the review
+  // ref as absent, the winner creates it, and the server refuses the loser's update: the ref then holds
+  // exactly the loser's bytes, and only the refusal says who won.
+  const org = await remotes('platform');
+  process.env.SINGULARITY_FLOW_LEAD_REGISTRY = registry(org.base);
+  await mapAndMerge(org.platform, { capabilityId: 'foundation', kind: 'collection' });
+  const sentinel = path.join(org.base, 'identical-writer-fired');
+  const hook = path.join(org.platform, 'hooks', 'pre-receive');
+  // The objects arrive in quarantine, where no ref may move: the winner copies them into the object
+  // store, then creates the review ref this incoming update expects to be absent.
+  await writeFile(hook, `#!/bin/sh
+while read old new ref; do
+  case "$ref" in refs/heads/sflow/config-change/capability/map-twin-*)
+    [ -e ${JSON.stringify(sentinel)} ] && continue
+    : > ${JSON.stringify(sentinel)}
+    cp -R "$GIT_QUARANTINE_PATH"/. ${JSON.stringify(path.join(org.platform, 'objects'))}/ || exit 1
+    ( unset GIT_QUARANTINE_PATH GIT_OBJECT_DIRECTORY GIT_ALTERNATE_OBJECT_DIRECTORIES
+      git --git-dir=${JSON.stringify(org.platform)} update-ref "$ref" "$new" ) || exit 1
+  esac
+done
+exit 0
+`);
+  await chmod(hook, 0o755);
+  try {
+    await assert.rejects(mapCapability(org.platform, { capabilityId: 'twin', kind: 'collection' }), (error) => {
+      assert.equal(error.code, 'CAPABILITY_PROPOSAL_ALREADY_EXISTS', error.message);
+      assert.equal(error.details.state, 'proposal-already-exists');
+      return true;
+    });
+  } finally {
+    await rm(hook, { force: true });
+  }
+  assert.ok(existsSync(sentinel), 'the concurrent writer created the review ref during the leased push');
+  assert.equal(proposalRefs(org.platform).filter((ref) => /\/map-twin-[0-9a-f]{8}\s/u.test(ref)).length, 1);
+});
+
 test('invalid and unreadable same-ID proposal refs remain pre-mutation blockers', async () => {
   const org = await remotes('platform');
   process.env.SINGULARITY_FLOW_LEAD_REGISTRY = registry(org.base);

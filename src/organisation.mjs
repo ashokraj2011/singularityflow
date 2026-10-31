@@ -2004,6 +2004,13 @@ async function withLeadCheckout(url, message, reviewBranchPrefix, mutate, {
     if (pushed.status !== 0) {
       // A timeout or disconnected receive-pack is an uncertain write, not proof of failure. Observe
       // the exact destination before deleting the only local checkout that contains this commit.
+      // A review ref the push reports rejected ("!": a lease that found it, an atomic failure, a
+      // hook) was never written by this push. The same bytes there are a concurrent writer's
+      // identical commit, a duplicate exactly as an "up to date" push is above.
+      const reviewRejected = String(pushed.stdout ?? '').split(/\r?\n/u).some((line) => {
+        const [flag, refspec] = line.split('\t');
+        return flag === '!' && refspec?.endsWith(`:${reviewRef}`);
+      });
       operationSession.invalidate(remote);
       const current = await operationSession.observeAsync(remote, {
         includeHead: false, refs: [reviewRef,
@@ -2017,7 +2024,7 @@ async function withLeadCheckout(url, message, reviewBranchPrefix, mutate, {
         ? current.refs.get(sourceRef) ?? null : null;
       const supersededGone = obsolete.every(({ branch }) =>
         !current.refs.has(`refs/heads/${branch}`));
-      if (observedProposal === commit && supersededGone) {
+      if (observedProposal === commit && supersededGone && !reviewRejected) {
         pushReconciled = true;
       } else if (observedProposal && observedProposal !== expectedReviewCommit) {
         throw duplicateProposal();

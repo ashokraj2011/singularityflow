@@ -814,10 +814,12 @@ Phase B is complete when its ADR's decision is implemented with every governance
 - **Phase A.**
   - Reads: the Story list, the intake catalog and `status` start no Git and never wait on the network, fresh or expired, online or offline. `nextsteps` and the repository snapshot still start 2 and 3–4 local Git processes, without the network.
   - Identity no longer leaks branches or paths (M2), and write outcomes share one vocabulary with the ledger's idempotency gap closed (M1).
-  - Native qualification is on macOS. Windows is parked.
+  - Native qualification: macOS, and Windows on 2026-10-31. On Windows the Story list with a fresh cache starts 2 Git processes in some samples, so SDA-AC-018 is part met there.
 - **Phase B (ADR 0018, option A)** is implemented: M3 to M5 and the batches finished before M6. Every governance and recovery contract is preserved, and the shared-state and lifecycle authority contracts are at `v1`.
 
 **Accepted** by the repository owner on 2026-10-31, with M0 to M6 on `main`. Accepting the specification does not close the items the M6 report leaves open (Windows is parked); each stays open under it.
+
+On 2026-10-31, after acceptance, Windows was measured (`benchmarks/sda/m6-qualification-rollout.md`, Matched reports (Windows)). The items that report leaves open on Windows stay open under this acceptance.
 
 The product never describes pending local work as globally published or approved. Git becomes replaceable persistence and source-control infrastructure, while Singularity Flow remains responsible for workflow meaning, evidence and authorized decisions.
 

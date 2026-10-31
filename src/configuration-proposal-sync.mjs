@@ -1,6 +1,6 @@
 /** A saved proposal may upload asynchronously; approval/activation never run here. */
-import { fork } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
+import { forkBackground } from './background-process.mjs';
 import { readTransportIntent, retryTransportIntent } from './transport-intents.mjs';
 import { SingularityFlowError } from './util.mjs';
 
@@ -21,8 +21,9 @@ export async function syncConfigurationProposal(intentId, options = {}) {
 
 export async function startConfigurationProposalSync(intentId, { env = process.env } = {}) {
   if (env.SINGULARITY_FLOW_CONFIGURATION_BACKGROUND_SYNC === 'off') return false;
-  const child = fork(fileURLToPath(new URL('./configuration-proposal-sync-worker.mjs', import.meta.url)), [], {
-    env: { ...env }, execArgv: [], stdio: ['ignore', 'ignore', 'ignore', 'ipc']
+  // In the background, so the upload outlives the command that saved the proposal (on Windows too).
+  const child = forkBackground(fileURLToPath(new URL('./configuration-proposal-sync-worker.mjs', import.meta.url)), [], {
+    env: { ...env }
   });
   const ready = await new Promise(resolve => {
     const timer = setTimeout(() => { child.kill(); resolve(false); }, 5_000);

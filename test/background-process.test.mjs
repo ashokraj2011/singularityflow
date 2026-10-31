@@ -46,3 +46,34 @@ spawnBackground(process.execPath, [${JSON.stringify(child)}], { cwd: ${JSON.stri
 spawn(process.execPath, [${JSON.stringify(child)}], { stdio: 'ignore', windowsHide: true }).unref();`);
   t.diagnostic(`a plain child ${plain === null ? 'ended with its parent' : 'outlived its parent'} on this Windows host`);
 });
+
+test('a background module answers its handshake and outlives the command that disconnected from it', async (t) => {
+  const base = await mkdtemp(path.join(os.tmpdir(), 'sflow-background-fork-'));
+  t.after(() => rm(base, { recursive: true, force: true, maxRetries: 10, retryDelay: 200 }));
+  const work = path.join(base, 'work');
+  await mkdir(work);
+  for (const platform of [process.platform, 'win32']) {
+    const name = `fork-${platform === process.platform ? 'native' : 'relay'}`;
+    const marker = path.join(base, `${name}.finished`);
+    const module = path.join(base, `${name}.mjs`);
+    await writeFile(module, `import { writeFileSync } from 'node:fs';
+process.once('message', (packet) => {
+  process.send({ ready: true, echo: packet.token });
+  setTimeout(() => { writeFileSync(${JSON.stringify(marker)}, process.cwd()); process.exit(0); }, 1500);
+});\n`);
+    // As configuration-proposal-sync.mjs does: send, wait for the answer, then disconnect and unreference.
+    const launch = `import { forkBackground } from ${JSON.stringify(HELPER)};
+const child = forkBackground(${JSON.stringify(module)}, [], { cwd: ${JSON.stringify(work)}, platform: ${JSON.stringify(platform)} });
+const answer = await new Promise((resolve) => { child.once('message', resolve); child.once('exit', () => resolve(null)); child.send({ token: 'tok-1' }); });
+child.disconnect(); child.unref();
+process.stdout.write(JSON.stringify(answer));`;
+    const parent = spawnSync(process.execPath, ['--input-type=module', '-e', launch], { cwd: base, encoding: 'utf8', timeout: 30_000 });
+    assert.equal(parent.status, 0, parent.stderr);
+    assert.deepEqual(JSON.parse(parent.stdout), { ready: true, echo: 'tok-1' }, `${name}: the answer crossed the channel`);
+    for (const deadline = Date.now() + 20_000; Date.now() < deadline && !existsSync(marker);) {
+      await new Promise((resolve) => setTimeout(resolve, 100));
+    }
+    assert.ok(existsSync(marker), `${name}: the module finished after the command that started it had exited`);
+    assert.equal(canonicalPathSync(await readFile(marker, 'utf8')), canonicalPathSync(work));
+  }
+});

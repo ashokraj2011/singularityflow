@@ -879,13 +879,6 @@
       },
       "digest": "f60f44b385d6a9ffbde6c3bc5d5afb40132f1eea9caf7f8b791a0515fee207bb"
     },
-    "src/configuration-proposal-sync.mjs": {
-      "counts": {
-        "process-import": 1,
-        "process-launch": 1
-      },
-      "digest": "82bbe8bebe78403faf41674f781b8cecb5d240acf26981044003a5f8c3ee4f44"
-    },
     "src/configuration-read-worker-client.mjs": {
       "counts": {
         "process-import": 1,
@@ -1196,9 +1189,9 @@
     "src/background-process.mjs": {
       "counts": {
         "process-import": 1,
-        "process-launch": 1
+        "process-launch": 3
       },
-      "digest": "1494b4dc8eb5cbb827c753425b98328ad23b4fbc89bcb83ddaca5ed8bee6fd32"
+      "digest": "b62384273908447039492231ecda179045296e6abd7875c9e6d69b82a02ad372"
     },
     "src/index-refresh-launcher.mjs": {
       "counts": {

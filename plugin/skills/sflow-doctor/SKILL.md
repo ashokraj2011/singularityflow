@@ -27,6 +27,10 @@ Before any boundary lookup or SFlow action, run `singularity-flow pause status -
    remotes named by unfinished bootstrap sessions. Relay proxy and certificate configuration source
    names, never their values; never request credentials or recommend disabling TLS.
 
+4. To read the shared read index, a lock or a backup, run the requested or returned
+   `singularity-flow index status|refresh|rebuild|verify`, `singularity-flow lock show|show-file` or
+   `singularity-flow backup inspect` command exactly, with `--json`, and relay its fields and routes.
+
 All checks above are read-only. Do not reset, stash, switch branches, or edit configuration unless
 the user explicitly asks you to apply a fix.
 

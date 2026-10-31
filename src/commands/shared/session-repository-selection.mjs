@@ -95,8 +95,10 @@ export async function resolveSessionRepository({
       root: null,
       reason: 'workspace-repository-not-ready',
       workspaceContext: context,
+      ...(context.repositoryId ? { materialize: workspaceMaterializeCommand(context.workspacePath, context.repositoryId) } : {}),
       detail: `Workspace '${context.workspaceName}' repository '${context.repositoryId}' is ${context.repositoryState}. `
-        + `Run \`singularity-flow workspace repair ${context.workspacePath}\`.`
+        + `Run \`${context.repositoryId ? workspaceMaterializeCommand(context.workspacePath, context.repositoryId)
+          : `singularity-flow workspace repair ${JSON.stringify(context.workspacePath)}`}\`.`
     };
   }
   const workspaceRoot = context.canonicalRepositoryPath ?? context.repositoryPath;

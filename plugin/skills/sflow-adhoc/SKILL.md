@@ -21,4 +21,4 @@ Before any boundary lookup or SFlow action, run `singularity-flow pause status -
 5. Run `singularity-flow adhoc landing preview <SESSION-ID> --json`. If multiple allowlisted tests exist, show the IDs and ask which one to use.
 6. If the result is promotion-required, preserve the reasons and offer `singularity-flow adhoc promote <SESSION-ID>`. Do not weaken protected-path, branch, resource, or verification checks.
 7. Show the complete packet digest. Publish only after the contributor explicitly confirms that exact digest, using `singularity-flow adhoc publish <SESSION-ID> --confirm <PACKET-SHA256> --json`.
-8. Report that direct landing is reverse-converged ad hoc work (`workflowExecuted: false`), together with the exact commit, push status, authority receipt, and any pending recovery.
+8. Report that direct landing is reverse-converged ad hoc work (`workflowExecuted: false`), together with the exact commit, push status, authority receipt, and any pending recovery. A waiting publication is retried with the returned `singularity-flow adhoc sync <SESSION-ID> --json`.

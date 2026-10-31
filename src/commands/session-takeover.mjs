@@ -6,12 +6,21 @@ import { optionString, requirePositional, SingularityFlowError } from '../util.m
 import { agentExecutionContext, captureExecutionContext, boundExecutionContextRoot } from '../execution-context.mjs';
 import { readCopilotMode, copilotModePresentation } from '../copilot-mode.mjs';
 
-const LOCAL_WORK_NOT_CARRIED = Object.freeze({
-  message: 'Work saved only on the laptop that worked on this Story before did not come with it: configuration drafts, '
-    + 'laptop-local documents, and publications or pushes still waiting there. It is not recoverable here unless it was '
-    + 'published, or saved there with singularity-flow backup create --out <DIRECTORY> and restored here.',
-  restore: 'singularity-flow backup restore <DIRECTORY>'
-});
+/**
+ * What a takeover never brings (SDA §11). A publication or push still waiting on the other laptop is
+ * published from there, by its own sync: no backup carries it (B5).
+ */
+export function localWorkNotCarried(id) {
+  return Object.freeze({
+    message: 'Work saved only on the laptop that worked on this Story before did not come with it: configuration drafts, '
+      + 'laptop-local documents, and publications or pushes still waiting there. A publication or push still waiting there is '
+      + `published from that laptop: run singularity-flow sync ${id} there (singularity-flow push status there lists saved pushes). `
+      + 'The rest is not recoverable here unless it was published, or saved there with singularity-flow backup create '
+      + '--out <DIRECTORY> and restored here.',
+    restore: 'singularity-flow backup restore <DIRECTORY>',
+    syncOnPreviousLaptop: `singularity-flow sync ${id}`
+  });
+}
 
 /**
  * The session, brief and next steps read one command at a time, as `session open` does when the
@@ -26,11 +35,21 @@ async function sessionReadsOneByOne(root, id) {
   return { session: status.ok ? status.value : null, context: context.ok ? context.value : null, nextsteps: next.ok ? next.value : null };
 }
 
-/** The takeover in plain words, for a person at a terminal; --json keeps the full result. */
-function takeoverText(result) {
+/**
+ * The takeover in plain words, for a person at a terminal; --json keeps the full result. It always
+ * ends with its next step: a takeover whose session was not ready ended on that sentence (D9).
+ */
+export function takeoverText(result, { commandRouteLines, safeCommandGuidance }) {
   const lines = [`Took over ${result.workId} at phase ${result.phase ?? 'closed'}: ${result.repositoryPath}`];
+  const handoff = result.session?.phaseAgent?.handoff ?? null;
+  const reason = result.session?.workItemSelectionRequired ? 'the Story is not selected for this session'
+    : result.session?.phaseAgent?.valid === false ? `phase ${result.phase} needs its agent bound here` : null;
   lines.push(result.documentsToRestore ? result.documentsToRestore.message
-    : result.ready ? 'It is ready to continue here.' : 'It is here; its session is not ready yet.');
+    : result.ready ? 'It is ready to continue here.' : `It is here; its session is not ready yet${reason ? `: ${reason}` : ''}.`);
+  const next = result.documentsToRestore ? { command: `singularity-flow documents restore ${result.documentsToRestore.documents[0]} --file <LOCAL-FILE> --work-id ${result.workId}` }
+    : result.ready ? { command: `singularity-flow nextsteps ${result.workId}` }
+      : { command: handoff?.command ?? `singularity-flow session attach ${result.workId} --json`, skill: handoff?.copilotCommand ?? '/sf-session' };
+  lines.push('Next:', ...commandRouteLines(safeCommandGuidance(next) ?? {}, ''));
   lines.push(result.localWorkNotCarried.message);
   return lines.join('\n');
 }
@@ -159,12 +178,13 @@ export async function run(_argv, { positionals, options }) {
       documentsToRestore: restoreNow.length ? { phase, documents: restoreNow.map(document => document.id),
         message: `Phase '${phase}' uses ${restoreNow.length === 1 ? 'a document' : 'documents'} kept only on the laptop that added ${restoreNow.length === 1 ? 'it' : 'them'}. Ask for the same original file and upload it here with ${restoreNow.map(document => document.restore).join('; ')}. This keeps its ID and changes no approval.` } : null,
       // What a takeover can never bring (SDA §11): work saved only on the laptop that had the Story.
-      localWorkNotCarried: LOCAL_WORK_NOT_CARRIED,
+      localWorkNotCarried: localWorkNotCarried(id),
       remoteSynchronized: true, exclusiveOwnership: false,
       effects: { storyAdvanced: false, committed: false, pushed: false, testsRun: false } };
     if (options['for-agent']) Object.assign(result, { executionContext: agentExecutionContext(primary),
       repositories: bindings.map(agentExecutionContext) });
-    console.log(options.json ? JSON.stringify(result, null, 2) : takeoverText(result));
+    console.log(options.json ? JSON.stringify(result, null, 2)
+      : takeoverText(result, await import('../safe-command-guidance.mjs')));
     return result;
   } catch (error) {
     error.details = { ...(error.details ?? {}), completedRepositoryPaths: completed,

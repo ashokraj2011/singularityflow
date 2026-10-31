@@ -821,6 +821,8 @@ test('every step only a person takes in their own terminal is refused in every t
       'singularity-flow apm policy init --marketplace acme/acme-catalog'],
     'lock-release': ['singularity-flow lock release publication PMC-1 --confirm 0123456789abcdef',
       'singularity-flow lock release-file /tmp/workspaces.json.lock --confirm 0123456789abcdef --json'],
+    'configuration-approve': ['singularity-flow configuration approve sflow/config-change/workflow/studio-x --yes',
+      'singularity-flow configuration approve --json'],
     'approval-evidence-confirmation': ['singularity-flow approve custom-step --work-id PMC-1 --confirm-evidence'],
     'clarification-answer': ['singularity-flow clarification answer custom-step --question "Is 2 right?" --answer "Yes."'],
     'plan-correction': ['singularity-flow decision plan PMC-1 --set-fulfillment PMC-1:REQ-001=test-only --reason "The tests are the whole delivery."',

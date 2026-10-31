@@ -33,6 +33,10 @@ function explicitCommands(error) {
   const values = [
     details?.diagnosticAction,
     typeof details?.nextAction === 'string' ? { command: details.nextAction } : details?.nextAction,
+    // A capability proposal conflict: discard at the exact commit, make the change again, review (C4).
+    details?.discardAction,
+    details?.remapAction,
+    details?.reviewAction,
     // Some producers name their way out as `nextCommand` (session attach, workspace selection).
     typeof details?.nextCommand === 'string' ? details.nextCommand : details?.nextCommand,
     details?.recoveryCommand,
@@ -734,6 +738,37 @@ function witnessExceptionWorkId(argv) {
   return safeWorkId(positional) ?? safeWorkId(optionValueRaw(argv, 'work-id'));
 }
 
+// SDA and its sweep added refusal codes no plan read (sweep batch 5 coverage). A lock whose owner
+// only a person can end is planned before KNOWN (reviewedLockReleasePlan); these name the read of a
+// lock whose holder still runs here, or whose release needs the token that read prints.
+const LOCK_KIND = /^[a-z][a-z0-9-]{0,63}$/u;
+const LOCK_ID = /^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$/u;
+function lockReadCommand(error, { file = false } = {}) {
+  const details = error?.details ?? {};
+  const subject = details.subject;
+  if (!file && LOCK_KIND.test(subject?.kind ?? '') && LOCK_ID.test(subject?.id ?? '')) {
+    return `singularity-flow lock show ${subject.kind} ${subject.id}`;
+  }
+  return file && typeof details.lock === 'string' && details.lock.length < 1024
+    ? safeCommandGuidance({ argv: ['lock', 'show-file', details.lock] })?.command ?? null : null;
+}
+function heldLockSteps(label, options) {
+  return (_argv, error) => [step('review-lock', label, lockReadCommand(error, options), 'diagnostic')];
+}
+const HELD_HERE = 'A process on this machine holds it and is still renewing it: it ends when that command finishes or is stopped, never by age. Read who holds it (PID, command, last heartbeat), then run the same command again.';
+const REVIEW_AGAIN = 'Read the lock again: a release confirms exactly the token this read prints, for the owner it names.';
+const DRAFTS_READ = 'singularity-flow configuration drafts';
+const draftsStep = (label) => () => [step('read-drafts', label, DRAFTS_READ, 'diagnostic')];
+/** A pre-commit publication another command here is still running: its holder, then the subject's own sync. */
+function activePublicationSteps(_argv, error) {
+  const subject = error?.details?.subject;
+  const kind = { initiative: 'initiative sync', goal: 'goal sync', adhoc: 'adhoc sync', story: 'sync' }[subject?.kind];
+  const retry = kind && LOCK_ID.test(subject?.id ?? '') ? `singularity-flow ${kind} ${subject.id}` : null;
+  return [step('review-publication-holder', `Another command is publishing this right now${error?.details?.pid ? ` (PID ${error.details.pid})` : ''}. `
+    + 'Return to that terminal and let it finish or interrupt it; recovery never rolls back a live owner. Read who holds it:', lockReadCommand(error), 'diagnostic'),
+  retry && step('sync-again', 'Once it has ended, publish with the subject\'s own sync.', retry, 'remediation')];
+}
+
 const KNOWN = Object.freeze({
   // An upstream issue about a step with no approval group: never decidable there. Raise it, or a
   // superseding issue, at the nearest earlier step whose approvers can decide it.
@@ -1414,6 +1449,79 @@ const KNOWN = Object.freeze({
   },
   ...Object.fromEntries(APPROVAL_IDENTITY_CODES.map((code) => [code, approvalIdentitySteps])),
   CLARIFICATION_AUTHORITY_REQUIRED: clarificationAuthoritySteps,
+  // Sweep batch 5 coverage: SDA and sweep refusals a person reaches whose throw site may name no route.
+  SUBJECT_LOCK_BUSY: heldLockSteps(HELD_HERE),
+  WORKSPACE_REGISTRY_BUSY: heldLockSteps(HELD_HERE, { file: true }),
+  ACTIVE_WORKSPACE_SELECTION_BUSY: heldLockSteps(HELD_HERE, { file: true }),
+  SGOS_AUTHORITY_STORE_BUSY: heldLockSteps(HELD_HERE, { file: true }),
+  SUBJECT_LOCK_RELEASE_REFUSED: heldLockSteps(HELD_HERE),
+  WORKSPACE_REGISTRY_RELEASE_REFUSED: heldLockSteps(HELD_HERE, { file: true }),
+  SGOS_AUTHORITY_LOCK_RELEASE_REFUSED: heldLockSteps(HELD_HERE, { file: true }),
+  SUBJECT_LOCK_RELEASE_INVALID: heldLockSteps(REVIEW_AGAIN),
+  SUBJECT_LOCK_RELEASE_MISMATCH: heldLockSteps(REVIEW_AGAIN),
+  WORKSPACE_REGISTRY_RELEASE_INVALID: heldLockSteps(REVIEW_AGAIN, { file: true }),
+  WORKSPACE_REGISTRY_RELEASE_MISMATCH: heldLockSteps(REVIEW_AGAIN, { file: true }),
+  SGOS_AUTHORITY_LOCK_RELEASE_MISMATCH: heldLockSteps(REVIEW_AGAIN, { file: true }),
+  SGOS_AUTHORITY_LOCK_CORRUPT: () => [step('inspect-authority-store', 'The Authority Store lock record cannot be read. Inspect the store; the lock is never taken over by age.',
+    'singularity-flow authority-store status --json', 'diagnostic')],
+  SGOS_AUTHORITY_PATH_UNSAFE: () => [step('inspect-authority-store', 'The Authority Store path must stay inside an ordinary Git common directory. Inspect where this store points.',
+    'singularity-flow authority-store status --json', 'diagnostic')],
+  FACTORY_RESET_IN_PROGRESS: () => [step('review-reset-barrier', 'A repository reinitialization is running. Read who holds it: it ends when that reset finishes, or by the reviewed release this read names when its owner runs elsewhere.',
+    'singularity-flow lock show factory-reset-barrier repository', 'diagnostic')],
+  FACTORY_RESET_ACTIVE_OPERATIONS: (_argv, error) => {
+    const held = (error?.details?.locks ?? []).map((lock) => lock?.owner?.subject).find((subject) => LOCK_KIND.test(subject?.kind ?? '') && LOCK_ID.test(subject?.id ?? ''));
+    return [step('review-active-operation', 'Reinitialization waits for every running operation. Read the first one\'s lock; let it finish, or stop it through its own recovery, then preview again.',
+      held ? `singularity-flow lock show ${held.kind} ${held.id}` : null, 'diagnostic')];
+  },
+  TRANSPORT_INTENT_BUSY: (_argv, error) => {
+    const intent = /^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$/u.test(error?.details?.intentId ?? '') ? error.details.intentId : null;
+    return [step('review-saved-push', 'Another command is changing this saved push right now. Read its state, then run its sync again once that command has ended.',
+      intent ? `singularity-flow push status ${intent} --json` : 'singularity-flow push status --json', 'diagnostic')];
+  },
+  GOVERNED_GOAL_PUBLICATION_ACTIVE: activePublicationSteps,
+  INITIATIVE_PUBLICATION_ACTIVE: activePublicationSteps,
+  BACKUP_DESTINATION_INVALID: () => [step('choose-backup-directory', 'Choose a new or empty directory outside every checkout of this repository; nothing was written.',
+    'singularity-flow backup create --out <NEW-OR-EMPTY-DIRECTORY>', 'remediation')],
+  BACKUP_INSIDE_CHECKOUT: () => [step('choose-backup-directory', 'A backup holds documents that must never be committed: choose a directory outside this repository and its Story checkouts.',
+    'singularity-flow backup create --out <DIRECTORY-OUTSIDE-THE-REPOSITORY>', 'remediation')],
+  BACKUP_INVALID: () => [step('inspect-other-backup', 'Nothing was restored. Inspect another copy of the backup, or make a new one with backup create on the laptop it came from.',
+    'singularity-flow backup inspect <ANOTHER-COPY>', 'diagnostic')],
+  BACKUP_INTEGRITY_FAILED: () => [step('inspect-other-backup', 'Nothing was restored from this damaged copy. Inspect another copy, or make a new one with backup create on the laptop it came from.',
+    'singularity-flow backup inspect <ANOTHER-COPY>', 'diagnostic')],
+  BACKUP_REPOSITORY_MISMATCH: () => [step('inspect-in-its-repository', 'Run it inside a clone of the repository the backup came from; nothing was restored here.',
+    'singularity-flow backup inspect <DIRECTORY>', 'diagnostic')],
+  CONFIGURATION_APPROVE_NOTHING: draftsStep('See the drafts that are waiting; propose them before anything can be approved.'),
+  CONFIGURATION_DRAFTS_EMPTY: draftsStep('See the drafts and the last proposal this clone holds.'),
+  CONFIGURATION_DRAFTS_CHANGED: draftsStep('The drafts changed while this command ran; see them as they are now, then run it again.'),
+  CONFIGURATION_DRAFT_UNKNOWN: draftsStep('See each waiting draft with its number and ID.'),
+  CONFIGURATION_DRAFT_OPERATION_REUSED: draftsStep('See the draft that holds this operation ID; save a different change under a new --operation-id.'),
+  CONFIGURATION_DRAFTS_INVALID: (_argv, error) => [
+    step('set-aside-draft', `${typeof error?.details?.file === 'string' ? `Move ${redactDiagnosticText(error.details.file).slice(0, 500)}` : 'Move the unreadable draft file'} out of the drafts folder in your own terminal; nothing in it was proposed.`, null, 'remediation'),
+    step('read-drafts', 'Then see the drafts that remain.', DRAFTS_READ, 'diagnostic')],
+  CONFIGURATION_DRAFTS_LIMIT: () => [step('propose-drafts', 'Propose the waiting drafts as one review before saving more.', 'singularity-flow configuration propose', 'remediation')],
+  STUDIO_NOTHING_TO_PROPOSE: draftsStep('Nothing is waiting: save a change first, then propose it.'),
+  WORKFLOW_PROPOSAL_UNAVAILABLE: draftsStep('The proposal is no longer on the remote (merged and deleted, or closed). See what this clone recorded for it.'),
+  STUDIO_CHANGES_INVALID: (argv) => {
+    const preview = argv.includes('--change-set') && !argv.includes('--dry-run')
+      ? safeCommandGuidance({ argv: [...argv.filter((word) => word !== '--propose'), '--dry-run'] })?.command ?? null : null;
+    // The person previews their own change set; no Copilot skill runs an arbitrary Studio change set.
+    const own = preview && step('preview-studio-changes', 'Preview the same change set: it lists every problem with its location, and nothing is written.', preview, 'diagnostic');
+    return [own ? Object.freeze({ ...own, skill: null, copilotCommand: null })
+      : step('read-drafts', 'See every draft and the ones that no longer apply.', DRAFTS_READ, 'diagnostic')];
+  },
+  CONFIGURATION_PROJECTION_BASE_UNAVAILABLE: () => [step('diagnose-network', 'The fetched configuration base could not be read. Check Git access and unfinished workspace setup, then run the command again.',
+    'singularity-flow workspace doctor --network --json')],
+  REMOTE_UNKNOWN: () => [step('diagnose-network', 'Git did not say why the remote could not be read. Check Git access, proxy and certificates, then run the command again.',
+    'singularity-flow workspace doctor --network --json')],
+  AUTO_PLAN_INVALID: () => [step('plan-again', 'Plan again with a non-empty requirement within the size limit; a malformed plan is never kept.',
+    'singularity-flow auto plan <REQUIREMENT>', 'remediation')],
+  SESSION_REPOSITORY_UNAVAILABLE: () => [
+    step('list-workspaces', 'See the workspaces this machine knows and the state of each repository.', 'singularity-flow workspace list', 'diagnostic'),
+    step('select-workspace', 'Select a workspace repository this machine can read.', 'singularity-flow workspace use <WORKSPACE>', 'remediation')],
+  LOCAL_EPIC_RESERVATION_AMBIGUOUS: (_argv, error) => [step('remove-other-reservations',
+    `Keep the reservation this branch is for and delete the other reservation files${Array.isArray(error?.details?.reservations)
+      ? ` (${error.details.reservations.map((entry) => redactDiagnosticText(String(entry)).slice(0, 200)).join(', ')})` : ''} in your own terminal, then run the same command again.`,
+    null, 'remediation')],
   CLARIFICATION_MODE_OFF: (_argv, error) => {
     const phase = /^[a-z0-9]+(?:-[a-z0-9]+)*$/.test(error?.details?.phase ?? '')
       ? error.details.phase : null;
@@ -1762,6 +1870,8 @@ export function refusalRemediationPlan(error, argv = []) {
     ? 'Retry after the test runtime or dependency has actually changed; the same source may then be rechecked. Do not loop against an unchanged environment.'
     : requiredTestBlocked
     ? 'Retry only after the identified test, report, or source-mutation condition is repaired and the current phase is rechecked. Do not repeat an unchanged failing run.'
+    : code === 'CAPABILITY_PROPOSAL_VALUE_CONFLICT'
+    ? 'Activating this proposal again is refused the same way. Discard it, and activate the new proposal once it is reviewed.'
     : code === 'CLARIFICATION_MODE_OFF'
     ? 'Do not retry clarification recording while the pinned mode is off; continue the phase instead.'
     : approvalTerminalBlocked

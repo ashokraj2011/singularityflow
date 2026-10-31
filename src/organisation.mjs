@@ -596,6 +596,50 @@ function capabilityCommand(action, {
   return args.join(' ');
 }
 
+// `rebase-proposal` rebuilds only a typed additive map (or its earlier rebase) record by record.
+const REBASEABLE_MAP_BRANCHES = [
+  /^sflow\/config-change\/capability\/map-([a-z0-9]+(?:-[a-z0-9]+)*)-([0-9a-f]{8})$/,
+  /^sflow\/config-change\/capability\/rebase-map-([a-z0-9]+(?:-[a-z0-9]+)*)-[0-9a-f]{8}-([0-9a-f]{8})$/
+];
+
+function rebaseableMapBranch(branch) {
+  const text = String(branch ?? '');
+  if (text.startsWith(`${CAPABILITY_PROPOSAL_PREFIX}map-team-`)) return null;
+  return REBASEABLE_MAP_BRANCHES.map((pattern) => text.match(pattern)).find(Boolean) ?? null;
+}
+
+/**
+ * The ways out of a proposal whose changed values the authority changed differently (C4). Value
+ * replay already re-applies every field the authority left alone, so a record rebase can never
+ * settle such a conflict: the proposal is discarded at its exact commit and the change made again
+ * on the current approved values, by the command its review branch says made it.
+ */
+function capabilityProposalConflictActions(remote, branch, commit) {
+  const name = String(branch ?? '').slice(CAPABILITY_PROPOSAL_PREFIX.length);
+  const lead = commandRemoteOperand(remote);
+  const team = name.match(/^map-team-([a-z0-9]+(?:-[a-z0-9]+)*)-[0-9a-f]{8}$/);
+  const edit = name.match(/^(add|set|remove)-([a-z0-9]+(?:-[a-z0-9]+)*)-[0-9a-f]{8}$/);
+  const map = rebaseableMapBranch(branch);
+  const remap = team ? `singularity-flow capability map-team ${team[1]} --lead ${lead} --name <TEAM-NAME> --json`
+    : edit ? `singularity-flow capability edit ${edit[2]} --lead ${lead} --mode ${edit[1]}${edit[1] === 'remove' ? '' : ' <CHANGED-OPTIONS>'} --json`
+      : map ? `singularity-flow capability map ${map[1]} --lead ${lead} --kind <KIND> --json`
+        : 'singularity-flow help capability';
+  return {
+    discardAction: {
+      command: capabilityCommand('discard-proposal', {
+        remote, branch, commit, reason: '<WHY THIS CONFLICTING PROPOSAL IS NO LONGER NEEDED>'
+      }),
+      skill: '/sf-capability-map',
+      label: 'Discard the conflicting proposal at its exact commit; approved configuration is not changed.'
+    },
+    remapAction: {
+      command: remap,
+      skill: '/sf-capability-map',
+      label: 'If the change is still wanted, make it again on the current approved values (the options the discarded proposal set).'
+    }
+  };
+}
+
 function staleAuthorityLinkRetirementCommand(
   repository, lead, stateBranch = DEFAULT_CAPABILITY_STATE_BRANCH
 ) {
@@ -5427,7 +5471,11 @@ function inspectCapabilityProposalCheckout(root, remote, proposalBranch, ref, {
     mergeable: mergeability.mergeable,
     mergeability,
     conflictFiles: mergeability.conflictFiles,
-    rebaseAction: !merged && mergeability.mergeable === false ? {
+    // A value conflict is discarded and made again (C4); a record rebase is offered only where it
+    // can work: a typed additive map whose replay could not read its objects.
+    ...(!merged && valid && mergeability.mergeable === false
+      ? capabilityProposalConflictActions(remote, proposalBranch, proposalCommit) : {}),
+    rebaseAction: !merged && valid && mergeability.status === 'unknown' && rebaseableMapBranch(proposalBranch) ? {
       command: capabilityCommand('rebase-proposal', {
         remote, branch: proposalBranch
       }), skill: '/sf-capability-map'
@@ -5830,21 +5878,19 @@ export async function capabilityFsck(url, {
             { branch: proposal.branch, commit: proposal.proposalCommit }
           ));
         } else if (proposal.valid && proposal.mergeable === false) {
+          // A value conflict no rebase settles (C4): discard it at its exact commit, then map again.
+          const { discardAction, remapAction } = capabilityProposalConflictActions(
+            remote, proposal.branch, proposal.proposalCommit);
           checks.push(capabilityFsckCheck(
             `proposal:${proposal.branch}`, 'fail',
-            `A structurally valid proposal conflicts with the current '${CONFIGURATION_BRANCH}' revision. Preview a typed record rebase or discard this exact unmergeable proposal with a reason.`,
+            `A structurally valid proposal changes values the current '${CONFIGURATION_BRANCH}' revision changed differently. Discard this exact proposal with a reason, then make the change again on the current values if it is still wanted.`,
             {
               branch: proposal.branch, commit: proposal.proposalCommit,
-              remediation: capabilityCommand('rebase-proposal', {
-                remote, branch: proposal.branch
-              }),
+              remediation: discardAction.command,
               details: {
                 targetCommit: proposal.targetCommit,
                 conflictFiles: proposal.conflictFiles,
-                discardAction: capabilityCommand('discard-proposal', {
-                  remote, branch: proposal.branch, commit: proposal.proposalCommit,
-                  reason: '<WHY THIS CONFLICTING PROPOSAL IS NO LONGER NEEDED>'
-                })
+                remapAction: remapAction.command
               }
             }
           ));
@@ -6053,13 +6099,23 @@ async function deleteCapabilityProposal(url, branch, {
       }
     );
   }
-  const deleted = await deleteRemoteCommand([
-    'push', '--porcelain', '--atomic',
-    `--force-with-lease=${targetRef}:${expected}`,
-    ...(authorityCommit ? [`--force-with-lease=${authorityRef}:${authorityCommit}`] : []),
-    transport.remote, `:${targetRef}`,
-    ...(authorityCommit ? [`${authorityCommit}:${authorityRef}`] : [])
-  ], { operation: 'remote-push', env: transport.env });
+  // Git pushes only from a repository, and these commands need no checkout: run from any folder,
+  // the deletion used to fail "not a git repository" while the proposal stayed (C4's discard route).
+  // An empty scratch repository needs no objects; the leased refs already hold their values.
+  const scratch = await mkdtemp(path.join(os.tmpdir(), 'sflow-proposal-delete-'));
+  let deleted;
+  try {
+    const initialized = await runRemoteGitAsync(['init', '--bare', '--quiet', '--template=', scratch], {
+      cwd: path.dirname(scratch), operation: 'remote-configuration', env: transport.env
+    });
+    deleted = initialized.status !== 0 ? initialized : await deleteRemoteCommand([
+      'push', '--porcelain', '--atomic',
+      `--force-with-lease=${targetRef}:${expected}`,
+      ...(authorityCommit ? [`--force-with-lease=${authorityRef}:${authorityCommit}`] : []),
+      transport.remote, `:${targetRef}`,
+      ...(authorityCommit ? [`${authorityCommit}:${authorityRef}`] : [])
+    ], { cwd: scratch, operation: 'remote-push', env: transport.env });
+  } finally { await removeTemporaryTree(scratch); }
   // A timeout or lost receive-pack response does not prove that the exact leased deletion failed.
   // Re-read only the destination ref before reporting an outcome. Absence reconciles a lost ACK;
   // the same SHA proves the proposal was preserved; a different SHA proves a concurrent move.
@@ -6210,11 +6266,7 @@ async function inspectCapabilityRebase(url, branch) {
     // A review proposal reconstructed from an earlier conflict is still a typed additive map.
     // Its validated first-parent base and exact second-parent source preserve the same record
     // boundary, so it may be rebased again if the authority advances before review completes.
-    const typed = proposalBranch.match(
-      /^sflow\/config-change\/capability\/map-([a-z0-9]+(?:-[a-z0-9]+)*)-([0-9a-f]{8})$/
-    ) ?? proposalBranch.match(
-      /^sflow\/config-change\/capability\/rebase-map-([a-z0-9]+(?:-[a-z0-9]+)*)-[0-9a-f]{8}-([0-9a-f]{8})$/
-    );
+    const typed = REBASEABLE_MAP_BRANCHES.map((pattern) => proposalBranch.match(pattern)).find(Boolean) ?? null;
     const changed = proposalChangedFiles(root, sourceBaseCommit, ref, { env }).names;
     if (!typed || !changed.includes(CAPABILITIES_PATH)
         || changed.some((file) => ![CAPABILITIES_PATH, PORTFOLIO_PATH].includes(file))) {
@@ -6265,7 +6317,8 @@ async function inspectCapabilityRebase(url, branch) {
       capabilityRebaseRefusal(
         `The current authority already has a differing record for ${conflictingIds.join(', ')}. Review the competing mapping explicitly.`,
         'CAPABILITY_PROPOSAL_RECORD_CONFLICT', remote, proposalBranch,
-        { conflictingIds, sourceCommit, targetCommit }
+        { conflictingIds, sourceCommit, targetCommit,
+          ...capabilityProposalConflictActions(remote, proposalBranch, sourceCommit) }
       );
     }
     // A mergeable proposal needs no reconstruction; retaining it avoids unnecessary parallel
@@ -6363,7 +6416,7 @@ export async function rebaseCapabilityProposal(url, branch, {
         capabilityRebaseRefusal(
           `Capability '${plan.capabilityId}' was added while rebase was prepared.`,
           'CAPABILITY_PROPOSAL_RECORD_CONFLICT', url, branch,
-          { conflictingIds: [plan.capabilityId] }
+          { conflictingIds: [plan.capabilityId], ...capabilityProposalConflictActions(url, branch, plan.sourceCommit) }
         );
       }
       capabilityDocument.setIn(['capabilities', plan.capabilityId],
@@ -6377,7 +6430,7 @@ export async function rebaseCapabilityProposal(url, branch, {
           capabilityRebaseRefusal(
             `Repository '${id}' changed while rebase was prepared.`,
             'CAPABILITY_PROPOSAL_RECORD_CONFLICT', url, branch,
-            { conflictingIds: [id] }
+            { conflictingIds: [id], ...capabilityProposalConflictActions(url, branch, plan.sourceCommit) }
           );
         }
         if (!existing) portfolioDocument.setIn(['repositories', id], portfolioDocument.createNode(record));
@@ -7043,22 +7096,31 @@ export async function activateCapabilityProposal(url, branch, {
       );
       if (!alreadyMerged && (currentMergeability.mergeable === false || !valueReplay)) {
         const conflicting = currentMergeability.mergeable === false;
-        const nextAction = conflicting ? {
-          command: capabilityCommand('proposal', { remote, branch: proposalBranch }),
-          skill: '/sf-capability-map'
-        } : {
+        // A value conflict: discard at the exact commit, then make the change again (C4). Objects
+        // the replay could not read: a typed map is rebased record by record; any other proposal is
+        // cancelled (it is not stale, so discard refuses it) and made again.
+        const conflictActions = capabilityProposalConflictActions(remote, proposalBranch, proposalCommit);
+        const rebaseable = !conflicting && rebaseableMapBranch(proposalBranch);
+        const discardAction = conflicting ? conflictActions.discardAction : rebaseable ? null : {
+          command: capabilityCommand('cancel-proposal', {
+            remote, branch: proposalBranch, commit: proposalCommit, reason: '<REASON>'
+          }),
+          skill: '/sf-capability-map',
+          label: 'Cancel the proposal at its exact commit; approved configuration is not changed.'
+        };
+        const nextAction = rebaseable ? {
           command: capabilityCommand('rebase-proposal', {
             remote, branch: proposalBranch
           }), skill: '/sf-capability-map'
-        };
+        } : discardAction;
         const fields = conflicting
           ? currentMergeability.conflicts.map((conflict) => `${conflict.path}${
             conflict.pointers.some((pointer) => pointer !== '/') ? ` (${conflict.pointers.join(', ')})` : ''}`)
           : [];
         throw new SingularityFlowError(
           conflicting
-            ? `Capability proposal changes values that '${CONFIGURATION_BRANCH}' changed differently at ${targetBefore}: ${fields.join('; ')}. Review the competing values, then map the change again or discard the exact conflicting review branch; nothing was changed.`
-            : `Capability proposal cannot be re-applied onto '${CONFIGURATION_BRANCH}' at ${targetBefore} because its exact configuration objects could not be read. Preview a safe rebase or discard the exact review branch; nothing was changed.`, {
+            ? `Capability proposal changes values that '${CONFIGURATION_BRANCH}' changed differently at ${targetBefore}: ${fields.join('; ')}. A rebase cannot settle this: discard the exact conflicting review branch, then make the change again on the current values if it is still wanted; nothing was changed.`
+            : `Capability proposal cannot be re-applied onto '${CONFIGURATION_BRANCH}' at ${targetBefore} because its exact configuration objects could not be read. ${rebaseable ? 'Preview a safe rebase or cancel the exact review branch' : 'Cancel the exact review branch, then make the change again on the current values'}; nothing was changed.`, {
             code: conflicting ? CAPABILITY_VALUE_CONFLICT_CODE : 'CAPABILITY_PROPOSAL_UNMERGEABLE',
             details: {
               ...capabilityRecovery({
@@ -7067,11 +7129,12 @@ export async function activateCapabilityProposal(url, branch, {
                 preserved: ['proposal-branch', 'approved-configuration', 'application-branches']
               }),
               mergeability: currentMergeability,
-              discardAction: {
-                command: capabilityCommand('discard-proposal', {
-                  remote, branch: proposalBranch, commit: proposalCommit,
-                  reason: '<WHY THIS CONFLICTING PROPOSAL IS NO LONGER NEEDED>'
-                }), skill: '/sf-capability-map'
+              ...(discardAction ? { discardAction } : {}),
+              ...(rebaseable ? {} : { remapAction: conflictActions.remapAction }),
+              reviewAction: {
+                command: capabilityCommand('proposal', { remote, branch: proposalBranch }),
+                skill: '/sf-capability-map',
+                label: 'Review the proposal and the competing values.'
               }
             }
           }

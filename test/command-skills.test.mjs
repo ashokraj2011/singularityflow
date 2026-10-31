@@ -348,3 +348,34 @@ test('router and resolved phase actions cannot be presented as one equivalent pa
     command: 'singularity-flow prepare planning', skill: '/sf-next'
   }), null);
 });
+
+// E7 (sweep 2026-10-31): `index`, `lock show` and `backup inspect` routed to /sf-doctor, and the
+// configuration draft refusals to /sf-configuration, skills that never ran them; `help index` said
+// "Primary: /sf-doctor". A routed command is one its skill names and its turn admits; a person's
+// own step (a release, a configuration approval) and a command no skill runs have no Copilot route.
+test('a routed command is admitted by its skill, and a command no skill runs has no Copilot route', async () => {
+  const { routeAdmission } = await import('./helpers/skill-admission.mjs');
+  const routed = [
+    'singularity-flow index status --json', 'singularity-flow index refresh --json', 'singularity-flow index rebuild --all --json',
+    'singularity-flow index verify --all --json', 'singularity-flow lock show publication W-1 --json',
+    'singularity-flow lock show-file /tmp/workspaces.json.lock --json', 'singularity-flow backup inspect /tmp/backup --json',
+    'singularity-flow configuration drafts --json', 'singularity-flow configuration discard 1 --listing abc123',
+    'singularity-flow configuration discard cdo-0123456789abcdef', 'singularity-flow configuration propose --json',
+    'singularity-flow adhoc sync ADH-1 --json',
+    'singularity-flow capability discard-proposal sflow/config-change/capability/set-a-0123abcd --lead <LEAD-URL> --confirm 0123456789abcdef0123456789abcdef01234567 --reason <REASON> --json',
+    'singularity-flow capability edit a --lead <LEAD-URL> --mode set <CHANGED-OPTIONS> --json'
+  ];
+  for (const command of routed) {
+    const route = await routeAdmission(command);
+    assert.ok(route.skill && route.named && route.admitted, JSON.stringify(route));
+  }
+  for (const command of ['singularity-flow configuration approve sflow/config-change/workflow/x --yes',
+    'singularity-flow initiative sync INI-1', 'singularity-flow initiative resume INI-1 --fetch',
+    'singularity-flow lock release publication W-1 --confirm 0123456789abcdef', 'singularity-flow backup create --out /tmp/backup']) {
+    assert.equal((await routeAdmission(command)).skill, null, command);
+  }
+  // Help names the skill that runs the family's reads.
+  const help = (name) => spawnSync(process.execPath, [path.join(root, 'bin/singularity-flow.mjs'), 'help', name],
+    { encoding: 'utf8', env: process.env }).stdout;
+  for (const name of ['index', 'lock', 'backup']) assert.match(help(name), /Primary: \/sf-doctor/u, name);
+});

@@ -299,3 +299,56 @@ test('intake on a deferred member clones only that member and continues; a missi
   assert.equal(missing.materialization, undefined);
   await absent(path.join(workspacePath, 'repos', 'app'));
 });
+
+// C7 (sweep 2026-10-31): a deferred member whose remote is unreachable fails to clone and becomes
+// missing. Every route then named help, doctor, `workspace list` or `workspace use`, and session
+// current reported a Git ENOENT. Each now names that member's own repair, which works once the
+// remote answers.
+test('a deferred member whose clone failed names its own repair on every route, and that repair works', async (t) => {
+  const fixture = await environment(t);
+  const app = await governedRepository(fixture.base, 'governed-app', fixture.env);
+  const created = JSON.parse(cli(['workspace', 'create', '--local', '--id', 'offline', '--base',
+    path.join(fixture.base, 'workspaces'), '--lead', 'app', '--repository', `app=${app}`,
+    '--repository', `api=${fixture.api}`, '--confirm', 'offline', '--json'], fixture.env).stdout);
+  const workspacePath = created.workspace.path;
+  cli(['workspace', 'use', workspacePath, '--repository', 'app'], fixture.env);
+  const { rename } = await import('node:fs/promises');
+  await rename(app, `${app}.away`);
+  const repair = `singularity-flow workspace repair ${JSON.stringify(workspacePath)} --repository app`;
+  const refusal = (args) => {
+    const result = cli([...args, '--json'], fixture.env, { cwd: fixture.base, allowFailure: true });
+    assert.notEqual(result.status, 0, `${args.join(' ')}\n${result.stdout}`);
+    return JSON.parse(result.stdout);
+  };
+
+  // The lazy clone fails: intake and start lead with the member's repair.
+  const intake = refusal(['workspace', 'branches', '--entry', '--intake', '--work-id', 'NEW-1']);
+  assert.match(intake.error.message, /Required repository 'app' could not be repaired/);
+  assert.equal(intake.remediationPlan.steps[0].command, repair);
+  const start = refusal(['start', 'NEW-1']);
+  assert.equal(start.remediationPlan.steps[0].command, repair);
+  assert.equal(JSON.parse(cli(['workspace', 'status', workspacePath, '--json'], fixture.env).stdout)
+    .repositories.find((entry) => entry.id === 'app').state, 'missing');
+
+  // Now missing: a read and a write name the repair before another selection.
+  for (const args of [['status'], ['configuration', 'set', 'git.publish', 'off']]) {
+    const routed = refusal(args);
+    assert.equal(routed.error.code, 'ACTIVE_WORKSPACE_REPOSITORY_UNAVAILABLE');
+    assert.equal(routed.remediationPlan.steps[0].command, repair, args.join(' '));
+  }
+  const session = JSON.parse(cli(['session', 'current', '--json'], fixture.env, { cwd: fixture.base }).stdout);
+  assert.equal(session.ready, false);
+  assert.equal(session.reason, 'workspace-repository-missing', 'no Git read in a checkout that is not there');
+  assert.equal(session.materialize, repair);
+  const entry = JSON.parse(cli(['workspace', 'branches', '--entry', '--intake', '--work-id', 'NEW-1', '--json'],
+    fixture.env, { cwd: fixture.base }).stdout);
+  assert.equal(entry.status, 'workspace-repair-required');
+  assert.equal(entry.commandGuidance.command, repair, 'the exact repair, not its help page');
+
+  // Back online, the named repair clones the member and work goes on.
+  await rename(`${app}.away`, app);
+  cli(['workspace', 'repair', workspacePath, '--repository', 'app'], fixture.env, { cwd: fixture.base });
+  assert.ok(await stat(path.join(workspacePath, 'repos', 'app', '.git')));
+  assert.equal(JSON.parse(cli(['session', 'current', '--json'], fixture.env, { cwd: fixture.base }).stdout).reason === 'workspace-repository-missing', false);
+  await absent(path.join(workspacePath, 'repos', 'api'));
+});

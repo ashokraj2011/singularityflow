@@ -266,6 +266,8 @@ export const COMMAND_LINE_SKILL_ROUTES = Object.freeze({
     'promotion-apply': null, 'local-runner-create': null, 'local-runner-run': null, select: null
   }),
   skill: route('sf-skill', { create: null, edit: null, attach: null, detach: null, remove: null }),
+  // /sf-auto never names `auto recover`: the recovery Auto's own checkout refusal routes to (sweep E7 class).
+  auto: route('sf-auto', { recover: null }),
   cache: route('sf-doctor', { clear: null }),
   index: route('sf-doctor'),
   // Releasing a lease is a person's reviewed step (OWN_TERMINAL_STEPS); a turn may only show one.
@@ -346,7 +348,11 @@ export const COMMAND_LINE_SKILL_ROUTES = Object.freeze({
     children: 'sf-jira-initiative',
     permissions: 'sf-jira-initiative'
   }),
+  // No Initiative skill runs a sync or a resume, and /sf-initiative-next only reads: routed there,
+  // the pending publication and unrecorded identity refusals looped in Copilot (sweep E7 class).
   initiative: route('sf-initiative-next', {
+    sync: null,
+    resume: null,
     approve: 'sf-initiative-approve',
     checklist: 'sf-initiative-checklist',
     documents: 'sf-initiative-documents',
@@ -523,7 +529,10 @@ export const OWN_TERMINAL_STEPS = Object.freeze([
   // preview stays open [APM A4-A5].
   ['apm-organisation', ([command, sub], options) => command === 'apm' && ['publish', 'marketplace', 'policy'].includes(sub) && options['dry-run'] !== true],
   // Ending a lease another process holds: only a person who checked that process is gone (SDA M3).
-  ['lock-release', ([command, sub]) => command === 'lock' && ['release', 'release-file'].includes(sub)]
+  ['lock-release', ([command, sub]) => command === 'lock' && ['release', 'release-file'].includes(sub)],
+  // Activating approved configuration is the reviewer's decision; every skill already told the
+  // person to run it in their own terminal, while /sf-configuration was named as its route (sweep E7).
+  ['configuration-approve', ([command, sub]) => command === 'configuration' && sub === 'approve']
 ].map(([id, matches]) => Object.freeze({ id, matches })));
 
 /** The id of the own-terminal step this command line is, or null. */

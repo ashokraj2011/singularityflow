@@ -6819,6 +6819,13 @@ function capabilityRemovalDestination(options) {
   return value === undefined ? undefined : (value.trim() || null);
 }
 
+/** A conflicting proposal's discard and fresh change (C4); a record rebase only where it can work. */
+function printCapabilityProposalRecovery(proposal) {
+  if (proposal.discardAction) printCommandRoutes(proposal.discardAction.command, { skill: proposal.discardAction.skill, indent: '  ', label: 'Discard' });
+  if (proposal.remapAction) printCommandRoutes(proposal.remapAction.command, { skill: proposal.remapAction.skill, indent: '  ', label: 'Then, if still wanted' });
+  if (proposal.rebaseAction) printCommandRoutes(proposal.rebaseAction.command, { skill: proposal.rebaseAction.skill, indent: '  ', label: 'Preview recovery' });
+}
+
 /**
  * The capability map: read, and edited one node at a time.
  *
@@ -7278,14 +7285,10 @@ async function capabilityCommand(positionals, options) {
     for (const proposal of proposals) {
       console.log(`${proposal.branch}  ${proposal.proposalCommit.slice(0, 12)}  `
         + `${proposal.merged ? 'merged' : proposal.valid && proposal.mergeable === false
-          ? 'conflicting — rebase or discard' : proposal.valid && proposal.mergeable === true
+          ? 'conflicting — discard, then map again' : proposal.valid && proposal.mergeable === true
             ? 'ready for review' : proposal.valid ? 'mergeability not verified — review before activation'
               : proposal.status ?? 'invalid'}`);
-      if (proposal.valid && proposal.mergeable === false) {
-        printCommandRoutes(proposal.rebaseAction.command, {
-          skill: proposal.rebaseAction.skill, indent: '  ', label: 'Preview recovery'
-        });
-      }
+      printCapabilityProposalRecovery(proposal);
       if (proposal.failure?.message) console.log(`  blocked: ${proposal.failure.message}`);
       if (proposal.failure?.diagnosticAction?.command) {
         printCommandRoutes(proposal.failure.diagnosticAction.command, {
@@ -7309,16 +7312,17 @@ async function capabilityCommand(positionals, options) {
     console.log(`${proposal.branch} (${proposal.proposalCommit})`);
     console.log(`  target: ${proposal.targetBranch}@${proposal.targetCommit}`);
     console.log(`  status: ${proposal.merged ? 'already merged' : proposal.valid && proposal.mergeable === false
-      ? 'conflicting — rebase or discard' : proposal.valid && proposal.mergeable === true
+      ? 'conflicting — discard, then map again' : proposal.valid && proposal.mergeable === true
         ? 'ready for review' : proposal.valid ? 'mergeability not verified — review before activation'
           : 'invalid'}`);
     if (proposal.valid && proposal.mergeable === false) {
       console.log(`  authority: ${proposal.targetCommit}`);
-      console.log(`  possible conflict files: ${proposal.conflictFiles.join(', ') || 'not determined'}`);
-      printCommandRoutes(proposal.rebaseAction.command, {
-        skill: proposal.rebaseAction.skill, indent: '  ', label: 'Preview recovery'
-      });
+      for (const conflict of proposal.mergeability?.conflicts ?? []) {
+        console.log(`  changed differently: ${conflict.path} ${conflict.pointers.join(', ')}`);
+      }
+      if (!proposal.mergeability?.conflicts?.length) console.log(`  possible conflict files: ${proposal.conflictFiles.join(', ') || 'not determined'}`);
     }
+    printCapabilityProposalRecovery(proposal);
     for (const file of proposal.changedFiles) console.log(`  ${file.status.padEnd(4)} ${file.paths.join(' -> ')}`);
     if (proposal.invalidFiles.length) console.log(`  refused files: ${proposal.invalidFiles.join(', ')}`);
     if (proposal.configurationError) console.log(`  configuration: ${proposal.configurationError}`);

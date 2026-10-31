@@ -102,6 +102,13 @@ test('a Story taken over on another laptop discloses what stayed behind, reuses 
   assert.match(taken.localWorkNotCarried.message, /configuration drafts/);
   assert.match(taken.localWorkNotCarried.message, /not recoverable here unless/);
   assert.equal(taken.localWorkNotCarried.restore, 'singularity-flow backup restore <DIRECTORY>');
+  // B5: a publication still waiting on laptop A is published from there, by its sync; no backup carries it.
+  assert.equal(taken.localWorkNotCarried.syncOnPreviousLaptop, 'singularity-flow sync M5-1');
+  assert.match(taken.localWorkNotCarried.message, /run singularity-flow sync M5-1 there/);
+  // D9: the plain-text takeover ends with its next step, here the document the phase uses.
+  const text = b.flow(b.checkout, ['session', 'takeover', 'M5-1']).stdout;
+  assert.match(text, /\nNext:\n(?:- [^\n]+\n)*- Shell: singularity-flow documents restore \S+ --file <LOCAL-FILE> --work-id M5-1\n/u, text);
+  assert.match(text, /run singularity-flow sync M5-1 there/u);
 
   // Nothing of laptop A's machine reached laptop B: no path, no machine ID, no lock token.
   const machineIdA = (await readFile(a.env.SINGULARITY_FLOW_MACHINE_ID_FILE, 'utf8')).trim();

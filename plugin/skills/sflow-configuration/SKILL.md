@@ -27,5 +27,6 @@ Before any boundary lookup or SFlow action, run `singularity-flow pause status -
 5. For save, require the exact reviewed source path. For publish, show the changed governed files, target configuration branch, commit message, and remote state.
 6. Require an explicit mutation request, then run only the selected `singularity-flow configuration save` or `singularity-flow configuration publish` operation.
 7. Report validation, commit, push, and active-work invalidation effects. Never edit lifecycle snapshots or publish directly to an application branch.
+8. For drafts, run `singularity-flow configuration drafts --json`. Run a returned `singularity-flow configuration discard` or `singularity-flow configuration propose` only on the person's explicit request.
 
 Report the exact `singularity-flow configuration ...` action on all three surfaces per the Output contract; preserve its operation and operands.

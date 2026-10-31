@@ -64,7 +64,7 @@ export const SDA_NAMES = Object.freeze({
   INITIATIVE_IDENTITY_UNRECORDED: ['src/subject-identity-records.mjs'],
   INITIATIVE_IDENTITY_AMBIGUOUS: ['src/subject-identity-records.mjs'],
   'branch-scan-ledger-off': ['src/subject-identity-records.mjs'],
-  LOCAL_EPIC_RESERVATION_AMBIGUOUS: ['src/local-identity.mjs'],
+  LOCAL_EPIC_RESERVATION_AMBIGUOUS: ['src/local-identity.mjs', 'src/refusal-remediation.mjs'],
   // Its recovery plan (sweep B7) names the same refusal.
   AUTO_STORY_BRANCH_UNSUPPORTED: ['src/change-flight-plan.mjs', 'src/refusal-remediation.mjs'],
   // M2: canonical finding IDs
@@ -74,14 +74,14 @@ export const SDA_NAMES = Object.freeze({
   INSPECTION_READ: ['src/approved-configuration-reader.mjs', 'src/cli.mjs', 'src/editor.mjs', 'src/commands/workflow-list.mjs'],
   'configuration.exact-object-transfer': ['src/configuration-branch.mjs'],
   // M3: configuration editing without a clone, with its typed intent
-  CONFIGURATION_PROJECTION_BASE_UNAVAILABLE: ['src/configuration-projection.mjs'],
+  CONFIGURATION_PROJECTION_BASE_UNAVAILABLE: ['src/configuration-projection.mjs', 'src/refusal-remediation.mjs'],
   'configuration-projection/base': ['src/configuration-projection.mjs'],
   CONFIGURATION_PROPOSAL_INTENT_INVALID: ['src/configuration-proposal.mjs'],
   'Sflow-Intent-Kind': ['src/configuration-people.mjs', 'src/configuration-proposal.mjs'],
   'configuration.proposal-projection': ['src/configuration-proposal.mjs'],
   // M3: transactional drafts
-  CONFIGURATION_DRAFT_OPERATION_REUSED: ['src/configuration-drafts.mjs', 'src/outcome-classes.mjs'],
-  CONFIGURATION_DRAFTS_CHANGED: ['src/configuration-drafts.mjs', 'src/outcome-classes.mjs'],
+  CONFIGURATION_DRAFT_OPERATION_REUSED: ['src/configuration-drafts.mjs', 'src/outcome-classes.mjs', 'src/refusal-remediation.mjs'],
+  CONFIGURATION_DRAFTS_CHANGED: ['src/configuration-drafts.mjs', 'src/outcome-classes.mjs', 'src/refusal-remediation.mjs'],
   CONFIGURATION_DRAFT_OPERATION_INVALID: ['src/configuration-drafts.mjs'],
   SINGULARITY_FLOW_TEST_CRASH_AT: ['src/configuration-drafts.mjs'],
   'sflow-configuration-draft@2': ['src/configuration-drafts.mjs'],
@@ -93,12 +93,12 @@ export const SDA_NAMES = Object.freeze({
   CONFIGURATION_DRAFT_LEFT_OUT: ['src/configuration-drafts.mjs'],
   draftsLeftOut: ['src/commands/workflow-check.mjs'],
   draftsUnavailable: ['src/cli.mjs', 'src/commands/agents.mjs', 'src/commands/instruction.mjs', 'src/commands/skill-master.mjs'],
-  STUDIO_NOTHING_TO_PROPOSE: ['src/cli.mjs'],
+  STUDIO_NOTHING_TO_PROPOSE: ['src/cli.mjs', 'src/refusal-remediation.mjs'],
   // M3: lease-proven lock recovery
   SINGULARITY_FLOW_MACHINE_ID_FILE: ['scripts/test-machine-state.mjs', 'src/lease-liveness.mjs'],
-  SUBJECT_LOCK_RELEASE_: ['src/subject-lock.mjs'],
-  WORKSPACE_REGISTRY_RELEASE_: ['src/file-lease.mjs'],
-  SGOS_AUTHORITY_LOCK_RELEASE_: ['src/sgos/platform/authority-store.mjs'],
+  SUBJECT_LOCK_RELEASE_: ['src/refusal-remediation.mjs', 'src/subject-lock.mjs'],
+  WORKSPACE_REGISTRY_RELEASE_: ['src/file-lease.mjs', 'src/refusal-remediation.mjs'],
+  SGOS_AUTHORITY_LOCK_RELEASE_: ['src/refusal-remediation.mjs', 'src/sgos/platform/authority-store.mjs'],
   'released-leases.jsonl': ['src/subject-lock.mjs'],
   LOCK_COMMAND_INVALID: ['src/commands/lock.mjs'],
   'sflow-lock-': ['src/commands/lock.mjs', 'src/help-pages.mjs', 'src/narration/migration-status.mjs'],
@@ -117,7 +117,7 @@ export const SDA_NAMES = Object.freeze({
     'src/file-lease.mjs', 'src/help-pages.mjs', 'src/help-text.mjs', 'src/refusal-remediation.mjs',
     'src/sgos/platform/authority-store.mjs'],
   // Sweep fix (D3/E3): an Initiative publication another process holds, with its owner and reviewed release
-  INITIATIVE_PUBLICATION_ACTIVE: ['src/cli.mjs', 'src/initiative-state.mjs'],
+  INITIATIVE_PUBLICATION_ACTIVE: ['src/cli.mjs', 'src/initiative-state.mjs', 'src/refusal-remediation.mjs'],
   // Sweep batch 3: publication outcomes. A lost answer another clone built on is settled (B1); recover
   // leads with the set-aside preview for a commit the remote moved past; a lost race's plan (B2); a
   // reset refuses while a publication waits, unless the reviewed reset discards it (D7).
@@ -128,7 +128,7 @@ export const SDA_NAMES = Object.freeze({
   'discard-pending-publications': ['src/cli.mjs', 'src/factory-reset.mjs', 'src/help-text.mjs', 'src/util.mjs'],
   pendingPublicationsDiscarded: ['src/cli.mjs', 'src/factory-reset.mjs'],
   // M3: capability activation and edits with no textual merge
-  CAPABILITY_PROPOSAL_VALUE_CONFLICT: ['src/capability-value-replay.mjs'],
+  CAPABILITY_PROPOSAL_VALUE_CONFLICT: ['src/capability-value-replay.mjs', 'src/refusal-remediation.mjs'],
   CAPABILITY_CONFIGURATION_OBJECTS_UNAVAILABLE: ['src/git-configuration-objects.mjs'],
   // M3: lazy workspace cloning
   ACTIVE_WORKSPACE_REPOSITORY_DEFERRED: ['src/workspace-story-checkout.mjs'],
@@ -148,16 +148,24 @@ export const SDA_NAMES = Object.freeze({
   'local-backup-manifest': ['src/local-backup.mjs', 'src/schema-migrations.mjs'],
   'sflow-backup-': ['src/commands/backup.mjs', 'src/help-pages.mjs', 'src/local-backup.mjs', 'src/narration/migration-status.mjs'],
   BACKUP_COMMAND_INVALID: ['src/commands/backup.mjs'],
-  BACKUP_DESTINATION_INVALID: ['src/local-backup.mjs'],
-  BACKUP_INSIDE_CHECKOUT: ['src/local-backup.mjs'],
+  BACKUP_DESTINATION_INVALID: ['src/local-backup.mjs', 'src/refusal-remediation.mjs'],
+  BACKUP_INSIDE_CHECKOUT: ['src/local-backup.mjs', 'src/refusal-remediation.mjs'],
   "'BACKUP_INVALID'": ['src/local-backup.mjs'],
-  BACKUP_INTEGRITY_FAILED: ['src/local-backup.mjs'],
-  BACKUP_REPOSITORY_MISMATCH: ['src/local-backup.mjs'],
+  BACKUP_INTEGRITY_FAILED: ['src/local-backup.mjs', 'src/refusal-remediation.mjs'],
+  BACKUP_REPOSITORY_MISMATCH: ['src/local-backup.mjs', 'src/refusal-remediation.mjs'],
   BACKUP_TOO_LARGE: ['src/local-backup.mjs'],
   BACKUP_DRAFTS_UNAPPROVED: ['src/local-backup.mjs'],
   "'story-not-here'": ['src/commands/backup.mjs', 'src/local-backup.mjs'],
   // M5: takeover's disclosure, and the drafts a factory reset removes
   localWorkNotCarried: ['src/commands/session-takeover.mjs'],
+  // Sweep batch 5: the sync a publication still waiting on the other laptop needs (B5), a member
+  // whose clone failed (C7), a value conflict's way out (C4), configuration approval as the person's
+  // own step (E7), and how many drafts one backup carries (D10).
+  syncOnPreviousLaptop: ['src/commands/session-takeover.mjs'],
+  'workspace-repository-missing': ['src/commands/session-current.mjs'],
+  remapAction: ['src/cli.mjs', 'src/organisation.mjs', 'src/refusal-remediation.mjs'],
+  'configuration-approve': ['src/command-skills.mjs', 'src/commands/push.mjs', 'src/copilot-mutation-guard.mjs'],
+  maximumDrafts: ['src/local-backup.mjs'],
   savedConfigurationDrafts: ['src/factory-reset.mjs'],
   // M4 leftover: cancellation inside a transition. Cancelled after its commit, before its push: retained.
   PUBLICATION_CANCELLED_BEFORE_PUSH: ['src/publication-unit-of-work.mjs'],

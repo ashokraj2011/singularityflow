@@ -545,6 +545,8 @@ export function argvAllowed(argv, mode, value) {
   if (positionals[0] === 'apm' && ['install', 'update', 'publish', 'marketplace', 'policy'].includes(positionals[1]) && options['dry-run'] !== true) return false;
   // Ending another process's lease is for a person who checked that process is gone, in no turn (SDA M3).
   if (positionals[0] === 'lock' && ['release', 'release-file'].includes(positionals[1])) return false;
+  // Activating a configuration proposal is the reviewer's own decision, in no turn (sweep E7).
+  if (positionals[0] === 'configuration' && positionals[1] === 'approve') return false;
   // Environment values come only from the person's own secret helper on standard input, in no turn.
   if (positionals[0] === 'env' && ['bind', 'unbind'].includes(positionals[1])) return false;
   // What the code means is a person's word: confirming a rule's meaning or reviewing knowledge, in no turn.
@@ -778,7 +780,8 @@ function ownTerminalStepCall(call, value) {
 const OWN_STEP_DENIALS = Object.freeze({
   'apm-install': 'PHASE_MUTATION_OPERATION_NOT_ALLOWED: installing or updating agent packages changes which agents run in this repository; the person runs it in their own terminal (its --dry-run preview may run here). Show the user the preview and the command, and stop; do not retry it',
   'apm-organisation': 'PHASE_MUTATION_OPERATION_NOT_ALLOWED: publishing agents, or changing the organisation\'s marketplace or policy, changes what other teams run; the person runs it in their own terminal (its --dry-run preview may run here). Show the user the preview and the command, and stop; do not retry it',
-  'upstream-amendment-decision': 'PHASE_MUTATION_OPERATION_NOT_ALLOWED: an amendment of an earlier step, and its revalidation, is decided by that step\'s approvers in their own terminal, not by this turn. Show the user the command and stop; do not retry it'
+  'upstream-amendment-decision': 'PHASE_MUTATION_OPERATION_NOT_ALLOWED: an amendment of an earlier step, and its revalidation, is decided by that step\'s approvers in their own terminal, not by this turn. Show the user the command and stop; do not retry it',
+  'configuration-approve': 'PHASE_MUTATION_OPERATION_NOT_ALLOWED: approving a configuration proposal activates it for every Story that starts after it; the reviewer runs it in their own terminal, where it shows the change and asks, or in Workflow Studio. Show the user the command and stop; do not retry it'
 });
 const OWN_STEP_DENIAL = 'PHASE_MUTATION_OPERATION_NOT_ALLOWED: this is the person\'s own step; they run this exact command in their own terminal and no turn runs it. Show the user the command and stop; do not retry it';
 const LOCK_RELEASE_DENIAL = 'PHASE_MUTATION_OPERATION_NOT_ALLOWED: ending a lock another process holds is the person\'s own step: they check that the process the refusal named no longer works on it (`singularity-flow lock show` or `lock show-file` reads it), then run this exact release in their own terminal. Show the user who holds the lock and the command, and stop; do not retry it or wait for the lock';

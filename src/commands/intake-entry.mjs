@@ -47,7 +47,9 @@ export async function readIntakeEntry(options = {}) {
     ...(deferred ? { materialization: { repositoryId: deferred, previousState: 'deferred', cloned: workspace?.repositoryState === 'ready' } } : {}) };
   if (!checkout && workspace?.repositoryState && workspace.repositoryState !== 'ready') return { ...base, status: 'workspace-repair-required',
     ready: false, commandGuidance: { copilotCommand: '/sf-workspace',
-      command: 'singularity-flow workspace repair --help', modelFreeCommand: null } };
+      command: workspace.workspacePath && workspace.repositoryId
+        ? `singularity-flow workspace repair ${JSON.stringify(workspace.workspacePath)} --repository ${workspace.repositoryId}`
+        : 'singularity-flow workspace repair --help', modelFreeCommand: null } };
   const root = repoRoot(checkout?.repositoryPath ?? workspace?.repositoryPath ?? process.cwd());
   base.personalization = resolvePersonalization({ root });
   // Intake does not edit this checkout. Unrelated source changes neither need a whole-repository

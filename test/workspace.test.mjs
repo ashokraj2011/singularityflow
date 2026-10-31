@@ -394,7 +394,9 @@ test('selected workspace routing reports a stale repository path before dispatch
       SINGULARITY_FLOW_WORKSPACE_REGISTRY: path.join(root, 'workspaces.json')
     }
   }), (error) => error.code === 'ACTIVE_WORKSPACE_REPOSITORY_UNAVAILABLE'
-    && /Repair the workspace/.test(error.message));
+    // The selected member's own repair, before another selection (sweep C7).
+    && error.details.nextAction === `singularity-flow workspace repair ${JSON.stringify(path.join(root, 'workspace'))} --repository api`
+    && error.message.includes(`Repair it with '${error.details.nextAction}'`));
 });
 
 async function remoteRepository(base, name) {

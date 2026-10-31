@@ -64,13 +64,17 @@ export async function sessionCurrent(options, { agentEntry = null } = {}) {
     }
     throw error;
   }
-  if (context?.repositoryState === 'deferred') {
-    // Not cloned yet: report the selection, never a checkout that is not there.
+  if (['deferred', 'missing'].includes(context?.repositoryState)) {
+    // Not cloned yet, or its clone failed (C7): report the selection and its repair, never a Git
+    // read in a checkout that is not there.
     const materialize = workspaceMaterializeCommand(context.workspacePath, context.repositoryId);
-    const detail = `Repository '${context.repositoryId}' is not cloned yet; a Story attach or start clones it, or run ${materialize}.`;
+    const deferred = context.repositoryState === 'deferred';
+    const detail = deferred
+      ? `Repository '${context.repositoryId}' is not cloned yet; a Story attach or start clones it, or run ${materialize}.`
+      : `Repository '${context.repositoryId}' is not cloned here: its checkout is missing (an earlier clone failed or it was removed). Run ${materialize} once its remote answers.`;
     return console.log(optionBoolean(options, 'json') ? JSON.stringify({ ready: false, workId: null,
       workspaceId: context.workspaceId, repositoryId: context.repositoryId, repositoryPath: null,
-      reason: 'workspace-repository-deferred', detail, materialize }, null, 2) : detail);
+      reason: deferred ? 'workspace-repository-deferred' : 'workspace-repository-missing', detail, materialize }, null, 2) : detail);
   }
   if (!context) {
     const resolved = await resolveSessionRepository();

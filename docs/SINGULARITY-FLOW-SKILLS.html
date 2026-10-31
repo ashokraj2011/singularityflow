@@ -935,7 +935,7 @@ Before any boundary lookup or SFlow action, run `singularity-flow pause status -
           <span class="pill">interactive</span>
           <span class="pill">repository boundary</span>
           <span class="pill">model: never</span>
-          <span class="pill">~859 body tokens</span>
+          <span class="pill">~884 body tokens</span>
         </div>
         <dl>
           <div><dt>Command</dt><dd><code>/sflow-adhoc</code></dd></div>
@@ -970,7 +970,7 @@ Before any boundary lookup or SFlow action, run `singularity-flow pause status -
 5. Run `singularity-flow adhoc landing preview &lt;SESSION-ID&gt; --json`. If multiple allowlisted tests exist, show the IDs and ask which one to use.
 6. If the result is promotion-required, preserve the reasons and offer `singularity-flow adhoc promote &lt;SESSION-ID&gt;`. Do not weaken protected-path, branch, resource, or verification checks.
 7. Show the complete packet digest. Publish only after the contributor explicitly confirms that exact digest, using `singularity-flow adhoc publish &lt;SESSION-ID&gt; --confirm &lt;PACKET-SHA256&gt; --json`.
-8. Report that direct landing is reverse-converged ad hoc work (`workflowExecuted: false`), together with the exact commit, push status, authority receipt, and any pending recovery.
+8. Report that direct landing is reverse-converged ad hoc work (`workflowExecuted: false`), together with the exact commit, push status, authority receipt, and any pending recovery. A waiting publication is retried with the returned `singularity-flow adhoc sync &lt;SESSION-ID&gt; --json`.
 </code></pre>
       </div>
     </details>
@@ -2106,7 +2106,7 @@ offline and must not be represented as remote publication proof.
           <span class="pill">interactive</span>
           <span class="pill">organisation boundary</span>
           <span class="pill">model: never</span>
-          <span class="pill">~1188 body tokens</span>
+          <span class="pill">~1210 body tokens</span>
         </div>
         <dl>
           <div><dt>Command</dt><dd><code>/sflow-capability-map</code></dd></div>
@@ -2147,7 +2147,7 @@ Before any boundary lookup or SFlow action, run `singularity-flow pause status -
    For `delivery`, add `--repository &lt;GIT-URL&gt;`; `collection` omits it.
 
 5. Show `singularity-flow capability proposal &lt;REVIEW-BRANCH&gt; --lead &lt;LEAD-URL&gt; --json`. After approval run `singularity-flow capability activate &lt;REVIEW-BRANCH&gt; --lead &lt;LEAD-URL&gt; --confirm &lt;FULL-PROPOSAL-COMMIT&gt; --json`; ask separately before `--acknowledge-unprotected`. `singularity-flow capability publish` repairs projection only.
-6. On conflict, preview `singularity-flow capability rebase-proposal &lt;REVIEW-BRANCH&gt; --lead &lt;LEAD-URL&gt; --json`. Consent separately to its exact confirmation command. Review before activation; never auto-activate.
+6. On a value conflict, run the returned `singularity-flow capability discard-proposal` once confirmed, then the returned `singularity-flow capability edit` or `map` again. Preview a returned `singularity-flow capability rebase-proposal`. Consent separately to each confirmation; never auto-activate.
 
 ## Cancel or replace a pending mapping
 
@@ -2413,7 +2413,7 @@ Reuse a verified pause-aware entry supplied in this invocation before any mutati
           <span class="pill">mutation</span>
           <span class="pill">repository boundary</span>
           <span class="pill">model: never</span>
-          <span class="pill">~1195 body tokens</span>
+          <span class="pill">~1246 body tokens</span>
         </div>
         <dl>
           <div><dt>Command</dt><dd><code>/sflow-configuration</code></dd></div>
@@ -2454,6 +2454,7 @@ Before any boundary lookup or SFlow action, run `singularity-flow pause status -
 5. For save, require the exact reviewed source path. For publish, show the changed governed files, target configuration branch, commit message, and remote state.
 6. Require an explicit mutation request, then run only the selected `singularity-flow configuration save` or `singularity-flow configuration publish` operation.
 7. Report validation, commit, push, and active-work invalidation effects. Never edit lifecycle snapshots or publish directly to an application branch.
+8. For drafts, run `singularity-flow configuration drafts --json`. Run a returned `singularity-flow configuration discard` or `singularity-flow configuration propose` only on the person&#39;s explicit request.
 
 Report the exact `singularity-flow configuration ...` action on all three surfaces per the Output contract; preserve its operation and operands.
 </code></pre>
@@ -2899,7 +2900,7 @@ Before any boundary lookup or SFlow action, run `singularity-flow pause status -
           <span class="pill">echo</span>
           <span class="pill">machine boundary</span>
           <span class="pill">model: never</span>
-          <span class="pill">~944 body tokens</span>
+          <span class="pill">~1016 body tokens</span>
         </div>
         <dl>
           <div><dt>Command</dt><dd><code>/sflow-doctor</code></dd></div>
@@ -2939,6 +2940,10 @@ Before any boundary lookup or SFlow action, run `singularity-flow pause status -
    offline by default. Add `--network` only after the contributor explicitly chooses to contact the
    remotes named by unfinished bootstrap sessions. Relay proxy and certificate configuration source
    names, never their values; never request credentials or recommend disabling TLS.
+
+4. To read the shared read index, a lock or a backup, run the requested or returned
+   `singularity-flow index status|refresh|rebuild|verify`, `singularity-flow lock show|show-file` or
+   `singularity-flow backup inspect` command exactly, with `--json`, and relay its fields and routes.
 
 All checks above are read-only. Do not reset, stash, switch branches, or edit configuration unless
 the user explicitly asks you to apply a fix.

@@ -320,3 +320,213 @@ test('a model-only step with the model off says how to turn the model back on', 
   assert.equal(blocked.command, 'singularity-flow nextsteps DEAD-1', 'asking again with --no-model only returns this block');
   assert.match(blocked.reason, /no configured model-free producer\. The model is off because SINGULARITY_FLOW_NO_MODEL/u);
 });
+
+// The no-dead-end sweep above walks KNOWN plans only, and SDA added none (sweep 2026-10-31,
+// coverage). These are the names SDA and its sweep added to src/: the code literals on the added
+// lines of `git log c6a65e33b..main -- src`, the APM commits left out (sweep-probes/E/added-upper.txt
+// was the reviewer's list of 80). Each is a refusal a person reaches, whose plan is checked below; a
+// usage refusal, whose way out is its family's help; an internal guard, with why no person meets it;
+// or not a refusal at all.
+const SDA_ADDED = Object.freeze(`ACTIVE_WORKSPACE_REPOSITORY_DEFERRED ACTIVE_WORKSPACE_SELECTION_BUSY AUTO_FLIGHT_BINDING_MISMATCH
+AUTO_PLAN_INVALID AUTO_RECOVERY_CHECKOUT_FAILED AUTO_STORY_BRANCH_INVALID AUTO_STORY_BRANCH_UNSUPPORTED BACKUP_COMMAND_INVALID
+BACKUP_DESTINATION_INVALID BACKUP_DRAFTS_UNAPPROVED BACKUP_INSIDE_CHECKOUT BACKUP_INTEGRITY_FAILED BACKUP_INVALID
+BACKUP_REPOSITORY_MISMATCH BACKUP_TOO_LARGE CAPABILITY_CONFIGURATION_OBJECTS_UNAVAILABLE CAPABILITY_PROPOSAL_UNMERGEABLE
+CAPABILITY_PROPOSAL_VALUE_CONFLICT CONFIGURATION_APPROVE_NOTHING CONFIGURATION_DRAFTS_CHANGED CONFIGURATION_DRAFTS_EMPTY
+CONFIGURATION_DRAFTS_INVALID CONFIGURATION_DRAFTS_LIMIT CONFIGURATION_DRAFTS_OPTION_UNSUPPORTED CONFIGURATION_DRAFT_LEFT_OUT
+CONFIGURATION_DRAFT_OPERATION_INVALID CONFIGURATION_DRAFT_OPERATION_REUSED CONFIGURATION_DRAFT_UNKNOWN CONFIGURATION_ENTITY_CONFLICT
+CONFIGURATION_PROJECTION_BASE_UNAVAILABLE CONFIGURATION_PROPOSAL_INTENT_INVALID CONFIGURATION_PROPOSAL_PUBLICATION_PENDING
+ENV_FILES_REPOSITORY_DEFERRED ENV_FILES_REPOSITORY_MISSING EVIDENCE_CORNER_CASE_UNCOVERED FACTORY_RESET_ACTIVE_OPERATIONS
+FACTORY_RESET_IN_PROGRESS FACTORY_RESET_PUBLICATION_PENDING GOAL_REPOSITORY_DEFERRED GOVERNED_GOAL_PUBLICATION_ACTIVE
+GOVERNED_GOAL_PUBLICATION_PENDING INDEX_COMMAND_INVALID INITIATIVE_IDENTITY_AMBIGUOUS INITIATIVE_IDENTITY_UNRECORDED
+INITIATIVE_PUBLICATION_ACTIVE INSPECTION_READ LEDGER_CHAIN_INVALID LEDGER_CONTINUATION_INVALID LEDGER_CONTINUATION_UNAVAILABLE
+LEDGER_EVENT_PAYLOAD_CONFLICT LEDGER_PAGE_LIMIT_INVALID LOCAL_EPIC_RESERVATION_AMBIGUOUS LOCK_COMMAND_INVALID OPERATION_ID_REUSE
+OUTCOME_UNKNOWN PUBLICATION_CANCELLED_BEFORE_PUSH PUBLICATION_MARKER_UNREADABLE PUBLICATION_PENDING PUSH_EXPECTED_REVISION_REQUIRED
+REFRESH_FAILED REFRESH_WAIT_MS REMOTE_UNKNOWN REVISION_CONFLICT SCHEMA_VERSION_FUTURE SDA_ADAPTER_CAPABILITY_UNSUPPORTED
+SDA_ADAPTER_CONTRACT_MISMATCH SDA_ADAPTER_NOT_PRODUCTION SDA_OPERATION_CANCELLED SESSION_REPOSITORY_UNAVAILABLE
+SESSION_STATE_REFRESH_UNAVAILABLE SGOS_AUTHORITY_LOCK_CORRUPT SGOS_AUTHORITY_LOCK_RELEASE_MISMATCH SGOS_AUTHORITY_LOCK_RELEASE_REFUSED
+SGOS_AUTHORITY_PATH_UNSAFE SGOS_AUTHORITY_STORE_BUSY SGOS_CANDIDATE_PUBLICATION_INVALID SINGULARITY_FLOW_INDEX_REFRESH
+SINGULARITY_FLOW_OUTPUT_TIMING SINGULARITY_FLOW_PROGRESS SINGULARITY_FLOW_REFUSAL_ENVELOPE SINGULARITY_FLOW_REPOSITORY_CHECK_INTERVAL_MINUTES
+SINGULARITY_FLOW_REPOSITORY_CHECK_MODE SINGULARITY_FLOW_REPOSITORY_CHECK_PREFERENCES STORY_BRANCH_BINDING_MISMATCH
+STORY_CAPABILITY_PUBLICATION_PENDING STORY_PUBLICATION_IN_PROGRESS STORY_PUBLICATION_PENDING STUDIO_CHANGES_INVALID
+STUDIO_NOTHING_TO_PROPOSE SUBJECT_LOCK_BUSY SUBJECT_LOCK_RELEASE_INVALID SUBJECT_LOCK_RELEASE_MISMATCH SUBJECT_LOCK_RELEASE_REFUSED
+TRANSPORT_INTENT_BUSY TRANSPORT_INTENT_INTEGRITY_INVALID TRANSPORT_INTENT_STATUSES TRANSPORT_OPERATION_ID_INVALID
+TRANSPORT_OPERATION_ID_REUSED UNKNOWN_SUBCOMMAND WORKFLOW_PROPOSAL_UNAVAILABLE WORKSPACE_REGISTRY_BUSY
+WORKSPACE_REGISTRY_RELEASE_INVALID WORKSPACE_REGISTRY_RELEASE_MISMATCH WORKSPACE_REGISTRY_RELEASE_REFUSED`.split(/\s+/u));
+
+const REPAIR = 'singularity-flow workspace repair "/tmp/sda-ws" --repository app';
+const PROPOSAL = 'sflow/config-change/capability/set-ledger-0123abcd';
+const COMMIT = '0123456789abcdef0123456789abcdef01234567';
+const INTENT = 'psh_0123456789abcdef01234567';
+const capabilityExits = (map = false) => ({
+  discardAction: { command: `singularity-flow capability ${map ? 'cancel' : 'discard'}-proposal ${PROPOSAL} --lead <LEAD-URL> --confirm ${COMMIT} --reason <REASON> --json`, skill: '/sf-capability-map' },
+  remapAction: { command: 'singularity-flow capability edit ledger --lead <LEAD-URL> --mode set <CHANGED-OPTIONS> --json', skill: '/sf-capability-map' },
+  reviewAction: { command: `singularity-flow capability proposal ${PROPOSAL} --lead <LEAD-URL> --json`, skill: '/sf-capability-map' }
+});
+const subject = { kind: 'publication', id: 'W-1' };
+const registryLock = '/tmp/sda-home/.singularity-flow/workspaces.json.lock';
+const authorityLock = '/tmp/sda-repository/.git/singularity-flow/authority-store/lock';
+
+/** Reachable refusals, each with the argv it meets and its details as its throw site writes them. */
+const SDA_ROUTED = Object.freeze({
+  ACTIVE_WORKSPACE_REPOSITORY_DEFERRED: [[['status'], { repositoryId: 'app', repositoryState: 'deferred', nextAction: REPAIR, recoveryCommands: [REPAIR] }]],
+  ACTIVE_WORKSPACE_SELECTION_BUSY: [[['workspace', 'use', '/tmp/sda-ws'], { lock: registryLock }],
+    [['workspace', 'use', '/tmp/sda-ws'], { lock: registryLock, releaseCommand: `singularity-flow lock release-file ${registryLock} --confirm 0123456789abcdef` }]],
+  AUTO_FLIGHT_BINDING_MISMATCH: [[['auto', 'status', `AFL-${'A'.repeat(26)}`], { workId: 'W-1' }]],
+  AUTO_PLAN_INVALID: [[['auto', 'plan', 'x'], {}]],
+  AUTO_RECOVERY_CHECKOUT_FAILED: [[['auto', 'recover', 'W-1'], {}]],
+  AUTO_STORY_BRANCH_INVALID: [[['auto', 'run', 'AF-1'], {}]],
+  AUTO_STORY_BRANCH_UNSUPPORTED: [[['auto', 'run', 'AF-1'], {}]],
+  BACKUP_DESTINATION_INVALID: [[['backup', 'create', '--out', '/tmp/b'], {}]],
+  BACKUP_INSIDE_CHECKOUT: [[['backup', 'create', '--out', '/tmp/r/b'], { checkout: '/tmp/r' }]],
+  BACKUP_INTEGRITY_FAILED: [[['backup', 'restore', '/tmp/b'], { damaged: ['a'.repeat(64)] }]],
+  BACKUP_INVALID: [[['backup', 'inspect', '/tmp/b'], {}]],
+  BACKUP_REPOSITORY_MISMATCH: [[['backup', 'inspect', '/tmp/b'], {}]],
+  BACKUP_TOO_LARGE: [[['backup', 'create', '--out', '/tmp/b'], { nextAction: { command: 'singularity-flow documents list APP-1 --all --json' } }],
+    [['backup', 'create', '--out', '/tmp/b'], { drafts: 1001, nextAction: 'singularity-flow configuration drafts' }]],
+  CAPABILITY_PROPOSAL_UNMERGEABLE: [[['capability', 'activate', PROPOSAL], { nextAction: capabilityExits(true).discardAction, ...capabilityExits(true) }],
+    [['capability', 'activate', PROPOSAL], { nextAction: { command: `singularity-flow capability rebase-proposal ${PROPOSAL.replace('set-', 'map-')} --lead <LEAD-URL> --json`, skill: '/sf-capability-map' } }]],
+  CAPABILITY_PROPOSAL_VALUE_CONFLICT: [[['capability', 'activate', PROPOSAL], { nextAction: capabilityExits().discardAction, ...capabilityExits() }]],
+  CONFIGURATION_APPROVE_NOTHING: [[['configuration', 'approve'], {}], [['configuration', 'approve'], { nextAction: 'singularity-flow configuration propose' }]],
+  CONFIGURATION_DRAFTS_CHANGED: [[['skill', 'edit', 'review'], {}], [['configuration', 'discard', '1'], { nextAction: 'singularity-flow configuration drafts' }]],
+  CONFIGURATION_DRAFTS_EMPTY: [[['configuration', 'propose'], {}], [['configuration', 'propose'], { nextAction: 'singularity-flow configuration approve sflow/config-change/workflow/x' }]],
+  CONFIGURATION_DRAFTS_INVALID: [[['configuration', 'drafts'], { file: '/tmp/r/.git/singularity-flow/configuration-drafts/cdo-1.json' }]],
+  CONFIGURATION_DRAFTS_LIMIT: [[['skill', 'edit', 'review'], {}]],
+  CONFIGURATION_DRAFT_OPERATION_REUSED: [[['skill', 'edit', 'review'], { operationId: 'op-1', draftId: 'cdo-1' }]],
+  CONFIGURATION_DRAFT_UNKNOWN: [[['configuration', 'discard', 'cdo-9'], {}]],
+  CONFIGURATION_ENTITY_CONFLICT: [[['configuration', 'publish'], { pointers: ['/a'], nextAction: { command: 'singularity-flow configuration recreate-sync --json' } }]],
+  CONFIGURATION_PROJECTION_BASE_UNAVAILABLE: [[['configuration', 'publish'], {}]],
+  CONFIGURATION_PROPOSAL_PUBLICATION_PENDING: [[['configuration', 'propose'], { intentId: INTENT, nextAction: `singularity-flow sync ${INTENT}`, recoveryCommands: [`singularity-flow push status ${INTENT}`] }]],
+  ENV_FILES_REPOSITORY_DEFERRED: [[['env', 'files', '--repository', 'app'], { repository: 'app', nextAction: REPAIR }]],
+  ENV_FILES_REPOSITORY_MISSING: [[['env', 'files', '--repository', 'app'], { repository: 'app', nextAction: REPAIR }]],
+  FACTORY_RESET_ACTIVE_OPERATIONS: [[['factory-reset', '--dry-run'], { locks: [{ owner: { subject } }] }]],
+  FACTORY_RESET_IN_PROGRESS: [[['start', 'W-1'], { lock: '/tmp/r/.git/singularity-flow/locks/factory-reset-barrier' }]],
+  FACTORY_RESET_PUBLICATION_PENDING: [[['factory-reset'], { nextAction: 'singularity-flow sync W-1', recoveryCommands: [{ command: 'singularity-flow initiative sync INI-1' }] }]],
+  GOAL_REPOSITORY_DEFERRED: [[['goal', 'status', 'G-1'], { repositoryId: 'app', nextAction: REPAIR }]],
+  GOVERNED_GOAL_PUBLICATION_ACTIVE: [[['goal', 'sync', 'G-1'], { subject: { kind: 'goal', id: 'G-1' }, pid: 4242 }]],
+  GOVERNED_GOAL_PUBLICATION_PENDING: [[['goal', 'update', 'G-1'], { id: 'G-1', nextAction: 'singularity-flow goal sync G-1' }]],
+  INITIATIVE_IDENTITY_AMBIGUOUS: [[['initiative', 'resume', 'INI'], { candidates: ['INI-1', 'INI-2'], nextAction: 'singularity-flow initiative resume INI-1' }]],
+  INITIATIVE_IDENTITY_UNRECORDED: [[['initiative', 'resume', 'INI-1'], { nextAction: 'singularity-flow initiative resume INI-1 --fetch' }]],
+  INITIATIVE_PUBLICATION_ACTIVE: [[['initiative', 'sync', 'INI-1'], { subject: { kind: 'initiative', id: 'INI-1' }, pid: 4242 }]],
+  LEDGER_CHAIN_INVALID: [[['initiative', 'list'], {}]],
+  LOCAL_EPIC_RESERVATION_AMBIGUOUS: [[['epic', 'start'], { reservations: ['singularity/initiatives/EP-1/reservation.json'] }]],
+  PUBLICATION_CANCELLED_BEFORE_PUSH: [[['approve', 'build', '--work-id', 'W-1'], { nextAction: 'singularity-flow sync W-1' }, { publicationRefAdvanced: true }]],
+  PUBLICATION_PENDING: [[['initiative', 'phase', 'INI-1'], { subject: { kind: 'initiative', id: 'INI-1' }, nextAction: 'singularity-flow initiative sync INI-1' }],
+    [['adhoc', 'publish', 'ADH-1'], { subject: { kind: 'adhoc', id: 'ADH-1' }, nextAction: 'singularity-flow adhoc sync ADH-1' }]],
+  REMOTE_UNKNOWN: [[['start', 'W-1'], {}]],
+  SCHEMA_VERSION_FUTURE: [[['status'], {}]],
+  SESSION_REPOSITORY_UNAVAILABLE: [[['inbox'], {}]],
+  SESSION_STATE_REFRESH_UNAVAILABLE: [[['session', 'candidates'], {}]],
+  SGOS_AUTHORITY_LOCK_CORRUPT: [[['authority-store', 'status'], {}]],
+  SGOS_AUTHORITY_LOCK_RELEASE_MISMATCH: [[['lock', 'release-file', authorityLock, '--confirm', 'x'], { lock: authorityLock }]],
+  SGOS_AUTHORITY_LOCK_RELEASE_REFUSED: [[['lock', 'release-file', authorityLock, '--confirm', 'x'], { lock: authorityLock }]],
+  SGOS_AUTHORITY_PATH_UNSAFE: [[['authority-store', 'status'], {}]],
+  SGOS_AUTHORITY_STORE_BUSY: [[['authority-store', 'publish'], { lock: authorityLock }]],
+  STORY_CAPABILITY_PUBLICATION_PENDING: [[['start', 'W-1'], { workId: 'W-1', recoveryCommand: { command: 'singularity-flow sync' } }]],
+  STORY_PUBLICATION_IN_PROGRESS: [[['sync', 'W-1'], {}]],
+  STORY_PUBLICATION_PENDING: [[['approve', 'build', '--work-id', 'W-1', '--dry-run'], { workId: 'W-1', nextAction: { command: 'singularity-flow sync' } }]],
+  STUDIO_CHANGES_INVALID: [[['workflow', 'studio', 'apply', '--change-set', '/tmp/c.json', '--propose'], { problems: [{ message: 'Unknown agent.' }] }],
+    [['configuration', 'propose'], { nextAction: { command: 'singularity-flow configuration discard 1 --listing abc123' } }]],
+  STUDIO_NOTHING_TO_PROPOSE: [[['workflow', 'studio', 'apply', '--propose'], {}]],
+  SUBJECT_LOCK_BUSY: [[['sync', 'W-1'], { subject, lock: '/tmp/r/.git/singularity-flow/locks/publication-W-1' }],
+    [['sync', 'W-1'], { subject, releaseCommand: 'singularity-flow lock release publication W-1 --confirm 0123456789abcdef' }]],
+  SUBJECT_LOCK_RELEASE_INVALID: [[['lock', 'release', 'publication', 'W-1'], { subject }]],
+  SUBJECT_LOCK_RELEASE_MISMATCH: [[['lock', 'release', 'publication', 'W-1', '--confirm', 'x'], { subject, nextAction: 'singularity-flow lock show publication W-1' }]],
+  SUBJECT_LOCK_RELEASE_REFUSED: [[['lock', 'release', 'publication', 'W-1', '--confirm', 'x'], { subject }]],
+  TRANSPORT_INTENT_BUSY: [[['sync', INTENT], { intentId: INTENT }]],
+  TRANSPORT_INTENT_INTEGRITY_INVALID: [[['push', 'status'], { file: '/tmp/home/.singularity-flow/transport-outbox/x.json' }]],
+  WORKFLOW_PROPOSAL_UNAVAILABLE: [[['configuration', 'approve', 'sflow/config-change/workflow/x'], {}]],
+  WORKSPACE_REGISTRY_BUSY: [[['workspace', 'create'], { lock: registryLock }]],
+  WORKSPACE_REGISTRY_RELEASE_INVALID: [[['lock', 'release-file', registryLock], { lock: registryLock }]],
+  WORKSPACE_REGISTRY_RELEASE_MISMATCH: [[['lock', 'release-file', registryLock, '--confirm', 'x'], { lock: registryLock, nextAction: `singularity-flow lock show-file ${registryLock}` }]],
+  WORKSPACE_REGISTRY_RELEASE_REFUSED: [[['lock', 'release-file', registryLock, '--confirm', 'x'], { lock: registryLock }]]
+});
+
+/** Usage refusals: the command's own help is the way out. */
+const SDA_USAGE = Object.freeze({
+  BACKUP_COMMAND_INVALID: ['backup', 'create', '--bogus'], INDEX_COMMAND_INVALID: ['index', 'bogus'],
+  LOCK_COMMAND_INVALID: ['lock', 'show'], CONFIGURATION_DRAFTS_OPTION_UNSUPPORTED: ['configuration', 'drafts', '--bogus'],
+  CONFIGURATION_DRAFT_OPERATION_INVALID: ['skill', 'edit', 'review', '--operation-id', '!'], UNKNOWN_SUBCOMMAND: ['backup', 'bogus']
+});
+
+/** Guards no person meets: SFlow's own callers pass what they check, or the refusal is caught and carried by another. */
+const SDA_INTERNAL_GUARDS = Object.freeze({
+  PUSH_EXPECTED_REVISION_REQUIRED: 'a governed push called without the remote revision it replaces: every caller passes it (SDA-AC-025)',
+  SDA_ADAPTER_CAPABILITY_UNSUPPORTED: 'a storage adapter registered without a capability its contract needs: checked when an adapter loads',
+  SDA_ADAPTER_CONTRACT_MISMATCH: 'a storage adapter of another contract version: checked when an adapter loads',
+  SDA_ADAPTER_NOT_PRODUCTION: 'a test or in-memory adapter used outside tests: checked when an adapter loads',
+  SDA_OPERATION_CANCELLED: 'an adapter operation aborted by its own signal; the command that cancelled it reports why',
+  TRANSPORT_OPERATION_ID_INVALID: 'a saved push\'s operation ID comes from SFlow\'s own caller, never from a person',
+  TRANSPORT_OPERATION_ID_REUSED: 'the same: an operation ID SFlow derived, saved for another commit',
+  SGOS_CANDIDATE_PUBLICATION_INVALID: 'argument checks of the Lifecycle Candidate publication API',
+  CONFIGURATION_PROPOSAL_INTENT_INVALID: 'a proposal intent SFlow builds; an empty Studio proposal is refused first as STUDIO_NOTHING_TO_PROPOSE',
+  LEDGER_EVENT_PAYLOAD_CONFLICT: 'an operation key SFlow derived, replayed with other bytes: the ledger keeps the first',
+  LEDGER_CONTINUATION_INVALID: 'a ledger page continuation SFlow\'s own readers pass; no command takes one',
+  LEDGER_CONTINUATION_UNAVAILABLE: 'the same: a continuation whose snapshot this clone no longer holds',
+  LEDGER_PAGE_LIMIT_INVALID: 'a ledger page size SFlow\'s own readers pass; no command takes one',
+  CAPABILITY_CONFIGURATION_OBJECTS_UNAVAILABLE: 'raised inside value replay and always caught: the proposal then reads CAPABILITY_PROPOSAL_UNMERGEABLE, which names its route'
+});
+
+/** Names that are not refusal codes. */
+const SDA_NOT_REFUSALS = Object.freeze({
+  BACKUP_DRAFTS_UNAPPROVED: 'recorded on one restored draft item; the restore goes on with the rest',
+  CONFIGURATION_DRAFT_LEFT_OUT: 'a warning beside a result',
+  EVIDENCE_CORNER_CASE_UNCOVERED: 'a verification finding, with its own advice',
+  STORY_BRANCH_BINDING_MISMATCH: 'a finding on a Story listing row',
+  PUBLICATION_MARKER_UNREADABLE: 'the state status reports, with its doctor route (A11)',
+  REFRESH_FAILED: 'a kept refresh error\'s code, shown with its cause and fix (A3)',
+  OUTCOME_UNKNOWN: 'an outcome class a refusal carries beside its code', OPERATION_ID_REUSE: 'an outcome class',
+  REVISION_CONFLICT: 'an outcome class; the lost race it marks names `sync <ID> --set-aside` (B2)',
+  INSPECTION_READ: 'a constant', REFRESH_WAIT_MS: 'a constant', TRANSPORT_INTENT_STATUSES: 'a constant',
+  SINGULARITY_FLOW_INDEX_REFRESH: 'an environment variable', SINGULARITY_FLOW_OUTPUT_TIMING: 'an environment variable',
+  SINGULARITY_FLOW_PROGRESS: 'an environment variable', SINGULARITY_FLOW_REFUSAL_ENVELOPE: 'an environment variable',
+  SINGULARITY_FLOW_REPOSITORY_CHECK_INTERVAL_MINUTES: 'an environment variable', SINGULARITY_FLOW_REPOSITORY_CHECK_MODE: 'an environment variable',
+  SINGULARITY_FLOW_REPOSITORY_CHECK_PREFERENCES: 'an environment variable'
+});
+
+const GENERIC_ROUTE = /^singularity-flow (?:help(?: [a-z-]+)?|doctor --json|nextsteps(?: --json)?|quickstart)$/u;
+
+test('every refusal SDA and its sweep added that a person reaches names a way out its skill carries', async () => {
+  const { routeAdmission } = await import('./helpers/skill-admission.mjs');
+  const groups = [SDA_ROUTED, SDA_USAGE, SDA_INTERNAL_GUARDS, SDA_NOT_REFUSALS].map((group) => Object.keys(group));
+  assert.deepEqual(groups.flat().sort(), [...SDA_ADDED].sort(), 'each added name is sorted into exactly one group');
+  assert.equal(new Set(groups.flat()).size, SDA_ADDED.length);
+  for (const reason of Object.values(SDA_INTERNAL_GUARDS)) assert.ok(reason.length > 20);
+  const failures = [];
+  for (const [code, variants] of Object.entries(SDA_ROUTED)) {
+    for (const [argv, details, extra = {}] of variants) {
+      const plan = refusalRemediationPlan(Object.assign(new Error('refused'), { code, details, ...extra }), argv);
+      const label = `${code} ${JSON.stringify(details).slice(0, 80)}`;
+      if (plan.steps.some((entry) => entry.commandRejected)) failures.push(`${label}: a route the filter refused`);
+      const ways = plan.steps.filter((entry) => entry.command ? !GENERIC_ROUTE.test(entry.command) : entry.kind === 'remediation');
+      if (!ways.length) failures.push(`${label}: only ${JSON.stringify(plan.steps.map((entry) => entry.command))}`);
+      for (const entry of ways.filter((way) => way.command && way.copilotCommand)) {
+        const route = await routeAdmission(entry.command, entry.copilotCommand);
+        if (!route.named || !route.admitted) failures.push(`${label}: ${entry.command} -> ${entry.copilotCommand} named=${route.named} admitted=${route.admitted}`);
+      }
+    }
+  }
+  for (const [code, argv] of Object.entries(SDA_USAGE)) {
+    const plan = refusalRemediationPlan(Object.assign(new Error('refused'), { code, details: {} }), argv);
+    if (!plan.steps.some((entry) => [`singularity-flow help ${argv[0]}`, 'singularity-flow help'].includes(entry.command))) failures.push(`${code}: no help route`);
+  }
+  assert.deepEqual(failures, []);
+});
+
+// D9/B5 (sweep 2026-10-31): a plain-text takeover could end "its session is not ready yet" with no
+// next step, and the disclosure never said a publication still waiting on the other laptop is
+// published from there.
+test('a plain-text takeover always ends with its next step, and names the sync the other laptop runs', async () => {
+  const { localWorkNotCarried, takeoverText } = await import('../src/commands/session-takeover.mjs');
+  const guidance = await import('../src/safe-command-guidance.mjs');
+  const base = { workId: 'TKO-1', phase: 'design', repositoryPath: '/tmp/tko', documentsToRestore: null, localWorkNotCarried: localWorkNotCarried('TKO-1') };
+  const handoff = { command: 'singularity-flow session attach TKO-1 --json', copilotCommand: '/sf-session' };
+  const notReady = takeoverText({ ...base, ready: false, session: { phaseAgent: { valid: false, handoff } } }, guidance);
+  assert.match(notReady, /its session is not ready yet: phase design needs its agent bound here\.\nNext:\n- Copilot: \/sf-session\n- Shell: singularity-flow session attach TKO-1 --json/u);
+  assert.match(takeoverText({ ...base, ready: false, session: null }, guidance), /Next:\n- Copilot: \/sf-session\n- Shell: singularity-flow session attach TKO-1 --json/u);
+  assert.match(takeoverText({ ...base, ready: true, session: { ready: true } }, guidance), /ready to continue here\.\nNext:\n(?:- [^\n]+\n)*- Shell: singularity-flow nextsteps TKO-1\n/u);
+  const restore = takeoverText({ ...base, ready: false, documentsToRestore: { phase: 'design', documents: ['DOC-001'], message: 'Phase design uses a document.' } }, guidance);
+  assert.match(restore, /Next:\n(?:- [^\n]+\n)*- Shell: singularity-flow documents restore DOC-001 --file <LOCAL-FILE> --work-id TKO-1\n/u);
+  assert.match(notReady, /run singularity-flow sync TKO-1 there \(singularity-flow push status there lists saved pushes\)/u);
+  assert.equal(base.localWorkNotCarried.syncOnPreviousLaptop, 'singularity-flow sync TKO-1');
+  assert.doesNotMatch(base.localWorkNotCarried.message, /\b(?:stop|wait|hand|relay)\b/iu, 'a disclosure, never an exit');
+});

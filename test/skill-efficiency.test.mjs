@@ -57,7 +57,9 @@ test('every public skill has a bounded class and output contract', async () => {
   // carry a raised override with that reason instead of losing the guard again.
   // 2026-10-26: /sf-review joins them — its repair bound names an unchanged draft, not unchanged findings.
   // 2026-10-29: /sf-test-setup joins them — its reads carry --for-agent and its apply is the person's step.
-  const overridden = ['sflow-appeal', 'sflow-approve', 'sflow-build-workflow', 'sflow-code', 'sflow-converge', 'sflow-decide', 'sflow-design', 'sflow-document-intake', 'sflow-documents',
+  // 2026-10-31 (sweep batch 5): /sf-capability-map names a value conflict's discard and remap instead of a
+  // rebase (C4), and /sf-configuration runs the draft read, discard and propose its refusals route to (E7).
+  const overridden = ['sflow-appeal', 'sflow-approve', 'sflow-build-workflow', 'sflow-capability-map', 'sflow-code', 'sflow-configuration', 'sflow-converge', 'sflow-decide', 'sflow-design', 'sflow-document-intake', 'sflow-documents',
     'sflow-home', 'sflow-mcp', 'sflow-phase', 'sflow-plan', 'sflow-ready', 'sflow-recover', 'sflow-reinstall', 'sflow-reject',
     'sflow-release', 'sflow-requirements', 'sflow-review', 'sflow-review-source', 'sflow-run-app', 'sflow-scenario-check', 'sflow-session', 'sflow-specify', 'sflow-start',
     'sflow-story-start', 'sflow-submit', 'sflow-test-setup', 'sflow-verify', 'sflow-workflows'];

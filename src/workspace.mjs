@@ -4148,7 +4148,8 @@ export async function createWorkspace(options, {
       const failedResult = stagedResults[journal.operations.indexOf(requiredFailure)];
       throw new SingularityFlowError(
         `Workspace retained for repair after ${requiredFailure.repository} clone failed: ${failedResult.error}`, {
-          code: failedResult.code, details: failedResult.claimRecovery
+          code: failedResult.code, details: { ...failedResult.claimRecovery,
+            nextAction: workspaceMaterializeCommand(root, requiredFailure.repository) }
         });
     }
     for (let index = 0; index < journal.operations.length; index += 1) {
@@ -4195,7 +4196,7 @@ export async function createWorkspace(options, {
         }
         await writeJournal(root, journal, manifest.directories.logs);
         throw new SingularityFlowError(`Workspace retained for repair after ${operation.repository} clone failed: ${operation.error}`, {
-          code: result.code, details: result.claimRecovery
+          code: result.code, details: { ...result.claimRecovery, nextAction: workspaceMaterializeCommand(root, operation.repository) }
         });
       }
     }
@@ -4992,8 +4993,10 @@ export async function repairWorkspace(workspacePath, {
     const blocked = pending[blockingIndex];
     const failure = staged[blockingIndex];
     const prefix = blocked.repository.adoption ? 'Adopted repository' : 'Required repository';
+    // The member is now missing, not deferred: its own repair is the way on once the remote answers (C7).
     throw new SingularityFlowError(`${prefix} '${blocked.repository.id}' could not be repaired: ${failure.error}`, {
-      code: failure.code, details: failure.claimRecovery
+      code: failure.code, details: { ...failure.claimRecovery,
+        nextAction: workspaceMaterializeCommand(status.workspace.path, blocked.repository.id) }
     });
   }
   for (let index = 0; index < pending.length; index += 1) {
@@ -5057,7 +5060,8 @@ export async function repairWorkspace(workspacePath, {
         await writeJournal(status.workspace.path, journal, status.workspace.directories.logs);
         throw new SingularityFlowError(
           `Required repository '${repository.id}' could not be repaired: ${result.error}`, {
-            code: result.code, details: result.claimRecovery
+            code: result.code, details: { ...result.claimRecovery,
+              nextAction: workspaceMaterializeCommand(status.workspace.path, repository.id) }
           }
         );
       }

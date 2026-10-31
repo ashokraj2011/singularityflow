@@ -377,15 +377,18 @@ export async function activeWorkspaceRepositoryRoot(command, {
     env, home, selectedPath, command, subcommand, action, options
   });
   if (deferred) return deferred;
+  // A member whose clone failed is missing: its own repair is the way on (C7), not another selection.
+  const repair = context.workspacePath && context.repositoryId
+    ? `singularity-flow workspace repair ${JSON.stringify(context.workspacePath)} --repository ${context.repositoryId}` : null;
   throw new SingularityFlowError(
-    `Active workspace '${context.workspaceName ?? context.workspaceId}' points to '${selectedPath}', which is not an available Git repository. Repair the workspace or run 'singularity-flow workspace use <WORKSPACE>'.`,
+    `Active workspace '${context.workspaceName ?? context.workspaceId}' points to '${selectedPath}', which is not an available Git repository. ${repair ? `Repair it with '${repair}'` : 'Repair the workspace'}, or select another with 'singularity-flow workspace use <WORKSPACE>'.`,
     {
       code: 'ACTIVE_WORKSPACE_REPOSITORY_UNAVAILABLE',
       details: {
         workspaceId: context.workspaceId, repositoryId: context.repositoryId, repositoryPath: selectedPath,
         // Workspace commands run without a repository; doctor and nextsteps would meet this again.
-        nextAction: 'singularity-flow workspace list',
-        recoveryCommands: ['singularity-flow workspace use <WORKSPACE>']
+        nextAction: repair ?? 'singularity-flow workspace list',
+        recoveryCommands: [...(repair ? ['singularity-flow workspace list'] : []), 'singularity-flow workspace use <WORKSPACE>']
       }
     }
   );

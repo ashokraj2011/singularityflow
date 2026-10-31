@@ -96,6 +96,33 @@ test('a backup is never saved inside a checkout of the repository or over anothe
   await assert.rejects(createBackup(f.root, {}), { code: 'BACKUP_DESTINATION_INVALID' });
 });
 
+// D10 (sweep 2026-10-31): documents too large for one backup were refused only after the destination
+// was created and partly written, so a retry with the same --out was refused as not empty.
+test('a backup too large is refused before anything is written, says what is too large, and the same --out works again', async (t) => {
+  const f = await repository(t);
+  const { bytes } = await legacyLayouts(f);
+  const out = path.join(f.base, 'too-large');
+  for (const limits of [{ documents: 0, bytes: 1024 }, { documents: 10, bytes: bytes.length - 1 }]) {
+    await assert.rejects(createBackup(f.root, { out, limits }), (error) => {
+      assert.equal(error.code, 'BACKUP_TOO_LARGE');
+      assert.match(error.message, /laptop-local documents \(1 documents, 1 MiB; most in APP-1 \(1 MiB\)\) are more than one backup carries/);
+      assert.match(error.message, /Nothing was written to .*documents store <DOCUMENT-ID> --store git/);
+      assert.deepEqual(error.details.stories, [{ workId: 'APP-1', bytes: bytes.length }]);
+      assert.equal(error.details.nextAction.command, 'singularity-flow documents list APP-1 --all --json');
+      return true;
+    });
+    assert.equal(await lstat(out).catch(() => null), null, 'nothing was created');
+  }
+  // An empty directory the person made stays, empty.
+  const chosen = path.join(f.base, 'chosen');
+  await mkdir(chosen);
+  await assert.rejects(createBackup(f.root, { out: chosen, limits: { documents: 0, bytes: 1024 } }), { code: 'BACKUP_TOO_LARGE' });
+  assert.deepEqual(await readdir(chosen), []);
+  // The same --out works once the backup fits.
+  assert.equal((await createBackup(f.root, { out })).documents, 1);
+  assert.equal((await createBackup(f.root, { out: chosen })).documents, 1);
+});
+
 test('a backup a newer build wrote, a damaged or interrupted one, or another repository\'s restores nothing', async (t) => {
   const f = await repository(t);
   await legacyLayouts(f);

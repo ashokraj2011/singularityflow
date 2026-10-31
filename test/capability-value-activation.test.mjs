@@ -23,6 +23,7 @@ import { workspaceRemoteCapabilities } from '../src/workspace.mjs';
 import { editCapability } from '../src/capabilities.mjs';
 import { initializeDefinition } from '../src/config.mjs';
 import { replayCapabilityProposal } from '../src/capability-value-replay.mjs';
+import { refusalRemediationPlan } from '../src/refusal-remediation.mjs';
 
 process.env.SINGULARITY_FLOW_CONFIGURATION_OBJECT_STORE = 'off';
 const posixOnly = { skip: process.platform === 'win32' };
@@ -226,14 +227,24 @@ test('a field both sides changed differently is a value conflict, including a li
   assert.deepEqual(inspected.conflictFiles, ['singularity/capabilities.yml']);
   assert.deepEqual(inspected.mergeability.conflicts[0].pointers, ['/capabilities/foundation/owns']);
   assert.equal(inspected.discardable, true);
+  // C4: a value conflict is exactly what a record rebase cannot settle. The view and the refusal
+  // name the discard at the exact commit, then the same edit made again; never rebase-proposal.
+  assert.equal(inspected.rebaseAction, null);
+  assert.match(inspected.discardAction.command, new RegExp(`^singularity-flow capability discard-proposal ${proposal.branch} --lead \\S+ --confirm ${proposal.commit} --reason <REASON> --json$`));
+  assert.match(inspected.remapAction.command, /^singularity-flow capability edit foundation --lead \S+ --mode set <CHANGED-OPTIONS> --json$/);
+  let refusal;
   await assert.rejects(activateCapabilityProposal(org.platform, proposal.branch, {
     confirm: proposal.commit, acknowledgeUnprotected: true
   }), (error) => {
+    refusal = error;
     assert.equal(error.code, 'CAPABILITY_PROPOSAL_VALUE_CONFLICT');
     assert.match(error.message, /\/capabilities\/foundation\/owns/);
     assert.deepEqual(error.details.mergeability.conflictFiles, ['singularity/capabilities.yml']);
     return true;
   });
+  const plan = refusalRemediationPlan(refusal, ['capability', 'activate', proposal.branch]);
+  assert.deepEqual(plan.steps.slice(0, 2).map((entry) => entry.command), [inspected.discardAction.command, inspected.remapAction.command]);
+  assert.ok(plan.steps.every((entry) => !entry.commandRejected && !String(entry.command).includes('rebase-proposal')), 'no step loops back to a rebase');
   assert.equal(run('git', ['rev-parse', 'sflow/config'], { cwd: org.platform }).stdout.trim(), target,
     'a refused activation changes nothing');
   assert.equal((await discardStaleCapabilityProposal(org.platform, proposal.branch, {
@@ -400,4 +411,57 @@ test('a capability edit still refuses an unknown capability and a map with nothi
     /already exists/);
   assert.equal(run('git', ['for-each-ref', '--format=%(refname) %(objectname)'], { cwd: org.platform }).stdout, before,
     'a refused edit publishes nothing');
+});
+
+// C4/E9 (sweep 2026-10-31): a value conflict routed to `capability proposal`, which offered only
+// rebase-proposal; rebase was refused and routed back. As a person runs it: the refusal, the view
+// and the rebase refusal of a conflicting map all name the discard at the exact commit, then the
+// change made again; rebase is never offered for a value conflict.
+test('a conflicting capability proposal names its discard and fresh change on every surface, never a rebase loop', posixOnly, async (t) => {
+  const org = await remotes(t, 'platform');
+  const { spawnSync } = await import('node:child_process');
+  const cli = path.resolve('bin/singularity-flow.mjs');
+  const flow = (...args) => spawnSync(process.execPath, [cli, ...args, '--lead', org.platform], {
+    cwd: org.base, env: { ...process.env, NODE_ENV: 'test' }, encoding: 'utf8', timeout: 120_000 });
+  await mergeProposal(org.platform, await mapCapability(org.platform, { capabilityId: 'foundation', name: 'Foundation', kind: 'collection' }));
+  const edited = await editCapabilityInOrganisation(org.platform, 'foundation', { name: 'Foundation platform' });
+  // Another clone maps `ledger` while this one maps it differently, and that one is approved first.
+  const ours = await mapCapability(org.platform, { capabilityId: 'ledger', name: 'Ledger', kind: 'collection' });
+  await changeAuthority(org.platform, async (checkout) => {
+    const file = path.join(checkout, 'singularity/capabilities.yml');
+    const document = YAML.parseDocument(await readFile(file, 'utf8'));
+    document.setIn(['capabilities', 'foundation', 'name'], 'Foundation core');
+    document.setIn(['capabilities', 'ledger'], document.createNode({ name: 'General ledger', kind: 'collection' }));
+    await writeFile(file, document.toString(), 'utf8');
+  });
+
+  const activate = flow('capability', 'activate', edited.branch, '--confirm', edited.commit);
+  assert.equal(activate.status, 1, activate.stdout);
+  assert.match(activate.stderr, /CAPABILITY_PROPOSAL_VALUE_CONFLICT|changed differently/);
+  const discard = `singularity-flow capability discard-proposal ${edited.branch} --lead`;
+  assert.ok(activate.stderr.includes(discard) && activate.stderr.includes(`--confirm ${edited.commit} --reason <REASON>`), activate.stderr);
+  assert.match(activate.stderr, /singularity-flow capability edit foundation --lead \S+ --mode set <CHANGED-OPTIONS> --json/);
+  assert.doesNotMatch(activate.stderr, /rebase-proposal/);
+
+  const view = flow('capability', 'proposal', edited.branch);
+  assert.equal(view.status, 0, view.stderr);
+  assert.match(view.stdout, /status: conflicting — discard, then map again/);
+  assert.match(view.stdout, /changed differently: singularity\/capabilities\.yml \/capabilities\/foundation\/name/);
+  assert.ok(view.stdout.includes(discard), view.stdout);
+  assert.doesNotMatch(view.stdout, /rebase-proposal/);
+  const listed = flow('capability', 'proposals');
+  assert.doesNotMatch(listed.stdout, /rebase-proposal|rebase or discard/);
+
+  // A typed map whose capability the authority now holds differently: its rebase is refused for the
+  // record, and that refusal names the same discard and `capability map` again, not the view alone.
+  const rebase = flow('capability', 'rebase-proposal', ours.branch);
+  assert.equal(rebase.status, 1, rebase.stdout);
+  assert.match(rebase.stderr, /differing record for ledger/);
+  assert.ok(rebase.stderr.includes(`singularity-flow capability discard-proposal ${ours.branch} --lead`), rebase.stderr);
+  assert.match(rebase.stderr, /singularity-flow capability map ledger --lead \S+ --kind <KIND> --json/);
+
+  // The named discard works at that exact commit, and nothing approved changed.
+  const discarded = flow('capability', 'discard-proposal', edited.branch, '--confirm', edited.commit, '--reason', 'The approved name moved on', '--json');
+  assert.equal(discarded.status, 0, discarded.stdout + discarded.stderr);
+  assert.equal(approved(org.platform).capabilities.foundation.name, 'Foundation core');
 });

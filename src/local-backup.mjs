@@ -30,7 +30,7 @@
  */
 import { createHash, randomBytes } from 'node:crypto';
 import { constants as fsConstants } from 'node:fs';
-import { lstat, mkdir, open, readdir, realpath } from 'node:fs/promises';
+import { lstat, mkdir, open, readdir, realpath, rm } from 'node:fs/promises';
 import path from 'node:path';
 import { readRecord, stampCurrentRecord } from './schema-migrations.mjs';
 import { SingularityFlowError, writeAtomic } from './util.mjs';
@@ -103,12 +103,31 @@ async function assertOutsideCheckouts(root, target) {
   }
 }
 
+/** Checks the destination and creates what a backup writes into; returns how to remove only that again. */
 async function emptyDestination(target) {
   const info = await lstat(target).catch((error) => (missing(error) ? null : Promise.reject(error)));
   if (info && (!info.isDirectory() || info.isSymbolicLink())) fail(`The backup destination is not an ordinary directory: ${target}`, 'BACKUP_DESTINATION_INVALID');
   if (info && (await readdir(target)).length) fail(`The backup destination is not empty: ${target}. Choose a new or empty directory.`, 'BACKUP_DESTINATION_INVALID');
   await mkdir(target, { recursive: true, mode: 0o700 });
   await mkdir(path.join(target, OBJECTS), { mode: 0o700 });
+  // A failed run leaves the destination as it found it, so the same --out works again (D10).
+  return () => rm(info ? path.join(target, OBJECTS) : target, { recursive: true, force: true });
+}
+
+const GIB = 1024 * 1024 * 1024;
+const size = (bytes) => (bytes >= GIB ? `${(bytes / GIB).toFixed(1)} GiB` : `${Math.ceil(bytes / (1024 * 1024))} MiB`);
+
+/** What one backup cannot carry, named with where it comes from and what the person can do; nothing is written. */
+function tooLarge(target, measured, limits) {
+  const stories = [...measured.stories].sort((left, right) => right[1] - left[1]).slice(0, 3);
+  fail(`This clone's laptop-local documents (${measured.documents} documents, ${size(measured.bytes)}`
+    + `${stories.length ? `; most in ${stories.map(([workId, bytes]) => `${workId} (${size(bytes)})`).join(', ')}` : ''}) are more than one backup carries `
+    + `(${limits.documents} documents, ${size(limits.bytes)}). Nothing was written to ${target}. A document that may be committed can move `
+    + 'to Git storage with `singularity-flow documents store <DOCUMENT-ID> --store git` in its Story\'s checkout; then create the backup again.',
+  'BACKUP_TOO_LARGE', { documents: measured.documents, bytes: measured.bytes, maximumDocuments: limits.documents,
+    maximumBytes: limits.bytes, stories: stories.map(([workId, bytes]) => ({ workId, bytes })),
+    nextAction: { command: `singularity-flow documents list ${stories[0]?.[0] ?? '<WORK-ID>'} --all --json`,
+      label: 'See which of that Story\'s documents are kept only on this laptop.' } });
 }
 
 async function readRegular(file, { limit = Infinity } = {}) {
@@ -134,8 +153,11 @@ async function directories(parent, pattern) {
   return entries.filter((entry) => entry.isDirectory() && !entry.isSymbolicLink() && pattern.test(entry.name)).map((entry) => entry.name);
 }
 
-/** Every verified document in this clone's machine-local store, by Story; bytes another build moved are migrated first. */
-async function localDocuments(root, onDocument) {
+/**
+ * Every verified document in this clone's machine-local store, by Story; bytes another build moved are
+ * migrated first. `measure` reads only each file's size, so a backup's size is known before it writes.
+ */
+async function localDocuments(root, onDocument, { measure = false } = {}) {
   const { localDocumentStoreDirectory, migrateLegacyLocalDocumentStore } = await import('./document-storage.mjs');
   await migrateLegacyLocalDocumentStore(root);
   const store = localDocumentStoreDirectory(root);
@@ -146,6 +168,10 @@ async function localDocuments(root, onDocument) {
       for (const entry of await readdir(folder, { withFileTypes: true })) {
         // Dot files are a store's own: a replaced copy (.previous-) or an unfinished write (.partial).
         if (entry.name.startsWith('.') || !FILE_NAME.test(entry.name)) continue;
+        if (measure) {
+          if (entry.isFile()) await onDocument({ workId, sha256: hash, size: (await lstat(path.join(folder, entry.name))).size });
+          continue;
+        }
         const bytes = entry.isFile() ? await readRegular(path.join(folder, entry.name)) : null;
         if (!bytes || sha256(bytes) !== hash) { unreadable.push({ workId, key: `${hash}/${entry.name}` }); continue; }
         await onDocument({ workId, key: `${hash}/${entry.name}`, sha256: hash, size: bytes.length }, bytes);
@@ -176,7 +202,7 @@ async function sealedHere(root) {
  * Save this clone's configuration drafts and laptop-local documents into `out`, a new or empty
  * directory outside every checkout of the repository.
  */
-export async function createBackup(root, { out } = {}) {
+export async function createBackup(root, { out, limits = { documents: MAXIMUM_DOCUMENTS, bytes: MAXIMUM_BYTES } } = {}) {
   if (typeof out !== 'string' || !out.trim()) fail('Choose where to save the backup: --out <DIRECTORY>, outside this repository.', 'BACKUP_DESTINATION_INVALID');
   const target = path.resolve(out);
   await assertOutsideCheckouts(root, target);
@@ -185,28 +211,48 @@ export async function createBackup(root, { out } = {}) {
   // `readDrafts` migrates an earlier build's `drafts.json` first; a backup carries the drafts as stored.
   const drafts = (await readDrafts(root)).changes.map(({ draftId, operationId, payloadDigest, sequence, addedAt, description, change, checkedAgainst }) => (
     { draftId, operationId, payloadDigest, sequence, addedAt, description, change, checkedAgainst }));
-  if (drafts.length > MAXIMUM_DRAFTS) fail(`This clone holds ${drafts.length} drafts, more than one backup carries (${MAXIMUM_DRAFTS}).`, 'BACKUP_TOO_LARGE');
-  await emptyDestination(target);
+  if (drafts.length > MAXIMUM_DRAFTS) {
+    fail(`This clone holds ${drafts.length} configuration drafts, more than one backup carries (${MAXIMUM_DRAFTS}). Nothing was written to ${target}. `
+      + 'Propose them (`singularity-flow configuration propose`) or discard the ones no longer wanted, then create the backup again.',
+    'BACKUP_TOO_LARGE', { drafts: drafts.length, maximumDrafts: MAXIMUM_DRAFTS, nextAction: 'singularity-flow configuration drafts' });
+  }
+  // Sized before anything is created: the documents were refused only after the destination was
+  // partly written, and the same --out was then refused as not empty (D10).
+  const measured = { documents: 0, bytes: 0, hashes: new Set(), stories: new Map() };
+  await localDocuments(root, async ({ workId, sha256: hash, size: length }) => {
+    measured.documents += 1;
+    if (measured.hashes.has(hash)) return;
+    measured.hashes.add(hash);
+    measured.bytes += length;
+    measured.stories.set(workId, (measured.stories.get(workId) ?? 0) + length);
+  }, { measure: true });
+  if (measured.documents > limits.documents || measured.bytes > limits.bytes) tooLarge(target, measured, limits);
+  const removeWritten = await emptyDestination(target);
   const documents = []; const written = new Set();
   let bytes = 0;
-  const unreadable = await localDocuments(root, async (document, content) => {
-    if (documents.length >= MAXIMUM_DOCUMENTS || bytes + content.length > MAXIMUM_BYTES) {
-      fail('The laptop-local documents exceed what one backup carries.', 'BACKUP_TOO_LARGE');
-    }
-    documents.push(document);
-    if (written.has(document.sha256)) return;
-    written.add(document.sha256);
-    bytes += content.length;
-    await writeObject(target, document.sha256, content);
-  });
-  const { localMachineId } = await import('./lease-liveness.mjs');
-  const manifest = stampCurrentRecord(BACKUP_FAMILY, {
-    backupId: `lbk-${randomBytes(12).toString('hex')}`, createdAt: new Date().toISOString(),
-    sourceMachine: localMachineId() ?? null, repository, configurationDrafts: drafts, documents,
-    notCarried: await sealedHere(root)
-  });
-  const text = `${JSON.stringify(manifest, null, 2)}\n`;
-  await writeAtomic(path.join(target, MANIFEST), text, { mode: 0o600 });
+  let manifest; let text; let unreadable;
+  try {
+    unreadable = await localDocuments(root, async (document, content) => {
+      // Documents added since they were sized: refused the same way, and this run's files removed below.
+      if (documents.length >= limits.documents || bytes + content.length > limits.bytes) tooLarge(target, measured, limits);
+      documents.push(document);
+      if (written.has(document.sha256)) return;
+      written.add(document.sha256);
+      bytes += content.length;
+      await writeObject(target, document.sha256, content);
+    });
+    const { localMachineId } = await import('./lease-liveness.mjs');
+    manifest = stampCurrentRecord(BACKUP_FAMILY, {
+      backupId: `lbk-${randomBytes(12).toString('hex')}`, createdAt: new Date().toISOString(),
+      sourceMachine: localMachineId() ?? null, repository, configurationDrafts: drafts, documents,
+      notCarried: await sealedHere(root)
+    });
+    text = `${JSON.stringify(manifest, null, 2)}\n`;
+    await writeAtomic(path.join(target, MANIFEST), text, { mode: 0o600 });
+  } catch (error) {
+    await removeWritten().catch(() => {});
+    throw error;
+  }
   return { schemaVersion: 1, resultType: 'sflow-backup-create', directory: target, backupId: manifest.backupId, // schema-transient: command result
     manifestSha256: `sha256:${sha256(text)}`, configurationDrafts: drafts.length, documents: documents.length, bytes,
     unreadableDocuments: unreadable, notCarried: manifest.notCarried,

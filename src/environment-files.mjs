@@ -797,8 +797,10 @@ export async function commandScope(root, { repository = null, workspace = false,
       'ENV_FILES_REPOSITORY_UNKNOWN', { repository, available: Object.keys(found.workspace.repositories ?? {}).sort() });
   }
   if (repository === found.repositoryId) return repositoryScope(root, { member: found });
-  const { workspaceRepositoryPath } = await import('./workspace-manifest.mjs');
+  const { workspaceMaterializeCommand, workspaceRepositoryPath } = await import('./workspace-manifest.mjs');
   const checkout = workspaceRepositoryPath(found.workspace, member);
+  // A member whose checkout is missing names its own repair (sweep C7 class).
+  const repair = workspaceMaterializeCommand(found.workspace.path, repository);
   if (!repositoryGitDirectory(checkout)) {
     const deferred = await deferredMember(found.workspace, repository);
     if (deferred && materialize) {
@@ -806,11 +808,11 @@ export async function commandScope(root, { repository = null, workspace = false,
       await (await import('./workspace.mjs')).repairWorkspace(found.workspace.path, {
         repositoryIds: [repository], returnIfSelectedReady: true, statusLevel: 'readiness'
       });
-      if (!repositoryGitDirectory(checkout)) fail(`Repository '${repository}' could not be cloned at ${checkout}.`, 'ENV_FILES_REPOSITORY_MISSING', { repository, checkout });
+      if (!repositoryGitDirectory(checkout)) fail(`Repository '${repository}' could not be cloned at ${checkout}. Repair it with ${repair}.`, 'ENV_FILES_REPOSITORY_MISSING', { repository, checkout, nextAction: repair });
     } else if (deferred) {
       fail(`Repository '${repository}' is not cloned yet; work in it clones it, or clone it now with ${deferred.command}.`,
         'ENV_FILES_REPOSITORY_DEFERRED', { repository, repositoryState: 'deferred', nextAction: deferred.command });
-    } else fail(`Repository '${repository}' is not cloned at ${checkout}.`, 'ENV_FILES_REPOSITORY_MISSING', { repository, checkout });
+    } else fail(`Repository '${repository}' is not cloned at ${checkout}. Repair it with ${repair}.`, 'ENV_FILES_REPOSITORY_MISSING', { repository, checkout, nextAction: repair });
   }
   return repositoryScope(checkout, { member: { ...found, repositoryId: repository } });
 }

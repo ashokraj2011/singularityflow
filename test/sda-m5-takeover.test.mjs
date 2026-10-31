@@ -6,7 +6,7 @@
  * index and machine ID, and its own clone of one bare remote. Every command runs as the test
  * identity; these tests check the mechanism, not who may approve.
  *
- * A laptop's Git is wrapped on PATH (POSIX shell, so Windows is not covered):
+ * A laptop's Git is wrapped on PATH (a native git.exe on Windows, test/helpers/git-test-wrapper.mjs):
  * - it can log every Git command the CLI runs, with its whole argument list, which is how takeover
  *   is shown to read no branch inventory and no history beyond the Story's own records;
  * - with a marker file present, the next push runs and then reports a dropped connection, as a
@@ -18,7 +18,7 @@
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
 import { existsSync } from 'node:fs';
-import { chmod, mkdir, mkdtemp, readFile, readdir, rename, rm, writeFile } from 'node:fs/promises';
+import { mkdir, mkdtemp, readFile, readdir, rename, rm, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
@@ -27,15 +27,10 @@ import YAML from 'yaml';
 
 import { isolatedTestEnvironment } from '../scripts/test-machine-state.mjs';
 import { childTimeout } from './helpers/child-timeout.mjs';
-import { realGitForTest } from './helpers/git-test-wrapper.mjs';
+import { gitTestWrapperEnvironment, realGitForTest, writeGitTestWrapper } from './helpers/git-test-wrapper.mjs';
 import { slowLane } from './helpers/slow-lane.mjs';
 
 const CLI = fileURLToPath(new URL('../bin/singularity-flow.mjs', import.meta.url));
-const POSIX_ONLY = process.platform === 'win32' ? 'the Git wrapper is a POSIX shell script' : false;
-const lane = (options) => {
-  const selected = slowLane(options);
-  return POSIX_ONLY ? { ...selected, skip: POSIX_ONLY } : selected;
-};
 
 /** One bare remote, and laptops that each have their own machine state and clone of it. */
 async function fixture(t) {
@@ -58,29 +53,26 @@ async function fixture(t) {
     const log = path.join(base, `${name}-git.log`);
     const loseNextPush = path.join(base, `${name}-lose-next-push`);
     await mkdir(state, { recursive: true });
-    await mkdir(bin, { recursive: true });
     // Logs each command as one line of unit-separated arguments, then runs the real Git. Only a push
     // that succeeded while the marker exists reports a dropped connection (and, for `offline`, takes
     // the remote away first).
-    await writeFile(path.join(bin, 'git'), [
-      '#!/bin/sh',
-      `line=$(printf '%s\\037' "$@")`,
-      `printf '%s\\n' "$line" >> '${log}'`,
-      `'${realGit}' "$@"`,
-      'status=$?',
-      `if [ "$status" -eq 0 ] && [ -f '${loseNextPush}' ]; then`,
-      '  case " $* " in *" push "*)',
-      `    if grep -q offline '${loseNextPush}'; then mv '${remote}' '${remote}.away'; fi`,
-      `    rm -f '${loseNextPush}'`,
-      "    echo 'fatal: the remote end hung up unexpectedly' >&2",
-      '    exit 128;;',
-      '  esac',
-      'fi',
-      'exit $status', ''
-    ].join('\n'));
-    await chmod(path.join(bin, 'git'), 0o755);
+    await writeGitTestWrapper(bin, `#!/usr/bin/env node
+const { spawnSync } = require('node:child_process');
+const fs = require('node:fs');
+const args = process.argv.slice(2);
+fs.appendFileSync(${JSON.stringify(log)}, args.map((arg) => arg + '\\x1f').join('') + '\\n');
+const status = spawnSync(${JSON.stringify(realGit)}, args, { stdio: 'inherit' }).status ?? 1;
+const marker = ${JSON.stringify(loseNextPush)};
+if (status === 0 && fs.existsSync(marker) && args.includes('push')) {
+  if (fs.readFileSync(marker, 'utf8').includes('offline')) fs.renameSync(${JSON.stringify(remote)}, ${JSON.stringify(`${remote}.away`)});
+  fs.rmSync(marker, { force: true });
+  process.stderr.write('fatal: the remote end hung up unexpectedly\\n');
+  process.exit(128);
+}
+process.exit(status);
+`);
     const isolated = isolatedTestEnvironment(state, process.env);
-    const env = { ...isolated, PATH: `${bin}${path.delimiter}${isolated.PATH ?? ''}`, NODE_ENV: 'test',
+    const env = { ...gitTestWrapperEnvironment(bin, isolated), NODE_ENV: 'test',
       SINGULARITY_FLOW_TEST_IDENTITY: 'Packager',
       SINGULARITY_FLOW_TEST_SELECTION: JSON.stringify({ workType: 'feature', agent: 'product-owner' }) };
     await mkdir(path.dirname(repo), { recursive: true });
@@ -178,7 +170,7 @@ function verb(args) {
 }
 
 test('takeover on another laptop fetches no application branch but its Story\'s, reads no branch inventory, reuses nothing of the first laptop, and says what stayed there (SDA-AC-012)',
-  lane({ timeout: 900_000 }), async (t) => {
+  slowLane({ timeout: 900_000 }), async (t) => {
     const f = await fixture(t);
     const a = await f.laptop('a');
     await f.seed(a);
@@ -264,7 +256,7 @@ test('takeover on another laptop fetches no application branch but its Story\'s,
   });
 
 test('an approval that cannot reach the remote, or whose answer is lost, is never accepted and lands exactly once (SDA-AC-004)',
-  lane({ timeout: 900_000 }), async (t) => {
+  slowLane({ timeout: 900_000 }), async (t) => {
     const f = await fixture(t);
     const a = await f.laptop('a');
     await f.seed(a);
@@ -340,7 +332,7 @@ test('an approval that cannot reach the remote, or whose answer is lost, is neve
   });
 
 test('Stories from two laptops both land, and two configuration proposals for one approval group never overwrite each other (SDA-AC-006)',
-  lane({ timeout: 900_000 }), async (t) => {
+  slowLane({ timeout: 900_000 }), async (t) => {
     const f = await fixture(t);
     const a = await f.laptop('a');
     await f.seed(a);
@@ -392,7 +384,7 @@ test('Stories from two laptops both land, and two configuration proposals for on
 // outside SFlow (a hand push, say)", rewrote its lost answer to rejected, recover offered sync for
 // ever and approve named sync. The remote building on it is proof it landed: sync settles it.
 test('a lost approval another laptop has since built on is settled by sync as published, never as a hand push (sweep B1)',
-  lane({ timeout: 900_000 }), async (t) => {
+  slowLane({ timeout: 900_000 }), async (t) => {
     const f = await fixture(t);
     const a = await f.laptop('a');
     await f.seed(a);

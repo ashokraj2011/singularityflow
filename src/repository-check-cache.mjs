@@ -5,11 +5,14 @@
  */
 import { AsyncLocalStorage } from 'node:async_hooks';
 import { createHash, randomUUID } from 'node:crypto';
-import { constants, closeSync, fstatSync, lstatSync, openSync, readFileSync } from 'node:fs';
+import { constants, closeSync, fstatSync, lstatSync, openSync, readFileSync, readdirSync } from 'node:fs';
 import { mkdir, readdir, rename, unlink, writeFile } from 'node:fs/promises';
 import { serialize, deserialize } from 'node:v8';
 import path from 'node:path';
-import { freshGitFactsRequired, gitFactCheckout, gitFactFingerprint, gitFactRequest, gitFactSnapshot } from './git-fact-cache.mjs';
+import {
+  freshGitFactsRequired, gitFactCheckout, gitFactFingerprint, gitFactRequest, gitFactSnapshot, gitHomes, gitSystemConfigFiles,
+  gitUserConfigFiles
+} from './git-fact-cache.mjs';
 import { gitConfigRemotes } from './git-config-value.mjs';
 import { gitRepositoryComparisonKey } from './git-repository-identity.mjs';
 import { repositoryCheckKey, repositoryCheckSettings, repositoryCheckPreferencesFile } from './repository-check-settings.mjs';
@@ -133,38 +136,101 @@ function acceptedRevisionOf(value) {
   return ledgerCommit || authorityCommit ? { ledgerCommit, authorityCommit } : null;
 }
 
+/** A file's text: '' when there is none (no configuration is no remote), null when it cannot be read. */
+function configurationText(file) {
+  try { return readFileSync(file, 'utf8'); } catch (error) { return error?.code === 'ENOENT' || error?.code === 'ENOTDIR' ? '' : null; }
+}
+
+const UNKNOWN_CONFIGURATION = Object.freeze({ remotes: [], rewrites: [], confident: false });
+
 /**
- * What a checkout's Git configuration file says about its remotes (git-config-value.mjs gitConfigRemotes), with
- * no Git process. A configuration that exists but cannot be read is not known. Null outside a checkout.
+ * What a checkout's Git configuration files say about its remotes (git-config-value.mjs gitConfigRemotes),
+ * with no Git process: `<commonDir>/config`, the worktree's `config.worktree` (read whether or not
+ * extensions.worktreeConfig is set: a spare read costs nothing), and the legacy files Git still reads
+ * for a remote no configuration file gives a URL (remote.c): `remotes/<name>` (`URL:` lines), else
+ * `branches/<name>` (`<url>#<branch>`). One that exists but cannot be read, or includes another file,
+ * is not known. Null outside a checkout.
  */
 export function checkoutRemoteConfiguration(root) {
   const checkout = gitFactCheckout(root);
   if (!checkout) return null;
-  let text = '';
-  try { text = readFileSync(path.join(checkout.commonDir, 'config'), 'utf8'); } catch (error) {
-    // No configuration is no remote; one that exists but cannot be read is not known.
-    if (error?.code !== 'ENOENT') return { remotes: [], rewrites: [], confident: false };
+  const remotes = []; const rewrites = [];
+  for (const file of new Set([path.join(checkout.commonDir, 'config'), path.join(checkout.gitDir, 'config.worktree')])) {
+    const text = configurationText(file);
+    const parsed = text === null ? null : gitConfigRemotes(text);
+    if (!parsed?.confident || parsed.includes.length) return UNKNOWN_CONFIGURATION;
+    remotes.push(...parsed.remotes); rewrites.push(...parsed.rewrites);
   }
-  return gitConfigRemotes(text);
+  const named = new Set(remotes.filter((entry) => entry.key === 'url').map((entry) => entry.remote));
+  for (const [kind, urls] of [['remotes', (text) => [...text.matchAll(/^URL:[ \t]*(.*?)[ \t\r]*$/gmu)].map((match) => match[1])],
+    ['branches', (text) => [text.split('\n')[0].trim().split('#')[0]]]]) {
+    let names;
+    try { names = readdirSync(path.join(checkout.commonDir, kind)).sort(); } catch (error) {
+      if (error?.code !== 'ENOENT' && error?.code !== 'ENOTDIR') return UNKNOWN_CONFIGURATION;
+      continue;
+    }
+    for (const name of names.filter((entry) => !named.has(entry))) {
+      // Git reads a file it cannot open as naming no URL.
+      let text = '';
+      try { text = readFileSync(path.join(checkout.commonDir, kind, name), 'utf8'); } catch { /* none */ }
+      for (const url of urls(text).filter(Boolean)) { remotes.push({ remote: name, key: 'url', url }); named.add(name); }
+    }
+  }
+  return { remotes, rewrites, confident: true };
 }
 
-/** Each remote URL a checkout's Git configuration names, read from the file with no Git process. */
+/**
+ * The remotes and rewrites the user-level and system configuration give every checkout (git-config(1)
+ * FILES; the files git-fact-cache.mjs locates), with no Git process. A file one of them includes is
+ * fingerprinted, not interpreted: its condition is not evaluated and any change to it is an authority
+ * change, so a per-directory identity file keeps last-known reuse. Unknown (null) where the files do
+ * not settle the remote: a line Git would refuse, an include path only Git can expand (`~user/`,
+ * `%(prefix)/`), a condition read from the checked-out branch (`onbranch:`, which a record does not
+ * observe) or one this does not know, and an include inside an included file.
+ */
+function hostRemoteEntries(env) {
+  const nosystem = /^(?:1|true|yes|on)$/iu.test(env.GIT_CONFIG_NOSYSTEM ?? '');
+  const entries = [];
+  for (const file of [...gitUserConfigFiles(env, process.platform), ...(nosystem ? [] : gitSystemConfigFiles(env, process.platform))]) {
+    const text = configurationText(file);
+    const parsed = text === null ? null : gitConfigRemotes(text);
+    if (!parsed?.confident) return null;
+    for (const entry of parsed.remotes) entries.push([file, entry.remote, entry.key, gitRepositoryComparisonKey(entry.url) ?? entry.url]);
+    for (const entry of parsed.rewrites) entries.push([file, `url ${entry.base}`, entry.key, entry.value]);
+    for (const { condition, path: target } of parsed.includes) {
+      if (condition !== null && !/^(?:gitdir:|gitdir\/i:|hasconfig:remote\.\*\.url:)/u.test(condition)) return null;
+      const home = /^~(?=[/\\]|$)/u.test(target) ? gitHomes(env, process.platform) : null;
+      if (/^~|^%\(prefix\)/u.test(target) && !home?.length) return null;
+      for (const resolved of home ? home.map((entry) => path.join(entry, target.slice(1))) : [path.resolve(path.dirname(file), target)]) {
+        const included = configurationText(resolved);
+        const nested = included === null ? null : gitConfigRemotes(included);
+        if (!nested?.confident || nested.includes.length) return null;
+        entries.push([file, `include ${condition ?? ''}`, resolved, createHash('sha256').update(included).digest('hex')]);
+      }
+    }
+  }
+  return entries;
+}
+
+/** Each remote URL a checkout's Git configuration names, read from its files with no Git process. */
 export function configuredRemoteUrls(root) {
   return checkoutRemoteConfiguration(root)?.remotes ?? null;
 }
 
 /**
  * Which authority a last-known record answers for: the repositories it was read in, always, and the
- * remotes their Git configuration names, read from the files with no Git process. Each remote is its
- * repository comparison key, so one repository written another way (a local path as a `file://`
- * URL, an HTTPS or SSH spelling of a public GitHub repository) stays the same authority (A1).
+ * remotes their Git configuration names, with the remotes and rewrites the user-level and system
+ * configuration add, read from the files with no Git process. Each remote is its repository
+ * comparison key, so one repository written another way (a local path as a `file://` URL, an HTTPS
+ * or SSH spelling of a public GitHub repository) stays the same authority (A1).
  * Another remote, a moved checkout or another selected repository ends last-known eligibility
  * (SDA §8: an authority change). Null when a configuration cannot be read with confidence: an
  * unknown authority is never served as last-known, where an empty one would match every checkout
  * without remotes (U1).
  */
-export function remoteAuthority(roots) {
-  const entries = [];
+export function remoteAuthority(roots, env = process.env) {
+  const entries = hostRemoteEntries(env);
+  if (!entries) return null;
   for (const root of new Set(roots.filter(Boolean).map((entry) => path.resolve(entry)))) {
     entries.push([root, null, null, null]);
     const configuration = checkoutRemoteConfiguration(root);
@@ -183,11 +249,11 @@ export function remoteAuthority(roots) {
  * named by URL (`repositoryUrl`, `session candidates --repository-url`), which is never the
  * checkout the read ran in (A6). Null when it cannot be known.
  */
-export function lastKnownAuthority(source) {
+export function lastKnownAuthority(source, env = process.env) {
   if (typeof source?.repositoryUrl === 'string') {
     return repositoryCheckKey(['repository-url', source.repositoryUrl, source.configurationUrl ?? null]);
   }
-  return Array.isArray(source?.roots) ? remoteAuthority(source.roots) : null;
+  return Array.isArray(source?.roots) ? remoteAuthority(source.roots, env) : null;
 }
 
 /** The environment inputs a record is bound to, as a digest: never a raw value. */
@@ -382,7 +448,7 @@ async function cachedCheck(root, { kind, identity, files, env, settingsRoot = ro
   // Last-known kinds read their record whatever its age; verification kinds only when it may be a hit.
   const found = file && (lastKnown || !forced && settings.mode !== 'always' && stamp) ? readProjectionRecord(file, key) : null;
   const authoritySource = lastKnown ? authorityScope ?? { roots: [...new Set([root, settingsRoot].map((entry) => path.resolve(entry)))] } : null;
-  const authority = lastKnown ? lastKnownAuthority(authoritySource) : null;
+  const authority = lastKnown ? lastKnownAuthority(authoritySource, env) : null;
   // Only a record of this same, known authority may stand in for a refresh.
   const lastKnownRecord = lastKnown && authority !== null && found?.authority === authority ? found : null;
   // A record of another authority means this clone's remote-tracking refs were read from it too, so

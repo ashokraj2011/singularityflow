@@ -336,17 +336,21 @@ function windowsVariable(env, name) {
 }
 
 /**
- * The user-level configuration files Git may read. With HOME unset, Git for Windows takes
- * HOMEDRIVE+HOMEPATH when that directory exists (often a network share) and USERPROFILE otherwise;
- * both are fingerprinted, since a spare fingerprint costs one stat and a missed one a stale answer.
+ * The home directories Git may take. With HOME unset, Git for Windows takes HOMEDRIVE+HOMEPATH when
+ * that directory exists (often a network share) and USERPROFILE otherwise; both are named, since a
+ * spare fingerprint costs one stat and a missed one a stale answer.
  */
-function globalConfigFiles(env, platform) {
-  if (env.GIT_CONFIG_GLOBAL) return [env.GIT_CONFIG_GLOBAL];
-  const homes = env.HOME ? [env.HOME] : platform === 'win32'
+function gitHomes(env, platform) {
+  return env.HOME ? [env.HOME] : platform === 'win32'
     ? [env.HOMEDRIVE && env.HOMEPATH ? path.join(env.HOMEDRIVE, env.HOMEPATH) : null, env.USERPROFILE].filter(Boolean)
     : [];
+}
+
+/** The user-level configuration files Git may read. */
+function globalConfigFiles(env, platform) {
+  if (env.GIT_CONFIG_GLOBAL) return [env.GIT_CONFIG_GLOBAL];
   const files = [];
-  for (const home of homes) {
+  for (const home of gitHomes(env, platform)) {
     files.push(path.join(home, '.gitconfig'));
     if (!env.XDG_CONFIG_HOME) files.push(path.join(home, '.config', 'git', 'config'));
   }
@@ -576,8 +580,12 @@ export function attachGitFactPersistence(hooks) {
   persistence = hooks ?? null;
 }
 
-/** The checkout a directory is in, and the fingerprint of one dependency, for the session store. */
-export { checkoutOf as gitFactCheckout, fingerprint as gitFactFingerprint };
+/**
+ * The checkout a directory is in and the fingerprint of one dependency, for the session store; the
+ * homes and the user-level and system files Git reads for every checkout, for the read index.
+ */
+export { checkoutOf as gitFactCheckout, fingerprint as gitFactFingerprint, gitHomes, globalConfigFiles as gitUserConfigFiles,
+  systemConfigFiles as gitSystemConfigFiles };
 
 /** How many answers in this process came from the session store. */
 export function gitFactStoreHits() {

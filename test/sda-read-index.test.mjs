@@ -5,11 +5,15 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import { execFileSync, spawn } from 'node:child_process';
-import { mkdtemp, readFile, readdir, rename, rm, writeFile } from 'node:fs/promises';
+import { mkdir, mkdtemp, readFile, readdir, rename, rm, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { cachedStoryIntakeCatalog, readRefreshAttempt, repositoryCheckStatus, withFreshRepositoryChecks } from '../src/repository-check-cache.mjs';
+import {
+  cachedSessionListing, cachedStoryIntakeCatalog, readRefreshAttempt, remoteAuthority, repositoryCheckStatus,
+  sessionListingDirectory, withFreshRepositoryChecks
+} from '../src/repository-check-cache.mjs';
+import { lastKnownStoryList } from '../src/projection-refresh.mjs';
 import { createStoryReadinessFixture } from '../scripts/story-readiness-benchmark.mjs';
 import { createSessionListingFixture } from '../scripts/session-listing-benchmark.mjs';
 import { SingularityFlowError } from '../src/util.mjs';
@@ -97,6 +101,132 @@ test('a last-known record never answers for another authority: a changed remote 
   await assert.rejects(read(unreachable), { code: 'REMOTE_REMOTE_NOT_FOUND' });
   await assert.rejects(withFreshRepositoryChecks(() => read(unreachable)), { code: 'REMOTE_REMOTE_NOT_FOUND' });
 });
+
+/** A Story list read in the fixture, recorded as `session candidates` records it, and the work list's view of it. */
+function storyList(f) {
+  let calls = 0;
+  const directory = sessionListingDirectory(f.env);
+  const listed = async () => ({ discovered: { items: [], count: 0, unavailableCount: 0, unavailable: [] }, n: ++calls });
+  const list = (verify = listed, files = [f.observed]) => cachedSessionListing(f.root, { identity: { list: 'authority' }, files,
+    env: f.env, refreshRecipe: { argv: ['session', 'candidates', '--json'], cwd: f.root } }, verify);
+  const age = async () => {
+    const file = path.join(directory, (await readdir(directory)).find((name) => /^[a-f0-9]{64}\.json$/u.test(name)));
+    const stored = JSON.parse(await readFile(file, 'utf8'));
+    stored.checkedAt = Date.now() - 31 * 60_000; await writeFile(file, JSON.stringify(stored), { mode: 0o600 });
+  };
+  return { list, age, standing: () => lastKnownStoryList(f.root, { env: f.env }) };
+}
+
+/**
+ * The remote moves from A to B without `.git/config` changing: the record A's read left is neither
+ * fresh nor last-known for B, nor reported as B's list; and B's own record does not serve A.
+ */
+async function remoteMoves(f, { files, toB, toA }) {
+  const story = storyList(f);
+  assert.equal((await story.list(undefined, files)).n, 1);
+  assert.equal((await story.list(undefined, files)).n, 1, 'a hit while nothing changes');
+  assert.equal((await story.standing()).freshness, 'fresh');
+  await toB();
+  await assert.rejects(story.list(unreachable, files), { code: 'REMOTE_REMOTE_NOT_FOUND' },
+    'A\'s list is neither fresh nor kept as refresh-failed for B');
+  assert.equal(await story.standing(), null, 'the work list reports no list for B');
+  assert.equal((await story.list(undefined, files)).n, 2);
+  assert.equal(repositoryCheckStatus(f.root).source, 'fresh');
+  await story.age();
+  await toA();
+  await assert.rejects(story.list(unreachable, files), { code: 'REMOTE_REMOTE_NOT_FOUND' }, 'B\'s list is not served stale for A');
+}
+
+test('a remote in the worktree configuration is the authority: moving it ends the listing (SDA §8)', async (t) => {
+  const f = await fixture(t);
+  f.git(['config', 'extensions.worktreeConfig', 'true']);
+  const point = (name) => f.git(['config', '--worktree', 'remote.origin.url', `https://example.invalid/${name}.git`]);
+  point('a');
+  const local = await readFile(path.join(f.root, '.git', 'config'), 'utf8');
+  await remoteMoves(f, { toA: () => point('a'), toB: async () => {
+    point('b');
+    assert.equal(await readFile(path.join(f.root, '.git', 'config'), 'utf8'), local);
+    assert.equal(f.git(['remote', 'get-url', 'origin']), 'https://example.invalid/b.git');
+  } });
+});
+
+for (const scope of ['user', 'system']) {
+  test(`a ${scope}-level insteadOf rule is part of the authority: rewriting the remote ends the listing (SDA §8)`, async (t) => {
+    const f = await fixture(t);
+    const file = scope === 'user' ? f.env.GIT_CONFIG_GLOBAL : path.join(f.root, 'system-config');
+    if (scope === 'system') { delete f.env.GIT_CONFIG_NOSYSTEM; f.env.GIT_CONFIG_SYSTEM = file; }
+    const point = (name) => writeFile(file, `[url "https://${name}.example.invalid/"]\n\tinsteadOf = https://example.invalid/\n`);
+    f.git(['remote', 'add', 'origin', 'https://example.invalid/team/app.git']);
+    await point('a');
+    assert.equal(f.git(['remote', 'get-url', 'origin']), 'https://a.example.invalid/team/app.git');
+    // `session candidates` observes these files, so only the authority tells the two remotes apart.
+    await remoteMoves(f, { files: [f.observed, file], toA: () => point('a'), toB: async () => {
+      await point('b');
+      assert.equal(f.git(['remote', 'get-url', 'origin']), 'https://b.example.invalid/team/app.git');
+    } });
+  });
+}
+
+test('an includeIf in the user-level configuration keeps the listing reusable; a rewrite in the file it names ends it', async (t) => {
+  const f = await fixture(t);
+  const included = path.join(f.root, 'work.inc');
+  // A per-directory identity and rewrite, as people keep them; the file is not one `session candidates` observes.
+  await writeFile(f.env.GIT_CONFIG_GLOBAL, `[includeIf "gitdir:**/${path.basename(f.root)}/"]\n\tpath = work.inc\n`);
+  const point = (name) => writeFile(included, `[user]\n\temail = work@example.invalid\n`
+    + `[url "https://${name}.example.invalid/"]\n\tinsteadOf = https://example.invalid/\n`);
+  f.git(['remote', 'add', 'origin', 'https://example.invalid/team/app.git']);
+  await point('a');
+  assert.equal(f.git(['remote', 'get-url', 'origin']), 'https://a.example.invalid/team/app.git');
+  await remoteMoves(f, { files: [f.observed, f.env.GIT_CONFIG_GLOBAL], toA: () => point('a'), toB: async () => {
+    await point('b');
+    assert.equal(f.git(['remote', 'get-url', 'origin']), 'https://b.example.invalid/team/app.git');
+  } });
+
+  const authority = (env = f.env) => remoteAuthority([f.root], env);
+  const user = (text) => writeFile(f.env.GIT_CONFIG_GLOBAL, text);
+  // `~/` is the home Git takes; a missing included file is skipped as Git skips it, and its arrival changes the authority.
+  await user('[include]\n\tpath = ~/work.inc\n[include]\n\tpath = missing.inc\n');
+  const home = { ...f.env, HOME: f.root };
+  const before = authority(home);
+  assert.notEqual(before, null);
+  await point('c');
+  const rewritten = authority(home);
+  assert.notEqual(rewritten, before, 'a change to the file `~/` names');
+  await writeFile(path.join(f.root, 'missing.inc'), '[user]\n\tname = Someone\n');
+  assert.notEqual(authority(home), rewritten, 'the arrival of the missing file');
+  assert.notEqual(authority({ ...home, HOME: path.join(f.root, 'elsewhere') }), authority(home), '`~/` is read from HOME');
+  // What the files cannot settle without Git is an unknown authority, never served as last-known (U1).
+  for (const unsettled of ['[includeIf "onbranch:release/**"]\n\tpath = work.inc\n', '[includeIf "future:x"]\n\tpath = work.inc\n',
+    '[include]\n\tpath = ~nobody/work.inc\n', '[include]\n\tpath = %(prefix)/etc/work.inc\n', '[include]\n\tpath\n']) {
+    await user(unsettled);
+    assert.equal(authority(), null, unsettled);
+  }
+  await user('[include]\n\tpath = work.inc\n');
+  assert.notEqual(authority(), null);
+  await writeFile(included, '[include]\n\tpath = deeper.inc\n');
+  assert.equal(authority(), null, 'an include inside an included file is not followed');
+  // GIT_CONFIG_NOSYSTEM: Git reads no system file, so neither does the authority.
+  const system = path.join(f.root, 'system-config');
+  await writeFile(system, '[include]\n\tpath = ~nobody/x.inc\n');
+  await user('');
+  assert.notEqual(authority({ ...f.env, GIT_CONFIG_SYSTEM: system }), null);
+  assert.equal(authority({ ...f.env, GIT_CONFIG_SYSTEM: system, GIT_CONFIG_NOSYSTEM: '' }), null);
+});
+
+for (const legacy of ['remotes', 'branches']) {
+  test(`a legacy ${legacy} file is the authority: moving it ends the listing (SDA §8)`, async (t) => {
+    const f = await fixture(t);
+    await mkdir(path.join(f.root, '.git', legacy), { recursive: true });
+    const point = (name) => writeFile(path.join(f.root, '.git', legacy, 'origin'),
+      legacy === 'remotes' ? `URL: https://example.invalid/${name}.git\n` : `https://example.invalid/${name}.git#main\n`);
+    await point('a');
+    assert.equal(f.git(['remote', 'get-url', 'origin']), 'https://example.invalid/a.git');
+    await remoteMoves(f, { toA: () => point('a'), toB: async () => {
+      await point('b');
+      assert.equal(f.git(['remote', 'get-url', 'origin']), 'https://example.invalid/b.git');
+    } });
+  });
+}
 
 function reader(f, counter, delay, failCode = '') {
   return new Promise((resolve, reject) => {

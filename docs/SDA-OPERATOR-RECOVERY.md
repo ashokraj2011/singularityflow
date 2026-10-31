@@ -32,8 +32,13 @@ catalog's freshness as a note, never a blocker.
 - Only the Story list and the intake catalog are served last-known. Phase entry, next steps, the
   readiness preview and every governed check recompute, and their refusals stand.
 - Remotes are read as Git reads its configuration: any case, the legacy `[remote "x"]` and
-  `[remote.x]` forms, and `insteadOf` rewrites. A configuration with `[include]` or `[includeIf]`
-  makes the authority unknown, so no last-known answer is served for it.
+  `[remote.x]` forms, and `insteadOf` rewrites, from the repository's `config`, the worktree's
+  `config.worktree`, the legacy `remotes/` and `branches/` files, and the user-level and system
+  configuration. A repository configuration with `[include]` or `[includeIf]` makes the authority
+  unknown, so no last-known answer is served for it. A file the user-level or system configuration
+  includes is fingerprinted instead: any change to it is an authority change. An `onbranch:`
+  condition there, an include inside an included file, or a path only Git can expand makes the
+  authority unknown.
 - A record this process cannot read (another build, a moved checkout, another environment) counts as
   missing: the next read answers from the local clone and replaces it. Such records never block the
   offline Story list. VS Code and a terminal keep separate records. After an upgrade, existing records

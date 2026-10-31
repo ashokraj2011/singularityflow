@@ -219,7 +219,7 @@ export async function lastKnownStoryList(root, { env = process.env, now = Date.n
     // The read ran here, alone or with this repository selected; a changed remote ends the record.
     // A listing of another repository named by URL is never this one's, whatever directory it ran in (A6).
     if (typeof cwd !== 'string' || !inside(cwd) || !found.authority || typeof found.binding?.authority?.repositoryUrl === 'string'
-        || ![remoteAuthority([cwd]), remoteAuthority([cwd, repository])].includes(found.authority)) continue;
+        || ![remoteAuthority([cwd], env), remoteAuthority([cwd, repository], env)].includes(found.authority)) continue;
     if (!newest || found.checkedAt > newest.found.checkedAt) newest = { file, found };
   }
   if (!newest) return null;

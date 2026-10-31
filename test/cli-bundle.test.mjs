@@ -349,7 +349,10 @@ test('the bundled CLI answers exactly like the sources while opening a handful o
   // digests and both ways on (verification/witness-records.mjs), its recovery steps (refusal-remediation.mjs) and the
   // capture guidance in the evidence routes and planning prompt add 7,896 for 7,683,137. No new file in this closure:
   // the commit guard (evidence/retained-evidence.mjs) loads only on a transition.
-  assert.ok(hookContext < 7_685_000,
+  // 7,690,000: main 2831e34fd measures 7,683,325; a listing's authority read from the worktree file, the user-level and
+  // system rewrites and the legacy remote files (repository-check-cache.mjs, git-config-value.mjs) adds 2,855 for
+  // 7,686,180. No new file.
+  assert.ok(hookContext < 7_690_000,
     `phase-review reads retain their existing byte ceiling after moving families (${hookContext} bytes)`);
   assert.match(await readFile(path.join(outdir, 'cold-light.mjs'), 'utf8'), /function enterPhase\b/u,
     'phase binding must not fall through to the compatibility/admin bundle');

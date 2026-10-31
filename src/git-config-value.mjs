@@ -42,11 +42,12 @@ export function gitConfigValue(raw, next = () => undefined) {
 /**
  * The remotes a Git configuration file's text names, read as Git reads it with no Git process: section
  * names without case (`[REMOTE "origin"]`), the legacy `[remote.origin]` form, and the
- * `url.<base>.insteadOf` rewrites. `confident` is false for an `[include]`/`[includeIf]` or a line Git
- * would refuse (U1).
+ * `url.<base>.insteadOf` rewrites. `includes` are its `include.path` and `includeIf.<condition>.path`
+ * entries as written (condition null for `[include]`), never followed. `confident` is false for a line
+ * Git would refuse (U1).
  */
 export function gitConfigRemotes(text) {
-  const remotes = []; const rewrites = [];
+  const remotes = []; const rewrites = []; const includes = [];
   let confident = true; let section = null; let subsection = null;
   const lines = text.split(/\r?\n/u);
   for (const cursor = { index: 0 }; cursor.index < lines.length; cursor.index += 1) {
@@ -60,24 +61,24 @@ export function gitConfigRemotes(text) {
       subsection = header[2] !== undefined ? header[2].replace(/\\(.)/gu, '$1')
         : dotted.length ? dotted.join('.').toLowerCase() : null;
       if (header[2] !== undefined && dotted.length) confident = false;
-      if (section === 'include' || section === 'includeif') confident = false;
       rest = rest.slice(header[0].length).replace(/^\s+/u, '');
       if (!rest || rest[0] === '#' || rest[0] === ';') continue;
     }
     const entry = /^([A-Za-z][A-Za-z0-9-]*)\s*(=)?/u.exec(rest);
     if (!entry || section === null) { confident = false; continue; }
-    // A key with no `=` is a boolean: never a URL or a rewrite.
-    if (!entry[2]) continue;
     const key = entry[1].toLowerCase();
+    const include = key === 'path' && (section === 'include' ? subsection === null : section === 'includeif' && subsection !== null);
+    // A key with no `=` is a boolean: never a URL or a rewrite, and an include path Git refuses.
+    if (!entry[2]) { if (include) confident = false; continue; }
     const value = gitConfigValue(rest.slice(entry[0].length), () => lines[++cursor.index]);
     if (value === null) { confident = false; continue; }
     if (section === 'remote' && subsection !== null && (key === 'url' || key === 'pushurl') && value) {
       remotes.push({ remote: subsection, key, url: value });
     } else if (section === 'url' && subsection !== null && (key === 'insteadof' || key === 'pushinsteadof')) {
       rewrites.push({ base: subsection, key, value });
-    }
+    } else if (include) includes.push({ condition: section === 'includeif' ? subsection : null, path: value });
   }
-  return { remotes, rewrites, confident };
+  return { remotes, rewrites, includes, confident };
 }
 
 /** The URL of one remote (`origin` by default) the text names, or null. */

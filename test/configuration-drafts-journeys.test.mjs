@@ -162,7 +162,9 @@ test('a custom approved templatesRoot saves drafts, a refused change exits non-z
   assert.doesNotMatch(saved.stdout, /Problem:/);
   assert.match(flow(a, ['instruction', 'create', 'tone2', '--description', 'x', '--instructions', 'y', '--dry-run']).stdout, /Preview: 2 file\(s\) would change\./);
   const refused = flow(a, ['skill', 'attach', 'missing', '--agent', 'qa'], 1);
-  assert.match(refused.stdout, /Problem: /, 'a refused change says why, and exits non-zero');
+  // Refused as the same change is without an approved configuration (2d29d7473): why, and nothing written.
+  assert.match(refused.stderr, /This change was not saved: .*missing.* Nothing was written\./su, 'a refused change says why, and exits non-zero');
+  assert.doesNotMatch(refused.stdout, /Saved as a draft/);
   flow(a, ['configuration', 'discard', '--all']);
   const empty = path.join(base, 'empty.json');
   await writeFile(empty, JSON.stringify({ schema: 'sflow-studio-change-set@1', changes: [] }));

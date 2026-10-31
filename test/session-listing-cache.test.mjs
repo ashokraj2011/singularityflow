@@ -93,6 +93,9 @@ test('session candidates and composed open reuse advisory listings; a failed ref
 
 test('session listing shares configurable TTL and always/manual modes; invalidation and corrupt cache are safe', async t => {
   const f = await createSessionListingFixture(); t.after(f.cleanup);
+  // The expired read below says its refresh is off: the suite runner turns background refreshes off,
+  // a bare `node --test` does not.
+  f.env.SINGULARITY_FLOW_INDEX_REFRESH = 'off';
   const invoke = extra => f.invoke({ extra });
   await invoke(); await invoke();
   assert.equal((await invoke()).packet.listingSnapshot.source, 'cache');

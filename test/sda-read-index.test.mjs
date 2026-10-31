@@ -326,6 +326,10 @@ test('the intake catalog answers offline after expiry and after a failed refresh
 
 test('after initialization the Story list answers with Git and the network unavailable, starting no Git (SDA-AC-002)', slowLane({ timeout: 300_000 }), async (t) => {
   const f = await createSessionListingFixture(); t.after(f.cleanup);
+  // The answers, not the refresh the first one starts behind it: once that refresh has failed, the
+  // second answer is refresh-failed, as designed. The suite runner turns background refreshes off,
+  // a bare `node --test` does not, and on Windows the refresh now outlives the read that started it.
+  f.env.SINGULARITY_FLOW_INDEX_REFRESH = 'off';
   await f.invoke(); await f.invoke();
   assert.equal((await f.invoke()).packet.listingSnapshot.source, 'cache');
   const directory = path.join(f.directory, 'cache/session-listings');

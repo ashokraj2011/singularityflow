@@ -165,8 +165,8 @@ SQL engine.
 
 ## Open before M0 exits
 
-- **Windows baselines.** Run the two baseline commands above on native Windows and commit the reports.
-  The scripts are written for it, but have not been run there.
+- **Windows baselines.** Measured in M6 on 2026-10-31, the build before SDA beside this one
+  (`m6-qualification-rollout.md`, Matched reports (Windows)).
 - **The accepted DX baseline** (`benchmarks/dx/accepted-baseline.json`, status `unestablished`).
   `scripts/dx-benchmark.mjs` accepts it only from a GitHub-hosted `ubuntu-latest` runner, and the
   repository has no workflow that runs one. Establishing it needs a CI workflow, which is a separate

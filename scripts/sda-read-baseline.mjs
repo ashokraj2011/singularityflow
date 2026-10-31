@@ -80,6 +80,17 @@ function probe(stderr) {
     remoteGit: git.filter((row) => REMOTE_VERB.test(row.key)).reduce((sum, row) => sum + row.calls, 0) };
 }
 
+/** What a failed child said: a JSON refusal's code and message (they open its output), else the ends of its output. */
+function childFailure(stdout, stderr) {
+  try {
+    const { error } = JSON.parse(String(stdout));
+    if (error?.code) return `${error.code}: ${error.message}\n${String(stderr).slice(-2000)}`;
+  } catch {
+    // Not a JSON refusal: the ends of both streams below.
+  }
+  return `${String(stdout).slice(-2000)}\n${String(stderr).slice(-2000)}`;
+}
+
 const median = (values) => { const sorted = [...values].sort((a, b) => a - b); return sorted[Math.floor((sorted.length - 1) / 2)]; };
 const p95 = (values) => { const sorted = [...values].sort((a, b) => a - b); return sorted[Math.min(sorted.length - 1, Math.ceil(sorted.length * 0.95) - 1)]; };
 const range = (runs, key) => ({ min: Math.min(...runs.map((run) => run[key] ?? Infinity)), max: Math.max(...runs.map((run) => run[key] ?? -1)) });
@@ -116,7 +127,7 @@ try {
   for (const id of ids) {
     if (fixture.git(fixture.original, 'branch', '--show-current').trim() !== 'main') fixture.git(fixture.original, 'switch', '-q', 'main');
     const { child } = cli(['start', id, '--from-branch', 'main', '--work-type', 'chore', '--title', 'SDA read baseline', '--json']);
-    if (child.status !== 0) throw new Error(`start ${id} failed:\n${child.stdout.slice(-2000)}\n${child.stderr.slice(-2000)}`);
+    if (child.status !== 0) throw new Error(`start ${id} failed:\n${childFailure(child.stdout, child.stderr)}`);
   }
   // A person works from a Story's checkout, wherever `start` put it: every read runs from the first Story's.
   const worktrees = fixture.git(fixture.original, 'worktree', 'list', '--porcelain').split('\n\n')

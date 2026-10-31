@@ -727,7 +727,7 @@ Benchmark native macOS and Windows with:
 
 Report process-cold, first-worker, warm-worker, first-synchronization and repeated-read runs separately, as median and p95 over matched fixtures.
 
-**M6** (`benchmarks/sda/m6-qualification-rollout.md`), on macOS only: Windows is parked.
+**M6** (`benchmarks/sda/m6-qualification-rollout.md`): macOS, and Windows on 2026-10-31.
 - `scripts/sda-read-baseline.mjs` times six reads in fresh, expired and forced conditions, online and offline, and two writes: a draft save, and a takeover on another laptop. It runs at 100 and 10,000 files, and with 3 and 30 Stories. With `--cli-root` it runs another build, so the build before SDA and this one compare on one machine, back to back.
 - Legacy Stories: `scripts/sda-legacy-check.mjs`, against the build before SDA. Pinned and amended Stories: `test/sda-acceptance-009.test.mjs`. Seeded, custom and imported workflows: `test/sda-acceptance-007-010-020.test.mjs`, which checks behavior, not timing.
 - Not measured: slow networks, and process-cold apart from warm runs (every sample is a fresh process, and OS caches are not flushed).

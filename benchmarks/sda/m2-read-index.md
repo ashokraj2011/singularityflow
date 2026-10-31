@@ -8,7 +8,7 @@ M2's exit condition: lists, catalogs and advisory sessions meet the zero-Git bud
 Windows, and SDA-AC-002, 013, 014 and 021–024 hold.
 
 - **macOS:** the budgets are met (below).
-- **Windows:** not measured. That part of the exit stays open with M0's Windows baselines.
+- **Windows:** measured in M6 on 2026-10-31 (`m6-qualification-rollout.md`, Matched reports (Windows)).
 
 ## What landed
 
@@ -247,7 +247,9 @@ fixed, and each failed file was rerun green.
 
 ## Open after M2
 
-- **Windows measurements.** The zero-Git budgets are measured on macOS only.
+- **Windows measurements.** Measured in M6 on 2026-10-31. Expired and offline reads start no Git there
+  either. The Story list with a fresh cache starts 2 Git processes in some samples, in both builds
+  (`m6-qualification-rollout.md`, Matched reports (Windows)).
 - **The consistency block** in `sflow-result` (Appendix A, question 2).
   - Freshness travels in the listing's diagnostics and snapshot fields.
   - `session candidates --json` without `--diagnostics` still prints only its items.

@@ -46,9 +46,19 @@ const identity = { NODE_ENV: 'test', SINGULARITY_FLOW_TEST_IDENTITY: 'Packager',
 const laptopA = { ...isolated, ...identity };
 const laptopB = { ...isolatedTestEnvironment(path.join(stateRoot, 'laptop-b', 'machine')), ...identity };
 const sha256 = (bytes) => createHash('sha256').update(bytes).digest('hex');
+/** What a failed child said: a JSON refusal's code and message (they open its output), else the ends of its output. */
+function childFailure(stdout, stderr) {
+  try {
+    const { error } = JSON.parse(String(stdout));
+    if (error?.code) return `${error.code}: ${error.message}\n${String(stderr).slice(-2000)}`;
+  } catch {
+    // Not a JSON refusal: the ends of both streams below.
+  }
+  return `${String(stdout).slice(-2000)}\n${String(stderr).slice(-2000)}`;
+}
 const run = (command, args, cwd, { env = laptopA, input, encoding = 'utf8' } = {}) => {
   const result = spawnSync(command, args, { cwd, env, input, encoding, timeout: 300_000, maxBuffer: 64 * 1024 * 1024 });
-  if (result.status !== 0) throw new Error(`${command} ${args.join(' ')} failed (${result.status}):\n${String(result.stdout).slice(-2000)}\n${String(result.stderr).slice(-2000)}`);
+  if (result.status !== 0) throw new Error(`${command} ${args.join(' ')} failed (${result.status}):\n${childFailure(result.stdout, result.stderr)}`);
   return result;
 };
 const git = (cwd, ...args) => run('git', ['-c', 'gc.auto=0', '-c', 'maintenance.auto=false', ...args], cwd).stdout.trim();

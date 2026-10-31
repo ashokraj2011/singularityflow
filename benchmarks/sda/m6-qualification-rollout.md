@@ -4,8 +4,8 @@ Specification: `docs/SPEC-SDA-STORAGE-INDEPENDENT-WORKFLOW-v1.md` (§17, §18, �
 Authority: ADR 0018 option A. Read index: ADR 0017. Engine: `main@e34fb6dbf` plus this change.
 
 M6's exit condition: matched native reports, compatibility evidence and operator recovery
-documentation approved. Windows is parked by decision of the repository owner (2026-10-30), so the
-native reports are macOS only.
+documentation approved. Windows was parked by decision of the repository owner (2026-10-30) and
+measured on 2026-10-31, under Matched reports (Windows).
 
 ## What landed
 
@@ -185,6 +185,71 @@ node scripts/sda-read-baseline.mjs --samples=3 --stories=30
 node scripts/sda-legacy-check.mjs --legacy-cli-root=../sf-before --output=legacy.json
 ```
 
+## Matched reports (Windows)
+
+**Method.** The macOS harness, fixture and builds, on native Windows (2026-10-31; Windows had been
+parked). The temporary workflow `.github/workflows/sda-windows-qualification.yml` on the branch
+`ci/sda-windows-20261031` (not on `main`), run 41165394303:
+- **before:** `main@c6a65e33b`; **after:** `main@2d29d7473`. The reports name the branch head
+  `1f8e11839`, which adds only the workflow and the harness's refusal message to that commit.
+- GitHub's `windows-latest`: Windows Server 2025 (build 26100), AMD EPYC 9V45, Node 26.12.0, Git
+  2.56.0 for Windows. Each before/after pair ran in one job, on one machine; the 100-file and
+  10,000-file pairs ran on two machines.
+- Reports: `m6-read-baseline-win32-x64-{before,after}-{100,10000}.json`,
+  `m6-read-baseline-win32-x64-after-30-stories-100.json` and `m6-legacy-check-win32-x64.json`.
+
+Hosted machines are noisier than the Mac: compare counts, and times only within a pair. Medians;
+Git and remote counts are the range over the samples (5 at 100 files, 3 at 10,000 and 30 Stories).
+
+**What changed between the builds:**
+
+| Row | Before, 100 files | After, 100 files | Before, 10,000 files | After, 10,000 files | After, 30 Stories |
+|---|---|---|---|---|---|
+| Story list, expired | 1,232 ms, 15–17 Git, 1 remote | 658 ms, 0 Git, stale | 1,024 ms, 15–17 Git, 1 remote | 506 ms, 0 Git, stale | 658 ms, 0 Git, stale |
+| Intake catalog, expired | 2,233 ms, 26 Git, 1 remote | 198 ms, 0 Git, stale | 1,781 ms, 26 Git, 1 remote | 158 ms, 0 Git, stale | 192 ms, 0 Git, stale |
+| Story list, offline after expiry | **refuses** `SESSION_STATE_REFRESH_UNAVAILABLE` | 674 ms, 0 Git, stale | **refuses** `SESSION_STATE_REFRESH_UNAVAILABLE` | 490 ms, 0 Git, stale | 662 ms, 0 Git, stale |
+| Intake catalog, offline after expiry | **refuses** `REMOTE_REMOTE_NOT_FOUND` | 191 ms, 0 Git, stale | **refuses** `REMOTE_REMOTE_NOT_FOUND` | 210 ms, 0 Git, stale | 190 ms, 0 Git, stale |
+| Draft save | 2,800 ms, 18 Git, 1 remote | 2,250 ms, 6 Git | 2,371 ms, 18 Git, 1 remote | 1,759 ms, 6 Git | 2,236 ms, 6 Git |
+| Draft save, offline | **refuses** `REMOTE_REMOTE_NOT_FOUND` | 2,255 ms, 6 Git | **refuses** `REMOTE_REMOTE_NOT_FOUND` | 1,658 ms, 6 Git | 2,208 ms, 6 Git |
+| Takeover on another laptop | 6,537 ms | 6,577 ms, 110 Git, 3 remote | 9,377 ms | 9,420 ms, 110 Git, 3 remote | 6,443 ms, 110 Git, 3 remote |
+
+The same change as on macOS:
+- An expired Story list or intake catalog answers from its last verified record as `stale`, with 0 Git
+  and 0 remote. The build before SDA recomputed: 15–17 and 26 Git processes and a remote round trip.
+  The catalog falls from about 2 s to under 0.2 s.
+- Both answer offline after expiry, where the build before SDA refused, and a forced refresh offline
+  answers `refresh-failed` with the real error.
+- A draft save starts 6 local Git processes and no remote, online and offline. The build before SDA
+  took 18 and a remote round trip, and refused offline.
+- Everything else starts the same processes in both builds: `status`, `nextsteps`, the repository
+  snapshot, `check`, a forced refresh online and the takeover.
+
+**Where Windows differs from macOS, in both builds:**
+- `check` starts 51 Git processes (43 on macOS), the intake catalog's forced refresh 26 (20), and a
+  takeover 110 (104).
+- The Story list with a fresh cache starts 0 Git in most samples and 2 in some (0 on macOS), so it
+  is listed as starting Git with a fresh cache.
+
+**Stories the build before SDA wrote:** all 18 checks pass (`m6-legacy-check-win32-x64.json`).
+
+**SDA tests on native Windows**, Node 26 (`test/sda-*.test.mjs`, `test/configuration-drafts.test.mjs`):
+- Without the slow lane (run 41165394303): 68 of 69 passed. The failure was the work list's pending
+  pushes, a Windows defect fixed below.
+- With the slow lane, after the fixes (run 41172364199, `main@1345ec001`): 96 tests, 81 passed, 9
+  skipped and 6 failed. The work list now passes its pending-push check and fails later, on a Git shim
+  the test writes as a POSIX shell script. The other five are open (below).
+
+**Found by the Windows run and fixed on `main`:**
+- **Node 22.12 to 22.16 and 23 misreport files on this Windows.** A path `lstat` or `stat` reports
+  device 0, while `fstat` of the open file reports the volume, so every same-file check refuses
+  ("changed while being opened"); the first run used Node 22.14.0 to match the Mac and failed `init`
+  and 16 SDA tests. Node 20.20, 22.17, 22.18, 22.23, 24 and 26 agree. The minimum is now Node 26, the
+  managed runtime's line (`54ee93d41`); VS Code runs its bundled engine on its own Node.
+- **A remote URL read from the Git configuration file without Git kept Git's escapes and quotes.**
+  Git writes a Windows path with its backslashes doubled (`C:\\<HOME>\\...`), so a push another checkout made to the same remote
+  was missing from the work list's consistency block. The readers now decode the value as Git does
+  (`55ce8103b`).
+
 ## Budgets (§17, SDA-AC-002, SDA-AC-018, SDA-AC-021)
 
 | Budget (§17) | Measured, this build | Met |
@@ -264,7 +329,7 @@ shows it; "part" names what is not shown.
 | SDA-AC-015 | Met | `test/sda-m5-surfaces.test.mjs`: denial, empty inventory, absent authority, corruption, timeout and cancellation keep their own codes and recovery (B5). |
 | SDA-AC-016 | Met | `test/sda-m5-retention.test.mjs` (M5); `test/sda-names.test.mjs` (machine-state list). No evidence-hold record exists in code; signed evidence lives on published branches, which no cleanup deletes. |
 | SDA-AC-017 | Met | `test/sda-conformance.test.mjs`, `test/sda-lifecycle-conformance.test.mjs` (M1, M4; cancellation B4). |
-| SDA-AC-018 | Part | This report, macOS. Windows is parked. |
+| SDA-AC-018 | Part | This report: macOS meets the budgets; Windows (2026-10-31) meets them except the Story list with a fresh cache, which starts 2 Git processes in some samples (both builds). Each lists its remaining bottlenecks. |
 | SDA-AC-019 | Not applicable | ADR 0018 option A migrates no authority. |
 | SDA-AC-020 | Met | `test/sda-acceptance-007-010-020.test.mjs` (signed ledger and evidence across index rebuild, record reads and retention). |
 | SDA-AC-021 | Met | `test/sda-read-index.test.mjs`, `test/session-listing-cache.test.mjs` (M2); the matched reports above. |
@@ -364,6 +429,8 @@ suite. Its Git helper now turns automatic maintenance off, as the other fixtures
   performance. 476 of 477 tests passed. The one failure was the maintenance race, which then passed
   three runs out of three with its fix.
 - `node scripts/check.mjs` and `node scripts/git-bypass-audit.mjs` pass.
+- **Native Windows, 2026-10-31:** the SDA tests above (Matched reports (Windows)); the matched reports
+  and the legacy check ran in the same workflow.
 
 ## Names (SDA-AC-023)
 
@@ -374,8 +441,14 @@ The new scripts are qualification tools: they are not part of the command regist
 
 ## Open after M6
 
-- **Windows** is parked: the Windows baselines (M0), M2's Windows measurements and the Windows half
-  of SDA-AC-018.
+- **Windows:** measured 2026-10-31 (above). Open there:
+  - five slow-lane SDA tests fail: SDA-AC-020's `start --isolated-worktree` refuses
+    `REPOSITORY_CONTEXT_REQUIRED` (`test/sda-acceptance-007-010-020.test.mjs`), the index commands
+    (`test/sda-index-command.test.mjs`), the retention of a worktree whose Story start has not finished
+    (`test/sda-m5-retention.test.mjs`), SDA-AC-015's distinguishable failures
+    (`test/sda-m5-surfaces.test.mjs`), and the intake catalog's refresh behind a stale answer
+    (`test/sda-read-index.test.mjs`); the work list's test needs a Git shim that runs on Windows;
+  - the Git ledger's shared-state conformance suite skips on Windows (`test/sda-conformance.test.mjs`).
 - **SDA-AC-008:** hooks are not compared with the CLI, the gateway and the read worker.
 - **SDA-AC-013:** the clones that remain are listed, with their reasons, in
   `test/sda-clone-boundary.test.mjs`:

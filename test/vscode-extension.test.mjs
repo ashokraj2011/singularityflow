@@ -7687,8 +7687,7 @@ test('the status dashboard carries lifecycle analytics without inventing them wh
 });
 
 const {
-  instructionCatalog, parseAgent, parseSkill, renderAgent, renderAgentMappings, renderSkill,
-  validateAgent, validateAgentMappingsDraft, validateSkill
+  agentSummary, instructionCatalog, parseSkill, renderAgentMappings, renderSkill, validateAgentMappingsDraft, validateSkill
 } = await import(source('views/instruction-designer-model.ts'));
 const { instructionDesignerHtml, INSTRUCTION_DESIGNER_SCRIPT } =
   await import(source('views/instruction-designer-page.ts'));
@@ -7729,18 +7728,7 @@ test('the instruction designer separates agents, prompts, repository skills and 
   assert.equal(Object.hasOwn(catalog, 'worldModelViews'), false, 'the designer offers no World Model views');
   assert.deepEqual(catalog.promptUsage['singularity/prompts/planning.md'], ['Copilot planning']);
 
-  const parsed = parseAgent(catalog.agents[0].content, 'architect');
-  assert.deepEqual(parsed.phases, ['design']);
-  assert.equal(Object.hasOwn(parsed, 'worldModelViews'), false);
-  assert.match(renderAgent(parsed, catalog.agents[0].content), /sflow-world-model-views: "arch\.contracts,biz\.rules"/,
-    'an authored views header is left untouched as authored');
-  assert.equal(parsed.remoteSkills[0].id, 'security-guide');
-  assert.equal(parsed.remoteTemplates[0].id, 'design-template');
-  assert.equal(parsed.remoteOutputs[0].target, 'artifacts/design/external-review.md');
-  assert.deepEqual(validateAgent(parsed), []);
-  assert.match(renderAgent(parsed), /## Remote generated artifacts/);
-  assert.match(renderAgent(parsed), /\| ID \| URL \| Phases \| Optional \| Max bytes \|/);
-  assert.doesNotMatch(renderAgent(parsed), /\| Personas \|/);
+  assert.deepEqual(agentSummary(catalog.agents[0].content, 'architect'), { label: 'Architect', description: 'Designs systems.', phases: ['design'] });
   assert.deepEqual(validateAgentMappingsDraft([{ copilotAgent: 'architecture', agentId: 'architect' }], ['architect']), []);
   assert.match(renderAgentMappings([{ copilotAgent: 'architecture', agentId: 'architect' }]), /"architecture": "architect"/);
   assert.deepEqual(validateAgentMappingsDraft([
@@ -7758,17 +7746,19 @@ test('the instruction designer separates agents, prompts, repository skills and 
   assert.match(renderSkill(skill), /disable-model-invocation: false/);
 
   const html = instructionDesignerHtml(catalog, {
-    tab: 'agents', selected: catalog.agents[0], agent: parsed, prompt: null, skill: null, errors: [], notice: null,
+    tab: 'agents', selected: catalog.agents[0], prompt: null, skill: null, errors: [], notice: null,
     configurationBlockedReason: null
   });
   assert.match(html, /Agents, prompts &amp; skills/);
   assert.match(html, /Prompt composition/);
   assert.match(html, /Phase contract/);
   assert.match(html, /Repository brief/);
-  assert.doesNotMatch(html, /Repository world-model views|data-agent-views|agent-views/);
+  assert.match(html, /data-open-studio-agent="architect"/, 'agents are changed in Workflow Studio');
+  assert.match(html, /## Remote generated artifacts/, 'the agent file is shown as it is');
+  assert.doesNotMatch(html, /Repository world-model views|data-agent-views|agent-views|data-save-agent/);
 
   const delivery = instructionDesignerHtml(catalog, {
-    tab: 'delivery', selected: null, agent: null, prompt: null, skill: null, errors: [], notice: null,
+    tab: 'delivery', selected: null, prompt: null, skill: null, errors: [], notice: null,
     configurationBlockedReason: null
   });
   assert.match(delivery, /Copilot → Flow agent mappings/);

@@ -165,10 +165,13 @@ export function apmAudit(root, capture = captureApm) {
   return { passed: report.passed && !failed.length, checks: report.checks.length, failed, policyNote: note };
 }
 
-/** One run of this machine's APM CLI in `root`, with APM's own output in the person's terminal. */
+/**
+ * One run of this machine's APM CLI in `root`, with APM's own output in the person's terminal: on
+ * stderr, so stdout stays SFlow's own and a `--json` result is the only thing on it.
+ */
 export function runApm(root, args, { run = spawnSync, environment = process.env } = {}) {
   const launch = resolvePlatformProcess('apm', args, { environment, cwd: root });
-  const result = run(launch.executable, launch.arguments, { cwd: root, env: environment, stdio: 'inherit', ...launch.spawnOptions });
+  const result = run(launch.executable, launch.arguments, { cwd: root, env: environment, stdio: ['inherit', 2, 2], ...launch.spawnOptions });
   if (result.error) fail(`The APM CLI could not be started: ${result.error.message}`, 'APM_CLI_UNAVAILABLE');
   return result.status ?? 1;
 }

@@ -169,8 +169,9 @@ every contributor and review environment can configure it reliably.
 
 ### 4. Allow the tool namespace on the agent
 
-Open **Configuration → Agents, prompts & skills**, select the governed agent, and
-add the server namespace to its allowed tools. In Agent Markdown:
+Open **Workflow Studio → Agents**, edit the governed agent, and add the server
+namespace to its allowed tools (or run `singularity-flow agents edit <AGENT> --tools`).
+In Agent Markdown:
 
 ```yaml
 ---

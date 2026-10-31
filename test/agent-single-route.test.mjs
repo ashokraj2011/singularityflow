@@ -1,7 +1,7 @@
 /**
- * One way to make an agent (agent route standardization A1–A2): Workflow Studio's change set renders
- * every agent, whichever route made it, and an agent with the steps it drafts is one save, one
- * proposal and one approval.
+ * One way to make an agent (agent route standardization A1–A3): Workflow Studio's change set renders
+ * every agent, whichever route made it, an agent with the steps it drafts is one save, one proposal
+ * and one approval, and a whole-file `configuration save` never writes an agent.
  */
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
@@ -171,4 +171,21 @@ test('an agent and the step it drafts are one save, one proposal and one approva
   git(checkout, 'pull', '-q', '--ff-only');
   assert.match(flow(checkout, ['agents', 'edit', 'scratch-agent', '--step', STEP]).stdout, /Drafts waiting: 1\./u);
   assert.match(flow(checkout, ['configuration', 'drafts']).stdout, /Step claim-check drafted by agent scratch-agent/u);
+});
+
+test('configuration save refuses an agent file, with or without --propose, and names the Studio route', async (t) => {
+  const base = await realpath(await mkdtemp(path.join(os.tmpdir(), 'sflow-agent-route-save-')));
+  t.after(() => rm(base, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 }));
+  const flow = runner(base);
+  const root = await initialized(base, 'save');
+  flow(root, ['agents', 'create', AGENT.id, '--label', AGENT.label, '--description', AGENT.description, '--instructions', AGENT.instructions]);
+  const before = await agentFile(root);
+  for (const [relative, extra] of [[`.github/agents/${AGENT.id}.agent.md`, []], [`.github/agents/${AGENT.id}.agent.md`, ['--propose']], ['.github/agents/fresh.agent.md', []]]) {
+    const result = flow(root, ['configuration', 'save', relative, ...extra, '--json'], null);
+    assert.notEqual(result.status, 0, relative);
+    assert.match(`${result.stdout}${result.stderr}`, /CONFIGURATION_AGENT_FILE_STUDIO_ONLY/u);
+    assert.match(`${result.stdout}${result.stderr}`, new RegExp(`agents edit ${path.basename(relative, '.agent.md')}`, 'u'));
+  }
+  assert.equal(await agentFile(root), before, 'nothing was saved');
+  assert.equal(git(root, 'for-each-ref', 'refs/heads/sflow/config-change'), '', 'and nothing was proposed');
 });

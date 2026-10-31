@@ -4,7 +4,7 @@ import { runInNewContext } from 'node:vm';
 import { CATALOG_SEARCH_SCRIPT, workflowFavourites } from '../apps/vscode/src/views/catalog-search.ts';
 import { WORKFLOW_STUDIO_SCRIPT, workflowStudioBody } from '../apps/vscode/src/views/workflow-studio-page.ts';
 import { INSTRUCTION_DESIGNER_SCRIPT, instructionDesignerHtml } from '../apps/vscode/src/views/instruction-designer-page.ts';
-import { instructionCatalog, parseAgent } from '../apps/vscode/src/views/instruction-designer-model.ts';
+import { instructionCatalog } from '../apps/vscode/src/views/instruction-designer-model.ts';
 
 // Exercise the real webview controls, including their event handlers, without a second search implementation.
 function dom() {
@@ -271,9 +271,9 @@ test('initiative canvases show applicable agent prompts without leaking Story wo
 test('the Configuration agent designer also searches locally, restores queries and shows built-in definitions read-only', () => {
   const body = '---\nname: reviewer\ndescription: Reviews screenshots\n---\n\nInspect <script> safely.';
   const catalog = instructionCatalog({ definition: { phases: {} }, agents: [{ id: 'reviewer', path: 'package/reviewer.agent.md', content: body, editable: false }] });
-  const html = instructionDesignerHtml(catalog, { tab: 'agents', selected: catalog.agents[0], agent: parseAgent(body, 'reviewer'), errors: [], notice: null, configurationBlockedReason: null });
-  assert.match(html, /data-agent-body[^>]*readonly/);
-  assert.match(html, /View complete built-in agent definition/);
+  const html = instructionDesignerHtml(catalog, { tab: 'agents', selected: catalog.agents[0], prompt: null, skill: null, errors: [], notice: null, configurationBlockedReason: null });
+  assert.doesNotMatch(html, /data-agent-body/, 'agents are shown, and changed in Workflow Studio');
+  assert.match(html, /View the agent file/);
   assert.match(html, /Inspect &lt;script&gt; safely/);
   assert.match(html, /data-search-action="search"/);
   const document = dom(); const controls = {};

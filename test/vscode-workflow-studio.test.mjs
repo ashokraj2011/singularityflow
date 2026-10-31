@@ -1256,6 +1256,29 @@ function studioWithHost() {
   return { logic: window.__workflowStudio, posted, reply: (data) => listeners.message({ data }) };
 }
 
+test('another screen opens Studio at one agent: its form, a new agent\'s, or why it cannot be edited here', async () => {
+  const root = await repository();
+  run(process.execPath, [bin, 'agents', 'create', 'checker', '--label', 'Checker', '--description', 'Checks claims.', '--instructions', 'Check every claim against its source.'], root);
+  const model = JSON.parse(run(process.execPath, [bin, 'workflow', 'studio', '--json'], root).stdout);
+  const { logic, reply, posted } = studioWithHost();
+  reply({ type: 'studio.model', model });
+  const state = logic.state();
+  const before = structuredClone(state.draft);
+  reply({ type: 'studio.focus', view: 'agents', agent: 'checker' });
+  assert.deepEqual([state.view, state.agentForm?.mode, state.agentForm?.id, state.agentForm?.label], ['agents', 'edit', 'checker', 'Checker']);
+  reply({ type: 'studio.focus', view: 'agents', newAgent: true });
+  assert.deepEqual([state.view, state.agentForm?.mode], ['agents', 'create']);
+  state.model.protection = { ...state.model.protection, agents: [...(state.model.protection?.agents ?? []), 'checker'] };
+  reply({ type: 'studio.focus', view: 'agents', agent: 'checker' });
+  assert.deepEqual([state.view, state.agentForm], ['agents', null]);
+  assert.match(state.status, /Duplicate the agent to customize it/u, 'a seeded agent says why, and how to get an editable copy');
+  reply({ type: 'studio.focus', view: 'agents', agent: 'nobody' });
+  assert.deepEqual([state.view, state.agentForm], ['agents', null]);
+  assert.match(state.status, /There is no agent nobody in this configuration/u);
+  assert.deepEqual(state.draft, before, 'opening an agent is navigation, not a change');
+  assert.deepEqual(posted.filter((message) => message.type !== 'studio.ready'), []);
+});
+
 test('Edit opens custom, duplicated and unpublished workflows in the canvas without changing configuration', () => {
   const { logic, reply, posted } = studioWithHost();
   const model = {

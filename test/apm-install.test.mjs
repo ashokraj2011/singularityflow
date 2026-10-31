@@ -223,7 +223,10 @@ test('apm install from the CLI: plain words, the Story checkout refusal, and Cop
   assert.match(installed.stdout, /git push -u origin apm\/install-review-pack\n {2}gh pr create --fill/u);
   // --dev is a flag, so the package after it stays a package.
   const preview = flow(['apm', 'install', '--dev', '../extra-pack', '--dry-run']);
-  assert.match(preview.stdout, /Dry run: apm install --dev --dry-run \.\.\/extra-pack\n/u);
+  assert.match(preview.stderr, /Dry run: apm install --dev --dry-run \.\.\/extra-pack\n/u, 'APM\'s own output reaches the terminal on stderr');
+  // ...so stdout is SFlow's alone, and its JSON reads (the VS Code panel parses it).
+  const previewJson = flow(['apm', 'install', '--dev', '../extra-pack', '--dry-run', '--json']);
+  assert.equal(JSON.parse(previewJson.stdout).dryRun, true, previewJson.stdout);
   const json = JSON.parse(flow(['apm', 'status', '--json']).stdout);
   assert.equal(json.state, 'intact');
   assert.equal(json.cli.found, '0.35.0');

@@ -276,10 +276,18 @@ for repository-owned configuration:
   inputs, sign-off, send-back rules, decisions, planned claims, artifact
   templates (built from sections) and artifact sets; review and activate
   configuration proposals; export and import workflow bundles.
-- **Agent Delivery & Instruction Designer** — create and edit
-  `.github/agents/*.agent.md`, including phase scope, instructions, tool policy,
-  remote skills, remote artifact templates, generated outputs,
-  native Copilot-to-Flow mappings, and hash-lock/cache status.
+- **Agents** (Workflow Studio → Agents) — the one place agents in
+  `.github/agents/*.agent.md` are created and changed: instructions, tools,
+  knowledge views, the steps each one drafts, and skills and remote sources from
+  the Library. A new agent and its steps are one review.
+- **Agent Delivery & Instruction Designer** — shows each agent read-only and opens
+  Workflow Studio at it to change it; native Copilot-to-Flow mappings and
+  hash-lock/cache status.
+- **Agent Packages** — agents from APM packages: install and update (typed into a
+  terminal for you to run), **Attach … to a step** (`apm attach`, previewed, then
+  proposed for review) and **Share agents to a marketplace…** (`apm publish`,
+  previewed, then committed on a branch in the marketplace's checkout; nothing is
+  pushed).
 - **Prompt, Skill, and Prompt Pack Designer** — inspect and edit reusable Markdown,
   assemble ordered packs, and preview the final composition.
 - **Capability Designer** — add or edit collection and delivery

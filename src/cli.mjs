@@ -84,7 +84,7 @@ import { discoverAgents, lockAgent, prepareRemoteOutputs, syncAgent } from './ag
 import { attestMcpHost, clearPlaywrightAuthProfile, importPlaywrightAuthProfile, mcpDoctor, mcpStatus, playwrightAuthProfileStatus, previewClearPlaywrightAuthProfile, previewPlaywrightAuthImport, probeMcpHost, recordMcpEvidence, removePlaywrightAuthProfile, scaffoldFigmaMcp, scaffoldMcpServer, scaffoldPlaywrightMcp, serveMcpHost, smokeMcpHost, verifyMcpHostOffline, warmMcpHost } from './mcp.mjs';
 import { message as gatewayMessage } from './gateway/messages.mjs';
 import { approvedDesignSourceBinding, verifyDesignSourceLifecycle } from './design-sources.mjs';
-import { bootstrapWorkspacePortfolio, deleteConfigurationFile, deleteConfigurationTemplate, exportConfigurationBundle, repositorySnapshot, publishEditorConfiguration, readConfigurationFile, saveConfigurationFile, selectEditorAgent, validateEditorConfiguration } from './editor.mjs';
+import { bootstrapWorkspacePortfolio, deleteConfigurationFile, deleteConfigurationTemplate, exportConfigurationBundle, repositorySnapshot, publishEditorConfiguration, readConfigurationFile, refuseAgentFileSave, saveConfigurationFile, selectEditorAgent, validateEditorConfiguration } from './editor.mjs';
 import { publishCurrentIdentityToConfiguration } from './configuration-people.mjs';
 import { redactCommandArgv, repositoryLogger } from './logging.mjs';
 import { openUpstreamIssues } from './upstream-issues.mjs';
@@ -8560,6 +8560,7 @@ async function editorCommand(positionals, options, namespace = 'configuration') 
   }
   else if (subcommand === 'save') {
     const requestedPath = requirePositional(positionals, 2, 'configuration path');
+    refuseAgentFileSave(root, requestedPath);
     const content = await stdinText();
     const saveOptions = { expectedSha256: optionString(options, 'expected-sha256') };
     if (optionBoolean(options, 'propose')) {

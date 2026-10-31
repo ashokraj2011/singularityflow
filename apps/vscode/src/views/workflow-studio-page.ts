@@ -4286,6 +4286,19 @@ export const WORKFLOW_STUDIO_SCRIPT = CATALOG_SEARCH_SCRIPT + String.raw`
     render();
   }
 
+  /**
+   * The Agents view at one agent, as another screen opens it (the Instruction Designer's agent tab):
+   * its edit form, a new agent's form for null, or the list saying why it cannot be edited here.
+   */
+  function focusAgent(id) {
+    state.view = 'agents'; state.returnTo = null; state.agentForm = null;
+    if (id === null) { openAgentForm(null); return; }
+    if (state.draft.agents[id] && !protectedObject('agents', id)) { editAgent(id, null); return; }
+    if (state.draft.agents[id]) editAgent(id, null);
+    else setStatus('There is no agent ' + id + ' in this configuration. Refresh, or create it with New agent.');
+    render();
+  }
+
   function editAgent(id, context) {
     if (protectedObject('agents', id)) { setStatus('This agent is used by a seeded workflow. Duplicate the agent to customize it. To change a seeded workflow, duplicate that workflow first.'); return; }
     var agent = state.draft.agents[id];
@@ -6942,6 +6955,7 @@ export const WORKFLOW_STUDIO_SCRIPT = CATALOG_SEARCH_SCRIPT + String.raw`
       if (typeof message.build === 'string') { state.view = 'build'; openBuild(message.build); }
       else if (message.view === 'build') openBuilds();
       else if (typeof message.workflowId === 'string') openWorkflowCanvas(message.workflowId);
+      else if (message.view === 'agents' && (message.newAgent === true || typeof message.agent === 'string')) focusAgent(message.newAgent === true ? null : message.agent);
       else if (['home', 'agents', 'skills', 'instructions', 'constitution', 'artifacts', 'library', 'people', 'integrations', 'changes'].indexOf(message.view) >= 0) { state.view = message.view; state.returnTo = null; render(); }
     } else if (message.type === 'studio.failed') {
       state.busy = null; state.reviewing = null; setStatus(message.message || 'That did not work.'); if (!state.model) state.error = message.message; render();

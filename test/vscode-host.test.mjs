@@ -7262,6 +7262,18 @@ test('the instruction designer exposes all four libraries and saves repository p
   await panel.post({ type: 'tab', tab: 'packs' });
   assert.match(panel.webview.html, /Packaged library/);
   assert.match(panel.webview.html, /Copy into repository/);
+
+  // Agents are shown here and changed in Workflow Studio, which opens at the agent.
+  await panel.post({ type: 'tab', tab: 'agents' });
+  const agent = /data-open-studio-agent="([^"]+)"/.exec(panel.webview.html)?.[1];
+  assert.ok(agent, 'the agent tab opens an agent in Workflow Studio');
+  assert.doesNotMatch(panel.webview.html, /data-save-agent/, 'and has no agent form of its own');
+  await panel.post({ type: 'open-studio', agent });
+  const studio = await until(() => registered.panels.find((entry) => entry.id === 'singularityFlow.workflowStudio') ?? null,
+    { what: 'Workflow Studio to open' });
+  await studio.post({ type: 'studio.ready' });
+  await until(() => studio.sent.some((message) => message.type === 'studio.focus') ? true : null, { what: 'Studio to open at the agent' });
+  assert.deepEqual(studio.sent.find((message) => message.type === 'studio.focus'), { type: 'studio.focus', view: 'agents', agent });
 });
 
 test('a window with nothing open keeps workspace setup out of Lifecycle', async (t) => {

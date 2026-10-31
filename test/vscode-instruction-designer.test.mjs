@@ -1,17 +1,14 @@
 /**
- * The agent designer, driven the way VS Code drives it.
+ * The instruction designer, driven the way VS Code drives it.
  *
- * The host renders the page, the page's own script builds the save message from the rendered form,
- * and the host turns that message into the bytes it asks the CLI to save. A test that stops at
- * renderAgent(parseAgent(text)) never meets the shapes the page and the host give a draft, which
- * is where an untouched save stopped being byte-identical. `vscode` is replaced by a stub, as in
+ * The host renders the page, the page's own script builds the message from the rendered form, and
+ * the host turns that message into what it asks the CLI or Workflow Studio to do. Agents are only
+ * shown here: creating or changing one opens Workflow Studio at it (agent route A3), so no agent
+ * bytes are rendered or saved by this panel. `vscode` is replaced by a stub, as in
  * vscode-inbox-refresh.test.mjs, so the real panel class handles the messages.
  */
 import assert from 'node:assert/strict';
-import { mkdir, mkdtemp, writeFile } from 'node:fs/promises';
 import { register } from 'node:module';
-import os from 'node:os';
-import path from 'node:path';
 import test from 'node:test';
 import YAML from 'yaml';
 
@@ -53,11 +50,10 @@ register('data:text/javascript,' + encodeURIComponent(`
 
 const { InstructionDesignerPanel } = await import('../apps/vscode/src/views/instruction-designer.ts');
 const { INSTRUCTION_DESIGNER_SCRIPT } = await import('../apps/vscode/src/views/instruction-designer-page.ts');
-const { instructionCatalog, parseAgent, renderAgent, renderAgentMappings, validateAgentMappingsDraft } =
+const { agentSummary, instructionCatalog, renderAgentMappings, validateAgentMappingsDraft } =
   await import('../apps/vscode/src/views/instruction-designer-model.ts');
-const { agentStatus, lockAgent, parseAgentDependencies, validateAgentMappings } = await import('../src/agents.mjs');
+const { validateAgentMappings } = await import('../src/agents.mjs');
 
-const SOURCE = '.github/agents/reviewer.agent.md';
 const settle = () => new Promise((resolve) => setImmediate(resolve));
 const decode = (text) => text.replace(/&quot;/g, '"').replace(/&#39;/g, "'")
   .replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&amp;/g, '&');
@@ -102,11 +98,6 @@ function click(html, button, { values = {}, checked = {} } = {}) {
       return found && { ...found, addEventListener() {} };
     },
     querySelectorAll(selector) {
-      const kind = /^\[data-remote-row="([a-z]+)"\]$/.exec(selector)?.[1];
-      if (kind) {
-        return [...markup.matchAll(new RegExp(`<div class="remote-row" data-remote-row="${kind}">([\\s\\S]*?)</div>`, 'g'))]
-          .map(([, row]) => ({ querySelector: (inner) => control(row, inner.slice(1, -1)) }));
-      }
       const name = /^input\[name="([^"]+)"\]:checked$/.exec(selector)?.[1];
       if (!name) return [];
       if (Object.hasOwn(checked, name)) return checked[name].map((value) => ({ value }));
@@ -121,15 +112,17 @@ function click(html, button, { values = {}, checked = {} } = {}) {
   return messages[0];
 }
 
-/** The real panel over a snapshot holding these agents; every save it asks for is recorded. */
-async function openDesigner(t, agents, { reply = async () => null } = {}) {
+/** The real panel over a snapshot holding these agents; every message it sends the host is recorded. */
+async function openDesigner(t, agents, { reply = async () => null, packaged = [] } = {}) {
   const saves = [];
+  const messages = [];
   const snapshot = {
     definition: { phases: { design: { label: 'Design' }, implementation: { label: 'Implementation' } } },
-    agents: agents.map(([id, content]) => ({ id, path: `.github/agents/${id}.agent.md`, content, editable: true, scope: 'repository' }))
+    agents: agents.map(([id, content]) => ({ id, path: `.github/agents/${id}.agent.md`, content, editable: !packaged.includes(id), scope: packaged.includes(id) ? 'packaged' : 'repository' }))
   };
   const store = { current: { snapshot }, onDidChange: () => ({ dispose() {} }), acquireSlices: async () => ({ dispose() {} }) };
   await InstructionDesignerPanel.show({ extensionUri: {} }, store, async (message) => {
+    messages.push(message);
     if (message.type === 'save') saves.push(message);
     return reply(message);
   });
@@ -139,20 +132,7 @@ async function openDesigner(t, agents, { reply = async () => null } = {}) {
     panel.post(message);
     for (let tick = 0; tick < 5; tick += 1) await settle();
   };
-  return {
-    saves, send,
-    html: () => panel.webview.html,
-    save: (edits) => send(click(panel.webview.html, { saveAgent: '1' }, edits))
-  };
-}
-
-/** A temporary repository holding one agent, as `agents lock` and `agents status` read it. */
-async function repositoryWithAgent(content) {
-  const root = await mkdtemp(path.join(os.tmpdir(), 'sflow-designer-'));
-  await mkdir(path.join(root, '.github/agents'), { recursive: true });
-  await mkdir(path.join(root, '.git/singularity-flow'), { recursive: true });
-  await writeFile(path.join(root, SOURCE), content);
-  return root;
+  return { saves, messages, send, html: () => panel.webview.html, click: (button, edits) => send(click(panel.webview.html, button, edits)) };
 }
 
 const REMOTE_AGENT = `---
@@ -231,154 +211,34 @@ test('saving a parenthesized native agent mapping in the designer preserves its 
   });
 });
 
-test('an indented remote table is replaced by the designer save, not left ahead of it', () => {
-  // Markdown and the CLI both accept indented table rows and headings. The designer used to strip
-  // only column-0 rows from the instructions, so a save kept the original table in the body and
-  // appended the edited one: the CLI read the first table, and the edit was silently ignored.
-  const original = '---\nname: reviewer\ndescription: Review documents.\ntools: [read]\n---\n\n'
-    + '# Reviewer\n\nUse evidence.\n\n'
-    + '## Remote skills\n\n  | ID | URL | Phases | Optional | Max bytes |\n  |---|---|---|---|---|\n'
-    + '  | guide | https://example.test/guide.md | - | true | 1024 |\n\n'
-    + '  ## Remote artifact templates\n\n  | ID | URL | Phases | Optional | Max bytes |\n  |---|---|---|---|---|\n'
-    + '  | design-template | https://example.test/template.md | design | false | - |\n\n'
-    + 'Stop for human review.\n';
-  const before = parseAgentDependencies(original, { source: SOURCE });
-  assert.deepEqual(before.dependencies.map((entry) => entry.url),
-    ['https://example.test/guide.md', 'https://example.test/template.md']);
-
-  const draft = parseAgent(original, 'reviewer');
-  assert.equal(draft.body, '# Reviewer\n\nUse evidence.\n\nStop for human review.',
-    'the tables are edited as rows, so none of them stays in the instruction text');
-  assert.deepEqual(draft.remoteSkills.map((entry) => entry.url), ['https://example.test/guide.md']);
-  assert.deepEqual(draft.remoteTemplates.map((entry) => entry.id), ['design-template']);
-
-  draft.remoteSkills[0].url = 'https://example.test/guide-v2.md';
-  const rendered = renderAgent(draft, original);
-  assert.equal((rendered.match(/## Remote skills/g) ?? []).length, 1);
-  assert.equal((rendered.match(/## Remote artifact templates/g) ?? []).length, 1);
-  const after = parseAgentDependencies(rendered, { source: SOURCE });
-  assert.deepEqual(after.skills.map((entry) => entry.url), ['https://example.test/guide-v2.md'],
-    'the CLI reads the URL the designer saved');
-  assert.deepEqual(after.templates.map(({ id, url, phases, optional, maxBytes }) => ({ id, url, phases, optional, maxBytes })),
-    before.templates.map(({ id, url, phases, optional, maxBytes }) => ({ id, url, phases, optional, maxBytes })));
-  assert.match(after.prompt, /^# Reviewer\n\nUse evidence\.\n\nStop for human review\.\n\n## Remote skills/);
-});
-
-test('an untouched designer save keeps an agent with remote resources byte-identical, so its lock stays current', async (t) => {
-  // The page builds remote rows key by key and shows an empty max-bytes cell as '-'; the input holding
-  // the description cannot keep the line breaks of a block scalar, and the host trims it. None of
-  // that is an edit, so the save must hand the CLI the file's own bytes.
-  const designer = await openDesigner(t, [['reviewer', REMOTE_AGENT]]);
-  await designer.save();
-  assert.equal(designer.saves.length, 1);
-  assert.equal(designer.saves[0].content, REMOTE_AGENT, 'nothing was edited, so nothing may change');
-
-  // The lock is keyed to the file's hash: one changed byte reports the agent stale and asks for a
-  // fresh `agents lock --update` review of resources nobody changed.
-  const root = await repositoryWithAgent(REMOTE_AGENT);
-  const fetchImpl = async () => ({ ok: true, status: 200, headers: { get: () => null }, arrayBuffer: async () => Buffer.from('# Guidance\n') });
-  await lockAgent(root, 'reviewer', { accepted: true, fetchImpl });
-  await writeFile(path.join(root, SOURCE), designer.saves[0].content);
-  const [status] = await agentStatus(root, 'reviewer');
-  assert.equal(status.sourceChanged, false);
-  assert.notEqual(status.status, 'stale');
-
-  // Editing only the description leaves the instructions and every table where the author put them.
-  await designer.save({ values: { 'data-agent-description': 'Reviews designs carefully.' } });
-  const body = (text) => text.slice(text.indexOf('\n---\n') + 5);
-  assert.equal(body(designer.saves[1].content), body(REMOTE_AGENT));
-  const edited = parseAgentDependencies(designer.saves[1].content, { source: SOURCE });
-  const original = parseAgentDependencies(REMOTE_AGENT, { source: SOURCE });
-  assert.equal(edited.description, 'Reviews designs carefully.');
-  assert.deepEqual(edited.dependencies, original.dependencies);
-  assert.equal(edited.prompt, original.prompt);
-});
-
-test('a designer edit rewrites only the frontmatter lines it changed', async (t) => {
-  // Packaged agents write unpadded flow lists and quoted metadata. Re-serialising the frontmatter
-  // for one edit used to pad every flow list (`tools: [ read ]`), drop the quotes of the edited
-  // value and turn an edited flow tool list into a block list.
-  const flow = '---\nname: reviewer\ndescription: |\n  Reviews designs.\nmodel: [auto]\ntools: [read, search]\nmetadata:\n'
-    + '  sflow-label: "Reviewer"\n  sflow-phases: "design"\n---\n\n# Reviewer\n\nUse evidence.\n';
-  const block = '---\nname: block-reviewer\ndescription: Reviews blocks.\ntools:\n  - read\n  - search\nmetadata:\n'
-    + "  sflow-label: 'Block reviewer'\n---\n\n# Block reviewer\n\nUse evidence.\n";
-  const designer = await openDesigner(t, [['reviewer', flow], ['block-reviewer', block]]);
-
+test('the agent tab shows an agent read only and opens Workflow Studio at it to change it', async (t) => {
+  const designer = await openDesigner(t, [['reviewer', REMOTE_AGENT], ['architect', '---\nname: architect\ndescription: Designs.\n---\n\n# Architect\n']], { packaged: ['architect'] });
   await designer.send({ type: 'select', path: '.github/agents/reviewer.agent.md' });
-  await designer.save({ values: { 'data-agent-description': 'Reviews designs carefully.' } });
-  const described = flow.replace('description: |\n  Reviews designs.\n', 'description: Reviews designs carefully.\n');
-  assert.equal(designer.saves.at(-1).content, described);
-  await designer.save({ values: { 'data-agent-label': 'Design reviewer' } });
-  const labelled = described.replace('sflow-label: "Reviewer"', 'sflow-label: "Design reviewer"');
-  assert.equal(designer.saves.at(-1).content, labelled);
-  await designer.save({ checked: { 'agent-tools': ['read', 'search', 'edit'] } });
-  assert.equal(designer.saves.at(-1).content, labelled.replace('tools: [read, search]', 'tools: [read, search, edit]'));
+  const html = designer.html();
+  assert.match(html, /<h1>Reviewer<\/h1><p class="muted">Reviews designs against the evidence the phase approved\.<\/p>/u, 'a block description reads as one line');
+  assert.match(html, /data-open-studio-agent="reviewer"[^>]*>[\s\S]*?Edit in Workflow Studio<\/button>/u);
+  assert.match(html, /<strong>May draft<\/strong> design/u);
+  assert.match(html, /View the agent file[\s\S]*\| guide \| https:\/\/example\.test\/guide\.md/u, 'the file is shown as it is, remote tables included');
+  assert.doesNotMatch(html, /data-save-agent|data-agent-body|data-agent-label|data-copy-agent|data-add-remote/u, 'there is no agent form to save');
 
-  await designer.send({ type: 'select', path: '.github/agents/block-reviewer.agent.md' });
-  await designer.save({ checked: { 'agent-tools': ['read', 'search', 'edit'] } });
-  const tooled = block.replace('  - search\n', '  - search\n  - edit\n');
-  assert.equal(designer.saves.at(-1).content, tooled);
-  await designer.save({ values: { 'data-agent-label': 'Block lead' } });
-  assert.equal(designer.saves.at(-1).content, tooled.replace("sflow-label: 'Block reviewer'", "sflow-label: 'Block lead'"));
-  for (const save of designer.saves) assert.doesNotThrow(() => parseAgentDependencies(save.content, { source: save.path }));
-});
-
-test('a new agent created in the designer gets the block frontmatter packaged agents use', async (t) => {
-  // A new agent has no file to keep the style of. Starting from YAML '{}' made the whole frontmatter
-  // one flow mapping on a single line.
-  const designer = await openDesigner(t, [['reviewer', REMOTE_AGENT]]);
+  await designer.click({ openStudioAgent: 'reviewer' });
+  assert.deepEqual(designer.messages.at(-1), { type: 'open-studio', agent: 'reviewer' });
   await designer.send({ type: 'new' });
-  await designer.save({
-    values: {
-      'data-agent-id': 'security-reviewer', 'data-agent-label': 'Security reviewer',
-      'data-agent-description': 'Reviews changes: threats first',
-      'data-agent-body': '# Security reviewer\n\nName the threat before the fix.'
-    },
-    checked: { 'agent-phases': ['design'], 'agent-defaults': ['design'] }
-  });
-  const created = '---\nname: security-reviewer\ndescription: "Reviews changes: threats first"\ntools: [read, search]\n'
-    + 'metadata:\n  sflow-label: "Security reviewer"\n  sflow-phases: "design"\n  sflow-default-for: "design"\n'
-    + '---\n\n# Security reviewer\n\nName the threat before the fix.\n';
-  assert.equal(designer.saves[0].path, '.github/agents/security-reviewer.agent.md');
-  assert.equal(designer.saves[0].content, created);
-  const parsed = parseAgentDependencies(created, { source: designer.saves[0].path });
-  assert.deepEqual(
-    { id: parsed.id, label: parsed.label, description: parsed.description, phases: parsed.phases, defaultFor: parsed.defaultFor, tools: parsed.tools },
-    { id: 'security-reviewer', label: 'Security reviewer', description: 'Reviews changes: threats first', phases: ['design'], defaultFor: ['design'], tools: ['read', 'search'] }
-  );
+  assert.deepEqual(designer.messages.at(-1), { type: 'open-studio', agent: null }, 'a new agent is made in Workflow Studio too');
+  await designer.send({ type: 'open-studio', agent: 'not-listed' });
+  assert.equal(designer.messages.length, 2, 'only a listed agent is opened');
+  assert.deepEqual(designer.saves, [], 'nothing is saved from the agent tab');
 
-  // Its next save edits that file like any other agent.
-  await designer.save({ values: { 'data-agent-label': 'Security lead' } });
-  assert.equal(designer.saves[1].content, created.replace('sflow-label: "Security reviewer"', 'sflow-label: "Security lead"'));
+  await designer.send({ type: 'select', path: '.github/agents/architect.agent.md' });
+  assert.match(designer.html(), /Agent · comes with Singularity Flow[\s\S]*Duplicate it there to make an editable copy\.[\s\S]*Open in Workflow Studio/u);
+  assert.deepEqual(agentSummary(REMOTE_AGENT, 'reviewer'), { label: 'Reviewer', description: 'Reviews designs against the evidence the phase approved.', phases: ['design'] });
+  assert.deepEqual(agentSummary('no frontmatter', 'plain'), { label: 'plain', description: '', phases: [] });
 });
 
-test('an agent whose metadata key has no value is edited like one with empty metadata', async (t) => {
-  // The CLI reads `metadata:` with no value as no metadata. Writing a label, phase, default or view
-  // into it threw "Expected YAML collection at metadata", and the save silently did nothing.
-  const bare = '---\nname: bare-reviewer\ndescription: Reviews.\ntools: [read]\nmetadata:\n---\n\n# Bare reviewer\n\nUse evidence.\n';
-  assert.equal(parseAgentDependencies(bare, { source: '.github/agents/bare-reviewer.agent.md' }).label, 'bare-reviewer');
-  const designer = await openDesigner(t, [['bare-reviewer', bare]]);
-  await designer.save({ values: { 'data-agent-label': 'Bare lead' }, checked: { 'agent-phases': ['design'] } });
-  assert.equal(designer.saves.length, 1, 'the save reaches the CLI');
-  assert.equal(designer.saves[0].content,
-    bare.replace('metadata:\n', 'metadata:\n  sflow-label: "Bare lead"\n  sflow-phases: "design"\n'));
-  const saved = parseAgentDependencies(designer.saves[0].content, { source: designer.saves[0].path });
-  assert.deepEqual({ label: saved.label, phases: saved.phases }, { label: 'Bare lead', phases: ['design'] });
-
-  const draft = { ...parseAgent(bare, 'bare-reviewer'), defaultFor: ['design'], phases: ['design'] };
-  const rendered = parseAgentDependencies(renderAgent(draft, bare), { source: designer.saves[0].path });
-  assert.deepEqual({ defaultFor: rendered.defaultFor, phases: rendered.phases }, { defaultFor: ['design'], phases: ['design'] });
-});
-
-test('an authored World Model views header is never read or written, so it stays as authored', () => {
-  const authored = '---\nname: views-reviewer\ndescription: Reviews.\ntools: [read]\nmetadata:\n'
-    + '  sflow-label: "Views reviewer"\n  sflow-world-model-views: "arch.contracts"\n---\n\n# Views reviewer\n\nUse evidence.\n';
-  const parsed = parseAgent(authored, 'views-reviewer');
-  assert.equal(Object.hasOwn(parsed, 'worldModelViews'), false, 'the designer does not read the header');
-  const output = renderAgent({ ...parsed, label: 'Views lead', defaultFor: ['design'] }, authored);
-  assert.equal(output, authored.replace('sflow-label: "Views reviewer"', 'sflow-label: "Views lead"')
-    .replace('  sflow-world-model-views: "arch.contracts"\n',
-      '  sflow-world-model-views: "arch.contracts"\n  sflow-default-for: "design"\n'));
+test('an open the host refuses is reported on the agent tab', async (t) => {
+  const designer = await openDesigner(t, [['reviewer', REMOTE_AGENT]], { reply: async (message) => message.type === 'open-studio' ? 'Workflow Studio needs a repository.' : null });
+  await designer.send({ type: 'open-studio', agent: 'reviewer' });
+  assert.match(designer.html(), /<li>Workflow Studio needs a repository\.<\/li>/u);
 });
 
 test('a designer message that fails is reported on the page instead of vanishing', async (t) => {
@@ -391,7 +251,9 @@ test('a designer message that fails is reported on the page instead of vanishing
   const designer = await openDesigner(t, [['reviewer', REMOTE_AGENT]], {
     reply: async () => { throw new Error('The save could not be started.'); }
   });
-  await designer.save({ values: { 'data-agent-description': 'Reviews designs carefully.' } });
+  await designer.send({ type: 'tab', tab: 'prompts' });
+  await designer.send({ type: 'new' });
+  await designer.click({ savePrompt: '1' }, { values: { 'data-prompt-id': 'review-notes', 'data-prompt-body': '# Notes' } });
   assert.equal(designer.saves.length, 1);
   assert.match(designer.html(), /<div class="blockers"><strong>Fix before saving<\/strong><ul><li>The save could not be started\.<\/li>/);
   assert.deepEqual(rejections, []);

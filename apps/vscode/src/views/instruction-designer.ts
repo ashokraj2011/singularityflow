@@ -1,15 +1,16 @@
-/** VS Code host for the visual agent, prompt, skill and prompt-pack designer. */
+/**
+ * VS Code host for the prompt, skill and prompt-pack designer. Its agent tab lists and shows agents;
+ * creating or changing one opens Workflow Studio at that agent, the one place agents are changed.
+ */
 import * as vscode from 'vscode';
 import type { RepositorySnapshot } from '../cli/snapshot.ts';
 import type { WorkspaceStore } from '../state.ts';
 import { contentSecurityPolicy, navigationTarget, nonce, page } from './webview.ts';
 import { navigateTo } from './navigate.ts';
 import {
-  agentDescription, agentPath, instructionCatalog, parseAgent, parsePrompt, parseSkill, promptPath, renderAgent,
-  renderAgentMappings, renderPrompt, renderSkill, skillPath, validateAgent, validateAgentMappingsDraft,
-  validatePrompt, validateSkill,
-  type AgentDraft, type InstructionCatalog, type InstructionEntry, type InstructionTab,
-  type PromptDraft, type SkillDraft
+  instructionCatalog, parsePrompt, parseSkill, promptPath, renderAgentMappings, renderPrompt, renderSkill, skillPath,
+  validateAgentMappingsDraft, validatePrompt, validateSkill,
+  type InstructionCatalog, type InstructionEntry, type InstructionTab, type PromptDraft, type SkillDraft
 } from './instruction-designer-model.ts';
 import {
   instructionDesignerHtml, INSTRUCTION_DESIGNER_SCRIPT, type InstructionDesignerView
@@ -21,15 +22,14 @@ import {
 
 export type InstructionDesignerMessage =
   | ({ type: 'save'; path: string; content: string } & ConfigurationSavePlan)
-  | { type: 'agent-action'; action: 'trust' | 'update' | 'sync' | 'refresh'; agentId: string };
+  | { type: 'agent-action'; action: 'trust' | 'update' | 'sync' | 'refresh'; agentId: string }
+  /** Open Workflow Studio at this agent, or at a new agent's form for null. */
+  | { type: 'open-studio'; agent: string | null };
 export type InstructionDesignerReply = string | null | {
   error: string | null;
   disposition: ConfigurationSaveDisposition;
 };
 
-function emptyAgent(): AgentDraft {
-  return { id: '', label: '', description: '', phases: [], defaultFor: [], tools: ['read', 'search'], body: '# Agent instructions\n\nDescribe how this agent should reason, what evidence it must use, and what it must produce.', remoteSkills: [], remoteTemplates: [], remoteOutputs: [] };
-}
 function emptyPrompt(): PromptDraft { return { id: '', body: '# Purpose\n\nDescribe the reusable instruction.' }; }
 function emptySkill(): SkillDraft {
   return { id: '', description: '', argumentHint: '[WORK-ID]', disableModelInvocation: false,
@@ -48,7 +48,6 @@ export class InstructionDesignerPanel {
   private disposed = false;
   private tab: InstructionTab = 'agents';
   private selectedPath: string | null = null;
-  private agent: AgentDraft | null = null;
   private prompt: PromptDraft | null = null;
   private skill: SkillDraft | null = null;
   private errors: string[] = [];
@@ -145,7 +144,6 @@ export class InstructionDesignerPanel {
   private load(entry: InstructionEntry | null): void {
     this.selectedPath = entry?.path ?? null;
     this.errors = []; this.notice = null;
-    this.agent = this.tab === 'agents' && entry ? parseAgent(entry.content, entry.id) : null;
     this.prompt = this.tab === 'prompts' && entry ? parsePrompt(entry.content, entry.id) : null;
     this.skill = this.tab === 'skills' && entry ? parseSkill(entry.content, entry.id) : null;
     this.sourcePath = entry?.path ?? null;
@@ -211,10 +209,6 @@ export class InstructionDesignerPanel {
     this.render();
   }
 
-  private strings(value: unknown): string[] {
-    return Array.isArray(value) ? value.filter((entry): entry is string => typeof entry === 'string') : [];
-  }
-
   private async receive(raw: unknown): Promise<void> {
     const message = (raw && typeof raw === 'object' ? raw : {}) as Record<string, unknown>;
     const catalog = this.catalog();
@@ -231,9 +225,13 @@ export class InstructionDesignerPanel {
     if (message.type === 'select' && typeof message.path === 'string') {
       this.load(this.entries(catalog).find((entry) => entry.path === message.path) ?? null); return this.render();
     }
+    if (message.type === 'new' && this.tab === 'agents') return this.openStudio(null);
+    if (message.type === 'open-studio' && typeof message.agent === 'string') {
+      const agent = catalog.agents.find((entry) => entry.id === message.agent);
+      return agent ? this.openStudio(agent.id) : undefined;
+    }
     if (message.type === 'new' && this.tab !== 'packs') {
       this.selectedPath = null; this.errors = []; this.notice = null;
-      this.agent = this.tab === 'agents' ? emptyAgent() : null;
       this.prompt = this.tab === 'prompts' ? emptyPrompt() : null;
       this.skill = this.tab === 'skills' ? emptySkill() : null;
       this.sourcePath = null; this.sourceText = '';
@@ -241,19 +239,6 @@ export class InstructionDesignerPanel {
       return this.render();
     }
     if (message.type === 'cancel') { this.load(this.entries(catalog)[0] ?? null); return this.render(); }
-    if (message.type === 'save-agent') {
-      const draft: AgentDraft = { id: String(message.id ?? '').trim(), label: String(message.label ?? '').trim(),
-        description: agentDescription(message.description), phases: this.strings(message.phases),
-        defaultFor: this.strings(message.defaultFor),
-        tools: this.strings(message.tools), body: String(message.body ?? ''),
-        remoteSkills: Array.isArray(message.remoteSkills) ? message.remoteSkills as AgentDraft['remoteSkills'] : [],
-        remoteTemplates: Array.isArray(message.remoteTemplates) ? message.remoteTemplates as AgentDraft['remoteTemplates'] : [],
-        remoteOutputs: Array.isArray(message.remoteOutputs) ? message.remoteOutputs as AgentDraft['remoteOutputs'] : [] };
-      this.agent = draft; this.errors = validateAgent(draft);
-      if (!this.errors.length) await this.save(this.selectedPath ?? agentPath(draft.id), renderAgent(draft, this.sourceText));
-      else this.render();
-      return;
-    }
     if (message.type === 'save-mappings') {
       const rows = Array.isArray(message.rows) ? message.rows.map((row) => ({
         copilotAgent: String((row as Record<string, unknown>).copilotAgent ?? '').trim(),
@@ -319,17 +304,13 @@ export class InstructionDesignerPanel {
         this.tab = 'skills'; this.load({ ...pack, path: pack.repositoryPath, scope: 'repository', editable: true });
       }
     }
-    if (message.type === 'copy-agent' && typeof message.path === 'string') {
-      const agent = catalog.agents.find((entry) => entry.path === message.path && entry.scope === 'packaged');
-      if (!agent) return;
-      const target = agentPath(agent.id);
-      if (catalog.agents.some((entry) => entry.path === target && entry.scope === 'repository')) {
-        this.errors = [`${target} already exists. Edit the repository agent instead.`]; return this.render();
-      }
-      if (await this.save(target, agent.content, '', this.store.current.snapshot?.configurationSource)) {
-        this.load({ ...agent, path: target, scope: 'repository', editable: true });
-      }
-    }
+  }
+
+  /** Agents change in Workflow Studio only; a refused open is shown where a refused save is. */
+  private async openStudio(agent: string | null): Promise<void> {
+    const reply = await this.onMessage({ type: 'open-studio', agent });
+    const error = typeof reply === 'string' ? reply : reply?.error ?? null;
+    if (error) { this.errors = [error]; this.render(); }
   }
 
   private render(): void {
@@ -341,14 +322,14 @@ export class InstructionDesignerPanel {
       return;
     }
     const selected = this.selected(catalog);
-    if (this.tab !== 'delivery' && this.selectedPath === null && !this.agent && !this.prompt && !this.skill && selected) this.load(selected);
+    if (this.tab !== 'delivery' && this.selectedPath === null && !this.prompt && !this.skill && selected) this.load(selected);
     const savePlan = configurationSavePlan(
       this.store.current.snapshot?.configurationSource,
       this.sourcePath ?? catalog.mappingPath,
       this.sourcePath ? this.sourceText : this.mappingSourceText
     );
     const view: InstructionDesignerView = { tab: this.tab, selected: this.selectedPath ? selected : null,
-      agent: this.agent, prompt: this.prompt, skill: this.skill, errors: this.errors, notice: this.notice,
+      prompt: this.prompt, skill: this.skill, errors: this.errors, notice: this.notice,
       configurationBlockedReason: savePlan.writable ? null : savePlan.blockedReason ?? 'The approved configuration authority is read-only.' };
     const token = nonce();
     this.panel.webview.html = page('Agents, prompts & skills', instructionDesignerHtml(catalog, view),

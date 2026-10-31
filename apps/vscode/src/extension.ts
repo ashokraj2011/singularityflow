@@ -9143,7 +9143,11 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     // Optional: what a Story delivered, read once per refresh; nothing waits for it.
     'singularityFlow.openOutcomeReview': async () => lazyPanels().OutcomeReviewPanel.show(context, store, client),
     // The repository's APM packages and the steps their agents draft; read once per refresh [APM A7].
-    'singularityFlow.openApmPackages': async () => lazyPanels().ApmPackagesPanel.show(client),
+    'singularityFlow.openApmPackages': async () => lazyPanels().ApmPackagesPanel.show(client, {
+      steps: () => Object.entries(store.current.snapshot?.definition?.phases ?? {}).map(([id, phase]) => ({ id, label: phase.label ?? id })),
+      authorityKind: () => store.current.snapshot?.configurationSource?.effective?.kind ?? null,
+      refresh: refreshAfterKnownMutation
+    }),
     'singularityFlow.openEvidenceMatrix': async () => {
       const { EvidenceMatrixPanel } = lazyPanels();
       return EvidenceMatrixPanel.show(context, store, client);
@@ -9337,11 +9341,13 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       } catch (error) { showRefusal(error, { headline: 'Your agent folder cannot be added' }); }
     },
     // Workflow Studio, optionally at one section: `{ view: 'changes' }` opens the proposals waiting
-    // for review, `{ view: 'artifacts' }` the templates.
+    // for review, `{ view: 'artifacts' }` the templates, `{ view: 'agents', agent }` one agent's form
+    // and `{ view: 'agents', newAgent: true }` a new agent's.
     'singularityFlow.openWorkflowStudio': async (target?: unknown) => {
       const { WorkflowStudioPanel, STUDIO_FOCUS_VIEWS } = lazyPanels();
       const requested = typeof target === 'string' ? target : (target as { view?: unknown } | undefined)?.view;
       const workflowId = (target as { workflowId?: unknown } | undefined)?.workflowId;
+      const { agent, newAgent } = (target && typeof target === 'object' ? target : {}) as { agent?: unknown; newAgent?: unknown };
       // `{ importBundle }`: start Import… with a bundle file the team-import panel wrote.
       const importBundle = (target as { importBundle?: unknown } | undefined)?.importBundle;
       const focus = (STUDIO_FOCUS_VIEWS as readonly unknown[]).includes(requested) ? requested as typeof STUDIO_FOCUS_VIEWS[number] : null;
@@ -9378,7 +9384,8 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
             : String(process.env.JIRA_BASE_URL ?? '').trim() && String(process.env.JIRA_PAT ?? process.env.JIRA_API_TOKEN ?? '').trim() ? 'environment' : 'missing')
         }
       }, focus, typeof workflowId === 'string' ? workflowId : null,
-      typeof importBundle === 'string' && path.isAbsolute(importBundle) && importBundle.endsWith('.json') ? importBundle : null);
+      typeof importBundle === 'string' && path.isAbsolute(importBundle) && importBundle.endsWith('.json') ? importBundle : null,
+      newAgent === true ? { newAgent: true } : typeof agent === 'string' ? { agent } : null);
     },
     // The Workflow Designer is gone: Workflow Studio does what it did. The command stays for one
     // release, so links and habits land in Studio.
@@ -9386,6 +9393,12 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     'singularityFlow.openInstructionDesigner': async () => {
       const { InstructionDesignerPanel } = lazyPanels();
       return InstructionDesignerPanel.show(context, store, async (message) => {
+      // Agents are created and changed in Workflow Studio; the agent tab opens it at the agent.
+      if (message.type === 'open-studio') {
+        await vscode.commands.executeCommand('singularityFlow.openWorkflowStudio',
+          message.agent ? { view: 'agents', agent: message.agent } : { view: 'agents', newAgent: true });
+        return null;
+      }
       if (message.type === 'agent-action') {
         if (message.action === 'refresh') {
           await store.refresh();

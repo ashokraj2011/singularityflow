@@ -48,6 +48,8 @@ if (args[0] === 'pack') {
       metadata: { description: manifest.description, version: manifest.version },
       plugins: (market.packages || []).map((entry) => ({ name: entry.name, description: entry.description, version: entry.version, source: entry.source })) }, null, 2) + '\\n');
   }
+  // apm 0.35.0 reports what it built on stdout.
+  console.log('[*] Built marketplace.json [copilot] (' + (market.packages || []).length + ' package(s))');
   process.exit(0);
 }
 process.exit(2);
@@ -290,6 +292,13 @@ test('the shell commands print the change and its next steps, and a marketplace 
   const json = JSON.parse(ok(space.flow(app, ['apm', 'publish', 'reviewer', '--marketplace', '../catalog', '--json'])).stdout);
   assert.equal(json.resultType, 'sflow-apm-publish');
   assert.equal(json.unchanged, true);
+  // APM's own output goes to stderr, so a --json result that ran APM still reads (the VS Code panel parses it).
+  const other = await space.repository('other-catalog', { remote: false });
+  const initJson = ok(space.flow(other, ['apm', 'marketplace', 'init', '--name', 'other-catalog', '--owner', 'acme', '--json']));
+  assert.equal(JSON.parse(initJson.stdout).name, 'other-catalog', initJson.stdout);
+  assert.match(initJson.stderr, /Built marketplace\.json/u);
+  const packedJson = ok(space.flow(app, ['apm', 'publish', 'reviewer', '--marketplace', '../other-catalog', '--json']));
+  assert.deepEqual([JSON.parse(packedJson.stdout).committed, JSON.parse(packedJson.stdout).marketplace], [true, 'other-catalog'], packedJson.stdout);
 
   assert.equal(remoteRepository('https://someone:secret@git.example.test/acme/app.git'), 'git.example.test/acme/app');
   assert.equal(remoteRepository('git@git.example.test:acme/app.git'), 'git.example.test/acme/app');

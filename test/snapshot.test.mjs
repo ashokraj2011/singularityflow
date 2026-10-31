@@ -726,7 +726,10 @@ test('visual editor configuration saves validate atomically and publish scoped c
   await assert.rejects(() => saveConfigurationFile(root, 'singularity/agents.lock.yml', 'version: 1\nagents: {}\n'), /read-only/i);
   await mkdir(path.join(root, '.github/agents'), { recursive: true });
   await writeFile(path.join(root, '.github/agents/reviewer.agent.md'), '---\nname: reviewer\ndescription: Repository reviewer\ntools: ["bash"]\n---\n\nReview local work.\n');
-  await saveConfigurationFile(root, '.github/agents/reviewer.agent.md', '---\nname: reviewer\ndescription: Repository reviewer\ntools: ["bash"]\n---\n\nReview local work carefully.\n');
+  // Agents change only through Workflow Studio's change set; a whole-file save names that route.
+  await assert.rejects(() => saveConfigurationFile(root, '.github/agents/reviewer.agent.md', '---\nname: reviewer\ndescription: Repository reviewer\ntools: ["bash"]\n---\n\nReview local work carefully.\n'),
+    (error) => error.code === 'CONFIGURATION_AGENT_FILE_STUDIO_ONLY' && /agents edit reviewer/.test(error.message));
+  assert.equal(await readFile(path.join(root, '.github/agents/reviewer.agent.md'), 'utf8'), '---\nname: reviewer\ndescription: Repository reviewer\ntools: ["bash"]\n---\n\nReview local work.\n');
   const mappingPath = path.join(root, 'singularity/agent-mappings.yml');
   const originalMappings = await readFile(mappingPath, 'utf8');
   await assert.rejects(() => saveConfigurationFile(root, 'singularity/agent-mappings.yml', 'version: 1\nmappings:\n  enterprise-reviewer: missing-pack\n'), /unknown agent/i);

@@ -14,7 +14,7 @@ related:
   - model-independence
   - assignments-and-watchlists
   - skill-master
-version: 8
+version: 9
 ---
 Phase activation selects an agent from pinned policy. Human approval authority remains separate from agent selection, and explicit overrides are local and audited.
 
@@ -39,6 +39,20 @@ An agent can attach skills from the skill master, each for some of its steps and
 when to use it; in those steps the skills' instructions are part of its prompt. Any agent, a
 seeded workflow's included, can be attached skills in `singularity/skill-library/attachments.yml`
 without changing the agent (`sflow explain skill-master`).
+
+## One way to make or change an agent
+
+Agents are created and changed only through Workflow Studio's change set: **Workflow Studio →
+Agents** in VS Code, `singularity-flow agents create|edit` in the shell (`--step STEP` also makes
+the agent the one that drafts that step), and `/sf-build-workflow` in Copilot. Every route writes
+the agent file the same way and checks the same things: a seeded workflow's agents stay read-only,
+an agent APM installed is changed only in its package, and each step has one default agent. A new
+agent and the steps it drafts are one draft, one proposal and one approval.
+
+`singularity-flow configuration save` never writes an agent file; it refuses one and names
+`agents edit`. In VS Code, **Configuration → Agents & delivery** shows each agent read-only and
+opens Workflow Studio at it to change it. Agents from APM packages are installed, attached to
+steps and shared from **Agent Packages** (`sflow explain apm-packages`).
 
 ## Duplicate and customize an agent
 
@@ -66,7 +80,7 @@ Use this topic when the current goal matches **agents and routing**. Start in a 
 
 - **Shell:** `sflow agent`, `sflow agents`, `sflow assign`. Run `singularity-flow agent --help` for the exact forms supported by this build.
 - **Copilot:** `/sf-agent`, `/sf-agents`. The skill must preserve the CLI result and ask before it changes anything.
-- **VS Code:** open Singularity Flow **Configuration Center**. The extension renders engine results; it does not independently decide lifecycle state.
+- **VS Code:** create and change agents in **Workflow Studio → Agents**; **Configuration Center → Agents & delivery** shows them and their trust state. The extension renders engine results; it does not independently decide lifecycle state.
 
 ## Guided workflow
 

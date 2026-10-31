@@ -1780,8 +1780,24 @@ export async function validateConfigurationCandidates(root, candidates, definiti
   }
 }
 
+/**
+ * Agents are written only through Workflow Studio's change set (Workflow Studio, `agents create|edit`,
+ * the builder), which checks seeded-workflow protection, APM ownership and one default per step. A
+ * whole-file save checks none of that, so it refuses an agent file before reading anything else.
+ */
+export function refuseAgentFileSave(root, requestedPath) {
+  const relative = repoRelative(root, requestedPath);
+  const file = /^\.github\/agents\/([^/]+)\.md$/iu.exec(relative);
+  if (!file) return;
+  const id = file[1].replace(/\.agent$/iu, '');
+  throw new SingularityFlowError(`${relative} is an agent, and agents are changed only through Workflow Studio, so every agent is checked the same way. Nothing was saved. Open Workflow Studio's Agents, or run singularity-flow agents edit ${id} (agents create ${id} for a new one).`, {
+    code: 'CONFIGURATION_AGENT_FILE_STUDIO_ONLY', details: { path: relative, nextAction: `singularity-flow agents edit ${id}` }
+  });
+}
+
 export async function saveConfigurationFile(root, requestedPath, content, { expectedSha256 = null } = {}) {
   const relative = repoRelative(root, requestedPath);
+  refuseAgentFileSave(root, relative);
   if (isConfigurationStatePath(relative)) throw new SingularityFlowError('Configuration transaction receipts are kernel-owned. Inspect or reconcile the operation; do not edit its receipt.', { code: 'CONFIGURATION_STATE_PROTECTED' });
   // Bind the save lease to the target bytes before parsing any repository configuration. A
   // concurrent writer can leave workflow.yml temporarily malformed; that is still a revision
@@ -1808,7 +1824,7 @@ export async function saveConfigurationFile(root, requestedPath, content, { expe
   const definition = await loadDefinition(root);
   const portfolio = await loadPortfolio(root, { required: false });
   const currentAuthority = editorConfigurationPathAuthority(root, definition, portfolio);
-  if (!allowedConfigurationPath(definition, relative, portfolio, null, currentAuthority)) throw new SingularityFlowError(`Editor editing is restricted to workflow and portfolio YAML, templates, agent prompts, repository skills, world-model builder prompts, and repository agent Markdown. Generated world-model files, initiative state, and agent locks are read-only.`);
+  if (!allowedConfigurationPath(definition, relative, portfolio, null, currentAuthority)) throw new SingularityFlowError(`Editor editing is restricted to workflow and portfolio YAML, templates, agent prompts, repository skills and world-model builder prompts; agents change through Workflow Studio. Generated world-model files, initiative state, and agent locks are read-only.`);
   if (relative === WORKFLOW_PATH) {
     try {
       const candidateDefinition = validateDefinition(YAML.parse(content));

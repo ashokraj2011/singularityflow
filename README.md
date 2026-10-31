@@ -2715,8 +2715,9 @@ singularity-flow agents refresh-output threat-model
 singularity-flow agents refresh-output threat-model --replace
 ```
 
-VS Code **Configuration → Agents & delivery** provides the same lifecycle visually:
-edit the three structured resource tables, map native Copilot agent names, inspect
+VS Code provides the same lifecycle visually: **Workflow Studio → Library** adds remote
+skills, templates and generated sources to an agent, and **Configuration → Agents & delivery**
+maps native Copilot agent names, inspects
 per-resource hashes and cache state, open the exact trust/update confirmation in an
 integrated terminal, and sync locked content. Authenticated private Git,
 Artifactory, cookie, and bearer

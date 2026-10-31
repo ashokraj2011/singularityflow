@@ -152,6 +152,16 @@ export interface StudioChangeOutcome {
 /** Unpublished Studio changes kept across closing the panel. */
 export interface StudioSavedDraft { schema: 1; base: string; savedAt: string; draft: string }
 
+/** One agent to open the Agents view at, as the Instruction Designer's agent tab asks: its form, or a new one. */
+export type StudioAgentFocus = { agent: string } | { newAgent: true };
+const STUDIO_AGENT_ID = /^[a-z0-9]+(?:-[a-z0-9]+)*$/;
+
+function agentFocus(requested: StudioAgentFocus | null): StudioAgentFocus | null {
+  if (!requested) return null;
+  if ('newAgent' in requested) return requested.newAgent === true ? { newAgent: true } : null;
+  return typeof requested.agent === 'string' && requested.agent.length <= 64 && STUDIO_AGENT_ID.test(requested.agent) ? { agent: requested.agent } : null;
+}
+
 export class WorkflowStudioPanel implements vscode.Disposable {
   private static current: WorkflowStudioPanel | null = null;
   private readonly subscriptions: vscode.Disposable[] = [];
@@ -165,6 +175,7 @@ export class WorkflowStudioPanel implements vscode.Disposable {
   /** The section to show once the model has loaded, when a screen opened Studio at one. */
   private focus: StudioFocusView | null = null;
   private workflowToOpen: string | null = null;
+  private agentToOpen: StudioAgentFocus | null = null;
   /** A bundle to import once the page is ready, from the team-import panel; never a webview path. */
   private bundleToImport: string | null = null;
   private build: OpenBuild | null = null;
@@ -186,13 +197,17 @@ export class WorkflowStudioPanel implements vscode.Disposable {
       contentSecurityPolicy(panel.webview, token), token, WORKFLOW_STUDIO_SCRIPT);
   }
 
-  static show(client: SingularityFlowClient, output: vscode.OutputChannel, actions: WorkflowStudioActions, focus: StudioFocusView | null = null, workflowId: string | null = null, importBundle: string | null = null): WorkflowStudioPanel {
+  static show(client: SingularityFlowClient, output: vscode.OutputChannel, actions: WorkflowStudioActions, focus: StudioFocusView | null = null, workflowId: string | null = null, importBundle: string | null = null, agent: StudioAgentFocus | null = null): WorkflowStudioPanel {
     const canvasWorkflow = workflowId && /^(?:initiative:)?[a-z0-9]+(?:-[a-z0-9]+)*$/.test(workflowId) && workflowId.length <= 139 ? workflowId : null;
+    const agentToOpen = agentFocus(agent);
     if (WorkflowStudioPanel.current) {
       WorkflowStudioPanel.current.panel.reveal(vscode.ViewColumn.Active);
       if (canvasWorkflow) {
         if (WorkflowStudioPanel.current.model) WorkflowStudioPanel.current.post({ type: 'studio.focus', workflowId: canvasWorkflow });
         else WorkflowStudioPanel.current.workflowToOpen = canvasWorkflow;
+      } else if (agentToOpen) {
+        if (WorkflowStudioPanel.current.model) WorkflowStudioPanel.current.post({ type: 'studio.focus', view: 'agents', ...agentToOpen });
+        else WorkflowStudioPanel.current.agentToOpen = agentToOpen;
       } else if (focus) WorkflowStudioPanel.current.post({ type: 'studio.focus', view: focus });
       if (importBundle) WorkflowStudioPanel.current.requestImport(importBundle);
       return WorkflowStudioPanel.current;
@@ -204,6 +219,7 @@ export class WorkflowStudioPanel implements vscode.Disposable {
     WorkflowStudioPanel.current = new WorkflowStudioPanel(panel, client, output, actions);
     WorkflowStudioPanel.current.focus = focus;
     WorkflowStudioPanel.current.workflowToOpen = canvasWorkflow;
+    WorkflowStudioPanel.current.agentToOpen = agentToOpen;
     WorkflowStudioPanel.current.bundleToImport = importBundle;
     return WorkflowStudioPanel.current;
   }
@@ -755,8 +771,9 @@ export class WorkflowStudioPanel implements vscode.Disposable {
       this.post({ type: 'studio.model', model: this.model, reset });
       if (this.workflowToOpen) {
         this.post({ type: 'studio.focus', workflowId: this.workflowToOpen }); this.workflowToOpen = null;
-      } else if (this.focus) this.post({ type: 'studio.focus', view: this.focus });
-      this.focus = null;
+      } else if (this.agentToOpen) this.post({ type: 'studio.focus', view: 'agents', ...this.agentToOpen });
+      else if (this.focus) this.post({ type: 'studio.focus', view: this.focus });
+      this.focus = null; this.agentToOpen = null;
       if (this.bundleToImport) this.post({ type: 'studio.importRequested', name: this.bundleToImport.split(/[\\/]/).pop() });
       await this.offerSavedDraft();
       await this.proposals();

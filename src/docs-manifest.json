@@ -1,9 +1,9 @@
 {
   "schemaVersion": 2,
   "generatedFrom": "docs/topics",
-  "sourceCommit": "433f5e94dc23dc7fcc437b99f4452215a8a4c098",
+  "sourceCommit": "b7955be882267648fd83e2f9d23fba93e832833d",
   "topicCount": 87,
-  "contentSha256": "797af5fa6c60aaeda6c485f1d11fa69926b573652f7bb9bf41478bb290bb4969",
+  "contentSha256": "b55895493d879c09acaa4c028d12507e7c66f9333d2a83b54d5c3366be55937f",
   "topics": [
     {
       "id": "activity-and-prompt-audit",
@@ -32,16 +32,16 @@
     {
       "id": "agents-and-routing",
       "title": "Agents, assignments, and model routing",
-      "version": 8,
-      "sha256": "2670f95e189a884c2d825f50f4bbe97f0ebf9ce97167ef35950f9c721e256440",
+      "version": 9,
+      "sha256": "3a6c4fa43d10d320bbecdc2b3239f2b51ab04cf31df1e65fa4289c19d1cefeab",
       "routingSha256": "001a52719941c2f9910ffacf2306d9ded4e45e3a3d202f73a843fc33649dd603",
       "file": "agents-and-routing.md"
     },
     {
       "id": "apm-packages",
       "title": "APM packages in a repository",
-      "version": 9,
-      "sha256": "9463ce64abb719bd75be279c681edb23fdd6c9d5de61ead46dd2f7353927c9a8",
+      "version": 10,
+      "sha256": "da01567ec46e0f0f40da863e2edc05c3f364e13fd838176532bb051057fd991f",
       "routingSha256": "d0975723a55bd212a3bed8f0ab38a6ed941d4e63bfc60464033827ccc2c18632",
       "file": "apm-packages.md"
     },
@@ -120,8 +120,8 @@
     {
       "id": "configuration",
       "title": "Configuration, capabilities, and the policy fold",
-      "version": 15,
-      "sha256": "1dadbae6f7653da3ebd06134270c9cd7ac06eb06b03fd4a3196f4a318bf82370",
+      "version": 16,
+      "sha256": "3c7e24a6997cd025e9f0f3ff5012fdd27101512f7266c43aaee776bd16980f5a",
       "routingSha256": "2d2fa1c092e101abe3c2074545597f9ed25b38d2627aeaa9e9d89c3c24c15c58",
       "file": "configuration.md"
     },

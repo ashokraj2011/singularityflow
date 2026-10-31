@@ -14,8 +14,10 @@ The installed tutorials are `sflow explain configuration`, `sflow explain workfl
 |---|---|---|
 | Capabilities and repository ownership | Capability Designer | `singularity/capabilities.yml` and the state branch |
 | Story and Epic workflows, steps, sign-off, artifacts and configuration proposals | Workflow Studio | `singularity/workflow.yml`, `singularity/portfolio.yml` and `singularity/templates/` |
+| Agents: creating, changing and choosing the steps each one drafts | Workflow Studio → Agents | `.github/agents/` |
 | Repository and work-type Auto enablement | Auto mode | `singularity/workflow.yml` |
-| Agents, mappings, remote Markdown, prompts, skills and prompt packs | Agent Delivery & Instruction Designer | `.github/agents/`, `singularity/agent-mappings.yml`, `singularity/agents.lock.yml`, `singularity/prompts/`, repository skills and packs |
+| Agent mappings, remote Markdown trust, prompts, skills and prompt packs | Agent Delivery & Instruction Designer | `singularity/agent-mappings.yml`, `singularity/agents.lock.yml`, `singularity/prompts/`, repository skills and packs |
+| Agents from APM packages: install, attach to steps, share | Agent Packages | `apm.yml`, `apm.lock.yaml`, `singularity/workflow.yml` `apm` |
 | People and Story approval groups | People & approvals | `singularity/workflow.yml` |
 | People and Initiative approval groups | People & approvals | `singularity/portfolio.yml` |
 | MCP phase/agent/tool policy | MCP tools | `singularity/workflow.yml` |
@@ -65,7 +67,12 @@ automatically, or claim that files were preserved when the refusing operation su
 record. Commands that already return the structured result contract retain their gate checklist,
 preservation evidence, and legal next actions.
 
-Every governed save goes through `singularity-flow configuration save`. The CLI validates the complete resulting file before writing it, so a visual edit cannot leave an unknown phase, authority, agent, or MCP policy behind. YAML comments and unrelated keys are retained.
+Every governed save goes through `singularity-flow configuration save`, except agents. The CLI validates the complete resulting file before writing it, so a visual edit cannot leave an unknown phase, authority, agent, or MCP policy behind. YAML comments and unrelated keys are retained.
+
+Agents have one route: Workflow Studio's change set, which `agents create|edit`, the builder and
+team import use too. It checks seeded-workflow protection, APM ownership and one default agent per
+step, and keeps a new agent and the steps it drafts in one draft, one proposal and one approval.
+`configuration save` refuses a file in `.github/agents/` and names that route.
 
 Saving is authoring, not publication. The destination depends on the authority shown by the
 Configuration Center:
@@ -86,8 +93,11 @@ performs a fresh store read before replacing a dirty form; it is not a repaint o
 
 **Configuration → Agents & delivery** separates authoring from trust:
 
-- **Agents** edits phase routing, instructions, tools, and the
-  structured remote skill, artifact-template, and generated-output declarations.
+- **Agents** lists every agent and shows its file read-only. **Edit in Workflow Studio** (or
+  **Open in Workflow Studio** for a packaged agent, which Studio duplicates) and the **+** button
+  open Workflow Studio's agent form, where agents are created and changed. Remote skills,
+  templates and generated sources are added from Studio's Library; edited instructions keep
+  their tables.
 - **Mappings & remote** maps a native Copilot agent name to a governed Flow agent,
   then shows source drift, dependency hashes, lock state, and local cache readiness.
 - **Review & trust** and **Review update** open the engine's exact-name confirmation

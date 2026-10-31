@@ -11,7 +11,7 @@ related:
   - importing-assets
   - agents-and-routing
   - skill-master
-version: 9
+version: 10
 ---
 APM (Microsoft's Agent Package Manager) installs agents, skills, instructions and prompts as packages. `apm.yml` declares them, `apm install` resolves each one to a commit and writes its files for Copilot (agents, instructions and prompts into `.github/`, skills into `.agents/skills/`), and `apm.lock.yaml` records every file it wrote with its SHA-256. SFlow reads what APM left, says whether it is still intact, commits an install for review, lets its agents draft your workflow's steps, publishes your own agents to your organisation's APM marketplace, and writes the organisation's policy of which packages may be installed.
 
@@ -25,7 +25,7 @@ Your organisation's marketplace is one Git repository in APM's monorepo-hybrid s
 
 - **Shell:** `sflow apm status` prints the locked packages, what each one deployed and whether it is intact; `sflow apm install <PACKAGE>` installs with APM and commits the result on an `apm/` branch; `sflow apm attach <AGENT> --step <STEP> --propose` makes an APM agent draft a step; `sflow apm marketplace init --name <NAME> --owner <OWNER>` starts a marketplace in its repository's checkout; `sflow apm publish <AGENT>... --marketplace <CHECKOUT>` publishes this repository's agents to it; `sflow apm policy init --marketplace <OWNER/REPOSITORY>` writes the organisation's policy.
 - **Copilot:** `/sf-apm` shows the packages, their files and the steps their agents draft, and runs only `--dry-run` previews of `apm install`, `apm update`, `apm publish`, `apm marketplace init` and `apm policy init`. Installing changes which agents run and publishing what other teams run, so it gives you the command to run in your own terminal.
-- **VS Code:** **Singularity Flow: Agent Packages (APM)** shows the same: each package and whether its files are as APM wrote them, the steps APM agents draft (or why one waits), and agents SFlow cannot use. **Install a package…** and **Update packages…** type the command into a terminal for you to run; **Choose steps in Workflow Studio** opens Studio, where an APM agent can draft a step like any other; only its steps change, never its file.
+- **VS Code:** **Singularity Flow: Agent Packages (APM)** shows the same: each package and whether its files are as APM wrote them, the steps APM agents draft (or why one waits), and agents SFlow cannot use. **Install a package…** and **Update packages…** type the command into a terminal for you to run. **Attach … to a step…** runs `apm attach` for one APM agent: it previews the change, asks, and proposes it for review (or writes this checkout's `workflow.yml` where this checkout is the configuration authority). **Share agents to a marketplace…** runs `apm publish` for the repository's own agents you choose and the marketplace checkout you pick: it previews the package's files, asks, and commits on an `apm/` branch there, pushing nothing. **Choose steps in Workflow Studio** opens Studio, where an APM agent can draft a step like any other; only its steps change, never its file.
 
 ## Guided workflow
 

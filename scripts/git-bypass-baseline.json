@@ -74,7 +74,7 @@
         "command-run": 2,
         "process-import": 1
       },
-      "digest": "1c41fe5747778053135ff2e2762d1897eb79ed001ca89b39b08a43d26e0662b6"
+      "digest": "dc0f59e89c542f5969700132873cf686d09d655b8fbfe68869cbd98a110957b0"
     },
     "src/application-run.mjs": {
       "counts": {

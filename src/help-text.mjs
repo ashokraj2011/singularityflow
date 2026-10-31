@@ -946,7 +946,7 @@ Usage:
   singularity-flow configuration transactions [--json]     Inspect retained configuration operations; the journal grants no authority
   singularity-flow configuration reconcile <CFT-ID> [--json]  Reconcile a committed operation and finish reference sync; never retry a push blindly
   singularity-flow configuration explain [--pointer JSON-POINTER] [--json]
-  singularity-flow configuration save <PATH> [--propose]    Reads replacement content from stdin
+  singularity-flow configuration save <PATH> [--propose]    Reads replacement content from stdin; never an agent file (agents create|edit)
   singularity-flow configuration add-current-identity [--target *|story:*|initiative:*|SCOPE:GROUP] [--self-approval on|off] [--auto-enroll on|off] [--automatic] [--json]
   singularity-flow state planes [WORK-ID] [--json]
   singularity-flow state reconcile [WORK-ID] --check|--repair-projections [--json]

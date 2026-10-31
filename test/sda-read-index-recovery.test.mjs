@@ -151,7 +151,9 @@ test('A1: a record this process cannot use counts as missing, and VS Code and a 
 test('A1: a respelled remote is the same authority, and another repository\'s record never lets the clone answer', async (t) => {
   const f = await fixture(t);
   const remote = path.join(f.base, 'team', 'app.git');
-  const repo = await f.repository('app', `[remote "origin"]\n\turl = ${remote}\n`);
+  // Git writes the remote: a Windows path written raw has backslashes Git takes for escapes.
+  const repo = await f.repository('app');
+  repo.git('remote', 'add', 'origin', remote);
   const calls = [];
   const read = (verify) => cachedSessionListing(repo.root, { identity: { list: 'app' }, files: [repo.observed], env: f.env },
     async ({ allowLocal } = {}) => { calls.push(allowLocal); return verify(); });
@@ -285,7 +287,8 @@ test('A5: a refresh lease is judged by machine identity and process start, and o
   // taken over, never waited for, and named with its review and reviewed release.
   await age(file, 31 * 60_000);
   const nonce = randomUUID();
-  await writeFile(leaseFile, JSON.stringify({ version: 2, pid: 1, host: os.hostname(), nonce, createdAt: now, heartbeatAt: now }), { mode: 0o600 });
+  // The test runner's own parent runs on every platform (Windows has no PID 1).
+  await writeFile(leaseFile, JSON.stringify({ version: 2, pid: process.ppid, host: os.hostname(), nonce, createdAt: now, heartbeatAt: now }), { mode: 0o600 });
   const held = await inspectFileLease(leaseFile);
   assert.deepEqual([held.state, held.active], ['busy', false]);
   assert.equal(held.releaseCommand, `singularity-flow lock release-file ${JSON.stringify(leaseFile)} --confirm ${nonce}`);
@@ -385,13 +388,14 @@ test('A6: a listing of another repository named by URL is never this repository\
   const repo = await f.repository('a', '[remote "origin"]\n\turl = https://example.invalid/team/a.git\n');
   const previous = process.cwd();
   process.chdir(repo.root);
-  t.after(() => process.chdir(previous));
   const saved = { ...process.env };
   Object.assign(process.env, f.env);
   t.after(() => { for (const key of Object.keys(process.env)) if (!(key in saved)) delete process.env[key]; Object.assign(process.env, saved); });
   const { sessionListingSnapshot } = await import('../src/session-listing-cache.mjs');
   const other = { discovered: { source: 'remote-url', ledgerCommit: 'b'.repeat(40), items: [{ id: 'B-1' }], count: 1, unavailableCount: 0, unavailable: [] } };
-  await sessionListingSnapshot(['session', 'candidates'], { 'repository-url': 'https://example.invalid/team/b.git' }, async () => other);
+  // Back out before the fixture is removed: Windows will not remove a process's working directory.
+  try { await sessionListingSnapshot(['session', 'candidates'], { 'repository-url': 'https://example.invalid/team/b.git' }, async () => other); }
+  finally { process.chdir(previous); }
   const [file] = await records(sessionListingDirectory(f.env));
   assert.deepEqual(readProjectionRecord(file, null).binding.authority, { repositoryUrl: 'https://example.invalid/team/b.git', configurationUrl: null });
   assert.equal(await lastKnownStoryList(repo.root, { env: f.env }), null);

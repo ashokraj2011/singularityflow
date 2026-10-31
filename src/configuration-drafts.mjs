@@ -530,6 +530,18 @@ export async function authorChange(root, changeSet, { dryRun = false, propose = 
 }
 
 /**
+ * A command's save that did not check is refused, as the same change is without an approved
+ * configuration: a non-zero exit naming the problem, not a list of files that were never written.
+ * `authorChange` itself returns it (`valid: false`), which backup restore reports per draft.
+ */
+export function refuseUncheckedSave(result, { dryRun = false } = {}) {
+  if (dryRun || result?.valid !== false) return result;
+  const problems = result.problems ?? [];
+  return fail(`This change was not saved: ${problems[0]?.message ?? 'it does not check against the approved configuration.'} Nothing was written.`,
+    'STUDIO_CHANGES_INVALID', { problems });
+}
+
+/**
  * Record a proposal holding exactly `draftIds`, then remove exactly those drafts; one saved meanwhile
  * keeps waiting. The proposal is written first, so a crash in between leaves drafts it already holds,
  * which are hidden at once and removed by the next change to the store. Returns the drafts left.

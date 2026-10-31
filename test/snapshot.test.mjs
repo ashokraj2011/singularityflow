@@ -18,8 +18,12 @@ import {
   readConfigurationFile,
   saveConfigurationFile,
   selectEditorAgent,
+  validateConfigurationCandidates,
   validateEditorConfiguration
 } from '../src/editor.mjs';
+import { initializeDefinition, loadDefinition } from '../src/config.mjs';
+import { loadPortfolio } from '../src/initiative-config.mjs';
+import { withConfigurationReadRoot } from '../src/configuration-read-scope.mjs';
 import { exactRemoteHeadsObservationAsync } from '../src/git.mjs';
 import { readTransportIntent, retryTransportIntent } from '../src/transport-intents.mjs';
 import { changedLines, foldYamlFile } from './helpers/folded-yaml.mjs';
@@ -919,6 +923,34 @@ test('visual editor cannot expand a dirty candidate root over application source
 
   assert.equal(run('git', ['rev-parse', 'HEAD'], root).stdout.trim(), before);
   assert.match(run('git', ['status', '--short', '--', 'src/application.js'], root).stdout, /src\/application\.js/);
+});
+
+test('in the approved configuration copy a candidate is checked against the approved roots; a new root is still refused', async (t) => {
+  // A draft save from a checkout without singularity/ is checked in a copy of the approved files
+  // that has no Git. The roots it was approved with are its baseline, not the reserved defaults.
+  const copy = await mkdtemp(path.join(os.tmpdir(), 'sflow-approved-copy-'));
+  const checkout = await mkdtemp(path.join(os.tmpdir(), 'sflow-application-'));
+  t.after(() => Promise.all([copy, checkout].map((directory) => rm(directory, { recursive: true, force: true }))));
+  await initializeDefinition(copy);
+  await mkdir(path.join(copy, 'docs'));
+  await rename(path.join(copy, 'singularity/templates'), path.join(copy, 'docs/flow-templates'));
+  for (const file of ['workflow.yml', 'portfolio.yml']) {
+    const target = path.join(copy, 'singularity', file);
+    await writeFile(target, (await readFile(target, 'utf8')).replace(/^templatesRoot: .*$/mu, 'templatesRoot: docs/flow-templates'));
+  }
+  const definition = await loadDefinition(copy);
+  const portfolio = await loadPortfolio(copy, { required: false });
+  const approved = await readFile(path.join(copy, 'singularity/workflow.yml'), 'utf8');
+  const inCopy = (content) => withConfigurationReadRoot(checkout, copy, { kind: 'remote', commit: 'c'.repeat(40) },
+    () => validateConfigurationCandidates(copy, [{ path: 'singularity/workflow.yml', content }], definition, portfolio));
+
+  await inCopy(approved);
+  // Even with a complete template tree there, a root the approved configuration does not name is refused.
+  await cp(path.join(copy, 'docs/flow-templates'), path.join(copy, 'src'), { recursive: true });
+  await assert.rejects(() => inCopy(approved.replace(/^templatesRoot: .*$/mu, 'templatesRoot: src')),
+    (error) => error?.code === 'CONFIGURATION_PATH_SCOPE_ESCALATION'
+      && error.details.escalations.some((entry) => entry.field === 'templatesRoot'
+        && entry.previous === 'docs/flow-templates' && entry.candidate === 'src'));
 });
 
 test('configuration remote-head observations treat magic branch names as inert data', async () => {

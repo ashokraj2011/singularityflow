@@ -10,7 +10,7 @@ related:
   - pins
   - quick-fix
   - escalation
-version: 12
+version: 13
 commands:
   - configuration
   - workflow
@@ -149,7 +149,7 @@ These commands can change repository or machine-local state: `configuration`, `w
 
 ## Change agents, skills and instructions
 
-In a repository with an approved configuration authority (`sflow/config`), `agents create|edit`, `skill create|edit|attach|detach|remove` and `instruction create|edit|remove` save each change as a draft on this machine. A draft is checked against the approved configuration together with every earlier draft, so a skill that is still a draft can already be attached. No Story uses a draft. `singularity-flow configuration drafts` lists them (`skill list`, `instruction list` and `agents list` show them too), `configuration discard <NUMBER>` drops one, and `configuration propose` sends all of them as one review. `configuration approve` then shows what the proposal changes, asks once, and activates exactly that revision; nobody copies a commit. Workflow Studio shows the same drafts under **Changes** and publishes them with its own edits. Without an authority, changes are written to the working tree as before.
+In a repository with an approved configuration authority (`sflow/config`), `agents create|edit`, `skill create|edit|attach|detach|remove` and `instruction create|edit|remove` save each change as a draft on this machine. A draft is checked against the approved configuration together with every earlier draft, so a skill that is still a draft can already be attached. A change that does not check is refused with the problem, and nothing is saved. No Story uses a draft. `singularity-flow configuration drafts` lists them (`skill list`, `instruction list` and `agents list` show them too), `configuration discard <NUMBER>` drops one, and `configuration propose` sends all of them as one review. `configuration approve` then shows what the proposal changes, asks once, and activates exactly that revision; nobody copies a commit. Workflow Studio shows the same drafts under **Changes** and publishes them with its own edits. Without an authority, changes are written to the working tree as before.
 
 ## Troubleshooting
 

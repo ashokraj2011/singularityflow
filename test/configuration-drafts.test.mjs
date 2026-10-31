@@ -167,7 +167,8 @@ test('approving shows what changes, needs a yes, and activates exactly the revis
     && /configuration approve one\n.*configuration approve two/.test(error.message));
 });
 
-test('end to end: three dependent changes become one proposal, approved with one command', async t => {
+/** A checkout bootstrapped from a remote whose approved configuration is the seed's, as `prepare` left it. */
+async function approvedCheckout(t, prepare = async () => {}) {
   const base = await mkdtemp(path.join(os.tmpdir(), 'sflow-drafts-e2e-'));
   t.after(() => rm(base, { recursive: true, force: true }));
   const machine = path.join(base, 'machine');
@@ -188,10 +189,16 @@ test('end to end: three dependent changes become one proposal, approved with one
   git(seed, 'init', '-q', '-b', 'main');
   await writeFile(path.join(seed, 'README.md'), '# Drafts\n');
   await initializeDefinition(seed);
-  git(seed, 'add', '.');
+  await prepare(seed);
+  git(seed, 'add', '-A');
   git(seed, '-c', 'user.name=Draft Author', '-c', 'user.email=draft.author@example.invalid', 'commit', '-qm', 'seed');
   git(base, 'clone', '-q', '--bare', seed, remote);
   flow(base, ['bootstrap', remote, '--capability', 'drafts', '--into', checkout]);
+  return { base, remote, checkout, flow };
+}
+
+test('end to end: three dependent changes become one proposal, approved with one command', async t => {
+  const { base, remote, checkout, flow } = await approvedCheckout(t);
   const skillFile = path.join(base, 'skill.md');
   await writeFile(skillFile, 'Write each comment <instruction>tone</instruction> and name the line.\n');
 
@@ -252,4 +259,27 @@ test('end to end: three dependent changes become one proposal, approved with one
   assert.match(git(remote, 'show', 'sflow/config:singularity/skill-library/attachments.yml'), /review/);
   assert.match(flow(checkout, ['configuration', 'drafts']).stdout, /^No drafts\./);
   assert.equal(JSON.parse(await readFile(path.join(draftsDirectory(checkout), 'proposed.json'), 'utf8')).proposed, null);
+});
+
+test('a draft save is checked against the approved templates root wherever it is, and a save that does not check is refused', async t => {
+  // The approved configuration keeps its templates outside singularity/templates. The copy a draft
+  // save is checked in has no Git, and its committed baseline once fell back to the reserved roots,
+  // so every save there was refused as moving editor authority to the root it was approved with.
+  const { checkout, flow } = await approvedCheckout(t, async (seed) => {
+    await mkdir(path.join(seed, 'docs'));
+    await rename(path.join(seed, 'singularity', 'templates'), path.join(seed, 'docs', 'flow-templates'));
+    for (const file of ['workflow.yml', 'portfolio.yml']) {
+      const target = path.join(seed, 'singularity', file);
+      const text = await readFile(target, 'utf8');
+      assert.match(text, /^templatesRoot: singularity\/templates$/mu, file);
+      await writeFile(target, text.replace(/^templatesRoot: .*$/mu, 'templatesRoot: docs/flow-templates'));
+    }
+  });
+  const saved = flow(checkout, ['instruction', 'create', 'tone', '--description', 'How to phrase comments.', '--instructions', 'Be kind and specific.']);
+  assert.match(saved.stdout, /Saved as a draft; no Story uses it until it is approved\. Drafts waiting: 1\./);
+  // Refused as the same change is without drafts: a non-zero exit naming the problem, nothing saved.
+  const refused = flow(checkout, ['skill', 'attach', 'missing', '--agent', 'qa', '--phases', 'verification'], 1);
+  assert.match(refused.stderr, /This change was not saved: .*missing.* Nothing was written\./su);
+  assert.doesNotMatch(refused.stdout, /^\s+new: /mu);
+  assert.deepEqual(JSON.parse(flow(checkout, ['configuration', 'drafts', '--json']).stdout).drafts.map((entry) => entry.number), [1]);
 });

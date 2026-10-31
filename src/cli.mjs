@@ -3735,7 +3735,7 @@ export async function applyImportChangeSet(root, changeSet, options, { subject, 
 
 /** Agent, skill and instruction changes: saved as drafts while an approved configuration exists. */
 async function applyAuthoringChange(root, changeSet, options, meta) {
-  const [{ authorChange }, { planStudioChangeSet }] = await Promise.all([import('./configuration-drafts.mjs'), import('./workflow-studio.mjs')]);
+  const [{ authorChange, refuseUncheckedSave }, { planStudioChangeSet }] = await Promise.all([import('./configuration-drafts.mjs'), import('./workflow-studio.mjs')]);
   return authorChange(root, changeSet, { dryRun: optionBoolean(options, 'dry-run'), propose: optionBoolean(options, 'propose'), ...meta,
     operationId: optionString(options, 'operation-id', null),
     apply: (set, { dryRun = false, propose = false, subject = meta.subject, message = meta.message } = {}) => applyImportChangeSet(root, set,
@@ -3744,7 +3744,7 @@ async function applyAuthoringChange(root, changeSet, options, meta) {
       let source = null;
       const plan = await withApprovedConfigurationRead(root, (seen) => { source = seen; return planStudioChangeSet(root, set); }, { preferAuthority: true, refreshAuthority });
       return { plan, source };
-    } });
+    } }).then((result) => refuseUncheckedSave(result, { dryRun: optionBoolean(options, 'dry-run') }));
 }
 
 function printImportResult(result, { dryRun }) {

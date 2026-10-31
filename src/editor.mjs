@@ -4,7 +4,7 @@ import { INSTRUCTION_LIBRARY_ROOT } from './instruction-library.mjs';
 import { isConfigurationStatePath } from './configuration-state-contract.mjs';
 import { usesEpicPlanningLifecycle } from './initiative-phase-roles.mjs';
 import { cp, mkdir, mkdtemp, readFile, readdir, rm, unlink } from 'node:fs/promises';
-import { existsSync } from 'node:fs';
+import { existsSync, lstatSync, readFileSync } from 'node:fs';
 import { createHash } from 'node:crypto';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
@@ -1564,12 +1564,18 @@ function configurationAtRef(root, ref) {
   // Git processes in every draft save, SDA §17). Anything but a blob the batch read is read the
   // old way, including an absent path, which a partial clone may only be missing locally.
   // A draft save validates in the approved-configuration read's copy of the approved files, which
-  // has no Git: the baseline there has always come back empty, after five Git processes that could
-  // only fail (or find a repository the copy happens to sit in), so it is empty without them.
-  if (isConfigurationReadCopy(root) && !existsSync(path.join(root, '.git'))) return { definition: null, portfolio: null };
-  const specs = typeof ref === 'string' && ref ? [WORKFLOW_PATH, PORTFOLIO_PATH].map((relative) => `${ref}:${relative}`) : [];
+  // has no Git and which nothing writes to. Its baseline is the approved configuration it holds,
+  // read without Git: asked of Git it came back empty, so an approved templatesRoot outside the
+  // reserved root refused every draft save. A file the copy holds as anything but a regular file
+  // is no baseline, which leaves the reserved roots.
+  const approvedCopy = isConfigurationReadCopy(root) && !existsSync(path.join(root, '.git'));
+  const specs = !approvedCopy && typeof ref === 'string' && ref ? [WORKFLOW_PATH, PORTFOLIO_PATH].map((relative) => `${ref}:${relative}`) : [];
   const batch = specs.length ? readObjectsBatch(root, specs) : null;
   const committed = (relative) => {
+    if (approvedCopy) {
+      const file = path.join(root, relative);
+      return lstatSync(file, { throwIfNoEntry: false })?.isFile() ? readFileSync(file, 'utf8') : null;
+    }
     const answer = batch?.get(`${ref}:${relative}`);
     return answer?.status === 'ok' && answer.type === 'blob' ? answer.bytes.toString('utf8') : fileAtRef(root, ref, relative);
   };

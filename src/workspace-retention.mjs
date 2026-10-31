@@ -3,7 +3,7 @@ import { createHash, randomUUID } from 'node:crypto';
 import { lstat, mkdir, readFile, readdir, realpath, copyFile, unlink } from 'node:fs/promises';
 import path from 'node:path';
 import { readWorkspace } from './workspace-manifest.mjs';
-import { writeAtomic, run, SingularityFlowError } from './util.mjs';
+import { platformPathWithin, writeAtomic, run, SingularityFlowError } from './util.mjs';
 import { withRegistryFileLease } from './file-lease.mjs';
 import { withoutAgentOutputStatus } from './agent-output-folder.mjs';
 
@@ -14,10 +14,9 @@ const fail = (message, code = 'WORKSPACE_RETENTION_UNVERIFIED') => {
   throw new SingularityFlowError(message, { code });
 };
 const digest = value => createHash('sha256').update(JSON.stringify(value)).digest('hex');
-const contains = (parent, child) => {
-  const relative = path.relative(parent, child);
-  return !relative || relative !== '..' && !relative.startsWith(`..${path.sep}`) && !path.isAbsolute(relative);
-};
+// Both sides canonical: a working directory or a caller's path keeps the spelling it was given (an
+// 8.3 short name on Windows), and must still protect the checkout it names.
+const contains = (parent, child) => platformPathWithin(child, parent);
 async function localDirectory(workspacePath) {
   const root = await realpath(workspacePath), directory = path.join(root, '.singularity-flow');
   await mkdir(directory, { recursive: true, mode: 0o700 });

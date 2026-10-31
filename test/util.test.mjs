@@ -1,10 +1,13 @@
 import assert from 'node:assert/strict';
-import { mkdir, mkdtemp, readFile, readdir, rename, rm, writeFile } from 'node:fs/promises';
+import { spawnSync } from 'node:child_process';
+import { realpathSync } from 'node:fs';
+import { mkdir, mkdtemp, readFile, readdir, rename, rm, symlink, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
 import {
-  NETWORK_TIMEOUT_MS, SUBPROCESS_MAX_BUFFER_BYTES, defaultTimeoutFor, networkDisabled, parseArgs, run, writeJson, writeText
+  NETWORK_TIMEOUT_MS, SUBPROCESS_MAX_BUFFER_BYTES, canonicalPathSync, defaultTimeoutFor, networkDisabled, parseArgs,
+  platformPathWithin, run, writeJson, writeText
 } from '../src/util.mjs';
 import { replaceWithSharingRetry } from '../src/atomic-replace.mjs';
 
@@ -273,4 +276,34 @@ test('a text answer never asks for more than Node can hold as a string', async (
   run('node', ['--version'], { maxBuffer: 1024 * 1024 * 1024, encoding: 'buffer', spawnSyncCommand: capture });
   run('node', ['--version'], { maxBuffer: 1024, spawnSyncCommand: capture });
   assert.deepEqual(seen, [constants.MAX_STRING_LENGTH, 1024 * 1024 * 1024, 1024], 'only text is capped; bytes and small ceilings are unchanged');
+});
+
+test('two spellings of one directory are one path, by the spelling Git reports', async (t) => {
+  const base = await mkdtemp(path.join(os.tmpdir(), 'sflow-path-spelling-'));
+  t.after(() => rm(base, { recursive: true, force: true }));
+  const checkout = path.join(base, 'Checkout Folder');
+  await mkdir(path.join(checkout, 'nested'), { recursive: true });
+  // Another spelling of the same directory: a link here (a junction needs no privilege on Windows).
+  const alias = path.join(base, 'alias');
+  await symlink(checkout, alias, 'junction');
+  assert.equal(canonicalPathSync(alias), canonicalPathSync(checkout));
+  assert.equal(canonicalPathSync(path.join(alias, 'nested')), path.join(canonicalPathSync(checkout), 'nested'));
+  assert.ok(platformPathWithin(path.join(alias, 'nested'), checkout));
+  assert.ok(platformPathWithin(checkout, alias));
+  assert.ok(!platformPathWithin(base, alias));
+  assert.ok(!platformPathWithin(path.join(base, 'Checkout Folder-other'), checkout), 'a sibling sharing a prefix is not inside');
+  assert.ok(!platformPathWithin(path.join(checkout, '..', 'elsewhere'), checkout));
+  // What does not exist yet keeps its names below the nearest directory that does.
+  assert.equal(canonicalPathSync(path.join(alias, 'missing', '..', 'gone', 'deeper')), path.join(canonicalPathSync(checkout), 'gone', 'deeper'));
+  assert.ok(platformPathWithin(path.join(alias, 'not-yet'), checkout));
+  if (process.platform !== 'win32') return;
+  // Windows: the 8.3 short name a working directory may carry (os.tmpdir() is one on CI runners),
+  // and another case, are both the long name Git reports. fs.realpathSync keeps the short name.
+  const short = spawnSync(process.env.ComSpec ?? 'cmd.exe', ['/d', '/c', `for %I in ("${checkout}") do @echo %~sI`],
+    { encoding: 'utf8', windowsVerbatimArguments: true }).stdout.trim();
+  assert.equal(canonicalPathSync(checkout.toUpperCase()), realpathSync.native(checkout));
+  if (!short || short.toLowerCase() === checkout.toLowerCase()) { t.diagnostic('this volume makes no 8.3 short names'); return; }
+  assert.notEqual(realpathSync(short), realpathSync.native(checkout), 'fs.realpathSync keeps the short name');
+  assert.equal(canonicalPathSync(short), realpathSync.native(checkout));
+  assert.ok(platformPathWithin(path.join(short, 'nested'), checkout));
 });

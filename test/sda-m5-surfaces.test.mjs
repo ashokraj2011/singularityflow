@@ -11,12 +11,13 @@
  * own recovery. (An unknown write outcome is M1's, test/outcome-classes.test.mjs.)
  */
 import assert from 'node:assert/strict';
-import { spawn, spawnSync } from 'node:child_process';
-import { chmod, mkdir, readdir, writeFile } from 'node:fs/promises';
+import { spawn } from 'node:child_process';
+import { readdir, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import test from 'node:test';
 
 import { createSessionListingFixture } from '../scripts/session-listing-benchmark.mjs';
+import { realGitForTest, writeGitTestWrapper } from './helpers/git-test-wrapper.mjs';
 import { runRemoteGitAsync } from '../src/git-execution.mjs';
 import { stateRefreshError } from '../src/git-remote-diagnostics.mjs';
 import { readProjectionRecord, readRefreshAttempt } from '../src/repository-check-cache.mjs';
@@ -137,11 +138,9 @@ test('the CLI, the gateway and the read worker resolve one Story the same way (S
  * or never answering. Every other command, and every call while it is set to
  * pass, is the real Git. Its mode is outside the read index's record key, so one record spans modes.
  */
-async function providerGit(directory) {
-  const shims = path.join(directory, 'provider-git');
-  await mkdir(shims);
-  const real = spawnSync('which', ['git'], { encoding: 'utf8' }).stdout.trim();
-  await writeFile(path.join(shims, 'git'), `#!/usr/bin/env node
+async function providerGit(shims) {
+  // A native git.exe on Windows (the product never starts a .cmd Git), the script itself elsewhere.
+  await writeGitTestWrapper(shims, `#!/usr/bin/env node
 const { spawnSync } = require('node:child_process');
 const args = process.argv.slice(2);
 const remote = ['ls-remote', 'fetch', 'clone'].some((verb) => args.includes(verb));
@@ -150,17 +149,40 @@ if (remote && mode === 'deny') {
   process.stderr.write("remote: Permission to app.git denied to packager.\\nfatal: unable to access 'https://git.example.test/app.git/': The requested URL returned error: 403\\n");
   process.exit(128);
 }
-if (remote && mode === 'hang') setTimeout(() => process.exit(0), 60000);
-else process.exit(spawnSync(${JSON.stringify(real)}, args, { stdio: 'inherit' }).status ?? 1);
+if (remote && mode === 'hang') {
+  // Never answers, until the test ends it (stopHanging below).
+  const fs = require('node:fs');
+  const marker = ${JSON.stringify(path.join(shims, 'hanging-'))} + process.pid;
+  fs.writeFileSync(marker, '');
+  const end = () => { fs.rmSync(marker, { force: true }); process.exit(0); };
+  setInterval(() => { if (fs.existsSync(${JSON.stringify(path.join(shims, 'stop'))})) end(); }, 50);
+  setTimeout(end, 60000);
+} else process.exit(spawnSync(${JSON.stringify(realGitForTest())}, args, { stdio: 'inherit' }).status ?? 1);
 `);
-  await chmod(path.join(shims, 'git'), 0o755);
-  return shims;
+}
+
+/**
+ * Killing a read on Windows ends that process alone: a Git it started still hangs, holding the
+ * checkout as its working directory, which Windows then refuses to remove. End every one still
+ * running before the fixture is removed.
+ */
+async function stopHanging(shims) {
+  await writeFile(path.join(shims, 'stop'), '').catch(() => {});
+  const running = (name) => { try { return process.kill(Number(name.slice('hanging-'.length)), 0); } catch { return false; } };
+  for (const deadline = Date.now() + 10_000; Date.now() < deadline;) {
+    if (!(await readdir(shims).catch(() => [])).some((name) => name.startsWith('hanging-') && running(name))) return;
+    await new Promise((resolve) => setTimeout(resolve, 50));
+  }
 }
 
 test('the Story list and catalog keep every failure distinguishable, with its own recovery (SDA-AC-015)', slowLane({ timeout: 600_000 }), async (t) => {
-  const f = await createSessionListingFixture(); t.after(f.cleanup);
-  const shims = await providerGit(f.directory);
-  const provider = (mode, extra = {}) => ({ PATH: `${shims}${path.delimiter}${f.env.PATH}`, SFLOW_TEST_PROVIDER: mode, ...extra });
+  const f = await createSessionListingFixture();
+  const shims = path.join(f.directory, 'provider-git');
+  t.after(async () => { await stopHanging(shims); await f.cleanup(); });
+  await providerGit(shims);
+  // Windows names it Path; a second PATH beside it would leave which one the child reads to chance.
+  const pathKey = Object.keys(f.env).find((key) => key.toLowerCase() === 'path') ?? 'PATH';
+  const provider = (mode, extra = {}) => ({ [pathKey]: `${shims}${path.delimiter}${f.env[pathKey]}`, SFLOW_TEST_PROVIDER: mode, ...extra });
   const list = async (mode, options = [], extra = {}) => (await f.invoke({ extra: provider(mode, extra), options }));
   const catalog = async (mode, options = [], extra = {}) => (await f.invoke({ extra: provider(mode, extra), options,
     command: ['workspace', 'branches', '--intake'], selectors: false }));

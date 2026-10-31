@@ -187,12 +187,14 @@ test('index rebuild, schema-migration reads and retention keep signed ledger and
   run('ssh-keygen', ['-q', '-t', 'ed25519', '-N', '', '-C', 'packager@example.com', '-f', path.join(keys, 'ledger')], keys);
   const publicKey = (await readFile(path.join(keys, 'ledger.pub'), 'utf8')).trim();
   await writeFile(path.join(keys, 'allowed-signers'), `packager@example.com namespaces="git" ${publicKey}\n`);
+  // Git writes the file, so each path is encoded as Git reads it: a Windows path written raw has
+  // backslashes Git takes for escapes, and every Git command then refuses the configuration.
   const globalConfiguration = path.join(f.base, 'signing.gitconfig');
-  await writeFile(globalConfiguration, [
-    ...(previous.GIT_CONFIG_GLOBAL ? ['[include]', `\tpath = ${previous.GIT_CONFIG_GLOBAL}`] : []),
-    '[gpg]', '\tformat = ssh', '[user]', `\tsigningkey = ${path.join(keys, 'ledger')}`,
-    '[gpg "ssh"]', `\tallowedSignersFile = ${path.join(keys, 'allowed-signers')}`, ''
-  ].join('\n'));
+  const configure = (key, value) => run('git', ['config', '--file', globalConfiguration, key, value], f.base);
+  if (previous.GIT_CONFIG_GLOBAL) configure('include.path', previous.GIT_CONFIG_GLOBAL);
+  configure('gpg.format', 'ssh');
+  configure('user.signingkey', path.join(keys, 'ledger'));
+  configure('gpg.ssh.allowedSignersFile', path.join(keys, 'allowed-signers'));
   process.env.GIT_CONFIG_GLOBAL = globalConfiguration;
   Object.assign(process.env, { SINGULARITY_FLOW_WORKSPACE_REGISTRY: path.join(f.base, 'workspaces.json'),
     SINGULARITY_FLOW_ACTIVE_WORKSPACE: path.join(f.base, 'active.json'), SINGULARITY_FLOW_LEAD_REGISTRY: path.join(f.base, 'leads.json') });

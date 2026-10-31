@@ -6,11 +6,12 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import { spawnSync } from 'node:child_process';
-import { mkdir, mkdtemp, readFile, readdir, rename, rm, writeFile } from 'node:fs/promises';
+import { mkdir, mkdtemp, readFile, readdir, rename, rm, symlink, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { createSessionListingFixture } from '../scripts/session-listing-benchmark.mjs';
+import { cachedSessionListing } from '../src/repository-check-cache.mjs';
 import { slowLane } from './helpers/slow-lane.mjs';
 
 const BIN = fileURLToPath(new URL('../bin/singularity-flow.mjs', import.meta.url));
@@ -100,4 +101,27 @@ test('index refuses an unknown subcommand or option', async (t) => {
   const run = (...args) => spawnSync(process.execPath, [BIN, 'index', ...args], { cwd, encoding: 'utf8', timeout: 60_000 });
   assert.match(run('compact').stderr, /Unknown index subcommand 'compact'/u);
   assert.match(run('status', '--authority').stderr, /index status does not accept --authority/u);
+});
+
+test('a Story list read through another spelling of the checkout\'s directory is this repository\'s', async (t) => {
+  const base = await mkdtemp(path.join(os.tmpdir(), 'sflow-index-spelling-'));
+  t.after(() => rm(base, { recursive: true, force: true }));
+  const root = path.join(base, 'app');
+  await mkdir(root);
+  const env = { ...process.env, GIT_CONFIG_NOSYSTEM: '1', GIT_CONFIG_GLOBAL: path.join(base, 'empty-config'),
+    SINGULARITY_FLOW_REPOSITORY_CHECK_PREFERENCES: path.join(base, 'state', 'preferences.json'), SINGULARITY_FLOW_INDEX_REFRESH: 'off' };
+  await mkdir(path.join(base, 'state'), { mode: 0o700 });
+  for (const args of [['init', '-q'], ['-c', 'user.name=Index', '-c', 'user.email=index@example.invalid', '-c', 'commit.gpgsign=false',
+    'commit', '-q', '--allow-empty', '-m', 'fixture']]) spawnSync('git', args, { cwd: root, env });
+  // The read ran in another spelling of the same directory: a link here, on Windows also the 8.3
+  // short name a working directory keeps (C:\\Users\\RUNNER~1\\...), where Git reports the long one.
+  const alias = path.join(base, 'alias');
+  await symlink(root, alias, 'junction');
+  await cachedSessionListing(alias, { identity: { list: 'alias' }, files: [], env,
+    refreshRecipe: { argv: ['session', 'candidates', '--json'], cwd: alias } },
+  async () => ({ discovered: { items: [], count: 0, unavailableCount: 0, unavailable: [] }, scope: {} }));
+  const child = spawnSync(process.execPath, [BIN, 'index', 'status', '--json'], { cwd: root, env, encoding: 'utf8', timeout: 60_000 });
+  assert.equal(child.status, 0, child.stderr);
+  const { projections } = JSON.parse(child.stdout);
+  assert.deepEqual(projections.map((item) => [item.place, item.read]), [['session-listings', 'session candidates']], child.stdout);
 });

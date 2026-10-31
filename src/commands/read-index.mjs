@@ -18,7 +18,7 @@
  */
 import { readdir, realpath, rm, stat } from 'node:fs/promises';
 import path from 'node:path';
-import { optionBoolean, SingularityFlowError } from '../util.mjs';
+import { optionBoolean, platformPathWithin, SingularityFlowError } from '../util.mjs';
 
 const SUBCOMMANDS = Object.freeze(['status', 'refresh', 'rebuild', 'verify']);
 const OPTIONS = Object.freeze({ status: ['json', 'all'], refresh: ['json', 'all'], rebuild: ['json', 'all'],
@@ -39,10 +39,9 @@ function fail(message, code = 'INDEX_COMMAND_INVALID', details = null) {
   throw new SingularityFlowError(message, { code, details });
 }
 
-function inside(child, parent) {
-  const relative = path.relative(path.resolve(parent), path.resolve(child));
-  return relative === '' || (!relative.startsWith('..') && !path.isAbsolute(relative));
-}
+// A read records the directory it ran in as that process spelled it; on Windows that can be an 8.3
+// short name, while the root here is the one Git reports. Both are compared canonically.
+const inside = platformPathWithin;
 
 async function scope() {
   const { repoRoot } = await import('../git-execution.mjs');

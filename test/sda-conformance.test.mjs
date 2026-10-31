@@ -113,7 +113,7 @@ async function memoryFixture() {
   };
 }
 
-sharedStateConformance('git ledger', gitFixture, { skip: process.platform === 'win32' });
+sharedStateConformance('git ledger', gitFixture);
 sharedStateConformance('deterministic memory', memoryFixture);
 
 test('the deterministic adapter can never be selected as shared-state authority; the Git ledger can', async () => {

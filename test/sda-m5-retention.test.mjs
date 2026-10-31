@@ -11,7 +11,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
-import { lstat, mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
+import { lstat, mkdir, mkdtemp, readFile, rm, symlink, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -125,6 +125,13 @@ test('a terminal Story worktree is kept while a Story start in its clone has not
   assert.equal(kept.removed.length, 0, JSON.stringify(kept));
   assert.ok(kept.preserved.some((item) => item.message === 'Shared publication/recovery state is retained.'), JSON.stringify(kept));
   await rm(journal);
+  // A checkout in use is kept however its directory is spelled: a link here, on Windows also the
+  // 8.3 short name a working directory keeps, where Git reports the long one.
+  const alias = path.join(f.base, 'selected-alias');
+  await symlink(target, alias, 'junction');
+  const selected = await runWorkspaceRetention(f.workspacePath, { force: true, protect: [path.join(alias, 'src')] });
+  assert.equal(selected.removed.length, 0, JSON.stringify(selected));
+  assert.ok(selected.preserved.some((item) => item.reason === 'WORKSPACE_RETENTION_IN_USE'), JSON.stringify(selected));
   const removed = await runWorkspaceRetention(f.workspacePath, { force: true });
   assert.ok(removed.removed.some((item) => item.kind === 'story-worktree' && item.workId === 'DONE'), JSON.stringify(removed));
   assert.equal(await lstat(target).catch(() => null), null);

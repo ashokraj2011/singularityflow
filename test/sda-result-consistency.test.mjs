@@ -6,7 +6,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import { execFileSync } from 'node:child_process';
-import { chmod, mkdir, mkdtemp, readFile, readdir, rm, writeFile } from 'node:fs/promises';
+import { mkdir, mkdtemp, readFile, readdir, rm, symlink, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import {
@@ -19,6 +19,7 @@ import { homeOverviewResult } from '../src/gateway/planners/home-overview.mjs';
 import { validateSflowResult } from '../src/gateway/result.mjs';
 import { createTransportIntent } from '../src/transport-intents.mjs';
 import { branch } from '../src/git.mjs';
+import { gitTestWrapperEnvironment, realGitForTest, writeGitTestWrapper } from './helpers/git-test-wrapper.mjs';
 
 const LEDGER = 'c'.repeat(40);
 const AUTHORITY = 'd'.repeat(40);
@@ -135,17 +136,19 @@ test('the work list and home carry where the repository Story list stands, from 
   assert.deepEqual((await consistency()).pendingOperations.map((entry) => [entry.id, entry.kind, entry.status]).sort(),
     [[saved.intentId, 'push', 'pending'], [savedElsewhere.intentId, 'push', 'pending']].sort());
 
-  // Reading it starts no Git process: a Git on PATH that records every call sees none.
+  // Reading it starts no Git process: a Git on PATH that records every call sees none. On Windows
+  // it is a native git.exe, the only Git the product starts there.
   const shims = path.join(f.base, 'shims');
-  await mkdir(shims);
   const calls = path.join(f.base, 'git-calls.log');
-  const real = execFileSync('which', ['git'], { encoding: 'utf8' }).trim();
-  await writeFile(path.join(shims, 'git'), `#!/bin/sh\necho "$@" >> '${calls}'\nexec '${real}' "$@"\n`);
-  await chmod(path.join(shims, 'git'), 0o755);
+  await writeGitTestWrapper(shims, `#!/usr/bin/env node
+const { spawnSync } = require('node:child_process');
+require('node:fs').appendFileSync(${JSON.stringify(calls)}, process.argv.slice(2).join(' ') + '\\n');
+process.exit(spawnSync(${JSON.stringify(realGitForTest())}, process.argv.slice(2), { stdio: 'inherit' }).status ?? 1);
+`);
   const previous = process.env.PATH;
   process.env.PATH = `${shims}${path.delimiter}${previous}`;
   try {
-    const block = await workConsistency(app.root, { env: { ...f.env, PATH: process.env.PATH } });
+    const block = await workConsistency(app.root, { env: gitTestWrapperEnvironment(shims, f.env) });
     assert.equal(block.pendingOperations.length, 2);
     assert.equal(await readFile(calls, 'utf8').catch(() => ''), '', 'the consistency read started Git');
     branch(app.root);
@@ -170,4 +173,16 @@ test('the work list and home carry where the repository Story list stands, from 
   // A changed remote is another authority: its record no longer speaks for this repository.
   app.git('remote', 'set-url', 'origin', path.join(f.base, 'moved.git'));
   assert.equal((await consistency()).freshness, null);
+});
+
+test('a Story list read through another spelling of the checkout\'s directory is where this repository stands', async (t) => {
+  const f = await fixture(t);
+  const app = await f.repository('app');
+  // A link here; on Windows also the 8.3 short name a working directory keeps, where Git reports the long one.
+  const alias = path.join(f.base, 'app-alias');
+  await symlink(app.root, alias, 'junction');
+  await listing(f, alias, { ledgerCommit: LEDGER });
+  const block = await workConsistency(app.root, { env: f.env });
+  assert.equal(block.freshness, 'fresh');
+  assert.deepEqual(block.acceptedRevision, { ledgerCommit: LEDGER, authorityCommit: null });
 });

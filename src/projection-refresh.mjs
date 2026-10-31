@@ -13,6 +13,7 @@ import {
   remoteAuthority, sessionListingDirectory
 } from './repository-check-cache.mjs';
 import { repositoryCheckSettings } from './repository-check-settings.mjs';
+import { platformPathWithin } from './util.mjs';
 
 // A refresh lease older than this, held by a process that is not this one, reads as not renewed: it is
 // reported with its reviewed release, never taken over (A5). The cache lease bound, so reading the
@@ -205,10 +206,8 @@ function firstRead(refreshRecipe) {
  */
 export async function lastKnownStoryList(root, { env = process.env, now = Date.now() } = {}) {
   const repository = path.resolve(root);
-  const inside = (child) => {
-    const relative = path.relative(repository, path.resolve(child));
-    return relative === '' || (!relative.startsWith('..') && !path.isAbsolute(relative));
-  };
+  // The read's directory as its process spelled it (an 8.3 short name on Windows), compared canonically.
+  const inside = (child) => platformPathWithin(child, repository);
   const directory = sessionListingDirectory(env);
   let newest = null;
   for (const name of await readdir(directory).catch(() => [])) {

@@ -274,6 +274,10 @@ test('a read that starts waiting after the refresh it waits on observed still ta
 
 test('the intake catalog answers offline after expiry and after a failed refresh, and refreshes behind a stale answer', slowLane({ timeout: 300_000 }), async (t) => {
   const f = await createStoryReadinessFixture({ files: 1 }); t.after(f.cleanup);
+  // Only the read below that asks for it refreshes behind its answer. The suite runner turns
+  // background refreshes off for every test, a bare `node --test` does not: the offline reads
+  // would start one, and the read that asks would find it started less than a minute before.
+  f.env.SINGULARITY_FLOW_INDEX_REFRESH = 'off';
   await f.invokeCatalog(); await f.invokeCatalog();
   assert.equal((await f.invokeCatalog()).metrics.snapshot, 'cache');
   const directory = path.join(f.original, '.git/singularity-flow/cache/repository-checks');

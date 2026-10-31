@@ -1,6 +1,6 @@
 import { createHash, randomUUID } from 'node:crypto';
 import {
-  accessSync, constants as FS_CONSTANTS, existsSync, readFileSync, statSync
+  accessSync, constants as FS_CONSTANTS, existsSync, readFileSync, realpathSync, statSync
 } from 'node:fs';
 import { spawn, spawnSync } from 'node:child_process';
 import { constants as bufferConstants } from 'node:buffer';
@@ -68,6 +68,32 @@ export function samePlatformPath(left, right, platform = process.platform) {
   const api = platform === 'win32' ? path.win32 : path;
   const key = (value) => (platform === 'win32' ? api.resolve(String(value)).toLocaleLowerCase('en-US') : api.resolve(String(value)));
   return key(left) === key(right);
+}
+
+/**
+ * A path as the filesystem spells it, as Git reports it: links resolved and, on Windows, each 8.3
+ * short name (`RUNNER~1`) expanded and each component in its stored case. A Windows process keeps
+ * the spelling its working directory was given, and `fs.realpathSync` keeps short names, so only
+ * both sides canonical compare. What does not exist yet keeps its names below the nearest directory
+ * that does.
+ */
+export function canonicalPathSync(value) {
+  const resolved = path.resolve(String(value));
+  const missing = [];
+  for (let current = resolved; ; current = path.dirname(current)) {
+    try { return path.join(realpathSync.native(current), ...missing.reverse()); }
+    catch {
+      if (path.dirname(current) === current) return resolved;
+      missing.push(path.basename(current));
+    }
+  }
+}
+
+/** Whether `child` is `parent` or lies below it, both compared canonically by the host's rules. */
+export function platformPathWithin(child, parent, platform = process.platform) {
+  const api = platform === 'win32' ? path.win32 : path;
+  const relative = api.relative(canonicalPathSync(parent), canonicalPathSync(child));
+  return relative === '' || (relative !== '..' && !relative.startsWith(`..${api.sep}`) && !api.isAbsolute(relative));
 }
 
 /**

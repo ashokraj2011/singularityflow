@@ -4,7 +4,7 @@ title: Compact phase entry for Copilot
 commands: [phase, nextsteps, inputs, review-source]
 aliases: [phase-entry]
 related: [artifacts-and-generation, approvals, phase-appeals, nextsteps]
-version: 15
+version: 16
 ---
 # Compact phase entry for Copilot
 
@@ -289,9 +289,12 @@ paths, invalid evidence, withdrawn claims and lifecycle/authority findings retai
 
 Prevent that classification mismatch while the plan is still a draft. New/modified obligations
 name product source in Expected paths; a retained screenshot or document instead uses fulfillment
-`evidence` and its exact current-Story evidence path. An evidence acceptance criterion also needs
-a primary visual/inspection row in `## Verification contracts`; prose and passing unit tests alone
-do not establish visual correctness. Planned tests remain required by the execution policy.
+`evidence` and its exact current-Story evidence path. A planned test never saves its capture straight
+to that path, because every later run would replace the reviewed file and a later step's commit
+refuses the change: it saves under its runner's output (for example `test-results/`), and the code
+step copies the image to the evidence path once, when it produces the evidence. An evidence
+acceptance criterion also needs a primary visual/inspection row in `## Verification contracts`;
+prose and passing unit tests alone do not establish visual correctness. Planned tests remain required by the execution policy.
 
 For any phase configured to own a downstream code phase's planned claims, prepublish can return
 `planningEvidenceRepair`: artifact/author-owned hashes, exact before/after patches and their clause,

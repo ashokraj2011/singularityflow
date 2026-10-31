@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
+import { createHash } from 'node:crypto';
 import { mkdtemp, mkdir, readFile, rm, unlink, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
@@ -227,7 +228,17 @@ test('a real Story delivers source, configuration, test-only, removal, document 
     '--confirm', 'states-the-outcome', '--confirm', 'matches-the-criterion', '--confirm', 'current-for-this-change',
     '--reason', 'This local image differs from the published candidate.'], root, { allowFailure: true });
   assert.notEqual(unpublishedWitness.status, 0);
-  assert.match(`${unpublishedWitness.stdout}\n${unpublishedWitness.stderr}`, /does not match the published retained evidence/u);
+  // The refusal names who published which bytes, the file's bytes now and both ways on (ws-graph, 2026-10-27).
+  const published = JSON.parse(await readFile(path.join(item, 'workflow.json'), 'utf8')).phases.implementation;
+  const sha = (bytes) => `sha256:${createHash('sha256').update(bytes).digest('hex')}`;
+  const witnessRefusal = `${unpublishedWitness.stdout}\n${unpublishedWitness.stderr}`.replace(/\s+/gu, ' ');
+  for (const expected of [`${SCREEN} is not the image implementation published for ${ac(6)}`,
+    `implementation published ${sha(publishedImage)} in generation 1 (commit ${published.generationCommit.slice(0, 12)})`,
+    `the file now has ${sha(await readFile(path.join(root, SCREEN)))}`,
+    `git restore --source=${published.generationCommit} -- ${SCREEN}, then witness it again`,
+    `singularity-flow reject implementation --work-id ${W} --to implementation --reason <reason>`]) {
+    assert.ok(witnessRefusal.includes(expected), `${expected}\n${witnessRefusal}`);
+  }
   await write(SCREEN, publishedImage);
   // The approver confirms the screenshot with the approval itself, in its commit (2026-10-28).
   const approved = cli('approve', 'implementation', '--yes', '--confirm-evidence');
@@ -290,4 +301,36 @@ test('a real Story delivers source, configuration, test-only, removal, document 
   const approval = workflowState.phases.implementation.approvals.at(-1);
   assert.deepEqual(approval.implementationBindings.decisions, [{ clauseId: ac(1), decision: 'accepted' }]);
   assert.equal(approval.implementationBindings.bindingsSha256, receipt.implementationBindings.bindingsSha256);
+
+  // A later step's commit never carries a re-captured screenshot silently: each Story commit stages
+  // the whole work directory, and a test that saved to the evidence path put new bytes into the next
+  // step's submission (ws-graph AC-001, 2026-10-27). Its publication and its submission refuse;
+  // nothing is restored for the person, and the published image restored by Git goes through.
+  cli('prepare', 'testing');
+  const testing = path.join(item, workflowState.phases.testing.requiredArtifact.path);
+  await writeFile(testing, (await readFile(testing, 'utf8')).replace(/TODO:[^\n]*/gu,
+    `Verified ${ac(1)} against the committed passing unit-test receipt.`).replace(/\bTODO\b/gu, 'matched'));
+  const recaptured = Buffer.concat([publishedImage, Buffer.from('captured again by a later test run')]);
+  const generationCommit = workflowState.phases.implementation.generationCommit;
+  const head = () => run('git', ['rev-parse', 'HEAD'], root).stdout.trim();
+  for (const [args, action] of [[['phase', 'publish', 'testing', '--authored', 'human', '--channel', 'manual-in-place'], 'Publication'],
+    [['submit', 'testing'], 'Submission']]) {
+    await write(SCREEN, recaptured);
+    const before = head();
+    const refused = run(process.execPath, [CLI, '--no-model', ...args], root, { allowFailure: true });
+    const text = `${refused.stdout}\n${refused.stderr}`.replace(/\s+/gu, ' ');
+    assert.notEqual(refused.status, 0, `${action} committed a changed screenshot`);
+    for (const expected of [
+      `${action} of testing would change retained evidence that implementation published: ${SCREEN} for `,
+      `implementation published ${sha(publishedImage)} in generation 1`, `would commit ${sha(recaptured)}. Nothing was committed.`,
+      `git restore --source=${generationCommit} -- ${SCREEN}, then ${action === 'Publication' ? 'publish' : 'submit'} testing again`,
+      `singularity-flow upstream-issue raise --work-id ${W} --phase implementation --about `]) {
+      assert.ok(text.includes(expected), `${expected}\n${text}`);
+    }
+    assert.equal(head(), before, 'nothing was committed');
+    assert.deepEqual(await readFile(path.join(root, SCREEN)), recaptured, 'the person\'s file is never restored for them');
+    run('git', ['restore', `--source=${generationCommit}`, '--', SCREEN], root);
+    cli(...args);
+  }
+  assert.equal(JSON.parse(await readFile(path.join(item, 'workflow.json'), 'utf8')).phases.testing.status, 'awaiting_approval');
 });

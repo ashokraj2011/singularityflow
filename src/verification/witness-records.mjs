@@ -11,6 +11,8 @@
  */
 import { SingularityFlowError } from '../util.mjs';
 import { recordSha256 } from '../records.mjs';
+import { phaseNeedsGeneration } from '../phase-generation-need.mjs';
+import { upstreamChangeRoutes } from '../upstream-routes.mjs';
 
 export const WITNESS_CHECKLIST = Object.freeze(['states-the-outcome', 'matches-the-criterion', 'current-for-this-change']);
 const AC_ID = /^[A-Z0-9][A-Z0-9._-]{0,63}:AC-\d{3}$/u;
@@ -41,6 +43,132 @@ export function witnessContextBindings(workflow) {
   return [witnessContextBinding(workflow), witnessContextBinding(workflow, { legacy: true })];
 }
 
+/*
+ * Retained evidence a code step published (fulfillment `evidence`): who published which bytes, and
+ * how the step that owns a file publishes a new image. A witness refused at release used to name
+ * neither, nor any command that could make its "reviewed correction" (ws-graph AC-001, 2026-10-27);
+ * a later step's commit is held to the same records (evidence/retained-evidence.mjs).
+ */
+export const evidenceDigest = (value) => `sha256:${String(value ?? '').replace(/^sha256:/u, '')}`;
+export const shortCommit = (commit) => String(commit ?? '').slice(0, 12);
+
+/** A delivery's fulfillment entries: the current list, or the receipt form with `obligations`. */
+function fulfillmentEntries(phase) {
+  const fulfillment = phase?.deliveryEvidence?.fulfillment;
+  const entries = fulfillment?.obligations ?? fulfillment;
+  return Array.isArray(entries) ? entries : [];
+}
+
+/**
+ * Each retained evidence file a published delivery recorded present: the step and generation that
+ * published it, that generation's commit and the file's digest. `approvedOnly` keeps the steps whose
+ * approval stands; `except` leaves one step out.
+ */
+export function publishedRetainedEvidence(workflow, { approvedOnly = false, except = null } = {}) {
+  const order = workflow?.phaseOrder ?? Object.keys(workflow?.phases ?? {});
+  return order.flatMap((phaseId) => {
+    const phase = workflow?.phases?.[phaseId];
+    if (!phase?.generationCommit || phaseId === except || (approvedOnly && phase.status !== 'approved')) return [];
+    return fulfillmentEntries(phase).filter((entry) => entry?.fulfillment === 'evidence')
+      .flatMap((entry) => (entry.paths ?? []).filter((item) => item?.state === 'present' && item.sha256 && item.path)
+        .map((item) => ({ phase: phaseId, generation: phase.generation, generationCommit: phase.generationCommit,
+          clauseId: entry.clauseId, path: item.path, sha256: evidenceDigest(item.sha256) })));
+  });
+}
+
+/** The step whose published delivery recorded `file` for `clauseId` other than present, and what it recorded. */
+function unpublishedDelivery(workflow, clauseId, file) {
+  for (const [phaseId, phase] of Object.entries(workflow?.phases ?? {})) {
+    if (!phase?.generationCommit) continue;
+    for (const entry of fulfillmentEntries(phase)) {
+      const item = entry?.clauseId === clauseId ? (entry.paths ?? []).find((candidate) => candidate?.path === file) : null;
+      if (item) return { phase: phaseId, state: item.state ?? 'unknown' };
+    }
+  }
+  return null;
+}
+
+/**
+ * How `owner`, the step that published a retained evidence file, publishes a new image, seen from
+ * step `from`: a return the CLI accepts from where the Story stands, else the upstream issue that is
+ * open from any status, else words. `submittable` is false when `from` cannot be submitted as it is,
+ * so the return that needs its submission first is not offered. Returns `{ kind, command, sentence }`.
+ */
+export function republicationRoute(workflow, owner, clauseId, { from = workflow?.currentPhase ?? null, submittable = true } = {}) {
+  const workId = workflow?.workItem?.id ?? '<WORK-ID>';
+  const phase = workflow?.phases?.[owner] ?? null;
+  const order = workflow?.phaseOrder ?? [];
+  const next = `${owner} publishes the new image in its next generation`;
+  if (owner === from) {
+    if (phase?.status === 'awaiting_approval' && (phase.approvalPolicy?.rejectTo ?? [owner]).includes(owner)) {
+      const command = `singularity-flow reject ${owner} --work-id ${workId} --to ${owner} --reason <reason>`;
+      return { kind: 'return', command, sentence: `an approver of ${owner} returns it with ${command}, and ${next}.` };
+    }
+    if (phase?.status === 'in_progress' && !phaseNeedsGeneration(workflow, phase)) {
+      const command = `singularity-flow phase rollover ${owner} --json`;
+      return { kind: 'rollover', command, sentence: `open its next generation (${command} previews it), save the new image there and publish it.` };
+    }
+    return { kind: null, command: null, sentence: 'save the new image in its open generation and publish it.' };
+  }
+  if (order.indexOf(owner) > order.indexOf(from)) return { kind: null, command: null, sentence: `${next}, once the Story reaches it again.` };
+  const { routes, notes } = upstreamChangeRoutes(workflow, owner, { currentPhaseId: from });
+  const returned = routes.find((route) => route.kind === 'return');
+  if (returned) return { kind: 'return', command: returned.command, sentence: `an approver of ${from} returns the Story to ${owner} with ${returned.command}, and ${next}.` };
+  const raised = routes.find((route) => route.kind === 'upstream-issue');
+  if (raised) {
+    const command = raised.command.replace('<clause-or-section>', clauseId).replace('<what-is-wrong>', '<what-changed>');
+    const later = submittable ? notes.find((note) => note.startsWith('Once ')) : null;
+    return { kind: 'upstream-issue', command, sentence: `record it for ${owner}'s approvers with ${command}; they can return the Story to ${owner}, and ${next}.${later ? ` ${later}` : ''}` };
+  }
+  return { kind: null, command: null, sentence: notes[0] ?? `only an authorized return of ${owner} changes it.` };
+}
+
+// Where a test's capture belongs (the plan template and the evidence topics say the same).
+export const CAPTURE_RULE = 'A test saves its capture under its runner\'s output (for example test-results/), never at a retained evidence path, '
+  + 'and the image is copied to the evidence path once, when the evidence is produced.';
+export const IF_A_TEST = `If a test saves its capture to this path, every run replaces it. ${CAPTURE_RULE}`;
+
+/** The structured facts both refusals carry, so every surface builds the same steps from them. */
+export function retainedEvidenceDetails(workflow, rows, route, lead) {
+  const label = `${lead}: ${route.sentence}`;
+  return {
+    workId: workflow?.workItem?.id ?? null,
+    paths: [...new Set(rows.map((row) => row.entry.path))],
+    upstreamPhases: [...new Set(rows.map((row) => row.entry.phase))],
+    retainedEvidence: rows.map(({ entry, current, during = false, restore = true }) => ({
+      path: entry.path, clauseId: entry.clauseId, publishedBy: entry.phase, generation: entry.generation,
+      generationCommit: entry.generationCommit, publishedSha256: entry.sha256, currentSha256: current ?? null, changedDuring: during,
+      restore: restore ? `git restore --source=${entry.generationCommit} -- ${entry.path}` : null })),
+    routes: route.command ? [{ kind: route.kind, command: route.command, label }] : [],
+    notes: route.command ? [] : [label]
+  };
+}
+
+/**
+ * The refusal of a witness whose file is not the retained evidence a step published for the
+ * criterion: nothing published it, or it has other bytes now. `published` are the present entries
+ * for this file (publishedRetainedEvidence); `sha256` the file's current digest.
+ */
+function unpublishedWitnessRefusal(workflow, { clauseId, file, sha256, published }) {
+  if (!published.length) {
+    const recorded = unpublishedDelivery(workflow, clauseId, file);
+    return new SingularityFlowError(`Nothing has published ${file} for ${clauseId}`
+      + `${recorded ? ` (${recorded.phase}'s delivery recorded it ${recorded.state})` : ': no step\'s delivery records it'}, `
+      + 'so there is no published image to witness yet. The code step that owes it saves it and publishes it with its delivery; witness it after that. Nothing was recorded.',
+    { code: 'WITNESS_EVIDENCE_UNPUBLISHED', details: { workId: workflow?.workItem?.id ?? null, paths: [file], retainedEvidence: [], routes: [], notes: [] } });
+  }
+  const entry = published.find((item) => item.sha256 !== sha256) ?? published[0];
+  const route = republicationRoute(workflow, entry.phase, clauseId);
+  const others = published.filter((item) => item !== entry && item.sha256 !== sha256);
+  const lead = `To keep the new image instead, ${entry.phase}, the step that owns this evidence, must publish it again`;
+  return new SingularityFlowError(`${file} is not the image ${entry.phase} published for ${clauseId}: ${entry.phase} published ${entry.sha256} `
+    + `in generation ${entry.generation} (commit ${shortCommit(entry.generationCommit)}), and the file now has ${sha256}`
+    + `${others.length ? `; ${others.map((item) => `${item.phase} published ${item.sha256}`).join(', ')}` : ''}. Nothing was recorded. `
+    + `To witness the published image, restore it with git restore --source=${entry.generationCommit} -- ${file}, then witness it again. `
+    + `${lead}: ${route.sentence} ${IF_A_TEST}`,
+  { code: 'WITNESS_EVIDENCE_UNPUBLISHED', details: retainedEvidenceDetails(workflow, [{ entry, current: sha256 }], route, lead) });
+}
+
 /**
  * Append one witness record. `slot` is the contract slot it witnesses; `file` the inspected path
  * with its current `sha256`; `answers` maps every checklist item to yes or no.
@@ -58,12 +186,10 @@ export function recordWitness(workflow, { clauseId, slot, file, sha256, answers 
   if (retained.length) {
     const expected = retained.flatMap((entry) => entry.expectedPaths);
     if (!expected.includes(file)) throw invalid(`${clauseId}'s retained evidence is ${expected.join(', ')}, not ${file}.`);
-    const published = Object.values(workflow.phases ?? {}).filter((phase) => phase.generationCommit)
-      .flatMap((phase) => phase.deliveryEvidence?.fulfillment?.obligations ?? phase.deliveryEvidence?.fulfillment ?? [])
-      .filter((entry) => entry.clauseId === clauseId && entry.fulfillment === 'evidence')
-      .flatMap((entry) => entry.paths ?? []).filter((entry) => entry.path === file && entry.state === 'present');
-    if (!published.length || published.some((entry) => `sha256:${String(entry.sha256 ?? '').replace(/^sha256:/u, '')}` !== sha256)) {
-      throw invalid(`${file} does not match the published retained evidence for ${clauseId}. Preserve the image and publish a reviewed correction before witnessing it.`, 'WITNESS_EVIDENCE_UNPUBLISHED');
+    const published = publishedRetainedEvidence(workflow).filter((entry) => entry.clauseId === clauseId && entry.path === file);
+    // The refusal names who published which bytes, the file's bytes now and both ways on (ws-graph, 2026-10-27).
+    if (!published.length || published.some((entry) => entry.sha256 !== sha256)) {
+      throw unpublishedWitnessRefusal(workflow, { clauseId, file, sha256, published });
     }
   }
   if (!/^sha256:[a-f0-9]{64}$/u.test(String(sha256 ?? ''))) throw invalid(`${file} could not be read to bind its bytes.`);

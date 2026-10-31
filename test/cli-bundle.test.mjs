@@ -171,7 +171,10 @@ test('the bundled CLI answers exactly like the sources while opening a handful o
   // skill runs and configuration approval as an own-terminal step in command-skills.mjs and
   // copilot-mutation-guard.mjs, a missing member's repair in cli-entry.mjs (cold-core +9,805,
   // cold-narrow-reads +514, cold-light +170). No new file.
-  assert.ok(narrowReads < 4_610_000,
+  // 4,615,000: main 8133a15db measures 4,609,860; a refused witness that names the step that published the image, both
+  // digests and both ways on (verification/witness-records.mjs), its recovery steps (refusal-remediation.mjs) and the
+  // capture guidance in the evidence routes add 1,643 for 4,611,503. No new file.
+  assert.ok(narrowReads < 4_615_000,
     `strict next-step reads must not inherit the broad phase-review closure (${narrowReads} bytes)`);
   const publicationClosure = closure('cold-publication.mjs');
   assert.ok(publicationClosure.length && publicationClosure.reduce((sum, item) => sum + item.bytes, 0) < 6 * 1024 * 1024,
@@ -342,7 +345,11 @@ test('the bundled CLI answers exactly like the sources while opening a handful o
   // 7,670,000: sweep batches 3 and 4 together measure 7,663,859; the same batch 4 read index code adds 9,747 alone.
   // 7,680,000: main eb137a8f5 measures 7,663,859; the same sweep batch 5 routes add 11,004 for 7,674,863
   // (cold-core +9,805, cold-narrow-reads +514, cold-hooks +367, cold-catalogs +318).
-  assert.ok(hookContext < 7_680_000,
+  // 7,685,000: main 8133a15db measures 7,675,241; a refused witness that names the step that published the image, both
+  // digests and both ways on (verification/witness-records.mjs), its recovery steps (refusal-remediation.mjs) and the
+  // capture guidance in the evidence routes and planning prompt add 7,896 for 7,683,137. No new file in this closure:
+  // the commit guard (evidence/retained-evidence.mjs) loads only on a transition.
+  assert.ok(hookContext < 7_685_000,
     `phase-review reads retain their existing byte ceiling after moving families (${hookContext} bytes)`);
   assert.match(await readFile(path.join(outdir, 'cold-light.mjs'), 'utf8'), /function enterPhase\b/u,
     'phase binding must not fall through to the compatibility/admin bundle');

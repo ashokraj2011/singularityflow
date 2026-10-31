@@ -153,7 +153,8 @@ const HISTORICAL_PACKAGED_ASSET_SHA256 = Object.freeze({
     '6e46b121db6e48206916719e66b927c19e3db86bb829c661bff89db74e814940'
   ]),
   // Before the plan could list supporting files that change without a clause, before it said which
-  // files may be supporting, and before it showed a fenced verification contract example (2026-10-29).
+  // files may be supporting, before it showed a fenced verification contract example (2026-10-29),
+  // and before it said a planned test never saves its capture at the retained evidence path (2026-10-31).
   'singularity/templates/spec-driven/plan.md': Object.freeze([
     'e8dca233e783eac51fbcd75fe989d27cf163f6c42e4763e0a006cf671082be92',
     'e7a12442437f5454a3d5bf2151de476c87b30b71f54d1226def49bda492d4f7c',
@@ -164,7 +165,8 @@ const HISTORICAL_PACKAGED_ASSET_SHA256 = Object.freeze({
     'd18e7af418ac8b89af1df8214c015d23828e5c0d9cfad65123c1d37579f295e5',
     'ea181c89f78780be53165f1fbb4436efd4d5ed888e1286765f1bcb938bd06d21',
     '66fecb17e2ee3397909ca79f2834e445b27050f2d67d066b434deb589f5ffa04',
-    'b953f12ef6b7162f71af438e5af18c9e37aac265e15d2fe73f9cf23aff0a182c'
+    'b953f12ef6b7162f71af438e5af18c9e37aac265e15d2fe73f9cf23aff0a182c',
+    '05669e614c330ba9fd17124327203fba971310883db115935c6107f4f3d2bbb9'
   ]),
   // Before the specification cited its supporting documents under Sources.
   'singularity/templates/spec-driven/spec.md': Object.freeze([
@@ -603,7 +605,7 @@ export const CURRENT_PACKAGED_ASSET_SHA256 = Object.freeze({
   'singularity/templates/spec-code-test-loop/specification.md': '13c535747dc428cd0a9a4f31a4f4fdce29d4f8fd4f43a8062579f96e0d37c6fe',
   'singularity/templates/spec-code-test-loop/testing.md': 'dfc7d52ec93a94c33507ba76bada5459577895d714160136f4ec46bfcf0660d2',
   'singularity/templates/spec-driven/convergence.md': 'eb257477afca0229ed858875499736c57498015aaee0a527b714356819a9dde2',
-  'singularity/templates/spec-driven/plan.md': '05669e614c330ba9fd17124327203fba971310883db115935c6107f4f3d2bbb9',
+  'singularity/templates/spec-driven/plan.md': '502d705077ebbb399de79a9523b3cb2d377e17ba1fc05acbb43fd106a5c2fd84',
   'singularity/templates/spec-driven/release.md': '8f3e84e8e19dfc851d9948f20fbd48c0e43e5d8df9c747404d602106930e14fe',
   'singularity/templates/spec-driven/spec.md': 'fbb7f5f29844d24836c6b918e2796940cbc21c24ae0a7aa252d4e1207588e2cb',
   'singularity/templates/starter-packs/skp-team-notes/README.md': 'ab3e66d1654df81922a6022c491ac85868cb3b644e0eace77c4f9089c4f599ea',

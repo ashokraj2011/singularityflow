@@ -534,7 +534,7 @@ export async function inspectPhaseRecovery(root, config, workflow, phase, {
         }
         if (missingEvidence.length) actions.push(action({
           id: `capture-retained-evidence:${phase.id}`, mode: 'guided',
-          detail: `Produce ${[...missingFiles.keys()].join(', ')} from this checkout with the tool the plan names (a browser on a loopback port you confirmed free, a simulator or emulator, or a command-line run), bring it to each planned state, save each file at exactly its path, then recheck. Never use a server or device session another checkout runs and never fabricate evidence; a person witnesses it after submission.`,
+          detail: `Produce ${[...missingFiles.keys()].join(', ')} from this checkout with the tool the plan names (a browser on a loopback port you confirmed free, a simulator or emulator, or a command-line run), bring it to each planned state, save each file at exactly its path, then recheck. A test that captures one saves under its runner's output (for example test-results/) and the file is copied to its path once: a test that saves straight to the path replaces the published file on every later run. Never use a server or device session another checkout runs and never fabricate evidence; a person witnesses it after submission.`,
           command: `singularity-flow phase prepublish ${phase.id} --for-agent --json`,
           skill: generationSkill(phase, workflow), authoringSkill: generationSkill(phase, workflow)
         }));

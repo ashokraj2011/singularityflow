@@ -1,9 +1,9 @@
 {
   "schemaVersion": 2,
   "generatedFrom": "docs/topics",
-  "sourceCommit": "ea25b8a2658cc9ca67ccd147dbae38b905b1320f",
+  "sourceCommit": "8133a15db810b8cecf2870e3258887320337063c",
   "topicCount": 87,
-  "contentSha256": "3c8f7bbdb7bdd4aa81de71742b11f8db922f8a957b6bbd0f01581dba1c069322",
+  "contentSha256": "529f35406d84d955965c1c05f05a2498e35043fa123b59396eeb795d4525302b",
   "topics": [
     {
       "id": "activity-and-prompt-audit",
@@ -112,8 +112,8 @@
     {
       "id": "compact-phase-entry",
       "title": "Compact phase entry for Copilot",
-      "version": 15,
-      "sha256": "f0f167a61f3b19b474346a66c89edb93710a9d013f3dcbafc5006e0185aa6abe",
+      "version": 16,
+      "sha256": "fa580ee471daf0ad13ca91306c9bda8cd799f481bb99ad6d17c6138410bc812f",
       "routingSha256": "bcd885145db0455bd1ec31c50649b5056e38b66b77e10123514a20c5f3d1d0cb",
       "file": "compact-phase-entry.md"
     },
@@ -216,8 +216,8 @@
     {
       "id": "evidence-matrix",
       "title": "Evidence matrix for requirements and acceptance criteria",
-      "version": 33,
-      "sha256": "7834333f0d0f346d11651c098805a8ef199511079f30bf220501ff45ce8e2b43",
+      "version": 34,
+      "sha256": "4cfa263abc94fd5085b9aa17621d8ddc2978514250fd67e2f2c3c8cd83e757bb",
       "routingSha256": "1ac630e7dfdfbe2a92bf3ce0b059e2e77bbcee7d68307e9575047cac45b60332",
       "file": "evidence-matrix.md"
     },
@@ -248,8 +248,8 @@
     {
       "id": "findings",
       "title": "Findings — what a blocking finding means and how to recover",
-      "version": 14,
-      "sha256": "88e13f71e9b88b065b62b25968a5c90ace295dc52552bb6756168ddad0ffe888",
+      "version": 15,
+      "sha256": "8eb4fb5bbe723ee9862f96c10577c1cd4cd1592ac04cfe3c8a3045dbe1a65271",
       "routingSha256": "63e669eb5eb939fd7ee9a8f6447d098138d7e424eac2ee4ff55901d902118539",
       "file": "findings.md"
     },

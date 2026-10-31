@@ -15,7 +15,7 @@ import { ensureWorkIntervalBaseline } from "./work-intervals.mjs";
 import { finalizeDraftWorkflowSnapshot } from "./workflow-snapshots.mjs";
 import { initialWorkflowRecord } from "./story-policy-anchor.mjs";
 import { legacyPendingPublicationPath, saveWorkflow, validateId } from "./story-state-write.mjs";
-import { lifecycleEvent, recordPublicationProjection } from "./lifecycle-event.mjs";
+import { LIFECYCLE_EVENT, lifecycleEvent, recordPublicationProjection } from "./lifecycle-event.mjs";
 import { normalizeLedgerConfig } from "./ledger-config.mjs";
 import { default as path } from "node:path";
 import { phaseRequiresCodeDelivery } from "./code-delivery-policy.mjs";
@@ -33,6 +33,7 @@ async function assertNoInteractiveRevisionPublication(...args) { return (await i
 async function prepareRevisionPublicationSelection(...args) { return (await import('./revision/publication-selection.mjs')).prepareRevisionPublicationSelection(...args); }
 async function verifyPreparedRevisionPublicationSelection(...args) { return (await import('./revision/publication-selection.mjs')).verifyPreparedRevisionPublicationSelection(...args); }
 async function refreshPhaseSpecificationIndex(...args) { return (await import('./state.mjs')).refreshPhaseSpecificationIndex(...args); }
+async function retainedEvidenceGuard(...args) { return (await import('./evidence/retained-evidence.mjs')).retainedEvidenceGuard(...args); }
 async function refreshSkillLifecycleArtifactIdentities(...args) { return (await import('./state.mjs')).refreshSkillLifecycleArtifactIdentities(...args); }
 async function registerApprovedSnapshot(...args) { return (await import('./state.mjs')).registerApprovedSnapshot(...args); }
 async function registerArtifact(...args) { return (await import('./state.mjs')).registerArtifact(...args); }
@@ -201,6 +202,10 @@ export async function commitAndPublish(root, config, workflow, event, message, e
   }
   const priorWorkflow = rollbackWorkflow ?? structuredClone(workflow);
   const workflowRecovery = captureAggregateRecovery(workflow, priorWorkflow);
+  // A step's publication or submission keeps the retained evidence an approved step published; its
+  // worktree bytes are read now, before the transition runs a test that could rewrite them.
+  const retainedEvidence = [LIFECYCLE_EVENT.APPROVAL_REQUESTED, LIFECYCLE_EVENT.ARTIFACT_GENERATED].includes(envelope.type)
+    ? await retainedEvidenceGuard(root, workflow, envelope) : null;
   // The whole work directory, not just `workflow.json`.
   //
   // `state.write` is not one write: the approval path rewrites the artifact's metadata block in
@@ -444,6 +449,7 @@ export async function commitAndPublish(root, config, workflow, event, message, e
     afterOwnedWrites,
     validateProspectiveTree: async ({ event: finalizedEvent, prospectiveTree }) => {
       await validateDocumentPublicationTree(root, config, workflow, finalizedEvent, { prospectiveTree });
+      await retainedEvidence?.assert({ workflow, priorWorkflow, event: finalizedEvent, prospectiveTree });
     },
     recoveryPreimage,
     stabilityGuard: worktreeGuard,

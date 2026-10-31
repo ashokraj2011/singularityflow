@@ -732,6 +732,27 @@ function localSyncSteps(argv, error) {
     retry && step('retry-after-preserving', 'Then open the Story again.', retry.command, 'diagnostic')];
 }
 
+/**
+ * A retained evidence file that is not the image its step published (a refused witness, or a later
+ * step's commit that would change it): the person restores the published bytes with Git, or the step
+ * that owns the evidence publishes a new image through the route the refusal computed. A refusal at
+ * release named neither, and no command matched its advice (ws-graph AC-001, 2026-10-27).
+ */
+function retainedEvidenceSteps(error, retry) {
+  const details = error?.details ?? {};
+  const evidence = Array.isArray(details.retainedEvidence) ? details.retainedEvidence[0] : null;
+  if (!evidence || typeof evidence.path !== 'string') return [];
+  const route = (Array.isArray(details.routes) ? details.routes : [])
+    .find((entry) => typeof entry?.command === 'string' && typeof entry?.label === 'string');
+  const note = (Array.isArray(details.notes) ? details.notes : []).find((entry) => typeof entry === 'string');
+  return [
+    typeof evidence.restore === 'string' ? step('restore-published-evidence',
+      `To keep the image ${evidence.publishedBy} published, restore it in your own terminal with ${evidence.restore}, then ${retry}.`.slice(0, 2000), null, 'remediation') : null,
+    route ? step(route.kind === 'upstream-issue' ? 'raise-upstream-issue' : 'republish-evidence', route.label.slice(0, 2000), route.command, 'remediation')
+      : note ? step('republish-evidence', note.slice(0, 2000), null, 'remediation') : null
+  ];
+}
+
 /** The Story `decision witness-exception` named: its positional, else --work-id; never another command's word. */
 function witnessExceptionWorkId(argv) {
   const positional = argv?.[0] === 'decision' && argv?.[1] === 'witness-exception' && !String(argv?.[2] ?? '').startsWith('-') ? argv[2] : null;
@@ -833,6 +854,8 @@ const KNOWN = Object.freeze({
       initiative ? `singularity-flow initiative sync ${initiative}` : 'singularity-flow sync', 'remediation')];
     return [];
   },
+  RETAINED_EVIDENCE_CHANGED: (argv, error) => retainedEvidenceSteps(error, 'run the same command again'),
+  WITNESS_EVIDENCE_UNPUBLISHED: (argv, error) => retainedEvidenceSteps(error, 'witness it again'),
   // A lapsed witness exception: the final check lists the step and the exact exception.
   WITNESS_EXCEPTION_RENEWAL_INVALID: (argv) => {
     const workId = witnessExceptionWorkId(argv);

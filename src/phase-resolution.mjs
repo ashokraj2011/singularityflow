@@ -207,7 +207,7 @@ export function phaseResolutionChoices(workflow, phase, finding) {
   } else if (code === 'code_delivery_retained_evidence_missing') {
     // A planned evidence file is this step's deliverable. Say how to make it from this checkout.
     resolution = route('capture-retained-evidence', phase.id, ['phase', 'prepublish', phase.id, '--for-agent', '--json'],
-      `Produce ${finding.path ?? 'the planned evidence file'} from this checkout with the tool the plan names (a browser on a loopback port you confirmed free, a simulator or emulator, or a command-line run), bring it to the planned state, save the file at exactly that path, then recheck. Never use a server or device session another checkout runs and never fabricate evidence; the file is not a visual pass, and a person witnesses it after submission.`,
+      `Produce ${finding.path ?? 'the planned evidence file'} from this checkout with the tool the plan names (a browser on a loopback port you confirmed free, a simulator or emulator, or a command-line run), bring it to the planned state, save the file at exactly that path, then recheck. A test that captures it saves under its runner's output (for example test-results/) and the file is copied to that path once: a test that saves straight to the path replaces the published file on every later run. Never use a server or device session another checkout runs and never fabricate evidence; the file is not a visual pass, and a person witnesses it after submission.`,
       generationSkillForPhase(phase, workflow));
   } else if (code === 'code_delivery_evidence_required') {
     resolution = route('author-correction', phase.id, ['phase', 'prepublish', phase.id, '--for-agent', '--json'],

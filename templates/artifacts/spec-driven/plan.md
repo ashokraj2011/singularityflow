@@ -41,6 +41,9 @@ test files only; never repeat a test file in both columns. A test-only obligatio
 `test-only`, an unquoted dash (-) in Expected paths, and its exact tests under `Planned tests`.
 Never backtick the empty dash: that names a file. Retained screenshots/documents use fulfillment
 `evidence` and exact paths under `{{work.id}}`'s Story evidence directory, not product source.
+A planned test never saves its capture straight to that path, because every later run would replace
+the reviewed file: it saves under its runner's output (for example `test-results/`), and the code
+step copies the image to the evidence path once, when it produces the evidence.
 For a genuinely non-testable clause, write `not-applicable:` followed by your concrete reviewed
 explanation in `Planned tests`. Do not use it to defer a test or to replace an unknown path.
 For approved visual/inspection proof without an executable test, write `verification: <AC-ID>`

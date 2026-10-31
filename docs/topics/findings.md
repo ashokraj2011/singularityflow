@@ -14,7 +14,7 @@ related:
   - recovery
   - phase-appeals
   - escalation
-version: 14
+version: 15
 ---
 A finding is one exact reason a step cannot publish, submit or finish. Every finding has an owner and a recovery route: the step's own author fixes its draft, an earlier step's approvers decide an upstream issue, a person records a decision, or an owner restores trusted bytes. Each refusal names its finding code; read its entry here with `sflow explain findings --section <CODE>` (the code is matched without regard to case). No finding routes only back to its own author: each names at least one route for someone else, its approvers, an earlier step, an owner, or, when nothing more specific exists, the workflow maintainer. Nothing in this catalog waives a test, approves a step or accepts a risk by itself.
 
@@ -92,7 +92,11 @@ The code step's delivery is not publishable: no product source changed, no accep
 
 ### CODE_DELIVERY_RETAINED_EVIDENCE_MISSING
 
-A planned evidence file (usually a screenshot) has not been produced. Start the app from the Story's own checkout on a port you confirmed is free, bring it to the planned state and save the file at exactly the planned path, then recheck. Never take it from another checkout's server and never fabricate it; a person witnesses it after submission.
+A planned evidence file (usually a screenshot) has not been produced. Start the app from the Story's own checkout on a port you confirmed is free, bring it to the planned state and save the file at exactly the planned path, then recheck. When a test captures it, the test saves under its runner's output (for example `test-results/`) and you copy the file to the planned path once: a test that saves straight to that path replaces the published image on every later run, and a later step's commit then refuses the change (`RETAINED_EVIDENCE_CHANGED`). Never take it from another checkout's server and never fabricate it; a person witnesses it after submission.
+
+### RETAINED_EVIDENCE_CHANGED
+
+Retained evidence a step published is not what the checkout holds now. `RETAINED_EVIDENCE_CHANGED` refuses a later step's publication or submission that would commit other bytes for the file, or delete it; `WITNESS_EVIDENCE_UNPUBLISHED` refuses a witness of a file that is not the published image. Each names the step that published it, its generation commit, the published and the current SHA-256, and two ways on. To keep the published image, restore it with `git restore --source=<GENERATION-COMMIT> -- <FILE>` and run the command again. To keep a new image, the step that owns the evidence publishes it in its next generation, which records the new bytes: the refusal names the return (`sflow reject <STEP> --to <OWNER>` once the step awaits approval) or the upstream issue (`sflow upstream-issue raise --phase <OWNER> --about <CLAUSE>`) that takes the Story there. When the file changed while the command ran, a test saves its capture to the evidence path and every run replaces it, so running the command again is refused again: that test changes, in the owning step, to save under its runner's output (for example `test-results/`), and the image is copied to the evidence path once. SFlow never restores the published image for you; a refused command puts back only the Story's own files that changed while it ran.
 
 ### CODE_DELIVERY_TEST_COMMAND_REQUIRED
 

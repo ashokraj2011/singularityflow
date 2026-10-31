@@ -23,7 +23,7 @@ related:
   - story-lifecycle
   - workflow-decisions
   - rejection-and-rework
-version: 33
+version: 34
 ---
 The evidence matrix shows every requirement and acceptance criterion of a Story as one row: whether the approved plan names it, whether a delivered change implements it, which tagged test verifies it and what that test's run proved. It reads committed records only, so it runs no test and makes no network call.
 
@@ -55,6 +55,8 @@ The plan's planned-evidence table has one row per clause: its exact expected pat
 - **Fulfillment:** `new` or `modified` product source; `existing` behaviour that already lives at the listed paths; `removed` behaviour at the listed paths; `test-only`, when the tests are the whole delivery and Expected paths is `-`; an exact `document` or `configuration` change; or `evidence`, for a retained screenshot/document under this Story's `evidence/` directory. A row that names none means new or modified source.
 
 Retained evidence is bound by exact path and SHA-256 to the published Git generation (regular files only, at most 16 MiB each). It never needs a fake source tag and is never an executable test. An evidence acceptance criterion must have a primary visual/inspection verification contract. File delivery marks implementation coverage, not visual correctness: an authorized reviewer records the contract's witness with `singularity-flow decision witness`. The inspected image must match the published evidence bytes, not an unpublished local replacement. Its file hash, plan/criterion bindings and published code candidate must remain current; reusing an old screenshot alone cannot verify a new candidate.
+
+Every Story commit stages the whole work directory, so a test that saves its capture straight to an evidence path would put a re-capture into the next step's commit unnoticed. A planned test therefore saves its capture under its runner's output (for example `test-results/`), and the code step copies the image to the evidence path once, when it produces the evidence. A later step's publication or submission that would change or delete a file an approved step published is refused (`RETAINED_EVIDENCE_CHANGED`); a new image comes only from the step that owns the evidence, in its next generation, whose delivery records the new bytes.
 
 Each planning owner's obligations survive aggregation independently. A later test-only stage cannot erase an earlier source-changing obligation or satisfy it using another stage's files. Coverage is checked against the editable candidate before publication, again before submission runs tests, and at approval. Failures preserve the candidate and identify the planning owner. Missing files can be repaired in the open generation. A misclassified approved screenshot row needs a reviewed plan correction (return to the planning owner using the allowed rejection target), not invented tags or edits to immutable observed maps; preserve application code and revalidate its delivery.
 - **Observable result:** what a person can see when the row is met, in at most 500 characters.
@@ -175,6 +177,8 @@ When a gate refuses, the CLI, VS Code and Copilot receive one refusal record (ga
 - **`TEST_CAPABILITY_UNSUPPORTED`:** a planned test sits in a module whose tests cannot run here (no supported runner, two build systems, or no covering command); configure a supported test command, plan the test in a supported module, or verify the criterion another way in the plan's verification contracts.
 - **`SPEC_VERIFICATION_CONTRACT_INVALID`:** the plan's verification contracts table has a defect; the message names the row and what to change.
 - **`EVIDENCE_INSPECTION_MISSING` or `EVIDENCE_VISUAL_MISSING`:** a contract slot needs its inspection or visual record, or its file changed after it was inspected; record it with `decision witness`.
+- **`WITNESS_EVIDENCE_UNPUBLISHED`:** the file is not the image its step published, or nothing published it yet. The refusal names the step, its generation commit and both digests: witness the published image after `git restore --source=<GENERATION-COMMIT> -- <FILE>`, or have the step that owns the evidence publish the new one through the return or upstream issue the refusal names.
+- **`RETAINED_EVIDENCE_CHANGED`:** a step's publication or submission would change or delete retained evidence an approved step published; nothing was committed. Restore the published bytes with the `git restore` command it names, or have the owning step publish a new image. When the file changed while the command ran, a test rewrote it: that test changes, in the owning step, to save its capture under its runner's output.
 - **`EVIDENCE_WITNESS_NOT_APPLICABLE` or `EVIDENCE_WITNESS_EXCEPTION_EXPIRED`:** the reviewer ruled the criterion's tests out, or an adequacy exception lapsed; tag an adequate test, or review the test again.
 - **`EVIDENCE_ASSURANCE_SHORTFALL`:** the criterion passed below what its runner can reach or the Story requires; repair the test configuration, tag another test, or accept the risk with the `assurance-shortfall` category.
 - **`REFUSAL_UNCHANGED`:** nothing the refusal depended on has changed since the last attempt; follow its recovery actions, then retry.

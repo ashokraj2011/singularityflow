@@ -15,6 +15,8 @@ export const FINDINGS_TOPIC = 'findings';
 const CODE_SECTIONS = new Map(Object.entries({
   'CODE_DELIVERY_EVIDENCE_REQUIRED': ['code_delivery_evidence_required'],
   'CODE_DELIVERY_RETAINED_EVIDENCE_MISSING': ['code_delivery_retained_evidence_missing'],
+  // Published retained evidence the checkout no longer holds: a later step's commit, or a witness.
+  'RETAINED_EVIDENCE_CHANGED': ['retained_evidence_changed', 'witness_evidence_unpublished'],
   // Every runner an approved test command must supply: none inferable, two build systems, a native
   // target (Android variant, Xcode scheme) or adapter that would otherwise be guessed.
   'CODE_DELIVERY_TEST_COMMAND_REQUIRED': ['code_delivery_test_command_required', 'test_module_ambiguous', 'test_module_uncovered',

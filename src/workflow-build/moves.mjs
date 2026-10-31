@@ -11,9 +11,9 @@
  */
 import { CHECK_KINDS } from '../guidance-scan.mjs';
 import { looksSecretName, looksSecretValue } from '../secret-looking.mjs';
+import { STUDIO_ID as ID } from '../agent-document-parser.mjs';
 import { SingularityFlowError } from '../util.mjs';
 
-const ID = /^[a-z0-9]+(?:-[a-z0-9]+)*$/u;
 const OUTPUTS = ['document', 'analysis', 'code', 'none'];
 const TRIGGERS = ['submitted', 'approved', 'rejected'];
 const SIGN_OFF_FIELDS = ['groups', 'minimum', 'sendBackTo'];

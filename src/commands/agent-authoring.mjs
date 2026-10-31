@@ -1,20 +1,22 @@
 /**
  * `agents create | edit`: a governed agent from the command line, through the same Workflow Studio
  * change set as every other configuration change, so it is checked the same way and is saved as a
- * draft, previewed with `--dry-run`, or proposed with `--propose`.
+ * draft, previewed with `--dry-run`, or proposed with `--propose`. `--step` makes the agent the one
+ * that drafts those steps in the same change (`phase.agent`), so an agent and the steps it drafts are
+ * saved, proposed and approved together.
  */
 import { readFile } from 'node:fs/promises';
 import path from 'node:path';
+import { AGENT_ROLE_IDS as ROLES } from '../agent-file.mjs';
+import { STUDIO_ID as ID } from '../agent-document-parser.mjs';
 import { nearestNames, SingularityFlowError } from '../util.mjs';
 
 export const AGENT_AUTHORING_SUBCOMMANDS = Object.freeze(['create', 'edit']);
-const ROLES = Object.freeze(['analyst', 'product-owner', 'architect', 'developer', 'tester', 'designer', 'reviewer', 'blank']);
-const AUTHORING = ['json', 'dry-run', 'propose', 'background-sync', 'operation-id'];
+const AUTHORING = ['json', 'dry-run', 'propose', 'background-sync', 'operation-id', 'step'];
 const OPTIONS = Object.freeze({
   create: [...AUTHORING, 'label', 'description', 'role', 'from-agent', 'tools', 'instructions', 'from'],
   edit: [...AUTHORING, 'label', 'description', 'tools', 'instructions', 'from']
 });
-const ID = /^[a-z0-9]+(?:-[a-z0-9]+)*$/u;
 
 function fail(message, code = 'AGENT_AUTHORING_INVALID') { throw new SingularityFlowError(message, { code }); }
 
@@ -37,6 +39,11 @@ export function validateAgentAuthoringRequest({ positionals, options }) {
   for (const key of ['json', 'dry-run', 'propose', 'background-sync']) if (options[key] !== undefined && options[key] !== true) fail(`--${key} does not take a value.`);
   if (options.role !== undefined && !ROLES.includes(text(options, 'role'))) fail(`--role must be one of: ${ROLES.join(', ')}.`);
   if (options.instructions !== undefined && options.from !== undefined) fail('Give the instructions with --instructions or --from <FILE>, not both.');
+  const steps = [options.step ?? []].flat();
+  if (steps.some((value) => typeof value !== 'string')) fail('--step takes a step ID, for example --step code-review.');
+  for (const step of steps.flatMap((value) => value.split(',')).map((value) => value.trim()).filter(Boolean)) {
+    if (!ID.test(step)) fail(`--step ${step} is not a step ID; step IDs are lower-case kebab-case, like code-review.`);
+  }
   return action;
 }
 
@@ -57,15 +64,25 @@ async function changeFor(action, id, options) {
   for (const key of ['label', 'description']) if (text(options, key) != null) change[key] = text(options, key);
   if (options.tools !== undefined) change.tools = list(text(options, 'tools'));
   if (instructions != null) change.instructions = instructions;
-  if (Object.keys(change).length === 2) fail('Say what to change: --label, --description, --tools, --instructions or --from <FILE>.');
+  if (Object.keys(change).length === 2) return null;
   return change;
+}
+
+/** The steps `--step` names (repeated, or comma-separated), each once, in order. */
+function stepsOf(options) {
+  return [...new Set([options.step ?? []].flat().flatMap((value) => String(value).split(',')).map((value) => value.trim()).filter(Boolean))];
 }
 
 export async function run({ positionals, options, applyChangeSet, printResult }) {
   const action = validateAgentAuthoringRequest({ positionals, options });
   const [{ repoRoot }, { STUDIO_CHANGE_SET_SCHEMA }] = await Promise.all([import('../git.mjs'), import('../workflow-studio.mjs')]);
   const id = positionals[2];
-  const changeSet = { schema: STUDIO_CHANGE_SET_SCHEMA, changes: [await changeFor(action, id, options)] };
+  const change = await changeFor(action, id, options);
+  const steps = stepsOf(options);
+  if (!change && !steps.length) fail('Say what to change: --label, --description, --tools, --instructions, --from <FILE> or --step STEP.');
+  // The agent first, then the steps it drafts, in the same change (Studio applies agent.create before phase.agent).
+  const changes = [...(change ? [change] : []), ...steps.map((phase) => ({ op: 'phase.agent', phase, agent: id }))];
+  const changeSet = { schema: STUDIO_CHANGE_SET_SCHEMA, changes };
   const result = await applyChangeSet(repoRoot(), changeSet, { subject: id, message: `[configuration] agent ${action}: ${id}` });
   // A change that does not check was refused: never exit 0 with a problem. A JSON preview reports it in `valid`.
   if (result?.valid === false && options['dry-run'] !== true) process.exitCode = 1;

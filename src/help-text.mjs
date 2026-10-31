@@ -724,8 +724,9 @@ Usage:
   singularity-flow delivery local-runner-verify --attestation-file FILE --signer ID [--json]
   singularity-flow delivery readiness [--provider-file FILE] [--runner-provider-file FILE] [--json]
   singularity-flow agents list
-  singularity-flow agents create <ID> --label TEXT --description TEXT [--role ROLE] [--from-agent AGENT] [--tools a,b] [--instructions TEXT | --from FILE] [--operation-id ID] [--dry-run | --propose] [--json]
-  singularity-flow agents edit <ID> [--label TEXT] [--description TEXT] [--tools a,b] [--instructions TEXT | --from FILE] [--operation-id ID] [--dry-run | --propose] [--json]
+  singularity-flow agents create <ID> --label TEXT --description TEXT [--role ROLE] [--from-agent AGENT] [--tools a,b] [--instructions TEXT | --from FILE] [--step STEP,...] [--operation-id ID] [--dry-run | --propose] [--json]
+  singularity-flow agents edit <ID> [--label TEXT] [--description TEXT] [--tools a,b] [--instructions TEXT | --from FILE] [--step STEP,...] [--operation-id ID] [--dry-run | --propose] [--json]
+    --step makes the agent the one that drafts those steps, in the same change: the agent and its steps are saved, proposed and approved together
   singularity-flow agents mappings
   singularity-flow agents lock <PACK> [--update]
   singularity-flow agents sync <PACK>

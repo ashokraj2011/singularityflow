@@ -5,7 +5,13 @@ import { SingularityFlowError, posix } from './util.mjs';
 import { DEFAULT_REMOTE_MAX_BYTES as DEFAULT_MAX_BYTES, HARD_REMOTE_MAX_BYTES as HARD_MAX_BYTES, validatePublicHttpsUrl } from './remote-fetch.mjs';
 import { LIBRARY_SKILL_TABLE, normalizeSkillUse } from './skill-library.mjs';
 export const AGENT_ALLOWED_TOKENS = Object.freeze(['workId', 'workType', 'phase', 'generation']);
-export function validAgentId(value) { return /^[a-z0-9]+(?:-[a-z0-9]+)*$/.test(value); }
+/**
+ * The ID every Workflow Studio subject uses (steps, workflows, agents, skills, instructions, groups):
+ * lower-case kebab-case, like vendor-analysis. One pattern for every route that makes one; it lives
+ * here because agent discovery, which every command loads, already reads it.
+ */
+export const STUDIO_ID = /^[a-z0-9]+(?:-[a-z0-9]+)*$/u;
+export function validAgentId(value) { return STUDIO_ID.test(value); }
 function displayNameId(value) {
   if (typeof value !== 'string') return null;
   const normalized = value.trim().toLowerCase()

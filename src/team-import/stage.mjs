@@ -13,6 +13,7 @@ import { createHash } from 'node:crypto';
 import { mkdir, readFile, rm, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import YAML from 'yaml';
+import { newAgentFile } from '../agent-file.mjs';
 import { discoverAgents } from '../agents.mjs';
 import { USER_DEFINED_MANIFEST_METADATA, USER_DEFINED_METADATA, userDefinedFolderPath, userDefinedManifestPath } from '../user-defined-agent-identity.mjs';
 import { fileMedia } from './formats.mjs';
@@ -25,8 +26,6 @@ const WORKFLOW_FILE = 'singularity/workflow.yml';
 function frontMatter(fields) {
   return `---\n${YAML.stringify(fields, { lineWidth: 0 }).trimEnd()}\n---\n\n`;
 }
-
-const csv = (values) => (values.length ? [...new Set(values)].join(', ') : '-');
 
 /**
  * A phase's checks as sflow runs them: each named, of its kind, and using no model, so a check is
@@ -138,16 +137,17 @@ export async function stageCandidate(root, candidate, { completed = new Map(), s
       for (const file of folder.files) await put(`${userDefinedFolderPath(agent.id)}/${file.path}`, file.content);
       await put(userDefinedManifestPath(agent.id), folder.manifest);
     }
-    const fields = {
-      name: agent.id,
-      description: agent.description,
-      ...(agent.tools?.length ? { tools: [...agent.tools] } : {}),
-      metadata: { 'sflow-label': agent.label, 'sflow-phases': csv([...defaultFor, ...reviews]), 'sflow-default-for': csv(defaultFor),
+    // Rendered as Workflow Studio's agent.create writes a new agent (src/agent-file.mjs): the team's
+    // instructions between the shared boundary and clarification sentences. No tools listed stays none listed.
+    await put(`.github/agents/${agent.id}.agent.md`, newAgentFile({
+      id: agent.id, label: agent.label, description: agent.description, tools: agent.tools?.length ? [...agent.tools] : null,
+      phases: [...new Set([...defaultFor, ...reviews])], defaultFor, instructions: agent.body, starter: true,
+      extraMetadata: {
         // A source reviewer reads and reports; the engine admits only a review-only agent there.
         ...(reviews.length ? { 'sflow-mode': 'read-only-review' } : {}),
-        ...(folder ? { [USER_DEFINED_METADATA]: agent.id, [USER_DEFINED_MANIFEST_METADATA]: folder.sha256 } : {}) }
-    };
-    await put(`.github/agents/${agent.id}.agent.md`, `${frontMatter(fields)}${agent.body.trim()}\n`);
+        ...(folder ? { [USER_DEFINED_METADATA]: agent.id, [USER_DEFINED_MANIFEST_METADATA]: folder.sha256 } : {})
+      }
+    }));
   }
   for (const skill of candidate.skills) {
     const fields = { name: skill.id, description: skill.description, ...(skill.loading ? { metadata: { 'sflow-loading': skill.loading } } : {}) };

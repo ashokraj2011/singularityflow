@@ -67,9 +67,13 @@ const LOCK_WAIT_MS = 30_000;
 const SAVE_ATTEMPTS = 5;
 const MAXIMUM_DRAFTS = 200;
 const LINKLESS_CODES = new Set(['EPERM', 'ENOTSUP', 'EOPNOTSUPP', 'ENOSYS', 'EXDEV', 'EMLINK', 'EINVAL']);
-/** The changes people make one at a time from the CLI or Copilot. Imports and workflow edits keep their own routes. */
+/**
+ * The changes people make one at a time from the CLI or Copilot. Imports and workflow edits keep their
+ * own routes. Which agent drafts a step (`phase.agent`) is a draft like the agent itself, so an agent
+ * and the steps it drafts are saved, proposed and approved together.
+ */
 export const DRAFTABLE_OPERATIONS = Object.freeze(['skill.create', 'skill.update', 'skill.attach', 'skill.detach', 'skill.remove',
-  'instruction.create', 'instruction.update', 'instruction.remove', 'agent.create', 'agent.update']);
+  'instruction.create', 'instruction.update', 'instruction.remove', 'agent.create', 'agent.update', 'phase.agent']);
 const DRAFTABLE = new Set(DRAFTABLE_OPERATIONS);
 
 const fail = (message, code, details = null) => { throw new SingularityFlowError(message, { code, ...(details ? { details } : {}) }); };
@@ -370,6 +374,7 @@ export function describeChange(change) {
     case 'instruction.remove': return `Remove instruction ${change.id}`;
     case 'agent.create': return `New agent ${name}`;
     case 'agent.update': return `Edit agent ${change.id}`;
+    case 'phase.agent': return `Step ${change.phase} drafted by agent ${change.agent}`;
     default: return String(change.op);
   }
 }
@@ -408,6 +413,8 @@ const combine = (drafts, changes) => ({ schema: CHANGE_SET_SCHEMA, changes: [...
 export function changeSubject(change) {
   const [kind, action] = String(change?.op ?? '').split('.');
   if (action === 'attach' || action === 'detach') return `attachment:${change.skill}:${change.workflow ? `workflow:${change.workflow}` : `agent:${change.agent}`}`;
+  // A step has one drafting agent: choosing another for the same step is a change of the same subject.
+  if (kind === 'phase' && action === 'agent') return `step-agent:${change.phase}`;
   return `${kind}:${change?.id}`;
 }
 

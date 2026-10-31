@@ -125,8 +125,10 @@ for command in bash git node npm; do
 done
 
 NODE_MAJOR="$(node -p 'Number(process.versions.node.split(".")[0])' 2>/dev/null || true)"
-[[ "$NODE_MAJOR" =~ ^[0-9]+$ ]] || fail 'could not determine the Node.js version.'
-(( NODE_MAJOR >= 26 )) || fail "Node.js 26 or newer is required; found $(node --version)."
+NODE_MINOR="$(node -p 'Number(process.versions.node.split(".")[1])' 2>/dev/null || true)"
+[[ "$NODE_MAJOR" =~ ^[0-9]+$ && "$NODE_MINOR" =~ ^[0-9]+$ ]] || fail 'could not determine the Node.js version.'
+# Node 22.12 to 22.16 and 23 report device 0 for a path stat on Windows 11 24H2 and Windows Server 2025.
+(( NODE_MAJOR > 23 || (NODE_MAJOR == 22 && NODE_MINOR >= 17) )) || fail "Node.js 22.17 or newer (not 23) is required; found $(node --version)."
 
 if [[ "$CLI_ONLY" != "on" && "$VSCODE_ONLY" != "on" && "$SKIP_COPILOT" != "on" ]]; then
   command -v copilot >/dev/null 2>&1 || fail 'Copilot CLI was not found. Install it first, or use --cli-only, --vscode-only, or --skip-copilot.'

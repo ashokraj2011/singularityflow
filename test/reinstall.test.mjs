@@ -56,11 +56,13 @@ function storedZip(name, body) {
   return Buffer.concat([local, filename, body, directory, eocd]);
 }
 
-test('reinstall requires a valid Node 26 or newer runtime', () => {
-  assert.deepEqual(assertReinstallNodeVersion('v26.0.0'), { version: '26.0.0', major: 26 });
-  assert.deepEqual(assertReinstallNodeVersion('26.12.0'), { version: '26.12.0', major: 26 });
-  assert.throws(() => assertReinstallNodeVersion('v24.22.1'), /Node\.js 26 or newer is required/);
-  assert.throws(() => assertReinstallNodeVersion('22.14.0'), /Node\.js 26 or newer is required/);
+test('reinstall requires a supported Node: 22 or newer, and on Windows 22.17 or newer, not 23', () => {
+  assert.deepEqual(assertReinstallNodeVersion('v26.0.0', 'linux'), { version: '26.0.0', major: 26 });
+  assert.deepEqual(assertReinstallNodeVersion('22.14.0', 'darwin'), { version: '22.14.0', major: 22 });
+  assert.deepEqual(assertReinstallNodeVersion('22.17.0', 'win32'), { version: '22.17.0', major: 22 });
+  assert.throws(() => assertReinstallNodeVersion('v20.20.2', 'linux'), /Node\.js 22 or newer is required; found v20\.20\.2/);
+  assert.throws(() => assertReinstallNodeVersion('22.14.0', 'win32'), /Node\.js 22\.17 or newer \(not 23\) is required/);
+  assert.throws(() => assertReinstallNodeVersion('23.11.1', 'win32'), /Node\.js 22\.17 or newer \(not 23\) is required/);
   assert.throws(() => assertReinstallNodeVersion('unknown'), /Could not determine/);
 });
 

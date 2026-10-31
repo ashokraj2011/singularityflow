@@ -13,11 +13,12 @@ import {
   isWelCorpusReviewEvidenceSha256, verifyWelCorpusReviewReceipt
 } from './wel-corpus-review-receipt.mjs';
 import { verifyReleaseArtifactReceiptAuthority } from './release-artifact-receipt.mjs';
+import { SUPPORTED_NODE_LTS_MAJORS } from './node-requirement.mjs';
 
 function sha256(value) { return createHash('sha256').update(value).digest('hex'); }
 
 const SUPPORTED_RELEASE_PLATFORMS = Object.freeze(['darwin', 'linux', 'win32']);
-const SUPPORTED_RELEASE_NODE_MAJORS = Object.freeze([26]);
+const SUPPORTED_RELEASE_NODE_MAJORS = SUPPORTED_NODE_LTS_MAJORS;
 const HISTORICAL_SINGLE_RECEIPT_VERSIONS = Object.freeze([5, 6]); // schema-transient: historical externally signed receipts
 export const CURRENT_SINGLE_VERIFICATION_RECEIPT_VERSION = 7; // schema-transient: externally signed release receipt
 const HISTORICAL_MATRIX_RECEIPT_VERSIONS = Object.freeze([6, 7]); // schema-transient: historical externally signed receipts
@@ -221,8 +222,8 @@ export function validateReleasePlatformEvidence(value, expected = {}) {
 }
 
 /**
- * The reviewed release matrix: the minimum Node line (src/node-requirement.mjs), which is also the
- * managed runtime's, on all three supported hosts. Developer checks do not require this aggregate; real release promotion
+ * The reviewed release matrix: the supported LTS Node lines, 22 and 26 (src/node-requirement.mjs; 26 is
+ * the managed runtime's), on all three supported hosts. Developer checks do not require this aggregate; real release promotion
  * does, through scripts/release.mjs.
  */
 export const REQUIRED_RELEASE_PLATFORM_MATRIX = Object.freeze(

@@ -200,7 +200,8 @@ that a change was proved. See `sflow explain goals-and-outcomes`.
 
 ## Requirements
 
-- Node.js 26 or newer for the CLI and the VS Code extension build. VS Code runs the engine it
+- Node.js 22 or 26 (LTS) for the CLI and the VS Code extension build: Node 22 or newer, and on Windows
+  Node 22.17 or newer, not 23. VS Code runs the engine it
   bundles on its own Node.
 - Alternatively, the opt-in [SFlow-managed runtime](docs/managed-node-runtime.md) bootstraps a private,
   pinned Node without replacing the application's Node/npm: `./install.sh --managed-runtime`
@@ -1490,7 +1491,7 @@ From a clean clone, update the tracked branch, create the distribution tarball, 
 
 `npm run install:local` is an alias for the same script.
 
-Every source-install mode requires Node.js 26 or newer. Use the narrowest surface that you need:
+Every source-install mode requires Node.js 22 or newer (22.17 or newer on Windows). Use the narrowest surface that you need:
 
 ```bash
 # Rebuild this exact clean checkout; do not fetch or pull.
@@ -1569,7 +1570,7 @@ preview/apply flow, plan IDs, conflict choices, protected configuration branches
 and bundled model-routing upgrades.
 
 On Windows, open **Git Bash** in the Singularity Flow checkout and use the Windows wrapper. It
-checks Node.js 26+, updates the checkout safely, confirms that the CRLF Agent Markdown fix is
+checks Node.js 22.17+ (not 23), updates the checkout safely, confirms that the CRLF Agent Markdown fix is
 present, and delegates to the same validated installer:
 
 ```bash
@@ -1681,7 +1682,7 @@ attachment, model, or tool-policy flags.
 The single self-contained `install.sh` performs:
 
 ```text
-validate Node.js 26+ and the clean checkout
+validate Node.js 22.17+ (not 23) and the clean checkout
 git pull --ff-only (unless --no-update)
 choose configured, public, or custom npm registry
 npm ci --registry=<selected-registry>

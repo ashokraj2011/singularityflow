@@ -145,7 +145,7 @@
     "verification:receipt:merge": "node scripts/merge-verification-receipts.mjs"
   },
   "engines": {
-    "node": ">=26"
+    "node": ">=22"
   },
   "keywords": [
     "github-copilot",

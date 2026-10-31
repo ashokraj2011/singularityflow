@@ -39,11 +39,12 @@ deliberately does not fall back to `npm install` or silently rewrite the locked 
 
 ## Cut a release
 
-The installed product requires Node.js 26 or newer (`src/node-requirement.mjs`), the line the
-managed runtime installs: Node 22.12 to 22.16 and 23 report device 0 for a path stat on Windows 11
-24H2 and Windows Server 2025, so every same-file check refuses there. The locked artifact-building
-toolchains accept Node.js 20.18.1 through 20.x or 22.9.0 or newer, so they build on Node 26; collect
-the declared physical release matrix on Node 26.
+The installed product supports the Node.js LTS lines 22 and 26 (`src/node-requirement.mjs`): Node 22
+or newer, and on Windows Node 22.17 or newer and not 23, because Node 22.12 to 22.16 and 23 report
+device 0 for a path stat on Windows 11 24H2 and Windows Server 2025, so every same-file check refuses
+there. The managed runtime installs Node 26. The locked artifact-building toolchains accept Node.js
+20.18.1 through 20.x or 22.9.0 or newer, so they build on both; collect the declared physical release
+matrix on Node 22 and Node 26.
 
 ```bash
 npm ci
@@ -205,7 +206,7 @@ bash ./install-windows-git-bash.sh \
   --registry https://artifacts.company.example/api/npm/npm-virtual/
 ```
 
-The wrapper validates Git Bash, Node.js 26+, the clean checkout, and the Windows CRLF-safe Agent
+The wrapper validates Git Bash, Node.js 22.17+ (not 23), the clean checkout, and the Windows CRLF-safe Agent
 Markdown parser before delegating to the canonical `install.sh`. It performs a fast-forward-only
 update, does not change `core.autocrlf`, and does not rewrite Markdown files. Authentication remains
 in the user's `.npmrc`.

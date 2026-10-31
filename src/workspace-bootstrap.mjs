@@ -820,11 +820,11 @@ async function machinePreflight(plan, { env = process.env, home = os.homedir(), 
     action: 'Use the packaged macOS, Linux, or Windows build, then resume.'
   }));
   const node = nodeRequirement();
-  checks.push({ id: 'node-runtime', status: node.met ? 'pass' : 'fail', observed: node.version, required: `>=${node.minimum}` });
+  checks.push({ id: 'node-runtime', status: node.met ? 'pass' : 'fail', observed: node.version, required: node.required });
   if (!node.met) findings.push(finding({
     id: 'machine.node.unsupported', scope: 'machine', classification: 'runtime-unsupported',
-    message: `Node.js ${node.version} is installed; Singularity Flow requires Node.js ${node.minimum} or newer.`,
-    action: `Install an approved Node.js ${node.minimum}+ runtime, then resume this bootstrap.`
+    message: `Node.js ${node.version} is installed; Singularity Flow requires Node.js ${node.required}.`,
+    action: `Install an approved Node.js ${node.required} runtime, then resume this bootstrap.`
   }));
 
   const git = runCommand('git', ['--version'], { allowFailure: true, timeoutMs: 10_000 });

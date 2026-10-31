@@ -79,7 +79,7 @@ export async function doctorSnapshot(root, {
   let schemaReport = null;
   const node = nodeRequirement();
   checks.push(check('node', node.met ? 'pass' : 'fail', `${node.editor ? "VS Code's " : ''}Node.js ${node.version}`,
-    node.met ? null : `Install Node.js ${node.minimum} or newer.`));
+    node.met ? null : `Install Node.js ${node.required}.`));
   checks.push(check('git', 'pass', `Git repository ${root}`));
   const interruptedStarts = await listStoryStartJournals(root);
   checks.push(check(

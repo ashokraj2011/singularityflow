@@ -29,7 +29,7 @@ import {
   VSIX_SOURCE_MANIFEST_SHA256_ENV,
   writeVsixSourceManifest
 } from './vsix-source-manifest.mjs';
-import { MINIMUM_NODE_MAJOR } from './node-requirement.mjs';
+import { nodeVersionProblem } from './node-requirement.mjs';
 
 export const REINSTALL_SURFACES = Object.freeze({
   npmPackage: 'singularity-flow',
@@ -57,19 +57,11 @@ function sha256(value) {
 }
 
 /** Refuse an unsupported runtime before the isolated reinstall build starts. */
-export function assertReinstallNodeVersion(version = process.versions.node) {
+export function assertReinstallNodeVersion(version = process.versions.node, platform = process.platform) {
   const normalized = String(version ?? '').trim();
-  const match = normalized.match(/^v?(\d+)\.\d+\.\d+(?:[-+][0-9A-Za-z.-]+)?$/);
-  const major = match ? Number(match[1]) : null;
-  if (!Number.isInteger(major)) {
-    throw new SingularityFlowError(`Could not determine the Node.js version from '${normalized || 'unknown'}'.`);
-  }
-  if (major < MINIMUM_NODE_MAJOR) {
-    throw new SingularityFlowError(
-      `Node.js ${MINIMUM_NODE_MAJOR} or newer is required; found ${normalized}.`
-    );
-  }
-  return { version: normalized.replace(/^v/, ''), major };
+  const problem = nodeVersionProblem(normalized, platform);
+  if (problem) throw new SingularityFlowError(problem);
+  return { version: normalized.replace(/^v/, ''), major: Number(normalized.replace(/^v/, '').split('.')[0]) };
 }
 
 export function normalizeReinstallRegistry(value) {

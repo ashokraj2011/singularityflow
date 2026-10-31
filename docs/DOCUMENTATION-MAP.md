@@ -59,6 +59,8 @@ Use these for Story creation, phase generation, approvals, rollback, and landing
 | Document | Use it for |
 |---|---|
 | [Clause-driven specifications](CLAUSE-DRIVEN-SPECIFICATIONS.md) | Requirement and acceptance-clause structure |
+| [Spec Studio (SPEC-SPA v1.3)](SPEC-SPA-v1.3-SPEC-STUDIO.md) | The specification library: drafts, gaps, check, state-branch revisions, and the Studio, slices and splits still to come |
+| [Spec Studio S0 inventory](SPEC-STUDIO-S0-INVENTORY.md) | What the library builds on, and the plan corrections it found |
 | [Governed work intervals](GOVERNED-WORK-INTERVALS.md) | Handling developer edits during governed work |
 | [Classic Delivery review and rework](CLASSIC-DELIVERY-REVIEW-AND-REWORK.md) | Using Code test receipts, optional feedback attachments, and explicit reject-to-Code rework without claiming REV execution |
 | [Spec → Code → Playwright testing review](SPEC-CODE-TEST-LOOP.md) | Running a specification-first, reviewer-directed Code/Test cycle with versioned intent amendments and browser evidence |

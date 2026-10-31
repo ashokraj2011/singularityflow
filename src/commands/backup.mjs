@@ -44,18 +44,19 @@ function printNotCarried(notCarried) {
 
 function printItems(label, items) {
   for (const item of items) {
-    const name = item.description ?? (item.documentId ? `${item.documentId} — ${item.name} (${item.workId})` : `${item.key} (${item.workId})`);
+    const name = item.description ?? (item.specId ? `${item.specId} draft snapshot ${item.sequence}` : null) ?? (item.documentId ? `${item.documentId} — ${item.name} (${item.workId})` : `${item.key} (${item.workId})`);
     const reason = item.refusal?.message ?? item.problems?.join(' ') ?? (item.status === 'superseded'
       ? 'the Story no longer holds this document; its bytes stay in the backup'
       : item.status === 'story-not-here' ? `the Story is not on this laptop; take it over first: ${item.next}`
-        : item.status === 'already-approved' ? 'the approved configuration has it by now, so it is not saved again' : null);
+        : item.status === 'already-approved' ? 'the approved configuration has it by now, so it is not saved again'
+          : item.status === 'kept-local' ? 'this clone has its own draft of that specification, which is kept' : null);
     console.log(`  ${label} ${item.status}: ${name}${reason ? ` — ${reason}` : ''}`);
   }
 }
 
 function printResult(result) {
   if (result.resultType === 'sflow-backup-create') {
-    console.log(`Saved ${plural(result.configurationDrafts, 'configuration draft')} and ${plural(result.documents, 'laptop-local document')} to ${result.directory}.`);
+    console.log(`Saved ${plural(result.configurationDrafts, 'configuration draft')}, ${plural(result.specDrafts, 'specification draft')} and ${plural(result.documents, 'laptop-local document')} to ${result.directory}.`);
     if (result.unreadableDocuments.length) console.log(`  Left out ${plural(result.unreadableDocuments.length, 'document')} whose bytes no longer match their SHA-256.`);
     printNotCarried(result.notCarried);
     console.log(`  Restore it on any laptop with a clone of this repository: singularity-flow backup restore ${JSON.stringify(result.directory)}`);
@@ -64,6 +65,7 @@ function printResult(result) {
   const what = result.resultType === 'sflow-backup-inspect' ? 'Restoring this backup here would do this' : `Restore ${result.status}`;
   console.log(`${what} (backup ${result.backupId} from ${result.createdAt}${result.fromThisMachine ? ', made on this laptop' : ', made on another laptop'}):`);
   printItems('draft', result.configurationDrafts);
+  printItems('specification draft', result.specDrafts ?? []);
   printItems('document', result.documents);
   printNotCarried(result.notCarried);
   if (result.resultType === 'sflow-backup-restore') {

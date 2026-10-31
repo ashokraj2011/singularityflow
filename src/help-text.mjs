@@ -659,6 +659,22 @@ Usage:
   singularity-flow spec drift [--work-id WORK-ID] [--ref REV] [--all] [--json]
   singularity-flow spec drift decide CLAUSE-ID (--accept | --adopt --story WORK-ID | --restore --story WORK-ID) --reason TEXT [--json]
   singularity-flow spec drift decide --revoke DRD-ID --work-id WORK-ID --reason TEXT [--json]
+  singularity-flow spec author new SPEC-ID --title TEXT [--from FILE | --revise] [--area PATH]... [--json]
+  singularity-flow spec author edit SPEC-ID --file FILE --expected-seq N [--json]
+  singularity-flow spec author research SPEC-ID [--path PATH]... [--symbol NAME]... [--refresh] [--json]
+  singularity-flow spec author research SPEC-ID (--fact TEXT --source NAME | --remove R-NNN...) [--json]
+  singularity-flow spec author gap SPEC-ID --kind KIND --question TEXT [--research R-NNN,...] [--clause ID]...
+    [--options FILE] [--json]
+  singularity-flow spec author gaps SPEC-ID [GAP-ID] [--json]
+  singularity-flow spec author decide SPEC-ID GAP-ID (--option ON | --choice TEXT | --defer --owner NAME | --reopen)
+    --reason TEXT [--json]
+  singularity-flow spec author settle SPEC-ID (--article ARTICLE=DECISION... | --all-articles DECISION) [--reason TEXT] [--json]
+  singularity-flow spec author check|status SPEC-ID [--json]
+  singularity-flow spec author publish SPEC-ID (--reviewed | --draft) [--json]
+  singularity-flow spec author show SPEC-ID[@N] [--any] [--json] | list [--json] | discard SPEC-ID [--json]
+    the specification library: one draft per specification on this clone, research cited from the
+    code, gaps a person decides, a check with no model, immutable revisions on the state branch;
+    deciding, settling, publishing and discarding are the person's own steps; writes take --operation-id ID
   singularity-flow evidence matrix [WORK-ID] [--row ID] [--result RESULT] [--facet NAME[=VALUE]]
     [--page N] [--page-size N] [--format human|json|csv]
     one row per requirement and acceptance criterion with its plan, implementation, verification,

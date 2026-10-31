@@ -1258,6 +1258,12 @@ export function committedFileDigests(root, commit, paths, { env = process.env } 
   return new Map(entries.map((entry) => [entry.file, createHash('sha256').update(blobs.get(entry.oid)).digest('hex')]));
 }
 
+/** The repository path of every file at a commit under `paths`, sorted. */
+export function committedTreePaths(root, commit, paths, { env = process.env } = {}) {
+  const output = git(['ls-tree', '-r', '-z', '--name-only', '--full-tree', commit, '--', ...paths], { cwd: root, env }).stdout;
+  return String(output).split('\0').filter(Boolean).sort();
+}
+
 /** One file's text at a ref, or null when the ref or the file does not exist. */
 export function committedFileText(root, ref, relative, { env = process.env } = {}) {
   const result = git(['cat-file', '-p', `${ref}:${relative}`], { cwd: root, env, allowFailure: true });

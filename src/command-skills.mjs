@@ -511,6 +511,9 @@ export const OWN_TERMINAL_STEPS = Object.freeze([
   ['knowledge-confirmation', ([command, sub, verb]) => command === 'wm'
     && ((sub === 'rules' && verb === 'confirm') || (sub === 'knowledge' && ['confirm', 'correct', 'reject'].includes(verb)))],
   ['spec-drift-decision', ([command, sub, verb]) => command === 'spec' && sub === 'drift' && verb === 'decide'],
+  // A specification's gap decisions, checklist settlement, publication and discard (SPEC-SPA v1.3 §4.1).
+  ['spec-library-decision', ([command, sub, verb]) => command === 'spec' && sub === 'author'
+    && ['decide', 'settle', 'publish', 'discard'].includes(verb)],
   // An approver's answer from their own clone, under their own Git identity (2026-10-28).
   ['clarification-answer', ([command, sub]) => command === 'clarification' && sub === 'answer'],
   // The /sf-decide turn admitted it, then its live-terminal review refused the agent's shell (2026-10-28).

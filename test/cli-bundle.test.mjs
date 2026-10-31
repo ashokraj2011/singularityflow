@@ -177,7 +177,11 @@ test('the bundled CLI answers exactly like the sources while opening a handful o
   // 4,620,000: main 8dd691421 measures 4,614,358; SDA on native Windows adds 4,324 for 4,618,682: canonical path
   // spellings (util.mjs), the checkout-form comparison of line endings Git converted (worktree-fingerprint.mjs,
   // source-inspection.mjs) and native realpath at the swept sites. No new file.
-  assert.ok(narrowReads < 4_620_000,
+  // 4,625,000: main a1aebf125 measures 4,618,682; the specification library (SPEC-SPA v1.3 S1) adds 3,676 for
+  // 4,622,358: `spec author` in the operation registry (command-registry.mjs), its person-only actions as an
+  // own-terminal step and a turn refusal (command-skills.mjs, copilot-mutation-guard.mjs), four boolean flags
+  // (util.mjs) and the committed tree listing (git.mjs). The handler itself is claimed by cold-phases.
+  assert.ok(narrowReads < 4_625_000,
     `strict next-step reads must not inherit the broad phase-review closure (${narrowReads} bytes)`);
   const publicationClosure = closure('cold-publication.mjs');
   assert.ok(publicationClosure.length && publicationClosure.reduce((sum, item) => sum + item.bytes, 0) < 6 * 1024 * 1024,
@@ -427,7 +431,9 @@ test('the bundled CLI answers exactly like the sources while opening a handful o
   // 5,465,000: main eb137a8f5 measures 5,447,779; the same sweep batch 5 routes add 11,004 for 5,458,783.
   // 5,470,000: main 8dd691421 measures 5,463,846; the same SDA on native Windows code adds 4,325 for 5,468,171.
   // No new file.
-  assert.ok(catalogBytes < 5_470_000,
+  // 5,475,000: main a1aebf125 measures 5,468,171; the same specification library registry, own-terminal step,
+  // boolean flags and tree listing add 3,671 for 5,471,842. No new file.
+  assert.ok(catalogBytes < 5_475_000,
     `catalog parsing stays bounded instead of pulling in the entire administration bundle (${catalogBytes} bytes)`);
   for (const name of ['cold-compatibility.mjs', 'cold-models.mjs', 'cold-intake.mjs', 'cold-phases.mjs', 'cold-hook-context.mjs']) {
     assert.ok(!catalogClosure.some(item => item.file === name), `catalogs must not statically reach ${name}`);

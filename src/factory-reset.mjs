@@ -109,6 +109,13 @@ async function savedConfigurationDrafts(sharedRuntime) {
   return names.filter((name) => /^cdr-[0-9a-f]{24}\.json$/u.test(name)).length + (legacy?.isFile() ? 1 : 0);
 }
 
+/** Specification drafts saved in the shared runtime root: the only copy of each, and the reset removes them too. */
+async function savedSpecificationDrafts(sharedRuntime) {
+  const names = await readdir(path.join(sharedRuntime, 'spec-drafts')).catch((error) => (
+    ['ENOENT', 'ENOTDIR'].includes(error?.code) ? [] : Promise.reject(error)));
+  return names.filter((name) => /^SPEC-[A-Z0-9-]+$/u.test(name)).length;
+}
+
 /**
  * Publications waiting in the runtime roots: each retained commit's marker or pre-commit journal,
  * the only record of a commit not yet on the remote. A backup never carries them, so the reset
@@ -923,6 +930,7 @@ export async function factoryResetPlan(root, { packageVersion = null, includeLoc
   const localDocumentRoots = includeLocalDocuments && storeState.exists ? [localDocumentStore] : [];
   // Drafts live inside the shared runtime root, so the reset takes them: the preview names them (SDA M5).
   const savedDrafts = await savedConfigurationDrafts(sharedLocalRuntime);
+  const savedSpecDrafts = await savedSpecificationDrafts(sharedLocalRuntime);
   const waiting = await pendingPublications(localRuntimeRoots);
   const discardWaiting = discardPendingPublications && waiting.length > 0;
   // The token binds to this checkout at this commit, not just to its name. `RESET <name>` alone is
@@ -1006,7 +1014,9 @@ export async function factoryResetPlan(root, { packageVersion = null, includeLoc
         + `${localRuntime === sharedLocalRuntime && unmovedMachineOnlyDocuments.length
           ? `, and ${unmovedMachineOnlyDocuments.length} machine-only Story document(s) an earlier build kept there` : ''}`
         + `${localRuntime === sharedLocalRuntime && savedDrafts
-          ? `, and ${savedDrafts} saved configuration draft file(s), the only copy of each: save them first with singularity-flow backup create --out <DIRECTORY>` : ''})`),
+          ? `, and ${savedDrafts} saved configuration draft file(s), the only copy of each: save them first with singularity-flow backup create --out <DIRECTORY>` : ''}`
+        + `${localRuntime === sharedLocalRuntime && savedSpecDrafts
+          ? `, and ${savedSpecDrafts} specification draft(s), the only copy of each: save them first with singularity-flow backup create --out <DIRECTORY>` : ''})`),
       ...localDocumentRoots.map((store) => `${store} (${machineOnlyDocuments.length} machine-only Story document(s), the only copy of each)`),
       ...(discardWaiting ? [`the recovery of ${waiting.length} pending publication(s), the only record of commits not yet on the remote: `
         + waiting.map((entry) => `${entry.kind} ${entry.id}`).join(', ')] : [])
@@ -1028,6 +1038,7 @@ export async function factoryResetPlan(root, { packageVersion = null, includeLoc
     localRuntimeRoots,
     localDocumentRoots,
     savedConfigurationDrafts: savedDrafts,
+    savedSpecificationDrafts: savedSpecDrafts,
     pendingPublications: waiting,
     pendingPublicationsDiscarded: discardWaiting,
     machineOnlyDocuments: {

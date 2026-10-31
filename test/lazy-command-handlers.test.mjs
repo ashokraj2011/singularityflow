@@ -320,7 +320,11 @@ test('the common session projection does not import attach, state stores or publ
   // 4,005,000: main 8dd691421 measures 3,994,852; SDA on native Windows adds 6,647 for 4,001,499: the checkout-form
   // comparison of line endings Git converted (source-inspection.mjs +2,815, worktree-fingerprint.mjs +2,540),
   // canonical path spellings (util.mjs +1,271) and native realpath (git.mjs, environment-declaration.mjs +21). No new file.
-  assert.ok(current.bytes <= 4_005_000, `session current loads ${current.bytes} source bytes`);
+  // 4,010,000: main a1aebf125 measures 4,002,119; the specification library (SPEC-SPA v1.3 S1) adds 2,962 for
+  // 4,005,081: `spec author` in the operation registry (command-registry.mjs), its person-only actions as an
+  // own-terminal step and a turn refusal (command-skills.mjs, copilot-mutation-guard.mjs), four boolean flags
+  // (util.mjs) and the committed tree listing (git.mjs). Its handler loads only when `spec author` runs.
+  assert.ok(current.bytes <= 4_010_000, `session current loads ${current.bytes} source bytes`);
 });
 
 test('early phase and grounding-path entries exclude the deferred authoring and review graphs', async () => {

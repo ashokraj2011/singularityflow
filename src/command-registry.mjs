@@ -452,7 +452,11 @@ const CONSTITUTION_MUTATION_SUBCOMMANDS = Object.freeze(['generate', 'except']);
 const CONSTITUTION_SUBCOMMANDS = Object.freeze([...CONSTITUTION_READ_SUBCOMMANDS, ...CONSTITUTION_MUTATION_SUBCOMMANDS]);
 const SPEC_READ_SUBCOMMANDS = Object.freeze(['coverage', 'trace', 'drift']);
 const SPEC_INDEX_SUBCOMMANDS = Object.freeze(['index', 'acceptance', 'tasks']);
-const SPEC_SUBCOMMANDS = Object.freeze(['analyze', 'claims', ...SPEC_READ_SUBCOMMANDS, ...SPEC_INDEX_SUBCOMMANDS]);
+// The specification library (src/commands/spec-author.mjs): drafts, gaps, check and state-branch revisions.
+const SPEC_AUTHOR_READ_ACTIONS = Object.freeze(['gaps', 'check', 'status', 'show', 'list']);
+const SPEC_AUTHOR_MUTATION_ACTIONS = Object.freeze(['new', 'edit', 'research', 'gap', 'decide', 'settle', 'publish', 'discard']);
+const SPEC_AUTHOR_ACTIONS = Object.freeze([...SPEC_AUTHOR_READ_ACTIONS, ...SPEC_AUTHOR_MUTATION_ACTIONS]);
+const SPEC_SUBCOMMANDS = Object.freeze(['analyze', 'claims', 'author', ...SPEC_READ_SUBCOMMANDS, ...SPEC_INDEX_SUBCOMMANDS]);
 const COMPREHENSION_SUBCOMMANDS = Object.freeze([
   'regions', 'source', 'check', 'graph', 'explain', 'replay', 'walkthrough', 'brownfield',
   'backfill', 'record-preview'
@@ -831,6 +835,11 @@ function resolveSpecOperation(definition, positionals, options) {
   }
   // A drift decision is a person's record, committed; the drift report itself only reads.
   if (subcommand === 'drift' && positionals[2] === 'decide') return never('spec.drift.decide', definition, 'mutation');
+  if (subcommand === 'author') {
+    const action = positionals[2] ?? 'list';
+    if (!SPEC_AUTHOR_ACTIONS.includes(action)) return unknownSubcommand('spec author', action, SPEC_AUTHOR_ACTIONS);
+    return never(`spec.author.${action}`, definition, SPEC_AUTHOR_READ_ACTIONS.includes(action) ? 'read' : 'mutation');
+  }
   if (SPEC_READ_SUBCOMMANDS.includes(subcommand)) return never(`spec.${subcommand}`, definition, 'read');
   // The advisory task map is derived from the approved specification, so it lives with the other
   // clause-traceability operations rather than becoming a command of its own.
@@ -2048,6 +2057,8 @@ export function operationCatalog() {
     never('spec.trace', specDefinition, 'read'),
     never('spec.drift', specDefinition, 'read'),
     never('spec.drift.decide', specDefinition, 'mutation'),
+    ...SPEC_AUTHOR_READ_ACTIONS.map((name) => never(`spec.author.${name}`, specDefinition, 'read')),
+    ...SPEC_AUTHOR_MUTATION_ACTIONS.map((name) => never(`spec.author.${name}`, specDefinition, 'mutation')),
     never('explain', explainDefinition, 'read'),
     never('explain.code', explainDefinition, 'read'),
     optional('explain.code.narrate', 'explain.code', explainDefinition),

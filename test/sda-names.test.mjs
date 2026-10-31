@@ -83,7 +83,7 @@ export const SDA_NAMES = Object.freeze({
   CONFIGURATION_DRAFT_OPERATION_REUSED: ['src/configuration-drafts.mjs', 'src/outcome-classes.mjs', 'src/refusal-remediation.mjs'],
   CONFIGURATION_DRAFTS_CHANGED: ['src/configuration-drafts.mjs', 'src/outcome-classes.mjs', 'src/refusal-remediation.mjs'],
   CONFIGURATION_DRAFT_OPERATION_INVALID: ['src/configuration-drafts.mjs'],
-  SINGULARITY_FLOW_TEST_CRASH_AT: ['src/configuration-drafts.mjs'],
+  SINGULARITY_FLOW_TEST_CRASH_AT: ['src/configuration-drafts.mjs', 'src/spec-library/draft-store.mjs'],
   'sflow-configuration-draft@2': ['src/configuration-drafts.mjs'],
   // Sweep batch 2: every draft keeps a correct state and a way out
   DRAFT_STANDINGS: ['src/configuration-drafts.mjs'],

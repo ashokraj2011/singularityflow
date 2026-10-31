@@ -940,6 +940,11 @@ function activeWorkspaceV1ToV2(source) {
   };
 }
 
+// A v1 backup carried configuration drafts and documents only; it carries no specification drafts.
+function localBackupManifestV1ToV2(source) {
+  return { ...source, schemaVersion: 2, specDrafts: [] };
+}
+
 function promptAuditSettingsV1ToV2(source) {
   return {
     ...source,
@@ -3300,7 +3305,12 @@ const families = [
   family({ id: 'transport-intent', currentVersion: 1, paths: [/^\$local\/transport-outbox\/intents\/[^/]+\.json$/] }),
   // backup create (src/local-backup.mjs, SDA M5): the manifest of one backup of a clone's drafts and
   // laptop-local documents, in a directory the person chose outside every checkout of the repository.
-  family({ id: 'local-backup-manifest', currentVersion: 1, paths: [/^\$backup\/manifest\.json$/] }),
+  // v2 (SPEC-SPA v1.3) also carries each specification draft's head snapshot.
+  family({
+    id: 'local-backup-manifest', currentVersion: 2,
+    steps: [migration(1, 2, localBackupManifestV1ToV2)],
+    paths: [/^\$backup\/manifest\.json$/]
+  }),
   family({ id: 'workspace-bootstrap', currentVersion: 1, paths: [/^\$local\/workspace-bootstrap\/sessions\/[^/]+\.json$/] }),
   family({ id: 'workspace-bootstrap-index', currentVersion: 1, paths: [/^\$local\/workspace-bootstrap\/index\.json$/] }),
   // workflow import-team: the machine-local conversion session, and the one candidate file the
@@ -3310,6 +3320,13 @@ const families = [
   // workflow build: the machine-local record of one progressive build (src/workflow-build/). It never
   // enters a repository; finishing a build goes through Workflow Studio's reviewed proposal.
   family({ id: 'workflow-build', currentVersion: 1, paths: [/^\$local\/workflow-builds\/wb_[a-f0-9]{16}\/build\.json$/] }),
+  // spec author (src/spec-library/, SPEC-SPA v1.3): one snapshot of a specification draft on this clone,
+  // and the four records of a published revision on the state branch, which is never rewritten.
+  family({ id: 'spec-draft', currentVersion: 1, paths: [/^\$git\/spec-drafts\/SPEC-[A-Z0-9-]+\/\d{6}\.json$/] }),
+  family({ id: 'spec-manifest', currentVersion: 1, immutable: true, paths: [/^singularity\/specifications\/SPEC-[A-Z0-9-]+\/\d{6}\/manifest\.json$/] }),
+  family({ id: 'spec-gap-ledger', currentVersion: 1, immutable: true, paths: [/^singularity\/specifications\/SPEC-[A-Z0-9-]+\/\d{6}\/gaps\.json$/] }),
+  family({ id: 'spec-research', currentVersion: 1, immutable: true, paths: [/^singularity\/specifications\/SPEC-[A-Z0-9-]+\/\d{6}\/research\.json$/] }),
+  family({ id: 'spec-quality', currentVersion: 1, immutable: true, paths: [/^singularity\/specifications\/SPEC-[A-Z0-9-]+\/\d{6}\/quality\.json$/] }),
   family({
     id: 'prompt-audit-settings', currentVersion: 2,
     steps: [migration(1, 2, promptAuditSettingsV1ToV2)],

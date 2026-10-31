@@ -93,7 +93,10 @@ const FAMILIES = Object.freeze([
     'subject-identity-records.mjs',
     // SDA M3: a configuration edit's exact-object projection, loaded only when a proposal is built,
     // and the lease review command a busy refusal names.
-    'configuration-projection.mjs', 'commands/lock.mjs']],
+    'configuration-projection.mjs', 'commands/lock.mjs',
+    // The specification library (SPEC-SPA v1.3), imported only dynamically by `spec author`. Unclaimed,
+    // every `spec author status` loaded compatibility and models.
+    'commands/spec-author.mjs']],
   ['models', ['commands/wm.mjs', 'commands/comprehension.mjs']]
 ]);
 

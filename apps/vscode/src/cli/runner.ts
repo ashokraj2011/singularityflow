@@ -87,6 +87,7 @@ function displayBoundedRedactionInput(source: string): string {
 // A parity test compares it with util.mjs so a new engine boolean cannot silently shift a receipt.
 export const DISPLAY_BOOLEAN_OPTIONS = new Set([
   'heartbeat', 'purge', 'skip-tests', 'commentary', 'changes',
+  'any', 'defer', 'reopen', 'revise',
   'archive-readiness', 'allow-empty-output', 'allow-unavailable-verification', 'authority-local',
   'accept', 'accept-bundled-conflicts', 'accept-partial', 'decline', 'accept-test-risk', 'acknowledge-self-approval', 'acknowledge-unprotected', 'active', 'adopt-current-interval', 'adopt-existing', 'all', 'allow-dirty', 'allow-model', 'allow-synced-folder', 'apply', 'assigned-to-me', 'ast',
   'assisted', 'auto', 'automatic', 'blocking', 'bootstrap', 'check', 'churn', 'clear-loops', 'cli-only', 'clipboard', 'clone', 'commit-reviewed', 'concat',

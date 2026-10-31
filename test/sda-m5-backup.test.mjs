@@ -139,7 +139,7 @@ test('a backup a newer build wrote, a damaged or interrupted one, or another rep
   // Writer fence: this build never restores part of a backup it cannot read whole.
   const newer = await variant('newer', async (copy) => {
     const manifest = JSON.parse(await readFile(path.join(copy, 'manifest.json'), 'utf8'));
-    await writeFile(path.join(copy, 'manifest.json'), JSON.stringify({ ...manifest, schemaVersion: 2 }));
+    await writeFile(path.join(copy, 'manifest.json'), JSON.stringify({ ...manifest, schemaVersion: 3 }));
   });
   await assert.rejects(restoreBackup(f.root, newer), { code: 'SCHEMA_VERSION_FUTURE' });
   const damaged = await variant('damaged', async (copy) => {

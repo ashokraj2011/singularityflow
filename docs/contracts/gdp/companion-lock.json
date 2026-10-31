@@ -4,10 +4,10 @@
   "status": "contract-only",
   "baselineCommit": "70db564e59224b03729bab0f9a340807f3086c61",
   "lastReview": {
-    "reviewedAtCommit": "fc7b10482abf34371f91bcc4fb3d3cc84b721566",
-    "evidence": "docs/contracts/gdp/COMPANION-LOCK-REVIEW-2026-10-31-SWEEP-PUBLICATION-OUTCOMES.md",
+    "reviewedAtCommit": "a1aebf12566153877cdd51ea6cb2a93b9d3c637c",
+    "evidence": "docs/contracts/gdp/COMPANION-LOCK-REVIEW-2026-10-31-SPEC-LIBRARY.md",
     "companionIds": [
-      "publication-unit-of-work"
+      "migration-registry"
     ]
   },
   "companions": [
@@ -94,7 +94,7 @@
     {
       "id": "migration-registry",
       "path": "src/schema-migrations.mjs",
-      "sha256": "sha256:a8ec48d5f731946f0bbb06689e1b3c57a3a8e55364a67a83979c1b73f4df65c8"
+      "sha256": "sha256:1bdb6909d60409b76ff6d7fa9454ba06925f3e3d89f4d149181f5904b0a88fb6"
     },
     {
       "id": "smart-initialization-v1",

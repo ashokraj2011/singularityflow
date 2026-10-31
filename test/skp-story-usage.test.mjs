@@ -590,7 +590,13 @@ test('shared inventory deadline reaches a delayed synchronous retained read with
   const realGit = run('which', ['git']).stdout.trim();
   const bin = path.join(f.base, 'deadline-git-fixture'); await mkdir(bin);
   const marker = path.join(f.base, 'delayed-retained-read.json'); const wrapper = path.join(bin, 'git');
-  await writeFile(wrapper, `#!${process.execPath}\nconst {spawn,spawnSync}=require('node:child_process');\nconst {writeFileSync}=require('node:fs');\nconst a=process.argv.slice(2);\nif(a.includes('log')){writeFileSync(${JSON.stringify(marker)},JSON.stringify({pid:process.pid,cwd:process.cwd()}));Atomics.wait(new Int32Array(new SharedArrayBuffer(4)),0,0,60000);process.exit(1);}\nif(a.includes('cat-file')){const c=spawn(${JSON.stringify(realGit)},a,{stdio:'inherit',env:process.env});c.on('exit',status=>{process.exitCode=status??1;});}else{const r=spawnSync(${JSON.stringify(realGit)},a,{encoding:null,env:process.env});if(r.stdout)process.stdout.write(r.stdout);if(r.stderr)process.stderr.write(r.stderr);process.exitCode=r.status??1;}\n`);
+  const delayedRead = path.join(bin, 'delayed-log.cjs');
+  await writeFile(delayedRead, `const {writeFileSync}=require('node:fs');\nwriteFileSync(${JSON.stringify(marker)},JSON.stringify({pid:process.pid,cwd:process.cwd()}));Atomics.wait(new Int32Array(new SharedArrayBuffer(4)),0,0,60000);process.exit(1);\n`);
+  // The wrapper execs Git itself: a Node start per Git call spent 4.3 s of the 5 s budget on the 53 calls
+  // before `git log` on a loaded machine, so a full run's deadline fired before the delayed read began.
+  // `exec` keeps the pid the read spawned, so the delayed read is still one process with no descendants.
+  const sh = (value) => `'${value.replaceAll("'", `'\\''`)}'`;
+  await writeFile(wrapper, `#!/bin/sh\nfor arg in "$@"; do [ "$arg" = log ] && exec ${sh(process.execPath)} ${sh(delayedRead)}; done\nexec ${sh(realGit)} "$@"\n`);
   await chmod(wrapper, 0o755);
   const originalPath = process.env.PATH; process.env.PATH = `${bin}${path.delimiter}${originalPath}`;
   const began = performance.now();

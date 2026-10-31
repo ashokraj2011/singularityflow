@@ -46,7 +46,11 @@ test('review readers cannot statically pull in phase authoring or lifecycle publ
   // now read through); main 2f2069e83 measures 261.
   // 264: SDA M3 adds lease-liveness.mjs, the shared owner proof behind every subject lock (no Git, model or
   // dispatch import); main bce954290 measures 263.
-  assert.ok(visited.size < 265, `review read closure grew to ${visited.size} local modules`);
+  // 265: git-config-value.mjs (no imports; a remote URL read from the configuration file, decoded as Git
+  // decodes it) joined through repository-check-cache.mjs in 55ce8103b; main 80bbf5c2a measures 265.
+  // 266: git-repository-identity.mjs (Node built-ins only) joined there too, so a remote written another way
+  // keeps its read-index record (8133a15db).
+  assert.ok(visited.size < 267, `review read closure grew to ${visited.size} local modules`);
 });
 
 test('only exact read forms share a review command scope; writers and override flags never do', () => {

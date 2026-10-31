@@ -371,8 +371,15 @@ export async function workConsistency(root, { env = process.env } = {}) {
       completeness: null, pendingOperations: [], ...(list ?? {}) };
     if (list?.refreshError) {
       const { code, remoteFailure } = list.refreshError;
+      const { refreshFailureGuidance } = await import('../git-remote-diagnostics.mjs');
+      const { retryable } = refreshFailureGuidance(list.refreshError);
+      // The cause under the wrapper code, and the way out: a cause a refresh does not end names the
+      // network diagnosis, never the same refresh again (A3).
       block.refreshError = { code, stage: remoteFailure?.stage ?? null, classification: remoteFailure?.classification ?? null,
-        retryable: remoteFailure ? remoteFailure.retryable === true : null, timedOut: remoteFailure?.timedOut === true };
+        retryable, timedOut: remoteFailure?.timedOut === true,
+        ...(typeof remoteFailure?.code === 'string' && /^[A-Z][A-Z0-9_]*$/u.test(remoteFailure.code) ? { cause: remoteFailure.code } : {}),
+        command: retryable === false ? 'singularity-flow workspace doctor --network'
+          : 'singularity-flow session candidates --refresh --diagnostics --json' };
     }
     try {
       const { transportIntentsForRepository } = await import('../transport-intents.mjs');

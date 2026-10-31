@@ -1,5 +1,6 @@
 import { compareStoryCreation, storyCreatorName } from './story-presentation.mjs';
 import { SingularityFlowError } from './util.mjs';
+import { refreshFailureGuidance } from './git-remote-diagnostics.mjs';
 
 const PHASE_STATUSES = Object.freeze([
   'not_started', 'in_progress', 'awaiting_approval', 'approved', 'cancelled'
@@ -145,7 +146,12 @@ export function renderStoryRoster(result, {
     && selectedItem(item, result, activeSelection));
   add('# Story roster');
   add('');
-  if (result.listingSnapshot) add(`Listing: ${literal(result.listingSnapshot.source)}${result.listingSnapshot.freshness ? ` (${literal(result.listingSnapshot.freshness)}${result.listingSnapshot.refreshError?.code ? `: ${literal(result.listingSnapshot.refreshError.code)}` : ''})` : ''}; checked ${literal(result.listingSnapshot.checkedAt)}; remote checked ${literal(result.listingSnapshot.remoteCheckedAt, 'unknown (local index)')}. Advisory only; attachment revalidates the selected Story. Refresh with --refresh.`);
+  if (result.listingSnapshot) {
+    const snapshot = result.listingSnapshot;
+    // The cause under the wrapper code, and its fix when a refresh cannot end it (A3).
+    const failure = snapshot.freshness === 'refresh-failed' ? refreshFailureGuidance(snapshot.refreshError, { retry: '--refresh' }) : null;
+    add(`Listing: ${literal(snapshot.source)}${snapshot.freshness ? ` (${literal(snapshot.freshness)}${snapshot.refreshError?.code ? `: ${literal(failure?.cause ?? snapshot.refreshError.code)}` : ''})` : ''}; checked ${literal(snapshot.checkedAt)}; remote checked ${literal(snapshot.remoteCheckedAt, 'unknown (local index)')}. Advisory only; attachment revalidates the selected Story. ${failure?.text ? literal(failure.text) : 'Refresh with --refresh.'}`);
+  }
   if (text(scope?.workspaceReference)) add(`Workspace selector: ${literal(scope.workspaceReference)}`);
   if (text(scope?.repositoryId)) add(`Repository selector: ${literal(scope.repositoryId)}`);
   if (text(scope?.repositoryUrl)) add(`Repository URL selector: ${literal(scope.repositoryUrl)}`);

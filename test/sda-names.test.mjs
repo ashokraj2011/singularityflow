@@ -37,6 +37,27 @@ export const SDA_NAMES = Object.freeze({
   SINGULARITY_FLOW_INDEX_REFRESH: ['src/index-refresh-launcher.mjs', 'src/projection-refresh.mjs', 'src/repository-check-cache.mjs', 'scripts/test-machine-state.mjs'],
   'sflow-index-': ['src/commands/read-index.mjs', 'src/help-pages.mjs', 'src/narration/migration-status.mjs'],
   'refresh.json': ['src/repository-check-cache.mjs'],
+  // Sweep batch 4: the read index answers from the right repository, replaces its records, and names
+  // a lease no running process holds (U1-U3, A1-A12)
+  checkoutRemoteConfiguration: ['src/repository-check-cache.mjs'],
+  gitConfigRemotes: ['src/git-config-value.mjs', 'src/repository-check-cache.mjs'],
+  gitConfigRemoteUrl: ['src/commands/session.mjs', 'src/git-config-value.mjs', 'src/story-index.mjs'],
+  lastKnownAuthority: ['src/commands/read-index.mjs', 'src/repository-check-cache.mjs'],
+  projectionEnvironment: ['src/commands/read-index.mjs', 'src/repository-check-cache.mjs'],
+  PROJECTION_BUILD: ['src/commands/read-index.mjs', 'src/repository-check-cache.mjs'],
+  serveLastKnown: ['src/projection-refresh.mjs', 'src/repository-check-cache.mjs'],
+  REFRESH_LEASE_STALE_MS: ['src/commands/read-index.mjs', 'src/projection-refresh.mjs'],
+  partialReason: ['src/commands/read-index.mjs', 'src/projection-refresh.mjs'],
+  notKeptReason: ['src/commands/read-index.mjs', 'src/projection-refresh.mjs'],
+  refreshLease: ['src/commands/read-index.mjs'],
+  notUsable: ['src/commands/read-index.mjs'],
+  'left-by-stopped-process': ['src/commands/read-index.mjs'],
+  'directory-gone': ['src/commands/read-index.mjs'],
+  refreshFailureGuidance: ['src/commands/read-index.mjs', 'src/commands/session.mjs', 'src/commands/workspace-branches-service.mjs',
+    'src/gateway/work-records.mjs', 'src/git-remote-diagnostics.mjs', 'src/session-roster.mjs'],
+  listingRefreshRoute: ['src/commands/session.mjs'],
+  inspectLeaseFile: ['src/commands/lock.mjs', 'src/file-lease.mjs'],
+  releaseLeaseFileAfterReview: ['src/commands/lock.mjs', 'src/file-lease.mjs'],
   // M2: identity (SDA §5)
   STORY_BRANCH_BINDING_MISMATCH: ['src/session-remote-url-discovery.mjs'],
   'local-repository-id': ['src/repository-local-id.mjs'],
@@ -84,14 +105,15 @@ export const SDA_NAMES = Object.freeze({
   "'lock-release'": ['src/command-skills.mjs'],
   // M3 leftover: lease identity for shared and restored homes (the hardware digest file follows the machine ID file).
   // The Authority Store's lock owner (v3) records the same identity as every other owner record.
-  pidNamespace: ['src/lease-liveness.mjs', 'src/sgos/platform/authority-store.mjs'],
+  // A cache lease owner (v3, sweep batch 4: A5) records the same identity, so it is judged the same way.
+  pidNamespace: ['src/file-lease.mjs', 'src/lease-liveness.mjs', 'src/sgos/platform/authority-store.mjs'],
   'other-pid-namespace': ['src/lease-liveness.mjs'],
   'machine-hardware-changed': ['src/lease-liveness.mjs'],
   // Sweep fix (D4): each owner record names the hardware it ran on, so two computers sharing one home tell their leases apart
-  hardwareDigest: ['src/lease-liveness.mjs', 'src/sgos/platform/authority-store.mjs'],
+  hardwareDigest: ['src/file-lease.mjs', 'src/lease-liveness.mjs', 'src/sgos/platform/authority-store.mjs'],
   'other-hardware': ['src/lease-liveness.mjs'],
   // Sweep fix (E1/D6/E4): a lease named by its path, read and released from any folder
-  'show-file': ['src/cli-entry.mjs', 'src/command-registry.mjs', 'src/commands/lock.mjs', 'src/copilot-mutation-guard.mjs',
+  'show-file': ['src/cli-entry.mjs', 'src/command-registry.mjs', 'src/commands/lock.mjs', 'src/commands/read-index.mjs', 'src/copilot-mutation-guard.mjs',
     'src/file-lease.mjs', 'src/help-pages.mjs', 'src/help-text.mjs', 'src/refusal-remediation.mjs',
     'src/sgos/platform/authority-store.mjs'],
   // Sweep fix (D3/E3): an Initiative publication another process holds, with its owner and reviewed release

@@ -16,9 +16,13 @@ export async function storyReadinessSnapshot(root, options, checkout, read, { la
   const branches = optionStrings(options, 'from-branch').map(value => value.includes('=') ? value.slice(value.indexOf('=') + 1) : value);
   const files = [activeWorkspaceFile(), workspaceRegistryFile(),
     ...(checkout?.workspacePath ? [path.join(checkout.workspacePath, 'workspace.json')] : [])];
+  // What the read's own fetch moves: remote-tracking refs and the objects it brings (A2).
+  const selfUpdated = [];
   for (const member of roots) {
     const common = repositoryGitDirectory(member), privateGit = gitFactCheckout(member)?.gitDir;
     if (!common || !privateGit) return read();
+    selfUpdated.push(path.join(common, 'objects'), path.join(common, 'objects/pack'), path.join(common, 'refs/remotes/origin'),
+      ...[...branches, 'sflow/config', 'state'].map((name) => path.join(common, 'refs/remotes/origin', name)));
     files.push(path.join(privateGit, 'HEAD'), path.join(privateGit, 'index'),
       path.join(common, 'config'), path.join(common, 'packed-refs'),
       path.join(common, 'objects'), path.join(common, 'objects/pack'),
@@ -34,7 +38,7 @@ export async function storyReadinessSnapshot(root, options, checkout, read, { la
   const cached = catalog ? cachedStoryIntakeCatalog : cachedStoryReadinessPreview;
   // Only the catalog serves last-known; this is the read that refreshes it behind a stale answer.
   const argv = catalog ? (await import('./index-refresh-launcher.mjs')).indexReadArgv(['workspace', 'branches'], options, [...presentation]) : null;
-  const inspect = () => cached(root, { identity, files,
+  const inspect = () => cached(root, { identity, files, ...(catalog ? { selfUpdated } : {}),
     settingsRoot: checkout?.originalRepositoryPath ?? root, refreshRecipe: argv ? { argv, cwd: launchCwd } : null }, read);
   const value = await (optionBoolean(options, 'refresh-readiness') ? withFreshRepositoryChecks(inspect) : inspect());
   // A receipt ID is only a handoff to the separately sealed, single-use record. Start still

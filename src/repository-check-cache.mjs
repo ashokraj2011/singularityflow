@@ -10,11 +10,11 @@ import { mkdir, readdir, rename, unlink, writeFile } from 'node:fs/promises';
 import { serialize, deserialize } from 'node:v8';
 import path from 'node:path';
 import { freshGitFactsRequired, gitFactCheckout, gitFactFingerprint, gitFactRequest, gitFactSnapshot } from './git-fact-cache.mjs';
+import { gitConfigRemotes } from './git-config-value.mjs';
 import { repositoryCheckKey, repositoryCheckSettings, repositoryCheckPreferencesFile } from './repository-check-settings.mjs';
 import { operationContext } from './operation-context.mjs';
 import { incrementCommandCounter } from './dx-timing-context.mjs';
 import { BUILD_INFO } from './build-info.mjs';
-import { gitConfigValue } from './git-config-value.mjs';
 
 const FORMAT = 1;
 export const PROJECTION_RECORD_FORMAT = FORMAT;
@@ -27,9 +27,12 @@ const pending = new Map();
 const ROUTINE = new Set(['phase.enter', 'phase.enter.compose', 'nextsteps', 'session.open',
   'session.open-local', 'session.current', 'session.status', 'session.context', 'check']);
 // The refresh flag is how a replayed read finds its own record, so it stays out of the record key.
+// So do the repository-check settings: they say how long a record is reused, never what it answers,
+// and a different interval must not keep its own copy of the same answer (A1).
 const PRESENTATION_ENV = new Set(['_', 'SHLVL', 'NODE_COMPILE_CACHE', 'SINGULARITY_FLOW_AGENT_OUTPUT',
   'SINGULARITY_FLOW_OUTPUT_TIMING', 'SINGULARITY_FLOW_PROGRESS', 'SINGULARITY_FLOW_REFUSAL_ENVELOPE',
-  'SINGULARITY_FLOW_INDEX_REFRESH']);
+  'SINGULARITY_FLOW_INDEX_REFRESH', 'SINGULARITY_FLOW_REPOSITORY_CHECK_MODE',
+  'SINGULARITY_FLOW_REPOSITORY_CHECK_INTERVAL_MINUTES', 'SINGULARITY_FLOW_REPOSITORY_CHECK_PREFERENCES']);
 /**
  * Browsing projections that serve last-known state (SDA §8, M2). An expired record is served at once
  * as `stale` while a replay of its read refreshes it; a refresh the authority cannot answer keeps the
@@ -111,7 +114,7 @@ export function readProjectionRecord(file, key, now = Date.now(), { decode = tru
     if (createHash('sha256').update(payload).digest('hex') !== record.sha256) return null;
     return { value: decode ? deserialize(payload) : undefined, checkedAt: record.checkedAt, stamp: record.stamp, age,
       sha256: record.sha256, authority: record.authority ?? null, acceptedRevision: acceptedRevisionOf(record.acceptedRevision),
-      kind: record.kind ?? null, refresh: record.refresh ?? null, bytes: payload.byteLength };
+      kind: record.kind ?? null, refresh: record.refresh ?? null, binding: record.binding ?? null, bytes: payload.byteLength };
   } catch { return null; }
 }
 
@@ -129,39 +132,66 @@ function acceptedRevisionOf(value) {
   return ledgerCommit || authorityCommit ? { ledgerCommit, authorityCommit } : null;
 }
 
-/** Each remote URL a checkout's Git configuration names, read from the file with no Git process. */
-export function configuredRemoteUrls(root) {
+/**
+ * What a checkout's Git configuration file says about its remotes (git-config-value.mjs gitConfigRemotes), with
+ * no Git process. A configuration that exists but cannot be read is not known. Null outside a checkout.
+ */
+export function checkoutRemoteConfiguration(root) {
   const checkout = gitFactCheckout(root);
   if (!checkout) return null;
   let text = '';
-  try { text = readFileSync(path.join(checkout.commonDir, 'config'), 'utf8'); } catch { /* no configuration, no remote */ }
-  const remotes = [];
-  let section = null;
-  for (const line of text.split(/\r?\n/u)) {
-    const header = /^\s*\[\s*remote\s+"([^"]*)"\s*\]/u.exec(line);
-    if (header) { section = header[1]; continue; }
-    if (/^\s*\[/u.test(line)) { section = null; continue; }
-    const entry = section === null ? null : /^\s*(url|pushurl)\s*=(.*)$/iu.exec(line);
-    const url = entry ? gitConfigValue(entry[2]) : null;
-    if (url) remotes.push({ remote: section, key: entry[1].toLowerCase(), url });
+  try { text = readFileSync(path.join(checkout.commonDir, 'config'), 'utf8'); } catch (error) {
+    // No configuration is no remote; one that exists but cannot be read is not known.
+    if (error?.code !== 'ENOENT') return { remotes: [], rewrites: [], confident: false };
   }
-  return remotes;
+  return gitConfigRemotes(text);
+}
+
+/** Each remote URL a checkout's Git configuration names, read from the file with no Git process. */
+export function configuredRemoteUrls(root) {
+  return checkoutRemoteConfiguration(root)?.remotes ?? null;
 }
 
 /**
- * Which authority a last-known record answers for: the repositories it was read in and the remote
- * URLs their Git configuration names, read from the files with no Git process. A changed remote or
- * another selected repository ends last-known eligibility (SDA §8: an authority change).
+ * Which authority a last-known record answers for: the repositories it was read in, always, and the
+ * remotes their Git configuration names, read from the files with no Git process. A changed remote,
+ * a moved checkout or another selected repository ends last-known eligibility (SDA §8: an authority
+ * change). Null when a configuration cannot be read with confidence: an unknown authority is never
+ * served as last-known, where an empty one would match every checkout without remotes (U1).
  */
 export function remoteAuthority(roots) {
-  const remotes = [];
+  const entries = [];
   for (const root of new Set(roots.filter(Boolean).map((entry) => path.resolve(entry)))) {
-    const configured = configuredRemoteUrls(root);
-    if (!configured) { remotes.push([root, null, null, null]); continue; }
-    for (const entry of configured) remotes.push([root, entry.remote, entry.key, entry.url]);
+    entries.push([root, null, null, null]);
+    const configuration = checkoutRemoteConfiguration(root);
+    if (!configuration) continue;
+    if (!configuration.confident) return null;
+    for (const entry of configuration.remotes) entries.push([root, entry.remote, entry.key, entry.url]);
+    for (const entry of configuration.rewrites) entries.push([root, `url ${entry.base}`, entry.key, entry.value]);
   }
-  return repositoryCheckKey(remotes.map((entry) => JSON.stringify(entry)).sort());
+  return repositoryCheckKey(entries.map((entry) => JSON.stringify(entry)).sort());
 }
+
+/**
+ * The authority a record's binding names: the repositories it was read in (`roots`), or a repository
+ * named by URL (`repositoryUrl`, `session candidates --repository-url`), which is never the
+ * checkout the read ran in (A6). Null when it cannot be known.
+ */
+export function lastKnownAuthority(source) {
+  if (typeof source?.repositoryUrl === 'string') {
+    return repositoryCheckKey(['repository-url', source.repositoryUrl, source.configurationUrl ?? null]);
+  }
+  return Array.isArray(source?.roots) ? remoteAuthority(source.roots) : null;
+}
+
+/** The environment inputs a record is bound to, as a digest: never a raw value. */
+export function projectionEnvironment(env = process.env) {
+  return repositoryCheckKey(Object.entries(env).filter(([name]) => HOST_ENV.test(name) && !PRESENTATION_ENV.has(name))
+    .sort(([a], [b]) => a.localeCompare(b)));
+}
+
+/** Which build wrote a record, as a short digest of BUILD_INFO. */
+export const PROJECTION_BUILD = repositoryCheckKey(BUILD_INFO).slice(0, 16);
 
 function freshRecord(found, stamp, settings) {
   return Boolean(found && stamp && found.stamp === stamp
@@ -194,8 +224,12 @@ async function pruneProvenanceSlots(directory, prefix, current) {
   for (const entry of candidates.slice(4)) await unlink(entry.file).catch(() => {});
 }
 
-/** No Git processes: reuse the existing cross-platform HEAD/config/object visibility observers. */
-function dependencyStamp(root, files, env, advisoryPreview = false, metadataOnly = false, directory = cacheDirectory(root)) {
+/**
+ * No Git processes: reuse the existing cross-platform HEAD/config/object visibility observers.
+ * `stable` leaves out the files the read itself may update (its own fetch moves a remote-tracking
+ * ref), so a read can prove nothing else changed while it ran and still store its answer (A2).
+ */
+function dependencyStamp(root, files, env, advisoryPreview = false, metadataOnly = false, directory = cacheDirectory(root), selfUpdated = null) {
   const request = gitFactRequest(advisoryPreview ? ['rev-parse', 'HEAD'] : ['log', '--format=%H', 'HEAD', '--', '.'], { cwd: root, env });
   const observed = metadataOnly ? new Map() : gitFactSnapshot(request);
   if (!observed || [...observed.values()].some(value => value === null)) return null;
@@ -207,7 +241,8 @@ function dependencyStamp(root, files, env, advisoryPreview = false, metadataOnly
     if (stamp === null) return null;
     observed.set(file, stamp);
   }
-  return repositoryCheckKey([...observed]);
+  return { stamp: repositoryCheckKey([...observed]),
+    stable: selfUpdated?.size ? repositoryCheckKey([...observed].filter(([file]) => !selfUpdated.has(file))) : null };
 }
 
 /**
@@ -247,11 +282,16 @@ export async function cachedStoryReadinessPreview(root, { identity, files = [], 
 }
 
 /** Selection inventory only. A complete catalog is still not Story-start authority. */
-export async function cachedStoryIntakeCatalog(root, { identity, files = [], env = process.env, settingsRoot = root, refreshRecipe = null }, verify) {
-  return cachedCheck(root, { kind: 'story-intake-catalog', identity, files, env, settingsRoot, refreshRecipe,
+export async function cachedStoryIntakeCatalog(root, { identity, files = [], env = process.env, settingsRoot = root, refreshRecipe = null,
+  selfUpdated = [] }, verify) {
+  return cachedCheck(root, { kind: 'story-intake-catalog', identity, files, env, settingsRoot, refreshRecipe, selfUpdated,
     revision: value => ({ authorityCommit: value?.intake?.authorityCommit }),
     accept: value => value?.choicesComplete === true && Array.isArray(value.intake?.storyWorkflows)
-      && !value.unreachable?.length && !value.intake.workflowReason && !value.intake.workflowCatalogReason }, verify);
+      && !value.unreachable?.length && !value.intake.workflowReason && !value.intake.workflowCatalogReason,
+    // What a refresh that cannot replace the record lacked (A7).
+    partial: value => (value?.unreachable?.length ? `Could not read ${value.unreachable.map((entry) => entry.repository).join(', ')}.`
+      : value?.intake?.workflowReason ?? value?.intake?.workflowCatalogReason
+        ?? (value?.choicesComplete === true ? null : 'The base branch choices are incomplete.')) }, verify);
 }
 
 /** Where the session listings of this machine are kept. */
@@ -263,20 +303,32 @@ export function sessionListingDirectory(env = process.env) {
 export function repositoryCheckDirectory(root) { return cacheDirectory(root); }
 
 /** Browsing only, including metadata-only workspace repositories. Never an attachment proof. */
-export async function cachedSessionListing(root, { identity, files = [], env = process.env, settingsRoot = root, refreshRecipe = null }, verify) {
+export async function cachedSessionListing(root, { identity, files = [], env = process.env, settingsRoot = root, refreshRecipe = null,
+  selfUpdated = [], authority = null }, verify) {
   return cachedCheck(root, { kind: 'session-listing', identity, files, env, settingsRoot, metadataOnly: true, refreshRecipe,
+    selfUpdated, authorityScope: authority,
     storageDirectory: sessionListingDirectory(env),
     partition: repositoryCheckKey(identity), firstReadLocal: true,
     revision: value => ({ ledgerCommit: value?.discovered?.ledgerCommit }),
     accept: value => Array.isArray(value?.discovered?.items) && value.discovered.count === value.discovered.items.length
       && !value.discovered.unavailableCount && !value.discovered.unavailable?.length
       // Read from the remote only because the clone was unreadable: never reused once it is readable.
-      && value.discovered.localClone?.available !== false }, verify);
+      && value.discovered.localClone?.available !== false,
+    partial: value => (value?.discovered?.unavailableCount || value?.discovered?.unavailable?.length
+      ? `${value.discovered.unavailableCount ?? value.discovered.unavailable.length} Story rows could not be read.`
+      : Array.isArray(value?.discovered?.items) && value.discovered.count !== value.discovered.items.length
+        ? 'The listing is incomplete.' : null) }, verify);
 }
 
-async function cachedCheck(root, { kind, identity, files, env, settingsRoot = root, accept = () => true,
+/**
+ * How a projection record answers here: the exact key (the build, the checkout, the read and the
+ * environment, A1) and, for last-known kinds, the authority it was read from. A record this process
+ * cannot use counts as missing: the first read may answer from the local clone again, and a
+ * successful read replaces it.
+ */
+async function cachedCheck(root, { kind, identity, files, env, settingsRoot = root, accept = () => true, partial = () => null,
   metadataOnly = false, storageDirectory = null, partition = null, firstReadLocal = false, refreshRecipe = null,
-  revision = () => null }, verify) {
+  revision = () => null, selfUpdated = [], authorityScope = null }, verify) {
   const settings = repositoryCheckSettings(settingsRoot, { env });
   const advisoryPreview = metadataOnly || kind === 'story-readiness-preview' || kind === 'story-intake-catalog';
   const lastKnown = lastKnownKinds.has(kind);
@@ -306,60 +358,78 @@ async function cachedCheck(root, { kind, identity, files, env, settingsRoot = ro
     return value;
   }
   const runtime = { node: process.versions.node, v8: process.versions.v8, platform: process.platform, arch: process.arch };
-  const key = repositoryCheckKey({ format: FORMAT, root: path.resolve(root), build: BUILD_INFO, runtime, kind, identity,
-    // Includes machine/environment inputs without writing credentials or raw environment values.
-    environment: repositoryCheckKey(Object.entries(env).filter(([name]) => HOST_ENV.test(name) && !PRESENTATION_ENV.has(name))
-      .sort(([a], [b]) => a.localeCompare(b))) });
-  const observeStamp = () => directory ? dependencyStamp(root, files, env, advisoryPreview, metadataOnly, directory) : null;
-  let stamp = observeStamp();
+  // Includes machine/environment inputs without writing credentials or raw environment values.
+  const environment = projectionEnvironment(env);
+  const key = repositoryCheckKey({ format: FORMAT, root: path.resolve(root), build: BUILD_INFO, runtime, kind, identity, environment });
+  const selfUpdatedFiles = new Set(selfUpdated);
+  const observeDependencies = () => directory
+    ? dependencyStamp(root, files, env, advisoryPreview, metadataOnly, directory, selfUpdatedFiles) : null;
+  let dependencies = observeDependencies();
+  let stamp = dependencies?.stamp ?? null;
   // Four exact provenance identities prevent raw/normalized input thrashing without unbounded storage.
   const provenancePrefix = PROVENANCE_KINDS.has(kind) ? `provenance-${repositoryCheckKey(kind).slice(0, 16)}-` : null;
+  // The environment names the file, so VS Code and a terminal (or two PATHs) keep their own records
+  // instead of replacing each other's; a new build or a moved checkout replaces its record in place.
   const file = directory ? path.join(directory, provenancePrefix ? `${provenancePrefix}${key}.json`
-    : `${repositoryCheckKey({ kind, runtime, ...(partition ? { partition } : {}) })}.json`) : null;
-  let missing = false;
-  try { if (file) lstatSync(file); } catch (error) { missing = error.code === 'ENOENT'; }
+    : `${repositoryCheckKey({ kind, runtime, ...(partition ? { partition } : {}), environment })}.json`) : null;
   // Last-known kinds read their record whatever its age; verification kinds only when it may be a hit.
   const found = file && (lastKnown || !forced && settings.mode !== 'always' && stamp) ? readProjectionRecord(file, key) : null;
-  const authority = lastKnown ? remoteAuthority([root, settingsRoot]) : null;
-  // Only a record of this same authority may stand in for a refresh.
-  const lastKnownRecord = lastKnown && found?.authority === authority ? found : null;
-  if (!forced && settings.mode !== 'always' && freshRecord(found, stamp, settings)) {
+  const authoritySource = lastKnown ? authorityScope ?? { roots: [...new Set([root, settingsRoot].map((entry) => path.resolve(entry)))] } : null;
+  const authority = lastKnown ? lastKnownAuthority(authoritySource) : null;
+  // Only a record of this same, known authority may stand in for a refresh.
+  const lastKnownRecord = lastKnown && authority !== null && found?.authority === authority ? found : null;
+  const usable = lastKnown ? lastKnownRecord : found;
+  if (!forced && settings.mode !== 'always' && freshRecord(usable, stamp, settings)) {
     incrementCommandCounter('repository-checks.hits');
+    // Manual refresh never expires a record, so it is not called fresh: only a read verified now is (A12).
     observe(root, settings, 'cache', found.checkedAt, null, lastKnown
-      ? { freshness: 'fresh', completeness: 'complete', acceptedRevision: found.acceptedRevision } : null);
+      ? { freshness: settings.mode === 'manual' ? 'stale' : 'fresh', completeness: 'complete', acceptedRevision: found.acceptedRevision,
+        ...(settings.mode === 'manual' ? { backgroundRefresh: 'manual' } : {}) } : null);
     return found.value;
   }
   // Expired, with nothing it depends on changed here: serve it now and refresh behind it (SDA §17:
   // an expired advisory read never waits on the network). A failed refresh keeps its error beside it.
   if (lastKnownRecord && !forced && settings.mode === 'cached' && stamp && found.stamp === stamp) {
-    const attempt = readRefreshAttempt(file);
-    const failed = attempt?.error && Date.parse(attempt.failedAt ?? '') > found.checkedAt ? attempt : null;
-    incrementCommandCounter('repository-checks.last-known');
-    observe(root, settings, 'last-known', found.checkedAt, null, { freshness: failed ? 'refresh-failed' : 'stale',
-      completeness: 'complete', acceptedRevision: found.acceptedRevision,
-      ...(failed ? { refreshError: failed.error, refreshFailedAt: failed.failedAt } : {}),
-      backgroundRefresh: await (await import('./projection-refresh.mjs')).refreshBehind(directory, file, refreshRecipe, env, found) });
-    return found.value;
+    const { refreshBehind, serveLastKnown } = await import('./projection-refresh.mjs');
+    return serveLastKnown({ root, settings, file, found, observe },
+      await refreshBehind(directory, file, refreshRecipe, env, found));
   }
   // Coalesce only an identical immutable/configuration read, never whole commands or worktree state.
   const pendingKey = `${file}:${key}:${stamp}:${forced ? randomUUID() : 'routine'}`;
   if (pending.has(pendingKey)) return deserialize(serialize(await pending.get(pendingKey)));
+  // What this read did to its record: stored, partial (A7), not kept, or unsettled (A2).
+  const outcome = { kept: null, reason: null };
   const compute = async () => {
     incrementCommandCounter('repository-checks.refreshes');
-    const value = firstReadLocal ? await verify({ allowLocal: missing && !forced && settings.mode !== 'always' }) : await verify();
+    // A record this process cannot use counts as missing, so the first read answers locally (A1).
+    const value = firstReadLocal ? await verify({ allowLocal: !usable && !forced && settings.mode !== 'always' }) : await verify();
     const checkedAt = Date.now();
+    const complete = accept(value);
     observe(root, settings, 'fresh', checkedAt, stamp ? null : 'Dependency observation unavailable; verification was fresh.',
-      lastKnown ? { freshness: 'fresh', completeness: accept(value) ? 'complete' : 'partial',
+      lastKnown ? { freshness: 'fresh', completeness: complete ? 'complete' : 'partial',
         acceptedRevision: acceptedRevisionOf(revision(value)) } : null);
-    if (!accept(value) || !stamp || observeStamp() !== stamp) return value;
+    if (!complete) {
+      const lacking = partial(value);
+      Object.assign(outcome, lacking ? { kept: 'partial', reason: lacking } : { kept: 'not-kept', reason: 'This answer is never kept.' });
+      return value;
+    }
+    // The read's own fetch may move what it depends on; anything else changing means it is not kept.
+    const after = observeDependencies();
+    if (!dependencies || !after || (selfUpdatedFiles.size ? after.stable !== dependencies.stable : after.stamp !== dependencies.stamp)) {
+      Object.assign(outcome, { kept: 'not-kept', reason: 'Something it depends on changed while it was read.' });
+      return value;
+    }
+    outcome.kept = 'stored';
     let temporary;
     try {
       if (typeof value?.bytes === 'number' && value.bytes > MAXIMUM_PAYLOAD_BYTES) return value;
       if (!await prepareDirectory(directory)) return value;
       const payload = serialize(value);
       if (payload.byteLength > MAXIMUM_PAYLOAD_BYTES) return value;
-      const record = JSON.stringify({ format: FORMAT, key, stamp, checkedAt,
-        kind, ...(lastKnown ? { authority, acceptedRevision: acceptedRevisionOf(revision(value)),
+      const record = JSON.stringify({ format: FORMAT, key, stamp: after.stamp, checkedAt,
+        kind, binding: { build: PROJECTION_BUILD, root: path.resolve(root), environment: environment.slice(0, 16),
+          ...(authoritySource ? { authority: authoritySource } : {}) },
+        ...(lastKnown ? { authority, acceptedRevision: acceptedRevisionOf(revision(value)),
           ...(refreshRecipe ? { refresh: refreshRecipe } : {}) } : {}),
         sha256: createHash('sha256').update(payload).digest('hex'), payload: payload.toString('base64') });
       if (Buffer.byteLength(record) > MAXIMUM_BYTES) return value;
@@ -375,8 +445,10 @@ async function cachedCheck(root, { kind, identity, files, env, settingsRoot = ro
   // The refresh machinery loads only for a last-known record that must be recomputed.
   const promise = lastKnown && file
     ? import('./projection-refresh.mjs').then(({ coalescedRefresh }) => coalescedRefresh({
-      root, settings, directory, file, key, authority, explicit, replay, found: lastKnownRecord, observeStamp, observe, prepareDirectory,
-      restamp: (next) => { stamp = next; }
+      root, settings, directory, file, key, authority, explicit, forced, replay, found: lastKnownRecord, observe, prepareDirectory,
+      refreshRecipe, outcome,
+      observeStamp: () => observeDependencies()?.stamp ?? null,
+      restamp: () => { dependencies = observeDependencies(); stamp = dependencies?.stamp ?? null; }
     }, compute))
     : compute();
   pending.set(pendingKey, promise);

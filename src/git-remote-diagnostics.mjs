@@ -56,6 +56,12 @@ const ADVICE = Object.freeze({
   'protocol-unsupported': 'Use a Git transport supported by this installation and the remote provider.',
   unknown: 'Run workspace doctor --network and inspect Git access outside SFlow before retrying.'
 });
+// The causes a later retry of the same operation can end once the condition clears.
+const RETRYABLE_CLASSIFICATIONS = new Set([
+  'network-transient', 'offline', 'git-unavailable', 'working-directory-unavailable', 'local-storage-unavailable', 'rate-limited',
+  'proxy-configuration', 'tls-trust',
+  'credential-helper-unavailable', 'authentication-required', 'sso-authorization-required'
+]);
 const SSH_USERNAME_PROTOCOLS = new Set(['ssh:', 'git+ssh:', 'ssh+git:']);
 const BUILTIN_HIERARCHICAL_PROTOCOLS = new Set([
   'http:', 'https:', 'ssh:', 'git+ssh:', 'ssh+git:', 'git:', 'file:', 'ftp:', 'ftps:'
@@ -673,6 +679,26 @@ export function failureEvidence(result) {
   });
 }
 
+/**
+ * How a refresh failure a read kept beside its last-known answer reads to a person (A3): the cause
+ * under the wrapper code, the product's advice for it, and the way out. A cause a retry does not end
+ * (`retryable: false`, say a remote that is not found) names its fix and the network diagnosis, never
+ * another refresh; one a retry may end names `retry`.
+ */
+export function refreshFailureGuidance(error, { retry = null } = {}) {
+  const code = error?.code ?? 'unknown';
+  // A remote failure kept bare (REMOTE_<CLASSIFICATION>) carries its classification in its code.
+  const bare = /^REMOTE_([A-Z_]+)$/u.exec(code)?.[1]?.toLowerCase().replaceAll('_', '-');
+  const remote = error?.remoteFailure ?? (bare && ADVICE[bare]
+    ? { code, classification: bare, retryable: RETRYABLE_CLASSIFICATIONS.has(bare) } : null);
+  const cause = remote?.code && remote.code !== code ? `${code}: ${remote.code}` : code;
+  const retryable = remote ? remote.retryable === true : null;
+  const advice = remote?.advice ?? (remote?.classification ? ADVICE[remote.classification] ?? null : null);
+  const next = retryable === false ? 'Diagnose the connection with: singularity-flow workspace doctor --network'
+    : retry ? `Retry with: ${retry}` : null;
+  return { cause, retryable, advice, next, text: [advice, next ? `${next}.` : null].filter(Boolean).join(' ') };
+}
+
 /** Closed transport evidence for a state-index refusal; never copy raw provider output. */
 export function stateRefreshError(config, stage, result = {}, { elapsedMs = null, failure = result?.failure, deadlineMs = result?.timeoutMs } = {}) {
   result ??= {};
@@ -832,11 +858,7 @@ export function classifyGitRemoteFailure(result, { branch = null, cwdAvailable =
   return Object.freeze({
     classification,
     code: `REMOTE_${classification.replaceAll('-', '_').toUpperCase()}`,
-    retryable: [
-      'network-transient', 'offline', 'git-unavailable', 'working-directory-unavailable', 'local-storage-unavailable', 'rate-limited',
-      'proxy-configuration', 'tls-trust',
-      'credential-helper-unavailable', 'authentication-required', 'sso-authorization-required'
-    ].includes(classification),
+    retryable: RETRYABLE_CLASSIFICATIONS.has(classification),
     branch,
     ...(hook ? { hook } : {}),
     advice: ADVICE[classification]

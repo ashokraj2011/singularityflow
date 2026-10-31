@@ -19,11 +19,11 @@ import { compileObservation } from '../observation-compiler.mjs';
 import { readFile } from 'node:fs/promises';
 import { composeContextBrief } from '../context-broker.mjs';
 import { discoverRemoteStoryCandidates, validatedRemoteStoryDefinition } from '../session-story-discovery.mjs';
-import { configuredRemoteIdentity } from '../git-remote-diagnostics.mjs';
+import { configuredRemoteIdentity, refreshFailureGuidance } from '../git-remote-diagnostics.mjs';
+import { gitConfigRemoteUrl } from '../git-config-value.mjs';
 import { renderChangeDirectoryCommand } from '../safe-command-guidance.mjs';
 import { acceptedStoryExecutionIfPresent } from './shared/accepted-story-execution-if-present.mjs';
 import { runRemoteGitAsync } from '../git-execution.mjs';
-import { gitConfigValue } from '../git-config-value.mjs';
 import { withUnansweredRemoteReuse } from '../git-child-groups.mjs';
 import YAML from 'yaml';
 import { readRecord } from '../schema-migrations.mjs';
@@ -56,13 +56,8 @@ function readableOriginUrl(commonDirectory) {
   try {
     const stat = lstatSync(file);
     if (!stat.isFile() || (stat.size > 0 && stat.blocks === 0)) return null;
-    let origin = false;
-    for (const line of readFileSync(file, 'utf8').split(/\r?\n/u)) {
-      const section = /^\s*\[\s*([^\]]+?)\s*\]/u.exec(line);
-      if (section) { origin = /^remote\s+"origin"$/u.test(section[1]); continue; }
-      const url = origin && /^\s*url\s*=(.*)$/u.exec(line);
-      if (url) return gitConfigValue(url[1]) || null;
-    }
+    // Read as Git reads it: `[REMOTE "origin"]`, `[remote.origin]` and quoted values name it too (U1).
+    return gitConfigRemoteUrl(readFileSync(file, 'utf8'));
   } catch { /* unreadable: no remote listing */ }
   return null;
 }
@@ -221,14 +216,25 @@ export async function exactStoryMetadataAtRef(root, remote, item, expectedCommit
 /** How a reused listing reads to a person: its freshness, and the real error a failed refresh kept (SDA §8). */
 export function listingFreshness(snapshot) {
   if (snapshot.freshness === 'refresh-failed') {
-    return `the last-known (refresh failed: ${snapshot.refreshError?.code ?? 'unknown'}${snapshot.refreshFailedAt ? ` at ${snapshot.refreshFailedAt}` : ''})`;
+    return `the last-known (refresh failed: ${refreshFailureGuidance(snapshot.refreshError).cause}${snapshot.refreshFailedAt ? ` at ${snapshot.refreshFailedAt}` : ''})`;
   }
   if (snapshot.freshness === 'stale') {
     const behind = { started: 'refreshing in the background', 'in-flight': 'a refresh is already running',
-      'recently-started': 'a refresh started recently' }[snapshot.backgroundRefresh] ?? 'not refreshed in the background';
+      'recently-started': 'a refresh started recently', manual: 'refresh is manual' }[snapshot.backgroundRefresh] ?? 'not refreshed in the background';
     return `a stale (${behind})`;
   }
   return snapshot.source;
+}
+
+/**
+ * The way out a reused listing names: a refresh, unless its last refresh failed for a cause a retry
+ * does not end, which names that cause's fix instead (A3: `--refresh` against a remote that is gone
+ * repeated forever).
+ */
+export function listingRefreshRoute(snapshot, refresh = '--refresh') {
+  if (snapshot?.freshness !== 'refresh-failed') return `Use ${refresh} for a fresh listing.`;
+  const guidance = refreshFailureGuidance(snapshot.refreshError, { retry: refresh });
+  return guidance.text || `Use ${refresh} for a fresh listing.`;
 }
 
 export async function printSessionCandidateResult(discovered, options, scope = {}) {
@@ -238,7 +244,7 @@ export async function printSessionCandidateResult(discovered, options, scope = {
   if (['cache', 'local', 'last-known'].includes(snapshot?.source) && !optionBoolean(options, 'table')) console.error(
     `Using ${listingFreshness(snapshot)} Story listing checked at ${snapshot.checkedAt}; `
     + `remote checked at ${snapshot.remoteCheckedAt ?? 'unavailable'}. `
-    + 'Attachment revalidates the selected Story. Use --refresh for a fresh listing.');
+    + `Attachment revalidates the selected Story. ${listingRefreshRoute(snapshot)}`);
   if (optionBoolean(options, 'json')) return console.log(JSON.stringify(
     optionBoolean(options, 'diagnostics') ? discovered : discovered.items, null, 2
   ));

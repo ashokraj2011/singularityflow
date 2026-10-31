@@ -12,6 +12,8 @@ import { acquireFileLease, inspectFileLease, releaseHeldFileLeasesSync,
   installFileLeaseSignalHandlers } from '../src/file-lease.mjs';
 
 const MODULE = pathToFileURL(path.resolve('src/file-lease.mjs')).href;
+// The state and reason an inspection reports; it also names the owner and its review when there is one.
+const pick = ({ state, reason }) => ({ state, reason });
 const absent = (file) => lstat(file).then(() => false, (error) => { if (error.code === 'ENOENT') return true; throw error; });
 const owner = (pid, extra = {}) => ({ version: 2, pid, host: os.hostname(), nonce: randomUUID(),
   createdAt: new Date().toISOString(), heartbeatAt: new Date().toISOString(), ...extra });
@@ -47,10 +49,15 @@ test('cache leases have versioned owners and exact nonce/inode releases', async 
   const { file } = await fixture(t);
   const lease = await acquireFileLease(file);
   const record = JSON.parse(await readFile(file, 'utf8'));
-  assert.deepEqual(Object.keys(record).sort(), ['createdAt', 'heartbeatAt', 'host', 'nonce', 'pid', 'version']);
-  assert.equal(record.version, 2); assert.equal(record.pid, process.pid);
+  // Version 3 carries the machine identity every lease family records (A5): judged by machine ID and
+  // process start, never by a hostname that changes with the network or a recycled PID.
+  const identity = ['hardwareDigest', 'machineId', 'pidNamespace'];
+  assert.deepEqual(Object.keys(record).filter((key) => !identity.includes(key)).sort(),
+    ['createdAt', 'heartbeatAt', 'host', 'nonce', 'pid', 'processStartedAt', 'processToken', 'version']);
+  assert.equal(record.version, 3); assert.equal(record.pid, process.pid);
   assert.equal(await lease.owns(), true);
-  assert.deepEqual(await inspectFileLease(file), { state: 'busy', reason: 'live-owner' });
+  assert.deepEqual(pick(await inspectFileLease(file)), { state: 'busy', reason: 'live-owner' });
+  assert.equal((await inspectFileLease(file)).active, true, 'this process holds it and can finish it');
   assert.equal(await acquireFileLease(file), null);
   assert.equal(await lease.release(), true); assert.equal(await absent(file), true);
   assert.equal(await lease.release(), false);
@@ -183,7 +190,7 @@ test('proven dead owners are atomically retired before a guarded store rebuild',
   const pid = await exitedChild();
   await writeFile(file, JSON.stringify(owner(pid)), { mode: 0o600 });
   const store = path.join(root, 'store'); await mkdir(store); await writeFile(path.join(store, 'old'), 'old');
-  assert.deepEqual(await inspectFileLease(file), { state: 'reclaimable', reason: 'dead-owner' });
+  assert.deepEqual(pick(await inspectFileLease(file)), { state: 'reclaimable', reason: 'dead-owner' });
   let callback = 0;
   const lease = await acquireFileLease(file, { onReclaimed: async ({ reason }) => {
     assert.equal(reason, 'dead-owner'); callback += 1;
@@ -237,17 +244,17 @@ for (const kind of ['file', 'directory-link']) {
 test('known child quarantine reclaims only after every child and owner are provably dead', async (t) => {
   const { file } = await fixture(t); const pid = await exitedChild();
   await writeFile(file, JSON.stringify(owner(pid, { quarantine: true, childPids: [pid], unknownChildren: false })), { mode: 0o600 });
-  assert.deepEqual(await inspectFileLease(file), { state: 'reclaimable', reason: 'dead-quarantine' });
+  assert.deepEqual(pick(await inspectFileLease(file)), { state: 'reclaimable', reason: 'dead-quarantine' });
   const lease = await acquireFileLease(file); assert.ok(lease); await lease.release();
 });
 
 test('only allocation-only old UUID acquisitions are age-reclaimable; cache operation legacy remains quarantined', async (t) => {
   const { file } = await fixture(t); const legacy = `${randomUUID()}\n`;
   await writeFile(file, legacy, { mode: 0o600 });
-  assert.deepEqual(await inspectFileLease(file), { state: 'busy', reason: 'legacy-busy' });
+  assert.deepEqual(pick(await inspectFileLease(file)), { state: 'busy', reason: 'legacy-busy' });
   assert.equal(await acquireFileLease(file), null);
   const old = new Date(Date.now() - 16 * 60_000); await utimes(file, old, old);
-  assert.deepEqual(await inspectFileLease(file, { legacyQuarantine: true }), { state: 'busy', reason: 'unknown-children' });
+  assert.deepEqual(pick(await inspectFileLease(file, { legacyQuarantine: true })), { state: 'busy', reason: 'unknown-children' });
   assert.equal(await acquireFileLease(file, { legacyQuarantine: true }), null);
   assert.equal(await readFile(file, 'utf8'), legacy);
   const lease = await acquireFileLease(file);
@@ -280,7 +287,7 @@ test('unsafe lock paths and future versions cannot become abandoned leases', asy
   await symlink(target, file);
   assert.equal((await inspectFileLease(file)).state, 'unverifiable');
   assert.equal(await acquireFileLease(file), null); await rm(file);
-  const future = { ...owner(await exitedChild()), version: 3 };
+  const future = { ...owner(await exitedChild()), version: 4 };
   await writeFile(file, JSON.stringify(future), { mode: 0o600 });
   const old = new Date(Date.now() - 60 * 60_000); await utimes(file, old, old);
   assert.equal((await inspectFileLease(file)).state, 'unverifiable');
@@ -335,7 +342,7 @@ test('actual SIGTERM preserves protected operation quarantine; SIGKILL plain lea
   const { file } = await fixture(t);
   const protectedHolder = await launchLeaseHolder(file, true); t.after(() => protectedHolder.child.kill('SIGKILL'));
   protectedHolder.child.kill('SIGTERM'); await protectedHolder.exit;
-  assert.deepEqual(await inspectFileLease(file), { state: 'busy', reason: 'unknown-children' });
+  assert.deepEqual(pick(await inspectFileLease(file)), { state: 'busy', reason: 'unknown-children' });
   assert.equal(await acquireFileLease(file), null); await rm(file);
   const normalHolder = await launchLeaseHolder(file); t.after(() => normalHolder.child.kill('SIGKILL'));
   normalHolder.child.kill('SIGKILL'); await normalHolder.exit;

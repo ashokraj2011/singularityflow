@@ -71,7 +71,10 @@ test('session candidates and composed open reuse advisory listings; a failed ref
   assert.equal(kept.child.status, 0, kept.child.stderr + kept.child.stdout);
   assert.equal(kept.packet.status, 'choose', JSON.stringify(kept.packet));
   // The roster is Markdown, so the code's underscores are escaped.
-  assert.match(kept.packet.table, /Listing: last-known \(refresh-failed: SESSION\\_STATE\\_REFRESH\\_UNAVAILABLE\)/u);
+  // The cause under the wrapper code, and its fix rather than another refresh when one cannot end it (A3).
+  assert.match(kept.packet.table, /Listing: last-known \(refresh-failed: SESSION\\_STATE\\_REFRESH\\_UNAVAILABLE: REMOTE\\_[A-Z\\_]+\)/u);
+  assert.match(kept.packet.table, /Verify the repository URL and your access to it, then retry\. Diagnose the connection with: singularity-flow workspace doctor --network\./u);
+  assert.doesNotMatch(kept.packet.table, /Refresh with --refresh/u);
   // The explicit refresh disproved the earlier success: a routine read refreshes again, fails again,
   // and still answers from the verified listing with the diagnosis, never a fresh claim.
   const retry = await f.invoke();
@@ -121,7 +124,9 @@ test('session listing shares configurable TTL and always/manual modes; invalidat
   }
   assert.equal((await invoke(manual)).packet.listingSnapshot.source, 'cache');
   for (const name of files) await writeFile(path.join(directory, name), '{broken');
-  assert.equal((await invoke(manual)).packet.listingSnapshot.source, 'fresh');
+  // A record that cannot be read counts as missing: the first read answers from the verified local
+  // clone again instead of refusing offline (A1).
+  assert.equal((await invoke(manual)).packet.listingSnapshot.source, 'local');
   f.git(f.original, 'config', 'sflow.test-cache-identity', 'changed');
   assert.equal((await invoke(manual)).packet.listingSnapshot.source, 'fresh', 'Git configuration invalidates a listing');
 });

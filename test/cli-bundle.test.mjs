@@ -162,7 +162,11 @@ test('the bundled CLI answers exactly like the sources while opening a handful o
   // holds or built on it in publication-pending.mjs, state.mjs and initiative-state.mjs; each retained commit's own route,
   // the set-aside after a lost race and the Auto, ledger and damaged-push plans in refusal-remediation.mjs; ledger reads
   // that stop at damage in ledger-pages.mjs and subject-identity-records.mjs) add 10,169 for 4,584,165. No new file.
-  assert.ok(narrowReads < 4_590_000,
+  // 4,600,000: sweep batches 3 and 4 together measure 4,593,756; the read index fix (batch 4: records bound to the build,
+  // checkout, environment and authority they answer for, remotes read as Git reads them in git-fact-cache.mjs,
+  // cache lease owners judged by machine identity, refresh causes and their way out) adds 9,591 alone:
+  // cold-core +6,878, cold-narrow-reads +2,367, cold-status +346. No new file.
+  assert.ok(narrowReads < 4_600_000,
     `strict next-step reads must not inherit the broad phase-review closure (${narrowReads} bytes)`);
   const publicationClosure = closure('cold-publication.mjs');
   assert.ok(publicationClosure.length && publicationClosure.reduce((sum, item) => sum + item.bytes, 0) < 6 * 1024 * 1024,
@@ -330,7 +334,8 @@ test('the bundled CLI answers exactly like the sources while opening a handful o
   // configuration, proposals that hold their drafts (upload pending, merged or closed on the host) and batches a stale
   // draft no longer blocks (configuration-drafts.mjs, +15,153 alone). No new file.
   // 7,660,000: main fc7b10482 measures 7,642,199; the same sweep batch 3 publication-outcome code adds 11,913 for 7,654,112.
-  assert.ok(hookContext < 7_660_000,
+  // 7,670,000: sweep batches 3 and 4 together measure 7,663,859; the same batch 4 read index code adds 9,747 alone.
+  assert.ok(hookContext < 7_670_000,
     `phase-review reads retain their existing byte ceiling after moving families (${hookContext} bytes)`);
   assert.match(await readFile(path.join(outdir, 'cold-light.mjs'), 'utf8'), /function enterPhase\b/u,
     'phase binding must not fall through to the compatibility/admin bundle');
@@ -396,7 +401,8 @@ test('the bundled CLI answers exactly like the sources while opening a handful o
   // 5,435,000: sweep batches 1 and 2 together measure 5,428,019: the same draft standings and proposal recovery in
   // configuration-drafts.mjs (batch 2, +15,153 alone).
   // 5,445,000: main fc7b10482 measures 5,428,019; the same sweep batch 3 publication-outcome code adds 10,169 for 5,438,188.
-  assert.ok(catalogBytes < 5_445_000,
+  // 5,455,000: sweep batches 3 and 4 together measure 5,447,779; the same batch 4 read index code adds 9,591 alone.
+  assert.ok(catalogBytes < 5_455_000,
     `catalog parsing stays bounded instead of pulling in the entire administration bundle (${catalogBytes} bytes)`);
   for (const name of ['cold-compatibility.mjs', 'cold-models.mjs', 'cold-intake.mjs', 'cold-phases.mjs', 'cold-hook-context.mjs']) {
     assert.ok(!catalogClosure.some(item => item.file === name), `catalogs must not statically reach ${name}`);

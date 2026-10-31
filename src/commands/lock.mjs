@@ -6,7 +6,8 @@
  * is ended only by a person: `show` reads it, and `release` removes exactly the generation that person
  * reviewed (its token), recording the release. A refusal that meets such a lease prints these routes.
  * `show-file` and `release-file` do the same for a lease named by its path: a registry lease file
- * (in the home, so they run outside any repository) or an Authority Store lock directory.
+ * (in the home, so they run outside any repository), a cache lease file (a read index refresh lease
+ * that `index status` names) or an Authority Store lock directory.
  */
 import { lstat } from 'node:fs/promises';
 import path from 'node:path';
@@ -21,7 +22,7 @@ function fail(message, code = 'LOCK_COMMAND_INVALID', details = null) {
   throw new SingularityFlowError(message, { code, details });
 }
 
-/** The module that owns a lease named by path: an Authority Store lock directory, or a registry lease file. */
+/** The module that owns a lease named by path: an Authority Store lock directory, or a registry or cache lease file. */
 async function fileLeaseOwner(file) {
   const info = await lstat(file).catch((error) => (error?.code === 'ENOENT' ? null : Promise.reject(error)));
   if (info && !info.isFile() && !info.isDirectory()) {
@@ -34,10 +35,10 @@ async function fileLeaseOwner(file) {
       release: (token) => authority.releaseAuthorityStoreLockAfterReview(file, { expectedToken: token })
     };
   }
-  const registry = await import('../file-lease.mjs');
+  const leases = await import('../file-lease.mjs');
   return {
-    inspect: () => registry.inspectRegistryLease(file),
-    release: (token) => registry.releaseRegistryLeaseAfterReview(file, { expectedToken: token })
+    inspect: () => leases.inspectLeaseFile(file),
+    release: (token) => leases.releaseLeaseFileAfterReview(file, { expectedToken: token })
   };
 }
 
@@ -88,6 +89,7 @@ function printResult(result) {
     console.log(`Lease ${name}: held by process ${owner.pid ?? 'unknown'} on ${owner.host ?? 'unknown host'}`
       + `${result.liveness?.state ? ` (${result.liveness.state}${result.liveness.heartbeat ? `, heartbeat ${result.liveness.heartbeat}` : ''})` : ''}.`);
     if (result.releaseCommand) console.log(`Only a person can end it. When that process is gone: ${result.releaseCommand}`);
+    else if (result.form === 'cache' && result.state === 'reclaimable') console.log('Its owner stopped; the next command that needs it takes it over.');
     else console.log('Its owner is alive here and still renewing it; it ends when that command finishes.');
     return;
   }

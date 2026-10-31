@@ -94,7 +94,7 @@ export async function initiativeIdentityRecords(root, rawConfig, { offline = tru
     continuation = page.continuation;
   } while (continuation);
   return Object.freeze({
-    source: IDENTITY_SOURCE.LEDGER, snapshot,
+    source: IDENTITY_SOURCE.LEDGER, snapshot, offline,
     records: Object.freeze([...records.values()].sort((left, right) => left.id.localeCompare(right.id))
       .map((record) => Object.freeze({ ...record, aliases: Object.freeze(record.aliases) }))),
     ...(unreadable ? { unreadable: Object.freeze({ ...unreadable,
@@ -135,18 +135,27 @@ export function resolveInitiativeIdentity(identities, reference) {
   const matches = (identities?.records ?? []).filter((record) => record.id === requested
     || record.aliases.includes(requested));
   if (matches.length > 1) {
+    const candidates = matches.map((record) => record.id);
     throw new SingularityFlowError(
-      `Initiative reference '${requested}' names more than one recorded identity: ${matches.map((record) => record.id).join(', ')}.`,
-      { code: 'INITIATIVE_IDENTITY_AMBIGUOUS', details: { reference: requested, candidates: matches.map((record) => record.id) } }
+      `Initiative reference '${requested}' names more than one recorded identity: ${candidates.join(', ')}. `
+      + `Name the one you mean by its ID, for example: singularity-flow initiative resume ${candidates[0]}`,
+      { code: 'INITIATIVE_IDENTITY_AMBIGUOUS', details: { reference: requested, candidates,
+        nextAction: `singularity-flow initiative resume ${candidates[0]}` } }
     );
   }
   if (!matches.length) {
     // Past a damaged entry the records are incomplete: "not recorded" would be a guess.
     if (identities?.unreadable) throw ledgerUnreadableRefusal(identities, `Initiative '${requested}' is not among the identities the readable part of the state ledger records.`);
+    // The usual cause is an Initiative started on another computer whose record this checkout has
+    // not fetched yet; an offline read names the fetch first (A9).
+    const fetch = identities?.offline !== false ? `singularity-flow initiative resume ${requested} --fetch` : null;
     throw new SingularityFlowError(
-      `No Initiative identity '${requested}' is recorded in the state ledger. A branch is not an identity. `
-      + "Check the ID, or run 'singularity-flow ledger reconcile' if its start was never recorded.",
-      { code: 'INITIATIVE_IDENTITY_UNRECORDED', details: { reference: requested, identitySource: IDENTITY_SOURCE.LEDGER } }
+      `No Initiative identity '${requested}' is recorded in the state ledger${fetch ? ' this checkout has read' : ''}. A branch is not an identity. `
+      + (fetch ? `If it was started on another computer, fetch its record first: ${fetch}. Otherwise check the ID, or run`
+        : 'Check the ID, or run')
+      + " 'singularity-flow ledger reconcile' if its start was never recorded.",
+      { code: 'INITIATIVE_IDENTITY_UNRECORDED', details: { reference: requested, identitySource: IDENTITY_SOURCE.LEDGER,
+        nextAction: fetch ?? 'singularity-flow ledger reconcile' } }
     );
   }
   return matches[0];

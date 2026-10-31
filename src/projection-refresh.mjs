@@ -14,9 +14,15 @@ import {
 } from './repository-check-cache.mjs';
 import { repositoryCheckSettings } from './repository-check-settings.mjs';
 
-const REFRESH_LEASE_STALE_MS = 10 * 60_000;
-// How long a read waits for another process's refresh of the same record before doing its own.
-const COALESCE_WAIT_MS = 30_000;
+// A refresh lease older than this, held by a process that is not this one, reads as not renewed: it is
+// reported with its reviewed release, never taken over (A5). The cache lease bound, so reading the
+// lease file by its path judges a refresh lease the same way.
+export const REFRESH_LEASE_STALE_MS = 15 * 60_000;
+// How long a read with no record waits for another process's refresh of it: as long as a refresh may
+// take (the foreground replay's own bound), so a slow network is not read once per waiting process
+// (U3). Only while that process runs here and holds the lease; an owner that cannot be proven running
+// is not waited for, and only a dead one is taken over.
+const REFRESH_WAIT_MS = 120_000;
 // A failed background refresh is not started again for this long; reads keep serving last-known.
 const BACKGROUND_RETRY_MS = 60_000;
 const REFRESH_ERROR_CHARS = 600;
@@ -40,7 +46,11 @@ function authorityUnavailable(error) {
     || Boolean(error?.details?.remoteFailure);
 }
 
-/** The refusal a failed refresh would have been, bounded: its code, stage and Git diagnosis, never its raw output. */
+/**
+ * The refusal a failed refresh would have been, bounded: its code, stage, Git diagnosis and the
+ * product's advice for it, never its raw output. The advice is what a person acts on when the cause
+ * is not one a retry ends (A3).
+ */
 function refreshError(error) {
   const remote = error?.details?.remoteFailure;
   return { code: String(error?.code ?? 'REFRESH_FAILED'),
@@ -48,15 +58,19 @@ function refreshError(error) {
     ...(error?.outcomeClass ? { outcomeClass: error.outcomeClass } : {}),
     ...(remote ? { remoteFailure: { stage: remote.stage ?? null, classification: remote.failure?.classification ?? null,
       code: remote.failure?.code ?? null, retryable: remote.failure?.retryable === true,
-      timedOut: remote.evidence?.timedOut === true } } : {}) };
+      timedOut: remote.evidence?.timedOut === true,
+      ...(typeof remote.failure?.advice === 'string' ? { advice: remote.failure.advice.slice(0, 300) } : {}) } } : {}) };
 }
 
-async function waitForRefreshLease(leaseFile, inspect, deadline) {
-  while (Date.now() < deadline) {
-    const state = await inspect(leaseFile).catch(() => ({ state: 'missing' }));
-    if (state.state !== 'busy') return;
-    await new Promise((resolve) => setTimeout(resolve, 50));
-  }
+/** A verified record of this authority served as it stands, with what refreshes it (SDA §8, §17). */
+export function serveLastKnown({ root, settings, file, found, observe }, backgroundRefresh) {
+  const attempt = readRefreshAttempt(file);
+  const failed = attempt?.error && Date.parse(attempt.failedAt ?? '') > found.checkedAt ? attempt : null;
+  incrementCommandCounter('repository-checks.last-known');
+  observe(root, settings, 'last-known', found.checkedAt, null, { freshness: failed ? 'refresh-failed' : 'stale',
+    completeness: 'complete', acceptedRevision: found.acceptedRevision,
+    ...(failed ? { refreshError: failed.error, refreshFailedAt: failed.failedAt } : {}), backgroundRefresh });
+  return found.value;
 }
 
 /** Start one replay of the read behind a stale record, unless one runs or recently failed. */
@@ -65,7 +79,10 @@ export async function refreshBehind(directory, file, refreshRecipe, env, found) 
   if (!refreshRecipe) return 'unavailable';
   try {
     const { inspectFileLease } = await import('./file-lease.mjs');
-    if ((await inspectFileLease(projectionSidecars(file).lease)).state === 'busy') return 'in-flight';
+    // A refresh running here answers soon. A lease no running process here can be proven to hold
+    // (another machine's, or one left behind) does not stop the replay, which reads without it (A5).
+    const lease = await inspectFileLease(projectionSidecars(file).lease, { staleMs: REFRESH_LEASE_STALE_MS });
+    if (lease.state === 'busy' && lease.active) return 'in-flight';
     const attempt = readRefreshAttempt(file);
     const started = Date.parse(attempt?.backgroundStartedAt ?? '');
     if (Number.isFinite(started) && Date.now() - started >= 0 && Date.now() - started < BACKGROUND_RETRY_MS
@@ -77,13 +94,18 @@ export async function refreshBehind(directory, file, refreshRecipe, env, found) 
 }
 
 /**
- * One refresh per record across processes (SDA-AC-014). The refresh holds the record's lease; a
- * routine read that finds it held waits, then takes the record that refresh wrote when nothing it
- * depends on has changed since. An explicit refresh waits too, then makes its own observation. When
- * the authority cannot be reached, a record already held is served as `refresh-failed`.
+ * One refresh per record across processes (SDA-AC-014). The refresh holds the record's lease. A read
+ * that finds it held by a process running here:
+ * - with a last-known record, serves that record (stale, `in-flight`) and never waits on the network,
+ *   unless checks are set to always verify;
+ * - with none, waits for that refresh (up to `REFRESH_WAIT_MS`), then takes the record it wrote when
+ *   nothing it depends on has changed since.
+ * An explicit refresh waits too, then makes its own observation. A lease no running process here can
+ * be proven to hold is not waited for (A5). When the authority cannot be reached, a record already
+ * held is served as `refresh-failed`.
  */
-export async function coalescedRefresh({ root, settings, directory, file, key, authority, explicit, replay, found, observeStamp,
-  observe, prepareDirectory, restamp }, compute) {
+export async function coalescedRefresh({ root, settings, directory, file, key, authority, explicit, forced = explicit, replay, found,
+  observeStamp, observe, prepareDirectory, restamp, refreshRecipe = null, outcome = null }, compute) {
   const { lease: leaseFile } = projectionSidecars(file);
   // Another process's refresh answers this read when its record is newer than the one this read
   // judged, for the same authority; a waiter that started late must not miss it (SDA-AC-014).
@@ -98,12 +120,21 @@ export async function coalescedRefresh({ root, settings, directory, file, key, a
       acceptedRevision: shared.acceptedRevision });
     return shared.value;
   };
+  const inFlight = () => serveLastKnown({ root, settings, file, found, observe }, 'in-flight');
   let lease = null;
   if (await prepareDirectory(directory).catch(() => false)) {
     const { acquireFileLease, inspectFileLease } = await import('./file-lease.mjs');
     const acquire = () => acquireFileLease(leaseFile, { staleMs: REFRESH_LEASE_STALE_MS }).catch(() => null);
+    const running = async () => {
+      let held = await inspectFileLease(leaseFile, { staleMs: REFRESH_LEASE_STALE_MS }).catch(() => null);
+      // A lease read while its owner writes it can look unverifiable for a moment: look once more.
+      if (held?.state === 'unverifiable') {
+        await new Promise((resolve) => setTimeout(resolve, 25));
+        held = await inspectFileLease(leaseFile, { staleMs: REFRESH_LEASE_STALE_MS }).catch(() => null);
+      }
+      return held?.state === 'busy' && held.active === true;
+    };
     lease = await acquire();
-    if (!lease && replay) return found ? found.value : compute();
     if (lease && !replay) {
       // That refresh can also finish between this read's look at the record and this lease.
       const shared = newerShared();
@@ -112,25 +143,46 @@ export async function coalescedRefresh({ root, settings, directory, file, key, a
         return serveShared(shared);
       }
     }
-    if (!lease) {
-      const waited = Date.now();
+    if (!lease && await running()) {
+      if (replay) return found ? found.value : compute();
       incrementCommandCounter('repository-checks.refresh-waits');
-      await waitForRefreshLease(leaseFile, inspectFileLease, waited + COALESCE_WAIT_MS);
+      // A read that must be fresh, or checks set to always verify, never serve a record in place of a read.
+      if (found && !forced && settings.mode !== 'always') {
+        const shared = newerShared();
+        return shared && shared.stamp === observeStamp() ? serveShared(shared) : inFlight();
+      }
+      const deadline = Date.now() + REFRESH_WAIT_MS;
+      while (Date.now() < deadline && await running()) await new Promise((resolve) => setTimeout(resolve, 50));
       const current = observeStamp();
       const shared = newerShared();
       if (shared && current && shared.stamp === current) return serveShared(shared);
-      restamp(current);
+      restamp();
       lease = await acquire();
+      // Still running past the bound: the record it is replacing answers rather than a second read (U3).
+      if (!lease && found && settings.mode !== 'always' && await running()) return inFlight();
     }
   }
   try {
     const value = await compute();
-    if (found || replay) await writeRefreshAttempt(directory, file, { succeededAt: new Date().toISOString(), error: null, failedAt: null });
+    const now = new Date().toISOString();
+    // Every successful refresh replaces the record and clears the kept error; a partial one is
+    // recorded as partial and clears nothing (A7); one not kept says why.
+    if (outcome?.kept === 'stored') {
+      if (found || replay || readRefreshAttempt(file)) {
+        await writeRefreshAttempt(directory, file, { succeededAt: now, error: null, failedAt: null,
+          partialAt: null, partialReason: null, notKeptAt: null, notKeptReason: null });
+      }
+    } else if (outcome?.kept === 'partial') {
+      await writeRefreshAttempt(directory, file, { partialAt: now, partialReason: outcome.reason, ...(found ? {} : firstRead(refreshRecipe)) });
+    } else if (outcome?.kept === 'not-kept' && (found || replay)) {
+      await writeRefreshAttempt(directory, file, { notKeptAt: now, notKeptReason: outcome.reason });
+    }
     return value;
   } catch (error) {
     if (!authorityUnavailable(error)) throw error;
     const failedAt = new Date().toISOString();
-    await writeRefreshAttempt(directory, file, { failedAt, error: refreshError(error) });
+    // A first read that failed is what `index status` names until a read succeeds (A4).
+    await writeRefreshAttempt(directory, file, { failedAt, error: refreshError(error), ...(found ? {} : firstRead(refreshRecipe)) });
     if (!found) throw error;
     incrementCommandCounter('repository-checks.refresh-failed');
     observe(root, settings, 'last-known', found.checkedAt, null, { freshness: 'refresh-failed', completeness: 'complete',
@@ -138,6 +190,11 @@ export async function coalescedRefresh({ root, settings, directory, file, key, a
       refreshError: refreshError(error), refreshFailedAt: failedAt });
     return found.value;
   } finally { await lease?.release().catch(() => {}); }
+}
+
+/** Which read an attempt with no record yet belongs to, so `index status` can name it. */
+function firstRead(refreshRecipe) {
+  return Array.isArray(refreshRecipe?.argv) ? { read: refreshRecipe.argv.slice(0, 2).join(' '), cwd: refreshRecipe.cwd ?? null } : {};
 }
 
 /**
@@ -160,7 +217,8 @@ export async function lastKnownStoryList(root, { env = process.env, now = Date.n
     const found = readProjectionRecord(file, null, now, { decode: false });
     const cwd = found?.kind === 'session-listing' ? found.refresh?.cwd : null;
     // The read ran here, alone or with this repository selected; a changed remote ends the record.
-    if (typeof cwd !== 'string' || !inside(cwd)
+    // A listing of another repository named by URL is never this one's, whatever directory it ran in (A6).
+    if (typeof cwd !== 'string' || !inside(cwd) || !found.authority || typeof found.binding?.authority?.repositoryUrl === 'string'
         || ![remoteAuthority([cwd]), remoteAuthority([cwd, repository])].includes(found.authority)) continue;
     if (!newest || found.checkedAt > newest.found.checkedAt) newest = { file, found };
   }
@@ -169,11 +227,14 @@ export async function lastKnownStoryList(root, { env = process.env, now = Date.n
   const settings = repositoryCheckSettings(repository, { env });
   const attempt = readRefreshAttempt(file);
   const failed = attempt?.error && Date.parse(attempt.failedAt ?? '') > found.checkedAt ? attempt.error : null;
-  const expired = settings.mode === 'always'
-    || settings.mode === 'cached' && found.age >= settings.intervalMinutes * 60_000;
+  // Fresh only within the interval of cached checks: manual refresh never expires a record, so its
+  // age is reported as stale, not as verified now (A12).
+  const expired = settings.mode !== 'cached' || found.age >= settings.intervalMinutes * 60_000;
+  // The last refresh came back incomplete: the record stands, and the list is not called complete (A7).
+  const partial = Date.parse(attempt?.partialAt ?? '') > found.checkedAt;
   return { freshness: failed ? 'refresh-failed' : expired ? 'stale' : 'fresh',
-    checkedAt: new Date(found.checkedAt).toISOString(), acceptedRevision: found.acceptedRevision, completeness: 'complete',
-    ...(failed ? { refreshError: failed } : {}) };
+    checkedAt: new Date(found.checkedAt).toISOString(), acceptedRevision: found.acceptedRevision,
+    completeness: partial ? 'partial' : 'complete', ...(failed ? { refreshError: failed } : {}) };
 }
 
 /** The remote URLs of the checkout at `root`, as its Git configuration file names them; no process. */

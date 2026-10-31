@@ -18,11 +18,11 @@ import { navigateTo } from './navigate.ts';
 import { createTerminalIn } from '../terminal-start.ts';
 import { integerField, registerMessageRouter, stringField, type InboundMessage } from './messages.ts';
 import {
-  EMPTY_INTAKE_FORM, intakeCatalogFailure, intakeCommand, intakeHasInput, intakeHtml, intakeRegions, intakeIdentifier, intakePlanInputKey, intakeProblems, INTAKE_SCRIPT,
+  EMPTY_INTAKE_FORM, catalogFreshnessNote, intakeCatalogFailure, intakeCommand, intakeHasInput, intakeHtml, intakeRegions, intakeIdentifier, intakePlanInputKey, intakeProblems, INTAKE_SCRIPT,
   MAX_STORY_ATTACHMENT_SLOTS, mergeStoryAttachments, referenceRepositoryEntries, SHAPES,
   storyPreflightCommand, storyWorkflowSelection, suggestedStoryDocumentName,
   storyWorkflowSelectionForReload,
-  type BaseBranchChoice, type InFlight, type IntakeForm, type ProfileChoice,
+  type BaseBranchChoice, type CatalogSnapshot, type InFlight, type IntakeForm, type ProfileChoice,
   type PreflightTestReadiness, type ReferenceRepositoryDraft, type Shape, type StoryAttachmentDraft, type Tracker
 } from './intake-form.ts';
 import { SingularityFlowClient } from '../cli/client.ts';
@@ -133,6 +133,8 @@ interface EngineStoryWorkflowCatalog {
 
 /** `workspace branches --json --intake`: everything the form offers, in one engine process. */
 interface CatalogListing {
+  /** Where the engine's answer came from (SDA §8): read now, or the last-known catalog and why. */
+  readinessSnapshot?: CatalogSnapshot;
   choices?: BaseBranchChoice[];
   remote?: string;
   stateBranch?: string;
@@ -684,7 +686,9 @@ export class IntakePanel {
         inFlight: this.inFlight,
         approvalAuthorityMissing: typeof listed.intake?.approvalAuthorityMissing === 'boolean'
           ? listed.intake.approvalAuthorityMissing : this.form.approvalAuthorityMissing,
-        catalogStatus: mode === 'cached' ? 'cached' : 'fresh'
+        catalogStatus: mode === 'cached' ? 'cached' : 'fresh',
+        // A cached paint already says it is the last known; a listing the engine served last-known says why.
+        catalogFreshness: mode === 'cached' ? null : catalogFreshnessNote(listed.readinessSnapshot)
       }
     };
   }

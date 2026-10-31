@@ -234,13 +234,16 @@ test('the Story list and catalog keep every failure distinguishable, with its ow
   assert.match(aborted.failure.advice, /cancelled/u);
   assert.equal(stateRefreshError({ branch: 'state' }, 'fetch', aborted).details.remoteFailure.failure.classification, 'cancelled');
 
-  // Corrupt data: a record that fails its check is never served. Unreachable, the read refuses;
-  // reachable, it recomputes.
+  // Corrupt data: a record that fails its check is never served. It counts as missing, so with the
+  // remote denied the read answers from the verified local clone, as a first read does (sweep A1);
+  // reachable and asked to refresh, it recomputes.
   for (const name of (await readdir(listings)).filter((entry) => /^[a-f0-9]{64}\.json$/u.test(entry))) {
     await writeFile(path.join(listings, name), '{"format":1,"broken":', { mode: 0o600 });
   }
-  assert.equal(refusal(await list('deny')).remoteFailure.failure.code, 'REMOTE_AUTHORIZATION_DENIED');
-  const recomputed = await list('pass');
+  const local = await list('deny');
+  assert.equal(local.child.status, 0, local.child.stderr);
+  assert.equal(local.packet.listingSnapshot.source, 'local');
+  const recomputed = await list('pass', ['--refresh']);
   assert.equal(recomputed.child.status, 0, recomputed.child.stderr);
   assert.equal(recomputed.packet.listingSnapshot.source, 'fresh');
 

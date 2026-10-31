@@ -108,7 +108,9 @@ export async function run(_argv, { positionals, options }) {
   }, null, 2));
 
   summary(workflow);
-  if (retained) console.log(`Publication: pending. ${retained.message} Publish it: ${retained.nextAction.command}`);
+  if (retained) console.log(retained.state === 'unreadable'
+    ? `Publication: unknown (${retained.code}). ${retained.message} Run: ${retained.nextAction.command}`
+    : `Publication: pending. ${retained.message} Publish it: ${retained.nextAction.command}`);
   if (gitShadowSummary) {
     console.log(`Git shadow: ${gitShadowSummary.equivalent}/${gitShadowSummary.comparisons} equivalent · reference remains authoritative`);
   }

@@ -3,7 +3,7 @@ import { compareStoryCreation, storyCreatorName } from './story-presentation.mjs
 import path from 'node:path';
 import os from 'node:os';
 import { readFile, readdir } from 'node:fs/promises';
-import { cachedSessionListing, repositoryCheckStatus, withFreshRepositoryChecks } from './repository-check-cache.mjs';
+import { cachedSessionListing, configuredRemoteUrls, repositoryCheckStatus, withFreshRepositoryChecks } from './repository-check-cache.mjs';
 import { gitFactCheckout } from './git-fact-cache.mjs';
 import { activeWorkspaceFile, workspaceRegistryFile, resolveWorkspaceReference } from './workspace-context.mjs';
 import { readWorkspace, workspaceRepositoryPath } from './workspace-manifest.mjs';
@@ -38,21 +38,30 @@ export async function sessionListingSnapshot(positionals, options, read) {
       }
     }
   } catch { /* The original command diagnoses invalid/ambiguous selection, never the cache. */ }
+  // The remote-tracking refs this read's own fetch moves (A2): it may change them and still keep its
+  // answer, stamped as they stand after it; a change to anything else while it ran is not kept.
+  const selfUpdated = [];
   for (const root of roots) {
     const git = gitFactCheckout(root);
     if (!git) continue;
     files.push(git.marker, path.join(git.gitDir, 'HEAD'), path.join(git.gitDir, 'index'),
       path.join(git.commonDir, 'config'), path.join(git.commonDir, 'packed-refs'),
-      path.join(git.commonDir, 'refs'), path.join(git.commonDir, 'refs/remotes'),
       path.join(git.commonDir, 'singularity-flow/cache/repository-checks/refresh'),
       path.join(root, 'singularity/workflow.yml'), path.join(root, 'singularity/portfolio.yml'));
-    // Observe remote namespace directories, not application branches or their histories.
+    selfUpdated.push(path.join(git.commonDir, 'refs'), path.join(git.commonDir, 'refs/remotes'));
+    // Observe remote namespace directories, not application branches or their histories: the ones
+    // there and the configured remotes', so a first fetch that creates them does not unsettle the read.
+    const remotes = new Set((configuredRemoteUrls(root) ?? []).map((entry) => entry.remote));
     for (const entry of await readdir(path.join(git.commonDir, 'refs/remotes'), { withFileTypes: true }).catch(() => [])) {
-      if (entry.isDirectory()) files.push(path.join(git.commonDir, 'refs/remotes', entry.name),
-        path.join(git.commonDir, 'refs/remotes', entry.name, 'state'),
-        path.join(git.commonDir, 'refs/remotes', entry.name, 'sflow/config'));
+      if (entry.isDirectory()) remotes.add(entry.name);
+    }
+    for (const remote of remotes) {
+      if (!remote || remote.includes('/') || remote.includes('\\') || remote === '.' || remote === '..') continue;
+      const namespace = path.join(git.commonDir, 'refs/remotes', remote);
+      selfUpdated.push(namespace, path.join(namespace, 'state'), path.join(namespace, 'sflow'), path.join(namespace, 'sflow/config'));
     }
   }
+  files.push(...selfUpdated);
   const identity = { cwd, positionals, options: Object.entries(options)
     .filter(([key]) => !LISTING_PRESENTATION.includes(key))
     .sort(([a], [b]) => a.localeCompare(b)) };
@@ -60,7 +69,11 @@ export async function sessionListingSnapshot(positionals, options, read) {
   const { indexReadArgv } = await import('./index-refresh-launcher.mjs');
   const argv = indexReadArgv(positionals, options, LISTING_PRESENTATION);
   const refreshRecipe = argv ? { argv, cwd } : null;
-  const inspect = () => cachedSessionListing(cwd, { identity, files: [...new Set(files)], settingsRoot, refreshRecipe }, read);
+  // A listing of a repository named by URL is that repository's, never the checkout it ran in (A6).
+  const repositoryUrl = optionString(options, 'repository-url');
+  const authority = repositoryUrl ? { repositoryUrl, configurationUrl: optionString(options, 'configuration-url') ?? null } : null;
+  const inspect = () => cachedSessionListing(cwd, { identity, files: [...new Set(files)], settingsRoot, refreshRecipe,
+    selfUpdated, authority }, read);
   const value = await (optionBoolean(options, 'refresh') ? withFreshRepositoryChecks(inspect) : inspect());
   if (!value?.discovered) return value;
   const status = repositoryCheckStatus(cwd);

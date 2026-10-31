@@ -61,16 +61,26 @@ async function mayHoldPublicationRecords(root, legacyFiles) {
 /**
  * A lifecycle commit kept on this computer because its push did not land (SDA-AC-007): status
  * prints the local record as it is, so it says beside it that the record's last transition is not
- * accepted yet, as nextsteps does. Null when nothing is retained.
+ * accepted yet, as nextsteps does. Null when nothing is retained; `unreadable` when the retained
+ * record cannot be read.
  */
 export async function retainedStoryPublication(root, selected) {
   const workItemRoot = path.dirname(path.dirname(selected.location.path));
   if (!await mayHoldPublicationRecords(root, [...new Set([workItemRoot, 'singularity/work-items'])]
     .map((directory) => path.join(root, directory, selected.id, 'publication-pending.json')))) return null;
   const { readPendingPublication } = await import('../publication-pending.mjs');
-  const pending = await readPendingPublication(root, { kind: 'story', id: selected.id, migrate: false,
-    roots: { workItemRoot } }).catch(() => null);
-  return pending ? { commit: pending.record?.commit ?? null,
+  let pending;
+  try {
+    pending = await readPendingPublication(root, { kind: 'story', id: selected.id, migrate: false, roots: { workItemRoot } });
+  } catch (error) {
+    // A record that cannot be read is not "nothing pending": whether the last transition reached the
+    // remote is unknown, and the diagnosis reads it without clearing or replacing it (A11).
+    return { state: 'unreadable', commit: null, code: String(error?.code ?? 'PUBLICATION_MARKER_UNREADABLE'),
+      message: 'Its retained publication record cannot be read, so whether its last transition reached the remote is unknown. '
+        + 'Diagnose it without clearing or replacing it.',
+      nextAction: { command: 'singularity-flow doctor --json' } };
+  }
+  return pending ? { state: 'pending', commit: pending.record?.commit ?? null,
     message: 'Its last transition is committed on this computer only, and is not accepted until it reaches the remote.',
     nextAction: { command: 'singularity-flow sync', skill: '/sf-push' } } : null;
 }

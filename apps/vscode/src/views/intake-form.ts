@@ -277,6 +277,11 @@ export interface IntakeForm extends TestRecoveryDraft {
    * ever enables Start, whichever it is.
    */
   catalogStatus: 'loading' | 'cached' | 'fresh' | 'failed';
+  /**
+   * When the engine answered from the last-known catalog rather than a read made now: past its
+   * interval, or because the refresh failed, with that refresh's cause. Null for a catalog read now.
+   */
+  catalogFreshness: string | null;
   /** Whether a tracker is actually configured. Offering Jira when it is not is a dead end. */
   jiraConfigured: boolean;
   /** Why Jira is unavailable, when it is. */
@@ -393,7 +398,7 @@ export const EMPTY_INTAKE_FORM: IntakeForm = {
   basePreflightWarnings: [], baseTestReadiness: null, basePreflightRefreshRecommended: false,
   readinessBaseline: 'reuse', baselinePolicy: 'choice', baselineScope: 'dependency-test',
   baselineRunning: false, baselineMessage: null, baselineRunCommit: null,
-  workflowReason: null, workflowCatalogReason: null, catalogStatus: 'fresh',
+  workflowReason: null, workflowCatalogReason: null, catalogStatus: 'fresh', catalogFreshness: null,
   jiraConfigured: false, jiraReason: null,
   githubConfigured: true, githubReason: null, inFlight: [], approvalAuthorityMissing: false, busy: false,
   startStep: null,
@@ -425,10 +430,35 @@ function storyBranchArguments(form: IntakeForm): string[] {
   return form.storyBranch.trim() ? ['--ref', form.storyBranch.trim()] : [];
 }
 
+/** Where the engine's intake catalog answer came from (SDA §8): read now, or last-known and why. */
+export interface CatalogSnapshot {
+  freshness?: string; checkedAt?: string; backgroundRefresh?: string;
+  refreshError?: { code?: string; remoteFailure?: { code?: string | null; advice?: string; retryable?: boolean } };
+}
+
+/**
+ * What the form says when the engine served the last-known catalog instead of reading it now, as the
+ * CLI says it (A8): past its interval, or its refresh failed, with that refresh's cause and advice.
+ * Start still checks the chosen branch again, so this is a note, never a blocker.
+ */
+export function catalogFreshnessNote(snapshot: CatalogSnapshot | undefined): string | null {
+  if (!snapshot || !['stale', 'refresh-failed'].includes(snapshot.freshness ?? '')) return null;
+  const checked = snapshot.checkedAt ? ` checked at ${snapshot.checkedAt}` : '';
+  if (snapshot.freshness === 'stale') {
+    return `These are the branches and workflows${checked}. ${snapshot.backgroundRefresh === 'manual'
+      ? 'Repository checks are refreshed by hand.' : 'A refresh is under way.'} Start checks the chosen branch again.`;
+  }
+  const error = snapshot.refreshError;
+  const cause = [error?.code, error?.remoteFailure?.code].filter(Boolean).join(': ') || 'unknown';
+  return `These are the branches and workflows${checked}: the refresh failed (${cause}).`
+    + `${error?.remoteFailure?.advice ? ` ${error.remoteFailure.advice}` : ''} Start checks the chosen branch again.`;
+}
+
 /** A read failure is terminal for this attempt, never another indefinite loading state. */
 export function intakeCatalogFailure(reason: string): Partial<IntakeForm> {
   return {
     catalogStatus: 'failed',
+    catalogFreshness: null,
     workflowReason: `Could not load workflows and branches: ${reason}`,
     baseBranchReason: reason,
     basePreflightPassed: false,
@@ -1022,7 +1052,8 @@ function baseBranchHtml(form: IntakeForm): string {
     <p class="question">Choose explicitly. The new Story branch is cut from the latest remote commit
       and only the Story branch is published. The selected branch is validated before Start.</p>
     ${form.catalogStatus === 'cached' ? `<p class="meta" role="status">These are the last known
-      branches and workflows. Checking the remote for changes…</p>` : ''}
+      branches and workflows. Checking the remote for changes…</p>`
+      : form.catalogFreshness ? `<p class="meta" role="status" data-catalog-freshness>${escape(form.catalogFreshness)}</p>` : ''}
     ${form.baseBranchChoices.length ? `<div class="base-branch-filter">
       <label for="story-base-branch-search">Search branches
         <input type="search" id="story-base-branch-search" data-base-branch-search

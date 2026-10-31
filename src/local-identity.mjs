@@ -204,8 +204,9 @@ async function boundLocalEpicReservation(root, portfolio, policy) {
   }
   if (bound.length > 1) {
     throw new SingularityFlowError(
-      `Branch '${current}' holds more than one unstarted local Epic reservation: ${bound.map((item) => item.record.id).join(', ')}.`,
-      { code: 'LOCAL_EPIC_RESERVATION_AMBIGUOUS' }
+      `Branch '${current}' holds more than one unstarted local Epic reservation: ${bound.map((item) => item.record.id).join(', ')}. `
+      + `Keep the one this branch is for, delete the other reservation files (${bound.map((item) => item.relative).join(', ')}), then run the same command again.`,
+      { code: 'LOCAL_EPIC_RESERVATION_AMBIGUOUS', details: { branch: current, reservations: bound.map((item) => item.relative) } }
     );
   }
   return bound[0] ?? null;

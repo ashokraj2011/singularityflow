@@ -590,12 +590,23 @@ function frozenConsistency(block, status) {
   if (block.refreshError != null) {
     const error = block.refreshError;
     if (typeof error.code !== 'string' || !error.code) invalid('consistency.refreshError has no code');
+    // The cause under the wrapper code and the command that ends it (A3), when the reader knows them:
+    // codes and a command, never prose.
+    if (error.cause != null && (typeof error.cause !== 'string' || !/^[A-Z][A-Z0-9_]*$/u.test(error.cause))) {
+      invalid('consistency.refreshError.cause must be an error code');
+    }
+    if (error.command != null && (typeof error.command !== 'string' || !error.command.startsWith('singularity-flow ')
+        || error.command.length > 200 || /[\r\n]/u.test(error.command))) {
+      invalid('consistency.refreshError.command must be one singularity-flow command');
+    }
     refreshError = Object.freeze({
       code: error.code,
       stage: error.stage ?? null,
       classification: error.classification ?? null,
       retryable: typeof error.retryable === 'boolean' ? error.retryable : null,
-      timedOut: error.timedOut === true
+      timedOut: error.timedOut === true,
+      ...(error.cause != null ? { cause: error.cause } : {}),
+      ...(error.command != null ? { command: error.command } : {})
     });
   }
   return Object.freeze({

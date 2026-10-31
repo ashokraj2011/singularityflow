@@ -14,7 +14,7 @@ import { resolveWorkType } from '../config.mjs';
 import { documentStorageChoices } from '../document-storage-policy.mjs';
 import { mcpServerSetupCommands, mcpTargetOriginSteps, storyStartTargetUrlMode } from '../mcp-target.mjs';
 import { GitRemoteSession } from '../git-execution.mjs';
-import { configuredRemoteAuthority } from '../git-remote-diagnostics.mjs';
+import { configuredRemoteAuthority, refreshFailureGuidance } from '../git-remote-diagnostics.mjs';
 import { parseReferenceRepositoryOptions } from '../reference-repositories.mjs';
 import { optionalWorkflowCatalog, workflowCatalogForDefinition } from '../workflow-catalog.mjs';
 import { loadPortfolio } from '../initiative-config.mjs';
@@ -539,9 +539,17 @@ export function renderWorkspaceBranches(result) {
   if (orphanNames.length) console.log(`Not offered, because they share no history with the default branch: ${orphanNames.join(', ')}`);
   for (const entry of result.unreachable) console.warn(`Warning: could not read ${entry.repository} (${entry.url || result.remote}).`);
   const snapshot = result.readinessSnapshot;
-  if (['stale', 'refresh-failed'].includes(snapshot?.freshness)) console.warn(snapshot.freshness === 'stale'
-    ? `This list was checked at ${snapshot.checkedAt}, past the repository-check interval; it is being refreshed.`
-    : `This is the list checked at ${snapshot.checkedAt}: the refresh failed (${snapshot.refreshError?.code ?? 'unknown'}). Start checks every branch again.`);
+  if (snapshot?.freshness === 'stale') {
+    console.warn(snapshot.backgroundRefresh === 'manual'
+      ? `This list was checked at ${snapshot.checkedAt}; repository checks are refreshed by hand: repeat this command with --refresh-readiness.`
+      : `This list was checked at ${snapshot.checkedAt}, past the repository-check interval; ${snapshot.backgroundRefresh === 'in-flight'
+        ? 'a refresh is already running' : 'it is being refreshed'}.`);
+  } else if (snapshot?.freshness === 'refresh-failed') {
+    // The cause under the wrapper code and its fix, not the same refresh again (A3).
+    const failure = refreshFailureGuidance(snapshot.refreshError, { retry: 'this command with --refresh-readiness' });
+    console.warn(`This is the list checked at ${snapshot.checkedAt}: the refresh failed (${failure.cause}). `
+      + `${failure.text ? `${failure.text} ` : ''}Start checks every branch again.`);
+  }
   return result;
 }
 

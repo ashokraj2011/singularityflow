@@ -25,6 +25,7 @@ import { lstat, readFile, readdir, realpath } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import { cloudSyncedFolder } from './git-storage-availability.mjs';
+import { gitConfigRemoteUrl } from './git-config-value.mjs';
 import { withRegistryFileLease } from './file-lease.mjs';
 import { localRepositoryId } from './repository-local-id.mjs';
 import { currentSchemaVersion, readRecord } from './schema-migrations.mjs';
@@ -102,18 +103,10 @@ export async function checkoutGitFacts(checkout) {
   return { checkoutPath: await canonical(root), gitDir, commonDir, branch, synced };
 }
 
-/** The `[remote "origin"]` URL in a common directory's config file, read without Git. */
+/** The `[remote "origin"]` URL in a common directory's config file, read as Git reads it, without Git. */
 async function originUrl(commonDir, synced) {
   const text = await readSmall(path.join(commonDir, 'config'), { synced, limit: 1024 * 1024 }).catch(() => null);
-  if (!text) return null;
-  let inOrigin = false;
-  for (const line of text.split(/\r?\n/u)) {
-    const section = /^\s*\[\s*([^\]]+?)\s*\]/u.exec(line);
-    if (section) { inOrigin = /^remote\s+"origin"$/u.test(section[1]); continue; }
-    const value = inOrigin ? /^\s*url\s*=\s*(.+?)\s*$/u.exec(line)?.[1] : null;
-    if (value) return value.replace(/^"(.*)"$/u, '$1');
-  }
-  return null;
+  return text ? gitConfigRemoteUrl(text) : null;
 }
 
 /**

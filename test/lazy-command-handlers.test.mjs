@@ -263,7 +263,11 @@ test('root dispatch stays small and orchestration entrypoints load their handler
   // 815,000: main b6fd24fae (SDA M5) measures 805,059; lease identity for shared and restored homes (lease-liveness.mjs
   // +4,980: the owner's PID namespace, and the hardware confirmed once before a dead owner is taken over, a synchronous
   // check inside the lease assessment) gives 810,039. No new file.
-  assert.ok(root.bytes <= 815_000, `root dispatch loads ${root.bytes} source bytes`);
+  // 830,000: main fc7b10482 measures 814,289; the sweep's read index fix (batch 4) gives 825,008: file-lease.mjs
+  // +5,568 (a cache lease owner judged by machine identity and process start, and its review and reviewed
+  // release by path, A5), git-fact-cache.mjs +3,658 (remotes read from a configuration file as Git reads it,
+  // U1) and git-remote-diagnostics.mjs +1,493 (a refresh failure's cause and way out, A3). No new file.
+  assert.ok(root.bytes <= 830_000, `root dispatch loads ${root.bytes} source bytes`);
   assert.equal(root.files.has(path.join(sourceRoot, 'git.mjs')), false);
   assert.equal(root.files.has(path.join(sourceRoot, 'config.mjs')), false);
   // Only the pause-checking entries and Story creation read these; most commands never do.
@@ -310,7 +314,10 @@ test('the common session projection does not import attach, state stores or publ
   // hardware digest (lease-liveness.mjs, +1,970), the lock's read and its reviewed release in every refusal's details
   // (subject-lock.mjs, +1,365), the selection refusal keeping them (workspace-context.mjs, +321) and lock show-file
   // (command-registry.mjs, +90) add 3,746 for 3,991,542. No new file.
-  assert.ok(current.bytes <= 3_995_000, `session current loads ${current.bytes} source bytes`);
+  // 4,000,000: main fc7b10482 measures 3,991,542; the read index fix (sweep batch 4) adds git-fact-cache.mjs +3,658
+  // (remotes read from a configuration file as Git reads it, U1) and git-remote-diagnostics.mjs +1,493 (a refresh
+  // failure's cause and way out, A3) for 3,996,693. No new file.
+  assert.ok(current.bytes <= 4_000_000, `session current loads ${current.bytes} source bytes`);
 });
 
 test('early phase and grounding-path entries exclude the deferred authoring and review graphs', async () => {

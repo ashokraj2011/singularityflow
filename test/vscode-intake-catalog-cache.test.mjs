@@ -14,7 +14,7 @@ import {
   IntakeCatalogCache, MAX_INTAKE_CATALOG_CACHE_BYTES, cliBuildIdentity
 } from '../apps/vscode/src/intake-catalog-cache.ts';
 import {
-  EMPTY_INTAKE_FORM, intakeCatalogFailure, intakeHtml, intakeProblems, INTAKE_SCRIPT
+  EMPTY_INTAKE_FORM, catalogFreshnessNote, intakeCatalogFailure, intakeHtml, intakeProblems, INTAKE_SCRIPT
 } from '../apps/vscode/src/views/intake-form.ts';
 
 async function fakeCli(t) {
@@ -136,4 +136,26 @@ test('initial and cached catalog failures stop reading, preserve drafts, and off
     assert.ok(intakeProblems(failed).some(problem => problem.includes('Could not load workflows and branches')));
   }
   assert.match(INTAKE_SCRIPT, /catalogRetry/);
+});
+
+test('a catalog the engine served last-known says so, as the CLI does, without blocking Start (A8)', () => {
+  assert.equal(catalogFreshnessNote({ freshness: 'fresh', checkedAt: '2026-10-31T09:00:00.000Z' }), null);
+  assert.equal(catalogFreshnessNote(undefined), null);
+  const stale = catalogFreshnessNote({ freshness: 'stale', checkedAt: '2026-10-31T09:00:00.000Z', backgroundRefresh: 'started' });
+  assert.equal(stale, 'These are the branches and workflows checked at 2026-10-31T09:00:00.000Z. A refresh is under way. Start checks the chosen branch again.');
+  assert.match(catalogFreshnessNote({ freshness: 'stale', backgroundRefresh: 'manual' }), /refreshed by hand/);
+  const failed = catalogFreshnessNote({ freshness: 'refresh-failed', checkedAt: '2026-10-31T09:00:00.000Z',
+    refreshError: { code: 'SESSION_STATE_REFRESH_UNAVAILABLE', remoteFailure: { code: 'REMOTE_REMOTE_NOT_FOUND',
+      advice: 'Verify the repository URL and your access to it, then retry.', retryable: false } } });
+  assert.match(failed, /the refresh failed \(SESSION_STATE_REFRESH_UNAVAILABLE: REMOTE_REMOTE_NOT_FOUND\)\. Verify the repository URL/);
+  const form = {
+    ...EMPTY_INTAKE_FORM, shape: 'story', catalogStatus: 'fresh', catalogFreshness: failed, id: 'STORY-1',
+    storyWorkflows: [{ id: 'feature', label: 'Feature', description: '', phases: ['intake'] }],
+    workType: 'feature', baseRemote: 'origin', baseBranchChoices: LISTED.choices
+  };
+  const html = intakeHtml(form);
+  assert.match(html, /data-catalog-freshness>These are the branches and workflows checked at 2026-10-31T09:00:00\.000Z: the refresh failed/);
+  assert.ok(!intakeProblems(form).some((problem) => /refresh failed/.test(problem)), 'a note, never a blocker');
+  assert.doesNotMatch(intakeHtml({ ...form, catalogFreshness: null }), /data-catalog-freshness/);
+  assert.equal(intakeCatalogFailure('offline').catalogFreshness, null);
 });

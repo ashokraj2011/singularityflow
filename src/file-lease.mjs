@@ -1,6 +1,5 @@
 import { createHash, randomUUID } from "node:crypto";
 import { lstat, mkdir, open, readFile, rename, rm, writeFile } from "node:fs/promises";
-import os from "node:os";
 import path from "node:path";
 import { Worker } from "node:worker_threads";
 import { constants, fstatSync, lstatSync, readSync, unlinkSync } from 'node:fs';
@@ -184,7 +183,7 @@ async function invokeRegistryLeaseHook(hooks, name, value) {
 async function reclaimRegistryFileLease(lock, observed, options = {}) {
   // A reviewed release names the exact owner token a person checked; it stands in for staleness.
   const permitted = (state) => state.stale
-    || (typeof options.reviewedToken === 'string' && state.owner?.token === options.reviewedToken);
+    || (typeof options.reviewedToken === 'string' && (state.owner?.token ?? state.owner?.nonce) === options.reviewedToken);
   if (!observed || !permitted(observed) || !observed.reclaimIdentity) return false;
   for (let generation = 0; generation < REGISTRY_RECLAIM_GENERATIONS; generation += 1) {
     const claim = registryReclaimClaimPath(lock, observed.reclaimIdentity, generation, options);
@@ -514,12 +513,19 @@ function processDeath(pid) {
   catch (error) { return error.code === 'ESRCH'; }
 }
 
+const CACHE_OWNER_KEYS = new Set(['version', 'pid', 'host', 'nonce', 'createdAt', 'heartbeatAt',
+  'quarantine', 'childPids', 'unknownChildren']);
+// Version 3 records the machine identity every other lease records (src/lease-liveness.mjs), so its
+// owner is judged by machine ID and process start, not by a hostname that changes with the network
+// or a PID the OS gave to another process (A5). An older build refuses a version 3 record (fail closed).
+const CACHE_OWNER_IDENTITY_KEYS = new Set(['machineId', 'pidNamespace', 'hardwareDigest', 'processStartedAt', 'processToken']);
+
 function cacheOwner(text) {
   let owner;
   try { owner = JSON.parse(text); } catch { return null; }
-  if (!owner || typeof owner !== 'object' || Array.isArray(owner) || owner.version !== 2
-      || Object.keys(owner).some((key) => !['version', 'pid', 'host', 'nonce', 'createdAt', 'heartbeatAt',
-        'quarantine', 'childPids', 'unknownChildren'].includes(key))
+  const identity = owner?.version === 3;
+  if (!owner || typeof owner !== 'object' || Array.isArray(owner) || (owner.version !== 2 && !identity)
+      || Object.keys(owner).some((key) => !CACHE_OWNER_KEYS.has(key) && !(identity && CACHE_OWNER_IDENTITY_KEYS.has(key)))
       || !Number.isSafeInteger(owner.pid) || owner.pid < 1
       || typeof owner.host !== 'string' || owner.host.length < 1 || owner.host.length > 256
       || /[\u0000-\u001f\u007f]/u.test(owner.host)
@@ -529,18 +535,33 @@ function cacheOwner(text) {
       || (owner.unknownChildren !== undefined && typeof owner.unknownChildren !== 'boolean')
       || (owner.childPids !== undefined && (!Array.isArray(owner.childPids) || owner.childPids.length > 128
         || owner.childPids.some((pid) => !Number.isSafeInteger(pid) || pid < 1)
-        || new Set(owner.childPids).size !== owner.childPids.length))) return null;
+        || new Set(owner.childPids).size !== owner.childPids.length))
+      || [owner.machineId, owner.pidNamespace, owner.hardwareDigest, owner.processToken]
+        .some((value) => value !== undefined && (typeof value !== 'string' || !value || value.length > 256))
+      || (owner.processStartedAt !== undefined && !Number.isFinite(owner.processStartedAt))) return null;
   return owner;
+}
+
+/**
+ * Whether a cache lease's owner is running here and can still finish: this process, or a process
+ * here whose recorded start matches and whose lease is younger than its bound. A version 2 record has
+ * no start to compare, so its running PID proves nothing about it (a recycled PID looks the same).
+ */
+function cacheLeaseActive(owner, liveness) {
+  return liveness?.state === 'alive' && (liveness.reason === 'this-process'
+    || (liveness.heartbeat === 'fresh' && Number.isFinite(owner?.processStartedAt)));
 }
 
 async function cacheFileLeaseState(file, { staleMs = CACHE_LEASE_STALE_MS, legacyQuarantine = false } = {}) {
   const observed = await readCacheLease(file);
   if (!observed) return null;
-  let reason = 'unverifiable'; let stale = false;
+  let reason = 'unverifiable'; let stale = false; let liveness = null;
   const owner = observed.ownerBytes === null ? null : cacheOwner(observed.ownerBytes);
   if (owner) {
-    if (owner.host !== os.hostname()) reason = 'foreign-owner';
-    else if (!processDeath(owner.pid)) reason = 'live-owner';
+    // One rule for every lease family: only a proven-dead owner is taken over, never one by age.
+    liveness = leaseOwnerAssessment(owner, { heartbeatMtimeMs: Number(observed.info.mtimeMs), heartbeatTtlMs: staleMs });
+    if (liveness.state === 'unknown') reason = 'foreign-owner';
+    else if (liveness.state === 'alive') reason = 'live-owner';
     else if (owner.unknownChildren === true
         || (owner.quarantine === true && owner.unknownChildren !== false)) reason = 'unknown-children';
     else if ((owner.childPids ?? []).some((pid) => !processDeath(pid))) reason = 'live-child';
@@ -555,16 +576,81 @@ async function cacheFileLeaseState(file, { staleMs = CACHE_LEASE_STALE_MS, legac
       reason = stale ? 'legacy-stale' : 'legacy-busy';
     } else if (legacyQuarantine) reason = 'unknown-children';
   }
-  return { ...observed, owner, stale, reason,
+  return { ...observed, owner, liveness, stale, reason,
     reclaimIdentity: observed.unsafe ? null : registryLeaseReclaimIdentity(observed.ownerBytes, observed.info) };
 }
 
-/** Read-only local ownership inspection. No age override can reclaim a live/unknown-child store. */
+/**
+ * Read-only local ownership inspection. No age override can reclaim a live/unknown-child store.
+ * `active` says the owner runs here and can still finish; a held lease that is not active and not
+ * reclaimable names its review and reviewed release, as a registry lease does.
+ */
 export async function inspectFileLease(file, options = {}) {
-  const observed = await cacheFileLeaseState(path.resolve(file), options);
+  const lock = path.resolve(file);
+  const observed = await cacheFileLeaseState(lock, options);
   if (!observed) return { state: 'missing', reason: 'missing' };
-  return { state: observed.stale ? 'reclaimable' : observed.reason === 'unverifiable' ? 'unverifiable' : 'busy',
-    reason: observed.reason };
+  const state = observed.stale ? 'reclaimable' : observed.reason === 'unverifiable' ? 'unverifiable' : 'busy';
+  // An acquisition creates the file before it writes its owner: a young empty lease is being written.
+  const writing = !observed.owner && !observed.unsafe && observed.ownerBytes?.trim() === ''
+    && registryLeaseAgeMs(observed.info) <= REGISTRY_LOCK_ACQUISITION_GRACE_MS;
+  const active = state === 'busy' && (writing || cacheLeaseActive(observed.owner, observed.liveness));
+  return { state, reason: observed.reason, active,
+    ...(observed.owner ? { owner: observed.owner, liveness: livenessDetails(observed.liveness), token: observed.owner.nonce,
+      showCommand: registryLeaseShowCommand(lock),
+      releaseCommand: state === 'busy' && !active ? registryLeaseReleaseCommand(lock, observed.owner.nonce) : null } : {}) };
+}
+
+/**
+ * A lease file named by its path, whichever family wrote it: a cache lease (a read index refresh, a
+ * configuration cache) or a registry lease. What `lock show-file` prints.
+ */
+export async function inspectLeaseFile(file) {
+  const lock = path.resolve(file);
+  const cache = await cacheFileLeaseState(lock).catch(() => null);
+  if (!cache?.owner) return inspectRegistryLease(lock);
+  const inspected = await inspectFileLease(lock);
+  return Object.freeze({ lock, held: true, form: 'cache', owner: cache.owner, liveness: inspected.liveness,
+    active: inspected.active, state: inspected.state, releaseCommand: inspected.releaseCommand });
+}
+
+/**
+ * `lock release-file` for either family. A cache lease moves into its retained reclaim area under
+ * the reviewed token (its owner's nonce), never a successor; one whose owner runs here and can still
+ * finish is refused.
+ */
+export async function releaseLeaseFileAfterReview(file, { expectedToken, hooks = null } = {}) {
+  const lock = path.resolve(file);
+  const observed = await cacheFileLeaseState(lock).catch(() => null);
+  if (!observed?.owner) return releaseRegistryLeaseAfterReview(lock, { expectedToken, hooks });
+  if (typeof expectedToken !== 'string' || !expectedToken) {
+    throw new SingularityFlowError('A lease release confirms the reviewed lease token.', {
+      code: 'WORKSPACE_REGISTRY_RELEASE_INVALID', details: { lock }
+    });
+  }
+  if (observed.owner.nonce !== expectedToken) {
+    throw new SingularityFlowError(`The lease ${lock} is no longer the reviewed one. Nothing was released; review it again with: ${registryLeaseShowCommand(lock)}`, {
+      code: 'WORKSPACE_REGISTRY_RELEASE_MISMATCH', details: { lock, owner: observed.owner, nextAction: registryLeaseShowCommand(lock) }
+    });
+  }
+  if (cacheLeaseActive(observed.owner, observed.liveness)) {
+    throw new SingularityFlowError(
+      `The lease ${lock} belongs to ${describeLeaseOwner(observed.owner, observed.liveness)}, which is running on this machine and can still finish. `
+      + 'Nothing was released; let it finish or stop that process.',
+      { code: 'WORKSPACE_REGISTRY_RELEASE_REFUSED', details: { lock, owner: observed.owner } }
+    );
+  }
+  let claim = null;
+  const released = await reclaimRegistryFileLease(lock, observed, {
+    cachePolicy: true, reviewedToken: expectedToken, reclaimRoot: await privateReclaimRoot(lock),
+    hooks: { ...hooks, beforeRetire: async (value) => { claim = value.claim; await hooks?.beforeRetire?.(value); } }
+  });
+  if (!released) {
+    throw new SingularityFlowError(`The lease ${lock} changed while it was being released. Nothing else was removed; review it again with: ${registryLeaseShowCommand(lock)}`, {
+      code: 'WORKSPACE_REGISTRY_RELEASE_MISMATCH', details: { lock, nextAction: registryLeaseShowCommand(lock) }
+    });
+  }
+  return Object.freeze({ released: true, lock, token: expectedToken, owner: observed.owner,
+    liveness: livenessDetails(observed.liveness), retainedAt: claim ? path.join(claim, 'retired.lock') : null });
 }
 
 async function privateReclaimRoot(file) {
@@ -614,7 +700,7 @@ export async function acquireFileLease(file, { waitMs = 0, staleMs = CACHE_LEASE
     }
   }
   let frame;
-  let owner = { version: 2, pid: process.pid, host: os.hostname(), nonce: randomUUID(),
+  let owner = { version: 3, ...leaseOwnerIdentity(), nonce: randomUUID(),
     createdAt: nowIso(), heartbeatAt: nowIso() };
   let active = true;
   let releasing = false;

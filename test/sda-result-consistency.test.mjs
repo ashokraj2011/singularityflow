@@ -120,8 +120,10 @@ test('the work list and home carry where the repository Story list stands, from 
   { mode: 0o600 });
   const failed = await consistency();
   assert.equal(failed.freshness, 'refresh-failed');
+  // The cause under the wrapper code, and a way out a refresh cannot loop on (A3).
   assert.deepEqual(failed.refreshError, { code: 'SESSION_STATE_REFRESH_UNAVAILABLE', stage: 'fetch',
-    classification: 'authorization-denied', retryable: false, timedOut: false });
+    classification: 'authorization-denied', retryable: false, timedOut: false, cause: 'REMOTE_AUTHORIZATION_DENIED',
+    command: 'singularity-flow workspace doctor --network' });
   assert.deepEqual(failed.acceptedRevision, { ledgerCommit: LEDGER, authorityCommit: null }, 'the last-known revision stays');
 
   // Pushes that have not reached the authority, from this checkout or another one of the repository.

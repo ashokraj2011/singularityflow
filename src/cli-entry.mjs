@@ -8,7 +8,8 @@ import {
 import { installGitFactStore } from './git-fact-store.mjs';
 import { repoRoot } from './git-execution.mjs';
 import {
-  gitReadOutput, isTransportIntentId, optionBoolean, optionString, optionStrings, parseArgs, requirePositional, run, SingularityFlowError
+  gitReadOutput, isTransportIntentId, optionBoolean, optionString, optionStrings, parseArgs, refuseUnreadableRepository, requirePositional, run,
+  SingularityFlowError
 } from './util.mjs';
 import { validatePortableWorkId } from './work-id.mjs';
 import { VERSION } from './version.mjs';
@@ -880,6 +881,8 @@ async function runMain(argv, utilityEntry = null, explicitContextRoot = null) {
     }
   }
   if (!root && !routingExcluded) {
+    // Git's refusal to read the repository the person is in, rather than a request for one.
+    if (!localOnlyRequest) refuseUnreadableRepository(process.cwd());
     throw new SingularityFlowError(
       "Run Singularity Flow from inside a Git repository, or select one with 'singularity-flow workspace use <WORKSPACE>'.",
       { code: 'REPOSITORY_CONTEXT_REQUIRED', details: {

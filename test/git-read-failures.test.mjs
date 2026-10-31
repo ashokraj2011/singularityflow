@@ -12,6 +12,10 @@ import { worldModelCommit } from '../src/grounding.mjs';
 import { storyWelEnrollmentStatus } from '../src/state.mjs';
 import { readStoryReviewPacket } from '../src/story-lineage.mjs';
 import { gitHeadIsUnborn, gitOutsideRepository, gitReadOutput, run } from '../src/util.mjs';
+import { spawnSync } from 'node:child_process';
+import { fileURLToPath } from 'node:url';
+
+const CLI = fileURLToPath(new URL('../bin/singularity-flow.mjs', import.meta.url));
 
 // A failed Git read used to return the same empty output as an honest empty answer: no commits, no
 // remotes, a clean index, a record never added. These tests break Git for real and assert that the
@@ -223,4 +227,21 @@ test('outside a repository is told apart from a repository Git cannot read', asy
   // Both exit 128 from `rev-parse --git-dir`; only Git's own message says which.
   await appendFile(path.join(root, '.git/config'), '[[[broken\n');
   assert.equal(gitOutsideRepository(root), false, 'a bad configuration line is not "outside a repository"');
+});
+
+test('a command in a repository Git refuses to read names Git\'s reason, not a missing repository', async (t) => {
+  const { root, parent, env } = await storyRepository(t);
+  const plain = path.join(parent, 'plain');
+  await mkdir(plain);
+  const refused = (cwd) => {
+    const result = spawnSync(process.execPath, [CLI, 'status', '--submission-readiness', '--json'], { cwd, env, encoding: 'utf8' });
+    assert.notEqual(result.status, 0, result.stdout);
+    return JSON.parse(result.stdout).error;
+  };
+  assert.equal(refused(plain).code, 'REPOSITORY_CONTEXT_REQUIRED', 'outside every repository the person is asked for one');
+  // Git refuses this one as it refuses a repository with a dubious owner: exit 128, and no root.
+  await appendFile(path.join(root, '.git/config'), '[[[broken\n');
+  const unreadable = refused(root);
+  assert.equal(unreadable.code, 'GIT_READ_UNAVAILABLE', unreadable.message);
+  assert.match(unreadable.message, /^This repository could not be read from Git: .*bad config/u);
 });

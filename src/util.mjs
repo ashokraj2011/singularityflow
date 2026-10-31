@@ -1089,9 +1089,26 @@ export function gitHeadIsUnborn(cwd, { env = process.env } = {}) {
  * and nothing but that message counts as outside.
  */
 export function gitOutsideRepository(cwd, { env = process.env } = {}) {
-  const probe = run('git', ['rev-parse', '--git-dir'], { cwd, env: { ...env, LC_ALL: 'C' }, allowFailure: true });
+  return outsideRepository(repositoryProbe(cwd, env));
+}
+
+function repositoryProbe(cwd, env) {
+  return run('git', ['rev-parse', '--git-dir'], { cwd, env: { ...env, LC_ALL: 'C' }, allowFailure: true });
+}
+
+function outsideRepository(probe) {
   return probe.status === 128 && processResultCompleted(probe)
     && /\bnot a git repository\b/u.test(String(probe.stderr ?? ''));
+}
+
+/**
+ * Refuse with Git's own reason when `cwd` lies in a repository Git will not read, such as one with
+ * a dubious owner or a bad configuration line; nothing when it is outside every repository or Git
+ * reads it. For a caller about to ask for a repository: Git fails alike in both cases.
+ */
+export function refuseUnreadableRepository(cwd, { env = process.env } = {}) {
+  const probe = repositoryProbe(cwd, env);
+  if (!outsideRepository(probe)) gitReadOutput(probe, 'This repository');
 }
 
 /**

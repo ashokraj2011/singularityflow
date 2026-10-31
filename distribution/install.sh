@@ -7,6 +7,6 @@ if [[ "${1:-}" == '--managed-runtime' ]]; then
   export SINGULARITY_FLOW_DISTRIBUTION_ENTRYPOINT="$SCRIPT_DIR/install.sh"
   exec "$managed_node" "$SCRIPT_DIR/bootstrap.mjs" install "$@"
 fi
-command -v node >/dev/null 2>&1 || { printf '%s\n' 'Node.js 20 or newer is required.' >&2; exit 1; }
+command -v node >/dev/null 2>&1 || { printf '%s\n' 'Node.js 26 or newer is required.' >&2; exit 1; }
 export SINGULARITY_FLOW_DISTRIBUTION_ENTRYPOINT="$SCRIPT_DIR/install.sh"
 exec node "$SCRIPT_DIR/bootstrap.mjs" install "$@"

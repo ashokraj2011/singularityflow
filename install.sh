@@ -312,7 +312,7 @@ if [[ "$CLEAN_REINSTALL" == "on" ]]; then
   command -v node >/dev/null 2>&1 || { printf '%s\n' 'Error: required command not found: node' >&2; exit 1; }
   NODE_MAJOR="$(node -p 'Number(process.versions.node.split(".")[0])' 2>/dev/null || true)"
   [[ "$NODE_MAJOR" =~ ^[0-9]+$ ]] || { printf '%s\n' 'Error: could not determine the Node.js version.' >&2; exit 1; }
-  (( NODE_MAJOR >= 20 )) || { printf 'Error: Node.js 20 or newer is required; found %s.\n' "$(node --version 2>/dev/null || printf unknown)" >&2; exit 1; }
+  (( NODE_MAJOR >= 26 )) || { printf 'Error: Node.js 26 or newer is required; found %s.\n' "$(node --version 2>/dev/null || printf unknown)" >&2; exit 1; }
   REINSTALL_ARGS=(reinstall --checkout "$PROJECT_DIR")
   [[ -n "$REGISTRY_OVERRIDE" ]] && REINSTALL_ARGS+=(--registry "$REGISTRY_OVERRIDE")
   [[ "$CLI_ONLY" == "on" ]] && REINSTALL_ARGS+=(--cli-only)
@@ -338,7 +338,7 @@ for command in "${REQUIRED_COMMANDS[@]}"; do
 done
 NODE_MAJOR="$(node -p 'Number(process.versions.node.split(".")[0])' 2>/dev/null || true)"
 [[ "$NODE_MAJOR" =~ ^[0-9]+$ ]] || { printf '%s\n' 'Error: could not determine the Node.js version.' >&2; exit 1; }
-(( NODE_MAJOR >= 20 )) || { printf 'Error: Node.js 20 or newer is required; found %s.\n' "$(node --version 2>/dev/null || printf unknown)" >&2; exit 1; }
+(( NODE_MAJOR >= 26 )) || { printf 'Error: Node.js 26 or newer is required; found %s.\n' "$(node --version 2>/dev/null || printf unknown)" >&2; exit 1; }
 
 # A guarded fresh install builds from a private standalone clone, but its durable success receipt
 # must name the stable checkout the user reviewed. All three values are required together and are

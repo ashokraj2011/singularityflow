@@ -1,4 +1,5 @@
 import { submitRoute } from './submit-route.mjs';
+import { nodeRequirement } from './node-requirement.mjs';
 import { isConvergencePhase } from './phase-roles.mjs';
 import path from 'node:path';
 import { existsSync } from 'node:fs';
@@ -76,8 +77,9 @@ export async function doctorSnapshot(root, {
     'Inspect explicit-turn hook coverage on the running host; installation is not prevention proof.', { mutationGuard }));
   let performanceReport = null;
   let schemaReport = null;
-  const major = Number(process.versions.node.split('.')[0]);
-  checks.push(check('node', major >= 20 ? 'pass' : 'fail', `Node.js ${process.versions.node}`, major >= 20 ? null : 'Install Node.js 20 or newer.'));
+  const node = nodeRequirement();
+  checks.push(check('node', node.met ? 'pass' : 'fail', `${node.editor ? "VS Code's " : ''}Node.js ${node.version}`,
+    node.met ? null : `Install Node.js ${node.minimum} or newer.`));
   checks.push(check('git', 'pass', `Git repository ${root}`));
   const interruptedStarts = await listStoryStartJournals(root);
   checks.push(check(

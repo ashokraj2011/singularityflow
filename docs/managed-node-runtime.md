@@ -2,8 +2,9 @@
 
 The managed engine installs its own exact Node runtime. It never replaces the user's global
 `node`/`npm`, changes application dependencies, or adds a private Node directory to the application PATH.
-The initial qualified target is Node 26.12.0. This rollout does not change the legacy Node 20+
-source/developer support contract or make a blanket compatibility claim for future Node releases.
+The initial qualified target is Node 26.12.0. Since 2026-10-31 a source or installed engine also
+requires Node 26 or newer (`src/node-requirement.mjs`), so the managed runtime is the minimum line;
+this makes no blanket compatibility claim for future Node releases.
 At introduction, Node 26 is Current; making managed installation the production default is a separate rollout
 decision after LTS qualification. Existing installer and staged-recovery commands retain their meaning.
 

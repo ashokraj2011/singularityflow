@@ -366,7 +366,7 @@ async function main() {
     fail('provide --artifact-key <trusted-builder-public.pem> or SINGULARITY_FLOW_ARTIFACT_PUBLIC_KEY.');
   }
   const major = Number(process.versions.node.split('.')[0]);
-  if (!Number.isInteger(major) || major < 20) fail(`Node.js 20 or newer is required; found ${process.versions.node}.`);
+  if (!Number.isInteger(major) || major < 26) fail(`Node.js 26 or newer is required; found ${process.versions.node}.`);
   const releaseDirectory = path.dirname(fileURLToPath(import.meta.url));
   const [receiptInput, releaseInput, sumsInput, keyInput] = await Promise.all([
     stableJson(path.join(releaseDirectory, 'ARTIFACT-RECEIPT.json'), 'ARTIFACT-RECEIPT.json'),

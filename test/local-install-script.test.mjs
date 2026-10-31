@@ -200,7 +200,7 @@ test('local installer performs a safe ordered pull, pack, global install, and pl
   assert.match(script, /--vscode-only/);
   assert.match(script, /--no-update/);
   assert.match(script, /--from-staged-artifacts/);
-  assert.match(script, /Node\.js 20 or newer is required/);
+  assert.match(script, /Node\.js 26 or newer is required/);
   assert.match(script, /HOSTED_AUTOMATION_FILES="\$\(git ls-files -- '\.github\/workflows\/\*'/);
   assert.match(script, /hosted GitHub workflow assets are unsupported by this installer/);
   assert.match(script, /--no-workspace-workflow-sync/);
@@ -286,7 +286,7 @@ test('Windows Git Bash wrapper validates CRLF support and delegates to the canon
   const packageJson = JSON.parse(await readFile(path.join(root, 'package.json'), 'utf8'));
   assert.equal(packageJson.scripts['install:windows'], 'bash ./install-windows-git-bash.sh');
   await assertInstallerExecutable(scriptPath, 'Windows Git Bash wrapper must retain executable metadata');
-  assert.match(script, /Node\.js 20 or newer is required/);
+  assert.match(script, /Node\.js 26 or newer is required/);
   assert.doesNotMatch(script, /git -C|git pull|git status/,
     'only the canonical installer may update source, after taking the recovery lease');
   assert.match(script, /\[\[ "\$UPDATE_CHECKOUT" == "off" \]\] && INSTALL_ARGS\+=\(--no-update\)/);
@@ -324,7 +324,7 @@ test('clean reinstall delegates skip-tests before any Git requirement or reposit
   await mkdir(bin, { recursive: true });
   for (const command of ['node', 'git']) {
     const file = path.join(bin, command);
-    await writeFile(file, `#!/usr/bin/env bash\nprintf '%s\\n' '${command} '"$*" >> "$INSTALL_TEST_LOG"\n${command === 'node' ? '[[ "${1:-}" == "-p" ]] && printf "%s\\n" 20\n' : ''}${command === 'git' ? 'exit 97' : 'exit 0'}\n`);
+    await writeFile(file, `#!/usr/bin/env bash\nprintf '%s\\n' '${command} '"$*" >> "$INSTALL_TEST_LOG"\n${command === 'node' ? '[[ "${1:-}" == "-p" ]] && printf "%s\\n" 26\n' : ''}${command === 'git' ? 'exit 97' : 'exit 0'}\n`);
     await chmod(file, 0o755);
   }
   const registry = 'https://artifacts.example.test/api/npm/npm-virtual/';
@@ -1220,13 +1220,13 @@ test('Unix installer rejects Node older than 20 before checkout or package mutat
     await chmod(file, 0o755);
   }
   const node = path.join(bin, 'node');
-  await writeFile(node, '#!/usr/bin/env bash\nif [[ "${1:-}" == "-p" ]]; then printf "18\\n"; else printf "v18.20.8\\n"; fi\n');
+  await writeFile(node, '#!/usr/bin/env bash\nif [[ "${1:-}" == "-p" ]]; then printf "24\\n"; else printf "v24.22.1\\n"; fi\n');
   await chmod(node, 0o755);
   const result = spawnSync('bash', [path.join(fixture, 'install.sh')], {
     cwd: fixture, encoding: 'utf8', env: { ...process.env, PATH: `${bin}:/bin:/usr/bin` }
   });
   assert.notEqual(result.status, 0);
-  assert.match(result.stderr, /Node\.js 20 or newer is required; found v18\.20\.8/);
+  assert.match(result.stderr, /Node\.js 26 or newer is required; found v24\.22\.1/);
 });
 
 test('legacy direct factory reset refuses before loading ignored checkout code', async () => {

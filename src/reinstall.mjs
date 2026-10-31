@@ -29,6 +29,7 @@ import {
   VSIX_SOURCE_MANIFEST_SHA256_ENV,
   writeVsixSourceManifest
 } from './vsix-source-manifest.mjs';
+import { MINIMUM_NODE_MAJOR } from './node-requirement.mjs';
 
 export const REINSTALL_SURFACES = Object.freeze({
   npmPackage: 'singularity-flow',
@@ -41,7 +42,6 @@ export const REINSTALL_SURFACES = Object.freeze({
 const CONFIRMATION_PREFIX = 'REINSTALL SINGULARITY FLOW ';
 const PLAN_SCHEMA_VERSION = currentSchemaVersion('reinstall-plan');
 const MANAGED_TELEMETRY_MARKER = '# Managed by the Singularity Flow installer.';
-const MINIMUM_NODE_MAJOR = 20;
 const PRODUCT_READ_TIMEOUT_MS = 30_000;
 const PRODUCT_MUTATION_TIMEOUT_MS = 300_000;
 const TELEMETRY_PROFILE_COMMENT = '# Singularity Flow: Copilot model/token/cost telemetry';

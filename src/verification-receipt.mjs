@@ -17,7 +17,7 @@ import { verifyReleaseArtifactReceiptAuthority } from './release-artifact-receip
 function sha256(value) { return createHash('sha256').update(value).digest('hex'); }
 
 const SUPPORTED_RELEASE_PLATFORMS = Object.freeze(['darwin', 'linux', 'win32']);
-const SUPPORTED_RELEASE_NODE_MAJORS = Object.freeze([20, 22]);
+const SUPPORTED_RELEASE_NODE_MAJORS = Object.freeze([26]);
 const HISTORICAL_SINGLE_RECEIPT_VERSIONS = Object.freeze([5, 6]); // schema-transient: historical externally signed receipts
 export const CURRENT_SINGLE_VERIFICATION_RECEIPT_VERSION = 7; // schema-transient: externally signed release receipt
 const HISTORICAL_MATRIX_RECEIPT_VERSIONS = Object.freeze([6, 7]); // schema-transient: historical externally signed receipts
@@ -221,8 +221,8 @@ export function validateReleasePlatformEvidence(value, expected = {}) {
 }
 
 /**
- * The reviewed release matrix: minimum Node plus the repository's current pinned Node line on all
- * three supported hosts. Developer checks do not require this aggregate; real release promotion
+ * The reviewed release matrix: the minimum Node line (src/node-requirement.mjs), which is also the
+ * managed runtime's, on all three supported hosts. Developer checks do not require this aggregate; real release promotion
  * does, through scripts/release.mjs.
  */
 export const REQUIRED_RELEASE_PLATFORM_MATRIX = Object.freeze(

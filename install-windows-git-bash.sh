@@ -126,7 +126,7 @@ done
 
 NODE_MAJOR="$(node -p 'Number(process.versions.node.split(".")[0])' 2>/dev/null || true)"
 [[ "$NODE_MAJOR" =~ ^[0-9]+$ ]] || fail 'could not determine the Node.js version.'
-(( NODE_MAJOR >= 20 )) || fail "Node.js 20 or newer is required; found $(node --version)."
+(( NODE_MAJOR >= 26 )) || fail "Node.js 26 or newer is required; found $(node --version)."
 
 if [[ "$CLI_ONLY" != "on" && "$VSCODE_ONLY" != "on" && "$SKIP_COPILOT" != "on" ]]; then
   command -v copilot >/dev/null 2>&1 || fail 'Copilot CLI was not found. Install it first, or use --cli-only, --vscode-only, or --skip-copilot.'

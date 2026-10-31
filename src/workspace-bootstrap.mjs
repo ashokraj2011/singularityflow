@@ -3,6 +3,7 @@ import { constants as fsConstants } from 'node:fs';
 import {
   access, lstat, mkdir, open, readFile, readdir, rm, stat, statfs
 } from 'node:fs/promises';
+import { nodeRequirement } from './node-requirement.mjs';
 import os from 'node:os';
 import path from 'node:path';
 
@@ -818,12 +819,12 @@ async function machinePreflight(plan, { env = process.env, home = os.homedir(), 
     message: `The ${process.platform}/${process.arch} runtime is not in the supported workspace bootstrap platform set.`,
     action: 'Use the packaged macOS, Linux, or Windows build, then resume.'
   }));
-  const nodeMajor = Number(process.versions.node.split('.')[0]);
-  checks.push({ id: 'node-runtime', status: nodeMajor >= 20 ? 'pass' : 'fail', observed: process.versions.node, required: '>=20' });
-  if (nodeMajor < 20) findings.push(finding({
+  const node = nodeRequirement();
+  checks.push({ id: 'node-runtime', status: node.met ? 'pass' : 'fail', observed: node.version, required: `>=${node.minimum}` });
+  if (!node.met) findings.push(finding({
     id: 'machine.node.unsupported', scope: 'machine', classification: 'runtime-unsupported',
-    message: `Node.js ${process.versions.node} is installed; Singularity Flow requires Node.js 20 or newer.`,
-    action: 'Install an approved Node.js 20+ runtime, then resume this bootstrap.'
+    message: `Node.js ${node.version} is installed; Singularity Flow requires Node.js ${node.minimum} or newer.`,
+    action: `Install an approved Node.js ${node.minimum}+ runtime, then resume this bootstrap.`
   }));
 
   const git = runCommand('git', ['--version'], { allowFailure: true, timeoutMs: 10_000 });

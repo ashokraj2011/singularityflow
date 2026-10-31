@@ -29,7 +29,7 @@ function keys() {
 }
 
 function reviewedPlatformEvidence({
-  platform = 'darwin', nodeVersion = '22.18.0', packageCharacter = 'c', vsixCharacter = 'd',
+  platform = 'darwin', nodeVersion = '26.12.0', packageCharacter = 'c', vsixCharacter = 'd',
   reviewerIdentity = 'release@example.test'
 } = {}) {
   return {
@@ -88,7 +88,7 @@ function timing(minimum = 1) {
   return { minimum, median: minimum + 1, p95: minimum + 2, maximum: minimum + 3 };
 }
 
-function welBenchmark({ platform = 'darwin', nodeMajor = 22 } = {}) {
+function welBenchmark({ platform = 'darwin', nodeMajor = 26 } = {}) {
   return {
     schema: WEL_BENCHMARK_SCHEMA,
     assurance: WEL_BENCHMARK_ASSURANCE,
@@ -188,7 +188,7 @@ function artifactReceipt(pair, {
     sourceTree: evidence().tree,
     packageEntryManifestSha256: `sha256:${'e'.repeat(64)}`,
     packagingProfile: {
-      nodeVersion: '22.18.0', npmVersion: '11.8.0', zlibVersion: '1.3.1',
+      nodeVersion: '26.12.0', npmVersion: '11.8.0', zlibVersion: '1.3.1',
       sourceDateEpoch: '1788220800',
       npmToolchainLockSha256: `sha256:${'f'.repeat(64)}`,
       productionDependencyLockSha256: `sha256:${'0'.repeat(64)}`,
@@ -207,7 +207,7 @@ function artifactReceipt(pair, {
   }, pair.privateKey, identity);
 }
 
-function welCorpusMeasurement({ platform = 'darwin', nodeVersion = '22.18.0' } = {}) {
+function welCorpusMeasurement({ platform = 'darwin', nodeVersion = '26.12.0' } = {}) {
   const architecture = platform === 'darwin' ? 'arm64' : 'x64';
   const nodeMajor = Number(nodeVersion.split('.')[0]);
   return {
@@ -269,7 +269,7 @@ function reviewedWelCorpus(pair, options = {}) {
       runtime: {
         platform: report.platform,
         architecture: report.architecture,
-        nodeVersion: options.nodeVersion ?? '22.18.0'
+        nodeVersion: options.nodeVersion ?? '26.12.0'
       }
     },
     measurement: measured.evidence,
@@ -343,9 +343,9 @@ test('historical receipt versions remain auditable but cannot be merged or promo
     npmTest: structuredClone(legacySingle.npmTest),
     pocReleaseGate: 'passed',
     platforms: ['darwin'],
-    nodeVersions: ['22.18.0'],
+    nodeVersions: ['26.12.0'],
     platformMatrix: [{
-      platform: 'darwin', nodeVersion: '22.18.0', nodeMajor: 22,
+      platform: 'darwin', nodeVersion: '26.12.0', nodeMajor: 26,
       evidencePayloadSha256: legacySingle.signature.payloadSha256,
       evidenceSignerKeySha256: legacySingle.signature.publicKeySha256,
       evidenceVerifierIdentity: legacySingle.verifierIdentity,
@@ -409,9 +409,9 @@ test('historical receipt versions remain auditable but cannot be merged or promo
     ...historicalMatrixBase,
     schemaVersion: 7,
     platforms: ['darwin'],
-    nodeVersions: ['22.18.0'],
+    nodeVersions: ['26.12.0'],
     platformMatrix: [{
-      platform: 'darwin', nodeVersion: '22.18.0', nodeMajor: 22,
+      platform: 'darwin', nodeVersion: '26.12.0', nodeMajor: 26,
       evidencePayloadSha256: signedV6.signature.payloadSha256,
       evidenceSignerKeySha256: signedV6.signature.publicKeySha256,
       evidenceVerifierIdentity: signedV6.verifierIdentity,
@@ -686,7 +686,7 @@ test('physical platform evidence is strict, digest-only, and platform-aware', ()
     (error) => error.code === 'VERIFICATION_PLATFORM_EVIDENCE_INVALID'
       && error.details.failures.some((failure) => failure.includes('@playwright/mcp@0.0.79')));
 
-  const unsupportedNode = reviewedPlatformEvidence({ nodeVersion: '21.7.0' });
+  const unsupportedNode = reviewedPlatformEvidence({ nodeVersion: '24.22.1' });
   assert.throws(() => validateReleasePlatformEvidence(unsupportedNode),
     (error) => error.code === 'VERIFICATION_PLATFORM_EVIDENCE_INVALID'
       && error.details.failures.some((failure) => failure.includes('supported release matrix')));
@@ -695,7 +695,7 @@ test('physical platform evidence is strict, digest-only, and platform-aware', ()
 test('WEL benchmark evidence is strict, content-free, host-bound, and digest-bound', () => {
   const valid = welBenchmark();
   assert.match(validateWelBenchmarkEvidence(valid, {
-    platform: 'darwin', nodeMajor: 22
+    platform: 'darwin', nodeMajor: 26
   }).evidenceSha256, /^sha256:[a-f0-9]{64}$/);
 
   const rawPath = structuredClone(valid);

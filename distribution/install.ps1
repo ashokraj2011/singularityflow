@@ -24,7 +24,7 @@ if ($env:SINGULARITY_FLOW_MANAGED_DISTRIBUTION -eq '1' -or ($args.Count -gt 0 -a
   $managedArguments = @('--managed-runtime') + @($args | Where-Object { $_ -ne '--managed-runtime' })
   exit (Invoke-DistributionNode $managedNode (@((Join-Path $releaseDirectory 'bootstrap.mjs'), 'install') + $managedArguments))
 }
-if (-not (Get-Command node -ErrorAction SilentlyContinue)) { throw 'Node.js 20 or newer is required.' }
+if (-not (Get-Command node -ErrorAction SilentlyContinue)) { throw 'Node.js 26 or newer is required.' }
 $previousEntrypoint = $env:SINGULARITY_FLOW_DISTRIBUTION_ENTRYPOINT
 try {
   $env:SINGULARITY_FLOW_DISTRIBUTION_ENTRYPOINT = $MyInvocation.MyCommand.Path

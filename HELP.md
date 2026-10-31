@@ -3029,7 +3029,7 @@ For a company Artifactory or registry:
 ./install.sh --registry https://artifacts.company.com/artifactory/api/npm/npm-virtual/
 ```
 
-The source installer requires Node.js 20 or newer. Its bounded modes are:
+The source installer requires Node.js 26 or newer. Its bounded modes are:
 
 ```bash
 ./install.sh --no-update       # exact clean checkout; no fetch or pull

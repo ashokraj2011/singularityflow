@@ -56,10 +56,11 @@ function storedZip(name, body) {
   return Buffer.concat([local, filename, body, directory, eocd]);
 }
 
-test('reinstall requires a valid Node 20 or newer runtime', () => {
-  assert.deepEqual(assertReinstallNodeVersion('v20.0.0'), { version: '20.0.0', major: 20 });
-  assert.deepEqual(assertReinstallNodeVersion('22.14.0'), { version: '22.14.0', major: 22 });
-  assert.throws(() => assertReinstallNodeVersion('v18.20.8'), /Node\.js 20 or newer is required/);
+test('reinstall requires a valid Node 26 or newer runtime', () => {
+  assert.deepEqual(assertReinstallNodeVersion('v26.0.0'), { version: '26.0.0', major: 26 });
+  assert.deepEqual(assertReinstallNodeVersion('26.12.0'), { version: '26.12.0', major: 26 });
+  assert.throws(() => assertReinstallNodeVersion('v24.22.1'), /Node\.js 26 or newer is required/);
+  assert.throws(() => assertReinstallNodeVersion('22.14.0'), /Node\.js 26 or newer is required/);
   assert.throws(() => assertReinstallNodeVersion('unknown'), /Could not determine/);
 });
 

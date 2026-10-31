@@ -18,7 +18,7 @@ function Invoke-DistributionNode([string]$Executable, [string[]]$Arguments) {
   finally { $child.Dispose() }
 }
 $releaseDirectory = Split-Path -Parent $MyInvocation.MyCommand.Path
-if (-not (Get-Command node -ErrorAction SilentlyContinue)) { throw 'Node.js 20 or newer is required.' }
+if (-not (Get-Command node -ErrorAction SilentlyContinue)) { throw 'Node.js 26 or newer is required.' }
 $previousEntrypoint = $env:SINGULARITY_FLOW_DISTRIBUTION_ENTRYPOINT
 try {
   $env:SINGULARITY_FLOW_DISTRIBUTION_ENTRYPOINT = $MyInvocation.MyCommand.Path

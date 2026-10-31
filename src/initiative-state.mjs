@@ -31,6 +31,8 @@ import {
   localPendingPublicationPath,
   readPendingPublication,
   recoverPreparedPublication,
+  remoteBranchHolds,
+  retainedPublicationOutcome,
   verifyPendingPublicationCandidateAuthority,
   verifyPendingPublicationCommit,
   writePendingPublication,
@@ -921,7 +923,7 @@ export async function prepareInitiativePhase(root, id = branch(root), requestedP
   return { portfolio, initiative, phase, outputs: prepared };
 }
 
-export async function listInitiatives(root, portfolio = null, { ledger = undefined } = {}) {
+export async function listInitiatives(root, portfolio = null, { ledger = undefined, unreadable = null } = {}) {
   const definition = portfolio ?? await loadPortfolio(root, { required: false });
   if (!definition) return [];
   const base = await secureRepositoryPath(root, definition.initiativeRoot, {
@@ -992,6 +994,8 @@ export async function listInitiatives(root, portfolio = null, { ledger = undefin
   const identities = await initiativeIdentityRecords(
     root, ledger === undefined ? await definitionLedgerConfig(root) : (ledger ?? {}), { offline: true }
   );
+  // A damaged ledger entry ends the records there: list what was read, and say what was not (sweep B3).
+  if (identities.unreadable) unreadable?.push(identities.unreadable);
   const located = (name, branchName) => [
     { name, branchName, ref: `${remote}/${branchName}`, source: `${remote}/${branchName}` },
     { name, branchName, ref: branchName, source: `local/${branchName}` }
@@ -1382,10 +1386,14 @@ export async function syncInitiativePublication(root, portfolio, initiative, { f
 
     let rootPublished = currentRecord.rootPublished === true;
     if (rootPublished) {
-      const remoteCommit = (await lifecycleAuthority(root).observe({
+      const observed = await lifecycleAuthority(root).observe({
         remote: remoteAuthority.url, branch: currentRecord.branch
-      })).sha;
-      if (remoteCommit !== currentRecord.commit) {
+      });
+      // Sealed progress (checked above) stays proven once another clone publishes on top of it.
+      const holds = await remoteBranchHolds(root, {
+        observed, commit: currentRecord.commit, remote: currentRecord.remote, branch: currentRecord.branch
+      });
+      if (holds !== 'exact' && holds !== 'descendant') {
         throw new SingularityFlowError(
           `Initiative '${initiative.initiative.id}' pending marker says its ref was published, but remote '${currentRecord.remote}' `
           + `does not advertise exact commit ${currentRecord.commit}. The marker was retained.`,
@@ -1420,24 +1428,20 @@ export async function syncInitiativePublication(root, portfolio, initiative, { f
       if (result.status !== 0) {
         const pushOutcome = publicationPushOutcome(result);
         // Either an older sealed ambiguity or this attempt's own ambiguous transport permits one
-        // exact remote-tip reconciliation. A definitive collision without either authority must not
-        // claim another actor's byte-identical update.
-        const mayReconcile = priorOutcome === 'transport-indeterminate'
-          || pushOutcome === 'transport-indeterminate';
-        const observation = mayReconcile
-          ? await lifecycleAuthority(root).observe({
-            remote: remoteAuthority.url, branch: currentRecord.branch
-          })
-          : null;
-        const reconciled = mayReconcile && observation.sha === currentRecord.commit;
-        if (!reconciled) {
+        // exact remote-tip reconciliation; the older one also a remote another clone built on since
+        // (sweep B1). A definitive collision without either authority must not claim another
+        // actor's byte-identical update.
+        const settled = await retainedPublicationOutcome(root, {
+          priorOutcome, outcome: pushOutcome,
+          commit: currentRecord.commit, remote: currentRecord.remote, branch: currentRecord.branch,
+          observe: () => lifecycleAuthority(root).observe({ remote: remoteAuthority.url, branch: currentRecord.branch })
+        });
+        if (!settled.published) {
           const error = (result.stderr || result.stdout).trim();
           // The pre-attempt marker already records an ambiguous result. Only a definitive outcome
           // supersedes it; persist that rejection before returning control to another sync process.
           // An earlier lost answer stays unknown while the remote cannot be read (SDA-AC-004).
-          const earlierUnknown = priorOutcome === 'transport-indeterminate'
-            && (observation?.reachable !== true || observation.malformed === true);
-          if (pushOutcome !== 'transport-indeterminate' && !earlierUnknown) {
+          if (pushOutcome !== 'transport-indeterminate' && !settled.earlierUnknown) {
             await writePendingPublication(root, {
               ...subject,
               record: {

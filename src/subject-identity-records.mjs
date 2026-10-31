@@ -9,7 +9,7 @@
  */
 import { configurationReadDefinition } from './configuration-read-scope.mjs';
 import { readConfigurationSource } from './configuration-source.mjs';
-import { LEDGER_PAGE_MAX, ledgerPage } from './ledger-pages.mjs';
+import { LEDGER_PAGE_MAX, LEDGER_VERIFY_COMMAND, ledgerEntriesBeyondChain, ledgerPage } from './ledger-pages.mjs';
 import { normalizeLedgerConfig } from './ledger-config.mjs';
 import { SingularityFlowError } from './util.mjs';
 
@@ -45,9 +45,15 @@ export async function definitionLedgerConfig(root) {
   return source.parsed?.ledger ?? {};
 }
 
+const entryId = (entry) => text(entry?.subject?.workId ?? entry?.payload?.lifecycleEvent?.subject?.id);
+
 /**
  * Every Epic and Initiative identity the reachable ledger chain records, newest binding per ID.
  * `offline` keeps to the state ref already held here; otherwise the usual state refresh runs first.
+ *
+ * A missing or corrupt entry ends the chain there: one bad entry anywhere blocked every Initiative
+ * list, resume, goal and local Epic ID (sweep B3). `records` then holds what the chain held before
+ * it and `unreadable` names it and `ledger verify`; a reader serves what it can and says so.
  */
 export async function initiativeIdentityRecords(root, rawConfig, { offline = true } = {}) {
   const config = normalizeLedgerConfig(rawConfig ?? {});
@@ -57,12 +63,14 @@ export async function initiativeIdentityRecords(root, rawConfig, { offline = tru
   const records = new Map();
   let snapshot = null;
   let continuation = null;
+  let unreadable = null;
   do {
-    const page = await ledgerPage(root, config, { limit: LEDGER_PAGE_MAX, continuation, offline });
+    const page = await ledgerPage(root, config, { limit: LEDGER_PAGE_MAX, continuation, offline, stopAtDamage: true });
     snapshot ??= page.snapshot;
+    if (page.damaged) unreadable = page.damaged;
     for (const entry of page.entries) {
       if (subjectKind(entry) !== 'initiative') continue;
-      const id = text(entry.subject?.workId ?? entry.payload?.lifecycleEvent?.subject?.id);
+      const id = entryId(entry);
       if (!id) continue;
       const operation = operationOf(entry);
       const existing = records.get(id);
@@ -88,8 +96,34 @@ export async function initiativeIdentityRecords(root, rawConfig, { offline = tru
   return Object.freeze({
     source: IDENTITY_SOURCE.LEDGER, snapshot,
     records: Object.freeze([...records.values()].sort((left, right) => left.id.localeCompare(right.id))
-      .map((record) => Object.freeze({ ...record, aliases: Object.freeze(record.aliases) })))
+      .map((record) => Object.freeze({ ...record, aliases: Object.freeze(record.aliases) }))),
+    ...(unreadable ? { unreadable: Object.freeze({ ...unreadable,
+      message: `Initiatives recorded before ledger entry ${unreadable.entryHash ?? '(the head)'} could not be read: ${unreadable.message}` }) } : {})
   });
+}
+
+/** The refusal for an identity question the readable part of the ledger cannot answer. */
+function ledgerUnreadableRefusal(identities, question) {
+  const { unreadable, snapshot } = identities;
+  return new SingularityFlowError(`${question} The state ledger cannot be read past entry ${unreadable.entryHash ?? '(its head)'}: ${unreadable.message}`, {
+    code: 'LEDGER_CHAIN_INVALID',
+    details: { snapshot, entryHash: unreadable.entryHash, nextAction: LEDGER_VERIFY_COMMAND }
+  });
+}
+
+/**
+ * Every Epic and Initiative ID an allocation must not reuse, from the ledger chain and, past a
+ * damaged entry, from every other entry file of the same snapshot (sweep B3). Refuses, naming
+ * `ledger verify`, only when an entry is missing or unparseable, so uniqueness cannot be proven.
+ */
+export function initiativeIdsTaken(root, identities) {
+  const ids = (identities.records ?? []).map((record) => record.id);
+  if (!identities.unreadable) return ids;
+  const beyond = identities.snapshot ? ledgerEntriesBeyondChain(root, identities.snapshot) : { entries: [], complete: false };
+  if (!beyond.complete) {
+    throw ledgerUnreadableRefusal(identities, 'A new Epic ID cannot be proven unused: a ledger entry is missing or unreadable, so an ID recorded there would be invisible.');
+  }
+  return [...new Set([...ids, ...beyond.entries.filter((entry) => subjectKind(entry) === 'initiative').map(entryId).filter(Boolean)])];
 }
 
 /**
@@ -107,6 +141,8 @@ export function resolveInitiativeIdentity(identities, reference) {
     );
   }
   if (!matches.length) {
+    // Past a damaged entry the records are incomplete: "not recorded" would be a guess.
+    if (identities?.unreadable) throw ledgerUnreadableRefusal(identities, `Initiative '${requested}' is not among the identities the readable part of the state ledger records.`);
     throw new SingularityFlowError(
       `No Initiative identity '${requested}' is recorded in the state ledger. A branch is not an identity. `
       + "Check the ID, or run 'singularity-flow ledger reconcile' if its start was never recorded.",
@@ -125,7 +161,8 @@ export async function resolveInitiativeReference(root, identities, reference, {
   definition = {}, portfolio = null, currentBranch = null
 } = {}) {
   try { return resolveInitiativeIdentity(identities, reference); } catch (error) {
-    if (error?.code !== 'INITIATIVE_IDENTITY_UNRECORDED' || !currentBranch) throw error;
+    const unanswered = error?.code === 'INITIATIVE_IDENTITY_UNRECORDED' || (error?.code === 'LEDGER_CHAIN_INVALID' && identities?.unreadable);
+    if (!unanswered || !currentBranch) throw error;
     const { buildRepositorySubjectIndex, resolveContext } = await import('./repository-subject-index.mjs');
     const own = resolveContext(await buildRepositorySubjectIndex(root, { definition, portfolio }), {
       reference, kind: 'initiative', required: false

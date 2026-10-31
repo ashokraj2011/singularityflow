@@ -1094,6 +1094,24 @@ async function publishCapabilityRepository(entry, {
         }], pending: [], error: null };
       }
       if (observed.sha !== null) {
+        // Another clone that published on top of it (a takeover) proves the lost answer landed: called
+        // rejected, the commit read as sent outside SFlow (sweep B1). Unknown history stays unknown.
+        const { remoteBranchHolds } = await import('./publication-pending.mjs');
+        const holds = await remoteBranchHolds(entry.root, {
+          observed: { ...observed, reachable: true }, commit: entry.commit, remote: entry.remote, branch: entry.branch
+        });
+        if (holds === 'descendant') {
+          return { published: [{
+            repository: entry.repository, remote: entry.remote, branch: entry.branch, ref: entry.destinationRef,
+            commit: entry.commit, pushed: true, reconciled: true
+          }], pending: [], error: null };
+        }
+        if (holds === 'unknown') {
+          return {
+            published: [], pending: [entry],
+            error: `Cannot verify the prior indeterminate publication for '${entry.repository}' because the history of its remote branch cannot be read`
+          };
+        }
         return {
           published: [],
           pending: [{ ...entry, pushOutcome: 'rejected' }],

@@ -152,6 +152,8 @@ import {
   localPendingPublicationPath,
   readPendingPublication,
   recoverPreparedPublication,
+  remoteBranchHolds,
+  retainedPublicationOutcome,
   verifyPendingPublicationCandidateAuthority,
   verifyPendingPublicationCommit,
   writePendingPublication,
@@ -10297,11 +10299,16 @@ export async function syncPublication(root, config, workflow, { fault = null, re
       );
     }
     let rootPushed = record.rootPublished === true;
+    // The remote tip when another clone has published on top of this commit (sweep B1).
+    let remoteBuiltOn = null;
     if (rootPushed) {
-      const remoteCommit = (await lifecycleAuthority(root).observe({
+      const observed = await lifecycleAuthority(root).observe({
         remote: rootRemoteAuthority.url, branch: record.branch
-      })).sha;
-      if (remoteCommit !== record.commit) {
+      });
+      // Sealed progress (checked above) stays proven once another clone publishes on top of it.
+      const holds = await remoteBranchHolds(root, { observed, commit: record.commit, remote: record.remote, branch: record.branch });
+      if (holds === 'descendant') remoteBuiltOn = observed.sha;
+      if (holds !== 'exact' && holds !== 'descendant') {
         throw new SingularityFlowError(
           `Story '${workflow.workItem.id}' pending marker says its root ref was published, but remote '${record.remote}' `
           + `does not advertise exact commit ${record.commit}. The marker was retained and no sibling ref was pushed.`,
@@ -10369,22 +10376,23 @@ export async function syncPublication(root, config, workflow, { fault = null, re
         // create-only lease must fail on retry because the branch is no longer absent; the durable
         // pending receipt is the authority that makes this exact equality an idempotent success.
         // Check an older durable ambiguity before letting this retry's expected collision supersede
-        // it. That is the only way a crash after a successful receive-pack can converge safely.
-        const observation = priorPushOutcome === 'transport-indeterminate'
-          || pushOutcome === 'transport-indeterminate'
-          ? await lifecycleAuthority(root).observe({
-              remote: rootRemoteAuthority.url, branch: record.branch
-            })
-          : null;
-        const remoteCommit = observation?.sha ?? null;
-        if (remoteCommit !== record.commit) {
+        // it. That is the only way a crash after a successful receive-pack can converge safely. A
+        // remote another clone has built on since holds it too: a takeover publishing on top of a
+        // lost approval is proof that approval landed (sweep B1).
+        const settled = await retainedPublicationOutcome(root, {
+          priorOutcome: priorPushOutcome, outcome: pushOutcome,
+          commit: record.commit, remote: record.remote, branch: record.branch,
+          observe: () => lifecycleAuthority(root).observe({ remote: rootRemoteAuthority.url, branch: record.branch })
+        });
+        if (settled.holds === 'descendant') remoteBuiltOn = settled.remoteTip;
+        if (!settled.published) {
           // An earlier attempt whose answer was lost stays unknown while the remote cannot be read:
           // this attempt failing to reach it says nothing about that one. Recorded as rejected, the
           // remote's later answer (it took the commit) was refused as "sent outside SFlow" (SDA-AC-004).
-          const earlierUnknown = priorPushOutcome === 'transport-indeterminate'
-            && (observation?.reachable !== true || observation.malformed === true);
-          if (pushOutcome !== 'transport-indeterminate' && !earlierUnknown) {
-            record = { ...record, pushOutcome: 'rejected' };
+          if (pushOutcome !== 'transport-indeterminate' && !settled.earlierUnknown) {
+            // The retry's own words: recover reads them to tell a moved remote from a fixable refusal.
+            const diagnostic = (await import('./publication-retry-refusals.mjs')).publicationPushDiagnostic(result);
+            record = { ...record, pushOutcome: 'rejected', ...(diagnostic ? { error: diagnostic } : {}) };
             await writePendingPublication(root, { ...subject, record });
           }
           // A rule, hook or push-protection refusal repeats on every retry of this commit: name
@@ -10470,6 +10478,7 @@ export async function syncPublication(root, config, workflow, { fault = null, re
       pushed: rootPushed ? record.commit : null,
       remote: record.remote,
       branch: record.branch,
+      ...(remoteBuiltOn ? { remoteBuiltOn } : {}),
       capabilityPublished: capability.published,
       ledger,
       stepActions

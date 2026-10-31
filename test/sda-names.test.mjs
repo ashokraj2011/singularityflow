@@ -44,7 +44,8 @@ export const SDA_NAMES = Object.freeze({
   INITIATIVE_IDENTITY_AMBIGUOUS: ['src/subject-identity-records.mjs'],
   'branch-scan-ledger-off': ['src/subject-identity-records.mjs'],
   LOCAL_EPIC_RESERVATION_AMBIGUOUS: ['src/local-identity.mjs'],
-  AUTO_STORY_BRANCH_UNSUPPORTED: ['src/change-flight-plan.mjs'],
+  // Its recovery plan (sweep B7) names the same refusal.
+  AUTO_STORY_BRANCH_UNSUPPORTED: ['src/change-flight-plan.mjs', 'src/refusal-remediation.mjs'],
   // M2: canonical finding IDs
   'FND-[': ['src/finding-identity.mjs', 'src/phase-finding-dispute.mjs'],
   'code.delivery.generation-unchanged': ['src/delivery-evidence.mjs'],
@@ -95,6 +96,15 @@ export const SDA_NAMES = Object.freeze({
     'src/sgos/platform/authority-store.mjs'],
   // Sweep fix (D3/E3): an Initiative publication another process holds, with its owner and reviewed release
   INITIATIVE_PUBLICATION_ACTIVE: ['src/cli.mjs', 'src/initiative-state.mjs'],
+  // Sweep batch 3: publication outcomes. A lost answer another clone built on is settled (B1); recover
+  // leads with the set-aside preview for a commit the remote moved past; a lost race's plan (B2); a
+  // reset refuses while a publication waits, unless the reviewed reset discards it (D7).
+  remoteBuiltOn: ['src/commands/sync.mjs', 'src/state.mjs'],
+  "'set-aside-preview'": ['src/collaboration.mjs'],
+  "'set-aside-retained-commit'": ['src/refusal-remediation.mjs'],
+  FACTORY_RESET_PUBLICATION_PENDING: ['src/factory-reset.mjs'],
+  'discard-pending-publications': ['src/cli.mjs', 'src/factory-reset.mjs', 'src/help-text.mjs', 'src/util.mjs'],
+  pendingPublicationsDiscarded: ['src/cli.mjs', 'src/factory-reset.mjs'],
   // M3: capability activation and edits with no textual merge
   CAPABILITY_PROPOSAL_VALUE_CONFLICT: ['src/capability-value-replay.mjs'],
   CAPABILITY_CONFIGURATION_OBJECTS_UNAVAILABLE: ['src/git-configuration-objects.mjs'],
@@ -110,7 +120,8 @@ export const SDA_NAMES = Object.freeze({
   "'retained-locally'": ['src/sda/lifecycle-authority-contract.mjs'],
   "'subject-branch'": ['src/sda/story-branch-authority.mjs'],
   // An existing code, now also thrown by the unit of work, with its one meaning: a retained transition.
-  "'PUBLICATION_PENDING'": ['src/publication-unit-of-work.mjs', 'src/state-planes.mjs'],
+  // Its recovery plan names the subject's own sync (sweep E10).
+  "'PUBLICATION_PENDING'": ['src/publication-unit-of-work.mjs', 'src/refusal-remediation.mjs', 'src/state-planes.mjs'],
   // M5: backups of the drafts and documents that exist only on one laptop
   'local-backup-manifest': ['src/local-backup.mjs', 'src/schema-migrations.mjs'],
   'sflow-backup-': ['src/commands/backup.mjs', 'src/help-pages.mjs', 'src/local-backup.mjs', 'src/narration/migration-status.mjs'],

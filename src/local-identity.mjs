@@ -121,13 +121,14 @@ export async function scanLocalIdentities(root, portfolio, {
   ledger = undefined,
   taken = []
 } = {}) {
-  const { IDENTITY_SOURCE, initiativeIdentityRecords } = await identityRecords();
+  const { IDENTITY_SOURCE, initiativeIdentityRecords, initiativeIdsTaken } = await identityRecords();
   const identities = await initiativeIdentityRecords(root, await identityLedger(root, ledger), { offline: !fetch });
   const initiatives = await directoryNames(path.join(root, portfolio.initiativeRoot));
   if (identities.records) {
     return {
       ...identityScan([
-        ...identities.records.map((record) => record.id), ...initiatives,
+        // Past a damaged ledger entry, every other entry file too; refused only when unprovable (sweep B3).
+        ...initiativeIdsTaken(root, identities), ...initiatives,
         ...await workingTreeBreakdownIds(root, portfolio), ...taken
       ], IDENTITY_SOURCE.LEDGER),
       recorded: identities.records.length

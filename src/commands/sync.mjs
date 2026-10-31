@@ -152,7 +152,11 @@ async function publishStory(root, explicit, options, say) {
     say.text(`Story ${workId} has no pending publication; nothing was pushed.`);
   } else {
     status = 'pushed';
-    say.text(`Pushed ${result.pushed.slice(0, 8)} to ${result.remote}/${result.branch}.`);
+    // An earlier push whose answer was lost had landed: another clone published on top of it (sweep B1).
+    say.text(result.remoteBuiltOn
+      ? `${result.pushed.slice(0, 8)} had already reached ${result.remote}/${result.branch}: the answer to its push was lost, `
+        + `and another clone has since published on top of it (${result.remoteBuiltOn.slice(0, 8)}). Nothing more was pushed.`
+      : `Pushed ${result.pushed.slice(0, 8)} to ${result.remote}/${result.branch}.`);
   }
   if (result.stepActions?.delivered?.length) {
     const { recordRequiredReceiptsAfterTransition } = await import('./shared/record-required-receipts-after-transition.mjs');
@@ -161,7 +165,8 @@ async function publishStory(root, explicit, options, say) {
   }
   return {
     workId, status, rescuePath: result.rescuePath ?? null,
-    ...(status === 'pushed' ? { commit: result.pushed, remote: result.remote, branch: result.branch } : {})
+    ...(status === 'pushed' ? { commit: result.pushed, remote: result.remote, branch: result.branch } : {}),
+    ...(result.remoteBuiltOn ? { remoteBuiltOn: result.remoteBuiltOn } : {})
   };
 }
 
@@ -302,12 +307,14 @@ async function explainLostPublicationRace(root, config, workflow, error) {
   catch { return error; }
   if (!aside?.settable || !(aside.lostRace || aside.publishedElsewhere)) return error;
   const preview = `singularity-flow sync ${workflow.workItem.id} --set-aside`;
+  // Reached only when SFlow's own sealed record shows no push of it that may have landed: a lost
+  // answer the remote holds, or built on, is settled by sync itself (sweep B1).
   if (aside.publishedElsewhere) return new SingularityFlowError(
-    `${aside.remote}/${aside.branch} already has commit ${aside.commit.slice(0, 8)}, but it was sent outside SFlow (a hand push, say), so SFlow does not count it as its own publication and sync cannot finish it. Nothing was pushed. `
-    + `If you sent it, preview stopping the wait with ${preview}; the branch and the remote stay as they are.`,
+    `${aside.remote}/${aside.branch} already has commit ${aside.commit.slice(0, 8)}, but SFlow has no record that its own push of it landed, so it does not count it as its own publication and sync cannot finish it. Nothing was pushed. `
+    + `If it is the commit you meant to publish (one you pushed yourself, say), preview stopping the wait with ${preview}; the branch and the remote stay as they are.`,
     { code: 'STORY_PUBLICATION_SENT_ELSEWHERE', details: { commit: aside.commit, remoteTip: aside.remoteTip, nextAction: preview,
       recoveryCommands: [{ command: preview, label: 'Preview: nothing changes' },
-        { command: aside.command, label: 'In your own terminal, if you sent it: stop waiting for it' }] } }
+        { command: aside.command, label: 'In your own terminal, once you have checked it is the commit you meant to publish: stop waiting for it' }] } }
   );
   return new SingularityFlowError(
     `Another clone published to ${aside.branch} after this checkout made commit ${aside.commit.slice(0, 8)} (${aside.event ?? 'a lifecycle change'}${aside.phase ? ` at ${aside.phase}` : ''}), so it can never be sent as it is. Nothing was pushed. `
@@ -349,7 +356,7 @@ export function printSetAside(result, setAsideReason, nextCommand) {
     console.log(`Nothing to set aside: ${setAsideReason(result)}.`);
     return;
   }
-  const what = result.publishedElsewhere ? `, but the remote already has it: it was sent outside SFlow (by hand, say), which SFlow never counts as its own publication`
+  const what = result.publishedElsewhere ? `, but the remote already has it and SFlow has no record that its own push of it landed, so it never counts it as its own publication`
     : result.lostRace ? `, which another clone has moved on from, so it can never be sent as it is`
     : !result.onBranch ? ', but it is no longer on that branch' : '';
   console.log(`Commit ${short(result.commit)} (${result.event ?? 'lifecycle change'}${result.phase ? ` at ${result.phase}` : ''}) is waiting to be published to ${result.remote}/${result.branch}${what}.`);

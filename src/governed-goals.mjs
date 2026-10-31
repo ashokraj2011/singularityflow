@@ -754,7 +754,7 @@ async function mutateGovernedGoal(context, id, config, message, mutate, { now = 
   if (pending) {
     throw new SingularityFlowError(
       `Repository Goal '${id}' has an unpublished commit ${pending.record.commit?.slice(0, 8) ?? 'unknown'}. Run 'singularity-flow goal sync ${id}' before another mutation.`,
-      { code: 'GOVERNED_GOAL_PUBLICATION_PENDING', details: { id, commit: pending.record.commit ?? null } }
+      { code: 'GOVERNED_GOAL_PUBLICATION_PENDING', details: { id, commit: pending.record.commit ?? null, nextAction: `singularity-flow goal sync ${id}` } }
     );
   }
   const loaded = await loadGovernedGoal(context, id, { config, refresh: true });

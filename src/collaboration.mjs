@@ -6,7 +6,7 @@ import {
 } from './git.mjs';
 import { currentPhase } from './phase-generation.mjs';
 import { generationResultDigest, generationResultMatches, syncPublication } from './state-stores.mjs';
-import { inspectPendingPublication } from './publication-pending.mjs';
+import { inspectPendingPublication, retainedPublicationRemoteMoved } from './publication-pending.mjs';
 import { recordSha256 } from './records.mjs';
 import { inspectPhaseRecovery, inspectPhaseWorktreeScope } from './recovery-plan.mjs';
 import { runGovernanceGate } from './governance.mjs';
@@ -211,7 +211,18 @@ async function readRecoveryPlan(root, config, workflow, { fetch, phaseId, inspec
       line: null, value: null,
       details: { recoveryStage: pending.record?.recoveryStage ?? null, commit: pending.record?.commit ?? null }
     });
-    actions.push({
+    // A commit the remote moved past never lands by sync: recover offered sync for ever (sweep B1).
+    // Lead with the set-aside preview, and keep sync for a remote that moves back, never automatic.
+    if (retainedPublicationRemoteMoved(pending)) actions.push({
+      id: 'set-aside-preview', safe: true, automatic: false, mode: 'guided', confirmation: 'none',
+      command: `singularity-flow sync ${workflow.workItem.id} --set-aside`,
+      detail: 'The remote moved past the retained commit (another clone published first, or it already has the commit), so sync cannot send it as it is. Preview setting it aside; nothing changes.'
+    }, {
+      id: 'publish', safe: true, automatic: false, mode: 'guided', confirmation: 'none',
+      command: `singularity-flow sync ${workflow.workItem.id}`,
+      detail: 'Only once the remote holds what the commit was made on again: retry it with sync.'
+    });
+    else actions.push({
       id: 'publish', safe: true, automatic: true, mode: 'automatic',
       confirmation: 'plan-hash', command: 'singularity-flow sync',
       detail: 'Retry the retained lifecycle commit with singularity-flow sync.'

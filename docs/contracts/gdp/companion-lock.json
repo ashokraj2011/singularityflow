@@ -4,8 +4,8 @@
   "status": "contract-only",
   "baselineCommit": "70db564e59224b03729bab0f9a340807f3086c61",
   "lastReview": {
-    "reviewedAtCommit": "b6fd24faef1699db2a6ac87656db5d199f5133a4",
-    "evidence": "docs/contracts/gdp/COMPANION-LOCK-REVIEW-2026-10-30-SDA-LIFECYCLE-CANCELLATION.md",
+    "reviewedAtCommit": "fc7b10482abf34371f91bcc4fb3d3cc84b721566",
+    "evidence": "docs/contracts/gdp/COMPANION-LOCK-REVIEW-2026-10-31-SWEEP-PUBLICATION-OUTCOMES.md",
     "companionIds": [
       "publication-unit-of-work"
     ]
@@ -84,7 +84,7 @@
     {
       "id": "publication-unit-of-work",
       "path": "src/publication-unit-of-work.mjs",
-      "sha256": "sha256:04a059bc53149704fa7e2464e505b565bf419787a61c280df994b798da53d6e1"
+      "sha256": "sha256:6cc1ff7c45e3b1d332a0186dc8e915426306f2c39a83999a3b13d03247594493"
     },
     {
       "id": "action-authorization",

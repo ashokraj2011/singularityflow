@@ -386,3 +386,54 @@ test('Stories from two laptops both land, and two configuration proposals for on
       'Product approvers (laptop A)', 'the first approval stands');
     assert.match(approved('singularity/prompts/copilot-planning.md'), /Planned on laptop B\.\n$/u, 'the separate asset landed');
   });
+
+// Sweep B1: laptop A's approval lands but its answer is lost and the remote then goes away; laptop B
+// takes the Story over and publishes on top of that approval. A's sync called the approval "sent
+// outside SFlow (a hand push, say)", rewrote its lost answer to rejected, recover offered sync for
+// ever and approve named sync. The remote building on it is proof it landed: sync settles it.
+test('a lost approval another laptop has since built on is settled by sync as published, never as a hand push (sweep B1)',
+  lane({ timeout: 900_000 }), async (t) => {
+    const f = await fixture(t);
+    const a = await f.laptop('a');
+    await f.seed(a);
+    const id = 'BUILT-1';
+    await submitted(a, id);
+    await writeFile(a.loseNextPush, 'offline');
+    const lost = a.attempt(['approve', 'intake', '--yes', '--json']);
+    assert.equal(JSON.parse(lost.stdout).error.outcomeClass, 'OUTCOME_UNKNOWN', lost.stdout);
+    const pendingFile = path.join(a.repo, `.git/singularity-flow/pending-publication/story--${id}.json`);
+    const held = (JSON.parse(await readFile(pendingFile, 'utf8'))).record ?? JSON.parse(await readFile(pendingFile, 'utf8'));
+    assert.equal(held.pushOutcome, 'transport-indeterminate');
+    await rename(`${f.remote}.away`, f.remote);
+
+    // Laptop B takes the Story over and publishes a document on top of A's approval.
+    const b = await f.laptop('b', { clone: true });
+    const surface = { SINGULARITY_FLOW_SURFACE_CONTEXT: JSON.stringify({ schemaVersion: 1, repositoryPath: b.repo }) };
+    const taken = JSON.parse(b.flow(['session', 'takeover', id, '--json'], { extra: surface }).stdout);
+    assert.equal(taken.ready, true, JSON.stringify(taken));
+    const evidence = path.join(f.base, 'evidence.md');
+    await writeFile(evidence, '# Evidence\n\nWritten on laptop B after taking the Story over.\n');
+    b.flow(['documents', 'upload', evidence, '--name', 'Evidence'], { cwd: taken.repositoryPath });
+    const tip = f.remoteGit('rev-parse', `refs/heads/${id}`).stdout.trim();
+    assert.notEqual(tip, held.commit);
+    assert.equal(f.remoteGit('merge-base', '--is-ancestor', held.commit, tip).status, 0, 'B built on A\'s approval');
+
+    // A's sync settles the lost answer: nothing is pushed, nothing is called a hand push.
+    const synced = a.attempt(['sync', id]);
+    assert.equal(synced.status, 0, synced.stdout + synced.stderr);
+    assert.match(synced.stdout, /had already reached origin\/BUILT-1/u);
+    assert.match(synced.stdout, /another clone has since published on top of it/u);
+    assert.doesNotMatch(synced.stdout + synced.stderr, /hand push|sent outside SFlow|--set-aside/u);
+    assert.equal(existsSync(pendingFile), false, 'the lost answer is settled');
+    assert.equal(f.remoteGit('rev-parse', `refs/heads/${id}`).stdout.trim(), tip, 'the remote stays as B left it');
+    assert.equal(f.remoteSubjects(id, new RegExp(`^\\[${id}\\]\\[phase:intake\\]\\[approve\\]`, 'u')).length, 1);
+    assert.equal(f.remoteLedger().filter((entry) => entry.type === 'phase-approved' && entry.subject === id).length, 1,
+      'one approval in the ledger');
+
+    // recover no longer offers sync, and approval is no longer held back by a publication.
+    const plan = JSON.parse(a.flow(['recover', id, '--json']).stdout);
+    assert.equal(plan.pendingPublication, false, JSON.stringify(plan));
+    assert.ok(!plan.actions.some((entry) => entry.id === 'publish' || /\bsync\b/u.test(entry.command ?? '')), JSON.stringify(plan.actions));
+    const again = a.attempt(['approve', 'intake', '--yes', '--json']);
+    assert.notEqual(JSON.parse(again.stdout).outcome?.slots?.gate, 'publicationPending', again.stdout);
+  });

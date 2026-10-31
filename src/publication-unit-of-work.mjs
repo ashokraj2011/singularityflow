@@ -13,7 +13,7 @@ import {
   recordLedgerOutbox
 } from './ledger.mjs';
 import { assertLifecycleEvent, bindLifecycleEvent } from './lifecycle-event.mjs';
-import { readPendingPublication, writePendingPublication } from './publication-pending.mjs';
+import { readPendingPublication, subjectSyncCommand, writePendingPublication } from './publication-pending.mjs';
 import {
   beginPublicationJournal, clearPublicationJournal, updatePublicationJournal
 } from './publication-journal.mjs';
@@ -168,8 +168,11 @@ export class GitPublicationUnitOfWork {
       }
     }
     if (await readPendingPublication(root, { kind: subject.kind, id: subject.id })) {
-      throw new SingularityFlowError(`${subject.kind} '${subject.id}' has a pending publication. Synchronize it before another mutation.`,
-        { code: 'PUBLICATION_PENDING' });
+      // The subject's own sync publishes it; with no route an approval turn was sent to reject (E10).
+      const route = subjectSyncCommand(subject);
+      throw new SingularityFlowError(`${subject.kind} '${subject.id}' has a pending publication. `
+        + `${route ? `Publish it with ${route}` : 'Synchronize it'} before another mutation.`,
+      { code: 'PUBLICATION_PENDING', details: { subject: { kind: subject.kind, id: subject.id }, ...(route ? { nextAction: route } : {}) } });
     }
     if (ledger?.config?.enabled && ledger.config.behind === 'block') {
       const status = await ledgerStatus(root, ledger.config, { offline: true });
@@ -679,8 +682,7 @@ export class GitPublicationUnitOfWork {
         : {})
     });
     // The sync that publishes this exact commit (it never authors again).
-    const sync = subject.kind === 'story' ? `singularity-flow sync ${subject.id}`
-      : subject.kind === 'initiative' ? `singularity-flow initiative sync ${subject.id}` : null;
+    const sync = subjectSyncCommand(subject);
     if (publication.mode !== 'off') {
       // The last boundary at which cancellation is honoured (SDA §7.3). The commit is already the
       // branch's, so it is retained as a push that never started would leave it, for the subject's
@@ -794,10 +796,20 @@ export class GitPublicationUnitOfWork {
         // it, or it refused a lease another writer had moved; otherwise the commit is only retained.
         const remoteDiverged = pushOutcome === 'rejected'
           && /non-fast-forward|fetch first|stale info/iu.test(`${result.stderr ?? ''}\n${result.stdout ?? ''}`);
-        const failure = new SingularityFlowError(`${message} ${sync ? `Run ${sync}` : 'Run the appropriate sync command'} after ${result.failure?.hook ? 'repairing the local hook or runtime' : 'fixing remote access'}.`, {
+        // Another clone published first: sync sends this same commit under the same lease, so it can
+        // never land, and "fix remote access" sent the person round sync (sweep B2). The set-aside
+        // preview (Story and Initiative) says what happened and keeps the commit.
+        const setAside = remoteDiverged && ['story', 'initiative'].includes(subject.kind) && sync ? `${sync} --set-aside` : null;
+        const failure = new SingularityFlowError(setAside
+          ? `${message} Another clone published to ${publication.branch} first, so this commit can never be sent as it is, and sync cannot publish it. `
+            + `Preview setting it aside with ${setAside}: it is kept, the branch moves to what was published, and you do the step's action again there if it still applies.`
+          : `${message} ${sync ? `Run ${sync}` : 'Run the appropriate sync command'} after ${result.failure?.hook ? 'repairing the local hook or runtime' : 'fixing remote access'}.`, {
           ...(result.failure?.hook ? { code: result.failure.code } : {}),
           outcomeClass: pushOutcome === 'transport-indeterminate' ? 'OUTCOME_UNKNOWN' : remoteDiverged ? 'REVISION_CONFLICT' : null,
-          details: { ...(result.failure?.hook ? { remoteFailure: result.failure } : {}), ...(sync ? { nextAction: sync } : {}) }
+          details: {
+            ...(result.failure?.hook ? { remoteFailure: result.failure } : {}),
+            ...(setAside ?? sync ? { nextAction: setAside ?? sync } : {})
+          }
         });
         failure.publicationRefAdvanced = true;
         failure.publicationCommit = sourceCommit;

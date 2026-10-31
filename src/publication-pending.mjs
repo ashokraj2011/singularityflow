@@ -3,10 +3,11 @@ import { createHash, createHmac, timingSafeEqual } from 'node:crypto';
 import { readFileSync } from 'node:fs';
 import { readFile, readdir, unlink, writeFile } from 'node:fs/promises';
 import {
-  admitExactProspectiveTree, branch, changes, commitIsAncestor,
+  admitExactProspectiveTree, branch, changes, commitIsAncestor, fetchRemote,
   gitCommonDir, governedCommitIdentity, head,
   publicationPushOutcome, pushCommitToBranchAsync, refExists, refHead, refreshStalePublishedIndex, remoteContains
 } from './git.mjs';
+import { sourceContains } from './source-inspection.mjs';
 import { configuredRemoteAuthority } from './git-remote-diagnostics.mjs';
 import {
   clearPublicationJournal,
@@ -537,21 +538,84 @@ export function isPendingStoryBranchPromotion(record) {
 }
 
 /**
+ * Whether a remote branch, as observed, holds `commit`: 'exact', 'descendant' (commits published on
+ * top of it), 'absent', or 'unknown' when the remote or the observed tip's history could not be
+ * read. The tip's history is fetched (that one branch) only when this checkout does not have it.
+ */
+export async function remoteBranchHolds(root, { observed, commit, remote, branch }) {
+  if (!observed || observed.reachable !== true || observed.malformed === true) return 'unknown';
+  if (!observed.sha) return 'absent';
+  if (observed.sha === commit) return 'exact';
+  let contained = sourceContains(root, commit, observed.sha, { offline: true });
+  if (contained.status !== 'present') {
+    try { await fetchRemote(root, remote, { branches: [branch] }); }
+    catch { return 'unknown'; }
+    contained = sourceContains(root, commit, observed.sha, { offline: true });
+  }
+  if (contained.status !== 'present') return 'unknown';
+  return contained.value ? 'descendant' : 'absent';
+}
+
+/**
+ * The command that publishes a subject's retained commit: each kind has its own sync. A pending
+ * publication refused with no route left an approval turn pointing at reject (sweep E10).
+ */
+export function subjectSyncCommand(subject) {
+  const id = String(subject?.id ?? '');
+  if (!/^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$/u.test(id)) return null;
+  return {
+    story: `singularity-flow sync ${id}`,
+    initiative: `singularity-flow initiative sync ${id}`,
+    goal: `singularity-flow goal sync ${id}`,
+    adhoc: `singularity-flow adhoc sync ${id}`
+  }[subject?.kind] ?? null;
+}
+
+/** Git's words (or SFlow's own) for a lease the remote no longer holds. */
+const REMOTE_MOVED = /non-fast-forward|fetch first|stale info|already exists; the create-only|did not move from the explicitly leased commit/iu;
+
+/**
+ * Whether a sealed retained commit was refused because the remote moved past what it was made on:
+ * another clone published first, or the remote holds it without SFlow's push of it landing. Sync
+ * sends the same commit under the same lease, so it can never land that way; only the set-aside
+ * (or the remote moving back) ends it. Read from the sealed record, without the network.
+ */
+export function retainedPublicationRemoteMoved(pending) {
+  return pending?.integrityVerified === true && pending.record?.pushOutcome === 'rejected'
+    && REMOTE_MOVED.test(String(pending.record?.error ?? ''));
+}
+
+/**
+ * What the remote says about a retained commit whose retry failed: `published` when this attempt's
+ * lost answer left the exact commit there, or when an earlier attempt's sealed lost answer
+ * (`priorOutcome` transport-indeterminate) left it there, alone or under commits another clone
+ * published on top of it. A takeover that built on it is proof the earlier push landed: called
+ * rejected, it was refused as sent outside SFlow, and recover offered sync for ever (sweep B1).
+ * `earlierUnknown`: the earlier lost answer stays unknown, never rejected, while the remote or its
+ * history cannot be read; this attempt failing says nothing about that one (SDA-AC-004).
+ * A definitive refusal never claims what another actor sent: without a sealed lost answer, only
+ * this attempt's own lost answer and exact equality settle it.
+ */
+export async function retainedPublicationOutcome(root, { priorOutcome, outcome, observe, commit, remote, branch }) {
+  const earlier = priorOutcome === 'transport-indeterminate';
+  if (!earlier && outcome !== 'transport-indeterminate') return { published: false, earlierUnknown: false, holds: null };
+  const observed = await observe();
+  const holds = earlier
+    ? await remoteBranchHolds(root, { observed, commit, remote, branch })
+    : observed?.reachable === true && !observed.malformed && observed.sha === commit ? 'exact' : null;
+  return {
+    published: holds === 'exact' || holds === 'descendant',
+    earlierUnknown: earlier && holds === 'unknown',
+    holds,
+    remoteTip: observed?.sha ?? null
+  };
+}
+
+/**
  * Finish one machine-sealed Story child-to-canonical promotion using its exact verified Candidate.
  * The caller owns the Story subject lock. A durable transport-indeterminate marker is written
  * before the remote compare-and-swap so process death can reconcile only exact remote equality.
  */
-/**
- * Whether an earlier attempt's lost answer is still unknown after this attempt failed.
- *
- * A retry that cannot read the remote says nothing about the earlier attempt, which may have
- * landed. Recording it as rejected made the remote's later answer (it took the exact commit) read
- * as a push sent outside SFlow, and sync refused to finish its own publication (SDA-AC-004).
- */
-function earlierOutcomeStillUnknown(priorOutcome, observed) {
-  return priorOutcome === 'transport-indeterminate' && (observed?.reachable !== true || observed.malformed === true);
-}
-
 export async function completePendingStoryBranchPromotion(root, pending, {
   subject, targetBranch, remote
 } = {}) {
@@ -614,16 +678,17 @@ export async function completePendingStoryBranchPromotion(root, pending, {
   });
   if (published.result.status !== 0) {
     const outcome = publicationPushOutcome(published.result);
-    const mayReconcile = priorOutcome === 'transport-indeterminate'
-      || outcome === 'transport-indeterminate';
-    const observed = mayReconcile
-      ? await lifecycleAuthority(root).observe({ remote: authority.url, branch: record.targetBranch }) : null;
-    if (!observed || !observed.reachable || observed.malformed || observed.sha !== record.commit) {
+    const settled = await retainedPublicationOutcome(root, {
+      priorOutcome, outcome, commit: record.commit, remote: record.remote, branch: record.targetBranch,
+      observe: () => lifecycleAuthority(root).observe({ remote: authority.url, branch: record.targetBranch })
+    });
+    if (!settled.published) {
       // An earlier lost answer stays unknown while the remote cannot be read (SDA-AC-004).
-      if (outcome !== 'transport-indeterminate' && !earlierOutcomeStillUnknown(priorOutcome, observed)) {
+      if (outcome !== 'transport-indeterminate' && !settled.earlierUnknown) {
+        const diagnostic = (await import('./publication-retry-refusals.mjs')).publicationPushDiagnostic(published.result);
         await writePendingPublication(root, {
           ...subject,
-          record: { ...record, pushOutcome: 'rejected' }
+          record: { ...record, pushOutcome: 'rejected', ...(diagnostic ? { error: diagnostic } : {}) }
         });
       }
       // Promotion retries push the same Candidate; a rule or hook refusal repeats on every retry.
@@ -801,7 +866,8 @@ export async function inspectPendingPublication(root, options = {}) {
       throw error;
     }
     return Object.freeze({
-      status: 'pending', subject, path: displayMarkerPath(root, pending.path), record: pending.record
+      status: 'pending', subject, path: displayMarkerPath(root, pending.path), record: pending.record,
+      integrityVerified: pending.integrityVerified === true
     });
   } catch (error) {
     // A projection fixture or ungoverned directory has no Git-local recovery plane at all. This is
@@ -962,7 +1028,11 @@ export async function syncPendingLifecyclePublication(root, options = {}) {
     }
     if (record.rootPublished === true) {
       const observed = await lifecycleAuthority(root).observe({ remote: authority.url, branch: record.branch });
-      if (!observed.reachable || observed.malformed || observed.sha !== record.commit) {
+      // Sealed progress stays proven once another clone publishes on top of the commit.
+      const holds = pending.integrityVerified === true
+        ? await remoteBranchHolds(root, { observed, commit: record.commit, remote: record.remote, branch: record.branch })
+        : observed.reachable && !observed.malformed && observed.sha === record.commit ? 'exact' : 'absent';
+      if (holds !== 'exact' && holds !== 'descendant') {
         throw new SingularityFlowError('Pending publication claims an unproven remote commit.', {
           code: 'PENDING_PUBLICATION_ROOT_UNPROVEN', details: { subject }
         });
@@ -991,15 +1061,17 @@ export async function syncPendingLifecyclePublication(root, options = {}) {
     });
     if (result.status !== 0) {
       const outcome = publicationPushOutcome(result);
-      const mayReconcile = priorOutcome === 'transport-indeterminate'
-        || outcome === 'transport-indeterminate';
-      const observed = mayReconcile
-        ? await lifecycleAuthority(root).observe({ remote: authority.url, branch: record.branch }) : null;
-      if (!observed || !observed.reachable || observed.malformed || observed.sha !== record.commit) {
+      const settled = await retainedPublicationOutcome(root, {
+        priorOutcome, outcome, commit: record.commit, remote: record.remote, branch: record.branch,
+        observe: () => lifecycleAuthority(root).observe({ remote: authority.url, branch: record.branch })
+      });
+      if (!settled.published) {
         // An earlier lost answer stays unknown while the remote cannot be read (SDA-AC-004).
-        if (outcome !== 'transport-indeterminate' && !earlierOutcomeStillUnknown(priorOutcome, observed)) {
+        if (outcome !== 'transport-indeterminate' && !settled.earlierUnknown) {
+          // The retry's own words: recover reads them to tell a moved remote from a fixable refusal.
+          const diagnostic = (await import('./publication-retry-refusals.mjs')).publicationPushDiagnostic(result);
           await writePendingPublication(root, {
-            ...subject, record: { ...record, pushOutcome: 'rejected' }
+            ...subject, record: { ...record, pushOutcome: 'rejected', ...(diagnostic ? { error: diagnostic } : {}) }
           });
         }
         throw (await import('./publication-retry-refusals.mjs')).publicationPushRefusal({

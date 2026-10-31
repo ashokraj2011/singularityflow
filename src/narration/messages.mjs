@@ -979,7 +979,8 @@ export const MESSAGES = Object.freeze({
   'transport.reported': {
     headline: (s) => s.intentId
       ? `Transport ${slot(s.intentId)} is ${slot(s.status)}; commit ${slot(s.commit)} remains addressable.${transportFault(s)}`
-      : `Found ${slot(s.count, '0')} pending transport intent(s).`,
+      : `Found ${slot(s.count, '0')} pending transport intent(s).${s.damaged
+        ? ` ${slot(s.damaged)} saved push record(s) failed their integrity check and never authorize a push; --json names each file, which only you move out of the outbox.` : ''}`,
     preserves: true
   },
   'integrations.listed': {

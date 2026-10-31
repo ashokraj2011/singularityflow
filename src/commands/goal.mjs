@@ -127,10 +127,16 @@ async function subjectIndex(root, kind, authority = null) {
     ...remoteBranches(root, remote).map((branch) => ({ branch, ref: `${remote}/${branch}` })),
     ...localBranches(root).map((branch) => ({ branch, ref: branch }))
   ];
-  return combinedIndex(
+  const index = combinedIndex(
     working,
     await buildRepositorySubjectIndexFromRefs(root, { refs })
   );
+  // Past a damaged ledger entry an Initiative the records lack is unavailable, not missing (sweep B3).
+  if (identities.unreadable) {
+    const { code, message, nextAction } = identities.unreadable;
+    index.unreadable.push({ code, message, nextAction });
+  }
+  return index;
 }
 
 export async function resolveGovernedWork(context, {

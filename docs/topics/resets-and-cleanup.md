@@ -19,7 +19,7 @@ related:
   - installation-and-upgrades
   - recovery
   - secrets
-version: 9
+version: 10
 ---
 Reset commands have deliberately different scopes. Preview the exact scope and use the confirmation printed by that same mode.
 
@@ -51,6 +51,11 @@ Use this topic when the current goal matches **resets and cleanup**. Start in a 
     custom agents remain active. Invalid custom agents are preserved byte-for-byte under
     `.github/singularity-flow-recovered-agents/<sha256>/`, removed from active discovery, and shown
     with their exact source, destination, digest, size, and validation reason.
+
+`factory-reset` and `reset-all` refuse while a publication is waiting: its marker or journal is the
+only record of a commit the remote lacks, and a backup never carries it. The preview names each one
+with its sync (`sflow sync <WORK-ID>`, `sflow initiative sync <ID>`); publish them first, or preview
+and reset with `--discard-pending-publications` to delete them deliberately.
 
 Reinitialize and factory reset are deliberately different operations. A normal reinitialize never
 silently escalates to factory reset. If the repository is too damaged for seeded-only refresh, the

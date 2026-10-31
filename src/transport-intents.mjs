@@ -139,11 +139,25 @@ export function transportOperationDigest(record) {
 function transportOperation(intent) {
   const payloadDigest = transportOperationDigest(intent);
   if (intent.operation && intent.operation.payloadDigest !== payloadDigest) {
-    throw new SingularityFlowError(`Transport intent '${intent.intentId}' no longer matches the operation it was saved for. Nothing was pushed.`, {
-      code: 'TRANSPORT_INTENT_INTEGRITY_INVALID', details: { intentId: intent.intentId, operationId: intent.operation.id }
+    throw damagedIntentRefusal(`Saved push '${intent.intentId}' no longer matches the operation it was saved for.`, {
+      intentId: intent.intentId, operationId: intent.operation.id
     });
   }
   return { id: intent.operation?.id ?? intent.intentId, payloadDigest };
+}
+
+/**
+ * A saved push record that fails its own checks was damaged or edited outside SFlow. It never
+ * authorizes a push, and nothing removes it: its refusal had no route, `push` has no discard, and
+ * listing skipped it in silence (sweep B4). Name the file and the person's reviewed way to set it aside.
+ */
+function damagedIntentRefusal(message, { file = null, intentId = null, operationId = null } = {}) {
+  const where = file ?? `the record of ${intentId ?? 'this saved push'} in the transport outbox`;
+  return new SingularityFlowError(`${message} It was damaged or edited outside SFlow, so it never authorizes a push; nothing was pushed. `
+    + `Read ${where}: if its push is still wanted, run the command that saved it again. To stop it being listed, move that file out of the transport outbox in your own terminal; SFlow never deletes it.`, {
+    code: 'TRANSPORT_INTENT_INTEGRITY_INVALID',
+    details: { ...(file ? { file } : {}), ...(intentId ? { intentId } : {}), ...(operationId ? { operationId } : {}), nextAction: 'singularity-flow push status --json' }
+  });
 }
 
 const OPERATION_ID = /^[A-Za-z0-9][A-Za-z0-9._:-]{0,199}$/u;
@@ -161,8 +175,8 @@ function signed(record) {
 
 function verified(record, file) {
   if (record?.integrity?.algorithm !== 'sha256' || record.integrity.sha256 !== integrityFor(record)) {
-    throw new SingularityFlowError(`Transport intent failed its integrity check: ${file}`, {
-      code: 'TRANSPORT_INTENT_INTEGRITY_INVALID', details: { file }
+    throw damagedIntentRefusal(`Saved push record ${file} failed its integrity check.`, {
+      file, intentId: path.basename(file, '.json')
     });
   }
   return record;
@@ -209,8 +223,9 @@ export async function readTransportIntent(intentId, { env = process.env, home = 
   return verified(readRecord('transport-intent', record).record, file);
 }
 
+/** `damaged`, when given, collects each record that fails its checks: never a retry, and never silent (sweep B4). */
 export async function listTransportIntents({
-  env = process.env, home = os.homedir(), includeSucceeded = true
+  env = process.env, home = os.homedir(), includeSucceeded = true, damaged = null
 } = {}) {
   const root = transportOutboxRoot(env, home);
   const directory = path.join(root, 'intents');
@@ -223,7 +238,8 @@ export async function listTransportIntents({
       if (includeSucceeded || record.status !== 'succeeded') records.push(record);
     } catch (error) {
       if (String(error?.code ?? '').startsWith('SCHEMA_')) throw error;
-      /* Corrupt records stay on disk and cannot authorize retry. */
+      // Corrupt records stay on disk and cannot authorize retry; a listing that asks names them.
+      damaged?.push(Object.freeze({ intentId: name.slice(0, -'.json'.length), file }));
     }
   }
   return records.sort((left, right) => String(right.updatedAt).localeCompare(String(left.updatedAt)));

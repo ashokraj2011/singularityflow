@@ -143,3 +143,66 @@ test('an unrecorded reference resolves only to the Initiative this checkout itse
   await assert.rejects(() => resolveInitiativeReference(root, identities, 'EPIC-4', { currentBranch: 'EPIC-3' }),
     { code: 'INITIATIVE_IDENTITY_UNRECORDED' });
 });
+
+/** Rewrite (or, with null, delete) the state ledger entry `pick` selects, as one new commit on the state ref. */
+async function damageLedgerEntry(root, pick, rewrite) {
+  const names = run('git', ['ls-tree', '-r', '--name-only', 'state', '--', 'ledger/entries'], { cwd: root }).stdout.split('\n').filter(Boolean);
+  const file = names.find((name) => pick(JSON.parse(run('git', ['show', `state:${name}`], { cwd: root }).stdout)));
+  assert.ok(file, 'the entry to damage exists');
+  const worktree = await mkdtemp(path.join(os.tmpdir(), 'sflow-ledger-damage-'));
+  run('git', ['worktree', 'add', '-q', '--force', worktree, 'state'], { cwd: root });
+  const bytes = rewrite ? rewrite(run('git', ['show', `state:${file}`], { cwd: root }).stdout) : null;
+  if (bytes === null) run('git', ['rm', '-q', file], { cwd: worktree });
+  else { await writeFile(path.join(worktree, file), bytes); run('git', ['add', file], { cwd: worktree }); }
+  run('git', ['commit', '-qm', 'damage one ledger entry'], { cwd: worktree });
+  run('git', ['worktree', 'remove', '--force', worktree], { cwd: root });
+}
+
+// One bad entry anywhere in the state ledger blocked every Initiative list, resume, goal and local
+// Epic ID, with no route (sweep B3).
+test('a damaged ledger entry ends the records there: a list serves what it read, and a lookup or allocation it cannot answer names ledger verify', async (t) => {
+  const { initiativeIdsTaken, resolveInitiativeIdentity } = await import('../src/subject-identity-records.mjs');
+  const { listInitiatives } = await import('../src/initiative-state.mjs');
+  const { refusalRemediationPlan } = await import('../src/refusal-remediation.mjs');
+  const root = await repository({ ledger: true });
+  await recordInitiative(root, 'EPIC-1', 'epic/one', await initiativeOnBranch(root, 'EPIC-1', 'epic/one'));
+  await recordInitiative(root, 'EPIC-2', 'epic/two', await initiativeOnBranch(root, 'EPIC-2', 'epic/two'));
+  const older = (entry) => entry.subject?.workId === 'EPIC-1';
+  await damageLedgerEntry(root, older, (text) => text.replace('"Identity Records"', '"Somebody Else"'));
+
+  const identities = await initiativeIdentityRecords(root, LEDGER_ON);
+  assert.deepEqual(identities.records.map((record) => record.id), ['EPIC-2'], 'what the chain held before the damage');
+  assert.equal(identities.unreadable.nextAction, 'singularity-flow ledger verify');
+  assert.match(identities.unreadable.message, /could not be read: .*corrupt entry/u);
+  assert.equal(resolveInitiativeIdentity(identities, 'EPIC-2').branch, 'epic/two');
+  assert.throws(() => resolveInitiativeIdentity(identities, 'EPIC-1'),
+    (error) => error.code === 'LEDGER_CHAIN_INVALID' && error.details.nextAction === 'singularity-flow ledger verify');
+  // The damaged entry still parses: its ID stays taken, so allocation can prove a new one unused.
+  assert.deepEqual(initiativeIdsTaken(root, identities).sort(), ['EPIC-1', 'EPIC-2']);
+
+  // A Goal finds the Initiative it can read, and one past the damage is unavailable, not missing.
+  const context = await goalContext(t, root);
+  assert.equal((await resolveGovernedWork(context, { reference: 'EPIC-2', kind: 'initiative', repositoryId: 'app', required: false })).availability, 'available');
+  const past = await resolveGovernedWork(context, { reference: 'EPIC-1', kind: 'initiative', repositoryId: 'app', required: false });
+  assert.equal(past.availability, 'unavailable');
+  assert.equal(past.diagnostics[0].nextAction, 'singularity-flow ledger verify');
+
+  // The list serves the Initiative it can read and says what it could not.
+  const unreadable = [];
+  const listed = await listInitiatives(root, { initiativeRoot: 'singularity/initiatives', git: { remote: 'origin' } },
+    { ledger: LEDGER_ON, unreadable });
+  assert.deepEqual(listed.map((entry) => entry.id), ['EPIC-2']);
+  assert.equal(unreadable.length, 1);
+
+  // A missing entry: nothing proves a new ID unused, so allocation refuses and names the read.
+  await damageLedgerEntry(root, older, null);
+  const missing = await initiativeIdentityRecords(root, LEDGER_ON);
+  assert.match(missing.unreadable.message, /missing entry/u);
+  let refusal = null;
+  try { initiativeIdsTaken(root, missing); } catch (error) { refusal = error; }
+  assert.equal(refusal?.code, 'LEDGER_CHAIN_INVALID');
+  assert.equal(refusal.details.nextAction, 'singularity-flow ledger verify');
+  const plan = refusalRemediationPlan(refusal, ['initiative', 'start', 'Something new']);
+  assert.equal(plan.steps[0].command, 'singularity-flow ledger verify');
+  assert.ok(plan.steps.every((entry) => !entry.commandRejected), JSON.stringify(plan.steps));
+});

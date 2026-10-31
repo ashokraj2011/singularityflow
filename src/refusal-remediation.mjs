@@ -696,6 +696,32 @@ function personTerminalStep(entry) {
     ? Object.freeze({ ...entry, copilotReason: 'no verified equivalent: decide it in your terminal' }) : entry;
 }
 
+const AUTO_FLIGHT_ID = /^AFL-[A-F0-9]{26}$/u;
+const AUTO_PLAN_ID = /^APL-[A-F0-9]{26}$/u;
+
+/** The flight an Auto refusal is about: its details, `--flight`, or the flight a flight command names. */
+function autoFlightId(argv, error) {
+  const named = argv?.[0] === 'auto' && ['status', 'report', 'pause', 'stop', 'halt', 'takeover', 'resume', 'compare', 'repair'].includes(argv[1]) ? argv[2] : null;
+  return [error?.details?.flightId, optionValueRaw(argv, 'flight'), named].find((value) => AUTO_FLIGHT_ID.test(String(value ?? ''))) ?? null;
+}
+
+/** The Story an Auto refusal is about: its details, or the Story `auto recover|continue` names. */
+function autoStoryId(argv, error) {
+  const named = argv?.[0] === 'auto' && ['recover', 'continue'].includes(argv[1]) ? argv[2] : null;
+  return safeWorkId(error?.details?.workId) ?? safeWorkId(named);
+}
+
+/** A Plan that cannot start: read it, then plan again. */
+function autoPlanAgainSteps(argv, why, workId = null) {
+  const positional = argv?.[0] === 'auto' && argv[1] === 'start' ? argv[2] : null;
+  const planId = [optionValueRaw(argv, 'plan'), positional].find((value) => AUTO_PLAN_ID.test(String(value ?? ''))) ?? null;
+  return [
+    planId && step('read-auto-plan', `Read the Plan. ${why}`, `singularity-flow auto show-plan ${planId}`, 'diagnostic'),
+    step('plan-again', `${planId ? '' : `${why} `}Make a new Plan for the same requirement${workId ? ', naming its Work ID' : ''}, then start that one.`,
+      `singularity-flow auto plan "<REQUIREMENT>"${workId ? ` --work-id ${workId}` : ''}`, 'remediation')
+  ];
+}
+
 function localSyncSteps(argv, error) {
   const retry = safeCommandGuidance({ argv });
   return [step('preserve-local-story-work', error?.message ?? 'Preserve the local work yourself; nothing was changed.', null, 'remediation'),
@@ -1017,6 +1043,53 @@ const KNOWN = Object.freeze({
     step('select-recovery-phase', 'Run recovery without --phase to inspect the active phase, or select an exact phase ID returned by status. No Story state needs rewriting.',
       null, 'remediation')
   ],
+  // A missing or corrupt ledger entry had no route; it blocked Initiative lists, resume, goals and
+  // Epic IDs (sweep B3). The ledger is append-only: read the damage, then restore it, never edit it.
+  LEDGER_CHAIN_INVALID: () => [
+    step('verify-ledger', 'Read every damaged or missing ledger entry and what it breaks; nothing changes.',
+      'singularity-flow ledger verify', 'diagnostic'),
+    step('restore-ledger-entry', 'With the repository owner, restore the damaged entry from a clone, or the remote state branch history, '
+      + 'that still holds it intact. SFlow never rewrites the append-only ledger, and an entry is never edited by hand.', null, 'remediation')
+  ],
+  // A saved push record that fails its own checks had no route and no discard (sweep B4).
+  TRANSPORT_INTENT_INTEGRITY_INVALID: (argv, error) => {
+    const file = typeof error?.details?.file === 'string' ? redactDiagnosticText(error.details.file).slice(0, 1000) : null;
+    return [
+      step('set-aside-damaged-push', `${file ? `Read ${file}` : 'Read the damaged saved push record'}: it never authorizes a push. `
+        + 'If its push is still wanted, run the command that saved it again. To stop it being listed, a person moves that file out of the '
+        + 'transport outbox in their own terminal; SFlow never deletes it.', null, 'remediation'),
+      step('list-saved-pushes', 'List the other saved pushes and every damaged record, with its file; nothing changes.',
+        'singularity-flow push status --json', 'diagnostic')
+    ];
+  },
+  // Auto's binding refusals rendered only the generic plan (sweep B7): each names its own recovery.
+  AUTO_FLIGHT_BINDING_MISMATCH: (argv, error) => {
+    const flight = autoFlightId(argv, error);
+    const workId = autoStoryId(argv, error);
+    return [
+      flight && step('read-auto-flight', 'Read the flight: its Plan, its Story binding and where it stopped. Auto never runs on a binding that does not match its ratified Plan.',
+        `singularity-flow auto status ${flight}`, 'diagnostic'),
+      flight && step('stop-auto-flight', 'Stop the flight; the Story keeps everything it published.', `singularity-flow auto stop ${flight}`, 'remediation'),
+      workId && step('continue-story-by-hand', 'Continue the Story by hand from its own next step.', `singularity-flow nextsteps ${workId}`, 'remediation')
+    ];
+  },
+  AUTO_RECOVERY_CHECKOUT_FAILED: (argv, error) => {
+    const workId = autoStoryId(argv, error);
+    return workId ? [
+      step('continue-story-by-hand', 'Continue the Story without Auto: resume fetches its recorded branch and attaches it here.',
+        `singularity-flow resume ${workId} --fetch`, 'remediation'),
+      step('retry-auto-recovery', 'Once origin is reachable and still holds the Story\'s recorded branch, recover the flight again.',
+        `singularity-flow auto recover ${workId}`, 'diagnostic')
+    ] : [step('check-auto-origin', 'Auto recovery could not materialize the Story\'s recorded branch: check that origin is reachable and still holds it.', null, 'remediation')];
+  },
+  AUTO_STORY_BRANCH_INVALID: (argv) => autoPlanAgainSteps(argv, 'The Plan records no Story branch Git accepts, so it never starts; nothing was started.'),
+  AUTO_STORY_BRANCH_UNSUPPORTED: (argv, error) => {
+    const workId = safeWorkId(error?.details?.workId);
+    return [
+      ...autoPlanAgainSteps(argv, 'The Plan records a Story branch that is not its Work ID, and Story start names a new branch by its Work ID; nothing was started.', workId),
+      workId && step('start-story-by-hand', 'Or start the Story by hand; its branch is its Work ID.', `singularity-flow start ${workId}`, 'remediation')
+    ];
+  },
   AUTO_DISABLED: (argv) => [
     step('review-auto-policy',
       'Open VS Code → Singularity Flow → Configuration Center → Auto mode; enable the repository and one work type, then review capability limits.',
@@ -1424,7 +1497,58 @@ function deduplicate(steps) {
     || /^singularity-flow decisions\s/u.test(entry.command ?? ''));
 }
 
-const RETAINED_RETRIES = Object.freeze([['push', 'retry'], ['sync'], ['initiative', 'sync'], ['goal', 'sync'], ['story', 'branch', 'promote']]);
+const RETAINED_RETRIES = Object.freeze([['push', 'retry'], ['sync'], ['initiative', 'sync'], ['goal', 'sync'], ['adhoc', 'sync'], ['story', 'branch', 'promote']]);
+const retainedRetry = (entry) => RETAINED_RETRIES.some((form) => form.every((word, index) => entry?.argv?.[index] === word));
+/** Refusals that only a retained publication's own sync clears, in any turn: an approval turn too (E10). */
+const RETAINED_PUBLICATION_PENDING = new Set(['PUBLICATION_PENDING', 'STORY_PUBLICATION_PENDING', 'STORY_CAPABILITY_PUBLICATION_PENDING',
+  'GOVERNED_GOAL_PUBLICATION_PENDING']);
+
+/**
+ * The plan for a retained commit: the subject's own sync (an Initiative's is `initiative sync <ID>`,
+ * which this plan replaced with the Story's, E11), or, when another clone published first
+ * (REVISION_CONFLICT), the set-aside preview: sync sends the same commit under the same lease and
+ * never lands it, yet the plan said it "publishes that exact commit" (B2).
+ */
+function retainedPublicationPlan(error, argv, code, { committed }) {
+  const context = phaseRemediationContext(argv, error);
+  const routes = explicitCommands(error);
+  const setAside = routes.find((entry) => retainedRetry(entry) && entry.argv.includes('--set-aside') && !entry.argv.includes('--confirm')) ?? null;
+  const sync = routes.find((entry) => retainedRetry(entry) && !entry.argv.includes('--set-aside'))
+    ?? (setAside ? safeCommandGuidance({ argv: setAside.argv.filter((word) => word !== '--set-aside') }) : null);
+  const story = !sync || sync.argv[0] === 'sync';
+  const workId = context?.workId ?? safeWorkId(error?.details?.workId)
+    ?? (story && sync ? safeWorkId(sync.argv[1]) : null);
+  const recover = story ? context?.recoveryCommand ?? `singularity-flow recover${workId ? ` ${workId}` : ''} --json` : null;
+  const commit = /^[0-9a-f]{40,64}$/u.test(String(error?.publicationCommit ?? '')) ? error.publicationCommit.slice(0, 12) : null;
+  const raceLost = committed && error?.outcomeClass === 'REVISION_CONFLICT' && setAside;
+  const steps = raceLost ? [
+    step('preview-set-aside',
+      `Another clone published to this branch first, so the retained commit${commit ? ` (${commit})` : ''} can never be sent as it is, and sync cannot publish it. `
+      + 'Preview setting it aside: it is kept, the branch moves to what was published, and the step\'s action is done again there if it still applies. '
+      + 'The preview changes nothing; a person confirms the set-aside in their own terminal.', setAside.command, 'remediation', setAside.skill),
+    recover && step('inspect-recovery', 'Inspect recovery for what else waits on the Story; nothing is pushed.', recover, 'diagnostic', '/sf-recover')
+  ] : [
+    step('finish-publication', committed
+      ? `The publication was committed${commit ? ` (${commit})` : ''} and is retained. Finish it: sync publishes that exact commit and refreshes its files in Git's index. Nothing is authored again.`
+      : 'A retained commit of this subject has not reached its remote yet, and every change waits for it. Publish it first: sync sends that exact commit, and says what to do if it cannot.',
+    sync?.command ?? 'singularity-flow sync', 'remediation', sync?.skill),
+    recover && step('inspect-recovery',
+      'If sync is refused, inspect recovery and apply its safe actions (a stale index lock, index entries that lag the commit).',
+      recover, 'remediation', '/sf-recover'),
+    !story && setAside && step('preview-set-aside', 'If sync says the commit can never be sent, preview setting it aside; nothing changes.',
+      setAside.command, 'diagnostic', setAside.skill)
+  ];
+  return Object.freeze({
+    schemaVersion: 1, // schema-transient: process-boundary guidance, never persisted
+    status: 'blocked', code,
+    ...(context ? { context: Object.freeze({ ...context, strategy: raceLost ? 'set-aside-retained-commit' : 'roll-forward-exact-commit', retryCommand: null, retrySkill: null }) } : {}),
+    steps: Object.freeze(steps.filter(Boolean)),
+    retry: Object.freeze({ label: raceLost
+      ? 'Do not repeat the original command or sync this commit: the remote moved past it. Once it is set aside, do the step\'s action again if it still applies.'
+      : committed ? 'Do not repeat the original command; its commit already exists. Run sync instead.'
+        : 'Run the original command again once sync has published the retained commit.', automatic: false })
+  });
+}
 
 /**
  * A lock only a person can end names its reviewed release (`details.releaseCommand`, SDA M3): the
@@ -1473,9 +1597,7 @@ export function refusalRemediationPlan(error, argv = []) {
   // A refusal that retained its publication names the exact retry (sync, a saved push's
   // `sync <INTENT-ID>` or its older push-subcommand alias, initiative or goal sync, a branch
   // promotion); after the repair that is the way out, where a diagnosis would only describe the hook again.
-  const retainedRetry = hookFailure
-    ? explicitCommands(error).find((entry) => RETAINED_RETRIES.some((form) => form.every((word, index) => entry.argv?.[index] === word))) ?? null
-    : null;
+  const hookRetry = hookFailure ? explicitCommands(error).find(retainedRetry) ?? null : null;
   if (hookFailure) return Object.freeze({
     schemaVersion: 1, // schema-transient: process-boundary guidance, never persisted
     status: 'blocked', code,
@@ -1488,7 +1610,7 @@ export function refusalRemediationPlan(error, argv = []) {
           : 'Verify the named command and its runtime in the calling IDE or terminal environment. Correct a typo or restore the approved tool/PATH. Do not install tools or disable hooks automatically.', null, 'remediation'),
       step('preserve-and-retry-hook',
         'Inspect local changes and preserve hook-generated files and authored work. Retry the retained publication after repair; if remote publication may have completed, reconcile the exact pending operation instead of recreating the Story.',
-        retainedRetry?.command ?? 'singularity-flow doctor --json', retainedRetry ? 'remediation' : 'diagnostic', retainedRetry?.skill ?? null)
+        hookRetry?.command ?? 'singularity-flow doctor --json', hookRetry ? 'remediation' : 'diagnostic', hookRetry?.skill ?? null)
     ]),
     retry: Object.freeze({ label: 'Retry only after the hook, command or runtime has changed; preserve the existing Story and exact publication checkpoint.', automatic: false })
   });
@@ -1496,23 +1618,11 @@ export function refusalRemediationPlan(error, argv = []) {
   // the index refresh that may be what failed). Repeating the phase command would author again on
   // top of a published generation, and generic diagnostics never named the way out.
   if (error?.publicationRefAdvanced === true && error?.publicationRefOutcomeUnknown !== true) {
-    const context = phaseRemediationContext(argv, error);
-    const workId = context?.workId ?? safeWorkId(error?.details?.workId);
-    const commit = /^[0-9a-f]{40,64}$/u.test(String(error.publicationCommit ?? '')) ? error.publicationCommit.slice(0, 12) : null;
-    return Object.freeze({
-      schemaVersion: 1, // schema-transient: process-boundary guidance, never persisted
-      status: 'blocked', code,
-      ...(context ? { context: Object.freeze({ ...context, strategy: 'roll-forward-exact-commit', retryCommand: null, retrySkill: null }) } : {}),
-      steps: Object.freeze([
-        step('finish-publication',
-          `The publication was committed${commit ? ` (${commit})` : ''} and is retained. Finish it: sync publishes that exact commit and refreshes its files in Git's index. Nothing is authored again.`,
-          'singularity-flow sync', 'remediation'),
-        step('inspect-recovery',
-          'If sync is refused, inspect recovery and apply its safe actions (a stale index lock, index entries that lag the commit).',
-          context?.recoveryCommand ?? `singularity-flow recover${workId ? ` ${workId}` : ''} --json`, 'remediation', '/sf-recover')
-      ].filter(Boolean)),
-      retry: Object.freeze({ label: 'Do not repeat the original command; its commit already exists. Run sync instead.', automatic: false })
-    });
+    return retainedPublicationPlan(error, argv, code, { committed: true });
+  }
+  // A retained commit waits: its sync is the way on in every turn, never a reject (E10).
+  if (RETAINED_PUBLICATION_PENDING.has(code) && explicitCommands(error).some(retainedRetry)) {
+    return retainedPublicationPlan(error, argv, code, { committed: false });
   }
   const skillHostBlocked = ['SKP_HOST_ENFORCEMENT_UNAVAILABLE', 'SKP_HOST_DELIVERY_UNCONFIRMED'].includes(code);
   const repositoryRunnerBlocked = code === 'CODE_DELIVERY_TEST_COMMAND_REQUIRED';

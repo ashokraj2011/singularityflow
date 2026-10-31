@@ -75,8 +75,49 @@ test('refusals that name their way out route it, instead of --help, doctor or a 
   // A Story push that failed after its commit: finish it with sync, never repeat or reject the step.
   const pushed = refusal(undefined, 'story commit 1234abcd was retained locally but push failed. Run singularity-flow sync W-1 after fixing remote access.',
     { nextAction: 'singularity-flow sync W-1' }, { publicationRefAdvanced: true, publicationCommit: 'a'.repeat(40) });
-  assert.equal(commands(pushed, ['approve', 'spec'])[0], 'singularity-flow sync');
-  assert.equal(commands(pushed, ['phase', 'publish', 'spec'])[0], 'singularity-flow sync');
+  assert.equal(commands(pushed, ['approve', 'spec'])[0], 'singularity-flow sync W-1');
+  assert.equal(commands(pushed, ['phase', 'publish', 'spec'])[0], 'singularity-flow sync W-1');
+});
+
+test('a retained commit names its own subject\'s route: the Initiative sync, the set-aside after a lost race, sync in an approval turn (sweep B2, E10, E11)', () => {
+  const commit = 'a'.repeat(40);
+  const retained = (message, nextAction, extra = {}) => Object.assign(new Error(message),
+    { code: 'SINGULARITY_FLOW_ERROR', details: { nextAction }, publicationRefAdvanced: true, publicationCommit: commit, ...extra });
+  // E11: an Initiative's retained commit is finished by its own sync, never the Story's.
+  const initiative = refusalRemediationPlan(retained('initiative commit aaaaaaaa was retained locally but push failed.',
+    'singularity-flow initiative sync INIT-1'), ['initiative', 'phase', 'approve', 'discovery', '--initiative', 'INIT-1']);
+  assert.equal(initiative.steps[0].command, 'singularity-flow initiative sync INIT-1');
+  assert.ok(!initiative.steps.some((entry) => /^singularity-flow (?:sync|recover)\b/u.test(entry.command ?? '')), JSON.stringify(initiative.steps));
+
+  // B2: another clone published first. Sync can never send it; the set-aside preview leads.
+  for (const [nextAction, argv] of [
+    ['singularity-flow sync S-1 --set-aside', ['approve', 'intake', '--work-id', 'S-1']],
+    ['singularity-flow initiative sync INIT-1 --set-aside', ['initiative', 'phase', 'approve', 'discovery', '--initiative', 'INIT-1']]
+  ]) {
+    const raced = refusalRemediationPlan(retained('story commit aaaaaaaa was retained locally but push failed. Another clone published to S-1 first.',
+      nextAction, { outcomeClass: 'REVISION_CONFLICT' }), argv);
+    assert.equal(raced.steps[0].command, nextAction, JSON.stringify(raced.steps));
+    assert.match(raced.steps[0].label, /Another clone published to this branch first/u);
+    assert.match(raced.steps[0].label, /sync cannot publish it/u);
+    assert.ok(!raced.steps.some((entry) => /^singularity-flow (?:initiative )?sync \S+$/u.test(entry.command ?? '')), 'sync is never offered for it');
+    assert.doesNotMatch(JSON.stringify(raced.steps), /publishes that exact commit|fix(?:ing)? remote access/u);
+    assert.match(raced.retry.label, /remote moved past it/u);
+  }
+
+  // E10: a pending publication found by the unit of work names its sync, first, even in an approval turn.
+  for (const [nextAction, argv] of [
+    ['singularity-flow sync S-1', ['approve', 'intake', '--work-id', 'S-1']],
+    ['singularity-flow initiative sync INIT-1', ['initiative', 'phase', 'approve', 'discovery']],
+    ['singularity-flow goal sync GEX-1', ['goal', 'step', 'GEX-1']],
+    ['singularity-flow adhoc sync AHS-1', ['land', 'AHS-1']]
+  ]) {
+    const pending = Object.assign(new Error('story \'S-1\' has a pending publication. Publish it before another mutation.'),
+      { code: 'PUBLICATION_PENDING', details: { nextAction } });
+    const plan = refusalRemediationPlan(pending, argv);
+    assert.equal(plan.steps[0].command, nextAction, JSON.stringify(plan.steps));
+    assert.doesNotMatch(JSON.stringify(plan.steps), /sf-reject|End this approval-only turn/u);
+    assert.ok(plan.steps.every((entry) => !entry.commandRejected), JSON.stringify(plan.steps));
+  }
 });
 
 test('session transport refusal retains the selected listing scope and explicit refresh without retry', () => {
@@ -1047,4 +1088,27 @@ test('a blocked feature admission routes to the readiness-repair preview and its
   assert.equal(plan.steps[0].command, 'singularity-flow story test-policy repair --work-id TRP-1 --json');
   assert.match(plan.steps[1].label, /automatic execute-readiness-repair action once/u);
   assert.match(plan.steps[1].label, /accepts no failure/u);
+});
+
+// Auto's binding refusals rendered only help, doctor and nextsteps (sweep B7).
+test('each Auto binding refusal names its own recovery: the flight, the Story by hand, or a new Plan', () => {
+  const flight = `AFL-${'A'.repeat(26)}`;
+  const plan = `APL-${'B'.repeat(26)}`;
+  const steps = (code, argv, details = {}) => {
+    const built = refusalRemediationPlan(Object.assign(new Error('Auto refused.'), { code, details }), argv);
+    assert.ok(built.steps.every((entry) => !entry.commandRejected), JSON.stringify(built.steps));
+    return built.steps.map((entry) => entry.command);
+  };
+  assert.deepEqual(steps('AUTO_FLIGHT_BINDING_MISMATCH', ['auto', 'recover', 'S-1', '--flight', flight]),
+    [`singularity-flow auto status ${flight}`, `singularity-flow auto stop ${flight}`, 'singularity-flow nextsteps S-1']);
+  assert.deepEqual(steps('AUTO_FLIGHT_BINDING_MISMATCH', ['auto', 'resume', flight, '--confirm', 'x'], { workId: 'S-2' }),
+    [`singularity-flow auto status ${flight}`, `singularity-flow auto stop ${flight}`, 'singularity-flow nextsteps S-2']);
+  assert.deepEqual(steps('AUTO_RECOVERY_CHECKOUT_FAILED', ['auto', 'recover', 'S-1']).slice(0, 2),
+    ['singularity-flow resume S-1 --fetch', 'singularity-flow auto recover S-1']);
+  assert.deepEqual(steps('AUTO_STORY_BRANCH_INVALID', ['auto', 'start', plan, '--confirm', 'x']).slice(0, 2),
+    [`singularity-flow auto show-plan ${plan}`, 'singularity-flow auto plan "<REQUIREMENT>"']);
+  assert.deepEqual(steps('AUTO_STORY_BRANCH_UNSUPPORTED', ['auto', 'start', '--plan', plan], { workId: 'S-3', branch: 'feature/S-3' }),
+    [`singularity-flow auto show-plan ${plan}`, 'singularity-flow auto plan "<REQUIREMENT>" --work-id S-3', 'singularity-flow start S-3']);
+  // Without a flight to name, the Story's own route still leads.
+  assert.equal(steps('AUTO_FLIGHT_BINDING_MISMATCH', ['auto', 'recover', 'S-1'])[0], 'singularity-flow nextsteps S-1');
 });

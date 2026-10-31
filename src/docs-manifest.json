@@ -1,9 +1,9 @@
 {
   "schemaVersion": 2,
   "generatedFrom": "docs/topics",
-  "sourceCommit": "96839094ea053b5c05eb25e204d166fb2df87b3a",
+  "sourceCommit": "b83e5a3356862c238cfee4697cd69ab6b4295abd",
   "topicCount": 87,
-  "contentSha256": "909e111dcbeb704963b5825ffa3ac5c896b1e612c1a35ad3507adc144e97ac33",
+  "contentSha256": "3c8f7bbdb7bdd4aa81de71742b11f8db922f8a957b6bbd0f01581dba1c069322",
   "topics": [
     {
       "id": "activity-and-prompt-audit",
@@ -456,8 +456,8 @@
     {
       "id": "recovery",
       "title": "Recovery — nothing is ever lost",
-      "version": 26,
-      "sha256": "be62d185785fc7be582c3302fd59a2e93291322f1e9ebe28b69b96e69dde992f",
+      "version": 27,
+      "sha256": "538207a952678c74f0acd9c223c72273c5c765220f6ef574087b0a8f02d35114",
       "routingSha256": "577f0f1190e3501547da6cb682abb89060388d4998e3b7a349fda9762b9e914d",
       "file": "recovery.md"
     },
@@ -488,8 +488,8 @@
     {
       "id": "resets-and-cleanup",
       "title": "Reset, cleanup, and fresh installation",
-      "version": 9,
-      "sha256": "b3a2101275a1a0be90689125cd794b2567dfff70664514f3e47e58e591a8a696",
+      "version": 10,
+      "sha256": "4d95de2c01e17cedf7bc136b62df0981e0bbe4e0318c1fd495e85cf34ae6e948",
       "routingSha256": "6a466026dd470566f0b40ffddd76705c52ba2bf2968c4d8c0b282e5f60b0b3e4",
       "file": "resets-and-cleanup.md"
     },

@@ -951,6 +951,40 @@ test('a modified transport record cannot authorize a retry', async () => {
   });
 });
 
+// A damaged record had no route: no discard, a silent skip in every listing, and `sync <INTENT-ID>`
+// refused with the generic plan (sweep B4). It names its file and the person's way to set it aside.
+test('a damaged saved push names its file and the person\'s way to set it aside, and listing names it', async () => {
+  const item = await fixture();
+  const created = await createTransportIntent({
+    repositoryRoot: item.work, sourceCommit: item.commit, targetRef: 'refs/heads/review', expectedRemote: null
+  }, item.options);
+  const file = path.join(item.env.SINGULARITY_FLOW_TRANSPORT_OUTBOX, 'intents', `${created.intentId}.json`);
+  const record = JSON.parse(await readFile(file, 'utf8'));
+  await writeFile(file, `${JSON.stringify({ ...record, targetRef: 'refs/heads/main' }, null, 2)}\n`);
+  let refusal = null;
+  try { await readTransportIntent(created.intentId, item.options); } catch (error) { refusal = error; }
+  assert.equal(refusal?.code, 'TRANSPORT_INTENT_INTEGRITY_INVALID');
+  assert.equal(refusal.details.file, file);
+  assert.equal(refusal.details.nextAction, 'singularity-flow push status --json');
+  assert.match(refusal.message, /never authorizes a push/u);
+  assert.match(refusal.message, /move that file out of the transport outbox in your own terminal/u);
+  const { refusalRemediationPlan } = await import('../src/refusal-remediation.mjs');
+  const plan = refusalRemediationPlan(refusal, ['sync', created.intentId]);
+  assert.equal(plan.steps[0].command, null, 'the set-aside is the person\'s own step');
+  assert.ok(plan.steps[0].label.includes(file), plan.steps[0].label);
+  assert.equal(plan.steps[1].command, 'singularity-flow push status --json');
+
+  const { listTransportIntents } = await import('../src/transport-intents.mjs');
+  const damaged = [];
+  assert.deepEqual(await listTransportIntents({ ...item.options, damaged }), [], 'never offered for retry');
+  assert.deepEqual(damaged, [{ intentId: created.intentId, file }]);
+  const cli = new URL('../bin/singularity-flow.mjs', import.meta.url).pathname;
+  const status = run(process.execPath, [cli, '--no-model', 'push', 'status'], { cwd: item.work, env: item.env }).stdout;
+  assert.match(status, /1 saved push record\(s\) failed their integrity check and never authorize a push/u);
+  const listed = JSON.parse(run(process.execPath, [cli, '--no-model', 'push', 'status', '--json'], { cwd: item.work, env: item.env }).stdout);
+  assert.deepEqual(listed.data.damaged, [{ intentId: created.intentId, file }]);
+});
+
 test('the persisted circuit opens after repeated transient failures and survives another invocation', async () => {
   const item = await fixture();
   const created = await createTransportIntent({

@@ -1461,8 +1461,8 @@ export async function findLedgerEvents(root, rawConfig, {
     env, allowFailure: true
   });
   if (headBytes.status !== 0) {
-    throw new SingularityFlowError('The ledger recovery head is unavailable.', {
-      code: 'LEDGER_CHAIN_INVALID'
+    throw new SingularityFlowError('The ledger recovery head is unavailable. Run singularity-flow ledger verify to see every damaged or missing entry; nothing was changed.', {
+      code: 'LEDGER_CHAIN_INVALID', details: { nextAction: 'singularity-flow ledger verify' }
     });
   }
   const head = readRecord('ledger-entry', headBytes.stdout).record;
@@ -1473,8 +1473,8 @@ export async function findLedgerEvents(root, rawConfig, {
     const hash = path.posix.basename(file, '.json');
     const entry = readRecord('ledger-entry', contents).record;
     if (sha256(canonicalJson(entry)) !== hash) {
-      throw new SingularityFlowError('The ledger recovery chain contains a hash mismatch.', {
-        code: 'LEDGER_CHAIN_INVALID'
+      throw new SingularityFlowError(`The ledger recovery chain contains a hash mismatch at entry ${hash}. Run singularity-flow ledger verify to see every damaged or missing entry; nothing was changed.`, {
+        code: 'LEDGER_CHAIN_INVALID', details: { entryHash: hash, nextAction: 'singularity-flow ledger verify' }
       });
     }
     entries.set(hash, entry);
@@ -1485,8 +1485,8 @@ export async function findLedgerEvents(root, rawConfig, {
   while (cursor && inspected < limit) {
     const entry = entries.get(cursor);
     if (!entry) {
-      throw new SingularityFlowError('The ledger recovery chain is incomplete.', {
-        code: 'LEDGER_CHAIN_INVALID'
+      throw new SingularityFlowError(`The ledger recovery chain is missing entry ${cursor}. Run singularity-flow ledger verify to see every damaged or missing entry; nothing was changed.`, {
+        code: 'LEDGER_CHAIN_INVALID', details: { entryHash: cursor, nextAction: 'singularity-flow ledger verify' }
       });
     }
     if (entry.eventType === eventType

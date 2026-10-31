@@ -231,6 +231,50 @@ test('factory reset names the saved configuration drafts it removes and how to s
   JSON.stringify(plan.remove));
 });
 
+// A waiting publication's marker or journal is the only record of a commit the remote lacks, and a
+// backup never carries it. The reset deleted it, refusing nothing, and the preview named only
+// `backup create` (sweep D7).
+test('factory reset names each pending publication and refuses while one waits, unless the reviewed reset discards it', async () => {
+  const root = await initializedRepository('sflow-factory-reset-pending-');
+  const marker = path.join(root, '.git', 'singularity-flow', 'pending-publication', 'story--WAIT-1.json');
+  const journal = path.join(root, '.git', 'singularity-flow', 'publication-journal', 'initiative--INIT-2.json');
+  for (const file of [marker, journal]) {
+    await mkdir(path.dirname(file), { recursive: true });
+    await writeFile(file, '{}\n');
+  }
+  const reset = (args, options) => command(process.execPath, [cli, 'factory-reset', ...args], root, options);
+  const plan = JSON.parse(reset(['--dry-run', '--json']).stdout);
+  assert.deepEqual(plan.pendingPublications.map((entry) => [entry.kind, entry.id, entry.command]), [
+    ['story', 'WAIT-1', 'singularity-flow sync WAIT-1'],
+    ['initiative', 'INIT-2', 'singularity-flow initiative sync INIT-2']
+  ]);
+  assert.equal(plan.pendingPublicationsDiscarded, false);
+  const preview = reset(['--dry-run']).stdout;
+  assert.match(preview, /Pending publications \(the reset refuses until each is published; a backup never carries them\):/u);
+  assert.match(preview, /- story WAIT-1: publish it with singularity-flow sync WAIT-1/u);
+  assert.match(preview, /--discard-pending-publications/u);
+
+  const confirmed = ['--confirm', plan.confirmation, '--expect-scope-sha256', plan.resetScopeSha256, '--allow-dirty'];
+  const refused = reset([...confirmed, '--json'], { ok: false });
+  assert.notEqual(refused.status, 0);
+  const envelope = JSON.parse(refused.stdout);
+  assert.equal(envelope.error.code, 'FACTORY_RESET_PUBLICATION_PENDING', refused.stdout);
+  assert.match(envelope.error.message, /would delete the recovery of 2 pending publication\(s\)/u);
+  assert.equal(envelope.remediationPlan.steps[0].command, 'singularity-flow sync WAIT-1');
+  assert.ok(envelope.remediationPlan.steps.some((entry) => entry.command === 'singularity-flow initiative sync INIT-2'), refused.stdout);
+  assert.equal(await missing(marker), false, 'nothing was removed');
+
+  // The discard is reviewed: a preview without it never confirms a reset with it.
+  const unreviewed = reset([...confirmed, '--discard-pending-publications'], { ok: false });
+  assert.match(unreviewed.stderr, /scope changed after preview/u);
+  const discarding = JSON.parse(reset(['--dry-run', '--discard-pending-publications', '--json']).stdout);
+  assert.equal(discarding.pendingPublicationsDiscarded, true);
+  assert.ok(discarding.remove.some((item) => item.startsWith('the recovery of 2 pending publication(s)')), JSON.stringify(discarding.remove));
+  assert.match(reset(['--dry-run', '--discard-pending-publications']).stdout, /--expect-scope-sha256 \S+ --discard-pending-publications/u);
+  reset(['--confirm', discarding.confirmation, '--expect-scope-sha256', discarding.resetScopeSha256, '--allow-dirty', '--discard-pending-publications']);
+  assert.equal(await missing(marker), true);
+});
+
 test('factory reset refuses while an earlier build kept machine-only documents inside the runtime directory', async () => {
   const root = await initializedRepository('sflow-factory-reset-legacy-documents-');
   const legacy = path.join(root, '.git', 'singularity-flow', 'local-documents', 'WORK-2', 'b'.repeat(64), 'notes.md');
@@ -1721,6 +1765,25 @@ test('reset all replaces repository controls and clears machine registrations wi
   assert.equal(await readFile(path.join(root, 'app.txt'), 'utf8'), 'application source remains\n');
   assert.equal(await readFile(path.join(root, 'singularity', 'workflow.yml'), 'utf8'),
     await readFile(path.join(packageRoot, 'templates', 'workflow.yml'), 'utf8'));
+});
+
+test('reset all refuses while a publication waits, before any machine state moves, unless it discards it', async () => {
+  const root = await initializedRepository('sflow-reset-all-pending-');
+  const machine = await mkdtemp(path.join(os.tmpdir(), 'sflow-reset-all-pending-machine-'));
+  await writeFile(path.join(machine, 'workspaces.json'), '{"workspaces":[]}\n');
+  const marker = path.join(root, '.git', 'singularity-flow', 'pending-publication', 'story--WAIT-2.json');
+  await mkdir(path.dirname(marker), { recursive: true });
+  await writeFile(marker, '{}\n');
+  const { factoryResetAll, factoryResetAllPlan } = await import('../src/factory-reset.mjs');
+  assert.deepEqual((await factoryResetAllPlan(root, { localStateRoot: machine })).pendingPublications.map((entry) => entry.command),
+    ['singularity-flow sync WAIT-2']);
+  await assert.rejects(() => factoryResetAll(root, { confirmation: 'RESET ALL', localStateRoot: machine }),
+    (error) => error.code === 'FACTORY_RESET_PUBLICATION_PENDING' && error.details.nextAction === 'singularity-flow sync WAIT-2');
+  assert.equal(await missing(machine), false, 'machine state stays');
+  assert.equal(await missing(marker), false, 'the waiting publication stays');
+  const result = await factoryResetAll(root, { confirmation: 'RESET ALL', localStateRoot: machine, discardPendingPublications: true });
+  assert.equal(result.completed, true);
+  assert.equal(await missing(marker), true);
 });
 
 test('reset all restores machine registrations when repository replacement fails', async () => {

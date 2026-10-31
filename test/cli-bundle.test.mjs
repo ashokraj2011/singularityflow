@@ -158,7 +158,11 @@ test('the bundled CLI answers exactly like the sources while opening a handful o
   // digest in lease-liveness.mjs, the lock's read and reviewed release in every refusal and its plan in subject-lock.mjs,
   // file-lease.mjs and refusal-remediation.mjs, the own-terminal refusals in copilot-mutation-guard.mjs, `lock` outside
   // the mutation lease in cli-entry.mjs) add 8,898 for 4,573,996. No new file.
-  assert.ok(narrowReads < 4_580_000,
+  // 4,590,000: main fc7b10482 measures 4,573,996; publication outcomes (sweep batch 3: a lost answer settled when the remote
+  // holds or built on it in publication-pending.mjs, state.mjs and initiative-state.mjs; each retained commit's own route,
+  // the set-aside after a lost race and the Auto, ledger and damaged-push plans in refusal-remediation.mjs; ledger reads
+  // that stop at damage in ledger-pages.mjs and subject-identity-records.mjs) add 10,169 for 4,584,165. No new file.
+  assert.ok(narrowReads < 4_590_000,
     `strict next-step reads must not inherit the broad phase-review closure (${narrowReads} bytes)`);
   const publicationClosure = closure('cold-publication.mjs');
   assert.ok(publicationClosure.length && publicationClosure.reduce((sum, item) => sum + item.bytes, 0) < 6 * 1024 * 1024,
@@ -325,7 +329,8 @@ test('the bundled CLI answers exactly like the sources while opening a handful o
   // 7,650,000: sweep batches 1 and 2 together measure 7,642,199. Batch 2 adds each draft's standing against the approved
   // configuration, proposals that hold their drafts (upload pending, merged or closed on the host) and batches a stale
   // draft no longer blocks (configuration-drafts.mjs, +15,153 alone). No new file.
-  assert.ok(hookContext < 7_650_000,
+  // 7,660,000: main fc7b10482 measures 7,642,199; the same sweep batch 3 publication-outcome code adds 11,913 for 7,654,112.
+  assert.ok(hookContext < 7_660_000,
     `phase-review reads retain their existing byte ceiling after moving families (${hookContext} bytes)`);
   assert.match(await readFile(path.join(outdir, 'cold-light.mjs'), 'utf8'), /function enterPhase\b/u,
     'phase binding must not fall through to the compatibility/admin bundle');
@@ -390,7 +395,8 @@ test('the bundled CLI answers exactly like the sources while opening a handful o
   // 5,415,000: main 6585b9b0b measures 5,403,968; the same sweep batch 1 lock-release code adds 8,898 for 5,412,866.
   // 5,435,000: sweep batches 1 and 2 together measure 5,428,019: the same draft standings and proposal recovery in
   // configuration-drafts.mjs (batch 2, +15,153 alone).
-  assert.ok(catalogBytes < 5_435_000,
+  // 5,445,000: main fc7b10482 measures 5,428,019; the same sweep batch 3 publication-outcome code adds 10,169 for 5,438,188.
+  assert.ok(catalogBytes < 5_445_000,
     `catalog parsing stays bounded instead of pulling in the entire administration bundle (${catalogBytes} bytes)`);
   for (const name of ['cold-compatibility.mjs', 'cold-models.mjs', 'cold-intake.mjs', 'cold-phases.mjs', 'cold-hook-context.mjs']) {
     assert.ok(!catalogClosure.some(item => item.file === name), `catalogs must not statically reach ${name}`);

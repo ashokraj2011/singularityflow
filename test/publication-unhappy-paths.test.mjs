@@ -68,7 +68,7 @@ test('a waiting commit sent by hand is never claimed by sync, and the person sto
   git(root, 'push', 'origin', `${sealed.commit}:refs/heads/${id}`);
   const refused = flow(root, ['sync'], { fail: true });
   assert.notEqual(refused.status, 0);
-  assert.match(refused.stderr + refused.stdout, /sent outside SFlow/u);
+  assert.match(refused.stderr + refused.stdout, /no record that its own push of it landed/u);
   assert.match(refused.stderr + refused.stdout, /--set-aside/u);
   assert.ok(await waiting(root, id), 'sync claims nothing');
   const stopped = flow(root, ['sync', id, '--set-aside', '--confirm', sealed.commit]);

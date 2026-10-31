@@ -16,7 +16,7 @@ import {
 } from '../src/git-remote-diagnostics.mjs';
 import {
   discardCleanPreparedPublication, livePreparedPublicationOwner, readPendingPublication,
-  recoverPreparedPublication, recoverPreparedPublicationBySubject, syncPendingLifecyclePublication,
+  recoverPreparedPublication, recoverPreparedPublicationBySubject, remoteBranchHolds, syncPendingLifecyclePublication,
   writePendingPublication
 } from '../src/publication-pending.mjs';
 import {
@@ -34,6 +34,7 @@ import {
   capabilityPublicationPlanSha256, publishCapabilityRepositoriesDurably,
   retainCapabilityPublicationRecovery
 } from '../src/capability-publication-recovery.mjs';
+import { refusalRemediationPlan } from '../src/refusal-remediation.mjs';
 import { childTimeout } from './helpers/child-timeout.mjs';
 
 const packageRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
@@ -717,6 +718,177 @@ test('an earlier lost answer stays unknown through a retry that cannot reach the
       assert.equal(git(['--git-dir', f.remote, 'rev-parse', 'refs/heads/main'], f.root), f.marker.commit);
     });
   }
+});
+
+/** Another clone publishes one commit on top of what `branch` has on the remote; returns it. */
+async function publishOnTop(remote, branch = 'main') {
+  const other = await mkdtemp(path.join(os.tmpdir(), 'sflow-other-clone-'));
+  git(['clone', '-q', '--no-local', '--branch', branch, remote, other], other);
+  git(['config', 'user.name', 'Other Clone'], other);
+  git(['config', 'user.email', 'other@example.com'], other);
+  await writeFile(path.join(other, 'other-clone.txt'), 'published on top\n');
+  git(['add', 'other-clone.txt'], other);
+  git(['commit', '-qm', 'another clone publishes on top'], other);
+  git(['push', '-q', 'origin', `HEAD:refs/heads/${branch}`], other);
+  return git(['rev-parse', 'HEAD'], other);
+}
+
+// A takeover that publishes on top of a lost answer proves that answer landed. Recorded as rejected,
+// the approval read as one sent outside SFlow, and recover offered sync for ever (sweep B1).
+test('an earlier lost answer the remote has since built on settles as published, at every sync route', async (t) => {
+  const crash = { story: 'after-root-push-before-receipt', initiative: 'after-recovery-push' };
+  const sync = {
+    story: (f, options) => syncPublication(f.root, { git: { remote: 'origin' }, ledger: { enabled: false } },
+      storyFor(f.subject), options),
+    initiative: (f, options) => syncInitiativePublication(f.root, { git: { remote: 'origin' } },
+      initiativeFor(f.subject), options),
+    lifecycle: (f) => syncPendingLifecyclePublication(f.root, { ...f.subject, remote: 'origin' })
+  };
+  for (const route of ['story', 'initiative', 'lifecycle']) {
+    await t.test(route, async () => {
+      const kind = route === 'initiative' ? 'initiative' : 'story';
+      const f = await retainedPublication(kind, `${route.toUpperCase()}-LOST-BUILT-ON`, { exactLease: true });
+      await assert.rejects(() => sync[kind](f, {
+        fault: (stage) => { if (stage === crash[kind]) throw new Error('answer lost'); }
+      }), /answer lost/);
+      assert.equal((await readPendingPublication(f.root, f.subject)).record.pushOutcome, 'transport-indeterminate');
+      const tip = await publishOnTop(f.remote);
+
+      const synced = await sync[route](f);
+      assert.equal(synced.pushed, f.marker.commit);
+      if (route === 'story') assert.equal(synced.remoteBuiltOn, tip);
+      assert.equal(await readPendingPublication(f.root, f.subject), null, 'the lost answer is settled');
+      assert.equal(git(['--git-dir', f.remote, 'rev-parse', 'refs/heads/main'], f.root), tip, 'nothing was pushed over it');
+    });
+  }
+  // Sealed root progress stays proven once another clone builds on the root commit.
+  for (const kind of ['story', 'initiative']) {
+    await t.test(`${kind} root progress`, async () => {
+      const f = await retainedPublication(kind, `${kind.toUpperCase()}-ROOT-BUILT-ON`, { exactLease: true });
+      git(['push', 'origin', `${f.marker.commit}:refs/heads/main`], f.root);
+      const tip = await publishOnTop(f.remote);
+      const pending = await readPendingPublication(f.root, f.subject);
+      await writePendingPublication(f.root, { ...f.subject, record: { ...pending.record, rootPublished: true } });
+      const synced = await sync[kind](f);
+      assert.equal(synced.pushed, f.marker.commit);
+      assert.equal(await readPendingPublication(f.root, f.subject), null);
+      assert.equal(git(['--git-dir', f.remote, 'rev-parse', 'refs/heads/main'], f.root), tip);
+    });
+  }
+});
+
+test('a sibling repository\'s lost answer another clone has built on settles, and a different commit is still refused', async () => {
+  const { publishCapabilityRepositories } = await import('../src/capability-start.mjs');
+  const root = await repository('sflow-sibling-built-on-');
+  const remote = await ensurePublicationOrigin(root);
+  await writeFile(path.join(root, 'sibling.txt'), 'sibling commit\n');
+  git(['add', 'sibling.txt'], root);
+  git(['commit', '-qm', 'sibling Story commit'], root);
+  const commit = git(['rev-parse', 'HEAD'], root);
+  git(['push', '-q', 'origin', 'HEAD:refs/heads/main'], root);
+  const tip = await publishOnTop(remote);
+  const entry = (sha) => ({
+    repository: 'sibling', root, remote: 'origin', branch: 'main', destinationRef: 'refs/heads/main',
+    commit: sha, remoteFingerprint: 'fixture', pushOutcome: 'transport-indeterminate'
+  });
+  const options = {
+    remoteAuthority: () => ({ url: remote, fingerprint: 'fixture', remote: 'origin' }),
+    publishCandidate: async () => assert.fail('a settled or refused sibling is never pushed again')
+  };
+  const settled = await publishCapabilityRepositories([entry(commit)], options);
+  assert.deepEqual(settled.pending, []);
+  assert.equal(settled.published[0].reconciled, true);
+  git(['reset', '-q', '--hard', 'HEAD~1'], root);
+  await writeFile(path.join(root, 'other.txt'), 'never published\n');
+  git(['add', 'other.txt'], root);
+  git(['commit', '-qm', 'another commit'], root);
+  const refused = await publishCapabilityRepositories([entry(git(['rev-parse', 'HEAD'], root))], options);
+  assert.equal(refused.pending[0].pushOutcome, 'rejected');
+  assert.match(refused.error, /contains a different commit/u);
+  assert.equal(git(['--git-dir', remote, 'rev-parse', 'refs/heads/main'], root), tip);
+});
+
+// The same remote, without a sealed lost answer: a definitive refusal, or one a person edited into
+// "indeterminate", never claims what reached the remote another way, and builds on it (SDA rule).
+test('a remote built on a retained commit is never claimed without a sealed lost answer', async (t) => {
+  const sync = {
+    story: (f) => syncPublication(f.root, { git: { remote: 'origin' }, ledger: { enabled: false } }, storyFor(f.subject)),
+    initiative: (f) => syncInitiativePublication(f.root, { git: { remote: 'origin' } }, initiativeFor(f.subject)),
+    lifecycle: (f) => syncPendingLifecyclePublication(f.root, { ...f.subject, remote: 'origin' })
+  };
+  for (const route of ['story', 'initiative', 'lifecycle']) {
+    for (const edited of [false, true]) {
+      await t.test(`${route}${edited ? ' (edited to indeterminate)' : ''}`, async () => {
+        const kind = route === 'initiative' ? 'initiative' : 'story';
+        const f = await retainedPublication(kind, `${route.toUpperCase()}-REFUSED-${edited ? 'EDITED' : 'SEALED'}`, { exactLease: true });
+        assert.equal(f.marker.pushOutcome, 'rejected');
+        git(['push', 'origin', `${f.marker.commit}:refs/heads/main`], f.root);
+        const tip = await publishOnTop(f.remote);
+        if (edited) {
+          const pending = await readPendingPublication(f.root, f.subject);
+          const raw = JSON.parse(await readFile(pending.path, 'utf8'));
+          raw.pushOutcome = 'transport-indeterminate';
+          await writeFile(pending.path, `${JSON.stringify(raw, null, 2)}\n`);
+        }
+        await assert.rejects(() => sync[route](f));
+        const held = await readPendingPublication(f.root, f.subject);
+        assert.ok(held, 'nothing was claimed');
+        assert.equal(held.record.commit, f.marker.commit);
+        assert.equal(git(['--git-dir', f.remote, 'rev-parse', 'refs/heads/main'], f.root), tip);
+      });
+    }
+  }
+});
+
+// A push that lost the race to another clone was told to "fix remote access" and sync; sync sends
+// the same commit under the same lease and never lands it (sweep B2). The next transition met the
+// pending publication with no route at all (E10).
+test('a lost race names its set-aside preview, and the pending publication after it names its sync', async (t) => {
+  for (const kind of ['story', 'initiative']) {
+    await t.test(kind, async () => {
+      const root = await repository(`sflow-${kind}-race-lost-`);
+      const remote = await ensurePublicationOrigin(root);
+      const subject = { kind, id: `${kind.toUpperCase()}-RACE`, branch: 'main' };
+      const target = `${kind}-state.json`;
+      const transition = (fault = null) => new GitPublicationUnitOfWork(root).execute({
+        subject, event: lifecycleEvent({ type: 'artifact-generated', subject, phaseId: 'intake', generation: 1 }),
+        commit: { message: `[${subject.id}] publish governed state` },
+        publication: { mode: 'required', branch: 'main', remote: 'origin', expectedRemoteSha: remoteMain(root) },
+        allowedPaths: [target],
+        state: { write: () => writeFile(path.join(root, target), `{"status":"${Date.now()}"}\n`) },
+        fault
+      }).then(() => null, (failure) => failure);
+      const raced = await transition(async (stage) => { if (stage === 'after-commit') await publishOnTop(remote); });
+      const route = kind === 'story' ? `singularity-flow sync ${subject.id}` : `singularity-flow initiative sync ${subject.id}`;
+      assert.equal(raced?.outcomeClass, 'REVISION_CONFLICT', raced?.message);
+      assert.equal(raced.details.nextAction, `${route} --set-aside`);
+      assert.match(raced.message, /Another clone published to main first, so this commit can never be sent as it is/u);
+      assert.doesNotMatch(raced.message, /fixing remote access/u);
+      const argv = kind === 'story' ? ['approve', 'intake', '--work-id', subject.id] : ['initiative', 'phase', 'approve', 'intake'];
+      assert.equal(refusalRemediationPlan(raced, argv).steps[0].command, `${route} --set-aside`);
+
+      const pending = await transition();
+      assert.equal(pending?.code, 'PUBLICATION_PENDING', pending?.message);
+      assert.equal(pending.details.nextAction, route);
+      assert.match(pending.message, new RegExp(`Publish it with ${route}`, 'u'));
+      assert.equal(refusalRemediationPlan(pending, argv).steps[0].command, route);
+    });
+  }
+});
+
+test('what a remote holds of a commit is unknown, never absent, when its history cannot be read', async () => {
+  const f = await retainedPublication('story', 'HOLDS-UNKNOWN', { exactLease: true });
+  const commit = f.marker.commit;
+  const holds = (observed, remote = 'origin') => remoteBranchHolds(f.root, { observed, commit, remote, branch: 'main' });
+  assert.equal(await holds({ reachable: false, sha: null, malformed: false }), 'unknown');
+  assert.equal(await holds({ reachable: true, sha: commit, malformed: true }), 'unknown');
+  assert.equal(await holds({ reachable: true, sha: null, malformed: false }), 'absent');
+  assert.equal(await holds({ reachable: true, sha: commit, malformed: false }), 'exact');
+  assert.equal(await holds({ reachable: true, sha: f.remoteBaseline, malformed: false }), 'absent', 'the parent does not hold it');
+  // A tip this checkout lacks and cannot fetch says nothing either way.
+  assert.equal(await holds({ reachable: true, sha: 'f'.repeat(40), malformed: false }, 'no-such-remote'), 'unknown');
+  const tip = await publishOnTop(f.remote);
+  assert.equal(await holds({ reachable: true, sha: tip, malformed: false }), 'absent', 'fetched: built on the parent, not on it');
 });
 
 test('Story sync durably recovers a crash after its root retry reached receive-pack', async () => {

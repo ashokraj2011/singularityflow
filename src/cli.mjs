@@ -495,6 +495,11 @@ function renderFactoryResetPlan(plan) {
     for (const item of listed.slice(0, 20)) console.log(`- ${item}`);
     if (listed.length > 20) console.log(`- and ${listed.length - 20} more`);
   }
+  if (plan.pendingPublications?.length && !plan.completed) {
+    console.log(`\nPending publications (${plan.pendingPublicationsDiscarded ? 'deleted by this reset' : 'the reset refuses until each is published'}; a backup never carries them):`);
+    for (const entry of plan.pendingPublications) console.log(`- ${entry.kind} ${entry.id}${entry.command ? `: publish it with ${entry.command}` : ''}`);
+    if (!plan.pendingPublicationsDiscarded) console.log('To delete them with the reset instead, preview and reset with --discard-pending-publications.');
+  }
   if (machineOnly?.unmoved?.length && !machineOnly.included && !plan.completed) {
     console.log('\nAn earlier build kept these inside the runtime directory, so the reset will refuse until they are moved out:');
     console.log('run singularity-flow documents list once, then preview again.');
@@ -519,11 +524,12 @@ function renderFactoryResetPlan(plan) {
   }
   if (!plan.completed) {
     console.log(`\nConfirmation required: ${plan.confirmation}`);
+    const discard = plan.pendingPublicationsDiscarded ? ' --discard-pending-publications' : '';
     const command = plan.operation === 'factory-reset-all'
-      ? 'sflow reset-all --yes'
+      ? `sflow reset-all --yes${discard}`
       : `singularity-flow factory-reset --confirm ${JSON.stringify(plan.confirmation)} `
         + `--expect-scope-sha256 ${plan.resetScopeSha256}`
-        + `${plan.machineOnlyDocuments?.included ? ' --include-local-documents' : ''}`;
+        + `${plan.machineOnlyDocuments?.included ? ' --include-local-documents' : ''}${discard}`;
     printCommandRoutes(command);
   } else {
     for (const warning of plan.warnings ?? []) console.log(`\nWarning: ${warning}`);
@@ -547,14 +553,17 @@ async function factoryResetCommand(options) {
   }
   // Machine-only Story documents are kept unless this flag is on both the preview and the reset.
   const includeLocalDocuments = optionBoolean(options, 'include-local-documents');
+  // Waiting publications refuse the reset unless this flag is on both the preview and the reset.
+  const discardPendingPublications = optionBoolean(options, 'discard-pending-publications');
   const result = dryRun
-    ? await factoryResetPlan(root, { packageVersion: VERSION, includeLocalDocuments })
+    ? await factoryResetPlan(root, { packageVersion: VERSION, includeLocalDocuments, discardPendingPublications })
     : await factoryResetRepository(root, {
       confirmation: optionString(options, 'confirm'),
       packageVersion: VERSION,
       allowDirty: optionBoolean(options, 'allow-dirty'),
       expectedScopeSha256,
-      includeLocalDocuments
+      includeLocalDocuments,
+      discardPendingPublications
     });
   if (optionBoolean(options, 'json')) console.log(JSON.stringify(result, null, 2));
   else renderFactoryResetPlan(result);
@@ -564,9 +573,10 @@ async function factoryResetCommand(options) {
 async function resetAllCommand(options) {
   const root = repoRoot();
   const confirmed = optionBoolean(options, 'yes');
+  const discardPendingPublications = optionBoolean(options, 'discard-pending-publications');
   const result = confirmed
-    ? await factoryResetAll(root, { confirmation: 'RESET ALL', packageVersion: VERSION })
-    : await factoryResetAllPlan(root, { packageVersion: VERSION });
+    ? await factoryResetAll(root, { confirmation: 'RESET ALL', packageVersion: VERSION, discardPendingPublications })
+    : await factoryResetAllPlan(root, { packageVersion: VERSION, discardPendingPublications });
   if (optionBoolean(options, 'json')) console.log(JSON.stringify(result, null, 2));
   else {
     renderFactoryResetPlan(result);
@@ -7837,7 +7847,9 @@ async function initiativeCommand(positionals, options) {
     return;
   }
   if (subcommand === 'list') {
-    const initiatives = await listInitiatives(root, portfolio);
+    const unreadable = [];
+    const initiatives = await listInitiatives(root, portfolio, { unreadable });
+    for (const entry of unreadable) console.warn(`Warning: ${entry.message}`);
     if (optionBoolean(options, 'json')) console.log(JSON.stringify(initiatives, null, 2));
     else console.log(table(initiatives, [{ key: 'id', label: 'INITIATIVE' }, { key: 'profile', label: 'PROFILE' }, { key: 'status', label: 'STATUS' }, { key: 'currentPhase', label: 'CURRENT' }]));
     return;

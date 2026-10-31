@@ -109,6 +109,30 @@ async function savedConfigurationDrafts(sharedRuntime) {
   return names.filter((name) => /^cdr-[0-9a-f]{24}\.json$/u.test(name)).length + (legacy?.isFile() ? 1 : 0);
 }
 
+/**
+ * Publications waiting in the runtime roots: each retained commit's marker or pre-commit journal,
+ * the only record of a commit not yet on the remote. A backup never carries them, so the reset
+ * refuses while one waits, unless the reviewed reset discards them (sweep D7).
+ */
+async function pendingPublications(localRuntimeRoots) {
+  const { subjectSyncCommand } = await import('./publication-pending.mjs');
+  const found = new Map();
+  for (const runtime of localRuntimeRoots) {
+    for (const directory of ['pending-publication', 'publication-journal']) {
+      const names = await readdir(path.join(runtime, directory)).catch((error) => (
+        ['ENOENT', 'ENOTDIR'].includes(error?.code) ? [] : Promise.reject(error)));
+      for (const name of names.filter((entry) => /^[a-z][a-z-]*--.+\.json$/u.test(entry)).sort()) {
+        const [kind, ...rest] = name.slice(0, -'.json'.length).split('--');
+        const id = rest.join('--');
+        const key = `${kind}\0${id}`;
+        if (!found.has(key)) found.set(key, { kind, id, command: subjectSyncCommand({ kind, id }), records: [] });
+        found.get(key).records.push(`${directory}/${name}`);
+      }
+    }
+  }
+  return [...found.values()];
+}
+
 async function regularFiles(root, relative = '', output = []) {
   const directory = path.join(root, relative);
   for (const entry of await readdir(directory, { withFileTypes: true }).catch((error) => {
@@ -740,10 +764,13 @@ async function resetScopeFingerprint(root, entries, identity, {
   relativePaths = [],
   absolutePaths = [],
   identityPaths = [],
-  packageVersion = null
+  packageVersion = null,
+  discardPendingPublications = false
 } = {}) {
   const hash = createHash('sha256');
   hash.update('factory-reset-scope-v2\0');
+  // A preview that discards waiting publications confirms only a reset that does.
+  if (discardPendingPublications) hash.update('discard-pending-publications\0');
   hash.update(`repository\0${root}\0branch\0${identity.branch ?? 'detached'}\0`);
   hash.update(`head\0${identity.head ?? 'unborn'}\0package\0${packageVersion ?? 'unknown'}\0`);
   for (const absolute of [...new Set(identityPaths)].sort()) {
@@ -864,7 +891,7 @@ async function customAgentRecoveryPlan(repository, { caseInsensitive }) {
   }
 }
 
-export async function factoryResetPlan(root, { packageVersion = null, includeLocalDocuments = false } = {}) {
+export async function factoryResetPlan(root, { packageVersion = null, includeLocalDocuments = false, discardPendingPublications = false } = {}) {
   const repository = await realpath(path.resolve(root));
   const caseInsensitive = repositoryCaseInsensitive(repository);
   // Git may spell one directory through a filesystem alias (`/var` versus `/private/var` on macOS,
@@ -896,6 +923,8 @@ export async function factoryResetPlan(root, { packageVersion = null, includeLoc
   const localDocumentRoots = includeLocalDocuments && storeState.exists ? [localDocumentStore] : [];
   // Drafts live inside the shared runtime root, so the reset takes them: the preview names them (SDA M5).
   const savedDrafts = await savedConfigurationDrafts(sharedLocalRuntime);
+  const waiting = await pendingPublications(localRuntimeRoots);
+  const discardWaiting = discardPendingPublications && waiting.length > 0;
   // The token binds to this checkout at this commit, not just to its name. `RESET <name>` alone is
   // derivable from the directory you are standing in, so a token copied out of shell history — or
   // computed by an agent that never showed anybody the preview — matched a different clone of the
@@ -940,6 +969,7 @@ export async function factoryResetPlan(root, { packageVersion = null, includeLoc
   const customAgentRecoveries = await customAgentRecoveryPlan(repository, { caseInsensitive });
   const resetScopeSha256 = await resetScopeFingerprint(repository, uncommittedEntries, identity, {
     packageVersion,
+    discardPendingPublications: discardWaiting,
     identityPaths: [repository, privateGitDirectory, commonGitDirectory],
     relativePaths: [
       ...CONTROL_ROOTS,
@@ -977,7 +1007,9 @@ export async function factoryResetPlan(root, { packageVersion = null, includeLoc
           ? `, and ${unmovedMachineOnlyDocuments.length} machine-only Story document(s) an earlier build kept there` : ''}`
         + `${localRuntime === sharedLocalRuntime && savedDrafts
           ? `, and ${savedDrafts} saved configuration draft file(s), the only copy of each: save them first with singularity-flow backup create --out <DIRECTORY>` : ''})`),
-      ...localDocumentRoots.map((store) => `${store} (${machineOnlyDocuments.length} machine-only Story document(s), the only copy of each)`)
+      ...localDocumentRoots.map((store) => `${store} (${machineOnlyDocuments.length} machine-only Story document(s), the only copy of each)`),
+      ...(discardWaiting ? [`the recovery of ${waiting.length} pending publication(s), the only record of commits not yet on the remote: `
+        + waiting.map((entry) => `${entry.kind} ${entry.id}`).join(', ')] : [])
     ],
     replace: [
       'singularity/ from the templates bundled with the currently installed npm package',
@@ -996,6 +1028,8 @@ export async function factoryResetPlan(root, { packageVersion = null, includeLoc
     localRuntimeRoots,
     localDocumentRoots,
     savedConfigurationDrafts: savedDrafts,
+    pendingPublications: waiting,
+    pendingPublicationsDiscarded: discardWaiting,
     machineOnlyDocuments: {
       store: localDocumentStore,
       included: localDocumentRoots.length > 0,
@@ -1009,6 +1043,24 @@ export async function factoryResetPlan(root, { packageVersion = null, includeLoc
   };
 }
 
+/** The reset's refusal while publications wait: each one's sync, then the deliberate discard. */
+export function pendingPublicationResetRefusal(waiting) {
+  const routes = waiting.filter((entry) => entry.command);
+  return new SingularityFlowError(
+    `Factory reset would delete the recovery of ${waiting.length} pending publication(s), the only record of commits not yet on the remote, which a backup never carries:\n`
+    + waiting.map((entry) => `  ${entry.kind} ${entry.id}${entry.command ? `: ${entry.command}` : ''}`).join('\n')
+    + '\nPublish each first with its sync, preview again, then reset. To delete them with the reset, preview and reset with --discard-pending-publications. Nothing was removed.',
+    {
+      code: 'FACTORY_RESET_PUBLICATION_PENDING',
+      details: {
+        pendingPublications: waiting.map(({ kind, id, command }) => ({ kind, id, command })),
+        ...(routes.length ? { nextAction: routes[0].command } : {}),
+        recoveryCommands: routes.slice(1).map((entry) => ({ command: entry.command, label: `Publish ${entry.kind} ${entry.id} first` }))
+      }
+    }
+  );
+}
+
 /**
  * @param fault test seam for crash-point injection, matching the publication kernel's. Rollback is
  *   the whole point of this command and it is unreachable from a CLI test without one.
@@ -1019,10 +1071,11 @@ async function factoryResetRepositoryLocked(root, {
   allowDirty = false,
   expectedScopeSha256 = null,
   includeLocalDocuments = false,
+  discardPendingPublications = false,
   fault = null,
   forceCopyRestore = false
 } = {}) {
-  const plan = await factoryResetPlan(root, { packageVersion, includeLocalDocuments });
+  const plan = await factoryResetPlan(root, { packageVersion, includeLocalDocuments, discardPendingPublications });
   if (expectedScopeSha256 && expectedScopeSha256 !== plan.resetScopeSha256) {
     throw new SingularityFlowError(
       `Factory-reset scope changed after preview (expected ${expectedScopeSha256}, current ${plan.resetScopeSha256}). `
@@ -1052,6 +1105,11 @@ async function factoryResetRepositoryLocked(root, {
       + 'To delete them with the reset, preview and reset with --include-local-documents. Nothing was removed.',
       { code: 'FACTORY_RESET_LOCAL_DOCUMENTS_UNMOVED' }
     );
+  }
+  // A waiting publication's marker or journal is the only record of a commit the remote lacks, and
+  // a backup never carries it; the reset deleted it and the preview named only backup (sweep D7).
+  if (plan.pendingPublications.length && !plan.pendingPublicationsDiscarded) {
+    throw pendingPublicationResetRefusal(plan.pendingPublications);
   }
   const discarded = plan.uncommittedDiscardPaths;
   if (!allowDirty && discarded.length) {
@@ -1159,7 +1217,7 @@ async function factoryResetRepositoryLocked(root, {
     }
     if (fault) await fault('before-final-scope-validation');
     await assertNoActiveSubjectLocks(repository);
-    const finalPlan = await factoryResetPlan(repository, { packageVersion, includeLocalDocuments });
+    const finalPlan = await factoryResetPlan(repository, { packageVersion, includeLocalDocuments, discardPendingPublications });
     if (finalPlan.resetScopeSha256 !== plan.resetScopeSha256) {
       throw new SingularityFlowError(
         `Factory-reset scope changed during preparation (expected ${plan.resetScopeSha256}, current ${finalPlan.resetScopeSha256}). `
@@ -1672,9 +1730,10 @@ export async function factoryResetRepository(root, options = {}) {
  */
 export async function factoryResetAllPlan(root, {
   packageVersion = null,
-  localStateRoot = machineStateRoot()
+  localStateRoot = machineStateRoot(),
+  discardPendingPublications = false
 } = {}) {
-  const repository = await factoryResetPlan(root, { packageVersion });
+  const repository = await factoryResetPlan(root, { packageVersion, discardPendingPublications });
   await directoryState(localStateRoot, 'Singularity machine-local state root');
   return {
     ...repository,
@@ -1770,12 +1829,18 @@ export async function factoryResetAll(root, {
   confirmation,
   packageVersion = null,
   localStateRoot = machineStateRoot(),
+  discardPendingPublications = false,
   fault = null
 } = {}) {
   if (confirmation !== RESET_ALL_CONFIRMATION) {
     throw new SingularityFlowError(
       `Reset all requires --yes (confirmation '${RESET_ALL_CONFIRMATION}'). Run 'sflow reset-all' to preview its exact scope.`
     );
+  }
+  // Refused before any machine state moves, as the repository reset inside it would (sweep D7).
+  if (!discardPendingPublications) {
+    const { pendingPublications: waiting } = await factoryResetPlan(root, { packageVersion });
+    if (waiting.length) throw pendingPublicationResetRefusal(waiting);
   }
 
   // Stage the machine state while holding the three leases used by its mutable registries. If the
@@ -1789,7 +1854,7 @@ export async function factoryResetAll(root, {
     result = await withMachineStateResetBarrier({ localStateRoot }, async ({ lockPaths }) => {
       // Read and validate the machine-state boundary only after the reset barrier and all registry
       // writer leases are held. A registration cannot be added between planning and staging.
-      const plan = await factoryResetAllPlan(root, { packageVersion, localStateRoot });
+      const plan = await factoryResetAllPlan(root, { packageVersion, localStateRoot, discardPendingPublications });
       const staging = await mkdtemp(path.join(machineParent, '.sflow-reset-all-'));
       const stagingParentGuard = await directoryChainGuard(
         machineParent, '', 'Reset-all machine staging parent'
@@ -1805,6 +1870,7 @@ export async function factoryResetAll(root, {
           confirmation: (await factoryResetPlan(root, { packageVersion })).confirmation,
           packageVersion,
           allowDirty: true,
+          discardPendingPublications,
           fault: fault ? (stage) => fault(`repository:${stage}`) : null
         });
       } catch (error) {

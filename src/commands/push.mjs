@@ -79,11 +79,14 @@ export async function run(_argv, { positionals, options, operation }) {
   if (action === 'status') {
     // --repository <PATH>: only this repository's uploads, from any of its checkouts on this computer.
     const repository = optionString(options, 'repository');
+    // Records that fail their own checks are named, never retried (sweep B4); only the machine-wide
+    // listing can show them, since nothing in them can be trusted to name a repository.
+    const damaged = [];
     const result = intentId
       ? await readTransportIntent(intentId)
       : repository
         ? await transportIntentsForRepository(repository, { includeSucceeded: optionBoolean(options, 'all') })
-        : await listTransportIntents({ includeSucceeded: optionBoolean(options, 'all') });
+        : await listTransportIntents({ includeSucceeded: optionBoolean(options, 'all'), damaged });
     const intent = Array.isArray(result) ? null : result;
     return emitCommandResult(commandResult({
       operation: { id: operation.id, classification: operation.classification },
@@ -93,11 +96,11 @@ export async function run(_argv, { positionals, options, operation }) {
             intentId: intent.intentId, status: intent.status,
             commit: intent.sourceCommit.slice(0, 12), ...faultSlots(intent)
           }
-        : { count: result.length }),
+        : { count: result.length, ...(damaged.length ? { damaged: damaged.length } : {}) }),
       effects: noEffects(),
       next: intent ? nextActions(intent) : [],
       restState: intent?.status === 'succeeded' && !configurationProposalBranch(intent) ? 'complete' : 'informational',
-      data: intent ? { intent } : { intents: result }
+      data: intent ? { intent } : { intents: result, ...(damaged.length ? { damaged } : {}) }
     }), { json });
   }
   if (action === 'retry') {

@@ -2,8 +2,10 @@ import { createHash } from 'node:crypto';
 import { lstatSync, readFileSync, readlinkSync } from 'node:fs';
 import path from 'node:path';
 
+import { withoutGitProcessOverrides } from './git-enterprise-environment.mjs';
 import { canonicalJson } from './records.mjs';
 import { scopedReadSync } from './read-scope.mjs';
+import { sourceCheckoutForm } from './source-inspection.mjs';
 import { run, SingularityFlowError } from './util.mjs';
 
 export const WORKTREE_FINGERPRINT_ALGORITHM = 'sflow-worktree-v2';
@@ -26,22 +28,26 @@ function splitNull(value) {
 
 export function withoutConfiguredFilters(root, args, {
   env = process.env,
-  fresh = false
+  fresh = false,
+  // A command that writes a file as checkout does (checkout-index) runs smudge filters too.
+  smudge = false
 } = {}) {
+  const keys = smudge ? 'clean|smudge|process|required' : 'clean|process|required';
   const readOverrides = () => {
     const configured = run('git', [
-      'config', '--get-regexp', '^filter\\..*\\.(clean|process|required)$'
+      'config', '--get-regexp', `^filter\\..*\\.(${keys})$`
     ], { cwd: root, env, allowFailure: true });
     const drivers = new Set();
     if (configured.status === 0) {
       for (const line of configured.stdout.split(/\r?\n/).filter(Boolean)) {
         const key = line.slice(0, line.search(/\s/));
-        const match = /^filter\.(.*)\.(?:clean|process|required)$/.exec(key);
+        const match = new RegExp(`^filter\\.(.*)\\.(?:${keys})$`).exec(key);
         if (match?.[1]) drivers.add(match[1]);
       }
     }
     return [...drivers].sort().flatMap((driver) => [
       '-c', `filter.${driver}.clean=`,
+      ...(smudge ? ['-c', `filter.${driver}.smudge=`] : []),
       '-c', `filter.${driver}.process=`,
       '-c', `filter.${driver}.required=false`
     ]);
@@ -51,7 +57,7 @@ export function withoutConfiguredFilters(root, args, {
   // process-local convenience cache as well as the outer fingerprint cache.
   const overrides = fresh
     ? readOverrides()
-    : scopedReadSync(`git.filter-overrides:${root}`, readOverrides);
+    : scopedReadSync(`git.filter-overrides${smudge ? '.smudge' : ''}:${root}`, readOverrides);
   return [...overrides, ...args];
 }
 
@@ -134,14 +140,19 @@ function hiddenWorktreeChangePaths(root) {
   );
   const hidden = indexManifest.filter((entry) => entry.stage === 0
     && (entry.assumeUnchanged || entry.skipWorktree));
-  return hidden.filter((entry) => {
+  const differentBytes = [];
+  const changed = hidden.filter((entry) => {
     const current = fileEntry(root, entry.path, { sparseAbsent: entry.skipWorktree });
     if (current.type === 'sparse-absent' && entry.skipWorktree) return false;
     if (!['file', 'symlink', 'directory'].includes(current.type)) return true;
     if (current.mode !== entry.mode) return true;
     if (current.type === 'directory') return current.object !== entry.object || current.dirty === true;
-    return current.object !== sha256(indexedBytes(root, entry.object));
+    if (current.object === sha256(indexedBytes(root, entry.object))) return false;
+    if (current.type === 'file') differentBytes.push({ path: entry.path, worktreeSha256: current.object });
+    return true;
   }).map((entry) => entry.path);
+  const checkoutForm = new Set(checkoutFormMatching(root, differentBytes, process.env, false).map((entry) => entry.path));
+  return changed.filter((relative) => !checkoutForm.has(relative));
 }
 
 function indexEntries(listing) {
@@ -159,6 +170,18 @@ function indexEntries(listing) {
     };
   }).sort((left, right) => left.path < right.path ? -1
     : left.path > right.path ? 1 : left.stage - right.stage);
+}
+
+/**
+ * The entries whose working-tree bytes are exactly what Git's checkout writes for their blob, with
+ * Git's own line-ending and encoding conversion and no configured filter (source-inspection.mjs).
+ * Anything Git cannot answer stays a change.
+ */
+function checkoutFormMatching(root, entries, env, fresh) {
+  if (!entries.length) return [];
+  const form = sourceCheckoutForm(root, entries.map((entry) => entry.path), { env, personalEnv: withoutGitProcessOverrides(process.env),
+    configuration: withoutConfiguredFilters(root, [], { env, fresh, smudge: true }) });
+  return form.status === 'present' ? entries.filter((entry) => form.value.get(entry.path) === entry.worktreeSha256) : [];
 }
 
 function indexedBytes(root, object, env = process.env) {
@@ -229,15 +252,18 @@ export function worktreeFingerprint(root, {
       objectFormat: exhaustive ? objectFormat : null
     }));
     const currentByPath = new Map(manifest.map((entry) => [entry.path, entry]));
-    const hiddenChanges = hidden.filter((entry) => {
+    const differentBytes = [];
+    const hiddenRawChanges = hidden.filter((entry) => {
       const current = currentByPath.get(entry.path);
       if (current?.type === 'sparse-absent' && entry.skipWorktree) return false;
       if (!current || !['file', 'symlink', 'directory'].includes(current.type)) return true;
       if (current.mode !== entry.mode) return true;
       if (current.type === 'directory') return current.object !== entry.object || current.dirty === true;
-      return current.object !== sha256(indexedBytes(root, entry.object, env));
+      if (current.object === sha256(indexedBytes(root, entry.object, env))) return false;
+      if (current.type === 'file') differentBytes.push({ path: entry.path, worktreeSha256: current.object });
+      return true;
     }).map((entry) => entry.path);
-    const exhaustiveChanges = exhaustive ? [...stageZero.values()].filter((entry) => {
+    const rawChanges = exhaustive ? [...stageZero.values()].filter((entry) => {
       const current = currentByPath.get(entry.path);
       if (current?.type === 'sparse-absent' && entry.skipWorktree) return false;
       if (!current || !['file', 'symlink', 'directory'].includes(current.type)) return true;
@@ -252,8 +278,18 @@ export function worktreeFingerprint(root, {
       // Windows filesystems do not carry Git's executable bit reliably. On other platforms a
       // mode-only change is local work even when repository core.filemode=false hides it.
       if (process.platform !== 'win32' && current.mode !== entry.mode) return true;
-      return current.indexObject !== entry.object;
+      if (current.indexObject === entry.object) return false;
+      if (entry.mode !== '120000' && current.type === 'file') differentBytes.push({ path: entry.path, worktreeSha256: current.object });
+      return true;
     }).map((entry) => entry.path) : [];
+    // With core.autocrlf (Git for Windows sets it for the whole machine) or a text/eol attribute,
+    // a file Git checked out holds line endings its blob does not, and a raw-byte comparison calls
+    // every such file changed. Bytes exactly as Git's checkout writes them lose nothing; any other
+    // difference, a line-ending-only edit included, stays local work.
+    const checkoutForm = new Set(checkoutFormMatching(root, [...new Map(differentBytes.map((entry) => [entry.path, entry])).values()],
+      env, fresh).map((entry) => entry.path));
+    const hiddenChanges = hiddenRawChanges.filter((relative) => !checkoutForm.has(relative));
+    const exhaustiveChanges = rawChanges.filter((relative) => !checkoutForm.has(relative));
     const unmergedIndex = indexManifest.some((entry) => entry.stage !== 0);
     const workingTree = sha256(canonicalJson(manifest));
     const statusDirty = dirty ?? Boolean(run('git', withoutConfiguredFilters(root, [

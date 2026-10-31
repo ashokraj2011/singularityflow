@@ -1719,7 +1719,7 @@
       "counts": {
         "command-run": 12
       },
-      "digest": "240643071704b8430be3ed120bf82419a6a9d9540096d54f9c0bee50984dd6f3"
+      "digest": "24ca4a3d5273a8d88424bc7d110dd792915773d707696721179e42b696f07e30"
     },
     "src/phase-prompt-composer.mjs": {
       "counts": {
@@ -1836,9 +1836,9 @@
     },
     "src/source-inspection.mjs": {
       "counts": {
-        "command-run": 1
+        "command-run": 2
       },
-      "digest": "6b6b2f28b9a4071db3017d89edf9b8cce863dc1c560fea57e12ddef5c23bce79"
+      "digest": "bff9c572f64cdddf018f61c9047bd141e97e7cc6f499a0454f1ad2672335837b"
     }
   }
 }

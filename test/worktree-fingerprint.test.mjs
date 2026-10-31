@@ -1,12 +1,12 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { createHash } from 'node:crypto';
-import { access, mkdtemp, rm, unlink, writeFile } from 'node:fs/promises';
+import { access, mkdtemp, readFile, rm, unlink, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 
 import { run } from '../src/util.mjs';
-import { WORKTREE_FINGERPRINT_ALGORITHM, worktreeFingerprint } from '../src/worktree-fingerprint.mjs';
+import { WORKTREE_FINGERPRINT_ALGORITHM, assertNoHiddenWorktreeChanges, worktreeFingerprint } from '../src/worktree-fingerprint.mjs';
 import { canonicalJson } from '../src/records.mjs';
 
 // Independent legacy two-read projection proves stored recovery receipts keep their exact hash.
@@ -155,4 +155,71 @@ test('fingerprinting does not invoke configured clean filters', async (t) => {
   const fingerprint = worktreeFingerprint(root);
   assert.equal(fingerprint.dirty, true);
   await assert.rejects(() => access(path.join(root, 'filter-invoked')));
+});
+
+test('a checkout Git converted to CRLF is what checkout writes; a real or a line-ending-only edit is still a change', async (t) => {
+  const root = await mkdtemp(path.join(os.tmpdir(), 'sflow-fingerprint-eol-'));
+  t.after(() => rm(root, { recursive: true, force: true }));
+  const repository = path.join(root, 'repository');
+  run('git', ['init', '-q', '-b', 'main', repository]);
+  run('git', ['config', 'user.name', 'Fingerprint Test'], { cwd: repository });
+  run('git', ['config', 'user.email', 'fingerprint@example.test'], { cwd: repository });
+  await writeFile(path.join(repository, 'notes.txt'), 'one\ntwo\n');
+  await writeFile(path.join(repository, 'filtered.txt'), 'base\n');
+  await writeFile(path.join(repository, '.gitattributes'), 'filtered.txt filter=sflow-probe\n');
+  run('git', ['add', '-A'], { cwd: repository });
+  run('git', ['commit', '-qm', 'base'], { cwd: repository });
+  run('git', ['config', 'filter.sflow-probe.smudge', 'touch filter-invoked; cat'], { cwd: repository });
+  run('git', ['config', 'filter.sflow-probe.clean', 'touch filter-invoked; cat'], { cwd: repository });
+  // Git for Windows sets core.autocrlf=true in its system configuration: its checkouts hold CRLF.
+  const system = path.join(root, 'system.gitconfig');
+  await writeFile(system, '[core]\n\tautocrlf = true\n');
+  const previous = process.env.GIT_CONFIG_SYSTEM;
+  process.env.GIT_CONFIG_SYSTEM = system;
+  t.after(() => { if (previous === undefined) delete process.env.GIT_CONFIG_SYSTEM; else process.env.GIT_CONFIG_SYSTEM = previous; });
+  for (const file of ['notes.txt', 'filtered.txt']) await unlink(path.join(repository, file));
+  run('git', ['checkout', '--', 'notes.txt', 'filtered.txt'], { cwd: repository });
+  assert.equal(await readFile(path.join(repository, 'notes.txt'), 'utf8'), 'one\r\ntwo\r\n');
+  // Past the index's racy window, so Git's own status compares stat data alone; it may run the filter.
+  await new Promise((resolve) => setTimeout(resolve, 1100));
+  run('git', ['update-index', '-q', '--refresh'], { cwd: repository });
+  await unlink(path.join(repository, 'filter-invoked')).catch(() => {});
+  // A destructive proof runs Git without system or global configuration.
+  const empty = path.join(root, 'empty.gitconfig');
+  await writeFile(empty, '');
+  const proof = { ...process.env, GIT_CONFIG_NOSYSTEM: '1', GIT_CONFIG_SYSTEM: empty, GIT_CONFIG_GLOBAL: empty };
+
+  const converted = worktreeFingerprint(repository, { fresh: true, exhaustive: true, env: proof });
+  assert.deepEqual(converted.exhaustiveChanges, []);
+  assert.equal(converted.dirty, false);
+  await assert.rejects(() => access(path.join(repository, 'filter-invoked')), 'a configured filter never runs');
+
+  await writeFile(path.join(repository, 'notes.txt'), 'one\r\nchanged\r\n');
+  assert.deepEqual(worktreeFingerprint(repository, { fresh: true, exhaustive: true, env: proof }).exhaustiveChanges, ['notes.txt']);
+  // Line endings that are neither the blob's nor what checkout writes are a change, though Git's
+  // clean form of them is the blob.
+  await writeFile(path.join(repository, 'notes.txt'), 'one\r\ntwo\n');
+  assert.deepEqual(worktreeFingerprint(repository, { fresh: true, exhaustive: true, env: proof }).exhaustiveChanges, ['notes.txt']);
+  await assert.rejects(() => access(path.join(repository, 'filter-invoked')));
+});
+
+test('an assume-unchanged file Git converted to CRLF is no hidden change; edited, it is', async (t) => {
+  const root = await mkdtemp(path.join(os.tmpdir(), 'sflow-fingerprint-hidden-eol-'));
+  t.after(() => rm(root, { recursive: true, force: true }));
+  run('git', ['init', '-q', '-b', 'main'], { cwd: root });
+  run('git', ['config', 'user.name', 'Fingerprint Test'], { cwd: root });
+  run('git', ['config', 'user.email', 'fingerprint@example.test'], { cwd: root });
+  await writeFile(path.join(root, 'notes.txt'), 'one\ntwo\n');
+  run('git', ['add', '-A'], { cwd: root });
+  run('git', ['commit', '-qm', 'base'], { cwd: root });
+  run('git', ['config', 'core.autocrlf', 'true'], { cwd: root });
+  await unlink(path.join(root, 'notes.txt'));
+  run('git', ['checkout', '--', 'notes.txt'], { cwd: root });
+  run('git', ['update-index', '--assume-unchanged', 'notes.txt'], { cwd: root });
+  assert.equal(await readFile(path.join(root, 'notes.txt'), 'utf8'), 'one\r\ntwo\r\n');
+  assert.deepEqual(worktreeFingerprint(root, { fresh: true }).hiddenChanges, []);
+  assert.deepEqual(assertNoHiddenWorktreeChanges(root).hiddenChanges, []);
+  await writeFile(path.join(root, 'notes.txt'), 'one\r\nchanged\r\n');
+  assert.deepEqual(worktreeFingerprint(root, { fresh: true }).hiddenChanges, ['notes.txt']);
+  assert.throws(() => assertNoHiddenWorktreeChanges(root), { code: 'WORKTREE_HIDDEN_CHANGE' });
 });

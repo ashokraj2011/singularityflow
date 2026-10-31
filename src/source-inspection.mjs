@@ -11,6 +11,10 @@
  * output bound, a missing object), which carries the process result for the caller's diagnostics.
  * `offline: true` forbids a partial clone from fetching a missing object.
  */
+import { createHash } from 'node:crypto';
+import { mkdtempSync, readFileSync, rmSync } from 'node:fs';
+import os from 'node:os';
+import path from 'node:path';
 import { processResultCompleted, processResultSucceeded } from './process-result.mjs';
 import { run } from './util.mjs';
 
@@ -65,4 +69,48 @@ export function sourceContains(root, ancestor, descendant, { env = process.env, 
 export async function sourceWorkingState(root, { env = process.env } = {}) {
   const { executeGitQuery } = await import('./git-query.mjs');
   return { status: 'present', value: executeGitQuery(root, 'repository.revision', {}, { env }) };
+}
+
+/**
+ * Line endings as the person's own Git writes them on checkout, as `-c` arguments. A destructive
+ * proof runs Git without system or global configuration, and Git for Windows sets core.autocrlf=true
+ * in the system one, so only the person's own environment (`personalEnv`) names them. Only these two
+ * values cross.
+ */
+function checkoutLineEndings(root, personalEnv) {
+  const configured = read(root, ['config', '--get-regexp', '^core\\.(autocrlf|eol)$'], { env: personalEnv, offline: false });
+  if (!processResultSucceeded(configured)) return [];
+  return configured.stdout.split(/\r?\n/u).flatMap((line) => {
+    const [key, value] = line.trim().split(/\s+/u);
+    return /^core\.(?:autocrlf|eol)$/iu.test(key ?? '') && /^(?:true|false|input|lf|crlf|native)$/iu.test(value ?? '')
+      ? ['-c', `${key.toLowerCase()}=${value.toLowerCase()}`] : [];
+  });
+}
+
+/**
+ * The bytes Git's checkout writes for each path's indexed blob, as their SHA-256: one
+ * `checkout-index --temp` into a private directory outside the checkout, with Git's own line-ending
+ * and encoding conversion. `configuration` carries the caller's `-c` overrides (its configured
+ * filters disabled). A path Git wrote nothing for is missing from the map.
+ */
+export function sourceCheckoutForm(root, paths, { env = process.env, personalEnv = process.env, configuration = [] } = {}) {
+  const gitDirectory = read(root, ['rev-parse', '--absolute-git-dir'], { env, offline: true });
+  if (!processResultSucceeded(gitDirectory) || !gitDirectory.stdout.trim()) return { status: 'unavailable', result: gitDirectory };
+  const directory = mkdtempSync(path.join(os.tmpdir(), 'sflow-checkout-form-'));
+  try {
+    const written = run('git', [...configuration, ...checkoutLineEndings(root, personalEnv), '--git-dir', gitDirectory.stdout.trim(),
+      '--work-tree', directory, 'checkout-index', '--temp', '-z', '--stdin'], {
+      cwd: directory, env: gitEnvironment(env, true), input: `${paths.join('\0')}\0`, allowFailure: true
+    });
+    if (!processResultSucceeded(written)) return { status: 'unavailable', result: written };
+    const value = new Map();
+    for (const line of written.stdout.split('\0').filter(Boolean)) {
+      const tab = line.indexOf('\t');
+      const name = line.slice(0, tab);
+      if (tab < 1 || name.includes('/') || name.includes('\\')) continue;
+      try { value.set(line.slice(tab + 1), createHash('sha256').update(readFileSync(path.join(directory, name))).digest('hex')); }
+      catch { /* Unreadable: no answer for that path. */ }
+    }
+    return { status: 'present', value };
+  } finally { rmSync(directory, { recursive: true, force: true }); }
 }

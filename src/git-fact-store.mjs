@@ -16,9 +16,10 @@
  * whose raw form names `GIT_*` variables, so neither is written either. No answer is used more than
  * 15 minutes after it was recorded. One whose files changed just before it was recorded stays in
  * memory only, Git's own racy-timestamp rule: a later change made in the same timestamp tick would
- * not show. Timestamps with a fraction of a second prove a fine-grained filesystem (APFS, ext4,
- * NTFS), where the window is 50 ms; any whole-second timestamp (HFS+, FAT, some network shares)
- * widens it to 2 seconds.
+ * not show. A timestamp with a fraction of a second comes from a fine-grained filesystem (APFS, ext4,
+ * NTFS), where its window is 50 ms; a whole-second one (HFS+, FAT, some network shares) has 2
+ * seconds. Each timestamp keeps its own window: an installer writes whole-second times, so Git for
+ * Windows' own executable had widened every answer's window to 2 seconds.
  *
  * `SINGULARITY_FLOW_GIT_FACT_STORE` names another absolute directory, or `off` turns the store off;
  * `SINGULARITY_FLOW_GIT_FACT_CACHE=off` turns every reuse off. Only the CLI installs it: VS Code's
@@ -164,8 +165,7 @@ function settled(files, recordedAt) {
       if (/^\d+$/u.test(stamp ?? '') && stamp !== '0') stamps.push(BigInt(stamp));
     }
   }
-  const window = stamps.every((stamp) => stamp % 1_000_000_000n !== 0n) ? FINE_RACY_NS : COARSE_RACY_NS;
-  return stamps.every((stamp) => recordedNs - stamp >= window);
+  return stamps.every((stamp) => recordedNs - stamp >= (stamp % 1_000_000_000n === 0n ? COARSE_RACY_NS : FINE_RACY_NS));
 }
 
 function record(request, entry) {

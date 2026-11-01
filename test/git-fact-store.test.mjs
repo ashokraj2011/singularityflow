@@ -95,6 +95,21 @@ test('an answer whose files could still change in the same timestamp tick stays 
   await assert.rejects(lstat(offStore), { code: 'ENOENT' });
 });
 
+test('a whole-second timestamp keeps its own window: it does not hold back an answer whose other files settled', async (t) => {
+  const { root, ask } = await session(t);
+  await settle();
+  // An installer writes whole-second times (Git for Windows' own git.exe): an old one is settled,
+  // and a file changed a moment ago on a fine-grained filesystem settles after 50 ms, not 2 seconds.
+  const installed = Math.floor(Date.now() / 1000) - 3600;
+  await utimes(path.join(root, '.git', 'config'), installed, installed);
+  const moment = (Date.now() - 300) / 1000;
+  await utimes(path.join(root, '.git', 'HEAD'), moment, moment);
+  await new Promise((resolve) => { setTimeout(resolve, 300); });
+  const head = [['rev-parse', 'HEAD']];
+  ask(head);
+  assert.equal(ask(head).storeHits, 1, 'the answer was persisted within the two seconds a whole-second filesystem needs');
+});
+
 test('a stored object read is refused once another program deleted the object', async (t) => {
   const { root, head, ask } = await session(t);
   await settle();

@@ -66,7 +66,7 @@ export async function runLocalPreviewQualityCommand(root, config, value, { index
     const testRuntime = normalizeTestRuntime(config.repositoryReadiness?.testRuntime);
     if (policy.kind === 'test') commandEnvironment = testRuntimeEnvironment(testRuntime, commandEnvironment);
     if (policy.kind === 'test' && policy.result?.adapter === 'node-tap') {
-      commandEnvironment = nodeTestReporterEnvironment(commandEnvironment, root, { argv: policy.argv, cwd: commandRoot });
+      commandEnvironment = await nodeTestReporterEnvironment(commandEnvironment, root, { argv: policy.argv, cwd: commandRoot });
     }
     delete commandEnvironment.NODE_TEST_CONTEXT;
     commandEnvironment = withoutHostSurfaceVariables(commandEnvironment);

@@ -28,7 +28,7 @@ test.todo('later');
   await writeFile(path.join(root, 'sample.test.mjs'), source);
   await writeFile(path.join(root, 'other.test.mjs'), "import { test } from 'node:test';\ntest('same', () => {});\n");
   const result = spawnSync(process.execPath, ['--test', 'sample.test.mjs', 'other.test.mjs'], {
-    cwd: root, encoding: 'utf8', env: nodeTestReporterEnvironment(process.env, root)
+    cwd: root, encoding: 'utf8', env: await nodeTestReporterEnvironment(process.env, root)
   });
   assert.equal(result.status, 0, result.stdout + result.stderr);
   const parsed = replayTestReports('node-tap', [{ contents: result.stdout }]);
@@ -79,11 +79,40 @@ test('explicit TAP reporters still run once and retain exact identities, directl
   await writeFile(path.join(root, 'package.json'), JSON.stringify({ scripts: { test: 'node --test --test-reporter=tap case.test.mjs' } }));
   for (const argv of [[process.execPath, '--test', '--test-reporter=tap', 'case.test.mjs'], ['npm', 'test']]) {
     const result = spawnSync(argv[0], argv.slice(1), { cwd: root, encoding: 'utf8',
-      env: nodeTestReporterEnvironment(process.env, root, { argv }) });
+      env: await nodeTestReporterEnvironment(process.env, root, { argv }) });
     assert.equal(result.status, 0, result.stdout + result.stderr);
     const observed = replayTestReports('node-tap', [{ contents: result.stdout }]);
     assert.deepEqual(observed.tests, { discovered: 1, passed: 1, failed: 0, skipped: 0 });
     assert.equal(observed.testcaseObservation.occurrences[0].file, 'case.test.mjs');
     assert.equal(observed.testcaseObservation.occurrences[0].line, 2);
   }
+});
+
+test('a TAP reporter behind npm run chains and workspaces gets its destinations, so the run starts (review, 2026-11-01)', async (t) => {
+  const root = await mkdtemp(path.join(os.tmpdir(), 'sflow-node-chain-reporter-'));
+  t.after(() => rm(root, { force: true, recursive: true }));
+  const { mkdir } = await import('node:fs/promises');
+  await mkdir(path.join(root, 'packages/a'), { recursive: true });
+  const testFile = "import test from 'node:test';\ntest('one', () => {});\n";
+  await writeFile(path.join(root, 'case.test.mjs'), testFile);
+  await writeFile(path.join(root, 'packages/a/case.test.mjs'), testFile);
+  await writeFile(path.join(root, 'packages/a/package.json'), JSON.stringify({ name: 'a', scripts: { test: 'node --test --test-reporter=tap case.test.mjs' } }));
+  // test → npm run unit → node --test --test-reporter=tap: plain `npm test` passed, and the gate's run exited before any test.
+  await writeFile(path.join(root, 'package.json'), JSON.stringify({ name: 'root', private: true, workspaces: ['packages/*'], scripts: {
+    test: 'npm run unit', unit: 'node --test --test-reporter=tap case.test.mjs', 'test:a': 'npm --workspace a test',
+    'test:both': 'node --test --test-reporter=tap case.test.mjs && node --test case.test.mjs' } }));
+  // Identities are the repository's paths, so a workspace's test reads under its directory.
+  for (const [argv, file] of [[['npm', 'test'], 'case.test.mjs'], [['npm', 'run', 'test:a'], 'packages/a/case.test.mjs'],
+    [['npm', '--workspace', 'a', 'test'], 'packages/a/case.test.mjs']]) {
+    const cwd = root;
+    const env = await nodeTestReporterEnvironment(process.env, root, { argv, cwd });
+    assert.match(env.NODE_OPTIONS, /--test-reporter-destination=stdout --test-reporter-destination=stdout$/u, argv.join(' '));
+    const result = spawnSync(argv[0], argv.slice(1), { cwd, encoding: 'utf8', env });
+    assert.equal(result.status, 0, `${argv.join(' ')}\n${result.stdout}${result.stderr}`);
+    const observed = replayTestReports('node-tap', [{ contents: result.stdout }]);
+    assert.deepEqual(observed.tests, { discovered: 1, passed: 1, failed: 0, skipped: 0 }, argv.join(' '));
+    assert.equal(observed.testcaseObservation.occurrences[0].file, file);
+  }
+  // Two runs that install different reporters cannot share one NODE_OPTIONS: refused before anything runs.
+  await assert.rejects(nodeTestReporterEnvironment(process.env, root, { argv: ['npm', 'run', 'test:both'], cwd: root }), { code: 'NODE_TEST_REPORTER_UNSUPPORTED' });
 });

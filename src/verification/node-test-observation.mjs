@@ -1,24 +1,27 @@
-import { readFileSync, statSync } from 'node:fs';
 import path from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { PACKAGE_ROOT } from '../package-root.mjs';
 
+const reporterFlag = (token) => token === '--test-reporter' || token.startsWith('--test-reporter=');
+const destinationFlag = (token) => token === '--test-reporter-destination' || token.startsWith('--test-reporter-destination=');
+
 /** A native reporter is required for exact Node identities: ordinary TAP omits passing files. */
-export function nodeTestReporterEnvironment(environment, root, { argv = [], cwd = root } = {}) {
+export async function nodeTestReporterEnvironment(environment, root, { argv = [], cwd = root } = {}) {
   const env = { ...environment };
   delete env.NODE_TEST_CONTEXT;
   env.SINGULARITY_FLOW_NODE_TEST_ROOT = root;
   const reporter = pathToFileURL(path.join(PACKAGE_ROOT, 'src', 'verification', 'node-test-reporter.mjs')).href;
-  let options = argv.slice(1).join(' ');
-  if (/^(?:npm|pnpm|yarn)(?:\.cmd|\.exe)?$/iu.test(path.basename(argv[0] ?? ''))) {
-    const script = argv[1] === 'run' || argv[1] === 'run-script' ? argv[2] : argv[1];
-    const manifest = path.join(cwd, 'package.json');
-    if (statSync(manifest).size > 1024 * 1024) throw new Error('Node test manifest exceeds the reporter inspection bound.');
-    options = String(JSON.parse(readFileSync(manifest, 'utf8')).scripts?.[script] ?? options);
-  }
-  const existing = (options.match(/--test-reporter(?:=|\s)/gu) ?? []).length;
-  const destinations = (options.match(/--test-reporter-destination(?:=|\s)/gu) ?? []).length;
-  if (existing > 1 || destinations > existing || /--test-reporter(?:=|\s)/u.test(env.NODE_OPTIONS ?? '')) {
+  // Every `node --test` run the command reaches, through its npm run chain and workspaces, not only its outer script.
+  const { runs, outer } = await (await import('../test-command-resolution.mjs')).nodeTestRunsAt(argv.map(String), cwd);
+  // Each run's reporter and destination flags; a chain this reader cannot follow is read as its outer text, as before.
+  const shape = (tokens) => ({ reporters: tokens.filter(reporterFlag).length, destinations: tokens.filter(destinationFlag).length });
+  const textShape = (text) => ({ reporters: (text.match(/--test-reporter(?:=|\s)/gu) ?? []).length,
+    destinations: (text.match(/--test-reporter-destination(?:=|\s)/gu) ?? []).length });
+  const shapes = runs.length ? runs.map(shape) : [textShape(outer.join(' '))];
+  const [{ reporters: existing, destinations }] = shapes;
+  // NODE_OPTIONS reaches every run, so the runs must agree on how many reporters they install.
+  const conflicting = shapes.some((entry) => entry.reporters !== existing || entry.destinations !== destinations);
+  if (existing > 1 || destinations > existing || conflicting || /--test-reporter(?:=|\s)/u.test(env.NODE_OPTIONS ?? '')) {
     throw Object.assign(new Error('Exact Node evidence supports one repository TAP reporter. Remove duplicate/ambient reporter flags or use a single node --test command; no test was launched.'), { code: 'NODE_TEST_REPORTER_UNSUPPORTED' });
   }
   // With an explicit TAP reporter, retain its output and add only the identity event record. Node

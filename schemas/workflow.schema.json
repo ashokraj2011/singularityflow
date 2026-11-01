@@ -719,7 +719,8 @@
               "sha256": { "type": "string", "pattern": "^sha256:[a-f0-9]{64}$" },
               "pinned": { "type": ["string", "null"], "pattern": "^sha256:[a-f0-9]{64}$" },
               "pin": { "type": "object" },
-              "changes": { "type": "array", "items": { "type": "string" } }
+              "changes": { "type": "array", "items": { "type": "string" } },
+              "removed": { "description": "The request is that a pinned suite the step no longer runs stay removed; `sha256` and `pinned` name that pin.", "const": true }
             },
             "additionalProperties": false
           },
@@ -770,6 +771,7 @@
               "additionalProperties": false
             }
           },
+          "definitionVersion": { "description": "The definition rules the pin was recorded under; absent is version 1, which reads only the working directory's script and configuration.", "type": "integer", "minimum": 2 },
           "sha256": { "type": "string", "pattern": "^sha256:[a-f0-9]{64}$" },
           "replaces": { "type": "string", "pattern": "^TCP-[0-9]{3,}$" },
           "acceptedBy": { "type": "string", "pattern": "^TCD-[0-9]{3,}$" },

@@ -11,8 +11,10 @@ import test from 'node:test';
 
 import { recordSha256 } from '../src/records.mjs';
 import {
-  commandDefinition, gateTestCommandPins, packageScriptChain, pinCandidate, pinnedArgv, pinReplayProblem, pinSource, portableArgv, referencePin
+  commandDefinition, DEFINITION_VERSION, gateTestCommandPins, packageScriptChain, pinCandidate, pinnedArgv, pinReplayProblem, pinSource, portableArgv,
+  referencePin, removalRequest, repinRequest
 } from '../src/test-command-pins.mjs';
+import { resolveDeliveryQualityCommands, testCommandProvenance } from '../src/delivery-evidence.mjs';
 
 async function repository(t, files) {
   const root = await mkdtemp(path.join(os.tmpdir(), 'sflow-pins-'));
@@ -63,7 +65,9 @@ test('Maven, Gradle and pytest commands are pinned with their test configuration
   assert.equal((await commandDefinition(bumped, { argv: ['mvn', 'test'] })).entries[0].sha256, maven.entries.find((entry) => entry.path === 'pom.xml').sha256);
   assert.deepEqual(definitionKeys(await commandDefinition(root, { argv: ['.\\gradlew.bat', 'test'] })), ['build.gradle#test-tasks']);
   assert.deepEqual(definitionKeys(await commandDefinition(root, { argv: ['python3', '-m', 'pytest'] })), ['conftest.py#', 'pyproject.toml#tool.pytest']);
-  assert.deepEqual(definitionKeys(await commandDefinition(root, { argv: ['bash', 'scripts/missing.sh'] })), [], 'a missing script has no entry');
+  // A script the command names that is not there is pinned as missing, so creating it later changes the pin.
+  assert.deepEqual(definitionKeys(await commandDefinition(root, { argv: ['bash', 'scripts/missing.sh'] })), ['scripts/missing.sh#']);
+  assert.deepEqual(definitionKeys(await commandDefinition(root, { argv: ['bash', 'scripts/missing.sh'] }, { version: 1 })), [], 'the first rules left it out');
 });
 
 test('one pin serves every platform: wrapper and launcher spellings read the same', () => {
@@ -164,4 +168,166 @@ test('an attempt replays only under a pin recorded on its Story, with its own di
   assert.match(pinReplayProblem({ testCommandPins: [{ ...pin }] }, { commandId: 'unit', pin: { ...pin, argv: ['npm', 'run', 'one'] } }), /differs from its own digest/u);
   assert.match(pinReplayProblem(null, attempt), /cannot be verified without its Story/u);
   assert.equal(pinReplayProblem(null, { commandId: 'unit' }), null, 'an attempt recorded before pins replays as before');
+});
+
+const pinChangeList = (error) => error.details.testCommandPin.changes;
+const refusal = (expected) => (error) => {
+  assert.equal(error.code, 'TEST_COMMAND_PIN_CHANGED', error.message);
+  for (const words of expected) assert.ok(pinChangeList(error).includes(words), `${words} in ${JSON.stringify(pinChangeList(error))}`);
+  return true;
+};
+const accepted = (workflow, id, repin, command) => {
+  workflow.testCommandDecisions ??= [];
+  workflow.testCommandDecisions.push({ id, phase: 'implement', command, repin, reason: 'decided by a person', requestedBy: 'dev', at: 'x' },
+    { accepts: id, phase: 'implement', reason: '', actor: 'lead', authorityGroup: 'g', at: 'x' });
+};
+
+test('a pin reads the configuration a script names, the workspace it selects and a named file that is missing (review, 2026-11-01)', async (t) => {
+  const root = await repository(t, {
+    'package.json': JSON.stringify({ name: 'root', private: true, workspaces: ['packages/*'], scripts: {
+      test: 'jest --config config/jest.config.cjs', 'test:missing': 'jest -c config/absent.cjs' } }),
+    'config/jest.config.cjs': "module.exports = { testMatch: ['**/regression.test.js'] };\n",
+    'packages/a/package.json': JSON.stringify({ name: 'a', scripts: { test: 'npx --no-install vitest run -c vite.unit.mjs' } }),
+    'packages/a/vite.unit.mjs': 'export default {};\n'
+  });
+  const phase = { id: 'implement', status: 'in_progress' };
+  const workflow = { workItem: { id: 'W-3' }, phases: { implement: phase }, phaseOrder: ['implement'] };
+  const inferred = (id, argv) => ({ id, kind: 'test', argv, workingDirectory: '.', affectedRoots: ['.'], provenance: 'inferred', result: { adapter: 'jest-json' } });
+  const root_ = inferred('.-node-tests', ['npm', 'test']);
+  assert.deepEqual(definitionKeys(await commandDefinition(root, root_)), ['config/jest.config.cjs#', 'package.json#scripts.test']);
+  assert.deepEqual(definitionKeys(await commandDefinition(root, root_, { version: 1 })), ['package.json#scripts.test'], 'the first rules missed it');
+  const first = await gateTestCommandPins(root, {}, workflow, phase, [root_]);
+  await first.record(workflow, [root_.id], { at: '2026-11-01T00:00:00.000Z' });
+  assert.equal(workflow.testCommandPins[0].definitionVersion, DEFINITION_VERSION);
+  // The finding: a regression suite swapped for a smoke test through the named configuration, same count, same pin.
+  await writeFile(path.join(root, 'config/jest.config.cjs'), "module.exports = { testMatch: ['**/smoke.test.js'] };\n");
+  await assert.rejects(gateTestCommandPins(root, {}, workflow, phase, [root_]), refusal(['config/jest.config.cjs changed']));
+
+  // A workspace by name or path pins that workspace's script chain and the configuration its runner names.
+  for (const argv of [['npm', '--workspace', 'a', 'test'], ['npm', 'test', '-w', 'packages/a'], ['pnpm', '--filter', '{packages/a}', 'test'], ['yarn', 'workspace', 'a', 'test']]) {
+    assert.deepEqual(definitionKeys(await commandDefinition(root, inferred('a', argv))), ['packages/a/package.json#scripts.test', 'packages/a/vite.unit.mjs#'], argv.join(' '));
+  }
+  const workspace = inferred('a-tests', ['npm', '--workspace', 'a', 'test']);
+  const pinned = await gateTestCommandPins(root, {}, workflow, phase, [workspace]);
+  await pinned.record(workflow, [workspace.id], { at: '2026-11-01T00:00:01.000Z' });
+  await writeFile(path.join(root, 'packages/a/package.json'), JSON.stringify({ name: 'a', scripts: { test: 'npx --no-install vitest run -c vite.unit.mjs src/one' } }));
+  await assert.rejects(gateTestCommandPins(root, {}, workflow, phase, [workspace]), refusal(['packages/a/package.json scripts.test changed']));
+  // A selector that matches nothing runs nothing, and says so in the pin rather than pinning nothing.
+  assert.deepEqual(definitionKeys(await commandDefinition(root, inferred('none', ['npm', '-w', 'nope', 'test']))), ['package.json#workspace:nope']);
+
+  // A configuration the script names that is not there is pinned as missing; creating it is a change a person decides.
+  const absent = inferred('absent', ['npm', 'run', 'test:missing']);
+  const missing = await gateTestCommandPins(root, {}, workflow, phase, [absent]);
+  await missing.record(workflow, [absent.id], { at: '2026-11-01T00:00:02.000Z' });
+  await writeFile(path.join(root, 'config/absent.cjs'), 'module.exports = {};\n');
+  await assert.rejects(gateTestCommandPins(root, {}, workflow, phase, [absent]), refusal(['config/absent.cjs created']));
+});
+
+test('a pin recorded under the first rules keeps them, and a person\'s re-pin moves it to the current rules', async (t) => {
+  const root = await repository(t, {
+    'package.json': JSON.stringify({ scripts: { test: 'jest --config config/jest.config.cjs' } }),
+    'config/jest.config.cjs': 'module.exports = {};\n'
+  });
+  const phase = { id: 'implement', status: 'in_progress' };
+  const workflow = { workItem: { id: 'W-4' }, phases: { implement: phase }, phaseOrder: ['implement'] };
+  const command = { id: '.-node-tests', kind: 'test', argv: ['npm', 'test'], workingDirectory: '.', affectedRoots: ['.'], provenance: 'inferred', result: { adapter: 'jest-json' } };
+  // A Story started before this change: its pin has no definitionVersion and read only the script.
+  const legacy = pinCandidate(phase, command, (await commandDefinition(root, command, { version: 1 })).entries, { version: 1 });
+  assert.equal(legacy.definitionVersion, undefined);
+  workflow.testCommandPins = [{ id: 'TCP-001', phase: 'implement', ...legacy, baseline: null, at: '2026-10-31T00:00:00.000Z' }];
+  const unchanged = await gateTestCommandPins(root, {}, workflow, phase, [command]);
+  assert.equal(unchanged.prepared.get(command.id).candidate.sha256, legacy.sha256, 'the running Story is compared as before, not refused for the new rules');
+  assert.equal(unchanged.attempt(command.id).pin.sha256, legacy.sha256, 'its attempts replay against the pin on the Story');
+  await unchanged.record(workflow, [command.id], { at: '2026-11-01T00:00:00.000Z' });
+  assert.equal(workflow.testCommandPins.length, 1, 'nothing new to record');
+  // What the first rules pinned still waits for a person.
+  await writeFile(path.join(root, 'package.json'), JSON.stringify({ scripts: { test: 'jest --config config/jest.config.cjs src/one' } }));
+  await assert.rejects(gateTestCommandPins(root, {}, workflow, phase, [command]), refusal(['package.json scripts.test changed']));
+  // The request names that change; the pin a person accepts is the current rules' one.
+  const request = await repinRequest(root, {}, workflow, phase, command);
+  assert.deepEqual(request.changes, ['package.json scripts.test changed']);
+  assert.equal(request.pin.definitionVersion, DEFINITION_VERSION);
+  accepted(workflow, 'TCD-001', request, { id: command.id, kind: 'test' });
+  const repinned = await gateTestCommandPins(root, {}, workflow, phase, [command]);
+  await repinned.record(workflow, [command.id], { at: '2026-11-01T00:00:01.000Z' });
+  assert.deepEqual([workflow.testCommandPins[1].replaces, workflow.testCommandPins[1].acceptedBy, workflow.testCommandPins[1].definitionVersion], ['TCP-001', 'TCD-001', 2]);
+  // From then on the named configuration is pinned too.
+  await writeFile(path.join(root, 'config/jest.config.cjs'), "module.exports = { testMatch: ['**/smoke.test.js'] };\n");
+  await assert.rejects(gateTestCommandPins(root, {}, workflow, phase, [command]), refusal(['config/jest.config.cjs changed']));
+});
+
+test('a suite the Story pinned that its module no longer declares is refused until a person accepts it; an untouched module is not a removal', async (t) => {
+  const manifest = (scripts) => JSON.stringify({ name: 'two', type: 'module', scripts, devDependencies: { jest: '29' } });
+  const root = await repository(t, {
+    'package.json': manifest({ test: 'jest', 'test:node': 'node --test' }),
+    'src/value.js': 'export const value = 1;\n',
+    'tools/package.json': JSON.stringify({ name: 'tools', type: 'module', scripts: { test: 'node --test' } }),
+    'tools/run.js': 'export const run = 1;\n'
+  });
+  const git = (...args) => execFileSync('git', ['-C', root, '-c', 'user.name=t', '-c', 'user.email=t@example.invalid', ...args], { encoding: 'utf8' }).trim();
+  git('add', '.'); git('commit', '-q', '-m', 'base');
+  const base = git('rev-parse', 'HEAD');
+  const phase = { id: 'implement', status: 'in_progress', generation: { task: 'code' }, qualityCommands: [] };
+  const workflow = { workItem: { id: 'W-5' }, phases: { implement: phase }, phaseOrder: ['implement'] };
+  const delivery = (paths) => ({ sourcePaths: paths, changeSet: { base: { commit: base } } });
+  const gate = async (paths) => {
+    const evidence = delivery(paths);
+    const commands = (await resolveDeliveryQualityCommands(root, { ...phase, deliveryEvidence: evidence }))
+      .map((command) => ({ ...command, provenance: testCommandProvenance(phase, command) }));
+    return gateTestCommandPins(root, {}, workflow, phase, commands, evidence).then((pins) => ({ pins, ids: commands.map((command) => command.id) }));
+  };
+  const first = await gate(['src/value.js']);
+  assert.deepEqual(first.ids, ['.-node-tests', 'node-test-tests']);
+  await first.pins.record(workflow, first.ids, { at: '2026-11-01T00:00:00.000Z' });
+  // test:node deleted: Jest's pin is unchanged, and the node:test suite would stop counting unseen.
+  await writeFile(path.join(root, 'package.json'), manifest({ test: 'jest' }));
+  await assert.rejects(gate(['src/value.js']), (error) => {
+    refusal(['removed: . no longer declares it, so its tests would stop counting unseen'])(error);
+    assert.equal(error.details.testCommandPin.commandId, 'node-test-tests');
+    assert.equal(error.details.testCommandPin.removed, true);
+    assert.equal(error.details.testCommandPin.command, 'singularity-flow decision test-command W-5 --phase implement --repin node-test-tests --reason "<why the test command changed>"');
+    return true;
+  });
+  // A change only in tools/ does not touch the root module: its suites are not selected, which is not a removal.
+  assert.deepEqual((await gate(['tools/run.js'])).ids, ['tools-node-tests']);
+  // A person accepts that it no longer runs: the request names the pin by digest.
+  const removal = await removalRequest(root, {}, workflow, phase, 'node-test-tests');
+  assert.deepEqual([removal.repin.removed, removal.repin.pinned], [true, workflow.testCommandPins.find((pin) => pin.commandId === 'node-test-tests').sha256]);
+  accepted(workflow, 'TCD-001', removal.repin, removal.command);
+  assert.deepEqual((await gate(['src/value.js'])).ids, ['.-node-tests']);
+});
+
+test('a suite the Story added and then removed is back to the base commit\'s suites, and a first-rules pin is never read as removed', async (t) => {
+  const manifest = (scripts) => JSON.stringify({ name: 'two', type: 'module', scripts, devDependencies: { jest: '29' } });
+  const root = await repository(t, { 'package.json': manifest({ test: 'jest' }), 'src/value.js': 'export const value = 1;\n' });
+  const git = (...args) => execFileSync('git', ['-C', root, '-c', 'user.name=t', '-c', 'user.email=t@example.invalid', ...args], { encoding: 'utf8' }).trim();
+  git('add', '.'); git('commit', '-q', '-m', 'base without test:node');
+  const evidence = { sourcePaths: ['src/value.js'], changeSet: { base: { commit: git('rev-parse', 'HEAD') } } };
+  const phase = { id: 'implement', status: 'in_progress', generation: { task: 'code' }, qualityCommands: [] };
+  const commands = async () => (await resolveDeliveryQualityCommands(root, { ...phase, deliveryEvidence: evidence }))
+    .map((command) => ({ ...command, provenance: testCommandProvenance(phase, command) }));
+  // The Story adds test:node, its gate pins it, and the Story then takes it out again: the base never had it.
+  const added = { workItem: { id: 'W-6' }, phases: { implement: phase }, phaseOrder: ['implement'] };
+  await writeFile(path.join(root, 'package.json'), manifest({ test: 'jest', 'test:node': 'node --test' }));
+  const both = await commands();
+  const pinned = await gateTestCommandPins(root, {}, added, phase, both, evidence);
+  await pinned.record(added, both.map((command) => command.id), { at: '2026-11-01T00:00:00.000Z' });
+  await writeFile(path.join(root, 'package.json'), manifest({ test: 'jest' }));
+  const restored = await gateTestCommandPins(root, {}, added, phase, await commands(), evidence);
+  assert.deepEqual([...restored.prepared.keys()], ['.-node-tests']);
+
+  // Now the base has test:node. A Story whose pin of it was recorded under the first rules (no
+  // definitionVersion) keeps those rules, which never checked for removal: deleting it is not refused.
+  await writeFile(path.join(root, 'package.json'), manifest({ test: 'jest', 'test:node': 'node --test' }));
+  git('add', '.'); git('commit', '-q', '-m', 'base with test:node');
+  evidence.changeSet.base.commit = git('rev-parse', 'HEAD');
+  const nodeCommand = (await commands()).find((command) => command.id === 'node-test-tests');
+  const legacy = pinCandidate(phase, nodeCommand, (await commandDefinition(root, nodeCommand, { version: 1 })).entries, { version: 1 });
+  const running = { workItem: { id: 'W-7' }, phases: { implement: phase }, phaseOrder: ['implement'],
+    testCommandPins: [{ ...added.testCommandPins[0], id: 'TCP-001' }, { id: 'TCP-002', phase: 'implement', ...legacy, baseline: null, at: '2026-10-31T00:00:00.000Z' }] };
+  await writeFile(path.join(root, 'package.json'), manifest({ test: 'jest' }));
+  assert.deepEqual([...(await gateTestCommandPins(root, {}, running, phase, await commands(), evidence)).prepared.keys()], ['.-node-tests']);
+  // The same deletion under a current-rules pin is refused: the base had the suite.
+  const current = { ...running, testCommandPins: [{ ...added.testCommandPins[0], id: 'TCP-001' }, { ...added.testCommandPins[1], id: 'TCP-002' }] };
+  await assert.rejects(gateTestCommandPins(root, {}, current, phase, await commands(), evidence), (error) => error.details?.testCommandPin?.removed === true);
 });

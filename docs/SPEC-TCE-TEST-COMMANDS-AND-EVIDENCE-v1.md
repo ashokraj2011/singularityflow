@@ -119,6 +119,16 @@ still fill an uncovered module, and that command is pinned on first use.
   whose acceptance replaces the pin.
   **Amended (2026-10-25):** a definition that is exactly the Story's base commit's is the team's own
   setup and is accepted with no decision, recorded as a new pin with `restoredToBase`.
+  **Amended (2026-11-01):** the definition follows what the command really runs
+  (src/test-command-resolution.mjs): the workspace or directory each package-manager step selects and
+  that package's script chain, the configuration files a runner is told to read wherever they are in
+  the repository, and a `node --test` run's `--import`/`--require` files; a named file or workspace
+  that is not there is pinned as missing. Such pins carry `definitionVersion: 2`; a pin without it
+  keeps the first rules for its Story, and an accepted re-pin moves it to the current rules. A suite
+  the Story pinned under the current rules that its affected module no longer declares is refused as
+  `removed` (TEST_COMMAND_PIN_CHANGED), unless the base commit never had it; the same `--repin`
+  request, accepted by a step approver, lets it no longer run. Per-command test counts cannot see a
+  missing command (review, 2026-11-01).
 - `[TCE:REQ-013]` Configured and Story-decision commands also record `definition` digests at first
   run, so an edited script behind `npm test` is caught the same way.
 - `[TCE:REQ-014]` Pins are replayed with the receipt, like the attempts they bind.

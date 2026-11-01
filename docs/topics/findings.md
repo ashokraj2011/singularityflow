@@ -14,7 +14,7 @@ related:
   - recovery
   - phase-appeals
   - escalation
-version: 15
+version: 16
 ---
 A finding is one exact reason a step cannot publish, submit or finish. Every finding has an owner and a recovery route: the step's own author fixes its draft, an earlier step's approvers decide an upstream issue, a person records a decision, or an owner restores trusted bytes. Each refusal names its finding code; read its entry here with `sflow explain findings --section <CODE>` (the code is matched without regard to case). No finding routes only back to its own author: each names at least one route for someone else, its approvers, an earlier step, an owner, or, when nothing more specific exists, the workflow maintainer. Nothing in this catalog waives a test, approves a step or accepts a risk by itself.
 
@@ -106,7 +106,7 @@ No supported structured test command can be inferred for the changed code. `sflo
 
 ### TEST_COMMAND_PIN_CHANGED
 
-A test command changed since its first gate run pinned it for the Story: its argv or adapter, or a script or runner configuration it resolves through (the refusal lists each change). Nothing ran. Restore what was pinned (a return to exactly what the Story's base commit runs is also accepted, recorded as `restoredToBase`, with no decision), or request the new pin with `decision test-command <WORK-ID> --phase <PHASE> --repin <COMMAND-ID> --reason <TEXT>`; a person who approves the step accepts it from the decision list, and the next gate run records it. An agent may request, never accept.
+A test command changed since its first gate run pinned it for the Story: its argv or adapter, or a script, workspace, runner configuration or preloaded file it resolves through (the refusal lists each change; a file the command names that is not there is pinned as missing, so creating it is a change too). Nothing ran. It is also the refusal for a suite the Story pinned that its module no longer declares (a deleted `test:node` beside Jest): the refusal says `removed`, and the request with the same `--repin` asks that it no longer run. Restore what was pinned (a return to exactly what the Story's base commit runs is also accepted, recorded as `restoredToBase`, with no decision), or request the new pin with `decision test-command <WORK-ID> --phase <PHASE> --repin <COMMAND-ID> --reason <TEXT>`; a person who approves the step accepts it from the decision list, and the next gate run records it. An agent may request, never accept.
 
 ### CODE_TEST_NARROWED
 

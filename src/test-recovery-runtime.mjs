@@ -325,7 +325,7 @@ export async function beginStoryTestRiskRun(root, config, workflow, phase, { com
   let environment = caseInventory ? trpExecutionEnvironment(caseInventory.declaration, inherited, { cwd }) : { ...inherited };
   environment = testRuntimeEnvironment(workflow.resolution?.testRuntime, environment);
   environment = withCommandLiteralEnvironment(environment, tests[0]);
-  if (tests[0].result?.adapter === 'node-tap') environment = nodeTestReporterEnvironment(environment, root, { argv: tests[0].argv, cwd });
+  if (tests[0].result?.adapter === 'node-tap') environment = await nodeTestReporterEnvironment(environment, root, { argv: tests[0].argv, cwd });
   delete environment.NODE_TEST_CONTEXT;
   if (tests[0].result?.adapter === 'playwright-json') {
     for (const key of Object.keys(environment)) if (key.toUpperCase() === 'PLAYWRIGHT_JSON_OUTPUT_FILE') delete environment[key];

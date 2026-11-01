@@ -4842,7 +4842,7 @@ async function qualityChecks(root, phase, config, workflow, commands = phase.qua
     let commandEnvironment = failedRiskCommand ? trpExecutionEnvironment(riskDeclaration, inherited, { cwd: commandRoot }) : { ...inherited };
     if (policy.kind === 'test') commandEnvironment = testRuntimeEnvironment(workflow?.resolution?.testRuntime, commandEnvironment);
     if (policy.kind === 'test' && policy.result?.adapter === 'node-tap') {
-      commandEnvironment = nodeTestReporterEnvironment(commandEnvironment, isolation?.root ?? root, { argv: policy.argv, cwd: executionRoot });
+      commandEnvironment = await nodeTestReporterEnvironment(commandEnvironment, isolation?.root ?? root, { argv: policy.argv, cwd: executionRoot });
     }
     delete commandEnvironment.NODE_TEST_CONTEXT;
     // Variables a host sets to run the CLI itself (VS Code's ELECTRON_RUN_AS_NODE) are not the

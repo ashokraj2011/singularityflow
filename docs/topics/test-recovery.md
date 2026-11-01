@@ -13,7 +13,7 @@ related:
   - recovery
   - approvals
   - configuration
-version: 26
+version: 27
 ---
 Test and Recovery (TRP) is an explicitly enabled pilot for a Story's test policy, baseline repair and phase issues. It keeps what a check observed separate from the decision about whether work may continue. A failed test remains failed even when a current, authorized exception permits a named transition. Normal phase approval remains separate.
 
@@ -257,7 +257,14 @@ This needs no test-policy agreement at intake and works on any Story. The test-p
 
 ### When a pinned test command changes
 
-A test command Singularity Flow guessed for a module is pinned for the Story the first time a gate runs it: its argv, working directory, affected roots, result adapter, and the digests of what it resolves through, which are the package script chain (`pretest`, `test`, `posttest` and every `npm run`/`yarn`/`pnpm` script they reach), the module's runner configuration (`jest.config.*`, `vitest.config.*`, `playwright.config.*`, `.mocharc.*`, the package's `jest` key, `pytest.ini`, `[tool.pytest]`, `tox.ini`, `conftest.py`, the POM's surefire/failsafe plugins and `.mvn/maven.config`, Gradle `test` blocks) and any repository script the command runs. A configured or Story-only command records its definition the same way. The pin is written to `workflow.testCommandPins` when the gate commits; until then the step's first recorded run stands for it.
+A test command Singularity Flow guessed for a module is pinned for the Story the first time a gate runs it: its argv, working directory, affected roots, result adapter, and the digests of what it resolves through, which are:
+
+- the package script chain: `pretest`, `test`, `posttest` and every `npm run`/`yarn`/`pnpm`/`bun` script they reach, through `&&` and `;` steps, run-s/run-p, and the wrappers npx, exec, cross-env, dotenv, nyc and c8;
+- the workspace or directory each step selects, and that package's own chain: npm `--workspace`/`-w` by path or name and `--workspaces`, `--prefix`; pnpm `--filter`/`-F`, `--dir`/`-C`, `-r`; yarn `workspace NAME` and `--cwd`;
+- the runner configuration where each runner runs (`jest.config.*`, `vitest.config.*`, `playwright.config.*`, `.mocharc.*`, the package's `jest` key, `pytest.ini`, `[tool.pytest]`, `tox.ini`, `conftest.py`, the POM's surefire/failsafe plugins and `.mvn/maven.config`, Gradle `test` blocks), and every file a step names wherever it lives in the repository: jest, vitest and playwright `--config`/`-c`, mocha `--config`, cypress `--config-file`, karma's configuration, `pytest -c`, `mvn -f`, and a `node --test` run's `--import`/`--require` files;
+- any repository script the command itself runs.
+
+A named file or workspace that is not there is pinned as missing, never left out, so creating it later is a change too. A configured or Story-only command records its definition the same way. The pin is written to `workflow.testCommandPins` when the gate commits; until then the step's first recorded run stands for it. Pins recorded before these rules (with no `definitionVersion`) keep the rules they were recorded under for their Story, so a running Story is not refused only because the rules grew; a person's accepted re-pin moves the command to the current rules.
 
 A later gate whose command differs (an edited `"test": "jest src/one"`, a new runner config, other argv) is refused with `TEST_COMMAND_PIN_CHANGED` before it runs, naming each change. Restore what was pinned, or request the new pin:
 
@@ -266,7 +273,9 @@ singularity-flow decision test-command <WORK-ID> --phase <PHASE> --repin <COMMAN
 singularity-flow decision test-command <WORK-ID> --accept TCD-001        (a person who approves the step, in their own terminal)
 ```
 
-The request records the exact new pin by digest and what changed. Anyone working on the Story may request it; only a person who approves the step accepts it (an agent is refused). The next gate run records it as the command's pin, naming the pin it replaces and the request. Each test attempt carries the pin it ran under, and the receipt replays only against a pin recorded on the Story. Line endings and the per-platform wrapper spelling (`./mvnw` or `.\mvnw.cmd`, `python3` or `py -3`) are not changes.
+The request records the exact new pin by digest and what changed. Anyone working on the Story may request it; only a person who approves the step accepts it (an agent is refused).
+
+A suite the Story pinned that its module no longer declares is refused the same way, as `removed`: deleting `test:node` from a package that also runs Jest would otherwise leave Jest's pin unchanged and drop the node:test suite unseen, since each command's own counts cannot show a missing command. The same `--repin <COMMAND-ID>` then asks that the suite no longer run, naming its pin by digest; once a person who approves the step accepts it, the step publishes with the suites that remain. A module the change does not touch is not a removal (its suites are simply not selected), nor is a suite the module still declares that the gate chose not to run, a module an approved configured command owns, or a suite the base commit never had. Configured and Story-only commands leave a gate only through the configuration or a person's decision, so their absence is never read as a removal. Pins from before these rules are not checked for removal. The next gate run records it as the command's pin, naming the pin it replaces and the request. Each test attempt carries the pin it ran under, and the receipt replays only against a pin recorded on the Story. Line endings and the per-platform wrapper spelling (`./mvnw` or `.\mvnw.cmd`, `python3` or `py -3`) are not changes.
 
 ### When a run is narrowed
 

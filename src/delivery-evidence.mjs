@@ -1749,24 +1749,20 @@ export function testCommandProvenance(phase, command) {
   return command?.storyDecision ? 'story-decision' : (phase.qualityCommands ?? []).includes(command) ? 'configured' : 'inferred';
 }
 
-export async function resolveDeliveryQualityCommands(root, phase, { executionMode = 'changed-and-affected' } = {}) {
-  // Commands a step approver accepted for this Story only (src/story-test-commands.mjs) run like configured ones.
-  const configured = [...(phase.qualityCommands ?? []), ...(phase.storyTestCommands ?? [])];
-  if (!phaseRequiresCodeDelivery(phase)) return configured;
-  const configuredTests = configured.filter((command) =>
-    command && typeof command === 'object' && !Array.isArray(command) && command.kind === 'test');
-  const moduleCoveredByConfiguredTest = (moduleRoot) => configuredTests.some((command) =>
-    (command.affectedRoots ?? []).some((candidate) => {
-      const root = posix(candidate ?? '').replace(/^\.\//, '') || '.';
-      return root === '.' || moduleRoot === root || moduleRoot.startsWith(`${root}/`);
-    }));
-  const inferred = [];
-  if (executionMode === 'all-configured') {
-    // Explicit broad scope: include the repository-native suite as well as affected modules.
-    // Do not recursively scan an arbitrarily large monorepo to guess additional runners.
-    inferred.push(...(await inferRepositoryTestCommands(root)).filter(command =>
-      !moduleCoveredByConfiguredTest(command.workingDirectory ?? '.')));
-  }
+const configuredStepTests = (phase) => [...(phase.qualityCommands ?? []), ...(phase.storyTestCommands ?? [])].filter((command) =>
+  command && typeof command === 'object' && !Array.isArray(command) && command.kind === 'test');
+
+// Whether one of `tests` covers a module root through its affected roots.
+const configuredTestOwner = (tests) => (moduleRoot) => tests.some((command) =>
+  (command.affectedRoots ?? []).some((candidate) => {
+    const prefix = posix(candidate ?? '').replace(/^\.\//, '') || '.';
+    return prefix === '.' || moduleRoot === prefix || moduleRoot.startsWith(`${prefix}/`);
+  }));
+
+/** The modules a step's changed paths belong to, and whether a configured test owns a module root; the gate and its removed-suite check share it. */
+export async function affectedTestModules(root, phase) {
+  const tests = configuredStepTests(phase);
+  const ownedByConfiguredTest = configuredTestOwner(tests);
   const deliveryPaths = [...new Set([
     ...(phase.deliveryEvidence?.sourcePaths ?? []),
     ...(phase.deliveryEvidence?.configurationPaths ?? []),
@@ -1775,7 +1771,7 @@ export async function resolveDeliveryQualityCommands(root, phase, { executionMod
   const modules = new Map();
   // An approved configured test command owns the paths below its affected roots, so a directory
   // with two build systems (a tooling package.json beside pom.xml) is decided by that approval.
-  const overrides = configuredTestModuleOverrides(configuredTests);
+  const overrides = configuredTestModuleOverrides(tests);
   const { results: resolvedModules } = await runBoundedTaskPool(deliveryPaths, candidate =>
     resolveAffectedModule(root, candidate, { overrides }).catch((error) => {
       // Repository metadata and CI configuration need no module of their own [testCoverageExemptPath].
@@ -1788,13 +1784,30 @@ export async function resolveDeliveryQualityCommands(root, phase, { executionMod
     if (module?.configured) continue;
     if (module) modules.set(`${module.root}:${module.system}`, module);
   }
-  for (const module of modules.values()) {
+  return { modules: [...modules.values()], ownedByConfiguredTest };
+}
+
+export async function resolveDeliveryQualityCommands(root, phase, { executionMode = 'changed-and-affected' } = {}) {
+  // Commands a step approver accepted for this Story only (src/story-test-commands.mjs) run like configured ones.
+  const configured = [...(phase.qualityCommands ?? []), ...(phase.storyTestCommands ?? [])];
+  if (!phaseRequiresCodeDelivery(phase)) return configured;
+  const configuredTests = configuredStepTests(phase);
+  const moduleCoveredByConfiguredTest = configuredTestOwner(configuredTests);
+  const inferred = [];
+  if (executionMode === 'all-configured') {
+    // Explicit broad scope: include the repository-native suite as well as affected modules.
+    // Do not recursively scan an arbitrarily large monorepo to guess additional runners.
+    inferred.push(...(await inferRepositoryTestCommands(root)).filter(command =>
+      !moduleCoveredByConfiguredTest(command.workingDirectory ?? '.')));
+  }
+  const { modules } = await affectedTestModules(root, phase);
+  for (const module of modules) {
     // Each runner and level a module declares (unit, end-to-end, component) is its own run [TCE:REQ-071].
     if (!moduleCoveredByConfiguredTest(module.root)) inferred.push(...await (await import('./test-module-markers.mjs')).moduleTestCommands(root, module));
   }
   // A recognized changed module with no supported runner must not borrow an unrelated root
   // manifest's passing tests as its own execution evidence.
-  if (!inferred.length && !configuredTests.length && !modules.size) {
+  if (!inferred.length && !configuredTests.length && !modules.length) {
     inferred.push(...await inferRepositoryTestCommands(root));
   }
   if (!inferred.length && !configuredTests.length) {

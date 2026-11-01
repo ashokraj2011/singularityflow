@@ -8,7 +8,8 @@
  *   singularity-flow decision test-command [WORK-ID] --revoke TCD-001 --reason TEXT
  *
  * `--repin` asks that a pinned command's changed form (src/test-command-pins.mjs), as the gate
- * resolves it now, replace its pin; its acceptance lets the next gate run record it.
+ * resolves it now, replace its pin; its acceptance lets the next gate run record it. For a pinned
+ * suite the step no longer runs, it asks that it no longer run: accepted, the gate stops refusing its removal.
  *
  * Anyone working on the Story, its agent included, may request the exact command that ran. Accepting
  * or revoking it is the call of a person in the group that approves the step (the next approving
@@ -126,13 +127,18 @@ export async function decisionTestCommandCommand(positionals, options) {
   let command = null;
   let repin = null;
   if (phaseId && repinId) {
-    const [{ resolveStoryLocalTestCommands }, { repinRequest }] = await Promise.all([import('../local-test-runs.mjs'), import('../test-command-pins.mjs')]);
+    const [{ resolveStoryLocalTestCommands }, { removalRequest, repinRequest }] = await Promise.all([import('../local-test-runs.mjs'), import('../test-command-pins.mjs')]);
     const { phase, commands } = await resolveStoryLocalTestCommands(root, config, workflow, { phaseId });
     const current = commands.find((entry) => entry.id === repinId);
-    if (!current) fail(`Step ${phaseId} runs no test command ${repinId} now (it runs ${commands.map((entry) => entry.id).join(', ') || 'none'}).`);
-    repin = await repinRequest(root, config, workflow, phase, current);
-    command = { id: current.id, kind: 'test', argv: current.argv, workingDirectory: current.workingDirectory,
-      affectedRoots: current.affectedRoots, modelPolicy: 'never', result: current.result };
+    // A pinned suite the step no longer runs: the request is that it no longer run [TCE:REQ-012].
+    const removal = current ? null : await removalRequest(root, config, workflow, phase, repinId);
+    if (!current && !removal) fail(`Step ${phaseId} runs no test command ${repinId} now (it runs ${commands.map((entry) => entry.id).join(', ') || 'none'}).`);
+    if (removal) ({ repin, command } = removal);
+    else {
+      repin = await repinRequest(root, config, workflow, phase, current);
+      command = { id: current.id, kind: 'test', argv: current.argv, workingDirectory: current.workingDirectory,
+        affectedRoots: current.affectedRoots, modelPolicy: 'never', result: current.result };
+    }
   } else if (phaseId) {
     const [{ requestedCommand }, { normalizeRequiredTestCommand }, { phaseRequiresCodeDelivery }] = await Promise.all([
       import('../test-setup-proposal.mjs'), import('../code-delivery-tests.mjs'), import('../delivery-evidence.mjs')]);
@@ -154,10 +160,13 @@ export async function decisionTestCommandCommand(positionals, options) {
   const recordId = record.id ?? accept ?? revoke;
   const repinned = accept ? storyTestCommandState(workflow, accept)?.request?.repin ?? null : null;
   if (!optionBoolean(options, 'json')) {
-    console.log(record.repin
+    console.log(record.repin?.removed
+      ? `Requested ${record.id}: ${record.phase} no longer runs ${record.command.id} once a person who approves it accepts: ${storyTestCommandAcceptCommand(workflow, record.id)}, or from the decision list (/sf-decide ${id}).`
+      : record.repin
       ? `Requested ${record.id}: ${record.phase} re-pins ${record.command.id} (${record.repin.changes.join('; ')}) once a person who approves it accepts: ${storyTestCommandAcceptCommand(workflow, record.id)}, or from the decision list (/sf-decide ${id}).`
       : record.id
         ? `Requested ${record.id}: ${record.phase} runs ${JSON.stringify(record.command.argv)} (${record.command.result.adapter} ${record.command.result.path}) for this Story once a person who approves it accepts: ${storyTestCommandAcceptCommand(workflow, record.id)}, or from the decision list (/sf-decide ${id}).`
+        : repinned?.removed ? `Accepted ${accept}: ${repinned.commandId} no longer runs for this Story, and its removal is no longer refused. Publish the step again.`
         : repinned ? `Accepted ${accept}: the next gate run of ${repinned.commandId} records it as the Story's pin. Publish the step again.`
           : accept ? `Accepted ${accept}: it runs at every publication and submission of ${record.phase}, and its tests must pass. Publish the step again.`
             : `Revoked ${revoke}: ${record.phase} no longer runs it.`);

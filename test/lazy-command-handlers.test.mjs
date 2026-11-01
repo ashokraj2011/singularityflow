@@ -239,7 +239,11 @@ test('frequent lifecycle handlers do not reach the legacy dispatcher and stay un
     // spec-studio turn mode (phase-mutation-contract.mjs); no new eager file.
     // 9,315,000 holds: main f840dc33c measures 9,312,288. A specification split (SPEC-SPA v1.3 S5) adds 1,290 for
     // 9,313,578: its operations, own-terminal step and turn refusal; the split engine stays lazy, no new eager file.
-    assert.ok(closure.bytes <= 9_315_000, `${file} exceeds the 9 MB eager-source budget (${closure.bytes} bytes)`);
+    // 9,320,000 (next 5,000 boundary): main 3fae06ff5 measures 9,314,577. Test commands resolved as they run (test-pin
+    // review, 2026-11-01): the affected-module walk the gate and its removed-suite check share (delivery-evidence.mjs
+    // +696) and the reporter counting each node --test run (node-test-observation.mjs +571) add 1,279 for 9,315,856.
+    // The resolution and the pin checks load only at a gate run; no new eager file.
+    assert.ok(closure.bytes <= 9_320_000, `${file} exceeds the 9 MB eager-source budget (${closure.bytes} bytes)`);
   }
 });
 

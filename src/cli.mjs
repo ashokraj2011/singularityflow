@@ -609,7 +609,7 @@ function renderLocalResetPlan(plan) {
   for (const item of plan.preserve) console.log(`- ${item}`);
   if (!plan.completed) {
     console.log(`\nConfirmation required: ${plan.confirmation}`);
-    const modeFlag = forgetOnly ? ' --forget-only' : '';
+    const modeFlag = `${forgetOnly ? ' --forget-only' : ''}${plan.pendingPublicationsDiscarded ? ' --discard-pending-publications' : ''}`;
     const command = `singularity-flow local-reset${modeFlag} --confirm ${JSON.stringify(plan.confirmation)}`;
     printCommandRoutes(command);
   } else {
@@ -631,7 +631,7 @@ async function localResetCommand(options) {
     homeDirectory: os.homedir(),
     projectDirectory: process.cwd(),
     environment: process.env,
-    forgetOnly
+    forgetOnly, discardPendingPublications: optionBoolean(options, 'discard-pending-publications')
   };
   let result;
   if (dryRun) {
@@ -641,7 +641,7 @@ async function localResetCommand(options) {
   } else {
     const preview = await localResetPlan(resetOptions);
     if (json || !input.isTTY || !output.isTTY) {
-      const modeFlag = forgetOnly ? ' --forget-only' : '';
+      const modeFlag = `${forgetOnly ? ' --forget-only' : ''}${preview.pendingPublicationsDiscarded ? ' --discard-pending-publications' : ''}`;
       throw new SingularityFlowError(
         `Non-interactive local-reset requires an explicit preview and confirmation. Run 'singularity-flow local-reset${modeFlag} --dry-run', then rerun with --confirm ${JSON.stringify(preview.confirmation)}.`
       );
@@ -1199,7 +1199,7 @@ async function freshInstallCommand(options) {
   const resetOptions = {
     homeDirectory: os.homedir(),
     projectDirectory: checkout,
-    environment: process.env
+    environment: process.env, discardPendingPublications: optionBoolean(options, 'discard-pending-publications')
   };
   // Classify only the fixed installer-owned roots first. Source admission still rejects every
   // unrelated byte, while these candidates make the documented generated-root cleanup reachable.

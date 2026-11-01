@@ -18,10 +18,11 @@
  */
 import { createHash, createHmac, randomBytes } from 'node:crypto';
 import { lookup as dnsLookup } from 'node:dns/promises';
-import { lstat, open, readdir, readFile, rename, rm, stat, writeFile } from 'node:fs/promises';
+import { lstat, readdir, readFile, rename, stat, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 
 import { committedFileBytes } from './git.mjs';
+import { acquireFileLease } from './file-lease.mjs';
 import { prepareSharedPublicationStorage, sharedPublicationStorageDirectory } from './publication-storage.mjs';
 import { recordSha256 } from './records.mjs';
 import {
@@ -88,23 +89,18 @@ async function recordKeys(directory) {
   return names.filter((name) => /^sad_[0-9a-f]{40}\.json$/.test(name)).map((name) => name.slice(0, -5)).sort();
 }
 
-/** One process delivers a record at a time; a lock left by a crashed process expires. */
+/**
+ * One process delivers a record at a time. Only a crashed owner's lock is taken over, never a live
+ * one because it is old (SDA M3): a slow delivery kept running beside a second one. An older build's
+ * lock records no owner identity, so only it is still judged by its age.
+ */
 async function withRecordLock(directory, key, clock, work) {
-  const lock = path.join(directory, `${key}.lock`);
-  let handle;
-  try { handle = await open(lock, 'wx', 0o600); } catch (error) {
-    if (error?.code !== 'EEXIST') throw error;
-    const info = await stat(lock).catch(() => null);
-    if (info && clock() - info.mtimeMs < LOCK_STALE_MS) return { skipped: 'locked' };
-    await rm(lock, { force: true });
-    try { handle = await open(lock, 'wx', 0o600); } catch { return { skipped: 'locked' }; }
-  }
+  const lease = await acquireFileLease(path.resolve(directory, `${key}.lock`), { staleMs: LOCK_STALE_MS, legacyOwner: /^\d+ \S+$/u });
+  if (!lease) return { skipped: 'locked' };
   try {
-    await handle.writeFile(`${process.pid} ${nowIso(clock)}\n`);
     return await work();
   } finally {
-    await handle.close().catch(() => {});
-    await rm(lock, { force: true }).catch(() => {});
+    await lease.release().catch(() => {});
   }
 }
 

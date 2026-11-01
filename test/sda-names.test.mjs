@@ -120,13 +120,14 @@ export const SDA_NAMES = Object.freeze({
   INITIATIVE_PUBLICATION_ACTIVE: ['src/cli.mjs', 'src/initiative-state.mjs', 'src/refusal-remediation.mjs'],
   // Sweep batch 3: publication outcomes. A lost answer another clone built on is settled (B1); recover
   // leads with the set-aside preview for a commit the remote moved past; a lost race's plan (B2); a
-  // reset refuses while a publication waits, unless the reviewed reset discards it (D7).
+  // reset refuses while a publication waits, unless the reviewed reset discards it (D7). Destructive
+  // local-reset and the fresh-install reset refuse the same way for their workspace clones.
   remoteBuiltOn: ['src/commands/sync.mjs', 'src/state.mjs'],
   "'set-aside-preview'": ['src/collaboration.mjs'],
   "'set-aside-retained-commit'": ['src/refusal-remediation.mjs'],
   FACTORY_RESET_PUBLICATION_PENDING: ['src/factory-reset.mjs'],
-  'discard-pending-publications': ['src/cli.mjs', 'src/factory-reset.mjs', 'src/help-text.mjs', 'src/util.mjs'],
-  pendingPublicationsDiscarded: ['src/cli.mjs', 'src/factory-reset.mjs'],
+  'discard-pending-publications': ['src/cli.mjs', 'src/factory-reset.mjs', 'src/fresh-install-reset.mjs', 'src/help-text.mjs', 'src/util.mjs'],
+  pendingPublicationsDiscarded: ['src/cli.mjs', 'src/factory-reset.mjs', 'src/fresh-install-reset.mjs'],
   // M3: capability activation and edits with no textual merge
   CAPABILITY_PROPOSAL_VALUE_CONFLICT: ['src/capability-value-replay.mjs', 'src/refusal-remediation.mjs'],
   CAPABILITY_CONFIGURATION_OBJECTS_UNAVAILABLE: ['src/git-configuration-objects.mjs'],

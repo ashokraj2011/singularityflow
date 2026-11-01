@@ -5,8 +5,8 @@ import path from 'node:path';
 import { gitEmptyConfigPath } from './git-isolation-paths.mjs';
 import { lstat, mkdir, mkdtemp, open, readFile, readdir, realpath, rename, rm, writeFile } from 'node:fs/promises';
 import { copilotSkillsDirectory, uninstallDirectSkills } from './direct-skills.mjs';
-import { machineStateRoot } from './factory-reset.mjs';
-import { readWorkspace, readWorkspaceRegistry } from './workspace.mjs';
+import { machineStateRoot, pendingPublicationResetRefusal, pendingPublications } from './factory-reset.mjs';
+import { readWorkspace, readWorkspaceRegistry, workspaceRepositoryPath } from './workspace.mjs';
 import { activeWorkspaceFile, workspaceRegistryFile } from './workspace-context.mjs';
 import { run, SingularityFlowError } from './util.mjs';
 import { localWorkJournalRoot } from './local-work-journal.mjs';
@@ -557,6 +557,24 @@ export async function installerGeneratedResetPaths(projectDirectory, {
 }
 
 /**
+ * The pending publications inside the clones a reset deletes with their workspace, each the only
+ * record of a commit the remote lacks. A clone adopted from outside the workspace is not deleted.
+ */
+async function workspacePendingPublications(workspace, manifest) {
+  const waiting = [];
+  for (const repository of Object.values(manifest.repositories ?? {})) {
+    const clone = workspaceRepositoryPath(manifest, repository);
+    const common = path.join(clone, '.git');
+    if (!inside(workspace, clone) || !(await lstat(common).catch(() => null))?.isDirectory()) continue;
+    const worktrees = await readdir(path.join(common, 'worktrees')).catch(() => []);
+    const runtimes = [common, ...worktrees.map((name) => path.join(common, 'worktrees', name))]
+      .map((directory) => path.join(directory, 'singularity-flow'));
+    for (const entry of await pendingPublications(runtimes)) waiting.push({ ...entry, repository: clone });
+  }
+  return waiting;
+}
+
+/**
  * Build the complete boundary before changing anything. Destructive mode proves each registered
  * directory with its regular workspace.json. Forget-only inventories registrations without
  * opening, validating, or changing the physical workspace paths they name.
@@ -571,6 +589,7 @@ async function machineResetPlan({
   includeInstallerState,
   removeDirectSkills,
   forgetOnly = false,
+  discardPendingPublications = false,
   protectedDirectoryLabel,
   protectedDirectoryInstruction
 } = {}) {
@@ -609,6 +628,7 @@ async function machineResetPlan({
   // registry this planner has already classified as opaque disposal input.
   const entries = registryWarning ? [] : await readWorkspaceRegistry(registryFile);
   const workspaces = [];
+  const waiting = [];
   const missingRegistrations = [];
   const resetTargetProofs = new Map([[localStateRoot, localState]]);
 
@@ -650,6 +670,7 @@ async function machineResetPlan({
     }
     resetTargetProofs.set(target, workspaceProof);
     workspaces.push({ id: manifest.id, name: manifest.name, path: target, disposition: 'deleted' });
+    waiting.push(...await workspacePendingPublications(target, manifest));
   }
 
   const sorted = workspaces.sort((left, right) => left.path.localeCompare(right.path));
@@ -732,6 +753,8 @@ async function machineResetPlan({
     }));
   }
   const mode = forgetOnly ? 'forget-only' : 'delete-workspaces';
+  const discardWaiting = discardPendingPublications === true && waiting.length > 0;
+  const waitingList = waiting.map((entry) => `${entry.kind} ${entry.id} in ${entry.repository}${entry.command ? `: ${entry.command}` : ''}`).join('; ');
   const plan = {
     schemaVersion: 2,
     operation,
@@ -742,6 +765,8 @@ async function machineResetPlan({
     selectionFile,
     localStateRoot,
     workspaces: sorted,
+    pendingPublications: waiting,
+    pendingPublicationsDiscarded: discardWaiting,
     missingRegistrations,
     registryWarning,
     copilotSessions,
@@ -785,7 +810,10 @@ async function machineResetPlan({
       ...(includeInstallerState
         ? ['installed singularity-flow Copilot plugin copies, global npm package, and VS Code extension (removed by install.sh before reinstall)']
         : []),
-      `Singularity Flow Jira, Teams, indexed provider credentials, onboarding profile, and extension global state (cleared when the ${includeInstallerState ? 'reinstalled ' : ''}VS Code extension next activates)`
+      `Singularity Flow Jira, Teams, indexed provider credentials, onboarding profile, and extension global state (cleared when the ${includeInstallerState ? 'reinstalled ' : ''}VS Code extension next activates)`,
+      // A workspace's clones carry their pending publications: the reset refuses while one waits (D7).
+      ...(waiting.length ? [`the recovery of ${waiting.length} pending publication(s), the only record of commits not yet on the remote`
+        + `${discardWaiting ? '' : ' (the reset refuses until each is published, or preview and reset with --discard-pending-publications)'}: ${waitingList}`] : [])
     ],
     preserve: [
       includeInstallerState
@@ -993,6 +1021,11 @@ async function applyMachineReset(plan, { confirmation, fault = null }, { lockPat
     throw new SingularityFlowError(
       `${plan.operation === 'local-reset' ? 'Local reset' : 'Fresh install reset'} requires exact confirmation '${plan.confirmation}'. Run with --dry-run first.`
     );
+  }
+  if (plan.pendingPublications.length && !plan.pendingPublicationsDiscarded) {
+    throw pendingPublicationResetRefusal(plan.pendingPublications, {
+      operation: plan.operation === 'local-reset' ? 'Local reset' : 'Fresh install reset'
+    });
   }
   const moved = [];
   let markerWritten = false;

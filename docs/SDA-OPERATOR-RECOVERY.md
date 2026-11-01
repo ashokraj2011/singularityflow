@@ -88,9 +88,11 @@ machine. Age never decides. The owner is `unknown`, and never taken over, when:
 - its record carries no hardware and this computer's hardware changed since its machine ID was
   recorded (`machine-hardware-changed`).
 
-A few small local locks still expire by age and their refusals say "Retry": the bootstrap lease
-(`BOOTSTRAP_LEASE_BUSY`), the choices selection receipt, the prompt audit, help metrics and the
-repositories store. They are outside the reviewed-release rule.
+The small local locks follow the same rule: the bootstrap lease (`BOOTSTRAP_LEASE_BUSY`), the
+choices selection receipt, the prompt audit, help metrics and the repositories store. Each records
+its owner as a lease file does, so `lock show-file` reads it, and a refusal whose owner cannot be
+proven gone names its `lock release-file`. A live owner here leaves "Retry". Only a lock an older
+build wrote, which records no owner, still expires by age.
 
 **What to run.**
 1. `singularity-flow lock show <KIND> <ID>` reads the lease. A refusal that names a lease file or a
@@ -134,6 +136,7 @@ nothing pending.
 | `OUTCOME_UNKNOWN` (for example `transport-indeterminate`) | The push was sent and no answer came back. The remote may hold the commit. | `singularity-flow sync <WORK-ID>` once the remote is reachable. It reads the remote first. If the remote holds the commit, exactly or with commits another clone (a takeover) published on top, the commit counts as published, nothing more is pushed, and sync says it "had already reached" the remote. An earlier unknown outcome stays unknown until then, and is never overwritten by a later unreachable retry. |
 | `PUBLICATION_CANCELLED_BEFORE_PUSH` | The transition was cancelled after its commit and before its push. The commit is kept locally, and the push never started. | `singularity-flow sync <WORK-ID>` publishes that exact commit. |
 | `SDA_OPERATION_CANCELLED` | The transition was cancelled before its commit. Nothing was written, or the preimage was restored. | Run the step again. |
+| `STORY_PUBLICATION_IN_PROGRESS` | A transition's journal is still held by the command that wrote it. A journal from before lock tokens is judged by the subject lease held now. | An owner here: return to its terminal. Another machine's: the refusal names the subject lease's `lock show` and `lock release`. With no lease held, sync recovers the journal. |
 | `PUBLICATION_PENDING` | A retained commit waits for its publication. | The subject's own sync, in any turn: `singularity-flow sync <WORK-ID>`, `initiative sync <ID>`, `goal sync <ID>` or `adhoc sync <ID>`. |
 | `REVISION_CONFLICT` (a lost race) | Another clone published first. Sync can never send this commit. | The refusal names `singularity-flow sync <WORK-ID> --set-aside` (or `initiative sync <ID> --set-aside`). Preview it, confirm the set-aside with `--confirm <COMMIT>` in the person's own terminal, then redo the step's action. |
 | `STORY_PUBLICATION_SENT_ELSEWHERE` | The remote holds the commit, but SFlow has no record that its own push of it landed. It is reached only without a sealed lost answer, and is never claimed as SFlow's own publication. | `singularity-flow sync <WORK-ID> --set-aside`, then `--confirm <COMMIT>` in the person's own terminal. |
@@ -230,8 +233,9 @@ current phase needs.
 - **Pending publications**: `factory-reset` and `reset-all` refuse while one waits
   (`FACTORY_RESET_PUBLICATION_PENDING`) and list each one's sync. Publish them first, or pass
   `--discard-pending-publications` on both the preview and the reset. A backup never carries them.
-  `local-reset` in delete mode and the `fresh-install` reset do not check for them: run each sync
-  first.
+  `local-reset` in delete mode and the `fresh-install` reset refuse the same way for the
+  publications in the clones of each workspace they delete. Their preview names each one with its
+  clone; run its sync there.
 
 ## Mixed builds and the rollout
 

@@ -2354,6 +2354,59 @@ test('local reset deletes validated workspaces and local state but preserves the
   assert.equal(await missing(path.join(machine, 'vscode-fresh-reset-pending.json')), false);
 });
 
+// A workspace's clones carry their pending publications, the only record of commits the remote lacks.
+// Destructive local reset and the fresh-install reset deleted them with the workspace, refusing
+// nothing, while factory reset already refused (sweep D7).
+test('destructive local reset and fresh-install refuse while a workspace clone holds a pending publication, unless they discard it', async () => {
+  const { createWorkspaceConfiguration, readWorkspace, workspaceRepositoryPath } = await import('../src/workspace.mjs');
+  const { freshInstallReset, localReset, localResetPlan } = await import('../src/fresh-install-reset.mjs');
+  for (const [operation, reset, confirmation] of [
+    ['Local reset', localReset, 'RESET LOCAL'], ['Fresh install reset', freshInstallReset, 'RESET EVERYTHING']
+  ]) {
+    const home = await mkdtemp(path.join(os.tmpdir(), 'sflow-reset-pending-home-'));
+    const checkout = await mkdtemp(path.join(os.tmpdir(), 'sflow-reset-pending-checkout-'));
+    const created = await createWorkspaceConfiguration({
+      baseDirectory: path.join(home, 'workspaces'), id: 'pending-demo', name: 'Pending demo', leadRepository: 'platform',
+      repositories: { platform: { url: 'https://example.invalid/platform.git', defaultBranch: 'main', required: true,
+        metadata: { appId: 'APP-PENDING', name: 'Pending platform' } } }
+    }, { confirmation: 'pending-demo', clone: false });
+    const manifest = await readWorkspace(created.workspace.path);
+    const clone = workspaceRepositoryPath(manifest, manifest.repositories.platform);
+    const marker = path.join(clone, '.git', 'singularity-flow', 'pending-publication', 'story--WAIT-9.json');
+    await mkdir(path.dirname(marker), { recursive: true });
+    await writeFile(marker, '{}\n');
+    const machine = path.join(home, '.singularity-flow');
+    await mkdir(machine, { recursive: true });
+    await writeFile(path.join(machine, 'workspaces.json'), `${JSON.stringify({ schemaVersion: 1, workspaces: [{
+      id: created.workspace.id, path: created.workspace.path, name: created.workspace.name, openedAt: new Date().toISOString() }] })}\n`);
+    const options = { homeDirectory: home, projectDirectory: checkout, environment: {} };
+
+    if (operation === 'Local reset') {
+      const preview = await localResetPlan(options);
+      assert.deepEqual(preview.pendingPublications.map(({ kind, id, repository, command }) => [kind, id, repository, command]),
+        [['story', 'WAIT-9', clone, 'singularity-flow sync WAIT-9']]);
+      assert.equal(preview.pendingPublicationsDiscarded, false);
+      assert.ok(preview.remove.some((item) => item.includes('the reset refuses until each is published')
+        && item.includes(`story WAIT-9 in ${clone}: singularity-flow sync WAIT-9`)), JSON.stringify(preview.remove));
+      assert.equal((await localResetPlan({ ...options, forgetOnly: true })).pendingPublications.length, 0,
+        'forget-only deletes no clone');
+    }
+    await assert.rejects(() => reset({ ...options, confirmation }), (error) => {
+      assert.equal(error.code, 'FACTORY_RESET_PUBLICATION_PENDING', error.message);
+      assert.match(error.message, new RegExp(`^${operation} would delete the recovery of 1 pending publication`, 'u'));
+      assert.match(error.message, /story WAIT-9 in .+: singularity-flow sync WAIT-9/u);
+      assert.deepEqual(error.details.pendingPublications, [{ kind: 'story', id: 'WAIT-9', command: 'singularity-flow sync WAIT-9', repository: clone }]);
+      assert.equal(error.details.nextAction, 'singularity-flow sync WAIT-9');
+      return true;
+    });
+    assert.equal(await missing(marker), false, `${operation}: nothing was removed`);
+    const result = await reset({ ...options, discardPendingPublications: true, confirmation });
+    assert.equal(result.completed, true, operation);
+    assert.equal(result.pendingPublicationsDiscarded, true, operation);
+    assert.equal(await missing(created.workspace.path), true, operation);
+  }
+});
+
 test('forget-only clears machine state from inside a workspace while preserving every repository byte', async () => {
   const home = await mkdtemp(path.join(os.tmpdir(), 'sflow-local-forget-home-'));
   const { createWorkspaceConfiguration } = await import('../src/workspace.mjs');

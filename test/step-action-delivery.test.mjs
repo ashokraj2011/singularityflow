@@ -1,9 +1,9 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { createHash, createHmac } from 'node:crypto';
+import { createHash, createHmac, randomUUID } from 'node:crypto';
 import { spawn, spawnSync } from 'node:child_process';
 import { createServer } from 'node:http';
-import { mkdtemp, mkdir, readFile, readdir, rm, writeFile } from 'node:fs/promises';
+import { mkdtemp, mkdir, readFile, readdir, rm, utimes, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -244,6 +244,34 @@ test('the outbox delivers once, retries with backoff, holds unavailable deliveri
   assert.deepEqual(report.tampered.map((entry) => entry.key), [tampered.key]);
   assert.equal(sent.some((request) => request.url.includes('attacker')), false);
   assert.equal((await readdir(directory)).some((name) => name.endsWith('.lock')), false, 'no lock is left behind');
+});
+
+// The record lock was taken over once it was two minutes old, whoever held it, so a slow delivery
+// ran beside a second one. Only a crashed owner's lock is taken over now (SDA M3).
+test('a record lock another machine holds is never taken over by age; a crashed owner\'s is', async (t) => {
+  const root = await gitRepository(t);
+  const integrations = normalizeIntegrations({ targets: { hook: { kind: 'webhook', url: 'https://hooks.example.com/sflow', signingSecret: 'SFLOW_SECRET_HOOK_KEY' } } });
+  const workflow = storyWorkflow([{ id: 'announce', on: ['submitted'], target: 'hook' }], integrations);
+  const event = { type: 'approval-requested', phaseId: 'intake', generation: 1, actor: 'first', createdAt: '2026-10-03T10:00:00.000Z' };
+  const clock = () => Date.parse('2026-10-03T10:00:00.000Z');
+  const sent = [];
+  const post = async (request) => { sent.push(request); return { outcome: 'delivered', status: 200 }; };
+  const [queued] = await enqueueStepActions(root, workflow, { event, commit: 'c'.repeat(40), clock });
+  const lock = path.join(root, '.git', 'singularity-flow', 'action-outbox', `${queued.key}.lock`);
+  const hourAgo = new Date(Date.now() - 60 * 60_000);
+  const place = async (pid, host) => {
+    await writeFile(lock, `${JSON.stringify({ version: 3, pid, host, machineId: host === os.hostname() ? undefined : '0a1b2c3d-0000-4000-8000-000000000000',
+      nonce: randomUUID(), createdAt: hourAgo.toISOString(), heartbeatAt: hourAgo.toISOString() })}\n`, { mode: 0o600 });
+    await utimes(lock, hourAgo, hourAgo);
+  };
+  await place(4242, 'other-laptop.example');
+  await deliverStepActions(root, { env: { SFLOW_SECRET_HOOK_KEY: SECRET }, clock, post });
+  assert.equal(sent.length, 0, 'another machine may still be delivering it');
+  const exited = spawnSync(process.execPath, ['-e', 'process.stdout.write(String(process.pid))'], { encoding: 'utf8' });
+  await place(Number(exited.stdout), os.hostname());
+  const report = await deliverStepActions(root, { env: { SFLOW_SECRET_HOOK_KEY: SECRET }, clock, post });
+  assert.equal(report.delivered.length, 1, 'a crashed owner\'s lock is taken over');
+  assert.equal((await readdir(path.dirname(lock))).some((name) => name.endsWith('.lock')), false);
 });
 
 test('deliveries for a commit that could not be pushed wait until sync publishes it', async (t) => {

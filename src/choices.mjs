@@ -9,6 +9,7 @@ import { currentSchemaVersion, readRecord } from './schema-migrations.mjs';
 import { configurationReadSnapshot } from './configuration-read-scope.mjs';
 import { agentBriefReviewDocuments, verifyAgentBriefsForReview } from './agent-briefs.mjs';
 import { workDirRelative } from './story-paths.mjs';
+import { acquireFileLease, heldFileLeaseRoute } from './file-lease.mjs';
 
 const RECEIPT_TTL_MS = 15 * 60 * 1000;
 /**
@@ -272,46 +273,38 @@ async function readReceipt(root, token) {
   return validateReceipt(receipt, token);
 }
 
-function wait(milliseconds) {
-  return new Promise((resolve) => setTimeout(resolve, milliseconds));
-}
-
 async function withReceiptMutation(root, token, operation) {
   const target = receiptPath(root, token);
   const directory = path.dirname(target);
-  const lock = `${target}.lock`;
+  const lock = path.resolve(`${target}.lock`);
   try { await mkdir(directory, { recursive: true, mode: 0o700 }); }
   catch { throw receiptStorageFailure('open its mutation directory'); }
   const deadline = Date.now() + RECEIPT_LOCK_TIMEOUT_MS;
-  while (true) {
-    try {
-      await mkdir(lock, { mode: 0o700 });
-      break;
-    } catch (error) {
-      if (error?.code !== 'EEXIST') throw receiptStorageFailure('acquire its mutation lock');
-      const info = await lstat(lock).catch((readError) => {
-        if (readError?.code === 'ENOENT') return null;
-        throw receiptStorageFailure('inspect its mutation lock');
+  let lease = null;
+  while (!lease) {
+    // Only a proven-dead owner's lock is taken over, never a live one because it is old (SDA M3).
+    try { lease = await acquireFileLease(lock, { waitMs: 100, staleMs: RECEIPT_LOCK_STALE_MS }); }
+    catch { throw receiptStorageFailure('acquire its mutation lock'); }
+    if (lease) break;
+    // An older build's lock is a directory and records no owner, so only it is still judged by its age.
+    const info = await lstat(lock).catch(() => null);
+    if (info?.isSymbolicLink()) throw new SingularityFlowError('The selection receipt has an unsafe mutation lock.');
+    if (info?.isDirectory() && Date.now() - info.mtimeMs > RECEIPT_LOCK_STALE_MS) {
+      try { await rm(lock, { recursive: true, force: true, maxRetries: 3, retryDelay: 20 }); }
+      catch { throw receiptStorageFailure('repair its stale mutation lock'); }
+      continue;
+    }
+    if (Date.now() >= deadline) {
+      const route = await heldFileLeaseRoute(lock);
+      throw new SingularityFlowError(`The selection receipt is busy in another process.${route.message || ' Retry the action.'}`, {
+        details: route.details
       });
-      if (!info) continue;
-      if (info.isSymbolicLink() || !info.isDirectory()) {
-        throw new SingularityFlowError('The selection receipt has an unsafe mutation lock.');
-      }
-      if (Date.now() - info.mtimeMs > RECEIPT_LOCK_STALE_MS) {
-        try { await rm(lock, { recursive: true, force: true, maxRetries: 3, retryDelay: 20 }); }
-        catch { throw receiptStorageFailure('repair its stale mutation lock'); }
-        continue;
-      }
-      if (Date.now() >= deadline) {
-        throw new SingularityFlowError('The selection receipt is busy in another process. Retry the action.');
-      }
-      await wait(20);
     }
   }
   try {
     return await operation();
   } finally {
-    try { await rm(lock, { recursive: true, force: true, maxRetries: 3, retryDelay: 20 }); }
+    try { await lease.release(); }
     catch { throw receiptStorageFailure('release its mutation lock'); }
   }
 }

@@ -1,12 +1,13 @@
 import { createHash, createHmac, randomBytes, randomUUID, timingSafeEqual } from 'node:crypto';
 import path from 'node:path';
 import {
-  appendFile, chmod, mkdir, open, readFile, readdir, realpath, rm, stat, unlink
+  appendFile, chmod, mkdir, open, readFile, readdir, realpath, rm, stat
 } from 'node:fs/promises';
 import {
   activeWorkspaceFile, workspaceMemberContextForRepository, workspaceRegistryFile
 } from './workspace-context.mjs';
 import { gitCommonDir, gitDir } from './git.mjs';
+import { acquireFileLeaseWithin, heldFileLeaseRoute } from './file-lease.mjs';
 import { SingularityFlowError, writeAtomic } from './util.mjs';
 import { currentSchemaVersion, readRecord } from './schema-migrations.mjs';
 import { canonicalJson } from './records.mjs';
@@ -28,8 +29,8 @@ const DEFAULT_MAXIMUM_BYTES = 64 * 1024 * 1024;
 // Its reader loads the whole file as text: a configured ceiling never approaches Node's 512 MB limit.
 const MAXIMUM_CONFIGURED_BYTES = 256 * 1024 * 1024;
 const LOCK_STALE_MS = 5 * 60_000;
-const LOCK_RETRIES = 250;
-const LOCK_RETRY_MS = 20;
+const LOCK_TIMEOUT_MS = 5_000;
+const LEGACY_LOCK_OWNER = /^\d+:[a-f0-9-]{36}$/u;
 
 // Prompt capture is deliberately narrower than diagnostic logging. It preserves the governed
 // prompt a reviewer needs to audit, while removing common bearer-token shapes before bytes touch
@@ -73,47 +74,20 @@ async function ensurePrivateDirectory(directory) {
   await chmod(directory, 0o700).catch(() => {});
 }
 
-function delay(milliseconds) {
-  return new Promise((resolve) => setTimeout(resolve, milliseconds));
-}
-
 async function withAuditLock(directory, callback) {
   await ensurePrivateDirectory(directory);
-  const file = path.join(directory, LOCK);
-  const token = `${process.pid}:${randomUUID()}`;
-  let handle = null;
-  for (let attempt = 0; attempt < LOCK_RETRIES; attempt += 1) {
-    try {
-      const candidate = await open(file, 'wx', 0o600);
-      try { await candidate.writeFile(token); }
-      catch (error) {
-        await candidate.close().catch(() => {});
-        await unlink(file).catch(() => {});
-        throw error;
-      }
-      handle = candidate;
-      break;
-    } catch (error) {
-      if (error?.code !== 'EEXIST') throw error;
-      const info = await stat(file).catch(() => null);
-      if (info && Date.now() - info.mtimeMs > LOCK_STALE_MS) {
-        await unlink(file).catch(() => {});
-        continue;
-      }
-      await delay(LOCK_RETRY_MS);
-    }
-  }
-  if (!handle) {
-    throw new SingularityFlowError('Prompt-audit storage is busy. Retry the command.', {
-      code: 'PROMPT_AUDIT_LOCK_BUSY'
+  const file = path.resolve(directory, LOCK);
+  // Only a proven-dead owner's lock is taken over, never a live one because it is old (SDA M3). An
+  // older build's lock records no owner identity, so only it is still judged by its age.
+  const lease = await acquireFileLeaseWithin(file, LOCK_TIMEOUT_MS, { staleMs: LOCK_STALE_MS, legacyOwner: LEGACY_LOCK_OWNER });
+  if (!lease) {
+    const route = await heldFileLeaseRoute(file);
+    throw new SingularityFlowError(`Prompt-audit storage is busy.${route.message || ' Retry the command.'}`, {
+      code: 'PROMPT_AUDIT_LOCK_BUSY', details: route.details
     });
   }
   try { return await callback(); }
-  finally {
-    await handle.close().catch(() => {});
-    const owner = await readFile(file, 'utf8').catch(() => null);
-    if (owner === token) await unlink(file).catch(() => {});
-  }
+  finally { await lease.release().catch(() => {}); }
 }
 
 async function auditKey(directory, { create = false } = {}) {

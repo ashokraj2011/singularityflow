@@ -1,10 +1,11 @@
 import { createHash, createHmac, randomBytes } from 'node:crypto';
-import { chmod, lstat, mkdir, open, readFile, readdir, rename, rm, stat, writeFile } from 'node:fs/promises';
+import { chmod, lstat, mkdir, readFile, readdir, rename, rm, stat, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 
 import { currentSchemaVersion, readRecord } from '../schema-migrations.mjs';
 import { SingularityFlowError } from '../util.mjs';
+import { acquireFileLeaseWithin, heldFileLeaseRoute } from '../file-lease.mjs';
 import { RDS_DEFAULTS, RDS_ERROR_CODES } from './constants.mjs';
 
 const SESSION_FAMILY = 'repository-catalog-cursor';
@@ -85,27 +86,15 @@ async function atomicText(file, bytes, maximumBytes = RDS_DEFAULTS.maximumStoreB
 
 async function withLock(options, operation) {
   const store = await ensureStore(options);
-  const started = Date.now();
-  let handle;
-  while (!handle) {
-    try {
-      handle = await open(store.lock, 'wx', 0o600);
-      await handle.writeFile(`${process.pid}\n`);
-    } catch (error) {
-      if (error?.code !== 'EEXIST') throw error;
-      const age = await stat(store.lock).then((entry) => Date.now() - entry.mtimeMs).catch(() => 0);
-      if (age > LOCK_TIMEOUT_MS * 4) await rm(store.lock, { force: true }).catch(() => {});
-      if (Date.now() - started >= LOCK_TIMEOUT_MS) {
-        fail('Repository catalog state is busy in another process. Retry the same read.');
-      }
-      await new Promise((resolve) => setTimeout(resolve, LOCK_WAIT_MS));
-    }
+  // Only a proven-dead owner's lock is taken over, never a live one because it is old (SDA M3). An
+  // older build's lock holds only its PID, so only it is still judged by its age.
+  const lease = await acquireFileLeaseWithin(store.lock, LOCK_TIMEOUT_MS, { staleMs: LOCK_TIMEOUT_MS * 4, legacyOwner: /^\d+$/u });
+  if (!lease) {
+    const route = await heldFileLeaseRoute(store.lock);
+    fail(`Repository catalog state is busy in another process.${route.message || ' Retry the same read.'}`, undefined, route.details);
   }
   try { return await operation(store); }
-  finally {
-    await handle.close().catch(() => {});
-    await rm(store.lock, { force: true }).catch(() => {});
-  }
+  finally { await lease.release().catch(() => {}); }
 }
 
 async function machineKey(store) {

@@ -552,7 +552,18 @@ function cacheLeaseActive(owner, liveness) {
     || (liveness.heartbeat === 'fresh' && Number.isFinite(owner?.processStartedAt)));
 }
 
-async function cacheFileLeaseState(file, { staleMs = CACHE_LEASE_STALE_MS, legacyQuarantine = false } = {}) {
+/**
+ * A lease this copy of the module wrote and no longer holds: a release whose removal failed. Its
+ * process is this one, so it reads as alive, yet nothing here will ever release it. A held lease is
+ * found by its inode: the same file is often reached by another spelling (`/var` and `/private/var`).
+ */
+function releasedHere(owner, info) {
+  if (owner.processToken !== LEASE_PROCESS_TOKEN || owner.quarantine === true) return false;
+  for (const held of heldFileLeases.values()) if (sameInode(held.info, info)) return false;
+  return true;
+}
+
+async function cacheFileLeaseState(file, { staleMs = CACHE_LEASE_STALE_MS, legacyQuarantine = false, legacyOwner = null } = {}) {
   const observed = await readCacheLease(file);
   if (!observed) return null;
   let reason = 'unverifiable'; let stale = false; let liveness = null;
@@ -561,16 +572,17 @@ async function cacheFileLeaseState(file, { staleMs = CACHE_LEASE_STALE_MS, legac
     // One rule for every lease family: only a proven-dead owner is taken over, never one by age.
     liveness = leaseOwnerAssessment(owner, { heartbeatMtimeMs: Number(observed.info.mtimeMs), heartbeatTtlMs: staleMs });
     if (liveness.state === 'unknown') reason = 'foreign-owner';
-    else if (liveness.state === 'alive') reason = 'live-owner';
+    else if (liveness.state === 'alive' && !releasedHere(owner, observed.info)) reason = 'live-owner';
     else if (owner.unknownChildren === true
         || (owner.quarantine === true && owner.unknownChildren !== false)) reason = 'unknown-children';
     else if ((owner.childPids ?? []).some((pid) => !processDeath(pid))) reason = 'live-child';
-    else { stale = true; reason = owner.quarantine ? 'dead-quarantine' : 'dead-owner'; }
+    else { stale = true; reason = owner.quarantine ? 'dead-quarantine' : liveness.state === 'alive' ? 'released-here' : 'dead-owner'; }
   } else if (!observed.unsafe) {
     const text = observed.ownerBytes.trim();
     // Older active-operation markers carry no trustworthy child identity. Age cannot establish
-    // process cleanup. Only the local allocation-only dialect may use legacy acquisition age.
-    const legacy = /^[a-f0-9-]{36}$/u.test(text) || text === '';
+    // process cleanup. Only the local allocation-only dialect, and an older build's owner text for
+    // the caller's own lock (`legacyOwner`), may use legacy acquisition age: they carry no identity.
+    const legacy = /^[a-f0-9-]{36}$/u.test(text) || text === '' || legacyOwner?.test(text) === true;
     if (legacy && !legacyQuarantine) {
       stale = registryLeaseAgeMs(observed.info) > staleMs;
       reason = stale ? 'legacy-stale' : 'legacy-busy';
@@ -672,11 +684,12 @@ async function privateReclaimRoot(file) {
  * A protected operation is never automatically reaped without exact child-death evidence.
  */
 export async function acquireFileLease(file, { waitMs = 0, staleMs = CACHE_LEASE_STALE_MS,
-  legacyQuarantine = false, onReclaimed = null } = {}) {
+  legacyQuarantine = false, legacyOwner = null, onReclaimed = null } = {}) {
   if (typeof file !== 'string' || !path.isAbsolute(file) || file.includes('\0')
       || !Number.isSafeInteger(waitMs) || waitMs < 0 || waitMs > 250
       || !Number.isSafeInteger(staleMs) || staleMs < 1
-      || typeof legacyQuarantine !== 'boolean' || (onReclaimed !== null && typeof onReclaimed !== 'function')) throw leaseError('FILE_LEASE_INVALID');
+      || typeof legacyQuarantine !== 'boolean' || (legacyOwner !== null && !(legacyOwner instanceof RegExp))
+      || (onReclaimed !== null && typeof onReclaimed !== 'function')) throw leaseError('FILE_LEASE_INVALID');
   const started = performance.now();
   let reclaimed = false; let reclaimReason = null;
   let handle;
@@ -684,11 +697,11 @@ export async function acquireFileLease(file, { waitMs = 0, staleMs = CACHE_LEASE
     try { handle = await open(file, 'wx+', 0o600); }
     catch (error) {
       if (error.code !== 'EEXIST') throw error;
-      const observed = await cacheFileLeaseState(file, { staleMs, legacyQuarantine });
+      const observed = await cacheFileLeaseState(file, { staleMs, legacyQuarantine, legacyOwner });
       if (!observed) continue;
       if (observed.stale) {
         const reclaimRoot = await privateReclaimRoot(file);
-        if (await reclaimRegistryFileLease(file, observed, { cachePolicy: true, staleMs, legacyQuarantine, reclaimRoot })) {
+        if (await reclaimRegistryFileLease(file, observed, { cachePolicy: true, staleMs, legacyQuarantine, legacyOwner, reclaimRoot })) {
           reclaimed = true; reclaimReason = observed.reason;
           incrementCommandCounter(`cache.lease-reclaimed-${reclaimReason}`);
           continue;
@@ -719,7 +732,9 @@ export async function acquireFileLease(file, { waitMs = 0, staleMs = CACHE_LEASE
     await handle.sync();
     frame.bytes = bytes; owner = value;
   };
-  const release = async ({ cleanupConfirmed = false } = {}) => {
+  // `remove: false` closes and forgets the lease and leaves its file to a caller that removes it
+  // with its own retries; until then a later acquisition here takes it over as released here.
+  const release = async ({ cleanupConfirmed = false, remove = true } = {}) => {
     if (!active || releasing) return false;
     // Fence before the first await: duplicate releases must not inspect one generation and then
     // remove a replacement acquired after another release has finished.
@@ -727,7 +742,7 @@ export async function acquireFileLease(file, { waitMs = 0, staleMs = CACHE_LEASE
     frame.releasing = true;
     let removed = false;
     try {
-      if ((!frame.protected || cleanupConfirmed === true) && await ownsExactFrame()) {
+      if (remove && (!frame.protected || cleanupConfirmed === true) && await ownsExactFrame()) {
         await rm(file, { force: true }); removed = true;
       }
     } finally {
@@ -749,16 +764,50 @@ export async function acquireFileLease(file, { waitMs = 0, staleMs = CACHE_LEASE
     // Guard every post-open operation, including stat. An I/O failure cannot leak the descriptor;
     // without inode identity we preserve the empty candidate rather than deleting an unknown path.
     frame = { file, handle, info: await handle.stat({ bigint: true }), bytes: null, protected: false };
-    await writeOwner(owner, true);
+    // Held before its owner is readable: another acquisition here never reads it as released here.
     heldFileLeases.set(file, frame);
+    await writeOwner(owner, true);
     if (reclaimed && onReclaimed) await onReclaimed({ reason: reclaimReason });
-    return Object.freeze({ file, owner: Object.freeze({ ...owner }), reclaimed, owns, release, retainQuarantine,
-      protect: () => retainQuarantine({ unknownChildren: true }) });
+    return Object.freeze({ file, info: frame.info, owner: Object.freeze({ ...owner }), bytes: frame.bytes.toString('utf8'),
+      reclaimed, owns, release, retainQuarantine, protect: () => retainQuarantine({ unknownChildren: true }) });
   } catch (error) {
     if (frame) await release().catch(() => {});
     else await handle.close().catch(() => {});
     throw error;
   }
+}
+
+/**
+ * A small local lock (a store's write lock, a receipt's mutation lock) behind a bounded wait: the
+ * cache lease's rule, so only a proven-dead owner, or this process's own released lease, is taken
+ * over, never a live one by age. Null when it is still held at the deadline; the refusal then adds
+ * `heldFileLeaseRoute`.
+ */
+export async function acquireFileLeaseWithin(file, timeoutMs, options = {}) {
+  const deadline = performance.now() + timeoutMs;
+  for (;;) {
+    const waitMs = Math.max(0, Math.min(250, Math.floor(deadline - performance.now())));
+    const lease = await acquireFileLease(file, { ...options, waitMs });
+    if (lease || waitMs === 0) return lease;
+  }
+}
+
+/**
+ * What a refusal adds for a lease file still held at its deadline. Its holder, and when waiting
+ * cannot end it (another machine's owner, or one here that stopped renewing), the review and the
+ * exact reviewed release, which the refusal plan makes the person's first step.
+ */
+export async function heldFileLeaseRoute(file) {
+  const lock = path.resolve(file);
+  const held = await inspectFileLease(lock).catch(() => null);
+  if (!held?.owner) return { message: '', details: { lock } };
+  const details = { lock, owner: held.owner, liveness: held.liveness };
+  if (!held.releaseCommand) return { message: '', details };
+  return {
+    message: ` It is held by ${describeLeaseOwner(held.owner, held.liveness)}, and waiting does not end it. `
+      + `Review it with: ${held.showCommand}. After checking that it no longer uses this file, release exactly that lease with: ${held.releaseCommand}`,
+    details: { ...details, releaseCommand: held.releaseCommand }
+  };
 }
 
 /** Best effort synchronous signal cleanup; no protected or changed successor is removed. */

@@ -1,7 +1,7 @@
 import { createHash, randomUUID } from 'node:crypto';
 import { constants as fsConstants } from 'node:fs';
 import {
-  access, lstat, mkdir, open, readFile, readdir, rm, stat, statfs
+  access, lstat, mkdir, open, readFile, readdir, rm, statfs
 } from 'node:fs/promises';
 import { nodeRequirement } from './node-requirement.mjs';
 import os from 'node:os';
@@ -24,6 +24,7 @@ import {
   enterpriseGitEnvironment, withoutGitProcessOverrides
 } from './git-enterprise-environment.mjs';
 import { healerReceipt } from './workspace-healers.mjs';
+import { acquireFileLease, heldFileLeaseRoute } from './file-lease.mjs';
 import { currentSchemaVersion, readRecord } from './schema-migrations.mjs';
 
 export const WORKSPACE_BOOTSTRAP_SCHEMA_VERSION = currentSchemaVersion('workspace-bootstrap');
@@ -35,6 +36,7 @@ const TERMINAL = new Set(['ready', 'registered', 'abandoned']);
 const ACTIVE = new Set(WORKSPACE_BOOTSTRAP_STATUSES.filter((status) => !TERMINAL.has(status)));
 const MIN_DISK_BYTES = 1024 * 1024 * 1024;
 const LEASE_STALE_MS = 5 * 60 * 1000;
+const LEGACY_LEASE_OWNER = /^\{"pid":\d+,"acquiredAt":"[^"]{1,64}","nonce":"[a-f0-9-]{36}"\}$/u;
 const LEASE_UNLINK_RETRYABLE = new Set(['EACCES', 'EBUSY', 'EPERM']);
 const LEASE_UNLINK_ATTEMPTS = 6;
 const PREFLIGHT_RECEIPT_TTL_MS = 15 * 60 * 1000;
@@ -271,37 +273,27 @@ async function removeReleasedLeaseFile(file, removeFile, ownerInfo, ownerBytes) 
   }
 }
 
-async function acquireLease(root, bootstrapId, {
-  recoveredStale = false, unlinkLeaseFile = rm
-} = {}) {
+async function acquireLease(root, bootstrapId, { unlinkLeaseFile = rm } = {}) {
   await assertStateRoot(root);
   const file = leasePath(root, bootstrapId);
-  let handle = null;
-  try {
-    handle = await open(file, 'wx', 0o600);
-    const ownerBytes = `${JSON.stringify({ pid: process.pid, acquiredAt: nowIso(), nonce: randomUUID() })}\n`;
-    await handle.writeFile(ownerBytes);
-    const ownerInfo = await handle.stat({ bigint: true });
-    return {
-      recoveredStale,
-      file,
-      release: async () => {
-        await handle.close();
-        await removeReleasedLeaseFile(file, unlinkLeaseFile, ownerInfo, ownerBytes);
-      }
-    };
-  } catch (error) {
-    if (handle) await handle.close().catch(() => {});
-    if (error?.code !== 'EEXIST') throw error;
-    const info = await stat(file).catch(() => null);
-    if (info && Date.now() - info.mtimeMs > LEASE_STALE_MS) {
-      await rm(file, { force: true });
-      return acquireLease(root, bootstrapId, { recoveredStale: true, unlinkLeaseFile });
-    }
-    throw new SingularityFlowError(`Workspace bootstrap '${bootstrapId}' is already being changed by another process.`, {
-      code: 'BOOTSTRAP_LEASE_BUSY', details: { bootstrapId }
+  // Only a proven-dead owner's lease, or this process's own one whose removal failed, is taken over.
+  // A live owner's is never taken over because it is old (SDA M3); an older build's records no
+  // owner identity, so only it is still judged by its age.
+  const lease = await acquireFileLease(file, { staleMs: LEASE_STALE_MS, legacyOwner: LEGACY_LEASE_OWNER });
+  if (!lease) {
+    const route = await heldFileLeaseRoute(file);
+    throw new SingularityFlowError(`Workspace bootstrap '${bootstrapId}' is already being changed by another process.${route.message}`, {
+      code: 'BOOTSTRAP_LEASE_BUSY', details: { bootstrapId, ...route.details }
     });
   }
+  return {
+    recoveredStale: lease.reclaimed,
+    file,
+    release: async () => {
+      await lease.release({ remove: false });
+      await removeReleasedLeaseFile(file, unlinkLeaseFile, lease.info, lease.bytes);
+    }
+  };
 }
 
 async function withLease(root, bootstrapId, operation, { unlinkLeaseFile = rm } = {}) {
@@ -317,8 +309,8 @@ async function withLease(root, bootstrapId, operation, { unlinkLeaseFile = rm } 
       await writeSession(root, {
         ...current,
         // A retained lease is machine-local cleanup state, not lifecycle authority. If the
-        // operation that owned it already persisted a terminal result, recovering the expired
-        // file must not reopen that completed bootstrap and send it back through preflight or
+        // operation that owned it already persisted a terminal result, taking over its dead
+        // owner's file must not reopen that completed bootstrap and send it back through preflight or
         // materialization. Non-terminal records still return to the explicit recovery boundary.
         status: TERMINAL.has(current.status) ? current.status : 'waiting-user',
         revision: Number(current.revision ?? 0) + 1,

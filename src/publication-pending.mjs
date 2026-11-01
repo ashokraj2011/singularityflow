@@ -1094,18 +1094,21 @@ export async function syncPendingLifecyclePublication(root, options = {}) {
  * lease uses (src/lease-liveness.mjs). Only a proven-dead owner makes the journal recoverable; a
  * live or another machine's owner is never declared interrupted because its deadline passed. A
  * lease that is gone (released, or taken over after its owner died) no longer protects the journal.
+ * A journal from before lock tokens names no lease generation: the subject lease held now decides,
+ * so another machine's owner leaves the reviewed release of that lease, and with no lease nothing
+ * still writes it. Judged by its own owner alone, it stayed live forever with no lock to release.
  */
 function journalLeaseIsLive(root, journal) {
-  if (!root || !journal?.owner?.lockToken) {
+  if (!root || !journal?.subject?.kind || !journal?.subject?.id) {
     return Boolean(journal?.owner) && leaseOwnerState(journal.owner) !== 'dead';
   }
   const directory = subjectLockPath(root, journal.subject);
   let owner;
   try { owner = JSON.parse(readFileSync(path.join(directory, 'owner.json'), 'utf8')); }
   catch { return false; }
-  if (owner.lockToken !== journal.owner.lockToken
+  if (journal?.owner?.lockToken && (owner.lockToken !== journal.owner.lockToken
     || owner.processToken !== journal.owner.processToken
-    || owner.host !== journal.owner.host) return false;
+    || owner.host !== journal.owner.host)) return false;
   return leaseOwnerState(owner) !== 'dead';
 }
 

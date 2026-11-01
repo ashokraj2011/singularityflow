@@ -1,9 +1,8 @@
 /** Workspace-local, content-free measurements for the deterministic help resolver. */
 import path from 'node:path';
 import {
-  appendFile, chmod, mkdir, open, readFile, stat, unlink
+  appendFile, chmod, mkdir, readFile, stat
 } from 'node:fs/promises';
-import { randomUUID } from 'node:crypto';
 
 import {
   activeWorkspaceFile, workspaceMemberContextForRepository, workspaceRegistryFile
@@ -11,6 +10,7 @@ import {
 import { gitDir } from './git-execution.mjs';
 import { currentSchemaVersion, readRecord } from './schema-migrations.mjs';
 import { SingularityFlowError, writeAtomic } from './util.mjs';
+import { acquireFileLeaseWithin, heldFileLeaseRoute } from './file-lease.mjs';
 
 const DIRECTORY = 'help-metrics';
 const LOG = 'events.jsonl';
@@ -20,17 +20,15 @@ const DEFAULT_RETENTION_DAYS = 30;
 const DEFAULT_MAXIMUM_BYTES = 4 * 1024 * 1024;
 // Its reader loads the whole file as text: a configured ceiling never approaches Node's 512 MB limit.
 const MAXIMUM_CONFIGURED_BYTES = 256 * 1024 * 1024;
-const LOCK_RETRIES = 250;
-const LOCK_RETRY_MS = 20;
+const LOCK_TIMEOUT_MS = 5_000;
 const LOCK_STALE_MS = 5 * 60_000;
+const LEGACY_LOCK_OWNER = /^\d+:[a-f0-9-]{36}$/u;
 const SURFACES = new Set(['chat', 'participant', 'help-center', 'cli', 'error-link']);
 const INTENTS = new Set(['concept', 'procedure', 'diagnose', 'compare', 'command-discovery', 'recover']);
 const OUTCOMES = new Set(['resolved', 'ambiguous', 'no-match', 'unavailable']);
 const ACTIONS = new Set(['followup-opened', 'command-copied', 'command-prefilled', 'topic-opened', 'error-explained']);
 const COMMAND_CLASSES = new Set(['deterministic', 'drafting']);
 const SAFE_ID = /^[a-z0-9]+(?:[-.][a-z0-9]+)*$/;
-
-const delay = (milliseconds) => new Promise((resolve) => setTimeout(resolve, milliseconds));
 
 async function privateDirectory(directory) {
   await mkdir(directory, { recursive: true, mode: 0o700 });
@@ -39,33 +37,18 @@ async function privateDirectory(directory) {
 
 async function withLock(directory, callback) {
   await privateDirectory(directory);
-  const lockFile = path.join(directory, LOCK);
-  const token = `${process.pid}:${randomUUID()}`;
-  let handle = null;
-  for (let attempt = 0; attempt < LOCK_RETRIES; attempt += 1) {
-    try {
-      handle = await open(lockFile, 'wx', 0o600);
-      await handle.writeFile(token);
-      break;
-    } catch (error) {
-      if (error?.code !== 'EEXIST') throw error;
-      const info = await stat(lockFile).catch(() => null);
-      if (info && Date.now() - info.mtimeMs > LOCK_STALE_MS) {
-        await unlink(lockFile).catch(() => {});
-        continue;
-      }
-      await delay(LOCK_RETRY_MS);
-    }
+  const lockFile = path.resolve(directory, LOCK);
+  // Only a proven-dead owner's lock is taken over, never a live one because it is old (SDA M3). An
+  // older build's lock records no owner identity, so only it is still judged by its age.
+  const lease = await acquireFileLeaseWithin(lockFile, LOCK_TIMEOUT_MS, { staleMs: LOCK_STALE_MS, legacyOwner: LEGACY_LOCK_OWNER });
+  if (!lease) {
+    const route = await heldFileLeaseRoute(lockFile);
+    throw new SingularityFlowError(`Help-metrics storage is busy.${route.message || ' Retry the command.'}`, {
+      code: 'HELP_METRICS_LOCK_BUSY', details: route.details
+    });
   }
-  if (!handle) throw new SingularityFlowError('Help-metrics storage is busy. Retry the command.', {
-    code: 'HELP_METRICS_LOCK_BUSY'
-  });
   try { return await callback(); }
-  finally {
-    await handle.close().catch(() => {});
-    const owner = await readFile(lockFile, 'utf8').catch(() => null);
-    if (owner === token) await unlink(lockFile).catch(() => {});
-  }
+  finally { await lease.release().catch(() => {}); }
 }
 
 async function location(root) {

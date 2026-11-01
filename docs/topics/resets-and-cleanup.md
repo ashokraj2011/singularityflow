@@ -19,7 +19,7 @@ related:
   - installation-and-upgrades
   - recovery
   - secrets
-version: 10
+version: 11
 ---
 Reset commands have deliberately different scopes. Preview the exact scope and use the confirmation printed by that same mode.
 
@@ -104,6 +104,8 @@ displayed shell command on the target machine.
 Forget-only removes the workspace registry and active selection, capability lead registry and organisation cache, other `~/.singularity-flow` state, supported custom registry/cache locations, and Singularity-named Copilot session state. It preserves workspace directories, repository clones, manifests, branches, worktrees, dirty files, `.git/singularity-flow` recovery state, remote capability maps, `sflow/config`, state/proposal branches, Git history, repository-owned `.vscode/settings.json`, and installed product surfaces.
 
 Destructive local reset retains the existing stricter boundary: run it outside every workspace it will delete, and each existing registration must have an exact matching regular workspace manifest. Both modes reject symlink targets and dangerously broad custom directories, stage renames before committing, and roll back moved targets if application fails.
+
+A pending publication is the only record of a commit the remote does not hold yet, and a backup never carries it. `factory-reset`, `reset-all`, destructive `local-reset` and the `fresh-install` reset each refuse while one waits in what they would delete (`FACTORY_RESET_PUBLICATION_PENDING`). The preview names each one, with the clone it waits in and its sync. Run that sync in the named clone, or preview and reset with `--discard-pending-publications` to delete them with the reset. Forget-only deletes no clone, so it never refuses.
 
 Product uninstall is separate from both reset modes. Uninstall removes executable product surfaces
 and preserves local registrations and bytes; forget-only removes registrations and

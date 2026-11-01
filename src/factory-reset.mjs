@@ -127,7 +127,7 @@ async function savedSpecificationDrafts(sharedRuntime) {
  * the only record of a commit not yet on the remote. A backup never carries them, so the reset
  * refuses while one waits, unless the reviewed reset discards them (sweep D7).
  */
-async function pendingPublications(localRuntimeRoots) {
+export async function pendingPublications(localRuntimeRoots) {
   const { subjectSyncCommand } = await import('./publication-pending.mjs');
   const found = new Map();
   for (const runtime of localRuntimeRoots) {
@@ -1077,19 +1077,23 @@ export async function factoryResetPlan(root, { packageVersion = null, includeLoc
   };
 }
 
-/** The reset's refusal while publications wait: each one's sync, then the deliberate discard. */
-export function pendingPublicationResetRefusal(waiting) {
+/**
+ * The reset's refusal while publications wait: each one's sync, then the deliberate discard. A
+ * publication in a workspace clone (`repository`, for local-reset and fresh-install) is synced there.
+ */
+export function pendingPublicationResetRefusal(waiting, { operation = 'Factory reset' } = {}) {
   const routes = waiting.filter((entry) => entry.command);
+  const where = (entry) => (entry.repository ? ` in ${entry.repository}` : '');
   return new SingularityFlowError(
-    `Factory reset would delete the recovery of ${waiting.length} pending publication(s), the only record of commits not yet on the remote, which a backup never carries:\n`
-    + waiting.map((entry) => `  ${entry.kind} ${entry.id}${entry.command ? `: ${entry.command}` : ''}`).join('\n')
+    `${operation} would delete the recovery of ${waiting.length} pending publication(s), the only record of commits not yet on the remote, which a backup never carries:\n`
+    + waiting.map((entry) => `  ${entry.kind} ${entry.id}${where(entry)}${entry.command ? `: ${entry.command}` : ''}`).join('\n')
     + '\nPublish each first with its sync, preview again, then reset. To delete them with the reset, preview and reset with --discard-pending-publications. Nothing was removed.',
     {
       code: 'FACTORY_RESET_PUBLICATION_PENDING',
       details: {
-        pendingPublications: waiting.map(({ kind, id, command }) => ({ kind, id, command })),
+        pendingPublications: waiting.map(({ kind, id, command, repository }) => ({ kind, id, command, ...(repository ? { repository } : {}) })),
         ...(routes.length ? { nextAction: routes[0].command } : {}),
-        recoveryCommands: routes.slice(1).map((entry) => ({ command: entry.command, label: `Publish ${entry.kind} ${entry.id} first` }))
+        recoveryCommands: routes.slice(1).map((entry) => ({ command: entry.command, label: `Publish ${entry.kind} ${entry.id}${where(entry)} first` }))
       }
     }
   );

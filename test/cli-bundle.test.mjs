@@ -361,7 +361,10 @@ test('the bundled CLI answers exactly like the sources while opening a handful o
   // 7,686,180. No new file.
   // 7,695,000: main 8dd691421 measures 7,686,180; the same SDA on native Windows code adds 4,332 for 7,690,512.
   // No new file.
-  assert.ok(hookContext < 7_695_000,
+  // 7,700,000: main c15830837 measures 7,694,712; the small local locks on the lease rule (file-lease.mjs) and a
+  // tokenless journal judged by the subject lease held now (publication-pending.mjs) add 1,252 for 7,695,964.
+  // No new file.
+  assert.ok(hookContext < 7_700_000,
     `phase-review reads retain their existing byte ceiling after moving families (${hookContext} bytes)`);
   assert.match(await readFile(path.join(outdir, 'cold-light.mjs'), 'utf8'), /function enterPhase\b/u,
     'phase binding must not fall through to the compatibility/admin bundle');

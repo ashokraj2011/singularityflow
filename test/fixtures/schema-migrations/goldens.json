@@ -476,6 +476,8 @@
   "spec-research": [{ "schemaVersion": 1, "specId": "SPEC-CHK-004", "revision": 1, "items": [] }],
   "spec-quality": [{ "schemaVersion": 1, "specId": "SPEC-CHK-004", "revision": 1 }],
   "spec-usage": [{ "schemaVersion": 1, "specId": "SPEC-CHK-004", "revision": 1, "workId": "S-1", "kind": "claimed", "generation": 1, "clauses": [] }],
+  "spec-split": [{ "schemaVersion": 1, "specId": "SPEC-CHK-004", "revision": 1, "split": 1, "children": [], "stories": [], "notDelivered": [] }],
+  "spec-split-proposal": [{ "schemaVersion": 1, "specId": "SPEC-CHK-004", "revision": 1, "plan": { "children": [], "stories": [], "notDelivered": [] } }],
   "prompt-audit-settings": [{ "schemaVersion": 1 }, { "schemaVersion": 2, "retentionDays": 30, "lastPrunedAt": null, "headMac": null, "tailMac": null, "logBytes": null, "logMtimeMs": null, "maximumBytes": 67108864 }],
   "prompt-audit-record": [{ "schemaVersion": 1 }, { "schemaVersion": 2, "integrity": null, "handoffSha256": null, "handoffBytes": null }, { "schemaVersion": 3, "integrity": null, "handoffSha256": null, "handoffBytes": null, "executionContext": { "mode": "historical-unproven" } }],
   "help-metrics-settings": [{ "schemaVersion": 1 }],

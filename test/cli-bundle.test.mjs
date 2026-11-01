@@ -380,6 +380,10 @@ test('the bundled CLI answers exactly like the sources while opening a handful o
   // 7,704,626. No new file.
   // 7,710,000: main 5864f682f measures 7,704,626; a pinned specification slice named settled at the clarification
   // checkpoint (clarifications.mjs, SPEC-SPA v1.3 REQ-018) adds 669 for 7,705,295. No new file.
+  // 7,710,000 holds: main f840dc33c measures 7,705,295; a specification split (SPEC-SPA v1.3 S5) adds 1,122 for 7,706,417:
+  // its read, propose and publish operations (command-registry.mjs), the publication as an own-terminal step
+  // (command-skills.mjs) and its turn refusal (copilot-mutation-guard.mjs). The split engine loads only for
+  // `spec split` and coverage. No new file.
   assert.ok(hookContext < 7_710_000,
     `phase-review reads retain their existing byte ceiling after moving families (${hookContext} bytes)`);
   assert.match(await readFile(path.join(outdir, 'cold-light.mjs'), 'utf8'), /function enterPhase\b/u,

@@ -681,8 +681,14 @@ Usage:
     code, gaps a person decides, a check with no model, immutable revisions on the state branch;
     accepting, rejecting, deciding, settling, publishing and discarding are the person's own steps; writes take --operation-id ID
   singularity-flow spec author coverage SPEC-ID@N [--repair --story WORK-ID] [--json]
-    per clause of one revision: delivered, claimed or uncovered by Stories, from one state commit;
+    per clause of one revision: delivered, claimed, allocated by a split, left out or uncovered, and
+    each child of a split whose parent clause changed since ("parent moved"), from one state commit;
     --repair writes the usage records a Story's committed approval or closing proves
+  singularity-flow spec split SPEC-ID@N [--propose --file FILE | --publish] [--json]
+    divide a reviewed revision among child specifications and Story slices: every clause allocated or
+    left out with its reason, no cycle between slices; --propose checks a JSON or YAML plan and keeps it
+    on this clone, --publish (the person's own step) publishes it to the state branch, drafts each child
+    here and lists one start command per slice; no Story is started
   singularity-flow spec attach WORK-ID --drop CLAUSE-ID --reason TEXT [--json]
     take one clause out of the slice a Story started with (start --spec): its scope item is recorded
     excluded with the reason, by a person who decides the Story's scope; the person's own step

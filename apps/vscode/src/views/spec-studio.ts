@@ -6,7 +6,9 @@
  * draft; a gap's impact, a revision and its coverage are read when a stage needs them. The panel
  * writes no Git and no repository file: prose and gap options reach `edit` and `gap` through a file
  * in a private temporary folder that is removed after the one command. Publishing and discarding ask
- * once on a review page; closing a gap is one choice plus a rationale. Back and Cancel write nothing.
+ * once on a review page; closing a gap is one choice plus a rationale. A split's plan reaches
+ * `spec split --propose` through the same kind of file, and publishing it asks once (S5). Back and
+ * Cancel write nothing.
  * Copilot (S4) stages proposals and assisted findings through `spec author propose`, from chat or the
  * #sflowSpecStudio tool bound to the open draft; only the person's clicks here accept, reject or settle.
  */
@@ -22,6 +24,7 @@ import { booleanField, enumField, integerField, registerMessageRouter, stringFie
 import { collectReviewConfirmation } from './review-confirmation.ts';
 import * as model from './spec-studio-model.ts';
 import { specStudioHtml, SPEC_STUDIO_SCRIPT, SPEC_STUDIO_STYLE, type SpecStudioPageState } from './spec-studio-page.ts';
+import * as split from './spec-studio-split.ts';
 
 export interface SpecStudioHooks {
   /** The repository the CLI runs in, so a cited file opens at its line. */
@@ -90,7 +93,7 @@ export class SpecStudioPanel implements vscode.Disposable {
 
   private fresh(target: model.SpecStudioTarget): SpecStudioPageState {
     return { target, step: target.step ?? (target.revision || target.clauses ? 'attach' : 'elicit'), library: this.state?.library ?? null,
-      status: null, revision: null, coverage: null, selectedGap: null, impact: null, notice: null, error: null, busy: null, copilot: null };
+      status: null, revision: null, coverage: null, split: null, splitDraft: null, selectedGap: null, impact: null, notice: null, error: null, busy: null, copilot: null };
   }
 
   private retarget(target: model.SpecStudioTarget): void {
@@ -133,6 +136,8 @@ export class SpecStudioPanel implements vscode.Disposable {
     'spec.discard': () => this.guard(() => this.discard()),
     'spec.attachRevision': (message) => this.guard(async () => { await this.readRevision(integerField(message, 'revision'), true); this.render(); }),
     'spec.coverage': () => this.guard(() => this.readCoverage()),
+    'spec.splitPropose': (message) => this.guard(() => this.proposeSplit(message)),
+    'spec.splitPublish': () => this.guard(() => this.publishSplit()),
     'spec.copy': (message) => this.copy(stringField(message, 'text')),
     'spec.openCitation': (message) => this.openCitation(stringField(message, 'path'), integerField(message, 'line'))
   });
@@ -191,6 +196,7 @@ export class SpecStudioPanel implements vscode.Disposable {
   private async readRevision(revision: number | null, asked: boolean): Promise<void> {
     const specId = this.state.target.specId;
     if (!specId) return;
+    const before = this.state.revision ? `${this.state.revision.specId}@${this.state.revision.revision}` : null;
     try {
       this.state.revision = model.revisionFrom(await this.client.run(model.showArgv(specId, revision)));
       if (this.state.coverage?.revision !== this.state.revision?.revision) this.state.coverage = null;
@@ -198,6 +204,45 @@ export class SpecStudioPanel implements vscode.Disposable {
       this.state.revision = null;
       if (asked) this.state.error = model.refusalFrom(error);
     }
+    // A refused plan belongs to the revision it was written for.
+    if ((this.state.revision ? `${this.state.revision.specId}@${this.state.revision.revision}` : null) !== before) this.state.splitDraft = null;
+    await this.readSplit();
+  }
+
+  /** The shown revision's splits and the plan proposed for it on this clone; a draft revision has none. */
+  private async readSplit(): Promise<void> {
+    const revision = this.state.revision;
+    this.state.split = null;
+    if (!revision || revision.manifest.reviewState !== 'reviewed') return;
+    try { this.state.split = split.splitFrom(await this.client.run(split.splitArgv(revision.specId, revision.revision))); }
+    catch (error) { this.state.error = model.refusalFrom(error); }
+  }
+
+  /** Check the person's plan and keep it on this clone (`spec split … --propose`); nothing is published. */
+  private async proposeSplit(message: InboundMessage): Promise<void> {
+    const revision = this.state.revision;
+    if (!revision) return;
+    const plan = split.splitPlanRequest(message, model.specClauses(revision.spec, revision.specId).map((clause) => clause.id));
+    this.state.splitDraft = plan;
+    const proposed = await this.withFile('split-plan.json', split.planFileText(plan), (file) => this.write(`Checking the split of ${revision.specId}@${revision.revision}…`,
+      split.splitProposeArgv(revision.specId, revision.revision, file), () => 'Proposed the split on this clone; nothing is published yet. Publishing asks once.'));
+    if (proposed) { this.state.splitDraft = null; this.render(); }
+  }
+
+  /** Publishing a split is the person's own step: one confirmation that names it. */
+  private async publishSplit(): Promise<void> {
+    const view = this.state.split;
+    const proposal = view?.proposal;
+    if (!view || !proposal || proposal.findings.length || proposal.stale) return;
+    if (!await collectReviewConfirmation(split.splitConfirmation(view, proposal))) {
+      this.state.notice = 'Nothing was published.'; this.state.error = null;
+      return this.render();
+    }
+    await this.write(`Publishing the split of ${view.specId}@${view.revision}…`, split.splitPublishArgv(view.specId, view.revision), (result) => {
+      const published = result as { split?: number; replayed?: boolean; children?: Array<{ specId?: string }> };
+      const children = (published.children ?? []).map((child) => child.specId).filter(Boolean);
+      return `${published.replayed ? 'Already published' : 'Published'} split ${published.split ?? ''} of ${view.specId}@${view.revision}. No Story was started${children.length ? `; ${children.join(', ')} drafted on this clone` : ''}.`;
+    });
   }
 
   private async readImpact(gapId: string): Promise<void> {
@@ -466,7 +511,7 @@ export class SpecStudioPanel implements vscode.Disposable {
     const title = this.state.target.specId ? `Spec Studio · ${this.state.target.specId}` : 'Spec Studio';
     this.panel.title = title;
     this.panel.webview.html = page(title, specStudioHtml(this.state), contentSecurityPolicy(this.panel.webview, token), token,
-      SPEC_STUDIO_SCRIPT, { styles: SPEC_STUDIO_STYLE });
+      `${SPEC_STUDIO_SCRIPT}${split.SPEC_STUDIO_SPLIT_SCRIPT}`, { styles: `${SPEC_STUDIO_STYLE}${split.SPEC_STUDIO_SPLIT_STYLE}` });
   }
 
   dispose(): void {

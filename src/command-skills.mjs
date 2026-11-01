@@ -522,6 +522,8 @@ export const OWN_TERMINAL_STEPS = Object.freeze([
     && ['accept', 'reject', 'decide', 'settle', 'publish', 'discard'].includes(verb)],
   // Dropping a clause of a Story's specification slice changes its requested outcome (SPEC-SPA v1.3 §6.3).
   ['spec-slice-change', ([command, sub]) => command === 'spec' && sub === 'attach'],
+  // Publishing a split creates child drafts and lists Story start commands for every taker (SPEC-SPA v1.3 §7).
+  ['spec-split-publication', ([command, sub], options) => command === 'spec' && sub === 'split' && options.publish === true],
   // An approver's answer from their own clone, under their own Git identity (2026-10-28).
   ['clarification-answer', ([command, sub]) => command === 'clarification' && sub === 'answer'],
   // The /sf-decide turn admitted it, then its live-terminal review refused the agent's shell (2026-10-28).

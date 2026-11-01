@@ -3330,6 +3330,10 @@ const families = [
   // A Story's claim (after its first step's approval) or delivery (at its closing) of a revision's
   // clauses, written once on the state branch (SPEC-SPA v1.3 §6.4).
   family({ id: 'spec-usage', currentVersion: 1, immutable: true, paths: [/^singularity\/specifications\/SPEC-[A-Z0-9-]+\/usage\/[^/]+\/(?:\d{6}|delivered)\.json$/] }),
+  // A published split of one reviewed revision into child specifications and Story slices (S5), and the
+  // plan proposed for it on this clone, which a newer proposal for the same revision replaces.
+  family({ id: 'spec-split', currentVersion: 1, immutable: true, paths: [/^singularity\/specifications\/SPEC-[A-Z0-9-]+\/splits\/\d{6}\/split\.json$/] }),
+  family({ id: 'spec-split-proposal', currentVersion: 1, paths: [/^\$git\/spec-split-proposals\/SPEC-[A-Z0-9-]+\/\d{6}\.json$/] }),
   family({
     id: 'prompt-audit-settings', currentVersion: 2,
     steps: [migration(1, 2, promptAuditSettingsV1ToV2)],

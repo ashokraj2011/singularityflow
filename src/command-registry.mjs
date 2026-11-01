@@ -456,7 +456,7 @@ const SPEC_INDEX_SUBCOMMANDS = Object.freeze(['index', 'acceptance', 'tasks']);
 const SPEC_AUTHOR_READ_ACTIONS = Object.freeze(['gaps', 'check', 'status', 'show', 'list', 'coverage']);
 const SPEC_AUTHOR_MUTATION_ACTIONS = Object.freeze(['new', 'edit', 'research', 'gap', 'propose', 'accept', 'reject', 'decide', 'settle', 'publish', 'discard']);
 const SPEC_AUTHOR_ACTIONS = Object.freeze([...SPEC_AUTHOR_READ_ACTIONS, ...SPEC_AUTHOR_MUTATION_ACTIONS]);
-const SPEC_SUBCOMMANDS = Object.freeze(['analyze', 'claims', 'author', 'attach', ...SPEC_READ_SUBCOMMANDS, ...SPEC_INDEX_SUBCOMMANDS]);
+const SPEC_SUBCOMMANDS = Object.freeze(['analyze', 'claims', 'author', 'attach', 'split', ...SPEC_READ_SUBCOMMANDS, ...SPEC_INDEX_SUBCOMMANDS]);
 const COMPREHENSION_SUBCOMMANDS = Object.freeze([
   'regions', 'source', 'check', 'graph', 'explain', 'replay', 'walkthrough', 'brownfield',
   'backfill', 'record-preview'
@@ -844,6 +844,11 @@ function resolveSpecOperation(definition, positionals, options) {
   }
   // Dropping a sliced clause records a scope decision on the Story (src/commands/spec-attach.mjs).
   if (subcommand === 'attach') return never('spec.attach', definition, 'mutation');
+  // A split reads, proposes a plan on this clone, or publishes it to the state branch (src/commands/spec-split.mjs).
+  if (subcommand === 'split') {
+    if (options?.publish === true) return never('spec.split.publish', definition, 'mutation');
+    return options?.propose === true ? never('spec.split.propose', definition, 'mutation') : never('spec.split', definition, 'read');
+  }
   if (SPEC_READ_SUBCOMMANDS.includes(subcommand)) return never(`spec.${subcommand}`, definition, 'read');
   // The advisory task map is derived from the approved specification, so it lives with the other
   // clause-traceability operations rather than becoming a command of its own.
@@ -2065,6 +2070,9 @@ export function operationCatalog() {
     ...SPEC_AUTHOR_MUTATION_ACTIONS.map((name) => never(`spec.author.${name}`, specDefinition, 'mutation')),
     never('spec.author.coverage.repair', specDefinition, 'mutation'),
     never('spec.attach', specDefinition, 'mutation'),
+    never('spec.split', specDefinition, 'read'),
+    never('spec.split.propose', specDefinition, 'mutation'),
+    never('spec.split.publish', specDefinition, 'mutation'),
     never('explain', explainDefinition, 'read'),
     never('explain.code', explainDefinition, 'read'),
     optional('explain.code.narrate', 'explain.code', explainDefinition),

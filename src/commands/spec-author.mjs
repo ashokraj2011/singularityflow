@@ -133,6 +133,8 @@ async function newAction(root, positionals, options) {
       if (base) {
         Object.assign(draft, { basedOn: { revision: base.revision, manifestSha256: base.manifestSha256, reviewState: base.manifest.reviewState },
           gaps: base.gaps.events, research: base.research.items, checklist: [] });
+        // A child of a split stays derived from the parent revision it was split from (§7).
+        if (base.manifest.derivedFrom) draft.derivedFrom = base.manifest.derivedFrom;
       }
       return draft;
     }
@@ -508,19 +510,29 @@ async function coverageAction(root, positionals, options) {
   }
   const view = await libraryView(root, config);
   const read = resolveRevision(root, view, specId, revision, { anyState: true });
+  const { allocatedCoverage, readSplits, splitCoverage } = await import('../spec-library/split.mjs');
   const { records, unreadable } = usage.readUsage(root, view, specId, revision);
-  const clauses = usage.coverageOf({ ...read, specId }, records);
-  const counts = Object.fromEntries(['delivered', 'claimed', 'uncovered'].map((status) => [status, clauses.filter((entry) => entry.status === status).length]));
-  const lines = [`${specId}@${revision} at state ${String(view.commit).slice(0, 8)}: ${clauses.length} clause(s): ${counts.delivered} delivered, ${counts.claimed} claimed, ${counts.uncovered} uncovered.`];
+  const splits = readSplits(root, view, specId);
+  const { split, allocation, leftOut, children } = splitCoverage({ ...read, specId }, splits.splits);
+  const clauses = allocatedCoverage(usage.coverageOf({ ...read, specId }, records), { allocation, leftOut });
+  const counts = Object.fromEntries(['delivered', 'claimed', 'allocated', 'left-out', 'uncovered'].map((status) => [status, clauses.filter((entry) => entry.status === status).length]));
+  const lines = [`${specId}@${revision} at state ${String(view.commit).slice(0, 8)}: ${clauses.length} clause(s): ${counts.delivered} delivered, ${counts.claimed} claimed, ${counts.allocated} allocated${counts['left-out'] ? `, ${counts['left-out']} left out` : ''}, ${counts.uncovered} uncovered.`];
   if (repaired) lines.unshift(`Repair for ${repaired.workId}: ${repaired.written.length} record(s) written, ${repaired.present.length} already there${repaired.differing.length ? `, ${repaired.differing.length} different and left as they are` : ''}.`);
+  const allocated = (entry) => entry.allocatedTo.map((to) => (to.kind === 'child' ? `child ${to.specId}` : `slice ${to.key}`)).join(', ');
   for (const entry of clauses) {
-    lines.push(`  [${entry.clause}] ${entry.status}${entry.deliveredBy.length ? ` by ${entry.deliveredBy.join(', ')}` : ''}${entry.claimedBy.length ? `${entry.deliveredBy.length ? '; ' : ' '}claimed by ${entry.claimedBy.join(', ')}` : ''}`);
+    lines.push(`  [${entry.clause}] ${entry.status}${entry.deliveredBy.length ? ` by ${entry.deliveredBy.join(', ')}` : ''}${entry.claimedBy.length ? `${entry.deliveredBy.length ? '; ' : ' '}claimed by ${entry.claimedBy.join(', ')}` : ''}${entry.allocatedTo.length ? `; allocated to ${allocated(entry)}` : ''}${entry.leftOut ? `: ${entry.leftOut}` : ''}`);
   }
-  if (unreadable.length) lines.push(`Unreadable usage records, not counted: ${unreadable.join(', ')}`);
-  return print(options, { action: 'coverage', specId, revision, stateCommit: view.commit, clauses, counts, unreadable, ...(repaired ? { repaired } : {}) }, lines.join('\n'));
+  for (const child of children) {
+    lines.push(`  child ${child.specId} (split ${child.split} of @${child.fromRevision}): ${child.status === 'parent-moved' ? `parent moved; ${child.changed.join(', ')} changed since @${child.fromRevision}` : child.status}`);
+  }
+  if (unreadable.length || splits.unreadable.length) lines.push(`Unreadable records, not counted: ${[...unreadable, ...splits.unreadable].join(', ')}`);
+  return print(options, { action: 'coverage', specId, revision, stateCommit: view.commit, clauses, counts, split, children,
+    unreadable: [...unreadable, ...splits.unreadable], ...(repaired ? { repaired } : {}) }, lines.join('\n'));
 }
 
 export async function specAuthorCommand(positionals, options) {
+  // `spec split` (SPEC-SPA v1.3 §7) shares this module's library reads and output.
+  if (positionals[1] === 'split') return (await import('./spec-split.mjs')).specSplitCommand(positionals, options, { libraryConfig, actor, print });
   const action = positionals[2];
   if (!SPEC_AUTHOR_ACTIONS.includes(action)) fail(`${action ? `'${action}' is not a spec author action. ` : ''}${USAGE}`, 'SPEC_AUTHOR_ACTION_UNKNOWN', { action: action ?? null, nextAction: 'singularity-flow help spec' });
   const root = repoRoot();

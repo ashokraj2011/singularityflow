@@ -676,6 +676,8 @@ export function argvAllowed(argv, mode, value) {
   if (positionals[0] === 'spec' && positionals[1] === 'author' && SPEC_AUTHOR_PERSON_STEPS.includes(positionals[2])) return false;
   // So is dropping a clause of a Story's specification slice: it is the Story's requested outcome (§6.3).
   if (positionals[0] === 'spec' && positionals[1] === 'attach') return false;
+  // And publishing a split of a revision into child specifications and Story slices (§7); proposing one may run.
+  if (positionals[0] === 'spec' && positionals[1] === 'split' && options.publish === true) return false;
   // Setting held changes aside drops them from the checkout: the person who looked at them decides.
   if (positionals[0] === 'recover' && options['set-aside'] === true) return false;
   if (publicationSetAside(positionals, options)) return false;
@@ -797,6 +799,7 @@ const OWN_STEP_DENIALS = Object.freeze({
   'upstream-amendment-decision': 'PHASE_MUTATION_OPERATION_NOT_ALLOWED: an amendment of an earlier step, and its revalidation, is decided by that step\'s approvers in their own terminal, not by this turn. Show the user the command and stop; do not retry it',
   'spec-library-decision': 'PHASE_MUTATION_OPERATION_NOT_ALLOWED: deciding, deferring or reopening a specification gap, settling its checklist, publishing a revision to the shared library and discarding a draft are the person\'s own steps; no agent takes them. Show the user the command and stop; do not retry it',
   'spec-slice-change': 'PHASE_MUTATION_OPERATION_NOT_ALLOWED: dropping a clause of a Story\'s specification slice changes what the Story was asked to deliver; that is the person\'s own step. Show the user the command and stop; do not retry it',
+  'spec-split-publication': 'PHASE_MUTATION_OPERATION_NOT_ALLOWED: publishing a split divides a specification revision among child specifications and Story slices for everyone who takes them; that is the person\'s own step (proposing one with --propose may run here). Show the user the command and stop; do not retry it',
   'configuration-approve': 'PHASE_MUTATION_OPERATION_NOT_ALLOWED: approving a configuration proposal activates it for every Story that starts after it; the reviewer runs it in their own terminal, where it shows the change and asks, or in Workflow Studio. Show the user the command and stop; do not retry it'
 });
 const OWN_STEP_DENIAL = 'PHASE_MUTATION_OPERATION_NOT_ALLOWED: this is the person\'s own step; they run this exact command in their own terminal and no turn runs it. Show the user the command and stop; do not retry it';

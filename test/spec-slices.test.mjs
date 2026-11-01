@@ -267,10 +267,10 @@ test('a Story started with a slice sees it in its prompt and scope, records its 
   assert.match(approved.stderr, new RegExp(`spec author coverage ${SPEC}@1 --repair --story ${WORK}`, 'u'));
   assert.equal(JSON.parse(await readFile(path.join(item, 'workflow.json'), 'utf8')).phases.specification.status, 'approved');
   const before = json('spec', 'author', 'coverage', `${SPEC}@1`);
-  assert.deepEqual(before.counts, { delivered: 0, claimed: 0, uncovered: 4 });
+  assert.deepEqual(before.counts, { delivered: 0, claimed: 0, allocated: 0, 'left-out': 0, uncovered: 4 });
   await rm(hook);
   const repaired = json('spec', 'author', 'coverage', `${SPEC}@1`, '--repair', '--story', WORK);
-  assert.deepEqual([repaired.repaired.written.length, repaired.counts], [1, { delivered: 0, claimed: 1, uncovered: 3 }]);
+  assert.deepEqual([repaired.repaired.written.length, repaired.counts], [1, { delivered: 0, claimed: 1, allocated: 0, 'left-out': 0, uncovered: 3 }]);
   assert.deepEqual(repaired.clauses.filter((entry) => entry.status === 'claimed').map((entry) => [entry.clause, entry.claimedBy]),
     [[`${SPEC}:REQ-001`, [WORK]]], 'the dropped clause is not claimed');
   assert.equal(json('spec', 'author', 'coverage', `${SPEC}@1`, '--repair', '--story', WORK).repaired.written.length, 0, 'a second repair writes nothing');
@@ -283,8 +283,8 @@ test('a Story started with a slice sees it in its prompt and scope, records its 
   cli('spec', 'author', 'settle', SPEC, '--all-articles', 'satisfied');
   assert.equal(json('spec', 'author', 'publish', SPEC, '--reviewed').revision, 2);
   assert.equal(git('show', `${WORK}:singularity/work-items/${WORK}/source.json`).includes(`"revision": "${SPEC}@1"`), true);
-  assert.deepEqual(json('spec', 'author', 'coverage', `${SPEC}@1`).counts, { delivered: 0, claimed: 1, uncovered: 3 });
-  assert.deepEqual(json('spec', 'author', 'coverage', `${SPEC}@2`).counts, { delivered: 0, claimed: 0, uncovered: 4 });
+  assert.deepEqual(json('spec', 'author', 'coverage', `${SPEC}@1`).counts, { delivered: 0, claimed: 1, allocated: 0, 'left-out': 0, uncovered: 3 });
+  assert.deepEqual(json('spec', 'author', 'coverage', `${SPEC}@2`).counts, { delivered: 0, claimed: 0, allocated: 0, 'left-out': 0, uncovered: 4 });
 
   // AC-015: a second Story's approval records its claim itself, on the revision it pinned.
   cli('start', 'SPS-2', '--from-branch', 'main', '--work-type', 'spec-driven-standard', '--title', 'Foreign carts', '--description', 'No discount outside INR.',

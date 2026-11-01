@@ -748,6 +748,9 @@ Every public operation is classified before its implementation module is importe
 | spec.drift.decide | mutation | never | — | — |
 | spec.index | mutation | never | — | — |
 | spec.index.dry-run | read | never | — | — |
+| spec.split | read | never | — | — |
+| spec.split.propose | mutation | never | — | — |
+| spec.split.publish | mutation | never | — | — |
 | spec.tasks | mutation | never | — | — |
 | spec.tasks.dry-run | read | never | — | — |
 | spec.trace | read | never | — | — |

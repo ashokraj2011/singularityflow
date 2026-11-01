@@ -12,6 +12,7 @@ import {
   type SpecCoverage, type SpecGap, type SpecGapImpact, type SpecLibrary, type SpecProposal, type SpecResearchItem, type SpecRevision, type SpecStatus,
   type SpecStudioStep, type SpecStudioTarget
 } from './spec-studio-model.ts';
+import { splitSectionHtml, type SpecSplitPlan, type SpecSplitView } from './spec-studio-split.ts';
 
 /** Everything the host knows when it renders; the page derives the rest. */
 export interface SpecStudioPageState {
@@ -22,6 +23,10 @@ export interface SpecStudioPageState {
   /** The revision shown when there is no draft, and the one the attach stage slices. */
   revision: SpecRevision | null;
   coverage: SpecCoverage | null;
+  /** The attach stage's revision's published splits and the plan proposed on this clone (S5). */
+  split: SpecSplitView | null;
+  /** A split plan the engine refused, kept in the planner as the person left it. */
+  splitDraft: SpecSplitPlan | null;
   selectedGap: string | null;
   impact: SpecGapImpact | null;
   notice: string | null;
@@ -286,18 +291,22 @@ function attachStage(state: SpecStudioPageState): string {
     <input name="revision" inputmode="numeric" pattern="[1-9][0-9]*" value="${revision?.revision ?? ''}" placeholder="highest reviewed"></label>
     <button type="submit" class="secondary">Read it</button></form>`;
   if (!revision) {
-    return `<h2>${icon('story')}Attach</h2>${chooser}<p class="muted">A Story attaches a reviewed revision. Publish one, or read a revision by its number.</p>${controls('attach', { cancel: false })}`;
+    return `<h2>${icon('story')}Attach or split</h2>${chooser}<p class="muted">A Story attaches a reviewed revision, and a split divides one. Publish one, or read a revision by its number.</p>${controls('attach', { cancel: false })}`;
   }
   const clauses = specClauses(revision.spec, revision.specId);
   const slice = state.target.specId === revision.specId ? state.target.clauses : null;
   const chosen = slice ?? clauses.map((clause) => clause.id);
   const reviewed = revision.manifest.reviewState === 'reviewed';
   const option = sliceOption(revision.specId, revision.revision, chosen, clauses.map((clause) => clause.id));
-  const coverage = state.coverage && state.coverage.revision === revision.revision ? `<table class="ss-table" data-coverage><thead><tr><th>Clause</th><th>Status</th><th>Stories</th></tr></thead><tbody>${state.coverage.rows.map((row) => `<tr>
-      <td><code>${escape(shortClause(revision.specId, row.clause))}</code></td><td><span class="pill ${row.status === 'delivered' ? 'ok' : row.status === 'claimed' ? 'wait' : ''}">${escape(row.status)}</span></td>
-      <td>${escape([...row.deliveredBy.map((work) => `${work} delivered`), ...row.claimedBy.map((work) => `${work} claimed`)].join(', '))}</td></tr>`).join('')}</tbody></table>
-      ${state.coverage.unreadable.length ? `<p class="muted">Unreadable usage records, not counted: ${escape(state.coverage.unreadable.join(', '))}</p>` : ''}` : '';
-  return `<h2>${icon('story')}Attach</h2>${chooser}
+  const coverage = state.coverage && state.coverage.revision === revision.revision ? `<table class="ss-table" data-coverage><thead><tr><th>Clause</th><th>Status</th><th>Where</th></tr></thead><tbody>${state.coverage.rows.map((row) => `<tr>
+      <td><code>${escape(shortClause(revision.specId, row.clause))}</code></td><td><span class="pill ${row.status === 'delivered' ? 'ok' : row.status === 'claimed' || row.status === 'allocated' ? 'wait' : ''}">${escape(row.status)}</span></td>
+      <td>${escape([...row.deliveredBy.map((work) => `${work} delivered`), ...row.claimedBy.map((work) => `${work} claimed`), ...row.allocatedTo.map((to) => to.label),
+        ...(row.leftOut ? [`left out: ${row.leftOut}`] : [])].join(', '))}</td></tr>`).join('')}</tbody></table>
+      ${state.coverage.children.length ? `<ul class="ss-children" data-children>${state.coverage.children.map((child) => `<li><code>${escape(child.specId)}</code> ${escape(child.title)}
+        <small class="muted">split ${child.split} of @${child.fromRevision}</small> <span class="pill ${child.status === 'parent-moved' ? 'wait' : ''}">${escape(child.status === 'parent-moved' ? 'parent moved' : child.status)}</span>
+        ${child.changed.length ? `<small>${escape(child.changed.map((clause) => shortClause(revision.specId, clause)).join(', '))} changed since @${child.fromRevision}</small>` : ''}</li>`).join('')}</ul>` : ''}
+      ${state.coverage.unreadable.length ? `<p class="muted">Unreadable records, not counted: ${escape(state.coverage.unreadable.join(', '))}</p>` : ''}` : '';
+  return `<h2>${icon('story')}Attach or split</h2>${chooser}
     <p><strong>${escape(revision.specId)}@${revision.revision}</strong> ${statusPill(String(revision.manifest.reviewState ?? ''))} ${escape(String(revision.manifest.title ?? ''))}</p>
     ${reviewed ? '' : '<div class="notice warning">This revision is a draft revision; a Story attaches only a reviewed one.</div>'}
     <form class="ss-form" data-form="spec.slice" data-spec="${escape(revision.specId)}" data-revision="${revision.revision}" data-reviewed="${reviewed}" data-all="${escape(clauses.map((clause) => clause.id).join(' '))}">
@@ -308,6 +317,8 @@ function attachStage(state: SpecStudioPageState): string {
       <div class="ss-controls"><button type="button" data-copy-slice${reviewed ? '' : ' disabled'}>Copy the --spec option</button>
         <button type="button" class="secondary" data-copy-start${reviewed ? '' : ' disabled'}>Copy the start command</button></div>
       <p class="muted">The slice's clauses and the revision's decisions go into the Story's pinned source, and its scope review asks the Story to cover each one.</p></form>
+    ${splitSectionHtml(state.split?.specId === revision.specId && state.split.revision === revision.revision ? state.split : null,
+      { specId: revision.specId, revision: revision.revision, reviewed }, clauses, state.splitDraft)}
     <h3>Coverage of @${revision.revision}</h3>
     <button type="button" class="secondary" data-message="spec.coverage">${icon('refresh')}Read coverage</button>${coverage}
     ${controls('attach', { cancel: false })}`;
@@ -486,6 +497,7 @@ body:has(.ss-root) { max-width:none; }
 .ss-findings th, .ss-findings td { overflow-wrap:normal; word-break:normal; }
 .ss-findings td:first-child, .ss-findings td:last-child { white-space:nowrap; }
 .ss-stale { color:var(--vscode-editorWarning-foreground); }
+.ss-children { padding-left:1.1rem; display:grid; gap:.25rem; }
 .ss-tabs [role=tab][aria-selected="true"] { border-color:var(--sf-accent); background:var(--sf-accent-quiet); }
 `;
 

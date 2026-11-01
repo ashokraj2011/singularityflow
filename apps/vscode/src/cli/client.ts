@@ -323,8 +323,8 @@ function cacheableRead(args: string[]): boolean {
     && !(args[0] === 'workflow' && args[1] === 'import-team')
     // A workflow build changes with every decision and in other hosts (Copilot records proposals).
     && !(args[0] === 'workflow' && args[1] === 'build')
-    // A specification draft changes with every save and in other hosts (the shell, Copilot).
-    && !(args[0] === 'spec' && args[1] === 'author')
+    // A specification draft and a split proposal change with every save and in other hosts (the shell, Copilot).
+    && !(args[0] === 'spec' && (args[1] === 'author' || args[1] === 'split'))
     // An upload changes in a background process and on every retry; each look must see it now.
     && args[0] !== 'push'
     // A destructive apply is guarded by a second byte-current preview. Reusing the first preview
@@ -498,6 +498,8 @@ export function commandClass(args: string[]): 'read' | 'mutation' | 'unknown' {
       return ['show', 'list', 'status', 'check', 'gaps'].includes(args[2] ?? '')
         || (args[2] === 'coverage' && !enabledBooleanOption(args, 'repair')) ? 'read' : 'mutation';
     }
+    // A split is read without a flag; --propose keeps a plan on this clone and --publish writes the state branch.
+    if (action === 'split') return enabledBooleanOption(args, 'propose') || enabledBooleanOption(args, 'publish') ? 'mutation' : 'read';
     if ((action === 'index' || action === 'acceptance') && enabledBooleanOption(args, 'dry-run')) return 'read';
     return 'mutation';
   }
@@ -1175,6 +1177,7 @@ export class SingularityFlowClient {
       if (['research', 'gaps'].includes(args[2] ?? '')) return WORLD_MODEL_TIMEOUT_MS;
       if (['new', 'list', 'show', 'publish', 'coverage'].includes(args[2] ?? '')) return CAPABILITY_AUTHORITY_TIMEOUT_MS;
     }
+    if (args[0] === 'spec' && args[1] === 'split') return CAPABILITY_AUTHORITY_TIMEOUT_MS;
     // A model-written repository brief or explanation can take minutes; a cached or template brief returns at once.
     return (args[0] === 'wm' && args[1] === 'knowledge' && ['brief', 'explain', 'calls'].includes(args[2] ?? ''))
       || (args[0] === 'wm' && ((args[1] === 'brief' && args.includes('--polish')) || (args[1] === 'rules' && args[2] === 'propose')))

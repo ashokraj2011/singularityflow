@@ -97,7 +97,9 @@ const FAMILIES = Object.freeze([
     // The specification library (SPEC-SPA v1.3), imported only dynamically by `spec author`. Unclaimed,
     // every `spec author status` loaded compatibility and models. A Story's slice and its usage records
     // (S2) are imported only by start --spec, spec attach, approval and coverage.
-    'commands/spec-author.mjs', 'commands/spec-attach.mjs', 'spec-library/slice.mjs', 'spec-library/usage.mjs']],
+    // A split (S5) is imported only by spec split and coverage.
+    'commands/spec-author.mjs', 'commands/spec-attach.mjs', 'spec-library/slice.mjs', 'spec-library/usage.mjs',
+    'commands/spec-split.mjs', 'spec-library/split.mjs', 'spec-library/allocation.mjs']],
   ['models', ['commands/wm.mjs', 'commands/comprehension.mjs']]
 ]);
 

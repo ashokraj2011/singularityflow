@@ -15,7 +15,7 @@ export const SPEC_STUDIO_STEPS = [
   { id: 'gaps', label: 'Review gaps', detail: 'A person decides each one' },
   { id: 'check', label: 'Check', detail: 'D, A and H' },
   { id: 'publish', label: 'Publish', detail: 'An immutable revision on the state branch' },
-  { id: 'attach', label: 'Attach', detail: 'A Story slice, and coverage' }
+  { id: 'attach', label: 'Attach or split', detail: 'Story slices, a split into children and slices, and coverage' }
 ] as const;
 export type SpecStudioStep = typeof SPEC_STUDIO_STEPS[number]['id'];
 export const STEP_IDS: readonly SpecStudioStep[] = SPEC_STUDIO_STEPS.map((step) => step.id);
@@ -74,8 +74,10 @@ export interface SpecRevision {
   gaps: number; research: number;
 }
 export interface SpecGapImpact { gap: string; options: Array<{ id: string; changesCode: boolean; records: string[] }> }
-export interface SpecCoverageRow { clause: string; status: string; deliveredBy: string[]; claimedBy: string[] }
-export interface SpecCoverage { specId: string; revision: number; stateCommit: string | null; rows: SpecCoverageRow[]; unreadable: string[] }
+export interface SpecAllocation { kind: 'child' | 'story'; label: string }
+export interface SpecCoverageRow { clause: string; status: string; deliveredBy: string[]; claimedBy: string[]; allocatedTo: SpecAllocation[]; leftOut: string | null }
+export interface SpecCoverageChild { specId: string; title: string; split: number; fromRevision: number; status: string; changed: string[] }
+export interface SpecCoverage { specId: string; revision: number; stateCommit: string | null; rows: SpecCoverageRow[]; children: SpecCoverageChild[]; unreadable: string[] }
 
 /** What a person opened: a specification (optionally one revision, a Story's clauses) at a step. */
 export interface SpecStudioTarget { specId: string | null; revision: number | null; clauses: string[] | null; step: SpecStudioStep | null }
@@ -293,7 +295,13 @@ export function coverageFrom(raw: unknown): SpecCoverage | null {
   const result = answer(raw, 'coverage');
   if (!result || !validSpecId(result.specId) || typeof result.revision !== 'number') return null;
   return { specId: result.specId, revision: result.revision, stateCommit: typeof result.stateCommit === 'string' ? result.stateCommit : null,
-    rows: list(result.clauses).map(record).map((entry) => ({ clause: text(entry.clause), status: text(entry.status), deliveredBy: strings(entry.deliveredBy), claimedBy: strings(entry.claimedBy) })),
+    rows: list(result.clauses).map(record).map((entry) => ({ clause: text(entry.clause), status: text(entry.status), deliveredBy: strings(entry.deliveredBy), claimedBy: strings(entry.claimedBy),
+      allocatedTo: list(entry.allocatedTo).map(record).map((to): SpecAllocation => (to.kind === 'child'
+        ? { kind: 'child', label: `child ${text(to.specId)}` } : { kind: 'story', label: `slice ${text(to.key)}${to.title ? ` (${text(to.title)})` : ''}` })),
+      leftOut: typeof entry.leftOut === 'string' ? entry.leftOut : null })),
+    // A child of a split whose parent clause changed in this revision is "parent-moved" (SPEC-SPA v1.3 §7, S5).
+    children: list(result.children).map(record).map((entry) => ({ specId: text(entry.specId), title: text(entry.title), split: count(entry.split),
+      fromRevision: count(entry.fromRevision), status: text(entry.status), changed: strings(entry.changed) })),
     unreadable: strings(result.unreadable) };
 }
 

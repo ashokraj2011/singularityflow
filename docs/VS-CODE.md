@@ -116,7 +116,12 @@ The Navigator keeps related work together instead of adding a second dashboard h
   identity; publishing asks once, naming the revision; discarding a draft asks for the specification
   ID; Back and Cancel write nothing. Attach shows the `--spec SPEC-ID@N=CLAUSES` option Story start
   takes, and the revision's coverage. A Story that started with a slice opens the Studio at it from
-  View Story intake details. Nothing in the Studio calls a model. With Copilot allowed, **Ask
+  View Story intake details. The same step splits a reviewed revision: give each clause to Story
+  slices or child specifications, or say why it is not delivered here; Check and propose keeps the
+  plan on this clone, and publishing asks once, drafts each child here and lists one ready start
+  command per slice, starting no Story. Coverage then shows where each clause is allocated and which
+  children took a clause a later revision changed ("parent moved").
+  Nothing in the Studio calls a model. With Copilot allowed, **Ask
   Copilot** opens Copilot Chat with `/sf-spec-author SPEC-ID #sflowSpecStudio`: Copilot reads the
   draft and stages proposals (prose edits, cited research, gaps, assisted checklist findings). They
   wait in the Copilot tab until you accept or reject each one; assisted findings wait in Check, and

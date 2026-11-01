@@ -68,3 +68,12 @@ Found while building S2 on main `c15830837`:
 - **No Copilot tab yet.** The plan's bottom "Copilot turn" tab arrives with S4's generation; S3's tabs are the quality findings and the state-branch manifest.
 - **Bundle:** `lazy-panels-runtime.cjs` measured 3,263,058 bytes and 299 modules with the Studio's three modules; its module ceiling is 299 (bytes unchanged at 3,505,000).
 
+## S5 decisions beyond the plan's text
+
+- **`spec split SPEC-ID@N --propose --file FILE`**, not `--propose FILE`: `propose` is a global boolean flag (util.mjs BOOLEAN_OPTIONS), so a value after it would be read as a positional.
+- **The proposal is kept on this clone** (`spec-split-proposal`, mutable, a newer one replaces it) and checked again at `--publish`; publishing removes it unless a newer plan was proposed meanwhile. The published `spec-split` record is immutable and bound to the parent manifest digest.
+- **One pure module** (`src/spec-library/allocation.mjs`): unallocated and contradicted clauses, the first dependency cycle as a path, and a dependency order. Epic planning's check stays where it is.
+- **Story slices' dependencies include implied ones**: a slice whose clause depends on a clause another slice delivers depends on that slice. Each slice's `start` command adds `--allow-partial-dependency --reason` naming where a needed clause goes (another slice, a child, or not delivered here), so it runs as written; a test starts a Story with one.
+- **Coverage statuses**: delivered, claimed, allocated (latest split of that revision), left-out (with its reason) or uncovered; children of splits of this or earlier revisions are current, unchanged, or parent-moved with the changed clauses, compared by clause text digest.
+- **Children are drafted after the split lands**, each with an operation ID derived from the split's, so a retry after a crash drafts what is missing and nothing twice. A local draft of the same ID from anything else refuses the publication before it is written.
+- **Studio**: stage 7 is "Attach or split". The planner gives each clause to Story slices or child specifications (one group per slice or child, a checkbox per clause) or a reason; "Check and propose" writes the plan to a private temporary file for `--propose`; publishing asks once on a review page naming the split. A refused plan stays in the form as the person left it.

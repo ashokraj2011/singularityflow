@@ -155,6 +155,8 @@ export function revisionFiles({ specId, revision, parent, reviewState, operation
   const manifest = stamp(MANIFEST_FAMILY, {
     specId, revision, title: head.draft.title, reviewState, operationId,
     parentRevision: parent?.revision ?? null, parentManifestSha256: parent?.manifestSha256 ?? null,
+    // A split's child (split.mjs).
+    ...(head.draft.derivedFrom ? { derivedFrom: head.draft.derivedFrom } : {}),
     publishedBy: actor ? { name: actor.name ?? null, email: actor.email ?? null } : null, recordedAt,
     draft: { sequence: head.sequence, snapshotSha256: head.snapshotSha256 },
     quality: { d: report.counts.d, a: report.counts.a, h: report.counts.h, blocking: report.blocking.length },

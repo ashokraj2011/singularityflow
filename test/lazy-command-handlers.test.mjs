@@ -237,6 +237,8 @@ test('frequent lifecycle handlers do not reach the legacy dispatcher and stay un
     // 9,315,000 holds: main db46b5458 measures 9,310,634. Copilot's proposals (SPEC-SPA v1.3 S4) add 718 for
     // 9,311,352: accept and reject as own-terminal steps and the /sf-spec-author routes (command-skills.mjs) and the
     // spec-studio turn mode (phase-mutation-contract.mjs); no new eager file.
+    // 9,315,000 holds: main f840dc33c measures 9,312,288. A specification split (SPEC-SPA v1.3 S5) adds 1,290 for
+    // 9,313,578: its operations, own-terminal step and turn refusal; the split engine stays lazy, no new eager file.
     assert.ok(closure.bytes <= 9_315_000, `${file} exceeds the 9 MB eager-source budget (${closure.bytes} bytes)`);
   }
 });
@@ -341,6 +343,9 @@ test('the common session projection does not import attach, state stores or publ
   // (util.mjs) and the committed tree listing (git.mjs). Its handler loads only when `spec author` runs.
   // 4,015,000: main 5864f682f measures 4,009,498; a pinned specification slice named settled at the clarification
   // checkpoint (clarifications.mjs, SPEC-SPA v1.3 REQ-018) adds 936 for 4,010,434. No new file.
+  // 4,015,000 holds: main f840dc33c measures 4,010,434; a specification split (SPEC-SPA v1.3 S5) adds 1,290 for
+  // 4,011,724: its operations (command-registry.mjs), the publication as an own-terminal step (command-skills.mjs) and
+  // its turn refusal (copilot-mutation-guard.mjs). Its handler loads only when `spec split` runs.
   assert.ok(current.bytes <= 4_015_000, `session current loads ${current.bytes} source bytes`);
 });
 

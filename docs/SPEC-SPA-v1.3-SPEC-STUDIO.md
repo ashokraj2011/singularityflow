@@ -1,6 +1,6 @@
 # SPEC-SPA v1.3 — Spec Studio
 
-**Status:** accepted. S0 (inventory: [SPEC-STUDIO-S0-INVENTORY.md](SPEC-STUDIO-S0-INVENTORY.md)), S1 (the model-free library), S2 (Story slices; its live Copilot check ran on 1 November, §10.1, and found REQ-018 unmet), S3 (the Studio panel, model-free, verified in real VS Code) and S4 (generation: proposals, assisted findings, `/sf-spec-author`, the `spec-studio` turn mode and `#sflowSpecStudio`, built and verified model-free; its paid live Copilot authoring run has not run) have landed; S5 is to come.
+**Status:** accepted. S0 (inventory: [SPEC-STUDIO-S0-INVENTORY.md](SPEC-STUDIO-S0-INVENTORY.md)), S1 (the model-free library), S2 (Story slices; its live Copilot check ran on 1 November, §10.1, found REQ-018 unmet, and passed on a rerun after its fix), S3 (the Studio panel, model-free, verified in real VS Code) and S4 (generation: proposals, assisted findings, `/sf-spec-author`, the `spec-studio` turn mode and `#sflowSpecStudio`, built and verified model-free; its paid live Copilot authoring run has not run) have landed; S5 is to come.
 **Author:** Singularity Flow
 **Date:** 31 October 2026
 **Namespace:** SPA. Clause IDs here replace v1.2's; an older clause is cited as "v1.2 REQ-015".
@@ -152,7 +152,7 @@ The slice MUST become part of the Story's immutable source, the record the promp
 
 So the agent sees the decided questions as settled, and the existing clarification rule ("what they state is settled, never asked again") applies to them. [SPA:REQ-018]
 
-The S2 live check (§10.1) found this unmet: the clarification rule names only approved phase inputs, so under a `required` clarification mode the agent still asks a slice's decided questions, proposing their decided answers as defaults.
+The S2 live check (§10.1) found this unmet: the clarification rule named only approved phase inputs, so under a `required` clarification mode the agent asked a slice's decided questions, proposing their decided answers as defaults. Since `07ac0da4f` the checkpoint instruction names the pinned slice as settled; on a rerun no settled question was asked on its own, though each Story still restated them in its one required confirmation.
 
 A slice larger than the Story source's size limit is refused at attach, naming the size and the limit. It is never silently cut. [SPA:REQ-019]
 
@@ -312,7 +312,17 @@ Findings:
 
 Cost: 8 premium requests (2 per Story: questions, then author and publish), 73 model calls. Mean input per Story was 0.75M tokens for the slice arm and 0.95M for the document arm (94% cached); peak context 58-72K.
 
-Next: say in the clarification instruction that a pinned specification slice's clauses and decided questions are settled, then rerun the two slice Stories (4 premium requests).
+**Rerun after the fix (`07ac0da4f`).** The clarification checkpoint of a Story with a slice now says the slice's clauses and decided questions are never asked again or put up for confirmation. The same two slice Stories ran again under the same conditions (SLC-3, SLC-4):
+
+| Story | Before the fix | After the fix |
+| --- | --- | --- |
+| Signup Continue button | 5 questions, 4 settled | 1: confirm a reading that restates D1-D4, plus the actor |
+| Order discount | 5 questions, 4 settled | 2: confirm a reading that restates D1-D4; "anything else, such as tests?" |
+
+- Settled questions asked on their own fell from 8 to 0. Each agent said the slice settles them ("so I'm not asking about those").
+- What remains is the `required` checkpoint's own minimum: one confirmation, which still restates the settled points instead of only what the slice leaves open.
+- Scope links repeat the first run: the signup Story linked all four sliced clauses, the discount Story none (2 of 2 discount runs, 0 of 2 signup runs), so the final check would refuse it until a person links or decides them.
+- Claims were recorded at approval as before. Cost: 4 premium requests; mean input 0.74M tokens per Story, the same as the first run.
 
 ## 11. Deferred from v1.1, and what would bring each back
 

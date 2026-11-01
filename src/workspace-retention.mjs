@@ -158,7 +158,7 @@ export async function recordWorkspaceRetentionFailure(workspacePath, error) {
 export async function terminalStoryWorktreeProof(workspace, clone, entry, { settings, now, protect = [] }) {
   const { workspaceDropGitEnvironment, assertWorkspaceDropLocalGitConfiguration, gitWriterLocks } = await import('./workspace.mjs');
   const env = workspaceDropGitEnvironment();
-  const git = args => run('git', args, { cwd: entry.path, env, timeoutMs: 30000, maxBuffer: 8 * 1024 * 1024 }).stdout.trim();
+  const git = (args, gitEnv = env) => run('git', args, { cwd: entry.path, env: gitEnv, timeoutMs: 30000, maxBuffer: 8 * 1024 * 1024 }).stdout.trim();
   const root = await realpath(entry.path);
   if (!contains(await realpath(workspace.path), root)) fail('Story worktree is outside this workspace.');
   if (protect.some(selected => contains(root, selected))) fail('Checkout is selected or in use.', 'WORKSPACE_RETENTION_IN_USE');
@@ -211,9 +211,13 @@ export async function terminalStoryWorktreeProof(workspace, clone, entry, { sett
   if ((await activeSubjectLocks(root)).some(lock => !lock.owner?.subject
       || currentSubjectLockOwner(root, lock.owner.subject)?.lockToken !== lock.owner.lockToken)) fail('A repository operation is active.');
   const { worktreeFingerprint } = await import('./worktree-fingerprint.mjs');
+  const [{ checkoutLineEndings, withCheckoutLineEndings }, { withoutGitProcessOverrides }] = await Promise.all([
+    import('./source-inspection.mjs'), import('./git-enterprise-environment.mjs')]);
+  // Git compares a file whose stat data changed by content, with the person's own line endings.
+  const statusEnv = withCheckoutLineEndings(env, checkoutLineEndings(root, withoutGitProcessOverrides(process.env)));
   if (worktreeFingerprint(root, { fresh: true, env, exhaustive: true }).dirty
       // SFlow's own excluded agent results are copies of printed output; they go with the checkout.
-      || withoutAgentOutputStatus(git(['status', '--porcelain=v1', '--untracked-files=all', '--ignored=matching', '--ignore-submodules=none']), root)) fail('Story has local, hidden or ignored files.');
+      || withoutAgentOutputStatus(git(['status', '--porcelain=v1', '--untracked-files=all', '--ignored=matching', '--ignore-submodules=none'], statusEnv), root)) fail('Story has local, hidden or ignored files.');
   await assertWorkspaceDropLocalGitConfiguration({ id: clone.repositoryId }, root, { env, worktreeGitDirectory: privateGit });
   const head = git(['rev-parse', 'HEAD']), branch = git(['symbolic-ref', '--short', 'HEAD']);
   if (head !== entry.head || branch !== entry.branch) fail('Story checkout changed.');

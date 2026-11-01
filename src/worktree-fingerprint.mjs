@@ -5,7 +5,7 @@ import path from 'node:path';
 import { withoutGitProcessOverrides } from './git-enterprise-environment.mjs';
 import { canonicalJson } from './records.mjs';
 import { scopedReadSync } from './read-scope.mjs';
-import { sourceCheckoutForm } from './source-inspection.mjs';
+import { checkoutLineEndings, sourceCheckoutForm, withCheckoutLineEndings } from './source-inspection.mjs';
 import { run, SingularityFlowError } from './util.mjs';
 
 export const WORKTREE_FINGERPRINT_ALGORITHM = 'sflow-worktree-v2';
@@ -64,7 +64,8 @@ export function withoutConfiguredFilters(root, args, {
 function fileEntry(root, relative, {
   sparseAbsent = false,
   env = process.env,
-  objectFormat = null
+  objectFormat = null,
+  statusEnv = env
 } = {}) {
   const absolute = path.join(root, relative);
   let stat;
@@ -121,7 +122,7 @@ function fileEntry(root, relative, {
       cwd: root, env, allowFailure: true
     });
     const nestedStatus = run('git', ['status', '--porcelain=v1', '--ignore-submodules=none', '--', relative], {
-      cwd: root, env, allowFailure: true
+      cwd: root, env: statusEnv, allowFailure: true
     });
     return {
       path: relative,
@@ -177,10 +178,10 @@ function indexEntries(listing) {
  * Git's own line-ending and encoding conversion and no configured filter (source-inspection.mjs).
  * Anything Git cannot answer stays a change.
  */
-function checkoutFormMatching(root, entries, env, fresh) {
+function checkoutFormMatching(root, entries, env, fresh, lineEndings = null) {
   if (!entries.length) return [];
   const form = sourceCheckoutForm(root, entries.map((entry) => entry.path), { env, personalEnv: withoutGitProcessOverrides(process.env),
-    configuration: withoutConfiguredFilters(root, [], { env, fresh, smudge: true }) });
+    configuration: withoutConfiguredFilters(root, [], { env, fresh, smudge: true }), lineEndings });
   return form.status === 'present' ? entries.filter((entry) => form.value.get(entry.path) === entry.worktreeSha256) : [];
 }
 
@@ -207,6 +208,10 @@ export function worktreeFingerprint(root, {
   includeManifest = false
 } = {}) {
   const compute = () => {
+    // The person's checkout line endings, for the proof's reads that run without their system and
+    // global configuration (an exhaustive fingerprint is the destructive proof's).
+    const lineEndings = exhaustive ? checkoutLineEndings(root, withoutGitProcessOverrides(process.env)) : [];
+    const statusEnv = withCheckoutLineEndings(env, lineEndings);
     const headResult = run('git', ['rev-parse', '--verify', 'HEAD^{tree}'], {
       cwd: root,
       env,
@@ -249,7 +254,7 @@ export function worktreeFingerprint(root, {
     ])].sort((left, right) => left < right ? -1 : left > right ? 1 : 0);
     const manifest = paths.map((relative) => fileEntry(root, relative, {
       sparseAbsent: Boolean(stageZero.get(relative)?.skipWorktree), env,
-      objectFormat: exhaustive ? objectFormat : null
+      objectFormat: exhaustive ? objectFormat : null, statusEnv
     }));
     const currentByPath = new Map(manifest.map((entry) => [entry.path, entry]));
     const differentBytes = [];
@@ -287,14 +292,14 @@ export function worktreeFingerprint(root, {
     // every such file changed. Bytes exactly as Git's checkout writes them lose nothing; any other
     // difference, a line-ending-only edit included, stays local work.
     const checkoutForm = new Set(checkoutFormMatching(root, [...new Map(differentBytes.map((entry) => [entry.path, entry])).values()],
-      env, fresh).map((entry) => entry.path));
+      env, fresh, exhaustive ? lineEndings : null).map((entry) => entry.path));
     const hiddenChanges = hiddenRawChanges.filter((relative) => !checkoutForm.has(relative));
     const exhaustiveChanges = rawChanges.filter((relative) => !checkoutForm.has(relative));
     const unmergedIndex = indexManifest.some((entry) => entry.stage !== 0);
     const workingTree = sha256(canonicalJson(manifest));
     const statusDirty = dirty ?? Boolean(run('git', withoutConfiguredFilters(root, [
       'status', '--porcelain=v1', '-z', '--untracked-files=all', '--ignore-submodules=none'
-    ], { env, fresh }), { cwd: root, env }).stdout);
+    ], { env, fresh }), { cwd: root, env: statusEnv }).stdout);
     const trees = {
       algorithm: exhaustive
         ? `${WORKTREE_FINGERPRINT_ALGORITHM}-exhaustive`

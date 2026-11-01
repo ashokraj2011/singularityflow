@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { createHash } from 'node:crypto';
-import { access, mkdtemp, readFile, rm, unlink, writeFile } from 'node:fs/promises';
+import { access, mkdtemp, readFile, rm, unlink, utimes, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 
@@ -201,6 +201,40 @@ test('a checkout Git converted to CRLF is what checkout writes; a real or a line
   await writeFile(path.join(repository, 'notes.txt'), 'one\r\ntwo\n');
   assert.deepEqual(worktreeFingerprint(repository, { fresh: true, exhaustive: true, env: proof }).exhaustiveChanges, ['notes.txt']);
   await assert.rejects(() => access(path.join(repository, 'filter-invoked')));
+});
+
+test('a CRLF checkout whose stat data no longer matches the index is clean to the proof\'s own status', async (t) => {
+  const root = await mkdtemp(path.join(os.tmpdir(), 'sflow-fingerprint-racy-eol-'));
+  t.after(() => rm(root, { recursive: true, force: true }));
+  const repository = path.join(root, 'repository');
+  run('git', ['init', '-q', '-b', 'main', repository]);
+  run('git', ['config', 'user.name', 'Fingerprint Test'], { cwd: repository });
+  run('git', ['config', 'user.email', 'fingerprint@example.test'], { cwd: repository });
+  await writeFile(path.join(repository, 'notes.txt'), 'one\ntwo\n');
+  run('git', ['add', '-A'], { cwd: repository });
+  run('git', ['commit', '-qm', 'base'], { cwd: repository });
+  const system = path.join(root, 'system.gitconfig');
+  await writeFile(system, '[core]\n\tautocrlf = true\n');
+  const previous = process.env.GIT_CONFIG_SYSTEM;
+  process.env.GIT_CONFIG_SYSTEM = system;
+  t.after(() => { if (previous === undefined) delete process.env.GIT_CONFIG_SYSTEM; else process.env.GIT_CONFIG_SYSTEM = previous; });
+  await unlink(path.join(repository, 'notes.txt'));
+  run('git', ['checkout', '--', 'notes.txt'], { cwd: repository });
+  assert.equal(await readFile(path.join(repository, 'notes.txt'), 'utf8'), 'one\r\ntwo\r\n');
+  // A file Git has to compare by content: a racily clean checkout, or one whose timestamp moved.
+  const later = new Date(Date.now() + 60_000);
+  await utimes(path.join(repository, 'notes.txt'), later, later);
+  const empty = path.join(root, 'empty.gitconfig');
+  await writeFile(empty, '');
+  const proof = { ...process.env, GIT_CONFIG_NOSYSTEM: '1', GIT_CONFIG_SYSTEM: empty, GIT_CONFIG_GLOBAL: empty };
+  // Without the person's line endings Git's status calls the file modified.
+  assert.match(run('git', ['status', '--porcelain=v1'], { cwd: repository, env: proof }).stdout, /^ M notes\.txt$/mu);
+
+  const fingerprint = worktreeFingerprint(repository, { fresh: true, exhaustive: true, env: proof });
+  assert.deepEqual(fingerprint.exhaustiveChanges, []);
+  assert.equal(fingerprint.dirty, false);
+  await writeFile(path.join(repository, 'notes.txt'), 'one\r\nchanged\r\n');
+  assert.equal(worktreeFingerprint(repository, { fresh: true, exhaustive: true, env: proof }).dirty, true);
 });
 
 test('an assume-unchanged file Git converted to CRLF is no hidden change; edited, it is', async (t) => {

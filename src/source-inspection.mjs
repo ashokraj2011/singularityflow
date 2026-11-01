@@ -75,9 +75,11 @@ export async function sourceWorkingState(root, { env = process.env } = {}) {
  * Line endings as the person's own Git writes them on checkout, as `-c` arguments. A destructive
  * proof runs Git without system or global configuration, and Git for Windows sets core.autocrlf=true
  * in the system one, so only the person's own environment (`personalEnv`) names them. Only these two
- * values cross.
+ * values cross. The proof's own `git status` takes them too (withCheckoutLineEndings): it compares a
+ * file whose stat data no longer matches the index by content, and without them a CRLF checkout
+ * reads as modified there.
  */
-function checkoutLineEndings(root, personalEnv) {
+export function checkoutLineEndings(root, personalEnv) {
   const configured = read(root, ['config', '--get-regexp', '^core\\.(autocrlf|eol)$'], { env: personalEnv, offline: false });
   if (!processResultSucceeded(configured)) return [];
   return configured.stdout.split(/\r?\n/u).flatMap((line) => {
@@ -87,18 +89,34 @@ function checkoutLineEndings(root, personalEnv) {
   });
 }
 
+/** `env` with the line endings checkoutLineEndings read as Git's environment configuration, after its own entries. */
+export function withCheckoutLineEndings(env, lineEndings) {
+  const entries = [];
+  for (let index = 1; index < lineEndings.length; index += 2) entries.push(lineEndings[index].split('='));
+  if (!entries.length) return env;
+  const configured = Number(env.GIT_CONFIG_COUNT ?? 0);
+  const offset = Number.isSafeInteger(configured) && configured >= 0 ? configured : 0;
+  const result = { ...env, GIT_CONFIG_COUNT: String(offset + entries.length) };
+  entries.forEach(([key, value], index) => {
+    result[`GIT_CONFIG_KEY_${offset + index}`] = key;
+    result[`GIT_CONFIG_VALUE_${offset + index}`] = value;
+  });
+  return result;
+}
+
 /**
  * The bytes Git's checkout writes for each path's indexed blob, as their SHA-256: one
  * `checkout-index --temp` into a private directory outside the checkout, with Git's own line-ending
  * and encoding conversion. `configuration` carries the caller's `-c` overrides (its configured
  * filters disabled). A path Git wrote nothing for is missing from the map.
  */
-export function sourceCheckoutForm(root, paths, { env = process.env, personalEnv = process.env, configuration = [] } = {}) {
+export function sourceCheckoutForm(root, paths, { env = process.env, personalEnv = process.env, configuration = [],
+  lineEndings = null } = {}) {
   const gitDirectory = read(root, ['rev-parse', '--absolute-git-dir'], { env, offline: true });
   if (!processResultSucceeded(gitDirectory) || !gitDirectory.stdout.trim()) return { status: 'unavailable', result: gitDirectory };
   const directory = mkdtempSync(path.join(os.tmpdir(), 'sflow-checkout-form-'));
   try {
-    const written = run('git', [...configuration, ...checkoutLineEndings(root, personalEnv), '--git-dir', gitDirectory.stdout.trim(),
+    const written = run('git', [...configuration, ...(lineEndings ?? checkoutLineEndings(root, personalEnv)), '--git-dir', gitDirectory.stdout.trim(),
       '--work-tree', directory, 'checkout-index', '--temp', '-z', '--stdin'], {
       cwd: directory, env: gitEnvironment(env, true), input: `${paths.join('\0')}\0`, allowFailure: true
     });

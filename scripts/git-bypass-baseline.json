@@ -123,7 +123,7 @@
         "command-git": 7,
         "command-run": 5
       },
-      "digest": "effe11585e329d5029a14663b37bcf7343505ef6b8cff9e3db67e2ace86678f6"
+      "digest": "353bdac7e1e39451e9bef0f7f811ac14dc0cf711d1928d74b9e3e8f278aea822"
     },
     "scripts/session-listing-benchmark.mjs": {
       "counts": {
@@ -1712,7 +1712,7 @@
       "counts": {
         "command-run": 12
       },
-      "digest": "24ca4a3d5273a8d88424bc7d110dd792915773d707696721179e42b696f07e30"
+      "digest": "81bd7e88afc2623f01a0bba825b08a2e9e44952f291bd91026d59bae2dcb533e"
     },
     "src/phase-prompt-composer.mjs": {
       "counts": {
@@ -1831,7 +1831,7 @@
       "counts": {
         "command-run": 2
       },
-      "digest": "bff9c572f64cdddf018f61c9047bd141e97e7cc6f499a0454f1ad2672335837b"
+      "digest": "dc497e979fc30f9f109f83a1ae921ebf678ffcbecd723251d76824661fec3562"
     }
   }
 }

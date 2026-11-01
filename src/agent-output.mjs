@@ -290,6 +290,10 @@ export function agentAct(result) {
     return { state: 'read', do: null, said: oneLine(list.headline) };
   }
   const action = genericAction(result);
+  // A prepared scope-owning draft names the source statements it has yet to link, as entry does.
+  if (result.resultType === 'command-result' && result.operation?.id === 'prepare' && result.data?.preparation?.scope) {
+    return { ...withRoute({ state: 'next', said: null, do: null }, action), read: ['data.preparation.scope'] };
+  }
   const state = result.classification === 'convergence-advance-required' ? 'confirm-review' : 'next';
   const said = oneLine(result.reason ?? result.agentInstruction ?? (result.classification ? `Classification: ${result.classification}.` : '')) || null;
   return withRoute({ state: action ? state : 'read', said, do: null }, action);

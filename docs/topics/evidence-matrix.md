@@ -23,7 +23,7 @@ related:
   - story-lifecycle
   - workflow-decisions
   - rejection-and-rework
-version: 34
+version: 35
 ---
 The evidence matrix shows every requirement and acceptance criterion of a Story as one row: whether the approved plan names it, whether a delivered change implements it, which tagged test verifies it and what that test's run proved. It reads committed records only, so it runs no test and makes no network call.
 
@@ -134,7 +134,7 @@ Every requirement statement found in the Story's sources must reach a dispositio
 
 A document the inventory cannot read (an HTTPS link, a file kept on one machine, a PDF without a text layer) is listed as unreadable and stays unresolved until someone records a decision for it. A decision binds the statement's text: if the statement changes, it is a new item. Someone in the group that approves the step defining the Story's scope records each decision; when the workflow leaves scope out and that group decided scope does not apply, the decision covers every undisposed statement and the inventory says so.
 
-Scope-owning phases receive an early `scopeReview` in phase entry and prepublish, including renamed, custom and skill-based workflows. It previews the current editable draft against the pinned source, documents and answered clarifications, before the author hands it on. This is repair guidance, not a new readiness blocker: publication and approval keep their existing gates. Repair a clear omission in the current draft. For genuine ambiguity or an exclusion or deferral, the scope authority can record the exact choice and reason through `/sf-decide` or `decision scope`; ordinary phase approval does not silently dispose of the item.
+Scope-owning phases receive an early `scopeReview` in phase entry and prepublish, including renamed, custom and skill-based workflows. `prepare` names each source statement the draft has yet to link, with its reference, in its own output and in `data.preparation.scope`, so an author who starts there sees them too. It previews the current editable draft against the pinned source, documents and answered clarifications, before the author hands it on. This is repair guidance, not a new readiness blocker: publication and approval keep their existing gates. Repair a clear omission in the current draft. For genuine ambiguity or an exclusion or deferral, the scope authority can record the exact choice and reason through `/sf-decide` or `decision scope`; ordinary phase approval does not silently dispose of the item.
 
 Short requests and paraphrases need explicit linkage rather than weaker substring matching. For example, after reviewing the actual intent behind "test cases", the author can add the exact `scopeReview.items[].repair.sourceReference` (such as `[scope:SRI-0123456789ab]`) inside a real acceptance clause describing the required regression coverage. Never copy this example ID: use the returned source item's ID. A token by itself cannot claim coverage. The link is an authored coverage claim, not evidence that tests ran or an approval. Only the published and approved clause index supplies later evidence; the draft preview never does.
 

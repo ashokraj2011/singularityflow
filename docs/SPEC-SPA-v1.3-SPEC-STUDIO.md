@@ -326,6 +326,8 @@ Cost: 8 premium requests (2 per Story: questions, then author and publish), 73 m
 - Scope links repeat the first run: the signup Story linked all four sliced clauses, the discount Story none (2 of 2 discount runs, 0 of 2 signup runs), so the final check would refuse it until a person links or decides them.
 - Claims were recorded at approval as before. Cost: 4 premium requests; mean input 0.74M tokens per Story, the same as the first run.
 
+**Why the discount Stories linked nothing.** Both went from their clarification answers straight to `prepare` and authored from there. The phase-entry `scopeReview`, which names each `[scope:SRI-…]` reference, had been moved to the bounded result's file, and at the clarification step the result pointed the agent only at `clarification` and `context`. The signup agents happened to read the scope inventory; the discount agents did not. `prepare` now names each source statement its draft has yet to link, with its reference, in its text and in `data.preparation.scope` (an unavailable preview says so). It is guidance and never blocks preparation or decides scope. It has not been rerun live.
+
 ### 10.2 S4 live Copilot authoring run (1 November 2026)
 
 Copilot CLI 1.0.105 over ACP, one pinned model (the account default), on main `af14ddc81` with kernel model calls off. One repository from the S2 storefront fixture. The person's Elicit step created `SPEC-SHIP-001` "Delivery charge" with `spec author new --area src/pricing.mjs`. Turn 1 gave the request: a delivery charge on the order summary, INR 99.00 per order, waived for orders of INR 2000.00 and above.

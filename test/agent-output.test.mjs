@@ -60,6 +60,12 @@ test('act reads each result by its own fields and never invents a next action', 
     commands: { publish: 'singularity-flow phase publish intake --authored governed-agent --channel copilot-host' } });
   assert.equal(scopeAdvice.state, 'publish', 'an advisory cannot silently become a publication gate');
   assert.equal(scopeAdvice.do.shell, prepublish.do.shell);
+  // A prepared scope-owning draft reads its unlinked statements the way authoring-entry reads scopeReview.
+  const prepared = (scope) => agentAct({ resultType: 'command-result', operation: { id: 'prepare' }, data: { preparation: { path: 'spec.md', ...(scope ? { scope } : {}) } },
+    next: [{ id: 'prepare.author', label: 'Author', command: 'singularity-flow phase prepublish intake', copilotCommand: '/sf-phase', rank: 'NOW', kind: 'workflow' }] });
+  assert.deepEqual(prepared({ status: 'repair-or-human-decision', items: [{ id: 'SRI-0123456789ab' }] }).read, ['data.preparation.scope']);
+  assert.equal(prepared({ status: 'repair-or-human-decision', items: [] }).do.shell, 'singularity-flow phase prepublish intake', 'the route is unchanged');
+  assert.equal(prepared(null).read, undefined, 'nothing to link adds nothing to read');
   assert.equal(agentAct({ resultType: 'sflow-phase-prepublish', status: 'correction-required', findings: [{}, {}] }).state, 'correct');
   assert.equal(agentAct({ resultType: 'sflow-phase-prepublish', repairLoop: { status: 'escalate', instruction: 'Stop.' } }).state, 'escalate');
   const published = agentAct({ publishIfReady: { published: true, next: { instruction: 'Published. End the reply.', reason: 'Submit it.',

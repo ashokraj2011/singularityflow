@@ -13,6 +13,7 @@ import { scopeItemId, storySourceStatements } from '../src/scope/extract.mjs';
 import { buildScopeInventory } from '../src/scope/inventory.mjs';
 import { assertSliceSize, buildSlice, MAXIMUM_SLICE_BYTES, parseSliceRequest, parseSliceRequests, sliceClauseItem } from '../src/spec-library/slice.mjs';
 import { coverageOf, usageRecords } from '../src/spec-library/usage.mjs';
+import { MESSAGES } from '../src/narration/messages.mjs';
 import { CLI, specification, startedSpecificationStory } from './helpers/submitted-planning-story.mjs';
 
 // SPEC-SPA v1.3 S2: a Story attaches a slice of a reviewed specification revision, the slice reaches
@@ -205,6 +206,63 @@ test('a clarification checkpoint treats a pinned slice as settled, and says noth
     /So is the specification slice in the pinned Story source \(SPEC-CHK-004@1\): its clauses and decided questions are never asked again or put up for confirmation; ask only what they leave open\./u);
   assert.doesNotMatch(clarificationCheckpoint({ mode: 'required' }, missing).instruction, /specification slice/u);
   assert.doesNotMatch(clarificationCheckpoint({ mode: 'required' }, { recordState: 'present', errors: [] }, { slices: [`${SPEC}@1`] }).instruction, /specification slice/u);
+});
+
+test('prepare names each source statement its draft has yet to link, with its scope reference, in text and JSON; a linked draft and a step that owns no scope add nothing', async (t) => {
+  // The S2 live check: both discount Stories went from their clarification answers to prepare, never
+  // read the phase-entry scopeReview the bounded result had moved to its file, and linked no sliced clause.
+  const story = await startedSpecificationStory(t, 'SPS-4', {
+    beforeStart: publishLibrary,
+    startArguments: ['--spec', `${SPEC}@1=REQ-001,AC-001`]
+  });
+  const { cli, item } = story;
+  const json = (...args) => JSON.parse(cli(...args, '--json').stdout);
+  const sliced = [`[${SPEC}:REQ-001] ${REQ_001}`, `[${SPEC}:AC-001] ${AC_001}`];
+  const text = cli('prepare', 'specification').stdout;
+  assert.match(text, /source statement\(s\) are not linked yet: cover each with a clause in this draft that cites its reference inside that clause: /u);
+  for (const statement of sliced) {
+    assert.ok(text.includes(`[scope:${scopeItemId('story', statement)}] "${statement}"`), `the text names ${statement} with its reference`);
+  }
+  const prepared = json('prepare', 'specification');
+  const scope = prepared.data.preparation.scope;
+  assert.equal(scope.status, 'repair-or-human-decision');
+  for (const statement of sliced) {
+    const entry = scope.items.find((candidate) => candidate.text === statement);
+    assert.equal(entry?.sourceReference, `[scope:${scopeItemId('story', statement)}]`);
+  }
+  assert.equal(scope.items.length, scope.unresolvedCount, 'every unresolved statement here is the draft\'s to link');
+  assert.equal(prepared.outcome.status, 'succeeded', 'guidance never refuses preparation');
+  assert.deepEqual(json('evidence', 'scope', 'SPS-4').data.scope.items.map((entry) => entry.disposition).filter((value) => value !== 'unresolved'), [],
+    'preparing decided nothing');
+
+  // Linking every statement inside a real clause leaves nothing to name.
+  const draft = path.join(item, 'artifacts/specification/spec.md');
+  const references = scope.items.map((entry) => entry.sourceReference).join(' ');
+  await writeFile(draft, specification('SPS-4', 1).replace('- The application returns the value 1. [SPS-4:REQ-002]',
+    `- ${REQ_001} The approved value is returned. ${references} [SPS-4:REQ-002]`));
+  const covered = json('prepare', 'specification');
+  assert.equal(covered.data.preparation.scope, undefined);
+  assert.doesNotMatch(covered.rendered.headline, /not linked yet|scope preview/u);
+
+  // A step that owns no scope prepares as before.
+  cli('artifact', 'scan', '--phase', 'specification');
+  cli('phase', 'publish', 'specification', '--authored', 'human', '--channel', 'manual-in-place');
+  cli('submit', 'specification', '--skip-checks');
+  cli('approve', 'specification', '--yes');
+  const planning = json('prepare', 'planning');
+  assert.equal(planning.data.preparation.scope, undefined);
+  assert.doesNotMatch(planning.rendered.headline, /not linked yet|scope preview/u);
+});
+
+test('a prepared draft whose scope preview is unavailable says so, never that nothing is left to link', () => {
+  const headline = (scope) => MESSAGES['prepare.succeeded'].headline({ phase: 'specification', path: 'spec.md', ...(scope ? { scope } : {}) });
+  const unavailable = headline({ status: 'unavailable', reason: 'scope-preview-unavailable', inspect: 'singularity-flow evidence scope W --for-agent --json' });
+  assert.match(unavailable, /Its scope preview is unavailable \(scope-preview-unavailable\), so which source statements it must link is not known: singularity-flow evidence scope W --for-agent --json\./u);
+  assert.doesNotMatch(unavailable, /not linked yet/u);
+  assert.equal(headline(null), 'specification is ready to author in spec.md.', 'no scope block, no change');
+  assert.match(headline({ status: 'repair-or-human-decision', items: [{ sourceReference: '[scope:SRI-0123456789ab]', text: 'Totals above INR 5000.00 qualify.' }],
+    more: 2, inspect: 'singularity-flow evidence scope W --for-agent --json' }),
+  /1 source statement\(s\) are not linked yet: .*\[scope:SRI-0123456789ab\] "Totals above INR 5000\.00 qualify\."\. 2 more: singularity-flow evidence scope W --for-agent --json\.$/u);
 });
 
 test('a Story started with a slice sees it in its prompt and scope, records its claim after approval, and repairs a lost write (SPA:AC-011, AC-013 to AC-017)', async (t) => {

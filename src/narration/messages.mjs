@@ -16,6 +16,14 @@ function slot(value, fallback = '') {
   return value === undefined || value === null ? fallback : String(value);
 }
 
+/** The source statements a prepared scope-owning draft has yet to link, each with its reference. */
+function preparedScope(scope) {
+  if (scope?.status === 'unavailable') return ` Its scope preview is unavailable${scope.reason ? ` (${slot(scope.reason)})` : ''}, so which source statements it must link is not known: ${slot(scope.inspect)}.`;
+  if (!scope?.items?.length) return '';
+  return ` ${scope.items.length} source statement(s) are not linked yet: cover each with a clause in this draft that cites its reference inside that clause: ${
+    scope.items.map((item) => `${slot(item.sourceReference)} "${slot(item.text)}"`).join('; ')}.${scope.more ? ` ${slot(scope.more)} more: ${slot(scope.inspect)}.` : ''}`;
+}
+
 /** Why Git refused a publication and what fixes it, when it said; nothing for one that landed. */
 function transportFault(s) {
   return `${s.reason ? ` Git refused it (${slot(s.reason)}).` : ''}${s.advice ? ` ${slot(s.advice)}` : ''}`;
@@ -944,7 +952,7 @@ export const MESSAGES = Object.freeze({
     preserves: false
   },
   'prepare.succeeded': {
-    headline: (s) => `${slot(s.phase)} is ready to author in ${slot(s.path)}.${s.read ? ` It is longer than one file read: open lines ${slot(s.read)} together.` : ''}`,
+    headline: (s) => `${slot(s.phase)} is ready to author in ${slot(s.path)}.${s.read ? ` It is longer than one file read: open lines ${slot(s.read)} together.` : ''}${preparedScope(s.scope)}`,
     preserves: false
   },
   'prepare.noop': {

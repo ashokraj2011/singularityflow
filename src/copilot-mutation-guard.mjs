@@ -1026,14 +1026,16 @@ const PERSON_DECISION_IDS = new Set(PERSON_DECISIONS.map((entry) => entry.id));
 // the environment instead of the person.
 const TEST_ENVIRONMENT = /(?:^|[\s;&|(`'"])(?:export\s+|set\s+|\$env:)?(?:NODE_ENV\s*=\s*['"]?test\b|SINGULARITY_FLOW_TEST_[A-Z0-9_]+\s*=)/iu;
 
-const PERSON_AUTHORSHIP = new Set(['human', 'legacy-unspecified']);
-const PERSON_CHANNELS = new Set(['manual-in-place', 'manual-import', 'legacy']);
-/** A publication that records a person as its author, or no author: what an agent never claims. */
+// An external tool's output is a person's attestation too: SFlow records no tool's run, and as
+// `--authored external-tool` an agent's draft skipped the same checks.
+const PERSON_AUTHORSHIP = new Set(['human', 'external-tool', 'legacy-unspecified']);
+const PERSON_CHANNELS = new Set(['manual-in-place', 'manual-import', 'external-tool', 'legacy']);
+/** A publication that records a person, an external tool or nobody as its author: never an agent's claim. */
 function personAuthorshipClaim(options) {
   const authored = typeof options.authored === 'string' ? options.authored : null;
   return !authored || PERSON_AUTHORSHIP.has(authored) || PERSON_CHANNELS.has(options.channel);
 }
-const AUTHORSHIP_CLAIM_DENIAL = 'PHASE_MUTATION_OPERATION_NOT_ALLOWED: an agent records its own publication as governed-agent, never as a person\'s writing or with no author, in any chat: run the first command, which checks this draft and publishes it with the authorship SFlow can stand behind. A person who wrote the draft themselves publishes it with the second command in their own terminal. Do not retry with another --authored value';
+const AUTHORSHIP_CLAIM_DENIAL = 'PHASE_MUTATION_OPERATION_NOT_ALLOWED: an agent records its own publication as governed-agent, never as a person\'s writing, an external tool\'s output or with no author, in any chat: run the first command, which checks this draft and publishes it with the authorship SFlow can stand behind. A person who wrote the draft, or ran the tool that did, publishes it with the second command in their own terminal. Do not retry with another --authored value';
 
 /** The person's own step this SFlow argv is, as { id, argv } with the command the person runs, or null. */
 function personStep(argv, cwd, depth = 0) {

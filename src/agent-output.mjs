@@ -118,8 +118,30 @@ function genericAction(result) {
     ?? firstNow(result.actions) ?? firstNow(result.next) ?? null;
 }
 
+// An agent never runs a publication naming a person, an external tool or nobody as its author: the
+// Copilot hook refuses it. SFlow's own routes still print a bare `phase publish` (recovery,
+// continuation, evidence reuse, the changed-after-publication refusal) or, with the kernel's model
+// off, a person's authorship; followed as given, each cost the agent a refusal and a round trip. Its
+// own route checks the draft and publishes it with the authorship SFlow can stand behind.
+const AGENT_AUTHORSHIP = new Set(['governed-agent', 'deterministic']);
+const AGENT_CHANNELS = new Set(['copilot-host', 'kernel-model', 'kernel-generator']);
+function agentPublication(route) {
+  const tokens = String(route?.shell ?? '').trim().split(/\s+/u);
+  if (!/^(?:singularity-flow|sflow)$/u.test(tokens[0]) || tokens[1] !== 'phase' || tokens[2] !== 'publish') return route;
+  const flag = (name) => {
+    const at = tokens.findIndex((token) => token === `--${name}` || token.startsWith(`--${name}=`));
+    return at < 0 ? null : tokens[at].includes('=') ? tokens[at].split('=')[1] : tokens[at + 1] ?? null;
+  };
+  const channel = flag('channel');
+  if (AGENT_AUTHORSHIP.has(flag('authored')) && (!channel || AGENT_CHANNELS.has(channel))) return route;
+  const workId = flag('work-id');
+  const guidance = safeCommandGuidance({ argv: ['phase', 'prepublish', ...(tokens[3] && !tokens[3].startsWith('-') ? [tokens[3]] : []),
+    ...(workId ? ['--work-id', workId] : []), '--for-agent', '--json', '--publish-if-ready'] });
+  return guidance ? { ...route, shell: guidance.command, copilot: guidance.copilotCommand ?? null, vscode: null } : route;
+}
+
 function withRoute(act, action) {
-  const route = routes(action);
+  const route = agentPublication(routes(action));
   if (!route) return act;
   // A person's own terminal step is refused in every Copilot turn: "ask in chat, then run do.shell"
   // sent the agent into that refusal (route closure, 2026-10-28).
@@ -235,10 +257,11 @@ export function agentAct(result) {
           ?? 'The same finding keeps returning; tell the person what is blocked and hand it to someone other than the author.') },
       route && { command: route.command, reason: route.detail });
     }
-    // Only human authorship is permitted here: the person publishes it (publish-if-ready refused to).
+    // Only a person's (or an external tool's, which a person attests) authorship is permitted here:
+    // the person publishes it (publish-if-ready refused to).
     if (result.publishIfReady?.reason === 'person-authored') return { state: 'confirm-in-terminal', read: ['scopeReview'],
-      do: { ...routes({ command: result.commands.publish, reason: 'Publish this draft as their own writing.' }), copilot: null },
-      said: 'Ready, and this step permits only a person\'s authorship: show them do.shell to run in their own terminal; never run it.' };
+      do: { ...routes({ command: result.commands.publish, reason: 'Publish this draft as their own or their tool\'s work.' }), copilot: null },
+      said: 'Ready, and this step permits only a person\'s or an external tool\'s authorship: show them do.shell to run in their own terminal; never run it.' };
     if (result.status === 'ready' && result.commands?.publish) return withRoute({ state: 'publish', do: null, read: ['scopeReview'],
       said: 'Ready: publish once with the returned command; it runs the required tests.' },
       { command: result.commands.publish, ...(result.commandGuidance?.publish ? { commandGuidance: result.commandGuidance.publish } : {}), reason: 'Publish this draft.' });

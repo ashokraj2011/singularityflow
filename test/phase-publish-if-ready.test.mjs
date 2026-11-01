@@ -8,7 +8,7 @@ import { fileURLToPath } from 'node:url';
 import YAML from 'yaml';
 
 import { resolveOperation } from '../src/command-registry.mjs';
-import { publicationArguments } from '../src/commands/phase-publish-if-ready.mjs';
+import { personAuthoredPublication, publicationArguments } from '../src/commands/phase-publish-if-ready.mjs';
 import { submitArguments } from '../src/commands/submit-if-ready.mjs';
 import { completeAgentResult, withAgentRoutes } from '../src/agent-output.mjs';
 import { childTimeout } from './helpers/child-timeout.mjs';
@@ -29,6 +29,15 @@ test('only the exact publication command prepublish returns for the same phase i
     'sflow phase publish intake --authored human --channel manual-in-place',
     null
   ]) assert.equal(publicationArguments(command, 'intake'), null, String(command));
+  // It runs only the agent's own authorship or the kernel's: a person's writing, an external tool's
+  // output or no author is the person's claim (as external-tool an agent's draft skipped its checks).
+  for (const [command, person] of [['intake --authored governed-agent --channel copilot-host --no-model', false],
+    ['convergence --authored deterministic --channel kernel-generator', false], ['intake --authored human --channel manual-in-place', true],
+    ['intake --authored external-tool --channel external-tool', true], ['intake', true]]) {
+    const phase = command.split(' ')[0];
+    assert.equal(personAuthoredPublication(publicationArguments(`singularity-flow phase publish ${command}`, phase)), person, command);
+  }
+  assert.equal(personAuthoredPublication(null), false, 'nothing to run is not a person\'s claim');
   // Only the exact readiness route submits: no confirmation, no other classification or command.
   const ready = { classification: 'ready-to-attempt', lifecycleReady: true, confirmationRequired: false, nextSkill: '/sf-submit',
     phaseId: 'code', workId: 'A-1', nextCommand: 'singularity-flow submit code --work-id A-1' };

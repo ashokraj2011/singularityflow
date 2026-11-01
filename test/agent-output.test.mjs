@@ -86,6 +86,40 @@ test('act reads each result by its own fields and never invents a next action', 
   assert.equal(agentAct({ resultType: 'x', note: 'nothing to do' }).state, 'read');
 });
 
+test('an agent is given its own publication route wherever SFlow names a bare, person or external-tool publish', async () => {
+  const own = (phase, workId = '') => `singularity-flow phase prepublish ${phase}${workId ? ` --work-id ${workId}` : ''} --for-agent --json --publish-if-ready`;
+  // SFlow's own bare routes: continuation, recovery, evidence reuse (with its Work ID) and the
+  // changed-after-publication refusal. Followed as given, each was refused and cost a round trip.
+  assert.equal(agentAct({ continuation: { nextAction: { command: 'singularity-flow phase publish intake', reason: 'Publish a generation.' } } }).do.shell, own('intake'));
+  const recovery = agentAct({ next: [{ command: 'singularity-flow phase publish code', skill: '/sf-publish', timing: 'now', reason: 'Publish the edited draft.' }] });
+  assert.deepEqual([recovery.do.shell, recovery.do.copilot, recovery.do.vscode], [own('code'), '/sf-phase', null]);
+  assert.equal(agentAct({ nextAction: { command: 'singularity-flow phase publish verify --work-id W-1', reason: 'Fresh recorded run.' } }).do.shell, own('verify', 'W-1'));
+  const changed = { error: { code: 'ARTIFACT_AUTHORED_BYTES_CHANGED_AFTER_PUBLICATION', message: 'Changed after publication.' },
+    remediationPlan: { steps: [{ label: 'Publish it as the next generation', command: 'singularity-flow phase publish intake' }] } };
+  assert.equal(agentAct(changed).do.shell, own('intake'));
+  // A person's authorship (the no-model fallback), an external tool's or a manual channel is never the agent's to run.
+  for (const command of ['singularity-flow phase publish intake --authored human --channel manual-in-place --no-model',
+    'singularity-flow phase publish intake --authored external-tool --channel external-tool',
+    'singularity-flow phase publish intake --authored external-tool --channel external-tool --from out/intake.md',
+    'singularity-flow phase publish intake --authored governed-agent --channel manual-in-place']) {
+    assert.equal(agentAct({ nextAction: { command, reason: 'Publish.' } }).do.shell, own('intake'), command);
+  }
+  const tool = 'singularity-flow phase publish intake --authored external-tool --channel external-tool';
+  assert.deepEqual([agentAct({ resultType: 'sflow-phase-prepublish', status: 'ready', commands: { publish: tool } }).do.shell], [own('intake')]);
+  // The agent's own authorship and the kernel's run as given.
+  for (const command of ['singularity-flow phase publish intake --authored governed-agent --channel copilot-host --no-model',
+    'singularity-flow phase publish convergence --authored deterministic --channel kernel-generator']) {
+    assert.equal(agentAct({ nextAction: { command, reason: 'Publish.' } }).do.shell, command, command);
+  }
+  // A genuine external tool's output stays the person's exact route, run in their own terminal.
+  const person = agentAct({ resultType: 'sflow-phase-prepublish', status: 'ready', commands: { publish: tool },
+    publishIfReady: { published: false, reason: 'person-authored', command: tool } });
+  assert.deepEqual([person.state, person.do.shell, person.do.copilot], ['confirm-in-terminal', tool, null]);
+  // Only the route the agent runs changes: the result's own fields, which a person reads, keep their command.
+  const relayed = await withAgentRoutes(changed);
+  assert.equal(relayed.remediationPlan.steps[0].command, 'singularity-flow phase publish intake');
+});
+
 test('a returned confirmation becomes an ask with its exact value, and its Copilot route carries it', () => {
   const act = agentAct({ classification: 'convergence-advance-required', reason: 'Review it.',
     nextCommand: `singularity-flow story advance --work-id W --confirm ${digest}`, nextSkill: '/sf-submit' });

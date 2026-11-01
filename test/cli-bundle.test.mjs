@@ -204,6 +204,8 @@ test('the bundled CLI answers exactly like the sources while opening a handful o
   // copilot-repository-boundary.mjs attribute(), and the attribution an explicit turn's observed write carries in
   // copilot-mutation-guard.mjs) adds 1,682 for 4,655,066. The recorder itself loads from source
   // (LIVE_SOURCE_FILES). No new file.
+  // 4,660,000 holds: main 965b6788d measures 4,655,066; the same external-tool refusal and agent publish route add
+  // 1,111 for 4,656,177. No new file.
   assert.ok(narrowReads < 4_660_000,
     `strict next-step reads must not inherit the broad phase-review closure (${narrowReads} bytes)`);
   const publicationClosure = closure('cold-publication.mjs');
@@ -410,6 +412,8 @@ test('the bundled CLI answers exactly like the sources while opening a handful o
   // No new file.
   // 7,730,000 holds: main 1825f2d0f measures 7,726,335; the same SF Guard attribution calls (SPEC-SFG-v1 G1) add 1,682
   // for 7,728,017. No new file.
+  // 7,730,000 holds: main 965b6788d measures 7,728,017; the same external-tool refusal and agent publish route add 1,111
+  // for 7,729,128. No new file.
   assert.ok(hookContext < 7_730_000,
     `phase-review reads retain their existing byte ceiling after moving families (${hookContext} bytes)`);
   assert.match(await readFile(path.join(outdir, 'cold-light.mjs'), 'utf8'), /function enterPhase\b/u,
@@ -499,7 +503,10 @@ test('the bundled CLI answers exactly like the sources while opening a handful o
   // 5,503,083. No new file.
   // 5,505,000 holds: main 1825f2d0f measures 5,503,083; the same SF Guard attribution calls (SPEC-SFG-v1 G1) add 1,682
   // for 5,504,765. No new file.
-  assert.ok(catalogBytes < 5_505_000,
+  // 5,510,000: main 965b6788d measures 5,504,765; an agent's `phase publish` claiming an external tool's output refused
+  // (copilot-mutation-guard.mjs), and its own publish-if-ready route given in place of a bare or person-authored
+  // `phase publish` (agent-output.mjs agentPublication) add 1,111 for 5,505,876. No new file.
+  assert.ok(catalogBytes < 5_510_000,
     `catalog parsing stays bounded instead of pulling in the entire administration bundle (${catalogBytes} bytes)`);
   for (const name of ['cold-compatibility.mjs', 'cold-models.mjs', 'cold-intake.mjs', 'cold-phases.mjs', 'cold-hook-context.mjs']) {
     assert.ok(!catalogClosure.some(item => item.file === name), `catalogs must not statically reach ${name}`);

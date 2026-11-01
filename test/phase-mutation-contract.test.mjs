@@ -1052,14 +1052,18 @@ test('a person\'s decision is refused in every turn but the one they start for i
   assert.deepEqual(await shell('NODE_ENV=test node --test test/app.test.mjs'), {});
 });
 
-test('no agent publishes its draft as a person\'s writing or with no author, in any turn or a plain prompt', async t => {
+test('no agent publishes its draft as a person\'s writing, an external tool\'s output or with no author, in any turn or a plain prompt', async t => {
   const f = await fixture(t);
   // As --authored human an agent's draft skipped its clarification record and session proof; with the
   // kernel's model off, prepublish itself offered that route to Copilot (live reruns, 2026-11-01).
   const claims = ['singularity-flow phase publish custom-step --authored human --channel manual-in-place --no-model',
     'singularity-flow phase publish custom-step --authored human --channel manual-import --from draft.md',
     `cd ${f.root} && sflow phase publish custom-step`, 'singularity-flow phase publish custom-step --authored legacy-unspecified --channel legacy',
-    'singularity-flow phase publish custom-step --authored governed-agent --channel manual-in-place'];
+    'singularity-flow phase publish custom-step --authored governed-agent --channel manual-in-place',
+    // SFlow records no external tool's run: as external-tool an agent's draft skipped the same checks.
+    'singularity-flow phase publish custom-step --authored external-tool --channel external-tool',
+    'singularity-flow phase publish custom-step --authored external-tool --channel external-tool --from draft.md',
+    'singularity-flow phase publish custom-step --authored governed-agent --channel external-tool'];
   const own = ['singularity-flow phase publish custom-step --authored governed-agent --channel copilot-host --no-model',
     'singularity-flow phase publish convergence --authored deterministic --channel kernel-generator',
     'singularity-flow phase prepublish custom-step --for-agent --json --publish-if-ready', 'singularity-flow phase publish custom-step --help'];
@@ -1067,7 +1071,7 @@ test('no agent publishes its draft as a person\'s writing or with no author, in 
     const payload = await f.enter(skill, session);
     for (const command of claims) {
       const refused = await repositoryToolGuard({ ...payload, toolName: 'bash', toolArgs: { command, cwd: f.root } });
-      assert.match(refused.permissionDecisionReason ?? '', /an agent records its own publication as governed-agent, never as a person's writing or with no author, in any chat/u, `${skill}: ${command}`);
+      assert.match(refused.permissionDecisionReason ?? '', /an agent records its own publication as governed-agent, never as a person's writing, an external tool's output or with no author, in any chat/u, `${skill}: ${command}`);
       // Its own route first, then the person's line for their own terminal, with no skill.
       assert.equal(refused.next[0].command, 'singularity-flow phase prepublish custom-step --for-agent --json --publish-if-ready', `${skill}: ${command}`);
       assert.deepEqual([refused.next[1].copilotCommand, refused.next[1].skill], [null, null], `${skill}: ${command}`);

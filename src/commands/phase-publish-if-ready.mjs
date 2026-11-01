@@ -31,6 +31,16 @@ export function publicationArguments(command, phaseId) {
   return tokens.slice(1);
 }
 
+/**
+ * Whether a publication names a person, an external tool or nobody as its author. This command is an
+ * agent's, and such a draft would skip the checks an agent's draft gets. SFlow records no external
+ * tool's run, so that claim is the person's to make; a phase permitting none of the agent's is theirs.
+ */
+export function personAuthoredPublication(argv) {
+  const authored = argv?.includes('--authored') ? argv[argv.indexOf('--authored') + 1] : null;
+  return Boolean(argv) && !['governed-agent', 'deterministic'].includes(authored);
+}
+
 export async function run({ positionals, options }) {
   if (options['for-agent'] !== true || options.json !== true) {
     throw new SingularityFlowError('--publish-if-ready requires --for-agent --json.', { code: 'PHASE_PUBLISH_IF_READY_OPTIONS' });
@@ -42,9 +52,7 @@ export async function run({ positionals, options }) {
   const prepublish = checked.value;
   const phaseId = prepublish.phase ?? requested;
   const argv = prepublish.status === 'ready' ? publicationArguments(prepublish.commands?.publish, phaseId) : null;
-  // This command is an agent's: a draft it publishes as a person's writing would skip the checks an
-  // agent's draft gets. A phase that permits only human authorship is the person's to publish.
-  const personAuthored = argv?.[argv.indexOf('--authored') + 1] === 'human';
+  const personAuthored = personAuthoredPublication(argv);
   if (!argv || personAuthored) {
     return console.log(JSON.stringify({ ...prepublish, publishIfReady: {
       published: false,

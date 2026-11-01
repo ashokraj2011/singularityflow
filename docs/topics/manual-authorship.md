@@ -10,11 +10,11 @@ commands:
 related:
   - model-independence
   - artifacts-and-generation
-version: 5
+version: 6
 ---
 `sflow phase publish --authored human --from ./design.md` gives hand-written artifacts the same pipeline: template validation, hashing, the standard transaction, approvals, evidence. The record states precisely what is known: the kernel invoked no model. External AI use defaults to `unknown` and can be attested only as self-reported — the system never infers AI authorship from style. Imported files are hashed before copying, written atomically to the pinned artifact path, and any forged lifecycle metadata inside them is stripped. Repeat `--change-origin` when a reviewed generation combines human, Copilot, formatter, compiler, migration-tool, test-generator, code-generator, or external-tool contributions. These declarations record provenance; path-based delivery classification is stored separately and never pretends to identify an author.
 
-`--no-model` turns off the kernel's own model, not an agent. A person's own check (`phase prepublish --json`) still names the manual route in that mode, but an agent's (`--for-agent`, and `--publish-if-ready`) names `--authored governed-agent --channel copilot-host` wherever the step permits it, so an agent-written draft keeps the checks an agent's draft gets: its clarification record and the agent's session. The Copilot hook refuses an agent's `phase publish` that claims human authorship, a manual channel or no author.
+`--no-model` turns off the kernel's own model, not an agent. A person's own check (`phase prepublish --json`) still names the manual route in that mode, but an agent's (`--for-agent`, and `--publish-if-ready`) names `--authored governed-agent --channel copilot-host` wherever the step permits it, so an agent-written draft keeps the checks an agent's draft gets: its clarification record and the agent's session. The Copilot hook refuses an agent's `phase publish` that claims human authorship, an external tool's output, a manual or `external-tool` channel, or no author. SFlow records no external tool's run, so `--authored external-tool` is a person's attestation: they publish it from their own terminal, or the tool runs `phase publish` itself outside any Copilot chat. When a result SFlow returns to an agent names a bare or person-authored `phase publish` (recovery, continuation, evidence reuse, the changed-after-publication refusal), the agent's `act` gives its own route, `phase prepublish <PHASE> --for-agent --json --publish-if-ready`, instead; the result's own route, which the person reads, is unchanged.
 
 ## Purpose and prerequisites
 

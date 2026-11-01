@@ -147,15 +147,14 @@ function flow(args, cwd, { allowFailure = false } = {}) {
   return result;
 }
 
-const confirm = (expected, args, cwd) => spawnSync(process.execPath, [cli, ...args], {
+const confirm = (expected, args, cwd) => spawnSync(process.execPath, [cli, ...args, '--confirm', expected], {
   cwd,
   encoding: 'utf8',
   env: {
     ...process.env,
     NODE_ENV: 'test',
     SINGULARITY_FLOW_TEST_IDENTITY: 'Demo Owner',
-    SINGULARITY_FLOW_TEST_SELECTION: JSON.stringify({ workType: 'feature' }),
-    SINGULARITY_FLOW_TEST_INITIATIVE_CONFIRM: expected
+    SINGULARITY_FLOW_TEST_SELECTION: JSON.stringify({ workType: 'feature' })
   }
 });
 

@@ -579,7 +579,7 @@
         "process-import": 1,
         "process-launch": 18
       },
-      "digest": "7f7154892a084f5b31e3012b689b4d26367ad5fd5e2331b8f284356cc41a0d0f"
+      "digest": "ba680e3f2e5a7706db3525b5da6873a9afe616d0d56712c5ce2fd08a9a0eebe8"
     },
     "scripts/vscode-host-benchmark.mjs": {
       "counts": {

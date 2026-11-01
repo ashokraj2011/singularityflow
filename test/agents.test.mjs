@@ -5,6 +5,7 @@ import path from 'node:path';
 import test from 'node:test';
 import { spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
+import { TYPED_TERMINAL_AVAILABLE, typedInTerminal } from './helpers/typed-terminal.mjs';
 import {
   AGENT_MAPPING_PATH,
   agentMappingStatus,
@@ -372,7 +373,7 @@ test('agent sync can select the governed agent while preserving work scope', asy
   assert.equal(session.agent, 'local-agent'); assert.equal(session.workId, 'ARCH-1');
 });
 
-test('CLI first trust fails non-interactively unless exact test confirmation is supplied', async () => {
+test('CLI first trust fails non-interactively and is typed by the person in a real terminal', async () => {
   const root = await rootWithAgent(`---\nname: local-agent\ndescription: Local only\ntools: ["bash"]\n---\n\nNo dependencies.\n`);
   assert.equal(spawnSync('git', ['init', '-b', 'main'], { cwd: root }).status, 0);
   // A developer machine may have another workspace selected globally. This test owns a temporary
@@ -386,12 +387,15 @@ test('CLI first trust fails non-interactively unless exact test confirmation is 
   };
   const denied = spawnSync(process.execPath, [bin, 'agents', 'lock', 'local-agent'], { cwd: root, encoding: 'utf8', env: environment });
   assert.notEqual(denied.status, 0); assert.match(denied.stderr, /requires an interactive terminal/);
-  const accepted = spawnSync(process.execPath, [bin, 'agents', 'lock', 'local-agent'], {
-    cwd: root,
-    encoding: 'utf8',
-    env: { ...environment, SINGULARITY_FLOW_TEST_AGENT_CONFIRM: 'local-agent' }
+  // The test suite's old switch no longer confirms anything: shipped code reads no answer from the environment.
+  const switched = spawnSync(process.execPath, [bin, 'agents', 'lock', 'local-agent'], {
+    cwd: root, encoding: 'utf8', env: { ...environment, SINGULARITY_FLOW_TEST_AGENT_CONFIRM: 'local-agent' }
   });
-  assert.equal(accepted.status, 0, accepted.stderr); assert.match(accepted.stdout, /Locked 'local-agent'/);
+  assert.notEqual(switched.status, 0); assert.match(switched.stderr, /requires an interactive terminal/);
+  if (!TYPED_TERMINAL_AVAILABLE) return;
+  const accepted = await typedInTerminal({ argv: [process.execPath, bin, 'agents', 'lock', 'local-agent'], cwd: root, env: environment,
+    prompt: 'Type local-agent to continue:', answer: 'local-agent' });
+  assert.equal(accepted.status, 0, accepted.output); assert.match(accepted.output, /Locked 'local-agent'/);
 });
 
 test('explicit remote templates are copied into immutable work-item context', async () => {

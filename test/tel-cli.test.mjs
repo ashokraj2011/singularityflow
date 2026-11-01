@@ -31,6 +31,10 @@ test('telemetry enable, probe, status, and disable remain machine-local and JSON
   let result = call(root, env, ['telemetry', 'enable', '--confirm', 'wrong', '--json']);
   assert.notEqual(result.status, 0);
   assert.equal(existsSync(preference), false);
+  // The consent is the person's: the test suite's old switch no longer gives it from the environment.
+  result = call(root, { ...env, NODE_ENV: 'test', SINGULARITY_FLOW_TEST_AGENT_CONFIRM: 'ENABLE LOCAL USAGE' }, ['telemetry', 'enable', '--json']);
+  assert.notEqual(result.status, 0);
+  assert.equal(existsSync(preference), false);
 
   result = call(root, env, ['telemetry', 'enable', '--confirm', 'ENABLE LOCAL USAGE', '--json']);
   assert.equal(result.status, 0, result.stderr);

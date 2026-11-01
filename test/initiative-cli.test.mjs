@@ -20,10 +20,10 @@ function execute(root, args, { allowFailure = false, confirm = null, profile = '
     SINGULARITY_FLOW_TEST_IDENTITY: actor,
     SINGULARITY_FLOW_TEST_SELECTION: JSON.stringify({ agent: 'product-owner' }),
     SINGULARITY_FLOW_TEST_INITIATIVE_SELECTION: JSON.stringify({ profile }),
-    SINGULARITY_FLOW_ACTIVE_WORKSPACE: path.join(root, '.test-no-active-workspace.json'),
-    ...(confirm ? { SINGULARITY_FLOW_TEST_INITIATIVE_CONFIRM: confirm } : {})
+    SINGULARITY_FLOW_ACTIVE_WORKSPACE: path.join(root, '.test-no-active-workspace.json')
   };
-  const result = spawnSync(process.execPath, [bin, ...args], { cwd: root, encoding: 'utf8', env });
+  // The exact confirmation travels as the public --confirm flag; no environment variable confirms.
+  const result = spawnSync(process.execPath, [bin, ...args, ...(confirm ? ['--confirm', confirm] : [])], { cwd: root, encoding: 'utf8', env });
   if (!allowFailure && result.status !== 0) throw new Error(`${args.join(' ')} failed\nSTDOUT:\n${result.stdout}\nSTDERR:\n${result.stderr}`);
   return result;
 }
@@ -562,11 +562,16 @@ test('machine or system evidence must name the verifier that produced it', async
 test('without a terminal and without --confirm, the refusal names the escape', async () => {
   const root = await repository();
   execute(root, ['initiative', 'start', 'INIT-HINT', '--title', 'Hinted']);
-  // No SINGULARITY_FLOW_TEST_INITIATIVE_CONFIRM, no TTY: previously a dead end with no way forward.
+  // No --confirm, no TTY: previously a dead end with no way forward.
   const refused = spawnSync(process.execPath, [bin, 'initiative', 'restart', 'INIT-HINT', '--reason', 'r'],
     { cwd: root, encoding: 'utf8', env: { ...process.env, SINGULARITY_FLOW_TEST_IDENTITY: actor } });
   assert.notEqual(refused.status, 0);
   assert.match(refused.stderr, /pass --confirm INIT-HINT/);
+  // The test suite's old switch confirms nothing: only the exact --confirm or a person's terminal does.
+  const switched = spawnSync(process.execPath, [bin, 'initiative', 'restart', 'INIT-HINT', '--reason', 'r'], { cwd: root, encoding: 'utf8',
+    env: { ...process.env, NODE_ENV: 'test', SINGULARITY_FLOW_TEST_IDENTITY: actor, SINGULARITY_FLOW_TEST_INITIATIVE_CONFIRM: 'INIT-HINT' } });
+  assert.notEqual(switched.status, 0);
+  assert.match(switched.stderr, /pass --confirm INIT-HINT/);
 });
 
 test('a local Epic activates the first phase agent without a role picker', async () => {

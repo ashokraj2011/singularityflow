@@ -207,7 +207,6 @@ function printStashRecoveryCommand(command, { indent = '', label = null } = {}) 
 
 async function confirmExact(prompt, expected) {
   if (!input.isTTY || !output.isTTY) {
-    if (process.env.NODE_ENV === 'test' && process.env.SINGULARITY_FLOW_TEST_AGENT_CONFIRM === expected) return true;
     throw new SingularityFlowError(`Confirming '${expected}' requires an interactive terminal; use the command's explicit non-interactive confirmation flag when available.`);
   }
   const io = readline.createInterface({ input, output });
@@ -6632,7 +6631,6 @@ async function confirmInitiativeExact(prompt, expected, options = null) {
     return true;
   }
   if (!input.isTTY || !output.isTTY) {
-    if (process.env.NODE_ENV === 'test' && process.env.SINGULARITY_FLOW_TEST_INITIATIVE_CONFIRM === expected) return true;
     throw new SingularityFlowError(`This initiative action requires exact confirmation '${expected}'. Run it in a terminal, or pass --confirm ${expected}.`);
   }
   const io = readline.createInterface({ input, output });

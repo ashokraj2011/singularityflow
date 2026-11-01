@@ -269,11 +269,6 @@ export function sequenceConfirmationRequired(message, gate, next = null) {
 }
 
 async function askToContinue(message, gate, next = null) {
-  const testConfirmation = process.env.NODE_ENV === 'test' ? process.env.SINGULARITY_FLOW_TEST_SEQUENCE_CONFIRM : null;
-  if (testConfirmation != null) {
-    const accepted = testConfirmation.split(',').map((value) => value.trim()).filter(Boolean);
-    return accepted.includes('all') || accepted.includes(gate);
-  }
   if (!input.isTTY || !output.isTTY) throw sequenceConfirmationRequired(message, gate, next);
   console.warn(`\n${message}`);
   const io = readline.createInterface({ input, output });

@@ -20,8 +20,9 @@ function execute(command, args, cwd, { allowFailure = false, agent = 'product-ow
     SINGULARITY_FLOW_TEST_IDENTITY: 'Sequence Tester',
     SINGULARITY_FLOW_TEST_SELECTION: JSON.stringify({ workType: 'feature', agent })
   };
-  if (confirm) env.SINGULARITY_FLOW_TEST_SEQUENCE_CONFIRM = confirm;
-  const result = spawnSync(command, args, { cwd, encoding: 'utf8', env });
+  // A soft gate is confirmed with its public --confirm-override flag; no environment variable confirms.
+  const overrides = confirm ? confirm.split(',').flatMap((gate) => ['--confirm-override', `continue:${gate.trim()}`]) : [];
+  const result = spawnSync(command, [...args, ...overrides], { cwd, encoding: 'utf8', env });
   if (!allowFailure && result.status !== 0) throw new Error(`${command} ${args.join(' ')}\n${result.stdout}\n${result.stderr}`);
   return result;
 }
@@ -195,6 +196,11 @@ test('soft gates require confirmation but cannot override immutable review histo
 
   const blocked = flow(root, ['approve', '--yes'], { allowFailure: true, agent: 'product-owner' });
   assertSequenceFailure(blocked, /Gate mode: soft/, /interactive terminal/);
+  // The test suite's old switch confirms no gate; --confirm-override or a person's terminal does.
+  const switched = spawnSync(process.execPath, [bin, 'approve', '--yes'], { cwd: root, encoding: 'utf8', env: { ...process.env, NODE_ENV: 'test',
+    SINGULARITY_FLOW_TEST_IDENTITY: 'Sequence Tester', SINGULARITY_FLOW_TEST_SELECTION: JSON.stringify({ workType: 'feature', agent: 'product-owner' }),
+    SINGULARITY_FLOW_TEST_SEQUENCE_CONFIRM: 'phaseStatus' } });
+  assertSequenceFailure(switched, /Gate mode: soft/, /interactive terminal/);
 
   const submittedHead = execute('git', ['rev-parse', 'HEAD'], root).stdout.trim();
   const approved = flow(root, ['approve', '--yes'], {

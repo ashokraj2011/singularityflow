@@ -19,7 +19,6 @@ const WORKFLOW_PATH = 'singularity/workflow.yml';
 
 async function confirmExact(prompt, expected) {
   if (!input.isTTY || !output.isTTY) {
-    if (process.env.NODE_ENV === 'test' && process.env.SINGULARITY_FLOW_TEST_AGENT_CONFIRM === expected) return true;
     throw new SingularityFlowError(`Confirming '${expected}' requires an interactive terminal; use the command's explicit non-interactive confirmation flag when available.`);
   }
   const io = readline.createInterface({ input, output });

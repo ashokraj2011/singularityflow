@@ -951,7 +951,6 @@ test('a plain prompt keeps native behaviour except a person\'s own step, in any 
   // Everything else is unchanged: reads, other SFlow commands, previews, mentions in text, edits and other tools.
   for (const command of ['singularity-flow status', 'singularity-flow spec author status SPEC-CHK-004 --json', `${approve} --help`,
     'singularity-flow spec split SPEC-CHK-004@1 --propose --file plan.json', 'singularity-flow apm install acme/pack --dry-run',
-    'singularity-flow decision scope PMC-1 --item SRI-0123456789ab --as excluded --reason "Out of scope."',
     `echo "${approve} --yes"`, 'grep -rn "sflow approve" docs', 'npm test', 'rm -rf build']) {
     assert.deepEqual(await shell(command), {}, command);
   }
@@ -968,6 +967,82 @@ test('a plain prompt keeps native behaviour except a person\'s own step, in any 
   const approving = await f.enter('/sf-approve', 'plain-then-approve');
   const own = await repositoryToolGuard({ ...approving, toolName: 'bash', toolArgs: { command: `${approve} --yes` } });
   assert.doesNotMatch(own.permissionDecisionReason ?? '', /never an agent's, in any chat/u);
+});
+
+test('a person\'s decision is refused in every turn but the one they start for it, and in a plain prompt', async t => {
+  const f = await fixture(t);
+  // Inside /sf-phase, /sf-recover and /sf-next each of these passed the hook: a turn admits a standalone
+  // SFlow command, and the CLI's authority check reads the Git identity the agent runs under (2026-11-01).
+  const decisions = {
+    'story-decision': ['singularity-flow decision scope PMC-1 --item SRI-0123456789ab --as excluded --reason "Out of scope."',
+      'singularity-flow decision applicability PMC-1 --clause PMC-1:REQ-001 --as not-applicable --reason "No UI."',
+      'singularity-flow decision completeness PMC-1 --reason "Complete."', 'singularity-flow decision choose PMC-1 --choice O1 --reason "Simpler."',
+      'singularity-flow decision plan PMC-1 --add-location PMC-1:AC-001=src/a.mjs --reason "Also here."'],
+    'story-reopen': ['singularity-flow reopen PMC-1 --to custom-step --reason "Found a defect."'],
+    'convergence-adjudication': ['singularity-flow story adjudicate PMC-1 --finding F-1 --as dismissed --reason "Not a defect."'],
+    'source-review-decision': ['singularity-flow review-source decide custom-step --finding F-1 --reason "Accepted."'],
+    'constitution-exception': ['singularity-flow constitution except ART-1 --work-id PMC-1 --reason "Waived for the spike."'],
+    'repair-authorization': [`singularity-flow repair authorize RPR-001 --confirm sha256:${'a'.repeat(64)} --open --json`],
+    'telemetry-consent': ['singularity-flow telemetry enable --confirm "ENABLE LOCAL USAGE" --json'],
+    'epic-approval': ['singularity-flow initiative approve phase --confirm define:phase --acknowledge-self-approval',
+      'singularity-flow epic approve phase --confirm define:phase'],
+    'epic-story-decision': [`singularity-flow epic review approve S-1 --epic E-1 --packet ${'b'.repeat(64)}`,
+      `singularity-flow initiative review reject S-1 --epic E-1 --packet ${'b'.repeat(64)} --reason "Wrong scope."`],
+    'epic-completion': ['singularity-flow epic complete E-1 --confirm E-1'],
+    'goal-plan-approval': ['singularity-flow goal plan approve GEX-1 --confirm GEX-1'],
+    'sgos-ratification': ['singularity-flow intent ratify INT-1 --confirm INT-1', 'singularity-flow intent confirm INT-1',
+      'singularity-flow program approve PRG-1 --confirm PRG-1'],
+    'capability-break-glass': ['singularity-flow capabilities lease grant CAP-1 --confirm CAP-1 --reason "Incident."'],
+    'host-policy-assertion': ['singularity-flow ledger deployment-check --confirm-protected --authority leads'],
+    'agent-trust': ['singularity-flow agents lock local-agent']
+  };
+  const owners = { 'story-decision': '/sf-decide PMC-1', 'story-reopen': '/sf-reject', 'convergence-adjudication': '/sf-converge',
+    'source-review-decision': '/sf-review-decide', 'constitution-exception': '/sf-constitution', 'repair-authorization': '/sf-fix',
+    'telemetry-consent': '/sf-telemetry', 'epic-approval': '/sf-initiative-approve', 'epic-story-decision': '/sf-epic-review-decision',
+    'epic-completion': '/sf-epic-complete' };
+  const ownDenial = /this is a person's decision, recorded under their approval group, never an agent's, in any chat/u;
+  const turns = [['/sf-phase', 'author'], ['/sf-recover', 'kernel'], ['/sf-next', 'next'], ['/sf-decide PMC-1', 'decider'],
+    ['/sf-spec-author', 'studio'], ['/sf-reject', 'rejecter'], ['/sf-initiative-approve', 'epic-approver'],
+    ['/sf-epic-review-decision', 'epic-reviewer'], ['Thanks. Now take care of the rest.', 'plain']];
+  const wrong = [];
+  for (const [skill, session] of turns) {
+    const payload = await f.enter(skill, session);
+    for (const [id, commands] of Object.entries(decisions)) {
+      for (const command of commands) {
+        const decision = await repositoryToolGuard({ ...payload, toolName: 'bash', toolArgs: { command, cwd: f.root } });
+        const own = owners[id] === skill;
+        const refusedAsPerson = decision.permissionDecision === 'deny' && ownDenial.test(decision.permissionDecisionReason);
+        if (own === refusedAsPerson) wrong.push(`${skill}: ${command} -> ${decision.permissionDecisionReason?.split('.')[0] ?? 'allowed'}`);
+        if (!own && refusedAsPerson && JSON.stringify(decision.next[0]?.argv) !== JSON.stringify(safeCommandGuidance({ command })?.argv)) wrong.push(`${skill}: ${command} names ${decision.next[0]?.command}`);
+      }
+    }
+  }
+  assert.deepEqual(wrong, [], 'each decision is refused outside its own turn, with the person\'s exact command, and only there');
+  // The refusal names the turn the person starts for it, or only their terminal.
+  const plain = await f.enter('Looks fine, finish it.', 'plain-decider');
+  const shell = command => repositoryToolGuard({ ...plain, toolName: 'bash', toolArgs: { command, cwd: f.root } });
+  assert.match((await shell(decisions['epic-story-decision'][0])).permissionDecisionReason, /they run \/sf-epic-review-decision, which asks them/u);
+  assert.match((await shell(decisions['agent-trust'][0])).permissionDecisionReason, /in their own terminal, and no turn runs it/u);
+  // Its previews stay open.
+  for (const command of ['singularity-flow decision plan PMC-1 --add-location PMC-1:AC-001=src/a.mjs --dry-run',
+    'singularity-flow epic complete E-1 --dry-run --json', 'singularity-flow program approve PRG-1', 'singularity-flow decision show PMC-1']) {
+    assert.deepEqual(await shell(command), {}, command);
+  }
+  // The test suite's switches never stand in for a person, in a plain prompt or a turn, in any spelling.
+  const author = await f.enter('/sf-phase', 'switched-author');
+  for (const command of ['NODE_ENV=test singularity-flow approve custom-step --work-id PMC-1 --yes',
+    'env SINGULARITY_FLOW_TEST_IDENTITY="Other Approver" singularity-flow status',
+    'export NODE_ENV=test; singularity-flow initiative approve phase', 'NODE_ENV="test" sflow decisions record PMC-1']) {
+    for (const payload of [plain, author]) {
+      const refused = await repositoryToolGuard({ ...payload, toolName: 'bash', toolArgs: { command, cwd: f.root } });
+      assert.match(refused.permissionDecisionReason ?? '', /NODE_ENV=test or a SINGULARITY_FLOW_TEST_ variable set is refused in every chat/u, command);
+    }
+  }
+  assert.match((await repositoryToolGuard({ ...plain, toolName: 'powershell',
+    toolArgs: { command: "$env:SINGULARITY_FLOW_TEST_IDENTITY='Other'; singularity-flow status" } })).permissionDecisionReason ?? '',
+  /SINGULARITY_FLOW_TEST_ variable/u);
+  // A test run that starts no SFlow command keeps its native behaviour.
+  assert.deepEqual(await shell('NODE_ENV=test node --test test/app.test.mjs'), {});
 });
 
 test('no agent turn pins a Story\'s authorized browser target origin; its preview stays a read', async t => {

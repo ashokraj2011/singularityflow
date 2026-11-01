@@ -195,7 +195,10 @@ test('the bundled CLI answers exactly like the sources while opening a handful o
   // (code-delivery-tests.mjs), every root build system's commands (repository-test-command-inference.mjs), a command's
   // optional ecosystem (external-command-policy.mjs) and the malformed-manifest refusal add 2,718 for 4,646,628. No new
   // file.
-  assert.ok(narrowReads < 4_650_000,
+  // 4,655,000: main 70e7a5922 measures 4,646,628; a person's decision refused outside the turn they start for it and
+  // any SFlow command run with the test suite's switches (copilot-mutation-guard.mjs PERSON_DECISIONS) add 3,436 for
+  // 4,650,064. No new file.
+  assert.ok(narrowReads < 4_655_000,
     `strict next-step reads must not inherit the broad phase-review closure (${narrowReads} bytes)`);
   const publicationClosure = closure('cold-publication.mjs');
   assert.ok(publicationClosure.length && publicationClosure.reduce((sum, item) => sum + item.bytes, 0) < 6 * 1024 * 1024,
@@ -395,7 +398,9 @@ test('the bundled CLI answers exactly like the sources while opening a handful o
   // No new file.
   // 7,720,000 holds: main b91420f57 measures 7,716,851; the same test-file, root-build and ecosystem rules add 2,728
   // for 7,719,579. No new file.
-  assert.ok(hookContext < 7_720_000,
+  // 7,725,000: main 70e7a5922 measures 7,719,579; the same person-decision and test-switch refusals add 3,436 for
+  // 7,723,015. No new file.
+  assert.ok(hookContext < 7_725_000,
     `phase-review reads retain their existing byte ceiling after moving families (${hookContext} bytes)`);
   assert.match(await readFile(path.join(outdir, 'cold-light.mjs'), 'utf8'), /function enterPhase\b/u,
     'phase binding must not fall through to the compatibility/admin bundle');
@@ -475,6 +480,8 @@ test('the bundled CLI answers exactly like the sources while opening a handful o
   // No new file.
   // 5,500,000: main b91420f57 measures 5,493,609; the same test-file, root-build and ecosystem rules add 2,718 for
   // 5,496,327. No new file.
+  // 5,500,000 holds: main 70e7a5922 measures 5,496,327; the same person-decision and test-switch refusals add 3,436
+  // for 5,499,763. No new file.
   assert.ok(catalogBytes < 5_500_000,
     `catalog parsing stays bounded instead of pulling in the entire administration bundle (${catalogBytes} bytes)`);
   for (const name of ['cold-compatibility.mjs', 'cold-models.mjs', 'cold-intake.mjs', 'cold-phases.mjs', 'cold-hook-context.mjs']) {

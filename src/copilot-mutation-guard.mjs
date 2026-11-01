@@ -991,12 +991,47 @@ function gitDirectoryOf(cwd) {
   }
 }
 
+const EPIC_COMMANDS = new Set(['initiative', 'epic']);
+const HOST_POLICY_ASSERTIONS = ['confirm-protected', 'confirm-push-policy', 'confirm-pin-retention'];
+/**
+ * A person's decision, recorded under an approval group, that only the skill turn the person starts
+ * for it may run after asking them (`owners`, skill names without `sf-`); with no owner, only their
+ * own terminal. Inside /sf-phase, /sf-recover and /sf-next every one of these passed the hook, since
+ * a turn admits standalone SFlow commands and the CLI's authority check reads the Git identity the
+ * agent runs under (2026-11-01).
+ */
+const PERSON_DECISIONS = Object.freeze([
+  ['story-decision', ([command, sub]) => command === 'decision' && ['choose', 'applicability', 'scope', 'completeness', 'plan'].includes(sub), ['decide']],
+  ['story-reopen', ([command]) => command === 'reopen', ['reject']],
+  ['convergence-adjudication', ([command, sub]) => command === 'story' && sub === 'adjudicate', ['converge']],
+  ['source-review-decision', ([command, sub]) => command === 'review-source' && sub === 'decide', ['review-decide']],
+  ['constitution-exception', ([command, sub]) => command === 'constitution' && sub === 'except', ['constitution']],
+  ['repair-authorization', ([command, sub]) => command === 'repair' && sub === 'authorize', ['fix']],
+  ['telemetry-consent', ([command, sub]) => command === 'telemetry' && sub === 'enable', ['telemetry']],
+  ['epic-approval', ([command, sub]) => EPIC_COMMANDS.has(command) && sub === 'approve', ['initiative-approve']],
+  ['epic-story-decision', ([command, sub, verb]) => EPIC_COMMANDS.has(command) && sub === 'review' && ['approve', 'reject'].includes(verb), ['epic-review-decision']],
+  ['epic-completion', ([command, sub]) => EPIC_COMMANDS.has(command) && sub === 'complete', ['epic-complete']],
+  ['goal-plan-approval', ([command, sub, verb]) => command === 'goal' && sub === 'plan' && verb === 'approve', []],
+  ['sgos-ratification', ([command, sub], options) => (command === 'intent' && ['ratify', 'confirm'].includes(sub))
+    || (command === 'program' && sub === 'approve' && options.confirm !== undefined), []],
+  ['capability-break-glass', ([command, sub]) => command === 'capabilities' && sub === 'lease', []],
+  ['host-policy-assertion', ([command, sub], options) => command === 'ledger' && sub === 'deployment-check'
+    && HOST_POLICY_ASSERTIONS.some((flag) => options[flag] === true), []],
+  ['agent-trust', ([command, sub]) => command === 'agents' && sub === 'lock', []]
+].map(([id, matches, owners]) => Object.freeze({ id, matches, owners: Object.freeze(owners) })));
+const PERSON_DECISION_IDS = new Set(PERSON_DECISIONS.map((entry) => entry.id));
+// SFlow's own test suite sets these; with them a confirmation, a selection or an identity came from
+// the environment instead of the person.
+const TEST_ENVIRONMENT = /(?:^|[\s;&|(`'"])(?:export\s+|set\s+|\$env:)?(?:NODE_ENV\s*=\s*['"]?test\b|SINGULARITY_FLOW_TEST_[A-Z0-9_]+\s*=)/iu;
+
 /** The person's own step this SFlow argv is, as { id, argv } with the command the person runs, or null. */
 function personStep(argv, cwd, depth = 0) {
   const { positionals, options } = parseCli(argv);
   if (options.help === true || options.h === true) return null;
   const own = OWN_TERMINAL_STEPS.find((step) => step.matches(positionals, options))?.id;
   if (own) return { id: own, argv };
+  const decision = options['dry-run'] === true ? null : PERSON_DECISIONS.find((entry) => entry.matches(positionals, options));
+  if (decision) return { id: decision.id, argv, owners: decision.owners };
   // Outside its own /sf-approve or /sf-reject turn, approving and returning a step is the person's;
   // so is recording the decision list outside /sf-decide, and deciding an earlier step's issue.
   if (['approve', 'reject'].includes(positionals[0])) return { id: positionals[0], argv };
@@ -1017,13 +1052,23 @@ const PERSON_DECISION_DENIALS = Object.freeze({
   'upstream-issue-decision': 'PHASE_MUTATION_OPERATION_NOT_ALLOWED: an upstream issue or amendment is decided by the earlier step\'s approvers, in /sf-decide or their own terminal, never by an agent. Show the user the command and stop; do not retry it'
 });
 
+const TEST_ENVIRONMENT_DENIAL = 'PHASE_MUTATION_OPERATION_NOT_ALLOWED: an SFlow command run with NODE_ENV=test or a SINGULARITY_FLOW_TEST_ variable set is refused in every chat: those switches belong to SFlow\'s own test suite and never stand in for a person\'s confirmation, choice or identity. Run the command without them; do not retry it with another spelling';
+
+/** Why a person's decision is refused here: the turn they start for it, or their own terminal. */
+function personDecisionReason(owners) {
+  return `PHASE_MUTATION_OPERATION_NOT_ALLOWED: this is a person's decision, recorded under their approval group, never an agent's, in any chat: ${owners.length
+    ? `they run ${owners.map((owner) => `/sf-${owner}`).join(' or ')}, which asks them, or this exact command in their own terminal`
+    : 'they run this exact command in their own terminal, and no turn runs it'}. Show the user the command and stop; do not retry it`;
+}
+
 /** A refusal of a person's own step: what it is, and the person's exact command as its one route. */
-function personStepRefusal({ id, argv }) {
+function personStepRefusal({ id, argv, owners }) {
   const decision = Object.hasOwn(PERSON_DECISION_DENIALS, id);
   // The person confirms an approval or return by typing the step in their own terminal, not with --yes.
-  const guidance = safeCommandGuidance({ argv: decision ? argv.filter(value => !['--yes', '-y', '--for-agent'].includes(value)) : argv });
+  const guidance = safeCommandGuidance({ argv: decision || owners ? argv.filter(value => !['--yes', '-y', '--for-agent'].includes(value)) : argv });
   const routes = guidance ? [{ ...guidance, ...(decision ? {} : { skill: null, copilotCommand: null }) }] : [];
-  const reason = PERSON_DECISION_DENIALS[id] ?? OWN_STEP_DENIALS[id] ?? OWN_STEP_DENIAL;
+  const reason = id === 'test-environment' ? TEST_ENVIRONMENT_DENIAL : owners ? personDecisionReason(owners)
+    : PERSON_DECISION_DENIALS[id] ?? OWN_STEP_DENIALS[id] ?? OWN_STEP_DENIAL;
   return { permissionDecision: 'deny', next: routes,
     permissionDecisionReason: `${reason}.${routes.length ? `\n\n${routes.map(route => formatCommandRouteLines(route).join('\n')).join('\n\n')}` : ''}` };
 }
@@ -1034,7 +1079,9 @@ function personStepOfCall(call, cwd) {
   const text = [call.args.command, call.args.cmd, call.args.script, call.args.input, call.args.chars]
     .find(value => typeof value === 'string');
   if (!text || !(/singularity-flow|sflow/iu.test(text) || mentionsHookCli(text))) return null;
-  for (const invocation of shellSflowInvocations(text, call.name === 'powershell', call.args.cwd ?? cwd)) {
+  const invocations = shellSflowInvocations(text, call.name === 'powershell', call.args.cwd ?? cwd);
+  if (invocations.length && TEST_ENVIRONMENT.test(text)) return { id: 'test-environment', argv: invocations[0].argv };
+  for (const invocation of invocations) {
     const step = personStep(invocation.argv, invocation.cwd);
     if (step) return step;
   }
@@ -1043,6 +1090,21 @@ function personStepOfCall(call, cwd) {
 function personStepCall(call, cwd) {
   const step = personStepOfCall(call, cwd);
   return step ? personStepRefusal(step) : null;
+}
+
+/**
+ * In a turn: a person's decision outside the skill turn they start for it, or any SFlow command run
+ * with the test suite's switches. Its owner's turn goes on to that turn's own rules.
+ */
+function turnPersonDecisionDenial(payload, record) {
+  const skill = String(record.skill ?? '').replace(/^\/?(?:sf|sflow)-/u, '');
+  for (const call of calls(payload)) {
+    const step = personStepOfCall(call, payload.cwd);
+    if (step && (step.id === 'test-environment' || (PERSON_DECISION_IDS.has(step.id) && !step.owners.includes(skill)))) {
+      return personStepRefusal(step);
+    }
+  }
+  return null;
 }
 
 /**
@@ -1450,6 +1512,8 @@ export async function mutationToolGuard(payload = {}) {
   // A turn reads its terminals' commands below; text typed into a running shell is read here.
   const typed = personStepDenial(payload, { tools: new Set(['write_bash']) });
   if (typed) return typed;
+  const personal = turnPersonDecisionDenial(payload, record);
+  if (personal) return personal;
   const decision = await mutationToolDecision(payload, record);
   await observeEdits(payload, record, decision).catch(() => {});
   return decision;

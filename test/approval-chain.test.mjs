@@ -34,7 +34,7 @@ function git(root, args) {
 }
 
 function as(actor, root, args, { allowFailure = false, confirm = null } = {}) {
-  const result = spawnSync(process.execPath, [bin, ...args], {
+  const result = spawnSync(process.execPath, [bin, ...args, ...(confirm ? ['--confirm', confirm] : [])], {
     cwd: root,
     encoding: 'utf8',
     env: {
@@ -42,8 +42,7 @@ function as(actor, root, args, { allowFailure = false, confirm = null } = {}) {
       NODE_ENV: 'test',
       SINGULARITY_FLOW_TEST_IDENTITY: actor.name,
       SINGULARITY_FLOW_TEST_SELECTION: JSON.stringify({ agent: 'product-owner' }),
-      SINGULARITY_FLOW_TEST_INITIATIVE_SELECTION: JSON.stringify({ profile: 'enterprise-delivery' }),
-      ...(confirm ? { SINGULARITY_FLOW_TEST_INITIATIVE_CONFIRM: confirm } : {})
+      SINGULARITY_FLOW_TEST_INITIATIVE_SELECTION: JSON.stringify({ profile: 'enterprise-delivery' })
     }
   });
   if (!allowFailure && result.status !== 0) throw new Error(`${args.join(' ')} failed\n${result.stdout}\n${result.stderr}`);

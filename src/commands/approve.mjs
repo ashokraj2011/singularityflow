@@ -87,7 +87,11 @@ export function witnessMappingDecisions(options) {
   return decisions;
 }
 
-export async function approveCommand(positionals, options) {
+/**
+ * `dependencies.presence` replaces SF Guard's signer and its readers (tests only pass them in-process);
+ * see src/presence/person-records.mjs `preparePersonPresence`.
+ */
+export async function approveCommand(positionals, options, dependencies = {}) {
   const forAgent = optionBoolean(options, 'for-agent');
   if (forAgent && !optionBoolean(options, 'json')) throw new SingularityFlowError('--for-agent approval requires --json; it changes presentation only.');
   if (optionString(options, 'selection-receipt') && optionBoolean(options, 'yes')) {
@@ -106,11 +110,18 @@ export async function approveCommand(positionals, options) {
     printPhaseReview(await phaseReview(root, config, workflow, phase, { includeApprovalCheck: false }), { showArtifact: optionBoolean(options, 'show-artifact') });
     if (asking) await recordTerminalReview(root, reviewed, session.actor);
   }
+  // SF Guard (SPEC-PSS-v1 M2): on a Story it requires, everything a presence signature needs is
+  // checked here, before any prompt or write; each refusal names a route the person can take today.
+  const presenceModule = workflow.resolution?.presence ? await import('../presence/person-records.mjs') : null;
+  const presence = presenceModule
+    ? await presenceModule.preparePersonPresence(root, { workflow, phase, actor: session.actor, action: 'phase.approve' }, dependencies.presence)
+    : null;
+  const counts = presenceModule ? presenceModule.presenceCounts(workflow) : null;
   const approvalAuthority = requireApprovalAuthority(
     workflow.resolution.approvalAuthorities ?? config.approvalAuthorities,
     phase.approvalPolicy,
     session.actor,
-    { preferredAuthorities: remainingRequiredAuthorities(phase.approvalPolicy, phase.approvals) }
+    { preferredAuthorities: remainingRequiredAuthorities(phase.approvalPolicy, phase.approvals, { counts }) }
   );
   if (!forAgent) {
   console.log(`\nReviewing ${workflow.workItem.id} / ${phase.id}`);
@@ -119,8 +130,10 @@ export async function approveCommand(positionals, options) {
   console.log(`Artifacts: ${phase.artifacts.map((item) => `${item.path} (${item.sha256?.slice(0, 18) ?? 'no hash'})`).join(', ')}`);
   console.log(`Checks: ${phase.checks.map((item) => `${item.command}=${item.status}`).join(', ') || 'none'}`);
   console.log(`Tokens: ${phase.usage.map((item) => item.totalTokens ?? item.status).join(', ') || 'unavailable'}`);
-  console.log(`Prior approvals: ${phase.approvals.filter((item) => !item.invalidatedAt).map((item) => `${item.actor?.name ?? item.actor?.email ?? 'unknown'} via ${item.authorityGroup ?? 'unrecorded authority'}; agent ${item.agent ?? 'unavailable'} (${item.decision})`).join(', ') || 'none'}`);
+  console.log(`Prior approvals: ${phase.approvals.filter((item) => !item.invalidatedAt).map((item) => `${item.actor?.name ?? item.actor?.email ?? 'unknown'} via ${item.authorityGroup ?? 'unrecorded authority'}; agent ${item.agent ?? 'unavailable'} (${item.decision})${presenceLabel(presenceModule, workflow, item)}`).join(', ') || 'none'}`);
   if (selfApproval) console.warn('Warning: this identity generated the phase; approval will be recorded as self-approval.');
+  if (presence?.bypass) console.log(`SF Guard: recorded unsigned, labelled "bypass: per-person exception ${presence.bypass.id}".`);
+  else if (presence) console.log(`SF Guard: this approval takes your presence signature (${presence.keyId}). Your card shows next, then one Touch ID prompt.`);
   }
   // The approver's own decisions go in the approval commit [SPEC-OAP M4]: from the flags, or asked here.
   const who = { actor: session.actor, agent: session.agent };
@@ -215,6 +228,7 @@ export async function approveCommand(positionals, options) {
       bindingDecisions,
       actor: session.actor,
       agent: session.agent,
+      presence,
       persist: false
     });
     }),
@@ -264,7 +278,7 @@ export async function approveCommand(positionals, options) {
   if (!forAgent) console.log(publication.pushed
     ? `Approval decision committed ${publication.sha.slice(0, 8)} and pushed to ${config.git?.remote ?? 'origin'}/${workflowPublicationBranch(root, workflow)}.`
     : `Approval decision committed ${publication.sha.slice(0, 8)} locally; push is disabled by git.publish: off.`);
-  if (!forAgent) console.log(`Approved ${result.phase.id} by ${result.approval.approvedBy} through ${result.approval.authorityGroup}; agent ${result.approval.agent}.`);
+  if (!forAgent) console.log(`Approved ${result.phase.id} by ${result.approval.approvedBy} through ${result.approval.authorityGroup}; agent ${result.approval.agent}.${presenceLabel(presenceModule, workflow, result.approval)}`);
   if (!forAgent && result.decisions) console.log(`Recorded in the same commit: ${result.decisions.map((entry) => `${entry.item} ${entry.record}`).join(', ')}.`);
   if (result.approval.selfApproval) console.warn(`Warning: ${result.phase.id} was self-approved; this is not independent review.`);
   const receiptsLine = await recordRequiredReceiptsAfterTransition(root, workflow);
@@ -289,12 +303,20 @@ export async function approveCommand(positionals, options) {
       turnBoundary: 'end', selfApproval: result.approval.selfApproval === true,
       contextBoundary: result.contextBoundary,
       reviewer: result.approval.approvedBy, reviewPacketSha256: result.approval.reviewPacketSha256,
+      ...(result.approval.presence ? { presence: { keyId: result.approval.presence.keyId ?? null, bypass: result.approval.presence.bypass ?? null,
+        label: presenceModule.personRecordLabel(workflow, result.approval) } } : {}),
       ...(result.decisions ? { decisions: result.decisions } : {}),
       artifactSetSha256: result.approval.artifactSetSha256,
       ...(completion ? { finalCheck: { verified: completion.verified, errors: completion.errors } } : {})
     }
   }), { postState: workflow, json: optionBoolean(options, 'json'), forAgent,
     stepActionHold: await stepActionHoldAfterTransition(root, config, workflow) });
+}
+
+/** How SF Guard reads one recorded decision, as a suffix for a line, or ''. */
+function presenceLabel(presenceModule, workflow, record) {
+  const label = presenceModule?.personRecordLabel(workflow, record);
+  return label ? ` [${label}]` : '';
 }
 
 /** Write the approver's decisions into the aggregate, then approve over them: one transaction. */

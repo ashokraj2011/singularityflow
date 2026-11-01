@@ -168,9 +168,11 @@ export function normalizeApprovalPolicy(value = {}, authorities, phaseId, securi
   };
 }
 
-export function remainingRequiredAuthorities(policy, approvals = []) {
+// `counts` is SF Guard's predicate for a Story it requires (src/presence/person-records.mjs
+// `presenceCounts`): only a verified or excepted record counts. Without it every record counts.
+export function remainingRequiredAuthorities(policy, approvals = [], { counts = null } = {}) {
   const decided = new Set((approvals ?? [])
-    .filter((item) => !item.invalidatedAt && item.decision === 'approved')
+    .filter((item) => !item.invalidatedAt && item.decision === 'approved' && (!counts || counts(item)))
     .map((item) => item.authorityGroup));
   return (policy?.requiredAuthorities ?? []).filter((authorityId) => !decided.has(authorityId));
 }
@@ -182,8 +184,8 @@ function approverIdentities(active) {
     || String(item.actor?.name ?? '').trim().toLowerCase()).filter(Boolean));
 }
 
-export function approvalRequirementsMet(policy, approvals = []) {
-  const active = (approvals ?? []).filter((item) => !item.invalidatedAt && item.decision === 'approved');
+export function approvalRequirementsMet(policy, approvals = [], { counts = null } = {}) {
+  const active = (approvals ?? []).filter((item) => !item.invalidatedAt && item.decision === 'approved' && (!counts || counts(item)));
   return approverIdentities(active).size >= (policy?.minimum ?? 1)
     && remainingRequiredAuthorities(policy, active).length === 0;
 }
@@ -193,12 +195,12 @@ export function approvalRequirementsMet(policy, approvals = []) {
  * re-implements the rule: how many distinct people approved of how many, and which required groups
  * have not decided yet.
  */
-export function storyApprovalView(workflow) {
+export function storyApprovalView(workflow, { counts = null } = {}) {
   const phaseId = workflow?.currentPhase ?? null;
   const phase = phaseId ? workflow.phases?.[phaseId] : null;
   if (!phase || phase.status !== 'awaiting_approval') return null;
   const policy = phase.approvalPolicy ?? {};
-  const active = (phase.approvals ?? []).filter((item) => !item.invalidatedAt && item.decision === 'approved');
+  const active = (phase.approvals ?? []).filter((item) => !item.invalidatedAt && item.decision === 'approved' && (!counts || counts(item)));
   return {
     phase: phaseId,
     minimum: policy.minimum ?? 1,

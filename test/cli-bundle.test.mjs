@@ -414,7 +414,10 @@ test('the bundled CLI answers exactly like the sources while opening a handful o
   // for 7,728,017. No new file.
   // 7,730,000 holds: main 965b6788d measures 7,728,017; the same external-tool refusal and agent publish route add 1,111
   // for 7,729,128. No new file.
-  assert.ok(hookContext < 7_730_000,
+  // 7,735,000: main ce4360779 measures 7,729,128; SF Guard M2's Story pin, signed approve and reject, and the
+  // counting predicate on every approval reader add 2,752 for 7,731,880. The presence modules load only on a
+  // Story that carries a pin. No new file.
+  assert.ok(hookContext < 7_735_000,
     `phase-review reads retain their existing byte ceiling after moving families (${hookContext} bytes)`);
   assert.match(await readFile(path.join(outdir, 'cold-light.mjs'), 'utf8'), /function enterPhase\b/u,
     'phase binding must not fall through to the compatibility/admin bundle');

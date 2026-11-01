@@ -4,8 +4,8 @@
   "status": "contract-only",
   "baselineCommit": "70db564e59224b03729bab0f9a340807f3086c61",
   "lastReview": {
-    "reviewedAtCommit": "af14ddc81538864f29400d4ba65c5cd0c0c53816",
-    "evidence": "docs/contracts/gdp/COMPANION-LOCK-REVIEW-2026-11-01-SPEC-BACKUP-SPLIT-PROPOSALS.md",
+    "reviewedAtCommit": "cc8ee90a5b6f6752c308832fedf5aa5f85cad3c9",
+    "evidence": "docs/contracts/gdp/COMPANION-LOCK-REVIEW-2026-11-02-SF-GUARD-M2.md",
     "companionIds": [
       "migration-registry"
     ]
@@ -94,7 +94,7 @@
     {
       "id": "migration-registry",
       "path": "src/schema-migrations.mjs",
-      "sha256": "sha256:0276ce08aa0558f2a76721e77b8335354226f165529c89a06364be95e61ccbe9"
+      "sha256": "sha256:b57907f1650030733319e8502c9a6d37c0e77f81017e4d20619ecefc8b19ed0c"
     },
     {
       "id": "smart-initialization-v1",

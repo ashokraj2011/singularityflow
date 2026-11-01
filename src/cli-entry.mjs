@@ -631,7 +631,21 @@ export async function main(argv) {
       ? (await import('./creation-context.mjs')).withCreationContext(invoke, { configurationTransfers: positionals[0] === 'start' })
       : invoke());
   }
-  finally { uninstall(); }
+  finally {
+    uninstall();
+    // SF Guard's foreign-key alarm (SPEC-PSS-v1 REQ-023).
+    if (process.stderr.isTTY && !(globalThis.__SINGULARITY_FLOW_CLI_STEP_DEPTH > 0) && positionals[0] !== 'hook' && presencePolicyAbove(process.cwd())) {
+      await (await import('./presence/alarm.mjs')).presenceAlarm(process.cwd());
+    }
+  }
+}
+
+/** Whether `directory` or a parent holds SF Guard's policy file. */
+function presencePolicyAbove(directory) {
+  for (let at = path.resolve(directory), parent = null; at !== parent; parent = at, at = path.dirname(at)) {
+    if (existsSync(path.join(at, 'singularity', 'presence.json'))) return true;
+  }
+  return false;
 }
 
 async function runMain(argv, utilityEntry = null, explicitContextRoot = null) {

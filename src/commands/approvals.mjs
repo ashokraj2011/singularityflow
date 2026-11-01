@@ -13,7 +13,7 @@ export async function run(_argv, { positionals, options }) {
     kind: 'story',
     required: true
   });
-  const snapshot = approvalChainSnapshot(selected.state);
+  const snapshot = approvalChainSnapshot(selected.state, { presence: await presenceView(root, selected.state) });
   return emitCommandResult(commandResult({
     operation: { id: 'approvals', classification: 'read' },
     subject: { kind: 'story', id: snapshot.workItem.id },
@@ -32,4 +32,12 @@ export async function run(_argv, { positionals, options }) {
     restState: 'informational',
     data: { approvalChain: snapshot }
   }), { json: optionBoolean(options, 'json'), restStateWhenIdle: 'informational' });
+}
+
+/** SF Guard's counting and labels for a Story it applies to, or null (SPEC-PSS-v1 REQ-023). */
+async function presenceView(root, workflow) {
+  if (!workflow?.resolution?.presence) return null;
+  const presence = await import('../presence/person-records.mjs');
+  const counts = await presence.presenceCountsFor(root, workflow);
+  return { counts, label: (record) => presence.personRecordLabel(workflow, record) };
 }

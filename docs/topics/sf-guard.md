@@ -12,6 +12,8 @@ questions:
   - What is a per-person exception?
   - I lost my Mac; how do I recover my presence key?
   - Which agent and skill made this change?
+  - Why does approve ask for Touch ID?
+  - Why is an approval not counted?
 keywords:
   - presence signature
   - secure enclave
@@ -26,7 +28,7 @@ related:
   - approvals
   - configuration
   - copilot-and-surfaces
-version: 2
+version: 3
 ---
 SF Guard makes a person's own steps provable. An agent runs as the same user on the same computer: it can read Git configuration, run any command, fake a terminal and write Git records directly, so nothing it can type proves a person decided. SF Guard asks for the one thing it cannot produce, a signature from a Secure Enclave key on the person's Mac made after their Touch ID. It is off until a repository opts in; a repository that never opts in behaves exactly as before. Refusals keep the `PSS_` codes of SPEC-PSS-v1.
 
@@ -37,8 +39,8 @@ Use this topic to see whether SF Guard is on, to pin your presence key, to opt a
 ## Use it from each surface
 
 - **Shell:** `sflow guard status` reads. Every other action is your own step in your own terminal: `sflow guard register`, `rotate`, `recover`, `revoke`, `enable`, `disable`, and `exception add|revoke`. Each shows a card, then Touch ID prompts.
-- **Copilot:** `/sf-guard` shows the status only. Every other `guard` action is refused for agents in every turn, and the refusal names your exact command.
-- **VS Code:** run the same command in a terminal. The panel surfaces arrive with M5.
+- **Copilot:** `/sf-guard` shows the status only. Every other `guard` action is refused for agents in every turn, and the refusal names your exact command. On a Story SF Guard requires, an agent's `approve` or `reject` (an `/sf-approve` turn included) is refused with `PSS_CARD_NOT_SHOWN` and your exact command: run it in your own terminal, where the card shows and Touch ID prompts.
+- **VS Code:** run the same command in a terminal; a model-free approval on a Story SF Guard requires names that command. The panel surfaces arrive with M5.
 
 ## Guided workflow
 
@@ -51,7 +53,17 @@ Use this topic to see whether SF Guard is on, to pin your presence key, to opt a
 
 ## State and safety
 
-The policy is `singularity/presence.json` in the approved configuration: an append-only, hash-linked chain of signed events (`register`, `rotate`, `recover`, `revoke`, `enable`, `disable`, `exception`, `exception-revoke`). It names approvers by ID, never by email or login. Each event is signed by an approver's pinned key (a key event also by the key it pins), so an unsigned event, an agent's own key, an edited event, or a commit that deletes or shortens the file never counts: the longest valid chain the history shows stays in force and `guard status` names the problem. Verifying reads only the pinned keys, never GitHub, so an unreachable GitHub never blocks a step. A per-person exception lets that approver's steps proceed unsigned, labelled `bypass: per-person exception EXC-…` everywhere; it is a stated bypass for that person, and only an approver with a key can record or revoke one. In M1 the policy is recorded and shown; person steps start requiring signatures in M2.
+The policy is `singularity/presence.json` in the approved configuration: an append-only, hash-linked chain of signed events (`register`, `rotate`, `recover`, `revoke`, `enable`, `disable`, `exception`, `exception-revoke`). It names approvers by ID, never by email or login. Each event is signed by an approver's pinned key (a key event also by the key it pins), so an unsigned event, an agent's own key, an edited event, or a commit that deletes or shortens the file never counts: the longest valid chain the history shows stays in force and `guard status` names the problem. Verifying reads only the pinned keys, never GitHub, so an unreachable GitHub never blocks a step. A per-person exception lets that approver's steps proceed unsigned, labelled `bypass: per-person exception EXC-…` everywhere; it is a stated bypass for that person, and only an approver with a key can record or revoke one.
+
+**Approve and reject (M2).** A Story pins SF Guard's policy when it starts (`resolution.presence` in its `workflow.json`), so turning SF Guard on or off later never changes a running Story. On a Story pinned `required`:
+
+- `approve` and `reject` check everything first, before any prompt or write: that you are an approver, that your key is pinned (or an exception covers you), that this computer can sign (macOS 26), that this is your own terminal, and that this Mac holds your key. Each refusal names a route you can take today: run it on the Mac holding your key, `sflow guard rotate`, another approver deciding, or a per-person exception.
+- Once every approval check passed, your card shows (Story, step, generation, decision, review packet, record digest), then one Touch ID prompt. Declining writes nothing (`PSS_PRESENCE_DECLINED`).
+- The record carries `identityAssurance: "presence-signed"` and a `presence` block. The signature covers a digest of the record's own decision fields, so a record changed afterwards, or a signature carried to another record, does not verify (`PSS_SIGNATURE_INVALID`).
+- Only a record whose signature verifies against the approver's pinned key, or one a per-person exception covers, counts toward the threshold, in the approval itself, `sflow approvals`, the work list's blockers, the editor view and retention. An approval written by hand with Git, or an unsigned one (`PSS_RECORD_UNSIGNED`), counts for nothing; `sflow approvals` lists it as not counted, with the reason.
+- A Story started while SF Guard was off (pinned `off`, or with no pin) keeps working unsigned; once the repository opts in, its approvals read `pre-signing`. A pin edited by hand to say `off` that does not match the policy chain reads as `required`.
+
+After a command you run in your own terminal in an opted-in repository, SF Guard warns (`PSS_FOREIGN_KEY`) when the key pinned under your approver ID is not held by this Mac, and names the revoke route. It never blocks the command. Receipt replay, the final check and the remote check (`governance verify --presence`) re-verify signatures in M4; every other person step is signed in M3.
 
 ## Agent and skill attribution
 
@@ -70,6 +82,11 @@ Plain prompts and paused sessions are recorded too. A shell command keeps only a
 - `PSS_KEY_READABLE`, `PSS_KEY_NOT_PRESENCE`, `PSS_KEY_EXPIRED`: create a new identity as in step 1. An identity's certificate lasts one year (`Valid To` in `sc_auth list-ctk-identities`); before it expires, `sflow guard rotate --key <NEW>`, signed by the old and the new key.
 - Lost Mac or key: remove the old key from GitHub, list a new one, then `sflow guard recover --key <NEW>` (the new key signs; recovery is labelled). Or another approver runs `sflow guard revoke <APPROVER-ID> --reason TEXT` and you register again.
 - `PSS_POLICY_UNSIGNED` or `PSS_POLICY_REWRITTEN` in `guard status`: someone changed the policy without a valid signature. It did not take effect; nothing is blocked.
+- `PSS_CARD_NOT_SHOWN` on `approve` or `reject`: it ran without your terminal (an agent, a script, a model-free route). Run the command it names in your own terminal.
+- `PSS_SIGNER_UNAVAILABLE`: this computer cannot sign (not macOS 26), or this Mac does not hold your pinned key. Run the step on the Mac holding it, rotate to a key on this one, or ask another approver. If you never registered that key, revoke it: `sflow guard revoke <APPROVER-ID> --reason "not my key"`.
+- `PSS_KEY_NOT_REGISTERED`: register your key (`sflow guard register`), or another approver decides or records an exception for you.
+- `PSS_POLICY_UNREADABLE`: the approved configuration's policy file cannot be read here; nothing was written. `sflow sync`, then run the same command again.
+- An approval shows "not counted" in `sflow approvals`: it carries no valid presence signature. The approver runs `approve` again in their own terminal.
 
 ## Related topics
 

@@ -98,12 +98,16 @@ function approvalState(phase, mode, met, minimum, reviewedByPeople = false) {
  * shown beside the exact authority policy and recorded human decisions, so a reader never has to
  * join `status`, `documents`, and `progress` by hand.
  */
-export function approvalChainSnapshot(workflow) {
+export function approvalChainSnapshot(workflow, { presence = null } = {}) {
+  // SF Guard (SPEC-PSS-v1 REQ-023, REQ-030): on a Story it requires, a record counts only when its
+  // signature verifies or an exception covers it, and each record shows how it stands.
+  const counts = presence?.counts ?? null;
   const phases = (workflow.phaseOrder ?? []).map((id, index) => {
     const phase = workflow.phases[id];
     const policy = phase.approvalPolicy ?? {};
     const mode = policy.mode ?? 'required';
     const decisions = (phase.approvals ?? []).map((decision) => Object.freeze({
+      ...(presence?.label?.(decision) ? { presence: presence.label(decision), counted: !counts || counts(decision) } : {}),
       decision: decision.decision ?? 'unknown',
       actor: actorName(decision.actor),
       authorityGroup: decision.authorityGroup ?? null,
@@ -115,15 +119,15 @@ export function approvalChainSnapshot(workflow) {
       active: !decision.invalidatedAt,
       invalidatedAt: decision.invalidatedAt ?? null
     }));
-    const activeApprovals = decisions.filter((entry) => entry.active && entry.decision === 'approved');
+    const activeApprovals = decisions.filter((entry) => entry.active && entry.decision === 'approved' && entry.counted !== false);
     // A policy-mode phase needs people's approvals only once the waiver did not cover it.
     const reviewedByPeople = mode === 'policy' && policyPhaseReviewedByPeople(phase, activeApprovals.length);
     const minimum = mode === 'none' || (mode === 'policy' && !reviewedByPeople) ? 0 : (policy.minimum ?? 1);
     const authorities = Object.freeze((policy.authorities ?? []).map((id) => authority(workflow, id)));
     const capacity = approvalPolicyCapacity(workflow.resolution?.approvalAuthorities, policy);
     const peopleDecide = minimum > 0;
-    const waitingFor = peopleDecide ? remainingRequiredAuthorities(policy, phase.approvals) : [];
-    const met = peopleDecide && approvalRequirementsMet({ ...policy, minimum }, phase.approvals);
+    const waitingFor = peopleDecide ? remainingRequiredAuthorities(policy, phase.approvals, { counts }) : [];
+    const met = peopleDecide && approvalRequirementsMet({ ...policy, minimum }, phase.approvals, { counts });
     const distinctApprovers = new Set(activeApprovals.map((entry) => entry.actor)).size;
     return Object.freeze({
       order: index + 1,
@@ -147,7 +151,8 @@ export function approvalChainSnapshot(workflow) {
           authorityGroup: entry.authorityGroup,
           authorityLabel: entry.authorityLabel,
           at: entry.at,
-          selfApproval: entry.selfApproval
+          selfApproval: entry.selfApproval,
+          ...(entry.presence ? { presence: entry.presence } : {})
         }))),
         decisions: Object.freeze(decisions)
       })
@@ -189,7 +194,7 @@ function requirement(approval) {
 
 function approvedBy(approval) {
   if (!approval.approvedBy.length) return '—';
-  return approval.approvedBy.map((entry) => `${entry.name}${entry.selfApproval ? ' ⚠ self' : ''}`).join(', ');
+  return approval.approvedBy.map((entry) => `${entry.name}${entry.selfApproval ? ' ⚠ self' : ''}${entry.presence ? ` (${entry.presence})` : ''}`).join(', ');
 }
 
 /** Narrow-terminal rendering for the command-result output boundary. */
@@ -220,5 +225,7 @@ export function approvalChainText(snapshot) {
     `${snapshot.summary.approvalsReceived}/${snapshot.summary.approvalsRequired} required human approval(s) recorded; ${snapshot.summary.approvalsRemaining} remaining.`
   );
   if (invalidated) lines.push(`${invalidated} earlier decision(s) were invalidated and remain available in --json history.`);
+  const uncounted = snapshot.phases.flatMap((phase) => phase.approval.decisions.filter((decision) => decision.counted === false));
+  for (const decision of uncounted) lines.push(`Not counted (SF Guard): ${decision.actor}'s ${decision.decision} of generation ${decision.generation} — ${decision.presence}.`);
   return `${lines.join('\n')}\n`;
 }

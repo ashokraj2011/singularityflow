@@ -248,14 +248,14 @@ function requiredArtifactRecorded(phase) {
   return !(phase.reworkRevalidation && generation <= Number(phase.reworkRevalidation.generation ?? 0));
 }
 
-function blockersOf(workflow, { recovery }) {
+function blockersOf(workflow, { recovery, counts = null }) {
   const blockers = [];
   if (recovery?.status === 'pending') blockers.push('publication-pending');
   if (recovery?.status === 'unreadable') blockers.push('publication-marker-unreadable');
   const phaseId = workflow.currentPhase ?? null;
   const phase = phaseId ? workflow.phases?.[phaseId] : null;
   // The engine's approval rule: distinct people, every required group, invalidated decisions ignored.
-  if (phase?.status === 'awaiting_approval' && !approvalRequirementsMet(phase.approvalPolicy, phase.approvals)) {
+  if (phase?.status === 'awaiting_approval' && !approvalRequirementsMet(phase.approvalPolicy, phase.approvals, { counts })) {
     blockers.push('approvals-outstanding');
   }
   if (phase?.requiredArtifact?.path && !requiredArtifactRecorded(phase)) blockers.push('required-artifact-missing');
@@ -324,7 +324,7 @@ export async function workRecords(root, {
         // Where this work sits in its own lifecycle, from the pinned definition `[UXH:REQ-050]`.
         rail: phaseRail(workflow),
         lastMaterialEvent: lastMaterialEvent(workflow),
-        blockers: blockersOf(workflow, { recovery }),
+        blockers: blockersOf(workflow, { recovery, counts: await presenceCountsOf(root, workflow) }),
         recovery: recovery.status === 'absent' ? null : {
           status: recovery.status,
           path: recovery.path ?? null,
@@ -393,4 +393,9 @@ export async function workConsistency(root, { env = process.env } = {}) {
   } catch {
     return null;
   }
+}
+
+/** SF Guard's approval-counting predicate for a Story it applies to, or null (SPEC-PSS-v1 REQ-030). */
+async function presenceCountsOf(root, workflow) {
+  return workflow?.resolution?.presence ? (await import('../presence/person-records.mjs')).presenceCountsFor(root, workflow) : null;
 }

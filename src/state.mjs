@@ -132,7 +132,7 @@ import { PACKAGE_ROOT } from './package-root.mjs';
 import { createLedgerIntent, ledgerLog, ledgerStatus, reconcileLedger, refreshLedgerRemoteView } from './ledger.mjs';
 import { normalizeLedgerConfig } from './ledger-config.mjs';
 import { storyLifecycleProgress } from './session-roster.mjs';
-import { currentSchemaVersion, readRecord } from './schema-migrations.mjs';
+import { currentSchemaVersion, phaseApprovalSummaryVersion, readRecord } from './schema-migrations.mjs';
 import { compareRepositoryIdentity } from './repository-change-set.mjs';
 import {
   applyCapabilityPolicyToWorkResolution,
@@ -1308,6 +1308,10 @@ export async function createWorkflow(root, config, {
     template.path = posix(path.relative(root, destination)); delete template.cachePath;
     workflow.resolution.phases.find((phase) => phase.id === phaseId).templateSnapshot = { ...template };
   }
+  // SF Guard's policy as this Story starts (SPEC-PSS-v1 REQ-040): a later change never affects it.
+  // A repository that never opted in has no policy file, and the Story carries no pin.
+  const presencePin = await (await import('./presence/person-records.mjs')).presencePinForStart(root);
+  if (presencePin) workflow.resolution.presence = presencePin;
   // Capture before accepted Story state is written. This rewrites phase-template references to
   // immutable blobs and stamps the exact resulting effective-policy digest.
   workflow.workflowSnapshot = await captureWorkflowSnapshot(root, config, workflow, {
@@ -5949,7 +5953,7 @@ async function writeDecision(root, config, workflow, phase, decision) {
   const safe = decision.at.replace(/[:.]/g, '-');
   await writeJson(path.join(decisionDir(root, config, workflow.workItem.id, phase.id), `${safe}-${decision.decision}.json`), decision);
   await writeJson(approvalPath(root, config, workflow.workItem.id, phase.id), {
-    schemaVersion: currentSchemaVersion('phase-approval'), phase: phase.id, decisions: phase.approvals
+    schemaVersion: phaseApprovalSummaryVersion(phase.approvals), phase: phase.id, decisions: phase.approvals
   });
 }
 
@@ -6190,6 +6194,7 @@ export async function evaluateApproval(root, config, workflow, {
   bindingDecisions = [],
   actor: decisionActor = null,
   agent: decisionAgent = undefined,
+  presence = null,
   preview = false
 } = {}) {
   const holds = [];
@@ -6676,8 +6681,10 @@ export async function evaluateApproval(root, config, workflow, {
       session ??= await loadSession(root);
       actor = session.actor;
       key = actorKey(actor);
+      // On a Story SF Guard requires, only a verified or excepted approval counts [SPEC-PSS-v1 REQ-030].
+      const counts = await presenceCountsFor(root, workflow);
       active = phase.approvals.filter((item) => !item.invalidatedAt && item.decision === 'approved'
-        && (!phase.testCommandRevalidation || item.reviewPacketSha256 === submittedReview.packetSha256));
+        && (!phase.testCommandRevalidation || item.reviewPacketSha256 === submittedReview.packetSha256) && (!counts || counts(item)));
       authority = requireApprovalAuthority(
         workflow.resolution.approvalAuthorities ?? config.approvalAuthorities,
         phase.approvalPolicy,
@@ -6815,7 +6822,8 @@ export async function evaluateApproval(root, config, workflow, {
       }
     }, { needs: ['decision'] });
     await stage('planned-claims', async () => {
-      const prospectiveApprovals = [...(phase.testCommandRevalidation ? active : phase.approvals), decision];
+      const counts = await presenceCountsFor(root, workflow);
+      const prospectiveApprovals = [...(phase.testCommandRevalidation ? active : phase.approvals.filter((item) => !counts || counts(item))), decision];
       reached = approvalRequirementsMet(phase.approvalPolicy, prospectiveApprovals);
       approvalOutcome = reached ? decisionOutcome(workflow, phase) : null;
       const upcomingForApproval = reached ? upcomingAfterOutcome(workflow, phase, approvalOutcome) : null;
@@ -6826,8 +6834,15 @@ export async function evaluateApproval(root, config, workflow, {
   } catch (error) {
     if (error !== APPROVAL_PREVIEW_STOP) throw error;
   }
+  // Every check passed: the card, then the approver's touch, over the final record [SPEC-PSS-v1 M2].
+  if (!preview && presence && decision) await (await import('./presence/person-records.mjs')).attachPersonPresence(presence, decision);
   return { holds, warnings, ready: !holds.length, config, phase, session, key, decision, reached, approvalOutcome,
     rejectedIntentAmendments: rejectedAmendments };
+}
+
+/** The approval-counting predicate SF Guard gives a Story, or null when it does not apply. */
+async function presenceCountsFor(root, workflow) {
+  return workflow.resolution?.presence ? (await import('./presence/person-records.mjs')).presenceCountsFor(root, workflow) : null;
 }
 
 /**
@@ -6907,7 +6922,7 @@ export async function approvePhase(root, config, workflow, options = {}) {
       await refreshPhaseSpecificationIndex(root, config, workflow, phase);
       for (const retainedPhase of await settleRetainedPhases(root, config, workflow, decision.at)) {
         await writeJson(approvalPath(root, config, workflow.workItem.id, retainedPhase.id), {
-          schemaVersion: currentSchemaVersion('phase-approval'), phase: retainedPhase.id, decisions: retainedPhase.approvals
+          schemaVersion: phaseApprovalSummaryVersion(retainedPhase.approvals), phase: retainedPhase.id, decisions: retainedPhase.approvals
         });
       }
     }
@@ -7621,7 +7636,7 @@ function currentTestingRepairPlan(root, workflow, plan, { phaseId, target, confi
 export async function rejectPhase(root, config, workflow, {
   phaseId, target, reason, clauseIds = [], members = [], convergenceRework = null,
   testingRepairConfirm = null, testingRepairPlan = null, channel = 'terminal', actionContext = null,
-  actor = null, agent = undefined, upstreamIssue = null
+  actor = null, agent = undefined, upstreamIssue = null, presence = null
 } = {}) {
   if (workflow.workflowSnapshot) config = (await resolveStoryExecutionCatalog(root, config, workflow)).effectiveDefinition;
   await assertNoPendingPublication(root, config, workflow, 'reject');
@@ -7843,6 +7858,8 @@ export async function rejectPhase(root, config, workflow, {
     ...(repairBudget ? { repairBudget: { consumed: repairBudget.attempts.length, maximum: repairBudget.maximum } } : {}),
     ...(actionContext ? { actionContext } : {})
   };
+  // The card, then the approver's touch, over the final record [SPEC-PSS-v1 M2].
+  if (presence) await (await import('./presence/person-records.mjs')).attachPersonPresence(presence, decision);
   phase.approvals.push(decision); await writeDecision(root, config, workflow, phase, decision);
   // The promise the next generation has to keep `[SPK:REQ-111]`. Recorded on the *target* phase,
   // which is the one that will regenerate — rejecting `verification` back to `specification` means
@@ -9247,7 +9264,7 @@ export async function rollForwardRework(root, config, workflow, {
   if (restoredReview) request.resolution.reviewPacketSha256 = restoredReview.packet.packetSha256;
   for (const phaseId of checkpoint.state.affectedPhaseIds) {
     await writeJson(approvalPath(root, config, workflow.workItem.id, phaseId), {
-      schemaVersion: currentSchemaVersion('phase-approval'),
+      schemaVersion: phaseApprovalSummaryVersion(workflow.phases[phaseId].approvals),
       phase: phaseId,
       decisions: workflow.phases[phaseId].approvals ?? []
     });

@@ -798,7 +798,7 @@ async function fullRepositorySnapshot(root, requestedWorkId = null, requestedIni
     // One engine-computed view of the Story's decisions, so no surface re-implements their rules.
     decisions: workflow ? storyDecisionView(workflow) : null,
     // The same for approval: the engine's verdict on the phase awaiting it.
-    approval: workflow ? storyApprovalView(workflow) : null,
+    approval: workflow ? storyApprovalView(workflow, { counts: await presenceCountsOf(root, workflow) }) : null,
     referenceRepositories,
     progress,
     report,
@@ -913,7 +913,7 @@ async function lifecycleSlice(root, requestedWorkId, requestedInitiativeId, revi
     // One engine-computed view of the Story's decisions, so no surface re-implements their rules.
     decisions: workflow ? storyDecisionView(workflow) : null,
     // The same for approval: the engine's verdict on the phase awaiting it.
-    approval: workflow ? storyApprovalView(workflow) : null,
+    approval: workflow ? storyApprovalView(workflow, { counts: await presenceCountsOf(root, workflow) }) : null,
     referenceRepositories,
     progress,
     report,
@@ -2338,4 +2338,9 @@ export async function selectEditorAgent(root, workId, agent) {
   }
   const definition = await loadDefinition(root);
   return setAgentSession(root, definition, identity(root), agent, workId || null);
+}
+
+/** SF Guard's approval-counting predicate for a Story it applies to, or null (SPEC-PSS-v1 REQ-030). */
+async function presenceCountsOf(root, workflow) {
+  return workflow?.resolution?.presence ? (await import('./presence/person-records.mjs')).presenceCountsFor(root, workflow) : null;
 }

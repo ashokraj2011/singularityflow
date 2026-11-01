@@ -247,7 +247,11 @@ test('frequent lifecycle handlers do not reach the legacy dispatcher and stay un
     // .cjs/.cts (code-delivery-tests.mjs +2,098), every root build system's commands with its diagnostics
     // (repository-test-command-inference.mjs +2,458), a command's optional ecosystem (external-command-policy.mjs +887)
     // and the malformed-manifest refusal (test-module-markers.mjs +137) add 5,640 for 9,321,496; no new eager file.
-    assert.ok(closure.bytes <= 9_325_000, `${file} exceeds the 9 MB eager-source budget (${closure.bytes} bytes)`);
+    // 9,330,000 (next 5,000 boundary): main ce4360779 measures 9,323,933. SF Guard M2 (SPEC-PSS-v1): the Story pin
+    // at creation and the counting predicate passed to each approval reader (state.mjs +1,477, approval-chain.mjs
+    // +856 with its labels, phase-retention.mjs +605, approval-authority.mjs +349) and phase-approval v3
+    // (schema-migrations.mjs +675) add 3,962 for 9,327,895. The presence modules stay lazy; no new eager file.
+    assert.ok(closure.bytes <= 9_330_000, `${file} exceeds the 9 MB eager-source budget (${closure.bytes} bytes)`);
   }
 });
 

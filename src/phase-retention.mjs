@@ -26,13 +26,14 @@ import { decisionAfter, decisionFedBy } from './workflow-decisions.mjs';
 const actorKey = (actor) => actor?.login ?? actor?.email ?? actor?.name ?? null;
 
 /** The approvals a reset invalidated and that may be retained, or null when the phase must run again. */
-export function retainableApprovals(workflow, phase) {
+export function retainableApprovals(workflow, phase, { counts = null } = {}) {
   const reset = phase?.reworkRevalidation;
   if (!reset?.retainable || phase.status !== 'not_started' || !(phase.generation > 0)
       || Number(phase.generation) !== Number(reset.generation)) return null;
   if (decisionAfter(workflow, phase.id) || decisionFedBy(workflow, phase.id)) return null;
+  // On a Story SF Guard requires, only a verified or excepted approval is carried [SPEC-PSS-v1 REQ-030].
   const approvals = (phase.approvals ?? []).filter((entry) => entry?.decision === 'approved'
-    && entry.invalidatedAt === reset.invalidatedAt && Number(entry.generation) === Number(phase.generation));
+    && entry.invalidatedAt === reset.invalidatedAt && Number(entry.generation) === Number(phase.generation) && (!counts || counts(entry)));
   if (!approvals.length || approvals.some((entry) => !entry.upstream?.sha256)) return null;
   // Whether these approvals completed the phase, judged as they stood before the reset.
   const decided = approvals.map(({ invalidatedAt, ...approval }) => approval);
@@ -88,6 +89,7 @@ function retain(workflow, phase, approvals, { at, actor, agent, upstream, rule =
  * clause, since a new clause cites nothing yet and still has to be planned.
  */
 export async function amendmentRetentionCandidates(root, config, workflow, specification, { addsClauses = false } = {}) {
+  const counts = await presenceCountsOf(root, workflow);
   const order = workflow.phaseOrder ?? [];
   const candidates = new Map();
   for (let index = order.indexOf(specification?.id) + 1; index > 0 && index < order.length; index += 1) {
@@ -97,7 +99,7 @@ export async function amendmentRetentionCandidates(root, config, workflow, speci
         || workflow.resolution?.phases?.find((entry) => entry.id === phase.id)?.kind === 'skill'
         || (addsClauses && stepResponsibilities(workflow, phase.id).includes('plan'))) break;
     const approvals = (phase.approvals ?? []).filter((entry) => entry?.decision === 'approved' && !entry.invalidatedAt
-      && Number(entry.generation) === Number(phase.generation));
+      && Number(entry.generation) === Number(phase.generation) && (!counts || counts(entry)));
     if (!approvals.length || approvals.some((entry) => !entry.upstream?.sha256)
         || !approvalRequirementsMet(phase.approvalPolicy, approvals)) break;
     const upstream = await phaseUpstream(root, config, workflow, phase);
@@ -115,6 +117,7 @@ export async function amendmentRetentionCandidates(root, config, workflow, speci
  * references changed.
  */
 export async function retainUnchangedPhases(root, config, workflow, completed, { at, actor = null, agent = null } = {}) {
+  const counts = await presenceCountsOf(root, workflow);
   const order = workflow.phaseOrder ?? [];
   const itemRelative = path.posix.join(config.workItemRoot ?? 'singularity/work-items', workflow.workItem.id);
   const itemDirectory = path.join(root, itemRelative);
@@ -122,7 +125,7 @@ export async function retainUnchangedPhases(root, config, workflow, completed, {
   let stale = null;
   for (let index = order.indexOf(completed.id) + 1; index > 0 && index < order.length; index += 1) {
     const phase = workflow.phases[order[index]];
-    const approvals = retainableApprovals(workflow, phase);
+    const approvals = retainableApprovals(workflow, phase, { counts });
     if (!approvals) break;
     const upstream = await phaseUpstream(root, config, workflow, phase);
     const differing = approvals.find((entry) => entry.upstream.sha256 !== upstream?.sha256);
@@ -143,4 +146,9 @@ export async function retainUnchangedPhases(root, config, workflow, completed, {
     retained.push({ phase: phase.id, approvals: retain(workflow, phase, approvals, { at, actor, agent, upstream }) });
   }
   return { retained, stale };
+}
+
+/** SF Guard's approval-counting predicate for a Story it applies to, or null (SPEC-PSS-v1 REQ-030). */
+async function presenceCountsOf(root, workflow) {
+  return workflow?.resolution?.presence ? (await import('./presence/person-records.mjs')).presenceCountsFor(root, workflow) : null;
 }

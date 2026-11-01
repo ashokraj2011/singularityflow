@@ -4,7 +4,8 @@
 - **Decided:** 1 November 2026 (§12).
 - **M0:** run by the person on 1 November 2026 (§10.1).
 - **M1:** built. It covers the verifier, the signed policy chain, key pinning with its GitHub anchor, the opt-in, per-person exceptions, `singularity-flow guard` and `/sf-guard`.
-- **M2 to M5:** not built.
+- **M2:** built (§10.2). Approve and reject are presence-signed on a Story SF Guard requires, and only a verified or excepted approval counts.
+- **M3 to M5:** not built.
 
 **Grounded on:** main `e9fd1a04a`. `file:line` references are to that commit unless they name an M1 file.
 
@@ -330,6 +331,16 @@ What M1 drew from it:
 - Biometry is the identity's own access control on the person's Mac, provable only through the `sc_auth` listing at registration and signing.
 - `ssh-keygen -Y verify` ignores the flags, accepting a security-key signature with user presence clear. So SF Guard's own verifier decides (IFC-002).
 - The listing's "Valid To" and "Valid" columns are the identity's certificate: one year, after which the identity is refused until rotated (REQ-014).
+
+### 10.2 M2 as built (2 November 2026)
+
+- **The Story pin.** `createWorkflow` records `resolution.presence` (`sflow-presence-pin@1`: `status` `required` or `off`, `chainId`, the number of valid events and the tip digest) when the approved configuration has a policy file, inside the creation policy anchor. A repository that never opted in writes no pin. A pin saying `off` must match the chain at the event it names and fold to `off` there; otherwise it reads as `required` (`pinRequirement`).
+- **The record.** `src/presence/person-records.mjs`. A signed decision carries `identityAssurance: "presence-signed"` and `presence: { schema: "sflow-presence-record@1", chainId, approver, keyId, at, nonce, signature, userVerification }`. The IFC-001 statement's `decision` is `{ decision, recordSha256 }`, where `recordSha256` digests the record's own decision fields (`boundDecisionSha256`, an allowlist that leaves out what the engine adds later: invalidation and resolved change requests); `reviewed` is the review packet. A decision under an active exception carries `presence: { …, bypass: "EXC-…" }` and keeps its ordinary identity assurance, so it never reads as signed.
+- **When the touch happens.** `approve` and `reject` call `preparePersonPresence` before any prompt or write: approver, policy readable (`PSS_POLICY_UNREADABLE`), exception (bypass), pinned key (`PSS_KEY_NOT_REGISTERED`), signer present (`PSS_SIGNER_UNAVAILABLE`, first, so CI and Windows read that), the person's own terminal (`PSS_CARD_NOT_SHOWN` with the exact command, also when an agent host's marker is set), and the key held on this Mac. The card and the touch come after every approval check passed (at the end of `evaluateApproval`; just before `rejectPhase` records), inside the publication transaction, so declining writes nothing.
+- **Counting.** `presenceCounts(workflow)` is the predicate `approvalRequirementsMet`, `remainingRequiredAuthorities` and `storyApprovalView` take (`{ counts }`). It is used by approval itself (prior approvals and the distinct-identity check), `approvals`, the work-list blockers, the editor's approval view and phase retention. On a `required` Story whose chain this process did not read, it counts nothing. Keys that were rotated, recovered or revoked still verify records signed before the event that retired them.
+- **Summaries.** `phase-approval` v3 (`COMPANION-LOCK-REVIEW-2026-11-02-SF-GUARD-M2.md`), written only when a decision carries a presence block.
+- **The alarm.** After a command run with a terminal in a repository holding a policy file, `src/presence/alarm.mjs` warns `PSS_FOREIGN_KEY` when the key pinned under the person's approver ID is not among this Mac's identities, naming the revoke route. It never blocks.
+- **Residual, stated.** A Story whose creation record an agent forges with no pin, or with a pin naming an earlier `off` point of the chain, reads as `pre-signing` locally: a local check cannot tell when a Story was really created. The remote check (M4) compares the Story's first push with the opt-in.
 
 ## 11. Acceptance criteria
 

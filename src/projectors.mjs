@@ -14,7 +14,7 @@ import {
   initiativeApprovalSummary, readInitiativeRecords
 } from './initiative-evidence.mjs';
 import { exists, repoRelative, SingularityFlowError, writeAtomic } from './util.mjs';
-import { currentSchemaVersion } from './schema-migrations.mjs';
+import { phaseApprovalSummaryVersion } from './schema-migrations.mjs';
 
 const STORY_METADATA = /^<!-- singularity-flow:metadata\n[\s\S]*?\n-->/;
 const INITIATIVE_METADATA = /^<!-- singularity-flow:initiative-metadata\n[\s\S]*?\n-->/;
@@ -120,7 +120,7 @@ export async function projectApprovalSummary(root, {
         id: `approval-summary:${phaseId}`,
         kind: 'ApprovalSummary',
         relativePath: assertSubjectPath(root, directory, file, `Story approval summary '${phaseId}'`),
-        content: json({ schemaVersion: currentSchemaVersion('phase-approval'), phase: phaseId, decisions: phase.approvals ?? [] }),
+        content: json({ schemaVersion: phaseApprovalSummaryVersion(phase.approvals), phase: phaseId, decisions: phase.approvals ?? [] }),
         source: 'workflow.json'
       }));
     }

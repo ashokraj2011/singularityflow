@@ -456,7 +456,7 @@
   "jira-write-receipt": [{ "schemaVersion": 1 }],
   "step-action-receipt": [{ "schemaVersion": 1 }],
   "mcp-observation-receipt": [{ "schemaVersion": 1 }, { "schemaVersion": 2, "authProfile": null }],
-  "phase-approval": [{ "schemaVersion": 1, "phase": "specification", "approvedAt": "2025-01-02T03:04:05.000Z", "approvedBy": "Reviewer" }, { "schemaVersion": 2 }],
+  "phase-approval": [{ "schemaVersion": 1, "phase": "specification", "approvedAt": "2025-01-02T03:04:05.000Z", "approvedBy": "Reviewer" }, { "schemaVersion": 2 }, { "schemaVersion": 3, "phase": "specification", "decisions": [{ "decision": "approved", "phase": "specification", "generation": 1, "identityAssurance": "presence-signed", "presence": { "schema": "sflow-presence-record@1", "chainId": "00000000000000000000000000000000", "approver": "approver-000000000000", "keyId": "SHA256:frozen", "at": "2026-11-02T00:00:00.000Z", "nonce": "00000000000000000000000000000000", "signature": "frozen" } }] }],
   "document-manifest": [{ "schemaVersion": 1 }, { "schemaVersion": 2, "packages": [] }, { "schemaVersion": 3, "documents": [], "packages": [] }],
   "goal-state": [{ "schemaVersion": 1 }],
   "governed-goal-contract": [{ "schemaVersion": 1 }],

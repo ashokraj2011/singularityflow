@@ -1557,6 +1557,11 @@ function phaseApprovalV1ToV2(source) {
   };
 }
 
+function phaseApprovalV2ToV3(source) {
+  // A v2 summary's decisions carry no presence block; nothing else changes.
+  return { ...clone(source), schemaVersion: 3 };
+}
+
 function promptInjectionV1ToV2(source) {
   // Absence is meaningful: the v1 verifier used requiredViews because exact tier identities did
   // not yet exist. Null preserves that compatibility branch without inventing selections.
@@ -3277,9 +3282,11 @@ const families = [
     id: 'mcp-observation-receipt', currentVersion: 2, immutable: true,
     steps: [migration(1, 2, mcpObservationReceiptV1ToV2)]
   }),
+  // v3 (SF Guard M2, SPEC-PSS-v1 REQ-003): a decision may carry a presence block. Written only when
+  // one does, so a repository that never opted in keeps writing v2 that older builds read.
   family({
-    id: 'phase-approval', currentVersion: 2,
-    steps: [migration(1, 2, phaseApprovalV1ToV2)],
+    id: 'phase-approval', currentVersion: 3,
+    steps: [migration(1, 2, phaseApprovalV1ToV2), migration(2, 3, phaseApprovalV2ToV3)],
     paths: [/^singularity\/work-items\/[^/]+\/approvals\/[^/]+\.json$/], immutable: true
   }),
   family({
@@ -4007,6 +4014,11 @@ export function schemaFamily(familyId) {
 
 export function currentSchemaVersion(familyId) {
   return schemaFamily(familyId).currentVersion;
+}
+
+/** The version an approval summary is written at: v3 only when a decision carries a presence block. */
+export function phaseApprovalSummaryVersion(decisions) {
+  return (decisions ?? []).some((decision) => decision?.presence) ? currentSchemaVersion('phase-approval') : 2;
 }
 
 export function stampCurrentRecord(familyId, value = {}) {

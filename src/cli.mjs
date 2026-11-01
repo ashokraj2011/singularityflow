@@ -3634,6 +3634,8 @@ export { submitConfirmedConvergenceCommand } from './commands/submit.mjs';
 
 async function rejectCommand(positionals, options) {
   const { root, config, workflow, phase: current, session, testingRepairPlan } = await decisionWorkflow(positionals, options, 'reject');
+  // SF Guard (SPEC-PSS-v1 M2): a Story it requires takes the person's presence signature; checked before any write.
+  const presence = workflow.resolution?.presence ? await (await import('./presence/person-records.mjs')).preparePersonPresence(root, { workflow, phase: current, actor: session.actor, action: 'phase.reject' }) : null;
   const target = optionString(options, 'to') ?? current.id;
   console.log(`Requesting changes to ${current.id}, returning work to ${target} as ${session.actor.name ?? session.actor.email ?? session.actor.login}; agent ${session.agent} is audit context only. Approvals from ${target} onward are invalidated, except those of steps whose inputs do not change: they are kept.`);
   // Inside the transaction: rejecting used to write workflow.json and the change-request decision
@@ -3655,10 +3657,8 @@ async function rejectCommand(positionals, options) {
       members: optionStrings(options, 'member'),
       channel: process.env.SINGULARITY_FLOW_GITHUB_ACTOR ? 'github-pr-comment' : 'terminal',
       actionContext: activeActionContext(),
-      actor: session.actor,
-      agent: session.agent,
-      // The preview above already replayed the Code evidence and waiver; the transition reuses it
-      // only while it still binds the same digest, Story, step and HEAD.
+      actor: session.actor, agent: session.agent, presence,
+      // The preview above already replayed the Code evidence and waiver; the transition reuses it only while it still binds the same digest, Story, step and HEAD.
       testingRepairConfirm: testingRepairPlan ? optionString(options, 'confirm') : null,
       testingRepairPlan
     }),

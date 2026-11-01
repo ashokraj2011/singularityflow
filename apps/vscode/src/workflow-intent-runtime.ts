@@ -1,8 +1,9 @@
-/** Optional native-chat tools. Loaded only by an explicitly opened workflow designer or workflow build. */
+/** Optional native-chat tools. Loaded only by an explicitly opened workflow designer, workflow build or Spec Studio draft. */
 import * as vscode from 'vscode';
 import { randomUUID } from 'node:crypto';
 export { workflowIntentPrompt } from './views/workflow-intent-prompt.ts';
 import { WORKFLOW_BUILDER_TOOL, answerBuilderTool, builderInvocationMessage, builderToolInput, type BuilderRunner, type BuilderToolInput } from './views/workflow-builder-tool.ts';
+import { SPEC_STUDIO_TOOL, answerSpecStudioTool, specToolInput, specToolInvocationMessage, type SpecToolRunner } from './views/spec-studio-tool.ts';
 
 export const WORKFLOW_INTENT_TOOL = 'singularityFlow_workflowAuthoring';
 interface Input { action: string; session: string; revision: number; source?: string; kind?: string; id?: string; query?: string; cursor?: number }
@@ -77,5 +78,35 @@ export function attachWorkflowBuilderTool(build: string, runner: BuilderRunner):
     if (builds.get(build) !== runner) return;
     builds.delete(build);
     if (!builds.size) { builderRegistration?.dispose(); builderRegistration = null; void vscode.commands.executeCommand('setContext', 'singularityFlow.workflowBuildOpen', false); }
+  } };
+}
+
+const specs = new Map<string, SpecToolRunner>();
+let specRegistration: vscode.Disposable | null = null;
+
+/**
+ * #sflowSpecStudio, for the specification draft open in the Spec Studio: registered while one is
+ * open, bound to that specification. It reads and stages proposals; a person takes each one.
+ */
+export function attachSpecStudioTool(spec: string, runner: SpecToolRunner): { available: boolean; dispose(): void } {
+  const host = vscode as unknown as OptionalTools;
+  if (typeof host.lm?.registerTool !== 'function' || typeof host.LanguageModelTextPart !== 'function' || typeof host.LanguageModelToolResult !== 'function') return { available: false, dispose() {} };
+  if (!specRegistration) specRegistration = host.lm.registerTool(SPEC_STUDIO_TOOL, {
+    prepareInvocation: (options: { input?: unknown }) => ({ invocationMessage: specToolInvocationMessage(options?.input) }),
+    invoke: async (options: { input: unknown }) => {
+      if (vscode.workspace.getConfiguration('singularityFlow').get<string>('modelMode', 'auto') === 'disabled'
+          || vscode.workspace.getConfiguration('chat').get<boolean>('disableAIFeatures', false)) throw new Error('Model features are disabled. Write the specification in the Spec Studio by hand, or with the spec author commands.');
+      const request = specToolInput(options.input);
+      const target = specs.get(request.spec);
+      if (!target) throw new Error(`${request.spec}'s draft is not open in the Spec Studio. Open it there first.`);
+      return new host.LanguageModelToolResult!([new host.LanguageModelTextPart!(JSON.stringify(await answerSpecStudioTool(request, target)))]);
+    }
+  });
+  specs.set(spec, runner);
+  void vscode.commands.executeCommand('setContext', 'singularityFlow.specStudioOpen', true);
+  return { available: true, dispose() {
+    if (specs.get(spec) !== runner) return;
+    specs.delete(spec);
+    if (!specs.size) { specRegistration?.dispose(); specRegistration = null; void vscode.commands.executeCommand('setContext', 'singularityFlow.specStudioOpen', false); }
   } };
 }

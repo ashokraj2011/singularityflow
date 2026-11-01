@@ -3,7 +3,9 @@
  *
  * Every read and write is a `spec author … --json` command; this module builds those command lines,
  * reads the engine's answers defensively, and turns them into the three columns the page renders.
- * Nothing here calls a model: the authoring loop's seven steps all work by hand.
+ * Nothing here calls a model: the authoring loop's seven steps all work by hand. Copilot's proposals
+ * and assisted findings (S4) arrive through the engine like everything else, and only the person's
+ * own clicks accept, reject or settle them.
  */
 
 export const SPEC_STUDIO_STEPS = [
@@ -20,6 +22,10 @@ export const STEP_IDS: readonly SpecStudioStep[] = SPEC_STUDIO_STEPS.map((step) 
 
 export const GAP_KINDS = ['code-disagrees', 'missing-unwanted-path', 'vague-term', 'missing-boundary', 'open-question'] as const;
 export const CHECKLIST_DECISIONS = ['satisfied', 'exception', 'not-applicable'] as const;
+export const FINDING_OUTCOMES = ['gap', 'fixed', 'dismissed'] as const;
+export type FindingOutcome = typeof FINDING_OUTCOMES[number];
+const PROPOSAL_ID = /^P-\d{3,}$/u;
+const FINDING_ID = /^A-\d{3,}$/u;
 export const MAXIMUM_OPTIONS = 4;
 const SPEC_ID = /^SPEC-[A-Z0-9]+(?:-[A-Z0-9]+)*$/u;
 const CLAUSE_ANCHOR = /\[([A-Z0-9][A-Z0-9._-]*):((?:REQ|BEH|IFC|AC|CON)-\d{3,})\]/gu;
@@ -42,11 +48,20 @@ export interface SpecResearchItem {
 export interface SpecFinding { part: 'D' | 'A' | 'H'; code: string; message: string; rule?: string; gap?: string; article?: string; item?: string }
 export interface SpecRule { id: string; label: string; passed: boolean; findings: Array<{ code: string; message: string }> }
 export interface SpecCounts { d: { passed: number; total: number }; a: { status: string; pending: number }; h: { open: number; deferred: number } }
+/** What Copilot staged and a person has not taken or turned down yet. */
+export interface SpecProposal {
+  id: string; kind: 'edit' | 'research' | 'gap'; summary: string | null; notes: string[]; basisSequence: number; proposedBy: SpecPerson | null;
+  spec?: string; stale?: boolean;
+  citation?: { path: string; lines: [number, number] } | null; verified?: boolean;
+  gapKind?: string; question?: string; evidence?: string[]; clauses?: string[]; options?: Array<{ id: string; wording: string; changesCode: boolean }>;
+}
+/** An assisted (A) checklist finding: pending until the person settles it. */
+export interface SpecAssistedFinding { id: string; article: string; message: string; clauses: string[]; status: 'pending' | FindingOutcome; reason: string | null; gap: string | null }
 export interface SpecStatus {
   specId: string; sequence: number; title: string; basedOn: SpecBasedOn | null; gaps: SpecGap[]; counts: SpecCounts;
   blocking: SpecFinding[]; reviewReady: boolean; next: string; spec: string; areas: string[]; researchItems: SpecResearchItem[];
   rules: SpecRule[]; articles: Array<{ article: string; decision: string | null; reason: string | null }>; clauseIds: string[];
-  damagedSnapshots: number;
+  damagedSnapshots: number; proposals: SpecProposal[]; findings: SpecAssistedFinding[];
 }
 export interface SpecLibraryEntry { specId: string; revisions: number[]; latest: { revision: number; reviewState: string; title: string } }
 export interface SpecLibrary {
@@ -140,6 +155,39 @@ export function settleArgv(specId: string, decisions: Record<string, string>, re
  */
 export const publishArgv = (specId: string, state: 'reviewed' | 'draft'): string[] => author('publish', specId, `--${state}`);
 export const discardArgv = (specId: string): string[] => author('discard', specId);
+export function acceptArgv(specId: string, proposals: string[], editedFile: string | null, operationId: string): string[] {
+  return author('accept', specId, ...proposals, ...(editedFile ? ['--edit', editedFile] : []), '--operation-id', operationId);
+}
+export const rejectArgv = (specId: string, proposals: string[], reason: string, operationId: string): string[] =>
+  author('reject', specId, ...proposals, '--reason', reason, '--operation-id', operationId);
+export function settleFindingsArgv(specId: string, outcomes: Record<string, FindingOutcome>, reason: string | null, operationId: string): string[] {
+  return author('settle', specId, ...Object.entries(outcomes).sort(([left], [right]) => left.localeCompare(right))
+    .flatMap(([finding, outcome]) => ['--finding', `${finding}=${outcome}`]), ...(reason ? ['--reason', reason] : []), '--operation-id', operationId);
+}
+export const proposeArgv = (specId: string, file: string): string[] => author('propose', specId, '--file', file);
+
+/** The proposals a person ticked, in ID order, each one still waiting. */
+export function proposalSelection(message: Record<string, unknown>, status: SpecStatus): string[] {
+  const waiting = new Set(status.proposals.map((proposal) => proposal.id));
+  return [...new Set(strings(message.proposals).filter((id) => PROPOSAL_ID.test(id) && waiting.has(id)))].sort();
+}
+
+/** `finding:A-001` fields set to an outcome; a dismissal needs the reason. */
+export function findingsRequest(message: Record<string, unknown>, status: SpecStatus): { outcomes: Record<string, FindingOutcome>; reason: string | null; errors: string[] } {
+  const outcomes: Record<string, FindingOutcome> = {};
+  const pending = new Set(status.findings.filter((finding) => finding.status === 'pending').map((finding) => finding.id));
+  for (const [key, value] of Object.entries(message)) {
+    const id = key.startsWith('finding:') ? key.slice('finding:'.length) : '';
+    if (FINDING_ID.test(id) && pending.has(id) && FINDING_OUTCOMES.includes(value as FindingOutcome)) outcomes[id] = value as FindingOutcome;
+  }
+  const reason = text(message.reason).trim() || null;
+  const errors = !Object.keys(outcomes).length ? ['Choose how to settle at least one finding.']
+    : Object.values(outcomes).includes('dismissed') && !reason ? ['Dismissing a finding needs your reason.'] : [];
+  return { outcomes, reason, errors };
+}
+
+/** What a person types into Copilot Chat to have this specification drafted with the Studio's tool. */
+export const copilotPrompt = (specId: string, tool: boolean): string => `/sf-spec-author ${specId} ${tool ? '#sflowSpecStudio ' : ''}`;
 
 // ---- Engine answers ------------------------------------------------------------------------
 
@@ -199,7 +247,29 @@ export function statusFrom(raw: unknown): SpecStatus | null {
     rules: list(result.rules).map(record).map((entry) => ({ id: text(entry.id), label: text(entry.label), passed: entry.passed === true,
       findings: list(entry.findings).map(record).map((finding) => ({ code: text(finding.code), message: text(finding.message) })) })),
     articles: list(result.articles).map(record).map((entry) => ({ article: text(entry.article), decision: typeof entry.decision === 'string' ? entry.decision : null, reason: typeof entry.reason === 'string' ? entry.reason : null })),
-    clauseIds: strings(result.clauseIds), damagedSnapshots: count(result.damagedSnapshots)
+    clauseIds: strings(result.clauseIds), damagedSnapshots: count(result.damagedSnapshots),
+    proposals: list(result.proposals).map(proposalFrom).filter((entry): entry is SpecProposal => entry !== null),
+    findings: list(result.findings).map(record).filter((entry) => FINDING_ID.test(text(entry.id))).map((entry) => ({
+      id: text(entry.id), article: text(entry.article), message: text(entry.message), clauses: strings(entry.clauses),
+      status: (['pending', ...FINDING_OUTCOMES] as string[]).includes(text(entry.status)) ? text(entry.status) as SpecAssistedFinding['status'] : 'pending',
+      reason: typeof entry.reason === 'string' ? entry.reason : null, gap: typeof entry.gap === 'string' ? entry.gap : null
+    }))
+  };
+}
+
+function proposalFrom(value: unknown): SpecProposal | null {
+  const entry = record(value);
+  const kind = text(entry.kind);
+  if (!PROPOSAL_ID.test(text(entry.id)) || !['edit', 'research', 'gap'].includes(kind)) return null;
+  const citation = record(entry.citation);
+  const lines = list(citation.lines).filter((line): line is number => typeof line === 'number');
+  return {
+    id: text(entry.id), kind: kind as SpecProposal['kind'], summary: typeof entry.summary === 'string' ? entry.summary : null, notes: strings(entry.notes),
+    basisSequence: count(record(entry.basis).sequence), proposedBy: person(entry.proposedBy),
+    ...(kind === 'edit' ? { spec: text(entry.spec), stale: entry.stale === true } : {}),
+    ...(kind === 'research' ? { citation: typeof citation.path === 'string' && lines.length === 2 ? { path: citation.path, lines: [lines[0]!, lines[1]!] } : null, verified: entry.verified === true } : {}),
+    ...(kind === 'gap' ? { gapKind: text(entry.gapKind), question: text(entry.question), evidence: strings(entry.evidence), clauses: strings(entry.clauses),
+      options: list(entry.options).map(record).map((option) => ({ id: text(option.id), wording: text(option.wording), changesCode: option.changesCode !== false })) } : {})
   };
 }
 
@@ -417,7 +487,7 @@ export function stepStates(status: SpecStatus | null): Record<SpecStudioStep, { 
     research: { state: stale ? 'open' : status.researchItems.length ? 'done' : 'idle', note: stale ? `${stale} need attention` : `${status.researchItems.length} item(s)` },
     draft: { state: placeholders && !placeholders.passed ? 'open' : 'done', note: `snapshot ${status.sequence}` },
     gaps: { state: open ? 'open' : 'done', note: open ? `${open} open` : `${status.gaps.length} closed` },
-    check: { state: status.reviewReady ? 'done' : 'open', note: `D ${status.counts.d.passed}/${status.counts.d.total} · H ${status.counts.h.open} open` },
+    check: { state: status.reviewReady ? 'done' : 'open', note: `D ${status.counts.d.passed}/${status.counts.d.total}${status.counts.a.pending ? ` · A ${status.counts.a.pending} pending` : ''} · H ${status.counts.h.open} open` },
     publish: { state: status.basedOn ? 'done' : 'idle', note: status.basedOn ? `@${status.basedOn.revision} ${status.basedOn.reviewState}` : 'not yet published' },
     attach: { state: status.basedOn?.reviewState === 'reviewed' ? 'open' : 'idle', note: status.basedOn?.reviewState === 'reviewed' ? `@${status.basedOn.revision} can be attached` : 'needs a reviewed revision' }
   };

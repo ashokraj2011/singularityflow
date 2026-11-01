@@ -70,6 +70,9 @@ export function mutationTurnMode(skill) {
   // /sf-fix-workflow reads `workflow validate` and `workflow check`, writes the one change set draft
   // `workflow validate` issued, and proposes it through Workflow Studio's reviewed apply (fixWorkflowGuard).
   if (name === 'fix-workflow') return 'fix-workflow';
+  // /sf-spec-author reads a specification draft, collects cited research and stages one issued
+  // proposal file; a person accepts each proposal (specStudioGuard, SPEC-SPA v1.3 §4.1).
+  if (name === 'spec-author') return 'spec-studio';
   if (AUTHORING_SKILL_DECLARATION[`sflow-${name}`]) return 'authoring';
   // /sf-specify, /sf-plan and /sf-verify run `prepare` and write the current step's artifacts, and
   // /sf-implement, /sf-call and /sf-scenario-repair run /sf-code (/sf-call a document step through
@@ -158,7 +161,7 @@ export function deriveMutationContract({ root = null, definition, workflow, phas
     : turnMode === 'publish-only'
       ? [route(['phase', 'publish', phase.id, '--authored', phasePublicationContract(phase).producer,
         '--channel', phasePublicationContract(phase).channel], 'Recheck publication readiness first; publish only when the kernel returns ready. Never author, submit or approve.')]
-    : ['approval-only', 'session-only', 'read', 'read-only-review', 'import-team', 'build-workflow', 'fix-workflow', 'confirm', 'run-and-test'].includes(turnMode)
+    : ['approval-only', 'session-only', 'read', 'read-only-review', 'import-team', 'build-workflow', 'fix-workflow', 'confirm', 'run-and-test', 'spec-studio'].includes(turnMode)
       ? [route(['nextsteps', '--json'], 'End this turn. Inspect the next action in a new turn; do not author now.')]
       // A step returned for rework opens its successor with begin (phase-authoring-progress.mjs).
       : code && phase.generationIntent?.status === 'consumed' && !(editable && consumedByPublishedGeneration(phase))

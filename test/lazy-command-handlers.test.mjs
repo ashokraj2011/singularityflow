@@ -234,6 +234,9 @@ test('frequent lifecycle handlers do not reach the legacy dispatcher and stay un
     // the spec-usage record family (schema-migrations.mjs +338), the attach own-terminal step (command-skills.mjs),
     // the --allow-partial-dependency flag (util.mjs) and the usage helper's build identity add 3,649 for 9,310,634.
     // The slice and usage modules load only for --spec; no new eager file.
+    // 9,315,000 holds: main db46b5458 measures 9,310,634. Copilot's proposals (SPEC-SPA v1.3 S4) add 718 for
+    // 9,311,352: accept and reject as own-terminal steps and the /sf-spec-author routes (command-skills.mjs) and the
+    // spec-studio turn mode (phase-mutation-contract.mjs); no new eager file.
     assert.ok(closure.bytes <= 9_315_000, `${file} exceeds the 9 MB eager-source budget (${closure.bytes} bytes)`);
   }
 });

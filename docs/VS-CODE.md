@@ -116,7 +116,12 @@ The Navigator keeps related work together instead of adding a second dashboard h
   identity; publishing asks once, naming the revision; discarding a draft asks for the specification
   ID; Back and Cancel write nothing. Attach shows the `--spec SPEC-ID@N=CLAUSES` option Story start
   takes, and the revision's coverage. A Story that started with a slice opens the Studio at it from
-  View Story intake details. Nothing in the Studio calls a model.
+  View Story intake details. Nothing in the Studio calls a model. With Copilot allowed, **Ask
+  Copilot** opens Copilot Chat with `/sf-spec-author SPEC-ID #sflowSpecStudio`: Copilot reads the
+  draft and stages proposals (prose edits, cited research, gaps, assisted checklist findings). They
+  wait in the Copilot tab until you accept or reject each one; assisted findings wait in Check, and
+  a reviewed publication waits until you settle them. An edit proposed against older prose can only
+  be accepted with your own merge of it.
 - **Local Data & Reset** is under Workspaces. Neither reset mode is preselected. Forget-only
   requires `FORGET LOCAL`; physical workspace deletion requires `RESET LOCAL` and is available
   only from an empty VS Code window with no target workspace open.

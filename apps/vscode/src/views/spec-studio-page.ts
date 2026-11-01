@@ -1,14 +1,15 @@
 /**
  * The Spec Studio page (SPEC-SPA v1.3 §3): the library, or one specification in three columns.
  * Left: the quality gate, the governed records, the authoring loop's steps and the gap pipeline.
- * Middle: the active step's stage. Right: `spec.md` clause by clause. Below: findings and manifest.
+ * Middle: the active step's stage. Right: `spec.md` clause by clause. Below: findings, manifest and
+ * what Copilot proposed (S4), which only the person's own clicks accept, reject or settle.
  * Every button posts a message; the host runs the `spec author` command and renders again.
  */
 import { brandLockup, escape, icon } from './webview.ts';
 import {
-  CHECKLIST_DECISIONS, draftRecords, gapPipeline, gateLine, GAP_KINDS, MAXIMUM_OPTIONS, nextRevision, sectionText, shortClause, sliceOption,
+  CHECKLIST_DECISIONS, copilotPrompt, draftRecords, FINDING_OUTCOMES, gapPipeline, gateLine, GAP_KINDS, MAXIMUM_OPTIONS, nextRevision, sectionText, shortClause, sliceOption,
   SPEC_STUDIO_STEPS, specBlocks, specClauses, startCommand, stepStates,
-  type SpecCoverage, type SpecGap, type SpecGapImpact, type SpecLibrary, type SpecResearchItem, type SpecRevision, type SpecStatus,
+  type SpecCoverage, type SpecGap, type SpecGapImpact, type SpecLibrary, type SpecProposal, type SpecResearchItem, type SpecRevision, type SpecStatus,
   type SpecStudioStep, type SpecStudioTarget
 } from './spec-studio-model.ts';
 
@@ -26,6 +27,8 @@ export interface SpecStudioPageState {
   notice: string | null;
   error: { message: string; next: string | null } | null;
   busy: string | null;
+  /** Copilot Chat can draft here (models allowed), and whether #sflowSpecStudio is bound to this draft. */
+  copilot?: { available: boolean; tool: boolean } | null;
 }
 
 const who = (value: { name: string | null } | null | undefined): string => value?.name ?? 'someone';
@@ -251,7 +254,7 @@ function checkStage(status: SpecStatus): string {
   const open = status.gaps.filter((gap) => gap.status === 'open');
   return `<h2>${icon('gate')}Check</h2>
     <h3>D · deterministic</h3><ul class="ss-rules" data-rules>${rules}</ul>
-    <h3>A · assisted</h3><p class="muted">${status.counts.a.status === 'not-run' ? 'Not run: no assisted findings. That is allowed, and the manifest says so.' : `${status.counts.a.pending} pending`}</p>
+    <h3>A · assisted</h3>${assistedHtml(status)}
     <h3>H · human</h3>
     ${open.length ? `<p>Open gaps: ${open.map((gap) => `<button type="button" class="ss-link" data-message="spec.gap" data-gap="${escape(gap.id)}">${escape(gap.id)}</button>`).join(' ')}</p>` : '<p class="muted">No open gap.</p>'}
     <form class="ss-form" data-form="spec.settle"><table class="ss-table"><thead><tr><th>Checklist article</th><th>Decision</th></tr></thead><tbody>${status.articles.map((entry) => `<tr>
@@ -334,6 +337,54 @@ function stageHtml(state: SpecStudioPageState): string {
   return `<section class="ss-stage" data-stage="${state.step}" aria-label="${escape(SPEC_STUDIO_STEPS.find((entry) => entry.id === state.step)?.label ?? '')}">${body}</section>`;
 }
 
+const FINDING_LABELS: Record<string, string> = { gap: 'Open it as a gap', fixed: 'Fixed in the prose', dismissed: 'Dismiss, with a reason' };
+
+/** Part A: Copilot's checklist findings, each pending until the person settles it here. */
+function assistedHtml(status: SpecStatus): string {
+  if (status.counts.a.status === 'not-run' && !status.findings.length) return '<p class="muted">Not run: no assisted findings. That is allowed, and the manifest says so.</p>';
+  const pending = status.findings.filter((finding) => finding.status === 'pending');
+  const settled = status.findings.filter((finding) => finding.status !== 'pending');
+  return `<p class="muted">${pending.length ? `${pending.length} pending: a reviewed publication waits until you settle each one.` : 'Run; nothing pending.'}</p>
+    ${pending.length ? `<form class="ss-form" data-form="spec.settleFindings" data-findings><table class="ss-table ss-findings"><thead><tr><th>ID</th><th>Article</th><th>What Copilot found</th><th>Settle</th></tr></thead><tbody>${pending.map((finding) => `<tr data-finding="${escape(finding.id)}">
+      <td>${escape(finding.id)}</td><td>${escape(finding.article.replaceAll('-', ' '))}</td><td>${escape(finding.message)}${finding.clauses.length ? ` <small>(${escape(finding.clauses.join(', '))})</small>` : ''}</td>
+      <td><select name="finding:${escape(finding.id)}" aria-label="Settle ${escape(finding.id)}"><option value="">Not yet</option>${FINDING_OUTCOMES.map((outcome) => `<option value="${outcome}">${escape(FINDING_LABELS[outcome]!)}</option>`).join('')}</select></td></tr>`).join('')}</tbody></table>
+      <label class="field"><span>Reason (needed to dismiss)</span><textarea name="reason" rows="2"></textarea></label>
+      <div class="ss-controls"><button type="submit">${icon('approval')}Settle findings</button></div></form>` : ''}
+    ${settled.length ? `<ul class="ss-settled">${settled.map((finding) => `<li>${escape(finding.id)} ${escape(finding.article.replaceAll('-', ' '))}: ${escape(finding.status)}${finding.gap ? ` as ${escape(finding.gap)}` : ''}${finding.reason ? ` · ${escape(finding.reason)}` : ''}</li>`).join('')}</ul>` : ''}`;
+}
+
+function proposalBody(proposal: SpecProposal): string {
+  if (proposal.kind === 'edit') {
+    return `<details><summary>The proposed prose${proposal.stale ? ' (made against an older snapshot)' : ''}</summary><pre class="ss-proposed">${escape(proposal.spec ?? '')}</pre></details>
+      ${proposal.stale ? `<p class="ss-stale">${icon('warning')}The prose changed since snapshot ${proposal.basisSequence}. Ask Copilot again, or merge it yourself and accept your text:</p>
+      <form class="ss-form" data-form="spec.acceptEdited"><input type="hidden" name="proposal" value="${escape(proposal.id)}"><textarea name="text" rows="8" aria-label="Your merge of ${escape(proposal.id)}">${escape(proposal.spec ?? '')}</textarea>
+        <div class="ss-controls"><button type="submit">${icon('approval')}Accept ${escape(proposal.id)} with this text</button></div></form>` : ''}`;
+  }
+  if (proposal.kind === 'research') {
+    return proposal.citation ? `<p><button type="button" class="ss-link" data-message="spec.openCitation" data-path="${escape(proposal.citation.path)}" data-line="${proposal.citation.lines[0]}">${escape(proposal.citation.path)}:${proposal.citation.lines[0]}-${proposal.citation.lines[1]}</button> verified against the code</p>`
+      : '<p class="ss-stale">Unverified: it cites no code, so it can support no gap and blocks a reviewed publication until it is removed.</p>';
+  }
+  return `<p><strong>${escape(proposal.question ?? '')}</strong> <small>${escape((proposal.gapKind ?? '').replaceAll('-', ' '))}${proposal.evidence?.length ? ` · evidence ${escape(proposal.evidence.join(', '))}` : ''}</small></p>
+    ${proposal.options?.length ? `<ol>${proposal.options.map((option) => `<li>${escape(option.id)}: ${escape(option.wording)}${option.changesCode ? '' : ' <small>(keeps the code)</small>'}</li>`).join('')}</ol>` : ''}`;
+}
+
+/** The Copilot tab: what Copilot staged, for the person to take or turn down, and how to ask it. */
+function copilotHtml(state: SpecStudioPageState, status: SpecStatus): string {
+  const copilot = state.copilot;
+  const ask = copilot?.available ? `<p><button type="button" data-message="spec.askCopilot">${icon('agent')}Ask Copilot to draft or check</button>
+    <small class="muted">Opens Copilot Chat with <code>${escape(copilotPrompt(status.specId, copilot.tool))}</code>. It only proposes; you accept here.</small></p>`
+    : '<p class="muted">Copilot is off for this window, so nothing is proposed here; every step works by hand.</p>';
+  const waiting = status.proposals;
+  const list = waiting.length ? `<form class="ss-form" data-form="spec.proposals"><ul class="ss-proposals">${waiting.map((proposal) => `<li data-proposal="${escape(proposal.id)}">
+      <label class="ss-check"><input type="checkbox" name="proposals[]" value="${escape(proposal.id)}"${proposal.kind === 'edit' && proposal.stale ? ' disabled' : ''}><strong>${escape(proposal.id)}</strong> ${escape(proposal.kind)}${proposal.summary ? `: ${escape(proposal.summary)}` : ''}</label>
+      ${proposalBody(proposal)}</li>`).join('')}</ul>
+      <label class="field"><span>Reason (needed to reject)</span><textarea name="reason" rows="2"></textarea></label>
+      <div class="ss-controls"><button type="submit" name="decision" value="accept">${icon('approval')}Accept selected</button><button type="submit" class="secondary" name="decision" value="reject">Reject selected</button></div></form>`
+    : '<p class="muted">Nothing is waiting for you.</p>';
+  const pending = status.findings.filter((finding) => finding.status === 'pending').length;
+  return `${ask}${list}${pending ? `<p>${pending} assisted finding(s) to settle: <button type="button" class="ss-link" data-message="spec.step" data-step="check">Check</button></p>` : ''}`;
+}
+
 function tabsHtml(state: SpecStudioPageState): string {
   const status = state.status;
   const findings = status ? (status.blocking.length ? `<ul>${status.blocking.map((finding) => `<li><strong>${escape(finding.part)}</strong> <code>${escape(finding.code)}</code> ${escape(finding.message)}</li>`).join('')}</ul>`
@@ -345,8 +396,10 @@ function tabsHtml(state: SpecStudioPageState): string {
     : status?.basedOn ? `<p>Based on @${status.basedOn.revision}: <code>${escape(status.basedOn.manifestSha256)}</code></p>` : '<p class="muted">Nothing published yet.</p>';
   return `<section class="ss-tabs" aria-label="Findings and manifest">
     <div role="tablist"><button type="button" role="tab" aria-selected="true" data-tab="findings">Quality findings${status ? ` (${status.blocking.length})` : ''}</button>
-      <button type="button" role="tab" aria-selected="false" data-tab="manifest">State-branch manifest</button></div>
-    <div role="tabpanel" data-panel="findings">${findings}</div><div role="tabpanel" data-panel="manifest" hidden>${manifest}</div></section>`;
+      <button type="button" role="tab" aria-selected="false" data-tab="manifest">State-branch manifest</button>
+      ${status ? `<button type="button" role="tab" aria-selected="false" data-tab="copilot">Copilot (${status.proposals.length})</button>` : ''}</div>
+    <div role="tabpanel" data-panel="findings">${findings}</div><div role="tabpanel" data-panel="manifest" hidden>${manifest}</div>
+    ${status ? `<div role="tabpanel" data-panel="copilot" hidden>${copilotHtml(state, status)}</div>` : ''}</section>`;
 }
 
 export function specStudioHtml(state: SpecStudioPageState): string {
@@ -427,6 +480,12 @@ body:has(.ss-root) { max-width:none; }
 .ss-columns-2 { display:grid; grid-template-columns:minmax(0,1.4fr) minmax(16rem,1fr); gap:1.5rem; }
 @media (max-width: 900px) { .ss-columns-2 { grid-template-columns:minmax(0,1fr); } }
 .ss-tabs [role=tablist] { display:flex; gap:.4rem; margin-bottom:.6rem; }
+.ss-proposals { list-style:none; padding:0; margin:0 0 .6rem; display:grid; gap:.6rem; }
+.ss-proposals > li { padding:.5rem .6rem; border:var(--sf-border); border-radius:var(--sf-radius); }
+.ss-proposed { max-height:16rem; overflow:auto; white-space:pre-wrap; }
+.ss-findings th, .ss-findings td { overflow-wrap:normal; word-break:normal; }
+.ss-findings td:first-child, .ss-findings td:last-child { white-space:nowrap; }
+.ss-stale { color:var(--vscode-editorWarning-foreground); }
 .ss-tabs [role=tab][aria-selected="true"] { border-color:var(--sf-accent); background:var(--sf-accent-quiet); }
 `;
 
@@ -522,6 +581,7 @@ export const SPEC_STUDIO_SCRIPT = `
     event.preventDefault();
     if (form.dataset.form === 'spec.slice') return;
     const value = fields(form);
+    if (event.submitter && event.submitter.name) value[event.submitter.name] = event.submitter.value;
     const transform = transforms[form.dataset.form];
     for (const button of form.querySelectorAll('button[type=submit]')) button.disabled = true;
     post(Object.assign({ type: form.dataset.form }, transform ? transform(value) : value));

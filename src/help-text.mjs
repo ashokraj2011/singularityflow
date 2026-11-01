@@ -669,13 +669,17 @@ Usage:
   singularity-flow spec author gaps SPEC-ID [GAP-ID] [--json]
   singularity-flow spec author decide SPEC-ID GAP-ID (--option ON | --choice TEXT | --defer --owner NAME | --reopen)
     --reason TEXT [--json]
-  singularity-flow spec author settle SPEC-ID (--article ARTICLE=DECISION... | --all-articles DECISION) [--reason TEXT] [--json]
+  singularity-flow spec author propose SPEC-ID --file FILE [--json]
+    stage Copilot's proposals (edit, research, gap) and assisted checklist findings; nothing is in the draft until accepted
+  singularity-flow spec author accept SPEC-ID P-NNN... [--edit FILE] [--json] | reject SPEC-ID P-NNN... --reason TEXT [--json]
+  singularity-flow spec author settle SPEC-ID (--article ARTICLE=DECISION... | --all-articles DECISION | --finding A-NNN=gap|fixed|dismissed...)
+    [--reason TEXT] [--json]
   singularity-flow spec author check|status SPEC-ID [--json]
   singularity-flow spec author publish SPEC-ID (--reviewed | --draft) [--json]
   singularity-flow spec author show SPEC-ID[@N] [--any] [--json] | list [--json] | discard SPEC-ID [--json]
     the specification library: one draft per specification on this clone, research cited from the
     code, gaps a person decides, a check with no model, immutable revisions on the state branch;
-    deciding, settling, publishing and discarding are the person's own steps; writes take --operation-id ID
+    accepting, rejecting, deciding, settling, publishing and discarding are the person's own steps; writes take --operation-id ID
   singularity-flow spec author coverage SPEC-ID@N [--repair --story WORK-ID] [--json]
     per clause of one revision: delivered, claimed or uncovered by Stories, from one state commit;
     --repair writes the usage records a Story's committed approval or closing proves

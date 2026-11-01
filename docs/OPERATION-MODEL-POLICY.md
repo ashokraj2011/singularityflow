@@ -724,6 +724,7 @@ Every public operation is classified before its implementation module is importe
 | spec.analyze | read | never | — | — |
 | spec.analyze.assisted | mutation | optional | spec.analyze | copilot-cli |
 | spec.attach | mutation | never | — | — |
+| spec.author.accept | mutation | never | — | — |
 | spec.author.check | read | never | — | — |
 | spec.author.coverage | read | never | — | — |
 | spec.author.coverage.repair | mutation | never | — | — |
@@ -734,7 +735,9 @@ Every public operation is classified before its implementation module is importe
 | spec.author.gaps | read | never | — | — |
 | spec.author.list | read | never | — | — |
 | spec.author.new | mutation | never | — | — |
+| spec.author.propose | mutation | never | — | — |
 | spec.author.publish | mutation | never | — | — |
+| spec.author.reject | mutation | never | — | — |
 | spec.author.research | mutation | never | — | — |
 | spec.author.settle | mutation | never | — | — |
 | spec.author.show | read | never | — | — |

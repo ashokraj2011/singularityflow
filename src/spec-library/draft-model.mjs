@@ -111,6 +111,9 @@ export function openGap(draft, { kind, question, evidence = [], clauses = [], op
   const known = new Set(draft.research.map((item) => item.id));
   const unknown = evidence.filter((id) => !known.has(id));
   if (unknown.length) fail(`Evidence ${unknown.join(', ')} is not a research item of this draft.`, 'SPEC_GAP_EVIDENCE_UNKNOWN', { evidence: unknown });
+  // A code fact that cites nothing (a proposal accepted unverified) supports no gap (§4.2).
+  const uncited = evidence.filter((id) => draft.research.some((item) => item.id === id && item.basis === 'code' && !item.citation));
+  if (uncited.length) fail(`Evidence ${uncited.join(', ')} cites no code, so it can support no gap; research the code it is about, or remove it.`, 'SPEC_GAP_EVIDENCE_UNVERIFIED', { evidence: uncited });
   const gap = formatGapId(nextNumber(foldGaps(draft.gaps).map((entry) => entry.id), 'GAP-'));
   draft.gaps.push({ event: 'opened', gap, kind, question: text(question), evidence: [...new Set(evidence)],
     clauses: [...new Set(clauses)], options: normalizeOptions(options), by: who(actor), at });

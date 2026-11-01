@@ -1,6 +1,6 @@
 # SPEC-SPA v1.3 — Spec Studio
 
-**Status:** accepted. S0 (inventory: [SPEC-STUDIO-S0-INVENTORY.md](SPEC-STUDIO-S0-INVENTORY.md)), S1 (the model-free library), S2 (Story slices; its live Copilot check ran on 1 November, §10.1, and found REQ-018 unmet) and S3 (the Studio panel, model-free, verified in real VS Code) have landed; S4 and S5 are to come.
+**Status:** accepted. S0 (inventory: [SPEC-STUDIO-S0-INVENTORY.md](SPEC-STUDIO-S0-INVENTORY.md)), S1 (the model-free library), S2 (Story slices; its live Copilot check ran on 1 November, §10.1, and found REQ-018 unmet), S3 (the Studio panel, model-free, verified in real VS Code) and S4 (generation: proposals, assisted findings, `/sf-spec-author`, the `spec-studio` turn mode and `#sflowSpecStudio`, built and verified model-free; its paid live Copilot authoring run has not run) have landed; S5 is to come.
 **Author:** Singularity Flow
 **Date:** 31 October 2026
 **Namespace:** SPA. Clause IDs here replace v1.2's; an older clause is cited as "v1.2 REQ-015".
@@ -100,7 +100,7 @@ Seven steps, shown in the left column. A person can move between them freely. On
 
 ### 4.1 Generation is proposal-only
 
-Copilot generates through a `/sf-spec` skill and a `#sflowSpecStudio` chat tool, the way the workflow builder works through `/sf-build-workflow` and `#sflowWorkflowBuilder`. Each Copilot output is a proposal: a draft edit, a research item, a gap with options, or an A-check finding. It is validated when staged and lands in the draft only when a person accepts it. One acceptance can take many proposals. [SPA:REQ-006]
+Copilot generates through a `/sf-spec-author` skill (`/sf-spec` stays the traceability skill it was, so the authoring turn has its own name) and a `#sflowSpecStudio` chat tool, the way the workflow builder works through `/sf-build-workflow` and `#sflowWorkflowBuilder`. Each Copilot output is a proposal: a draft edit, a research item, a gap with options, or an A-check finding. It is validated when staged and lands in the draft only when a person accepts it. One acceptance can take many proposals. [SPA:REQ-006]
 
 A Copilot turn on a spec is a new turn mode, `spec-studio`. Its spec commands are reads plus proposal staging. Accepting proposals, deciding or deferring gaps, settling A and H, publishing, splitting and discarding are person-only. They MUST be own-terminal steps in `copilot-mutation-guard.mjs`: an agent is refused and given the person's exact command line. [SPA:REQ-007]
 
@@ -230,7 +230,8 @@ Every family is registered in `schema-migrations.mjs` with current and future-ve
 | `spec author gaps SPEC-ID [GAP-ID]` | anyone | Read: gaps with each option's computed impact |
 | `spec author decide SPEC-ID GAP-ID (--option O1 \| --choice TEXT \| --defer --owner NAME \| --reopen) --reason TEXT` | person | Closes, defers or reopens a gap |
 | `spec author check SPEC-ID [--json]` | anyone | The quality report |
-| `spec author settle SPEC-ID (--article ARTICLE=DECISION... \| --all-articles DECISION) [--reason TEXT]` | person | Settles H checklist articles (A findings arrive with S4) |
+| `spec author reject SPEC-ID PROPOSAL-ID... --reason TEXT` | person | Turns proposals down; the draft is unchanged |
+| `spec author settle SPEC-ID (--article ARTICLE=DECISION... \| --all-articles DECISION \| --finding A-NNN=gap\|fixed\|dismissed...) [--reason TEXT]` | person | Settles H checklist articles and A findings: `gap` opens one from the finding, `fixed` needs the prose changed since, `dismissed` needs the reason |
 | `spec author publish SPEC-ID (--draft \| --reviewed)` | person | Publishes the next revision |
 | `spec author show SPEC-ID[@N]`, `spec author list`, `spec author status SPEC-ID` | anyone | Reads; `status` is the host's one call for the Studio |
 | `spec author discard SPEC-ID` | person | Removes the local draft |
@@ -253,7 +254,7 @@ Ordered so that the core value, a Story that sees and delivers its spec slice, i
 | S1 | Library core, model-free: drafts, research collection, gaps and decisions, check (D and H), publish, show, list | AC-001 to AC-010 |
 | S2 | Slices: attach at start and before the first approval, the slice in the Story source, the scope gate, usage records, coverage | AC-011 to AC-017, plus a **live Copilot check** (paid; asked for first): two Stories per arm, with and without the slice, counting settled questions asked again |
 | S3 | The Studio panel, model-free: three columns, gap resolver with computed impact, check, publish, attach, coverage | AC-018 to AC-021, verified in real VS Code |
-| S4 | Generation: `/sf-spec`, the `spec-studio` turn mode, the chat tool, proposals of every kind, A checks | AC-022 to AC-025, plus one live Copilot authoring run (paid; asked for first) |
+| S4 | Generation: `/sf-spec-author`, the `spec-studio` turn mode, the chat tool, proposals of every kind, A checks | AC-022 to AC-025, plus one live Copilot authoring run (paid; asked for first). Landed model-free; the live run waits for the go-ahead |
 | S5 | Split: split plan, child drafts, Story start commands, "parent moved" | AC-026 to AC-029 |
 
 | ID | Scenario | Observable result |

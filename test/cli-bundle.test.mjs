@@ -184,7 +184,11 @@ test('the bundled CLI answers exactly like the sources while opening a handful o
   // 4,630,000: main 7b8cad8f1 measures 4,623,905; a Windows 8.3 short name compared as the filesystem spells it
   // (util.mjs samePlatformPath) and the person's line endings for the destructive proof's own status reads
   // (source-inspection.mjs) add 1,523 for 4,625,428. No new file.
-  assert.ok(narrowReads < 4_630_000,
+  // 4,635,000: main db46b5458 measures 4,627,164; Copilot's proposals (SPEC-SPA v1.3 S4) add 4,533 for 4,631,697: the
+  // spec-studio turn's guard, turn-end check and proposal-file issuer (copilot-mutation-guard.mjs), accept and reject
+  // as own-terminal steps and the /sf-spec-author routes (command-skills.mjs), the three actions in the registry. The
+  // proposal engine loads with its handler (cold-phases). No new file.
+  assert.ok(narrowReads < 4_635_000,
     `strict next-step reads must not inherit the broad phase-review closure (${narrowReads} bytes)`);
   const publicationClosure = closure('cold-publication.mjs');
   assert.ok(publicationClosure.length && publicationClosure.reduce((sum, item) => sum + item.bytes, 0) < 6 * 1024 * 1024,
@@ -372,6 +376,8 @@ test('the bundled CLI answers exactly like the sources while opening a handful o
   // 7,705,000: main 68fb64d51 measures 7,698,066; a Story's specification slice in its source, scope statements and
   // USER-STORY.md, and the usage-record step after an approval lands (SPEC-SPA v1.3 S2) add 2,027 for 7,700,093.
   // One new file, commands/shared/record-spec-usage-after-transition.mjs; the usage records load only for a sliced Story.
+  // 7,705,000 holds: main db46b5458 measures 7,700,093; the same S4 turn, routes and turn mode add 4,533 for
+  // 7,704,626. No new file.
   assert.ok(hookContext < 7_705_000,
     `phase-review reads retain their existing byte ceiling after moving families (${hookContext} bytes)`);
   assert.match(await readFile(path.join(outdir, 'cold-light.mjs'), 'utf8'), /function enterPhase\b/u,
@@ -446,7 +452,9 @@ test('the bundled CLI answers exactly like the sources while opening a handful o
   // boolean flags and tree listing add 3,671 for 5,471,842. No new file.
   // 5,480,000: main 7b8cad8f1 measures 5,473,546; the same short-name comparisons and status line endings add 1,581
   // for 5,475,127. No new file.
-  assert.ok(catalogBytes < 5_480_000,
+  // 5,485,000: main db46b5458 measures 5,476,863; the same S4 turn, own-terminal steps, routes and actions add 4,533
+  // for 5,481,396. No new file.
+  assert.ok(catalogBytes < 5_485_000,
     `catalog parsing stays bounded instead of pulling in the entire administration bundle (${catalogBytes} bytes)`);
   for (const name of ['cold-compatibility.mjs', 'cold-models.mjs', 'cold-intake.mjs', 'cold-phases.mjs', 'cold-hook-context.mjs']) {
     assert.ok(!catalogClosure.some(item => item.file === name), `catalogs must not statically reach ${name}`);

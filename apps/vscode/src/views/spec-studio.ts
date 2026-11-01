@@ -7,6 +7,8 @@
  * writes no Git and no repository file: prose and gap options reach `edit` and `gap` through a file
  * in a private temporary folder that is removed after the one command. Publishing and discarding ask
  * once on a review page; closing a gap is one choice plus a rationale. Back and Cancel write nothing.
+ * Copilot (S4) stages proposals and assisted findings through `spec author propose`, from chat or the
+ * #sflowSpecStudio tool bound to the open draft; only the person's clicks here accept, reject or settle.
  */
 import { randomUUID } from 'node:crypto';
 import { mkdtemp, rm, writeFile } from 'node:fs/promises';
@@ -52,6 +54,8 @@ export class SpecStudioPanel implements vscode.Disposable {
   private opening = true;
   private running = false;
   private disposed = false;
+  /** #sflowSpecStudio, bound to the draft open here while models are allowed. */
+  private tool: { spec: string; dispose(): void } | null = null;
 
   private constructor(panel: vscode.WebviewPanel, client: Client, target: model.SpecStudioTarget, hooks: SpecStudioHooks) {
     this.panel = panel;
@@ -86,7 +90,7 @@ export class SpecStudioPanel implements vscode.Disposable {
 
   private fresh(target: model.SpecStudioTarget): SpecStudioPageState {
     return { target, step: target.step ?? (target.revision || target.clauses ? 'attach' : 'elicit'), library: this.state?.library ?? null,
-      status: null, revision: null, coverage: null, selectedGap: null, impact: null, notice: null, error: null, busy: null };
+      status: null, revision: null, coverage: null, selectedGap: null, impact: null, notice: null, error: null, busy: null, copilot: null };
   }
 
   private retarget(target: model.SpecStudioTarget): void {
@@ -121,6 +125,10 @@ export class SpecStudioPanel implements vscode.Disposable {
     'spec.defer': (message) => this.guard(() => this.decide(stringField(message, 'gap'), { defer: true, owner: textField(message, 'owner').trim() }, textField(message, 'reason'))),
     'spec.reopen': (message) => this.guard(() => this.decide(stringField(message, 'gap'), { reopen: true }, textField(message, 'reason'))),
     'spec.settle': (message) => this.guard(() => this.settle(message)),
+    'spec.settleFindings': (message) => this.guard(() => this.settleFindings(message)),
+    'spec.proposals': (message) => this.guard(() => this.takeProposals(message)),
+    'spec.acceptEdited': (message) => this.guard(() => this.acceptEdited(stringField(message, 'proposal'), textField(message, 'text'))),
+    'spec.askCopilot': () => this.askCopilot(),
     'spec.publish': (message) => this.guard(() => this.publish(enumField(message, 'state', ['reviewed', 'draft'] as const))),
     'spec.discard': () => this.guard(() => this.discard()),
     'spec.attachRevision': (message) => this.guard(async () => { await this.readRevision(integerField(message, 'revision'), true); this.render(); }),
@@ -165,6 +173,7 @@ export class SpecStudioPanel implements vscode.Disposable {
     ]);
     this.state.library = library;
     this.state.status = status;
+    this.bindTool(status?.specId ?? null);
     if (!specId) return;
     if (this.opening && status && !this.state.target.revision && !this.state.target.clauses) {
       const chosen = stepFor(status);
@@ -347,6 +356,70 @@ export class SpecStudioPanel implements vscode.Disposable {
       () => `Recorded ${Object.keys(decisions).length} checklist decision(s).`);
   }
 
+  private modelAvailable(): boolean {
+    return vscode.workspace.getConfiguration('singularityFlow').get<string>('modelMode', 'auto') !== 'disabled'
+      && !vscode.workspace.getConfiguration('chat').get<boolean>('disableAIFeatures', false);
+  }
+
+  /** Bind #sflowSpecStudio to the draft shown, or release it when there is none or models are off. */
+  private bindTool(specId: string | null): void {
+    const available = this.modelAvailable();
+    if (this.tool && (this.tool.spec !== specId || !available)) { this.tool.dispose(); this.tool = null; }
+    if (specId && available && !this.tool) {
+      try {
+        const runtime = require(path.join(__dirname, 'workflow-intent-runtime.cjs')) as typeof import('../workflow-intent-runtime.ts');
+        const attached = runtime.attachSpecStudioTool(specId, {
+          run: (args) => this.client.run(args),
+          propose: (payload) => this.withFile('proposal.json', `${JSON.stringify(payload)}\n`, (file) => this.client.run(model.proposeArgv(specId, file))),
+          recorded: () => { if (this.state.status?.specId === specId) void this.guard(() => this.load()); }
+        });
+        this.tool = attached.available ? { spec: specId, dispose: () => attached.dispose() } : null;
+      } catch { this.tool = null; }
+    }
+    this.state.copilot = specId ? { available, tool: Boolean(this.tool) } : null;
+  }
+
+  /** Copilot Chat with /sf-spec-author for this draft; what it proposes appears in the Copilot tab. */
+  private async askCopilot(): Promise<void> {
+    const status = this.state.status;
+    if (!status || !this.modelAvailable()) return;
+    await vscode.commands.executeCommand('workbench.action.chat.open', { query: model.copilotPrompt(status.specId, Boolean(this.tool)), isPartialQuery: true });
+    this.state.notice = 'Copilot Chat is open for this draft. Its proposals appear in the Copilot tab; only you accept them.';
+    this.render();
+  }
+
+  /** Accept or reject the proposals the person ticked: one command, signed with their Git identity. */
+  private async takeProposals(message: InboundMessage): Promise<void> {
+    const status = this.state.status;
+    if (!status) return;
+    const chosen = model.proposalSelection(message, status);
+    const decision = enumField(message, 'decision', ['accept', 'reject'] as const);
+    const reason = textField(message, 'reason').trim();
+    if (!chosen.length || !decision) { this.state.error = { message: 'Tick at least one proposal first.', next: null }; return this.render(); }
+    if (decision === 'reject' && !reason) { this.state.error = { message: 'Rejecting a proposal needs your reason.', next: null }; return this.render(); }
+    await this.write(`${decision === 'accept' ? 'Accepting' : 'Rejecting'} ${chosen.join(', ')}…`,
+      decision === 'accept' ? model.acceptArgv(status.specId, chosen, null, operationId()) : model.rejectArgv(status.specId, chosen, reason, operationId()),
+      () => (decision === 'accept' ? `Accepted ${chosen.join(', ')} into the draft.` : `Rejected ${chosen.join(', ')}; the draft is unchanged.`));
+  }
+
+  /** An edit proposed against older prose, accepted with the person's own merge of it. */
+  private async acceptEdited(proposal: string | null, text: string): Promise<void> {
+    const status = this.state.status;
+    if (!status || !proposal || !status.proposals.some((entry) => entry.id === proposal && entry.kind === 'edit')) return;
+    if (!text.trim()) { this.state.error = { message: `Accepting ${proposal} with your text needs the text.`, next: null }; return this.render(); }
+    await this.withFile('spec.md', text, (file) => this.write(`Accepting ${proposal} with your text…`, model.acceptArgv(status.specId, [proposal], file, operationId()),
+      () => `Accepted ${proposal} with your text.`));
+  }
+
+  private async settleFindings(message: InboundMessage): Promise<void> {
+    const status = this.state.status;
+    if (!status) return;
+    const { outcomes, reason, errors } = model.findingsRequest(message, status);
+    if (errors.length) { this.state.error = { message: errors.join(' '), next: null }; return this.render(); }
+    await this.write('Settling the assisted findings…', model.settleFindingsArgv(status.specId, outcomes, reason, operationId()),
+      () => `Settled ${Object.keys(outcomes).join(', ')}.`);
+  }
+
   private async publish(state: 'reviewed' | 'draft' | null): Promise<void> {
     const status = this.state.status;
     if (!status || !state) return;
@@ -398,6 +471,8 @@ export class SpecStudioPanel implements vscode.Disposable {
 
   dispose(): void {
     this.disposed = true;
+    this.tool?.dispose();
+    this.tool = null;
     for (const subscription of this.subscriptions.splice(0)) subscription.dispose();
     if (SpecStudioPanel.current === this) SpecStudioPanel.current = null;
   }

@@ -63,6 +63,8 @@ const UPSTREAM_ISSUE_DECISIONS = Object.freeze(['decide', 'decide-amendment', 'r
 export { DECISION_LIST_CHAT_OPTIONS };
 const DELEGATION = new Set(['task', 'spawn_agent', 'write_agent', 'delegate', 'run_subagent']);
 const IMPORT_TEAM_COMMANDS = Object.freeze(['inspect', 'compile', 'status']);
+// `spec author` steps only a person takes (src/commands/spec-author.mjs SPEC_AUTHOR_PERSON_ACTIONS).
+const SPEC_AUTHOR_PERSON_STEPS = Object.freeze(['accept', 'reject', 'decide', 'settle', 'publish', 'discard']);
 /**
  * Skills whose own steps write exact files an SFlow command issued to this turn, which another of their
  * commands then consumes. `initiative`: an Epic or Initiative step's authored outputs, issued by
@@ -156,7 +158,7 @@ async function createRecord(payload, record, root, accepted, previous = null) {
   const definition = accepted.definition ?? accepted.config;
   const requestedMode = mutationTurnMode(record.skill);
   const mode = previous?.originPhase && previous.originPhase !== workflow.currentPhase
-    && !['approval-only', 'session-only', 'import-team', 'build-workflow', 'fix-workflow', 'run-and-test'].includes(requestedMode) ? 'read' : requestedMode;
+    && !['approval-only', 'session-only', 'import-team', 'build-workflow', 'fix-workflow', 'run-and-test', 'spec-studio'].includes(requestedMode) ? 'read' : requestedMode;
   const phase = workflow.phases?.[workflow.currentPhase];
   const evidence = mode === 'authoring' && phase?.generationIntent?.status === 'open'
     ? await (await import('./delivery-evidence.mjs')).plannedEvidencePaths(root, definition, workflow, phase).catch(() => [])
@@ -203,6 +205,7 @@ async function createRecord(payload, record, root, accepted, previous = null) {
     ...(previous?.importTeamStaging ? { importTeamStaging: previous.importTeamStaging } : {}),
     ...(previous?.buildStaging ? { buildStaging: previous.buildStaging } : {}),
     ...(previous?.fixStaging ? { fixStaging: previous.fixStaging } : {}),
+    ...(previous?.specStaging ? { specStaging: previous.specStaging } : {}),
     ...(previous?.appDraftStaging ? { appDraftStaging: previous.appDraftStaging } : {}),
     ...(draftStaging.length ? { draftStaging } : {}),
     // Which turn rules this conversation already has: a refreshed contract does not take them back.
@@ -642,6 +645,12 @@ export function argvAllowed(argv, mode, value) {
     && Object.keys(options).every(key => ['change-set', 'propose', 'json'].includes(key))
     && typeof options['change-set'] === 'string' && path.isAbsolute(options['change-set'])
     && (value.fixStaging ?? []).includes(path.resolve(options['change-set']));
+  // The /sf-spec-author turn: its spec commands are reads, collecting cited research from the code,
+  // and staging exactly the proposal file `spec author status` issued to it; a person takes each one.
+  if (mode === 'spec-studio') return positionals[0] === 'spec' && positionals[1] === 'author' && positionals.length === 4
+    && (positionals[2] === 'research' && Object.keys(options).every(key => ['path', 'symbol', 'refresh', 'json'].includes(key))
+      || positionals[2] === 'propose' && Object.keys(options).every(key => ['file', 'json'].includes(key))
+        && typeof options.file === 'string' && path.isAbsolute(options.file) && (value.specStaging ?? []).includes(path.resolve(options.file)));
   if (mode === 'read') return false;
   // A /sf-confirm of the list's own record command is the person's typed yes: the same upstream-issue
   // options a /sf-decide turn may record, with the digest they confirmed.
@@ -662,8 +671,9 @@ export function argvAllowed(argv, mode, value) {
   // A Story's authorized browser target is a security boundary: a person pins it, in no turn (its preview is a read).
   if (targetOriginPin(positionals, options)) return false;
   if (positionals[0] === 'spec' && positionals[1] === 'drift' && positionals[2] === 'decide') return false;
-  // A specification's gap decisions, checklist, publication and discard are the person's own (SPEC-SPA v1.3 §4.1).
-  if (positionals[0] === 'spec' && positionals[1] === 'author' && ['decide', 'settle', 'publish', 'discard'].includes(positionals[2])) return false;
+  // Accepting or rejecting Copilot's proposals, a specification's gap decisions, checklist, publication
+  // and discard are the person's own (SPEC-SPA v1.3 §4.1).
+  if (positionals[0] === 'spec' && positionals[1] === 'author' && SPEC_AUTHOR_PERSON_STEPS.includes(positionals[2])) return false;
   // So is dropping a clause of a Story's specification slice: it is the Story's requested outcome (§6.3).
   if (positionals[0] === 'spec' && positionals[1] === 'attach') return false;
   // Setting held changes aside drops them from the checkout: the person who looked at them decides.
@@ -1127,6 +1137,38 @@ async function runAndTestGuard(payload, record, toolCalls) {
 }
 
 /**
+ * /sf-spec-author (SPEC-SPA v1.3 §4.1): reads, `spec author research`, edits to exactly the proposal
+ * file `spec author status` issued to this turn, and staging that file with `spec author propose`.
+ * Accepting, deciding, settling, publishing and discarding stay the person's. It needs no Story,
+ * edits no repository file and does not delegate.
+ */
+async function specStudioGuard(payload, record, toolCalls) {
+  const value = await importTeamTurn(payload, record);
+  const issued = (value?.specStaging ?? []).map(file => path.resolve(file));
+  const scope = { ...record, repositoryRoot: value?.contract?.repositoryRoot ?? value?.repositoryRoot, specStaging: issued };
+  const deny = reason => turnExpired(record) ? turnExpiredDenial(record) : ({ permissionDecision: 'deny', next: [], permissionDecisionReason: reason });
+  for (const call of toolCalls) {
+    if (DELEGATION.has(call.name)) return deny('SPEC_STUDIO_DELEGATION_NOT_ALLOWED: draft the proposals in this turn; /sf-spec-author does not delegate');
+    if (TERMINALS.has(call.name)) {
+      if (shellAllowed(call, 'spec-studio', scope)) continue;
+      const draft = unissuedDraftOption(call, scope, 'spec-studio', 'specStaging',
+        (positionals, options) => positionals[0] === 'spec' && positionals[2] === 'propose' ? options.file : null);
+      if (draft) return deny(`SPEC_STUDIO_PROPOSAL_NOT_ISSUED: ${draft} is not issued to this turn. Run singularity-flow spec author status <SPEC-ID> --json standalone in this turn first: it issues the specification's proposal file as proposalPath. Then run this command again`);
+      return deny('SPEC_STUDIO_OPERATION_NOT_ALLOWED: run one standalone read command, singularity-flow spec author research <SPEC-ID> --path <PATH>, or singularity-flow spec author propose <SPEC-ID> --file <the proposalPath status issued>; accepting, deciding, settling, publishing and discarding are the person\'s own steps');
+    }
+    if (!isEdit(call.name)) continue;
+    const paths = targets(call.args);
+    const cwd = call.args.cwd ?? payload.cwd ?? scope.repositoryRoot ?? process.cwd();
+    const outside = paths.filter(target => !issued.includes(editTarget(target, cwd)));
+    if (paths.length && !outside.length) continue;
+    return deny(issued.length
+      ? `SPEC_STUDIO_PATH_DENIED (${outside.join(', ') || 'no target'}): write only the issued proposal file at exactly ${issued.join(', ')}; the draft changes only when a person accepts`
+      : 'SPEC_STUDIO_PATH_DENIED: no proposal file is issued to this turn. Run singularity-flow spec author status <SPEC-ID> --json first and write only its proposalPath');
+  }
+  return {};
+}
+
+/**
  * /sf-build-workflow: reads, its own `workflow build` commands, and edits to exactly the proposal
  * files `workflow build` issued to this turn. Like /sf-import-team it needs no Story, edits no
  * repository and does not delegate.
@@ -1288,6 +1330,7 @@ async function mutationToolDecision(payload, record) {
   if (mutationTurnMode(record.skill) === 'import-team') return importTeamGuard(payload, record, toolCalls);
   if (mutationTurnMode(record.skill) === 'build-workflow') return buildWorkflowGuard(payload, record, toolCalls);
   if (mutationTurnMode(record.skill) === 'fix-workflow') return fixWorkflowGuard(payload, record, toolCalls);
+  if (mutationTurnMode(record.skill) === 'spec-studio') return specStudioGuard(payload, record, toolCalls);
   if (mutationTurnMode(record.skill) === 'run-and-test') return runAndTestGuard(payload, record, toolCalls);
   // A drafting skill's edits to exactly the files its SFlow commands issued to this live turn pass;
   // every other call in the batch is judged as it would be alone.
@@ -1458,6 +1501,13 @@ export async function mutationPostToolGuard(payload = {}) {
       fixStaging: (value?.fixStaging ?? []).map(file => path.resolve(file)) };
     if (value && terminals.every(call => shellAllowed(call, 'fix-workflow', scope))) return {};
     return postFinding(mutationDenial(null, 'FIX_WORKFLOW_TURN_ENDED: the fix-workflow turn ended or expired; run /sf-fix-workflow again'));
+  }
+  if (mutationTurnMode(record.skill) === 'spec-studio') {
+    const value = await importTeamTurn(payload, record);
+    const scope = { ...record, repositoryRoot: value?.contract?.repositoryRoot ?? value?.repositoryRoot,
+      specStaging: (value?.specStaging ?? []).map(file => path.resolve(file)) };
+    if (value && terminals.every(call => shellAllowed(call, 'spec-studio', scope))) return {};
+    return postFinding(mutationDenial(null, 'SPEC_STUDIO_TURN_ENDED: the spec-author turn ended or expired; run /sf-spec-author again'));
   }
   if (mutationTurnMode(record.skill) === 'run-and-test') {
     const value = await importTeamTurn(payload, record);
@@ -1738,6 +1788,30 @@ export async function issueFixWorkflowStaging(target, { root = null } = {}) {
     const owner = value.contract?.repositoryRoot ?? value.repositoryRoot ?? null;
     if (owner && resolvedRoot && owner !== resolvedRoot) continue;
     value.fixStaging = [...new Set([...(value.fixStaging ?? []), path.resolve(target)])].slice(-16);
+    await atomicRecord(file, value);
+    issued += 1;
+  }
+  return issued;
+}
+
+/**
+ * Let live /sf-spec-author turns edit `target`, the proposal file `spec author status` just returned
+ * as proposalPath, and stage exactly that file. As for builds, every live spec-author turn for the
+ * same repository (or with none) receives the exact path. Returns how many turns received it.
+ */
+export async function issueSpecStudioStaging(target, { root = null } = {}) {
+  if (readCopilotMode().paused) return 0;
+  const resolvedRoot = root ? await realpath(root).catch(() => path.resolve(root)) : null;
+  let issued = 0;
+  for (const name of (await readdir(directory()).catch(() => [])).filter(name => /^[a-f0-9]{64}\.mutation\.json$/u.test(name))) {
+    const file = path.join(directory(), name);
+    const value = await boundedRecord(file).catch(() => null);
+    if (!value || mutationTurnMode(value.skill) !== 'spec-studio') continue;
+    const record = await turn({ sessionId: value.sessionId });
+    if (!record || !await importTeamTurn({ sessionId: value.sessionId }, record)) continue;
+    const owner = value.contract?.repositoryRoot ?? value.repositoryRoot ?? null;
+    if (owner && resolvedRoot && owner !== resolvedRoot) continue;
+    value.specStaging = [...new Set([...(value.specStaging ?? []), path.resolve(target)])].slice(-16);
     await atomicRecord(file, value);
     issued += 1;
   }

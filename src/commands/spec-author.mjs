@@ -1,10 +1,12 @@
 /**
- * `singularity-flow spec author <action>`: the specification library (SPEC-SPA v1.3 S1).
+ * `singularity-flow spec author <action>`: the specification library (SPEC-SPA v1.3 S1, S4).
  *
  * Drafts live on this clone (src/spec-library/draft-store.mjs); reviewed and draft revisions are
- * published to the state branch (src/spec-library/library.mjs). Nothing here calls a model. Deciding,
- * deferring or reopening a gap, settling checklist articles, publishing and discarding are the
- * person's own steps: the Copilot guard refuses them in every turn (OWN_TERMINAL_STEPS).
+ * published to the state branch (src/spec-library/library.mjs). Nothing here calls a model. Copilot
+ * stages proposals and assisted findings (`propose`, src/spec-library/proposals.mjs). Accepting or
+ * rejecting a proposal, deciding, deferring or reopening a gap, settling checklist articles and
+ * findings, publishing and discarding are the person's own steps: the Copilot guard refuses them in
+ * every turn (OWN_TERMINAL_STEPS).
  */
 import { readFile } from 'node:fs/promises';
 import path from 'node:path';
@@ -17,16 +19,19 @@ import {
 import { crashPoint, discardDraft, listDrafts, newOperationId, readDraft, requireOperationId, saveDraft } from '../spec-library/draft-store.mjs';
 import { parseSpecReference, requireSpecId } from '../spec-library/ids.mjs';
 import { libraryView, publishRevision, readManifest, REVIEW_STATES, resolveRevision } from '../spec-library/library.mjs';
+import {
+  acceptProposals, assistedReport, draftAssisted, rejectProposals, settleFindings, stageProposals, stagedProposals, validateProposals
+} from '../spec-library/proposals.mjs';
 import { addPersonFact, gapImpact, mergeResearch, normalizeArea, removeResearch } from '../spec-library/research.mjs';
 import { optionBoolean, optionNumber, optionString, optionStrings, SingularityFlowError } from '../util.mjs';
 
 export const SPEC_AUTHOR_ACTIONS = Object.freeze([
-  'new', 'edit', 'research', 'gap', 'gaps', 'decide', 'settle', 'check', 'status', 'publish', 'show', 'list', 'discard', 'coverage'
+  'new', 'edit', 'research', 'gap', 'gaps', 'propose', 'accept', 'reject', 'decide', 'settle', 'check', 'status', 'publish', 'show', 'list', 'discard', 'coverage'
 ]);
 /** `coverage --repair` writes; `coverage` alone reads. */
 export const SPEC_AUTHOR_READ_ACTIONS = Object.freeze(['gaps', 'check', 'status', 'show', 'list', 'coverage']);
 /** The person's own steps: refused for agents, whatever the turn. */
-export const SPEC_AUTHOR_PERSON_ACTIONS = Object.freeze(['decide', 'settle', 'publish', 'discard']);
+export const SPEC_AUTHOR_PERSON_ACTIONS = Object.freeze(['accept', 'reject', 'decide', 'settle', 'publish', 'discard']);
 
 const USAGE = `Usage: singularity-flow spec author <${SPEC_AUTHOR_ACTIONS.join('|')}> …  (singularity-flow help spec)`;
 const fail = (message, code, details = {}) => { throw new SingularityFlowError(message, { code, details }); };
@@ -46,6 +51,21 @@ async function libraryConfig(root) {
   if (!existsSync(path.join(root, 'singularity', 'workflow.yml'))) return {};
   const { loadConfig } = await import('../state-stores.mjs');
   return loadConfig(root);
+}
+
+/**
+ * The one proposal file a live /sf-spec-author turn may write for this specification: on this
+ * computer, outside every checkout, like an application draft. A paused Copilot is issued none.
+ */
+async function proposalPath(root, specId, { env = process.env } = {}) {
+  const [{ createHash }, { realpathSync }, { workflowBuildStateRoot }] = await Promise.all([
+    import('node:crypto'), import('node:fs'), import('../workflow-build/store.mjs')]);
+  let resolved = path.resolve(root);
+  try { resolved = realpathSync.native(resolved); } catch { /* the path as given */ }
+  const repository = createHash('sha256').update(resolved).digest('hex').slice(0, 16);
+  const file = path.join(workflowBuildStateRoot(env), 'spec-proposals', repository, `${specId}.proposal.json`);
+  await import('../copilot-mutation-guard.mjs').then(({ issueSpecStudioStaging }) => issueSpecStudioStaging(file, { root })).catch(() => 0);
+  return file;
 }
 
 function operation(options) {
@@ -248,24 +268,111 @@ function articleDecisions(options) {
   return decisions;
 }
 
+/** `--finding A-001=gap|fixed|dismissed`: how each assisted finding is settled. */
+function findingOutcomes(options) {
+  const outcomes = {};
+  for (const entry of optionStrings(options, 'finding').flatMap((value) => value.split(','))) {
+    const [finding, outcome] = entry.split('=').map((value) => value?.trim());
+    if (!finding || !outcome) fail(`--finding ${entry} must be FINDING=OUTCOME, for example A-001=dismissed.`, 'SPEC_FINDING_OUTCOME_INVALID', { entry });
+    outcomes[finding] = outcome;
+  }
+  return outcomes;
+}
+
 async function settleAction(root, positionals, options) {
   const specId = requireSpecId(specArgument(positionals, 'settle'));
   const who = actor(root);
   const decisions = articleDecisions(options);
+  const outcomes = findingOutcomes(options);
   const reason = optionString(options, 'reason') ?? null;
+  let opened = {};
   const saved = await saveDraft(root, specId, {
-    operationId: operation(options), operation: 'settle', actor: who, payload: { decisions, reason },
-    change: (draft) => settleArticles(draft, decisions, { reason }, { actor: who, at: new Date().toISOString() })
+    operationId: operation(options), operation: 'settle', actor: who, payload: { decisions, outcomes, reason },
+    change: (draft) => {
+      const context = { actor: who, at: new Date().toISOString() };
+      if (Object.keys(outcomes).length) ({ opened } = settleFindings(draft, outcomes, { reason }, context));
+      return Object.keys(decisions).length || !Object.keys(outcomes).length ? settleArticles(draft, decisions, { reason }, context) : draft;
+    }
   });
   const articles = foldChecklist(saved.snapshot.draft.checklist);
+  const findings = draftAssisted(saved.snapshot.draft).findings.filter((finding) => finding.id in outcomes);
   return print(options, { action: 'settle', specId, sequence: saved.snapshot.sequence, replayed: saved.replayed,
-    articles: articles.map(({ article, decision }) => ({ article, decision: decision?.decision ?? null })) },
-  articles.map(({ article, decision }) => `  ${article}: ${decision?.decision ?? 'no decision'}`).join('\n'));
+    articles: articles.map(({ article, decision }) => ({ article, decision: decision?.decision ?? null })),
+    findings: findings.map(({ id, status, gap }) => ({ id, status, gap: gap ?? null })), opened },
+  [...articles.map(({ article, decision }) => `  ${article}: ${decision?.decision ?? 'no decision'}`),
+    ...findings.map((finding) => `  ${finding.id}: ${finding.status}${finding.gap ? `, opened as ${finding.gap}` : ''}`)].join('\n'));
 }
 
 async function reportFor(root, specId, draft) {
-  return checkDraft(root, specId, draft.head.draft, { ref: 'HEAD', commit: refCommit(root, 'HEAD'), sequence: draft.head.sequence });
+  return checkDraft(root, specId, draft.head.draft, { ref: 'HEAD', commit: refCommit(root, 'HEAD'), sequence: draft.head.sequence, assisted: assistedReport(draft.head.draft) });
 }
+
+const idList = (values) => values.flatMap((value) => String(value).split(',')).map((value) => value.trim()).filter(Boolean);
+
+async function proposeAction(root, positionals, options) {
+  const specId = requireSpecId(specArgument(positionals, 'propose'));
+  const file = optionString(options, 'file');
+  if (!file) fail(`spec author propose ${specId} needs --file FILE: { "proposals": [ … ] } (singularity-flow help spec).`, 'SPEC_PROPOSAL_INVALID', { specId, nextAction: `singularity-flow spec author status ${specId} --json` });
+  const contents = await readFile(path.resolve(file), 'utf8');
+  let payload;
+  try { payload = JSON.parse(contents); } catch (error) { fail(`${file} is not JSON: ${error.message}`, 'SPEC_PROPOSAL_INVALID', { specId, file }); }
+  const { head } = await requireDraft(root, specId);
+  const commit = refCommit(root, 'HEAD');
+  const who = actor(root);
+  let staged = [];
+  let notes = [];
+  // The same file proposed again is the same operation: it returns the snapshot it staged before.
+  const operationId = optionString(options, 'operation-id') ? requireOperationId(optionString(options, 'operation-id'))
+    : `spp-${(await import('node:crypto')).createHash('sha256').update(contents).digest('hex').slice(0, 16)}`;
+  const saved = await saveDraft(root, specId, {
+    operationId, operation: 'propose', actor: who, payload, expectedSequence: head.sequence,
+    change: (draft) => {
+      const checked = validateProposals(root, draft, payload, { ref: 'HEAD', commit });
+      if (checked.findings.length) {
+        fail(`Nothing was staged; the proposals need fixing: ${checked.findings.map((finding) => `${finding.field}: ${finding.message}`).join('; ')}.`,
+          'SPEC_PROPOSAL_INVALID', { specId, findings: checked.findings, nextAction: `singularity-flow spec author status ${specId} --json` });
+      }
+      notes = checked.entries.flatMap((entry) => entry.notes);
+      ({ staged } = stageProposals(draft, checked, { actor: who, at: new Date().toISOString(), sequence: head.sequence }));
+      return draft;
+    }
+  });
+  const accept = staged.filter((id) => id.startsWith('P-'));
+  return print(options, { action: 'propose', specId, staged, notes, replayed: saved.replayed, sequence: saved.snapshot.sequence },
+    saved.replayed ? `Already proposed: this file was staged in snapshot ${saved.snapshot.sequence}.`
+      : [`Staged ${staged.join(', ')} on ${specId}. Nothing is in the draft until a person accepts it.`, ...notes.map((note) => `  ${note}`),
+        accept.length ? `The person accepts in the Spec Studio, or: singularity-flow spec author accept ${specId} ${accept.join(' ')}` : null].filter(Boolean).join('\n'));
+}
+
+async function acceptAction(root, positionals, options) {
+  const specId = requireSpecId(specArgument(positionals, 'accept'));
+  const ids = idList(positionals.slice(4));
+  const editFile = optionString(options, 'edit');
+  const edited = editFile ? await readFile(path.resolve(editFile), 'utf8') : null;
+  const who = actor(root);
+  const commit = refCommit(root, 'HEAD');
+  let results = {};
+  const saved = await saveDraft(root, specId, {
+    operationId: operation(options), operation: 'accept', actor: who, payload: { ids, edited },
+    change: (draft) => { ({ results } = acceptProposals(root, draft, ids, { edited }, { actor: who, at: new Date().toISOString(), ref: 'HEAD', commit })); return draft; }
+  });
+  return print(options, { action: 'accept', specId, accepted: ids, results, sequence: saved.snapshot.sequence, replayed: saved.replayed },
+    `${saved.replayed ? 'Already accepted' : 'Accepted'} ${ids.map((id) => (results[id] ? `${id} (${results[id]})` : id)).join(', ')} into ${headLine(specId, saved.snapshot)}.`);
+}
+
+async function rejectAction(root, positionals, options) {
+  const specId = requireSpecId(specArgument(positionals, 'reject'));
+  const ids = idList(positionals.slice(4));
+  const who = actor(root);
+  const reason = optionString(options, 'reason') ?? null;
+  const saved = await saveDraft(root, specId, {
+    operationId: operation(options), operation: 'reject', actor: who, payload: { ids, reason },
+    change: (draft) => rejectProposals(draft, ids, { reason }, { actor: who, at: new Date().toISOString() })
+  });
+  return print(options, { action: 'reject', specId, rejected: ids, sequence: saved.snapshot.sequence, replayed: saved.replayed },
+    `${saved.replayed ? 'Already rejected' : 'Rejected'} ${ids.join(', ')}; the draft is unchanged.`);
+}
+
 
 async function checkAction(root, positionals, options) {
   const specId = requireSpecId(specArgument(positionals, 'check'));
@@ -293,8 +400,12 @@ async function statusAction(root, positionals, options) {
     blocking: report.blocking, reviewReady: report.reviewReady, next,
     // The Spec Studio's one read (SPEC-SPA v1.3 §3): the prose, each cited fact with its standing, the rules and the checklist.
     spec, areas, researchItems: research.map((item) => ({ ...item, standing: standing.get(item.id)?.status ?? null, staleReason: standing.get(item.id)?.reason ?? null })),
-    rules: report.deterministic.rules, articles: report.human.articles, clauseIds: report.analyzer?.clauseIds ?? []
-  }, `${headLine(specId, draft.head)}\n${summarizeCheck(report)}\nNext: ${next}`);
+    rules: report.deterministic.rules, articles: report.human.articles, clauseIds: report.analyzer?.clauseIds ?? [],
+    // What Copilot staged (S4): open proposals and every assisted finding, and the one file a
+    // /sf-spec-author turn writes its next proposals to.
+    proposals: stagedProposals(draft.head.draft), findings: draftAssisted(draft.head.draft).findings,
+    proposalPath: optionBoolean(options, 'json') ? await proposalPath(root, specId) : null
+  }, `${headLine(specId, draft.head)}\n${summarizeCheck(report)}${stagedProposals(draft.head.draft).length ? `\nProposals waiting for you: ${stagedProposals(draft.head.draft).map((entry) => `${entry.id} (${entry.kind})`).join(', ')}` : ''}\nNext: ${next}`);
 }
 
 async function publishAction(root, positionals, options) {
@@ -418,6 +529,9 @@ export async function specAuthorCommand(positionals, options) {
   if (action === 'research') return researchAction(root, positionals, options);
   if (action === 'gap') return gapAction(root, positionals, options);
   if (action === 'gaps') return gapsAction(root, positionals, options);
+  if (action === 'propose') return proposeAction(root, positionals, options);
+  if (action === 'accept') return acceptAction(root, positionals, options);
+  if (action === 'reject') return rejectAction(root, positionals, options);
   if (action === 'decide') return decideAction(root, positionals, options);
   if (action === 'settle') return settleAction(root, positionals, options);
   if (action === 'check') return checkAction(root, positionals, options);

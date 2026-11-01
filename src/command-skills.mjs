@@ -114,7 +114,7 @@ const entries = {
   nextsteps: ['sf-nextsteps'],
   action: ['sf-continue'],
   inputs: ['sf-inputs'],
-  spec: ['sf-spec'],
+  spec: ['sf-spec', 'sf-spec-author'],
   agents: ['sf-agents'],
   import: ['sf-import'],
   imports: ['sf-import'],
@@ -249,6 +249,11 @@ export const COMMAND_LINE_SKILL_ROUTES = Object.freeze({
     build: 'sf-build-workflow',
     // /sf-fix-workflow begins with this read and drafts the fixes it lists as one reviewed proposal.
     validate: 'sf-fix-workflow'
+  }),
+  // The library's reads and Copilot's own steps go to /sf-spec-author; the person's steps have no route
+  // (OWN_TERMINAL_STEPS) and the other writes stay with /sf-spec.
+  spec: route('sf-spec', {
+    'author status': 'sf-spec-author', 'author research': 'sf-spec-author', 'author propose': 'sf-spec-author'
   }),
   documents: route('sf-documents', {
     upload: 'sf-upload',
@@ -511,9 +516,10 @@ export const OWN_TERMINAL_STEPS = Object.freeze([
   ['knowledge-confirmation', ([command, sub, verb]) => command === 'wm'
     && ((sub === 'rules' && verb === 'confirm') || (sub === 'knowledge' && ['confirm', 'correct', 'reject'].includes(verb)))],
   ['spec-drift-decision', ([command, sub, verb]) => command === 'spec' && sub === 'drift' && verb === 'decide'],
-  // A specification's gap decisions, checklist settlement, publication and discard (SPEC-SPA v1.3 §4.1).
+  // Taking or turning down Copilot's proposals, a specification's gap decisions, checklist and finding
+  // settlement, publication and discard (SPEC-SPA v1.3 §4.1).
   ['spec-library-decision', ([command, sub, verb]) => command === 'spec' && sub === 'author'
-    && ['decide', 'settle', 'publish', 'discard'].includes(verb)],
+    && ['accept', 'reject', 'decide', 'settle', 'publish', 'discard'].includes(verb)],
   // Dropping a clause of a Story's specification slice changes its requested outcome (SPEC-SPA v1.3 §6.3).
   ['spec-slice-change', ([command, sub]) => command === 'spec' && sub === 'attach'],
   // An approver's answer from their own clone, under their own Git identity (2026-10-28).

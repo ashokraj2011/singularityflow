@@ -14,13 +14,16 @@ import { childTimeout } from './helpers/child-timeout.mjs';
 // the real CLI in a real repository, so the page and the engine can never disagree about a shape.
 const panels = [];
 const copied = [];
+const chats = [];
+const settings = { 'singularityFlow.modelMode': 'auto' };
 globalThis.__sfSpecStudioTestVscode = {
   ViewColumn: { Active: 1 },
   Uri: { file: (fsPath) => ({ fsPath }), joinPath: () => ({}) },
   Range: class { constructor(...args) { this.args = args; } },
-  commands: { executeCommand: async () => undefined },
+  commands: { executeCommand: async (command, argument) => { if (command === 'workbench.action.chat.open') chats.push(argument); } },
   env: { clipboard: { writeText: async (text) => { copied.push(text); } } },
-  workspace: { openTextDocument: async (uri) => ({ uri }), fs: { stat: async () => ({}) } },
+  workspace: { openTextDocument: async (uri) => ({ uri }), fs: { stat: async () => ({}) },
+    getConfiguration: (section) => ({ get: (key, fallback) => settings[`${section}.${key}`] ?? fallback }) },
   window: {
     createWebviewPanel: (viewType, title) => {
       let receive = () => {};
@@ -55,6 +58,7 @@ const { specStudioHtml, SPEC_STUDIO_SCRIPT } = await import('../apps/vscode/src/
 const { SpecStudioPanel } = await import('../apps/vscode/src/views/spec-studio.ts');
 const { commandClass } = await import('../apps/vscode/src/cli/client.ts');
 const { storyIntakeBody } = await import('../apps/vscode/src/views/story-intake-page.ts');
+const tool = await import('../apps/vscode/src/views/spec-studio-tool.ts');
 
 const engine = fileURLToPath(new URL('..', import.meta.url));
 const bin = path.join(engine, 'bin', 'singularity-flow.mjs');
@@ -388,6 +392,106 @@ test('the whole loop in the Studio, by hand: save, settle, publish reviewed, the
   focused.dispose();
 });
 
+test('Copilot\'s proposals wait in the Copilot tab; only the person\'s clicks accept, reject or settle them (SPA:AC-022, AC-023, AC-024)', async (t) => {
+  const { root, directory } = await storefront(t);
+  const prose = json(root, ['spec', 'author', 'status', SPEC]).spec.replace('- Shopper: places INR orders.', '- Shopper: places INR orders online.');
+  const file = path.join(directory, 'proposals.json');
+  await writeFile(file, JSON.stringify({ assistedCheck: true, proposals: [{ kind: 'edit', summary: 'Say where shoppers order.', spec: prose },
+    { kind: 'research', summary: 'Finance says gift cards never count.' },
+    { kind: 'finding', article: 'boundary-conditions', message: 'Nothing says what happens at exactly INR 5000.00.', clauses: ['REQ-001'] }] }));
+  assert.deepEqual(json(root, ['spec', 'author', 'propose', SPEC, '--file', file]).staged, ['P-001', 'P-002', 'A-001']);
+
+  const client = recordingClient(root);
+  panels.length = 0;
+  chats.length = 0;
+  SpecStudioPanel.show(client, SPEC, { root: () => root });
+  const studio = panels.find((panel) => panel.viewType === 'singularityFlow.specStudio');
+  await settled(client, studio);
+  let html = studio.webview.html;
+  assert.equal(writes(client.calls).length, 0, 'opening reads only, whatever Copilot staged');
+  assert.match(html, /data-tab="copilot">Copilot \(2\)<\/button>/u);
+  assert.match(html, /<li data-proposal="P-001">[\s\S]*<strong>P-001<\/strong> edit: Say where shoppers order\.[\s\S]*The proposed prose/u);
+  assert.match(html, /<li data-proposal="P-002">[\s\S]*Unverified: it cites no code/u);
+  assert.match(html, /<strong>A<\/strong><small>1 pending<\/small>/u);
+  assert.match(html, new RegExp(`Opens Copilot Chat with <code>/sf-spec-author ${SPEC} </code>`, 'u'), 'no tool outside VS Code proper: the plain prompt');
+
+  studio.post({ type: 'spec.askCopilot' });
+  await settled(client, studio);
+  assert.deepEqual(chats, [{ query: `/sf-spec-author ${SPEC} `, isPartialQuery: true }]);
+  assert.equal(writes(client.calls).length, 0, 'asking Copilot writes nothing');
+
+  studio.post({ type: 'spec.proposals', decision: 'reject', proposals: ['P-002'], reason: '' });
+  await settled(client, studio);
+  assert.match(studio.webview.html, /Rejecting a proposal needs your reason\./u);
+  assert.equal(writes(client.calls).length, 0);
+  studio.post({ type: 'spec.proposals', decision: 'accept', proposals: ['P-001', 'P-999'] });
+  await settled(client, studio);
+  const [accept] = writes(client.calls);
+  assert.deepEqual(accept.slice(0, 6), ['spec', 'author', 'accept', SPEC, 'P-001', '--operation-id'], 'only proposals still waiting are sent');
+  assert.equal(json(root, ['spec', 'author', 'status', SPEC]).spec, prose);
+  studio.post({ type: 'spec.proposals', decision: 'reject', proposals: ['P-002'], reason: 'We will cite the finance policy instead.' });
+  await settled(client, studio);
+  assert.deepEqual(writes(client.calls)[1].slice(0, 7), ['spec', 'author', 'reject', SPEC, 'P-002', '--reason', 'We will cite the finance policy instead.']);
+  html = studio.webview.html;
+  assert.match(html, /data-tab="copilot">Copilot \(0\)<\/button>/u);
+
+  studio.post({ type: 'spec.step', step: 'check' });
+  await settled(client, studio);
+  html = studio.webview.html;
+  assert.match(html, /<form class="ss-form" data-form="spec\.settleFindings" data-findings>[\s\S]*<tr data-finding="A-001">[\s\S]*Nothing says what happens at exactly INR 5000\.00\./u);
+  studio.post({ type: 'spec.settleFindings', 'finding:A-001': 'dismissed', reason: '' });
+  await settled(client, studio);
+  assert.match(studio.webview.html, /Dismissing a finding needs your reason\./u);
+  assert.equal(writes(client.calls).length, 2);
+  studio.post({ type: 'spec.settleFindings', 'finding:A-001': 'gap', reason: '' });
+  await settled(client, studio);
+  assert.deepEqual(writes(client.calls)[2].slice(0, 6), ['spec', 'author', 'settle', SPEC, '--finding', 'A-001=gap']);
+  const after = json(root, ['spec', 'author', 'status', SPEC]);
+  assert.deepEqual([after.findings[0].status, after.findings[0].gap, after.gaps.at(-1).kind], ['gap', 'GAP-002', 'missing-boundary']);
+
+  settings['singularityFlow.modelMode'] = 'disabled';
+  t.after(() => { settings['singularityFlow.modelMode'] = 'auto'; });
+  studio.post({ type: 'spec.refresh' });
+  await settled(client, studio);
+  assert.match(studio.webview.html, /Copilot is off for this window/u);
+  studio.post({ type: 'spec.askCopilot' });
+  await settled(client, studio);
+  assert.equal(chats.length, 1, 'with models off, nothing opens Copilot');
+  studio.dispose();
+});
+
+test('#sflowSpecStudio reads the open draft and stages proposals; it has no way to accept, decide or publish (SPA:AC-006, AC-022)', async () => {
+  for (const action of ['accept', 'reject', 'decide', 'settle', 'publish', 'discard']) {
+    assert.throws(() => tool.specToolInput({ action, spec: SPEC }), /Accepting, rejecting, deciding, settling, publishing and discarding are for a person/u, action);
+  }
+  assert.throws(() => tool.specToolInput({ action: 'state', spec: 'spec-x' }), /specification ID/u);
+  assert.throws(() => tool.specToolInput({ action: 'state', spec: SPEC, proposals: [] }), /does not take proposals/u);
+  assert.throws(() => tool.specToolInput({ action: 'propose', spec: SPEC, proposals: [] }), /1 to 32 proposals/u);
+  assert.equal(tool.specToolInput({ action: 'propose', spec: SPEC, proposals: [], assistedCheck: true }).assistedCheck, true);
+
+  const status = { resultType: 'sflow-spec-author', action: 'status', specId: SPEC, sequence: 3, title: 'T', counts: {}, blocking: [], gaps: [], researchItems: [],
+    articles: [], proposals: [{ id: 'P-001', kind: 'edit', summary: 'x', spec: 'long' }], findings: [], spec: 'line one\nline two' };
+  const calls = [];
+  const runner = { run: async (args) => { calls.push(args); return status; }, propose: async (payload) => { calls.push(payload); return { staged: ['P-002'], notes: [] }; }, recorded: () => calls.push('recorded') };
+  const state = await tool.answerSpecStudioTool({ action: 'state', spec: SPEC }, runner);
+  assert.deepEqual([state.prose, state.waiting], ['line one\nline two', [{ id: 'P-001', kind: 'edit', summary: 'x' }]]);
+  assert.deepEqual(calls[0], ['spec', 'author', 'status', SPEC, '--json']);
+  const big = tool.specToolState({ ...status, spec: 'x'.repeat(9000) });
+  assert.equal(big.prose, undefined);
+  assert.match(big.proseOmitted, /action: "prose", from: 1/u);
+  const page = tool.specToolProse(Array.from({ length: 2000 }, (_, index) => `line ${index + 1}`).join('\n'), 10);
+  assert.equal(page.lines[0], '10  line 10');
+  assert.ok(page.next > 10 && Buffer.byteLength(JSON.stringify(page)) <= tool.SPEC_TOOL_ANSWER_BYTES);
+  const staged = await tool.answerSpecStudioTool({ action: 'propose', spec: SPEC, proposals: [{ kind: 'edit', spec: 'y' }] }, runner);
+  assert.deepEqual(staged.staged, ['P-002']);
+  assert.ok(calls.includes('recorded'), 'the Studio reads the draft again after a proposal');
+  const refusing = { ...runner, propose: async () => { throw Object.assign(new Error('refused'), { result: { error: { code: 'SPEC_PROPOSAL_INVALID', message: 'Nothing was staged',
+    details: { findings: [{ field: 'proposals[0].citation', code: 'SPEC_PROPOSAL_SPAN_INVALID', message: 'bad span' }] } } } }); } };
+  const refused = await tool.answerSpecStudioTool({ action: 'propose', spec: SPEC, proposals: [{ kind: 'research', summary: 'x' }] }, refusing);
+  assert.deepEqual([refused.refused, refused.findings[0].field], ['SPEC_PROPOSAL_INVALID', 'proposals[0].citation'], 'a refusal comes back as data to repair from');
+  assert.match(JSON.stringify(tool.SPEC_TOOL_GUIDE), /Nothing lands in the draft until the person accepts it/u);
+});
+
 test('the Studio\'s pure parts: targets, slices, command classes, and the Story intake entry', () => {
   assert.deepEqual(model.specStudioTarget('SPEC-CHK-004@3'), { specId: SPEC, revision: 3, clauses: null, step: null });
   assert.deepEqual(model.specStudioTarget({ revision: 'SPEC-CHK-004@2', clauses: ['[SPEC-CHK-004:AC-001]', 'REQ-001'], step: 'attach' }),
@@ -398,7 +502,7 @@ test('the Studio\'s pure parts: targets, slices, command classes, and the Story 
   assert.equal(model.sliceOption(SPEC, 2, [`${SPEC}:AC-001`, `${SPEC}:REQ-001`], all), `--spec ${SPEC}@2=REQ-001,AC-001`, 'clauses in the revision\'s order');
 
   for (const action of ['show', 'list', 'status', 'check', 'gaps', 'coverage']) assert.equal(commandClass(['spec', 'author', action, SPEC, '--json']), 'read', action);
-  for (const action of ['new', 'edit', 'research', 'gap', 'decide', 'settle', 'publish', 'discard']) assert.equal(commandClass(['spec', 'author', action, SPEC, '--json']), 'mutation', action);
+  for (const action of ['new', 'edit', 'research', 'gap', 'propose', 'accept', 'reject', 'decide', 'settle', 'publish', 'discard']) assert.equal(commandClass(['spec', 'author', action, SPEC, '--json']), 'mutation', action);
   assert.equal(commandClass(['spec', 'author', 'coverage', `${SPEC}@1`, '--repair', '--story', 'S-1', '--json']), 'mutation', 'repair writes usage records');
 
   assert.doesNotMatch(SPEC_STUDIO_SCRIPT, /\$\{/u, 'the page script has no template holes');

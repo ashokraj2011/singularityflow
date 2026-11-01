@@ -179,6 +179,7 @@ skills:
   sflow-import-team: { class: guided, executionBoundary: machine, maximumTokenOverride: 1100, exception: "It turns a whole team folder into a workflow: it reads every kind of file, asks the person every open question, finding and warning in one round, follows their answers, in their own words too, and shows the workflow for review before it writes the bundle (2026-10-26). Rules belong in compile checks and the candidate guide; this room is for saying its steps plainly (2026-10-27), never for moving rules here." }
   sflow-build-workflow: { class: guided, executionBoundary: repository, maximumTokenOverride: 1200, exception: "It changes a workflow in place, explains it by its parts before changing it, names everything a piece removes with what goes with it, and settles what the material holds that the workflow does not use, so nothing leaves a workflow or a team's material unsaid (2026-10-23); never trim those to fit. Raised from 900 (2026-10-27) so a workflow-building skill can say its steps plainly; rules still belong in CLI checks." }
   sflow-fix-workflow: { class: guided, executionBoundary: repository }
+  sflow-spec-author: { class: guided, executionBoundary: repository }
   sflow-run-app: { class: guided, executionBoundary: repository, maximumTokenOverride: 1190, exception: "It carries start, debug, status, stop and the suggest-preview-propose flow with its secret and whole-block rules; never trim those to fit." }
   sflow-test: { class: guided, executionBoundary: repository }
   sflow-hook: { class: mutation }

@@ -8,7 +8,7 @@ import { fileURLToPath, pathToFileURL } from 'node:url';
 import test from 'node:test';
 import { deriveMutationContract, mutationContractPresentation, mutationPathDecision, mutationTurnMode } from '../src/phase-mutation-contract.mjs';
 import { recordRepositoryBoundaryTurn, endRepositoryBoundaryTurn } from '../src/copilot-repository-boundary.mjs';
-import { captureMutationTurn, mutationToolGuard, mutationPostToolGuard, issueMutationStaging, issueImportTeamStaging, issueBuildStaging, issueFixWorkflowStaging, issueRunAppDraftStaging, issueDraftStaging, epicSourceTextDraftPath, refreshMutationContracts, endMutationDecisionTurns } from '../src/copilot-mutation-guard.mjs';
+import { captureMutationTurn, mutationToolGuard, mutationPostToolGuard, issueMutationStaging, issueImportTeamStaging, issueBuildStaging, issueFixWorkflowStaging, issueSpecStudioStaging, issueRunAppDraftStaging, issueDraftStaging, epicSourceTextDraftPath, refreshMutationContracts, endMutationDecisionTurns } from '../src/copilot-mutation-guard.mjs';
 import { createHash } from 'node:crypto';
 import { hookCliLine, setCopilotPaused, setHookCli } from '../src/copilot-mode.mjs';
 import { assertPhaseSequence } from '../src/sequence.mjs';
@@ -1176,6 +1176,7 @@ const NOT_RUN_BY_THIS_TURN = Object.freeze({
   'sflow-fix-workflow': [[/^configuration approve\b/u, 'the reviewer approves in their own terminal'],
     [/^workflow studio apply\b.*--propose\b/u, 'proposes only the change set `workflow validate` issued to the turn (its own test)']],
   'sflow-run-app': [[/^capability (?:edit|set)\b/u, 'proposes only the application draft `app suggest` issued to the turn (its own test)']],
+  'sflow-spec-author': [[/^spec author propose\b/u, 'stages only the proposal file `spec author status` issued to the turn (its own test)']],
   'sflow-reinstall': [[/^plugin verify\b/u, 'the installer\'s own verification, which `singularity-flow reinstall` runs and reports']],
   'sflow-revision-checks': [[/^revision checks run\b/u, 'displayed for separate Shell review; never run from this skill']],
   'sflow-initiative-checklist': [[/^initiative evidence add\b/u, 'shown as an example; registration is /sf-initiative-evidence']],
@@ -1596,6 +1597,7 @@ test('turn modes do not infer authority from custom phase names', () => {
   assert.equal(mutationTurnMode('sf-import-team'), 'import-team');
   assert.equal(mutationTurnMode('sf-build-workflow'), 'build-workflow');
   assert.equal(mutationTurnMode('sf-fix-workflow'), 'fix-workflow');
+  assert.equal(mutationTurnMode('sf-spec-author'), 'spec-studio');
 });
 
 test('an import-team turn runs its own commands and edits only the issued candidate file, with or without a Story', async t => {
@@ -1723,6 +1725,54 @@ test('a fix-workflow turn reads, edits only the issued change set draft, and pro
   const building = await enter('/sf-build-workflow', 'build-turn', noStory);
   const late = path.join(path.dirname(f.root), 'state', 'workflow-fixes', 'late', 'all-workflows.change-set.json');
   assert.equal(await issueFixWorkflowStaging(late, { root: f.root }), 0);
+  assert.equal((await mutationToolGuard({ ...building, toolName: 'create_file', toolArgs: { filePath: late } })).permissionDecision, 'deny');
+});
+
+test('a spec-author turn reads, collects research, edits only the issued proposal file and stages only it; the person takes each proposal (SPA:AC-006, AC-022)', async t => {
+  const f = await fixture(t);
+  const enter = async (skill, sessionId, load, now = Date.now()) => {
+    const payload = { cwd: f.root, sessionId, prompt: skill };
+    await recordRepositoryBoundaryTurn(payload, { now, captureMutation: (value, record) => captureMutationTurn(value, record,
+      { resolveRoot: async () => f.root, load }) });
+    return payload;
+  };
+  const noStory = async () => { throw new Error('No Story yet'); };
+  for (const [label, load] of [['without a Story', noStory], ['with a bound Story', async () => f.accepted]]) {
+    const payload = await enter('/sf-spec-author', `spec-${label}`, load);
+    const shell = command => mutationToolGuard({ ...payload, toolName: 'bash', toolArgs: { command } });
+    const edit = target => mutationToolGuard({ ...payload, toolName: 'create_file', toolArgs: { filePath: target } });
+    const file = path.join(path.dirname(f.root), 'state', 'spec-proposals', `r-${label.length}`, 'SPEC-CHK-004.proposal.json');
+    const propose = `singularity-flow spec author propose SPEC-CHK-004 --file ${file} --json`;
+    for (const command of ['singularity-flow spec author status SPEC-CHK-004 --json', 'singularity-flow spec author list --json',
+      'singularity-flow spec author gaps SPEC-CHK-004 GAP-001 --json', 'singularity-flow spec author check SPEC-CHK-004 --json',
+      'singularity-flow spec author research SPEC-CHK-004 --path src/pricing.mjs --json', 'singularity-flow spec author research SPEC-CHK-004 --symbol orderDiscount']) {
+      assert.deepEqual(await shell(command), {}, `${label}: ${command}`);
+      assert.deepEqual(await mutationPostToolGuard({ ...payload, toolName: 'bash', toolArgs: { command } }), {}, `${label} after: ${command}`);
+    }
+    assert.match((await shell(propose)).permissionDecisionReason ?? '', /SPEC_STUDIO_PROPOSAL_NOT_ISSUED: .*spec author status <SPEC-ID> --json/u, `${label}: nothing is issued yet`);
+    assert.match((await edit(file)).permissionDecisionReason, /no proposal file is issued/u, label);
+    assert.equal(await issueSpecStudioStaging(file, { root: f.root }), 1, label);
+    assert.deepEqual(await edit(file), {}, label);
+    assert.deepEqual(await shell(propose), {}, `${label}: the issued file can be staged`);
+    assert.deepEqual(await mutationPostToolGuard({ ...payload, toolName: 'bash', toolArgs: { command: propose } }), {});
+    for (const command of [`singularity-flow spec author propose SPEC-CHK-004 --file ${file}.other`, 'singularity-flow spec author accept SPEC-CHK-004 P-001',
+      'singularity-flow spec author reject SPEC-CHK-004 P-001 --reason No.', 'singularity-flow spec author decide SPEC-CHK-004 GAP-001 --option O1 --reason Agreed.',
+      'singularity-flow spec author settle SPEC-CHK-004 --finding A-001=dismissed --reason No.', 'singularity-flow spec author publish SPEC-CHK-004 --reviewed',
+      'singularity-flow spec author edit SPEC-CHK-004 --file x.md --expected-seq 1', 'singularity-flow spec author research SPEC-CHK-004 --fact F --source Me',
+      `${propose} && rm -rf src`]) {
+      assert.match((await shell(command)).permissionDecisionReason ?? '', /SPEC_STUDIO_OPERATION_NOT_ALLOWED/u, `${label}: ${command}`);
+    }
+    assert.match((await edit(path.join(f.root, 'docs', 'spec.md'))).permissionDecisionReason, /SPEC_STUDIO_PATH_DENIED.*SPEC-CHK-004\.proposal\.json/u);
+    assert.match((await mutationToolGuard({ ...payload, toolName: 'task', toolArgs: { prompt: 'draft it' } })).permissionDecisionReason, /SPEC_STUDIO_DELEGATION/u);
+    await endRepositoryBoundaryTurn(payload);
+  }
+  // Taking a proposal is the person's own step in every other turn too.
+  const kernel = await f.enter('/sf-next', 'spec-kernel');
+  assert.equal((await mutationToolGuard({ ...kernel, toolName: 'bash', toolArgs: { command: 'singularity-flow spec author accept SPEC-CHK-004 P-001' } })).permissionDecision, 'deny');
+  // A build-workflow turn never receives a proposal file.
+  const building = await enter('/sf-build-workflow', 'spec-build-turn', noStory);
+  const late = path.join(path.dirname(f.root), 'state', 'spec-proposals', 'late', 'SPEC-X.proposal.json');
+  assert.equal(await issueSpecStudioStaging(late, { root: f.root }), 0);
   assert.equal((await mutationToolGuard({ ...building, toolName: 'create_file', toolArgs: { filePath: late } })).permissionDecision, 'deny');
 });
 

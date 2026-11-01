@@ -424,6 +424,18 @@ function sourceSection(label, value, fallback = null) {
   return text || fallback ? `\n## ${label}\n\n${text || fallback}\n` : '';
 }
 
+/** An attached specification slice (SPEC-SPA v1.3 §6.2): the clauses delivered, the decisions settled, the rest. */
+function specificationSection(slices) {
+  if (!Array.isArray(slices) || !slices.length) return '';
+  return `\n## Specification slice\n\n${slices.map((slice) => [
+    `### ${slice.revision}${slice.title ? ` — ${slice.title}` : ''}`, '',
+    `Manifest \`${slice.manifestSha256}\` at state commit \`${String(slice.stateCommit ?? '').slice(0, 12)}\`.`, '',
+    'Delivered by this Story:', '', ...(slice.clauses ?? []).map((clause) => `- ${clause.anchor} ${String(clause.text).replace(/\s+/gu, ' ')}`),
+    ...(slice.decisions?.length ? ['', 'Settled decisions:', '', ...slice.decisions.map((entry) => `- ${entry.gap}: ${entry.outcome}`)] : []),
+    ...(slice.notThisStory?.length ? ['', 'Not this Story:', '', ...slice.notThisStory.map((entry) => `- ${entry.anchor} ${entry.firstLine}`)] : [])
+  ].join('\n')).join('\n\n')}\n`;
+}
+
 function sourceMarkdown(source) {
   const details = [
     `- Source: ${source.type}`, source.url ? `- URL: ${source.url}` : null,
@@ -447,6 +459,7 @@ function sourceMarkdown(source) {
     + sourceSection('Acceptance criteria', source.acceptanceCriteria, '_Not provided._')
     + sourceSection('Risks', source.risks)
     + sourceSection('Notes', source.notes)
+    + specificationSection(source.specification)
     + `\n## Subtasks\n\n${subtasks}\n`;
 }
 

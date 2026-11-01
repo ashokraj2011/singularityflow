@@ -15,6 +15,7 @@ import { actorKey, transactStory, approvePhase, workflowPublicationBranch } from
 import { LIFECYCLE_EVENT } from '../lifecycle-event.mjs';
 import { consumeSelectionReceipt, removeApprovalReceipts } from '../choices.mjs';
 import { postPublicationStep } from './shared/post-publication-step.mjs';
+import { recordSpecUsageAfterTransition } from './shared/record-spec-usage-after-transition.mjs';
 import { loadAcceptedStoryExecution } from '../accepted-story-execution.mjs';
 import { activateWorkItemSession } from '../session.mjs';
 import { recordRequiredReceiptsAfterTransition } from './shared/record-required-receipts-after-transition.mjs';
@@ -268,6 +269,8 @@ export async function approveCommand(positionals, options) {
   if (result.approval.selfApproval) console.warn(`Warning: ${result.phase.id} was self-approved; this is not independent review.`);
   const receiptsLine = await recordRequiredReceiptsAfterTransition(root, workflow);
   if (receiptsLine && !forAgent) console.log(receiptsLine);
+  const usageLine = await recordSpecUsageAfterTransition(root, config, workflow, { phase: result.phase.id, ended: !result.next });
+  if (usageLine && !forAgent) console.log(usageLine);
   if (!forAgent) formatContextBoundaryHandoff(result.contextBoundary).forEach((line) => console.log(line));
   // The last approval ends the Story only after its transaction passed the final evaluation.
   const completion = result.next ? null : recordedCompletion(workflow);

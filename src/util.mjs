@@ -197,8 +197,8 @@ export { displayWidth, padDisplay, terminalWidth, truncateDisplay };
  */
 export const BOOLEAN_OPTIONS = Object.freeze(new Set([
   'heartbeat', 'not-applicable',
-  // spec author (src/commands/spec-author.mjs).
-  'any', 'defer', 'reopen', 'revise',
+  // spec author (src/commands/spec-author.mjs); start --spec and spec attach (src/spec-library/slice.mjs).
+  'any', 'defer', 'reopen', 'revise', 'allow-partial-dependency',
   'purge', 'timeline',
   'review-only', 'review-ui', 'send-test', 'compose', 'for-agent', 'publish-if-ready', 'submit-if-ready', 'review-packet', 'background-sync',
   'commit-reviewed', 'set-aside',

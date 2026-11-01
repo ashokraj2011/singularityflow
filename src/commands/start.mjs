@@ -436,6 +436,8 @@ async function startCommandAtRoot(positionals, options) {
   parseReferenceRepositoryOptions(
     optionStrings(options, 'reference-repository'), optionStrings(options, 'reference-branch')
   );
+  // A specification slice's spelling is checked here; its revision is read with the frozen intake choices.
+  if (optionStrings(options, 'spec').length) (await import('../spec-library/slice.mjs')).parseSliceRequests(optionStrings(options, 'spec'));
   const managedStoryWorktree = optionString(options, 'managed-story-worktree');
   // One Story, one checkout on this computer: refuse before anything is created (story-index.mjs).
   if (!managedStoryWorktree) await (await import('../story-index.mjs')).assertSingleStoryCheckout(root, id, { operation: 'start' });
@@ -1440,6 +1442,15 @@ async function startCommandAtRoot(positionals, options) {
   let resolvedWorkType = assertWorkTypeStartable(resolveWorkType(config, workType));
   const targetOrigin = storyStartTargetOrigin(optionString(options, 'target-url'), resolvedWorkType.phases, { workType });
   if (targetOrigin) source = { ...source, targetOrigin };
+  // An attached specification slice (SPEC-SPA v1.3 §6) is part of the requested outcome: one pinned
+  // read of the library, before anything is created, and only when --spec is given.
+  if (optionStrings(options, 'spec').length) {
+    const { resolveSlices } = await import('../spec-library/slice.mjs');
+    const specification = await measureCommandSpan('start.specification', () => resolveSlices(root, config, optionStrings(options, 'spec'), {
+      dependencyReason: optionBoolean(options, 'allow-partial-dependency') ? optionString(options, 'reason') ?? '' : null
+    }));
+    source = { ...source, specification };
+  }
   const retainedCapabilityMapBeforeEnrollment = validateConfigurationSnapshotCapabilities(
     approvedConfigurationSnapshot, { capabilityId: workflowCapabilityId }
   );

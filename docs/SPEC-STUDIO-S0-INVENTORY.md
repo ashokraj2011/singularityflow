@@ -45,3 +45,15 @@ S0 answers every "S0 confirms" row of the plan (§13), and v1.2's open rows, bef
 - Publishing a draft that has not changed since its last publication, in the same review state, publishes nothing and names that revision.
 - Without `--operation-id`, a publication's operation ID is derived from the draft head and the review state, so a retry after a lost acknowledgement returns the revision it published.
 - A person's fact is `research --fact TEXT --source NAME`; a document-based fact waits for S2's attachment work.
+
+## S2 decisions beyond the plan's text
+
+Found while building S2 on main `c15830837`:
+
+- **A slice is attached at start only.** The Story's creation commit pins its whole resolved policy, the source digest included (`src/story-state-validation.mjs`, `committedResolutionPolicySha256`); a later rewrite of `source.json` is refused as "Resolved Story policy differs from the immutable creation commit". `spec attach WORK-ID SPEC-ID…` is refused with `SPEC_SLICE_ATTACH_AT_START`. Attaching to a started Story would need an amendment record of its own; it waits for a reason to build one.
+- **Dropping a sliced clause is a scope decision.** `spec attach WORK-ID --drop CLAUSE --reason TEXT` records the clause's scope item `excluded` through `decision scope`, with its authority check (the group that decides the Story's scope). The clause stays in the inventory, excluded with the reason, rather than leaving it; its usage records list it as dropped.
+- **The scope gate advises at publication and blocks at the end.** A step's draft-scope review names each unresolved item's `sourceReference`; the Story's final check refuses while one is unresolved (AC-013's wording now says so).
+- **Usage records cite committed state only.** A claim cites the first step's standing approval (generation, time, authority group, review packet digest); a delivery cites the completion the final check recorded (label, kind, input digest, assurance, time). A repair from the Story's committed `workflow.json` and `source.json` therefore writes the same bytes, and a record already present with other bytes is reported, never overwritten.
+- **One `--spec` per specification**, and a slice carries every decided or deferred gap of its revision (an open gap cannot be in a reviewed revision). Its size limit is 64 KiB for the whole `specification` field.
+- **The live Copilot check is not run.** It needs paid runs and the person's go-ahead.
+

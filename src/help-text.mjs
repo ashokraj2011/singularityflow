@@ -137,6 +137,7 @@ Usage:
     Document phases and storage are given once for every document, or once per document in the same order.
     [--reference-repository ID=URL --reference-branch ID=BRANCH]...
     [--work-type ID] [--target-url AUTHORIZED-URL] [--agent ID] [--ref CANONICAL-BRANCH] [--capability ID] [--selection-receipt TOKEN]
+    [--spec SPEC-ID[@N][=REQ-001,...] [--allow-partial-dependency --reason TEXT]]...
     [--isolated-worktree] [--intake-receipt ID] [--baseline-failures repair-in-story|resolve-outside]
     [--readiness-baseline reuse|run|defer] [--test-execution-mode changed-and-affected|all-configured]
     [--gate-mode hard|soft]
@@ -675,6 +676,12 @@ Usage:
     the specification library: one draft per specification on this clone, research cited from the
     code, gaps a person decides, a check with no model, immutable revisions on the state branch;
     deciding, settling, publishing and discarding are the person's own steps; writes take --operation-id ID
+  singularity-flow spec author coverage SPEC-ID@N [--repair --story WORK-ID] [--json]
+    per clause of one revision: delivered, claimed or uncovered by Stories, from one state commit;
+    --repair writes the usage records a Story's committed approval or closing proves
+  singularity-flow spec attach WORK-ID --drop CLAUSE-ID --reason TEXT [--json]
+    take one clause out of the slice a Story started with (start --spec): its scope item is recorded
+    excluded with the reason, by a person who decides the Story's scope; the person's own step
   singularity-flow evidence matrix [WORK-ID] [--row ID] [--result RESULT] [--facet NAME[=VALUE]]
     [--page N] [--page-size N] [--format human|json|csv]
     one row per requirement and acceptance criterion with its plan, implementation, verification,

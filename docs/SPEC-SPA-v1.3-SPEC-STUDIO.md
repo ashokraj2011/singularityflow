@@ -1,6 +1,6 @@
 # SPEC-SPA v1.3 — Spec Studio
 
-**Status:** accepted. S0 (inventory: [SPEC-STUDIO-S0-INVENTORY.md](SPEC-STUDIO-S0-INVENTORY.md)) and S1 (the model-free library) have landed; S2–S5 are to come.
+**Status:** accepted. S0 (inventory: [SPEC-STUDIO-S0-INVENTORY.md](SPEC-STUDIO-S0-INVENTORY.md)), S1 (the model-free library) and S2 (Story slices, model-free; its paid live Copilot check has not run) have landed; S3–S5 are to come.
 **Author:** Singularity Flow
 **Date:** 31 October 2026
 **Namespace:** SPA. Clause IDs here replace v1.2's; an older clause is cited as "v1.2 REQ-015".
@@ -136,7 +136,7 @@ Deciding a gap records the chosen option's exact wording, the reason and the sig
 
 ### 6.1 Attaching
 
-`start <WORK-ID> ... --spec SPEC-CHK-004@3=REQ-001,REQ-003,AC-002` starts a Story that delivers those clauses. Without `=…` it delivers the whole revision. Without `@N` it pins the highest reviewed revision at that moment (v1.2 REQ-020). The flag may repeat for several specs. A Story already started can attach with `spec attach WORK-ID SPEC-ID[@N][=CLAUSES]` until its first step is approved. [SPA:REQ-015]
+`start <WORK-ID> ... --spec SPEC-CHK-004@3=REQ-001,REQ-003,AC-002` starts a Story that delivers those clauses. Without `=…` it delivers the whole revision. Without `@N` it pins the highest reviewed revision at that moment (v1.2 REQ-020). The flag may repeat for several specs, once per spec. A slice is attached only at start: a Story's creation commit makes its resolved policy, including its source digest, immutable, so `spec attach WORK-ID SPEC-ID…` on a started Story is refused (`SPEC_SLICE_ATTACH_AT_START`) and names the start command (S2). [SPA:REQ-015]
 
 Only reviewed revisions can be attached. A draft revision is refused with `SPEC_LIBRARY_NOT_REVIEWED` (§12 Q4). [SPA:REQ-016]
 
@@ -158,11 +158,11 @@ A slice larger than the Story source's size limit is refused at attach, naming t
 
 Each sliced clause becomes a statement of the Story's scope inventory. The existing scope review then requires a Story clause that covers it, citing its `sourceReference`. This is the same gate that already makes a Story cover its request. A Story therefore implements its part of the spec under its own Work ID, and every covering Story clause links back to the spec clause it delivers. There is no ID rewriting and no adoption engine. [SPA:REQ-020]
 
-A Story MAY add clauses of its own beyond its slice. It MUST NOT drop a sliced clause. To drop one, the person detaches it with a reason (`spec attach WORK-ID --drop REQ-003 --reason TEXT`, person-only), which is recorded. [SPA:REQ-021]
+A Story MAY add clauses of its own beyond its slice. It MUST NOT drop a sliced clause. To drop one, the person detaches it with a reason (`spec attach WORK-ID --drop REQ-003 --reason TEXT`, person-only). It is the existing scope decision on that clause's item: recorded `excluded` with the reason, by a person in the group that decides the Story's scope, so the final check no longer requires it and the usage records list it as dropped (S2). [SPA:REQ-021]
 
 ### 6.4 Coverage
 
-After a Story's first step is approved, its claim on each sliced clause is written to the state branch as one immutable usage record per Story generation (`singularity/specifications/<SPEC-ID>/usage/<WORK-ID>/<generation>.json`). It is written after the approval has landed, never inside it. Paths are disjoint per Story, so two Stories never collide on a file; they share the state ref, and a lost race is retried. Closing the Story appends a delivered record that cites its evidence receipt. A usage write that fails is retried from the Story's approval or closure receipt by `spec author coverage --repair`. It never blocks the Story. [SPA:REQ-022]
+After a Story's first step is approved, its claim on each sliced clause is written to the state branch as one immutable usage record per approved generation of that step (`singularity/specifications/<SPEC-ID>/usage/<WORK-ID>/<NNNNNN>.json`); closing the Story adds `delivered.json`. It is written after the approval has landed, never inside it. Paths are disjoint per Story, so two Stories never collide on a file; they share the state ref, and a lost race is retried. Closing the Story appends a delivered record that cites its evidence receipt. A usage write that fails is retried from the Story's approval or closure receipt by `spec author coverage SPEC-ID@N --repair --story WORK-ID`, which reads the Story's committed record and writes the same bytes. It never blocks the Story. [SPA:REQ-022]
 
 `spec author coverage SPEC-ID@N` reads one pinned state commit (`spec coverage` is already Story clause coverage). For each clause it shows: allocated (by a split), claimed (approved Story first step), delivered (closed Story with evidence), or uncovered. The Studio shows the same thing as a coverage stage. An unreadable state branch is reported as unavailable, never as "uncovered". [SPA:REQ-023]
 
@@ -232,9 +232,10 @@ Every family is registered in `schema-migrations.mjs` with current and future-ve
 | `spec author publish SPEC-ID (--draft \| --reviewed)` | person | Publishes the next revision |
 | `spec author show SPEC-ID[@N]`, `spec author list`, `spec author status SPEC-ID` | anyone | Reads; `status` is the host's one call for the Studio |
 | `spec author discard SPEC-ID` | person | Removes the local draft |
-| `start … --spec SPEC-ID[@N][=CLAUSES]`, `spec attach WORK-ID …` | as Story start | Attaches a slice (§6) |
+| `start … --spec SPEC-ID[@N][=CLAUSES] [--allow-partial-dependency --reason TEXT]` | as Story start | Attaches a slice (§6) |
+| `spec attach WORK-ID --drop CLAUSE-ID --reason TEXT` | person | Drops a sliced clause: its scope item is excluded (§6.3) |
 | `spec split SPEC-ID@N (--propose FILE \| --publish)` | person publishes | Split plan (§7) |
-| `spec author coverage SPEC-ID@N [--repair] [--json]` | anyone | Coverage (§6.4) |
+| `spec author coverage SPEC-ID@N [--repair --story WORK-ID] [--json]` | anyone; repair writes | Coverage (§6.4) |
 
 Every operation that writes takes `--operation-id` (generated by hosts). Every refusal names a working recovery command, so `test/dead-end-routes.test.mjs` covers the new codes. Handlers are lazily loaded modules routed from `specCommand` before any Story loads, as `spec drift` is. Root and start closures grow only by the slice reader that Story start needs. [SPA:IFC-002]
 
@@ -267,8 +268,8 @@ Ordered so that the core value, a Story that sees and delivers its spec slice, i
 | [SPA:AC-010] | Two clones publish the same spec; different specs; lost acknowledgement; unreachable branch | One wins with `SPEC_LIBRARY_REVISION_CONFLICT` for the other; both land; same revision returned; `SPEC_LIBRARY_UNAVAILABLE`, never empty |
 | [SPA:AC-011] | `start S-1 --spec SPEC@1=REQ-001,AC-002` | The Story source carries the sliced clauses, the decisions and the out-of-slice list; the composed intake prompt contains them verbatim |
 | [SPA:AC-012] | Slice names a clause not in the revision, or omits a clause a sliced one depends on | Refused, naming the clause(s) |
-| [SPA:AC-013] | Intake draft does not cover a sliced clause | The existing scope gate refuses publication, naming the clause's `sourceReference` |
-| [SPA:AC-014] | `spec attach --drop REQ-003 --reason …` by an agent; by the person | Agent refused; person's drop recorded and the clause leaves the scope inventory |
+| [SPA:AC-013] | Intake draft does not cover a sliced clause | The existing scope review names the clause's `sourceReference`, and the Story's final check refuses while it is unresolved (the scope gate advises at publication and blocks at the end) |
+| [SPA:AC-014] | `spec attach --drop REQ-003 --reason …` by an agent; by the person | Agent refused; the person's drop is recorded as the clause's scope item excluded with the reason, so nothing requires it |
 | [SPA:AC-015] | First step approved; Story closed | One usage record per generation; a delivered record citing the evidence receipt |
 | [SPA:AC-016] | The usage write fails | The Story proceeds; `spec author coverage --repair` writes it from the receipt |
 | [SPA:AC-017] | A new revision is published after attachment | The Story keeps its pinned slice; coverage of `@N` is unchanged |

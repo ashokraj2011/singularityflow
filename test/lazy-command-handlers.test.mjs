@@ -228,7 +228,13 @@ test('frequent lifecycle handlers do not reach the legacy dispatcher and stay un
     // 9,310,000 (next 5,000 boundary): main 7b8cad8f1 measures 9,304,020. A Windows 8.3 short name compared as the
     // filesystem spells it (util.mjs) and the person's line endings for the destructive proof's own status reads
     // (source-inspection.mjs, worktree-fingerprint.mjs) add 2,185 for 9,306,205; no new eager file.
-    assert.ok(closure.bytes <= 9_310_000, `${file} exceeds the 9 MB eager-source budget (${closure.bytes} bytes)`);
+    // 9,315,000 (next 5,000 boundary): main 68fb64d51 measures 9,306,985. A Story's specification slice (SPEC-SPA
+    // v1.3 S2): its USER-STORY.md section (state.mjs +997), the --spec start steps (start.mjs +876), the coverage and
+    // attach operations (command-registry.mjs +568), each sliced clause a scope statement (scope/extract.mjs +529),
+    // the spec-usage record family (schema-migrations.mjs +338), the attach own-terminal step (command-skills.mjs),
+    // the --allow-partial-dependency flag (util.mjs) and the usage helper's build identity add 3,649 for 9,310,634.
+    // The slice and usage modules load only for --spec; no new eager file.
+    assert.ok(closure.bytes <= 9_315_000, `${file} exceeds the 9 MB eager-source budget (${closure.bytes} bytes)`);
   }
 });
 

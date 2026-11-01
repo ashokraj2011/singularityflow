@@ -2705,6 +2705,11 @@ async function specCommand(positionals, options) {
   // Drift spans every closed Story, so it needs no active one.
   if (positionals[1] === 'drift') return (await import('./commands/spec-drift.mjs')).specDriftCommand(positionals, options);
   if (positionals[1] === 'author') return (await import('./commands/spec-author.mjs')).specAuthorCommand(positionals, options);
+  // Dropping a sliced clause is a scope decision on its item (src/commands/spec-attach.mjs).
+  if (positionals[1] === 'attach') {
+    const drop = await (await import('./commands/spec-attach.mjs')).specSliceDrop(positionals, options);
+    return decisionScopeCommand(['decision', 'scope', drop.workId], { ...options, fetch: false, drop: undefined, item: drop.item, as: 'excluded' });
+  }
   const root = repoRoot();
   const subcommand = positionals[1] ?? 'trace';
   const supplied = subcommand === 'index' ? positionals[2] : null;

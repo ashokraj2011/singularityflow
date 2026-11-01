@@ -723,7 +723,10 @@ Every public operation is classified before its implementation module is importe
 | spec.acceptance.dry-run | read | never | — | — |
 | spec.analyze | read | never | — | — |
 | spec.analyze.assisted | mutation | optional | spec.analyze | copilot-cli |
+| spec.attach | mutation | never | — | — |
 | spec.author.check | read | never | — | — |
+| spec.author.coverage | read | never | — | — |
+| spec.author.coverage.repair | mutation | never | — | — |
 | spec.author.decide | mutation | never | — | — |
 | spec.author.discard | mutation | never | — | — |
 | spec.author.edit | mutation | never | — | — |

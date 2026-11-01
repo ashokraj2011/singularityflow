@@ -95,8 +95,9 @@ const FAMILIES = Object.freeze([
     // and the lease review command a busy refusal names.
     'configuration-projection.mjs', 'commands/lock.mjs',
     // The specification library (SPEC-SPA v1.3), imported only dynamically by `spec author`. Unclaimed,
-    // every `spec author status` loaded compatibility and models.
-    'commands/spec-author.mjs']],
+    // every `spec author status` loaded compatibility and models. A Story's slice and its usage records
+    // (S2) are imported only by start --spec, spec attach, approval and coverage.
+    'commands/spec-author.mjs', 'commands/spec-attach.mjs', 'spec-library/slice.mjs', 'spec-library/usage.mjs']],
   ['models', ['commands/wm.mjs', 'commands/comprehension.mjs']]
 ]);
 

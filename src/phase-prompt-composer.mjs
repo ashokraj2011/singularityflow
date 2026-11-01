@@ -293,7 +293,9 @@ function workSourcePromptContext(workflow, source, sourceRecord, { definition = 
   const fields = [
     'type', 'stableId', 'id', 'key', 'url', 'title', 'description', 'desiredOutcome',
     'acceptanceCriteria', 'scope', 'outOfScope', 'constraints', 'dependencies', 'risks',
-    'stakeholders', 'urgency', 'notes', 'targetOrigin'
+    'stakeholders', 'urgency', 'notes', 'targetOrigin',
+    // An attached specification slice: its clauses, the decisions it settles, and what is not this Story.
+    'specification'
   ];
   const projection = Object.fromEntries(fields
     .map((field) => [field, presentSourceValue(source[field])])

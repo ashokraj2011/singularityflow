@@ -44,8 +44,12 @@ export function specification(WORK, value) {
   ].join('\n');
 }
 
-/** A started Story, its specification at generation 0, in a repository of its own. */
-export async function startedSpecificationStory(t, WORK, { configure = null } = {}) {
+/**
+ * A started Story, its specification at generation 0, in a repository of its own. `beforeStart` runs
+ * once the repository is pushed, and `startArguments` are added to the start command
+ * (test/spec-slices.test.mjs publishes a specification and starts with --spec).
+ */
+export async function startedSpecificationStory(t, WORK, { configure = null, beforeStart = null, startArguments = [] } = {}) {
   const directory = await mkdtemp(path.join(os.tmpdir(), 'sflow-approval-history-'));
   const root = path.join(directory, 'repository');
   const remote = path.join(directory, 'origin.git');
@@ -77,11 +81,12 @@ export async function startedSpecificationStory(t, WORK, { configure = null } = 
   run('git', ['init', '--bare', '-b', 'main', remote]);
   git('remote', 'add', 'origin', remote);
   git('push', '-q', '-u', 'origin', 'main');
+  await beforeStart?.({ directory, root, remote, run, git, cli });
 
   cli('start', WORK, '--from-branch', 'main', '--work-type', 'spec-driven-standard',
-    '--title', 'Validate a value', '--description', 'Return an approved value.');
+    '--title', 'Validate a value', '--description', 'Return an approved value.', ...startArguments);
   const item = path.join(root, 'singularity/work-items', WORK);
-  return { directory, root, run, git, cli, item };
+  return { directory, root, remote, run, git, cli, item };
 }
 
 /**

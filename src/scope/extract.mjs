@@ -133,6 +133,13 @@ export function storySourceStatements(source, { sourceId = 'story' } = {}) {
       found.push({ sourceId, line: null, field, text: String(entry).replace(/\s+/gu, ' ').trim(), statementSha256: statementSha256(entry), signal });
     }
   }
+  // An attached specification slice (SPEC-SPA v1.3 §6.3): each sliced clause is a requirement of its own.
+  for (const slice of Array.isArray(source?.specification) ? source.specification : []) {
+    for (const clause of Array.isArray(slice?.clauses) ? slice.clauses : []) {
+      const entry = `${clause?.anchor ?? ''} ${clause?.text ?? ''}`;
+      found.push({ sourceId, line: null, field: 'specification', text: entry.replace(/\s+/gu, ' ').trim(), statementSha256: statementSha256(entry), signal: 'structured' });
+    }
+  }
   for (const field of ['description', 'desiredOutcome', 'notes']) {
     for (const entry of entries(source?.[field])) {
       for (const statement of extractNormativeStatements(entry, { sourceId }).filter((item) => item.signal !== 'structured')) {

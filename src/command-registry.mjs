@@ -453,10 +453,10 @@ const CONSTITUTION_SUBCOMMANDS = Object.freeze([...CONSTITUTION_READ_SUBCOMMANDS
 const SPEC_READ_SUBCOMMANDS = Object.freeze(['coverage', 'trace', 'drift']);
 const SPEC_INDEX_SUBCOMMANDS = Object.freeze(['index', 'acceptance', 'tasks']);
 // The specification library (src/commands/spec-author.mjs): drafts, gaps, check and state-branch revisions.
-const SPEC_AUTHOR_READ_ACTIONS = Object.freeze(['gaps', 'check', 'status', 'show', 'list']);
+const SPEC_AUTHOR_READ_ACTIONS = Object.freeze(['gaps', 'check', 'status', 'show', 'list', 'coverage']);
 const SPEC_AUTHOR_MUTATION_ACTIONS = Object.freeze(['new', 'edit', 'research', 'gap', 'decide', 'settle', 'publish', 'discard']);
 const SPEC_AUTHOR_ACTIONS = Object.freeze([...SPEC_AUTHOR_READ_ACTIONS, ...SPEC_AUTHOR_MUTATION_ACTIONS]);
-const SPEC_SUBCOMMANDS = Object.freeze(['analyze', 'claims', 'author', ...SPEC_READ_SUBCOMMANDS, ...SPEC_INDEX_SUBCOMMANDS]);
+const SPEC_SUBCOMMANDS = Object.freeze(['analyze', 'claims', 'author', 'attach', ...SPEC_READ_SUBCOMMANDS, ...SPEC_INDEX_SUBCOMMANDS]);
 const COMPREHENSION_SUBCOMMANDS = Object.freeze([
   'regions', 'source', 'check', 'graph', 'explain', 'replay', 'walkthrough', 'brownfield',
   'backfill', 'record-preview'
@@ -838,8 +838,12 @@ function resolveSpecOperation(definition, positionals, options) {
   if (subcommand === 'author') {
     const action = positionals[2] ?? 'list';
     if (!SPEC_AUTHOR_ACTIONS.includes(action)) return unknownSubcommand('spec author', action, SPEC_AUTHOR_ACTIONS);
+    // Repairing coverage writes the usage records a Story's committed approval proves (SPEC-SPA v1.3 §6.4).
+    if (action === 'coverage' && options?.repair === true) return never('spec.author.coverage.repair', definition, 'mutation');
     return never(`spec.author.${action}`, definition, SPEC_AUTHOR_READ_ACTIONS.includes(action) ? 'read' : 'mutation');
   }
+  // Dropping a sliced clause records a scope decision on the Story (src/commands/spec-attach.mjs).
+  if (subcommand === 'attach') return never('spec.attach', definition, 'mutation');
   if (SPEC_READ_SUBCOMMANDS.includes(subcommand)) return never(`spec.${subcommand}`, definition, 'read');
   // The advisory task map is derived from the approved specification, so it lives with the other
   // clause-traceability operations rather than becoming a command of its own.
@@ -2059,6 +2063,8 @@ export function operationCatalog() {
     never('spec.drift.decide', specDefinition, 'mutation'),
     ...SPEC_AUTHOR_READ_ACTIONS.map((name) => never(`spec.author.${name}`, specDefinition, 'read')),
     ...SPEC_AUTHOR_MUTATION_ACTIONS.map((name) => never(`spec.author.${name}`, specDefinition, 'mutation')),
+    never('spec.author.coverage.repair', specDefinition, 'mutation'),
+    never('spec.attach', specDefinition, 'mutation'),
     never('explain', explainDefinition, 'read'),
     never('explain.code', explainDefinition, 'read'),
     optional('explain.code.narrate', 'explain.code', explainDefinition),

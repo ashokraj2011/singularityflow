@@ -814,6 +814,7 @@ test('every step only a person takes in their own terminal is refused in every t
     'spec-library-decision': ['singularity-flow spec author decide SPEC-CHK-004 GAP-001 --option O1 --reason "Strictly above."',
       'singularity-flow spec author settle SPEC-CHK-004 --all-articles satisfied', 'singularity-flow spec author publish SPEC-CHK-004 --reviewed',
       'singularity-flow spec author discard SPEC-CHK-004'],
+    'spec-slice-change': ['singularity-flow spec attach PMC-1 --drop SPEC-CHK-004:REQ-001 --reason "Delivered by another Story."'],
     'upstream-amendment-decision': ['singularity-flow upstream-issue decide-amendment FAM-001 --decision approve --reason "The amendment is right." --confirm FAM-001',
       'singularity-flow upstream-issue revalidate custom-step --amendment FAM-001 --outcome unchanged --reason "Still holds."'],
     'environment-binding': ['singularity-flow env bind staging --stdin', 'singularity-flow env unbind staging --json'],

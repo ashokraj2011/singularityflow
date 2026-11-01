@@ -369,7 +369,10 @@ test('the bundled CLI answers exactly like the sources while opening a handful o
   // No new file.
   // 7,700,000 holds: main 7b8cad8f1 measures 7,695,964; the same short-name comparisons with the Copilot discovery and
   // environment-file guards, and the proof's status line endings, add 1,581 for 7,697,545. No new file.
-  assert.ok(hookContext < 7_700_000,
+  // 7,705,000: main 68fb64d51 measures 7,698,066; a Story's specification slice in its source, scope statements and
+  // USER-STORY.md, and the usage-record step after an approval lands (SPEC-SPA v1.3 S2) add 2,027 for 7,700,093.
+  // One new file, commands/shared/record-spec-usage-after-transition.mjs; the usage records load only for a sliced Story.
+  assert.ok(hookContext < 7_705_000,
     `phase-review reads retain their existing byte ceiling after moving families (${hookContext} bytes)`);
   assert.match(await readFile(path.join(outdir, 'cold-light.mjs'), 'utf8'), /function enterPhase\b/u,
     'phase binding must not fall through to the compatibility/admin bundle');

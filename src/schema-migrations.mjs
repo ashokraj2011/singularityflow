@@ -3327,6 +3327,9 @@ const families = [
   family({ id: 'spec-gap-ledger', currentVersion: 1, immutable: true, paths: [/^singularity\/specifications\/SPEC-[A-Z0-9-]+\/\d{6}\/gaps\.json$/] }),
   family({ id: 'spec-research', currentVersion: 1, immutable: true, paths: [/^singularity\/specifications\/SPEC-[A-Z0-9-]+\/\d{6}\/research\.json$/] }),
   family({ id: 'spec-quality', currentVersion: 1, immutable: true, paths: [/^singularity\/specifications\/SPEC-[A-Z0-9-]+\/\d{6}\/quality\.json$/] }),
+  // A Story's claim (after its first step's approval) or delivery (at its closing) of a revision's
+  // clauses, written once on the state branch (SPEC-SPA v1.3 §6.4).
+  family({ id: 'spec-usage', currentVersion: 1, immutable: true, paths: [/^singularity\/specifications\/SPEC-[A-Z0-9-]+\/usage\/[^/]+\/(?:\d{6}|delivered)\.json$/] }),
   family({
     id: 'prompt-audit-settings', currentVersion: 2,
     steps: [migration(1, 2, promptAuditSettingsV1ToV2)],

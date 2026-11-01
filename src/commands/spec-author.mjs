@@ -21,9 +21,10 @@ import { addPersonFact, gapImpact, mergeResearch, normalizeArea, removeResearch 
 import { optionBoolean, optionNumber, optionString, optionStrings, SingularityFlowError } from '../util.mjs';
 
 export const SPEC_AUTHOR_ACTIONS = Object.freeze([
-  'new', 'edit', 'research', 'gap', 'gaps', 'decide', 'settle', 'check', 'status', 'publish', 'show', 'list', 'discard'
+  'new', 'edit', 'research', 'gap', 'gaps', 'decide', 'settle', 'check', 'status', 'publish', 'show', 'list', 'discard', 'coverage'
 ]);
-export const SPEC_AUTHOR_READ_ACTIONS = Object.freeze(['gaps', 'check', 'status', 'show', 'list']);
+/** `coverage --repair` writes; `coverage` alone reads. */
+export const SPEC_AUTHOR_READ_ACTIONS = Object.freeze(['gaps', 'check', 'status', 'show', 'list', 'coverage']);
 /** The person's own steps: refused for agents, whatever the turn. */
 export const SPEC_AUTHOR_PERSON_ACTIONS = Object.freeze(['decide', 'settle', 'publish', 'discard']);
 
@@ -360,6 +361,47 @@ async function discardAction(root, positionals, options) {
     `Discarded ${specId}'s draft on this clone (${discarded.snapshots} snapshot(s)). Published revisions are unchanged.`);
 }
 
+/**
+ * Per clause of one revision: delivered, claimed or uncovered, from one pinned state commit (§6.4).
+ * `--repair --story WORK-ID` first writes the usage records that Story's committed approval and
+ * closure prove and the state branch is missing.
+ */
+async function coverageAction(root, positionals, options) {
+  const { specId, revision } = parseSpecReference(specArgument(positionals, 'coverage'));
+  if (revision === null) fail(`spec author coverage needs the revision: ${specId}@N.`, 'SPEC_REFERENCE_INVALID', { specId, nextAction: `singularity-flow spec author show ${specId}` });
+  const config = await libraryConfig(root);
+  const usage = await import('../spec-library/usage.mjs');
+  let repaired = null;
+  if (optionBoolean(options, 'repair')) {
+    const workId = optionString(options, 'story');
+    if (!workId) fail(`Repair names the Story whose records to write: --story WORK-ID.`, 'SPEC_USAGE_STORY_MISSING', { specId, nextAction: `singularity-flow spec author coverage ${specId}@${revision}` });
+    const { committedFileText } = await import('../git.mjs');
+    const directory = `${config.workItemRoot ?? 'singularity/work-items'}/${workId}`;
+    const read = (name) => committedFileText(root, 'HEAD', `${directory}/${name}`);
+    const [workflowText, sourceText] = [read('workflow.json'), read('source.json')];
+    if (!workflowText || !sourceText) fail(`${workId}'s committed record is not on this checkout (${directory}); run the repair from a checkout of its branch.`, 'SPEC_USAGE_STORY_MISSING', { workId, nextAction: `singularity-flow session open ${workId}` });
+    const source = JSON.parse(sourceText);
+    const records = usage.usageRecords(JSON.parse(workflowText), source).filter((entry) => entry.record.specId === specId);
+    if (!(source.specification ?? []).some((slice) => String(slice.revision).startsWith(`${specId}@`))) {
+      fail(`${workId} has no slice of ${specId} attached.`, 'SPEC_USAGE_STORY_MISSING', { workId, specId, nextAction: `singularity-flow spec author coverage ${specId}@${revision}` });
+    }
+    const result = await usage.publishUsage(root, config, records);
+    repaired = { workId, records: records.length, written: result.written, present: result.present, differing: result.differing };
+  }
+  const view = await libraryView(root, config);
+  const read = resolveRevision(root, view, specId, revision, { anyState: true });
+  const { records, unreadable } = usage.readUsage(root, view, specId, revision);
+  const clauses = usage.coverageOf({ ...read, specId }, records);
+  const counts = Object.fromEntries(['delivered', 'claimed', 'uncovered'].map((status) => [status, clauses.filter((entry) => entry.status === status).length]));
+  const lines = [`${specId}@${revision} at state ${String(view.commit).slice(0, 8)}: ${clauses.length} clause(s): ${counts.delivered} delivered, ${counts.claimed} claimed, ${counts.uncovered} uncovered.`];
+  if (repaired) lines.unshift(`Repair for ${repaired.workId}: ${repaired.written.length} record(s) written, ${repaired.present.length} already there${repaired.differing.length ? `, ${repaired.differing.length} different and left as they are` : ''}.`);
+  for (const entry of clauses) {
+    lines.push(`  [${entry.clause}] ${entry.status}${entry.deliveredBy.length ? ` by ${entry.deliveredBy.join(', ')}` : ''}${entry.claimedBy.length ? `${entry.deliveredBy.length ? '; ' : ' '}claimed by ${entry.claimedBy.join(', ')}` : ''}`);
+  }
+  if (unreadable.length) lines.push(`Unreadable usage records, not counted: ${unreadable.join(', ')}`);
+  return print(options, { action: 'coverage', specId, revision, stateCommit: view.commit, clauses, counts, unreadable, ...(repaired ? { repaired } : {}) }, lines.join('\n'));
+}
+
 export async function specAuthorCommand(positionals, options) {
   const action = positionals[2];
   if (!SPEC_AUTHOR_ACTIONS.includes(action)) fail(`${action ? `'${action}' is not a spec author action. ` : ''}${USAGE}`, 'SPEC_AUTHOR_ACTION_UNKNOWN', { action: action ?? null, nextAction: 'singularity-flow help spec' });
@@ -376,5 +418,6 @@ export async function specAuthorCommand(positionals, options) {
   if (action === 'publish') return publishAction(root, positionals, options);
   if (action === 'show') return showAction(root, positionals, options);
   if (action === 'list') return listAction(root, options);
+  if (action === 'coverage') return coverageAction(root, positionals, options);
   return discardAction(root, positionals, options);
 }

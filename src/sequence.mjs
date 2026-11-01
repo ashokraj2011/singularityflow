@@ -127,23 +127,23 @@ function commandLines(actions, alternativeSecond = false) {
   ));
 }
 
-/** The way on a gate names: publish a retained commit first, or the Story's own next step. */
-function gateGuidance(workflow, gate) {
-  return gate === 'publicationPending'
-    ? {
-        summary: 'Publish the retained local lifecycle commit before any further mutation.',
-        actions: [copilotAction({ command: 'singularity-flow sync' })]
-      }
-    : sequenceGuidance(workflow);
+/** The way on a gate names: publish a retained commit first (or set aside one the remote moved past), or the Story's own next step. */
+function gateGuidance(workflow, gate, { setAside = null } = {}) {
+  if (gate !== 'publicationPending') return sequenceGuidance(workflow);
+  return setAside
+    ? { summary: 'The remote moved past the retained local lifecycle commit, so sync cannot send it: preview setting it aside.',
+        actions: [copilotAction({ command: setAside })] }
+    : { summary: 'Publish the retained local lifecycle commit before any further mutation.',
+        actions: [copilotAction({ command: 'singularity-flow sync' })] };
 }
 
-function sequenceMessage(workflow, gate, action, { requestedPhase = null, reason = null, mode = sequenceGateMode(workflow, gate), guidance: withGuidance = true } = {}) {
+function sequenceMessage(workflow, gate, action, { requestedPhase = null, reason = null, mode = sequenceGateMode(workflow, gate), guidance: withGuidance = true, setAside = null } = {}) {
   const phase = activePhase(workflow);
   const target = requestedPhase ?? phase?.id ?? null;
   const current = phase
     ? `phase '${phase.id}' is ${phase.status} at generation ${phase.generation ?? 0}`
     : `workflow '${workflow.workItem.id}' is complete`;
-  const guidance = gateGuidance(workflow, gate);
+  const guidance = gateGuidance(workflow, gate, { setAside });
   // An approver whose clone is behind saw only the author's prepare and publish (2026-10-28): a step
   // in progress here may have been submitted from another clone.
   const approving = action === 'approve' && gate === 'phaseStatus' ? workflow.phases?.[target] : null;
@@ -191,13 +191,8 @@ const GATE_REASONS = Object.freeze({
  * Supplied at construction because `commandResult` refuses to build a result with no continuation:
  * a refusal that stops someone without telling them how to proceed is not constructible.
  */
-function gateRemediation(workflow, gate) {
-  const guidance = gate === 'publicationPending'
-    ? {
-        summary: 'Publish the retained local lifecycle commit before any further mutation.',
-        actions: [copilotAction({ command: 'singularity-flow sync' })]
-      }
-    : sequenceGuidance(workflow);
+function gateRemediation(workflow, gate, options) {
+  const guidance = gateGuidance(workflow, gate, options);
   const actions = guidance.actions.filter((entry) => entry.command);
   if (!actions.length) {
     return [action({
@@ -218,13 +213,13 @@ function gateRemediation(workflow, gate) {
   }));
 }
 
-export function sequenceError(workflow, action, { gate = 'phaseStatus', requestedPhase = null, reason = null } = {}) {
+export function sequenceError(workflow, action, { gate = 'phaseStatus', requestedPhase = null, reason = null, setAside = null } = {}) {
   // The reassurance sentence used to be concatenated onto this message by hand. It is now derived
   // from `effects` at the renderer, so it cannot survive a future change that makes this path touch
   // something. The prose body stays for now: converting every refusal's detail into catalog slots is
   // the migration, not this change.
   const error = new SingularityFlowError(
-    sequenceMessage(workflow, gate, action, { requestedPhase, reason, mode: 'hard', guidance: false }), { exitCode: 2 });
+    sequenceMessage(workflow, gate, action, { requestedPhase, reason, mode: 'hard', guidance: false, setAside }), { exitCode: 2 });
   const phase = requestedPhase ?? workflow.currentPhase ?? null;
   return withCommandResult(error, commandResult({
     operation: { id: action.replace(/\s+/g, '-'), classification: 'mutation' },
@@ -237,7 +232,7 @@ export function sequenceError(workflow, action, { gate = 'phaseStatus', requeste
       ref: `gate:${gate}`,
       slots: { gate, phase, action }
     })],
-    next: gateRemediation(workflow, gate)
+    next: gateRemediation(workflow, gate, { setAside })
   }));
 }
 
@@ -331,16 +326,16 @@ async function recordOverride(root, workflow, gate, action, { requestedPhase, re
   return record;
 }
 
-export async function enforceSequenceGate(root, workflow, gate, action, { requestedPhase = null, reason = null } = {}) {
+export async function enforceSequenceGate(root, workflow, gate, action, { requestedPhase = null, reason = null, setAside = null } = {}) {
   const mode = sequenceGateMode(workflow, gate);
-  if (mode === 'hard') throw sequenceError(workflow, action, { gate, requestedPhase, reason });
+  if (mode === 'hard') throw sequenceError(workflow, action, { gate, requestedPhase, reason, setAside });
   const key = confirmationKey(gate, requestedPhase, reason);
   const accepted = confirmed.get(workflow) ?? new Map();
   if (accepted.has(key)) return accepted.get(key);
   // The Story's own next step is unrelated to adding a document outside its upload window, so that
   // gate's warning leaves it out; the other gates' next steps are the alternative to continuing.
-  const message = sequenceMessage(workflow, gate, action, { requestedPhase, reason, mode, guidance: gate !== 'documentPhase' });
-  const next = gate === 'documentPhase' ? null : gateGuidance(workflow, gate).actions?.[0]?.command ?? null;
+  const message = sequenceMessage(workflow, gate, action, { requestedPhase, reason, mode, guidance: gate !== 'documentPhase', setAside });
+  const next = gate === 'documentPhase' ? null : gateGuidance(workflow, gate, { setAside }).actions?.[0]?.command ?? null;
   if (!(await confirmOverride({ message, gate, next }))) {
     throw new SingularityFlowError(`${message}\nSoft gate was not confirmed. Nothing was changed.`, { exitCode: 2 });
   }

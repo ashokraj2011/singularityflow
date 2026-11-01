@@ -216,7 +216,7 @@ async function readRecoveryPlan(root, config, workflow, { fetch, phaseId, inspec
     if (retainedPublicationRemoteMoved(pending)) actions.push({
       id: 'set-aside-preview', safe: true, automatic: false, mode: 'guided', confirmation: 'none',
       command: `singularity-flow sync ${workflow.workItem.id} --set-aside`,
-      detail: 'The remote moved past the retained commit (another clone published first, or it already has the commit), so sync cannot send it as it is. Preview setting it aside; nothing changes.'
+      detail: 'The remote moved past the retained commit (another clone published first, its history there was rewritten or reset, or it already has the commit), so sync cannot send it as it is. Preview setting it aside; nothing changes.'
     }, {
       id: 'publish', safe: true, automatic: false, mode: 'guided', confirmation: 'none',
       command: `singularity-flow sync ${workflow.workItem.id}`,

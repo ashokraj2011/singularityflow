@@ -2,7 +2,7 @@
 import { assertStoryNotArchived } from "./governance-archive.mjs";
 import { enforceSequenceGate } from "./sequence.mjs";
 import { legacyPendingPublicationPath } from "./story-state-write.mjs";
-import { readPendingPublication } from "./publication-pending.mjs";
+import { inspectPendingPublication, readPendingPublication, retainedPublicationRemoteMoved } from "./publication-pending.mjs";
 import { storyPublicationPending } from "./story-publication-read.mjs";
 import { SingularityFlowError } from "./util.mjs";
 
@@ -60,8 +60,14 @@ export async function assertNoPendingPublication(root, config, workflow, action 
     { code: 'STORY_PUBLICATION_IN_PROGRESS', details });
   }
   if (pending && !(await repairRetainedPublication(root, config, workflow, action))) {
+    // A commit the remote moved past never lands by sync: name its set-aside (2026-11-01).
+    const retained = await inspectPendingPublication(root, {
+      kind: 'story', id: workflow.workItem.id, migrate: false, roots: { workItemRoot: config.workItemRoot }
+    }).catch(() => null);
+    const moved = retainedPublicationRemoteMoved(retained);
     await enforceSequenceGate(root, workflow, 'publicationPending', action, {
-      reason: 'Publication is pending because a retained local lifecycle commit has not reached its configured remote.'
+      reason: `Publication is pending because a retained local lifecycle commit has not reached its configured remote${moved ? ', and the remote moved past it' : ''}.`,
+      setAside: moved ? `singularity-flow sync ${workflow.workItem.id} --set-aside` : null
     });
   }
 }

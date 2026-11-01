@@ -197,11 +197,16 @@ test('a lost race a retry finds leads recover to its set-aside, never to sync ag
   assert.notEqual(flow(root, ['recover', id, '--phase', 'intake', '--apply', '--confirm', before.planId], { fail: true }).status, 0);
   const after = JSON.parse(flow(root, ['recover', id, '--json']).stdout);
   assert.equal(after.actions[0]?.command, `singularity-flow sync ${id} --set-aside`, JSON.stringify(after.actions));
+  assert.match(after.actions[0].detail, /another clone published first/u);
   assert.deepEqual(automaticSync(after), [], 'sync is never applied again');
 
+  // Cancel waits on the commit, and names its set-aside rather than a sync that never lands it.
   const blocked = cancel(root, id, { fail: true });
   assert.notEqual(blocked.status, 0);
   assert.match(blocked.stderr + blocked.stdout, /publicationPending/u);
+  assert.match(blocked.stderr + blocked.stdout, /the remote moved past it/u);
+  assert.match(blocked.stderr + blocked.stdout, new RegExp(`Shell: singularity-flow sync ${id} --set-aside`, 'u'));
+  assert.doesNotMatch(blocked.stderr + blocked.stdout, /Shell: singularity-flow sync\n/u);
   flow(root, ['sync', id, '--set-aside', '--confirm', sealed.commit]);
   assert.equal(git(root, 'rev-parse', 'HEAD'), theirs);
   cancel(root, id);
@@ -234,11 +239,20 @@ test('a Story branch rewritten on the remote while its commit waited is named, s
   assert.doesNotMatch(refused.stderr + refused.stdout, /Push still fails/u);
   const plan = JSON.parse(flow(root, ['recover', id, '--json']).stdout);
   assert.equal(plan.actions[0]?.command, `singularity-flow sync ${id} --set-aside`, JSON.stringify(plan.actions));
+  assert.match(plan.actions[0].detail, /its history there was rewritten or reset/u);
   assert.deepEqual(automaticSync(plan), []);
+  const blocked = cancel(root, id, { fail: true });
+  assert.notEqual(blocked.status, 0);
+  assert.match(blocked.stderr + blocked.stdout, new RegExp(`Shell: singularity-flow sync ${id} --set-aside`, 'u'));
 
   flow(root, ['sync', id, '--set-aside', '--confirm', sealed.commit]);
   assert.equal(git(root, 'rev-parse', 'HEAD'), git(root, 'rev-parse', `${sealed.commit}^`), 'the branch is back at the commit before it');
   assert.equal(await waiting(root, id), null);
+  // What is left here is SFlow's own history the remote dropped, never "made outside SFlow".
+  const diverged = cancel(root, id, { fail: true });
+  assert.notEqual(diverged.status, 0);
+  assert.match(diverged.stderr + diverged.stdout, new RegExp(`git pull --no-rebase origin ${id}`, 'u'));
+  assert.doesNotMatch(diverged.stderr + diverged.stdout, /made outside SFlow/u);
   // What the remote has comes in by a reviewed merge, never a reset; then the Story goes on.
   run('git', ['pull', '--no-rebase', '--no-edit', 'origin', id], root);
   cancel(root, id);

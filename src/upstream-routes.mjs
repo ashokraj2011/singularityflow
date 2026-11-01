@@ -10,6 +10,7 @@
  * the CLI then refuses.
  */
 import { phaseRequiresCodeDelivery } from './code-delivery-policy.mjs';
+import { countedRecords } from './presence/counted.mjs';
 import { intentAmendmentSource, latestStepBefore, scopeStepOf } from './phase-roles.mjs';
 import { clauseMentionPattern } from './traceability-ids.mjs';
 import { formatCommandRouteLines } from './model-free-commands.mjs';
@@ -140,7 +141,7 @@ export const OPEN_UPSTREAM_ISSUE_STATUSES = Object.freeze(['open', 'expired']);
  * nothing; its replacement carries the obligation. Its approvers may still dismiss it explicitly.
  */
 export function upstreamIssueStates(workflow, now = new Date().toISOString()) {
-  const decisions = workflow?.upstreamIssueDecisions ?? [];
+  const decisions = countedRecords(workflow, workflow?.upstreamIssueDecisions);
   const replacements = new Map();
   for (const issue of workflow?.upstreamIssues ?? []) {
     if (issue?.supersedes && !replacements.has(issue.supersedes)) replacements.set(issue.supersedes, issue.id);

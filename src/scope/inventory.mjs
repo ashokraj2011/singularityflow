@@ -24,6 +24,7 @@
 import { createHash } from 'node:crypto';
 import { readdir, readFile } from 'node:fs/promises';
 import path from 'node:path';
+import { countedRecords } from '../presence/counted.mjs';
 
 import { CLAUSE_LINKED_DISPOSITIONS, clauseScopeItems, extractNormativeStatements, normalizeStatement, scopeItemId, storySourceStatements } from './extract.mjs';
 import { extractSourceText, isTextualSource } from '../source-text.mjs';
@@ -123,7 +124,7 @@ function citingClauses(documentId, clauses) {
 /** The latest decision a person recorded for each item or source, kept only while its statement is unchanged. */
 function decisionsByItem(workflow) {
   const decided = new Map();
-  for (const entry of workflow?.scopeDispositions ?? []) {
+  for (const entry of countedRecords(workflow, workflow?.scopeDispositions)) {
     if (entry?.withdrawnAt) continue;
     decided.set(entry.item, entry);
   }

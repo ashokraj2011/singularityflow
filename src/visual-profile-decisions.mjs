@@ -12,6 +12,7 @@
  */
 import { activeVisualProfileDecisions, nativeCaptureCommand, profilePixelSize, visualProfileDecisionCommand } from './visual-coverage.mjs';
 import { SingularityFlowError } from './util.mjs';
+import { countedRecords } from './presence/counted.mjs';
 
 const DECISION_ID = /^VPD-[0-9]{3,}$/u;
 
@@ -25,7 +26,7 @@ function reasonText(reason, what) {
 
 /** The decision with this ID (never a revocation), or null. */
 export function visualProfileDecision(workflow, decisionId) {
-  return (workflow?.visualProfileDecisions ?? []).find((entry) => !entry.revokes && entry.id === decisionId) ?? null;
+  return countedRecords(workflow, workflow?.visualProfileDecisions).find((entry) => !entry.revokes && entry.id === decisionId) ?? null;
 }
 
 /**
@@ -73,7 +74,7 @@ export function recordVisualProfileDecision(workflow, { phaseId, profileId, reas
 export function recordVisualProfileRevocation(workflow, { decisionId, reason, actor, authorityGroup, identityAssurance = null, at }) {
   const target = DECISION_ID.test(String(decisionId ?? '')) ? visualProfileDecision(workflow, decisionId) : null;
   if (!target) throw new SingularityFlowError(`This Story has no visual-profile decision ${decisionId}.`, { code: 'VISUAL_PROFILE_DECISION_UNKNOWN' });
-  if ((workflow.visualProfileDecisions ?? []).some((entry) => entry.revokes === decisionId)) {
+  if (countedRecords(workflow, workflow.visualProfileDecisions).some((entry) => entry.revokes === decisionId)) {
     throw new SingularityFlowError(`${decisionId} is already revoked.`, { code: 'VISUAL_PROFILE_DECISION_REVOKED' });
   }
   const text = reasonText(reason, 'why the decision is revoked');

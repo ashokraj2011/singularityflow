@@ -9,6 +9,7 @@ export { terminalTransitionAt } from './workflow-terminal-time.mjs';
 import path from 'node:path';
 import { currentPhase } from './phase-generation.mjs';
 import { workDir } from './story-paths.mjs';
+import { countedRecords } from './presence/counted.mjs';
 import { sourceTreeHash, validateWorkflow, workflowPublicationBranch } from './state-stores.mjs';
 import { exists, gitHeadIsUnborn, gitReadOutput, posix, snapshot, run } from './util.mjs';
 import { verifyInputsIntegrity } from './inputs.mjs';
@@ -156,7 +157,7 @@ async function publicationBaseBranch(root, config, workflow) {
  */
 /** The expiry the latest `decision witness-exception` renewal gives an exception, or null [witness-exception-renewals.mjs]. */
 export function renewedWitnessExpiry(workflow, phaseId, generation, mappingSha256) {
-  const renewal = [...(workflow?.witnessExceptionRenewals ?? [])].reverse()
+  const renewal = [...countedRecords(workflow, workflow?.witnessExceptionRenewals)].reverse()
     .find((entry) => entry?.phase === phaseId && Number(entry.generation) === Number(generation) && entry.mappingSha256 === mappingSha256);
   return renewal?.expiresAt ?? null;
 }

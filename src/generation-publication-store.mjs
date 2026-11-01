@@ -11,6 +11,7 @@ import path from 'node:path';
 
 import { verifyRepositoryChangeSetIntegrity } from './repository-change-set.mjs';
 import { canonicalJson, recordSha256 } from './records.mjs';
+import { countedRecords } from './presence/counted.mjs';
 import { currentSchemaVersion, readRecord } from './schema-migrations.mjs';
 import {
   gitHeadIsUnborn, gitReadOutput, posix, run, SingularityFlowError, writeJson
@@ -152,7 +153,7 @@ function verifiedProjection(workflow, record, eventSha256) {
   }
   if (record.origin?.kind === 'forward-amendment') {
     // A forward amendment's generation is bound to its approvers' exact decision [UIF-M3].
-    const decision = (workflow.forwardAmendmentDecisions ?? []).findLast((entry) => entry.amendment === record.origin.id);
+    const decision = countedRecords(workflow, workflow.forwardAmendmentDecisions).findLast((entry) => entry.amendment === record.origin.id);
     const approval = (workflow.phases?.[record.phase]?.approvals ?? []).find((entry) =>
       entry.forwardAmendmentId === record.origin.id
         && Number(entry.generation) === Number(record.generation)

@@ -14,6 +14,7 @@
 import { readFile } from 'node:fs/promises';
 import { createHash } from 'node:crypto';
 import { recordSha256 } from '../records.mjs';
+import { countedRecords } from '../presence/counted.mjs';
 import { secureRepositoryPath } from '../util.mjs';
 import { witnessContextBindings } from './witness-records.mjs';
 import { approvedInputPhases } from '../phase-input-policy.mjs';
@@ -40,7 +41,7 @@ function activeRecords(records = []) {
  */
 export function witnessDecisionsFrom(workflow, currentSha256 = new Map()) {
   const contextBindings = new Set(witnessContextBindings(workflow ?? {}));
-  return activeRecords(workflow?.witnessRecords ?? []).map((record) => {
+  return activeRecords(countedRecords(workflow, workflow?.witnessRecords)).map((record) => {
     const current = currentSha256.has(record.file) ? currentSha256.get(record.file) : undefined;
     const binding = current === undefined ? 'unchecked'
       : current == null ? 'bound-file-unreadable'

@@ -1,6 +1,7 @@
 /** Append-only correction of evidence typing, never an edit to an approved claim map. */
 import { z } from 'zod';
 import { recordSha256, canonicalJson } from './records.mjs';
+import { countedRecords } from './presence/counted.mjs';
 import { exactFileAtObject, head } from './git.mjs';
 import { readRepositoryManifest } from './repository-manifest.mjs';
 import { normalizeVerificationContracts } from './verification/contracts.mjs';
@@ -20,7 +21,9 @@ export const EvidenceAmendmentSchema = z.strictObject({
   reviewAssurance: z.enum(['live-terminal-exact-evidence-review', 'live-local-ui-exact-evidence-review']),
   at: z.string().datetime(), recordPath: portablePath,
   reviewedFile: z.strictObject({ sha256: sha, size: z.number().int().nonnegative().max(16 * 1024 * 1024) }),
-  testsWaived: z.literal(false), phaseApproved: z.literal(false)
+  testsWaived: z.literal(false), phaseApproved: z.literal(false),
+  // SF Guard: the person's presence signature, or the exception it went ahead under (person-records.mjs).
+  presence: z.record(z.string(), z.unknown()).optional(),
 });
 
 function invalid(message) { throw new SingularityFlowError(message, { code: 'PLAN_EVIDENCE_AMENDMENT_INTEGRITY' }); }
@@ -45,7 +48,7 @@ export function evidenceCorrectionProjection(clauseId, claim, evidencePath, meth
 /** Apply only the exact owner's generation. A later approved plan supersedes its old correction. */
 export function applyPlanEvidenceAmendments(record, workflow, { evidenceRoot } = {}) {
   let result = record;
-  for (const value of workflow.planAmendments ?? []) {
+  for (const value of countedRecords(workflow, workflow.planAmendments)) {
     if (value.kind !== 'evidence-contract-correction') continue;
     const checked = EvidenceAmendmentSchema.safeParse(value);
     if (!checked.success) invalid('Evidence amendment schema or human decision binding is invalid.');

@@ -10,6 +10,7 @@
  * resetting any step. Pure.
  */
 import { stepResponsibilities } from './phase-roles.mjs';
+import { countedRecords } from './presence/counted.mjs';
 import { classifySupportingChange, SUPPORTING_CHANGE_CLASSES } from './supporting-changes.mjs';
 import { SingularityFlowError, posix } from './util.mjs';
 
@@ -100,7 +101,7 @@ export function recordPlanAmendment(workflow, { changes = [], reason, actor, aut
  * no row's implementation is judged differently. Null when the plan was never amended.
  */
 export function planAmendmentRecord(workflow) {
-  const amendments = workflow?.planAmendments ?? [];
+  const amendments = countedRecords(workflow, workflow?.planAmendments);
   if (!amendments.length) return null;
   const accountedPaths = {};
   const supportingFileDetails = [];

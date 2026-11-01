@@ -309,7 +309,7 @@ A script that runs a command itself is still not caught. That is this spec's job
 | M0 | The person runs `pss-m0-spike.sh`: a spike identity, a key stub, two timed signatures, verification, a tampered statement, an export attempt, deletion. Plus the inventory (REQ-001) | Done 1 November 2026 (§10.1) |
 | M1 | Statement and verifier (`src/presence/statement.mjs`, `sshsig.mjs`). The signed policy chain in the approved configuration (`chain.mjs`, `store.mjs`, Studio `presence.set`). The GitHub anchor (`anchor.mjs`). One-key pinning with the readable-key and `sc_auth` checks, including expiry (`local-keys.mjs`). The signer path (`signer.mjs`). The opt-in, per-person exceptions, rotation, recovery and revocation. `singularity-flow guard`, `/sf-guard`, help and the `sf-guard` topic | AC-001 to AC-005, AC-012, AC-015, AC-016 |
 | M2 | Approve and reject signed and verified everywhere approvals are counted. The Story pins the policy. `pre-signing` and exception labels on approvals. Signer-unavailable refusal. The foreign-key alarm on every command | AC-006 to AC-009 |
-| M3 | Every other §3 row, family by family, with one lock review | AC-010 |
+| M3 | Every other §3 row, family by family, with one lock review | AC-010. Done for every Story decision family recorded in `workflow.json` (§10.3); the rows recorded elsewhere are listed there with their reasons |
 | M4 | Receipt replay, the final check, `governance verify --presence`, the CI recipe, the branch protection read, the remote GitHub re-read, the reviewed-change recovery for a lone approver | AC-011, AC-013 |
 | M5 | VS Code surfaces, the first-run card with REQ-012's rule | AC-014 |
 
@@ -341,6 +341,40 @@ What M1 drew from it:
 - **Summaries.** `phase-approval` v3 (`COMPANION-LOCK-REVIEW-2026-11-02-SF-GUARD-M2.md`), written only when a decision carries a presence block.
 - **The alarm.** After a command run with a terminal in a repository holding a policy file, `src/presence/alarm.mjs` warns `PSS_FOREIGN_KEY` when the key pinned under the person's approver ID is not among this Mac's identities, naming the revoke route. It never blocks.
 - **Residual, stated.** A Story whose creation record an agent forges with no pin, or with a pin naming an earlier `off` point of the chain, reads as `pre-signing` locally: a local check cannot tell when a Story was really created. The remote check (M4) compares the Story's first push with the opt-in.
+
+### 10.3 M3 as built (2 November 2026)
+
+- **Where the signature is taken.** Every legitimate write of a Story's aggregate goes through `saveWorkflow` (`src/story-state-write.mjs`). On a Story pinned `required`, `signNewPersonRecords` (`src/presence/person-steps.mjs`) runs there, before the write. It finds the person records the command added, compares them with the state file on disk, and never offers one already there; a record the command only extended, such as a disposition gaining `withdrawnAt`, counts as already there. It runs M2's checks in M2's order and gives M2's routes. It shows one card listing every record, then takes one touch: a batch statement (`decision: { records: [digests] }`) that each record verifies against on its own. Each record keeps its own `identityAssurance`; its `presence` block names the signed `fields`, the batch, the action and the signature. Under an exception it carries `bypass`. Inside the publication transaction a refusal rolls back, so nothing is written.
+- **The families** (`PERSON_STEP_FAMILIES`). Each family's readers count only verified or excepted records:
+
+  | Family | List |
+  | --- | --- |
+  | Risk acceptance and revocation | `riskDecisions` |
+  | Test command acceptance and revocation (a request is never signed) | `testCommandDecisions` |
+  | Test narrowing | `testNarrowings` |
+  | Test-run risk | `testRunRisks` |
+  | Evidence reuse | `evidenceReuses` |
+  | Visual profile | `visualProfileDecisions` |
+  | Witness review, also from `approve --confirm-evidence`, where the confirmations take their own touch after the approval's | `witnessRecords` |
+  | Witness exception renewal | `witnessExceptionRenewals` |
+  | Scope disposition, also from `spec attach --drop` | `scopeDispositions` |
+  | Completeness review | `completenessReviews` |
+  | Applicability | `applicability` |
+  | Upstream issue decision | `upstreamIssueDecisions` |
+  | Forward amendment decision | `forwardAmendmentDecisions` |
+  | Plan amendment, evidence-contract correction and plan row correction, also from an appeal's scope accounting | `planAmendments` |
+
+- **Counting.** Loading a Story (`readWorkflow`) reads its chain once and registers its verdicts under the Story's pin in `src/presence/counted.mjs`, an import-free leaf. Each family's readers ask it synchronously with `countedRecords`; its writers number new records from the full list, so an ID never collides with an uncounted record. On a `required` Story whose chain the process did not read, no person record counts.
+- **Schemas.** Each family's item schema in `schemas/workflow.schema.json` takes an optional `presence` block (`$defs.personPresence`), and so do `schemas/plan-evidence-amendment.schema.json` and the strict record schemas of plan row corrections, evidence amendments and upstream issue decisions. No registered schema family changed version, so no GDP companion changed and no lock review was needed. An older build refuses a record with a `presence` field wherever it validates strictly.
+- **Not signed in M3, with why.** Each of these rows writes outside the Story's `workflow.json`, or has no Story pin to require it. Each needs its own record format, and most need a schema family version under the GDP lock review:
+  - **`decision choose`, `reopen`, `story adjudicate`, `review-source decide`, `constitution except`, `repair authorize`.** They write phase state, convergence and source-review records, constitution records and repair state.
+  - **`telemetry enable`.** A machine-local preference, not a governance record.
+  - **Appeals, `story test-policy … --apply` and `story approvers refresh`.** Committed decision files with exact-byte retention and their own families (`phase-appeal-decision`, `test-command-adoption-*`, `approver-refresh-*`), bound into workflow snapshot amendments. They already need the live terminal review. A plan amendment an appeal records is signed.
+  - **Quality risk decisions (`qualityRiskDecisions`) and plan actions (`action authorize|execute`).** Strict packet schemas, and a committed-equality check on the list.
+  - **Spec Studio person steps, `spec split --publish` and `configuration approve`.** Repository-level records with no Story pin. They need a repository-level requirement from the chain.
+  - **Epic, goal, SGOS, intent, capability lease, host policy and agents lock.** Their own stores, with no Story pin.
+  - **Authorship claims (`phase publish --authored human|external-tool`).** The generation-publication and artifact-authorship families. A human author need not be an approver, and keys are registered per approver, so a non-approver author's route is a decision still to make.
+- **Residual, stated.** A withdrawal (`withdrawnAt`) is not signed. An agent can add one to a signed decision, which makes the Story stricter, never looser. It can also remove one to revive the same person's earlier signed decision. M4's remote check, which compares the Story's history, catches both.
 
 ## 11. Acceptance criteria
 

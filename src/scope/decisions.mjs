@@ -12,6 +12,7 @@ import { STARTER_CHECKLIST, validateChecklistDecisions } from '../specification-
 import { SingularityFlowError } from '../util.mjs';
 import { CLAUSE_LINKED_DISPOSITIONS, DECIDABLE_SCOPE_DISPOSITIONS } from './extract.mjs';
 import { fallbackAuthorities } from '../approval-fallback.mjs';
+import { countedRecords } from '../presence/counted.mjs';
 
 /** Who may decide the scope: the approval groups of the steps that define it, else the nearest step's. */
 export function scopeAuthorities(workflow) {
@@ -135,6 +136,6 @@ export function recordCompletenessReview(workflow, {
 
 /** The completeness review that still speaks for this inventory, or null. */
 export function currentCompletenessReview(workflow, inventory) {
-  const latest = [...(workflow?.completenessReviews ?? [])].reverse().find((entry) => !entry.withdrawnAt) ?? null;
+  const latest = [...countedRecords(workflow, workflow?.completenessReviews)].reverse().find((entry) => !entry.withdrawnAt) ?? null;
   return latest && inventory && latest.inventorySha256 === inventory.inventorySha256 ? latest : null;
 }

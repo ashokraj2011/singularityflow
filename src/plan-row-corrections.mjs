@@ -14,6 +14,7 @@
  */
 import { z } from 'zod';
 import { recordSha256 } from './records.mjs';
+import { countedRecords } from './presence/counted.mjs';
 import { applyPlanEvidenceAmendments, evidenceOwnerAuthorities } from './plan-evidence-amendments.mjs';
 import { fallbackAuthorities } from './approval-fallback.mjs';
 import { normalizeVerificationContracts } from './verification/contracts.mjs';
@@ -44,7 +45,9 @@ export const PlanRowCorrectionSchema = z.strictObject({
   reason: z.string().trim().min(20).max(1000),
   actor: z.string().min(1), authorityGroup: z.string().min(1), identityAssurance: z.string().nullable(),
   authorizationId: z.string().uuid(), reviewAssurance: z.literal('live-terminal-exact-plan-review'),
-  at: z.string().datetime(), upstreamIssue: z.string().regex(/^UPI-\d{3,}$/u).nullable()
+  at: z.string().datetime(), upstreamIssue: z.string().regex(/^UPI-\d{3,}$/u).nullable(),
+  // SF Guard: the person's presence signature, or the exception it went ahead under (person-records.mjs).
+  presence: z.record(z.string(), z.unknown()).optional(),
 });
 
 function invalid(message, details = undefined) {
@@ -261,7 +264,7 @@ function applyRowCorrection(record, workflow, value) {
 export function applyPlanCorrections(record, workflow, options = {}) {
   if (!record || record.amendment) return record;
   let result = record;
-  for (const value of workflow?.planAmendments ?? []) {
+  for (const value of countedRecords(workflow, workflow?.planAmendments)) {
     if (value?.kind === 'evidence-contract-correction') {
       result = applyPlanEvidenceAmendments(result, { ...workflow, planAmendments: [value] }, options);
     } else if (value?.kind === 'plan-row-correction') {
@@ -273,6 +276,6 @@ export function applyPlanCorrections(record, workflow, options = {}) {
 
 /** Corrections in force for a plan generation, for disclosure. */
 export function planRowCorrections(workflow, ownerPhase = null) {
-  return (workflow?.planAmendments ?? []).filter((entry) => entry?.kind === 'plan-row-correction'
+  return countedRecords(workflow, workflow?.planAmendments).filter((entry) => entry?.kind === 'plan-row-correction'
     && (!ownerPhase || entry.ownerPhase === ownerPhase));
 }

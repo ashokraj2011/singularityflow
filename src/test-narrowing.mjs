@@ -22,6 +22,7 @@
 import { committedFilesAtRevisions } from './git.mjs';
 import { readRepositoryManifest } from './repository-manifest.mjs';
 import { recordSha256 } from './records.mjs';
+import { countedRecords } from './presence/counted.mjs';
 import { commandTokens, launcherName, packageScriptName, shellSegments } from './test-command-pins.mjs';
 import { SingularityFlowError } from './util.mjs';
 import { tokenizeJavaScript } from './verification/javascript-declarations.mjs';
@@ -337,9 +338,9 @@ export function recordTestNarrowing(workflow, { phaseId, attempt, reason, expire
 
 /** Revoke an acceptance; the record stays, and so does the revocation. */
 export function recordTestNarrowingRevocation(workflow, { narrowingId, reason, actor, authorityGroup, identityAssurance = null, at }) {
-  const target = (workflow.testNarrowings ?? []).find((entry) => !entry.revokes && entry.id === narrowingId);
+  const target = countedRecords(workflow, workflow.testNarrowings).find((entry) => !entry.revokes && entry.id === narrowingId);
   if (!target) throw new SingularityFlowError(`This Story has no test-narrowing decision ${narrowingId}.`, { code: 'TEST_NARROWING_UNKNOWN' });
-  if ((workflow.testNarrowings ?? []).some((entry) => entry.revokes === narrowingId)) {
+  if (countedRecords(workflow, workflow.testNarrowings).some((entry) => entry.revokes === narrowingId)) {
     throw new SingularityFlowError(`${narrowingId} is already revoked.`, { code: 'TEST_NARROWING_REVOKED' });
   }
   const revocation = { revokes: narrowingId, phase: target.phase, commandId: target.commandId,
@@ -350,12 +351,12 @@ export function recordTestNarrowingRevocation(workflow, { narrowingId, reason, a
 
 /** Whether a decision is `active`, `revoked` or `expired` at `at`. */
 export function testNarrowingState(workflow, decision, { at } = {}) {
-  if ((workflow?.testNarrowings ?? []).some((entry) => entry.revokes === decision.id)) return 'revoked';
+  if (countedRecords(workflow, workflow?.testNarrowings).some((entry) => entry.revokes === decision.id)) return 'revoked';
   if (decision.expiresAt && new Date(decision.expiresAt) <= new Date(at ?? Date.now())) return 'expired';
   return 'active';
 }
 
-const decisionsFor = (workflow, phaseId, attempt) => (workflow?.testNarrowings ?? []).filter((entry) => !entry.revokes
+const decisionsFor = (workflow, phaseId, attempt) => countedRecords(workflow, workflow?.testNarrowings).filter((entry) => !entry.revokes
   && entry.phase === phaseId && entry.commandId === attempt?.commandId && entry.pinSha256 === attempt?.pin?.sha256);
 
 /** The active decision that covers this attempt's narrowing, or null. */
@@ -411,7 +412,7 @@ export function testNarrowingReplayProblem(workflow, execution, attempt, { phase
   const binding = execution?.testNarrowing;
   if (!binding?.id) return `it ran narrowed (${narrowingWords(attempt.narrowing, { skippedAccepted })}) and no test-narrowing decision covers it`;
   if (!workflow) return `test-narrowing ${binding.id} cannot be verified without its Story`;
-  const decision = (workflow.testNarrowings ?? []).find((entry) => !entry.revokes && entry.id === binding.id);
+  const decision = countedRecords(workflow, workflow.testNarrowings).find((entry) => !entry.revokes && entry.id === binding.id);
   if (!decision || testNarrowingBinding(decision).sha256 !== binding.sha256) return `test-narrowing ${binding.id} is not recorded on the Story with these bytes`;
   if (decision.phase !== phaseId || decision.commandId !== attempt.commandId || decision.pinSha256 !== attempt.pin?.sha256
       || !narrowingCovers(decision.narrowing, attempt.narrowing, { skippedAccepted })) {
@@ -427,7 +428,7 @@ export function acceptedNarrowingSummaries(workflow, entries, { at } = {}) {
   const summaries = [];
   for (const entry of entries ?? []) {
     if (!entry?.testNarrowing?.id) continue;
-    const decision = (workflow?.testNarrowings ?? []).find((record) => !record.revokes && record.id === entry.testNarrowing.id);
+    const decision = countedRecords(workflow, workflow?.testNarrowings).find((record) => !record.revokes && record.id === entry.testNarrowing.id);
     if (!decision) continue;
     const active = testNarrowingState(workflow, decision, { at }) === 'active';
     summaries.push({

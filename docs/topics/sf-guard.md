@@ -14,6 +14,7 @@ questions:
   - Which agent and skill made this change?
   - Why does approve ask for Touch ID?
   - Why is an approval not counted?
+  - Why does a risk or scope decision ask for Touch ID?
 keywords:
   - presence signature
   - secure enclave
@@ -28,7 +29,7 @@ related:
   - approvals
   - configuration
   - copilot-and-surfaces
-version: 3
+version: 4
 ---
 SF Guard makes a person's own steps provable. An agent runs as the same user on the same computer: it can read Git configuration, run any command, fake a terminal and write Git records directly, so nothing it can type proves a person decided. SF Guard asks for the one thing it cannot produce, a signature from a Secure Enclave key on the person's Mac made after their Touch ID. It is off until a repository opts in; a repository that never opts in behaves exactly as before. Refusals keep the `PSS_` codes of SPEC-PSS-v1.
 
@@ -63,7 +64,9 @@ The policy is `singularity/presence.json` in the approved configuration: an appe
 - Only a record whose signature verifies against the approver's pinned key, or one a per-person exception covers, counts toward the threshold, in the approval itself, `sflow approvals`, the work list's blockers, the editor view and retention. An approval written by hand with Git, or an unsigned one (`PSS_RECORD_UNSIGNED`), counts for nothing; `sflow approvals` lists it as not counted, with the reason.
 - A Story started while SF Guard was off (pinned `off`, or with no pin) keeps working unsigned; once the repository opts in, its approvals read `pre-signing`. A pin edited by hand to say `off` that does not match the policy chain reads as `required`.
 
-After a command you run in your own terminal in an opted-in repository, SF Guard warns (`PSS_FOREIGN_KEY`) when the key pinned under your approver ID is not held by this Mac, and names the revoke route. It never blocks the command. Receipt replay, the final check and the remote check (`governance verify --presence`) re-verify signatures in M4; every other person step is signed in M3.
+**A Story's other decisions (M3).** Every other decision a person records on a Story pinned `required` is signed the same way: risk, test-run risk and narrowing acceptances, test command acceptances and revocations, evidence reuse, visual profile and witness decisions, witness exception renewals, scope dispositions, completeness reviews, applicability, upstream issue and forward amendment decisions, and plan amendments and corrections. Each lands in the Story's `workflow.json`, so SF Guard signs where the Story is written: the decisions a command added (never one already on disk) show on one card, then one Touch ID prompt signs them together. The same checks and routes as approve apply first; declining, or any refusal, writes nothing. A request anyone may make, such as a test command request, is never signed and always counts. Each family's own reader (the gates, the scope inventory, the decision list) counts a decision only when its signature verifies against the approver's pinned key, or a per-person exception covers it, so a decision written into `workflow.json` by hand counts for nothing.
+
+After a command you run in your own terminal in an opted-in repository, SF Guard warns (`PSS_FOREIGN_KEY`) when the key pinned under your approver ID is not held by this Mac, and names the revoke route. It never blocks the command. Receipt replay, the final check and the remote check (`governance verify --presence`) re-verify signatures in M4. Steps recorded outside the Story's `workflow.json` (Spec Studio, configuration approval, appeals and their review records, plan actions, Epic and goal approvals, authorship claims) are not signed yet; the SF Guard specification lists each with its reason.
 
 ## Agent and skill attribution
 

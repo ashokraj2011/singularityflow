@@ -11,6 +11,7 @@
  * scope, which has its own decisions. Decisions and revocations are append-only. Pure.
  */
 import { recordSha256 } from '../records.mjs';
+import { countedRecords } from '../presence/counted.mjs';
 import { SingularityFlowError } from '../util.mjs';
 import { fallbackAuthorities, stepGroups } from '../approval-fallback.mjs';
 
@@ -95,9 +96,9 @@ export function recordRiskDecision(workflow, { obligation, untrusted = false, ca
 
 /** Revoke a decision; the record stays, and so does the revocation. */
 export function recordRiskRevocation(workflow, { riskId, reason, actor, authorityGroup, identityAssurance = null, at }) {
-  const target = (workflow.riskDecisions ?? []).find((entry) => !entry.revokes && entry.id === riskId);
+  const target = countedRecords(workflow, workflow.riskDecisions).find((entry) => !entry.revokes && entry.id === riskId);
   if (!target) throw new SingularityFlowError(`This Story has no risk decision ${riskId}.`, { code: 'RISK_DECISION_UNKNOWN' });
-  if ((workflow.riskDecisions ?? []).some((entry) => entry.revokes === riskId)) {
+  if (countedRecords(workflow, workflow.riskDecisions).some((entry) => entry.revokes === riskId)) {
     throw new SingularityFlowError(`${riskId} is already revoked.`, { code: 'RISK_DECISION_REVOKED' });
   }
   const text = String(reason ?? '').trim();
@@ -115,7 +116,7 @@ export function recordRiskRevocation(workflow, { riskId, reason, actor, authorit
  * Null when nobody decided.
  */
 export function riskDecisionState(workflow, obligation, { at, transition = 'terminal' } = {}) {
-  const entries = workflow?.riskDecisions ?? [];
+  const entries = countedRecords(workflow, workflow?.riskDecisions);
   const decision = [...entries].reverse().find((entry) => !entry.revokes && entry.obligationId === obligation?.id) ?? null;
   if (!decision) return null;
   if (entries.some((entry) => entry.revokes === decision.id)) return { decision, state: 'revoked' };
@@ -134,7 +135,7 @@ export function riskDecisionState(workflow, obligation, { at, transition = 'term
 export function acceptedImplementationClauses(workflow, { at, transition = 'terminal' } = {}) {
   const workId = workflow?.workItem?.id;
   const prefix = `OBL:${workId}:implement:`;
-  const entries = workflow?.riskDecisions ?? [];
+  const entries = countedRecords(workflow, workflow?.riskDecisions);
   const latest = new Map();
   for (const entry of entries) if (!entry.revokes && String(entry.obligationId ?? '').startsWith(prefix)) latest.set(entry.obligationId, entry);
   const clauses = new Set();

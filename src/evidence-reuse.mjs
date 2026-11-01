@@ -36,6 +36,7 @@
  * that lapsed, and the clause IDs the reused attempts cover. Nothing here relaxes any other check.
  */
 import { recordSha256 } from './records.mjs';
+import { countedRecords } from './presence/counted.mjs';
 import { SingularityFlowError } from './util.mjs';
 
 export const MAX_EVIDENCE_REUSE_DAYS = 90;
@@ -75,7 +76,7 @@ export function evidenceReuseDecisionCommand(workflow, { phaseId, attemptId }) {
 
 /** The decision recorded under `id` (never a revocation), or null. */
 export function evidenceReuseDecision(workflow, id) {
-  return (workflow?.evidenceReuses ?? []).find((entry) => !entry.revokes && entry.id === id) ?? null;
+  return countedRecords(workflow, workflow?.evidenceReuses).find((entry) => !entry.revokes && entry.id === id) ?? null;
 }
 
 /**
@@ -88,7 +89,7 @@ export function evidenceReuseDecision(workflow, id) {
  * digests (then the attempt record is not re-read).
  */
 export function evidenceReuseState(workflow, decision, { at, observed = null } = {}) {
-  if ((workflow?.evidenceReuses ?? []).some((entry) => entry.revokes === decision.id)) return 'revoked';
+  if (countedRecords(workflow, workflow?.evidenceReuses).some((entry) => entry.revokes === decision.id)) return 'revoked';
   if (decision.expiresAt && new Date(decision.expiresAt) <= new Date(at ?? Date.now())) return 'expired';
   const producer = workflow?.phases?.[decision.attempt?.phase];
   if (producer?.status !== 'approved' || Number(producer.generation) !== Number(decision.attempt?.generation)) return 'superseded';
@@ -141,7 +142,7 @@ function decisionView(decision, state) {
 /** The latest decision for each (step, attempt): an earlier one on the same pair is history. */
 function governingDecisions(workflow, phases) {
   const latest = new Map();
-  for (const entry of workflow?.evidenceReuses ?? []) {
+  for (const entry of countedRecords(workflow, workflow?.evidenceReuses)) {
     if (entry.revokes || !phases.has(entry.phase)) continue;
     latest.set(`${entry.phase}\u0000${entry.attempt?.id}`, entry);
   }
@@ -225,7 +226,7 @@ export function recordEvidenceReuse(workflow, { phaseId, candidate, reason, expi
 export function recordEvidenceReuseRevocation(workflow, { reuseId, reason, actor, authorityGroup, identityAssurance = null, at }) {
   const target = REUSE_ID.test(String(reuseId ?? '')) ? evidenceReuseDecision(workflow, reuseId) : null;
   if (!target) throw new SingularityFlowError(`This Story has no evidence-reuse decision ${reuseId}.`, { code: 'EVIDENCE_REUSE_UNKNOWN' });
-  if ((workflow.evidenceReuses ?? []).some((entry) => entry.revokes === reuseId)) {
+  if (countedRecords(workflow, workflow.evidenceReuses).some((entry) => entry.revokes === reuseId)) {
     throw new SingularityFlowError(`${reuseId} is already revoked.`, { code: 'EVIDENCE_REUSE_REVOKED' });
   }
   const text = textBetween(reason, 20, 1000, '--reason', 'why the decision is revoked');
@@ -380,7 +381,7 @@ export async function observeEvidenceReuseSource(root, config, workflow, { sourc
     return { status: 'unavailable', code: error?.code ?? 'EVIDENCE_REUSE_SOURCE_UNAVAILABLE' };
   }
   const attempts = {};
-  const decisions = (workflow?.evidenceReuses ?? []).filter((entry) => !entry.revokes && entry.attempt?.path);
+  const decisions = countedRecords(workflow, workflow?.evidenceReuses).filter((entry) => !entry.revokes && entry.attempt?.path);
   if (decisions.length) {
     const [{ readFile }, { secureRepositoryPath }] = await Promise.all([import('node:fs/promises'), import('./util.mjs')]);
     for (const decision of decisions) {
@@ -484,7 +485,7 @@ export async function prepareEvidenceReuse(root, config, workflow, { phaseId, at
  */
 export async function evidenceReuseFor(root, config, workflow, phaseId, { at = new Date().toISOString(), through = false, observed = null } = {}) {
   const phases = scopedPhases(workflow, phaseId, through);
-  if (!(workflow?.evidenceReuses ?? []).some((entry) => !entry.revokes && phases.has(entry.phase))) {
+  if (!countedRecords(workflow, workflow?.evidenceReuses).some((entry) => !entry.revokes && phases.has(entry.phase))) {
     return { phase: phaseId, through, active: [], lapsed: [], clauseIds: [] };
   }
   return activeEvidenceReuse(workflow, phaseId, { at, through,

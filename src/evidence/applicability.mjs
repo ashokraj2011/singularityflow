@@ -5,6 +5,7 @@
  * approval group; a person in that group then records why the responsibility does not apply to
  * this Story. Pure: these helpers read and change the aggregate and perform no I/O.
  */
+import { countedRecords } from '../presence/counted.mjs';
 import { SingularityFlowError } from '../util.mjs';
 
 /**
@@ -37,7 +38,7 @@ export function omissionAuthorities(workflow, responsibility) {
 
 /** The current applicability decision for a responsibility, if one was recorded. */
 export function applicabilityDecision(workflow, responsibility) {
-  return [...(workflow?.applicability ?? [])].reverse().find((entry) => entry.responsibility === responsibility && !entry.withdrawnAt) ?? null;
+  return [...countedRecords(workflow, workflow?.applicability)].reverse().find((entry) => entry.responsibility === responsibility && !entry.withdrawnAt) ?? null;
 }
 
 /**

@@ -2,6 +2,7 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "type": "object",
   "properties": {
+    "presence": { "description": "SF Guard: the approver's presence signature over this record (workflow.schema.json personPresence).", "type": "object" },
     "id": {
       "type": "string",
       "pattern": "^PEA-[a-f0-9]{24}$"

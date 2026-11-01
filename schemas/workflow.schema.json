@@ -585,6 +585,7 @@
         "type": "object",
         "required": ["responsibility", "reason", "actor", "authorityGroup", "at"],
         "properties": {
+          "presence": { "$ref": "#/$defs/personPresence" },
           "responsibility": { "enum": ["scope", "plan", "implement", "verify", "review"] },
           "reason": { "type": "string", "minLength": 20, "maxLength": 1000 },
           "actor": { "type": "string", "minLength": 1 },
@@ -603,6 +604,7 @@
         "type": "object",
         "required": ["item", "disposition", "clauseIds", "reason", "statementSha256", "actor", "authorityGroup", "at"],
         "properties": {
+          "presence": { "$ref": "#/$defs/personPresence" },
           "item": { "type": "string", "pattern": "^(?:SRI-[a-f0-9]{12}|DOC-[0-9]{3,}|[A-Za-z0-9:_-]+)$" },
           "disposition": { "enum": ["included", "existing", "excluded", "deferred", "informative", "duplicate", "superseded"] },
           "clauseIds": { "type": "array", "items": { "type": "string" }, "uniqueItems": true },
@@ -677,6 +679,7 @@
         "type": "object",
         "required": ["obligationId", "reason", "actor", "authorityGroup", "at"],
         "properties": {
+          "presence": { "$ref": "#/$defs/personPresence" },
           "id": { "type": "string", "pattern": "^RISK-[0-9]{3,}$" },
           "revokes": { "type": "string", "pattern": "^RISK-[0-9]{3,}$" },
           "obligationId": { "type": "string", "minLength": 1 },
@@ -705,6 +708,7 @@
         "type": "object",
         "required": ["phase", "at"],
         "properties": {
+          "presence": { "$ref": "#/$defs/personPresence" },
           "id": { "type": "string", "pattern": "^TCD-[0-9]{3,}$" },
           "accepts": { "type": "string", "pattern": "^TCD-[0-9]{3,}$" },
           "revokes": { "type": "string", "pattern": "^TCD-[0-9]{3,}$" },
@@ -798,6 +802,7 @@
         "type": "object",
         "required": ["phase", "commandId", "reason", "actor", "authorityGroup", "at"],
         "properties": {
+          "presence": { "$ref": "#/$defs/personPresence" },
           "id": { "type": "string", "pattern": "^TNR-[0-9]{3,}$" },
           "revokes": { "type": "string", "pattern": "^TNR-[0-9]{3,}$" },
           "phase": { "type": "string", "minLength": 1 },
@@ -841,6 +846,7 @@
         "type": "object",
         "required": ["phase", "commandId", "reason", "actor", "authorityGroup", "at"],
         "properties": {
+          "presence": { "$ref": "#/$defs/personPresence" },
           "id": { "type": "string", "pattern": "^TRR-[0-9]{3,}$" },
           "revokes": { "type": "string", "pattern": "^TRR-[0-9]{3,}$" },
           "phase": { "type": "string", "minLength": 1 },
@@ -884,6 +890,7 @@
         "type": "object",
         "required": ["phase", "reason", "actor", "authorityGroup", "at"],
         "properties": {
+          "presence": { "$ref": "#/$defs/personPresence" },
           "id": { "type": "string", "pattern": "^ERU-[0-9]{3,}$" },
           "revokes": { "type": "string", "pattern": "^ERU-[0-9]{3,}$" },
           "phase": { "type": "string", "minLength": 1 },
@@ -941,6 +948,7 @@
         "type": "object",
         "required": ["phase", "profileId", "reason", "actor", "authorityGroup", "at"],
         "properties": {
+          "presence": { "$ref": "#/$defs/personPresence" },
           "id": { "type": "string", "pattern": "^VPD-[0-9]{3,}$" },
           "revokes": { "type": "string", "pattern": "^VPD-[0-9]{3,}$" },
           "phase": { "type": "string", "minLength": 1 },
@@ -973,6 +981,7 @@
         "type": "object",
         "required": ["id", "clauseId", "slot", "method", "file", "sha256", "checklist", "outcome", "reason", "actor", "authorityGroup", "at"],
         "properties": {
+          "presence": { "$ref": "#/$defs/personPresence" },
           "id": { "type": "string", "pattern": "^WIT-[0-9]{3,}$" },
           "clauseId": { "type": "string", "pattern": "^[A-Z0-9][A-Z0-9._-]{0,63}:AC-[0-9]{3}$" },
           "slot": { "type": "string", "pattern": "^[a-z][a-z0-9-]{0,31}$" },
@@ -1007,7 +1016,7 @@
         "oneOf": [{ "$ref": "plan-evidence-amendment.schema.json" }, {
         "type": "object",
         "required": ["id", "changes", "reason", "actor", "authorityGroup", "at"],
-        "properties": {
+        "properties": { "presence": { "$ref": "#/$defs/personPresence" },
           "id": { "type": "string", "pattern": "^PAM-[0-9]{3,}$" },
           "changes": {
             "type": "array",
@@ -1036,7 +1045,7 @@
         "description": "A plan row correction (UIF-M1): rows, tests and paths of an approved plan corrected in place by its approvers, bound to the owner generation, map digest and each replaced row's digest, and applied by every plan reader in recorded order.",
         "type": "object",
         "required": ["id", "kind", "ownerPhase", "ownerGeneration", "ownerMapSha256", "operations", "reason", "actor", "authorityGroup", "identityAssurance", "authorizationId", "reviewAssurance", "at", "upstreamIssue"],
-        "properties": {
+        "properties": { "presence": { "$ref": "#/$defs/personPresence" },
           "id": { "type": "string", "pattern": "^PRC-[0-9]{3,}$" },
           "kind": { "const": "plan-row-correction" },
           "ownerPhase": { "type": "string", "minLength": 1 },
@@ -1097,6 +1106,7 @@
         "type": "object",
         "required": ["issue", "outcome", "reason", "link", "expiresAt", "actor", "authorityGroup", "identityAssurance", "at"],
         "properties": {
+          "presence": { "$ref": "#/$defs/personPresence" },
           "issue": { "type": "string", "pattern": "^UPI-[0-9]{3,}$" },
           "outcome": { "enum": ["plan-correction", "amend", "return", "accept-risk", "dismiss"] },
           "reason": { "type": "string", "minLength": 20, "maxLength": 1000 },
@@ -1135,6 +1145,7 @@
         "type": "object",
         "required": ["amendment", "phase", "decision", "reason", "actor", "authorityGroup", "at"],
         "properties": {
+          "presence": { "$ref": "#/$defs/personPresence" },
           "amendment": { "type": "string", "pattern": "^FAM-[0-9]{3,}$" },
           "decision": { "enum": ["approved", "rejected"] },
           "toGeneration": { "type": "integer", "minimum": 2 },
@@ -1165,6 +1176,7 @@
         "type": "object",
         "required": ["inventorySha256", "checklist", "reason", "actor", "authorityGroup", "at"],
         "properties": {
+          "presence": { "$ref": "#/$defs/personPresence" },
           "inventorySha256": { "type": "string", "pattern": "^sha256:[a-f0-9]{64}$" },
           "checklist": {
             "type": "object",
@@ -1475,6 +1487,26 @@
     }
   ],
   "$defs": {
+    "personPresence": {
+      "description": "SF Guard (SPEC-PSS-v1): the approver's presence signature over this record, or the per-person exception it went ahead under unsigned. A record that needs one counts only when it verifies against the approver's pinned key.",
+      "type": "object",
+      "required": ["schema", "chainId", "approver", "at"],
+      "properties": {
+        "schema": { "const": "sflow-presence-record@1" },
+        "chainId": { "type": "string" },
+        "approver": { "type": "string" },
+        "action": { "type": "string" },
+        "keyId": { "type": "string" },
+        "at": { "type": "string" },
+        "nonce": { "type": "string" },
+        "batch": { "type": "array", "items": { "type": "string", "pattern": "^sha256:[a-f0-9]{64}$" } },
+        "fields": { "type": "array", "items": { "type": "string" } },
+        "signature": { "type": "string" },
+        "userVerification": { "type": "boolean" },
+        "bypass": { "type": "string" }
+      },
+      "additionalProperties": false
+    },
     "skillVersionAmendmentSummary": {
       "type": "object",
       "required": ["id", "status", "skillId", "proposalPath", "proposalSha256",

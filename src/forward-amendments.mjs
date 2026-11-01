@@ -11,6 +11,7 @@
  * Three append-only lists: `forwardAmendments` (proposals), `forwardAmendmentDecisions` and
  * `amendmentRevalidations`. Pure: no I/O.
  */
+import { countedRecords } from './presence/counted.mjs';
 
 /** Where the next proposal's bytes are saved: the Story's own record, never the step's artifact. */
 export function nextForwardAmendmentProposal(itemRelative, workflow, artifactRelative) {
@@ -20,7 +21,7 @@ export function nextForwardAmendmentProposal(itemRelative, workflow, artifactRel
 
 /** The latest decision on a proposal, or null while it waits. */
 export function forwardAmendmentDecision(workflow, amendmentId) {
-  return (workflow?.forwardAmendmentDecisions ?? []).findLast((entry) => entry?.amendment === amendmentId) ?? null;
+  return countedRecords(workflow, workflow?.forwardAmendmentDecisions).findLast((entry) => entry?.amendment === amendmentId) ?? null;
 }
 
 /** Proposals nobody has decided yet. */
@@ -35,7 +36,7 @@ export function pendingForwardAmendments(workflow) {
  */
 export function pendingAmendmentRevalidations(workflow) {
   const decided = new Set((workflow?.amendmentRevalidations ?? []).map((entry) => `${entry.amendment}\u0000${entry.phase}`));
-  return (workflow?.forwardAmendmentDecisions ?? [])
+  return countedRecords(workflow, workflow?.forwardAmendmentDecisions)
     .filter((entry) => entry?.decision === 'approved')
     .flatMap((entry) => (entry.revalidate ?? [])
       .filter((item) => workflow.phases?.[item.phase]?.status === 'approved'

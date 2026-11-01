@@ -24,6 +24,7 @@ import { createHash } from 'node:crypto';
 import { canonicalJson } from '../records.mjs';
 import { SingularityFlowError } from '../util.mjs';
 import { activeException, approverId, foldPresenceChain, presenceEventDigest } from './chain.mjs';
+import { forgetPersonCounts, presencePinKey, registerPersonCounts } from './counted.mjs';
 import { presenceNonce, presenceStatement, statementText } from './statement.mjs';
 import { verifyPresenceSignature } from './sshsig.mjs';
 
@@ -57,10 +58,14 @@ export function boundDecisionSha256(record) {
   return sha256(canonicalJson(bound));
 }
 
-/** The approver ID of `actor` in `authorities` (a Story's pinned approval authorities), or null. */
+/**
+ * The approver ID of `actor` in `authorities` (a Story's pinned approval authorities), or null. A
+ * record may keep its actor as the identity object or as its key (`actorKey`: login, else email).
+ */
 export function actorApproverId(authorities, actor) {
-  const email = String(actor?.email ?? '').trim().toLowerCase();
-  const login = String(actor?.login ?? '').trim().toLowerCase();
+  const key = typeof actor === 'string' ? actor.trim().toLowerCase() : '';
+  const email = key ? (key.includes('@') ? key : '') : String(actor?.email ?? '').trim().toLowerCase();
+  const login = key ? (key.includes('@') ? '' : key) : String(actor?.login ?? '').trim().toLowerCase();
   if (!email && !login) return null;
   for (const authority of Object.values(authorities ?? {})) {
     for (const member of authority?.members ?? []) {
@@ -82,6 +87,29 @@ export function recordStatement(record, presence, { chainId, workId }) {
     reviewed: { reviewPacketSha256: record.reviewPacketSha256 ?? null },
     actor: { approver: presence.approver }, authorityGroup: record.authorityGroup ?? null,
     at: presence.at, nonce: presence.nonce, keyId: presence.keyId
+  });
+}
+
+/**
+ * The digest of one of a Story's other person records (SF Guard M3): the fields it had when it was
+ * signed, named in the digest, so a field added later (a withdrawal) never breaks it and one changed
+ * or removed always does.
+ */
+export function personRecordDigest(record, fields) {
+  const values = {};
+  for (const field of fields) if (record?.[field] !== undefined) values[field] = record[field];
+  return sha256(canonicalJson({ fields, values }));
+}
+
+/**
+ * The statement one touch signs for every person record a command wrote (SF Guard M3): the records'
+ * digests, sorted, so each record verifies on its own against the one signature.
+ */
+export function personBatchStatement(presence, { chainId, workId }) {
+  return presenceStatement({
+    repository: `presence:${chainId}`, subject: { kind: 'story', id: workId }, step: null, generation: null,
+    action: presence.action, decision: { records: presence.batch }, reviewed: {},
+    actor: { approver: presence.approver }, authorityGroup: null, at: presence.at, nonce: presence.nonce, keyId: presence.keyId
   });
 }
 
@@ -153,6 +181,13 @@ export async function loadPresenceContext(root, workflow, { verify } = {}) {
   const context = { pin, chainId: chain?.chainId ?? pin?.chainId ?? null, chain, folded, required: requirement.required,
     reason: requirement.reason, optedIn: Boolean(folded.enabled), unreadable, verify: verify ?? verifyPresenceSignature };
   contexts.set(pinKey(workflow), context);
+  // The Story's synchronous readers count its other person records through this (counted.mjs).
+  const verdicts = new WeakMap();
+  registerPersonCounts(pinKey(workflow), context.required ? (record) => {
+    if (!record || typeof record !== 'object') return false;
+    if (!verdicts.has(record)) verdicts.set(record, personRecordVerdict(context, record, { workflow }).counts);
+    return verdicts.get(record);
+  } : null);
   return context;
 }
 
@@ -164,14 +199,13 @@ async function policyFilePresent(root) {
 }
 
 /** One Story's pin, as the key of its context: its Story and the pin itself. */
-function pinKey(workflow) {
-  return `${workflow?.workItem?.id ?? ''}\0${JSON.stringify(workflow?.resolution?.presence ?? null)}`;
-}
+const pinKey = presencePinKey;
 
 /** Forget every context and policy read in this process (a command that changed the chain, and tests). */
 export function forgetPresenceContexts() {
   contexts.clear();
   policies.clear();
+  forgetPersonCounts();
 }
 
 /** The context already read for `workflow`'s pin, or null. */
@@ -230,6 +264,22 @@ export function personRecordVerdict(context, record, { workflow }) {
   if (!key || key.approver !== approver) return invalid('PSS_SIGNATURE_INVALID', `${presence.keyId ?? 'its key'} is not ${approver}'s pinned key`);
   if (key.retiredAt && !(Date.parse(presence.at) < Date.parse(key.retiredAt))) {
     return invalid('PSS_SIGNATURE_INVALID', `${presence.keyId} was retired before this record was signed`);
+  }
+  if (presence.batch !== undefined) {
+    // One of a Story's other person records (M3): its digest is one the batch statement signs. Its own
+    // identity assurance stays what the approval check found; the presence block is what reads as signed.
+    const fields = presence.fields;
+    if (!Array.isArray(fields) || !fields.every((field) => typeof field === 'string' && field !== 'presence')
+        || !Array.isArray(presence.batch) || typeof presence.action !== 'string'
+        || !presence.batch.includes(personRecordDigest(record, fields))) {
+      return invalid('PSS_SIGNATURE_INVALID', 'its fields are not the ones its presence signature covers');
+    }
+    let batch;
+    try { batch = personBatchStatement(presence, { chainId: context.chainId, workId: workflow?.workItem?.id }); }
+    catch { return invalid('PSS_SIGNATURE_INVALID', 'its presence block is malformed'); }
+    const checked = context.verify({ message: statementText(batch), armored: presence.signature, publicKey: key.key });
+    if (!checked.valid) return invalid('PSS_SIGNATURE_INVALID', `the signature does not match this record (${checked.reason})`);
+    return { counts: true, state: 'signed', label: `signed with ${presence.keyId}`, code: null, reason: null, signer: approver };
   }
   if (record.identityAssurance !== 'presence-signed') return invalid('PSS_SIGNATURE_INVALID', 'its identity assurance is not presence-signed');
   let statement;

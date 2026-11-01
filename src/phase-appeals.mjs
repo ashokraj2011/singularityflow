@@ -4,6 +4,7 @@ import { constants } from 'node:fs';
 import { mkdir, open } from 'node:fs/promises';
 import { createHash } from 'node:crypto';
 import { z } from 'zod';
+import { countedRecords } from './presence/counted.mjs';
 import { branch, exactFileAtObject, head, identity } from './git.mjs';
 import { canonicalJson } from './records.mjs';
 import { currentSchemaVersion } from './schema-migrations.mjs';
@@ -252,7 +253,7 @@ export async function phaseAppealStatus(root, config, workflow, phase = null) {
       const committed = exactFileAtObject(root, head(root), file, { maximumBytes: 16384 });
       if (!retainedRecordBytesMatch(bytes, committed, decision)) fail('The appeal decision is not the exact committed record.', 'PHASE_APPEAL_INTEGRITY');
       if (decision.decision === 'account-scope') {
-        const amendment = (workflow.planAmendments ?? []).find(entry => entry.id === decision.amendmentId);
+        const amendment = countedRecords(workflow, workflow.planAmendments).find(entry => entry.id === decision.amendmentId);
         if (!amendment || canonicalJson(amendment.changes) !== canonicalJson(packet.changes)
             || amendment.actor !== decision.actor || amendment.authorityGroup !== decision.authorityGroup) fail('Scope accounting lacks its bound authorized plan amendment.', 'PHASE_APPEAL_INTEGRITY');
       }

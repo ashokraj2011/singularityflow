@@ -85,6 +85,8 @@ async function readWorkflow(root, config, id, includeExecution) {
   if (!executionCatalog && needsAcceptedPhaseInterpretation(workflow)) {
     executionCatalog = await resolveStoryExecutionCatalog(root, config, workflow);
   }
+  // SF Guard: a Story pinned to a policy reads its chain once, so its readers count person records.
+  if (workflow.resolution?.presence) await (await import('./presence/person-records.mjs')).loadPresenceContext(root, workflow);
   return { workflow, executionCatalog };
 }
 

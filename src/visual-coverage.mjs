@@ -1,6 +1,7 @@
 import { isVisualVerificationPhase, visualVerificationPhaseOf } from './phase-roles.mjs';
 import { readdir, readFile } from 'node:fs/promises';
 import path from 'node:path';
+import { countedRecords } from './presence/counted.mjs';
 import { phasePublicationCommand, phasePublicationCommandForProducer } from './manual-authorship.mjs';
 import { verifyMcpEvidence } from './mcp-evidence.mjs';
 import { nextPhaseGeneration } from './phase-generation.mjs';
@@ -62,7 +63,7 @@ export function nativeCaptureScale(profile, actual) {
  * each one nobody revoked. Pure.
  */
 export function activeVisualProfileDecisions(workflow, phaseId) {
-  const entries = workflow?.visualProfileDecisions ?? [];
+  const entries = countedRecords(workflow, workflow?.visualProfileDecisions);
   const revoked = new Set(entries.map((entry) => entry?.revokes).filter(Boolean));
   const active = new Map();
   for (const entry of entries) {

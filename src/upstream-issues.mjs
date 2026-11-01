@@ -13,6 +13,7 @@
  */
 import { z } from 'zod';
 import { discrepancyItemSha256 } from './records.mjs';
+import { countedRecords } from './presence/counted.mjs';
 import { decidableUpstreamStep, OPEN_UPSTREAM_ISSUE_STATUSES, upstreamIssueAuthorities, upstreamIssueOutcomes, upstreamIssueStates } from './upstream-routes.mjs';
 import { SingularityFlowError } from './util.mjs';
 
@@ -52,7 +53,9 @@ export const UpstreamIssueDecisionSchema = z.strictObject({
   link: z.string().regex(/^(?:PRC-\d{3,}|CR-\d{3,}|FAM-\d{3,})$/u).nullable(),
   expiresAt: z.string().datetime().nullable(),
   actor: z.string().min(1), authorityGroup: z.string().min(1), identityAssurance: z.string().nullable(),
-  at: z.string().datetime()
+  at: z.string().datetime(),
+  // SF Guard: the person's presence signature, or the exception it went ahead under (person-records.mjs).
+  presence: z.record(z.string(), z.unknown()).optional(),
 });
 
 function refused(message, code = 'UPSTREAM_ISSUE_INVALID', details = undefined) {
@@ -227,11 +230,11 @@ export function decideUpstreamIssue(workflow, {
   if (outcome === 'amend') {
     // The issue is resolved by the approved forward amendment of the same step [UIF-M3].
     const amendment = (workflow.forwardAmendments ?? []).find((entry) => entry.id === link);
-    const approved = (workflow.forwardAmendmentDecisions ?? []).findLast((entry) => entry.amendment === link);
+    const approved = countedRecords(workflow, workflow.forwardAmendmentDecisions).findLast((entry) => entry.amendment === link);
     if (!amendment || approved?.decision !== 'approved') refused(`Name the approved forward amendment that resolves ${issueId} with --link FAM-NNN.`);
     if (amendment.phase !== state.issue.phase) refused(`${link} amends ${amendment.phase}, but ${issueId} is about ${state.issue.phase}.`);
   } else if (outcome === 'plan-correction') {
-    const correction = (workflow.planAmendments ?? []).find((entry) => entry?.kind === 'plan-row-correction' && entry.id === link);
+    const correction = countedRecords(workflow, workflow.planAmendments).find((entry) => entry?.kind === 'plan-row-correction' && entry.id === link);
     if (!correction) refused(`Name the plan correction that resolves ${issueId} with --link PRC-NNN.`);
     if (correction.ownerPhase !== state.issue.phase) {
       refused(`${link} corrects ${correction.ownerPhase}, but ${issueId} is about ${state.issue.phase}.`);

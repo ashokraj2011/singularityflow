@@ -63,7 +63,9 @@ test('frequent lifecycle handlers do not reach the legacy dispatcher and stay un
     // error its outcome class) and source-inspection.mjs (through repository-subject-index.mjs and ast-lifecycle.mjs).
     // 465: SDA M3's lease-liveness.mjs, the lease owner proof every subject lock reads.
     // 466: SDA M4's lifecycle authority adapter (sda/story-branch-authority.mjs, sda/lifecycle-authority-contract.mjs, sda/shared-state-contract.mjs), through which recovery and test-recovery reads observe the subject branch; the publication writer it wraps loads only on a transition.
-    assert.ok(closure.files.size <= 466, `${file} loads ${closure.files.size} local files (budget 466; retired graph 597)`);
+    // 467: SF Guard M3's presence/counted.mjs, the import-free leaf each person-step family reader counts through,
+    // joined submit.mjs's graph through evidence/risk-decisions.mjs, scope/decisions.mjs and the other family modules.
+    assert.ok(closure.files.size <= 467, `${file} loads ${closure.files.size} local files (budget 467; retired graph 597)`);
     // 9,005,000 (next 5,000 boundary): phase-lifecycle.mjs grew from 8,993,692 (main 4a8e6c42) to 9,004,129 with the
     // capability application block's per-environment arguments and debug validation in capabilities.mjs and the
     // launcher rules it reads (RUN amendment), together with 2ca46d6d's conformance issue ownership; no new file.
@@ -251,7 +253,12 @@ test('frequent lifecycle handlers do not reach the legacy dispatcher and stay un
     // at creation and the counting predicate passed to each approval reader (state.mjs +1,477, approval-chain.mjs
     // +856 with its labels, phase-retention.mjs +605, approval-authority.mjs +349) and phase-approval v3
     // (schema-migrations.mjs +675) add 3,962 for 9,327,895. The presence modules stay lazy; no new eager file.
-    assert.ok(closure.bytes <= 9_330_000, `${file} exceeds the 9 MB eager-source budget (${closure.bytes} bytes)`);
+    // 9,335,000 (next 5,000 boundary): main b77a02a1b measures 9,327,895. SF Guard M3 (SPEC-PSS-v1): the import-free
+    // counting leaf presence/counted.mjs (+1,804, the one new eager file) and each person-step family's readers
+    // counting through it (risk, test command, narrowing, test-run risk, evidence reuse, visual profile, witness, scope,
+    // applicability, upstream and forward amendment decisions, plan corrections: +1,652) add 3,456 for 9,331,351.
+    // The signer and the verifier stay lazy (presence/person-steps.mjs and person-records.mjs).
+    assert.ok(closure.bytes <= 9_335_000, `${file} exceeds the 9 MB eager-source budget (${closure.bytes} bytes)`);
   }
 });
 
@@ -364,7 +371,10 @@ test('the common session projection does not import attach, state stores or publ
   // command's operations (command-registry.mjs +801), its person steps as an own-terminal step and its /sf-guard
   // route (command-skills.mjs +590) and the policy file's history read (git.mjs +679). Its handler and the
   // src/presence/ modules load only when `guard` runs.
-  assert.ok(current.bytes <= 4_025_000, `session current loads ${current.bytes} source bytes`);
+  // 4,030,000: main b77a02a1b measures 4,020,946; SF Guard M3 adds 4,473 for 4,025,419: the counting leaf
+  // presence/counted.mjs (+1,804, the one new file) and the person-step family readers counting through it (+2,669).
+  // Signing and verification load only on a Story SF Guard requires.
+  assert.ok(current.bytes <= 4_030_000, `session current loads ${current.bytes} source bytes`);
 });
 
 test('early phase and grounding-path entries exclude the deferred authoring and review graphs', async () => {

@@ -27,6 +27,7 @@
  * cause of the run it lets through.
  */
 import { recordSha256 } from './records.mjs';
+import { countedRecords } from './presence/counted.mjs';
 import { classifyTestRunCause, testRunCauseCategory, testRunCauseWords } from './test-run-cause.mjs';
 import { SingularityFlowError } from './util.mjs';
 
@@ -171,9 +172,9 @@ export function recordTestRunRisk(workflow, { phaseId, attempt, commandId = null
 
 /** Revoke a decision; the record stays, and so does the revocation. */
 export function recordTestRunRiskRevocation(workflow, { riskId, reason, actor, authorityGroup, identityAssurance = null, at }) {
-  const target = (workflow.testRunRisks ?? []).find((entry) => !entry.revokes && entry.id === riskId);
+  const target = countedRecords(workflow, workflow.testRunRisks).find((entry) => !entry.revokes && entry.id === riskId);
   if (!target) throw new SingularityFlowError(`This Story has no test-run risk decision ${riskId}.`, { code: 'TEST_RUN_RISK_UNKNOWN' });
-  if ((workflow.testRunRisks ?? []).some((entry) => entry.revokes === riskId)) {
+  if (countedRecords(workflow, workflow.testRunRisks).some((entry) => entry.revokes === riskId)) {
     throw new SingularityFlowError(`${riskId} is already revoked.`, { code: 'TEST_RUN_RISK_REVOKED' });
   }
   const text = textBetween(reason, 20, 1000, '--reason', 'why the decision is revoked');
@@ -189,7 +190,7 @@ export function recordTestRunRiskRevocation(workflow, { riskId, reason, actor, a
  * before causes were classified. Null when nobody decided.
  */
 export function testRunRiskState(workflow, { phaseId, commandId, argvSha256, causeClass = null }, { at } = {}) {
-  const entries = workflow?.testRunRisks ?? [];
+  const entries = countedRecords(workflow, workflow?.testRunRisks);
   const decision = [...entries].reverse().find((entry) => !entry.revokes && entry.phase === phaseId
     && entry.commandId === commandId && entry.argvSha256 === argvSha256 && (entry.causeClass ?? null) === causeClass) ?? null;
   if (!decision) return null;
@@ -236,7 +237,7 @@ export function testRunRiskBinding(decision) {
  */
 export function boundTestRunRiskActive(workflow, binding, { at } = {}) {
   if (!binding?.id) return false;
-  const decision = (workflow?.testRunRisks ?? []).find((entry) => !entry.revokes && entry.id === binding.id);
+  const decision = countedRecords(workflow, workflow?.testRunRisks).find((entry) => !entry.revokes && entry.id === binding.id);
   if (!decision || testRunRiskSha256(decision) !== binding.sha256) return false;
   return testRunRiskState(workflow, governedBy(decision), { at })?.state === 'active';
 }
@@ -280,7 +281,7 @@ export function testRunRiskRefusalDetails(workflow, { phaseId, attempt, at }) {
   const route = testRunRiskRoute(workflow, { phaseId, attempt, at });
   if (route) return { testRunRisk: route };
   const cause = testRunCause(attempt);
-  const decided = (workflow?.testRunRisks ?? []).some((entry) => !entry.revokes && entry.phase === phaseId && entry.commandId === attempt.commandId);
+  const decided = countedRecords(workflow, workflow?.testRunRisks).some((entry) => !entry.revokes && entry.phase === phaseId && entry.commandId === attempt.commandId);
   const guidance = !decided && cause.class === 'assertion-failure' ? null : cause.category === 'code'
     ? `This run stopped on a code cause, ${testRunCauseText(cause)}: fix it in the step. A test-run risk decision never covers a code cause.`
     : `Nothing in this run says the environment stopped it: ${testRunCauseText(cause)}. No test-run risk decision covers it; read the saved output and fix the cause.`;
@@ -294,7 +295,7 @@ export function testRunRiskRefusalDetails(workflow, { phaseId, attempt, at }) {
  * active at `at`.
  */
 export function testRunRiskCoverageProblem(workflow, binding, { phaseId, attempt, at }) {
-  const decision = (workflow?.testRunRisks ?? []).find((entry) => !entry.revokes && entry.id === binding?.id);
+  const decision = countedRecords(workflow, workflow?.testRunRisks).find((entry) => !entry.revokes && entry.id === binding?.id);
   if (!decision || testRunRiskSha256(decision) !== binding?.sha256) return `test-run risk ${binding?.id ?? '?'} is not recorded on the Story with these bytes`;
   if (decision.phase !== phaseId || decision.commandId !== attempt?.commandId || decision.argvSha256 !== attempt?.argvSha256) {
     return `test-run risk ${decision.id} was accepted for another step or command`;
@@ -320,7 +321,7 @@ export function lapsedTestRunRiskRenewals(workflow, entries, { at } = {}) {
   for (const entry of entries ?? []) {
     const binding = entry?.testRunRisk;
     const decision = binding?.id
-      ? (workflow?.testRunRisks ?? []).find((record) => !record.revokes && record.id === binding.id) : null;
+      ? countedRecords(workflow, workflow?.testRunRisks).find((record) => !record.revokes && record.id === binding.id) : null;
     if (!decision || testRunRiskSha256(decision) !== binding.sha256) continue;
     const key = [decision.phase, decision.commandId, decision.argvSha256, decision.causeClass ?? ''].join('\u0000');
     if (renewals.has(key)) continue;
@@ -352,7 +353,7 @@ export function acceptedTestRunSummaries(workflow, phaseId, entries, { at } = {}
   const summaries = [];
   for (const entry of entries ?? []) {
     if (!entry?.testRunRisk) continue;
-    const decision = (workflow?.testRunRisks ?? []).find((record) => !record.revokes && record.id === entry.testRunRisk.id);
+    const decision = countedRecords(workflow, workflow?.testRunRisks).find((record) => !record.revokes && record.id === entry.testRunRisk.id);
     if (!decision) continue;
     const active = boundTestRunRiskActive(workflow, entry.testRunRisk, { at });
     const commandId = entry.commandId ?? decision.commandId;

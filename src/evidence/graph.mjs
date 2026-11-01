@@ -15,6 +15,7 @@ import path from 'node:path';
 
 import { loadAcceptedStoryExecution } from '../accepted-story-execution.mjs';
 import { recordSha256 } from '../records.mjs';
+import { countedRecords } from '../presence/counted.mjs';
 import { phaseRequiresCodeDelivery } from '../code-delivery-policy.mjs';
 import { attemptLocalIntegrationLabel } from '../code-delivery-tests.mjs';
 import { readRecord } from '../schema-migrations.mjs';
@@ -301,7 +302,7 @@ async function loadWitnessRecords(root, workflow) {
       current.set(file, `sha256:${createHash('sha256').update(await readFile(secured.absolute)).digest('hex')}`);
     } catch { current.set(file, null); }
   }
-  return witnessRecordResults(workflow.witnessRecords ?? [], current, { contextBinding: witnessContextBindings(workflow) });
+  return witnessRecordResults(countedRecords(workflow, workflow.witnessRecords), current, { contextBinding: witnessContextBindings(workflow) });
 }
 
 /** The Story's accepted-scope inventory [E2G-006], or null with a finding when it cannot be built. */

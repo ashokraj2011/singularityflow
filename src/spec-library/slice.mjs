@@ -13,6 +13,7 @@
  * slice over the size limit is refused, never cut. No model is called.
  */
 import { scopeItemId } from '../scope/extract.mjs';
+import { countedRecords } from '../presence/counted.mjs';
 import { extractClauses } from '../specifications.mjs';
 import { SingularityFlowError } from '../util.mjs';
 import { foldGaps } from './draft-model.mjs';
@@ -152,6 +153,6 @@ export const sliceClauseItem = (clause) => scopeItemId('story', `${clause?.ancho
  */
 export function droppedSliceClauses(workflow, slice) {
   const latest = new Map();
-  for (const entry of workflow?.scopeDispositions ?? []) if (entry?.item && !entry.withdrawnAt) latest.set(entry.item, entry);
+  for (const entry of countedRecords(workflow, workflow?.scopeDispositions)) if (entry?.item && !entry.withdrawnAt) latest.set(entry.item, entry);
   return (slice?.clauses ?? []).filter((clause) => ['excluded', 'deferred'].includes(latest.get(sliceClauseItem(clause))?.disposition)).map(sliceClauseId);
 }

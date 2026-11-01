@@ -13,6 +13,7 @@
  * A `repin` request adds no command: it admits a pinned command's changed form (test-command-pins.mjs). Pure.
  */
 import { canonicalJson, recordSha256 } from './records.mjs';
+import { countedRecords } from './presence/counted.mjs';
 import { SingularityFlowError } from './util.mjs';
 
 const fail = (message, code = 'TEST_COMMAND_DECISION_INVALID', details = undefined) => {
@@ -27,7 +28,9 @@ function reasonText(value, minimum, option) {
   return text;
 }
 
-const decisions = (workflow) => workflow?.testCommandDecisions ?? [];
+// SF Guard: a person's acceptance or revocation counts once verified; requests always count.
+const personDecision = (entry) => Boolean(entry?.accepts || entry?.revokes);
+const decisions = (workflow) => countedRecords(workflow, workflow?.testCommandDecisions, personDecision);
 
 /** A request by its ID, and whether a person accepted or revoked it. */
 export function storyTestCommandState(workflow, id) {

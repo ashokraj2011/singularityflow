@@ -1422,14 +1422,17 @@ const PAGES = Object.freeze({
   backup: {
     summary: 'Save the drafts and documents kept only on this laptop, and restore them on another laptop or this one.',
     description: [
-      'Two kinds of work stay on the laptop where they were made: configuration drafts waiting to be proposed, and',
-      'Story documents kept laptop-local. Taking a Story over on another laptop does not bring them along.',
-      'backup create saves both, for this clone, into a new or empty directory outside every checkout of the',
+      'Some work stays on the laptop where it was made: configuration drafts waiting to be proposed, specification',
+      'drafts (with the proposals staged in them) and split proposals waiting to be published, and Story documents kept',
+      'laptop-local. Taking a Story over on another laptop does not bring them along.',
+      'backup create saves them, for this clone, into a new or empty directory outside every checkout of the',
       'repository (the documents must never be committed). It never carries locks, sessions, caches, journals,',
       'temporary files, or publications and pushes still waiting here: those are recovered on this laptop with sync,',
       'and the backup names them. backup inspect checks every byte against its SHA-256 and says what restoring here',
-      'would do. backup restore saves each draft again under its original operation ID, checked against the approved',
-      'configuration as it is now, and restores a document only where the Story still holds that exact document.',
+      'would do, and create names any draft snapshot or split proposal that no longer verifies. backup restore saves',
+      'each configuration draft again under its original operation ID, checked against the approved configuration as',
+      'it is now; puts back a specification draft or split proposal this clone does not have, keeping its own when it',
+      'holds a different one; and restores a document only where the Story still holds that exact document.',
       'A document the Story replaced or detached since stays in the backup. Restoring twice changes nothing, and',
       'nothing is proposed, approved, committed or pushed. A backup made by a newer Singularity Flow is refused whole.'
     ],

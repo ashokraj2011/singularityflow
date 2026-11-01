@@ -945,6 +945,10 @@ function localBackupManifestV1ToV2(source) {
   return { ...source, schemaVersion: 2, specDrafts: [] };
 }
 
+function localBackupManifestV2ToV3(source) {
+  return { ...source, schemaVersion: 3, splitProposals: [] };
+}
+
 function promptAuditSettingsV1ToV2(source) {
   return {
     ...source,
@@ -3305,10 +3309,11 @@ const families = [
   family({ id: 'transport-intent', currentVersion: 1, paths: [/^\$local\/transport-outbox\/intents\/[^/]+\.json$/] }),
   // backup create (src/local-backup.mjs, SDA M5): the manifest of one backup of a clone's drafts and
   // laptop-local documents, in a directory the person chose outside every checkout of the repository.
-  // v2 (SPEC-SPA v1.3) also carries each specification draft's head snapshot.
+  // v2 (SPEC-SPA v1.3) also carries each specification draft's head snapshot, and v3 each
+  // specification split proposal (S5), which exists only on the clone that proposed it.
   family({
-    id: 'local-backup-manifest', currentVersion: 2,
-    steps: [migration(1, 2, localBackupManifestV1ToV2)],
+    id: 'local-backup-manifest', currentVersion: 3,
+    steps: [migration(1, 2, localBackupManifestV1ToV2), migration(2, 3, localBackupManifestV2ToV3)],
     paths: [/^\$backup\/manifest\.json$/]
   }),
   family({ id: 'workspace-bootstrap', currentVersion: 1, paths: [/^\$local\/workspace-bootstrap\/sessions\/[^/]+\.json$/] }),

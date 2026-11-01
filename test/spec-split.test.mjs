@@ -332,6 +332,64 @@ test('a draft revision cannot be split, and a child ID the library holds is refu
   assert.deepEqual(json(root, ['spec', 'split', `${SPEC}@1`]).splits, [], 'nothing was published');
 });
 
+test('a backup carries this clone\'s split proposals and the Studio proposals staged in a draft; restore puts a missing one back byte-identical and keeps a different local one', async (t) => {
+  const { directory, root } = await repository(t);
+  assert.equal(await publishReviewed(root, directory, librarySpec(), { first: true }), 1);
+  const name = `${SPEC}@1`;
+  const planFile = path.join(directory, 'plan.json');
+  await writeFile(planFile, JSON.stringify(PLAN));
+  const { planSha256 } = json(root, ['spec', 'split', name, '--propose', '--file', planFile]);
+  const proposals = path.join(root, '.git', 'singularity-flow', 'spec-split-proposals', SPEC);
+  const proposalBytes = await readFile(path.join(proposals, '000001.json'));
+  const studio = path.join(directory, 'studio.json');
+  await writeFile(studio, JSON.stringify({ proposals: [{ kind: 'research', summary: 'The threshold lives in src/pricing.mjs.' }] }));
+  assert.deepEqual(json(root, ['spec', 'author', 'propose', SPEC, '--file', studio]).staged, ['P-001']);
+
+  // Unreadable records are named, never left out silently; what does verify is still carried.
+  const drafts = path.join(root, '.git', 'singularity-flow', 'spec-drafts', SPEC);
+  const head = json(root, ['spec', 'author', 'status', SPEC]).sequence;
+  const torn = path.join(drafts, `${String(head + 1).padStart(6, '0')}.json`);
+  await writeFile(torn, '{ "schemaVersion": 1, "torn');
+  await writeFile(path.join(proposals, '000002.json'), 'not a proposal');
+  const out = path.join(directory, 'backup');
+  const created = json(root, ['backup', 'create', '--out', out]);
+  assert.deepEqual([created.specDrafts, created.splitProposals], [1, 1]);
+  assert.deepEqual(created.unreadableSpecDrafts, [{ specId: SPEC, carriedSequence: head, files: [path.basename(torn)] }]);
+  assert.deepEqual(created.unreadableSplitProposals.map(({ specId, revision }) => [specId, revision]), [[SPEC, 2]]);
+  await rm(torn);
+  await rm(path.join(proposals, '000002.json'));
+  assert.match(sf(root, ['backup', 'inspect', out]).stdout, /split proposal already-saved: SPEC-CHK-004@1/u);
+
+  // Lost on this clone: restore puts both back as they were.
+  await rm(proposals, { recursive: true });
+  sf(root, ['spec', 'author', 'discard', SPEC]);
+  const restored = json(root, ['backup', 'restore', out]);
+  assert.equal(restored.status, 'restored');
+  assert.deepEqual(restored.splitProposals.map((item) => [item.specId, item.revision, item.status]), [[SPEC, 1, 'restored']]);
+  assert.deepEqual(restored.counts.splitProposals, { restored: 1, 'already-saved': 0, 'kept-local': 0, refused: 0 });
+  assert.deepEqual(await readFile(path.join(proposals, '000001.json')), proposalBytes, 'the proposal is back byte-identical');
+  assert.equal(json(root, ['spec', 'split', name]).proposal.planSha256, planSha256);
+  assert.deepEqual(json(root, ['spec', 'author', 'status', SPEC]).proposals.map(({ id, kind }) => [id, kind]), [['P-001', 'research']],
+    'the Studio proposal staged in the draft came back with it');
+  assert.equal(json(root, ['backup', 'restore', out]).splitProposals[0].status, 'already-saved', 'restoring again changes nothing');
+
+  // A different plan proposed here since is kept, never replaced.
+  await writeFile(planFile, JSON.stringify({ ...PLAN, notDelivered: [{ clause: 'CON-001', reason: 'Another reason.' }] }));
+  const local = json(root, ['spec', 'split', name, '--propose', '--file', planFile]).planSha256;
+  assert.notEqual(local, planSha256);
+  assert.equal(json(root, ['backup', 'restore', out]).splitProposals[0].status, 'kept-local');
+  assert.equal(json(root, ['spec', 'split', name]).proposal.planSha256, local);
+
+  // A backup an earlier build wrote (manifest v2, no split proposals) still restores.
+  const older = path.join(directory, 'older');
+  await mkdir(path.join(older, 'objects'), { recursive: true });
+  const { splitProposals: _carried, ...manifest } = JSON.parse(await readFile(path.join(out, 'manifest.json'), 'utf8'));
+  await writeFile(path.join(older, 'manifest.json'), JSON.stringify({ ...manifest, schemaVersion: 2 }));
+  sf(root, ['spec', 'author', 'discard', SPEC]);
+  const fromOlder = json(root, ['backup', 'restore', older]);
+  assert.deepEqual([fromOlder.status, fromOlder.splitProposals, fromOlder.specDrafts[0].status], ['restored', [], 'restored']);
+});
+
 /** A command line's words, as a POSIX shell reads single quotes ('\'' included). */
 function words(command) {
   const out = [];

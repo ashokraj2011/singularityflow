@@ -1,9 +1,11 @@
 /**
  * Backups of the work that exists only on this laptop (SDA §11, §12, §19 item 14; M5).
  *
- * Three kinds of authored data never leave this machine on their own:
+ * Four kinds of authored data never leave this machine on their own:
  * - configuration drafts (src/configuration-drafts.mjs), saved here until they are proposed;
- * - specification drafts (src/spec-library/draft-store.mjs), saved here until they are published;
+ * - specification drafts (src/spec-library/draft-store.mjs), saved here until they are published,
+ *   with the proposals and assisted findings staged in them;
+ * - specification split proposals (src/spec-library/split.mjs), kept here until they are published;
  * - laptop-local Story documents (src/document-storage.mjs), whose bytes are never committed.
  * `backup create` copies them into a directory the person chooses outside every checkout of the
  * repository, so another laptop, or this one after a loss, can take them back with `backup restore`.
@@ -11,14 +13,16 @@
  * directory) are migrated first, so they are carried with their exact operation IDs and digests.
  *
  * A backup never carries what belongs to this machine: locks, sessions, caches and indexes,
- * journals, pending publications, saved pushes, temporary files or absolute paths. Pending
+ * journals, pending publications, saved pushes, temporary files or absolute paths. The file a
+ * /sf-spec-author turn writes before `spec author propose` stages it is such a temporary file: what was
+ * staged is in the draft. Pending
  * publications and saved pushes are recovered here (`sync`); the backup names them so the person
  * restoring it knows they did not come along.
  *
  * Restore changes no shared state and approves nothing:
  * - a specification draft's head snapshot is put back whole when this clone has no draft of that
  *   specification; a clone holding the same head is left as it is, and one holding a different draft
- *   keeps its own (manifest v2).
+ *   keeps its own (manifest v2). A split proposal is put back the same way, by revision (manifest v3).
  * - a draft is saved again through the ordinary draft save, under its original operation ID, so it
  *   is checked against the approved configuration as it is now. The same operation already saved is
  *   left as it is; a different change under that ID is refused (OPERATION_ID_REUSE).
@@ -232,10 +236,21 @@ export async function createBackup(root, { out, limits = { documents: MAXIMUM_DO
   }, { measure: true });
   if (measured.documents > limits.documents || measured.bytes > limits.bytes) tooLarge(target, measured, limits);
   const { listDrafts } = await import('./spec-library/draft-store.mjs');
-  const specDrafts = (await listDrafts(root)).filter((draft) => draft.head).map((draft) => draft.head);
+  const views = await listDrafts(root);
+  const specDrafts = views.filter((draft) => draft.head).map((draft) => draft.head);
+  // A snapshot newer than the head carried (or a draft with none that verifies) is named, never left out silently.
+  const unreadableSpecDrafts = views.map((draft) => ({ specId: draft.specId, carriedSequence: draft.head?.sequence ?? null,
+    files: draft.damaged.filter((entry) => Number(path.basename(entry.file, '.json')) > (draft.head?.sequence ?? 0)).map((entry) => path.basename(entry.file)) }))
+    .filter((entry) => entry.files.length);
   if (specDrafts.length > MAXIMUM_DRAFTS) {
     fail(`This clone holds ${specDrafts.length} specification drafts, more than one backup carries (${MAXIMUM_DRAFTS}). Nothing was written to ${target}. Publish or discard some, then create the backup again.`,
       'BACKUP_TOO_LARGE', { specDrafts: specDrafts.length, maximumDrafts: MAXIMUM_DRAFTS, nextAction: 'singularity-flow spec author list' });
+  }
+  const { listProposals } = await import('./spec-library/split.mjs');
+  const { proposals: splitProposals, unreadable: unreadableSplitProposals } = await listProposals(root);
+  if (splitProposals.length > MAXIMUM_DRAFTS) {
+    fail(`This clone holds ${splitProposals.length} specification split proposals, more than one backup carries (${MAXIMUM_DRAFTS}). Nothing was written to ${target}. Publish some, then create the backup again.`,
+      'BACKUP_TOO_LARGE', { splitProposals: splitProposals.length, maximumDrafts: MAXIMUM_DRAFTS, nextAction: 'singularity-flow spec author list' });
   }
   const removeWritten = await emptyDestination(target);
   const documents = []; const written = new Set();
@@ -254,7 +269,7 @@ export async function createBackup(root, { out, limits = { documents: MAXIMUM_DO
     const { localMachineId } = await import('./lease-liveness.mjs');
     manifest = stampCurrentRecord(BACKUP_FAMILY, {
       backupId: `lbk-${randomBytes(12).toString('hex')}`, createdAt: new Date().toISOString(),
-      sourceMachine: localMachineId() ?? null, repository, configurationDrafts: drafts, specDrafts, documents,
+      sourceMachine: localMachineId() ?? null, repository, configurationDrafts: drafts, specDrafts, splitProposals, documents,
       notCarried: await sealedHere(root)
     });
     text = `${JSON.stringify(manifest, null, 2)}\n`;
@@ -264,8 +279,9 @@ export async function createBackup(root, { out, limits = { documents: MAXIMUM_DO
     throw error;
   }
   return { schemaVersion: 1, resultType: 'sflow-backup-create', directory: target, backupId: manifest.backupId, // schema-transient: command result
-    manifestSha256: `sha256:${sha256(text)}`, configurationDrafts: drafts.length, specDrafts: specDrafts.length, documents: documents.length, bytes,
-    unreadableDocuments: unreadable, notCarried: manifest.notCarried,
+    manifestSha256: `sha256:${sha256(text)}`, configurationDrafts: drafts.length, specDrafts: specDrafts.length,
+    splitProposals: splitProposals.length, documents: documents.length, bytes,
+    unreadableDocuments: unreadable, unreadableSpecDrafts, unreadableSplitProposals, notCarried: manifest.notCarried,
     next: `singularity-flow backup inspect ${JSON.stringify(target)}` };
 }
 
@@ -294,11 +310,14 @@ export async function readBackup(directory) {
   const drafts = await import('./configuration-drafts.mjs');
   const { snapshotDigest } = await import('./spec-library/draft-store.mjs');
   const { validSpecId } = await import('./spec-library/ids.mjs');
+  const { validProposalRecord } = await import('./spec-library/split.mjs');
   if (!BACKUP_ID.test(record.backupId ?? '') || !DIGEST.test(record.repository ?? '')
       || !Array.isArray(record.configurationDrafts) || record.configurationDrafts.length > MAXIMUM_DRAFTS
       || !record.configurationDrafts.every((entry) => validDraftEntry(entry, drafts))
       || !Array.isArray(record.specDrafts) || record.specDrafts.length > MAXIMUM_DRAFTS
       || !record.specDrafts.every((entry) => validSpecId(entry?.specId) && entry.snapshotSha256 === snapshotDigest(entry))
+      || !Array.isArray(record.splitProposals) || record.splitProposals.length > MAXIMUM_DRAFTS
+      || !record.splitProposals.every(validProposalRecord)
       || !Array.isArray(record.documents) || record.documents.length > MAXIMUM_DOCUMENTS
       || !record.documents.every(validDocumentEntry)) {
     fail(`The backup manifest at ${target} is not valid. Nothing was restored.`, 'BACKUP_INVALID');
@@ -387,6 +406,17 @@ async function planSpecDrafts(root, backup) {
   return items;
 }
 
+async function planSplitProposals(root, backup) {
+  const { readProposal } = await import('./spec-library/split.mjs');
+  const items = [];
+  for (const record of backup.manifest.splitProposals) {
+    const here = await readProposal(root, record.specId, record.revision);
+    const status = !here ? 'to-restore' : !here.damaged && here.planSha256 === record.planSha256 ? 'already-saved' : 'kept-local';
+    items.push({ specId: record.specId, revision: record.revision, planSha256: record.planSha256, status, draft: record });
+  }
+  return items;
+}
+
 const publicItem = ({ draft: _draft, restore: _restore, ...item }) => item;
 
 function counts(items, statuses) {
@@ -397,7 +427,8 @@ function counts(items, statuses) {
 export async function inspectBackup(root, directory) {
   const plan = await planBackup(root, directory);
   return { schemaVersion: 1, resultType: 'sflow-backup-inspect', ...plan.summary, // schema-transient: command result
-    configurationDrafts: plan.drafts.map(publicItem), specDrafts: plan.specDrafts.map(publicItem), documents: plan.documents.map(publicItem),
+    configurationDrafts: plan.drafts.map(publicItem), specDrafts: plan.specDrafts.map(publicItem),
+    splitProposals: plan.splitProposals.map(publicItem), documents: plan.documents.map(publicItem),
     next: `singularity-flow backup restore ${JSON.stringify(plan.backup.directory)}` };
 }
 
@@ -409,8 +440,9 @@ async function planBackup(root, directory) {
   const { localMachineId } = await import('./lease-liveness.mjs');
   const drafts = await planDrafts(root, backup);
   const specDrafts = await planSpecDrafts(root, backup);
+  const splitProposals = await planSplitProposals(root, backup);
   const documents = await planDocuments(root, backup);
-  return { backup, drafts, specDrafts, documents, summary: {
+  return { backup, drafts, specDrafts, splitProposals, documents, summary: {
     directory: backup.directory, backupId: backup.manifest.backupId, createdAt: backup.manifest.createdAt,
     manifestSha256: backup.manifestSha256, fromThisMachine: Boolean(backup.manifest.sourceMachine) && backup.manifest.sourceMachine === localMachineId(),
     notCarried: backup.manifest.notCarried ?? null
@@ -476,6 +508,15 @@ export async function restoreBackup(root, directory) {
       specDrafts.push({ ...publicItem(item), status: restored.outcome === 'restored' ? 'restored' : restored.outcome === 'unchanged' ? 'already-saved' : 'kept-local' });
     } catch (error) { specDrafts.push({ ...publicItem(item), status: 'refused', refusal: refusal(error) }); }
   }
+  const splitProposals = [];
+  for (const item of plan.splitProposals) {
+    if (item.status !== 'to-restore') { splitProposals.push(publicItem(item)); continue; }
+    try {
+      const { restoreProposal } = await import('./spec-library/split.mjs');
+      const restored = await restoreProposal(root, item.draft);
+      splitProposals.push({ ...publicItem(item), status: restored.outcome === 'restored' ? 'restored' : restored.outcome === 'unchanged' ? 'already-saved' : 'kept-local' });
+    } catch (error) { splitProposals.push({ ...publicItem(item), status: 'refused', refusal: refusal(error) }); }
+  }
   const documents = [];
   for (const item of plan.documents) {
     if (item.status !== 'to-restore') { documents.push(publicItem(item)); continue; }
@@ -489,10 +530,11 @@ export async function restoreBackup(root, directory) {
   const draftCounts = counts(drafts, ['restored', 'already-saved', 'already-approved', 'refused']);
   const documentCounts = counts(documents, ['restored', 'already-present', 'superseded', 'story-not-here', 'refused']);
   const specDraftCounts = counts(specDrafts, ['restored', 'already-saved', 'kept-local', 'refused']);
+  const splitProposalCounts = counts(splitProposals, ['restored', 'already-saved', 'kept-local', 'refused']);
   return { schemaVersion: 1, resultType: 'sflow-backup-restore', ...plan.summary, // schema-transient: command result
-    status: [...drafts, ...specDrafts, ...documents].some((item) => item.status === 'refused') ? 'partial' : 'restored',
-    counts: { configurationDrafts: draftCounts, specDrafts: specDraftCounts, documents: documentCounts },
-    configurationDrafts: drafts, specDrafts, documents,
+    status: [...drafts, ...specDrafts, ...splitProposals, ...documents].some((item) => item.status === 'refused') ? 'partial' : 'restored',
+    counts: { configurationDrafts: draftCounts, specDrafts: specDraftCounts, splitProposals: splitProposalCounts, documents: documentCounts },
+    configurationDrafts: drafts, specDrafts, splitProposals, documents,
     effects: { shared: false, committed: false, pushed: false, proposed: false, approvalsChanged: false },
     next: draftCounts.restored ? 'singularity-flow configuration drafts' : null };
 }

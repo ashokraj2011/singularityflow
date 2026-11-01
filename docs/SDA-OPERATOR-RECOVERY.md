@@ -181,7 +181,10 @@ Story's next steps.
 - If the old laptop still works: on it, run `singularity-flow sync` for waiting publications, then
   `singularity-flow backup create --out <DIRECTORY>`. The directory must be new or empty. It is
   checked to be outside this clone, its Story checkouts and its Git directory; SFlow cannot see other
-  clones of the repository on that laptop, so keep it out of them too.
+  clones of the repository on that laptop, so keep it out of them too. The backup also carries the
+  clone's specification drafts, with the Spec Studio proposals staged in them, and its specification
+  split proposals: they belong to the repository rather than to one Story, and stay on that laptop too
+  until published.
 - A backup larger than one backup carries (`BACKUP_TOO_LARGE`) is refused before anything is
   written, saying what is too large, so the same `--out` works once it fits.
 - On the new laptop: `singularity-flow backup inspect <DIRECTORY>` previews, then

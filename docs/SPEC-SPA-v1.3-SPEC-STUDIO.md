@@ -215,7 +215,7 @@ JSON uses the repository's `canonicalJson`. [SPA:REQ-029]
 | `spec-split@1` | Split plan |
 | `spec-usage@1` | A Story's claim or delivery of clauses |
 | Story source | No version bump: an optional `specification` field, present only when a slice is attached (§6.2, S0) |
-| `local-backup-manifest` | Version bump: carries spec drafts |
+| `local-backup-manifest` | Version bump: carries spec drafts (v2) and split proposals (v3) |
 
 Every family is registered in `schema-migrations.mjs` with current and future-version refusal fixtures, under a GDP companion lock review. [SPA:IFC-001]
 

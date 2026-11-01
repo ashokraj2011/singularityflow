@@ -122,6 +122,17 @@ async function savedSpecificationDrafts(sharedRuntime) {
   return names.filter((name) => /^SPEC-[A-Z0-9-]+$/u.test(name)).length;
 }
 
+/** Specification split proposals in the same root, kept only here until they are published. */
+async function savedSplitProposals(sharedRuntime) {
+  const absent = (error) => (['ENOENT', 'ENOTDIR'].includes(error?.code) ? [] : Promise.reject(error));
+  const directory = path.join(sharedRuntime, 'spec-split-proposals');
+  let count = 0;
+  for (const name of (await readdir(directory).catch(absent)).filter((entry) => /^SPEC-[A-Z0-9-]+$/u.test(entry))) {
+    count += (await readdir(path.join(directory, name)).catch(absent)).filter((entry) => /^\d{6}\.json$/u.test(entry)).length;
+  }
+  return count;
+}
+
 /**
  * Publications waiting in the runtime roots: each retained commit's marker or pre-commit journal,
  * the only record of a commit not yet on the remote. A backup never carries them, so the reset
@@ -953,6 +964,7 @@ export async function factoryResetPlan(root, { packageVersion = null, includeLoc
   // Drafts live inside the shared runtime root, so the reset takes them: the preview names them (SDA M5).
   const savedDrafts = await savedConfigurationDrafts(sharedLocalRuntime);
   const savedSpecDrafts = await savedSpecificationDrafts(sharedLocalRuntime);
+  const savedSplits = await savedSplitProposals(sharedLocalRuntime);
   const waiting = await pendingPublications(localRuntimeRoots);
   const discardWaiting = discardPendingPublications && waiting.length > 0;
   // The token binds to this checkout at this commit, not just to its name. `RESET <name>` alone is
@@ -1062,6 +1074,7 @@ export async function factoryResetPlan(root, { packageVersion = null, includeLoc
     localDocumentRoots,
     savedConfigurationDrafts: savedDrafts,
     savedSpecificationDrafts: savedSpecDrafts,
+    savedSplitProposals: savedSplits,
     pendingPublications: waiting,
     pendingPublicationsDiscarded: discardWaiting,
     machineOnlyDocuments: {

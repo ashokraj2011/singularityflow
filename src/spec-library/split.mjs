@@ -15,7 +15,7 @@
  * took a clause a later parent revision changed ("parent moved"). Nothing here calls a model.
  */
 import { createHash } from 'node:crypto';
-import { readFile, rm } from 'node:fs/promises';
+import { readdir, readFile, rm } from 'node:fs/promises';
 import path from 'node:path';
 
 import YAML from 'yaml';
@@ -25,7 +25,7 @@ import { prepareSharedPublicationStorage, sharedPublicationStorageDirectory } fr
 import { canonicalJson } from '../records.mjs';
 import { currentSchemaVersion, readRecord } from '../schema-migrations.mjs';
 import { extractClauses } from '../specifications.mjs';
-import { SingularityFlowError, writeAtomic } from '../util.mjs';
+import { SingularityFlowError, writeAtomic, writeAtomicExclusive } from '../util.mjs';
 import { contradictedClauses, dependencyCycle, dependencyOrder, unallocatedClauses } from './allocation.mjs';
 import { foldGaps } from './draft-model.mjs';
 import { LIBRARY_ROOT, revisionName, validSpecId } from './ids.mjs';
@@ -245,6 +245,55 @@ export async function removeProposal(root, specId, revision, planSha256) {
   if (current && !current.damaged && current.planSha256 !== planSha256) return false;
   await rm(proposalFile(sharedPublicationStorageDirectory(root, PROPOSALS), specId, revision), { force: true });
   return true;
+}
+
+/** A proposal record as a backup carries it: every field its file holds, checked against its own digest. */
+export const validProposalRecord = (record) => Boolean(record) && typeof record === 'object' && validSpecId(record.specId)
+  && Number.isSafeInteger(record.revision) && record.revision >= 1 && Boolean(record.plan) && typeof record.plan === 'object'
+  && record.planSha256 === planDigest(record.plan);
+
+/**
+ * Every split proposal on this clone (they exist nowhere else until published), and each one that
+ * cannot be read, with why: a backup names those and never leaves one out silently.
+ */
+export async function listProposals(root) {
+  const directory = sharedPublicationStorageDirectory(root, PROPOSALS);
+  const absent = (error) => (error?.code === 'ENOENT' || error?.code === 'ENOTDIR' ? [] : Promise.reject(error));
+  const proposals = []; const unreadable = [];
+  for (const specId of (await readdir(directory).catch(absent)).filter(validSpecId).sort()) {
+    // Other names are a write's own temporary files.
+    for (const name of (await readdir(path.join(directory, specId)).catch(absent)).filter((entry) => /^\d{6}\.json$/u.test(entry)).sort()) {
+      const revision = Number(name.slice(0, 6));
+      try {
+        const record = await readProposal(root, specId, revision);
+        if (record?.damaged) unreadable.push({ specId, revision, reason: record.reason });
+        else if (record) proposals.push(record);
+      } catch (error) {
+        unreadable.push({ specId, revision, reason: error?.code === 'SCHEMA_VERSION_FUTURE' ? 'a newer Singularity Flow wrote it' : error.message });
+      }
+    }
+  }
+  return { proposals, unreadable };
+}
+
+/**
+ * Put a backed-up proposal back the way it was written. A clone with no proposal for that revision
+ * gets it; one holding the same plan is left as it is, and one holding another plan (or a damaged
+ * file) keeps its own, as a backed-up specification draft is restored.
+ */
+export async function restoreProposal(root, record) {
+  if (!validProposalRecord(record)) fail('The backed-up split proposal does not match its digest; nothing was restored.', 'SPEC_SPLIT_BACKUP_INVALID', { specId: record?.specId ?? null });
+  const current = await readProposal(root, record.specId, record.revision);
+  if (current) return { outcome: !current.damaged && current.planSha256 === record.planSha256 ? 'unchanged' : 'kept-local' };
+  const directory = await prepareSharedPublicationStorage(root, PROPOSALS, 'Specification split proposals');
+  try {
+    // Create-only: a proposal staged here meanwhile is never replaced.
+    await writeAtomicExclusive(proposalFile(directory, record.specId, record.revision), canonicalJson(record), { mode: 0o600 });
+  } catch (error) {
+    if (error?.code === 'EEXIST') return { outcome: 'kept-local' };
+    throw error;
+  }
+  return { outcome: 'restored' };
 }
 
 // ---- Published splits ---------------------------------------------------------------------------

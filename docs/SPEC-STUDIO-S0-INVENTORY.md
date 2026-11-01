@@ -57,3 +57,14 @@ Found while building S2 on main `c15830837`:
 - **One `--spec` per specification**, and a slice carries every decided or deferred gap of its revision (an open gap cannot be in a reviewed revision). Its size limit is 64 KiB for the whole `specification` field.
 - **The live Copilot check is not run.** It needs paid runs and the person's go-ahead.
 
+## S3 decisions beyond the plan's text
+
+- **`spec author status --json` is the Studio's one read of a draft.** It now also returns the prose (`spec`), the areas, each research item with its standing (`researchItems`), the D rules, the checklist articles and the clause IDs. Its text output is unchanged. A gap's impact (`gaps SPEC-ID GAP-ID`), a revision (`show`) and its coverage are read only when a stage needs them, because each crosses the knowledge model or the state branch.
+- **The Studio opens where the work is**: at the first open gap with its impact read, else at Check, or at Publish when nothing blocks.
+- **Person-only steps run from the person's own Studio.** The Copilot guard refuses them to agents; the Studio is the person. Closing, deferring and reopening a gap take a rationale; publishing asks once on a review page naming the revision; discarding asks for the specification ID typed.
+- **Publish passes no host operation ID**: the engine's own, derived from the draft head and review state, keeps a retry after a lost acknowledgement the same publication.
+- **Attach composes the Story start option**; it never starts a Story. With every clause chosen the option has no clause list (`--spec SPEC-ID@N`), as Story start reads it.
+- **The Story entry point is View Story intake details**, which lists the Story's specification slices with *Open in Spec Studio*; the Studio opens at Attach with those clauses chosen and marked.
+- **No Copilot tab yet.** The plan's bottom "Copilot turn" tab arrives with S4's generation; S3's tabs are the quality findings and the state-branch manifest.
+- **Bundle:** `lazy-panels-runtime.cjs` measured 3,263,058 bytes and 299 modules with the Studio's three modules; its module ceiling is 299 (bytes unchanged at 3,505,000).
+

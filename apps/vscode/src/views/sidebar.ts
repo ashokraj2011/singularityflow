@@ -65,7 +65,8 @@ const ACTION_COMMANDS: Record<string, string> = {
   'change-explorer': 'singularityFlow.openChangeExplorer',
   'code-explainer': 'singularityFlow.openCodeExplainer',
   'code-explanation': 'singularityFlow.openCodeExplanation',
-  'repository-knowledge': 'singularityFlow.openRepositoryKnowledge'
+  'repository-knowledge': 'singularityFlow.openRepositoryKnowledge',
+  'spec-studio': 'singularityFlow.openSpecStudio'
 };
 
 interface FavoriteMenu {
@@ -95,6 +96,7 @@ export const FAVORITE_MENUS: readonly FavoriteMenu[] = Object.freeze([
   { id: 'repository-knowledge', label: 'Repository Brief', description: 'rules, journeys, tests and gaps read from the code', icon: 'book', command: ACTION_COMMANDS['repository-knowledge']! },
   { id: 'comprehension-center', label: 'Comprehension Center', description: 'exact change regions, causes, unknowns, and replay', icon: 'code', command: ACTION_COMMANDS['comprehension-center']! },
   { id: 'work-start', label: 'Start new work', description: 'describe a request and start a Story', icon: 'start', command: ACTION_COMMANDS['work-start']! },
+  { id: 'spec-studio', label: 'Specifications', description: 'Spec Studio: write, research, decide and publish a specification before any Story', icon: 'book', command: ACTION_COMMANDS['spec-studio']! },
   { id: 'story-intake', label: 'View Story intake details', description: 'saved inputs, selected base and recorded setup', icon: 'book', command: ACTION_COMMANDS['story-intake']! },
   { id: 'adhoc-work', label: 'Ad hoc work', description: 'land bounded work without a Story', icon: 'commit', command: ACTION_COMMANDS['adhoc-work']! },
   { id: 'inbox-open', label: 'Inbox', description: 'work waiting on you', icon: 'inbox', command: ACTION_COMMANDS['inbox-open']! },
@@ -410,7 +412,7 @@ export class SidebarViewProvider implements vscode.WebviewViewProvider, vscode.D
 
   private async openTools(group: string): Promise<void> {
     const groups: Record<string, { title: string; ids: string[] }> = {
-      'work-tools': { title: 'Work tools', ids: ['current-work-actions', 'story-intake', 'artifacts', 'story-analytics', 'understand-changes', 'adhoc-work', 'goals', 'impact-form', 'epic-stories', 'command-center', 'flow-impact'] },
+      'work-tools': { title: 'Work tools', ids: ['current-work-actions', 'spec-studio', 'story-intake', 'artifacts', 'story-analytics', 'understand-changes', 'adhoc-work', 'goals', 'impact-form', 'epic-stories', 'command-center', 'flow-impact'] },
       'understand-changes': { title: 'Understand changes', ids: ['change-explorer', 'code-explainer', 'repository-knowledge', 'code-explanation', 'comprehension-center'] },
       'help-tools': { title: 'Help & diagnostics', ids: ['about', 'help-open', 'diagnostics', 'fault-repairs', 'after-install', 'local-reset'] },
       'activity-tools': { title: 'Activity & logs', ids: ['logs-open', 'activity-log', 'performance', 'prompt-audit', 'journal'] }

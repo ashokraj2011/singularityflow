@@ -55,6 +55,7 @@ export { configurationGitFailureText } from './views/configuration-save.ts';
 export { InstructionDesignerPanel } from './views/instruction-designer.ts';
 export { WorkspaceLogsPanel } from './views/workspace-logs.ts';
 export { SpecificationTracePanel } from './views/specification-trace.ts';
+export { SpecStudioPanel } from './views/spec-studio.ts';
 export { VisualAssurancePanel } from './views/visual-assurance.ts';
 export { DecisionListPanel } from './views/decision-list.ts';
 export { RunAndTest, runAndTestCommand, editRunConfigurationsCommand } from './views/run-and-test.ts';

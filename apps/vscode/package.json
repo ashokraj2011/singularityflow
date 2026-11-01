@@ -1163,6 +1163,11 @@
         "icon": "$(package)"
       },
       {
+        "command": "singularityFlow.openSpecStudio",
+        "title": "Singularity Flow: Spec Studio",
+        "icon": "$(book)"
+      },
+      {
         "command": "singularityFlow.openArtifact",
         "title": "Singularity Flow: Open Artifact"
       },

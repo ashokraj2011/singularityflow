@@ -282,11 +282,18 @@ async function statusAction(root, positionals, options) {
   const next = report.reviewReady ? `singularity-flow spec author publish ${specId} --reviewed`
     : report.human.gaps.open.length ? `singularity-flow spec author gaps ${specId} ${report.human.gaps.open[0]}`
       : `singularity-flow spec author check ${specId}`;
+  const standing = new Map(report.research.map((entry) => [entry.id, entry]));
+  const { spec, areas, research } = draft.head.draft;
   return print(options, {
     action: 'status', specId, sequence: draft.head.sequence, title: draft.head.draft.title, basedOn: draft.head.draft.basedOn,
-    gaps: gaps.map((gap) => ({ id: gap.id, kind: gap.kind, status: gap.status, question: gap.question })),
-    research: draft.head.draft.research.length, damagedSnapshots: draft.damaged, counts: report.counts,
-    blocking: report.blocking, reviewReady: report.reviewReady, next
+    gaps: gaps.map(({ id, kind, status, question, evidence, clauses, options: choices, decision, deferral }) => ({ id, kind, status, question, evidence, clauses,
+      options: choices, decision: decision && { option: decision.option, choice: decision.choice, reason: decision.reason, by: decision.by, at: decision.at },
+      deferral: deferral && { owner: deferral.owner, reason: deferral.reason, by: deferral.by, at: deferral.at } })),
+    research: research.length, damagedSnapshots: draft.damaged, counts: report.counts,
+    blocking: report.blocking, reviewReady: report.reviewReady, next,
+    // The Spec Studio's one read (SPEC-SPA v1.3 §3): the prose, each cited fact with its standing, the rules and the checklist.
+    spec, areas, researchItems: research.map((item) => ({ ...item, standing: standing.get(item.id)?.status ?? null, staleReason: standing.get(item.id)?.reason ?? null })),
+    rules: report.deterministic.rules, articles: report.human.articles, clauseIds: report.analyzer?.clauseIds ?? []
   }, `${headLine(specId, draft.head)}\n${summarizeCheck(report)}\nNext: ${next}`);
 }
 

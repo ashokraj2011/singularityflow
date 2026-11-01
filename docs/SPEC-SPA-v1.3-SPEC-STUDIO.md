@@ -1,6 +1,6 @@
 # SPEC-SPA v1.3 — Spec Studio
 
-**Status:** accepted. S0 (inventory: [SPEC-STUDIO-S0-INVENTORY.md](SPEC-STUDIO-S0-INVENTORY.md)), S1 (the model-free library) and S2 (Story slices, model-free; its paid live Copilot check has not run) have landed; S3–S5 are to come.
+**Status:** accepted. S0 (inventory: [SPEC-STUDIO-S0-INVENTORY.md](SPEC-STUDIO-S0-INVENTORY.md)), S1 (the model-free library) and S2 (Story slices, model-free; its paid live Copilot check has not run) and S3 (the Studio panel, model-free, verified in real VS Code) have landed; S4 and S5 are to come.
 **Author:** Singularity Flow
 **Date:** 31 October 2026
 **Namespace:** SPA. Clause IDs here replace v1.2's; an older clause is cited as "v1.2 REQ-015".

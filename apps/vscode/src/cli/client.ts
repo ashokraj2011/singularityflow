@@ -323,6 +323,8 @@ function cacheableRead(args: string[]): boolean {
     && !(args[0] === 'workflow' && args[1] === 'import-team')
     // A workflow build changes with every decision and in other hosts (Copilot records proposals).
     && !(args[0] === 'workflow' && args[1] === 'build')
+    // A specification draft changes with every save and in other hosts (the shell, Copilot).
+    && !(args[0] === 'spec' && args[1] === 'author')
     // An upload changes in a background process and on every retry; each look must see it now.
     && args[0] !== 'push'
     // A destructive apply is guarded by a second byte-current preview. Reusing the first preview
@@ -491,6 +493,11 @@ export function commandClass(args: string[]): 'read' | 'mutation' | 'unknown' {
   if (args[0] === 'spec') {
     const action = args[1] ?? 'trace';
     if (action === 'coverage' || action === 'trace') return 'read';
+    // The specification library's reads; `coverage --repair` writes the usage records a Story proves.
+    if (action === 'author') {
+      return ['show', 'list', 'status', 'check', 'gaps'].includes(args[2] ?? '')
+        || (args[2] === 'coverage' && !enabledBooleanOption(args, 'repair')) ? 'read' : 'mutation';
+    }
     if ((action === 'index' || action === 'acceptance') && enabledBooleanOption(args, 'dry-run')) return 'read';
     return 'mutation';
   }
@@ -1161,6 +1168,12 @@ export class SingularityFlowClient {
     if (args[0] === 'workspace' && args[1] === 'bootstrap'
         && ['resume', 'retry'].includes(args[2] ?? '')) {
       return WORKSPACE_MUTATION_TIMEOUT_MS;
+    }
+    // Specification research builds the repository knowledge model and a gap's impact reads it; the
+    // library's reads and publication cross the state branch's remote, as configuration proposals do.
+    if (args[0] === 'spec' && args[1] === 'author') {
+      if (['research', 'gaps'].includes(args[2] ?? '')) return WORLD_MODEL_TIMEOUT_MS;
+      if (['new', 'list', 'show', 'publish', 'coverage'].includes(args[2] ?? '')) return CAPABILITY_AUTHORITY_TIMEOUT_MS;
     }
     // A model-written repository brief or explanation can take minutes; a cached or template brief returns at once.
     return (args[0] === 'wm' && args[1] === 'knowledge' && ['brief', 'explain', 'calls'].includes(args[2] ?? ''))

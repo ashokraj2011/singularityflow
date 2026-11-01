@@ -107,6 +107,16 @@ The Navigator keeps related work together instead of adding a second dashboard h
 - **Diagnostics** is under Help. Repository, capability, workspace-reliability, and Schema Health
   tabs render the corresponding CLI census. Future, unreadable, unregistered, or archived schema
   records include the exact documented upgrade or archival remedy rather than being silently rewritten.
+- **Specifications** (the Spec Studio) is under Work tools, and in the palette as
+  `Singularity Flow: Spec Studio`. It is the specification library in three columns: the quality
+  gate, the governed records, the authoring loop's seven steps and the gap pipeline on the left;
+  the active step in the middle; `spec.md` clause by clause on the right, each clause flagged by the
+  open gaps that name it. Every read and write is a `spec author … --json` command, so the shell can
+  do everything the Studio does. Closing a gap is one option plus a rationale, signed with your Git
+  identity; publishing asks once, naming the revision; discarding a draft asks for the specification
+  ID; Back and Cancel write nothing. Attach shows the `--spec SPEC-ID@N=CLAUSES` option Story start
+  takes, and the revision's coverage. A Story that started with a slice opens the Studio at it from
+  View Story intake details. Nothing in the Studio calls a model.
 - **Local Data & Reset** is under Workspaces. Neither reset mode is preselected. Forget-only
   requires `FORGET LOCAL`; physical workspace deletion requires `RESET LOCAL` and is available
   only from an empty VS Code window with no target workspace open.

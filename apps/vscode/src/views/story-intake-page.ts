@@ -14,6 +14,19 @@ const display = (value: unknown): string => value == null || value === '' ? 'Not
   : typeof value === 'string' ? value : JSON.stringify(value, null, 2);
 const row = (label: string, value: unknown): string => `<tr><th scope="row">${escape(label)}</th><td class="intake-value">${escape(display(value))}</td></tr>`;
 
+/** The specification slices the Story started with (start --spec), each opened in the Spec Studio at its clauses. */
+function specificationSlicesHtml(source: Record<string, unknown> | null): string {
+  const listed = source?.specification;
+  const slices = Array.isArray(listed) ? listed.map(object)
+    .filter(slice => typeof slice.revision === 'string' && /^SPEC-[A-Z0-9-]+@[1-9]\d*$/u.test(slice.revision)) : [];
+  if (!slices.length) return '';
+  return `<section><h2>Specification slices</h2><table><thead><tr><th>Revision</th><th>Clauses</th><th></th></tr></thead><tbody>${slices.map(slice => {
+    const clauses = (Array.isArray(slice.clauses) ? slice.clauses : []).map(object).map(clause => String(clause.anchor ?? '').replace(/^\[|\]$/gu, '')).filter(Boolean);
+    return `<tr><td>${escape(slice.revision)}${slice.title ? ` · ${escape(slice.title)}` : ''}</td><td>${escape(clauses.join(', '))}</td>
+      <td><button class="secondary" data-action="spec-studio" data-revision="${escape(slice.revision)}" data-clauses="${escape(clauses.join(' '))}">Open in Spec Studio</button></td></tr>`;
+  }).join('')}</tbody></table></section>`;
+}
+
 /** Saved intake is data, never executable Markdown, HTML, URLs or command selectors. */
 export function storyIntakeBody(workflow: StoryWorkflow, preview: IntakeDocumentPreview, documents: StoryArtifact[] = []): string {
   if (preview.record?.id !== 'SYS-SOURCE' || preview.binary || typeof preview.content !== 'string') {
@@ -53,6 +66,7 @@ export function storyIntakeBody(workflow: StoryWorkflow, preview: IntakeDocument
       : `<p class="warning">${preview.truncated ? 'The source preview is truncated; not all intake details are available.' : 'The saved source could not be interpreted as a JSON object. The returned text is shown below.'}</p>`}
       <details><summary>Saved source record${preview.truncated ? ' (truncated)' : ''}</summary><pre class="intake-value">${escape(preview.content)}</pre></details>
       <p class="muted">${escape(preview.record.path ?? '')}${preview.verifiedSha256 ? ` · Read SHA-256: ${escape(preview.verifiedSha256)}` : ''}</p></section>
+    ${specificationSlicesHtml(source)}
     <section><h2>Recorded reference repositories</h2>${references.length ? `<table><thead><tr><th>Repository</th><th>Branch</th><th>Pinned commit</th></tr></thead><tbody>${references.map(reference => `<tr><td>${escape(display(reference.id))}</td><td>${escape(display(reference.requestedBranch ?? reference.branch))}</td><td>${escape(display(reference.commit))}</td></tr>`).join('')}</tbody></table>` : '<p>No reference repository was recorded.</p>'}</section>
     <section><h2>Currently attached evidence</h2><p class="muted">This catalog includes later uploads. It is not presented as the original attachment history.</p>${evidence.length ? `<table><thead><tr><th>Document</th><th>Type</th><th>Status</th></tr></thead><tbody>${evidence.map(document => `<tr><td>${escape(document.name ?? document.label ?? document.id ?? 'Document')}</td><td>${escape(document.type ?? '')}</td><td>${escape(document.availability ?? document.status ?? 'Recorded')}</td></tr>`).join('')}</tbody></table>` : '<p>No supporting evidence is reported in the current catalog.</p>'}</section>
     <button class="secondary" data-action="evidence">View evidence &amp; designs</button>

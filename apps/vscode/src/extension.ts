@@ -1234,7 +1234,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     'singularityFlow.openEnvironmentFiles',
     'singularityFlow.publishConfiguration',
     'singularityFlow.openInstructionDesigner', 'singularityFlow.openPromptAudit', 'singularityFlow.togglePromptLog', 'singularityFlow.openActivityLog',
-    'singularityFlow.openWorkspaceLogs', 'singularityFlow.refreshWorkspaceLogs', 'singularityFlow.openPerformanceReport', 'singularityFlow.openSpecificationTrace',
+    'singularityFlow.openWorkspaceLogs', 'singularityFlow.refreshWorkspaceLogs', 'singularityFlow.openPerformanceReport', 'singularityFlow.openSpecificationTrace', 'singularityFlow.openSpecStudio',
     'singularityFlow.inspectCompositionCache', 'singularityFlow.checkLedgerDeployment',
     'singularityFlow.openCopilot', 'singularityFlow.openMeteredCopilot',
     'singularityFlow.countCopilotChatUsage', 'singularityFlow.stopCountingCopilotChatUsage',
@@ -8722,6 +8722,8 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
           const commands = { refresh: 'singularityFlow.openStoryIntake',
             evidence: 'singularityFlow.manageEvidence', tests: 'singularityFlow.reviewStoryTestRecovery' };
           void vscode.commands.executeCommand(commands[action]);
+        }, slice => {
+          if (stillCurrent()) void vscode.commands.executeCommand('singularityFlow.openSpecStudio', { ...slice, step: 'attach' });
         });
         storyIntakePanel = panel;
         const selection = store.onDidChange(() => { if (!stillCurrent()) panel.dispose(); });
@@ -9600,6 +9602,9 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       const { SpecificationTracePanel } = lazyPanels();
       return SpecificationTracePanel.show(context, client);
     },
+    // The specification library's Studio: `{ specId, revision, clauses, step }`, 'SPEC-ID@N', or the library [SPEC-SPA v1.3 S3].
+    'singularityFlow.openSpecStudio': async (target?: unknown) => lazyPanels().SpecStudioPanel.show(client, target,
+      { root: () => repository, refresh: refreshAfterKnownMutation, output }),
     'singularityFlow.inspectCompositionCache': async () => {
       const status = await client.run<{ entries: number; bytes: number }>(['wm', 'cache', 'status', '--json']);
       void showCompactInformationMessage(`Composition cache: ${status.entries} exact prompt(s), ${status.bytes.toLocaleString()} bytes.`);

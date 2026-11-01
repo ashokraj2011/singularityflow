@@ -223,6 +223,14 @@ const defaultDependencies = () => ({
   verify: undefined
 });
 
+/**
+ * The verified on/off state, left for the Copilot hooks so they can tell, without Git, whether to
+ * record attribution here [SPEC-SFG-v1 REQ-060]. Best effort: it never fails the command.
+ */
+async function noteLocalState(root, enabled) {
+  await import('../comprehension/xpl2/sf-guard-recorder.mjs').then((recorder) => recorder.writeSfGuardLocalState(root, enabled)).catch(() => {});
+}
+
 /** Run one guard action. `dependencies` replaces the signer, readers and writer (tests only pass them in-process). */
 export async function run(argv, { positionals, options }, dependencies = {}) {
   const deps = { ...defaultDependencies(), ...dependencies };
@@ -230,6 +238,7 @@ export async function run(argv, { positionals, options }, dependencies = {}) {
   if (!GUARD_ACTIONS.includes(action)) fail(`Unknown guard action '${action}'. ${USAGE}`, 'PSS_ACTION_UNKNOWN');
   const root = repoRoot();
   const state = await readState(root, { verify: deps.verify });
+  await noteLocalState(root, state.policy.folded.enabled);
   if (action === 'status') {
     if (positionals.length > 2) fail(`guard status takes no further arguments. ${USAGE}`, 'PSS_ARGUMENT_UNEXPECTED');
     const result = statusResult(state);
@@ -324,6 +333,7 @@ export async function run(argv, { positionals, options }, dependencies = {}) {
   const checked = foldPresenceChain(next.chain, deps.verify ? { verify: deps.verify } : {});
   if (checked.problems.length) fail(`SF Guard did not record it: ${checked.problems[0].message}.`, checked.problems[0].code);
   const result = await writeChain(root, next.chain, options, summary, deps);
+  if (!result?.reviewRequired) await noteLocalState(root, checked.enabled);
   const event = next.chain.events.at(-1);
   return print(options, { action, event: { seq: event.seq, kind: event.kind }, chainId: next.chain.chainId, written: result.written ?? null,
     branch: result.branch ?? null, reviewRequired: Boolean(result.reviewRequired) },

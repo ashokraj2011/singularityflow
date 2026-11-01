@@ -40,13 +40,15 @@ const EXTERNAL = ['typescript', 'pyright', 'sql.js', 'sql.js/*', '@agentclientpr
 
 /**
  * Keep the install stamp live: the bundle imports `src/build-info.mjs` and `src/version.mjs`, and
- * loads the XPL2 observed-write recorder from source too (see LIVE_SOURCE_FILES in the cold layout).
+ * loads the XPL2 observed-write and SF Guard attribution recorders from source too (see LIVE_SOURCE_FILES
+ * in the cold layout).
  */
-const LIVE_SOURCE_FILES = ['build-info.mjs', 'version.mjs', 'comprehension/xpl2/observed-write-recorder.mjs'];
+const LIVE_SOURCE_FILES = ['build-info.mjs', 'version.mjs', 'comprehension/xpl2/observed-write-recorder.mjs',
+  'comprehension/xpl2/sf-guard-recorder.mjs'];
 const liveStamp = (root) => ({
   name: 'live-build-stamp',
   setup(build) {
-    build.onResolve({ filter: /(?:^|\/)(?:build-info|version|observed-write-recorder)\.mjs$/ }, (args) => {
+    build.onResolve({ filter: /(?:^|\/)(?:build-info|version|observed-write-recorder|sf-guard-recorder)\.mjs$/ }, (args) => {
       if (!args.importer.startsWith(path.join(root, 'src'))) return null;
       const target = path.resolve(path.dirname(args.importer), args.path);
       const live = LIVE_SOURCE_FILES.map((file) => path.join(root, 'src', file)).find((file) => file === target);

@@ -1,5 +1,6 @@
 /**
- * Observed-write recorder [XPL2 M3], driven by the hooks an explicit SFlow Copilot turn already runs.
+ * Observed-write recorder [XPL2 M3], driven by the hooks an explicit SFlow Copilot turn already runs,
+ * and, where SF Guard is on, by every Copilot prompt (sf-guard-recorder.mjs).
  *
  * No hook of its own: the pre-tool guard *captures* each allowed file edit before it runs (its target
  * paths, the SHA-256 of their bytes, salted hashes of their lines, and what the tool's own arguments
@@ -17,12 +18,15 @@ import { createHash, randomUUID } from 'node:crypto';
 import { appendFile, lstat, mkdir, open, readdir, readFile, realpath, rename, unlink, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 
-const FORMAT = 'xpl2-observed-write@2';
+// @3: a writer may be a plain Copilot prompt (`copilot-session`) and carry SF Guard's `attribution`
+// [SPEC-SFG-v1 REQ-020]; @2 records read the same.
+const FORMAT = 'xpl2-observed-write@3';
+const READ_FORMATS = Object.freeze(['xpl2-observed-write@2', FORMAT]);
 const LIMIT = Object.freeze({
   files: 32, fileBytes: 1 << 20, steps: 32, segmentBytes: 1 << 20, retentionDays: 14,
   pendingBytes: 4 << 20, pendingMs: 30 * 60 * 1000, diffCells: 1_000_000
 });
-export { FORMAT as XPL2_OBSERVED_WRITE_FORMAT, LIMIT as XPL2_OBSERVED_WRITE_LIMITS };
+export { FORMAT as XPL2_OBSERVED_WRITE_FORMAT, READ_FORMATS as XPL2_OBSERVED_WRITE_READ_FORMATS, LIMIT as XPL2_OBSERVED_WRITE_LIMITS };
 
 const DAY = 864e5;
 const hash = (value) => createHash('sha256').update(value).digest('hex');
@@ -203,7 +207,7 @@ async function readPending(file) {
   const info = await lstat(file).catch(() => null);
   if (!info?.isFile() || info.size > LIMIT.pendingBytes) return null;
   const value = JSON.parse(await readFile(file, 'utf8'));
-  return value?.format === FORMAT && Array.isArray(value.entries) ? value : null;
+  return READ_FORMATS.includes(value?.format) && Array.isArray(value.entries) ? value : null;
 }
 
 async function writePending(file, value) {

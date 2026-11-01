@@ -7,7 +7,7 @@
 import { lstat, readdir, readFile } from 'node:fs/promises';
 import path from 'node:path';
 
-import { XPL2_OBSERVED_WRITE_FORMAT, XPL2_OBSERVED_WRITE_LIMITS, xpl2ObservedWriteDirectory } from './observed-write-recorder.mjs';
+import { XPL2_OBSERVED_WRITE_LIMITS, XPL2_OBSERVED_WRITE_READ_FORMATS, xpl2ObservedWriteDirectory } from './observed-write-recorder.mjs';
 
 export {
   captureToolWrites, recordObservedWrite, settleToolWrites, XPL2_OBSERVED_WRITE_LIMITS, xpl2ObservedWriteDirectory
@@ -43,7 +43,7 @@ export async function readObservedWrites(gitDirectory, { paths = null, subject =
       if (!raw.trim()) continue;
       let record;
       try { record = JSON.parse(raw); } catch { unreadable += 1; continue; }
-      if (record?.kind !== 'xpl2-observed-write' || record.format !== XPL2_OBSERVED_WRITE_FORMAT || !Array.isArray(record.files)) { unreadable += 1; continue; }
+      if (record?.kind !== 'xpl2-observed-write' || !XPL2_OBSERVED_WRITE_READ_FORMATS.includes(record.format) || !Array.isArray(record.files)) { unreadable += 1; continue; }
       const matches = (wanted && record.files.some((file) => wanted.has(file?.path)))
         || (subject && record.subject?.workId === subject.workId && record.subject?.phase === subject.phase
           && record.subject?.generation != null && Number(record.subject.generation) === Number(subject.generation));

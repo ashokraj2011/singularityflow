@@ -200,7 +200,11 @@ test('the bundled CLI answers exactly like the sources while opening a handful o
   // 4,650,064. No new file.
   // 4,655,000 holds: main cc8ee90a5 measures 4,651,406; an agent's `phase publish` claiming a person or no author
   // refused (copilot-mutation-guard.mjs) adds 1,978 for 4,653,384. No new file.
-  assert.ok(narrowReads < 4_655_000,
+  // 4,660,000: main 1825f2d0f measures 4,653,384; SF Guard attribution after each hook has answered (SPEC-SFG-v1 G1:
+  // copilot-repository-boundary.mjs attribute(), and the attribution an explicit turn's observed write carries in
+  // copilot-mutation-guard.mjs) adds 1,682 for 4,655,066. The recorder itself loads from source
+  // (LIVE_SOURCE_FILES). No new file.
+  assert.ok(narrowReads < 4_660_000,
     `strict next-step reads must not inherit the broad phase-review closure (${narrowReads} bytes)`);
   const publicationClosure = closure('cold-publication.mjs');
   assert.ok(publicationClosure.length && publicationClosure.reduce((sum, item) => sum + item.bytes, 0) < 6 * 1024 * 1024,
@@ -404,6 +408,8 @@ test('the bundled CLI answers exactly like the sources while opening a handful o
   // 7,723,015. No new file.
   // 7,730,000: main cc8ee90a5 measures 7,724,357; the same agent-authorship refusal adds 1,978 for 7,726,335.
   // No new file.
+  // 7,730,000 holds: main 1825f2d0f measures 7,726,335; the same SF Guard attribution calls (SPEC-SFG-v1 G1) add 1,682
+  // for 7,728,017. No new file.
   assert.ok(hookContext < 7_730_000,
     `phase-review reads retain their existing byte ceiling after moving families (${hookContext} bytes)`);
   assert.match(await readFile(path.join(outdir, 'cold-light.mjs'), 'utf8'), /function enterPhase\b/u,
@@ -491,6 +497,8 @@ test('the bundled CLI answers exactly like the sources while opening a handful o
   // 5,505,000 holds: main cc8ee90a5 measures 5,501,105; the agent's own authorship (copilot-mutation-guard.mjs refuses an
   // agent's `phase publish` claiming a person or no author; agent-output.mjs routes a person-only step) adds 1,978 for
   // 5,503,083. No new file.
+  // 5,505,000 holds: main 1825f2d0f measures 5,503,083; the same SF Guard attribution calls (SPEC-SFG-v1 G1) add 1,682
+  // for 5,504,765. No new file.
   assert.ok(catalogBytes < 5_505_000,
     `catalog parsing stays bounded instead of pulling in the entire administration bundle (${catalogBytes} bytes)`);
   for (const name of ['cold-compatibility.mjs', 'cold-models.mjs', 'cold-intake.mjs', 'cold-phases.mjs', 'cold-hook-context.mjs']) {

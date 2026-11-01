@@ -6,12 +6,14 @@ import path from 'node:path';
 import { pathToFileURL } from 'node:url';
 
 /**
- * Read from `src/` at run time instead of being bundled: the install stamp, and the XPL2 observed-write
- * recorder (node: imports only), which the pre-tool hook loads only around file edits. Keeping it out
- * of the hook chunks keeps their byte ceilings for the decisions every tool call makes.
+ * Read from `src/` at run time instead of being bundled: the install stamp, the XPL2 observed-write
+ * recorder and SF Guard's attribution recorder (node: imports only), which the hooks load only around
+ * edits and in repositories with SF Guard on. Keeping them out of the hook chunks keeps their byte
+ * ceilings for the decisions every tool call makes.
  */
-export const LIVE_SOURCE_FILES = Object.freeze(['build-info.mjs', 'version.mjs', 'comprehension/xpl2/observed-write-recorder.mjs']);
-const LIVE_SOURCE = /\/(?:build-info|version|observed-write-recorder)\.mjs$/u;
+export const LIVE_SOURCE_FILES = Object.freeze(['build-info.mjs', 'version.mjs', 'comprehension/xpl2/observed-write-recorder.mjs',
+  'comprehension/xpl2/sf-guard-recorder.mjs']);
+const LIVE_SOURCE = /\/(?:build-info|version|observed-write-recorder|sf-guard-recorder)\.mjs$/u;
 
 const FAMILIES = Object.freeze([
   // cli-entry.mjs imports the pause check and the Story creation context lazily; claimed here, they

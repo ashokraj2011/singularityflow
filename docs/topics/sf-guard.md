@@ -11,19 +11,22 @@ questions:
   - How do I turn on presence-signed approvals?
   - What is a per-person exception?
   - I lost my Mac; how do I recover my presence key?
+  - Which agent and skill made this change?
 keywords:
   - presence signature
   - secure enclave
   - touch id
   - per-person exception
   - sc_auth
+  - attribution
+  - agent stamp
 commands:
   - guard
 related:
   - approvals
   - configuration
   - copilot-and-surfaces
-version: 1
+version: 2
 ---
 SF Guard makes a person's own steps provable. An agent runs as the same user on the same computer: it can read Git configuration, run any command, fake a terminal and write Git records directly, so nothing it can type proves a person decided. SF Guard asks for the one thing it cannot produce, a signature from a Secure Enclave key on the person's Mac made after their Touch ID. It is off until a repository opts in; a repository that never opts in behaves exactly as before. Refusals keep the `PSS_` codes of SPEC-PSS-v1.
 
@@ -49,6 +52,16 @@ Use this topic to see whether SF Guard is on, to pin your presence key, to opt a
 ## State and safety
 
 The policy is `singularity/presence.json` in the approved configuration: an append-only, hash-linked chain of signed events (`register`, `rotate`, `recover`, `revoke`, `enable`, `disable`, `exception`, `exception-revoke`). It names approvers by ID, never by email or login. Each event is signed by an approver's pinned key (a key event also by the key it pins), so an unsigned event, an agent's own key, an edited event, or a commit that deletes or shortens the file never counts: the longest valid chain the history shows stays in force and `guard status` names the problem. Verifying reads only the pinned keys, never GitHub, so an unreachable GitHub never blocks a step. A per-person exception lets that approver's steps proceed unsigned, labelled `bypass: per-person exception EXC-…` everywhere; it is a stated bypass for that person, and only an approver with a key can record or revoke one. In M1 the policy is recorded and shown; person steps start requiring signatures in M2.
+
+## Agent and skill attribution
+
+SF Guard's second part records where agent work came from. It never refuses anything: work by an agent or skill the workflow doesn't declare is allowed and labelled. With SF Guard on, every Copilot edit and shell command in the repository is recorded on this machine with:
+- its Copilot session;
+- its agent: a subagent's own name, or a declared agent's stamp;
+- its skill: a `skill` call, the prompt, or the SFlow skill a plain follow-up prompt continues;
+- the Story the checkout is bound to.
+
+Plain prompts and paused sessions are recorded too. A shell command keeps only a digest of its text, plus the HEAD and index state before and after. A command that never ran is recorded as not run. Records stay on the machine, kept 14 days, and a recording failure is kept as a gap that never changes what Copilot is allowed to do. A declared agent names itself through a stamping hook in its agent file, which runs `sflow hook agent-stamp <AGENT> userPromptSubmitted`. Without one, the agent reads as none. Copilot never names the agent you picked.
 
 ## Troubleshooting
 

@@ -64,6 +64,24 @@ export function boundaryBootstrap(skill) {
   return 'singularity-flow workspace current --json';
 }
 
+/**
+ * SF Guard attribution [SPEC-SFG-v1 G1]: a session map exists only where SF Guard is on, so every
+ * other session pays one lstat. The recorder loads from source and never changes a hook's answer.
+ */
+function attributionMap(payload) {
+  const id = sessionId(payload);
+  return id ? path.join(path.dirname(copilotModeFile()), 'copilot-boundaries', `${createHash('sha256').update(id).digest('hex')}.attribution.json`) : null;
+}
+
+async function attribute(payload, note, { always = false } = {}) {
+  try {
+    const map = attributionMap(payload);
+    if (!map || (!always && !await lstat(map).then(() => true, () => false))) return;
+    // A literal specifier: the hook bundle loads this module from source (scripts/build-cold-cli-bundle.mjs).
+    await note(await import('./comprehension/xpl2/sf-guard-recorder.mjs'), path.dirname(map));
+  } catch { /* recording never touches the hook's answer */ }
+}
+
 async function removeRecord(file) {
   if (file) await unlink(file).catch(error => { if (error.code !== 'ENOENT') throw error; });
 }
@@ -104,6 +122,8 @@ async function recordTurn(payload, { now = Date.now(), captureMutation = null })
   const file = recordPath(payload);
   if (!file) return {};
   const mode = readCopilotMode();
+  await attribute(payload, (recorder, directory) => recorder.sfGuardNotePrompt(payload, { directory, paused: mode.paused,
+    explicitSkill: explicitSflowSkill(payload.prompt), now }), { always: true });
   const skill = mode.paused ? null : explicitSflowSkill(payload.prompt);
   if (!skill || ['sf-pause', 'sflow-pause'].includes(skill)) {
     await removeRecord(file);
@@ -129,6 +149,7 @@ async function recordTurn(payload, { now = Date.now(), captureMutation = null })
 
 export async function endRepositoryBoundaryTurn(payload = {}) {
   await settleObservedEdits(payload).catch(() => {});
+  await attribute(payload, (recorder, directory) => recorder.sfGuardEndSession(payload, { directory }));
   await removeRecord(recordPath(payload));
   const file = recordPath(payload);
   await removeMutationRecord(file);
@@ -140,7 +161,13 @@ export async function endRepositoryBoundaryTurn(payload = {}) {
  * turn (a plain prompt, or a paused session) only a person's own step is refused: no prompt makes it an agent's.
  */
 export async function repositoryToolGuard(payload = {}) {
-  if (!(await hasBoundaryTurn(payload))) return personStepGuard(payload);
+  const explicitTurn = await hasBoundaryTurn(payload);
+  const decision = explicitTurn ? await turnToolGuard(payload) : await personStepGuard(payload);
+  await attribute(payload, (recorder, directory) => recorder.sfGuardNoteToolCall(payload, decision, { directory, explicitTurn }));
+  return decision;
+}
+
+async function turnToolGuard(payload) {
   try {
     // Environment files hold secrets: no turn mode reads, searches or edits them (SPEC-ENVIRONMENT-FILES).
     const environmentFile = await (await import('./copilot-environment-files-guard.mjs')).environmentFilesToolGuard(payload);
@@ -153,6 +180,7 @@ export async function repositoryToolGuard(payload = {}) {
 }
 
 export async function repositoryPostToolGuard(payload = {}) {
+  await attribute(payload, (recorder, directory) => recorder.sfGuardNoteToolResult(payload, { directory }));
   if (!(await hasBoundaryTurn(payload))) return {};
   try { return await (await import('./copilot-mutation-guard.mjs')).mutationPostToolGuard(payload); }
   catch { const refusal = boundaryGuardUnavailable(); return { ...refusal, continue: false, additionalContext: refusal.permissionDecisionReason }; }

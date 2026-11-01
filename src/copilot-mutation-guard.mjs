@@ -1513,10 +1513,15 @@ async function observeEdits(payload, record, decision) {
   const contract = value?.contract;
   if (!contract?.repositoryRoot || !value.binding?.gitDir || value.turnId !== record.turnId) return;
   const agent = payload.agentName ?? payload.agent_name;
+  // With SF Guard on, the same record names where the agent and skill came from [SPEC-SFG-v1 REQ-020].
+  const guard = await lstat(path.join(directory(), `${key(payload)}.attribution.json`)).then(
+    () => import('./comprehension/xpl2/sf-guard-recorder.mjs').then(attribution => attribution.sfGuardWriterFields(payload, {
+      directory: directory(), call: payload.toolCalls ? null : attribution.callKey(payload.toolName ?? payload.tool_name, payload.toolArgs ?? payload.tool_input)
+    })), () => null).catch(() => null);
   await recorder.captureToolWrites({ pendingFile: pending, root: contract.repositoryRoot, cwd: payload.cwd ?? contract.repositoryRoot,
     calls: edits.map(call => ({ ...call, targets: targets(call.args) })), gitDirectory: value.binding.gitDir,
     writer: { kind: 'copilot-turn', session: key(payload).slice(0, 16), turn: record.turnId, skill: record.skill,
-      agent: typeof agent === 'string' ? agent.slice(0, 80) : null },
+      agent: typeof agent === 'string' ? agent.slice(0, 80) : null, ...(guard ? { attribution: guard } : {}) },
     subject: { workId: contract.workId, phase: contract.phaseId, generation: value.openGeneration ?? null } });
 }
 

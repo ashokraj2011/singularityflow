@@ -61,6 +61,7 @@ Use these for Story creation, phase generation, approvals, rollback, and landing
 | [Clause-driven specifications](CLAUSE-DRIVEN-SPECIFICATIONS.md) | Requirement and acceptance-clause structure |
 | [Spec Studio (SPEC-SPA v1.3)](SPEC-SPA-v1.3-SPEC-STUDIO.md) | The specification library: drafts, gaps, check, state-branch revisions, and the Studio, slices and splits still to come |
 | [SF Guard (SPEC-PSS v1)](SPEC-PSS-v1-PRESENCE-SIGNED-STEPS.md) | Presence-signed person steps: Touch ID signatures no agent can produce, the signed policy chain, per-person exceptions; M0 and M1 done |
+| [SF Guard, part 2 (SPEC-SFG v1)](SPEC-SFG-v1-SF-GUARD-AGENT-PROVENANCE.md) | Agent and skill provenance: every Copilot edit and shell call attributed to its session, agent, skill and Story, allowed but labelled; G0 and G1 done |
 | [Spec Studio S0 inventory](SPEC-STUDIO-S0-INVENTORY.md) | What the library builds on, and the plan corrections it found |
 | [Governed work intervals](GOVERNED-WORK-INTERVALS.md) | Handling developer edits during governed work |
 | [Classic Delivery review and rework](CLASSIC-DELIVERY-REVIEW-AND-REWORK.md) | Using Code test receipts, optional feedback attachments, and explicit reject-to-Code rework without claiming REV execution |

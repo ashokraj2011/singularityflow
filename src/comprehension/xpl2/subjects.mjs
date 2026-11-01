@@ -290,6 +290,11 @@ function writerText(writer) {
     return `the ${skill} turn ${recordIdentifier(writer.turn, 'unrecorded').slice(0, 8)} of Copilot session ${recordIdentifier(writer.session, 'unrecorded')}`
       + `${writer.agent ? ` (agent ${recordText(writer.agent, 'unnamed')})` : ''}`;
   }
+  if (writer?.kind === 'copilot-session') {
+    const skill = writer.skill ? ` using skill ${recordText(writer.skill, 'unnamed')}` : '';
+    return `a Copilot prompt ${recordIdentifier(writer.turn, 'unrecorded').slice(0, 8)} of session ${recordIdentifier(writer.session, 'unrecorded')}`
+      + `${writer.agent ? ` (agent ${recordText(writer.agent, 'unnamed')})` : ''}${skill}`;
+  }
   if (writer?.kind === 'model-invocation') return `model invocation ${recordText(writer.invocation, 'unrecorded')}`;
   return 'an unrecognized writer';
 }

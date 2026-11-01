@@ -751,6 +751,8 @@ async function runMain(argv, utilityEntry = null, explicitContextRoot = null) {
       if (['boundary-turn', 'boundary-guard', 'boundary-after', 'boundary-end'].includes(positionals[1])) {
         return (await import('./copilot-repository-boundary.mjs')).runRepositoryBoundaryHook(positionals[1]);
       }
+      // A declared agent's stamping hook [SPEC-SFG-v1 D4]; it records while paused too, and answers {}.
+      if (positionals[1] === 'agent-stamp') return (await import('./comprehension/xpl2/sf-guard-recorder.mjs')).runSfGuardStamp(positionals[2], positionals[3]);
       if (await copilotPause()) return console.log('{}');
       return (await import('./commands/legacy.mjs')).run(effectiveArgv, { positionals, options });
     });

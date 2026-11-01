@@ -10,7 +10,7 @@ import { createHash } from 'node:crypto';
 import { readdir, readFile } from 'node:fs/promises';
 import path from 'node:path';
 
-import { inferModuleTestCommand, nearestWrapper, nodePackageManager, sourceEcosystem, testCommandCoversPath, testSetupRoute } from './code-delivery-tests.mjs';
+import { inferModuleTestCommand, nearestWrapper, nodePackageManager, parseTestManifest, sourceEcosystem, testCommandCoversPath, testSetupRoute } from './code-delivery-tests.mjs';
 import { readRepositoryManifest } from './repository-manifest.mjs';
 import { exists, secureRepositoryPath, SingularityFlowError } from './util.mjs';
 import { androidTestVariant, gradleBuildKind, GRADLE_TEST_TARGET_REASON } from './gradle-manifests.mjs';
@@ -109,7 +109,8 @@ export async function assertNodeTestFiles(root, tests) {
 export async function moduleTestCommands(root, module, { platform = process.platform } = {}) {
   if (module.system === 'node') {
     const cwd = module.root === '.' ? '' : module.root;
-    const manifest = JSON.parse(await packageText(root, path.posix.join(cwd, 'package.json')) || '{}');
+    const manifestPath = path.posix.join(cwd, 'package.json');
+    const manifest = parseTestManifest(await packageText(root, manifestPath) || '{}', manifestPath);
     const commands = await nodeTestCommands(root, module, { manager: await nodePackageManager(root, module.root, manifest) });
     if (commands.length || !await exists(path.join(root, cwd, 'project.json'))) return commands;
   }
@@ -408,7 +409,8 @@ async function nodeCandidate(root, cwd, step, { manager, dependencies }) {
 /** The test commands a Node package declares, one per runner and level (see above); `unitOnly` keeps unit runs that start nothing else. */
 export async function nodeTestCommands(root, module, { manager, unitOnly = false, nodeScript = 'test' } = {}) {
   const cwd = module.root === '.' ? '' : module.root;
-  const manifest = JSON.parse(await packageText(root, path.posix.join(cwd, 'package.json')) || '{}');
+  const manifestPath = path.posix.join(cwd, 'package.json');
+  const manifest = parseTestManifest(await packageText(root, manifestPath) || '{}', manifestPath);
   const scripts = manifest.scripts && typeof manifest.scripts === 'object' ? manifest.scripts : {};
   const dependencies = { ...manifest.dependencies, ...manifest.devDependencies, ...manifest.peerDependencies };
   const parsed = new Map();

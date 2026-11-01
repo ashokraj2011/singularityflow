@@ -243,7 +243,11 @@ test('frequent lifecycle handlers do not reach the legacy dispatcher and stay un
     // review, 2026-11-01): the affected-module walk the gate and its removed-suite check share (delivery-evidence.mjs
     // +696) and the reporter counting each node --test run (node-test-observation.mjs +571) add 1,279 for 9,315,856.
     // The resolution and the pin checks load only at a gate run; no new eager file.
-    assert.ok(closure.bytes <= 9_320_000, `${file} exceeds the 9 MB eager-source budget (${closure.bytes} bytes)`);
+    // 9,325,000 (next 5,000 boundary): main b91420f57 measures 9,315,856. Test files by Jest's __tests__ rule and
+    // .cjs/.cts (code-delivery-tests.mjs +2,098), every root build system's commands with its diagnostics
+    // (repository-test-command-inference.mjs +2,458), a command's optional ecosystem (external-command-policy.mjs +887)
+    // and the malformed-manifest refusal (test-module-markers.mjs +137) add 5,640 for 9,321,496; no new eager file.
+    assert.ok(closure.bytes <= 9_325_000, `${file} exceeds the 9 MB eager-source budget (${closure.bytes} bytes)`);
   }
 });
 
@@ -350,7 +354,9 @@ test('the common session projection does not import attach, state stores or publ
   // 4,015,000 holds: main f840dc33c measures 4,010,434; a specification split (SPEC-SPA v1.3 S5) adds 1,290 for
   // 4,011,724: its operations (command-registry.mjs), the publication as an own-terminal step (command-skills.mjs) and
   // its turn refusal (copilot-mutation-guard.mjs). Its handler loads only when `spec split` runs.
-  assert.ok(current.bytes <= 4_015_000, `session current loads ${current.bytes} source bytes`);
+  // 4,020,000: main b91420f57 measures 4,013,246; the same test-file, root-build, ecosystem and malformed-manifest
+  // rules add 5,630 for 4,018,876. No new file.
+  assert.ok(current.bytes <= 4_020_000, `session current loads ${current.bytes} source bytes`);
 });
 
 test('early phase and grounding-path entries exclude the deferred authoring and review graphs', async () => {

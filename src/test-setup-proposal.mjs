@@ -3,7 +3,7 @@
  *
  *   singularity-flow capability test-setup --step S [--workflow W] --use <SUGGESTION-ID> [--source-root DIR]...
  *   singularity-flow capability test-setup --step S [--workflow W] --id ID --argv '["tool","arg"]'
- *     --working-directory DIR --affected-root DIR... --adapter ADAPTER --report PATH [--env NAME=VALUE]...
+ *     --working-directory DIR --affected-root DIR... --adapter ADAPTER --report PATH [--env NAME=VALUE]... [--ecosystem LANGUAGE]
  *   ... --confirm sha256:PLAN [--json]
  *
  * /sf-test-setup could suggest a runner but not save the one a person chose: its Copilot turn edits
@@ -26,7 +26,7 @@ import path from 'node:path';
 import YAML from 'yaml';
 import { withApprovedConfigurationRead } from './approved-configuration-reader.mjs';
 import { normalizeRequiredTestCommand } from './code-delivery-tests.mjs';
-import { normalizeExternalCommand } from './external-command-policy.mjs';
+import { normalizeExternalCommand, TEST_COMMAND_ECOSYSTEMS } from './external-command-policy.mjs';
 import { validateDefinition, WORKFLOW_PATH } from './config.mjs';
 import { configurationReadRoot } from './configuration-read-scope.mjs';
 import { repoRoot } from './git.mjs';
@@ -38,9 +38,9 @@ import { renderPreservingFormatting } from './yaml-formatting.mjs';
 
 const DIGEST = /^sha256:[0-9a-f]{64}$/u;
 const STEP_ID = /^[a-z0-9]+(?:-[a-z0-9]+)*$/u;
-const PROPOSAL_OPTIONS = ['step', 'workflow', 'use', 'id', 'argv', 'working-directory', 'affected-root', 'adapter', 'report', 'env', 'confirm'];
+const PROPOSAL_OPTIONS = ['step', 'workflow', 'use', 'id', 'argv', 'working-directory', 'affected-root', 'adapter', 'report', 'env', 'ecosystem', 'confirm'];
 const USAGE = 'Use: singularity-flow capability test-setup --step <STEP> [--workflow <WORKFLOW>] (--use <SUGGESTION-ID> [--source-root <DIRECTORY>]... '
-  + '| --id <ID> --argv \'["<COMMAND>","<ARGUMENT>"]\' --working-directory <DIRECTORY> --affected-root <DIRECTORY>... --adapter <ADAPTER> --report <PATH> [--env <NAME>=<VALUE>]...) '
+  + '| --id <ID> --argv \'["<COMMAND>","<ARGUMENT>"]\' --working-directory <DIRECTORY> --affected-root <DIRECTORY>... --adapter <ADAPTER> --report <PATH> [--env <NAME>=<VALUE>]... [--ecosystem <LANGUAGE>]) '
   + '[--confirm sha256:PLAN] [--json]';
 // A workflow step's configuration is refused, never a Story phase to recover.
 const usage = (message = USAGE) => new SingularityFlowError(message, { code: 'TEST_SETUP_PROPOSAL_USAGE', details: { subjectKind: 'configuration' } });
@@ -61,7 +61,9 @@ function proposalCommandLine({ step, workflow, command, source = null }, sourceR
   return [...target, '--id', command.id, '--argv', JSON.stringify(command.argv), '--working-directory', command.workingDirectory,
     ...command.affectedRoots.flatMap((root) => ['--affected-root', root]),
     '--adapter', command.result.adapter, '--report', command.result.path,
-    ...Object.entries(command.env ?? {}).flatMap(([name, value]) => ['--env', `${name}=${value}`])].map(quote).join(' ');
+    ...Object.entries(command.env ?? {}).flatMap(([name, value]) => ['--env', `${name}=${value}`]),
+    // A suggestion keeps the language it tests; leaving --ecosystem out covers every file below the roots.
+    ...(command.ecosystem ? ['--ecosystem', command.ecosystem] : [])].map(quote).join(' ');
 }
 
 /** The step's checks with `command` added, or replacing the test command with its ID. */
@@ -160,9 +162,14 @@ export async function requestedCommand(root, options) {
     }
     env[assignment[1]] = assignment[2];
   }
+  const ecosystem = optionString(options, 'ecosystem') ?? null;
+  if (ecosystem != null && !TEST_COMMAND_ECOSYSTEMS.includes(ecosystem)) {
+    throw usage(`--ecosystem takes the language the command tests: ${TEST_COMMAND_ECOSYSTEMS.join(', ')}. Leave it out to cover every file below the affected roots.`);
+  }
   return {
     id: optionString(options, 'id'), kind: 'test', argv: commandArgv,
     ...(Object.keys(env).length ? { env: Object.fromEntries(Object.keys(env).sort().map((name) => [name, env[name]])) } : {}),
+    ...(ecosystem ? { ecosystem } : {}),
     workingDirectory: optionString(options, 'working-directory'), affectedRoots: optionStrings(options, 'affected-root'), modelPolicy: 'never',
     result: { adapter: optionString(options, 'adapter'), path: optionString(options, 'report'), minimumDiscovered: 1 }
   };
@@ -185,7 +192,7 @@ export async function runTestCommandProposal(options) {
   if (!confirm) {
     if (!json) {
       console.log(`${plan.replaces ? 'Replace' : 'Add'} test command '${command.id}' ${plan.replaces ? 'in' : 'to'} ${plan.label}${workflow ? ` (workflow ${workflow})` : ''}:`);
-      console.log(`  ${JSON.stringify(command.argv)} · cwd=${command.workingDirectory} · covers ${command.affectedRoots.join(', ')} · ${command.result.adapter} ${command.result.path}`
+      console.log(`  ${JSON.stringify(command.argv)} · cwd=${command.workingDirectory} · covers ${command.affectedRoots.join(', ')}${command.ecosystem ? ` (${command.ecosystem} files only)` : ''} · ${command.result.adapter} ${command.result.path}`
         + `${command.env ? ` · env ${Object.entries(command.env).map(([name, value]) => `${name}=${value}`).join(' ')}` : ''}${source ? ` · read from ${source.file}:${source.line}` : ''}`);
       if (diff) console.log(diff);
       for (const problem of problems) console.log(`  Problem: ${problem}`);

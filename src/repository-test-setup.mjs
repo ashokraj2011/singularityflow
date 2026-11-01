@@ -46,7 +46,7 @@ export async function inspectRepositoryTestSetup(root, { sourceRoots = ['.'], pl
     if (directory !== '.') await secureRepositoryPath(root, directory, { mustExist: true, type: 'directory', label: 'Test module' });
     try {
       const module = directory === '.' ? null : await resolveAffectedModule(root, `${directory}/__sflow_test_setup__`);
-      let commands = module ? await moduleTestCommands(root, module, { platform }) : await inferRepositoryTestCommands(root, { platform });
+      let commands = module ? await moduleTestCommands(root, module, { platform }) : await inferRepositoryTestCommands(root, { platform, diagnostics });
       if (module && module.root !== directory && commands.length) {
         // A directory with no build file of its own borrows a command inferred for another module, and
         // publication counts it only for that command's own ecosystem [TCE:REQ-052]. Never suggest it for
@@ -67,7 +67,7 @@ export async function inspectRepositoryTestSetup(root, { sourceRoots = ['.'], pl
       }
       if (!commands.length) diagnostics.push({ path: directory, code: 'TEST_CONFIGURATION_PENDING', message: 'No supported structured runner inferred. Provide the command and reporter, or select the exact nested application directory.' });
     } catch (error) {
-      if (!['TEST_MODULE_UNCOVERED', 'TEST_MODULE_AMBIGUOUS', 'GRADLE_TEST_TARGET_REQUIRED', 'RUST_TEST_ADAPTER_REQUIRED', 'XCODE_TEST_TARGET_REQUIRED'].includes(error.code)) throw error;
+      if (!['TEST_MODULE_UNCOVERED', 'TEST_MODULE_AMBIGUOUS', 'TEST_MANIFEST_INVALID', 'GRADLE_TEST_TARGET_REQUIRED', 'RUST_TEST_ADAPTER_REQUIRED', 'XCODE_TEST_TARGET_REQUIRED'].includes(error.code)) throw error;
       // A runner that needs a device or a scheme comes with the command to complete [TCE:REQ-075].
       diagnostics.push({ path: directory, code: error.code, message: error.message, ...(error.details?.proposal ? { proposal: error.details.proposal } : {}) });
       // Several runners with different configurations: suggest each script's own command, so the person
@@ -87,14 +87,21 @@ export async function inspectRepositoryTestSetup(root, { sourceRoots = ['.'], pl
     }
   }
   // Test commands the team wrote down, completed and kept with their file and line [TCE:REQ-061..063];
-  // one that is the same as an inferred suggestion is that suggestion.
+  // one that is the same as an inferred suggestion is that suggestion, unless it needs a secret the
+  // suggestion does not say (`API_TOKEN=… npm test`): its note to declare it is kept.
   const { readInstructionTestCommands } = await import('./instruction-test-commands.mjs');
   const written = await readInstructionTestCommands(root, { sourceRoots: roots, platform });
   const same = (left, right) => JSON.stringify([left.argv, left.env ?? {}, left.workingDirectory]) === JSON.stringify([right.argv, right.env ?? {}, right.workingDirectory]);
-  const instructionCandidates = written.candidates.filter(entry => !entry.command || !suggestions.some(suggestion => same(suggestion, entry.command)))
+  const instructionCandidates = written.candidates.filter(entry => !entry.command || entry.secrets?.length || !suggestions.some(suggestion => same(suggestion, entry.command)))
     .map(entry => (suggestions.some(suggestion => suggestion.id === entry.id) ? { ...entry, id: `${entry.id}-written`, ...(entry.command ? { command: { ...entry.command, id: `${entry.id}-written` } } : {}) } : entry));
   const proposable = suggestions.length || instructionCandidates.some(entry => entry.status === 'complete');
-  return { repositoryPath: path.resolve(root), sourceRoots: roots, suggestions, instructionCandidates,
+  // Each suggestion keeps the language its runner tests, so accepting it as offered never makes it
+  // evidence for another language's files below the same roots (a root `mvn test` for `.js`).
+  const scoped = suggestions.map((command) => {
+    const ecosystem = command.ecosystem ?? testCommandEcosystem(command);
+    return ecosystem ? { ...command, ecosystem } : command;
+  });
+  return { repositoryPath: path.resolve(root), sourceRoots: roots, suggestions: scoped, instructionCandidates,
     instructionSources: written.sources, ...(written.truncated ? { instructionSourcesTruncated: true } : {}), diagnostics,
     testsExecuted: false, baseline: 'not-observed', status: proposable ? 'suggestions-available' : 'pending-configuration' };
 }

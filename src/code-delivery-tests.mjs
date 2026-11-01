@@ -4,7 +4,7 @@ import { access, lstat, open, readFile, readdir, realpath, stat, writeFile } fro
 import path from 'node:path';
 import { nodeTestObservation } from './verification/node-test-observation.mjs';
 
-import { normalizeExternalCommand } from './external-command-policy.mjs';
+import { normalizeExternalCommand, TEST_COMMAND_ECOSYSTEMS } from './external-command-policy.mjs';
 import { canonicalJson } from './records.mjs';
 import { currentSchemaVersion } from './schema-migrations.mjs';
 import { isTestAutomationPath } from './source-boundary.mjs';
@@ -16,7 +16,7 @@ import { SWIFT_TEST_ARGUMENTS, SWIFT_TEST_REPORT_DIRECTORY } from './swift-manif
 import { readRepositoryManifest, repositoryManifestExists } from './repository-manifest.mjs';
 
 const SUPPORTING_SEGMENTS = new Set([
-  '__snapshots__', 'fixture', 'fixtures', 'page-object', 'page-objects', 'pageobjects',
+  '__fixtures__', '__mocks__', '__snapshots__', 'fixture', 'fixtures', 'page-object', 'page-objects', 'pageobjects',
   'reports', 'results', 'snapshots', 'test-data', 'testdata'
 ]);
 const SUPPORTING_BASENAMES = /^(?:readme(?:\.[^.]+)?|(?:playwright|cypress|jest|vitest|pytest)\.config\.[^.]+)$/i;
@@ -30,9 +30,13 @@ const TEST_SOURCE_NAMES = [
   /(?:^|_)tests?\.rs$/i
 ];
 const TEST_SOURCE_EXTENSIONS = new Set([
-  '.c', '.cc', '.cpp', '.cs', '.cxx', '.fs', '.go', '.java', '.js', '.jsx', '.kt', '.kts',
+  '.c', '.cc', '.cjs', '.cpp', '.cs', '.cts', '.cxx', '.fs', '.go', '.java', '.js', '.jsx', '.kt', '.kts',
   '.mjs', '.mts', '.py', '.rb', '.rs', '.scala', '.swift', '.ts', '.tsx', '.vb'
 ]);
+// Jest's default testMatch runs every script below a `__tests__` folder, whatever it is called
+// (`__tests__/value.js`); its fixtures, mocks and snapshots are support, and a declaration file is not a test.
+const JEST_TEST_SCRIPT = /\.[cm]?[jt]sx?$/iu;
+const DECLARATION_FILE = /\.d\.[cm]?ts$/iu;
 const MAX_RESULT_FILES = 1_000;
 const MAX_RESULT_DEPTH = 8;
 const MAX_RESULT_FILE_BYTES = 16 * 1024 * 1024;
@@ -59,11 +63,22 @@ function normalized(candidate) {
   return posix(String(candidate ?? '')).replace(/^\.\//, '');
 }
 
-/** Whether a file's own name marks it as a test, in any directory: `_test.go`, `test_x.py`, `FooTest.java`. */
+/** Whether a script is a test by Jest's folder rule: below `__tests__`, outside its support folders. */
+function jestTestFolderScript(relative) {
+  const directories = relative.toLowerCase().split('/').slice(0, -1);
+  return directories.includes('__tests__') && !directories.some((segment) => SUPPORTING_SEGMENTS.has(segment))
+    && JEST_TEST_SCRIPT.test(relative) && !DECLARATION_FILE.test(relative);
+}
+
+/** Whether a source path's name marks it as a test: its own (`_test.go`, `test_x.py`, `FooTest.java`), or Jest's `__tests__` folder. */
+function testNamed(relative) {
+  return TEST_SOURCE_NAMES.some((pattern) => pattern.test(path.posix.basename(relative))) || jestTestFolderScript(relative);
+}
+
+/** Whether a file's name marks it as a test, in any directory: `_test.go`, `test_x.py`, `FooTest.java`, `__tests__/value.js`. */
 export function isTestSourceName(candidate) {
-  const basename = path.posix.basename(normalized(candidate));
-  return TEST_SOURCE_EXTENSIONS.has(path.posix.extname(basename).toLowerCase())
-    && TEST_SOURCE_NAMES.some((pattern) => pattern.test(basename));
+  const relative = normalized(candidate);
+  return TEST_SOURCE_EXTENSIONS.has(path.posix.extname(relative).toLowerCase()) && testNamed(relative);
 }
 
 /**
@@ -73,12 +88,15 @@ export function isTestSourceName(candidate) {
  * Singularity Flow inferred runs one ecosystem's tests, so below its roots (the whole repository
  * included) it covers only that ecosystem's source and files of no language (configuration,
  * documents, assets, C and C++ that a package builds): `npm test` is never evidence for a `.py` or
- * `.swift` file, and pytest never for a `.ts` one. Publication, submission, recovery and witness
- * discovery all ask this one question. A record that does not say where its command came from (an
- * older receipt) keeps its roots.
+ * `.swift` file, and pytest never for a `.ts` one. A command that names its `ecosystem` (a test
+ * setup suggestion accepted as offered keeps its own) is read the same way, so a root `mvn test`
+ * accepted with `affectedRoots: ['.']` never covers the `.js` beside it. Publication, submission,
+ * recovery and witness discovery all ask this one question. A record that does not say where its
+ * command came from (an older receipt) keeps its roots.
  */
 const LANGUAGE = /\.(?:([cm]?[jt]sx?|vue|svelte)|(pyx?|pyi)|(java|kts?|scala|groovy)|(cs|fsx?|vb)|(go)|(rs)|(swift|mm?)|(rb|erb|rake)|(php)|(dart))$/iu;
-const ECOSYSTEMS = ['node', 'python', 'jvm', 'dotnet', 'go', 'rust', 'swift', 'ruby', 'php', 'dart'];
+// In LANGUAGE's group order; a command's `ecosystem` names one of them.
+const ECOSYSTEMS = TEST_COMMAND_ECOSYSTEMS;
 const ADAPTERS = { 'jest-json': 'node', 'vitest-json': 'node', 'playwright-json': 'node', 'node-tap': 'node', 'karma-text': 'node',
   'mocha-json': 'node', 'go-test-json': 'go', 'dotnet-trx': 'dotnet', 'cargo-json': 'rust' };
 // A JUnit report's ecosystem is its launcher's: a package manager or Node, a Python interpreter or project tool, and so on.
@@ -98,14 +116,14 @@ export function testCommandEcosystem(command) {
   return ADAPTERS[command?.result?.adapter] ?? LAUNCHERS.find(([pattern]) => pattern.test(launcher))?.[1] ?? null;
 }
 
-/** Whether `command` (with its `provenance`) covers a changed repository path. */
+/** Whether `command` (with its `provenance` or declared `ecosystem`) covers a changed repository path. */
 export function testCommandCoversPath(command, candidate) {
   const relative = String(candidate).replace(/^\.\//u, '');
   const below = (command?.affectedRoots ?? []).some((root) => {
     const prefix = String(root).replaceAll('\\', '/').replace(/^\.\/|\/+$/gu, '') || '.';
     return prefix === '.' || relative === prefix || relative.startsWith(`${prefix}/`);
   });
-  const ecosystem = command?.provenance === 'inferred' && testCommandEcosystem(command);
+  const ecosystem = command?.ecosystem ?? (command?.provenance === 'inferred' && testCommandEcosystem(command));
   // An Android device test is run only by a connected (device) command [TCE:REQ-075].
   return below && (ecosystem === false || ([null, ecosystem].includes(sourceEcosystem(relative))
     && !(ecosystem === 'jvm' && /(?:^|\/)src\/androidTest\//u.test(relative) && !/AndroidTest$/u.test(command.argv?.at(-1)))));
@@ -130,7 +148,7 @@ export async function isExecutableTestSourcePath(root, candidate, { sourceExtens
   if (!isAllowedTestAutomationPath(relative) || isSupportingTestResourcePath(relative)) return false;
   const extension = path.posix.extname(relative).toLowerCase();
   if (!TEST_SOURCE_EXTENSIONS.has(extension) && !new Set(sourceExtensions.map((item) => item.toLowerCase())).has(extension)) return false;
-  if (!TEST_SOURCE_NAMES.some((pattern) => pattern.test(path.posix.basename(relative)))) return false;
+  if (!testNamed(relative)) return false;
   try {
     const info = await lstat(path.join(root, relative));
     return info.isFile() && !info.isSymbolicLink();
@@ -161,6 +179,21 @@ async function manifestsAt(root, directory) {
   try { names = (await readdir(path.join(root, directory || '.'))).sort(); }
   catch { /* Missing directory is handled by the caller's changed-path validation. */ }
   return { manifests: [...found, ...names.filter(isDotnetManifest).map((name) => ({ name, system: 'dotnet' }))], names };
+}
+
+/**
+ * A build manifest's JSON, or a refusal naming the file and where the parser stopped. A malformed
+ * package.json aborted test detection with a bare SyntaxError that named no file and no repair.
+ */
+export function parseTestManifest(text, relative) {
+  try { return JSON.parse(text); }
+  catch (error) {
+    const at = /position (\d+)(?: \(line (\d+) column (\d+)\))?/u.exec(error.message);
+    throw new SingularityFlowError(`${relative} is not valid JSON (${error.message}), so no test command can be inferred from it. `
+      + `Fix the JSON in ${relative}, then run the command again.`,
+    { code: 'TEST_MANIFEST_INVALID', details: { path: relative, position: at ? Number(at[1]) : null,
+      line: at?.[2] ? Number(at[2]) : null, column: at?.[3] ? Number(at[3]) : null } });
+  }
 }
 
 /** Where a test-configuration refusal goes next: inspect runner suggestions, then a reviewed amendment. */
@@ -412,7 +445,8 @@ export async function inferModuleTestCommand(root, module, {
     }
     case 'node': {
       // A package's scripts name several runners (src/test-module-markers.mjs); this is its first command.
-      const manifest = JSON.parse((await readRepositoryManifest(root, path.posix.join(cwd, 'package.json'))).bytes.toString('utf8'));
+      const manifestPath = path.posix.join(cwd, 'package.json');
+      const manifest = parseTestManifest((await readRepositoryManifest(root, manifestPath)).bytes.toString('utf8'), manifestPath);
       const [command] = await (await import('./test-module-markers.mjs')).nodeTestCommands(root, module, {
         manager: await nodePackageManager(root, module.root, manifest), unitOnly, nodeScript
       });

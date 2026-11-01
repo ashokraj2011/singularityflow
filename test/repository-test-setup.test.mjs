@@ -144,3 +144,54 @@ test('two runners with different configurations are each suggested; the gate sti
   // The gate's own inference still never picks one.
   await assert.rejects(inferModuleTestCommand(root, { root: '.', system: 'node', manifest: 'package.json' }), { code: 'TEST_MODULE_AMBIGUOUS' });
 });
+
+test('a root with two build systems suggests each one\'s command, and an accepted one covers only its own language', async t => {
+  const { testCommandCoversPath } = await import('../src/code-delivery-tests.mjs');
+  const { normalizeExternalCommand } = await import('../src/external-command-policy.mjs');
+  const root = await fixture(t);
+  await writeFile(path.join(root, 'pom.xml'), '<project/>');
+  await writeFile(path.join(root, 'package.json'), JSON.stringify({ scripts: { test: 'node --test test/*.test.mjs' } }));
+  const result = await inspectRepositoryTestSetup(root);
+  assert.deepEqual(result.suggestions.map(entry => [entry.id, entry.argv[0], entry.ecosystem]), [['maven-tests', 'mvn', 'jvm'], ['node-tests', 'npm', 'node']]);
+  assert.deepEqual(result.diagnostics.find(entry => entry.code === 'TEST_ROOT_BUILD_SYSTEMS')?.systems, ['maven', 'node']);
+  // Accepted as offered (configured, affectedRoots ['.']), Maven is evidence for Java, never for the JavaScript beside it.
+  const maven = { ...normalizeExternalCommand(result.suggestions[0]), provenance: 'configured' };
+  assert.deepEqual([maven.affectedRoots, maven.ecosystem], [['.'], 'jvm']);
+  assert.equal(testCommandCoversPath(maven, 'src/main/java/com/acme/Cart.java'), true);
+  assert.equal(testCommandCoversPath(maven, 'src/app.js'), false);
+  assert.equal(testCommandCoversPath(maven, 'README.md'), true, 'files of no language stay covered');
+  // A command written without one, as every older record is, keeps covering every file below its roots.
+  const { ecosystem: _scope, ...written } = maven;
+  assert.equal(testCommandCoversPath(written, 'src/app.js'), true);
+  assert.throws(() => normalizeExternalCommand({ ...result.suggestions[0], ecosystem: 'cobol' }), { code: 'QUALITY_COMMAND_ECOSYSTEM_INVALID' });
+});
+
+test('one build system at the root keeps its single command and its whole-repository name', async t => {
+  for (const [files, expected] of [[{ 'pom.xml': '<project/>' }, ['maven-tests']],
+    [{ 'package.json': JSON.stringify({ scripts: { test: 'node --test' } }) }, ['node-tests']],
+    [{ 'pom.xml': '<project/>', 'package.json': JSON.stringify({ name: 'tooling', devDependencies: { husky: '9.0.0' } }) }, ['maven-tests']]]) {
+    const root = await fixture(t);
+    for (const [name, text] of Object.entries(files)) await writeFile(path.join(root, name), text);
+    const result = await inspectRepositoryTestSetup(root);
+    assert.deepEqual(result.suggestions.map(entry => entry.id), expected, Object.keys(files).join(' + '));
+    assert.equal(result.diagnostics.some(entry => entry.code === 'TEST_ROOT_BUILD_SYSTEMS'), false, 'a tooling package.json is no second suite');
+  }
+});
+
+test('a malformed package.json is named with where its JSON breaks, and never hides the build beside it', async t => {
+  const { moduleTestCommands } = await import('../src/test-module-markers.mjs');
+  const root = await fixture(t);
+  await writeFile(path.join(root, 'package.json'), '{ "scripts": { "test": "jest", }');
+  await assert.rejects(moduleTestCommands(root, { root: '.', system: 'node', manifest: 'package.json' }), (error) => {
+    assert.equal(error.code, 'TEST_MANIFEST_INVALID');
+    assert.equal(error.details.path, 'package.json');
+    assert.ok(Number.isInteger(error.details.position), 'the parser\'s position is kept');
+    assert.match(error.message, /^package\.json is not valid JSON \(.+\), so no test command can be inferred from it\. Fix the JSON in package\.json, then run the command again\.$/u);
+    return true;
+  });
+  assert.deepEqual((await inspectRepositoryTestSetup(root)).diagnostics.map(entry => entry.code), ['TEST_MANIFEST_INVALID']);
+  await writeFile(path.join(root, 'pom.xml'), '<project/>');
+  const beside = await inspectRepositoryTestSetup(root);
+  assert.deepEqual(beside.suggestions.map(entry => entry.id), ['maven-tests']);
+  assert.deepEqual(beside.diagnostics.map(entry => [entry.system ?? null, entry.code]), [['node', 'TEST_MANIFEST_INVALID'], [null, 'TEST_ROOT_BUILD_SYSTEMS']]);
+});

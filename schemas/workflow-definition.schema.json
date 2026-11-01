@@ -1366,6 +1366,10 @@
               "type": "object", "maxProperties": 64, "propertyNames": { "pattern": "^[A-Z_][A-Z0-9_]{0,127}$" },
               "additionalProperties": { "type": ["string", "number", "boolean"] }
             },
+            "ecosystem": {
+              "description": "The language a test command tests. Below its affected roots it is then evidence only for that language's source and files of no language, as an inferred command is; a test setup suggestion carries its own. Leave it out to cover every file below the roots. An engine older than this key ignores it.",
+              "enum": ["node", "python", "jvm", "dotnet", "go", "rust", "swift", "ruby", "php", "dart"]
+            },
             "requirement": { "enum": ["required", "advisory"] },
             "kind": { "enum": ["test", "compile", "lint", "format", "static-analysis", "security", "other"] },
             "workingDirectory": { "type": "string", "minLength": 1 },

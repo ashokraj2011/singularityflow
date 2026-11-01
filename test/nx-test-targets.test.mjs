@@ -32,7 +32,9 @@ test('test setup suggests the selected Nx e2e project\'s Playwright target', asy
     id: 'apps/shop-e2e-playwright-tests', kind: 'test',
     argv: ['pnpm', 'exec', 'nx', 'run', 'shop-e2e:e2e', '--skip-nx-cache', '--reporter=json'],
     workingDirectory: '.', affectedRoots: ['apps/shop-e2e', 'apps/shop'], modelPolicy: 'never',
-    result: { adapter: 'playwright-json', path: '.sflow/results/apps-shop-e2e-playwright-tests.json', minimumDiscovered: 1 }
+    result: { adapter: 'playwright-json', path: '.sflow/results/apps-shop-e2e-playwright-tests.json', minimumDiscovered: 1 },
+    // Accepted as offered, it stays evidence for JavaScript and TypeScript files only.
+    ecosystem: 'node'
   }]);
 });
 

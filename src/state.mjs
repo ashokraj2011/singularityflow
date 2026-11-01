@@ -2502,7 +2502,7 @@ export function inferKind(relativePath) {
   const value = relativePath.toLowerCase();
   if (value.includes('/implementation-spec')) return 'implementation-spec';
   if (value.includes('/spec-code-comparison')) return 'conformance-report';
-  if (/(^|\/)(test|tests|spec|specs)(\/|$)/.test(value) || /\.(test|spec)\.[^.]+$/.test(value)) return 'test';
+  if (/(^|\/)(test|tests|__tests__|spec|specs)(\/|$)/.test(value) || /\.(test|spec)\.[^.]+$/.test(value)) return 'test';
   if (SOURCE_EXTENSIONS.has(path.extname(value))) return 'code';
   if (/\.(md|mdx|txt|adoc|rst)$/.test(value)) return 'document';
   if (/\.(json|ya?ml|toml|ini|properties)$/.test(value)) return 'configuration';

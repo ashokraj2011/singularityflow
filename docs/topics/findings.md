@@ -14,7 +14,7 @@ related:
   - recovery
   - phase-appeals
   - escalation
-version: 16
+version: 17
 ---
 A finding is one exact reason a step cannot publish, submit or finish. Every finding has an owner and a recovery route: the step's own author fixes its draft, an earlier step's approvers decide an upstream issue, a person records a decision, or an owner restores trusted bytes. Each refusal names its finding code; read its entry here with `sflow explain findings --section <CODE>` (the code is matched without regard to case). No finding routes only back to its own author: each names at least one route for someone else, its approvers, an earlier step, an owner, or, when nothing more specific exists, the workflow maintainer. Nothing in this catalog waives a test, approves a step or accepts a risk by itself.
 
@@ -102,7 +102,13 @@ Retained evidence a step published is not what the checkout holds now. `RETAINED
 
 No supported structured test command can be inferred for the changed code. `sflow capability test-setup --json` suggests one; repair the repository's own test script within the step's scope. An Nx project's Playwright target is inferred since this release, so updating Singularity Flow may be enough. For this Story, request the exact command with `decision test-command <WORK-ID> --phase <PHASE> …`; a person who approves the step accepts it from the decision list, and its tests must pass. For every later Story, propose it with `capability test-setup --step <STEP> … --confirm <digest>`; once a configuration approver activates it, the current Story adopts it through a reviewed policy amendment. The code step reports a missing runner for its planned paths as it opens.
 
-`TEST_MODULE_UNCOVERED` takes the same routes. A changed file belongs to the nearest build file of any ecosystem: a folder with `requirements.txt`, `setup.py`, `setup.cfg` or a `Pipfile` runs pytest, and an Xcode project, a CMake or Meson build, a conda environment or a nox file has no inferred runner, so a root `package.json` never covers them. A command Singularity Flow infers counts only for its own language's files (`npm test` never covers a `.py` file); a command a person configured or accepted covers the roots they gave it. The `node --test` fallback runs only test files that import `node:test`.
+`TEST_MODULE_UNCOVERED` takes the same routes. A changed file belongs to the nearest build file of any ecosystem: a folder with `requirements.txt`, `setup.py`, `setup.cfg` or a `Pipfile` runs pytest, and an Xcode project, a CMake or Meson build, a conda environment or a nox file has no inferred runner, so a root `package.json` never covers them. A command Singularity Flow infers counts only for its own language's files (`npm test` never covers a `.py` file); a command a person configured or accepted covers the roots they gave it, unless it names an `ecosystem`: a test setup suggestion accepted as offered keeps its own, so a root `mvn test` with `affectedRoots: ['.']` never covers the `.js` beside it. The `node --test` fallback runs only test files that import `node:test`.
+
+A test file is one named as a test in a test folder (`value.test.cjs` and `value.test.cts` count, like `.js` and `.ts`), or any script below a `__tests__` folder, as Jest's default match runs it (`__tests__/value.js`); `fixtures`, `__fixtures__`, `__mocks__` and `__snapshots__` below it are support, never the acceptance test.
+
+### TEST_MANIFEST_INVALID
+
+A build manifest test detection reads (a `package.json`) is not valid JSON. The refusal names the file and where the parser stopped; fix the JSON within the step's scope and run the command again. At a repository root with another build beside it, test setup still suggests that build's command and lists this beside it.
 
 ### TEST_COMMAND_PIN_CHANGED
 

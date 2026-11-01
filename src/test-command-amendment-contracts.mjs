@@ -174,6 +174,8 @@ export function assertTestCommandRunnerRepairScope(prior, next) {
     const candidate = newTests.find(entry => entry.id === original.id);
     if (canonicalJson(candidate.affectedRoots) !== canonicalJson(original.affectedRoots)
         || canonicalJson(candidate.result.sourceExtensions) !== canonicalJson(original.result.sourceExtensions)
+        // Dropping or changing a command's language scope would let it cover files it never tested.
+        || (original.ecosystem != null && candidate.ecosystem !== original.ecosystem)
         || candidate.result.minimumDiscovered < original.result.minimumDiscovered
         || candidate.result.minimumPassed < original.result.minimumPassed) fail('Test-command amendment cannot reduce test coverage or passing thresholds.');
   }

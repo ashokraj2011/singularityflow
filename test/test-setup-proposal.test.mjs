@@ -65,6 +65,10 @@ test('a test command chosen in /sf-test-setup is previewed, proposed by its dige
   assert.deepEqual(suggested.data.problems, []);
   assert.deepEqual(suggested.data.command.affectedRoots, ['apps/shop-e2e', 'apps/shop']);
   assert.equal(suggested.next[0].command, suggested.data.confirmCommand);
+  // The suggestion keeps the language it tests, and its spelled-out confirmation is the same plan.
+  assert.equal(suggested.data.command.ecosystem, 'node');
+  assert.match(suggested.data.confirmCommand, / --ecosystem node --confirm sha256:/u);
+  assert.equal(shell(suggested.data.confirmCommand.replace(/ --confirm \S+$/u, '')).data.planSha256, suggested.data.planSha256);
 
   // The office case: the person's own Nx command and the JUnit report their Playwright config writes.
   const office = ['capability', 'test-setup', '--step', 'implementation', '--id', 'shop-e2e-junit',

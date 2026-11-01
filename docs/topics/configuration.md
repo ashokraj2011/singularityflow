@@ -10,7 +10,7 @@ related:
   - pins
   - quick-fix
   - escalation
-version: 16
+version: 17
 commands:
   - configuration
   - workflow
@@ -60,7 +60,12 @@ Copilot `/sf-test-setup` reads bounded repository manifests and reporter configu
 the evidence behind its suggestions, and asks before configuration changes or test execution.
 Shell `singularity-flow capability test-setup --source-root apps/client --json` provides deterministic
 suggestions without executing tests, cloning, or scanning a monorepo recursively. Without a scope
-it inspects only the repository root. Missing detection remains pending, not a test failure.
+it inspects only the repository root. Missing detection remains pending, not a test failure. A root
+with more than one build (a `pom.xml` beside a `package.json` with tests) suggests each build's
+command and says so (`TEST_ROOT_BUILD_SYSTEMS`); propose one for each suite the step must run. Each
+suggestion names its `ecosystem` (the language its runner tests), and a command accepted with it is
+evidence only for that language's files and files of no language below its affected roots, as an
+inferred command is. Leave `ecosystem` out of a command you write to cover every file below its roots.
 
 In an Nx workspace a project's Playwright target is a suggestion: its `project.json` target (the
 `@nx/playwright:playwright` executor or a plain `playwright test` command), or the one
@@ -132,7 +137,7 @@ fields a person supplies. A configured `cargo-json` command reads libtest's JSON
 To save a chosen command from Copilot or a terminal, preview it with `singularity-flow capability
 test-setup --step <STEP> [--workflow <WORKFLOW>]` and either `--use <SUGGESTION-ID>` or the command in
 full (`--id`, `--argv '<JSON ARRAY>'`, `--working-directory`, `--affected-root`, `--adapter`,
-`--report`, and `--env NAME=VALUE` for each variable). The preview shows the `singularity/workflow.yml` diff and changes nothing; its printed
+`--report`, `--env NAME=VALUE` for each variable, and `--ecosystem <LANGUAGE>` to keep it to one language). The preview shows the `singularity/workflow.yml` diff and changes nothing; its printed
 `--confirm <digest>` command proposes exactly that change through the same reviewed save as the
 Test setup page. A command with the same ID is replaced; every other check is kept. Run from a
 Story's checkout, it also names the Story's adoption once the proposal is activated. For a command one

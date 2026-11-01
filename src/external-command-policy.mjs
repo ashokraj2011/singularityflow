@@ -12,6 +12,13 @@ export const TEST_RESULT_ADAPTERS = Object.freeze([
   'junit-xml', 'jest-json', 'vitest-json', 'playwright-json', 'go-test-json', 'node-tap',
   'karma-text', 'dotnet-trx', 'cargo-json', 'sflow-test-result-v1', 'mocha-json'
 ]);
+/**
+ * The source languages a test command can be scoped to (code-delivery-tests.mjs reads them in this
+ * order). A command's optional `ecosystem` makes it evidence only for that language's source and files
+ * of no language below its roots, as an inferred command is; a test setup suggestion carries its own.
+ * An older engine ignores it, like any key unknown here, and covers every file below the roots.
+ */
+export const TEST_COMMAND_ECOSYSTEMS = Object.freeze(['node', 'python', 'jvm', 'dotnet', 'go', 'rust', 'swift', 'ruby', 'php', 'dart']);
 
 /**
  * A command's literal `env` [TCE]: unreserved UPPER_CASE names, none secret-like (environments.yml holds
@@ -105,6 +112,10 @@ export function normalizeExternalCommand(value, index = 0) {
     );
   }
   const env = value.env == null ? null : normalizeCommandEnv(value.env, index);
+  if (value.ecosystem != null && !TEST_COMMAND_ECOSYSTEMS.includes(value.ecosystem)) {
+    throw new SingularityFlowError(`qualityCommands[${index}].ecosystem must be ${TEST_COMMAND_ECOSYSTEMS.join(', ')}.`,
+      { code: 'QUALITY_COMMAND_ECOSYSTEM_INVALID' });
+  }
   const workingDirectory = value.workingDirectory == null
     ? null
     : relativePath(value.workingDirectory, `qualityCommands[${index}].workingDirectory`, { allowDot: true });
@@ -147,6 +158,7 @@ export function normalizeExternalCommand(value, index = 0) {
     ...(value.kind != null ? { kind } : {}),
     ...(environment != null ? { environment } : {}),
     ...(env ? { env } : {}),
+    ...(value.ecosystem != null ? { ecosystem: value.ecosystem } : {}),
     ...(value.workingDirectory != null ? { workingDirectory } : {}),
     ...(value.affectedRoots != null ? { affectedRoots: normalizedRoots } : {}),
     ...(value.result != null ? { result } : {})

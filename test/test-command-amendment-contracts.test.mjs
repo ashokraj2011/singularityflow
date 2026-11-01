@@ -80,6 +80,15 @@ test('runner repair retains command identities, coverage and test minima', () =>
     assert.throws(() => assertTestCommandRunnerRepairScope(retained, candidate));
   }
 });
+test('runner repair keeps a command\'s language scope; a command without one may gain it', () => {
+  const scoped = structuredClone(commands); scoped[0].ecosystem = 'node';
+  for (const change of [value => { delete value[0].ecosystem; }, value => { value[0].ecosystem = 'python'; }]) {
+    const candidate = structuredClone(scoped); change(candidate);
+    assert.throws(() => assertTestCommandRunnerRepairScope(scoped, candidate), /cannot reduce test coverage/u);
+  }
+  assertTestCommandRunnerRepairScope(scoped, structuredClone(scoped));
+  assertTestCommandRunnerRepairScope(structuredClone(commands), scoped);
+});
 for (const [label, mutate] of [
   ['source boundary', value => { value.phases[0].sourceBoundary.mode = 'off'; }],
   ['approval policy', value => { value.phases[0].approval.minimum = 0; }],

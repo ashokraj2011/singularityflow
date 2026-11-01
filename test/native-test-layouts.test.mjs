@@ -14,7 +14,9 @@ import test from 'node:test';
 import { fileURLToPath } from 'node:url';
 import YAML from 'yaml';
 
+import { isExecutableTestSourcePath, isTestSourceName } from '../src/code-delivery-tests.mjs';
 import { isTestAutomationPath } from '../src/source-boundary.mjs';
+import { inferKind } from '../src/state.mjs';
 
 const CLI = path.join(path.dirname(fileURLToPath(import.meta.url)), '..', 'bin/singularity-flow.mjs');
 const ENV = { ...process.env, NODE_ENV: 'test', SINGULARITY_FLOW_TEST_IDENTITY: 'Layout Tester' };
@@ -33,8 +35,28 @@ test('Gradle, Android, Xcode, .NET, Go and pytest test layouts are test automati
   ]) assert.equal(isTestAutomationPath(candidate), false, candidate);
 });
 
+test('CommonJS and CommonJS TypeScript tests, and any script Jest runs below __tests__, are test sources; its support is not', async (t) => {
+  const root = await mkdtemp(path.join(os.tmpdir(), 'sflow-test-names-'));
+  t.after(() => rm(root, { recursive: true, force: true }));
+  const tests = ['test/value.test.cjs', 'test/value.test.cts', '__tests__/value.js', 'src/__tests__/helpers/value.tsx', 'src/__tests__/value.cjs'];
+  const support = ['__tests__/fixtures/value.js', '__tests__/__mocks__/api.js', '__tests__/__fixtures__/order.ts',
+    '__tests__/__snapshots__/value.js', '__tests__/types.d.ts', '__tests__/README.md'];
+  for (const relative of [...tests, ...support]) {
+    await mkdir(path.dirname(path.join(root, relative)), { recursive: true });
+    await writeFile(path.join(root, relative), '');
+  }
+  for (const relative of tests) {
+    assert.equal(await isExecutableTestSourcePath(root, relative), true, relative);
+    assert.equal(isTestSourceName(relative), true, relative);
+  }
+  for (const relative of support) assert.equal(await isExecutableTestSourcePath(root, relative), false, relative);
+  // Outside __tests__ a script still needs a test's name.
+  assert.equal(isTestSourceName('src/value.cjs'), false);
+  assert.equal(inferKind('src/__tests__/value.js'), 'test');
+});
+
 /** A classic-delivery Story whose implementation is drafted with its acceptance test at `testPath`. */
-async function implementationWithTestAt(t, W, testPath) {
+async function implementationWithTestAt(t, W, testPath, { commonjs = false } = {}) {
   const AC = `${W}:AC-001`;
   const root = await mkdtemp(path.join(os.tmpdir(), 'sflow-native-layout-'));
   const remote = `${root}.git`;
@@ -50,9 +72,12 @@ async function implementationWithTestAt(t, W, testPath) {
     await mkdir(path.dirname(path.join(root, relative)), { recursive: true });
     await writeFile(path.join(root, relative), contents);
   };
-  const testSource = (expected, tagged) => ["import test from 'node:test';", "import assert from 'node:assert/strict';",
-    `import { value } from '${path.posix.relative(path.posix.dirname(testPath), 'app/src/main/value.mjs')}';`,
-    ...(tagged ? [`// @ac:${AC}`] : []), `test('value', () => assert.equal(value, ${expected}));`, ''].join('\n');
+  const module = path.posix.relative(path.posix.dirname(testPath), 'app/src/main/value.mjs');
+  const testSource = (expected, tagged) => (commonjs
+    ? ["const test = require('node:test');", "const assert = require('node:assert/strict');",
+      ...(tagged ? [`// @ac:${AC}`] : []), `test('value', async () => assert.equal((await import('./${module}')).value, ${expected}));`, '']
+    : ["import test from 'node:test';", "import assert from 'node:assert/strict';", `import { value } from '${module}';`,
+      ...(tagged ? [`// @ac:${AC}`] : []), `test('value', () => assert.equal(value, ${expected}));`, '']).join('\n');
   must('git', ['init', '-q', '-b', 'main']);
   must('git', ['config', 'user.name', 'Layout Tester']);
   must('git', ['config', 'user.email', 'layout@example.test']);
@@ -106,4 +131,23 @@ test('a test named as one but outside every test folder is named in the refusal,
   const refused = publish();
   assert.notEqual(refused.status, 0);
   assert.match(refused.stdout + refused.stderr, /no acceptance test is available for the implementation: checks\/value-test\.mjs is named as tests? but not in a recognised test folder/u);
+});
+
+test('a CommonJS acceptance test is read and published', async (t) => {
+  const { publish } = await implementationWithTestAt(t, 'LAYOUT-3', 'app/src/test/value.test.cjs', { commonjs: true });
+  const published = publish();
+  assert.equal(published.status, 0, published.stdout + published.stderr);
+});
+
+test('a script below __tests__ is an acceptance test whatever it is called, as Jest runs it', async (t) => {
+  const { publish } = await implementationWithTestAt(t, 'LAYOUT-4', 'app/src/__tests__/value.js');
+  const published = publish();
+  assert.equal(published.status, 0, published.stdout + published.stderr);
+});
+
+test('a fixture below __tests__ is support, never the acceptance test', async (t) => {
+  const { publish } = await implementationWithTestAt(t, 'LAYOUT-5', 'app/src/__tests__/fixtures/value.js');
+  const refused = publish();
+  assert.notEqual(refused.status, 0);
+  assert.match(refused.stdout + refused.stderr, /no acceptance test is available for the implementation/u);
 });

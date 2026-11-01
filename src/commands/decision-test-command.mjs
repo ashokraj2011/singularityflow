@@ -2,7 +2,7 @@
  * `decision test-command`: a Story-only test command for one step. See src/story-test-commands.mjs.
  *
  *   singularity-flow decision test-command [WORK-ID] --phase PHASE --reason TEXT (--use SUGGESTION-ID [--source-root DIR]...
- *     | --id ID --argv '<JSON ARRAY>' --working-directory DIR --affected-root DIR... --adapter ADAPTER --report PATH)
+ *     | --id ID --argv '<JSON ARRAY>' --working-directory DIR --affected-root DIR... --adapter ADAPTER --report PATH [--ecosystem LANGUAGE])
  *   singularity-flow decision test-command [WORK-ID] --phase PHASE --repin COMMAND-ID --reason TEXT
  *   singularity-flow decision test-command [WORK-ID] --accept TCD-001 [--reason TEXT]
  *   singularity-flow decision test-command [WORK-ID] --revoke TCD-001 --reason TEXT
@@ -31,9 +31,9 @@ import { nowIso, optionBoolean, optionString, SingularityFlowError } from '../ut
 import { actionActor } from './kernel.mjs';
 
 const fail = (message, code = 'TEST_COMMAND_DECISION_INVALID') => { throw new SingularityFlowError(message, { code }); };
-const COMMAND_OPTIONS = ['use', 'id', 'argv', 'working-directory', 'affected-root', 'adapter', 'report', 'source-root'];
+const COMMAND_OPTIONS = ['use', 'id', 'argv', 'working-directory', 'affected-root', 'adapter', 'report', 'ecosystem', 'source-root'];
 const USAGE = 'Use: singularity-flow decision test-command [WORK-ID] --phase PHASE --reason TEXT (--use SUGGESTION-ID [--source-root DIR]... '
-  + "| --id ID --argv '<JSON ARRAY>' --working-directory DIR --affected-root DIR... --adapter ADAPTER --report PATH | --repin COMMAND-ID), "
+  + "| --id ID --argv '<JSON ARRAY>' --working-directory DIR --affected-root DIR... --adapter ADAPTER --report PATH [--ecosystem LANGUAGE] | --repin COMMAND-ID), "
   + 'or --accept TCD-… / --revoke TCD-… --reason TEXT.';
 
 /** The step whose approvers decide: the step itself, else the next one on the route that has approvers. */
@@ -137,7 +137,7 @@ export async function decisionTestCommandCommand(positionals, options) {
     else {
       repin = await repinRequest(root, config, workflow, phase, current);
       command = { id: current.id, kind: 'test', argv: current.argv, workingDirectory: current.workingDirectory,
-        affectedRoots: current.affectedRoots, modelPolicy: 'never', result: current.result };
+        affectedRoots: current.affectedRoots, ...(current.ecosystem ? { ecosystem: current.ecosystem } : {}), modelPolicy: 'never', result: current.result };
     }
   } else if (phaseId) {
     const [{ requestedCommand }, { normalizeRequiredTestCommand }, { phaseRequiresCodeDelivery }] = await Promise.all([
@@ -150,6 +150,7 @@ export async function decisionTestCommandCommand(positionals, options) {
     catch (error) { if (error?.code === 'TEST_SETUP_PROPOSAL_USAGE') fail(`${error.message.replace(/ Use: [\s\S]*$/u, '')} ${USAGE}`); throw error; }
     try { normalizeRequiredTestCommand(requested); } catch (error) { fail(`Test command '${requested.id}' cannot be requested: ${error.message}`); }
     command = { id: requested.id, kind: 'test', argv: requested.argv, ...(requested.env ? { env: requested.env } : {}),
+      ...(requested.ecosystem ? { ecosystem: requested.ecosystem } : {}),
       workingDirectory: requested.workingDirectory, affectedRoots: requested.affectedRoots, modelPolicy: 'never', result: requested.result };
   }
   const actor = actionActor(root);

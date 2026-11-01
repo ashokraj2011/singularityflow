@@ -191,7 +191,11 @@ test('the bundled CLI answers exactly like the sources while opening a handful o
   // 4,645,000: main 63d2c81bd measures 4,633,488; a person's own step refused in any Copilot prompt, a plain or paused
   // one included, read through chains, wrappers and plans, with the person's exact command (copilot-mutation-guard.mjs,
   // copilot-repository-boundary.mjs; S4 live run bug 2) adds 8,838 for 4,642,326. No new file.
-  assert.ok(narrowReads < 4_645_000,
+  // 4,650,000: main b91420f57 measures 4,643,910; test files by Jest's __tests__ rule and .cjs/.cts
+  // (code-delivery-tests.mjs), every root build system's commands (repository-test-command-inference.mjs), a command's
+  // optional ecosystem (external-command-policy.mjs) and the malformed-manifest refusal add 2,718 for 4,646,628. No new
+  // file.
+  assert.ok(narrowReads < 4_650_000,
     `strict next-step reads must not inherit the broad phase-review closure (${narrowReads} bytes)`);
   const publicationClosure = closure('cold-publication.mjs');
   assert.ok(publicationClosure.length && publicationClosure.reduce((sum, item) => sum + item.bytes, 0) < 6 * 1024 * 1024,
@@ -389,6 +393,8 @@ test('the bundled CLI answers exactly like the sources while opening a handful o
   // `spec split` and coverage. No new file.
   // 7,720,000: main 63d2c81bd measures 7,706,417; the same person-step refusal in any prompt adds 8,838 for 7,715,255.
   // No new file.
+  // 7,720,000 holds: main b91420f57 measures 7,716,851; the same test-file, root-build and ecosystem rules add 2,728
+  // for 7,719,579. No new file.
   assert.ok(hookContext < 7_720_000,
     `phase-review reads retain their existing byte ceiling after moving families (${hookContext} bytes)`);
   assert.match(await readFile(path.join(outdir, 'cold-light.mjs'), 'utf8'), /function enterPhase\b/u,
@@ -467,7 +473,9 @@ test('the bundled CLI answers exactly like the sources while opening a handful o
   // for 5,481,396. No new file.
   // 5,495,000: main 63d2c81bd measures 5,483,187; the same person-step refusal in any prompt adds 8,838 for 5,492,025.
   // No new file.
-  assert.ok(catalogBytes < 5_495_000,
+  // 5,500,000: main b91420f57 measures 5,493,609; the same test-file, root-build and ecosystem rules add 2,718 for
+  // 5,496,327. No new file.
+  assert.ok(catalogBytes < 5_500_000,
     `catalog parsing stays bounded instead of pulling in the entire administration bundle (${catalogBytes} bytes)`);
   for (const name of ['cold-compatibility.mjs', 'cold-models.mjs', 'cold-intake.mjs', 'cold-phases.mjs', 'cold-hook-context.mjs']) {
     assert.ok(!catalogClosure.some(item => item.file === name), `catalogs must not statically reach ${name}`);

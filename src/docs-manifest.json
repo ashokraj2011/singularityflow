@@ -1,9 +1,9 @@
 {
   "schemaVersion": 2,
   "generatedFrom": "docs/topics",
-  "sourceCommit": "3fae06ff5ede5763272aeed02472d4ad06229999",
+  "sourceCommit": "b91420f5725c9dfcdae206a243b76678bf83d9a7",
   "topicCount": 87,
-  "contentSha256": "77323cb2956140d93120074ee6afc629e59fdd563e3af814aa3bd9e9a638748f",
+  "contentSha256": "1b13c35dd392a88ab480cebb5f85ad90721a7f2eb9b1efda31e1ea96147c6541",
   "topics": [
     {
       "id": "activity-and-prompt-audit",
@@ -120,8 +120,8 @@
     {
       "id": "configuration",
       "title": "Configuration, capabilities, and the policy fold",
-      "version": 16,
-      "sha256": "3c7e24a6997cd025e9f0f3ff5012fdd27101512f7266c43aaee776bd16980f5a",
+      "version": 17,
+      "sha256": "1445ee464af1e9941381f339d25bafdb715e75705f1615c7d9b853f4e580ce6a",
       "routingSha256": "2d2fa1c092e101abe3c2074545597f9ed25b38d2627aeaa9e9d89c3c24c15c58",
       "file": "configuration.md"
     },
@@ -248,8 +248,8 @@
     {
       "id": "findings",
       "title": "Findings — what a blocking finding means and how to recover",
-      "version": 16,
-      "sha256": "33e5f23f46f583f7d2247a0f2b01e796fdb0989521e0fe48c5d20b94f47a16a5",
+      "version": 17,
+      "sha256": "0eb4c0427b6278d9149ea6d717cc006dcc1e9e95658a3545e8d61f629e74781c",
       "routingSha256": "63e669eb5eb939fd7ee9a8f6447d098138d7e424eac2ee4ff55901d902118539",
       "file": "findings.md"
     },

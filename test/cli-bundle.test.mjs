@@ -181,7 +181,10 @@ test('the bundled CLI answers exactly like the sources while opening a handful o
   // 4,622,358: `spec author` in the operation registry (command-registry.mjs), its person-only actions as an
   // own-terminal step and a turn refusal (command-skills.mjs, copilot-mutation-guard.mjs), four boolean flags
   // (util.mjs) and the committed tree listing (git.mjs). The handler itself is claimed by cold-phases.
-  assert.ok(narrowReads < 4_625_000,
+  // 4,630,000: main 7b8cad8f1 measures 4,623,905; a Windows 8.3 short name compared as the filesystem spells it
+  // (util.mjs samePlatformPath) and the person's line endings for the destructive proof's own status reads
+  // (source-inspection.mjs) add 1,523 for 4,625,428. No new file.
+  assert.ok(narrowReads < 4_630_000,
     `strict next-step reads must not inherit the broad phase-review closure (${narrowReads} bytes)`);
   const publicationClosure = closure('cold-publication.mjs');
   assert.ok(publicationClosure.length && publicationClosure.reduce((sum, item) => sum + item.bytes, 0) < 6 * 1024 * 1024,
@@ -364,6 +367,8 @@ test('the bundled CLI answers exactly like the sources while opening a handful o
   // 7,700,000: main c15830837 measures 7,694,712; the small local locks on the lease rule (file-lease.mjs) and a
   // tokenless journal judged by the subject lease held now (publication-pending.mjs) add 1,252 for 7,695,964.
   // No new file.
+  // 7,700,000 holds: main 7b8cad8f1 measures 7,695,964; the same short-name comparisons with the Copilot discovery and
+  // environment-file guards, and the proof's status line endings, add 1,581 for 7,697,545. No new file.
   assert.ok(hookContext < 7_700_000,
     `phase-review reads retain their existing byte ceiling after moving families (${hookContext} bytes)`);
   assert.match(await readFile(path.join(outdir, 'cold-light.mjs'), 'utf8'), /function enterPhase\b/u,
@@ -436,7 +441,9 @@ test('the bundled CLI answers exactly like the sources while opening a handful o
   // No new file.
   // 5,475,000: main a1aebf125 measures 5,468,171; the same specification library registry, own-terminal step,
   // boolean flags and tree listing add 3,671 for 5,471,842. No new file.
-  assert.ok(catalogBytes < 5_475_000,
+  // 5,480,000: main 7b8cad8f1 measures 5,473,546; the same short-name comparisons and status line endings add 1,581
+  // for 5,475,127. No new file.
+  assert.ok(catalogBytes < 5_480_000,
     `catalog parsing stays bounded instead of pulling in the entire administration bundle (${catalogBytes} bytes)`);
   for (const name of ['cold-compatibility.mjs', 'cold-models.mjs', 'cold-intake.mjs', 'cold-phases.mjs', 'cold-hook-context.mjs']) {
     assert.ok(!catalogClosure.some(item => item.file === name), `catalogs must not statically reach ${name}`);

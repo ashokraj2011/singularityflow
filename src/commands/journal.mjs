@@ -11,7 +11,7 @@ import { workspaceRegistryFile } from '../workspace-context.mjs';
 import { commandResult, effects, noEffects, succeeded } from '../narration/command-result.mjs';
 import { emitCommandResult } from '../narration/emit.mjs';
 import {
-  optionBoolean, optionNumber, optionString, SingularityFlowError, writeAtomic
+  optionBoolean, optionNumber, optionString, platformPathWithin, SingularityFlowError, writeAtomic
 } from '../util.mjs';
 
 const DATE = /^\d{4}-\d{2}-\d{2}$/;
@@ -81,7 +81,8 @@ async function assertExportOutsideWorkspaces(output, currentRepository = null) {
   }
   const inside = protectedRoots.find((root) => {
     const relative = path.relative(path.resolve(root), resolved);
-    return relative === '' || (!relative.startsWith('..') && !path.isAbsolute(relative));
+    // Also as the filesystem spells them: either can name its directory by a Windows 8.3 short name.
+    return relative === '' || (!relative.startsWith('..') && !path.isAbsolute(relative)) || platformPathWithin(resolved, root);
   });
   if (inside) throw new SingularityFlowError(
     `Local journal export must stay outside Git worktrees. '${resolved}' is inside a registered workspace or repository.`

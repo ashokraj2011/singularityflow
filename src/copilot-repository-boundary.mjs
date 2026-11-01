@@ -6,6 +6,7 @@ import { codePageSafeJson } from './code-page-safe-json.mjs';
 import { copilotModeFile, hookCliLine, readCopilotMode } from './copilot-mode.mjs';
 import { currentSchemaVersion, readRecord } from './schema-migrations.mjs';
 import { formatCommandRouteLines } from './model-free-commands.mjs';
+import { platformPathWithin } from './util.mjs';
 
 const FAMILY = 'copilot-repository-boundary';
 /**
@@ -234,7 +235,9 @@ export async function resolveCopilotDiscoveryRoot(payload = {}, {
 
 function inside(root, target) {
   const relative = path.relative(root, target);
-  return relative === '' || (!relative.startsWith(`..${path.sep}`) && relative !== '..' && !path.isAbsolute(relative));
+  // Copilot's directory keeps the spelling it was given (a Windows 8.3 short name), Git's root the stored one.
+  return relative === '' || (!relative.startsWith(`..${path.sep}`) && relative !== '..' && !path.isAbsolute(relative))
+    || platformPathWithin(target, root);
 }
 
 function searchTargets(call) {

@@ -74,7 +74,7 @@ export class ConfigurationValidator implements vscode.Disposable {
   private governs(repository: string, file: string): boolean {
     if (isGovernedConfiguration(repository, file)) return true;
     try {
-      return isGovernedConfiguration(repository, realpathSync(file));
+      return isGovernedConfiguration(repository, realpathSync.native(file));
     } catch {
       return false;
     }
@@ -121,7 +121,7 @@ export class ConfigurationValidator implements vscode.Disposable {
     const uris = new Map<string, vscode.Uri>();
     // The repository path is canonical while the editor keeps the path a file was opened by
     // (/var vs /private/var on macOS), so a problem in the saved file uses the saved file's own URI.
-    const real = (file: string) => { try { return realpathSync(file); } catch { return file; } };
+    const real = (file: string) => { try { return realpathSync.native(file); } catch { return file; } };
     const saved = real(document.uri.fsPath);
     for (const problem of report.problems ?? []) {
       const relative = typeof problem.file === 'string' ? problem.file : '';

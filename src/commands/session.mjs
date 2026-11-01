@@ -815,7 +815,7 @@ async function sessionCommandUncached(positionals, options, renderCandidates = p
     console.log(`Current phase: ${workflow.currentPhase ?? 'none'} · status: ${workflow.status}`);
     if (session.selectedAgent) console.log(`Phase agent: ${session.selectedAgent} (activated automatically).`);
     else console.log(`The Story is ${workflow.status}; no phase agent is required for read-only inspection.`);
-    if (managedWorktree && path.resolve(process.cwd()) !== path.resolve(attachmentRoot)) {
+    if (managedWorktree && !samePlatformPath(process.cwd(), attachmentRoot)) {
       console.log(`Continue in the isolated Story checkout: ${renderChangeDirectoryCommand(attachmentRoot)}`);
     }
     console.log(`Bounded Copilot context: ${result.context.command}`);

@@ -5,11 +5,13 @@ import { workspaceRegistryFile } from './workspace-context.mjs';
 import { readFosAttachment, refreshFosAuthority } from './onboard.mjs';
 import { remoteFingerprint, redactDiagnosticText } from './git-remote-diagnostics.mjs';
 import { enterpriseGitEnvironment } from './git-enterprise-environment.mjs';
-import { run } from './util.mjs';
+import { platformPathWithin, run } from './util.mjs';
 
 const within = (root, parent) => {
   const relative = path.relative(parent, root);
-  return relative === '' || (!relative.startsWith(`..${path.sep}`) && relative !== '..' && !path.isAbsolute(relative));
+  // A registered workspace keeps the spelling it was registered with (a Windows 8.3 short name).
+  return relative === '' || (!relative.startsWith(`..${path.sep}`) && relative !== '..' && !path.isAbsolute(relative))
+    || platformPathWithin(root, parent);
 };
 
 export async function syncConfigurationReferences(root, remote, commit, {

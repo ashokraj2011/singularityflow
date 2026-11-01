@@ -212,8 +212,8 @@ export class VisualAssurancePanel implements vscode.Disposable {
     for (const possibility of possibilities) {
       if (!existsSync(possibility)) continue;
       try {
-        const canonicalRoot = realpathSync(itemRoot);
-        const canonical = realpathSync(possibility);
+        const canonicalRoot = realpathSync.native(itemRoot);
+        const canonical = realpathSync.native(possibility);
         const inside = path.relative(canonicalRoot, canonical);
         if ((!inside || (!inside.startsWith('..') && !path.isAbsolute(inside))) && /\.png$/i.test(canonical)) {
           return this.panel.webview.asWebviewUri(vscode.Uri.file(canonical)).toString();

@@ -225,7 +225,10 @@ test('frequent lifecycle handlers do not reach the legacy dispatcher and stay un
     // 9,305,000 (next 5,000 boundary): main bce954290 measures 9,279,969. SDA M3 adds 22,372 for 9,302,341: the lease liveness proof (lease-liveness.mjs: machine identity, owner start time, the shared owner predicate) behind every subject lock and registry lease
     // (+~20 KB with subject-lock.mjs and file-lease.mjs), deferred repositories (workspace.mjs) and
     // transactional drafts. The configuration projection and the lock command stay lazy; one new eager file.
-    assert.ok(closure.bytes <= 9_305_000, `${file} exceeds the 9 MB eager-source budget (${closure.bytes} bytes)`);
+    // 9,310,000 (next 5,000 boundary): main 7b8cad8f1 measures 9,304,020. A Windows 8.3 short name compared as the
+    // filesystem spells it (util.mjs) and the person's line endings for the destructive proof's own status reads
+    // (source-inspection.mjs, worktree-fingerprint.mjs) add 2,185 for 9,306,205; no new eager file.
+    assert.ok(closure.bytes <= 9_310_000, `${file} exceeds the 9 MB eager-source budget (${closure.bytes} bytes)`);
   }
 });
 
@@ -267,7 +270,10 @@ test('root dispatch stays small and orchestration entrypoints load their handler
   // +5,568 (a cache lease owner judged by machine identity and process start, and its review and reviewed
   // release by path, A5), git-fact-cache.mjs +3,658 (remotes read from a configuration file as Git reads it,
   // U1) and git-remote-diagnostics.mjs +1,493 (a refresh failure's cause and way out, A3). No new file.
-  assert.ok(root.bytes <= 830_000, `root dispatch loads ${root.bytes} source bytes`);
+  // 835,000: main 7b8cad8f1 measures 829,463; util.mjs +762 (a Windows 8.3 short name compared as the filesystem
+  // spells it, a command-line file from another spelling of the repository, trace frames on Windows) gives 830,225.
+  // No new file.
+  assert.ok(root.bytes <= 835_000, `root dispatch loads ${root.bytes} source bytes`);
   assert.equal(root.files.has(path.join(sourceRoot, 'git.mjs')), false);
   assert.equal(root.files.has(path.join(sourceRoot, 'config.mjs')), false);
   // Only the pause-checking entries and Story creation read these; most commands never do.

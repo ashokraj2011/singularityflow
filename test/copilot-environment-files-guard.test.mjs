@@ -1,6 +1,6 @@
 /** Copilot never reads, searches or edits an environment file [SPEC-ENVIRONMENT-FILES, Protection]. */
 import assert from 'node:assert/strict';
-import { mkdir, mkdtemp, realpath, rm, writeFile } from 'node:fs/promises';
+import { mkdir, mkdtemp, realpath, rm, symlink, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
@@ -44,6 +44,13 @@ test('file tools, searches, patches and shell commands that name an environment 
   }
   // From a subdirectory too: the repository is found by walking up.
   assert.ok(denied(await guard('read', { path: 'application-dev.yml' }, path.join(repo.root, 'services/api/src/main/resources'))));
+  // A path can spell the repository another way (a Windows 8.3 short name, here a link; a junction
+  // needs no privilege on Windows), including a file that does not exist yet.
+  const alias = path.join(path.dirname(repo.root), `${path.basename(repo.root)}-alias`);
+  await symlink(repo.root, alias, 'junction');
+  t.after(() => rm(alias, { force: true }));
+  assert.ok(denied(await guard('view', { path: path.join(alias, SPRING) })));
+  assert.ok(denied(await guard('create', { path: path.join(alias, 'apps/web/.env.dev'), file_text: 'TOKEN=x' })));
 
   for (const [toolName, toolArgs] of [
     ['read', { path: 'src/App.jsx' }],

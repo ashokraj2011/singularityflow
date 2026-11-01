@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
-import { mkdir, mkdtemp, readFile, readdir, rm, writeFile } from 'node:fs/promises';
+import { mkdir, mkdtemp, readFile, readdir, rm, symlink, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
@@ -74,6 +74,22 @@ test('bound repository searches, bootstrap, tests and direct source operations r
     resolveRoot: async () => item.root
   }), {});
   assert.equal((await item.guard(`cd '${item.root}' && cd .. && find .`)).permissionDecision, 'deny');
+});
+
+test('a search in the repository is allowed however Copilot spells its directory', async t => {
+  const item = await fixture(t);
+  await recordRepositoryBoundaryTurn({ ...item.payload, prompt: '/sf-code' });
+  // Copilot keeps the spelling its working directory was given (a Windows 8.3 short name, here a
+  // link; a junction needs no privilege on Windows), while Git reports the repository's own.
+  const alias = path.join(item.directory, 'alias');
+  await symlink(item.root, alias, 'junction');
+  await mkdir(path.join(item.root, 'src'));
+  assert.deepEqual(await repositoryDiscoveryGuard({ ...item.payload, cwd: alias,
+    toolCalls: [{ name: 'bash', args: { command: 'rg --files src' } }] }, { resolveRoot: async () => item.root }), {});
+  assert.deepEqual(await repositoryDiscoveryGuard({ ...item.payload, cwd: item.scratch,
+    toolCalls: [{ name: 'glob', args: { pattern: '**/*.js', path: path.join(alias, 'src') } }] }, { resolveRoot: async () => item.root }), {});
+  assert.equal((await repositoryDiscoveryGuard({ ...item.payload, cwd: alias,
+    toolCalls: [{ name: 'bash', args: { command: 'cd .. && find .' } }] }, { resolveRoot: async () => item.root })).permissionDecision, 'deny');
 });
 
 test('discovery uses the phase-entry selected checkout, not an unrelated launch Git root', async t => {

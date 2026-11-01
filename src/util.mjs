@@ -62,12 +62,23 @@ const TEMPORARY_TREE_RETRYABLE_ERRORS = new Set([
   'EACCES', 'EBUSY', 'EMFILE', 'ENFILE', 'ENOTEMPTY', 'EPERM'
 ]);
 
-/** Path identity by the host's rules: Git for Windows varies drive and component case. Never raw strings. */
+/**
+ * Path identity by the host's rules: Git for Windows varies drive and component case. Never raw strings.
+ * On Windows one directory also has an 8.3 short name (`RUNNER~1`), which only the filesystem
+ * expands: a spelling with one is compared as the filesystem spells it.
+ */
 export function samePlatformPath(left, right, platform = process.platform) {
   if (left == null || right == null) return false;
   const api = platform === 'win32' ? path.win32 : path;
   const key = (value) => (platform === 'win32' ? api.resolve(String(value)).toLocaleLowerCase('en-US') : api.resolve(String(value)));
-  return key(left) === key(right);
+  if (key(left) === key(right)) return true;
+  return platform === 'win32' && process.platform === 'win32' && [left, right].some(shortNameSpelling)
+    && key(canonicalPathSync(left)) === key(canonicalPathSync(right));
+}
+
+/** Whether a Windows spelling may hold an 8.3 short name (`NAME~1`). */
+function shortNameSpelling(value) {
+  return /~\d/u.test(String(value));
 }
 
 /**
@@ -423,7 +434,7 @@ function traceSubprocess(key) {
   const frames = (new Error().stack ?? '').split('\n')
     // This helper, its caller in `run`, and Node's own internals are noise: the reader wants the
     // first frame that belongs to this product.
-    .filter((line) => line.includes(`${path.sep}src${path.sep}`) && !line.includes(`util.mjs`))
+    .filter((line) => /[\\/]src[\\/]/u.test(line) && !line.includes(`util.mjs`))
     /**
      * Deep enough to reach the surface that asked.
      *
@@ -574,7 +585,9 @@ export function commandLineFile(root, value, { reads = false } = {}) {
   const fromRoot = path.resolve(root, value);
   if (reads) return existsSync(here) || !existsSync(fromRoot) ? here : fromRoot;
   const inside = path.relative(path.resolve(root), path.resolve(invocationDirectory()));
-  return inside === '' || (!inside.startsWith('..') && !path.isAbsolute(inside)) ? fromRoot : here;
+  // The person's directory keeps the spelling it was given (a Windows 8.3 short name), Git's root the long one.
+  return inside === '' || (!inside.startsWith('..') && !path.isAbsolute(inside))
+    || platformPathWithin(invocationDirectory(), root) ? fromRoot : here;
 }
 
 /**

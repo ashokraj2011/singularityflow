@@ -8,7 +8,7 @@ import test from 'node:test';
 import { fileURLToPath } from 'node:url';
 import {
   NETWORK_TIMEOUT_MS, SUBPROCESS_MAX_BUFFER_BYTES, canonicalPathSync, defaultTimeoutFor, networkDisabled, parseArgs,
-  platformPathWithin, run, writeJson, writeText
+  platformPathWithin, run, samePlatformPath, writeJson, writeText
 } from '../src/util.mjs';
 import { replaceWithSharingRetry } from '../src/atomic-replace.mjs';
 
@@ -307,22 +307,40 @@ test('two spellings of one directory are one path, by the spelling Git reports',
   assert.notEqual(realpathSync(short), realpathSync.native(checkout), 'fs.realpathSync keeps the short name');
   assert.equal(canonicalPathSync(short), realpathSync.native(checkout));
   assert.ok(platformPathWithin(path.join(short, 'nested'), checkout));
+  assert.ok(samePlatformPath(short, checkout), 'one directory, by its short and its long name');
+  assert.ok(samePlatformPath(path.join(short, 'nested'), path.join(checkout.toUpperCase(), 'nested')));
+  assert.ok(!samePlatformPath(path.join(short, 'nested'), checkout));
 });
 
-test('src/ takes a canonical spelling from realpathSync.native or fs/promises realpath, never fs.realpathSync', async () => {
+test('src/ and the VS Code extension take a canonical spelling from realpathSync.native or fs/promises realpath, never fs.realpathSync', async () => {
   // On Windows fs.realpathSync (and fs.realpath) keep an 8.3 short name and the case they were
   // given, so a comparison with the spelling Git reports fails for the same directory. Only
   // platform-process.mjs keeps it, as an injectable default compared with itself alone.
-  const source = path.join(path.dirname(fileURLToPath(import.meta.url)), '..', 'src');
+  const repository = path.join(path.dirname(fileURLToPath(import.meta.url)), '..');
   const offenders = [];
-  for (const name of await readdir(source, { recursive: true })) {
-    if (!/\.m?js$/u.test(name)) continue;
-    const text = await readFile(path.join(source, name), 'utf8');
-    text.split('\n').forEach((line, index) => {
-      if (/\brealpathSync\s*\(/u.test(line) || /import\s*\{[^}]*\brealpath\b[^}]*\}\s*from\s*'node:fs'/u.test(line)) {
-        offenders.push(`${name.replaceAll('\\', '/')}:${index + 1}`);
-      }
-    });
+  for (const tree of ['src', 'apps/vscode/src']) {
+    const source = path.join(repository, tree);
+    for (const name of await readdir(source, { recursive: true })) {
+      if (!/\.(?:m?js|ts)$/u.test(name)) continue;
+      const text = await readFile(path.join(source, name), 'utf8');
+      text.split('\n').forEach((line, index) => {
+        if (/\brealpathSync\s*\(/u.test(line) || /import\s*\{[^}]*\brealpath\b[^}]*\}\s*from\s*'node:fs'/u.test(line)) {
+          offenders.push(`${tree}/${name.replaceAll('\\', '/')}:${index + 1}`);
+        }
+      });
+    }
   }
   assert.deepEqual(offenders, []);
+});
+
+test('a subprocess trace names the product frames that asked, on every platform', () => {
+  // Stack frames are file URLs, `/` on Windows too: a filter on path.sep printed "(no product frame)" there.
+  const execution = new URL('../src/git-execution.mjs', import.meta.url).href;
+  const traced = spawnSync(process.execPath, ['--input-type=module', '-e',
+    `import { repoRoot } from ${JSON.stringify(execution)}; repoRoot();`], {
+    cwd: path.join(path.dirname(fileURLToPath(import.meta.url)), '..'), encoding: 'utf8',
+    env: { ...process.env, SINGULARITY_FLOW_SUBPROCESS_PROBE: '1', SINGULARITY_FLOW_SUBPROCESS_TRACE: 'git rev-parse --show-toplevel' }
+  });
+  assert.equal(traced.status, 0, traced.stderr);
+  assert.match(traced.stderr, /^trace git rev-parse --show-toplevel\n\s+at repoRoot \(.*git-execution\.mjs:\d+:\d+\)$/mu);
 });

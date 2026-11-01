@@ -26,7 +26,15 @@ const ALLOWED_ENV_FILES = new Set(['', 'list', 'path', 'suggest', 'create', 'pla
 const KNOWN_ENV_FILES = Object.freeze(['list', 'path', 'suggest', 'override', 'create', 'place', 'link', 'unlink', 'adopt', 'add', 'remove', 'root']);
 
 function exists(file) { try { return lstatSync(file); } catch { return null; } }
-function canonical(file) { try { return realpathSync.native(file); } catch { return path.resolve(file); } }
+// What does not exist yet keeps its names below the nearest directory that does, spelled as the
+// filesystem spells it (a Windows 8.3 short name expanded), as util.mjs canonicalPathSync.
+function canonical(file) {
+  const missing = [];
+  for (let current = path.resolve(file); ; current = path.dirname(current)) {
+    try { return path.join(realpathSync.native(current), ...missing.reverse()); }
+    catch { if (path.dirname(current) === current) return path.resolve(file); missing.push(path.basename(current)); }
+  }
+}
 function within(directory, target) {
   const relative = path.relative(directory, target);
   return relative === '' || (!relative.startsWith(`..${path.sep}`) && relative !== '..' && !path.isAbsolute(relative));
@@ -128,8 +136,11 @@ export function protectedTarget(protection, target, cwd) {
   for (const location of protection.locations) {
     if (within(location, absolute) || within(location, resolved)) return target;
   }
-  if (protection.root && protection.match && within(protection.root, absolute)) {
-    const relative = path.relative(protection.root, absolute).split(path.sep).join('/');
+  // As spelled, and as the filesystem spells both: the target can name the repository by a Windows 8.3 short name.
+  const spellings = protection.root && protection.match ? [[protection.root, absolute], [canonical(protection.root), resolved]] : [];
+  for (const [root, candidate] of spellings) {
+    if (!within(root, candidate)) continue;
+    const relative = path.relative(root, candidate).split(path.sep).join('/');
     if (relative && protection.policies.some((policy) => protection.match(policy, relative))) return relative;
   }
   return null;

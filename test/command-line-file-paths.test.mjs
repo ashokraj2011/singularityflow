@@ -8,7 +8,7 @@
  */
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
-import { mkdir, mkdtemp, readFile, realpath, rm, writeFile } from 'node:fs/promises';
+import { mkdir, mkdtemp, readFile, realpath, rm, symlink, writeFile } from 'node:fs/promises';
 import { existsSync } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
@@ -49,6 +49,13 @@ test('a named file is read where the person is, else under the root; written the
   assert.equal(commandLineFile(root, 'out.json'), path.join(root, 'out.json'), 'inside the repository, written files keep their old place');
   assert.equal(commandLineFile(root, 'rooted.json', { reads: true }), path.join(root, 'rooted.json'));
   assert.equal(commandLineFile(root, path.join(outside, 'here.json'), { reads: true }), path.join(outside, 'here.json'), 'an absolute path is itself');
+
+  // The person's directory keeps the spelling it was given: a Windows 8.3 short name, here a link
+  // (a junction needs no privilege on Windows). Inside the repository is inside however it is spelled.
+  const alias = path.join(base, 'alias');
+  await symlink(root, alias, 'junction');
+  globalThis.__SINGULARITY_FLOW_INVOCATION_DIRECTORY = path.join(alias, 'docs');
+  assert.equal(commandLineFile(root, 'out.json'), path.join(root, 'out.json'), 'another spelling of a directory inside is inside');
 });
 
 test('workflow import and export from a folder outside the selected workspace use that folder', async (t) => {

@@ -12,6 +12,7 @@ questions:
   - What is a per-person exception?
   - I lost my Mac; how do I recover my presence key?
   - Which agent and skill made this change?
+  - Which changed lines came from outside the workflow?
   - Why does approve ask for Touch ID?
   - Why is an approval not counted?
   - Why does a risk or scope decision ask for Touch ID?
@@ -29,7 +30,7 @@ related:
   - approvals
   - configuration
   - copilot-and-surfaces
-version: 4
+version: 5
 ---
 SF Guard makes a person's own steps provable. An agent runs as the same user on the same computer: it can read Git configuration, run any command, fake a terminal and write Git records directly, so nothing it can type proves a person decided. SF Guard asks for the one thing it cannot produce, a signature from a Secure Enclave key on the person's Mac made after their Touch ID. It is off until a repository opts in; a repository that never opts in behaves exactly as before. Refusals keep the `PSS_` codes of SPEC-PSS-v1.
 
@@ -77,6 +78,18 @@ SF Guard's second part records where agent work came from. It never refuses anyt
 - the Story the checkout is bound to.
 
 Plain prompts and paused sessions are recorded too. A shell command keeps only a digest of its text, plus the HEAD and index state before and after. A command that never ran is recorded as not run. Records stay on the machine, kept 14 days, and a recording failure is kept as a gap that never changes what Copilot is allowed to do. A declared agent names itself through a stamping hook in its agent file, which runs `sflow hook agent-stamp <AGENT> userPromptSubmitted`. Without one, the agent reads as none. Copilot never names the agent you picked.
+
+`singularity-flow guard enable` also writes that stamping hook into each agent file this repository owns, in the same reviewed change as the opt-in, and `singularity-flow guard stamp-agents` writes any that are missing or were edited (both are the person's own steps). A file with no hooks of its own gets one exact block before its closing `---` and no other change, so a framework agent stays as it shipped. APM's agent files are left to their package and read "agent unknown". If an agent file differs from its approved bytes, the session's records carry "agent files changed", because a changed file could let another agent stamp itself as that one.
+
+`singularity-flow guard reconcile` gives every line the change set adds or changes exactly one class: in a Story checkout, the Story since its base against its step's declared agents and skills; anywhere else, the working tree and unpushed commits against the repository's.
+- **declared**: a verified write by a declared agent and skill, or by SFlow's own skill.
+- **outside-workflow**: plain Copilot with no agent and no skill, an agent the workflow doesn't declare (or one not listed for the step), or a skill it doesn't pin.
+- **unknown-agent**: a declared skill's work, by an agent no hook named.
+- **shell**: changed while a recorded shell command ran, such as `node -e`, and never credited to an edit.
+- **pre-guard**: changed before SF Guard was on here, or in a Story pinned before it.
+- **unattributed**: nothing recorded explains it: a person, another tool, a lost record, or a record claiming lines its own arguments don't explain. It never reads as "person"; only a presence signature proves a person.
+
+It reads Git a fixed three times and stops at 500 files or 20,000 lines; a capped report says it is partial. With SF Guard on, an `upstream-issue raise` or `story intent-amendment propose` that a Copilot shell call runs without `--authored` is recorded as `governed-agent`, and an agent that claims `--authored human` for one is refused with its own command, except for the person's own words in their `/sf-decide`.
 
 ## Troubleshooting
 

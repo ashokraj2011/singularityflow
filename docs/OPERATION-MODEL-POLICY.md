@@ -358,10 +358,12 @@ Every public operation is classified before its implementation module is importe
 | guard.disable | mutation | never | — | — |
 | guard.enable | mutation | never | — | — |
 | guard.exception | mutation | never | — | — |
+| guard.reconcile | read | never | — | — |
 | guard.recover | mutation | never | — | — |
 | guard.register | mutation | never | — | — |
 | guard.revoke | mutation | never | — | — |
 | guard.rotate | mutation | never | — | — |
+| guard.stamp-agents | mutation | never | — | — |
 | guard.status | read | never | — | — |
 | guide | read | never | — | — |
 | harness | mutation | never | — | — |

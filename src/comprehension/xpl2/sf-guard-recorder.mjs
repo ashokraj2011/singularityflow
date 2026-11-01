@@ -259,6 +259,7 @@ function writerFor(payload, map, stamps, call) {
     skill: skill.name, skillSource: skill.skillSource, agent: agent.agent, agentSource: agent.agentSource,
     ...(subagent ? { subagent } : {}), ...(map.prompt?.paused ? { paused: true } : {}),
     ...(skill.skillSource === 'continued' ? { continued: true } : {}),
+    ...(map.agentFilesChanged?.length ? { agentFilesChanged: map.agentFilesChanged } : {}),
     classification: sfGuardClassification(agent, skill), provisional: true
   };
 }
@@ -322,8 +323,36 @@ export async function sfGuardNotePrompt(payload = {}, { directory = sfGuardBound
   map.binding = subject.binding;
   map.subject = subject.workId ? { workId: subject.workId, phase: subject.phase, generation: null } : { scope: 'repository' };
   map.on = state;
+  map.agentFilesChanged = person ? await changedStampedAgents(repo).catch(() => null) : map.agentFilesChanged ?? null;
   map.lastSeenAt = now;
   await writeJson(paths.map, map);
+}
+
+const stampedFile = (repo) => path.join(repo.commonDir, 'singularity-flow', 'guard', 'stamped-agents.json');
+
+/** Left by `guard` when it stamps or reads the declared agents' files: each file's path and digest. */
+export async function writeSfGuardStampedAgents(cwd, agents, { now = Date.now() } = {}) {
+  const repo = await sfGuardRepository(cwd);
+  if (!repo) return;
+  await writeJson(stampedFile(repo), { format: 'sfg-stamped-agents@1', at: new Date(now).toISOString(),
+    agents: agents.slice(0, LIMIT.stamps).map(({ id, path: file, sha256 }) => ({ id, path: file, sha256 })) });
+}
+
+/**
+ * The declared agents whose files changed since `guard` stamped them [SPEC-SFG-v1 CON-002, AC-011]:
+ * a removed or edited stamping hook, or any other change, could let another agent stamp itself as
+ * one. Checked once per person's prompt, from bytes on disk.
+ */
+async function changedStampedAgents(repo) {
+  const manifest = await readJson(stampedFile(repo), LIMIT.mapBytes);
+  if (manifest?.format !== 'sfg-stamped-agents@1' || !Array.isArray(manifest.agents)) return null;
+  const changed = [];
+  for (const entry of manifest.agents.slice(0, LIMIT.stamps)) {
+    if (typeof entry?.path !== 'string' || entry.path.split('/').includes('..') || path.isAbsolute(entry.path)) continue;
+    const bytes = await readFile(path.join(repo.root, entry.path)).catch(() => null);
+    if (!bytes || sha(bytes) !== entry.sha256) changed.push(name(entry.id) ?? 'unknown');
+  }
+  return changed.length ? changed : null;
 }
 
 /** The writer fields an explicit SFlow turn's observed write gains while SF Guard records (or null). */
@@ -429,7 +458,7 @@ export async function sfGuardNoteToolResult(payload = {}, { directory = sfGuardB
     const after = await fingerprint(repo);
     for (const entry of done) {
       await appendRecord(repo.gitDir, { writer: entry.writer, subject: map.subject ?? null, call: entry.call,
-        commandSha256: entry.commandSha256, cwd: entry.cwd, before: entry.before, after, ran: true,
+        commandSha256: entry.commandSha256, cwd: entry.cwd, startedAt: new Date(entry.at).toISOString(), before: entry.before, after, ran: true,
         changed: entry.before.head !== after.head || entry.before.index !== after.index }, now);
     }
     await writeJson(paths.shell, { format: FORMAT, calls: pending.filter((entry) => !keys.has(entry.call)) });
@@ -507,16 +536,54 @@ export async function runSfGuardStamp(agent, event, input = process.stdin) {
 /**
  * The agent-scoped hooks a declared agent's `.agent.md` frontmatter carries (D4): a stamp per prompt,
  * which also covers the agent run as a subagent. Each answers `{}` even where SFlow is not on PATH.
+ * `command` (with VS Code's `windows`) is the key G0 saw fire in agent files on both hosts; `bash` and
+ * `powershell` are the Copilot CLI hook file's own, carrying the same line.
  */
 export function sfGuardStampingHooks(agent, { events = ['userPromptSubmitted'] } = {}) {
   const agentName = name(agent);
   if (!agentName) throw new TypeError('A stamping hook needs an agent name of letters, digits, dot, dash or underscore.');
-  return Object.fromEntries(events.map((event) => [event, [{
-    type: 'command',
-    bash: `command -v singularity-flow >/dev/null 2>&1 && singularity-flow hook agent-stamp ${agentName} ${event} || printf '%s\\n' '{}'`,
-    powershell: `if (Get-Command singularity-flow -ErrorAction SilentlyContinue) { singularity-flow hook agent-stamp ${agentName} ${event} } else { Write-Output '{}' }`,
-    timeoutSec: 10
-  }]]));
+  return Object.fromEntries(events.map((event) => {
+    const posix = `command -v singularity-flow >/dev/null 2>&1 && singularity-flow hook agent-stamp ${agentName} ${event} || printf '%s\\n' '{}'`;
+    const windows = `if (Get-Command singularity-flow -ErrorAction SilentlyContinue) { singularity-flow hook agent-stamp ${agentName} ${event} } else { Write-Output '{}' }`;
+    return [event, [{ type: 'command', command: posix, windows, bash: posix, powershell: windows, timeoutSec: 10 }]];
+  }));
+}
+
+/** Whether a hook entry is SF Guard's stamp for `agent` (written by sfGuardStampingHooks). */
+export function isSfGuardStamp(entry, agent) {
+  return Boolean(entry && typeof entry === 'object') && [entry.command, entry.bash].some((line) => typeof line === 'string'
+    && line.includes(`singularity-flow hook agent-stamp ${agent} `));
+}
+
+/**
+ * The writer of the newest Copilot shell call now running in this checkout, or null [G2]: a command
+ * SFlow runs inside one (an agent's `upstream-issue raise`, say) is that agent's. Read from the
+ * session maps' pending shell calls; null where SF Guard is off or nothing runs.
+ */
+export async function sfGuardRunningCall(cwd, { directory = sfGuardBoundaryDirectory(), now = Date.now(), withinMs = 10 * 60 * 1000 } = {}) {
+  const repo = await sfGuardRepository(cwd);
+  if (!repo) return null;
+  let newest = null;
+  for (const entry of (await readdir(directory).catch(() => [])).filter((file) => file.endsWith('.attribution-shell.json')).slice(0, 256)) {
+    const base = path.join(directory, entry.slice(0, -'.attribution-shell.json'.length));
+    const map = await readJson(`${base}.attribution.json`, LIMIT.mapBytes);
+    if (map?.format !== SESSION_FORMAT || map.repo !== repo.root) continue;
+    for (const call of (await readJson(`${base}.attribution-shell.json`, LIMIT.mapBytes))?.calls ?? []) {
+      if (Number.isFinite(call?.at) && now - call.at <= withinMs && call.at <= now + 1000 && (!newest || call.at > newest.at)) newest = call;
+    }
+  }
+  return newest?.writer ?? null;
+}
+
+/**
+ * The authorship an SFlow record made with no `--authored` should carry: `governed-agent` while a
+ * Copilot shell call of this checkout runs it, outside a person's own decision turn (/sf-decide
+ * writes the person's words); else null, and the command keeps its default. Never throws.
+ */
+export async function sfGuardRunningAuthorship(cwd, options = {}) {
+  const writer = await sfGuardRunningCall(cwd, options).catch(() => null);
+  if (!writer) return null;
+  return /^(?:sf|sflow)-decide$/u.test(String(writer.skill ?? '').replace(/^\//u, '')) ? null : { authored: 'governed-agent', agent: name(writer.agent) };
 }
 
 /** This checkout's shell-call records (G2 reconciles them with the observed writes). */

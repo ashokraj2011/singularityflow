@@ -627,6 +627,8 @@ const RANK = Object.freeze({
   'epicStep.create': 4.2, 'epicWorkflow.create': 4.7, 'epicStep.update': 5.2, 'epicOutput.set': 5.3, 'epicOutput.remove': 5.4, 'epicWorkflow.update': 7.2,
   'skill.create': 2.2, 'import.librarySkill': 2.3, 'skill.update': 2.4,
   'instruction.create': 2.05, 'instruction.update': 2.1, 'instruction.remove': 11.2, 'presence.set': 0,
+  // Last, so an agent another change touched is stamped beside that change, never over it.
+  'agent.stamp': 12,
   'constitution.policy': 7.4, 'constitution.set': 7.5,
   'phase.agent': 8, 'agent.update': 9, 'skill.attach': 9.5, 'skill.detach': 9.5,
   'import.skill': 10, 'import.generated': 10, 'import.mcpServer': 10.5, 'import.remove': 11, 'skill.remove': 11.1,
@@ -975,6 +977,45 @@ class StudioCandidate {
     this.summary.push(`SF Guard: ${change.chain.events.slice(-added).map(event => event.kind).join(', ')} recorded in ${relative}.`);
   }
 
+  /**
+   * SF Guard's stamping hook in a declared agent's file [SPEC-SFG-v1 D4]. A file with no hooks of its
+   * own gets the exact stamp block before its closing `---` and no other byte changes, so a framework
+   * agent stays as it shipped (packaged identity reads it without the block). A file with hooks of its
+   * own gets the stamp beside them. Only agent files in this repository, and not APM's (its package
+   * owns them); any other agent stays "agent unknown".
+   */
+  async stampAgent(change) {
+    if (Object.keys(change).some(key => !['op', 'id'].includes(key))) {
+      throw new SingularityFlowError('An SF Guard stamp names only the agent.', { code: 'STUDIO_AGENT_INVALID' });
+    }
+    const agent = this.requireAgent(requireId(change.id, 'An agent ID'));
+    if (agent.scope !== 'repository' || agent.apm || typeof agent.text !== 'string') {
+      this.summary.push(`Agent ${agent.label} is not a file this repository owns, so SF Guard does not stamp it; its work reads "agent unknown".`);
+      return;
+    }
+    const [{ isSfGuardStamp, sfGuardStampingHooks }, { sfGuardStampBlockText, withSfGuardStampBlock }] = await Promise.all([
+      import('./comprehension/xpl2/sf-guard-recorder.mjs'), import('./presence/stamp-block.mjs')]);
+    const stamp = sfGuardStampingHooks(agent.id);
+    const current = (agent.hooks !== undefined ? agent.hooks : splitAgentText(agent.text, agent.id).document.get('hooks')?.toJSON?.()) ?? null;
+    const raw = !current && !agent.touched ? withSfGuardStampBlock(agent.text, sfGuardStampBlockText(stamp)) : null;
+    if (raw) {
+      this.touch(agent).rawText = raw;
+    } else {
+      const next = { ...(current ?? {}) };
+      for (const [event, entries] of Object.entries(stamp)) {
+        next[event] = [...(Array.isArray(next[event]) ? next[event] : []).filter(entry => !isSfGuardStamp(entry, agent.id)), ...entries];
+      }
+      if (JSON.stringify(next) === JSON.stringify(current)) return;
+      this.touch(agent).hooks = next;
+    }
+    this.summary.push(`Agent ${agent.label}: SF Guard's stamping hook written.`);
+  }
+
+  /** An agent file's text as this change set leaves it. */
+  agentText(agent) {
+    return agent.rawText ?? renderAgent(agent);
+  }
+
   writeTemplateIfMissing(relativeTemplate, id, label) {
     const relative = posix(path.join(this.sources.templatesRoot, relativeTemplate));
     if (existsSync(path.join(this.sources.configRoot, relative)) || this.templates.has(relative)) return;
@@ -1012,6 +1053,7 @@ class StudioCandidate {
       case 'instruction.update': return this.writeInstruction(change, false);
       case 'instruction.remove': return this.removeInstruction(change);
       case 'presence.set': return this.setPresence(change);
+      case 'agent.stamp': return this.stampAgent(change);
       case 'constitution.set': {
         if (Object.keys(change).some(key => !['op', 'path', 'articles'].includes(key)) || this.constitutionChanges.has(change.path)) {
           throw new SingularityFlowError('A constitution must be edited once per change set with only path and articles.', { code: 'STUDIO_CONSTITUTION_INVALID' });
@@ -1944,7 +1986,7 @@ class StudioCandidate {
   finalizeImports(problems) {
     for (const agent of this.agents.values()) {
       if (!agent.touched && !agent.imported) continue;
-      const text = agent.touched ? renderAgent(agent) : agent.text;
+      const text = agent.touched ? this.agentText(agent) : agent.text;
       this.rendered.set(agent.id, text);
       let parsed;
       try { parsed = parseAgentDependencies(text, { source: agent.relative }); }
@@ -2819,7 +2861,7 @@ class StudioCandidate {
       if (!agent.touched && !agent.imported) continue;
       const original = agent.imported ? agent.previousText : agent.text;
       const before = agent.scope === 'repository' && original && !agent.created ? original : null;
-      files.push({ path: agent.relative, before, after: this.rendered.get(agent.id) ?? (agent.touched ? renderAgent(agent) : agent.text) });
+      files.push({ path: agent.relative, before, after: this.rendered.get(agent.id) ?? (agent.touched ? this.agentText(agent) : agent.text) });
     }
     for (const relative of this.removedAgents) {
       const before = await readFile(path.join(this.sources.configRoot, relative), 'utf8').catch(() => null);
@@ -2895,7 +2937,7 @@ class StudioCandidate {
       if (!agent) continue;
       let parsed;
       try {
-        const text = this.rendered.get(agent.id) ?? (agent.touched ? renderAgent(agent) : agent.text);
+        const text = this.rendered.get(agent.id) ?? (agent.touched ? this.agentText(agent) : agent.text);
         parsed = parseAgentDependencies(text, { source: agent.relative ?? agent.fileName ?? `${agent.id}.agent.md`, agentId: agent.id });
       } catch { continue; }
       const scoped = [...parsed.skills, ...parsed.templates].filter((entry) => entry.phases.includes(source) && !entry.phases.includes(copyId))

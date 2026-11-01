@@ -206,7 +206,11 @@ test('the bundled CLI answers exactly like the sources while opening a handful o
   // (LIVE_SOURCE_FILES). No new file.
   // 4,660,000 holds: main 965b6788d measures 4,655,066; the same external-tool refusal and agent publish route add
   // 1,111 for 4,656,177. No new file.
-  assert.ok(narrowReads < 4_660_000,
+  // 4,665,000: main 6ad7b77af measures 4,659,101; SF Guard G2's record-authorship refusal (copilot-mutation-guard.mjs:
+  // an agent's upstream issue or scope proposal claiming a person) and the guard reconcile and stamp-agents actions
+  // (command-registry.mjs, command-skills.mjs) add 2,048 for 4,661,149. The declared set, reconciliation and stamp
+  // block load only when `guard` runs. No new file.
+  assert.ok(narrowReads < 4_665_000,
     `strict next-step reads must not inherit the broad phase-review closure (${narrowReads} bytes)`);
   const publicationClosure = closure('cold-publication.mjs');
   assert.ok(publicationClosure.length && publicationClosure.reduce((sum, item) => sum + item.bytes, 0) < 6 * 1024 * 1024,
@@ -417,7 +421,9 @@ test('the bundled CLI answers exactly like the sources while opening a handful o
   // 7,735,000: main ce4360779 measures 7,729,128; SF Guard M2's Story pin, signed approve and reject, and the
   // counting predicate on every approval reader add 2,752 for 7,731,880. The presence modules load only on a
   // Story that carries a pin. No new file.
-  assert.ok(hookContext < 7_735_000,
+  // 7,740,000: main 6ad7b77af measures 7,733,499; the same G2 record-authorship refusal and guard actions add 2,105
+  // for 7,735,604. No new file.
+  assert.ok(hookContext < 7_740_000,
     `phase-review reads retain their existing byte ceiling after moving families (${hookContext} bytes)`);
   assert.match(await readFile(path.join(outdir, 'cold-light.mjs'), 'utf8'), /function enterPhase\b/u,
     'phase binding must not fall through to the compatibility/admin bundle');
@@ -509,7 +515,9 @@ test('the bundled CLI answers exactly like the sources while opening a handful o
   // 5,510,000: main 965b6788d measures 5,504,765; an agent's `phase publish` claiming an external tool's output refused
   // (copilot-mutation-guard.mjs), and its own publish-if-ready route given in place of a bare or person-authored
   // `phase publish` (agent-output.mjs agentPublication) add 1,111 for 5,505,876. No new file.
-  assert.ok(catalogBytes < 5_510_000,
+  // 5,515,000: main 6ad7b77af measures 5,508,800; the same G2 record-authorship refusal and guard actions add 2,105
+  // for 5,510,905. No new file.
+  assert.ok(catalogBytes < 5_515_000,
     `catalog parsing stays bounded instead of pulling in the entire administration bundle (${catalogBytes} bytes)`);
   for (const name of ['cold-compatibility.mjs', 'cold-models.mjs', 'cold-intake.mjs', 'cold-phases.mjs', 'cold-hook-context.mjs']) {
     assert.ok(!catalogClosure.some(item => item.file === name), `catalogs must not statically reach ${name}`);

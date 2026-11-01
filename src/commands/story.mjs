@@ -1972,8 +1972,13 @@ async function proposeIntentAmendment(root, config, workflow, options) {
   const proposedSha256 = createHash('sha256').update(proposedText).digest('hex');
   const proposedAt = nowIso();
   const requestedChangeOrigins = optionStrings(options, 'change-origin');
+  // With SF Guard on, a proposal a Copilot shell call runs is the agent's [SPEC-SFG-v1 G2]; otherwise as before.
+  const running = optionString(options, 'authored') || optionString(options, 'channel') ? null
+    : await import('../comprehension/xpl2/sf-guard-recorder.mjs').then((recorder) => recorder.sfGuardRunningAuthorship(root), () => null);
+  // Only where the scope step admits an agent's writing; anywhere else the old default stands.
+  const agentDefault = running && (() => { try { assertProducerAllowed(specification, running.authored); return true; } catch { return false; } })();
   const authorshipOptions = normalizeAuthorshipOptions({
-    producer: optionString(options, 'authored'),
+    producer: optionString(options, 'authored') ?? (agentDefault ? running.authored : undefined),
     channel: optionString(options, 'channel'),
     imported: true,
     externalAiUse: optionString(options, 'external-ai'),

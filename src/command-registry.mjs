@@ -23,7 +23,8 @@ const LOCK_READS = Object.freeze(['show', 'show-file']);
 // Backups of this laptop's drafts and local documents (SDA M5): inspect reads; restore saves drafts and bytes here only.
 const BACKUP_SUBCOMMANDS = Object.freeze(['create', 'inspect', 'restore']);
 // SF Guard (SPEC-PSS-v1): status reads; every other action is the person's own presence-signed step.
-const GUARD_SUBCOMMANDS = Object.freeze(['status', 'register', 'rotate', 'recover', 'revoke', 'enable', 'disable', 'exception']);
+const GUARD_SUBCOMMANDS = Object.freeze(['status', 'reconcile', 'register', 'rotate', 'recover', 'revoke', 'enable', 'disable', 'exception', 'stamp-agents']);
+const GUARD_READS = Object.freeze(['status', 'reconcile']);
 const UPSTREAM_ISSUE_SUBCOMMANDS = Object.freeze(['raise', 'list', 'decide', 'propose-amendment', 'decide-amendment', 'revalidate']);
 
 const CONFIGURATION_READ_SUBCOMMANDS = Object.freeze([
@@ -1663,7 +1664,7 @@ export function resolveOperation({ requestedCommand, positionals, options = {}, 
   if (definition.name === 'guard') {
     const action = positionals[1] ?? 'status';
     if (!GUARD_SUBCOMMANDS.includes(action)) return unknownSubcommand('guard', action, GUARD_SUBCOMMANDS);
-    return never(`guard.${action}`, definition, action === 'status' ? 'read' : 'mutation');
+    return never(`guard.${action}`, definition, GUARD_READS.includes(action) ? 'read' : 'mutation');
   }
   if (definition.name === 'upstream-issue') {
     const action = positionals[1] ?? 'list';
@@ -1937,7 +1938,7 @@ export function operationCatalog() {
     ...Object.values(APM_OPERATIONS).flatMap((id) => [never(`${id}.preview`, commandDefinition('apm'), 'read'), never(id, commandDefinition('apm'), 'mutation')]),
     ...LOCK_SUBCOMMANDS.map(name => never(`lock.${name}`, commandDefinition('lock'), LOCK_READS.includes(name) ? 'read' : 'mutation')),
     ...BACKUP_SUBCOMMANDS.map(name => never(`backup.${name}`, commandDefinition('backup'), name === 'inspect' ? 'read' : 'mutation')),
-    ...GUARD_SUBCOMMANDS.map(name => never(`guard.${name}`, commandDefinition('guard'), name === 'status' ? 'read' : 'mutation')),
+    ...GUARD_SUBCOMMANDS.map(name => never(`guard.${name}`, commandDefinition('guard'), GUARD_READS.includes(name) ? 'read' : 'mutation')),
     ...['create', 'edit', 'remove'].flatMap(name => [never(`instruction.${name}.preview`, commandDefinition('instruction'), 'read'), never(`instruction.${name}`, commandDefinition('instruction'), 'mutation')]),
     ...SKILL_MUTATION_SUBCOMMANDS.flatMap((name) => [
       never(`skill.${name}.preview`, commandDefinition('skill'), 'read'), never(`skill.${name}`, commandDefinition('skill'), 'mutation')

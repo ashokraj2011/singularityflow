@@ -44,7 +44,7 @@ let packagedAgentIdentitiesPromise = null;
 
 function hash(value) { return createHash('sha256').update(value).digest('hex'); }
 export { parseAgentDependencies, parseAttachedSkills, isMcpDependencyUrl, isAgentTemplateReference, parseAgentTemplateReference } from './agent-document-parser.mjs';
-import { parseAgentDependencies, validAgentId as idPattern, isMcpDependencyUrl, isAgentTemplateReference, parseAgentTemplateReference } from './agent-document-parser.mjs';
+import { parseAgentDependencies, validAgentId as idPattern, isMcpDependencyUrl, isAgentTemplateReference, parseAgentTemplateReference, withoutSfGuardStampBlock } from './agent-document-parser.mjs';
 
 async function agentFiles(directory) {
   if (!(await exists(directory))) return [];
@@ -53,8 +53,9 @@ async function agentFiles(directory) {
     .map((entry) => path.join(directory, entry.name));
 }
 
+// SF Guard's stamping hook block is not a change to the agent: a stamped packaged copy stays packaged.
 function packagedAgentIdentity(file, text) {
-  return `${path.basename(file).toLocaleLowerCase('en-US')}\0${hash(text)}`;
+  return `${path.basename(file).toLocaleLowerCase('en-US')}\0${hash(withoutSfGuardStampBlock(text))}`;
 }
 
 async function packagedAgentIdentities() {

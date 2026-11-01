@@ -1083,6 +1083,35 @@ test('no agent publishes its draft as a person\'s writing, an external tool\'s o
   }
 });
 
+test('no agent records its upstream issue or scope proposal as a person\'s, except the person\'s own words in /sf-decide (SFG G2)', async t => {
+  const f = await fixture(t);
+  const claims = ['singularity-flow upstream-issue raise --phase custom-step --about AC-001 --problem "The criterion has no boundary." --authored human',
+    'singularity-flow story intent-amendment propose --work-id PMC-1 --file amended.md --reason "Scope moved." --authored human',
+    'singularity-flow story intent-amendment propose --work-id PMC-1 --file amended.md --reason "Scope moved." --authored governed-agent --channel manual-import'];
+  const own = ['singularity-flow upstream-issue raise --phase custom-step --about AC-001 --problem "The criterion has no boundary."',
+    'singularity-flow upstream-issue raise --phase custom-step --about AC-001 --problem "The criterion has no boundary." --authored governed-agent',
+    'singularity-flow story intent-amendment propose --work-id PMC-1 --file amended.md --reason "Scope moved." --authored governed-agent --channel copilot-host'];
+  for (const [skill, session] of [['/sf-phase', 'raiser'], ['/sf-next', 'next-raiser'], ['Raise it now.', 'plain-raiser']]) {
+    const payload = await f.enter(skill, session);
+    for (const command of claims) {
+      const refused = await repositoryToolGuard({ ...payload, toolName: 'bash', toolArgs: { command, cwd: f.root } });
+      assert.match(refused.permissionDecisionReason ?? '', /an agent records its own upstream issue or scope proposal as governed-agent, never as a person's/u, `${skill}: ${command}`);
+      // Its own record first: the same command as the agent's, then the person's line for their own terminal.
+      assert.match(refused.next[0].command, /--authored governed-agent$/u, `${skill}: ${command}`);
+      assert.doesNotMatch(refused.next[0].command, /--authored human|--channel/u, `${skill}: ${command}`);
+      assert.deepEqual([refused.next[1].copilotCommand, refused.next[1].skill], [null, null], `${skill}: ${command}`);
+    }
+    for (const command of own) {
+      const decision = await repositoryToolGuard({ ...payload, toolName: 'bash', toolArgs: { command, cwd: f.root } });
+      assert.doesNotMatch(decision.permissionDecisionReason ?? '', /never as a person's/u, `${skill}: ${command}`);
+    }
+  }
+  // In the person's own /sf-decide the agent records their words: a raise there stays theirs.
+  const decide = await f.enter('/sf-decide', 'decider-raise');
+  const theirs = await repositoryToolGuard({ ...decide, toolName: 'bash', toolArgs: { command: claims[0], cwd: f.root } });
+  assert.doesNotMatch(theirs.permissionDecisionReason ?? '', /never as a person's/u);
+});
+
 test('no agent turn pins a Story\'s authorized browser target origin; its preview stays a read', async t => {
   const f = await fixture(t);
   const digest = `sha256:${'b'.repeat(64)}`;

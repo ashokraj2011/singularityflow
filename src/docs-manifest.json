@@ -1,9 +1,9 @@
 {
   "schemaVersion": 2,
   "generatedFrom": "docs/topics",
-  "sourceCommit": "b77a02a1b6151dbe7c09de56b5a87189ec0d7ce6",
+  "sourceCommit": "6ad7b77af792be9044e9944f6871817f8cae5614",
   "topicCount": 88,
-  "contentSha256": "f95d34e548074aea18e3841365eb3758ff384c9c99346a22266ded96227ce162",
+  "contentSha256": "11e44698d1f630a6af03b03317c79592dc9b59941885945b590323821120eb45",
   "topics": [
     {
       "id": "activity-and-prompt-audit",
@@ -544,9 +544,9 @@
     {
       "id": "sf-guard",
       "title": "SF Guard",
-      "version": 4,
-      "sha256": "ac87d48047ff97f2a4a4912176c53788217ed0f6fc98406a4ee41a0a6e78db3e",
-      "routingSha256": "195d5891626a658bb5d65fee2252f884326abc264e60b34e44d3a5a4b77d0a2d",
+      "version": 5,
+      "sha256": "cb58f6756399b6b5f2304f956785fdf87f997f4b2a66fb45b80781fa506742a3",
+      "routingSha256": "ba7d492037ad48daa2e9fd6d7a9223e68583f4e502a285e20cce0e1968055a05",
       "file": "sf-guard.md"
     },
     {

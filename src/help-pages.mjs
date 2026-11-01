@@ -1434,7 +1434,12 @@ const PAGES = Object.freeze({
       '(/usr/sbin/sc_auth create-ctk-identity -l sf-guard -k p-256-ne -t bio) once GitHub lists it as one of your SSH',
       'signing keys. enable is the signed opt-in, and may name per-person exceptions: an approver with no presence signer',
       'yet (Windows) keeps unsigned steps, labelled "bypass: per-person exception EXC-…" on every surface. In M1 the',
-      'policy is recorded; person steps start requiring signatures in M2. Refusals keep the PSS_ codes of SPEC-PSS-v1.'
+      'policy is recorded; person steps start requiring signatures in M2. Refusals keep the PSS_ codes of SPEC-PSS-v1.',
+      'With SF Guard on, each Copilot change is attributed to its agent and skill (SPEC-SFG-v1). enable also writes a',
+      'stamping hook into each agent file this repository owns, so the agent a person picks names itself; stamp-agents',
+      'writes any that are missing or edited. guard reconcile reads: it gives every changed line one class (declared,',
+      'outside-workflow, unknown-agent, shell, unattributed or pre-guard) against the workflow\'s declared agents and',
+      'skills. Labels never refuse anything.'
     ],
     options: [
       ['--key SHA256:…', 'The presence identity to pin, from /usr/sbin/sc_auth list-ctk-identities -t ssh (register picks the only one).'],
@@ -1448,7 +1453,9 @@ const PAGES = Object.freeze({
       ['singularity-flow guard status', 'Whether SF Guard is on, and each approver\'s key or exception.'],
       ['singularity-flow guard register', 'Pin this Mac\'s Touch ID identity, once GitHub lists it as your signing key.'],
       ['singularity-flow guard enable --remote-check sf-guard-verify --exception approver-0123456789ab', 'Opt in, with a labelled exception for a Windows approver.'],
-      ['singularity-flow guard recover --key SHA256:…', 'Lost your Mac: pin a new identity after removing the old key from GitHub.']
+      ['singularity-flow guard recover --key SHA256:…', 'Lost your Mac: pin a new identity after removing the old key from GitHub.'],
+      ['singularity-flow guard reconcile', 'Which changed lines came from a declared agent and skill, and which did not.'],
+      ['singularity-flow guard stamp-agents', 'Write the stamping hook into agent files that lack it, or whose stamp was edited.']
     ],
     seeAlso: ['approve', 'configuration', 'decisions']
   },

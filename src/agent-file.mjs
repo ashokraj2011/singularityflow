@@ -55,6 +55,11 @@ export function renderAgentFile(entry) {
   if (entry.tools != null && JSON.stringify(document.get('tools')?.toJSON?.() ?? null) !== JSON.stringify(entry.tools)) {
     document.set('tools', document.createNode([...entry.tools], { flow: true }));
   }
+  // Agent-scoped hooks (SF Guard's stamp, SPEC-SFG-v1 D4) are written whole, and only when they change.
+  if (entry.hooks !== undefined && JSON.stringify(document.get('hooks')?.toJSON?.() ?? null) !== JSON.stringify(entry.hooks)) {
+    if (entry.hooks == null) document.delete('hooks');
+    else document.set('hooks', document.createNode(entry.hooks));
+  }
   const metadata = document.get('metadata') ?? document.createNode({});
   if (!document.has('metadata')) document.set('metadata', metadata);
   // A step this agent gives to an APM agent stays in its file, where the file had it: it drafts the

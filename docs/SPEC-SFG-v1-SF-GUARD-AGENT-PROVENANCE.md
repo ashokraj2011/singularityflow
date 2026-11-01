@@ -198,6 +198,24 @@ The Story-specific rules don't apply there.
 
 A Copilot agent mapped to a Flow agent through `agent-mappings.yml` (`templates/agent-mappings.yml`) counts as that Flow agent.
 
+### 4.1 As built (G2)
+
+- **The declared set:** `src/presence/declared-set.mjs`, pure. `sfGuardDeclaredSet({ agents, librarySkills, mappings, phase })` takes the configuration's agent catalog (repository, APM, user-defined, plugin and bundled agents alike).
+  - **For a step:** the agents listed for it (its `phases`, `defaultFor`, an agent with no phases, or the step's `defaultAgent`), SFlow's own agents, the step's `authoringSkill` or skill-step binding, and the library skills attached to its agents for that step.
+  - **For the repository:** every catalog agent, every library skill and attachment.
+  - **Names:** an agent answers to its catalog ID, its file's name, its frontmatter name, and every Copilot agent `agent-mappings.yml` maps onto it. SFlow's own skills (`sf-*`, `sflow-*`) are always declared.
+- **Settling (REQ-012):** `sfGuardSettle(writer, declared)` turns G1's provisional class into `declared`, `outside-workflow` or `unknown-agent`, at read time, so records are never rewritten.
+  - No agent and no skill: outside the workflow (D1).
+  - No agent with SFlow's own skill: declared, since SFlow's skills run as SFlow's agents.
+  - No agent with another declared skill: `unknown-agent`.
+  - A named agent: declared only when the set has it and its skill (if any) is declared.
+  - An older explicit turn's writer (format @2) reads as its bound agent.
+- **Stamping (D4):** `guard enable` writes the stamp into each agent file this repository owns, in the same reviewed change as the signed opt-in; `guard stamp-agents` (a person's own step, unsigned) writes any missing or edited.
+  - Workflow Studio's `agent.stamp` runs last in a change set. A file with no hooks of its own gets one exact block before its closing `---` and no other byte changes (`src/presence/stamp-block.mjs`), so a framework agent keeps its packaged identity, which reads the file without the block (`src/agents.mjs`). A file with hooks of its own gets the stamp beside them.
+  - The hook entry carries `command` (with `windows`), the key G0 saw fire in agent files on both hosts, and the Copilot CLI hook file's `bash` and `powershell`, the same line.
+  - APM's agent files are left to their package and read "agent unknown".
+- **Drift (CON-002, AC-011):** `guard` leaves the approved bytes of each stamped agent file in `<common git dir>/singularity-flow/guard/stamped-agents.json`. Each person's prompt compares the working tree with them, and the session's records carry `agentFilesChanged` (the agent IDs) while a file differs. `guard status` lists each agent file as `stamped`, `not-stamped` or `changed`.
+
 ## 5. Attribution records
 
 **[SFG:REQ-020] One record per call.** With SF Guard on, every Copilot `preToolUse` that edits a file or runs a shell command in the repository records:
@@ -268,6 +286,19 @@ Unverified lines (the arguments don't explain them) are never credited (`observe
 
 **[SFG:REQ-031]** Reconciliation reads Git once per request, through the existing Git execution layer, and is bounded. A capped report says it is partial, never "all declared".
 
+### 6.1 As built (G2)
+
+- **Command:** `singularity-flow guard reconcile [--json]` is a read open to any turn (`src/presence/reconcile.mjs`). In a Story checkout it reconciles the Story since its base (its work interval's source base, else the step's baseline), with that step's declared set; anywhere else, the working tree and unpushed commits since the upstream commit (else HEAD), with the repository's.
+- **Git:** a fixed three reads per request (`sfGuardChangeSet` in `src/git.mjs`): the upstream commit, one zero-context patch to the working tree (renames as delete and add), and the untracked files. Never one per file or line.
+- **Per changed line**, from the current bytes on disk:
+  - the observed writes' byte chain (XPL2's `attributeLineWriter`, start unknown) credits a verified write's writer, settled per §4.1;
+  - a line in an unverified change reads `unattributed` (AC-007);
+  - otherwise, `shell` when the file last changed while a recorded shell call ran (its window, start to end, within 2 s; G1 records now carry `startedAt`, and older ones count the minute before they ended) (AC-005);
+  - otherwise, `pre-guard` when the Story's pin predates SF Guard, or the file last changed before the signed opt-in;
+  - otherwise, `unattributed` (AC-006).
+- **Bounds:** 500 files, 20,000 lines, 1 MiB a file, 400 ranges in the report. A capped report carries `partial`, never "all declared". Removed lines are counted, not classed.
+- **Records an agent writes:** with SF Guard on, `upstream-issue raise` and `story intent-amendment propose` run by a Copilot shell call with no `--authored` are recorded as `governed-agent` (`sfGuardRunningAuthorship`, from the session maps' running shell calls, where the scope step admits it). The hook refuses an agent's `--authored human` on either, with the agent's own command first, except a raise in the person's own `/sf-decide`, whose words are theirs.
+
 ## 7. Labels and where they show
 
 **[SFG:REQ-040] Wording:**
@@ -323,7 +354,7 @@ Before submission, CON-002 applies. With part 1 off, the labels still show, but 
 | --- | --- | --- | --- |
 | G0 | The probe of REQ-001 on the user's Copilot CLI and in VS Code | — | **Done** 1 November 2026 in the CLI and in VS Code, all but the `Local` session target (§1.1) |
 | G1 | Recording (REQ-020 to 024): the per-session agent map, plain and paused turns, shell fingerprints, the "on" check | part 1 M1 (the policy file) | AC-001 to AC-004, the latency target. **Built** (§5.1) |
-| G2 | The declared set (§4) and reconciliation (§6) | G1 | AC-005 to AC-007 |
+| G2 | The declared set (§4) and reconciliation (§6) | G1 | AC-005 to AC-007. **Built** (§4.1, §6.1), with the stamping hooks and the drift label |
 | G3 | Labels in packets, receipts, the final check, `guard status` and `guard report` (§7) | G2, part 1 M2 (signed approval) | AC-008 to AC-010 |
 | G4 | Whole-repository labels outside Stories through D3's route; the agent-file drift label | G2 | AC-011 |
 | G5 | VS Code Guard panel and Story views | G3 | AC-012 |

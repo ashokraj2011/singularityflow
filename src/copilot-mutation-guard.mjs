@@ -1036,6 +1036,7 @@ function personAuthorshipClaim(options) {
   return !authored || PERSON_AUTHORSHIP.has(authored) || PERSON_CHANNELS.has(options.channel);
 }
 const AUTHORSHIP_CLAIM_DENIAL = 'PHASE_MUTATION_OPERATION_NOT_ALLOWED: an agent records its own publication as governed-agent, never as a person\'s writing, an external tool\'s output or with no author, in any chat: run the first command, which checks this draft and publishes it with the authorship SFlow can stand behind. A person who wrote the draft, or ran the tool that did, publishes it with the second command in their own terminal. Do not retry with another --authored value';
+const RECORD_AUTHORSHIP_DENIAL = 'PHASE_MUTATION_OPERATION_NOT_ALLOWED: an agent records its own upstream issue or scope proposal as governed-agent, never as a person\'s, in any chat but the person\'s own /sf-decide: run the first command. A person who wrote it records it with the second command in their own terminal. Do not retry with another --authored value';
 
 /** The person's own step this SFlow argv is, as { id, argv } with the command the person runs, or null. */
 function personStep(argv, cwd, depth = 0) {
@@ -1052,6 +1053,11 @@ function personStep(argv, cwd, depth = 0) {
   // person's claim, from their own terminal. As `--authored human` an agent's draft skipped its
   // clarification record and session proof (live reruns, 2026-11-01).
   if (positionals[0] === 'phase' && positionals[1] === 'publish' && personAuthorshipClaim(options)) return { id: 'authorship-claim', argv };
+  // So is an agent's upstream issue or scope proposal: as a person's it is credited to them [SPEC-SFG-v1 G2].
+  // In /sf-decide the agent records the person's own words, so a raise there stays theirs.
+  if (positionals[0] === 'upstream-issue' && positionals[1] === 'raise' && options.authored === 'human') return { id: 'record-authorship', argv, owners: ['decide'] };
+  if (positionals[0] === 'story' && positionals[1] === 'intent-amendment' && positionals[2] === 'propose'
+    && (PERSON_AUTHORSHIP.has(options.authored) || PERSON_CHANNELS.has(options.channel))) return { id: 'record-authorship', argv, owners: [] };
   if (positionals[0] === 'decisions' && positionals[1] === 'record') return { id: 'decision-list-record', argv };
   if (positionals[0] === 'upstream-issue' && UPSTREAM_ISSUE_DECISIONS.includes(positionals[1])) return { id: 'upstream-issue-decision', argv };
   // A plan's action runs its stored command in this process, and its authorization is the person's yes to it.
@@ -1080,11 +1086,15 @@ function personDecisionReason(owners) {
 
 /** A refusal of a person's own step: what it is, and the person's exact command as its one route. */
 function personStepRefusal({ id, argv, owners }) {
-  if (id === 'authorship-claim') {
+  if (id === 'authorship-claim' || id === 'record-authorship') {
     const phase = parseCli(argv).positionals[2];
-    const routes = [safeCommandGuidance({ argv: ['phase', 'prepublish', ...(phase ? [phase] : []), '--for-agent', '--json', '--publish-if-ready'] }),
-      safeCommandGuidance({ argv })].filter(Boolean).map((route, index) => (index ? { ...route, skill: null, copilotCommand: null } : route));
-    return { permissionDecision: 'deny', next: routes, permissionDecisionReason: `${AUTHORSHIP_CLAIM_DENIAL}.${routes.length
+    // The agent's own record: the same command with its authorship, never a person's.
+    const own = id === 'authorship-claim' ? ['phase', 'prepublish', ...(phase ? [phase] : []), '--for-agent', '--json', '--publish-if-ready']
+      : [...argv.filter((value, index) => !/^--(?:authored|channel)(?:=|$)/u.test(value) && !/^--(?:authored|channel)$/u.test(argv[index - 1] ?? '')), '--authored', 'governed-agent'];
+    const routes = [safeCommandGuidance({ argv: own }), safeCommandGuidance({ argv })].filter(Boolean)
+      .map((route, index) => (index ? { ...route, skill: null, copilotCommand: null } : route));
+    const reason = id === 'authorship-claim' ? AUTHORSHIP_CLAIM_DENIAL : RECORD_AUTHORSHIP_DENIAL;
+    return { permissionDecision: 'deny', next: routes, permissionDecisionReason: `${reason}.${routes.length
       ? `\n\n${routes.map(route => formatCommandRouteLines(route).join('\n')).join('\n\n')}` : ''}` };
   }
   const decision = Object.hasOwn(PERSON_DECISION_DENIALS, id);
@@ -1125,7 +1135,8 @@ function turnPersonDecisionDenial(payload, record) {
   const skill = String(record.skill ?? '').replace(/^\/?(?:sf|sflow)-/u, '');
   for (const call of calls(payload)) {
     const step = personStepOfCall(call, payload.cwd);
-    if (step && (['test-environment', 'authorship-claim'].includes(step.id) || (PERSON_DECISION_IDS.has(step.id) && !step.owners.includes(skill)))) {
+    if (step && (['test-environment', 'authorship-claim'].includes(step.id)
+      || ((PERSON_DECISION_IDS.has(step.id) || step.id === 'record-authorship') && !step.owners.includes(skill)))) {
       return personStepRefusal(step);
     }
   }

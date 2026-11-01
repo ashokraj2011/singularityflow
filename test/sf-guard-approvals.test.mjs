@@ -114,7 +114,7 @@ test('SF Guard required: approve takes the card and the touch before anything is
       const outcome = await inRoot(root, () => guard(['guard', ...enable], { positionals: ['guard', ...enable],
         options: { json: true, exception: [approverId(TWO)], 'remote-check': 'sf-guard-verify' } }, guardPerson(ONE.email, [key])));
       assert.equal(outcome.error, undefined, outcome.error?.message);
-      git('add', PRESENCE_CHAIN_PATH);
+      git('add', PRESENCE_CHAIN_PATH, '.github/agents');
       git('commit', '-qm', 'Turn SF Guard on');
       git('push', '-q', 'origin', 'main');
     }
@@ -250,7 +250,7 @@ test('a Story started while SF Guard was off keeps its pinned policy: its approv
       git('config', 'user.email', ONE.email);
       // Registered, not yet on: the Story starts while SF Guard is off.
       await sfGuard(root, ['register'], guardPerson(ONE.email, [key]));
-      git('add', PRESENCE_CHAIN_PATH);
+      git('add', PRESENCE_CHAIN_PATH, '.github/agents');
       git('commit', '-qm', 'Register a presence key');
       git('push', '-q', 'origin', 'main');
     }

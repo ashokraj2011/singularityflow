@@ -142,7 +142,10 @@ async function raise(root, config, workflow, options) {
   const fromArtifact = optionBoolean(options, 'from-artifact');
   const chosen = optionString(options, 'proposed');
   if (chosen != null && !UPSTREAM_ISSUE_PROPOSALS.includes(chosen)) refused(`--proposed must be one of ${UPSTREAM_ISSUE_PROPOSALS.join(', ')}.`);
-  const authored = optionString(options, 'authored') ?? 'human';
+  // With SF Guard on, a raise a Copilot shell call runs is the agent's [SPEC-SFG-v1 G2]; otherwise as before.
+  const running = optionString(options, 'authored') ? null
+    : await import('../comprehension/xpl2/sf-guard-recorder.mjs').then((recorder) => recorder.sfGuardRunningAuthorship(root), () => null);
+  const authored = optionString(options, 'authored') ?? running?.authored ?? 'human';
   if (!['human', 'governed-agent'].includes(authored)) refused('--authored must be human or governed-agent.');
   const manual = fromArtifact ? ['phase', 'about', 'problem', 'assumption', 'impact', 'supersedes'].filter((key) => options[key] !== undefined) : [];
   if (manual.length) {
@@ -164,7 +167,7 @@ async function raise(root, config, workflow, options) {
   if (!fromArtifact && !requests[0].phase) refused('Name the earlier step with --phase.');
   const actor = actionActor(root);
   const session = await loadSession(root, { required: false });
-  const agent = session?.workId === workflow.workItem.id ? session.agent ?? null : null;
+  const agent = (session?.workId === workflow.workItem.id ? session.agent ?? null : null) ?? running?.agent ?? null;
   // Validate every item before the first commit, so a malformed one records nothing.
   for (const request of requests) raiseUpstreamIssue(structuredClone(workflow), { ...request, authored, agent,
     raisedBy: actorKey(actor), at: nowIso() });

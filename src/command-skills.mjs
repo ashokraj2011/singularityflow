@@ -281,7 +281,7 @@ export const COMMAND_LINE_SKILL_ROUTES = Object.freeze({
   // A backup copies the only copy of local documents to a directory a person chooses; restore saves drafts.
   backup: route('sf-doctor', { create: null, restore: null }),
   // SF Guard: /sf-guard only reads; every other action is a person's own presence-signed step (OWN_TERMINAL_STEPS).
-  guard: route('sf-guard', { register: null, rotate: null, recover: null, revoke: null, enable: null, disable: null, exception: null }),
+  guard: route('sf-guard', { register: null, rotate: null, recover: null, revoke: null, enable: null, disable: null, exception: null, 'stamp-agents': null }),
   'help-metrics': route('sf-help', { on: null, off: null, clear: null }),
   repositories: route('sf-repositories', { 'cache clear': null }),
   gateway: route('sf-home', { serve: null }),
@@ -551,7 +551,7 @@ export const OWN_TERMINAL_STEPS = Object.freeze([
   ['configuration-approve', ([command, sub]) => command === 'configuration' && sub === 'approve'],
   // SF Guard: registering, rotating, recovering or revoking a presence key, turning the policy on or
   // off and per-person exceptions each take the person's Touch ID (SPEC-PSS-v1); only status reads.
-  ['sf-guard-person-step', ([command, sub]) => command === 'guard' && sub !== undefined && sub !== 'status']
+  ['sf-guard-person-step', ([command, sub]) => command === 'guard' && sub !== undefined && !['status', 'reconcile'].includes(sub)]
 ].map(([id, matches]) => Object.freeze({ id, matches })));
 
 /** The id of the own-terminal step this command line is, or null. */

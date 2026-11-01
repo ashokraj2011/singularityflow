@@ -93,6 +93,11 @@ function rowsForHeading(text, heading, expected) {
 }
 
 /** The skills an agent's `## Attached skills` table attaches: ID, steps (empty for all), when to use it. */
+// SF Guard's stamping hook block (SPEC-SFG-v1 D4, src/presence/stamp-block.mjs), as the stamp writes it.
+const SF_GUARD_STAMP_BLOCK = /^hooks:\n {2}userPromptSubmitted:\n {4}- type: command\n {6}command: "command -v singularity-flow [^\n]*agent-stamp [^\n]*\n(?: {6}[A-Za-z]+: [^\n]*\n)*(?=---(?:\r?\n|$))/mu;
+/** An agent file as it was before SF Guard stamped it (unchanged when it carries no stamp block). */
+export function withoutSfGuardStampBlock(text) { return typeof text === 'string' ? text.replace(SF_GUARD_STAMP_BLOCK, '') : text; }
+
 export function parseAttachedSkills(text, source = 'agent.md') {
   const seen = new Set();
   return rowsForHeading(text, LIBRARY_SKILL_TABLE.heading, LIBRARY_SKILL_TABLE.columns).map((row) => {

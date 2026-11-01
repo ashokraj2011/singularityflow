@@ -14,6 +14,8 @@
  * The signer, GitHub, the key readers and the configuration writer are parameters (`dependencies`),
  * so tests run every route with software keys and no environment switch.
  */
+import path from 'node:path';
+
 import { identity, repoRoot } from '../git.mjs';
 import { GITHUB_KEYS_PAGE, GITHUB_SIGNING_KEY_PAGE, githubListsKey, githubSigningKeys } from '../presence/anchor.mjs';
 import {
@@ -24,11 +26,11 @@ import { ctkIdentities, presenceIdentityStanding, readableCopies } from '../pres
 import { presenceNonce } from '../presence/statement.mjs';
 import { optionBoolean, optionString, optionStrings, SingularityFlowError } from '../util.mjs';
 
-export const GUARD_ACTIONS = Object.freeze(['status', 'register', 'rotate', 'recover', 'revoke', 'enable', 'disable', 'exception']);
-export const GUARD_READ_ACTIONS = Object.freeze(['status']);
+export const GUARD_ACTIONS = Object.freeze(['status', 'reconcile', 'register', 'rotate', 'recover', 'revoke', 'enable', 'disable', 'exception', 'stamp-agents']);
+export const GUARD_READ_ACTIONS = Object.freeze(['status', 'reconcile']);
 /** The person's own steps: refused for agents, whatever the turn. */
 export const GUARD_PERSON_ACTIONS = Object.freeze(GUARD_ACTIONS.filter((action) => !GUARD_READ_ACTIONS.includes(action)));
-const USAGE = 'Usage: singularity-flow guard <status|register|rotate|recover|revoke|enable|disable|exception add|exception revoke> …  (singularity-flow help guard)';
+const USAGE = 'Usage: singularity-flow guard <status|reconcile|register|rotate|recover|revoke|enable|disable|exception add|exception revoke|stamp-agents> …  (singularity-flow help guard)';
 const fail = (message, code, details = {}) => { throw new SingularityFlowError(message, { code, details }); };
 
 function print(options, json, text) {
@@ -158,17 +160,58 @@ function pinSigner(approver, pin, title, lines) {
   return { approver: approver.approver, keyId: pin.keyId, publicKey: pin.key, title, lines };
 }
 
-async function writeChain(root, chain, options, summary, deps) {
+async function writeChain(root, chain, options, summary, deps, stamps = []) {
   const { STUDIO_CHANGE_SET_SCHEMA } = await import('../workflow-studio.mjs');
-  const result = await deps.write(root, { schema: STUDIO_CHANGE_SET_SCHEMA, changes: [{ op: 'presence.set', chain }] }, options,
+  const changes = [...(chain ? [{ op: 'presence.set', chain }] : []), ...stamps.map((id) => ({ op: 'agent.stamp', id }))];
+  const result = await deps.write(root, { schema: STUDIO_CHANGE_SET_SCHEMA, changes }, options,
     { subject: 'sf-guard', message: `[configuration] SF Guard: ${summary}` });
   if (result?.valid === false) fail(`SF Guard did not record it: ${result.problems?.[0]?.message ?? 'the configuration change was refused'}.`, result.problems?.[0]?.code ?? 'PSS_CHAIN_INVALID');
   return result;
 }
 
-function writtenLines(result) {
+function writtenLines(result, { chain = true, stamps = 0 } = {}) {
   if (result?.reviewRequired) return [`Proposed for review as ${result.branch}. It takes effect once approved: singularity-flow configuration approve ${result.branch}`];
-  return [`Written to ${PRESENCE_CHAIN_PATH}. Review the diff and commit it with the rest of the configuration.`];
+  const files = [...(chain ? [PRESENCE_CHAIN_PATH] : []), ...(stamps ? ['the stamped agent files in .github/agents'] : [])];
+  return [`Written to ${files.join(' and ')}. Review the diff and commit ${stamps ? 'them' : 'it'} with the rest of the configuration.`];
+}
+
+/** The agent files SF Guard stamps [SPEC-SFG-v1 D4]: the ones this repository owns, not APM's. */
+const stampable = (definition) => (definition?.agentCatalog ?? []).filter((agent) => agent.scope === 'repository' && !agent.apm);
+
+/**
+ * Each stampable agent as the approved configuration has it: whether its file carries SF Guard's
+ * stamp, and whether the working tree's file still has the approved bytes (any change could let an
+ * agent stamp itself as this one, so it is labelled).
+ */
+async function agentStamps(root, definition) {
+  const [{ readFile }, { createHash }, { splitAgentText }, { isSfGuardStamp }] = await Promise.all([import('node:fs/promises'),
+    import('node:crypto'), import('../agent-file.mjs'), import('../comprehension/xpl2/sf-guard-recorder.mjs')]);
+  const rows = [];
+  for (const agent of stampable(definition)) {
+    let hooks = null;
+    try { hooks = splitAgentText(agent.text, agent.id).document.get('hooks')?.toJSON?.() ?? null; } catch { hooks = null; }
+    const stamped = Array.isArray(hooks?.userPromptSubmitted) && hooks.userPromptSubmitted.some((entry) => isSfGuardStamp(entry, agent.id));
+    const relative = agent.source ?? path.relative(root, agent.file).split(path.sep).join('/');
+    const onDisk = await readFile(path.join(root, relative)).catch(() => null);
+    const changed = !onDisk || createHash('sha256').update(onDisk).digest('hex') !== agent.sha256;
+    rows.push({ id: agent.id, path: relative, sha256: agent.sha256, stamped, changed });
+  }
+  return rows;
+}
+
+/** The stamp rows as written just now: the bytes on disk are the configuration this change records. */
+async function writtenStamps(root, rows) {
+  const [{ readFile }, { createHash }, { splitAgentText }, { isSfGuardStamp }] = await Promise.all([import('node:fs/promises'),
+    import('node:crypto'), import('../agent-file.mjs'), import('../comprehension/xpl2/sf-guard-recorder.mjs')]);
+  const written = [];
+  for (const row of rows) {
+    const bytes = await readFile(path.join(root, row.path)).catch(() => null);
+    if (!bytes) continue;
+    let stamped = false;
+    try { stamped = (splitAgentText(bytes.toString('utf8'), row.id).document.get('hooks')?.toJSON?.()?.userPromptSubmitted ?? []).some((entry) => isSfGuardStamp(entry, row.id)); } catch { stamped = false; }
+    written.push({ ...row, stamped, changed: false, sha256: createHash('sha256').update(bytes).digest('hex') });
+  }
+  return written;
 }
 
 function standingRows(state) {
@@ -181,11 +224,12 @@ function standingRows(state) {
   return rows;
 }
 
-function statusResult(state) {
+function statusResult(state, stamps = []) {
   const { folded, problems, historyChecked } = state.policy;
   return {
     status: folded.enabled ? 'required' : 'off',
     chainId: folded.chainId, events: folded.length, validEvents: folded.validLength, historyChecked, remoteCheck: folded.remoteCheck,
+    agents: stamps.map(({ id, path, stamped, changed }) => ({ id, path, stamp: !stamped ? 'not-stamped' : changed ? 'changed' : 'stamped' })),
     approvers: standingRows(state).map(({ approver, label, groups, standing }) => ({
       approver, label, groups, state: standing.state, standing: standing.label, keyId: standing.pin?.keyId ?? null,
       recovered: Boolean(standing.pin?.recovered), exception: standing.exception?.id ?? null
@@ -202,6 +246,10 @@ function statusText(result) {
   if (result.remoteCheck) lines.push(`  Remote check: ${result.remoteCheck}`);
   for (const row of result.approvers) lines.push(`  ${row.label} [${row.approver}]: ${row.standing}${row.recovered ? ' (recovered)' : ''}`);
   for (const problem of result.problems) lines.push(`  Problem (${problem.code}): ${problem.message}`);
+  const unstamped = result.agents.filter((row) => row.stamp !== 'stamped');
+  if (result.status === 'required' && result.agents.length) {
+    lines.push(`  Agent stamps: ${result.agents.length - unstamped.length} of ${result.agents.length} agent file(s) stamped${unstamped.length ? `; ${unstamped.map((row) => `${row.id} ${row.stamp === 'changed' ? '(file changed since approved: its work is labelled)' : '(not stamped: its work reads "agent unknown")'}`).join(', ')}. Stamp them: singularity-flow guard stamp-agents` : ''}.`);
+  }
   if (result.status === 'off' && !result.chainId) lines.push('  Opt in: singularity-flow guard register, then singularity-flow guard enable (both in your own terminal, with Touch ID).');
   return lines.join('\n');
 }
@@ -227,8 +275,60 @@ const defaultDependencies = () => ({
  * The verified on/off state, left for the Copilot hooks so they can tell, without Git, whether to
  * record attribution here [SPEC-SFG-v1 REQ-060]. Best effort: it never fails the command.
  */
-async function noteLocalState(root, enabled) {
-  await import('../comprehension/xpl2/sf-guard-recorder.mjs').then((recorder) => recorder.writeSfGuardLocalState(root, enabled)).catch(() => {});
+async function noteLocalState(root, enabled, stamps = null) {
+  await import('../comprehension/xpl2/sf-guard-recorder.mjs').then(async (recorder) => {
+    await recorder.writeSfGuardLocalState(root, enabled);
+    // The approved bytes of each stamped agent file, which the hooks compare the working tree with.
+    if (stamps) await recorder.writeSfGuardStampedAgents(root, stamps.filter((row) => row.stamped));
+  }).catch(() => {});
+}
+
+/**
+ * `guard reconcile`: the change set's lines, each with one class [SPEC-SFG-v1 REQ-030]. A Story
+ * checkout reconciles the Story against its base, with its step's declared set; anywhere else, the
+ * working tree and unpushed commits, with the repository's.
+ */
+async function reconcileResult(root, state) {
+  const [{ sfGuardChangeSet }, reconcile, { sfGuardDeclaredSet }, xpl2, recorder, { loadSkillLibrary }, { loadAgentMappings }] = await Promise.all([
+    import('../git.mjs'), import('../presence/reconcile.mjs'), import('../presence/declared-set.mjs'),
+    import('../comprehension/xpl2/observed-writes.mjs'), import('../comprehension/xpl2/sf-guard-recorder.mjs'), import('../skill-library.mjs'), import('../agents.mjs')]);
+  const story = await import('../accepted-story-execution.mjs').then(({ loadAcceptedStoryExecution }) => loadAcceptedStoryExecution(root), () => null);
+  const workflow = story?.workflow ?? null;
+  const definition = story?.config ?? state.definition;
+  const stepId = workflow?.currentPhase ?? null;
+  const phase = stepId ? { id: stepId, ...(workflow.resolution?.phases?.find((entry) => entry.id === stepId) ?? {}), ...(workflow.phases?.[stepId] ?? {}) } : null;
+  const library = await loadSkillLibrary(root).catch(() => ({ skills: new Map() }));
+  const mappings = await loadAgentMappings(root, { agents: definition.agentCatalog ?? [] }).catch(() => ({ mappings: {} }));
+  const declared = sfGuardDeclaredSet({ agents: definition.agentCatalog ?? [], librarySkills: [...library.skills.keys()], mappings: mappings.mappings, phase });
+  const base = workflow ? workflow.workIntervals?.current?.sourceBaseCommit ?? phase?.generationIntent?.baseline?.commit ?? null : null;
+  const read = reconcile.workingTreeReader(root);
+  let changes;
+  try { changes = sfGuardChangeSet(root, base); }
+  catch (error) { fail(`SF Guard could not read what changed here: ${error.message}`, 'SFG_CHANGE_SET_UNAVAILABLE'); }
+  const files = [...reconcile.parseZeroContextPatch(changes.patch), ...await reconcile.untrackedAsAdded(changes.untracked, read)];
+  const repository = await recorder.sfGuardRepository(root);
+  const writes = repository ? (await xpl2.readObservedWrites(repository.gitDir, { paths: files.map((file) => file.path) }).catch(() => ({ records: [] }))).records : [];
+  const shellRecords = await recorder.readSfGuardShellRecords(root).catch(() => []);
+  const enabled = [...(state.policy.chain?.events ?? [])].slice(0, state.policy.folded.validLength).reverse().find((event) => event.kind === 'enable' || event.kind === 'disable');
+  const guardOnAt = enabled?.kind === 'enable' ? Date.parse(enabled.at) : null;
+  const pin = workflow?.resolution?.presence ?? null;
+  const report = await reconcile.reconcileChangeSet({ files, readCurrent: read, writes, shellRecords, declared,
+    guardOnAt: Number.isFinite(guardOnAt) ? guardOnAt : null, pinnedOff: Boolean(workflow) && (!pin || pin.status !== 'required') });
+  return { scope: workflow ? { kind: 'story', workId: workflow.workItem?.id ?? null, step: stepId, base: changes.base } : { kind: 'repository', base: changes.base },
+    sfGuard: state.policy.folded.enabled ? 'on' : 'off', declared: { agents: declared.agents, skills: declared.skills }, ...report };
+}
+
+function reconcileText(result) {
+  const scope = result.scope.kind === 'story' ? `Story ${result.scope.workId}, step ${result.scope.step}, since ${String(result.scope.base).slice(0, 12)}` : `this repository since ${String(result.scope.base).slice(0, 12)}`;
+  const lines = [`SF Guard reconciliation for ${scope}${result.partial ? ` (partial: stopped at the ${result.partial.limit}-${result.partial.reason} bound)` : ''}:`];
+  lines.push(`  ${result.lines} changed line(s) in ${result.files} file(s); ${result.removed} removed line(s) are not classed.`);
+  for (const [name, count] of Object.entries(result.counts)) if (count) lines.push(`  ${name}: ${count} line(s)`);
+  for (const range of result.ranges.slice(0, 20)) {
+    if (range.classification === 'declared') continue;
+    lines.push(`    ${range.path}:${range.start}${range.end > range.start ? `-${range.end}` : ''} ${range.classification}${range.agent || range.skill ? ` (agent ${range.agent ?? 'unknown'}, skill ${range.skill ?? 'none'})` : ''}${range.agentFilesChanged ? ' [agent files changed]' : ''}`);
+  }
+  if (result.sfGuard === 'off') lines.push('  SF Guard is off here, so nothing is recorded: work reads unattributed or pre-guard.');
+  return lines.join('\n');
 }
 
 /** Run one guard action. `dependencies` replaces the signer, readers and writer (tests only pass them in-process). */
@@ -238,10 +338,15 @@ export async function run(argv, { positionals, options }, dependencies = {}) {
   if (!GUARD_ACTIONS.includes(action)) fail(`Unknown guard action '${action}'. ${USAGE}`, 'PSS_ACTION_UNKNOWN');
   const root = repoRoot();
   const state = await readState(root, { verify: deps.verify });
-  await noteLocalState(root, state.policy.folded.enabled);
-  if (action === 'status') {
-    if (positionals.length > 2) fail(`guard status takes no further arguments. ${USAGE}`, 'PSS_ARGUMENT_UNEXPECTED');
-    const result = statusResult(state);
+  const stamps = await agentStamps(root, state.definition).catch(() => []);
+  await noteLocalState(root, state.policy.folded.enabled, stamps);
+  if (action === 'status' || action === 'reconcile') {
+    if (positionals.length > 2) fail(`guard ${action} takes no further arguments. ${USAGE}`, 'PSS_ARGUMENT_UNEXPECTED');
+    if (action === 'reconcile') {
+      const result = await reconcileResult(root, state);
+      return print(options, result, reconcileText(result));
+    }
+    const result = statusResult(state, stamps);
     return print(options, result, statusText(result));
   }
   const { folded } = state.policy;
@@ -250,6 +355,17 @@ export async function run(argv, { positionals, options }, dependencies = {}) {
   const sign = (event, signers) => signEvent(chain, event, signers, deps);
   let summary;
   let next;
+  if (action === 'stamp-agents') {
+    // A configuration change a person makes: the stamping hook in each agent file this repository
+    // owns [SPEC-SFG-v1 D4]. It signs nothing; an agent never runs it (a person's own step).
+    if (positionals.length > 2) fail(`guard stamp-agents takes no positional arguments. ${USAGE}`, 'PSS_ARGUMENT_UNEXPECTED');
+    const ids = stamps.filter((row) => !row.stamped || row.changed).map((row) => row.id);
+    if (!ids.length) return print(options, { action, stamped: [], reviewRequired: false }, 'Every agent file this repository owns already carries SF Guard\'s stamping hook.');
+    const result = await writeChain(root, null, options, `stamp ${ids.join(', ')}`, deps, ids);
+    if (!result?.reviewRequired) await noteLocalState(root, state.policy.folded.enabled, await writtenStamps(root, stamps));
+    return print(options, { action, stamped: ids, written: result.written ?? null, branch: result.branch ?? null, reviewRequired: Boolean(result.reviewRequired) },
+      [`SF Guard's stamping hook written for ${ids.join(', ')}.`, ...writtenLines(result, { chain: false, stamps: ids.length })].join('\n'));
+  }
   if (action === 'register' || action === 'recover' || action === 'rotate') {
     if (positionals.length > 2) fail(`guard ${action} takes no positional arguments. ${USAGE}`, 'PSS_ARGUMENT_UNEXPECTED');
     const current = folded.pins.get(me.approver) ?? null;
@@ -297,7 +413,10 @@ export async function run(argv, { positionals, options }, dependencies = {}) {
     const remoteCheck = optionString(options, 'remote-check') ?? null;
     const event = nextPresenceEvent(chain, { kind: 'enable', remoteCheck, exceptions: entries });
     next = { chain: await sign(event, [pinSigner(me, pin, 'turn SF Guard on: person steps become presence-signed in this repository',
-      [`Remote check: ${remoteCheck ?? '(none named yet)'}`, ...entries.map((entry) => `Exception ${entry.id}: ${entry.approver} — ${entry.reason} (labelled as a bypass)`)])]) };
+      [`Remote check: ${remoteCheck ?? '(none named yet)'}`, ...entries.map((entry) => `Exception ${entry.id}: ${entry.approver} — ${entry.reason} (labelled as a bypass)`),
+        ...(stamps.length ? [`Stamps the agent files this repository owns, so their work is attributed: ${stamps.map((row) => row.id).join(', ')}`] : [])])]),
+    // The agents' stamping hooks land in the same reviewed change as the signed opt-in [SPEC-SFG-v1 D4].
+    stamps: stamps.map((row) => row.id) };
     summary = 'enable';
   } else if (action === 'disable') {
     const reason = optionString(options, 'reason');
@@ -332,10 +451,10 @@ export async function run(argv, { positionals, options }, dependencies = {}) {
   // The new chain must fold whole before anything is written.
   const checked = foldPresenceChain(next.chain, deps.verify ? { verify: deps.verify } : {});
   if (checked.problems.length) fail(`SF Guard did not record it: ${checked.problems[0].message}.`, checked.problems[0].code);
-  const result = await writeChain(root, next.chain, options, summary, deps);
-  if (!result?.reviewRequired) await noteLocalState(root, checked.enabled);
+  const result = await writeChain(root, next.chain, options, summary, deps, next.stamps ?? []);
+  if (!result?.reviewRequired) await noteLocalState(root, checked.enabled, next.stamps?.length ? await writtenStamps(root, stamps) : null);
   const event = next.chain.events.at(-1);
   return print(options, { action, event: { seq: event.seq, kind: event.kind }, chainId: next.chain.chainId, written: result.written ?? null,
     branch: result.branch ?? null, reviewRequired: Boolean(result.reviewRequired) },
-  [`SF Guard recorded ${summary} (event ${event.seq}).`, ...writtenLines(result)].join('\n'));
+  [`SF Guard recorded ${summary} (event ${event.seq}).`, ...writtenLines(result, { stamps: next.stamps?.length ?? 0 })].join('\n'));
 }

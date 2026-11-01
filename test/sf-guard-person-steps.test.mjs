@@ -163,7 +163,7 @@ test('SF Guard required: a scope decision takes the card and one touch, and only
       git('config', 'user.email', ONE.email);
       await sfGuard(root, ['register'], {}, guardPerson(ONE.email, [key]));
       await sfGuard(root, ['enable'], { exception: [approverId(TWO)], 'remote-check': 'sf-guard-verify' }, guardPerson(ONE.email, [key]));
-      git('add', PRESENCE_CHAIN_PATH);
+      git('add', PRESENCE_CHAIN_PATH, '.github/agents');
       git('commit', '-qm', 'Turn SF Guard on');
       git('push', '-q', 'origin', 'main');
     }
@@ -312,7 +312,7 @@ test('SF Guard required: every other family is signed where the Story is written
       git('config', 'user.email', ONE.email);
       await sfGuard(root, ['register'], {}, guardPerson(ONE.email, [key]));
       await sfGuard(root, ['enable'], { 'remote-check': 'sf-guard-verify' }, guardPerson(ONE.email, [key]));
-      git('add', PRESENCE_CHAIN_PATH);
+      git('add', PRESENCE_CHAIN_PATH, '.github/agents');
       git('commit', '-qm', 'Turn SF Guard on');
       git('push', '-q', 'origin', 'main');
     }

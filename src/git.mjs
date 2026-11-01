@@ -2098,6 +2098,18 @@ export function untrackedFiles(root) {
 }
 
 /**
+ * SF Guard's reconciliation read [SPEC-SFG-v1 REQ-031]: what changed since `base` (the upstream
+ * commit when none is given, else HEAD) as one zero-context patch to the working tree, renames as
+ * delete and add, plus the untracked files. A fixed three reads per request, never one per file.
+ */
+export function sfGuardChangeSet(root, base = null, { maximumBytes = 16 * 1024 * 1024 } = {}) {
+  const from = base ?? (git(['rev-parse', '--verify', '--quiet', '@{upstream}^{commit}'], { cwd: root, allowFailure: true }).stdout?.trim() || 'HEAD');
+  const patch = gitAnswer(['-c', 'core.quotePath=false', 'diff', '--no-color', '--no-ext-diff', '--no-textconv', '--unified=0',
+    '--no-renames', '--src-prefix=a/', '--dst-prefix=b/', from, '--'], { cwd: root, maxBuffer: maximumBytes }, `Changes since ${from}`);
+  return { base: from, patch, untracked: untrackedFiles(root) };
+}
+
+/**
  * The zero-context patch from `base` to the working tree, with renames found, of only the files
  * whose added or removed lines match `pattern` (Git's `-G`). Untracked files are not in it.
  */

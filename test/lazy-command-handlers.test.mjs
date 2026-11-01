@@ -303,7 +303,9 @@ test('root dispatch stays small and orchestration entrypoints load their handler
   // 835,000: main 7b8cad8f1 measures 829,463; util.mjs +762 (a Windows 8.3 short name compared as the filesystem
   // spells it, a command-line file from another spelling of the repository, trace frames on Windows) gives 830,225.
   // No new file.
-  assert.ok(root.bytes <= 835_000, `root dispatch loads ${root.bytes} source bytes`);
+  // 836,000: main 6ad7b77af measures 834,926; SF Guard G2's two guard actions (reconcile, a read, and
+  // stamp-agents, a person's step) add command-registry.mjs +107, giving 835,033. No new file.
+  assert.ok(root.bytes <= 836_000, `root dispatch loads ${root.bytes} source bytes`);
   assert.equal(root.files.has(path.join(sourceRoot, 'git.mjs')), false);
   assert.equal(root.files.has(path.join(sourceRoot, 'config.mjs')), false);
   // Only the pause-checking entries and Story creation read these; most commands never do.

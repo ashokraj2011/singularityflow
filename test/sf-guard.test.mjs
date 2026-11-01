@@ -333,3 +333,56 @@ test('guard: a repository that never opts in reads as off with no file and no pr
     assert.deepEqual([policy.present, policy.folded.enabled, policy.problems], [false, false, []]);
   } finally { process.chdir(previous); }
 });
+
+test('guard (SFG G2, D4): the signed opt-in stamps the agent files this repository owns; stamp-agents keeps them stamped beside their own hooks', async (t) => {
+  const root = await repository(t);
+  const keyOne = softwarePresenceKey();
+  const one = person(ONE.email, [keyOne]);
+  assert.equal((await sfGuard(root, ['register'], one)).error, undefined);
+  git(root, 'add', '-A');
+  git(root, 'commit', '-qm', 'Registered');
+  const before = (await sfGuard(root, ['status'], one)).result;
+  assert.ok(before.agents.length > 0, 'init made repository agents');
+  assert.ok(before.agents.every((row) => row.stamp === 'not-stamped'), JSON.stringify(before.agents));
+  // One agent already has a hook of its own: the stamp goes beside it.
+  const own = before.agents[0];
+  const ownFile = path.join(root, own.path);
+  const text = await readFile(ownFile, 'utf8');
+  await writeFile(ownFile, text.replace(/^---\n/u, '---\nhooks:\n  userPromptSubmitted:\n    - type: command\n      command: echo mine\n'));
+  git(root, 'commit', '-qam', 'Own hook');
+  const framework = before.agents[1];
+  const shipped = await readFile(path.join(root, framework.path), 'utf8');
+  const enabled = await sfGuard(root, ['enable'], one);
+  assert.equal(enabled.error, undefined, enabled.error?.message);
+  git(root, 'add', '-A');
+  git(root, 'commit', '-qm', 'SF Guard on');
+  const after = (await sfGuard(root, ['status'], one)).result;
+  assert.deepEqual(after.agents.filter((row) => row.stamp !== 'stamped'), [], JSON.stringify(after.agents));
+  // A framework agent gets the exact stamp block and no other byte changes: it stays recognisably packaged.
+  const { withoutSfGuardStampBlock } = await import('../src/presence/stamp-block.mjs');
+  const frameworkText = await readFile(path.join(root, framework.path), 'utf8');
+  assert.notEqual(frameworkText, shipped);
+  assert.equal(withoutSfGuardStampBlock(frameworkText), shipped);
+  const { splitAgentText } = await import('../src/agent-file.mjs');
+  assert.match(splitAgentText(frameworkText, framework.id).document.get('hooks').toJSON().userPromptSubmitted[0].command, /hook agent-stamp/u);
+  const hooks = splitAgentText(await readFile(ownFile, 'utf8'), own.id).document.get('hooks').toJSON();
+  assert.equal(hooks.userPromptSubmitted[0].command, 'echo mine', 'the agent\'s own hook is kept, first');
+  assert.match(hooks.userPromptSubmitted[1].command, new RegExp(`singularity-flow hook agent-stamp ${own.id} userPromptSubmitted`, 'u'));
+  // The hooks compare the working tree with these approved bytes.
+  const manifest = JSON.parse(await readFile(path.join(root, '.git/singularity-flow/guard/stamped-agents.json'), 'utf8'));
+  assert.deepEqual(new Set(manifest.agents.map((row) => row.id)), new Set(after.agents.map((row) => row.id)));
+  // Everything is stamped: stamp-agents changes nothing. A removed stamp is put back, and nothing else in the file changes.
+  assert.deepEqual((await sfGuard(root, ['stamp-agents'], one)).result.stamped, []);
+  const stamped = await readFile(ownFile, 'utf8');
+  await writeFile(ownFile, stamped.replace(/\n {4}- type: command\n {6}command: command -v singularity-flow[^\n]*(?:\n {6}[a-zA-Z]+:[^\n]*)*/u, ''));
+  git(root, 'commit', '-qam', 'Stamp removed');
+  const status = (await sfGuard(root, ['status'], one)).result;
+  assert.equal(status.agents.find((row) => row.id === own.id).stamp, 'not-stamped');
+  const restamped = await sfGuard(root, ['stamp-agents'], one);
+  assert.deepEqual(restamped.result.stamped, [own.id], restamped.error?.message);
+  assert.equal(await readFile(ownFile, 'utf8'), stamped);
+  // Reading and reconciling are open to any turn; stamping is the person's own step.
+  assert.equal(resolveOperation({ requestedCommand: 'guard', positionals: ['guard', 'reconcile'] }).classification, 'read');
+  assert.equal(ownTerminalStep('singularity-flow guard reconcile --json'), null);
+  assert.equal(ownTerminalStep('singularity-flow guard stamp-agents'), 'sf-guard-person-step');
+});

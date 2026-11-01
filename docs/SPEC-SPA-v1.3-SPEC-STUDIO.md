@@ -326,7 +326,20 @@ Cost: 8 premium requests (2 per Story: questions, then author and publish), 73 m
 - Scope links repeat the first run: the signup Story linked all four sliced clauses, the discount Story none (2 of 2 discount runs, 0 of 2 signup runs), so the final check would refuse it until a person links or decides them.
 - Claims were recorded at approval as before. Cost: 4 premium requests; mean input 0.74M tokens per Story, the same as the first run.
 
-**Why the discount Stories linked nothing.** Both went from their clarification answers straight to `prepare` and authored from there. The phase-entry `scopeReview`, which names each `[scope:SRI-…]` reference, had been moved to the bounded result's file, and at the clarification step the result pointed the agent only at `clarification` and `context`. The signup agents happened to read the scope inventory; the discount agents did not. `prepare` now names each source statement its draft has yet to link, with its reference, in its text and in `data.preparation.scope` (an unavailable preview says so). It is guidance and never blocks preparation or decides scope. It has not been rerun live.
+**Why the discount Stories linked nothing.** Both went from their clarification answers straight to `prepare` and authored from there. The phase-entry `scopeReview`, which names each `[scope:SRI-…]` reference, had been moved to the bounded result's file, and at the clarification step the result pointed the agent only at `clarification` and `context`. The signup agents happened to read the scope inventory; the discount agents did not. `prepare` now names each source statement its draft has yet to link, with its reference, in its text and in `data.preparation.scope` (an unavailable preview says so). It is guidance and never blocks preparation or decides scope.
+
+**Rerun after the prepare fix (`9824e7996`).** Two more discount slice Stories ran under the same conditions as SLC-2 and SLC-4 (SLC-5, SLC-6). Copilot CLI 1.0.105 used the same pinned model and the same answers sheet, on main `e9fd1a04a` with kernel model calls off:
+
+| Discount Story | Before the fix (SLC-2, SLC-4) | After the fix (SLC-5, SLC-6) |
+| --- | --- | --- |
+| Sliced clauses linked with `[scope:SRI-…]` | 0 of 4, 0 of 4 | 4 of 4, 4 of 4 |
+| Where the references reached the agent | nowhere it read | `prepare`'s text, the only result that showed them |
+| Scope inventory at submission | 4 unresolved | 4 included, 0 unresolved |
+| Settled questions asked on their own | 0 (SLC-4) | 0; each asked the one required confirmation, restating D1-D4 |
+
+- Both agents went from the clarification answer to `prepare`, as before, and wrote each reference inside the clause that covers it. Neither ran `evidence scope`.
+- Both noted that the publish command they were offered names `--authored human`, not the pinned `governed-agent`. SLC-3 and SLC-4 show the same, so the fix didn't cause it. Its cause hasn't been investigated.
+- Cost: 4 premium requests and 35 model calls. Mean input was 0.77M tokens per Story, 92-93% of it cached; peak context was 57-61K.
 
 ### 10.2 S4 live Copilot authoring run (1 November 2026)
 

@@ -170,6 +170,81 @@ test('a commit that lost the race to another clone is named as such and set asid
   assert.equal(git(root, 'status', '--porcelain'), '');
 });
 
+const cancel = (root, id, options) => flow(root, ['cancel', id, '--reason', 'The request was withdrawn.', '--confirm', id], options);
+const automaticSync = (plan) => plan.actions.filter((entry) => entry.automatic && /\bsync\b/u.test(entry.command ?? ''));
+
+test('a lost race a retry finds leads recover to its set-aside, never to sync again, and cancel goes on after it', async (t) => {
+  // recover read the retry's stderr only, which has no reason for a refused ref, so it offered sync
+  // [can apply] for ever, and the apply's refusal sent the person back to recover (2026-11-01).
+  const id = 'RACE-2';
+  const { base, root, remote, draft } = await story(t, id);
+  const other = path.join(base, 'other');
+  run('git', ['clone', '--quiet', '--branch', id, remote, other], base);
+  for (const [key, value] of [['user.name', 'Publisher'], ['user.email', 'publisher@example.com']]) git(other, 'config', key, value);
+  flow(other, ['resume', id]);
+  await draft(root, 'This clone published second, after working offline.');
+  await rename(remote, `${remote}.offline`);
+  try { assert.notEqual(flow(root, ['phase', 'publish', 'intake'], { fail: true }).status, 0); }
+  finally { await rename(`${remote}.offline`, remote); }
+  const sealed = await waiting(root, id);
+  await draft(other, 'The other clone published first.');
+  flow(other, ['phase', 'publish', 'intake']);
+  const theirs = remoteTip(root, id);
+
+  // The offline failure says nothing of the race, so recover retries once; the retry finds it.
+  const before = JSON.parse(flow(root, ['recover', id, '--json']).stdout);
+  assert.equal(automaticSync(before).length, 1);
+  assert.notEqual(flow(root, ['recover', id, '--phase', 'intake', '--apply', '--confirm', before.planId], { fail: true }).status, 0);
+  const after = JSON.parse(flow(root, ['recover', id, '--json']).stdout);
+  assert.equal(after.actions[0]?.command, `singularity-flow sync ${id} --set-aside`, JSON.stringify(after.actions));
+  assert.deepEqual(automaticSync(after), [], 'sync is never applied again');
+
+  const blocked = cancel(root, id, { fail: true });
+  assert.notEqual(blocked.status, 0);
+  assert.match(blocked.stderr + blocked.stdout, /publicationPending/u);
+  flow(root, ['sync', id, '--set-aside', '--confirm', sealed.commit]);
+  assert.equal(git(root, 'rev-parse', 'HEAD'), theirs);
+  cancel(root, id);
+  assert.equal(remoteTip(root, id), git(root, 'rev-parse', 'HEAD'), 'the cancellation is published');
+});
+
+test('a Story branch rewritten on the remote while its commit waited is named, set aside, and cancel goes on', async (t) => {
+  // The remote moved, but not onto the commit's parent: sync said "Push still fails" and pointed at
+  // recover, recover offered sync, and cancel waited on both (2026-11-01).
+  const id = 'REWRITE-1';
+  const { base, root, remote, draft } = await story(t, id);
+  await draft(root, 'This clone published after working offline for a while.');
+  await rename(remote, `${remote}.offline`);
+  try { assert.notEqual(flow(root, ['phase', 'publish', 'intake'], { fail: true }).status, 0); }
+  finally { await rename(`${remote}.offline`, remote); }
+  const sealed = await waiting(root, id);
+  // Someone reset the Story branch on the remote to main and force-pushed another commit on it.
+  const other = path.join(base, 'other');
+  run('git', ['clone', '--quiet', '--branch', 'main', remote, other], base);
+  for (const [key, value] of [['user.name', 'Publisher'], ['user.email', 'publisher@example.com']]) git(other, 'config', key, value);
+  await writeFile(path.join(other, 'NOTE.md'), 'rewritten\n');
+  git(other, 'add', 'NOTE.md');
+  git(other, 'commit', '-m', 'Rewrite the Story branch');
+  git(other, 'push', '--force', 'origin', `HEAD:refs/heads/${id}`);
+
+  const refused = flow(root, ['sync'], { fail: true });
+  assert.notEqual(refused.status, 0);
+  assert.match(refused.stderr + refused.stdout, /no longer has what commit [0-9a-f]{8} \(artifact-generated at intake\) was made on: its history there was rewritten or reset/u);
+  assert.match(refused.stderr + refused.stdout, new RegExp(`sync ${id} --set-aside`, 'u'));
+  assert.doesNotMatch(refused.stderr + refused.stdout, /Push still fails/u);
+  const plan = JSON.parse(flow(root, ['recover', id, '--json']).stdout);
+  assert.equal(plan.actions[0]?.command, `singularity-flow sync ${id} --set-aside`, JSON.stringify(plan.actions));
+  assert.deepEqual(automaticSync(plan), []);
+
+  flow(root, ['sync', id, '--set-aside', '--confirm', sealed.commit]);
+  assert.equal(git(root, 'rev-parse', 'HEAD'), git(root, 'rev-parse', `${sealed.commit}^`), 'the branch is back at the commit before it');
+  assert.equal(await waiting(root, id), null);
+  // What the remote has comes in by a reviewed merge, never a reset; then the Story goes on.
+  run('git', ['pull', '--no-rebase', '--no-edit', 'origin', id], root);
+  cancel(root, id);
+  assert.equal(remoteTip(root, id), git(root, 'rev-parse', 'HEAD'), 'the cancellation is published');
+});
+
 test('a publish still running in another command is said to be running, not stuck', async (t) => {
   const id = 'BUSY-1';
   const { root, draft, refuse } = await story(t, id);

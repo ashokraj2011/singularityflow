@@ -305,7 +305,12 @@ async function explainLostPublicationRace(root, config, workflow, error) {
   let aside = null;
   try { aside = await (await import('../publication-set-aside.mjs')).planPublicationSetAside(root, config, workflow); }
   catch { return error; }
-  if (!aside?.settable || !(aside.lostRace || aside.publishedElsewhere)) return error;
+  // A remote moved beside this commit's parent, neither onto it nor behind it: its history there was
+  // rewritten or reset. The same lease never lands, and sync and recover named each other (2026-11-01).
+  // A remote only behind the parent (a parent never published) is not this.
+  const rewritten = !aside?.lostRace && aside?.onBranch && Boolean(aside.remoteTip && aside.parent)
+    && aside.remoteTip !== aside.parent && !(await import('../git.mjs')).isAncestor(root, aside.remoteTip, aside.parent);
+  if (!aside?.settable || !(aside.lostRace || aside.publishedElsewhere || rewritten)) return error;
   const preview = `singularity-flow sync ${workflow.workItem.id} --set-aside`;
   // Reached only when SFlow's own sealed record shows no push of it that may have landed: a lost
   // answer the remote holds, or built on, is settled by sync itself (sweep B1).
@@ -316,8 +321,11 @@ async function explainLostPublicationRace(root, config, workflow, error) {
       recoveryCommands: [{ command: preview, label: 'Preview: nothing changes' },
         { command: aside.command, label: 'In your own terminal, once you have checked it is the commit you meant to publish: stop waiting for it' }] } }
   );
-  return new SingularityFlowError(
-    `Another clone published to ${aside.branch} after this checkout made commit ${aside.commit.slice(0, 8)} (${aside.event ?? 'a lifecycle change'}${aside.phase ? ` at ${aside.phase}` : ''}), so it can never be sent as it is. Nothing was pushed. `
+  const made = `commit ${aside.commit.slice(0, 8)} (${aside.event ?? 'a lifecycle change'}${aside.phase ? ` at ${aside.phase}` : ''})`;
+  return new SingularityFlowError(rewritten
+    ? `${aside.remote}/${aside.branch} no longer has what ${made} was made on: its history there was rewritten or reset, so it can never be sent as it is. Nothing was pushed. `
+      + `Preview setting it aside with ${preview}: it is kept and the branch moves back to the commit before it. Then bring in what the remote has (refresh-branch says how) and do the step's action again if it still applies.`
+    : `Another clone published to ${aside.branch} after this checkout made ${made}, so it can never be sent as it is. Nothing was pushed. `
     + `Preview setting it aside with ${preview}: it is kept, the branch moves to what was published, and you do the step's action again there if it still applies.`,
     { code: 'STORY_PUBLICATION_RACE_LOST', details: { commit: aside.commit, remoteTip: aside.remoteTip, nextAction: preview,
       recoveryCommands: [{ command: preview, label: 'Preview setting the commit aside; nothing changes' },

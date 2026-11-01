@@ -1437,7 +1437,8 @@ export async function syncInitiativePublication(root, portfolio, initiative, { f
           observe: () => lifecycleAuthority(root).observe({ remote: remoteAuthority.url, branch: currentRecord.branch })
         });
         if (!settled.published) {
-          const error = (result.stderr || result.stdout).trim();
+          // Both streams, redacted and bounded, as a Story's retry records them.
+          const error = (await import('./publication-retry-refusals.mjs')).publicationPushDiagnostic(result);
           // The pre-attempt marker already records an ambiguous result. Only a definitive outcome
           // supersedes it; persist that rejection before returning control to another sync process.
           // An earlier lost answer stays unknown while the remote cannot be read (SDA-AC-004).

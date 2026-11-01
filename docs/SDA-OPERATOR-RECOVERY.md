@@ -139,11 +139,12 @@ nothing pending.
 | `STORY_PUBLICATION_IN_PROGRESS` | A transition's journal is still held by the command that wrote it. A journal from before lock tokens is judged by the subject lease held now. | An owner here: return to its terminal. Another machine's: the refusal names the subject lease's `lock show` and `lock release`. With no lease held, sync recovers the journal. |
 | `PUBLICATION_PENDING` | A retained commit waits for its publication. | The subject's own sync, in any turn: `singularity-flow sync <WORK-ID>`, `initiative sync <ID>`, `goal sync <ID>` or `adhoc sync <ID>`. |
 | `REVISION_CONFLICT` (a lost race) | Another clone published first. Sync can never send this commit. | The refusal names `singularity-flow sync <WORK-ID> --set-aside` (or `initiative sync <ID> --set-aside`). Preview it, confirm the set-aside with `--confirm <COMMIT>` in the person's own terminal, then redo the step's action. |
+| `STORY_PUBLICATION_RACE_LOST` (the remote Story branch was rewritten or reset) | The remote moved, but not onto the commit this one was made on. Sync can never send it. | `singularity-flow sync <WORK-ID> --set-aside`, then `--confirm <COMMIT>` in the person's own terminal. The branch moves back to the commit before it. Bring in what the remote has with a reviewed `git pull --no-rebase`, then redo the step's action. |
 | `STORY_PUBLICATION_SENT_ELSEWHERE` | The remote holds the commit, but SFlow has no record that its own push of it landed. It is reached only without a sealed lost answer, and is never claimed as SFlow's own publication. | `singularity-flow sync <WORK-ID> --set-aside`, then `--confirm <COMMIT>` in the person's own terminal. |
 | A push refused for the remote's own reason (protected branch, HTTP 403) | Not a conflict. | Fix the cause at the remote, then sync. |
 
 When the remote has moved past a retained commit, `singularity-flow recover <WORK-ID>` leads with the
-set-aside preview and does not offer sync again.
+set-aside preview and does not offer sync again, also when only a sync retry found that it moved.
 
 No command cancels a transition yet. The two cancellation codes appear once one does, and a push
 already in flight is never cancelled: it runs to its own deadline. `approve` on a phase that is

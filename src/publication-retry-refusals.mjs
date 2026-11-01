@@ -30,7 +30,7 @@ const PUSH_REPAIR = Object.freeze({
   'remote-not-found': 'The configured remote repository was not found. Correct the remote URL or your access to it; '
     + 'the same commit is then sent unchanged.',
   unknown: 'The remote refused the retained commit. When another clone published to this branch first, the same commit '
-    + 'cannot be sent unchanged: inspect the recovery plan, which names a replay where one exists. Otherwise resolve what '
+    + 'cannot be sent unchanged: inspect the recovery plan, which names a replay or a set-aside. Otherwise resolve what '
     + 'the provider message names before retrying.'
 });
 
@@ -38,9 +38,13 @@ function sha256(value) {
   return createHash('sha256').update(value).digest('hex');
 }
 
-/** The remote's own words, redacted and bounded: they name what the provider wants changed. */
+/**
+ * The remote's own words, redacted and bounded: they name what the provider wants changed. Both
+ * streams: a porcelain push says why each ref was refused (`stale info`, `fetch first`) on stdout,
+ * and without it recover never saw a moved remote after a retry and offered sync again (2026-11-01).
+ */
 export function publicationPushDiagnostic(result) {
-  const raw = String(result?.stderr || result?.stdout || '').trim();
+  const raw = [result?.stderr, result?.stdout].map((text) => String(text ?? '').trim()).filter(Boolean).join('\n');
   return raw ? redactDiagnosticText(raw).slice(0, 2000) : '';
 }
 

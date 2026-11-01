@@ -841,7 +841,13 @@ test('every step only a person takes in their own terminal is refused in every t
       `singularity-flow story test-policy amend PMC-1 --phase custom-step --reason "The runner moved." --apply --confirm ${digest}`,
       `singularity-flow story test-policy baseline-admission PMC-1 --phase custom-step --apply --confirm ${digest}`,
       `singularity-flow story test-policy confirm PMC-1 --phase custom-step --confirm ${digest}`,
-      `singularity-flow story approvers refresh PMC-1 --reason "The reviewer joined the group." --confirm ${digest}`]
+      `singularity-flow story approvers refresh PMC-1 --reason "The reviewer joined the group." --confirm ${digest}`],
+    // SF Guard: each action but status takes the person's Touch ID (SPEC-PSS-v1).
+    'sf-guard-person-step': ['singularity-flow guard register', 'singularity-flow guard register --key SHA256:abc --propose --json',
+      'singularity-flow guard rotate --key SHA256:abc', 'singularity-flow guard recover --key SHA256:abc',
+      'singularity-flow guard revoke approver-0123456789ab --reason "Left the team."', 'singularity-flow guard enable --remote-check sf-guard-verify',
+      'singularity-flow guard disable --reason "Moving to another signer."', 'singularity-flow guard exception add approver-0123456789ab',
+      'singularity-flow guard exception revoke EXC-001 --reason "Now on a Mac."']
   };
   assert.deepEqual(Object.keys(steps).sort(), OWN_TERMINAL_STEPS.map((step) => step.id).sort());
   for (const [id, commands] of Object.entries(steps)) {
@@ -921,6 +927,7 @@ test('a plain prompt keeps native behaviour except a person\'s own step, in any 
     [`/usr/local/bin/${publish}`, publish], [`bash -lc "${publish}"`, publish], [`'singularity-flow' spec author publish SPEC-CHK-004 --reviewed`, publish],
     [`${publish} 2>&1 | tee publish.log`, publish], [`out=$(${publish})`, publish], [`echo "$(${publish})"`, publish],
     [`node bin/singularity-flow.mjs spec author publish SPEC-CHK-004 --reviewed`, publish],
+    ['singularity-flow guard enable --remote-check sf-guard-verify', 'singularity-flow guard enable --remote-check sf-guard-verify'],
     ['singularity-flow reject custom-step --work-id PMC-1 --to custom-step --reason "Wrong."', 'singularity-flow reject custom-step --work-id PMC-1 --to custom-step --reason Wrong.'],
     ['singularity-flow decisions record PMC-1 --choose d1=dismiss --confirm sha256:' + 'c'.repeat(64), null],
     ['singularity-flow upstream-issue decide UPI-001 --work-id PMC-1 --outcome dismiss --reason "Handled."', null]]) {
@@ -949,7 +956,7 @@ test('a plain prompt keeps native behaviour except a person\'s own step, in any 
     assert.equal((await shell(command)).next[0].command, approve, command);
   }
   // Everything else is unchanged: reads, other SFlow commands, previews, mentions in text, edits and other tools.
-  for (const command of ['singularity-flow status', 'singularity-flow spec author status SPEC-CHK-004 --json', `${approve} --help`,
+  for (const command of ['singularity-flow status', 'singularity-flow guard status --json', 'singularity-flow spec author status SPEC-CHK-004 --json', `${approve} --help`,
     'singularity-flow spec split SPEC-CHK-004@1 --propose --file plan.json', 'singularity-flow apm install acme/pack --dry-run',
     `echo "${approve} --yes"`, 'grep -rn "sflow approve" docs', 'npm test', 'rm -rf build']) {
     assert.deepEqual(await shell(command), {}, command);

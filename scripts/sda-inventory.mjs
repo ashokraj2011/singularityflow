@@ -101,6 +101,9 @@ const OVERRIDES = {
   'local-backup.mjs': 'local-authored',
   // The configuration read model is rebuildable (docs/CONFIGURATION-STATE-SERVICE.md).
   'configuration-state-service.mjs': 'projection',
+  // SF Guard's signer writes only key stubs (references, no secret) in a private temporary directory it
+  // deletes after each signing (SPEC-PSS-v1 IFC-003): bounded, machine-local run state.
+  'presence/signer.mjs': 'local-operational',
   // Shared helpers every class uses.
   'util.mjs': 'source-control',
   'atomic-write.mjs': 'projection'

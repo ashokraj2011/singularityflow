@@ -626,7 +626,7 @@ const RANK = Object.freeze({
   'phase.create': 4, 'workflow.create': 4.5, 'phase.update': 5, 'workflow.update': 7, 'artifactSet.remove': 11.6,
   'epicStep.create': 4.2, 'epicWorkflow.create': 4.7, 'epicStep.update': 5.2, 'epicOutput.set': 5.3, 'epicOutput.remove': 5.4, 'epicWorkflow.update': 7.2,
   'skill.create': 2.2, 'import.librarySkill': 2.3, 'skill.update': 2.4,
-  'instruction.create': 2.05, 'instruction.update': 2.1, 'instruction.remove': 11.2,
+  'instruction.create': 2.05, 'instruction.update': 2.1, 'instruction.remove': 11.2, 'presence.set': 0,
   'constitution.policy': 7.4, 'constitution.set': 7.5,
   'phase.agent': 8, 'agent.update': 9, 'skill.attach': 9.5, 'skill.detach': 9.5,
   'import.skill': 10, 'import.generated': 10, 'import.mcpServer': 10.5, 'import.remove': 11, 'skill.remove': 11.1,
@@ -713,6 +713,8 @@ class StudioCandidate {
     this.instructionFiles = new Map();
     this.constitutionChanges = new Map();
     this.constitutionPolicies = new Set();
+    // SF Guard's policy chain, replaced whole by one signed extension (`presence.set`).
+    this.presenceChange = null;
     // Skills attached in the attachments file, and the agents a framework workflow keeps read-only:
     // a skill attaches to those there, so the agent and its workflow stay as they shipped.
     this.attachments = [...(sources.attachments ?? [])];
@@ -950,6 +952,29 @@ class StudioCandidate {
       : `${name} now produces ${{ document: 'a document', analysis: 'an analysis', code: 'code' }[output]}, which /${dropped} cannot draft, so its drafting skill is automatic again.`;
   }
 
+  /**
+   * SF Guard's chain may only grow: every event it had is kept and every new one verifies against a
+   * key already pinned (src/presence/chain.mjs). Anything else is refused before a file is written.
+   */
+  async setPresence(change) {
+    const { extendsPresenceChain, foldPresenceChain, parsePresenceChain, PRESENCE_CHAIN_PATH, presenceChainText } = await import('./presence/chain.mjs');
+    if (Object.keys(change).some(key => !['op', 'chain'].includes(key)) || this.presenceChange) {
+      throw new SingularityFlowError('SF Guard\'s policy is changed once per change set, with only its new chain.', { code: 'PSS_CHAIN_INVALID' });
+    }
+    const relative = PRESENCE_CHAIN_PATH;
+    const before = await readFile(path.join(this.sources.configRoot, relative), 'utf8').catch(error => (error?.code === 'ENOENT' ? null : Promise.reject(error)));
+    const current = parsePresenceChain(before).chain;
+    const folded = foldPresenceChain(change.chain);
+    if (folded.problems.length) throw new SingularityFlowError(`SF Guard's policy was not changed: ${folded.problems[0].message}.`, { code: folded.problems[0].code });
+    if (!extendsPresenceChain(current, change.chain)) {
+      throw new SingularityFlowError('SF Guard\'s policy was not changed: the new chain drops or rewrites events the approved one has. It can only be extended.', { code: 'PSS_POLICY_REWRITTEN' });
+    }
+    const added = change.chain.events.length - (current?.events?.length ?? 0);
+    if (added < 1) throw new SingularityFlowError('SF Guard\'s policy was not changed: the new chain adds no event.', { code: 'PSS_CHAIN_INVALID' });
+    this.presenceChange = { path: relative, before, after: presenceChainText(change.chain) };
+    this.summary.push(`SF Guard: ${change.chain.events.slice(-added).map(event => event.kind).join(', ')} recorded in ${relative}.`);
+  }
+
   writeTemplateIfMissing(relativeTemplate, id, label) {
     const relative = posix(path.join(this.sources.templatesRoot, relativeTemplate));
     if (existsSync(path.join(this.sources.configRoot, relative)) || this.templates.has(relative)) return;
@@ -986,6 +1011,7 @@ class StudioCandidate {
       case 'instruction.create': return this.writeInstruction(change, true);
       case 'instruction.update': return this.writeInstruction(change, false);
       case 'instruction.remove': return this.removeInstruction(change);
+      case 'presence.set': return this.setPresence(change);
       case 'constitution.set': {
         if (Object.keys(change).some(key => !['op', 'path', 'articles'].includes(key)) || this.constitutionChanges.has(change.path)) {
           throw new SingularityFlowError('A constitution must be edited once per change set with only path and articles.', { code: 'STUDIO_CONSTITUTION_INVALID' });
@@ -2765,6 +2791,7 @@ class StudioCandidate {
 
   async files() {
     const files = [];
+    if (this.presenceChange && this.presenceChange.after !== this.presenceChange.before) files.push({ ...this.presenceChange });
     for (const [relative, change] of this.constitutionChanges) {
       const after = renderStudioConstitution(change, this.sources.constitutions, this.content);
       const before = this.sources.constitutions.files.get(relative)?.text ?? null;

@@ -1392,6 +1392,18 @@ export function recentFirstParentSubjects(root, commit, { limit = 100, env = pro
     .map((line) => line.slice(1).trim()).filter(Boolean);
 }
 
+/**
+ * The first-parent commits reachable from `commit` that changed `relative`, newest first, at most
+ * `limit`; null when the history cannot be read (a shallow or partial clone, a missing commit).
+ */
+export function pathRevisions(root, commit, relative, { limit = 200, env = process.env } = {}) {
+  const result = git(['log', '--first-parent', `--max-count=${limit}`, '--format=%x1f%H', commit, '--', relative], {
+    cwd: root, env: immutableLocalGitEnvironment(env), allowFailure: true
+  });
+  if (result.status !== 0) return null;
+  return String(result.stdout).split('\n').filter((line) => line.startsWith('\x1f')).map((line) => line.slice(1).trim()).filter(Boolean);
+}
+
 /** The most recent commit reachable from HEAD that added `relative`, or null. */
 export function commitAddingPath(root, relative, { env = process.env } = {}) {
   const output = git(['log', '--diff-filter=A', '--format=%H', '-1', '--', relative], { cwd: root, env }).stdout.trim();

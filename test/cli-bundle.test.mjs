@@ -482,7 +482,9 @@ test('the bundled CLI answers exactly like the sources while opening a handful o
   // 5,496,327. No new file.
   // 5,500,000 holds: main 70e7a5922 measures 5,496,327; the same person-decision and test-switch refusals add 3,436
   // for 5,499,763. No new file.
-  assert.ok(catalogBytes < 5_500_000,
+  // 5,505,000: main e9fd1a04a measures 5,499,763; SF Guard's operations, own-terminal step, /sf-guard route and turn
+  // refusal (SPEC-PSS-v1 M1) add 1,342 for 5,501,105. Its handler and src/presence/ load only when `guard` runs.
+  assert.ok(catalogBytes < 5_505_000,
     `catalog parsing stays bounded instead of pulling in the entire administration bundle (${catalogBytes} bytes)`);
   for (const name of ['cold-compatibility.mjs', 'cold-models.mjs', 'cold-intake.mjs', 'cold-phases.mjs', 'cold-hook-context.mjs']) {
     assert.ok(!catalogClosure.some(item => item.file === name), `catalogs must not statically reach ${name}`);

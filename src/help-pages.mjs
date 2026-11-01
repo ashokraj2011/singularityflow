@@ -1419,6 +1419,39 @@ const PAGES = Object.freeze({
     ],
     seeAlso: ['import', 'agents', 'skill']
   },
+  guard: {
+    summary: 'SF Guard: presence-signed person steps. See whether it is on, and pin, rotate or recover your Touch ID presence key.',
+    description: [
+      'SF Guard makes a person\'s own steps provable: each is signed by a Secure Enclave key on their Mac, after their',
+      'Touch ID, so an agent on the same computer cannot take one for them. It is off until a repository opts in, and',
+      'a repository that never opts in behaves exactly as before. Its policy is singularity/presence.json in the approved',
+      'configuration: an append-only, signed chain of which key each approver pinned, whether SF Guard is on, and per-person',
+      'exceptions. Every change to it is signed by an approver\'s pinned key; an unsigned one, or a commit that drops or',
+      'rewrites events, never counts, so nobody can turn SF Guard off by editing the file. Verifying reads only the pinned',
+      'keys, never GitHub. guard status reads. Every other action is the person\'s own step, in their own terminal: it',
+      'shows a card, then Touch ID prompts. Touch the sensor only for a command you started yourself, right after its',
+      'card; a prompt you did not start is an agent asking, so decline it. register pins this Mac\'s Touch ID identity',
+      '(/usr/sbin/sc_auth create-ctk-identity -l sf-guard -k p-256-ne -t bio) once GitHub lists it as one of your SSH',
+      'signing keys. enable is the signed opt-in, and may name per-person exceptions: an approver with no presence signer',
+      'yet (Windows) keeps unsigned steps, labelled "bypass: per-person exception EXC-…" on every surface. In M1 the',
+      'policy is recorded; person steps start requiring signatures in M2. Refusals keep the PSS_ codes of SPEC-PSS-v1.'
+    ],
+    options: [
+      ['--key SHA256:…', 'The presence identity to pin, from /usr/sbin/sc_auth list-ctk-identities -t ssh (register picks the only one).'],
+      ['--remote-check NAME', 'enable only: the required status check that re-verifies signatures on the remote.'],
+      ['--exception APPROVER-ID', 'enable only, repeatable: record a per-person exception in the opt-in itself.'],
+      ['--reason TEXT', 'Why: required to revoke a key, turn SF Guard off or revoke an exception.'],
+      ['--propose', 'Propose the change for review when the repository has an approved configuration branch.'],
+      ['--json', 'Machine-readable output (sflow-guard).']
+    ],
+    examples: [
+      ['singularity-flow guard status', 'Whether SF Guard is on, and each approver\'s key or exception.'],
+      ['singularity-flow guard register', 'Pin this Mac\'s Touch ID identity, once GitHub lists it as your signing key.'],
+      ['singularity-flow guard enable --remote-check sf-guard-verify --exception approver-0123456789ab', 'Opt in, with a labelled exception for a Windows approver.'],
+      ['singularity-flow guard recover --key SHA256:…', 'Lost your Mac: pin a new identity after removing the old key from GitHub.']
+    ],
+    seeAlso: ['approve', 'configuration', 'decisions']
+  },
   backup: {
     summary: 'Save the drafts and documents kept only on this laptop, and restore them on another laptop or this one.',
     description: [

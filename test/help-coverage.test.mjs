@@ -70,7 +70,8 @@ test('every served topic is a surface-aware tutorial', async () => {
   // 85: run-and-test (app and tests commands, docs/SPEC-RUN-AND-TEST-v1.md).
   // 86: outcome-review (the outcome command, an optional read after code and tests are in).
   // 87: apm-packages (the apm command, APM packages as the APM CLI left them).
-  assert.equal(topics.length, 87);
+  // 88: sf-guard (the guard command, presence-signed person steps, SPEC-PSS-v1).
+  assert.equal(topics.length, 88);
   for (const topic of topics) {
     for (const section of requiredSections) {
       assert.match(topic.body, new RegExp(`^## ${section}$`, 'm'), `${topic.file} lacks ${section}`);

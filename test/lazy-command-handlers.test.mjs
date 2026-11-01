@@ -356,7 +356,11 @@ test('the common session projection does not import attach, state stores or publ
   // its turn refusal (copilot-mutation-guard.mjs). Its handler loads only when `spec split` runs.
   // 4,020,000: main b91420f57 measures 4,013,246; the same test-file, root-build, ecosystem and malformed-manifest
   // rules add 5,630 for 4,018,876. No new file.
-  assert.ok(current.bytes <= 4_020_000, `session current loads ${current.bytes} source bytes`);
+  // 4,025,000: main e9fd1a04a measures 4,018,876; SF Guard (SPEC-PSS-v1 M1) adds 2,070 for 4,020,946: the `guard`
+  // command's operations (command-registry.mjs +801), its person steps as an own-terminal step and its /sf-guard
+  // route (command-skills.mjs +590) and the policy file's history read (git.mjs +679). Its handler and the
+  // src/presence/ modules load only when `guard` runs.
+  assert.ok(current.bytes <= 4_025_000, `session current loads ${current.bytes} source bytes`);
 });
 
 test('early phase and grounding-path entries exclude the deferred authoring and review graphs', async () => {

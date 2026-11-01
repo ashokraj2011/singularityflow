@@ -1365,6 +1365,19 @@
       },
       "digest": "124c4f9f66e826ae81bfdcc29fe4cd036b2dd45a3b2c7bdcc0efaee49bc08f1e"
     },
+    "src/presence/signer.mjs": {
+      "counts": {
+        "process-import": 1
+      },
+      "digest": "996b4aefbb4d5d92445809ef537aa71d76147b8d634f4cfde27d1f09c79f7ecc"
+    },
+    "src/presence/local-keys.mjs": {
+      "counts": {
+        "process-import": 1,
+        "process-launch": 1
+      },
+      "digest": "7b79ece6dab10badcc7f6923e3cc055b549a8c58cb4755670b6b91e07e02a8e1"
+    },
     "src/publication-recovery.mjs": {
       "counts": {
         "command-run": 2

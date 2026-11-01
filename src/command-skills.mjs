@@ -33,6 +33,7 @@ const entries = {
   index: ['sf-doctor'],
   lock: ['sf-doctor'],
   backup: ['sf-doctor'],
+  guard: ['sf-guard'],
   'factory-reset': ['sf-factory-reset'],
   governance: ['sf-governance-rebuild'],
   'reset-all': ['sf-reset-all'],
@@ -279,6 +280,8 @@ export const COMMAND_LINE_SKILL_ROUTES = Object.freeze({
   lock: route('sf-doctor', { release: null, 'release-file': null }),
   // A backup copies the only copy of local documents to a directory a person chooses; restore saves drafts.
   backup: route('sf-doctor', { create: null, restore: null }),
+  // SF Guard: /sf-guard only reads; every other action is a person's own presence-signed step (OWN_TERMINAL_STEPS).
+  guard: route('sf-guard', { register: null, rotate: null, recover: null, revoke: null, enable: null, disable: null, exception: null }),
   'help-metrics': route('sf-help', { on: null, off: null, clear: null }),
   repositories: route('sf-repositories', { 'cache clear': null }),
   gateway: route('sf-home', { serve: null }),
@@ -545,7 +548,10 @@ export const OWN_TERMINAL_STEPS = Object.freeze([
   ['lock-release', ([command, sub]) => command === 'lock' && ['release', 'release-file'].includes(sub)],
   // Activating approved configuration is the reviewer's decision; every skill already told the
   // person to run it in their own terminal, while /sf-configuration was named as its route (sweep E7).
-  ['configuration-approve', ([command, sub]) => command === 'configuration' && sub === 'approve']
+  ['configuration-approve', ([command, sub]) => command === 'configuration' && sub === 'approve'],
+  // SF Guard: registering, rotating, recovering or revoking a presence key, turning the policy on or
+  // off and per-person exceptions each take the person's Touch ID (SPEC-PSS-v1); only status reads.
+  ['sf-guard-person-step', ([command, sub]) => command === 'guard' && sub !== undefined && sub !== 'status']
 ].map(([id, matches]) => Object.freeze({ id, matches })));
 
 /** The id of the own-terminal step this command line is, or null. */

@@ -1,9 +1,9 @@
 {
   "schemaVersion": 2,
   "generatedFrom": "docs/topics",
-  "sourceCommit": "70e7a5922c0687e11357b61aacd7ab7338ede329",
-  "topicCount": 87,
-  "contentSha256": "ce1d8e1c45e17462c2be3439c9823fb66d44da9f4c5b61111170310a6eb5225a",
+  "sourceCommit": "e9fd1a04a19a298ad272fa407e4badce217c0104",
+  "topicCount": 88,
+  "contentSha256": "aaba0145c7a1791716fe312345409e285cf657b199f8e38205c79e6276096189",
   "topics": [
     {
       "id": "activity-and-prompt-audit",
@@ -540,6 +540,14 @@
       "sha256": "d6f3b08e1e7514389bc0bee435c2041d379e04f62300eb2343010911900032dc",
       "routingSha256": "33e8926d2944073e4592ede7af57a6157686383cb9c55d14e098952138abcbae",
       "file": "sequence-gates.md"
+    },
+    {
+      "id": "sf-guard",
+      "title": "SF Guard",
+      "version": 1,
+      "sha256": "6e288dcd3b2944b063fad52f45dea99f8a55a519b44468719c2348f2cf1cfc9f",
+      "routingSha256": "cde3c4c682447e9e29f85ce6c8cd80de13023fafdd97e4e42c1048a6d4a663cb",
+      "file": "sf-guard.md"
     },
     {
       "id": "sgos-governed-execution",

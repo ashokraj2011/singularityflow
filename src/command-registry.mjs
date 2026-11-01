@@ -2,11 +2,11 @@ import { didYouMean, nearestNames, optionBoolean, optionString, SingularityFlowE
 import { REMOVED_WORLD_MODEL_SUBCOMMANDS, removedWorldModelError } from './removed-features.mjs';
 
 const READ_ONLY = new Set(['outcome', 'result', 'specify', 'plan', 'implement', 'verify', 'converge', 'about', 'help', 'show', 'why', 'choices', 'inbox', 'home', 'recommend', 'status', 'approvals', 'progress', 'receipt', 'guide', 'logs', 'doctor', 'nextsteps', 'snapshot', 'validate', 'gate', 'explain', 'comprehension', 'precheck', 'index']);
-const STRUCTURED = new Set(['outcome', 'result', 'about', 'specify', 'plan', 'implement', 'verify', 'converge', 'start', 'resume', 'return', 'home', 'recommend', 'status', 'approvals', 'progress', 'report', 'receipt', 'impact', 'telemetry', 'context', 'tokens', 'help-metrics', 'doctor', 'inputs', 'reinstall', 'snapshot', 'validate', 'gate', 'clarification', 'explain', 'why', 'fault', 'fix', 'repair', 'recover', 'goal', 'journal', 'integrations', 'run', 'auto', 'adhoc', 'land', 'intent', 'program', 'process', 'policy', 'task', 'request', 'evidence', 'comprehension', 'change', 'proof', 'delivery', 'init', 'precheck', 'configuration', 'onboard', 'authority', 'cache', 'revision', 'revise', 'env', 'skill', 'product', 'review-source', 'appeal', 'instruction', 'upstream-issue', 'decisions', 'app', 'tests', 'call', 'gateway', 'apm', 'index', 'lock', 'backup']);
+const STRUCTURED = new Set(['outcome', 'result', 'about', 'specify', 'plan', 'implement', 'verify', 'converge', 'start', 'resume', 'return', 'home', 'recommend', 'status', 'approvals', 'progress', 'report', 'receipt', 'impact', 'telemetry', 'context', 'tokens', 'help-metrics', 'doctor', 'inputs', 'reinstall', 'snapshot', 'validate', 'gate', 'clarification', 'explain', 'why', 'fault', 'fix', 'repair', 'recover', 'goal', 'journal', 'integrations', 'run', 'auto', 'adhoc', 'land', 'intent', 'program', 'process', 'policy', 'task', 'request', 'evidence', 'comprehension', 'change', 'proof', 'delivery', 'init', 'precheck', 'configuration', 'onboard', 'authority', 'cache', 'revision', 'revise', 'env', 'skill', 'product', 'review-source', 'appeal', 'instruction', 'upstream-issue', 'decisions', 'app', 'tests', 'call', 'gateway', 'apm', 'index', 'lock', 'backup', 'guard']);
 // `secrets` is here because `resolveOperation` returns `definition.operation` before it consults
 // any resolver, so a command with a single registered operation never reaches its own resolver.
 // Without this line `resolveSecretsOperation` is unreachable and the scan/protect split is inert.
-const MODEL_FREE_MIXED_COMMANDS = new Set(['skill', 'init', 'precheck', 'configuration', 'report', 'telemetry', 'doctor', 'review', 'review-source', 'inputs', 'spec', 'visual', 'mcp', 'clarification', 'story', 'session', 'constitution', 'secrets', 'env', 'fault', 'fix', 'repair', 'recover', 'goal', 'journal', 'push', 'integrations', 'next', 'return', 'impact', 'copilot', 'context', 'tokens', 'help-metrics', 'auto', 'adhoc', 'capability', 'repositories', 'intent', 'program', 'process', 'policy', 'task', 'request', 'evidence', 'candidate', 'execution-unit', 'device', 'authority-store', 'pack', 'learn', 'memory', 'meta-tool', 'comprehension', 'change', 'proof', 'delivery', 'local', 'revision', 'revise', 'explain', 'workflow', 'documents', 'jira', 'prompt-log', 'factory-reset', 'governance', 'phase', 'product', 'decision', 'import', 'imports', 'marketplace', 'appeal', 'instruction', 'upstream-issue', 'decisions', 'app', 'tests', 'call', 'gateway', 'apm', 'lock', 'backup']);
+const MODEL_FREE_MIXED_COMMANDS = new Set(['skill', 'init', 'precheck', 'configuration', 'report', 'telemetry', 'doctor', 'review', 'review-source', 'inputs', 'spec', 'visual', 'mcp', 'clarification', 'story', 'session', 'constitution', 'secrets', 'env', 'fault', 'fix', 'repair', 'recover', 'goal', 'journal', 'push', 'integrations', 'next', 'return', 'impact', 'copilot', 'context', 'tokens', 'help-metrics', 'auto', 'adhoc', 'capability', 'repositories', 'intent', 'program', 'process', 'policy', 'task', 'request', 'evidence', 'candidate', 'execution-unit', 'device', 'authority-store', 'pack', 'learn', 'memory', 'meta-tool', 'comprehension', 'change', 'proof', 'delivery', 'local', 'revision', 'revise', 'explain', 'workflow', 'documents', 'jira', 'prompt-log', 'factory-reset', 'governance', 'phase', 'product', 'decision', 'import', 'imports', 'marketplace', 'appeal', 'instruction', 'upstream-issue', 'decisions', 'app', 'tests', 'call', 'gateway', 'apm', 'lock', 'backup', 'guard']);
 // Run and test from a capability [RUN]: plan, status and summary read; start, stop and run execute code.
 const APP_SUBCOMMANDS = Object.freeze(['plan', 'start', 'status', 'stop', 'suggest', 'config', 'connections']);
 const APP_READS = Object.freeze(['plan', 'status', 'suggest', 'config', 'connections']);
@@ -22,6 +22,8 @@ const LOCK_SUBCOMMANDS = Object.freeze(['show', 'release', 'show-file', 'release
 const LOCK_READS = Object.freeze(['show', 'show-file']);
 // Backups of this laptop's drafts and local documents (SDA M5): inspect reads; restore saves drafts and bytes here only.
 const BACKUP_SUBCOMMANDS = Object.freeze(['create', 'inspect', 'restore']);
+// SF Guard (SPEC-PSS-v1): status reads; every other action is the person's own presence-signed step.
+const GUARD_SUBCOMMANDS = Object.freeze(['status', 'register', 'rotate', 'recover', 'revoke', 'enable', 'disable', 'exception']);
 const UPSTREAM_ISSUE_SUBCOMMANDS = Object.freeze(['raise', 'list', 'decide', 'propose-amendment', 'decide-amendment', 'revalidate']);
 
 const CONFIGURATION_READ_SUBCOMMANDS = Object.freeze([
@@ -165,6 +167,7 @@ const LAZY_MODULES = Object.freeze({
   index: './commands/read-index.mjs',
   lock: './commands/lock.mjs',
   backup: './commands/backup.mjs',
+  guard: './commands/guard.mjs',
   // Machine-level like `reinstall`: product surfaces, never a repository or workspace.
   product: './commands/product.mjs',
   help: './commands/help.mjs',
@@ -241,7 +244,9 @@ export const COMMAND_REGISTRY = Object.freeze([
   // Leases a person reviews and releases when their owner cannot be proven gone (SDA M3).
   ['lock'],
   // Backups of the drafts and documents that exist only on this laptop (SDA M5).
-  ['backup']
+  ['backup'],
+  // SF Guard: presence-signed person steps (SPEC-PSS-v1).
+  ['guard']
 ].map(command));
 
 const canonical = new Map(COMMAND_REGISTRY.flatMap((entry) => [
@@ -563,6 +568,7 @@ export const RESOLVER_SUBCOMMANDS = Object.freeze({
   apm: APM_SUBCOMMANDS,
   lock: LOCK_SUBCOMMANDS,
   backup: BACKUP_SUBCOMMANDS,
+  guard: GUARD_SUBCOMMANDS,
   telemetry: TELEMETRY_SUBCOMMANDS,
   visual: VISUAL_SUBCOMMANDS,
   mcp: MCP_SUBCOMMANDS,
@@ -1654,6 +1660,11 @@ export function resolveOperation({ requestedCommand, positionals, options = {}, 
     if (!BACKUP_SUBCOMMANDS.includes(action)) return unknownSubcommand('backup', action, BACKUP_SUBCOMMANDS);
     return never(`backup.${action}`, definition, action === 'inspect' ? 'read' : 'mutation');
   }
+  if (definition.name === 'guard') {
+    const action = positionals[1] ?? 'status';
+    if (!GUARD_SUBCOMMANDS.includes(action)) return unknownSubcommand('guard', action, GUARD_SUBCOMMANDS);
+    return never(`guard.${action}`, definition, action === 'status' ? 'read' : 'mutation');
+  }
   if (definition.name === 'upstream-issue') {
     const action = positionals[1] ?? 'list';
     if (!UPSTREAM_ISSUE_SUBCOMMANDS.includes(action)) return unknownSubcommand('upstream-issue', action, UPSTREAM_ISSUE_SUBCOMMANDS);
@@ -1926,6 +1937,7 @@ export function operationCatalog() {
     ...Object.values(APM_OPERATIONS).flatMap((id) => [never(`${id}.preview`, commandDefinition('apm'), 'read'), never(id, commandDefinition('apm'), 'mutation')]),
     ...LOCK_SUBCOMMANDS.map(name => never(`lock.${name}`, commandDefinition('lock'), LOCK_READS.includes(name) ? 'read' : 'mutation')),
     ...BACKUP_SUBCOMMANDS.map(name => never(`backup.${name}`, commandDefinition('backup'), name === 'inspect' ? 'read' : 'mutation')),
+    ...GUARD_SUBCOMMANDS.map(name => never(`guard.${name}`, commandDefinition('guard'), name === 'status' ? 'read' : 'mutation')),
     ...['create', 'edit', 'remove'].flatMap(name => [never(`instruction.${name}.preview`, commandDefinition('instruction'), 'read'), never(`instruction.${name}`, commandDefinition('instruction'), 'mutation')]),
     ...SKILL_MUTATION_SUBCOMMANDS.flatMap((name) => [
       never(`skill.${name}.preview`, commandDefinition('skill'), 'read'), never(`skill.${name}`, commandDefinition('skill'), 'mutation')

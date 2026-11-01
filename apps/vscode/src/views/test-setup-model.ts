@@ -8,6 +8,8 @@ export interface TestSetupTarget {
 }
 export interface TestSetupInspection {
   repositoryPath: string; sourceRoots: string[]; suggestions: Record<string, unknown>[];
+  // Commands the team wrote down (src/instruction-test-commands.mjs), with their file, line and env.
+  instructionCandidates?: Record<string, any>[];
   diagnostics: Array<{ path: string; code: string; message: string }>;
   testsExecuted: false; baseline: string;
 }

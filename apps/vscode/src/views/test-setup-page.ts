@@ -2,6 +2,22 @@ import { escape, icon } from './webview.ts';
 import type { TestSetupView } from './test-setup-model.ts';
 import { TEST_RESULT_ADAPTERS } from '../../../../src/external-command-policy.mjs';
 
+// A command's `env` is literal and never secret-like (external-command-policy.mjs): shown, and kept on save.
+function envText(env: unknown): string {
+  const entries = env && typeof env === 'object' ? Object.entries(env) : [];
+  return entries.length ? `Sets ${entries.map(([name, value]) => `${name}=${value}`).join(', ')}. Saving keeps these.` : '';
+}
+
+// One the team wrote down (instruction-test-commands.mjs), with its file and line; one SFlow could not
+// complete says why. Secret-looking values were never read, so only their names reach the notes.
+function writtenCommand(entry: Record<string, any>, index: number): string {
+  const where = `${entry.source?.file}:${entry.source?.line}`;
+  const notes = (entry.notes ?? []).map((note: unknown) => `<small>${escape(note)}</small>`).join('');
+  if (!entry.command) return `<p class="notice warning">${escape(where)}: <code>${escape(entry.written)}</code> ${escape(entry.reason)}${notes}</p>`;
+  const env = envText(entry.command.env);
+  return `<div class="summary-card"><code>${escape(JSON.stringify(entry.command.argv))}</code><span>Written in ${escape(where)} · Module: ${escape(entry.command.workingDirectory)} · ${escape(entry.command.result?.adapter)}</span>${env ? `<span>${escape(env)}</span>` : ''}${notes}<button type="button" class="secondary" data-test-suggestion="written-${index}" data-command="${escape(JSON.stringify(entry.command))}">Add written command to draft</button></div>`;
+}
+
 function commandRow(command: Record<string, any> = {}): string {
   return `<div class="subsection" data-test-command data-original="${escape(JSON.stringify(command))}">
     <div class="form-grid">
@@ -12,7 +28,8 @@ function commandRow(command: Record<string, any> = {}): string {
       <label class="field"><span>Report path (relative to module directory)</span><input data-test-report value="${escape(command.result?.path ?? '')}" required></label>
       <label class="field"><span>Affected directories (comma separated)</span><input data-test-roots value="${escape((command.affectedRoots ?? []).join(', '))}" required></label>
       <label class="field"><span>Timeout (milliseconds)</span><input data-test-timeout type="number" min="1000" max="7200000" value="${escape(command.timeoutMs ?? 120000)}" required></label>
-    </div><button type="button" class="secondary" data-test-remove>Remove command</button>
+    </div><p class="muted" data-test-env${envText(command.env) ? '' : ' hidden'}>${escape(envText(command.env))}</p>
+    <button type="button" class="secondary" data-test-remove>Remove command</button>
   </div>`;
 }
 
@@ -25,7 +42,8 @@ export function testSetupHtml(view: TestSetupView): string {
     <p><button type="button" class="secondary" data-test-inspect>Read repository &amp; suggest</button><button type="button" class="secondary" data-action="test-setup-copilot">Ask Copilot for suggestions</button></p>
     <div id="test-inspection-results" aria-live="polite">${view.inspection ? `<p>Inspected <code>${escape(view.inspection.repositoryPath)}</code>. Baseline: unverified; no tests ran.</p>
       ${view.inspection.diagnostics.map(entry => `<p class="notice warning">${escape(entry.path)}: ${escape(entry.message)}</p>`).join('')}
-      ${view.inspection.suggestions.map((command, index) => `<div class="summary-card"><code>${escape(JSON.stringify(command.argv))}</code><span>Module: ${escape(command.workingDirectory)} · ${escape((command.result as Record<string, unknown>)?.adapter)}</span><button type="button" class="secondary" data-test-suggestion="${index}" data-command="${escape(JSON.stringify(command))}">Add suggestion to draft</button></div>`).join('')}` : ''}</div>
+      ${view.inspection.suggestions.map((command, index) => `<div class="summary-card"><code>${escape(JSON.stringify(command.argv))}</code><span>Module: ${escape(command.workingDirectory)} · ${escape((command.result as Record<string, unknown>)?.adapter)}</span><button type="button" class="secondary" data-test-suggestion="${index}" data-command="${escape(JSON.stringify(command))}">Add suggestion to draft</button></div>`).join('')}
+      ${(view.inspection.instructionCandidates ?? []).map(writtenCommand).join('')}` : ''}</div>
     <label class="field"><span>Workflow / phase</span><select data-test-target><option value="">Choose workflow and phase</option>${view.targets.map(target => `<option value="${escape(target.id)}"${target.id === selected?.id ? ' selected' : ''}>${escape(target.label)}</option>`).join('')}</select><small>Choose one workflow to avoid changing other workflows; Shared workflows changes the shared phase default.</small></label>
     ${selected ? `<form id="test-setup-form" data-target="${escape(selected.id)}">
       ${selected.legacyCommands.length ? '<p class="notice warning">Legacy string quality commands are preserved. Review them in Workflow Studio if replacing one with a structured test command.</p>' : ''}
@@ -58,7 +76,31 @@ export const TEST_SETUP_SCRIPT = `
       const add = document.createElement('button'); add.type = 'button'; add.className = 'secondary'; add.dataset.testSuggestion = String(index); add.dataset.command = JSON.stringify(command); add.textContent = 'Add suggestion to draft'; card.append(add);
       results.append(card);
     }
+    for (const [index, entry] of (inspection.instructionCandidates ?? []).entries()) results.append(writtenCommand(entry, index));
   });
+  function testEnvText(env) {
+    const entries = env && typeof env === 'object' ? Object.entries(env) : [];
+    return entries.length ? 'Sets ' + entries.map(([name, value]) => name + '=' + value).join(', ') + '. Saving keeps these.' : '';
+  }
+  function writtenCommand(entry, index) {
+    const where = entry.source?.file + ':' + entry.source?.line;
+    const card = document.createElement(entry.command ? 'div' : 'p');
+    const notes = (entry.notes ?? []).map((note) => { const small = document.createElement('small'); small.textContent = note; return small; });
+    if (!entry.command) {
+      card.className = 'notice warning';
+      const written = document.createElement('code'); written.textContent = entry.written;
+      card.append(where + ': ', written, ' ' + entry.reason, ...notes);
+      return card;
+    }
+    card.className = 'summary-card';
+    const text = document.createElement('code'); text.textContent = JSON.stringify(entry.command.argv); card.append(text);
+    const detail = document.createElement('span'); detail.textContent = 'Written in ' + where + ' · Module: ' + entry.command.workingDirectory + ' · ' + entry.command.result?.adapter; card.append(detail);
+    const env = testEnvText(entry.command.env);
+    if (env) { const line = document.createElement('span'); line.textContent = env; card.append(line); }
+    card.append(...notes);
+    const add = document.createElement('button'); add.type = 'button'; add.className = 'secondary'; add.dataset.testSuggestion = 'written-' + index; add.dataset.command = JSON.stringify(entry.command); add.textContent = 'Add written command to draft'; card.append(add);
+    return card;
+  }
   document.addEventListener('change', (event) => {
     const target = event.target.closest('[data-test-target]');
     if (target) vscode.postMessage({ type: 'select-test-target', id: target.value });
@@ -85,6 +127,8 @@ export const TEST_SETUP_SCRIPT = `
         row.querySelector('[data-test-report]').value = command.result.path;
         row.querySelector('[data-test-roots]').value = command.affectedRoots.join(', ');
         row.querySelector('[data-test-timeout]').value = command.timeoutMs ?? 120000;
+        const env = row.querySelector('[data-test-env]');
+        if (env) { env.textContent = testEnvText(command.env); env.hidden = !env.textContent; }
       }
       testRows.append(row); markDirty();
     }

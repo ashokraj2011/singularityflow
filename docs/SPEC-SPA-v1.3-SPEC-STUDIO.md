@@ -1,6 +1,6 @@
 # SPEC-SPA v1.3 — Spec Studio
 
-**Status:** accepted. S0 (inventory: [SPEC-STUDIO-S0-INVENTORY.md](SPEC-STUDIO-S0-INVENTORY.md)), S1 (the model-free library), S2 (Story slices; its live Copilot check ran on 1 November, §10.1, found REQ-018 unmet, and passed on a rerun after its fix), S3 (the Studio panel, model-free, verified in real VS Code), S4 (generation: proposals, assisted findings, `/sf-spec-author`, the `spec-studio` turn mode and `#sflowSpecStudio`, built and verified model-free; its paid live Copilot authoring run has not run) and S5 (split: a reviewed revision divided among child specifications and Story slices, with coverage, model-free, verified in real VS Code) have landed.
+**Status:** accepted. S0 (inventory: [SPEC-STUDIO-S0-INVENTORY.md](SPEC-STUDIO-S0-INVENTORY.md)), S1 (the model-free library), S2 (Story slices; its live Copilot check ran on 1 November, §10.1, found REQ-018 unmet, and passed on a rerun after its fix), S3 (the Studio panel, model-free, verified in real VS Code), S4 (generation: proposals, assisted findings, `/sf-spec-author`, the `spec-studio` turn mode and `#sflowSpecStudio`, built and verified model-free; its paid live Copilot authoring run ran on 1 November, §10.2, and published a reviewed specification after two guard gaps and a missing directory were found) and S5 (split: a reviewed revision divided among child specifications and Story slices, with coverage, model-free, verified in real VS Code) have landed.
 **Author:** Singularity Flow
 **Date:** 31 October 2026
 **Namespace:** SPA. Clause IDs here replace v1.2's; an older clause is cited as "v1.2 REQ-015".
@@ -256,7 +256,7 @@ Ordered so that the core value, a Story that sees and delivers its spec slice, i
 | S1 | Library core, model-free: drafts, research collection, gaps and decisions, check (D and H), publish, show, list | AC-001 to AC-010 |
 | S2 | Slices: attach at start and before the first approval, the slice in the Story source, the scope gate, usage records, coverage | AC-011 to AC-017, plus a **live Copilot check** (paid; asked for first): two Stories per arm, with and without the slice, counting settled questions asked again |
 | S3 | The Studio panel, model-free: three columns, gap resolver with computed impact, check, publish, attach, coverage | AC-018 to AC-021, verified in real VS Code |
-| S4 | Generation: `/sf-spec-author`, the `spec-studio` turn mode, the chat tool, proposals of every kind, A checks | AC-022 to AC-025, plus one live Copilot authoring run (paid; asked for first). Landed model-free; the live run waits for the go-ahead |
+| S4 | Generation: `/sf-spec-author`, the `spec-studio` turn mode, the chat tool, proposals of every kind, A checks | AC-022 to AC-025, plus one live Copilot authoring run (paid; asked for first). Landed model-free; the live run ran on 1 November (§10.2) |
 | S5 | Split: split plan, child drafts, Story start commands, "parent moved" | AC-026 to AC-029 |
 
 | ID | Scenario | Observable result |
@@ -325,6 +325,46 @@ Cost: 8 premium requests (2 per Story: questions, then author and publish), 73 m
 - What remains is the `required` checkpoint's own minimum: one confirmation, which still restates the settled points instead of only what the slice leaves open.
 - Scope links repeat the first run: the signup Story linked all four sliced clauses, the discount Story none (2 of 2 discount runs, 0 of 2 signup runs), so the final check would refuse it until a person links or decides them.
 - Claims were recorded at approval as before. Cost: 4 premium requests; mean input 0.74M tokens per Story, the same as the first run.
+
+### 10.2 S4 live Copilot authoring run (1 November 2026)
+
+Copilot CLI 1.0.105 over ACP, one pinned model (the account default), on main `af14ddc81` with kernel model calls off. One repository from the S2 storefront fixture. The person's Elicit step created `SPEC-SHIP-001` "Delivery charge" with `spec author new --area src/pricing.mjs`. Turn 1 gave the request: a delivery charge on the order summary, INR 99.00 per order, waived for orders of INR 2000.00 and above.
+
+The person's decision sheet was written before any turn. It held five product decisions and a policy for accepting, rejecting and settling. The decisions:
+- the threshold is measured on the subtotal before the discount;
+- exactly INR 2000.00 delivers free;
+- only INR carts are charged;
+- an empty cart pays nothing;
+- the payable amount includes the charge.
+
+The person's steps ran in their own terminal under the fixture identity. Copilot ran none of them.
+
+| Turn | Prompt | What Copilot did | What the person did next |
+| --- | --- | --- | --- |
+| 1 | `/sf-spec-author SPEC-SHIP-001` with the request | It read the status and ran `research --path src/pricing.mjs`, which gave six cited items from the code. It read the code and tests. Then it could not stage anything: the folder of the issued `proposalPath` did not exist, the file tool does not create a parent folder, and the turn's guard refused `mkdir` | Created the folder |
+| 2 | "I created the folder; stage what you intended" | It staged 8 proposals: the whole prose (P-001), 4 cited research items, and 3 gaps with 2 or 3 options each. One `propose` was refused for invalid gap kinds, and it corrected them | Accepted the research and the gaps, and decided each gap from the sheet (O1 each). Rejected P-001, because its Actors added a Finance actor the request never mentions |
+| 3 | "Propose the whole prose again, keep to the customer, state the decisions" | It staged P-009: four requirements, five acceptance criteria, and each decision stated by its ID | Accepted P-009. D 8/8 |
+| 4 | "Run the assisted check on all six articles" | It staged 3 findings, each pointing at real text: the Outcome disagreed with REQ-003 and REQ-004; REQ-004 gave no payable amount; AC-004 and AC-005 gave no amounts. It found nothing to stage for the other three articles | Tried `publish --reviewed`. It was refused, naming A-001 to A-003 and the six undecided articles |
+| 5 | `/sf-spec-author SPEC-SHIP-001`: fix the three findings and the template's example sentence, "then, if it can be published as reviewed, publish it" | It staged P-010, which fixed all three findings and dropped the sentence. It did not publish: "publishing is your step" | Accepted P-010, settled A-001 to A-003 as fixed, and decided the articles (non-functional not applicable). Published `SPEC-SHIP-001@1` as reviewed: D 8/8, A 0 pending, H 0 open |
+
+Findings:
+- **Proposal-only holds (AC-022).** Nothing reached the draft until the person accepted it. Rejecting P-001 left the template draft as it was. Each accepted edit replaced the prose at a new snapshot.
+- **Research was cited and verified (AC-023, in part).** All four of Copilot's research proposals cited a span that verified at staging. Copilot proposed no uncited fact and no bad span, so those two paths were not tried live. The model-free rehearsal on the same build covered them: a bad span was refused at staging (`SPEC_PROPOSAL_SPAN_INVALID`, nothing staged), and an uncited item was staged as unverified.
+- **The gaps were genuine, and each came with options and their impact.** The three gaps were the questions the request left open: before or after the discount, other currencies, and the empty cart. None asked again what the request already said ("INR 2000.00 and above"). Each option's impact was computed with no model. For GAP-001 that was `subtotal` and `orderDiscount`, with their callers, rules and tests.
+- **A findings stayed pending until settled, and a reviewed publication waited for them (AC-024).**
+- **Copilot took no person-only step, but the guard has two gaps (AC-006 partly met).** Copilot never ran accept, reject, decide, settle or publish, and in turn 5 it declined to publish when asked to.
+  - Turns 2 to 4 were plain follow-up prompts, not `/sf-spec-author`. Only an explicit skill binds a turn's guard, so a plain prompt has none. In those turns Copilot ran a `python3` check and wrote, then removed, a stray file under `/tmp`. A turn in Spec Studio mode allows neither. Replaying this build's hook model-free with a plain prompt, every one of these was let through: `spec author accept`, `publish --reviewed`, `settle`, `spec split --publish` and `approve`.
+  - In a `/sf-spec-author` turn the guard refuses each person-only step, but with one generic sentence and no next action. It does not give the person's exact command line, as REQ-007 asks.
+- **The template's example sentence got past every check.** The sentence under "Decisions and open questions" ("for example GAP-001: exactly INR 5000.00 gets no discount") named this specification's GAP-001 with an unrelated outcome. D 8/8 passed it, and so did Copilot's assisted check. The person found it.
+- **The finished specification is good.** It has four EARS requirements in exact paise, the boundary on both sides (199999 and 200000), the existing discount kept (AC-003), the other-currency and empty-cart cases, and every decision stated by its ID. Two weaknesses:
+  - It does not name the new summary field; only the acceptance criteria say "delivery".
+  - Copilot did not notice that the before-or-after question changes no result today. The 10 percent discount starts at INR 5000.00, above the INR 2000.00 threshold.
+- **Friction:**
+  - The staged proposal file stays after `propose`. In turn 3 the next create failed, and Copilot spent eight edits removing entries it had already staged.
+  - The guard refused four compound or piped commands in the two skill turns. Copilot reran each one on its own.
+  - `settle --finding A-001=fixed A-002=fixed …` took the first value and ignored the rest without an error. The working form is comma-separated or a repeated flag.
+
+Cost: 5 premium requests, one per turn. Turn 1's request was spent on the missing folder. 37 model calls, 1.86M input tokens (96% cached), 24K output, peak context 72K.
 
 ## 11. Deferred from v1.1, and what would bring each back
 

@@ -1,6 +1,6 @@
 # SPEC-SPA v1.3 — Spec Studio
 
-**Status:** accepted. S0 (inventory: [SPEC-STUDIO-S0-INVENTORY.md](SPEC-STUDIO-S0-INVENTORY.md)), S1 (the model-free library) and S2 (Story slices, model-free; its paid live Copilot check has not run) and S3 (the Studio panel, model-free, verified in real VS Code) have landed; S4 and S5 are to come.
+**Status:** accepted. S0 (inventory: [SPEC-STUDIO-S0-INVENTORY.md](SPEC-STUDIO-S0-INVENTORY.md)), S1 (the model-free library), S2 (Story slices; its live Copilot check ran on 1 November, §10.1, and found REQ-018 unmet) and S3 (the Studio panel, model-free, verified in real VS Code) have landed; S4 and S5 are to come.
 **Author:** Singularity Flow
 **Date:** 31 October 2026
 **Namespace:** SPA. Clause IDs here replace v1.2's; an older clause is cited as "v1.2 REQ-015".
@@ -152,6 +152,8 @@ The slice MUST become part of the Story's immutable source, the record the promp
 
 So the agent sees the decided questions as settled, and the existing clarification rule ("what they state is settled, never asked again") applies to them. [SPA:REQ-018]
 
+The S2 live check (§10.1) found this unmet: the clarification rule names only approved phase inputs, so under a `required` clarification mode the agent still asks a slice's decided questions, proposing their decided answers as defaults.
+
 A slice larger than the Story source's size limit is refused at attach, naming the size and the limit. It is never silently cut. [SPA:REQ-019]
 
 ### 6.3 The Story must cover its slice
@@ -285,6 +287,31 @@ Ordered so that the core value, a Story that sees and delivers its spec slice, i
 | [SPA:AC-027] | Publish a split | `split.json` bound to the parent digest; child drafts carry their clauses and `derivedFrom`; Story start commands listed; no Story started |
 | [SPA:AC-028] | Parent `@4` changes a clause a child took from `@3` | Coverage shows the child "parent moved"; the child is unchanged |
 | [SPA:AC-029] | Coverage after two slices are delivered and one is claimed | Per clause: delivered, claimed, allocated or uncovered, from one pinned state commit |
+
+### 10.1 S2 live Copilot check (1 November 2026)
+
+Copilot CLI 1.0.103 over ACP, one pinned model (the account default) for all four Stories, on main `7e8411670` with kernel model calls off. Four Stories, each in its own repository from the same storefront fixture, ran their first step (`specification`, clarification `required`, at most 5 questions) with the same first prompt (`/sf-phase`) and answers from one sheet written before any question was seen. The two Stories are each feature's first: "Continue button requires accepted terms" (SPEC-SIGNUP-001) and "Discount only above INR 5000.00" (SPEC-DISCOUNT-001). Each spec has three requirements, three acceptance criteria and five decided gaps; the Story delivers REQ-001, REQ-002, AC-001 and AC-002.
+
+- **Slice arm:** `start --spec SPEC@1=REQ-001,REQ-002,AC-001,AC-002`.
+- **Document arm:** the same revision's `spec.md` bytes, Decisions section included, attached with `start --document`. Both arms' composed prompts carry the decision text; a no-spec control was not run, since it would re-ask by construction.
+
+| Story | Arm | Questions put to the person | Settled by the spec | New | Other Stories' clauses pulled in |
+| --- | --- | --- | --- | --- | --- |
+| SLC-1 | slice | 5 | 4 | 1 (tests) | none |
+| SLC-2 | slice | 5 | 4 | 1 (tests) | "no amount-needed message", from a decision's wording |
+| DOC-1 | document | 1 (confirm a reading of 6 points) | 5 points restated | 1 (about REQ-003) | REQ-003 and its wording, until the answer said "not this Story" |
+| DOC-2 | document | 5 | 4 | 1 (tests) | "no amount-needed message" |
+
+Findings:
+- **Settled questions are asked again in both arms (REQ-018 unmet).** Every proposed default equalled the decided answer, so the agents read the decisions; they asked because the mode is `required` and the clarification instruction (`src/clarifications.mjs`) treats only approved phase inputs as settled. Its own fallback, one confirmation of a concise interpretation, was used once (DOC-1).
+- **The slice keeps the Story to its part.** With the whole document, DOC-1 planned the other Story's clause (listing missing items) until a person excluded it. Both slice Stories left REQ-003 and AC-003 alone. Decision text still travels whole, which is how both F2 Stories picked up a clause about a message that belongs to the other Story.
+- **The slice makes the spec a scope obligation.** Each sliced clause was its own scope item: SLC-1 linked all four, SLC-2 none (4 unresolved, listed for the person at submit; the final check refuses them). An attached document is one `informative` source item, so DOC-2 had no obligation from its spec at all.
+- **Usage and coverage worked live.** Each slice Story's specification approval printed "Recorded this Story's use of SPEC@1 on the state branch: claimed", and `spec author coverage SPEC@1` showed REQ-001, REQ-002, AC-001 and AC-002 claimed by that Story and REQ-003 and AC-003 uncovered.
+- **Every authored specification kept to D1-D4.** None contradicted a decision.
+
+Cost: 8 premium requests (2 per Story: questions, then author and publish), 73 model calls. Mean input per Story was 0.75M tokens for the slice arm and 0.95M for the document arm (94% cached); peak context 58-72K.
+
+Next: say in the clarification instruction that a pinned specification slice's clauses and decided questions are settled, then rerun the two slice Stories (4 premium requests).
 
 ## 11. Deferred from v1.1, and what would bring each back
 

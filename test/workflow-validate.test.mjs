@@ -8,7 +8,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
-import { mkdir, mkdtemp, readFile, writeFile } from 'node:fs/promises';
+import { access, mkdir, mkdtemp, readFile, stat, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -196,6 +196,9 @@ test('a copied step that sends rejected work to a step this workflow lacks makes
   assert.deepEqual(finding.fix.changes, [{ op: 'phase.update', id: 'team-build', workflow: 'team-flow', approval: { groups: ['engineering-reviewers'], minimum: 1, rejectTo: ['team-build'] } }]);
   assert.match(report.fixDraft.changeSetPath, /workflow-fixes[\\/][a-f0-9]{16}[\\/]team-flow\.change-set\.json$/u);
   assert.ok(!report.fixDraft.changeSetPath.startsWith(`${root}${path.sep}`), 'the draft is private, outside the repository');
+  // Its folder is made when it is issued, since a host's create tool makes no parent folder; the file never is.
+  assert.ok((await stat(path.dirname(report.fixDraft.changeSetPath))).isDirectory());
+  await assert.rejects(access(report.fixDraft.changeSetPath), { code: 'ENOENT' });
 
   // The change set the finding gives clears it, checked without writing anything.
   const draft = path.join(root, '..', `${path.basename(root)}-fix.json`);

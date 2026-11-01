@@ -158,6 +158,35 @@ test('a new draft from the template has literal unique clauses; escaped anchors 
   assert.ok(codes.includes('spec.section-missing'), codes.join(', '));
 });
 
+test('the template gives no example decision; a draft still carrying the old one is blocked, and it does not state GAP-001 (S4 live run)', async (t) => {
+  const { root, directory } = await repository(t);
+  json(root, ['spec', 'author', 'new', SPEC, '--title', 'Order discount threshold']);
+  const { spec } = json(root, ['spec', 'author', 'status', SPEC]);
+  const decisions = spec.slice(spec.indexOf('## Decisions and open questions'));
+  assert.doesNotMatch(spec, /GAP-\d{3}|INR/u, 'nothing in the template reads as a decision');
+  assert.match(decisions, /TODO/u, 'the section is a placeholder the person replaces');
+  const fresh = json(root, ['spec', 'author', 'check', SPEC]).report.blocking;
+  assert.ok(fresh.some((finding) => finding.code === 'spec.placeholder' && finding.message.includes(String(spec.split('\n').findIndex((line) => line.includes('TODO: state each')) + 1))));
+  assert.ok(!fresh.some((finding) => finding.code === 'spec.template-example'));
+
+  // A draft started from the old template keeps its example, which named GAP-001.
+  json(root, ['spec', 'author', 'gap', SPEC, '--kind', 'open-question', '--question', 'Strictly above?']);
+  json(root, ['spec', 'author', 'decide', SPEC, 'GAP-001', '--choice', 'Strictly above INR 5000.00.', '--reason', 'Agreed.']);
+  const old = path.join(directory, 'old-template.md');
+  await writeFile(old, finishedSpec('Every decided or deferred gap is stated here by its ID, for example "GAP-001: exactly INR 5000.00 gets no discount."'));
+  json(root, ['spec', 'author', 'edit', SPEC, '--file', old, '--expected-seq', String(json(root, ['spec', 'author', 'status', SPEC]).sequence)]);
+  const blocking = json(root, ['spec', 'author', 'check', SPEC]).report.blocking;
+  assert.ok(blocking.some((finding) => finding.code === 'spec.template-example'), blocking.map((finding) => finding.code).join(', '));
+  assert.ok(blocking.some((finding) => finding.code === 'spec.decision-unstated' && finding.gap === 'GAP-001'), 'the example does not state GAP-001');
+  assert.equal(refused(root, ['spec', 'author', 'publish', SPEC, '--reviewed']).code, 'SPEC_LIBRARY_REVIEW_INCOMPLETE');
+
+  const stated = path.join(directory, 'stated.md');
+  await writeFile(stated, finishedSpec());
+  json(root, ['spec', 'author', 'edit', SPEC, '--file', stated, '--expected-seq', String(json(root, ['spec', 'author', 'status', SPEC]).sequence)]);
+  const after = json(root, ['spec', 'author', 'check', SPEC]).report.blocking.map((finding) => finding.code);
+  assert.ok(!after.includes('spec.template-example') && !after.includes('spec.decision-unstated'), after.join(', '));
+});
+
 test('a save is whole or absent after a crash, a retried save is the same snapshot, a stale save is refused (SPA:AC-002)', async (t) => {
   const { root, directory } = await repository(t);
   json(root, ['spec', 'author', 'new', SPEC, '--title', 'Order discount threshold']);

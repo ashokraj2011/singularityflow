@@ -21,6 +21,9 @@ const DECISIONS_SECTION = 'decisions and open questions';
 const ANCHOR = /\[([A-Z0-9][A-Z0-9._-]*):(REQ|BEH|IFC|AC|CON)-\d{3}\]/gu;
 const ESCAPED_ANCHOR = /\\\[[A-Z0-9][A-Z0-9._-]*:(?:REQ|BEH|IFC|AC|CON)-\d{3}\\?\]/u;
 const PLACEHOLDER = /\bTODO\b/u;
+// The decision the template once gave as its example. A draft started from it still carries the
+// sentence: it read as a real decision and, naming GAP-001, counted as stating that gap.
+const TEMPLATE_EXAMPLE = /for example "GAP-001: exactly INR 5000\.00 gets no discount\."/u;
 
 const RULES = Object.freeze([
   ['analyzer', 'Specification analyzer (enforce)'],
@@ -86,9 +89,11 @@ export function checkDraft(root, specId, draft, { ref = 'HEAD', commit = null, s
   if (foreign.length) findings.anchors.push({ code: 'spec.anchor-namespace', message: `clause anchors use ${foreign.join(', ')}; a specification's clauses use its own ID, ${specId}`, namespaces: foreign });
   const placeholders = lineNumbers(draft.spec, PLACEHOLDER);
   if (placeholders.length) findings.placeholders.push({ code: 'spec.placeholder', message: `template placeholders (TODO) remain on line${placeholders.length === 1 ? '' : 's'} ${placeholders.join(', ')}`, lines: placeholders });
+  const examples = lineNumbers(draft.spec, TEMPLATE_EXAMPLE);
+  if (examples.length) findings.placeholders.push({ code: 'spec.template-example', message: `the template's example decision ("GAP-001: exactly INR 5000.00 gets no discount") remains on line${examples.length === 1 ? '' : 's'} ${examples.join(', ')}; replace it with this specification's own decisions`, lines: examples });
 
   const gaps = foldGaps(draft.gaps);
-  const decisionsText = sectionText(draft.spec, DECISIONS_SECTION) ?? '';
+  const decisionsText = (sectionText(draft.spec, DECISIONS_SECTION) ?? '').replace(new RegExp(TEMPLATE_EXAMPLE.source, 'gu'), '');
   for (const gap of gaps.filter((entry) => entry.status !== 'open')) {
     if (!new RegExp(`\\b${gap.id}\\b`, 'u').test(decisionsText)) {
       findings['decisions-stated'].push({ code: 'spec.decision-unstated', message: `${gap.id} is ${gap.status} but its outcome is not stated under 'Decisions and open questions'`, gap: gap.id });

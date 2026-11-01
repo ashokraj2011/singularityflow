@@ -663,7 +663,7 @@ Usage:
   singularity-flow spec author new SPEC-ID --title TEXT [--from FILE | --revise] [--area PATH]... [--json]
   singularity-flow spec author edit SPEC-ID --file FILE --expected-seq N [--json]
   singularity-flow spec author research SPEC-ID [--path PATH]... [--symbol NAME]... [--refresh] [--json]
-  singularity-flow spec author research SPEC-ID (--fact TEXT --source NAME | --remove R-NNN...) [--json]
+  singularity-flow spec author research SPEC-ID (--fact TEXT --source NAME | [--remove R-NNN]...) [--json]
   singularity-flow spec author gap SPEC-ID --kind KIND --question TEXT [--research R-NNN,...] [--clause ID]...
     [--options FILE] [--json]
   singularity-flow spec author gaps SPEC-ID [GAP-ID] [--json]
@@ -672,8 +672,9 @@ Usage:
   singularity-flow spec author propose SPEC-ID --file FILE [--json]
     stage Copilot's proposals (edit, research, gap) and assisted checklist findings; nothing is in the draft until accepted
   singularity-flow spec author accept SPEC-ID P-NNN... [--edit FILE] [--json] | reject SPEC-ID P-NNN... --reason TEXT [--json]
-  singularity-flow spec author settle SPEC-ID (--article ARTICLE=DECISION... | --all-articles DECISION | --finding A-NNN=gap|fixed|dismissed...)
+  singularity-flow spec author settle SPEC-ID ([--article ARTICLE=DECISION]... | --all-articles DECISION | [--finding A-NNN=gap|fixed|dismissed]...)
     [--reason TEXT] [--json]
+    repeat --article or --finding once per value, or give one comma-separated list; a value without its flag is refused
   singularity-flow spec author check|status SPEC-ID [--json]
   singularity-flow spec author publish SPEC-ID (--reviewed | --draft) [--json]
   singularity-flow spec author show SPEC-ID[@N] [--any] [--json] | list [--json] | discard SPEC-ID [--json]

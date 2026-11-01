@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
-import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
+import { access, mkdir, mkdtemp, readFile, rm, stat, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
@@ -283,4 +283,71 @@ test('a proposal file that does not check stages nothing and says which field is
     ['proposals[2].article', 'SPEC_ARTICLE_UNKNOWN'], ['proposals[3].options', 'SPEC_GAP_OPTIONS_INVALID']]);
   assert.deepEqual(status(root).proposals, []);
   assert.equal((await propose(root, directory, { proposals: [] }, 'empty.json', { fail: true })).code, 'SPEC_PROPOSAL_INVALID');
+});
+
+test('the issued proposal file has its folder before Copilot writes it, and propose uses the file up; a refused one is kept (S4 live run)', async (t) => {
+  const { root, directory } = await repository(t);
+  await readySpec(root, directory);
+  const env = { SINGULARITY_FLOW_WORKFLOW_BUILD_STATE: path.join(directory, 'build-state') };
+  const issued = json(root, ['spec', 'author', 'status', SPEC], { env }).proposalPath;
+  assert.ok(issued.startsWith(path.join(directory, 'build-state', 'spec-proposals')), issued);
+  const folder = await stat(path.dirname(issued));
+  assert.ok(folder.isDirectory(), 'a host create tool makes no parent folder, and the turn may not run mkdir');
+  if (process.platform !== 'win32') assert.equal(folder.mode & 0o777, 0o700);
+  await assert.rejects(access(issued), { code: 'ENOENT' }, 'only the folder is made, never the file');
+
+  const research = JSON.stringify({ proposals: [{ kind: 'research', summary: 'orderDiscount gives 10 percent from the threshold up.',
+    citation: { path: 'src/pricing.mjs', lines: [11, 16], quote: 'total >= DISCOUNT_THRESHOLD' } }] });
+  await writeFile(issued, research, { flag: 'wx' });
+  const staged = json(root, ['spec', 'author', 'propose', SPEC, '--file', issued], { env });
+  assert.deepEqual([staged.staged, staged.proposalFile], [['P-001'], 'removed']);
+  await assert.rejects(access(issued), { code: 'ENOENT' }, 'the staged file is used up');
+
+  // The next turn creates the file afresh; a refused one is left for the repair.
+  await writeFile(issued, JSON.stringify({ proposals: [{ kind: 'rewrite' }] }), { flag: 'wx' });
+  const error = refused(root, ['spec', 'author', 'propose', SPEC, '--file', issued], { env });
+  assert.equal(error.code, 'SPEC_PROPOSAL_INVALID');
+  assert.match(error.message, /kept for the repair/u);
+  assert.match(await readFile(issued, 'utf8'), /rewrite/u);
+
+  // The same proposals again are the same operation: nothing is staged twice, and the file goes.
+  await writeFile(issued, research);
+  const again = json(root, ['spec', 'author', 'propose', SPEC, '--file', issued], { env });
+  assert.deepEqual([again.replayed, again.proposalFile], [true, 'removed']);
+  assert.deepEqual(json(root, ['spec', 'author', 'status', SPEC], { env }).proposals.map(({ id }) => id), ['P-001']);
+  await assert.rejects(access(issued), { code: 'ENOENT' });
+  assert.match(refused(root, ['spec', 'author', 'propose', SPEC, '--file', issued], { env }).message, /removes the proposal file once it has staged it/u);
+
+  // A person's own file is theirs to keep.
+  const mine = path.join(directory, 'mine.json');
+  await writeFile(mine, JSON.stringify({ proposals: [{ kind: 'research', summary: 'Finance says gift cards never count.' }] }));
+  assert.equal(json(root, ['spec', 'author', 'propose', SPEC, '--file', mine], { env }).proposalFile, 'kept');
+  await access(mine);
+});
+
+test('a value given without its flag is refused and changes nothing; repeated flags and a comma list settle each one (S4 live run)', async (t) => {
+  const { root, directory } = await repository(t);
+  await readySpec(root, directory);
+  await propose(root, directory, { assistedCheck: true, proposals: [
+    { kind: 'finding', article: 'ambiguity', message: '"order total" could include shipping.', clauses: ['REQ-001'] },
+    { kind: 'finding', article: 'boundary-conditions', message: 'Nothing says what happens at exactly INR 5000.00.' },
+    { kind: 'finding', article: 'non-functional', message: 'No latency is stated.' }] });
+  const before = status(root);
+  const stray = refused(root, ['spec', 'author', 'settle', SPEC, '--finding', 'A-001=gap', 'A-002=gap', 'A-003=gap']);
+  assert.equal(stray.code, 'SPEC_AUTHOR_ARGUMENT_UNEXPECTED');
+  assert.match(stray.message, /'A-002=gap', 'A-003=gap'/u);
+  assert.equal(refused(root, ['spec', 'author', 'settle', SPEC, '--article', 'completeness=satisfied', 'ambiguity=satisfied']).code, 'SPEC_AUTHOR_ARGUMENT_UNEXPECTED');
+  const unchanged = status(root);
+  assert.equal(unchanged.sequence, before.sequence, 'nothing was settled');
+  assert.ok(unchanged.findings.every((finding) => finding.status === 'pending'));
+
+  const settled = json(root, ['spec', 'author', 'settle', SPEC, '--finding', 'A-001=gap', '--finding', 'A-002=gap,A-003=gap', '--article', 'completeness=satisfied,ambiguity=satisfied']);
+  assert.deepEqual(settled.opened, { 'A-001': 'GAP-001', 'A-002': 'GAP-002', 'A-003': 'GAP-003' });
+  assert.deepEqual(settled.articles.filter(({ decision }) => decision).map(({ article }) => article).sort(), ['ambiguity', 'completeness']);
+
+  for (const args of [['research', SPEC, '--remove', 'R-001', 'R-002'], ['new', 'SPEC-CHK-005', '--title', 'Two', 'words'], ['list', 'SPEC-CHK-004'], ['gaps', SPEC, 'GAP-001', 'GAP-002']]) {
+    assert.equal(refused(root, ['spec', 'author', ...args]).code, 'SPEC_AUTHOR_ARGUMENT_UNEXPECTED', args.join(' '));
+  }
+  assert.equal(refused(root, ['spec', 'split', `${SPEC}@1`, '--propose', '--file', 'plan.json', 'extra']).code, 'SPEC_AUTHOR_ARGUMENT_UNEXPECTED');
+  assert.notEqual(refused(root, ['spec', 'author', 'accept', SPEC, 'P-008', 'P-009']).code, 'SPEC_AUTHOR_ARGUMENT_UNEXPECTED', 'accept reads every ID it is given');
 });

@@ -8,7 +8,7 @@
  * findings, publishing and discarding are the person's own steps: the Copilot guard refuses them in
  * every turn (OWN_TERMINAL_STEPS).
  */
-import { readFile } from 'node:fs/promises';
+import { readFile, rm } from 'node:fs/promises';
 import path from 'node:path';
 
 import { identity, refCommit, repoRoot } from '../git.mjs';
@@ -23,7 +23,7 @@ import {
   acceptProposals, assistedReport, draftAssisted, rejectProposals, settleFindings, stageProposals, stagedProposals, validateProposals
 } from '../spec-library/proposals.mjs';
 import { addPersonFact, gapImpact, mergeResearch, normalizeArea, removeResearch } from '../spec-library/research.mjs';
-import { optionBoolean, optionNumber, optionString, optionStrings, SingularityFlowError } from '../util.mjs';
+import { optionBoolean, optionNumber, optionString, optionStrings, samePlatformPath, SingularityFlowError } from '../util.mjs';
 
 export const SPEC_AUTHOR_ACTIONS = Object.freeze([
   'new', 'edit', 'research', 'gap', 'gaps', 'propose', 'accept', 'reject', 'decide', 'settle', 'check', 'status', 'publish', 'show', 'list', 'discard', 'coverage'
@@ -53,17 +53,24 @@ async function libraryConfig(root) {
   return loadConfig(root);
 }
 
-/**
- * The one proposal file a live /sf-spec-author turn may write for this specification: on this
- * computer, outside every checkout, like an application draft. A paused Copilot is issued none.
- */
-async function proposalPath(root, specId, { env = process.env } = {}) {
+/** Where this specification's proposal file goes: on this computer, outside every checkout, like an application draft. */
+async function proposalFile(root, specId, { env = process.env } = {}) {
   const [{ createHash }, { realpathSync }, { workflowBuildStateRoot }] = await Promise.all([
     import('node:crypto'), import('node:fs'), import('../workflow-build/store.mjs')]);
   let resolved = path.resolve(root);
   try { resolved = realpathSync.native(resolved); } catch { /* the path as given */ }
   const repository = createHash('sha256').update(resolved).digest('hex').slice(0, 16);
-  const file = path.join(workflowBuildStateRoot(env), 'spec-proposals', repository, `${specId}.proposal.json`);
+  return path.join(workflowBuildStateRoot(env), 'spec-proposals', repository, `${specId}.proposal.json`);
+}
+
+/**
+ * The one proposal file a live /sf-spec-author turn may write for this specification, with its
+ * folder made: a host's create tool makes no parent folder, and the turn may not run mkdir. A paused
+ * Copilot is issued none. `propose` removes the file once it has staged it.
+ */
+async function proposalPath(root, specId, { env = process.env } = {}) {
+  const file = await proposalFile(root, specId, { env });
+  await import('../workflow-build/store.mjs').then(({ preparePrivateStateFile }) => preparePrivateStateFile(file, { env })).catch(() => null);
   await import('../copilot-mutation-guard.mjs').then(({ issueSpecStudioStaging }) => issueSpecStudioStaging(file, { root })).catch(() => 0);
   return file;
 }
@@ -315,9 +322,16 @@ async function proposeAction(root, positionals, options) {
   const specId = requireSpecId(specArgument(positionals, 'propose'));
   const file = optionString(options, 'file');
   if (!file) fail(`spec author propose ${specId} needs --file FILE: { "proposals": [ … ] } (singularity-flow help spec).`, 'SPEC_PROPOSAL_INVALID', { specId, nextAction: `singularity-flow spec author status ${specId} --json` });
-  const contents = await readFile(path.resolve(file), 'utf8');
+  // The issued proposal file is used up once staged, so the next turn creates it afresh instead of
+  // finding the last turn's proposals still there; a person's own file is left alone.
+  const issued = samePlatformPath(file, await proposalFile(root, specId));
+  const contents = await readFile(path.resolve(file), 'utf8').catch((error) => {
+    if (error?.code !== 'ENOENT') throw error;
+    return fail(`${file} does not exist${issued ? ': propose removes the proposal file once it has staged it, so write the next proposals to it afresh' : ''}. What is staged already shows in singularity-flow spec author status ${specId}.`,
+      'SPEC_PROPOSAL_INVALID', { specId, file, nextAction: `singularity-flow spec author status ${specId} --json` });
+  });
   let payload;
-  try { payload = JSON.parse(contents); } catch (error) { fail(`${file} is not JSON: ${error.message}`, 'SPEC_PROPOSAL_INVALID', { specId, file }); }
+  try { payload = JSON.parse(contents); } catch (error) { fail(`${file} is not JSON: ${error.message}. Nothing was staged; the file is kept for the repair.`, 'SPEC_PROPOSAL_INVALID', { specId, file }); }
   const { head } = await requireDraft(root, specId);
   const commit = refCommit(root, 'HEAD');
   const who = actor(root);
@@ -331,7 +345,7 @@ async function proposeAction(root, positionals, options) {
     change: (draft) => {
       const checked = validateProposals(root, draft, payload, { ref: 'HEAD', commit });
       if (checked.findings.length) {
-        fail(`Nothing was staged; the proposals need fixing: ${checked.findings.map((finding) => `${finding.field}: ${finding.message}`).join('; ')}.`,
+        fail(`Nothing was staged; the proposals need fixing: ${checked.findings.map((finding) => `${finding.field}: ${finding.message}`).join('; ')}. The file is kept for the repair.`,
           'SPEC_PROPOSAL_INVALID', { specId, findings: checked.findings, nextAction: `singularity-flow spec author status ${specId} --json` });
       }
       notes = checked.entries.flatMap((entry) => entry.notes);
@@ -340,10 +354,12 @@ async function proposeAction(root, positionals, options) {
     }
   });
   const accept = staged.filter((id) => id.startsWith('P-'));
-  return print(options, { action: 'propose', specId, staged, notes, replayed: saved.replayed, sequence: saved.snapshot.sequence },
-    saved.replayed ? `Already proposed: this file was staged in snapshot ${saved.snapshot.sequence}.`
+  if (issued) await rm(path.resolve(file), { force: true });
+  const removed = issued ? 'The proposal file was removed now that it is staged; write any further proposals to it afresh.' : null;
+  return print(options, { action: 'propose', specId, staged, notes, replayed: saved.replayed, sequence: saved.snapshot.sequence, proposalFile: issued ? 'removed' : 'kept' },
+    saved.replayed ? [`Already proposed: this file was staged in snapshot ${saved.snapshot.sequence}.`, removed].filter(Boolean).join(' ')
       : [`Staged ${staged.join(', ')} on ${specId}. Nothing is in the draft until a person accepts it.`, ...notes.map((note) => `  ${note}`),
-        accept.length ? `The person accepts in the Spec Studio, or: singularity-flow spec author accept ${specId} ${accept.join(' ')}` : null].filter(Boolean).join('\n'));
+        accept.length ? `The person accepts in the Spec Studio, or: singularity-flow spec author accept ${specId} ${accept.join(' ')}` : null, removed].filter(Boolean).join('\n'));
 }
 
 async function acceptAction(root, positionals, options) {
@@ -530,11 +546,24 @@ async function coverageAction(root, positionals, options) {
     unreadable: [...unreadable, ...splits.unreadable], ...(repaired ? { repaired } : {}) }, lines.join('\n'));
 }
 
+// How many positionals each action reads (`spec author <action> SPEC-ID` is four). A value past them
+// was dropped without a word: `settle --finding A-001=fixed A-002=fixed` settled A-001 alone.
+const POSITIONAL_LIMITS = Object.freeze({ list: 3, gaps: 5, decide: 5, accept: Infinity, reject: Infinity });
+
+/** Refuse values an action would not read, before anything is written. */
+export function refuseStrayValues(command, positionals, limit) {
+  const stray = positionals.slice(limit);
+  if (!stray.length) return;
+  fail(`${command} does not take ${stray.map((value) => `'${value}'`).join(', ')}; nothing was changed. A flag takes one value: repeat it once per value, for example --finding A-001=fixed --finding A-002=fixed.`,
+    'SPEC_AUTHOR_ARGUMENT_UNEXPECTED', { values: stray, nextAction: 'singularity-flow help spec' });
+}
+
 export async function specAuthorCommand(positionals, options) {
   // `spec split` (SPEC-SPA v1.3 §7) shares this module's library reads and output.
-  if (positionals[1] === 'split') return (await import('./spec-split.mjs')).specSplitCommand(positionals, options, { libraryConfig, actor, print });
+  if (positionals[1] === 'split') return (await import('./spec-split.mjs')).specSplitCommand(positionals, options, { libraryConfig, actor, print, refuseStrayValues });
   const action = positionals[2];
   if (!SPEC_AUTHOR_ACTIONS.includes(action)) fail(`${action ? `'${action}' is not a spec author action. ` : ''}${USAGE}`, 'SPEC_AUTHOR_ACTION_UNKNOWN', { action: action ?? null, nextAction: 'singularity-flow help spec' });
+  refuseStrayValues(`spec author ${action}`, positionals, POSITIONAL_LIMITS[action] ?? 4);
   const root = repoRoot();
   if (action === 'new') return newAction(root, positionals, options);
   if (action === 'edit') return editAction(root, positionals, options);

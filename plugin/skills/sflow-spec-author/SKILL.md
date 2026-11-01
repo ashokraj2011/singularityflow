@@ -26,6 +26,6 @@ Copilot only proposes: nothing is in the draft, decided or published until the p
    - `{ "kind": "gap", "gapKind", "question", "evidence": ["R-001"], "clauses", "options": [{ "wording", "changesCode" }] }` for a question the code or wording leaves open, with at most four options, each its clause text;
    - `{ "kind": "finding", "article", "message", "clauses" }` for a problem against one starter checklist article; set `assistedCheck` to true when you checked all six.
    Never invent code, people or decisions.
-4. Run `singularity-flow spec author propose <SPEC-ID> --file <proposalPath> --json`. Repair its `findings` (each names its `field`) at most twice; otherwise tell the person what is wrong.
+4. Run `singularity-flow spec author propose <SPEC-ID> --file <proposalPath> --json`; it removes the file once staged, so later proposals create it afresh. Repair its `findings` (each names its `field`) at most twice; otherwise tell the person what is wrong.
 5. If `#sflowSpecStudio` is offered, the specification is open in the Spec Studio: use its `state`, `guide` and `propose` instead of steps 1, 3 and 4.
 6. Say what you staged, by ID, and why. The person accepts or rejects each proposal, decides each gap, settles each finding and publishes, in the Spec Studio or their own terminal; never take those steps or answer for them.

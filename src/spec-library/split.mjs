@@ -428,7 +428,7 @@ export function childSpecText(revision, child, { split }) {
     '## Requirements', '', ...(requirements.length ? requirements : ['TODO: the requirements this child adds.', '']),
     '## Acceptance', '', ...(acceptance.length ? acceptance : ['TODO: an observable result that proves each requirement.', '']),
     '## Decisions and open questions', '', ...(decisions.length ? [`Decided in ${parent}@${revision.revision}:`, '', ...decisions, ''] : []),
-    'Every decided or deferred gap is stated here by its ID, for example "GAP-001: exactly INR 5000.00 gets no discount."', ''
+    'TODO: state each decided or deferred gap of this specification here by its ID and its outcome.', ''
   ].join('\n');
 }
 

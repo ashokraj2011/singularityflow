@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
-import { readFile, symlink, writeFile } from 'node:fs/promises';
+import { access, readFile, stat, symlink, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import test from 'node:test';
 import YAML from 'yaml';
@@ -205,6 +205,9 @@ test('the output never contains a secret value: not in the JSON, the text, or ei
   assert.equal(text.status, 0, text.stderr);
   const parsed = JSON.parse(json.stdout);
   assert.ok(parsed.applicationDraft.length > 0 && parsed.environmentsDraft.length > 0);
+  // The issued draft's folder is made, since a host's create tool makes no parent folder; the file never is.
+  assert.ok((await stat(path.dirname(parsed.draft.applicationFile))).isDirectory());
+  await assert.rejects(access(parsed.draft.applicationFile), { code: 'ENOENT' });
   for (const [name, secret] of Object.entries(FAKE_SECRETS)) {
     for (const [surface, output] of [['json', json.stdout], ['text', text.stdout + text.stderr], ['applicationDraft', parsed.applicationDraft],
       ['environmentsDraft', parsed.environmentsDraft]]) {

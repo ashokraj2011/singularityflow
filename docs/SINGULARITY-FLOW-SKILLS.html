@@ -10668,7 +10668,7 @@ Reuse a verified pause-aware entry supplied in this invocation before any mutati
           <span class="pill">guided</span>
           <span class="pill">repository boundary</span>
           <span class="pill">model: never</span>
-          <span class="pill">~1049 body tokens</span>
+          <span class="pill">~1067 body tokens</span>
         </div>
         <dl>
           <div><dt>Command</dt><dd><code>/sflow-spec-author</code></dd></div>
@@ -10708,7 +10708,7 @@ Copilot only proposes: nothing is in the draft, decided or published until the p
    - `{ &quot;kind&quot;: &quot;gap&quot;, &quot;gapKind&quot;, &quot;question&quot;, &quot;evidence&quot;: [&quot;R-001&quot;], &quot;clauses&quot;, &quot;options&quot;: [{ &quot;wording&quot;, &quot;changesCode&quot; }] }` for a question the code or wording leaves open, with at most four options, each its clause text;
    - `{ &quot;kind&quot;: &quot;finding&quot;, &quot;article&quot;, &quot;message&quot;, &quot;clauses&quot; }` for a problem against one starter checklist article; set `assistedCheck` to true when you checked all six.
    Never invent code, people or decisions.
-4. Run `singularity-flow spec author propose &lt;SPEC-ID&gt; --file &lt;proposalPath&gt; --json`. Repair its `findings` (each names its `field`) at most twice; otherwise tell the person what is wrong.
+4. Run `singularity-flow spec author propose &lt;SPEC-ID&gt; --file &lt;proposalPath&gt; --json`; it removes the file once staged, so later proposals create it afresh. Repair its `findings` (each names its `field`) at most twice; otherwise tell the person what is wrong.
 5. If `#sflowSpecStudio` is offered, the specification is open in the Spec Studio: use its `state`, `guide` and `propose` instead of steps 1, 3 and 4.
 6. Say what you staged, by ID, and why. The person accepts or rejects each proposal, decides each gap, settles each finding and publishes, in the Spec Studio or their own terminal; never take those steps or answer for them.
 </code></pre>

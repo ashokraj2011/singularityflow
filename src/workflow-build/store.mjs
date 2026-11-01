@@ -47,6 +47,20 @@ async function stateRoot(env) {
   return realpath(root);
 }
 
+/**
+ * Create the private folder (0700) of a file issued to a Copilot turn, such as a Spec Studio proposal
+ * or a workflow fix draft, so the host's file tool can create the file: it does not make parent
+ * folders, and the turn may not run mkdir. The file itself is never created here.
+ */
+export async function preparePrivateStateFile(file, { env = process.env } = {}) {
+  await stateRoot(env);
+  const directory = path.dirname(path.resolve(file));
+  const relative = path.relative(workflowBuildStateRoot(env), directory);
+  if (!relative || relative.startsWith('..') || path.isAbsolute(relative)) fail('WORKFLOW_BUILD_STATE_UNSAFE', `${file} is not inside the workflow build state directory.`);
+  await mkdir(directory, { recursive: true, mode: 0o700 });
+  return file;
+}
+
 export function requireBuildId(value) {
   const id = String(value ?? '').trim();
   if (!BUILD_ID.test(id)) fail('WORKFLOW_BUILD_INVALID', `'${id}' is not a workflow build ID (wb_ followed by 16 hex digits).`);

@@ -14,8 +14,10 @@ export async function run(argv, { positionals, options }) {
   const { validateWorkflows, validationFindingLines } = await import('../workflow-validation.mjs');
   const result = await withApprovedConfigurationRead(root, () => validateWorkflows(root, { workflow: positionals[2] ?? null }),
     { preferAuthority: optionBoolean(options, 'for-start') });
-  // The one file a live /sf-fix-workflow turn may write: its change set draft. A paused Copilot gets none.
+  // The one file a live /sf-fix-workflow turn may write: its change set draft, with its folder made
+  // (a host create tool makes no parent folder). A paused Copilot gets none.
   if (result.fixDraft) {
+    await import('../workflow-build/store.mjs').then(({ preparePrivateStateFile }) => preparePrivateStateFile(result.fixDraft.changeSetPath)).catch(() => null);
     await import('../copilot-mutation-guard.mjs').then(({ issueFixWorkflowStaging }) => issueFixWorkflowStaging(result.fixDraft.changeSetPath, { root })).catch(() => 0);
   }
   if (!result.valid) process.exitCode = 1;

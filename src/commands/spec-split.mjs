@@ -122,6 +122,7 @@ async function readAction(root, name, view, read, options, { print }) {
 export async function specSplitCommand(positionals, options, helpers) {
   const reference = positionals[2];
   if (!reference) fail('spec split needs a reviewed revision, for example SPEC-CHK-004@3.', 'SPEC_REFERENCE_INVALID', { nextAction: 'singularity-flow spec author list' });
+  helpers.refuseStrayValues('spec split', positionals, 3);
   const { specId, revision } = parseSpecReference(reference);
   if (revision === null) fail(`spec split needs the revision it divides: ${specId}@N.`, 'SPEC_REFERENCE_INVALID', { specId, nextAction: `singularity-flow spec author show ${specId}` });
   const propose = optionBoolean(options, 'propose');

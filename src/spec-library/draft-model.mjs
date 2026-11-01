@@ -55,7 +55,7 @@ TODO: an observable result that proves REQ-001. [${specId}:AC-001]
 
 ## Decisions and open questions
 
-Every decided or deferred gap is stated here by its ID, for example "GAP-001: exactly INR 5000.00 gets no discount."
+TODO: state each decided or deferred gap here by its ID and its outcome.
 `;
 }
 

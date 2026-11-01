@@ -126,7 +126,7 @@ Deciding a gap records the chosen option's exact wording, the reason and the sig
 
 | Part | Contents | Blocks a reviewed publication when |
 | --- | --- | --- |
-| D (deterministic) | The existing `analyzeSpecification(markdown, { namespace })`, unchanged; the template's required sections; literal clause anchors (an escaped-anchor or empty file has no clauses, v1.1 AC-001); `spec.gap-open`, `spec.decision-unstated`, `spec.research-stale`, `spec.citation-unverified`, `spec.section-missing` | Any blocking analyzer finding, or any of the five library findings |
+| D (deterministic) | The existing `analyzeSpecification(markdown, { namespace })`, unchanged; the template's required sections; literal clause anchors (an escaped-anchor or empty file has no clauses, v1.1 AC-001); `spec.gap-open`, `spec.decision-unstated`, `spec.research-stale`, `spec.citation-unverified`, `spec.section-missing`; template text left in (`spec.placeholder`, and `spec.template-example` for the example decision older templates carried) | Any blocking analyzer finding, or any of the library findings |
 | A (assisted) | Copilot's findings against the analyzer's six starter checklist articles: completeness, ambiguity, consistency, verifiability, boundary conditions, non-functional. Each is accepted (it becomes a gap or an edit) or dismissed with a reason | Any finding still pending. With no Copilot run, A shows "not run", which is allowed and stated in the manifest |
 | H (human) | Gap decisions, plus a decision on each checklist article (`satisfied`, `exception`, `not-applicable`, the analyzer's existing `CHECKLIST_DECISIONS`) | Any open gap, or any article without a decision |
 
@@ -226,14 +226,14 @@ Every family is registered in `schema-migrations.mjs` with current and future-ve
 | `spec author new SPEC-ID --title TEXT [--from FILE]` | anyone | New draft from the template or a Markdown file |
 | `spec author edit SPEC-ID --file FILE --expected-seq N` | anyone | Saves prose as the next snapshot |
 | `spec author research SPEC-ID [--path PATH]... [--symbol NAME]... [--refresh]`, `--fact TEXT --source NAME`, `--remove R-NNN` | anyone | Collects or refreshes knowledge-model items with the tests that exercise them; adds a person's fact; removes an uncited item |
-| `spec author propose SPEC-ID --file FILE` | anyone (Copilot's route) | Stages proposals; validates them; changes nothing accepted |
+| `spec author propose SPEC-ID --file FILE` | anyone (Copilot's route) | Stages proposals; validates them; changes nothing accepted. The issued `proposalPath` (its folder made by `status --json`) is removed once staged; a refused file is kept for its repair |
 | `spec author accept SPEC-ID PROPOSAL-ID... [--edit FILE]` | person | Accepts proposals into the draft |
 | `spec author gap SPEC-ID --kind KIND --question TEXT [--research R-NNN,...] [--options FILE]` | anyone | Opens a gap with its evidence and options |
 | `spec author gaps SPEC-ID [GAP-ID]` | anyone | Read: gaps with each option's computed impact |
 | `spec author decide SPEC-ID GAP-ID (--option O1 \| --choice TEXT \| --defer --owner NAME \| --reopen) --reason TEXT` | person | Closes, defers or reopens a gap |
 | `spec author check SPEC-ID [--json]` | anyone | The quality report |
 | `spec author reject SPEC-ID PROPOSAL-ID... --reason TEXT` | person | Turns proposals down; the draft is unchanged |
-| `spec author settle SPEC-ID (--article ARTICLE=DECISION... \| --all-articles DECISION \| --finding A-NNN=gap\|fixed\|dismissed...) [--reason TEXT]` | person | Settles H checklist articles and A findings: `gap` opens one from the finding, `fixed` needs the prose changed since, `dismissed` needs the reason |
+| `spec author settle SPEC-ID ([--article ARTICLE=DECISION]... \| --all-articles DECISION \| [--finding A-NNN=gap\|fixed\|dismissed]...) [--reason TEXT]` | person | Settles H checklist articles and A findings: `gap` opens one from the finding, `fixed` needs the prose changed since, `dismissed` needs the reason. Repeat the flag once per value or give one comma-separated list; a value without its flag is refused (`SPEC_AUTHOR_ARGUMENT_UNEXPECTED`), as it is for every `spec author` and `spec split` action |
 | `spec author publish SPEC-ID (--draft \| --reviewed)` | person | Publishes the next revision |
 | `spec author show SPEC-ID[@N]`, `spec author list`, `spec author status SPEC-ID` | anyone | Reads; `status` is the host's one call for the Studio |
 | `spec author discard SPEC-ID` | person | Removes the local draft |

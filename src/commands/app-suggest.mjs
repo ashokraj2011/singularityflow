@@ -11,8 +11,8 @@ const SOURCE_WORDS = Object.freeze({
 
 /**
  * The private file an application block draft for this repository and capability goes in: outside
- * the repository, beside the workflow fix drafts, never created here. A live /sf-run-app turn may
- * write exactly this file and propose it with capability set|edit --application-file.
+ * the repository, beside the workflow fix drafts. Only its folder is made here, when it is issued. A
+ * live /sf-run-app turn may write exactly this file and propose it with capability set|edit --application-file.
  */
 export async function applicationDraftPath(root, capabilityId, { env = process.env } = {}) {
   const [{ createHash }, { realpathSync }, { workflowBuildStateRoot }] = await Promise.all([
@@ -36,6 +36,8 @@ export async function run(root, application, { json = false } = {}) {
   });
   if (result.applicationDraft) {
     result.draft = { applicationFile: await applicationDraftPath(root, result.capability) };
+    // A host create tool makes no parent folder, and the turn may not run mkdir.
+    await import('../workflow-build/store.mjs').then(({ preparePrivateStateFile }) => preparePrivateStateFile(result.draft.applicationFile)).catch(() => null);
     await import('../copilot-mutation-guard.mjs')
       .then(({ issueRunAppDraftStaging }) => issueRunAppDraftStaging(result.draft.applicationFile, { root })).catch(() => 0);
   }

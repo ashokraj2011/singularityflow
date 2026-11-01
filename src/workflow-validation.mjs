@@ -26,7 +26,7 @@ const SEVERITIES = ['problem', 'warning', 'note'];
 const countsOf = (findings) => Object.fromEntries(SEVERITIES.map((severity) => [severity, findings.filter((entry) => entry.severity === severity).length]));
 const uniqueById = (findings) => [...new Map(findings.map((entry) => [entry.id, entry])).values()];
 
-/** The private file a fix draft for this repository (and workflow) goes in: outside the repository, never created here. */
+/** The private file a fix draft for this repository (and workflow) goes in: outside the repository; `workflow validate` makes only its folder. */
 export function workflowFixDraftPath(root, workflowId = null, { env = process.env } = {}) {
   let resolved = path.resolve(root);
   try { resolved = realpathSync.native(resolved); } catch { /* the path as given */ }

@@ -367,6 +367,12 @@ Findings:
   - The guard refused four compound or piped commands in the two skill turns. Copilot reran each one on its own.
   - `settle --finding A-001=fixed A-002=fixed …` took the first value and ignored the rest without an error. The working form is comma-separated or a repeated flag.
 
+- **Fixed in `4f022ba38`:** four of these findings.
+  - `status --json` makes the issued proposal file's folder before handing out its path. `app suggest`'s application draft and `workflow validate`'s change set get the same fix: both were issued into a folder nobody made.
+  - `propose` removes the issued file once its proposals are staged, and keeps a refused one for its repair.
+  - A value given without its flag is refused, naming it (`SPEC_AUTHOR_ARGUMENT_UNEXPECTED`), instead of being dropped.
+  - The template gives no example decision. A draft that still carries the old example is blocked by `spec.template-example`, and the example no longer counts as stating GAP-001.
+
 Cost: 5 premium requests, one per turn. Turn 1's request was spent on the missing folder. 37 model calls, 1.86M input tokens (96% cached), 24K output, peak context 72K.
 
 ## 11. Deferred from v1.1, and what would bring each back

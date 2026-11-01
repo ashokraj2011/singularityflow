@@ -121,6 +121,22 @@ test('a runner called directly reports exactly as inference makes it report', as
     DIRECT_RUNNER_REPORTERS.dotnet.arguments('TestResults'));
 });
 
+test('a written node --test, uv run, py.test, gradlew or nx line reaches the completer', async (t) => {
+  const root = await mkdtemp(path.join(os.tmpdir(), 'sflow-instruction-forms-'));
+  t.after(() => rm(root, { recursive: true, force: true }));
+  await files(root, {
+    'AGENTS.md': ['# Agents', '', '```sh', 'FEATURE_FLAG=on node --test test/', 'uv run pytest -q', 'py.test tests', 'gradlew test', 'nx test api', '```', ''].join('\n'),
+    'package.json': JSON.stringify({ type: 'module', private: true, scripts: { test: 'node --test' } }),
+    'test/value.test.mjs': "import test from 'node:test';\ntest('value', () => {});\n"
+  });
+  const { readInstructionTestCommands } = await import('../src/instruction-test-commands.mjs');
+  const written = (await readInstructionTestCommands(root, { sourceRoots: ['.'] })).candidates.filter((entry) => entry.source.file === 'AGENTS.md');
+  assert.deepEqual(written.map((entry) => entry.source.line), [4, 5, 6, 7, 8], 'each line is a candidate, completed or with its reason');
+  assert.deepEqual([written[0].status, written[0].command.argv, written[0].command.env], ['complete', ['node', '--test', 'test/'], { FEATURE_FLAG: 'on' }]);
+  assert.match(written[3].reason, /build\.gradle/);
+  assert.match(written[4].reason, /Nx project 'api'/);
+});
+
 test('test commands in AGENTS.md, copilot-instructions, a CI workflow and a Makefile are completed with their file and line [TCE:REQ-061 REQ-062]', async (t) => {
   const base = await mkdtemp(path.join(os.tmpdir(), 'sflow-instruction-commands-'));
   t.after(() => rm(base, { recursive: true, force: true }));

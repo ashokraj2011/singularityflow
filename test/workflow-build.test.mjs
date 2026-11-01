@@ -92,6 +92,18 @@ test('commands are read from code in skills and instructions, each part of a cha
   assert.equal(classifyCommand('npm run release-test'), 'deploy', 'a deployment is never a check, whatever else it says');
 });
 
+test('every runner form the test-command completer reads is read as a test command', () => {
+  // instruction-test-commands.mjs completes these; a line the scanner drops never reaches it.
+  const written = ['node --test', 'node --experimental-strip-types --test test/', 'npm --prefix web test', 'pnpm -C web test',
+    'yarn --cwd=web test', 'bun run test', 'bun test', 'bunx vitest run', 'python3.12 -m pytest -q', 'py -m pytest', 'py.test tests',
+    'uv run pytest', 'poetry run pytest -q', 'pipenv run pytest', 'mvnw verify', 'mvnw.cmd verify', 'gradlew test', 'gradlew.bat test',
+    'nx test api', 'nx run web:e2e'];
+  const scan = scanGuidanceText(['```sh', ...written, 'node server.js', 'bun install', '```'].join('\n'));
+  assert.deepEqual(scan.commands.filter((entry) => entry.category === 'test').map((entry) => entry.command), written);
+  assert.deepEqual(scan.commands.filter((entry) => entry.category !== 'test').map((entry) => [entry.command, entry.category]),
+    [['node server.js', 'run']], 'a Node program is still a run, and an install is not read');
+});
+
 test('starting from a team folder lists what it holds, each item with its file and line, and withholds credentials unread', async () => {
   const { flow, json, builds } = await harness();
   const folder = await team();

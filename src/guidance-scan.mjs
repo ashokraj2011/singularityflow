@@ -19,12 +19,16 @@ const NEGATIVE = /\b(never|must not|mustn't|do not|don't|should not|shouldn't|av
 const POSITIVE = /\b(always|must|should|make sure to|be sure to)\b/iu;
 const LIMIT = /\b(at most|no more than|up to|maximum of|max(?:imum)?|at least|no fewer than|minimum of|min(?:imum)?)\s+(\d+)\s+([a-z][a-z-]*)/iu;
 // Commands a team runs, as runbooks, skills and instructions write them: one per line of code, or
-// in inline code in prose. Recorded and classified, never run.
+// in inline code in prose. Recorded and classified, never run. Every runner form the test-command
+// completer reads (instruction-test-commands.mjs) gets through, or its line never becomes a candidate.
 const COMMAND = /^((?:[\w./-]+)(?:\s+[^\s|;&<>]+)*)/u;
 const COMMAND_FIRST = new RegExp([
   String.raw`^(?:npm|pnpm|yarn)\s+(?:run(?:-script)?\s+\S+|(?:test|t|ci|install|i|build|lint|start|exec|publish|audit)\b)`, String.raw`^(?:pnpm|yarn)\s+[a-z][\w:-]*$`,
-  String.raw`^(?:pnpm|yarn)\s+[a-z][\w:-]*\s`, String.raw`^npx\s`, String.raw`^(?:mvn|\.\/mvnw)(?:\s|$)`, String.raw`^(?:gradle|\.\/gradlew)\s`,
-  String.raw`^(?:python3?\s+-m\s+)?pytest\b`, String.raw`^python3?\s+(?:-m\s+[\w.]+|[\w./-]+\.py|manage\.py)\b`, String.raw`^node\s+[\w./-]+\.(?:js|mjs|cjs|ts)\b`,
+  String.raw`^(?:pnpm|yarn)\s+[a-z][\w:-]*\s`, String.raw`^npx\s`, String.raw`^(?:mvn|(?:\.\/)?mvnw(?:\.cmd)?)(?:\s|$)`, String.raw`^(?:gradle|(?:\.\/)?gradlew(?:\.bat)?)\s`,
+  String.raw`^(?:npm|pnpm|yarn|bun)(?:\s+(?:--prefix|--dir|--cwd|-C)(?:=\S+|\s+\S+))+\s+[a-z]`, String.raw`^bun\s+(?:run(?:-script)?\s+\S+|test\b|x\s)`, String.raw`^bunx\s`,
+  String.raw`^(?:(?:python[0-9.]*|py)\s+-m\s+)?(?:pytest|py\.test)\b`, String.raw`^(?:python[0-9.]*|py)\s+(?:-m\s+[\w.]+|[\w./-]+\.py|manage\.py)\b`,
+  String.raw`^(?:uv|poetry|pipenv|pdm|hatch|rye)\s+run\s`, String.raw`^nx\s+[a-z][\w:@/.-]*`,
+  String.raw`^node\s+[\w./-]+\.(?:js|mjs|cjs|ts)\b`, String.raw`^node(?:\s+--?[\w-]+(?:=\S+)?)*\s+--test(?=[\s=]|$)`,
   String.raw`^(?:tox|nox|jest|vitest|mocha|cypress|playwright|phpunit|rspec|rake|ruff|eslint|tsc|mypy|flake8|pylint|black|prettier|gofmt|swiftlint|ktlint|detekt)\b`,
   String.raw`^make(?:\s|$)`, String.raw`^go\s+(?:test|build|vet|run|fmt)\b`, String.raw`^dotnet\s+(?:test|build|run|format|publish)\b`,
   String.raw`^cargo\s+(?:test|build|clippy|fmt|run)\b`, String.raw`^bundle\s+exec\b`, String.raw`^composer\s+(?:test|run|install)\b`,

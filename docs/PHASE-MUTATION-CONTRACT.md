@@ -44,6 +44,12 @@ and moves. Its cache validation requires no Git process. The post-terminal hook 
 content fingerprints, not only porcelain path/status, so another edit to an already-dirty or
 untracked file is detectable. It preserves bytes and points at recovery rather than deleting work.
 Kernel-only commands use their existing lifecycle boundaries; ordinary native turns short-circuit.
+With no SFlow turn recorded on the machine, the shell launchers (`plugin/hook-launcher.sh`,
+`plugin/hook-launcher.ps1`) answer the guard without starting Node only for a call that names
+no SFlow command. They apply the runtime's own first test to the raw payload, less the session's
+folder, and also send on escaped printable ASCII and the long s. A call that does name SFlow goes
+to the runtime, which refuses a person's own step in any prompt, plain or paused. Until this was
+fixed, an empty `copilot-boundaries` skipped the runtime for every call.
 
 The Copilot “Hooks reference” documentation
 defines pre-tool denial and post-tool `additionalContext`. Post-tool detection therefore emits

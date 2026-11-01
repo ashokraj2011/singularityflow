@@ -3,6 +3,65 @@ $ErrorActionPreference = 'Stop'
 if ($Action -notin @('boundary-turn', 'boundary-guard', 'boundary-after', 'boundary-end', 'agent-start')) {
   Write-Output '{}'; exit 0
 }
+# With no SFlow turn recorded the runtime's guard still refuses a person's own step in any prompt
+# (personStepGuard in copilot-repository-boundary.mjs), and it looks only at a call that names SFlow.
+# So the guard keeps its no-Node answer only for a payload that cannot: held here as bytes, read
+# once, and given to Node unchanged when it might. Over 1 MiB it is not read through; Node reads the
+# rest. Mirrors hold_hook_input, hook_input_names_sflow and run_hook in hook-launcher.sh.
+$script:hookHeld = $null; $script:hookHeldCount = 0; $script:hookMore = $false; $script:hookStdin = $null
+function Read-HookInput {
+  $script:hookStdin = [Console]::OpenStandardInput()
+  $script:hookHeld = New-Object byte[] 1048577
+  while ($script:hookHeldCount -lt $script:hookHeld.Length) {
+    $read = $script:hookStdin.Read($script:hookHeld, $script:hookHeldCount, $script:hookHeld.Length - $script:hookHeldCount)
+    if ($read -le 0) { break }
+    $script:hookHeldCount += $read
+  }
+  $script:hookMore = $script:hookHeldCount -gt 1048576
+}
+# The guard's own test, /singularity-flow|sflow/iu on the tool calls or the verified entry (which ends
+# in singularity-flow.mjs), on the raw JSON less the session's folder, which the guard does not read.
+# One character per byte; culture-invariant, so no locale folds I away from i. Under that test U+017F (long s,
+# bytes C5 BF) is an s, and an escaped printable ASCII character or U+017F could spell either word.
+function Test-HookInputNamesSflow {
+  if ($script:hookMore) { return $true }
+  $text = [Text.Encoding]::GetEncoding(28591).GetString($script:hookHeld, 0, $script:hookHeldCount)
+  $at = $text.IndexOf('"cwd":"', [StringComparison]::Ordinal)
+  if ($at -ge 0) {
+    $end = $text.IndexOf('"', $at + 7, [StringComparison]::Ordinal)
+    if ($end -ge 0) { $text = $text.Substring(0, $at) + $text.Substring($end + 1) }
+  }
+  return [regex]::IsMatch($text, 'sflow|singularity-flow|\u00C5\u00BF|\\u00[2-7][0-9a-f]|\\u017f',
+    [Text.RegularExpressions.RegexOptions]'IgnoreCase, CultureInvariant')
+}
+# Answered here, or the bytes go to Node as the host sent them: held ones first, then the rest.
+function Complete-QuietHook {
+  if ($Action -eq 'boundary-guard') {
+    Read-HookInput
+    if (Test-HookInputNamesSflow) { return }
+  } else { [void][Console]::In.ReadToEnd() }
+  Write-Output '{}'; exit 0
+}
+function ConvertTo-HookArgument([string]$Value) {
+  if ($Value -and $Value -notmatch '[\s"]') { return $Value }
+  return '"' + (($Value -replace '(\\*)"', '$1$1\"') -replace '(\\+)$', '$1$1') + '"'
+}
+function Invoke-HookNode([string]$File, [string[]]$Arguments) {
+  if ($null -eq $script:hookHeld) { & $File @Arguments; exit $LASTEXITCODE }
+  $info = New-Object System.Diagnostics.ProcessStartInfo
+  $info.FileName = $File
+  if ($info.PSObject.Properties['ArgumentList']) { foreach ($value in $Arguments) { $info.ArgumentList.Add($value) } }
+  else { $info.Arguments = ($Arguments | ForEach-Object { ConvertTo-HookArgument $_ }) -join ' ' }
+  $info.UseShellExecute = $false
+  $info.RedirectStandardInput = $true
+  $process = [Diagnostics.Process]::Start($info)
+  $sink = $process.StandardInput.BaseStream
+  $sink.Write($script:hookHeld, 0, $script:hookHeldCount)
+  if ($script:hookMore) { $script:hookStdin.CopyTo($sink) }
+  $sink.Close()
+  $process.WaitForExit()
+  exit $process.ExitCode
+}
 # os.homedir(): USERPROFILE on Windows, HOME elsewhere (pwsh on macOS and Linux).
 $windowsHost = $IsWindows -or $env:OS -eq 'Windows_NT'
 $homeDirectory = if ($windowsHost) { $env:USERPROFILE } else { $env:HOME }
@@ -27,15 +86,14 @@ if (Test-Path -LiteralPath $managedActive -PathType Leaf) {
               }
             }
           } catch { $managedOccupied = $true }
-          if (-not $managedOccupied) { [void][Console]::In.ReadToEnd(); Write-Output '{}'; exit 0 }
+          if (-not $managedOccupied) { Complete-QuietHook }
         }
       }
       # The engine's PATH entry may be newer than this host's environment. Off PATH, --cli-off-path
       # has the turn name the verified Node and entry instead.
       $managedArgs = @($managedCli)
       if ($Action -eq 'boundary-turn' -and -not (Get-Command singularity-flow -CommandType Application -ErrorAction SilentlyContinue)) { $managedArgs += '--cli-off-path' }
-      & $managedNode (Join-Path $PSScriptRoot 'hook-launcher.mjs') $Action @managedArgs
-      exit $LASTEXITCODE
+      Invoke-HookNode $managedNode (@((Join-Path $PSScriptRoot 'hook-launcher.mjs'), $Action) + $managedArgs)
     }
   }
   if ($Action -eq 'boundary-guard') { Write-Output '{"permissionDecision":"deny","permissionDecisionReason":"SFLOW_HOOK_RUNTIME_UNAVAILABLE: The managed SFlow engine is incomplete. Repair its installation; preserve the Story."}' }
@@ -54,9 +112,10 @@ if (-not $nodePath) {
 }
 if ($nodePath) {
   # Copilot runs the guard before every tool, in every chat. With no SFlow turn recorded on this
-  # machine the runtime's guard, after-tool and end hooks return no decision, so give that answer
-  # here instead of starting Node. Any entry, including the marker a runtime that failed to load
-  # leaves, sends the hook to Node as before. Mirrors copilotModeFile() and hook-launcher.sh.
+  # machine the runtime's after-tool and end hooks return no decision, and so does its guard for a
+  # call that names no SFlow command, so give that answer here instead of starting Node. Any entry,
+  # including the marker a runtime that failed to load leaves, sends the hook to Node as before.
+  # Mirrors copilotModeFile() and hook-launcher.sh.
   if ($Action -in @('boundary-guard', 'boundary-after', 'boundary-end')) {
     $modeFile = if ($env:SINGULARITY_FLOW_COPILOT_MODE_FILE) { $env:SINGULARITY_FLOW_COPILOT_MODE_FILE }
       elseif ($homeDirectory) { Join-Path $homeDirectory '.singularity-flow/copilot-mode.json' } else { $null }
@@ -71,11 +130,7 @@ if ($nodePath) {
           }
         }
       } catch { $occupied = $true }
-      if (-not $occupied) {
-        [void][Console]::In.ReadToEnd()
-        Write-Output '{}'
-        exit 0
-      }
+      if (-not $occupied) { Complete-QuietHook }
     }
   }
   $cli = Get-Command singularity-flow -CommandType Application -ErrorAction SilentlyContinue | Select-Object -First 1
@@ -89,8 +144,7 @@ if ($nodePath) {
   }
   if ($env:APPDATA) { $candidates += Join-Path $env:APPDATA 'npm/node_modules/singularity-flow/bin/singularity-flow.mjs' }
   $candidates += Join-Path (Split-Path $nodePath -Parent) 'node_modules/singularity-flow/bin/singularity-flow.mjs'
-  & $nodePath (Join-Path $PSScriptRoot 'hook-launcher.mjs') $Action @candidates
-  exit $LASTEXITCODE
+  Invoke-HookNode $nodePath (@((Join-Path $PSScriptRoot 'hook-launcher.mjs'), $Action) + $candidates)
 }
 if ($Action -eq 'boundary-guard') {
   Write-Output '{"permissionDecision":"deny","permissionDecisionReason":"SFLOW_HOOK_RUNTIME_UNAVAILABLE: Node.js is unavailable to Copilot. Repair the SFlow installation from a human terminal, run singularity-flow plugin install, and reload VS Code. Preserve the Story; changing its ID will not repair the hook."}'

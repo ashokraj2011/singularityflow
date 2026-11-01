@@ -367,7 +367,7 @@ test('PowerShell hook uses applications and closed operations without profile or
   const content = await readFile(path.join(pluginRoot, 'hook-launcher.ps1'), 'utf8');
   assert.match(content, /Get-Command node -CommandType Application/);
   assert.match(content, /hook-launcher\.mjs/);
-  assert.match(content, /@candidates/);
+  assert.match(content, /Invoke-HookNode \$nodePath \(@\(\(Join-Path \$PSScriptRoot 'hook-launcher\.mjs'\), \$Action\) \+ \$candidates\)/);
   assert.doesNotMatch(content, /Invoke-Expression|Get-ChildItem|\.\s+\$PROFILE/);
   for (const action of actions) assert.ok(content.includes(`'${action}'`));
 });
@@ -403,6 +403,139 @@ test('with no SFlow turn recorded, bash guard, after-tool and end hooks answer w
   assert.equal(launch('boundary-turn', JSON.stringify({ sessionId: 'sflow', prompt: 'thanks' })).status, 0);
   launch('boundary-guard');
   assert.equal(nodeStarts(), 3, 'a native prompt removed the record; the guard answers without Node again');
+});
+
+/**
+ * With no SFlow turn recorded the shell launchers still answer most guards without Node, but never
+ * one whose call names SFlow: the runtime refuses a person's own step in any prompt (1a3f18d56), and
+ * an empty copilot-boundaries folder used to skip it. A stand-in node records each start (and, for
+ * `capture`, the exact bytes it was given) before running the real one.
+ */
+async function noTurnHost(item, { capture = null } = {}) {
+  const started = path.join(item.directory, 'node-started');
+  const standIn = path.join(item.directory, 'stand-in-node');
+  await writeFile(standIn, capture
+    ? `#!/bin/sh\necho started >> '${started}'\ncat > '${capture}'\necho '{}'\n`
+    : `#!/bin/sh\necho started >> '${started}'\nexec '${process.execPath}' "$@"\n`, { mode: 0o755 });
+  const bin = path.join(item.directory, 'host-bin');
+  await mkdir(bin, { recursive: true });
+  await symlink(standIn, path.join(bin, 'node'));
+  await symlink(cli, path.join(bin, 'singularity-flow'));
+  const engine = await managedEngine(item, 'node-v26.0.0-test');
+  const managedNode = path.join(engine, 'runtimes', 'node-v26.0.0-test', 'bin', 'node');
+  await rm(managedNode);
+  await symlink(standIn, managedNode);
+  const starts = () => (existsSync(started) ? readFileSync(started, 'utf8').split('\n').filter(Boolean).length : 0);
+  const launch = (action, input, { managed }) => {
+    const result = spawnSync('/bin/bash', [path.join(pluginRoot, 'hook-launcher.sh'), action], {
+      cwd: item.cwd, input, timeout: childTimeout(30_000),
+      env: { ...item.env, PATH: `${bin}:/usr/bin:/bin`, SINGULARITY_FLOW_ENGINE_HOME: managed ? engine : path.join(item.directory, 'no engine') } });
+    assert.equal(result.status, 0, `${action}: ${result.stderr}`);
+    return { output: JSON.parse(result.stdout.toString('utf8')), stdout: result.stdout };
+  };
+  return { starts, launch };
+}
+
+test('with no SFlow turn recorded, the bash guard sends a call naming SFlow to the runtime, which refuses a person\'s own step', {
+  skip: process.platform === 'win32'
+}, async t => {
+  const item = await fixture(t);
+  const host = await noTurnHost(item);
+  const binding = { sessionId: 'native', cwd: item.cwd };
+  const shell = command => JSON.stringify({ ...binding, toolName: 'bash', toolArgs: { command } });
+  const large = 'x'.repeat(1024 * 1024 + 4096);
+  for (const managed of [false, true]) {
+    const before = host.starts();
+    // The session's folder names SFlow (this fixture's does); an ordinary call is still answered here.
+    assert.match(item.cwd, /sflow/u);
+    assert.deepEqual(host.launch('boundary-guard', shell('ls -la'), { managed }).output, {});
+    assert.equal(host.starts(), before, `${managed ? 'managed' : 'PATH'}: an ordinary call starts no Node`);
+    const approve = host.launch('boundary-guard', shell('singularity-flow approve specification --work-id S-1 --yes'), { managed }).output;
+    assert.equal(approve.permissionDecision, 'deny', JSON.stringify(approve));
+    assert.match(approve.permissionDecisionReason, /approving a step is the decision of a person/);
+    // One call of a batch, a JSON escape that spells the name, and a call past the first MiB all reach the runtime.
+    const batch = { ...binding, toolCalls: [{ id: 'a', name: 'bash', args: { command: 'ls' } },
+      { id: 'b', name: 'bash', args: { command: 'cd sub && npx singularity-flow reject specification --work-id S-1 --to specification --reason x' } }] };
+    const batched = host.launch('boundary-guard', JSON.stringify(batch), { managed }).output;
+    assert.equal(batched.permissionDecision, 'deny', JSON.stringify(batched));
+    const escaped = `{"sessionId":"native","toolName":"bash","toolArgs":{"command":"singularity\\u002dflow approve specification --yes"}}`;
+    const spelled = host.launch('boundary-guard', escaped, { managed }).output;
+    assert.equal(spelled.permissionDecision, 'deny', JSON.stringify(spelled));
+    const late = { ...binding, toolCalls: [{ id: 'a', name: 'bash', args: { command: 'cat big', content: large } },
+      { id: 'b', name: 'bash', args: { command: 'singularity-flow approve specification --yes' } }] };
+    const past = host.launch('boundary-guard', JSON.stringify(late), { managed }).output;
+    assert.equal(past.permissionDecision, 'deny', JSON.stringify(past).slice(0, 300));
+    assert.equal(host.starts(), before + 4, `${managed ? 'managed' : 'PATH'}: each call naming SFlow went to the runtime`);
+  }
+});
+
+test('the bash guard gives the runtime the payload byte for byte, under or over the first MiB', {
+  skip: process.platform === 'win32'
+}, async t => {
+  const item = await fixture(t);
+  const capture = path.join(item.directory, 'captured');
+  const host = await noTurnHost(item, { capture });
+  const small = Buffer.from(`{"sessionId":"é","toolArgs":{"command":"sflow status"}}\r\n\n\n`, 'utf8');
+  const big = Buffer.from(`{"sessionId":"s","toolArgs":{"command":"sflow status","content":"${'ü'.repeat(700_000)}"}}\n\n`, 'utf8');
+  assert.ok(big.length > 1024 * 1024);
+  for (const managed of [false, true]) for (const input of [small, big]) {
+    host.launch('boundary-guard', input, { managed });
+    assert.ok(readFileSync(capture).equals(input), `${managed ? 'managed' : 'PATH'}: ${input.length} bytes arrive unchanged`);
+  }
+});
+
+test('the PowerShell guard sends a call naming SFlow to Node byte for byte, in any culture', {
+  skip: (!powershell || process.platform === 'win32') && 'PowerShell host unavailable (the Windows layout is covered by the shared bytes below)'
+}, async t => {
+  const item = await fixture(t);
+  const capture = path.join(item.directory, 'captured');
+  const started = path.join(item.directory, 'node-started');
+  const bin = path.join(item.directory, 'host-bin');
+  await mkdir(bin);
+  await writeFile(path.join(bin, 'node'), `#!/bin/sh\necho started >> '${started}'\ncat > '${capture}'\necho '{}'\n`, { mode: 0o755 });
+  const host = (process.env.PATH ?? '').split(path.delimiter).map(directory => path.join(directory, powershell)).find(file => existsSync(file));
+  const starts = () => (existsSync(started) ? readFileSync(started, 'utf8').split('\n').filter(Boolean).length : 0);
+  const launch = (input, env = {}) => {
+    const result = spawnSync(host, [...powershellArgs, `& '${path.join(pluginRoot, 'hook-launcher.ps1')}' boundary-guard`], {
+      cwd: item.cwd, input, timeout: childTimeout(30_000),
+      env: { ...item.env, ...env, SINGULARITY_FLOW_ENGINE_HOME: path.join(item.directory, 'no engine'), PATH: `${bin}:/usr/bin:/bin` } });
+    assert.equal(result.status, 0, result.stderr.toString('utf8'));
+    return JSON.parse(result.stdout.toString('utf8').trim().split(/\r?\n/u).at(-1));
+  };
+  const call = command => Buffer.from(JSON.stringify({ sessionId: 'native', cwd: item.cwd, toolName: 'bash', toolArgs: { command } }), 'utf8');
+  assert.deepEqual(launch(call('ls -la')), {});
+  assert.equal(starts(), 0, 'an ordinary call starts no Node');
+  for (const input of [call('SINGULARITY-FLOW approve specification --yes'), Buffer.from(`{"toolArgs":{"command":"ſflow approve"}}\r\n\n`, 'utf8'),
+    Buffer.from(`{"toolArgs":{"command":"sflow status","content":"${'ü'.repeat(700_000)}"}}\n`, 'utf8')]) {
+    launch(input, { LC_ALL: 'tr_TR.UTF-8', LANG: 'tr_TR.UTF-8' });
+    assert.ok(readFileSync(capture).equals(input), `${input.length} bytes arrive unchanged`);
+  }
+  assert.equal(starts(), 3);
+});
+
+test('the launchers\' no-Node test covers every spelling the runtime\'s guard can read as SFlow', async () => {
+  // The runtime looks only at a call that names SFlow (personStepGuard), by these two words or the
+  // verified entry, which always ends in bin/singularity-flow.mjs. Its executable names all hold one.
+  const boundary = await readFile(path.join(packageRoot, 'src/copilot-repository-boundary.mjs'), 'utf8');
+  assert.match(boundary, /if \(!\/singularity-flow\|sflow\/iu\.test\(text\) && !mentionsHookCli\(text\)\) return \{\};/u,
+    'a change to the runtime\'s first look must change the launchers\' (hook-launcher.sh, hook-launcher.ps1) with it');
+  assert.match(await readFile(bootstrap, 'utf8'), /cli: path\.join\(root, 'bin', 'singularity-flow\.mjs'\)/u);
+  const guard = await readFile(path.join(packageRoot, 'src/copilot-mutation-guard.mjs'), 'utf8');
+  const names = guard.match(/const SFLOW_NAME = \/\^\(\?:([^)]*)\)/u)?.[1].split('|');
+  assert.deepEqual(names, ['singularity-flow', 'sflow']);
+  // Under /iu only ſ (U+017F) folds into either word from outside ASCII; both launchers send it to Node.
+  const folding = [];
+  for (let point = 0x80; point <= 0x10ffff; point += 1) {
+    if (point >= 0xd800 && point <= 0xdfff) continue;
+    if (/^[singularityflw-]$/iu.test(String.fromCodePoint(point))) folding.push(point);
+  }
+  assert.deepEqual(folding, [0x17f]);
+  const bash = await readFile(path.join(pluginRoot, 'hook-launcher.sh'), 'utf8');
+  for (const pattern of ['*[Ss][Ff][Ll][Oo][Ww]*', '*[Ss][Ii][Nn][Gg][Uu][Ll][Aa][Rr][Ii][Tt][Yy]-[Ff][Ll][Oo][Ww]*', "*$'\\305\\277'*",
+    '*\\\\u00[2-7][0-9A-Fa-f]*', '*\\\\u017[Ff]*']) assert.ok(bash.includes(pattern), pattern);
+  const ps = await readFile(path.join(pluginRoot, 'hook-launcher.ps1'), 'utf8');
+  assert.ok(ps.includes(`'sflow|singularity-flow|\\u00C5\\u00BF|\\\\u00[2-7][0-9a-f]|\\\\u017f'`));
+  assert.match(ps, /'IgnoreCase, CultureInvariant'/u);
 });
 
 test('a runtime that cannot load keeps the shell guard failing closed until a working one takes a prompt', {

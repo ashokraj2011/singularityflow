@@ -3866,19 +3866,34 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
           : null;
         output.appendLine(`No registered workspace matched the requested repository.${recoveryText
           ? ` Recover with:\n${recoveryText}` : ''}`);
+        const unreadableNote = unreadable.length
+          ? `${unreadable.length} registered workspace${unreadable.length === 1 ? '' : 's'} could not be read. Repair those registrations and retry.`
+          : null;
+        const outcome = 'Nothing was changed. SFlow did not scan the home directory or clone a repository.';
+        // The Shell line carries the temporary folder, Node and CLI paths. Past the dialog's bound only an
+        // excerpt shows, which would stop after the Copilot route, and dialog text cannot always be copied.
+        // So the exact command is also a button, and the excerpt names every route without cutting one.
+        const copyShell = recoveryRoute ? 'Copy Shell command' : null;
         const next = await showCompactWarningMessage(
           'No registered workspace or open folder contains that repository.',
           {
             modal: true,
-            detail: `${unreadable.length
-              ? `${unreadable.length} registered workspace${unreadable.length === 1 ? '' : 's'} could not be read. Repair those registrations and retry.\n\n`
-              : ''}Nothing was changed. SFlow did not scan the home directory or clone a repository.${recoveryText
-              ? `\n\nRecovery:\n${recoveryText}` : ''}`
+            detail: `${unreadableNote ? `${unreadableNote}\n\n` : ''}${outcome}${recoveryText
+              ? `\n\nRecovery:\n${recoveryText}` : ''}`,
+            ...(recoveryRoute ? {
+              compactDetail: [unreadableNote, `${outcome} Recover with:`, ...formatCommandRouteLines({
+                ...recoveryRoute, command: `${copyShell} copies the exact command`
+              })].filter(Boolean).join('\n')
+            } : {})
           },
-          'Open Workspaces', 'Map a capability'
+          'Open Workspaces', 'Map a capability', ...(copyShell ? [copyShell] : [])
         );
         if (next === 'Open Workspaces') return vscode.commands.executeCommand('singularityFlow.openWorkspaces');
         if (next === 'Map a capability') return vscode.commands.executeCommand('singularityFlow.mapCapability');
+        if (copyShell && next === copyShell) {
+          await vscode.env.clipboard.writeText(recovery);
+          void showCompactInformationMessage('Copied the exact Shell recovery command.');
+        }
         return;
       }
 

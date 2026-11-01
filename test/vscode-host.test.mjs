@@ -10531,30 +10531,66 @@ test('Git URL maintenance renders no-match recovery as a shell-safe exact comman
   api.workspace.workspaceFolders = undefined;
   const extension = loadExtension(api);
   await extension.activate(context());
-  const remote = 'https://git.example.test/team/repo$(touch-never-run).git';
-  // The Shell line carries this machine's temporary folder, Node and CLI paths. When they take the
-  // detail past the native dialog's bound, the dialog shows an excerpt and View details opens the
-  // complete text, so the exact command is read wherever the person reads it.
-  registered.warningAnswers = ['View details'];
-  await registered.commands.get('singularityFlow.refreshRepositorySetup')({ repositoryUrl: remote });
+  // The person reads the complete text once when the dialog offers it, then copies the Shell command.
+  const record = api.window.showWarningMessage;
+  let reviewed = false;
+  api.window.showWarningMessage = async (message, ...rest) => {
+    await record(message, ...rest);
+    if (!reviewed && rest.includes('View details')) {
+      reviewed = true;
+      return 'View details';
+    }
+    return 'Copy Shell command';
+  };
+  registered.informationAnswer = 'Continue review';
+  const recover = async (remote) => {
+    reviewed = false;
+    const from = {
+      dialogs: registered.warningDetails.length, documents: registered.openedDocuments.length,
+      output: registered.output.length, clipboard: registered.clipboard.length
+    };
+    await registered.commands.get('singularityFlow.refreshRepositorySetup')({ repositoryUrl: remote });
+    const detail = String(registered.warningDetails[from.dialogs] ?? '');
+    const run = {
+      remote, detail,
+      actions: registered.warningActions[from.dialogs] ?? [],
+      review: registered.openedDocuments.slice(from.documents).find((document) =>
+        document.content?.includes('No registered workspace or open folder'))?.content ?? detail,
+      recoveryLine: String(registered.output.slice(from.output).find((line) =>
+        /No registered workspace matched the requested repository/.test(String(line))) ?? ''),
+      copied: registered.clipboard.slice(from.clipboard)
+    };
+    const quoted = new RegExp(`'${remote.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}'`);
+    assert.ok(run.actions.includes('Copy Shell command'), 'the dialog offers the exact Shell command as a button');
+    assert.equal(run.copied.length, 1, 'Copy Shell command copies one command');
+    assert.match(run.copied[0], quoted, 'the remote is a single quoted argument, not shell syntax');
+    assert.ok(run.review.includes(`- Shell: ${run.copied[0]}`) && run.recoveryLine.includes(run.copied[0]),
+      'the button copies the Shell line the complete review and the output channel show');
+    for (const [surface, text] of Object.entries({
+      dialog: detail, review: run.review, output: run.recoveryLine, clipboard: run.copied[0]
+    })) {
+      assert.ok(!text.replaceAll(`'${remote}'`, '').includes(remote),
+        `${surface}: the remote appears only as one single-quoted argument`);
+      assert.doesNotMatch(text, /--repository\s+"https:/,
+        'JSON double-quote rendering would still evaluate command substitution in POSIX shells');
+    }
+    assert.match(detail, /- Copilot: \/sf-workspace-bootstrap\n- Shell: \S/,
+      'the dialog names the Shell route beside the canonical Copilot journey');
+    assert.match(detail, /Nothing was changed/);
+    return run;
+  };
 
-  const detail = String(registered.warningDetails[0] ?? '');
-  const review = registered.openedDocuments.find((document) =>
-    document.content?.includes('No registered workspace or open folder'))?.content ?? detail;
-  const recoveryLine = String(registered.output.find((line) =>
-    /No registered workspace matched the requested repository/.test(String(line))) ?? '');
-  const quoted = new RegExp(`'${remote.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}'`);
-  assert.match(review, quoted, 'the remote is a single quoted argument, not shell syntax');
-  assert.match(recoveryLine, quoted, 'the output channel carries the same exact command');
-  for (const [surface, text] of Object.entries({ dialog: detail, review, output: recoveryLine })) {
-    assert.ok(!text.replaceAll(`'${remote}'`, '').includes(remote),
-      `${surface}: the remote appears only as one single-quoted argument`);
-    assert.doesNotMatch(text, /--repository\s+"https:/,
-      'JSON double-quote rendering would still evaluate command substitution in POSIX shells');
-  }
-  assert.match(review, /Copilot: \/sf-workspace-bootstrap/,
-    'the same recovery is also available through the canonical Copilot journey');
-  assert.match(detail, /Nothing was changed/);
+  // This machine's temporary folder, Node and CLI paths decide whether the whole detail fits.
+  await recover('https://git.example.test/team/repo$(touch-never-run).git');
+  // A long remote, like a long temporary folder or install path, takes the detail past the dialog's
+  // bound. The excerpt still names every route, with no cut command, and the button copies it exactly.
+  const long = await recover(`https://git.example.test/${'platform-engineering-group/'.repeat(10)}repo$(touch-never-run).git`);
+  assert.ok(long.actions.includes('View details') && long.detail.length <= 600,
+    'past its bound the native dialog shows an excerpt and offers the complete review');
+  assert.match(long.detail,
+    /- Copilot: \/sf-workspace-bootstrap\n- Shell: Copy Shell command copies the exact command\n- VS Code \(model-free\): not available for this action/);
+  assert.doesNotMatch(long.detail, /cd '|…/, 'the excerpt shows no cut command');
+  assert.ok(long.review.includes(`'${long.remote}'`), 'the complete review carries the exact command');
 });
 
 test('Git URL maintenance cancellation stops lookup without opening a recovery action', async (t) => {

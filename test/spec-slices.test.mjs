@@ -4,6 +4,7 @@ import os from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
 
+import { clarificationCheckpoint } from '../src/clarifications.mjs';
 import { ownTerminalStep } from '../src/command-skills.mjs';
 import { resolveOperation } from '../src/command-registry.mjs';
 import { evaluateEvidence } from '../src/evidence/evaluate.mjs';
@@ -197,6 +198,15 @@ async function publishLibrary({ directory, cli }) {
   cli('spec', 'author', 'publish', SPEC, '--reviewed');
 }
 
+test('a clarification checkpoint treats a pinned slice as settled, and says nothing of slices for a Story without one (SPA:REQ-018)', () => {
+  // The S2 live run: under a required checkpoint every slice Story asked its decided questions again.
+  const missing = { recordState: 'missing', record: null, errors: ['missing'] };
+  assert.match(clarificationCheckpoint({ mode: 'required' }, missing, { slices: [`${SPEC}@1`] }).instruction,
+    /So is the specification slice in the pinned Story source \(SPEC-CHK-004@1\): its clauses and decided questions are never asked again or put up for confirmation; ask only what they leave open\./u);
+  assert.doesNotMatch(clarificationCheckpoint({ mode: 'required' }, missing).instruction, /specification slice/u);
+  assert.doesNotMatch(clarificationCheckpoint({ mode: 'required' }, { recordState: 'present', errors: [] }, { slices: [`${SPEC}@1`] }).instruction, /specification slice/u);
+});
+
 test('a Story started with a slice sees it in its prompt and scope, records its claim after approval, and repairs a lost write (SPA:AC-011, AC-013 to AC-017)', async (t) => {
   const story = await startedSpecificationStory(t, WORK, {
     beforeStart: publishLibrary,
@@ -222,6 +232,8 @@ test('a Story started with a slice sees it in its prompt and scope, records its 
   for (const expected of [REQ_001, 'Only totals strictly above INR 5000.00 qualify.', `[${SPEC}:REQ-002]`, `${SPEC}@1`]) {
     assert.ok(prompt.includes(expected), `the intake prompt shows: ${expected}`);
   }
+  // REQ-018: the first step's clarification checkpoint names the slice as settled.
+  assert.match(json('clarification', 'status', 'specification').data.checkpoint.instruction, /specification slice in the pinned Story source \(SPEC-CHK-004@1\)/u);
 
   // AC-013: each sliced clause is a scope item of its own.
   const scope = () => json('evidence', 'scope', WORK).data.scope.items.filter((entry) => entry.field === 'specification');

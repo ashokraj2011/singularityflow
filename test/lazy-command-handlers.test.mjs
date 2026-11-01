@@ -339,7 +339,9 @@ test('the common session projection does not import attach, state stores or publ
   // 4,005,081: `spec author` in the operation registry (command-registry.mjs), its person-only actions as an
   // own-terminal step and a turn refusal (command-skills.mjs, copilot-mutation-guard.mjs), four boolean flags
   // (util.mjs) and the committed tree listing (git.mjs). Its handler loads only when `spec author` runs.
-  assert.ok(current.bytes <= 4_010_000, `session current loads ${current.bytes} source bytes`);
+  // 4,015,000: main 5864f682f measures 4,009,498; a pinned specification slice named settled at the clarification
+  // checkpoint (clarifications.mjs, SPEC-SPA v1.3 REQ-018) adds 936 for 4,010,434. No new file.
+  assert.ok(current.bytes <= 4_015_000, `session current loads ${current.bytes} source bytes`);
 });
 
 test('early phase and grounding-path entries exclude the deferred authoring and review graphs', async () => {

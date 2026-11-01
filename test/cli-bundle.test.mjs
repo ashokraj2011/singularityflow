@@ -378,7 +378,9 @@ test('the bundled CLI answers exactly like the sources while opening a handful o
   // One new file, commands/shared/record-spec-usage-after-transition.mjs; the usage records load only for a sliced Story.
   // 7,705,000 holds: main db46b5458 measures 7,700,093; the same S4 turn, routes and turn mode add 4,533 for
   // 7,704,626. No new file.
-  assert.ok(hookContext < 7_705_000,
+  // 7,710,000: main 5864f682f measures 7,704,626; a pinned specification slice named settled at the clarification
+  // checkpoint (clarifications.mjs, SPEC-SPA v1.3 REQ-018) adds 669 for 7,705,295. No new file.
+  assert.ok(hookContext < 7_710_000,
     `phase-review reads retain their existing byte ceiling after moving families (${hookContext} bytes)`);
   assert.match(await readFile(path.join(outdir, 'cold-light.mjs'), 'utf8'), /function enterPhase\b/u,
     'phase binding must not fall through to the compatibility/admin bundle');

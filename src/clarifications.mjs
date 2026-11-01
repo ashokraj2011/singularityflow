@@ -297,7 +297,9 @@ export async function verifyClarificationRecord(root, definition, workflow, phas
   // While recording is still ahead, say whether its prompt is composed: record refuses until it is.
   const composition = result.mode === 'off' || result.recordState === 'complete' ? null
     : await clarificationPromptComposition(root, definition, workflow, phase, generation);
-  return { checkpoint: clarificationCheckpoint(resolvedPolicy(definition, workflow, phase), result), ...result,
+  // A pinned specification slice is settled like approved inputs (SPEC-SPA v1.3 REQ-018).
+  const slices = result.recordState === 'missing' ? await pinnedSpecificationSlices(root, definition, workflow) : [];
+  return { checkpoint: clarificationCheckpoint(resolvedPolicy(definition, workflow, phase), result, { slices }), ...result,
     ...(composition ? { composition: { status: composition.status,
       command: composition.status === 'current' ? null : composition.command } } : {}) };
 }
@@ -328,8 +330,14 @@ export function clarificationStatusLines(result, phase, generation) {
       ...result.errors.map((message) => `BLOCKED for a governed-agent publication: ${message}`)] };
 }
 
-/** Conversation permission is not artifact-authoring or publication permission. No model call. */
-export function clarificationCheckpoint(policy, verification) {
+/** The specification slices (SPEC-ID@N) pinned in the Story's source. */
+async function pinnedSpecificationSlices(root, definition, workflow) {
+  const source = await readJson(path.join(root, definition.workItemRoot ?? 'singularity/work-items', workflow.workItem.id, 'source.json')).catch(() => null);
+  return Array.isArray(source?.specification) ? source.specification.map((slice) => slice?.revision).filter(Boolean) : [];
+}
+
+/** Conversation permission is not artifact-authoring or publication permission. No model call. `slices` are settled too. */
+export function clarificationCheckpoint(policy, verification, { slices = [] } = {}) {
   const { mode, maxQuestions, topics } = normalizeClarificationPolicy(policy);
   const missing = verification.recordState === 'missing';
   const stage = mode === 'off' ? 'off' : missing ? mode === 'required' ? 'derive-questions' : 'assess-ambiguity'
@@ -340,7 +348,9 @@ export function clarificationCheckpoint(policy, verification) {
     requiresHumanResponse: stage === 'derive-questions',
     missingRecordMeansUnanswered: false,
     instruction: questioningAllowed
-      ? `Read the exact composed context, its approved phase inputs (the earlier steps\' outputs) first: what they state is settled, never asked again. A missing durable record is not an unanswered question. First reuse actual human replies in this conversation or the issued staging file only for this same Story, phase, generation and reviewed context. A refused write requires recording repair, not repeated questions. Use a file-edit tool for issued JSON and the standalone recordAction; preserve replies on failure. Ask only unanswered or materially changed questions: questions are agent-derived, not a missing predefined list. If required, no matching human reply exists, and evidence has no material ambiguity, ask once to confirm a concise interpretation. Offer proposals as proposals. Never invent answers or ask the user to supply the questions or generic clarification answers. A menu promise to provide answers is not an answer. ${mode === 'required'
+      ? `Read the exact composed context, its approved phase inputs (the earlier steps\' outputs) first: what they state is settled, never asked again. ${slices.length
+        ? `So is the specification slice in the pinned Story source (${slices.join(', ')}): its clauses and decided questions are never asked again or put up for confirmation; ask only what they leave open. `
+        : ''}A missing durable record is not an unanswered question. First reuse actual human replies in this conversation or the issued staging file only for this same Story, phase, generation and reviewed context. A refused write requires recording repair, not repeated questions. Use a file-edit tool for issued JSON and the standalone recordAction; preserve replies on failure. Ask only unanswered or materially changed questions: questions are agent-derived, not a missing predefined list. If required, no matching human reply exists, and evidence has no material ambiguity, ask once to confirm a concise interpretation. Offer proposals as proposals. Never invent answers or ask the user to supply the questions or generic clarification answers. A menu promise to provide answers is not an answer. ${mode === 'required'
         ? 'Recording remains required before authoring.'
         : 'Record only answers to questions you asked; with no material ambiguity, continue without a record.'}`
       : stage === 'inspect-binding'

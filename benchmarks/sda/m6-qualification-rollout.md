@@ -227,8 +227,8 @@ The same change as on macOS:
 **Where Windows differs from macOS, in both builds:**
 - `check` starts 51 Git processes (43 on macOS), the intake catalog's forced refresh 26 (20), and a
   takeover 110 (104).
-- The Story list with a fresh cache starts 0 Git in most samples and 2 in some (0 on macOS), so it
-  is listed as starting Git with a fresh cache.
+- The Story list with a fresh cache started 0 Git in most samples and 2 in some (0 on macOS). That was
+  a defect, fixed after the run (`90ad7e8ef`, below): it now starts 0 in every sample.
 
 **Stories the build before SDA wrote:** all 18 checks pass (`m6-legacy-check-win32-x64.json`).
 
@@ -288,6 +288,29 @@ The same change as on macOS:
   fixes, run 41198267005 (the earlier set plus `test/configuration-proposal-sync.test.mjs`,
   `test/git-read-failures.test.mjs` and `test/session-listing-cache.test.mjs`): 156 tests, 156
   passed, 0 skipped, 0 failed.
+- **A Git answer waited 2 seconds after any write to be kept for the next command.** The session
+  store keeps an answer only when the files it depends on changed outside Git's racy-timestamp
+  window. One whole-second timestamp among them widened the window for all of them from 50 ms to 2
+  seconds, and Git for Windows' own `git.exe`, one of every answer's files, has the whole-second
+  time its installer wrote. So the first read after a write asked Git again. The Story list's 2 Git
+  processes with a fresh cache were `rev-parse --show-toplevel` and `branch --show-current` at
+  start-up, missed because the read before had changed `.git/config` 0.7 s earlier (traced on
+  `windows-latest`). Each timestamp now keeps its own window (`90ad7e8ef`). The read baseline on
+  `windows-latest` after the fix (runs 41269040463 and 41275800091, 100 files, 5 samples each): the
+  Story list with a fresh cache starts 0 Git in every sample, online and offline, and a takeover 96
+  to 98 (110 before); 40 fresh-cache Story lists in a row start none.
+- **The destructive proof's own `git status` read a CRLF checkout without the person's line
+  endings.** Git compares a file whose stat data no longer matches the index by content, so a
+  racily clean CRLF checkout read as modified and was kept. The status reads now take the person's
+  `core.autocrlf` and `core.eol`, as the exhaustive comparison did (`e4edaaba3`).
+- **One directory, two spellings, in the comparisons left:** `samePlatformPath` (27 callers),
+  Copilot's discovery and environment-file guards, a file named on the command line, journal
+  export, configuration reference sync and the VS Code extension's canonical paths now compare a
+  Windows 8.3 short name as the filesystem spells it (`803f8490f`).
+- With these fixes, run 41278218168 (the earlier set plus `test/git-fact-store.test.mjs`,
+  `test/copilot-repository-boundary.test.mjs`, `test/copilot-environment-files-guard.test.mjs`,
+  `test/command-line-file-paths.test.mjs` and `test/configuration-reference-sync.test.mjs`):
+  197 tests, 197 passed, 0 skipped, 0 failed.
 
 ## Budgets (§17, SDA-AC-002, SDA-AC-018, SDA-AC-021)
 
@@ -368,7 +391,7 @@ shows it; "part" names what is not shown.
 | SDA-AC-015 | Met | `test/sda-m5-surfaces.test.mjs`: denial, empty inventory, absent authority, corruption, timeout and cancellation keep their own codes and recovery (B5). |
 | SDA-AC-016 | Met | `test/sda-m5-retention.test.mjs` (M5); `test/sda-names.test.mjs` (machine-state list). No evidence-hold record exists in code; signed evidence lives on published branches, which no cleanup deletes. |
 | SDA-AC-017 | Met | `test/sda-conformance.test.mjs`, `test/sda-lifecycle-conformance.test.mjs` (M1, M4; cancellation B4). |
-| SDA-AC-018 | Part | This report: macOS meets the budgets; Windows (2026-10-31) meets them except the Story list with a fresh cache, which starts 2 Git processes in some samples (both builds). Each lists its remaining bottlenecks. |
+| SDA-AC-018 | Met | This report: macOS and Windows meet the budgets. On Windows the Story list with a fresh cache started 2 Git processes in some samples; fixed after the run (`90ad7e8ef`, runs 41269040463 and 41275800091). Each lists its remaining bottlenecks. |
 | SDA-AC-019 | Not applicable | ADR 0018 option A migrates no authority. |
 | SDA-AC-020 | Met | `test/sda-acceptance-007-010-020.test.mjs` (signed ledger and evidence across index rebuild, record reads and retention). |
 | SDA-AC-021 | Met | `test/sda-read-index.test.mjs`, `test/session-listing-cache.test.mjs` (M2); the matched reports above. |
@@ -481,11 +504,8 @@ The new scripts are qualification tools: they are not part of the command regist
 ## Open after M6
 
 - **Windows:** measured 2026-10-31 (above), and every SDA test passes there with the slow lane. Open
-  there:
-  - the Story list with a fresh cache starts 2 Git processes in some samples (SDA-AC-018);
-  - the destructive proof's own `git status` reads run without the system `core.autocrlf`, so a
-    racily clean CRLF file can read as modified there. That keeps a checkout; it never removes one;
-  - that the relay opens no console window was not observed: the hosted runner has no desktop.
+  there: that the relay opens no console window was not observed, because the hosted runner has no
+  desktop.
 - **SDA-AC-008:** hooks are not compared with the CLI, the gateway and the read worker.
 - **SDA-AC-013:** the clones that remain are listed, with their reasons, in
   `test/sda-clone-boundary.test.mjs`:

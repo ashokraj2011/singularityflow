@@ -14,7 +14,7 @@ Custom and future workflow phases use the same derivation.
 | Independent source reviewer | Only the exact Git-private report staging file issued by review context | Context/check/retention, never artifact or source authoring |
 | Approval/rejection | None, including after the phase advances | Exact scoped decision and its selection receipt; inspection thereafter |
 | Session or kernel action | No application edits; no generic external staging wildcard | Existing authorized CLI operations |
-| Native chat or pause | Unchanged | No mutation contract enforcement |
+| Native chat or pause | Unchanged | No mutation contract enforcement, except that a person's own step (approve, reject, the decision list and every OWN_TERMINAL_STEPS command) is refused with the person's exact command, however the shell line spells it |
 
 Protected process paths, governed state, Git metadata, other repositories and other Stories
 are not direct-edit targets. New files validate existing ancestors. Moves validate both ends.

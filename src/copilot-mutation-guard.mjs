@@ -797,7 +797,7 @@ const OWN_STEP_DENIALS = Object.freeze({
   'apm-install': 'PHASE_MUTATION_OPERATION_NOT_ALLOWED: installing or updating agent packages changes which agents run in this repository; the person runs it in their own terminal (its --dry-run preview may run here). Show the user the preview and the command, and stop; do not retry it',
   'apm-organisation': 'PHASE_MUTATION_OPERATION_NOT_ALLOWED: publishing agents, or changing the organisation\'s marketplace or policy, changes what other teams run; the person runs it in their own terminal (its --dry-run preview may run here). Show the user the preview and the command, and stop; do not retry it',
   'upstream-amendment-decision': 'PHASE_MUTATION_OPERATION_NOT_ALLOWED: an amendment of an earlier step, and its revalidation, is decided by that step\'s approvers in their own terminal, not by this turn. Show the user the command and stop; do not retry it',
-  'spec-library-decision': 'PHASE_MUTATION_OPERATION_NOT_ALLOWED: deciding, deferring or reopening a specification gap, settling its checklist, publishing a revision to the shared library and discarding a draft are the person\'s own steps; no agent takes them. Show the user the command and stop; do not retry it',
+  'spec-library-decision': 'PHASE_MUTATION_OPERATION_NOT_ALLOWED: taking or turning down Copilot\'s proposals, deciding, deferring or reopening a specification gap, settling its checklist, publishing a revision to the shared library and discarding a draft are the person\'s own steps; no agent takes them. Show the user the command and stop; do not retry it',
   'spec-slice-change': 'PHASE_MUTATION_OPERATION_NOT_ALLOWED: dropping a clause of a Story\'s specification slice changes what the Story was asked to deliver; that is the person\'s own step. Show the user the command and stop; do not retry it',
   'spec-split-publication': 'PHASE_MUTATION_OPERATION_NOT_ALLOWED: publishing a split divides a specification revision among child specifications and Story slices for everyone who takes them; that is the person\'s own step (proposing one with --propose may run here). Show the user the command and stop; do not retry it',
   'configuration-approve': 'PHASE_MUTATION_OPERATION_NOT_ALLOWED: approving a configuration proposal activates it for every Story that starts after it; the reviewer runs it in their own terminal, where it shows the change and asks, or in Workflow Studio. Show the user the command and stop; do not retry it'
@@ -873,6 +873,189 @@ function personRoute(call, value) {
   const safe = verifiedShellForm(call, value);
   const guidance = safe ? safeCommandGuidance({ argv: safe.argv }) : null;
   return { routes: guidance ? [{ ...guidance, skill: null, copilotCommand: null }] : [] };
+}
+
+/*
+ * A person's own step is never an agent's, in any prompt: an SFlow skill's turn, a plain follow-up
+ * with no turn record (where nothing else is enforced, docs/PHASE-MUTATION-CONTRACT.md), or a paused
+ * session. Run under the person's Git identity, an agent's `approve --yes` or `spec author publish`
+ * completed as theirs (S4 live run, 2026-11-01). A host is not an OS sandbox: this reads what a shell
+ * line says, wherever the invocation sits in it, not what an expansion or a script would run.
+ */
+// Tools that hand a shell its next line: the terminals, and the one that types into a running shell.
+const SHELL_INPUT_TOOLS = new Set([...TERMINALS, 'write_bash']);
+// Words that run the command after them, and their options that take a value.
+const COMMAND_WRAPPERS = new Map([['env', ['-u', '--unset', '-C', '--chdir', '-S', '--split-string']], ['command', []],
+  ['exec', ['-a']], ['nohup', []], ['time', []], ['nice', ['-n']], ['sudo', ['-u', '-g', '-C', '-D', '-h', '-p']], ['doas', ['-u']],
+  ['npx', ['-p', '--package', '-c', '--call']], ['pnpx', []], ['bunx', ['-p', '--package']]]);
+const SHELLS = new Set(['bash', 'sh', 'zsh', 'dash', 'ksh', 'fish', 'pwsh', 'powershell']);
+const SFLOW_NAME = /^(?:singularity-flow|sflow)(?:\.(?:exe|cmd|bat|ps1|[cm]?js))?$/iu;
+const word = value => path.posix.basename(String(value ?? '').replaceAll('\\', '/')).toLowerCase().replace(/\.(?:exe|cmd|bat)$/u, '');
+
+/** A shell line's simple commands as words, split at `&&`, `||`, `;`, `|`, `&`, parentheses, substitutions and newlines outside quotes. */
+function shellCommands(text, powershell = false) {
+  const commands = [];
+  let words = []; let current = ''; let quoted = false; let quote = null; let redirect = false;
+  const endWord = () => {
+    if (current || quoted) { if (redirect) redirect = false; else words.push(current); }
+    current = ''; quoted = false;
+  };
+  const endCommand = () => { endWord(); redirect = false; if (words.length) commands.push(words); words = []; };
+  const escape = powershell ? '`' : '\\';
+  for (let at = 0; at < text.length; at += 1) {
+    const character = text[at];
+    if (quote === "'") {
+      if (character !== "'") current += character;
+      else if (powershell && text[at + 1] === "'") { current += "'"; at += 1; } else quote = null;
+      continue;
+    }
+    if (quote === '"') {
+      if (character === '"') quote = null;
+      else if (character === escape && at + 1 < text.length) current += text[at += 1];
+      else current += character;
+      continue;
+    }
+    if (character === escape && at + 1 < text.length) { current += text[at += 1]; continue; }
+    if (character === "'" || character === '"') { quote = character; quoted = true; continue; }
+    if (/\s/u.test(character)) { if (character === '\n' || character === '\r') endCommand(); else endWord(); continue; }
+    if ('&|;()`'.includes(character) || (character === '$' && text[at + 1] === '(')) { endCommand(); continue; }
+    if (character === '<' || character === '>') {
+      // A redirection and its target are not arguments; `2>` drops its descriptor, `>&2` its target.
+      if (/^\d+$/u.test(current)) current = '';
+      endWord();
+      while ('<>&'.includes(text[at + 1] ?? ' ') && text[at + 1]) at += 1;
+      redirect = !/\d/u.test(text[at + 1] ?? '');
+      if (!redirect) while (/\d/u.test(text[at + 1] ?? '')) at += 1;
+      continue;
+    }
+    current += character;
+  }
+  endCommand();
+  // A substitution inside double quotes still runs: read what each one holds as its own line.
+  for (const match of text.matchAll(/\$\(([^()]*)\)|`([^`]*)`/gu)) commands.push(...shellCommands(match[1] ?? match[2] ?? '', powershell));
+  return commands;
+}
+
+/** The SFlow argv each of a shell line's commands runs, with the directory a `cd` before it set. */
+function shellSflowInvocations(text, powershell, cwd, depth = 0) {
+  const found = [];
+  let directory = cwd;
+  for (const words of shellCommands(text, powershell)) {
+    if (['cd', 'pushd', 'set-location', 'sl'].includes(words[0]?.toLowerCase()) && words[1] && !words[1].startsWith('-')) {
+      directory = path.resolve(directory ?? process.cwd(), words[1]);
+      continue;
+    }
+    let at = 0; let here = directory;
+    while (at < words.length) {
+      if (/^[A-Za-z_][A-Za-z0-9_]*=/u.test(words[at])) { at += 1; continue; }
+      const name = word(words[at]);
+      if (COMMAND_WRAPPERS.has(name)) {
+        const valued = COMMAND_WRAPPERS.get(name);
+        for (at += 1; at < words.length && words[at].startsWith('-'); at += 1) {
+          if (name === 'env' && /^(?:-C|--chdir)(?:=|$)/u.test(words[at])) here = path.resolve(here ?? process.cwd(), words[at].includes('=') ? words[at].split('=')[1] : words[at + 1] ?? '.');
+          if (valued.includes(words[at])) at += 1;
+        }
+        continue;
+      }
+      if (['npm', 'pnpm', 'yarn', 'bun'].includes(name) && ['exec', 'dlx', 'x'].includes(words[at + 1])) {
+        for (at += 2; at < words.length && words[at].startsWith('-'); at += 1) if (words[at] === '--') { at += 1; break; }
+        continue;
+      }
+      if (SHELLS.has(name)) {
+        const flag = words.findIndex((value, index) => index > at && /^-(?:[a-z]*c[a-z]*|command)$/iu.test(value));
+        if (flag > at && words[flag + 1] && depth < 4) found.push(...shellSflowInvocations(words[flag + 1], ['pwsh', 'powershell'].includes(name), here, depth + 1));
+        break;
+      }
+      if (['node', 'bun', 'deno'].includes(name)) {
+        let script = at + 1;
+        while (script < words.length && words[script].startsWith('-')) script += 1;
+        if (words[script] && (SFLOW_NAME.test(word(words[script])) || mentionsHookCli(words[script]))) found.push({ argv: words.slice(script + 1), cwd: here });
+        break;
+      }
+      if (SFLOW_NAME.test(word(words[at]))) found.push({ argv: words.slice(at + 1), cwd: here });
+      break;
+    }
+  }
+  return found;
+}
+
+/** A checkout's Git directory from its working folder, by its `.git` entry alone (no Git process). */
+function gitDirectoryOf(cwd) {
+  for (let directory = path.resolve(cwd ?? process.cwd()); ; directory = path.dirname(directory)) {
+    const entry = path.join(directory, '.git');
+    try {
+      const text = readFileSync(entry, 'utf8').match(/^gitdir:\s*(.+)$/mu)?.[1]?.trim();
+      if (text) return path.resolve(directory, text);
+    } catch (error) { if (error.code === 'EISDIR') return entry; }
+    if (path.dirname(directory) === directory) return null;
+  }
+}
+
+/** The person's own step this SFlow argv is, as { id, argv } with the command the person runs, or null. */
+function personStep(argv, cwd, depth = 0) {
+  const { positionals, options } = parseCli(argv);
+  if (options.help === true || options.h === true) return null;
+  const own = OWN_TERMINAL_STEPS.find((step) => step.matches(positionals, options))?.id;
+  if (own) return { id: own, argv };
+  // Outside its own /sf-approve or /sf-reject turn, approving and returning a step is the person's;
+  // so is recording the decision list outside /sf-decide, and deciding an earlier step's issue.
+  if (['approve', 'reject'].includes(positionals[0])) return { id: positionals[0], argv };
+  if (positionals[0] === 'decisions' && positionals[1] === 'record') return { id: 'decision-list-record', argv };
+  if (positionals[0] === 'upstream-issue' && UPSTREAM_ISSUE_DECISIONS.includes(positionals[1])) return { id: 'upstream-issue-decision', argv };
+  // A plan's action runs its stored command in this process, and its authorization is the person's yes to it.
+  if (positionals[0] === 'action' && ['authorize', 'execute'].includes(positionals[1]) && depth < 2) {
+    const planned = plannedActionArgv(positionals, options, { binding: { gitDir: gitDirectoryOf(cwd) } });
+    if (planned && planned[0] !== 'action') return personStep(planned, cwd, depth + 1);
+  }
+  return null;
+}
+
+const PERSON_DECISION_DENIALS = Object.freeze({
+  approve: 'PHASE_MUTATION_OPERATION_NOT_ALLOWED: approving a step is the decision of a person who approves it, never an agent\'s, in any chat: they run /sf-approve, which shows them the review and asks, or this exact command in their own terminal. Show the user the command and stop; do not retry it or add --yes',
+  reject: 'PHASE_MUTATION_OPERATION_NOT_ALLOWED: returning a step for correction is the decision of a person who approves it, never an agent\'s, in any chat: they run /sf-reject, which asks them, or this exact command in their own terminal. Show the user the command and stop; do not retry it',
+  'decision-list-record': 'PHASE_MUTATION_OPERATION_NOT_ALLOWED: recording the decision list is the person\'s own step: they run /sf-decide, which records only the options they choose there, or this exact command in their own terminal. Show the user the summary and the command, and stop; do not retry it or change its digest',
+  'upstream-issue-decision': 'PHASE_MUTATION_OPERATION_NOT_ALLOWED: an upstream issue or amendment is decided by the earlier step\'s approvers, in /sf-decide or their own terminal, never by an agent. Show the user the command and stop; do not retry it'
+});
+
+/** A refusal of a person's own step: what it is, and the person's exact command as its one route. */
+function personStepRefusal({ id, argv }) {
+  const decision = Object.hasOwn(PERSON_DECISION_DENIALS, id);
+  // The person confirms an approval or return by typing the step in their own terminal, not with --yes.
+  const guidance = safeCommandGuidance({ argv: decision ? argv.filter(value => !['--yes', '-y', '--for-agent'].includes(value)) : argv });
+  const routes = guidance ? [{ ...guidance, ...(decision ? {} : { skill: null, copilotCommand: null }) }] : [];
+  const reason = PERSON_DECISION_DENIALS[id] ?? OWN_STEP_DENIALS[id] ?? OWN_STEP_DENIAL;
+  return { permissionDecision: 'deny', next: routes,
+    permissionDecisionReason: `${reason}.${routes.length ? `\n\n${routes.map(route => formatCommandRouteLines(route).join('\n')).join('\n\n')}` : ''}` };
+}
+
+/** The person's own step one normalized tool call runs, or null. */
+function personStepOfCall(call, cwd) {
+  if (!SHELL_INPUT_TOOLS.has(call.name)) return null;
+  const text = [call.args.command, call.args.cmd, call.args.script, call.args.input, call.args.chars]
+    .find(value => typeof value === 'string');
+  if (!text || !(/singularity-flow|sflow/iu.test(text) || mentionsHookCli(text))) return null;
+  for (const invocation of shellSflowInvocations(text, call.name === 'powershell', call.args.cwd ?? cwd)) {
+    const step = personStep(invocation.argv, invocation.cwd);
+    if (step) return step;
+  }
+  return null;
+}
+function personStepCall(call, cwd) {
+  const step = personStepOfCall(call, cwd);
+  return step ? personStepRefusal(step) : null;
+}
+
+/**
+ * Where no turn applies (a plain prompt, a paused session or an unreadable turn record): refuse a
+ * person's own step and nothing else, so every other tool call keeps today's native behaviour.
+ */
+export function personStepDenial(payload = {}, { tools = SHELL_INPUT_TOOLS } = {}) {
+  for (const call of calls(payload)) {
+    if (!tools.has(call.name)) continue;
+    const refusal = personStepCall(call, payload.cwd);
+    if (refusal) return refusal;
+  }
+  return null;
 }
 function liveTerminalReviewCall(call, value) {
   const safe = verifiedShellForm(call, value);
@@ -1061,6 +1244,8 @@ async function importTeamGuard(payload, record, toolCalls) {
     }
     if (TERMINALS.has(call.name)) {
       if (shellAllowed(call, 'import-team', scope)) continue;
+      const own = personStepCall(call, payload.cwd);
+      if (own) return own;
       return deny('IMPORT_TEAM_OPERATION_NOT_ALLOWED: run one standalone read command or singularity-flow workflow import-team inspect|compile|status; no other mutations, chains or wrappers');
     }
     if (!isEdit(call.name)) continue;
@@ -1090,6 +1275,8 @@ async function fixWorkflowGuard(payload, record, toolCalls) {
     if (DELEGATION.has(call.name)) return deny('FIX_WORKFLOW_DELEGATION_NOT_ALLOWED: draft the fixes in this turn; /sf-fix-workflow does not delegate');
     if (TERMINALS.has(call.name)) {
       if (shellAllowed(call, 'fix-workflow', scope)) continue;
+      const own = personStepCall(call, payload.cwd);
+      if (own) return own;
       const draft = unissuedDraftOption(call, scope, 'fix-workflow', 'fixStaging',
         (positionals, options) => positionals[0] === 'workflow' ? options['change-set'] : null);
       if (draft) return deny(`FIX_WORKFLOW_DRAFT_NOT_ISSUED: ${draft} is not issued to this turn. Run singularity-flow workflow validate --json standalone in this turn first, for the same workflow: it issues the same change set file at fixDraft.changeSetPath and leaves what is in it unchanged. Then run this command again`);
@@ -1122,6 +1309,8 @@ async function runAndTestGuard(payload, record, toolCalls) {
     if (TERMINALS.has(call.name)) {
       if (shellAllowed(call, 'run-and-test', scope)) continue;
       if (environmentBinding(call, scope)) return deny(ENVIRONMENT_BINDING_DENIAL);
+      const own = personStepCall(call, payload.cwd);
+      if (own) return own;
       const draft = unissuedDraftOption(call, scope, 'run-and-test', 'appDraftStaging',
         (positionals, options) => positionals[0] === 'capability' ? options['application-file'] : null);
       if (draft) return deny(`RUN_AND_TEST_DRAFT_NOT_ISSUED: ${draft} is not issued to this turn. Run singularity-flow app suggest --json standalone in this turn first: it issues the same draft file and leaves what is in it unchanged. Then run this command again`);
@@ -1154,6 +1343,8 @@ async function specStudioGuard(payload, record, toolCalls) {
     if (DELEGATION.has(call.name)) return deny('SPEC_STUDIO_DELEGATION_NOT_ALLOWED: draft the proposals in this turn; /sf-spec-author does not delegate');
     if (TERMINALS.has(call.name)) {
       if (shellAllowed(call, 'spec-studio', scope)) continue;
+      const own = personStepCall(call, payload.cwd);
+      if (own) return own;
       const draft = unissuedDraftOption(call, scope, 'spec-studio', 'specStaging',
         (positionals, options) => positionals[0] === 'spec' && positionals[2] === 'propose' ? options.file : null);
       if (draft) return deny(`SPEC_STUDIO_PROPOSAL_NOT_ISSUED: ${draft} is not issued to this turn. Run singularity-flow spec author status <SPEC-ID> --json standalone in this turn first: it issues the specification's proposal file as proposalPath. Then run this command again`);
@@ -1185,6 +1376,8 @@ async function buildWorkflowGuard(payload, record, toolCalls) {
     if (DELEGATION.has(call.name)) return deny('BUILD_WORKFLOW_DELEGATION_NOT_ALLOWED: grow the build in this turn; /sf-build-workflow does not delegate');
     if (TERMINALS.has(call.name)) {
       if (shellAllowed(call, 'build-workflow', scope)) continue;
+      const own = personStepCall(call, payload.cwd);
+      if (own) return own;
       return deny('BUILD_WORKFLOW_OPERATION_NOT_ALLOWED: run one standalone read command or singularity-flow workflow build start|add|status|propose|decide|answer|check|finish; no other mutations, chains or wrappers');
     }
     if (!isEdit(call.name)) continue;
@@ -1211,6 +1404,8 @@ export function readsHostSavedOutput(call) {
 }
 
 const OWN_ROUTE_TURNS = new Set(['read-only-review', 'review-decision-only', 'decision-only', 'publish-only']);
+// Turns whose own route approves or returns the bound step, from the person's chat confirmation.
+const PERSON_DECISION_TURNS = new Set(['approval-only', 'decision-only', 'confirm']);
 const HOST_SAVED_OUTPUT_DENIAL = 'PHASE_MUTATION_TOOL_PROTOCOL: that file is the host\'s saved copy of a long result, outside the workspace; do not read it with shell tools. Run singularity-flow result last --wait --for-agent --json, standalone: it returns that command\'s kept result, starting with act and fitting the host, without running the command again. This refusal does not invalidate the phase or require repeating clarification';
 
 /**
@@ -1251,7 +1446,10 @@ export async function settleObservedEdits(payload) {
 
 export async function mutationToolGuard(payload = {}) {
   const record = await turn(payload);
-  if (!record) return {};
+  if (!record) return personStepDenial(payload) ?? {};
+  // A turn reads its terminals' commands below; text typed into a running shell is read here.
+  const typed = personStepDenial(payload, { tools: new Set(['write_bash']) });
+  if (typed) return typed;
   const decision = await mutationToolDecision(payload, record);
   await observeEdits(payload, record, decision).catch(() => {});
   return decision;
@@ -1432,6 +1630,10 @@ async function mutationToolDecision(payload, record) {
           'PHASE_MUTATION_OPERATION_NOT_ALLOWED: accepting that a step\'s tests cannot run here or ran narrowed, reusing an earlier step\'s recorded run for it, that one of its screen sizes does not apply, or how a closed Story\'s drifted clause is resolved, is decided by a person who approves that step, in their own terminal, not by this turn. Show the user the command and stop; do not retry it', [], own());
         const ownStep = ownTerminalStepCall(call, value);
         if (ownStep) return mutationDenial(contract, OWN_STEP_DENIALS[ownStep] ?? OWN_STEP_DENIAL, [], own());
+        // Inside a chain or wrapper the checks above cannot read the command; a person's step there is
+        // refused for what it is too, with its exact line (an approval turn keeps its own approve route).
+        const chained = verifiedShellForm(call, value) ? null : personStepOfCall(call, payload.cwd);
+        if (chained && !(PERSON_DECISION_TURNS.has(contract.turnMode) && ['approve', 'reject'].includes(chained.id))) return personStepRefusal(chained);
         if (contract.turnMode !== 'authoring' && verifiedShellForm(call, value)) {
           return mutationDenial(contract, value.decisionEnded
             ? 'PHASE_MUTATION_DECISION_TURN_ENDED: the decision turn has ended. Preserve work and inspect the returned next action in a new turn; correcting command syntax cannot reopen approval'

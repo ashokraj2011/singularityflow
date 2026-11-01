@@ -7,7 +7,7 @@ import path from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import test from 'node:test';
 import { deriveMutationContract, mutationContractPresentation, mutationPathDecision, mutationTurnMode } from '../src/phase-mutation-contract.mjs';
-import { recordRepositoryBoundaryTurn, endRepositoryBoundaryTurn } from '../src/copilot-repository-boundary.mjs';
+import { recordRepositoryBoundaryTurn, endRepositoryBoundaryTurn, repositoryToolGuard } from '../src/copilot-repository-boundary.mjs';
 import { captureMutationTurn, mutationToolGuard, mutationPostToolGuard, issueMutationStaging, issueImportTeamStaging, issueBuildStaging, issueFixWorkflowStaging, issueSpecStudioStaging, issueRunAppDraftStaging, issueDraftStaging, epicSourceTextDraftPath, refreshMutationContracts, endMutationDecisionTurns } from '../src/copilot-mutation-guard.mjs';
 import { createHash } from 'node:crypto';
 import { hookCliLine, setCopilotPaused, setHookCli } from '../src/copilot-mode.mjs';
@@ -866,10 +866,16 @@ test('every step only a person takes in their own terminal is refused in every t
   // turn-mode or tool-form refusal pointed a lock release at "no chains or wrappers" (E5/D2, 2026-10-31).
   const generic = /PHASE_MUTATION_SHELL_COMMAND_UNVERIFIED|not permitted by the bound turn mode|PHASE_MUTATION_TOOL_PROTOCOL|PHASE_MUTATION_DECISION_TURN_ENDED/u;
   const unrouted = [];
-  for (const [skill, session] of [['/sf-phase', 'author'], ['/sf-recover', 'kernel'], ['/sf-decide PMC-1', 'own-terminal-decider']]) {
+  // Every turn mode, and a plain follow-up prompt with no turn at all: the hook's own entry (S4 live run,
+  // 2026-11-01: only a /sf- prompt recorded a turn, so a plain one ran `spec author publish` and `approve` unchecked).
+  for (const [skill, session] of [['/sf-phase', 'author'], ['/sf-recover', 'kernel'], ['/sf-decide PMC-1', 'own-terminal-decider'],
+    ['/sf-spec-author', 'own-spec-studio'], ['/sf-build-workflow', 'own-build'], ['/sf-import-team', 'own-import'],
+    ['/sf-fix-workflow', 'own-fix'], ['/sf-test', 'own-run-and-test'], ['Thanks. Now take care of the rest.', 'own-plain']]) {
     const payload = await f.enter(skill, session);
     for (const command of Object.values(steps).flat()) {
-      const decision = await mutationToolGuard({ ...payload, toolName: 'bash', toolArgs: { command, cwd: f.root } });
+      // run-and-test keeps its own refusal for an environment binding, which names the command in its text.
+      if (skill === '/sf-test' && steps['environment-binding'].includes(command)) continue;
+      const decision = await repositoryToolGuard({ ...payload, toolName: 'bash', toolArgs: { command, cwd: f.root } });
       if (decision.permissionDecision !== 'deny') allowed.push(`${skill}: ${command}`);
       else if (generic.test(decision.permissionDecisionReason) || !(decision.next ?? []).some((route) =>
         JSON.stringify(route.argv) === JSON.stringify(safeCommandGuidance({ command })?.argv))) {
@@ -899,6 +905,69 @@ test('every step only a person takes in their own terminal is refused in every t
   for (const command of [chat, issue]) {
     assert.notEqual((await mutationToolGuard({ ...decide, toolName: 'bash', toolArgs: { command, cwd: f.root } })).permissionDecision, 'deny', command);
   }
+});
+
+test('a plain prompt keeps native behaviour except a person\'s own step, in any spelling, which names its exact command', async t => {
+  const f = await fixture(t);
+  const plain = await f.enter('Looks good, go ahead and finish it.', 'plain-follow-up');
+  const guard = (toolName, toolArgs) => repositoryToolGuard({ ...plain, toolName, toolArgs });
+  const shell = command => guard('bash', { command });
+  const approve = 'singularity-flow approve custom-step --work-id PMC-1';
+  const publish = 'singularity-flow spec author publish SPEC-CHK-004 --reviewed';
+  // Each spelling a shell runs: alone, chained, through an alias, env, a package runner, a path, a shell's -c, quotes.
+  for (const [command, person] of [
+    [`${approve} --yes`, approve], [`cd ${f.root} && ${approve} --yes`, approve], [`sflow approve custom-step --work-id PMC-1 --yes`, approve],
+    [`env CI=1 ${approve} --yes --for-agent --json`, `${approve} --json`], [`CI=1 npx --yes ${approve}`, approve],
+    [`/usr/local/bin/${publish}`, publish], [`bash -lc "${publish}"`, publish], [`'singularity-flow' spec author publish SPEC-CHK-004 --reviewed`, publish],
+    [`${publish} 2>&1 | tee publish.log`, publish], [`out=$(${publish})`, publish], [`echo "$(${publish})"`, publish],
+    [`node bin/singularity-flow.mjs spec author publish SPEC-CHK-004 --reviewed`, publish],
+    ['singularity-flow reject custom-step --work-id PMC-1 --to custom-step --reason "Wrong."', 'singularity-flow reject custom-step --work-id PMC-1 --to custom-step --reason Wrong.'],
+    ['singularity-flow decisions record PMC-1 --choose d1=dismiss --confirm sha256:' + 'c'.repeat(64), null],
+    ['singularity-flow upstream-issue decide UPI-001 --work-id PMC-1 --outcome dismiss --reason "Handled."', null]]) {
+    const refused = await shell(command);
+    assert.equal(refused.permissionDecision, 'deny', command);
+    assert.match(refused.permissionDecisionReason, /^PHASE_MUTATION_OPERATION_NOT_ALLOWED: /u, command);
+    if (person) assert.equal(refused.next[0].command, person, command);
+    else assert.equal(refused.next.length, 1, command);
+  }
+  // Approving and returning keep their Copilot route, where the person is asked; --yes is never part of the person's line.
+  const approval = await shell(`${approve} --yes`);
+  assert.equal(approval.next[0].copilotCommand.split(' ')[0], '/sf-approve');
+  assert.match(approval.permissionDecisionReason, /never an agent's, in any chat/u);
+  assert.doesNotMatch(approval.next[0].command, /--yes/u);
+  // PowerShell's call operator and -Command, and text typed into a running shell.
+  assert.equal((await guard('powershell', { command: `& 'singularity-flow' approve custom-step --work-id PMC-1 --yes` })).permissionDecision, 'deny');
+  assert.equal((await guard('powershell', { command: `pwsh -NoProfile -Command "${publish}"` })).permissionDecision, 'deny');
+  assert.equal((await guard('write_bash', { shellId: '1', input: `${publish}\n` })).next[0].command, publish);
+  // A plan's action runs its stored command; issuing its one-time authorization is the person's yes to it.
+  const plans = path.join(f.root, '.git', 'singularity-flow', 'action-plans');
+  await mkdir(plans, { recursive: true });
+  await writeFile(path.join(plans, 'abcdef012345.json'), JSON.stringify({ planId: 'abcdef012345',
+    actions: [{ actionId: 'act-1', executable: true, argv: ['approve', 'custom-step', '--work-id', 'PMC-1', '--yes'] }] }));
+  for (const command of ['singularity-flow action authorize abcdef012345 --action act-1 --confirm act-1 --json',
+    'singularity-flow action execute abcdef012345 --action act-1 --authorization 00000000-0000-4000-8000-000000000000']) {
+    assert.equal((await shell(command)).next[0].command, approve, command);
+  }
+  // Everything else is unchanged: reads, other SFlow commands, previews, mentions in text, edits and other tools.
+  for (const command of ['singularity-flow status', 'singularity-flow spec author status SPEC-CHK-004 --json', `${approve} --help`,
+    'singularity-flow spec split SPEC-CHK-004@1 --propose --file plan.json', 'singularity-flow apm install acme/pack --dry-run',
+    'singularity-flow decision scope PMC-1 --item SRI-0123456789ab --as excluded --reason "Out of scope."',
+    `echo "${approve} --yes"`, 'grep -rn "sflow approve" docs', 'npm test', 'rm -rf build']) {
+    assert.deepEqual(await shell(command), {}, command);
+  }
+  assert.deepEqual(await guard('create_file', { path: path.join(f.root, 'src', 'new.js'), file_text: 'x' }), {});
+  assert.deepEqual(await guard('edit', { path: 'src/App.jsx' }), {});
+  // Paused, SFlow stays out of the way, still never as the person.
+  await setCopilotPaused(true);
+  try {
+    assert.equal((await shell(`${approve} --yes`)).permissionDecision, 'deny');
+    assert.deepEqual(await shell('singularity-flow status'), {});
+    assert.deepEqual(await mutationToolGuard({ ...plain, toolName: 'bash', toolArgs: { command: publish } }).then(value => value.next?.[0]?.command), publish);
+  } finally { await setCopilotPaused(false); }
+  // An SFlow turn's own refusals are unchanged: /sf-approve keeps its approval route for its own Story.
+  const approving = await f.enter('/sf-approve', 'plain-then-approve');
+  const own = await repositoryToolGuard({ ...approving, toolName: 'bash', toolArgs: { command: `${approve} --yes` } });
+  assert.doesNotMatch(own.permissionDecisionReason ?? '', /never an agent's, in any chat/u);
 });
 
 test('no agent turn pins a Story\'s authorized browser target origin; its preview stays a read', async t => {
@@ -1624,8 +1693,14 @@ test('an import-team turn runs its own commands and edits only the issued candid
       assert.deepEqual(await mutationPostToolGuard({ ...payload, toolName: 'bash', toolArgs: { command } }), {}, `${label} after: ${command}`);
     }
     for (const command of ['singularity-flow workflow import team.json --confirm abc --json', 'singularity-flow workflow create custom --json',
-      'singularity-flow approve custom-step --yes', 'ls ../team', 'singularity-flow workflow import-team compile --session tis-1 --out a.json && rm -rf src']) {
+      'ls ../team', 'singularity-flow workflow import-team compile --session tis-1 --out a.json && rm -rf src']) {
       assert.match((await shell(command)).permissionDecisionReason ?? '', /IMPORT_TEAM_OPERATION_NOT_ALLOWED/u, `${label}: ${command}`);
+    }
+    // A person's own step is refused for what it is, with their exact command, not this turn's generic sentence.
+    for (const [command, person] of [['singularity-flow approve custom-step --yes', 'singularity-flow approve custom-step']]) {
+      const refused = await shell(command);
+      assert.match(refused.permissionDecisionReason, /^PHASE_MUTATION_OPERATION_NOT_ALLOWED: /u, `${label}: ${command}`);
+      assert.equal(refused.next[0].command, person, `${label}: ${command}`);
     }
     assert.match((await edit(candidate)).permissionDecisionReason, /no candidate file is issued/u, label);
     assert.equal(await issueImportTeamStaging(candidate, { root: f.root }), 1, label);
@@ -1669,8 +1744,14 @@ test('a build-workflow turn runs the build commands and edits only the issued pr
       assert.deepEqual(await mutationPostToolGuard({ ...payload, toolName: 'bash', toolArgs: { command } }), {}, `${label} after: ${command}`);
     }
     for (const command of ['singularity-flow workflow studio apply --change-set x.json --propose', 'singularity-flow workflow import team.json --confirm abc --json',
-      'singularity-flow approve custom-step --yes', 'ls ../team', 'singularity-flow workflow build finish --build wb_0123456789abcdef --propose && rm -rf src']) {
+      'ls ../team', 'singularity-flow workflow build finish --build wb_0123456789abcdef --propose && rm -rf src']) {
       assert.match((await shell(command)).permissionDecisionReason ?? '', /BUILD_WORKFLOW_OPERATION_NOT_ALLOWED/u, `${label}: ${command}`);
+    }
+    // A person's own step is refused for what it is, with their exact command, not this turn's generic sentence.
+    for (const [command, person] of [['singularity-flow approve custom-step --yes', 'singularity-flow approve custom-step']]) {
+      const refused = await shell(command);
+      assert.match(refused.permissionDecisionReason, /^PHASE_MUTATION_OPERATION_NOT_ALLOWED: /u, `${label}: ${command}`);
+      assert.equal(refused.next[0].command, person, `${label}: ${command}`);
     }
     assert.match((await edit(proposal)).permissionDecisionReason, /no proposal file is issued/u, label);
     assert.equal(await issueBuildStaging(proposal, { root: f.root }), 1, label);
@@ -1714,9 +1795,14 @@ test('a fix-workflow turn reads, edits only the issued change set draft, and pro
     assert.deepEqual(await shell(propose), {}, `${label}: the issued draft can be proposed`);
     assert.deepEqual(await mutationPostToolGuard({ ...payload, toolName: 'bash', toolArgs: { command: propose } }), {});
     for (const command of [`singularity-flow workflow studio apply --change-set ${draft}`, `singularity-flow workflow studio apply --change-set ${draft}.other --propose`,
-      'singularity-flow workflow studio apply --change-set - --propose', 'singularity-flow configuration approve sflow/config-change/x --yes',
-      'singularity-flow approve custom-step --yes', `${propose} && rm -rf src`]) {
+      'singularity-flow workflow studio apply --change-set - --propose', `${propose} && rm -rf src`]) {
       assert.match((await shell(command)).permissionDecisionReason ?? '', /FIX_WORKFLOW_OPERATION_NOT_ALLOWED/u, `${label}: ${command}`);
+    }
+    // A person's own step is refused for what it is, with their exact command, not this turn's generic sentence.
+    for (const [command, person] of [['singularity-flow approve custom-step --yes', 'singularity-flow approve custom-step'], ['singularity-flow configuration approve sflow/config-change/x --yes', 'singularity-flow configuration approve sflow/config-change/x --yes']]) {
+      const refused = await shell(command);
+      assert.match(refused.permissionDecisionReason, /^PHASE_MUTATION_OPERATION_NOT_ALLOWED: /u, `${label}: ${command}`);
+      assert.equal(refused.next[0].command, person, `${label}: ${command}`);
     }
     assert.match((await edit(path.join(f.root, 'singularity', 'workflow.yml'))).permissionDecisionReason, /FIX_WORKFLOW_PATH_DENIED.*team-flow\.change-set\.json/u);
     assert.match((await mutationToolGuard({ ...payload, toolName: 'task', toolArgs: { prompt: 'fix it' } })).permissionDecisionReason, /FIX_WORKFLOW_DELEGATION/u);
@@ -1756,12 +1842,20 @@ test('a spec-author turn reads, collects research, edits only the issued proposa
     assert.deepEqual(await edit(file), {}, label);
     assert.deepEqual(await shell(propose), {}, `${label}: the issued file can be staged`);
     assert.deepEqual(await mutationPostToolGuard({ ...payload, toolName: 'bash', toolArgs: { command: propose } }), {});
-    for (const command of [`singularity-flow spec author propose SPEC-CHK-004 --file ${file}.other`, 'singularity-flow spec author accept SPEC-CHK-004 P-001',
-      'singularity-flow spec author reject SPEC-CHK-004 P-001 --reason No.', 'singularity-flow spec author decide SPEC-CHK-004 GAP-001 --option O1 --reason Agreed.',
-      'singularity-flow spec author settle SPEC-CHK-004 --finding A-001=dismissed --reason No.', 'singularity-flow spec author publish SPEC-CHK-004 --reviewed',
+    for (const command of [`singularity-flow spec author propose SPEC-CHK-004 --file ${file}.other`,
       'singularity-flow spec author edit SPEC-CHK-004 --file x.md --expected-seq 1', 'singularity-flow spec author research SPEC-CHK-004 --fact F --source Me',
       `${propose} && rm -rf src`]) {
       assert.match((await shell(command)).permissionDecisionReason ?? '', /SPEC_STUDIO_OPERATION_NOT_ALLOWED/u, `${label}: ${command}`);
+    }
+    // The person's own steps are refused for what they are, with the person's exact command, IDs and all
+    // (a generic sentence and no route left the person to work the command out, S4 live run 2026-11-01).
+    for (const command of ['singularity-flow spec author accept SPEC-CHK-004 P-001', 'singularity-flow spec author reject SPEC-CHK-004 P-001 --reason No.',
+      'singularity-flow spec author decide SPEC-CHK-004 GAP-001 --option O1 --reason Agreed.',
+      'singularity-flow spec author settle SPEC-CHK-004 --finding A-001=dismissed --reason No.', 'singularity-flow spec author publish SPEC-CHK-004 --reviewed']) {
+      const refused = await shell(command);
+      assert.match(refused.permissionDecisionReason, /^PHASE_MUTATION_OPERATION_NOT_ALLOWED: taking or turning down Copilot's proposals/u, `${label}: ${command}`);
+      assert.deepEqual(refused.next.map(route => [route.command, route.copilotCommand]), [[command, null]], `${label}: ${command}`);
+      assert.match(refused.permissionDecisionReason, new RegExp(command.replace(/[.*+?^${}()|[\]\\]/gu, '\\$&'), 'u'), `${label}: ${command}`);
     }
     assert.match((await edit(path.join(f.root, 'docs', 'spec.md'))).permissionDecisionReason, /SPEC_STUDIO_PATH_DENIED.*SPEC-CHK-004\.proposal\.json/u);
     assert.match((await mutationToolGuard({ ...payload, toolName: 'task', toolArgs: { prompt: 'draft it' } })).permissionDecisionReason, /SPEC_STUDIO_DELEGATION/u);
@@ -2099,13 +2193,17 @@ test('literal answer punctuation and PowerShell argv do not become shell operato
   assert.deepEqual(await mutationToolGuard(shell('singularity-flow clarification record custom-step --question "Which input?" --answer "No negatives; lowercase & integer only."')), {});
   assert.deepEqual(await mutationToolGuard(shell("& 'singularity-flow' 'clarification' 'record' 'custom-step' '--question' 'What''s valid?' '--answer' 'Integers; lowercase & local.'", 'powershell')), {});
   for (const command of ['singularity-flow status --json && singularity-flow phase publish custom-step',
-    'bash -c "singularity-flow approve custom-step"', 'singularity-flow clarification record custom-step --answer "$(touch src/App.jsx)"',
+    'bash -c "singularity-flow phase publish custom-step"', 'singularity-flow clarification record custom-step --answer "$(touch src/App.jsx)"',
     'singularity-flow phase publish custom-step > output.json']) {
     const refused = await mutationToolGuard(shell(command));
     assert.equal(refused.permissionDecision, 'deny');
     assert.match(refused.permissionDecisionReason, /PHASE_MUTATION_SHELL_COMMAND_UNVERIFIED/);
     assert.doesNotMatch(refused.permissionDecisionReason, /PHASE_MUTATION_TURN_READ_ONLY/);
   }
+  // A person's own step behind a wrapper is read through it: refused for what it is, with its exact command.
+  const wrapped = await mutationToolGuard(shell('bash -c "singularity-flow approve custom-step"'));
+  assert.match(wrapped.permissionDecisionReason, /^PHASE_MUTATION_OPERATION_NOT_ALLOWED: approving a step/u);
+  assert.equal(wrapped.next[0].command, 'singularity-flow approve custom-step');
 });
 
 test('the launcher\'s verified Node and CLI entry, quoted for the shell, meet every guard check as the CLI; no other form does', async t => {
@@ -2157,7 +2255,9 @@ test('the launcher\'s verified Node and CLI entry, quoted for the shell, meet ev
     /PHASE_MUTATION_BASELINE_UNAVAILABLE/u);
   // In an authoring turn the pair inside a chain is still the kernel, never an ordinary shell command.
   const authoring = await f.enter('/sf-phase', 'verified-cli-chain');
-  assert.match((await shell(authoring, `echo start && ${posix} approve custom-step`)).permissionDecisionReason, /PHASE_MUTATION_SHELL_COMMAND_UNVERIFIED/u);
+  assert.match((await shell(authoring, `echo start && ${posix} phase publish custom-step`)).permissionDecisionReason, /PHASE_MUTATION_SHELL_COMMAND_UNVERIFIED/u);
+  // A person's own step through it is read as the CLI too, and refused for what it is.
+  assert.equal((await shell(authoring, `echo start && ${posix} approve custom-step`)).next[0].command, 'singularity-flow approve custom-step');
   // Before a Story is bound: a setup skill's own family and a session attach, as with the bare CLI.
   const setup = async skill => {
     const payload = { cwd: f.root, sessionId: `verified-cli-setup-${skill}`, prompt: skill };

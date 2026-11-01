@@ -463,6 +463,8 @@ test('Copilot\'s proposals wait in the Copilot tab; only the person\'s clicks ac
 test('#sflowSpecStudio reads the open draft and stages proposals; it has no way to accept, decide or publish (SPA:AC-006, AC-022)', async () => {
   for (const action of ['accept', 'reject', 'decide', 'settle', 'publish', 'discard']) {
     assert.throws(() => tool.specToolInput({ action, spec: SPEC }), /Accepting, rejecting, deciding, settling, publishing and discarding are for a person/u, action);
+    // It names the person's own command, for the open specification, as the Copilot guard does.
+    assert.throws(() => tool.specToolInput({ action, spec: SPEC }), new RegExp(`singularity-flow spec author ${action} ${SPEC}[ .]`, 'u'), action);
   }
   assert.throws(() => tool.specToolInput({ action: 'state', spec: 'spec-x' }), /specification ID/u);
   assert.throws(() => tool.specToolInput({ action: 'state', spec: SPEC, proposals: [] }), /does not take proposals/u);

@@ -10,6 +10,11 @@
 export const SPEC_STUDIO_TOOL = 'singularityFlow_specStudio';
 const SPEC_ID = /^SPEC-[A-Z0-9]+(?:-[A-Z0-9]+)*$/u;
 const ACTIONS = ['state', 'guide', 'prose', 'propose'] as const;
+// The person's own steps, as the command line they run for each in their own terminal.
+const PERSON_ACTIONS: Record<string, string> = {
+  accept: ' <P-ID>...', reject: ' <P-ID> --reason "<why>"', decide: ' <GAP-ID> --option <O-ID> --reason "<why>"',
+  settle: ' --finding <A-ID>=<fixed|gap|dismissed> --reason "<why>"', publish: ' --reviewed', discard: ''
+};
 const MAX_PROPOSAL_BYTES = 256 * 1024;
 /** The most one answer carries: VS Code saves a longer tool answer to a file (workflow-builder-tool.ts). */
 export const SPEC_TOOL_ANSWER_BYTES = 7_500;
@@ -31,7 +36,12 @@ const list = (value: unknown): Record<string, unknown>[] => (Array.isArray(value
 export function specToolInput(value: unknown): SpecToolInput {
   if (!plain(value)) throw new Error('Supply one Spec Studio request: { action, spec, ... }.');
   const action = value.action as SpecToolAction;
-  if (!ACTIONS.includes(action)) throw new Error(`Use one of: ${ACTIONS.join(', ')}. Accepting, rejecting, deciding, settling, publishing and discarding are for a person in the Spec Studio.`);
+  if (!ACTIONS.includes(action)) {
+    const person = Object.hasOwn(PERSON_ACTIONS, String(action)) ? String(action) : null;
+    const spec = typeof value.spec === 'string' && SPEC_ID.test(value.spec) ? value.spec : '<SPEC-ID>';
+    throw new Error(`Use one of: ${ACTIONS.join(', ')}. Accepting, rejecting, deciding, settling, publishing and discarding are for a person, in the Spec Studio${person
+      ? ` or with singularity-flow spec author ${person} ${spec}${PERSON_ACTIONS[person]} in their own terminal; show them that command` : ''}.`);
+  }
   if (typeof value.spec !== 'string' || !SPEC_ID.test(value.spec)) throw new Error('Give the specification ID open in the Spec Studio, for example SPEC-CHK-004.');
   const allowed: Record<SpecToolAction, string[]> = { state: [], guide: [], prose: ['from'], propose: ['proposals', 'assistedCheck'] };
   const extra = Object.keys(value).filter((key) => !['action', 'spec', ...allowed[action]].includes(key));

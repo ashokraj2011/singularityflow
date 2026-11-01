@@ -19,7 +19,7 @@ related:
   - governed-execution
   - revision-loop
   - revision-feedback-attachments
-version: 29
+version: 30
 ---
 CLI, Copilot, and VS Code read the same durable repository and workspace records through shared projections. They do not share an in-memory global store, conversation history, or signed handles. Bundled skills are explicit-only: installing SFlow never opts ordinary Copilot requests into a Story. Invoke an `/sf-*` skill or explicitly select the SFlow workflow agent for natural-language routing. That agent accepts seven closed intents: orient, continue, start, inspect, act, recover, and help. Help retrieves cited packaged documentation; it does not convert an answer into an action.
 
@@ -30,6 +30,10 @@ Use `/sf-pause` (shell: `singularity-flow pause on --json`) to pause SFlow Copil
 The preference lives outside repositories and is never pushed. It survives restarts and skill reinstalls. It does not change any Story, approval, artifact, branch, checkout, personal skill, or Copilot setting. It does not abort commands or autonomous flights already running. Explicit terminal commands remain available and enforce all normal gates; native changes do not become evidence automatically. An unreadable preference conservatively pauses guidance and can be repaired with an explicit `pause off`.
 
 Instructions already loaded in a chat cannot be unloaded by a CLI preference. Switch from the SFlow custom agent to the host's default Agent and start a new chat for a clean native context. Reload skills or the IDE after installing this build; earlier loaded copies can still contain automatic routing.
+
+## A person's own steps, in any chat
+
+Approving or returning a step, recording the decision list and deciding an earlier step's issue are never an agent's. Nor is any step SFlow calls the person's own: taking or turning down Copilot's specification proposals, deciding its gaps, settling, publishing or discarding it, publishing a split, witnessing evidence, binding environment values and releasing a lock among them. The Copilot hook refuses them in an `/sf-*` skill's turn, in a plain follow-up prompt that names no skill, and while guidance is paused. It reads them however the shell line spells them: chained after `cd` or another command, behind `env`, `npx` or a path to the binary, inside a shell's `-c` or a substitution, typed into a running shell, or as the stored command of a plan's action. The refusal names the person's exact command. They run it in their own terminal, or ask for it with `/sf-approve`, `/sf-reject` or `/sf-decide`, which asks them. Every other tool call in a plain prompt keeps native behaviour. The hook reads what a line says, so it is not an OS sandbox: a script that runs the command itself is not caught.
 
 ## Purpose and prerequisites
 

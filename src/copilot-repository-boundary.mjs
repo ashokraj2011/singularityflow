@@ -3,7 +3,7 @@ import { createHash, randomUUID } from 'node:crypto';
 import { lstat, mkdir, readFile, rename, rm, unlink, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import { codePageSafeJson } from './code-page-safe-json.mjs';
-import { copilotModeFile, hookCliLine, readCopilotMode } from './copilot-mode.mjs';
+import { copilotModeFile, hookCliLine, mentionsHookCli, readCopilotMode } from './copilot-mode.mjs';
 import { currentSchemaVersion, readRecord } from './schema-migrations.mjs';
 import { formatCommandRouteLines } from './model-free-commands.mjs';
 import { platformPathWithin } from './util.mjs';
@@ -135,9 +135,12 @@ export async function endRepositoryBoundaryTurn(payload = {}) {
   return {};
 }
 
-/** File permissions and discovery share explicit-turn opt-in, never native lifecycle gating. */
+/**
+ * File permissions and discovery share explicit-turn opt-in, never native lifecycle gating. Outside a
+ * turn (a plain prompt, or a paused session) only a person's own step is refused: no prompt makes it an agent's.
+ */
 export async function repositoryToolGuard(payload = {}) {
-  if (!(await hasBoundaryTurn(payload))) return {};
+  if (!(await hasBoundaryTurn(payload))) return personStepGuard(payload);
   try {
     // Environment files hold secrets: no turn mode reads, searches or edits them (SPEC-ENVIRONMENT-FILES).
     const environmentFile = await (await import('./copilot-environment-files-guard.mjs')).environmentFilesToolGuard(payload);
@@ -153,6 +156,16 @@ export async function repositoryPostToolGuard(payload = {}) {
   if (!(await hasBoundaryTurn(payload))) return {};
   try { return await (await import('./copilot-mutation-guard.mjs')).mutationPostToolGuard(payload); }
   catch { const refusal = boundaryGuardUnavailable(); return { ...refusal, continue: false, additionalContext: refusal.permissionDecisionReason }; }
+}
+
+/** A tool call that names no SFlow command passes untouched; the guard loads only for one that does. */
+async function personStepGuard(payload) {
+  const text = JSON.stringify(payload.toolCalls ?? payload.toolArgs ?? payload.tool_input ?? '');
+  if (!/singularity-flow|sflow/iu.test(text) && !mentionsHookCli(text)) return {};
+  try { return (await import('./copilot-mutation-guard.mjs')).personStepDenial(payload) ?? {}; }
+  catch {
+    return { permissionDecision: 'deny', permissionDecisionReason: 'PHASE_MUTATION_GUARD_UNAVAILABLE: SFlow could not check whether this command is a person\'s own step, so it did not run. Preserve work; the person can run it in their own terminal, and singularity-flow doctor checks the installation.' };
+  }
 }
 
 function boundaryGuardUnavailable() {

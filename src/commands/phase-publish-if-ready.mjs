@@ -42,10 +42,14 @@ export async function run({ positionals, options }) {
   const prepublish = checked.value;
   const phaseId = prepublish.phase ?? requested;
   const argv = prepublish.status === 'ready' ? publicationArguments(prepublish.commands?.publish, phaseId) : null;
-  if (!argv) {
+  // This command is an agent's: a draft it publishes as a person's writing would skip the checks an
+  // agent's draft gets. A phase that permits only human authorship is the person's to publish.
+  const personAuthored = argv?.[argv.indexOf('--authored') + 1] === 'human';
+  if (!argv || personAuthored) {
     return console.log(JSON.stringify({ ...prepublish, publishIfReady: {
       published: false,
-      reason: prepublish.status !== 'ready' ? 'not-ready' : prepublish.commands?.publish ? 'publish-command-not-recognized' : 'no-publish-command',
+      reason: prepublish.status !== 'ready' ? 'not-ready' : personAuthored ? 'person-authored'
+        : prepublish.commands?.publish ? 'publish-command-not-recognized' : 'no-publish-command',
       command: prepublish.commands?.publish ?? null
     } }));
   }

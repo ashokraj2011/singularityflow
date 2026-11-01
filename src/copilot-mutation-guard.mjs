@@ -1026,6 +1026,15 @@ const PERSON_DECISION_IDS = new Set(PERSON_DECISIONS.map((entry) => entry.id));
 // the environment instead of the person.
 const TEST_ENVIRONMENT = /(?:^|[\s;&|(`'"])(?:export\s+|set\s+|\$env:)?(?:NODE_ENV\s*=\s*['"]?test\b|SINGULARITY_FLOW_TEST_[A-Z0-9_]+\s*=)/iu;
 
+const PERSON_AUTHORSHIP = new Set(['human', 'legacy-unspecified']);
+const PERSON_CHANNELS = new Set(['manual-in-place', 'manual-import', 'legacy']);
+/** A publication that records a person as its author, or no author: what an agent never claims. */
+function personAuthorshipClaim(options) {
+  const authored = typeof options.authored === 'string' ? options.authored : null;
+  return !authored || PERSON_AUTHORSHIP.has(authored) || PERSON_CHANNELS.has(options.channel);
+}
+const AUTHORSHIP_CLAIM_DENIAL = 'PHASE_MUTATION_OPERATION_NOT_ALLOWED: an agent records its own publication as governed-agent, never as a person\'s writing or with no author, in any chat: run the first command, which checks this draft and publishes it with the authorship SFlow can stand behind. A person who wrote the draft themselves publishes it with the second command in their own terminal. Do not retry with another --authored value';
+
 /** The person's own step this SFlow argv is, as { id, argv } with the command the person runs, or null. */
 function personStep(argv, cwd, depth = 0) {
   const { positionals, options } = parseCli(argv);
@@ -1037,6 +1046,10 @@ function personStep(argv, cwd, depth = 0) {
   // Outside its own /sf-approve or /sf-reject turn, approving and returning a step is the person's;
   // so is recording the decision list outside /sf-decide, and deciding an earlier step's issue.
   if (['approve', 'reject'].includes(positionals[0])) return { id: positionals[0], argv };
+  // An agent's publication is its own (governed-agent); a person's writing, or no author, is the
+  // person's claim, from their own terminal. As `--authored human` an agent's draft skipped its
+  // clarification record and session proof (live reruns, 2026-11-01).
+  if (positionals[0] === 'phase' && positionals[1] === 'publish' && personAuthorshipClaim(options)) return { id: 'authorship-claim', argv };
   if (positionals[0] === 'decisions' && positionals[1] === 'record') return { id: 'decision-list-record', argv };
   if (positionals[0] === 'upstream-issue' && UPSTREAM_ISSUE_DECISIONS.includes(positionals[1])) return { id: 'upstream-issue-decision', argv };
   // A plan's action runs its stored command in this process, and its authorization is the person's yes to it.
@@ -1065,6 +1078,13 @@ function personDecisionReason(owners) {
 
 /** A refusal of a person's own step: what it is, and the person's exact command as its one route. */
 function personStepRefusal({ id, argv, owners }) {
+  if (id === 'authorship-claim') {
+    const phase = parseCli(argv).positionals[2];
+    const routes = [safeCommandGuidance({ argv: ['phase', 'prepublish', ...(phase ? [phase] : []), '--for-agent', '--json', '--publish-if-ready'] }),
+      safeCommandGuidance({ argv })].filter(Boolean).map((route, index) => (index ? { ...route, skill: null, copilotCommand: null } : route));
+    return { permissionDecision: 'deny', next: routes, permissionDecisionReason: `${AUTHORSHIP_CLAIM_DENIAL}.${routes.length
+      ? `\n\n${routes.map(route => formatCommandRouteLines(route).join('\n')).join('\n\n')}` : ''}` };
+  }
   const decision = Object.hasOwn(PERSON_DECISION_DENIALS, id);
   // The person confirms an approval or return by typing the step in their own terminal, not with --yes.
   const guidance = safeCommandGuidance({ argv: decision || owners ? argv.filter(value => !['--yes', '-y', '--for-agent'].includes(value)) : argv });
@@ -1095,14 +1115,15 @@ function personStepCall(call, cwd) {
 }
 
 /**
- * In a turn: a person's decision outside the skill turn they start for it, or any SFlow command run
- * with the test suite's switches. Its owner's turn goes on to that turn's own rules.
+ * In a turn: a person's decision outside the skill turn they start for it, a publication claiming a
+ * person (or nobody) wrote it, or any SFlow command run with the test suite's switches. Its owner's
+ * turn goes on to that turn's own rules.
  */
 function turnPersonDecisionDenial(payload, record) {
   const skill = String(record.skill ?? '').replace(/^\/?(?:sf|sflow)-/u, '');
   for (const call of calls(payload)) {
     const step = personStepOfCall(call, payload.cwd);
-    if (step && (step.id === 'test-environment' || (PERSON_DECISION_IDS.has(step.id) && !step.owners.includes(skill)))) {
+    if (step && (['test-environment', 'authorship-claim'].includes(step.id) || (PERSON_DECISION_IDS.has(step.id) && !step.owners.includes(skill)))) {
       return personStepRefusal(step);
     }
   }

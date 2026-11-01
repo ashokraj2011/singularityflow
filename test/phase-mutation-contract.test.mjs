@@ -1052,6 +1052,33 @@ test('a person\'s decision is refused in every turn but the one they start for i
   assert.deepEqual(await shell('NODE_ENV=test node --test test/app.test.mjs'), {});
 });
 
+test('no agent publishes its draft as a person\'s writing or with no author, in any turn or a plain prompt', async t => {
+  const f = await fixture(t);
+  // As --authored human an agent's draft skipped its clarification record and session proof; with the
+  // kernel's model off, prepublish itself offered that route to Copilot (live reruns, 2026-11-01).
+  const claims = ['singularity-flow phase publish custom-step --authored human --channel manual-in-place --no-model',
+    'singularity-flow phase publish custom-step --authored human --channel manual-import --from draft.md',
+    `cd ${f.root} && sflow phase publish custom-step`, 'singularity-flow phase publish custom-step --authored legacy-unspecified --channel legacy',
+    'singularity-flow phase publish custom-step --authored governed-agent --channel manual-in-place'];
+  const own = ['singularity-flow phase publish custom-step --authored governed-agent --channel copilot-host --no-model',
+    'singularity-flow phase publish convergence --authored deterministic --channel kernel-generator',
+    'singularity-flow phase prepublish custom-step --for-agent --json --publish-if-ready', 'singularity-flow phase publish custom-step --help'];
+  for (const [skill, session] of [['/sf-phase', 'publisher'], ['/sf-recover', 'recoverer'], ['/sf-next', 'next-publisher'], ['Publish it now.', 'plain-publisher']]) {
+    const payload = await f.enter(skill, session);
+    for (const command of claims) {
+      const refused = await repositoryToolGuard({ ...payload, toolName: 'bash', toolArgs: { command, cwd: f.root } });
+      assert.match(refused.permissionDecisionReason ?? '', /an agent records its own publication as governed-agent, never as a person's writing or with no author, in any chat/u, `${skill}: ${command}`);
+      // Its own route first, then the person's line for their own terminal, with no skill.
+      assert.equal(refused.next[0].command, 'singularity-flow phase prepublish custom-step --for-agent --json --publish-if-ready', `${skill}: ${command}`);
+      assert.deepEqual([refused.next[1].copilotCommand, refused.next[1].skill], [null, null], `${skill}: ${command}`);
+    }
+    for (const command of own) {
+      const decision = await repositoryToolGuard({ ...payload, toolName: 'bash', toolArgs: { command, cwd: f.root } });
+      assert.doesNotMatch(decision.permissionDecisionReason ?? '', /never as a person's writing/u, `${skill}: ${command}`);
+    }
+  }
+});
+
 test('no agent turn pins a Story\'s authorized browser target origin; its preview stays a read', async t => {
   const f = await fixture(t);
   const digest = `sha256:${'b'.repeat(64)}`;
@@ -2274,9 +2301,9 @@ test('literal answer punctuation and PowerShell argv do not become shell operato
   const shell = (command, toolName = 'bash') => ({ ...payload, toolName, toolArgs: { command } });
   assert.deepEqual(await mutationToolGuard(shell('singularity-flow clarification record custom-step --question "Which input?" --answer "No negatives; lowercase & integer only."')), {});
   assert.deepEqual(await mutationToolGuard(shell("& 'singularity-flow' 'clarification' 'record' 'custom-step' '--question' 'What''s valid?' '--answer' 'Integers; lowercase & local.'", 'powershell')), {});
-  for (const command of ['singularity-flow status --json && singularity-flow phase publish custom-step',
-    'bash -c "singularity-flow phase publish custom-step"', 'singularity-flow clarification record custom-step --answer "$(touch src/App.jsx)"',
-    'singularity-flow phase publish custom-step > output.json']) {
+  for (const command of ['singularity-flow status --json && singularity-flow phase publish custom-step --authored governed-agent --channel copilot-host',
+    'bash -c "singularity-flow phase publish custom-step --authored governed-agent --channel copilot-host"', 'singularity-flow clarification record custom-step --answer "$(touch src/App.jsx)"',
+    'singularity-flow phase publish custom-step --authored governed-agent --channel copilot-host > output.json']) {
     const refused = await mutationToolGuard(shell(command));
     assert.equal(refused.permissionDecision, 'deny');
     assert.match(refused.permissionDecisionReason, /PHASE_MUTATION_SHELL_COMMAND_UNVERIFIED/);
@@ -2310,7 +2337,7 @@ test('the launcher\'s verified Node and CLI entry, quoted for the shell, meet ev
   const report = `--report-json '${JSON.stringify({ rows: [], detail: 'x'.repeat(4000) })}' --json`;
   // Turn modes, read lists, host-only commands, decisions, `cd <root> &&` scoping and the long staging form.
   const rests = ['session open PMC-1 --for-agent --json', 'status --json', 'approve custom-step', 'hook boundary-turn',
-    'phase publish custom-step', 'decision test-risk custom-step --work-id PMC-1', `review-source stage custom-step ${report}`];
+    'phase publish custom-step --authored governed-agent --channel copilot-host', 'decision test-risk custom-step --work-id PMC-1', `review-source stage custom-step ${report}`];
   for (const skill of ['/sf-session', '/sf-status', '/sf-phase', '/sf-approve', '/sf-review-source']) {
     const payload = await f.enter(skill, `verified-cli${skill.replace('/', '-')}`);
     for (const rest of rests) {
@@ -2337,7 +2364,7 @@ test('the launcher\'s verified Node and CLI entry, quoted for the shell, meet ev
     /PHASE_MUTATION_BASELINE_UNAVAILABLE/u);
   // In an authoring turn the pair inside a chain is still the kernel, never an ordinary shell command.
   const authoring = await f.enter('/sf-phase', 'verified-cli-chain');
-  assert.match((await shell(authoring, `echo start && ${posix} phase publish custom-step`)).permissionDecisionReason, /PHASE_MUTATION_SHELL_COMMAND_UNVERIFIED/u);
+  assert.match((await shell(authoring, `echo start && ${posix} phase publish custom-step --authored governed-agent --channel copilot-host`)).permissionDecisionReason, /PHASE_MUTATION_SHELL_COMMAND_UNVERIFIED/u);
   // A person's own step through it is read as the CLI too, and refused for what it is.
   assert.equal((await shell(authoring, `echo start && ${posix} approve custom-step`)).next[0].command, 'singularity-flow approve custom-step');
   // Before a Story is bound: a setup skill's own family and a session attach, as with the bare CLI.

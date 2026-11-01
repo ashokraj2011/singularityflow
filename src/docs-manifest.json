@@ -1,9 +1,9 @@
 {
   "schemaVersion": 2,
   "generatedFrom": "docs/topics",
-  "sourceCommit": "e9fd1a04a19a298ad272fa407e4badce217c0104",
+  "sourceCommit": "cc8ee90a5b6f6752c308832fedf5aa5f85cad3c9",
   "topicCount": 88,
-  "contentSha256": "aaba0145c7a1791716fe312345409e285cf657b199f8e38205c79e6276096189",
+  "contentSha256": "9323482c9ed270ecda13066c333460de93cf26fcdbc6945a0287325db74c5f05",
   "topics": [
     {
       "id": "activity-and-prompt-audit",
@@ -136,8 +136,8 @@
     {
       "id": "copilot-and-surfaces",
       "title": "Copilot, VS Code, and shell surfaces",
-      "version": 31,
-      "sha256": "3008dec6f81a5c0938c50c5888525b2bdb445527e781f4388bc1d260ed21bfc4",
+      "version": 32,
+      "sha256": "6785fde668c850d85fccdafbfea0a2aaa3b5e5316fb00b1eb6b0b13a43a22c88",
       "routingSha256": "6f4dbc798506b7f12c106b8a0423ec2ce9392195c08459bf76888c9fbd617a9a",
       "file": "copilot-and-surfaces.md"
     },
@@ -368,8 +368,8 @@
     {
       "id": "manual-authorship",
       "title": "Manual authorship and working without AI",
-      "version": 4,
-      "sha256": "026b0f4b511d031ad185cad717d3d6d642ffa00df78023374e56438193e90ab4",
+      "version": 5,
+      "sha256": "54b6e82e627ac2f85eae1046039c54880754a3d572565167ce6cfb06be1caaab",
       "routingSha256": "a6c40596c5731d416c827727275c68cd65c23106f22739a055dfb8c34e7a4a47",
       "file": "manual-authorship.md"
     },

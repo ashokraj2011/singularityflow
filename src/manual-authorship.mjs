@@ -131,6 +131,18 @@ export function effectivePhasePublicationProducer(phase, {
 }
 
 /**
+ * What an agent's own publication records: governed-agent wherever the phase permits it, in every
+ * model mode. `--no-model` turns off the kernel's model, not the host's agent, so the manual
+ * fallback above had Copilot publish its own draft as `--authored human` and skip the checks an
+ * agent's draft gets: the clarification record and the agent's session (live reruns, 2026-11-01).
+ * Null where the phase permits no agent authorship, which stays the person's to publish.
+ */
+export function agentPublicationProducer(phase) {
+  if (isConvergencePhase(phase)) return null;
+  return allowedPublicationProducers(phase).includes('governed-agent') ? 'governed-agent' : null;
+}
+
+/**
  * The complete publication contract consumed by CLI, recovery, prompts, UI actions, and skills.
  * Constructing the contract validates the configured default producer before guidance can escape.
  */

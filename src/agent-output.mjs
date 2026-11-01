@@ -235,6 +235,10 @@ export function agentAct(result) {
           ?? 'The same finding keeps returning; tell the person what is blocked and hand it to someone other than the author.') },
       route && { command: route.command, reason: route.detail });
     }
+    // Only human authorship is permitted here: the person publishes it (publish-if-ready refused to).
+    if (result.publishIfReady?.reason === 'person-authored') return { state: 'confirm-in-terminal', read: ['scopeReview'],
+      do: { ...routes({ command: result.commands.publish, reason: 'Publish this draft as their own writing.' }), copilot: null },
+      said: 'Ready, and this step permits only a person\'s authorship: show them do.shell to run in their own terminal; never run it.' };
     if (result.status === 'ready' && result.commands?.publish) return withRoute({ state: 'publish', do: null, read: ['scopeReview'],
       said: 'Ready: publish once with the returned command; it runs the required tests.' },
       { command: result.commands.publish, ...(result.commandGuidance?.publish ? { commandGuidance: result.commandGuidance.publish } : {}), reason: 'Publish this draft.' });

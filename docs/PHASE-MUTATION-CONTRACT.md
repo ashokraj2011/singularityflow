@@ -13,8 +13,8 @@ Custom and future workflow phases use the same derivation.
 | Non-code source-and-artifact author | Existing source boundary; without an approved upstream code owner, supporting changes only | No invented generation intent for verification/test authoring |
 | Independent source reviewer | Only the exact Git-private report staging file issued by review context | Context/check/retention, never artifact or source authoring |
 | Approval/rejection | None, including after the phase advances | Exact scoped decision and its selection receipt; inspection thereafter |
-| Session or kernel action | No application edits; no generic external staging wildcard | Existing authorized CLI operations; a person's decision (PERSON_DECISIONS) only in the skill turn the person starts for it |
-| Native chat or pause | Unchanged | No mutation contract enforcement, except that a person's own step (approve, reject, the decision list, every OWN_TERMINAL_STEPS command and every PERSON_DECISIONS command) and any SFlow command run with NODE_ENV=test or a SINGULARITY_FLOW_TEST_ variable are refused with the person's exact command, however the shell line spells it |
+| Session or kernel action | No application edits; no generic external staging wildcard | Existing authorized CLI operations; a person's decision (PERSON_DECISIONS) only in the skill turn the person starts for it; an agent's publication is governed-agent, never `--authored human`, a manual channel or no author |
+| Native chat or pause | Unchanged | No mutation contract enforcement, except that a person's own step (approve, reject, the decision list, every OWN_TERMINAL_STEPS command and every PERSON_DECISIONS command), a `phase publish` claiming human authorship, a manual channel or no author, and any SFlow command run with NODE_ENV=test or a SINGULARITY_FLOW_TEST_ variable are refused with the person's exact command, however the shell line spells it |
 
 Protected process paths, governed state, Git metadata, other repositories and other Stories
 are not direct-edit targets. New files validate existing ancestors. Moves validate both ends.

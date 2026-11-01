@@ -198,6 +198,8 @@ test('the bundled CLI answers exactly like the sources while opening a handful o
   // 4,655,000: main 70e7a5922 measures 4,646,628; a person's decision refused outside the turn they start for it and
   // any SFlow command run with the test suite's switches (copilot-mutation-guard.mjs PERSON_DECISIONS) add 3,436 for
   // 4,650,064. No new file.
+  // 4,655,000 holds: main cc8ee90a5 measures 4,651,406; an agent's `phase publish` claiming a person or no author
+  // refused (copilot-mutation-guard.mjs) adds 1,978 for 4,653,384. No new file.
   assert.ok(narrowReads < 4_655_000,
     `strict next-step reads must not inherit the broad phase-review closure (${narrowReads} bytes)`);
   const publicationClosure = closure('cold-publication.mjs');
@@ -400,7 +402,9 @@ test('the bundled CLI answers exactly like the sources while opening a handful o
   // for 7,719,579. No new file.
   // 7,725,000: main 70e7a5922 measures 7,719,579; the same person-decision and test-switch refusals add 3,436 for
   // 7,723,015. No new file.
-  assert.ok(hookContext < 7_725_000,
+  // 7,730,000: main cc8ee90a5 measures 7,724,357; the same agent-authorship refusal adds 1,978 for 7,726,335.
+  // No new file.
+  assert.ok(hookContext < 7_730_000,
     `phase-review reads retain their existing byte ceiling after moving families (${hookContext} bytes)`);
   assert.match(await readFile(path.join(outdir, 'cold-light.mjs'), 'utf8'), /function enterPhase\b/u,
     'phase binding must not fall through to the compatibility/admin bundle');
@@ -484,6 +488,9 @@ test('the bundled CLI answers exactly like the sources while opening a handful o
   // for 5,499,763. No new file.
   // 5,505,000: main e9fd1a04a measures 5,499,763; SF Guard's operations, own-terminal step, /sf-guard route and turn
   // refusal (SPEC-PSS-v1 M1) add 1,342 for 5,501,105. Its handler and src/presence/ load only when `guard` runs.
+  // 5,505,000 holds: main cc8ee90a5 measures 5,501,105; the agent's own authorship (copilot-mutation-guard.mjs refuses an
+  // agent's `phase publish` claiming a person or no author; agent-output.mjs routes a person-only step) adds 1,978 for
+  // 5,503,083. No new file.
   assert.ok(catalogBytes < 5_505_000,
     `catalog parsing stays bounded instead of pulling in the entire administration bundle (${catalogBytes} bytes)`);
   for (const name of ['cold-compatibility.mjs', 'cold-models.mjs', 'cold-intake.mjs', 'cold-phases.mjs', 'cold-hook-context.mjs']) {

@@ -19,7 +19,7 @@ import { publishedGenerationCommit } from '../generation-publication-store.mjs';
 import { phaseDraftCheck } from '../phase-draft-check.mjs';
 import { operationContext } from '../operation-context.mjs';
 import { phaseRequiresCodeDelivery, generationSkillForPhase } from '../code-delivery-policy.mjs';
-import { effectivePhasePublicationProducer, normalizeAuthorshipOptions, assertProducerAllowed, inspectDeterministicInPlaceArtifact, inspectInPlaceArtifact, importManualArtifact, buildGenerationAuthorship } from '../manual-authorship.mjs';
+import { agentPublicationProducer, effectivePhasePublicationProducer, normalizeAuthorshipOptions, assertProducerAllowed, inspectDeterministicInPlaceArtifact, inspectInPlaceArtifact, importManualArtifact, buildGenerationAuthorship } from '../manual-authorship.mjs';
 import { isConvergencePhase } from '../phase-roles.mjs';
 import { actionActor } from './kernel.mjs';
 import path from 'node:path';
@@ -201,9 +201,10 @@ export async function phaseCommand(positionals, options) {
     }
     const session = await loadSession(root, { required: false });
     const check = subcommand === 'prepublish' ? phasePrepublish : phaseDraftCheck;
+    // An agent's read names its own authorship, never a person's: see agentPublicationProducer.
     const result = await check(root, config, workflow, phase, {
-      modelEnabled: operationContext()?.modelMode.enabled !== false,
-      session
+      modelEnabled: operationContext()?.modelMode.enabled !== false, session,
+      requestedProducer: optionBoolean(options, 'for-agent') ? agentPublicationProducer(phase) : null
     });
     if (optionBoolean(options, 'for-agent')) {
       const { phaseAgentResult } = await import('../phase-agent-result.mjs');

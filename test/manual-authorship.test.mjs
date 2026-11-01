@@ -1,8 +1,8 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import {
-  assertProducerAllowed, buildGenerationAuthorship, normalizeAuthorshipOptions, phasePublicationCommand, phasePublicationContract,
-  phasePublicationCommandForProducer
+  agentPublicationProducer, assertProducerAllowed, buildGenerationAuthorship, effectivePhasePublicationProducer, normalizeAuthorshipOptions,
+  phasePublicationCommand, phasePublicationContract, phasePublicationCommandForProducer
 } from '../src/manual-authorship.mjs';
 
 test('human authorship records exact provenance without pretending a kernel model ran', () => {
@@ -78,6 +78,20 @@ test('publication guidance derives producer and channel from the phase contract'
     id: 'broken',
     generationPolicy: { defaultProducer: 'human', allowedProducers: ['deterministic'] }
   }), /does not permit 'human'/);
+});
+
+test('an agent\'s publication is governed-agent wherever the phase permits it, with the kernel\'s model on or off', () => {
+  const step = { id: 'specification', generationPolicy: { defaultProducer: 'governed-agent', allowedProducers: ['governed-agent', 'human'] } };
+  // Model off is the kernel's own model, not the host's agent: a person's route stays manual, an agent's does not.
+  assert.equal(effectivePhasePublicationProducer(step, { modelEnabled: false }), 'human');
+  assert.equal(agentPublicationProducer(step), 'governed-agent');
+  assert.equal(effectivePhasePublicationProducer(step, { modelEnabled: false, requestedProducer: agentPublicationProducer(step) }), 'governed-agent');
+  assert.equal(agentPublicationProducer({ id: 'notes', generationPolicy: { defaultProducer: 'human', allowedProducers: ['governed-agent', 'human'] } }), 'governed-agent');
+  assert.equal(agentPublicationProducer({ id: 'legacy', generationPolicy: { producer: 'agent' } }), 'governed-agent');
+  // A step only a person writes, and a kernel-owned one, keep their own producer.
+  assert.equal(agentPublicationProducer({ id: 'charter', generationPolicy: { defaultProducer: 'human', allowedProducers: ['human'] } }), null);
+  assert.equal(agentPublicationProducer({ id: 'convergence', requiredArtifact: { kind: 'convergence-report' },
+    generationPolicy: { defaultProducer: 'deterministic', allowedProducers: ['deterministic'] } }), null);
 });
 
 test('legacy agent-only snapshots retain their configured manual recovery route', () => {

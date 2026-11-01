@@ -71,6 +71,13 @@ test('act reads each result by its own fields and never invents a next action', 
   const published = agentAct({ publishIfReady: { published: true, next: { instruction: 'Published. End the reply.', reason: 'Submit it.',
     commandGuidance: { copilotCommand: '/sf-submit', command: 'singularity-flow submit intake --work-id W', modelFreeCommand: null } } } });
   assert.deepEqual(published.do, { reason: 'Submit it.', copilot: '/sf-submit', shell: 'singularity-flow submit intake --work-id W', vscode: null });
+  // A step only a person may author is theirs to publish: publish-if-ready did not, and the agent never does.
+  const personal = agentAct({ resultType: 'sflow-phase-prepublish', status: 'ready',
+    commands: { publish: 'singularity-flow phase publish charter --authored human --channel manual-in-place' },
+    publishIfReady: { published: false, reason: 'person-authored', command: 'singularity-flow phase publish charter --authored human --channel manual-in-place' } });
+  assert.equal(personal.state, 'confirm-in-terminal');
+  assert.deepEqual([personal.do.shell, personal.do.copilot], ['singularity-flow phase publish charter --authored human --channel manual-in-place', null]);
+  assert.match(personal.said, /never run it/u);
   const refused = agentAct({ error: { code: 'X_REFUSED', message: 'No.' }, remediationPlan: { context: { strategy: 'repair-in-place' },
     steps: [{ label: 'Inspect recovery', command: 'singularity-flow recover W --phase p --json' }] } });
   assert.equal(refused.state, 'refused');

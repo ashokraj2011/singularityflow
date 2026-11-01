@@ -108,10 +108,16 @@ test('prepublish --publish-if-ready returns the unchanged check, and publishes w
     '| `READY-1:AC-001` | `README.md` | `none` |', '', '## Initial evidence', '', 'The fixture README.', ''].join('\n'));
   sflow('wm', 'compose', '--phase', 'intake');
   sflow('clarification', 'record', 'intake', '--question', 'Is one publication enough?', '--answer', 'Yes.');
+  // With the kernel's model off, a person's own check still names their manual route; an agent's
+  // names its own authorship. As `--authored human` an agent's draft skipped the clarification
+  // record and session proof an agent's draft gets (live reruns, 2026-11-01).
+  assert.equal(JSON.parse(sflow('phase', 'prepublish', 'intake', '--json')).commands.publish,
+    'singularity-flow phase publish intake --authored human --channel manual-in-place --no-model');
   const published = completeAgentResult(sflow(...combined));
   assert.equal(published.status, 'ready');
   assert.equal(published.publishIfReady.published, true);
   assert.equal(published.publishIfReady.command, published.commands.publish);
+  assert.equal(published.commands.publish, 'singularity-flow phase publish intake --authored governed-agent --channel copilot-host --no-model');
   assert.equal(published.publishIfReady.review.phase, 'intake');
   // What follows comes first, with its routes: an agent reading from the top ended at "published"
   // without offering the next step. The prepublish fields after it describe the draft before publication.
@@ -123,6 +129,9 @@ test('prepublish --publish-if-ready returns the unchanged check, and publishes w
     command: 'singularity-flow submit intake --work-id READY-1', modelFreeCommand: '@sflow /submit intake --work-id READY-1' });
   const workflow = JSON.parse(await readFile(path.join(item, 'workflow.json'), 'utf8'));
   assert.equal(workflow.phases.intake.generation, 1);
+  assert.deepEqual([workflow.phases.intake.authorship[0].producer, workflow.phases.intake.authorship[0].channel,
+    workflow.phases.intake.authorship[0].changeOrigins], ['governed-agent', 'copilot-host', ['copilot']]);
+  assert.ok(workflow.phases.intake.generatedAgent, 'the agent that wrote it is named');
   assert.equal(must('git', ['status', '--porcelain']), '', 'the publication was committed');
 
   // Submission: readiness says ready-to-attempt, so the same command submits and shows the review.

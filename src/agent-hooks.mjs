@@ -77,8 +77,10 @@ export function governedAgentRouteHint(agent, workId = null) {
   return `To draft or continue a Story step${workId ? ` (${workId})` : ''} as ${agent.label ?? agent.id}, run /sf-next, or /sf-phase for the current step: its composed prompt carries the step's artifact, checks and permissions together with this agent's instructions. Selecting the agent alone does not run the workflow.`;
 }
 
-// Copilot exposes the selected custom-agent ID on subagentStart, but it does not pass that
-// selection to child shell processes. Resolve an explicit agent-mappings.yml entry first, then
+// subagentStart names a custom agent (agentName) only when Copilot spawns it as a subagent. The
+// top-level agent a person selects (`--agent`, `/agent`, the picker) reaches no hook payload or
+// environment variable (Copilot CLI 1.0.105), so this hook never sees that selection, and no
+// child shell process learns it either. Resolve an explicit agent-mappings.yml entry first, then
 // retain same-name matching as a zero-configuration fallback. Record the resolved agent in
 // the machine-local session so phase composition can use the same context automatically. This
 // hook is intentionally trust-preserving: local-only packs and fully cached locked packs may be

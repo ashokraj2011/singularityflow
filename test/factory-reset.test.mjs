@@ -146,6 +146,47 @@ test('factory-reset scope includes repository-local runtime bytes and identity',
   assert.equal(await readFile(receipt, 'utf8'), '{"generation":2}\n');
 });
 
+test('a command run between the preview and the confirmation leaves the reviewed scope standing', async (t) => {
+  const root = await mkdtemp(path.join(os.tmpdir(), 'sflow-factory-reset-diagnostics-'));
+  t.after(() => rm(root, { recursive: true, force: true }));
+  git(root, 'init', '-b', 'main');
+  git(root, 'config', 'user.name', 'Factory Reset Tester');
+  git(root, 'config', 'user.email', 'factory-reset@example.com');
+  await writeFile(path.join(root, 'app.txt'), 'source\n');
+  git(root, 'add', 'app.txt');
+  git(root, 'commit', '-m', 'initial');
+  // The left-out names are exactly where their writers put them.
+  const { RUNTIME_DIAGNOSTICS } = await import('../src/factory-reset.mjs');
+  const { commandTimingDirectory } = await import('../src/dx-command-timing.mjs');
+  const { LOG_DIR_SEGMENTS } = await import('../src/logging.mjs');
+  const { subjectLockPath } = await import('../src/subject-lock.mjs');
+  const underRuntime = (absolute) => {
+    const parts = absolute.split(path.sep);
+    return parts.slice(parts.lastIndexOf('singularity-flow') + 1).join('/');
+  };
+  assert.equal(LOG_DIR_SEGMENTS[0], 'singularity-flow');
+  assert.deepEqual(RUNTIME_DIAGNOSTICS, [underRuntime(commandTimingDirectory(root)), LOG_DIR_SEGMENTS.slice(1).join('/'),
+    path.posix.dirname(underRuntime(subjectLockPath(root, { kind: 'dx-timing', id: 'repository' })))]);
+  const runtime = path.join(await realpath(git(root, 'rev-parse', '--absolute-git-dir')), 'singularity-flow');
+
+  // Timing on, as on a person's machine: a read writes the timing and activity logs into the runtime
+  // root, here for the first time. VS Code's background reads do this while the review is open.
+  const env = { SINGULARITY_FLOW_DISABLE_TIMING_LOG: '0' };
+  const preview = () => JSON.parse(command(process.execPath, [cli, 'factory-reset', '--dry-run', '--json'], root, { env }).stdout);
+  const first = preview();
+  command(process.execPath, [cli, '--no-model', 'status', '--json'], root, { ok: false, env });
+  assert.ok(await readFile(path.join(runtime, 'dx', 'timings.jsonl'), 'utf8'), 'the read wrote its timing');
+  assert.equal(preview().resetScopeSha256, first.resetScopeSha256);
+  await writeFile(path.join(runtime, 'session.json'), '{"generation":1}\n');
+  assert.notEqual(preview().resetScopeSha256, first.resetScopeSha256, 'anything else in the runtime root is still bound');
+  await rm(path.join(runtime, 'session.json'));
+  command(process.execPath, [cli, '--no-model', 'status', '--json'], root, { ok: false, env });
+  const reset = JSON.parse(command(process.execPath, [cli, 'factory-reset', '--confirm', first.confirmation,
+    '--expect-scope-sha256', first.resetScopeSha256, '--json'], root, { env }).stdout);
+  assert.equal(reset.operation, 'factory-reset');
+  assert.equal(await missing(path.join(runtime, 'dx')), true, 'the reset still removes the diagnostics');
+});
+
 test('a repository mutation started during factory reset is refused before it changes the checkout', async (t) => {
   const root = await mkdtemp(path.join(os.tmpdir(), 'sflow-factory-reset-command-race-'));
   t.after(() => rm(root, { recursive: true, force: true }));

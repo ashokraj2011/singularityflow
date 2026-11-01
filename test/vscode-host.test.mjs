@@ -858,6 +858,14 @@ test('a legacy workflow blocks Lifecycle but leaves all repairable configuration
   registered.pickedFolder = root;
   registered.selfApprovalAnswer = 'Factory reset local SFlow data';
   registered.typed = `RESET ${path.basename(root)} ${run('git', ['rev-parse', '--short=7', 'HEAD'], { cwd: root }).stdout.trim()}`;
+  // VS Code keeps reading in the background while the person types the confirmation. Such a read
+  // writes SFlow's timing log into the runtime root, and must not void the reviewed reset.
+  const typeConfirmation = api.window.showInputBox;
+  api.window.showInputBox = async (options) => {
+    run(process.execPath, [path.join(packageRoot, 'bin/singularity-flow.mjs'), '--no-model', 'status', '--json'],
+      { cwd: root, env: { ...process.env, SINGULARITY_FLOW_DISABLE_TIMING_LOG: '0' }, allowFailure: true });
+    return typeConfirmation(options);
+  };
   await registered.commands.get('singularityFlow.factoryReset')();
   assert.equal(registered.openDialogs.at(-1)?.title, 'Choose the Git repository to factory reset');
   assert.equal(YAML.parse(await readFile(workflowFile, 'utf8')).version, 2,

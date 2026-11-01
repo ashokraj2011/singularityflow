@@ -3272,7 +3272,9 @@ singularity-flow init --check --json
 ```
 
 The preview lists every removed, replaced, and preserved scope plus any
-uncommitted reset-scope files. The confirmed operation removes `singularity/`,
+uncommitted reset-scope files. Its scope digest binds those bytes, except the timing log, activity
+log and leases every SFlow command writes in the runtime roots (`dx/`, `logs/`, `locks/`), so a
+command run while you review, such as VS Code refreshing, does not void it. The confirmed operation removes `singularity/`,
 legacy `.singularity/` and `.sdlc/`, and worktree-private plus repository-shared
 `.git/.../singularity-flow/` runtime roots; installs workflow,
 portfolio, capability, agent-mapping, template, prompt, and packaged-agent files

@@ -15,6 +15,12 @@ import { SingularityFlowError, run } from './util.mjs';
 
 const CONTROL_ROOTS = ['singularity', '.singularity', '.sdlc'];
 const LOCAL_RUNTIME_ROOT = 'singularity-flow';
+// What every SFlow command writes into a runtime root, reads included: the timing log and its traces
+// (dx-command-timing.mjs), the activity log (logging.mjs) and the leases taken while writing them
+// (subject-lock.mjs; the reset's own barrier refuses a live one when it runs). The preview calls them
+// telemetry and locks and the reset removes them whatever they hold; binding their bytes refused every
+// reset with a command between preview and confirmation, as VS Code's background reads are.
+export const RUNTIME_DIAGNOSTICS = Object.freeze(['dx', 'logs', 'locks']);
 const RECOVERED_AGENTS_ROOT = '.github/singularity-flow-recovered-agents';
 const RESET_ALL_CONFIRMATION = 'RESET ALL';
 const PACKAGED_AGENTS_ROOT = path.resolve(
@@ -398,7 +404,7 @@ async function refreshRecordParentGuard(record) {
   return record.parentGuard;
 }
 
-async function fingerprintNode(hash, absolute, relative) {
+async function fingerprintNode(hash, absolute, relative, omit = null) {
   const info = await stableLstat(absolute);
   if (!info) { hash.update(`missing\0${relative}\0`); return; }
   if (info.isSymbolicLink()) {
@@ -439,7 +445,8 @@ async function fingerprintNode(hash, absolute, relative) {
     hash.update(`directory\0${relative}\0`);
     const entries = await readdir(absolute, { withFileTypes: true });
     for (const entry of entries.sort((left, right) => left.name.localeCompare(right.name))) {
-      await fingerprintNode(hash, path.join(absolute, entry.name), path.posix.join(relative, entry.name));
+      const child = path.posix.join(relative, entry.name);
+      if (!omit?.has(child)) await fingerprintNode(hash, path.join(absolute, entry.name), child, omit);
     }
   } else {
     hash.update(`other\0${relative}\0${info.mode}\0${info.size}\0`);
@@ -452,10 +459,10 @@ async function fingerprintNode(hash, absolute, relative) {
   }
 }
 
-async function snapshotPath(absolute, logical) {
+async function snapshotPath(absolute, logical, omit = null) {
   const info = await stableLstat(absolute);
   const hash = createHash('sha256');
-  await fingerprintNode(hash, absolute, logical);
+  await fingerprintNode(hash, absolute, logical, omit);
   const after = await stableLstat(absolute);
   if (!sameStat(info, after)) {
     throw resetCollision(`Factory-reset path changed while ${logical} was being inspected.`, {
@@ -775,7 +782,7 @@ async function resetScopeFingerprint(root, entries, identity, {
   discardPendingPublications = false
 } = {}) {
   const hash = createHash('sha256');
-  hash.update('factory-reset-scope-v2\0');
+  hash.update('factory-reset-scope-v3\0');
   // A preview that discards waiting publications confirms only a reset that does.
   if (discardPendingPublications) hash.update('discard-pending-publications\0');
   hash.update(`repository\0${root}\0branch\0${identity.branch ?? 'detached'}\0`);
@@ -800,9 +807,24 @@ async function resetScopeFingerprint(root, entries, identity, {
   }
   for (const entry of [...absolutePaths].sort((left, right) =>
     left.logical.localeCompare(right.logical) || left.absolute.localeCompare(right.absolute))) {
-    const snapshot = await snapshotPath(entry.absolute, entry.logical);
-    hash.update(`absolute\0${entry.logical}\0${entry.absolute}\0${snapshot.sha256}\0`);
-    hash.update(`${snapshot.identity ?? 'missing'}\0${snapshot.state ?? 'missing'}\0`);
+    if (!entry.omit) {
+      const snapshot = await snapshotPath(entry.absolute, entry.logical);
+      hash.update(`absolute\0${entry.logical}\0${entry.absolute}\0${snapshot.sha256}\0`);
+      hash.update(`${snapshot.identity ?? 'missing'}\0${snapshot.state ?? 'missing'}\0`);
+      continue;
+    }
+    // A runtime root is bound by the entries the review covers, each by its bytes and identity (a
+    // replaced file still counts as changed). Not by the root itself: its times move, and it may first
+    // appear, when a left-out diagnostic is written.
+    const omit = new Set(entry.omit.map((relative) => path.posix.join(entry.logical, relative)));
+    hash.update(`runtime\0${entry.logical}\0${entry.absolute}\0`);
+    const names = await readdir(entry.absolute).catch((error) => (
+      ['ENOENT', 'ENOTDIR'].includes(error?.code) ? [] : Promise.reject(error)));
+    for (const name of names.filter((child) => !omit.has(path.posix.join(entry.logical, child))).sort()) {
+      const child = path.join(entry.absolute, name);
+      const snapshot = await snapshotPath(child, path.posix.join(entry.logical, name), omit);
+      hash.update(`entry\0${name}\0${snapshot.sha256}\0${objectIdentityToken(await stableLstat(child)) ?? 'missing'}\0`);
+    }
   }
   return `sha256:${hash.digest('hex')}`;
 }
@@ -987,7 +1009,8 @@ export async function factoryResetPlan(root, { packageVersion = null, includeLoc
     absolutePaths: [
       ...localRuntimeRoots.map((absolute, index) => ({
         absolute,
-        logical: `repository-runtime-${index + 1}`
+        logical: `repository-runtime-${index + 1}`,
+        omit: RUNTIME_DIAGNOSTICS
       })),
       ...localDocumentRoots.map((absolute, index) => ({
         absolute,

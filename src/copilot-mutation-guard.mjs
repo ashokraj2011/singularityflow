@@ -3,14 +3,14 @@ import path from 'node:path';
 import { createHash, randomUUID } from 'node:crypto';
 import { COMMAND_PRESENTATION_CONTRACT, formatCommandRouteLines } from './model-free-commands.mjs';
 import { lstatSync, readFileSync, realpathSync } from 'node:fs';
-import { lstat, mkdir, readFile, readdir, realpath, rename, rm, unlink, writeFile } from 'node:fs/promises';
+import { lstat, mkdir, readFile, readdir, realpath, rm, unlink, writeFile } from 'node:fs/promises';
 import { fileURLToPath } from 'node:url';
 import { deriveMutationContract, mutationContractPresentation, mutationDenial, mutationPathDecision, mutationToolProtocol, mutationTurnMode } from './phase-mutation-contract.mjs';
 import { asSflowCommand, copilotModeFile, mentionsHookCli, readCopilotMode } from './copilot-mode.mjs';
 // The guard runs on every tool call: the staging-path helper loads only when a turn's record is built
 // or a staging refusal is written, never on the per-call path.
 const stagingPaths = () => import('./phase-staging-paths.mjs');
-import { parseArgs } from './util.mjs';
+import { parseArgs, replaceWithSharingRetry } from './util.mjs';
 import { AGENT_OUTPUT_FOLDER, lineRanges, READ_CHUNK_BYTES } from './agent-output-folder.mjs';
 import { canonicalCommand, resolveOperation } from './command-registry.mjs';
 import { DECISION_LIST_CHAT_OPTIONS, liveTerminalReviewStep, OWN_TERMINAL_STEPS, planRowCorrectionStep } from './command-skills.mjs';
@@ -107,7 +107,9 @@ async function atomicRecord(file, record) {
   try {
     const { integritySha256: ignored, ...content } = record;
     await writeFile(temporary, JSON.stringify({ ...content, integritySha256: digest(JSON.stringify(content)) }), { flag: 'wx', mode: 0o600 });
-    await rename(temporary, file);
+    // Readers and overlapping grant refreshes can hold a Windows sharing lock briefly. Retry
+    // this same complete record; never delete/copy over the destination or hide a persistent error.
+    await replaceWithSharingRetry(temporary, file);
   } finally { await unlink(temporary).catch(() => {}); }
 }
 async function boundedRecord(file, kind = 'copilot-mutation-contract') {

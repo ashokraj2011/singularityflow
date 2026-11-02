@@ -8887,6 +8887,13 @@ export async function reopenWorkflow(root, config, workflow, {
     ...(gateRecoveryAuthorized ? { gateRecoveryPlanSha256: gateRecovery.confirmation } : {}),
     ...(actionContext ? { actionContext } : {})
   };
+  // SF Guard: on a Story it requires, reopening completed work is the approver's signed step, as reject
+  // is (SPEC-PSS-v1 §10.6): the card, then one touch, inside the transaction so a refusal writes nothing.
+  if (workflow.resolution?.presence) {
+    const { attachPersonPresence, preparePersonPresence } = await import('./presence/person-records.mjs');
+    await attachPersonPresence(await preparePersonPresence(root, { workflow, phase: completionPhase, actor: decisionActor, action: 'phase.reopen',
+      command: `singularity-flow reopen ${workflow.workItem.id} --to ${targetId} --reason "<why>"` }), decision);
+  }
   completionPhase.approvals.push(decision);
   await writeDecision(root, config, workflow, completionPhase, decision);
   workflow.history.push({

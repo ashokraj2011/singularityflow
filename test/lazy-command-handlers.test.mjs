@@ -265,6 +265,8 @@ test('frequent lifecycle handlers do not reach the legacy dispatcher and stay un
     // counting leaf and withdrawals read by signed decision order (presence/counted.mjs +2,633), the scope,
     // completeness, applicability and slice readers using them (+271) and the --author flag (util.mjs +82) add 2,966
     // for 9,338,665. The claim's signer and verifier stay lazy; no new eager file.
+    // 9,340,000 holds: SF Guard §10.6 signs reopen inside its transaction (state.mjs +624) and every live terminal
+    // review over its card (action-authorization.mjs +582), adding 1,206 for 9,339,871; the signers stay lazy.
     assert.ok(closure.bytes <= 9_340_000, `${file} exceeds the 9 MB eager-source budget (${closure.bytes} bytes)`);
   }
 });
@@ -312,7 +314,10 @@ test('root dispatch stays small and orchestration entrypoints load their handler
   // No new file.
   // 836,000: main 6ad7b77af measures 834,926; SF Guard G2's two guard actions (reconcile, a read, and
   // stamp-agents, a person's step) add command-registry.mjs +107, giving 835,033. No new file.
-  assert.ok(root.bytes <= 836_000, `root dispatch loads ${root.bytes} source bytes`);
+  // 837,000: main 4fcc9bcde measures 835,305; SF Guard's --author and --github-login flags (util.mjs +82) and the
+  // repository person-step gate at dispatch (cli-entry.mjs +924, a command and verb check before any SF Guard module
+  // loads, SPEC-PSS-v1 §10.6) give 836,311. No new file.
+  assert.ok(root.bytes <= 837_000, `root dispatch loads ${root.bytes} source bytes`);
   assert.equal(root.files.has(path.join(sourceRoot, 'git.mjs')), false);
   assert.equal(root.files.has(path.join(sourceRoot, 'config.mjs')), false);
   // Only the pause-checking entries and Story creation read these; most commands never do.
@@ -386,6 +391,8 @@ test('the common session projection does not import attach, state stores or publ
   // 4,035,000: main 4fcc9bcde measures 4,029,362; an authorship claim read through the counting leaf and
   // withdrawals read by decision order (presence/counted.mjs +2,633, its readers and the --author flag) add 2,966
   // for 4,032,328. The claim's signer loads only where SF Guard applies; no new file.
+  // 4,035,000 holds: the live terminal review's signature (action-authorization.mjs +582, SF Guard §10.6) adds 582
+  // for 4,032,910. The terminal-review and repository-step signers load only where SF Guard applies; no new file.
   assert.ok(current.bytes <= 4_035_000, `session current loads ${current.bytes} source bytes`);
 });
 

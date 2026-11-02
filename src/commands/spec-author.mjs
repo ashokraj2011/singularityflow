@@ -558,13 +558,28 @@ export function refuseStrayValues(command, positionals, limit) {
     'SPEC_AUTHOR_ARGUMENT_UNEXPECTED', { values: stray, nextAction: 'singularity-flow help spec' });
 }
 
+/**
+ * SF Guard (SPEC-PSS-v1 §10.6): while the repository's signed policy has SF Guard on, a person's Spec
+ * Studio step, and a split's publication, takes their presence signature before it writes anything.
+ */
+async function personStepPresence(root, step, specId) {
+  await (await import('../presence/repository-steps.mjs')).signRepositoryStep(root, {
+    action: `spec.${step}`, title: `spec ${step}${specId ? ` ${specId}` : ''}`,
+    lines: [`Specification: ${specId ?? '(named on the command)'}`, `Step: ${step}, a person's own Spec Studio step`]
+  });
+}
+
 export async function specAuthorCommand(positionals, options) {
   // `spec split` (SPEC-SPA v1.3 §7) shares this module's library reads and output.
-  if (positionals[1] === 'split') return (await import('./spec-split.mjs')).specSplitCommand(positionals, options, { libraryConfig, actor, print, refuseStrayValues });
+  if (positionals[1] === 'split') {
+    if (options.publish === true) await personStepPresence(repoRoot(), 'split-publish', positionals[2] ?? null);
+    return (await import('./spec-split.mjs')).specSplitCommand(positionals, options, { libraryConfig, actor, print, refuseStrayValues });
+  }
   const action = positionals[2];
   if (!SPEC_AUTHOR_ACTIONS.includes(action)) fail(`${action ? `'${action}' is not a spec author action. ` : ''}${USAGE}`, 'SPEC_AUTHOR_ACTION_UNKNOWN', { action: action ?? null, nextAction: 'singularity-flow help spec' });
   refuseStrayValues(`spec author ${action}`, positionals, POSITIONAL_LIMITS[action] ?? 4);
   const root = repoRoot();
+  if (SPEC_AUTHOR_PERSON_ACTIONS.includes(action) && options['dry-run'] !== true) await personStepPresence(root, action, positionals[3] ?? null);
   if (action === 'new') return newAction(root, positionals, options);
   if (action === 'edit') return editAction(root, positionals, options);
   if (action === 'research') return researchAction(root, positionals, options);

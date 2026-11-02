@@ -11698,8 +11698,7 @@ export async function main(argv) {
     const { renderOverview } = await import('./help-pages.mjs');
     return console.log(argv.includes('--all') ? HELP : renderOverview(VERSION));
   }
-  const { positionals, options } = parseArgs(argv);
-  const command = positionals[0];
+  const { positionals, options } = parseArgs(argv); const command = positionals[0];
   if (!command) return cockpitCommand();
   if (command === 'version') return console.log(VERSION);
   // `logs` reads the file; logging its own invocation would append noise to what it is showing.
@@ -11716,6 +11715,7 @@ export async function main(argv) {
     const started = Date.now();
     log.info('command.start', null, { argv: persistedArgv.slice(0, 24) });
     try {
+      if (['configuration', 'initiative', 'epic', 'goal', 'intent', 'program', 'capabilities', 'ledger', 'agents', 'repair'].includes(command) && ['approve', 'review', 'complete', 'plan', 'ratify', 'confirm', 'lease', 'deployment-check', 'lock', 'authorize'].includes(positionals[1]) && (await import('./presence/repository-step-routes.mjs')).repositoryPersonStep(positionals, options)) await (await import('./presence/repository-steps.mjs')).gateRepositoryPersonStep(repoRoot(), positionals, options);
       const result = await dispatch(command, positionals, options, argv);
       log.info('command.ok', null, { durationMs: Date.now() - started });
       if (harness) await completeHarnessInvocation(harness.root, harness.started, {

@@ -58,12 +58,16 @@ function actorKey(actor) {
 
 export async function issueActionAuthorization(root, plan, action, {
   confirmation,
-  channel = 'terminal'
+  channel = 'terminal',
+  presenceSigned = false
 } = {}) {
   if (!action.confirmation?.required) return null;
   if (confirmation !== action.actionId) {
     throw new SingularityFlowError(`Type the exact action ID '${action.actionId}' after reviewing plan '${plan.planId}'.`);
   }
+  // SF Guard (SPEC-PSS-v1 §10.6): an authorization a typed ID alone would issue (`action authorize`)
+  // also takes the person's touch where SF Guard applies; a terminal review already took it.
+  if (!presenceSigned) await (await import('./presence/repository-steps.mjs')).signTerminalReview(root, plan, action);
   const createdAt = nowIso();
   const token = randomUUID();
   const authorizationId = randomUUID();
@@ -134,8 +138,10 @@ export async function captureTerminalActionAuthorization(root, plan, action, { l
     throw new SingularityFlowError('Local identity changed during terminal review; review the action again.',
       { code: 'ACTION_TERMINAL_PRESENTATION_REQUIRED' });
   }
+  // SF Guard (SPEC-PSS-v1 §10.6): where it applies, the confirmed card also takes the person's touch.
+  await (await import('./presence/repository-steps.mjs')).signTerminalReview(root, reviewedPlan, reviewedAction);
   const record = await issueActionAuthorization(root, reviewedPlan, reviewedAction,
-    { confirmation: reviewedAction.actionId, channel: 'terminal' });
+    { confirmation: reviewedAction.actionId, channel: 'terminal', presenceSigned: true });
   terminalPresentations.set(record.token, {
     channel: 'terminal',
     root: path.resolve(root), planHash: record.planHash, actionId: record.actionId,

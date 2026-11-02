@@ -22,6 +22,7 @@ questions:
   - How do I make the SF Guard check required?
   - Why was my --authored human publication recorded as the agent's?
   - How do I register a key if I am not an approver?
+  - Why does spec author publish or configuration approve ask for Touch ID?
 keywords:
   - presence signature
   - secure enclave
@@ -41,7 +42,7 @@ related:
   - approvals
   - configuration
   - copilot-and-surfaces
-version: 8
+version: 9
 ---
 SF Guard makes a person's own steps provable. An agent runs as the same user on the same computer: it can read Git configuration, run any command, fake a terminal and write Git records directly, so nothing it can type proves a person decided. SF Guard asks for the one thing it cannot produce, a signature from a Secure Enclave key on the person's Mac made after their Touch ID. It is off until a repository opts in; a repository that never opts in behaves exactly as before. Refusals keep the `PSS_` codes of SPEC-PSS-v1.
 
@@ -82,7 +83,9 @@ The policy is `singularity/presence.json` in the approved configuration: an appe
 
 **Withdrawals.** A newer decision supersedes an older one by each decision's own signed time, never by the unsigned `withdrawnAt` field or the order of the list. So adding, removing or moving withdrawals in `workflow.json` changes which decision stands only if a newer signed decision is deleted, which the remote check catches (M4).
 
-After a command you run in your own terminal in an opted-in repository, SF Guard warns (`PSS_FOREIGN_KEY`) when the key pinned under your approver ID is not held by this Mac, and names the revoke route. It never blocks the command. Steps recorded outside the Story's `workflow.json` (Spec Studio, configuration approval, appeals and their review records, plan actions, Epic and goal approvals) are not signed yet; the SF Guard specification lists each with its reason.
+After a command you run in your own terminal in an opted-in repository, SF Guard warns (`PSS_FOREIGN_KEY`) when the key pinned under your approver ID is not held by this Mac, and names the revoke route. It never blocks the command.
+
+**Every other person step.** A constitution exception, a person's choice at a workflow decision and a reopen are signed on the Story like the decisions above. An adjudication, a source review decision, every live terminal review (an appeal's decision, a quality risk, an evidence or plan correction, a test attestation or selection, a test-policy amendment, an approver refresh) and a plan action's authorization take your touch over the exact card before they run. Steps with no Story follow the repository's current policy while SF Guard is on: Spec Studio's `accept`, `reject`, `decide`, `settle`, `publish` and `discard`, `spec split --publish`, `configuration approve`, the Epic, goal, intent, program, lease, host-policy, agents-lock and repair-authorize steps. Each refuses from a script or an agent with your exact command, and an exception lets its approver proceed, labelled as a bypass. Telemetry consent is this machine's preference and is never signed. Where a step keeps a strict record format, its signature is taken but not yet kept in the record; the SF Guard specification (§10.6) lists which.
 
 **Verified again, everywhere (M4).** The final check and the evidence receipt never trust a flag a record carries: each re-verifies every person record on the Story against its pinned keys. An approval that does not verify leaves the threshold unmet, and the refusal says SF Guard did not count it and names the approver's command; the record itself is named as not counted, never refused, so it blocks nothing by itself. The receipt adds a line such as `SF Guard: 2 signed · every signature re-verified`.
 

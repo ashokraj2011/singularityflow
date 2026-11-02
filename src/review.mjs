@@ -9,6 +9,7 @@ import { workDir } from './story-paths.mjs';
 import { documentCatalog } from './documents.mjs';
 import { assistedRecordRelative } from './assisted-quality.mjs';
 import { citedArticleIds, requiredArticles } from './constitution.mjs';
+import { countedRecords } from './presence/counted.mjs';
 import { markerSummary, priorChecklistExceptions, resolvedSpecificationQualityPolicy } from './specification-gate.mjs';
 import {
   STARTER_CHECKLIST, analyzeSpecification, policyHash, witnessedClauseReviewFields
@@ -57,7 +58,8 @@ function constitutionSection(workflow, phase, artifact) {
     indexSha256: pin.indexSha256,
     cited,
     articles: pin.articles.filter((article) => scope.has(article.id)),
-    exceptions: (workflow.constitutionExceptions ?? []).filter((entry) => !entry.phase || entry.phase === phase.id)
+    // SF Guard: on a Story it requires, only an exception its approver signed counts (SPEC-PSS-v1 §10.6).
+    exceptions: countedRecords(workflow, workflow.constitutionExceptions ?? []).filter((entry) => !entry.phase || entry.phase === phase.id)
   };
 }
 

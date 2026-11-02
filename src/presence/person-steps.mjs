@@ -46,7 +46,11 @@ export const PERSON_STEP_FAMILIES = Object.freeze([
   { id: 'applicability', list: 'applicability', action: 'decision.applicability', label: 'Applicability decision', isPerson: always },
   { id: 'upstream-issue', list: 'upstreamIssueDecisions', action: 'decision.upstream-issue', label: 'Upstream issue decision', isPerson: always },
   { id: 'forward-amendment', list: 'forwardAmendmentDecisions', action: 'decision.forward-amendment', label: 'Forward amendment decision', isPerson: always },
-  { id: 'plan-amendment', list: 'planAmendments', action: 'decision.plan', label: 'Plan amendment', isPerson: always }
+  { id: 'plan-amendment', list: 'planAmendments', action: 'decision.plan', label: 'Plan amendment', isPerson: always },
+  // SPEC-PSS-v1 §10.6: a constitution exception waives an article for the Story; a person's choice at a
+  // workflow decision routes it (a rule's routing is never a person's and is never signed).
+  { id: 'constitution-exception', list: 'constitutionExceptions', action: 'decision.constitution-exception', label: 'Constitution exception', isPerson: always },
+  { id: 'decision-choice', list: 'decisionLog', action: 'decision.choose', label: 'Decision', isPerson: (entry) => entry?.by === 'person' }
 ]);
 
 const familyByList = new Map(PERSON_STEP_FAMILIES.map((family) => [family.list, family]));
@@ -111,8 +115,9 @@ function thisCommand(argv = process.argv) {
 
 function summary(family, record) {
   const name = record.id ?? (record.revokes ? `revokes ${record.revokes}` : record.accepts ? `accepts ${record.accepts}` : record.item ?? record.issue
-    ?? record.amendment ?? record.responsibility ?? null);
-  const reason = typeof record.reason === 'string' ? record.reason.replace(/\s+/gu, ' ').slice(0, 80) : '';
+    ?? record.amendment ?? record.responsibility ?? record.articleId ?? (record.decision && record.route ? `${record.decision}: ${record.route}` : null) ?? null);
+  const why = typeof record.reason === 'string' ? record.reason : typeof record.comment === 'string' ? record.comment : '';
+  const reason = why.replace(/\s+/gu, ' ').slice(0, 80);
   return `${family.label}${name ? ` ${name}` : ''}${reason ? `: ${reason}` : ''}`;
 }
 
@@ -130,6 +135,24 @@ export async function signNewPersonRecords(root, workflow, file) {
   if (!context.required) return;
   const added = newPersonRecords(workflow, readPrior(file));
   if (!added.length) return;
+  await signRecords(root, workflow, context, added);
+}
+
+/**
+ * Sign person records a command writes outside the Story's `workflow.json` (a convergence
+ * adjudication, a source review decision, a repair authorization): each `{ label, action, record }`
+ * gets its `presence` block, after the card and one touch, before the command writes it. Does nothing
+ * on a Story SF Guard does not require. Every refusal names a route the person can take today, and
+ * nothing is written (SPEC-PSS-v1 §10.6).
+ */
+export async function signPersonRecords(root, workflow, entries) {
+  if (!workflow?.resolution?.presence || !entries.length) return;
+  const context = await loadPresenceContext(root, workflow, { verify: dependencies.verify });
+  if (!context.required) return;
+  await signRecords(root, workflow, context, entries.map(({ label, action, record }) => ({ family: { label, action }, record })));
+}
+
+async function signRecords(root, workflow, context, added) {
   const authorities = workflow.resolution?.approvalAuthorities;
   const approvers = new Set(added.map(({ record }) => actorApproverId(authorities, record.actor)));
   const command = thisCommand(dependencies.argv);

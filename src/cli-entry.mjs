@@ -640,6 +640,14 @@ export async function main(argv) {
   }
 }
 
+// The commands and verbs that can name a repository-level person step (presence/repository-step-routes.mjs
+// decides): anything else, such as `agents list`, loads none of SF Guard's modules.
+const REPOSITORY_STEP_COMMANDS = new Set(['configuration', 'initiative', 'epic', 'goal', 'intent', 'program', 'capabilities', 'ledger', 'agents', 'repair']);
+const REPOSITORY_STEP_VERBS = new Set(['approve', 'review', 'complete', 'plan', 'ratify', 'confirm', 'lease', 'deployment-check', 'lock', 'authorize']);
+function repositoryStepCandidate(positionals) {
+  return REPOSITORY_STEP_COMMANDS.has(positionals[0]) && REPOSITORY_STEP_VERBS.has(positionals[1]);
+}
+
 /** Whether `directory` or a parent holds SF Guard's policy file. */
 function presencePolicyAbove(directory) {
   for (let at = path.resolve(directory), parent = null; at !== parent; parent = at, at = path.dirname(at)) {
@@ -1013,6 +1021,8 @@ async function runMain(argv, utilityEntry = null, explicitContextRoot = null) {
       modelMode
     }));
     timer.stage('module-load');
+    // SF Guard (SPEC-PSS-v1 §10.6): a repository-level person step takes its presence signature first.
+    if (root && repositoryStepCandidate(positionals)) await (await import('./presence/repository-steps.mjs')).gateRepositoryPersonStep(root, positionals, options);
     const startedAt = new Date().toISOString();
     const execute = () => automaticScope(() => withExecutionContextScope(root, () => withOperationContext({
       operation,

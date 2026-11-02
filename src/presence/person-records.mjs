@@ -391,12 +391,13 @@ function personCommand(action, workflow, phase) {
  * else `{ sign(record) }`, which shows the card and takes the touch once the record exists. Every
  * refusal names a route the person can take today (REQ-042).
  */
-export async function preparePersonPresence(root, { workflow, phase, actor, action }, dependencies = {}) {
+export async function preparePersonPresence(root, { workflow, phase, actor, action, command: given = null }, dependencies = {}) {
   const context = await loadPresenceContext(root, workflow, { verify: dependencies.verify });
   if (!context.required) return null;
   const approver = actorApproverId(workflow.resolution?.approvalAuthorities, actor);
-  const command = personCommand(action, workflow, phase);
-  const routes = { command, others: `another approver can ${action === 'phase.approve' ? 'approve' : 'reject'} it`,
+  const command = given ?? personCommand(action, workflow, phase);
+  const verb = { 'phase.approve': 'approve', 'phase.reject': 'reject', 'phase.reopen': 'reopen' }[action] ?? 'decide';
+  const routes = { command, others: `another approver can ${verb} it`,
     exception: approver ? `another approver can record a per-person exception: singularity-flow guard exception add ${approver}` : null };
   if (!approver) {
     fail(`SF Guard: this Story requires presence-signed person steps, and your identity is not an approver in its pinned configuration. ${routes.others}.`,
@@ -424,7 +425,7 @@ export async function preparePersonPresence(root, { workflow, phase, actor, acti
   }
   const terminal = (dependencies.personTerminal ?? personTerminal)();
   if (!terminal.person) {
-    fail(`SF Guard: ${action === 'phase.approve' ? 'approving' : 'rejecting'} this step needs your presence signature, taken in your own terminal (${terminal.reason}). Nothing was written. Run it there: ${command}`,
+    fail(`SF Guard: ${{ approve: 'approving', reject: 'rejecting', reopen: 'reopening' }[verb] ?? 'deciding'} this step needs your presence signature, taken in your own terminal (${terminal.reason}). Nothing was written. Run it there: ${command}`,
       'PSS_CARD_NOT_SHOWN', { approver, nextAction: { command, label: `Run in your own terminal: ${command}` }, routes });
   }
   const held = await (dependencies.holdsKey ?? holdsKey)(pin.keyId);
@@ -442,7 +443,7 @@ export async function preparePersonPresence(root, { workflow, phase, actor, acti
         at: new Date().toISOString(), nonce: presenceNonce() };
       const statement = recordStatement(record, presence, { chainId: context.chainId, workId: workflow.workItem.id });
       const shown = await card({
-        title: `${action === 'phase.approve' ? 'approve' : 'reject'} ${workflow.workItem.id} / ${phase.id}`,
+        title: `${verb} ${workflow.workItem.id} / ${phase.id}`,
         lines: [`Step: ${phase.label ?? phase.id}, generation ${record.generation}`,
           `Decision: ${record.decision}${record.target ? ` (back to ${record.target})` : ''}`,
           `Review packet: ${record.reviewPacketSha256 ?? '(none)'}`,

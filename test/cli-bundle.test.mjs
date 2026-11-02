@@ -210,7 +210,10 @@ test('the bundled CLI answers exactly like the sources while opening a handful o
   // an agent's upstream issue or scope proposal claiming a person) and the guard reconcile and stamp-agents actions
   // (command-registry.mjs, command-skills.mjs) add 2,048 for 4,661,149. The declared set, reconciliation and stamp
   // block load only when `guard` runs. No new file.
-  assert.ok(narrowReads < 4_665_000,
+  // 4,670,000: main 4fcc9bcde measures 4,662,805; SF Guard's authorship claims read through the counting leaf
+  // (SPEC-PSS-v1 §10.5, +1,499) and the repository person-step gate and terminal-review signature (§10.6, +1,210)
+  // give 4,665,514. The signers load only where SF Guard applies.
+  assert.ok(narrowReads < 4_670_000,
     `strict next-step reads must not inherit the broad phase-review closure (${narrowReads} bytes)`);
   const publicationClosure = closure('cold-publication.mjs');
   assert.ok(publicationClosure.length && publicationClosure.reduce((sum, item) => sum + item.bytes, 0) < 6 * 1024 * 1024,
@@ -423,7 +426,10 @@ test('the bundled CLI answers exactly like the sources while opening a handful o
   // Story that carries a pin. No new file.
   // 7,740,000: main 6ad7b77af measures 7,733,499; the same G2 record-authorship refusal and guard actions add 2,105
   // for 7,735,604. No new file.
-  assert.ok(hookContext < 7_740_000,
+  // 7,745,000: main 4fcc9bcde measures 7,738,220; SF Guard's authorship claims read through the counting leaf
+  // (SPEC-PSS-v1 §10.5, +1,499) and the repository person-step gate and terminal-review signature (§10.6, +1,599)
+  // give 7,741,318. The signers load only where SF Guard applies.
+  assert.ok(hookContext < 7_745_000,
     `phase-review reads retain their existing byte ceiling after moving families (${hookContext} bytes)`);
   assert.match(await readFile(path.join(outdir, 'cold-light.mjs'), 'utf8'), /function enterPhase\b/u,
     'phase binding must not fall through to the compatibility/admin bundle');
@@ -517,7 +523,9 @@ test('the bundled CLI answers exactly like the sources while opening a handful o
   // `phase publish` (agent-output.mjs agentPublication) add 1,111 for 5,505,876. No new file.
   // 5,515,000: main 6ad7b77af measures 5,508,800; the same G2 record-authorship refusal and guard actions add 2,105
   // for 5,510,905. No new file.
-  assert.ok(catalogBytes < 5_515_000,
+  // 5,520,000: main 4fcc9bcde measures 5,512,561; the same SF Guard claims (§10.5, +1,499) and person-step gate and
+  // terminal-review signature (§10.6, +1,210) give 5,515,270.
+  assert.ok(catalogBytes < 5_520_000,
     `catalog parsing stays bounded instead of pulling in the entire administration bundle (${catalogBytes} bytes)`);
   for (const name of ['cold-compatibility.mjs', 'cold-models.mjs', 'cold-intake.mjs', 'cold-phases.mjs', 'cold-hook-context.mjs']) {
     assert.ok(!catalogClosure.some(item => item.file === name), `catalogs must not statically reach ${name}`);

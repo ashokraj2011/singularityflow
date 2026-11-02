@@ -1677,6 +1677,9 @@ export async function storyAdjudicateCommand(positionals, options) {
         actor: actorKey(actor),
         at
       }));
+      // SF Guard: on a Story it requires, an adjudication is the approver's signed step (SPEC-PSS-v1 §10.6).
+      await (await import('../presence/person-steps.mjs')).signPersonRecords(root, workflow,
+        decisions.map((record) => ({ label: 'Convergence adjudication', action: 'decision.adjudicate', record: { ...record } })));
       const kept = (existing.findings ?? [])
         .filter((finding) => !itemIds.includes(finding.itemId))
         .map((finding) => ({

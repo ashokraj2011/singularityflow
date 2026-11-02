@@ -123,7 +123,8 @@ test('every person-step family is in the workflow schema with an optional presen
     assert.ok(items, `${family.list} is a Story list`);
     const branches = items.oneOf ?? [items];
     for (const branch of branches) {
-      if (branch.$ref) continue;
+      // A ref, or a list whose items the schema leaves open (decisionLog), takes the block as it is.
+      if (branch.$ref || !branch.properties) continue;
       assert.deepEqual(branch.properties.presence, { $ref: '#/$defs/personPresence' }, `${family.list} may carry a presence block`);
     }
   }
@@ -277,7 +278,10 @@ function familyRecords(suffix, actor) {
     upstreamIssueDecisions: { issue: `UPI-00${suffix}`, outcome: 'dismiss', reason: why, link: null, expiresAt: null, ...by },
     forwardAmendmentDecisions: { amendment: `FAM-00${suffix}`, phase: 'specification', decision: 'rejected', reason: why, ...by },
     planAmendments: { id: `PRC-00${suffix}`, kind: 'plan-row-correction', ownerPhase: 'planning', ownerGeneration: 1, ownerMapSha256: `sha256:${'4'.repeat(64)}`,
-      operations: [], reason: why, authorizationId: '00000000-0000-4000-8000-000000000000', reviewAssurance: 'live-terminal-exact-plan-review', upstreamIssue: null, ...by }
+      operations: [], reason: why, authorizationId: '00000000-0000-4000-8000-000000000000', reviewAssurance: 'live-terminal-exact-plan-review', upstreamIssue: null, ...by },
+    // SPEC-PSS-v1 §10.6.
+    constitutionExceptions: { articleId: `ART-${suffix}`, reason: why, scope: WORK, authority: 'product-approvers', expiresAt: null, workId: WORK, phase: 'specification', ...by },
+    decisionLog: { decision: `route-${suffix}`, after: 'specification', kind: 'forward', route: 'step', target: 'planning', skipped: [], by: 'person', comment: why, ...by }
   };
 }
 
@@ -300,7 +304,10 @@ function readers(workflow, suffix) {
     completenessReviews: currentCompletenessReview(workflow, { inventorySha256: `sha256:${String(suffix).repeat(64)}` }),
     upstreamIssueDecisions: upstreamIssueStates(workflow).some((entry) => entry.issue.id === `UPI-00${suffix}` && entry.status === 'decided'),
     forwardAmendmentDecisions: forwardAmendmentDecision(workflow, `FAM-00${suffix}`),
-    planAmendments: planRowCorrections(workflow).some((entry) => entry.id === `PRC-00${suffix}`)
+    planAmendments: planRowCorrections(workflow).some((entry) => entry.id === `PRC-00${suffix}`),
+    // The review's constitution section reads through this counting; a person's choice is the Story's route.
+    constitutionExceptions: countedRecords(workflow, workflow.constitutionExceptions).some((entry) => entry.articleId === `ART-${suffix}`),
+    decisionLog: countedRecords(workflow, workflow.decisionLog, (entry) => isPersonStepRecord('decisionLog', entry)).some((entry) => entry.decision === `route-${suffix}`)
   };
 }
 

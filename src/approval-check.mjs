@@ -277,7 +277,7 @@ export async function reviewSafeBranchLinks(root, config, workflow, commits) {
   });
 }
 
-const APPROVER_REFRESH_KEYS = Object.freeze(['resolution', 'workflowSnapshot', 'approverRefreshes', 'history', 'publicationProjections']);
+const APPROVER_REFRESH_KEYS = Object.freeze(['resolution', 'workflowSnapshot', 'approverRefreshes', 'history', 'publicationProjections', 'personSeals']);
 
 /**
  * Approver refreshes among the commits after a submission (2026-10-29). A refresh only adds members
@@ -299,6 +299,9 @@ export async function reviewSafeApproverRefreshes(root, config, workflow, commit
     if (!stateChangesOnly(change, APPROVER_REFRESH_KEYS)
         || !['approverRefreshes', 'history', 'publicationProjections'].every((key) => appendsOne(change, key))
         || change.after.history.at(-1)?.event !== 'approvers_refreshed') return false;
+    // SF Guard (SPEC-PSS-v1 §10.8): on a Story it requires, the refresh's seal is added beside it.
+    const seals = (change.after.personSeals ?? []).length - (change.before.personSeals ?? []).length;
+    if (seals !== 0 && !(seals === 1 && appendsOne(change, 'personSeals') && change.after.personSeals.at(-1)?.list === 'approverRefreshes')) return false;
     const summary = change.after.approverRefreshes.at(-1);
     const reference = change.after.workflowSnapshot;
     if (reference?.revision !== Number(change.before.workflowSnapshot?.revision) + 1

@@ -83,7 +83,7 @@ export async function reviewStoryBaselineAdmission(root, config, workflow, optio
     choices: context.choices, principal, planDigest: context.preview.planDigest, transitions: ['generation-admission'],
     validationEpoch: workflow.testRecovery.validationEpoch ?? 1 });
   const review = trpAuthorityReview(record, context.authority.policy);
-  const authorization = await captureTerminalActionAuthorization(root, review.plan, review.action, { label: 'Re-review baseline admission' });
+  const authorization = await captureTerminalActionAuthorization(root, review.plan, review.action, { label: 'Re-review baseline admission', presenceInRecord: true });
   if (!authorization) return { ...context.preview, status: 'cancelled' };
   const { workDir, storyPublicationPending } = await import('./state.mjs');
   const transaction = await new StoryStateStore(root, config).transact(workflow, {

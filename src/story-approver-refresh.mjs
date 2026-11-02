@@ -145,7 +145,7 @@ export async function applyStoryApproverRefresh(root, config, workflow, options 
     subject: { workId: initial.workId, phaseId: workflow.currentPhase ?? null }, revision: initial.sourceHead,
     additions: initial.additions, reason: initial.reason, testsWaived: false, phaseApproved: false },
   action: { actionId: initial.id, confirmation: { required: true } } };
-  const grant = await capture(root, card.plan, card.action, { label: 'Refresh approvers' });
+  const grant = await capture(root, card.plan, card.action, { label: 'Refresh approvers', presenceInRecord: true });
   if (!grant) return { status: 'cancelled', applied: false, stateChanged: false };
   // Exactly the files the refresh writes: its decision, the new snapshot manifest and the refreshed
   // policy's content-addressed blob. Nothing else in the work item, such as an open draft, is swept in.

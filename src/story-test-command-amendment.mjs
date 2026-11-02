@@ -278,7 +278,7 @@ async function applyLockedStoryTestCommandAmendment(root, config, workflow, opti
   // The immutable card binds exact command hashes. Show the concrete redacted change alongside
   // it; configured secrets never need to be repeated to establish the reviewed plan identity.
   if (process.stdout.isTTY) process.stdout.write(`${JSON.stringify(publicPreview(initial), null, 2)}\n`);
-  const grant = await captureTerminalActionAuthorization(root, card.plan, card.action, { label: 'Amend test command' });
+  const grant = await captureTerminalActionAuthorization(root, card.plan, card.action, { label: 'Amend test command', presenceInRecord: true });
   if (!grant) return { status: 'cancelled', applied: false, stateChanged: false, executed: false, sourceChanged: false };
   const { StoryStateStore, storyPublicationPending } = await import('./state-stores.mjs');
   const { captureWorkflowTestCommandAmendment } = await import('./workflow-snapshots.mjs');
@@ -343,6 +343,25 @@ async function applyLockedStoryTestCommandAmendment(root, config, workflow, opti
         : [{ id: initial.revalidation ? 'revalidate-amended-phase' : 'prepare-amended-phase',
           command: initial.revalidation ? 'submit' : 'prepare', args: [initial.phaseId, '--work-id', initial.workId] }] };
   } finally { PROSPECTIVE.delete(workflow); }
+}
+
+/**
+ * SF Guard (SPEC-PSS-v1 §10.8): on a Story it requires, a test-policy amendment changes which tests a step
+ * runs only when its approver signed it. Publication and submission, which run those tests, refuse while
+ * any amendment carries no verified signature, naming the route; reading the Story and amending it again
+ * are never refused, so the person can always record the amendment again, signed.
+ */
+export async function assertSignedTestCommandAmendments(workflow) {
+  const summaries = workflow?.testCommandAmendments ?? [];
+  if (!workflow?.resolution?.presence || !summaries.length) return;
+  const { countedRecords } = await import('./presence/counted.mjs');
+  const counted = new Set(countedRecords(workflow, summaries));
+  const unsigned = summaries.filter((summary) => !counted.has(summary));
+  if (!unsigned.length) return;
+  const workId = workflow.workItem.id;
+  const command = `singularity-flow story test-policy amend --work-id ${workId} --phase ${unsigned.at(-1).phaseId} --reason "<why>" --apply --confirm <PLAN-DIGEST>`;
+  throw new SingularityFlowError(`SF Guard: test command amendment ${unsigned.map((summary) => summary.id).join(', ')} on ${workId} carries no verified signature from the approver who applied it, so the runner policy it set is not counted and its tests cannot run here. Nothing was written. An approver records the amendment again in their own terminal, where SF Guard takes their Touch ID: ${command}`,
+    { code: 'PSS_RECORD_UNSIGNED', details: { workId, amendments: unsigned.map((summary) => summary.id), nextAction: { command, label: 'Record the test-policy amendment again, signed' } } });
 }
 
 /** Protect direct domain callers as well as CLI readers after an accepted amendment. */

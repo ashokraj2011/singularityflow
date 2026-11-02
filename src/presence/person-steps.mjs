@@ -21,7 +21,7 @@ import { canonicalJson } from '../records.mjs';
 import { SingularityFlowError } from '../util.mjs';
 import { activeException } from './chain.mjs';
 import {
-  actorApproverId, loadPresenceContext, personBatchStatement, personRecordDigest, personTerminal, PRESENCE_RECORD_SCHEMA
+  actorApproverId, loadPresenceContext, personBatchStatement, personRecordDigest, personTerminal, PRESENCE_RECORD_SCHEMA, sealedPresence
 } from './person-records.mjs';
 import { presenceNonce } from './statement.mjs';
 
@@ -55,8 +55,27 @@ export const PERSON_STEP_FAMILIES = Object.freeze([
   // quality risk, artifact risk or disputed finding (and its revocation) waives or restores a gate; an
   // appeal decision accounts for scope. Each is signed in its own transaction, before its retained copy.
   { id: 'quality-risk', list: 'qualityRiskDecisions', action: 'decision.quality-risk', label: 'Quality risk decision', isPerson: always },
-  { id: 'appeal-decision', list: 'phaseAppealDecisions', action: 'decision.appeal', label: 'Appeal decision', isPerson: always }
+  { id: 'appeal-decision', list: 'phaseAppealDecisions', action: 'decision.appeal', label: 'Appeal decision', isPerson: always },
+  // SPEC-PSS-v1 §10.8: a test-policy amendment changes which tests a step runs, an approver refresh who may
+  // approve it. Their summaries are immutable, exact-key families, so each signature is kept beside the
+  // summary as a seal (`personSeals`) rather than inside it. A test selection and a test-run risk review
+  // (acceptance, re-attestation, revocation, a baseline re-review) keep theirs on the entry itself.
+  { id: 'test-command-amendment', list: 'testCommandAmendments', action: 'story.test-policy-apply', label: 'Test command amendment',
+    sealed: true, isPerson: (entry) => entry?.kind === 'test-command-adoption-summary' },
+  { id: 'approver-refresh', list: 'approverRefreshes', action: 'story.approvers-refresh', label: 'Approver refresh',
+    sealed: true, isPerson: (entry) => entry?.kind === 'approver-refresh-summary' },
+  { id: 'test-selection', list: 'testRecovery.selectionConfirmations', path: ['testRecovery', 'selectionConfirmations'],
+    action: 'story.test-selection', label: 'Test selection confirmation', isPerson: always },
+  { id: 'test-risk-review', list: 'testRecovery.riskReviews', path: ['testRecovery', 'riskReviews'],
+    action: 'story.test-risk', label: 'Test risk review', isPerson: always }
 ]);
+
+/** A family's records in `container` (a Story's aggregate, or the state file before the command ran). */
+export function familyRecords(container, family) {
+  let value = container;
+  for (const key of family.path ?? [family.list]) value = value?.[key];
+  return Array.isArray(value) ? value : [];
+}
 
 const familyByList = new Map(PERSON_STEP_FAMILIES.map((family) => [family.list, family]));
 
@@ -91,13 +110,14 @@ export function personStepPresenceDependencies() {
 export function newPersonRecords(workflow, prior) {
   const added = [];
   for (const family of PERSON_STEP_FAMILIES) {
-    const before = (Array.isArray(prior?.[family.list]) ? prior[family.list] : [])
+    const before = familyRecords(prior, family)
       .filter((entry) => entry && typeof entry === 'object')
       .map((entry) => ({ fields: Object.keys(entry), text: canonicalJson(entry) }));
     const onDisk = (record) => before.some(({ fields, text }) => canonicalJson(
       Object.fromEntries(fields.filter((field) => record[field] !== undefined).map((field) => [field, record[field]]))) === text);
-    for (const record of workflow?.[family.list] ?? []) {
+    for (const record of familyRecords(workflow, family)) {
       if (!record || typeof record !== 'object' || record.presence || !family.isPerson(record)) continue;
+      if (family.sealed && sealedPresence(workflow, record)) continue;
       if (!onDisk(record)) added.push({ family, record });
     }
   }
@@ -159,7 +179,13 @@ export async function signPersonRecords(root, workflow, entries) {
 
 async function signRecords(root, workflow, context, added) {
   const authorities = workflow.resolution?.approvalAuthorities;
-  const approvers = new Set(added.map(({ record }) => actorApproverId(authorities, record.actor)));
+  // A record that names no actor (a test selection, a summary) is the decision of the person running
+  // the command; its signature then names them, and its verdict checks they are an approver.
+  const person = added.some(({ record }) => record.actor == null)
+    ? (dependencies.identify ?? (async () => (await import('../git.mjs')).identity(root, { offline: true })))
+    : null;
+  const runner = person ? await person() : null;
+  const approvers = new Set(added.map(({ record }) => actorApproverId(authorities, record.actor ?? runner)));
   const command = thisCommand(dependencies.argv);
   const routes = { command, others: 'another approver can record it in their own terminal' };
   const [approver] = approvers;
@@ -177,8 +203,9 @@ async function signRecords(root, workflow, context, added) {
   if (exception) {
     // Unsigned, and never read as signed: the exception travels with each record and labels it.
     const at = new Date().toISOString();
-    for (const { record } of added) {
-      record.presence = { schema: PRESENCE_RECORD_SCHEMA, chainId: context.chainId, approver, action, bypass: exception.id, at };
+    for (const { family, record } of added) {
+      keep(workflow, family, record, { schema: PRESENCE_RECORD_SCHEMA, chainId: context.chainId, approver, action, bypass: exception.id, at,
+        ...(family.sealed ? { fields: recordFields(record), recordDigest: personRecordDigest(record, recordFields(record)) } : {}) });
     }
     return;
   }
@@ -202,7 +229,7 @@ async function signRecords(root, workflow, context, added) {
       'PSS_SIGNER_UNAVAILABLE', { approver, keyId: pin.keyId, routes });
   }
   const signed = added.map(({ family, record }) => {
-    const fields = Object.keys(record).filter((field) => field !== 'presence').sort();
+    const fields = recordFields(record);
     return { family, record, fields, digest: personRecordDigest(record, fields) };
   });
   const presence = { schema: PRESENCE_RECORD_SCHEMA, chainId: context.chainId, approver, keyId: pin.keyId, action,
@@ -216,7 +243,19 @@ async function signRecords(root, workflow, context, added) {
     keyId: pin.keyId
   });
   const result = await sign({ statement, keyId: pin.keyId, publicKey: pin.key, card: shown });
-  for (const { record, fields } of signed) {
-    record.presence = { ...presence, fields, signature: result.signature, userVerification: Boolean(result.userVerification) };
+  for (const { family, record, fields } of signed) {
+    keep(workflow, family, record, { ...presence, fields, signature: result.signature, userVerification: Boolean(result.userVerification) });
   }
+}
+
+const recordFields = (record) => Object.keys(record).filter((field) => field !== 'presence').sort();
+
+/**
+ * Keep a record's presence block: on the record itself, or, for a sealed family (an immutable,
+ * exact-key summary), as a seal beside it in `personSeals`, found again by the record's digest.
+ */
+function keep(workflow, family, record, presence) {
+  if (!family.sealed) { record.presence = presence; return; }
+  workflow.personSeals ??= [];
+  workflow.personSeals.push({ list: family.list, id: typeof record.id === 'string' ? record.id : null, presence });
 }

@@ -12,7 +12,7 @@
  * may never be taken back. Neither carries a signature of its own, so only history can show it.
  */
 import { canonicalJson } from '../records.mjs';
-import { isPersonStepRecord, PERSON_STEP_FAMILIES } from './person-steps.mjs';
+import { familyRecords, isPersonStepRecord, PERSON_STEP_FAMILIES } from './person-steps.mjs';
 import { loadPresenceContext, personRecordVerdict } from './person-records.mjs';
 
 // Fields an engine or a later command adds to a record after it was made. Adding one makes the Story
@@ -60,7 +60,7 @@ export function storyPersonRecords(workflow) {
     }
   }
   for (const family of PERSON_STEP_FAMILIES) {
-    for (const [index, record] of (workflow?.[family.list] ?? []).entries()) {
+    for (const [index, record] of familyRecords(workflow, family).entries()) {
       if (isPersonStepRecord(family.list, record)) entries.push({ list: family.list, phase: record.phase ?? null, index, record });
     }
   }
@@ -106,7 +106,13 @@ export function personRecordRoute(workflow, entry) {
       ? `the approver rejects it again in their own terminal: singularity-flow reject ${entry.phase} --work-id ${workId} --reason "<why>"`
       : `the approver approves it again in their own terminal: singularity-flow approve ${entry.phase} --work-id ${workId}`;
   }
-  return 'the person records the decision again in their own terminal, where SF Guard takes their Touch ID';
+  const again = {
+    testCommandAmendments: `the approver records the test-policy amendment again in their own terminal: singularity-flow story test-policy amend --work-id ${workId} --reason "<why>" --apply --confirm <PLAN-DIGEST>`,
+    approverRefreshes: `an approver refreshes the approvers again in their own terminal: singularity-flow story approvers refresh ${workId} --reason "<why>"`,
+    'testRecovery.selectionConfirmations': `the reviewer confirms the test selection again in their own terminal: singularity-flow story test-policy confirm --work-id ${workId} --phase <PHASE> --confirm <PLAN-DIGEST>`,
+    'testRecovery.riskReviews': `the reviewer records the test risk decision again in their own terminal: singularity-flow story test-policy accept-risk --work-id ${workId} … (or attest-risk / revoke-risk)`
+  }[entry.list];
+  return again ?? 'the person records the decision again in their own terminal, where SF Guard takes their Touch ID';
 }
 
 /**

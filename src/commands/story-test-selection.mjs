@@ -95,7 +95,7 @@ export async function confirmStoryTestSelection(root, config, workflow, { phaseI
   if (!principal) fail('A named delegated reviewer is required.', 'TRP_AUTHORITY_REQUIRED');
   const selection = sealTrpRecord({ ...resolved.selection, issuer: { principal, channel: 'terminal' } });
   const review = trpAuthorityReview(selection, authority.policy);
-  const authorization = await captureTerminalActionAuthorization(root, review.plan, review.action, { label: 'Confirm test scope' });
+  const authorization = await captureTerminalActionAuthorization(root, review.plan, review.action, { label: 'Confirm test scope', presenceInRecord: true });
   if (!authorization) return { status: 'cancelled', workId: workflow.workItem.id, planDigest: confirmation, executed: false, stateChanged: false };
   const store = new StoryStateStore(root, config);
   const transaction = await store.transact(workflow, {

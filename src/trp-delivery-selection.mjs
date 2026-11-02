@@ -19,6 +19,7 @@ import { redactDiagnosticText } from './git-remote-diagnostics.mjs';
 import { processResultSucceeded } from './process-result.mjs';
 import { nowIso, secureRepositoryPath, SingularityFlowError } from './util.mjs';
 import { readTrpCaseInventory } from './test-recovery-adapters.mjs';
+import { countedRecords } from './presence/counted.mjs';
 
 const sha = (bytes) => `sha256:${createHash('sha256').update(bytes).digest('hex')}`;
 const covers = (root, file) => root === '.' || file === root || file.startsWith(`${root}/`);
@@ -110,7 +111,8 @@ export function trpSelectionAuthorityContext(workflow, phase, agreement) {
 async function confirmationFor(root, config, workflow, agreement, preview, phase, generation, validationEpoch) {
   // A fresh review of the same plan supersedes its earlier local receipt. Keep the historical
   // entry, but never let an unavailable old proof hide the replacement or revive an older grant.
-  const entry = (workflow.testRecovery.selectionConfirmations ?? []).findLast((entry) => entry?.planDigest === preview.planDigest
+  // SF Guard (SPEC-PSS-v1 §10.8): on a Story it requires, only a confirmation its reviewer signed counts.
+  const entry = countedRecords(workflow, workflow.testRecovery.selectionConfirmations ?? []).findLast((entry) => entry?.planDigest === preview.planDigest
     && entry.phaseId === phase.id && Number(entry.generation) === generation
     && Number(entry.validationEpoch) === validationEpoch);
   if (!entry?.selection || !entry.authorityReceipt) return null;

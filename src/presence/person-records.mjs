@@ -102,6 +102,33 @@ export function personRecordDigest(record, fields) {
 }
 
 /**
+ * The presence block a seal in `workflow.personSeals` keeps for `record` (SPEC-PSS-v1 §10.8), or null:
+ * the seal whose signed batch (or, under an exception, whose recorded digest) names the record's own
+ * digest over the fields the seal lists. A record's seal is found by what the record says, never by
+ * its ID, so a seal carried to another record names nothing.
+ */
+export function sealedPresence(workflow, record) {
+  if (!record || typeof record !== 'object') return null;
+  for (const seal of workflow?.personSeals ?? []) {
+    const presence = seal?.presence;
+    if (!presence || typeof presence !== 'object' || !Array.isArray(presence.fields)
+        || !presence.fields.every((field) => typeof field === 'string' && field !== 'presence')) continue;
+    const digest = personRecordDigest(record, presence.fields);
+    if ((Array.isArray(presence.batch) && presence.batch.includes(digest)) || presence.recordDigest === digest) return presence;
+  }
+  return null;
+}
+
+/** `id` when it is one of `authorities`' members' approver IDs (a record that names no actor). */
+function memberApproverId(authorities, id) {
+  if (typeof id !== 'string' || !id) return null;
+  for (const authority of Object.values(authorities ?? {})) {
+    for (const member of authority?.members ?? []) if (approverId(member) === id) return id;
+  }
+  return null;
+}
+
+/**
  * The statement one touch signs for every person record a command wrote (SF Guard M3): the records'
  * digests, sorted, so each record verifies on its own against the one signature.
  */
@@ -253,10 +280,14 @@ export function personRecordVerdict(context, record, { workflow }) {
     return { counts: true, state, label: state === 'pre-signing' ? 'pre-signing: SF Guard was off when this Story started' : null, code: null, reason: null, signer: null };
   }
   const invalid = (code, reason) => ({ counts: false, state: 'invalid', label: `not counted: ${reason}`, code, reason, signer: null });
-  const presence = record?.presence;
+  // A sealed family's summary keeps its block beside it (SPEC-PSS-v1 §10.8).
+  const presence = record?.presence ?? sealedPresence(workflow, record);
   if (!presence || typeof presence !== 'object') return invalid('PSS_RECORD_UNSIGNED', 'it carries no presence signature');
   if (presence.schema !== PRESENCE_RECORD_SCHEMA || presence.chainId !== context.chainId) return invalid('PSS_SIGNATURE_INVALID', 'its presence block names another policy chain');
-  const approver = actorApproverId(workflow?.resolution?.approvalAuthorities, record.actor);
+  // A record that names no actor (a test selection, a summary) is its signer's decision: the signer
+  // must be one of the Story's approvers, which an author's key never is.
+  const authorities = workflow?.resolution?.approvalAuthorities;
+  const approver = record.actor != null ? actorApproverId(authorities, record.actor) : memberApproverId(authorities, presence.approver);
   if (!approver || approver !== presence.approver) return invalid('PSS_SIGNATURE_INVALID', 'its presence block names another approver');
   if (presence.bypass) {
     const exception = exceptionAt(context, presence.bypass, approver, presence.at ?? record.at);

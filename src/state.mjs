@@ -3550,6 +3550,7 @@ export async function publishGeneration(root, config, workflow, {
   if (authorship?.governedAgentContext?.agentId) assertPhaseAgentMayMutate(config, workflow,
     workflow.phases?.[phaseId ?? workflow.currentPhase], { agent: authorship.governedAgentContext.agentId }, 'publish');
   await verifyAcceptedTestCommandAmendment(root, config, workflow);
+  if (workflow.resolution?.presence) await (await import('./story-test-command-amendment.mjs')).assertSignedTestCommandAmendments(workflow);
   await assertNoPendingPublication(root, config, workflow, 'publish a generation');
   const phase = await assertPhaseSequence(root, workflow, 'publish a generation', { requestedPhase: phaseId });
   await (await import('./document-runtime.mjs')).requirePhaseDocuments(root, config, workflow, phase.id);
@@ -5186,6 +5187,7 @@ async function submitPhaseTransition(root, config, workflow, {
   assertPhaseGovernanceMayAdvance(workflow, workflow.phases?.[phaseId ?? workflow.currentPhase]);
   const verifiedAmendment = await verifyAcceptedSkillAmendmentRevalidation(root, config, workflow);
   await verifyAcceptedTestCommandAmendment(root, config, workflow, verifiedAmendment);
+  if (workflow.resolution?.presence) await (await import('./story-test-command-amendment.mjs')).assertSignedTestCommandAmendments(workflow);
   await assertNoPendingPublication(root, config, workflow, 'submit for approval');
   const requestedPhase = workflow.phases?.[phaseId ?? workflow.currentPhase] ?? null;
   // Keep this guard in the domain transition as well as the CLI. Alternate hosts and future

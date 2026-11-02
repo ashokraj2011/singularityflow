@@ -275,6 +275,10 @@ test('frequent lifecycle handlers do not reach the legacy dispatcher and stay un
     // 9,350,000 (next 5,000 boundary): main 445e82c5c measures 9,343,716. A completed workspace clone ignores
     // editor-only branch keys (VS Code's vscode-merge-base) and names the fact that changed when it refuses
     // (workspace-clone-claim.mjs +2,421, workspace.mjs +207), bringing 9,346,344 (measured); no new eager file.
+    // SF Guard §10.8 (2026-11-02): the Story summaries keep their signature, sealed beside an immutable summary or
+    // on a test-recovery entry: the seal lookup and actor-less verdict (person-records.mjs), the review-safe seal
+    // rule (approval-check.mjs), the counted selection and risk reads, and the publish/submit hooks (state.mjs)
+    // add 2,861: 9,349,205 measured on 67aaccc3e. No new eager file.
     assert.ok(closure.bytes <= 9_350_000, `${file} exceeds the 9 MB eager-source budget (${closure.bytes} bytes)`);
   }
 });

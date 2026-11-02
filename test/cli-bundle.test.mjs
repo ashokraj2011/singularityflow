@@ -429,7 +429,9 @@ test('the bundled CLI answers exactly like the sources while opening a handful o
   // 7,745,000: main 4fcc9bcde measures 7,738,220; SF Guard's authorship claims read through the counting leaf
   // (SPEC-PSS-v1 §10.5, +1,499) and the repository person-step gate and terminal-review signature (§10.6, +1,599)
   // give 7,741,318. The signers load only where SF Guard applies.
-  assert.ok(hookContext < 7_745_000,
+  // 7,750,000: main 67aaccc3e measures 7,744,273; SF Guard's Story summaries (SPEC-PSS-v1 §10.8: the seal lookup,
+  // the actor-less verdict, nested families and their routes) add 2,113 for 7,746,386. No new file.
+  assert.ok(hookContext < 7_750_000,
     `phase-review reads retain their existing byte ceiling after moving families (${hookContext} bytes)`);
   assert.match(await readFile(path.join(outdir, 'cold-light.mjs'), 'utf8'), /function enterPhase\b/u,
     'phase binding must not fall through to the compatibility/admin bundle');

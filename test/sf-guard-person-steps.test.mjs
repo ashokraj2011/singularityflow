@@ -117,6 +117,8 @@ test('every person-step family is in the workflow schema with an optional presen
   const schema = JSON.parse(await readFile(new URL('../schemas/workflow.schema.json', import.meta.url), 'utf8'));
   assert.equal(schema.$defs.personPresence.properties.schema.const, 'sflow-presence-record@1');
   for (const family of PERSON_STEP_FAMILIES) {
+    // An immutable, exact-key summary keeps its signature as a seal beside it (SPEC-PSS-v1 §10.8).
+    if (family.sealed) { assert.ok(schema.properties.personSeals, `${family.list}'s seals have a place in the Story`); continue; }
     const items = schema.properties[family.list]?.items;
     // A list the schema leaves open (witnessExceptionRenewals) takes the block as it is.
     if (!schema.properties[family.list]) continue;
@@ -347,16 +349,18 @@ test('SF Guard required: every other family is signed where the Story is written
   workflow.testCommandDecisions = [1, 2].map((n) => ({ id: `TCD-00${n}`, phase: 'specification', command: { id: `cmd-${n}`, kind: 'test', argv: ['node', '--test'] },
     reason: 'A request anyone may make.', requestedBy: 'agent', at: '2026-11-02T09:00:00.000Z' }));
   const signedSet = familyRecords(1, ONE.email);
-  for (const family of PERSON_STEP_FAMILIES) workflow[family.list] = [...(workflow[family.list] ?? []), signedSet[family.list]];
+  // This test builds one record per M3 family; the Story summaries (§10.8) have their own test file.
+  const families = PERSON_STEP_FAMILIES.filter((family) => family.list in signedSet);
+  for (const family of families) workflow[family.list] = [...(workflow[family.list] ?? []), signedSet[family.list]];
 
   const person = signer(key);
   setPersonStepPresenceDependencies({ ...person, argv: ['node', 'singularity-flow', 'decision', 'many'] });
   await saveWorkflow(root, definition, workflow);
   assert.equal(person.shown.length, 1, 'one card for everything the command recorded');
-  assert.equal(person.shown[0].lines.length, PERSON_STEP_FAMILIES.length + 1, person.shown[0].lines.join('\n'));
+  assert.equal(person.shown[0].lines.length, families.length + 1, person.shown[0].lines.join('\n'));
   const saved = JSON.parse(await readFile(path.join(item, 'workflow.json'), 'utf8'));
-  for (const family of PERSON_STEP_FAMILIES) {
-    assert.equal(saved[family.list].at(-1).presence?.batch?.length, PERSON_STEP_FAMILIES.length, `${family.list} carries the one signature`);
+  for (const family of families) {
+    assert.equal(saved[family.list].at(-1).presence?.batch?.length, families.length, `${family.list} carries the one signature`);
   }
   assert.equal(saved.testCommandDecisions[0].presence, undefined, 'a request is never signed');
   // Saving again signs nothing: what is on disk is never offered for a touch.
@@ -371,7 +375,7 @@ test('SF Guard required: every other family is signed where the Story is written
   // Unsigned copies written into the state file by hand count for nothing, in every family.
   const forged = JSON.parse(await readFile(path.join(item, 'workflow.json'), 'utf8'));
   const forgedSet = familyRecords(2, ONE.email);
-  for (const family of PERSON_STEP_FAMILIES) forged[family.list].push(forgedSet[family.list]);
+  for (const family of families) forged[family.list].push(forgedSet[family.list]);
   await writeFile(path.join(item, 'workflow.json'), `${JSON.stringify(forged, null, 2)}\n`);
   const view = await load();
   for (const [list, found] of Object.entries(readers(view, 2))) assert.ok(!found, `${list} does not count a hand-written record`);

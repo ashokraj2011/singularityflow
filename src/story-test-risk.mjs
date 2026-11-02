@@ -210,7 +210,7 @@ export async function acceptStoryTestRisk(root, config, workflow, options = {}) 
     ...resolved.terms, authorityRef: authority.policy.authoritySha256, authorizationRef: `risk-review-${suffix}`,
     confirmationSha256: options.confirmation });
   const review = trpAuthorityReview(record, authority.policy);
-  const authorization = await captureTerminalActionAuthorization(root, review.plan, review.action, { label: 'Accept Story test risk' });
+  const authorization = await captureTerminalActionAuthorization(root, review.plan, review.action, { label: 'Accept Story test risk', presenceInRecord: true });
   if (!authorization) return { status: 'cancelled', workId: workflow.workItem.id, stateChanged: false, executed: false };
   return publishReview(root, config, workflow, { record, authority, planDigest: options.confirmation, review, authorization,
     initialHead, action: 'accepted', refresh: async (current) => {
@@ -271,7 +271,7 @@ async function reviewExistingRecord(root, config, workflow, options, action) {
     authorizationRef: `revoke-review-${suffix}`, confirmationSha256: options.confirmation, reason: options.reason.trim() });
   const review = trpAuthorityReview(record, resolved.authority.policy);
   const authorization = await captureTerminalActionAuthorization(root, review.plan, review.action,
-    { label: action === 'attested' ? 'Re-attest Story test risk' : 'Revoke Story test risk' });
+    { label: action === 'attested' ? 'Re-attest Story test risk' : 'Revoke Story test risk', presenceInRecord: true });
   if (!authorization) return { status: 'cancelled', workId: workflow.workItem.id, stateChanged: false, executed: false };
   return publishReview(root, config, workflow, { record, authority: resolved.authority, planDigest: options.confirmation,
     review, authorization, initialHead, action, refresh: async (current) => {

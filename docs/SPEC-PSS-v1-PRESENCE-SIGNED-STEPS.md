@@ -456,6 +456,31 @@ The decisions a live terminal review writes now keep their approver's presence s
 | `action authorize` | The authorization is a machine-local token, consumed once by the action it names; it is never committed, so it has no remote form to verify. |
 | Spec Studio stores; `configuration approve`; the Epic, goal, intent, program, lease, host-policy, agents-lock and repair-authorize stores | Repository-level stores, each with its own format and readers; keeping the signature in each, under the repository's policy at the record's time, is one family per row, not yet done. `configuration approve` also needs the approved configuration's reader to verify the approval behind each `sflow/config` commit, since a commit pushed to that branch directly would otherwise bypass any record. |
 
+### 10.8 Story summaries: test policy, approvers, test selection and test-run risk (2 November 2026)
+
+The Story-level rows §10.7 left now keep their person's presence signature, from one touch, where the record lands in the Story's aggregate.
+
+- **Which.** A test-policy amendment (`story test-policy amend --apply`, summary in `testCommandAmendments`), an approver refresh (`story approvers refresh`, summary in `approverRefreshes`), a test selection confirmation (`story test-policy confirm`, `testRecovery.selectionConfirmations`) and a test-run risk review: an acceptance, re-attestation or revocation (`accept-risk`, `attest-risk`, `revoke-risk`) and a baseline admission re-review (`testRecovery.riskReviews`).
+- **Signing.** Each joins M3's families (`PERSON_STEP_FAMILIES`; a family may name a nested `path`), so `saveWorkflow` signs the entry the command added, with M2's checks in M2's order, its routes, and nothing written on a refusal; the live review's card-only touch is skipped (`presenceInRecord: true`), so the person is asked once. A test selection or risk review names no actor: it is the decision of the person running the command, the signature names them, and its verdict counts it only when the signer is one of the Story's approvers (an author's key never is).
+- **Seals, not format bumps.** `test-command-adoption-summary` and `approver-refresh-summary` are immutable, exact-key families. Their signature is kept beside the summary as a seal in the Story's `personSeals` (`{ list, id, presence }`; `schemas/workflow.schema.json`), found again by the summary's own digest over the fields the seal lists, never by its ID, so a seal carried to another summary, or a summary edited after signing, counts for nothing. Neither family changed version and no GDP companion moved. The test-recovery entries carry their `presence` block on the entry.
+- **Counting.**
+  - A test selection counts only when signed (`trp-delivery-selection.mjs`), so an unsigned one confirms no scope.
+  - A risk decision that a review entry names counts in the test-recovery gate only while one such entry is signed (`test-recovery-runtime.mjs`). A decision no review names, accepted at intake before the Story existed, keeps today's rule (below).
+  - Publication and submission refuse while any test-policy amendment carries no verified signature (`assertSignedTestCommandAmendments`, `PSS_RECORD_UNSIGNED`), naming the person's command. Reading the Story and amending it again are never refused, so the route always works.
+  - An approver refresh adds members to groups the Story already has. On a Story SF Guard requires, a member counts only with a pinned key in the approved configuration's chain, so an unsigned refresh grants no approval power by itself; its seal is checked by the remote check. A refresh commit stays review-safe when it adds exactly its own seal (`approval-check.mjs`).
+- **Remote check.** All four lists are listed with the Story's person records (`storyPersonRecords`), so a change that adds an unsigned entry fails (`PSS_RECORD_UNSIGNED`) with its route.
+- **Running Stories.** An amendment, refresh, selection or review recorded on a required Story before this change reads unsigned; its route records it again, signed.
+
+**Still not kept in the record**, with the reason:
+
+| Step | Why not yet |
+| --- | --- |
+| `story adjudicate` | The convergence record is a sealed projection recomputed from its adjudications at every integrity check; counting a signature there changes its hash contract (family v4). |
+| Test recovery admission at intake | The agreement and baseline risk decisions are reviewed before the Story exists, so there is no Story pin yet; signing them needs the start-time pin threaded into intake and a materialized, signed review entry. |
+| Test attestation (`story test-policy attest`) | It restores machine-local review-origin evidence only; it writes no Story, policy or Git record. The amendment it re-attests is signed (above). |
+| `action authorize` | A machine-local, single-use token, never committed: there is nothing remote to verify. |
+| Spec Studio stores; `configuration approve`; the Epic, goal, intent, program, lease, host-policy, agents-lock and repair-authorize stores | Repository-level stores, each with its own format and readers. Each still takes the person's touch before it runs (§10.6). Keeping the signature in each, and verifying the approval behind each `sflow/config` commit, is the next step. |
+
 ## 11. Acceptance criteria
 
 | ID | Scenario | Observable result |

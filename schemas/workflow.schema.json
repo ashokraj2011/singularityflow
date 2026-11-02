@@ -332,6 +332,13 @@
         ]
       }
     },
+    "personSeals": {
+      "description": "SF Guard seals (SPEC-PSS-v1 §10.8): the presence signature of a person record whose own format is an immutable, exact-key summary, kept beside it and found again by the record's digest.",
+      "type": "array", "maxItems": 4096,
+      "items": { "type": "object", "required": ["list", "presence"], "additionalProperties": false,
+        "properties": { "list": { "type": "string", "minLength": 1, "maxLength": 128 }, "id": { "type": ["string", "null"], "maxLength": 256 },
+          "presence": { "type": "object" } } }
+    },
     "approverRefreshes": {
       "type": "array",
       "maxItems": 64,

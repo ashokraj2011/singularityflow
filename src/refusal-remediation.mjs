@@ -10,6 +10,7 @@
 import { specificFindingDocumentation } from './finding-catalog.mjs';
 import { localGitHookFailure, redactDiagnosticText } from './git-remote-diagnostics.mjs';
 import { stripGlobalModelOptions } from './model-mode.mjs';
+import { repairContinuationForTestFailure } from './phase-finding-policy.mjs';
 import { requiredTestExecutionForRefusal } from './test-execution-diagnostics.mjs';
 import {
   commandRouteLines, safeCommandGuidance, validateSafeSflowCommand
@@ -1915,6 +1916,9 @@ export function refusalRemediationPlan(error, argv = []) {
     status: 'blocked',
     code,
     ...(documentation ? { documentation } : {}),
+    ...(requiredTestBlocked && phaseContext && requiredTestExecutionForRefusal(error) ? {
+      repairContinuation: repairContinuationForTestFailure(phaseContext, requiredTestExecutionForRefusal(error))
+    } : {}),
     ...(phaseContext ? { context: skillHostBlocked
       ? Object.freeze({ ...phaseContext, strategy: 'external-host-prerequisite', recoveryCommand: null, retryCommand: null, retrySkill: null })
       : phaseContext } : {}),

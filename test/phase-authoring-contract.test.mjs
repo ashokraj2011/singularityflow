@@ -32,7 +32,7 @@ test('installed contracts follow capabilities across all phases, renamed workflo
       assert.equal(contract.revalidatePriorDraftQuality, false);
       assert.equal(contract.draftDefectsPreventRepair, false);
       assert.equal(contract.repairIsApproval, false);
-      assert.equal(contract.revision, 'phase-authoring-v8');
+      assert.equal(contract.revision, 'phase-authoring-v9');
       assert.ok(phaseAuthoringContractLines(contract).includes(`- Paths: ${CLI_PATH_CONTRACT}`));
       assert.ok(phaseAuthoringContractLines(contract, { deterministicOnly: true }).includes(`- Paths: ${CLI_PATH_CONTRACT}`));
       assert.deepEqual(contract.configuration, { productSource: false, sourceTagsRequired: false,

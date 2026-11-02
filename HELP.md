@@ -3263,6 +3263,11 @@ The review bundle contains the artifact in full, input provenance, checks, appro
 
 ## Safe recovery and Copilot session guidance
 
+All phases use [self-healing continuation](docs/SELF-HEALING-CONTINUATION.md): diagnose, preserve,
+repair within the active contract, verify changed conditions and recheck the original gate.
+A failed test does not by itself end authoring. Exhausting unattended retries preserves the draft
+and returns its manual/owner continuation; it never resets budgets or waives approval and evidence.
+
 ### Factory-reset repository state
 
 `init --repair` is additive and preserves customization. When a genuinely clean

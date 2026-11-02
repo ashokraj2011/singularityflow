@@ -7,6 +7,7 @@ import path from 'node:path';
 import YAML from 'yaml';
 import { initializeDefinition } from '../src/config.mjs';
 import { composeInitiativeContext, verifyInitiativeContext } from '../src/initiative-context.mjs';
+import { REPAIR_CONTINUATION_PROTOCOL } from '../src/phase-finding-policy.mjs';
 import { approveInitiative, publishInitiativePhase } from '../src/initiative-evidence.mjs';
 import { createInitiative, loadInitiative, prepareInitiativePhase } from '../src/initiative-state.mjs';
 import { run } from '../src/util.mjs';
@@ -133,11 +134,12 @@ test('new and cached Initiative requirement prompts receive one rubric without r
   const first = await composeInitiativeContext(root, 'INIT-BINARY-CONTEXT', 'binary-source', { agent: 'developer' });
   assert.ok(first.rendered.includes(REQUIREMENT_AUTHORING_PROTOCOL));
   assert.equal(first.rendered.split(REQUIREMENT_AUTHORING_PROTOCOL).length, 2);
+  assert.equal(first.rendered.split(REPAIR_CONTINUATION_PROTOCOL).length, 2);
   const stored = path.join(root, first.record.promptPath);
   const recordPath = path.join(root, 'singularity/initiatives/INIT-BINARY-CONTEXT/context/prompt-context-binary-source-gen1.json');
   // A valid pre-upgrade cache: the old canonical prompt and its corresponding receipt lack the
   // new guidance. Delivery must adapt it without revising either file or the phase generation.
-  const oldText = first.rendered.replace(REQUIREMENT_AUTHORING_PROTOCOL, '');
+  const oldText = first.rendered.replace(REQUIREMENT_AUTHORING_PROTOCOL, '').replace(REPAIR_CONTINUATION_PROTOCOL, '');
   const oldRecord = { ...first.record, renderedSha256: createHash('sha256').update(oldText).digest('hex'), renderedBytes: Buffer.byteLength(oldText) };
   await writeFile(stored, oldText);
   const recordBytes = `${JSON.stringify(oldRecord, null, 2)}\n`;
@@ -146,6 +148,7 @@ test('new and cached Initiative requirement prompts receive one rubric without r
   assert.equal(again.reused, true);
   assert.ok(again.rendered.includes(REQUIREMENT_AUTHORING_PROTOCOL));
   assert.equal(again.rendered.split(REQUIREMENT_AUTHORING_PROTOCOL).length, 2);
+  assert.equal(again.rendered.split(REPAIR_CONTINUATION_PROTOCOL).length, 2);
   assert.equal(await readFile(stored, 'utf8'), oldText);
   assert.equal(await readFile(recordPath, 'utf8'), recordBytes);
   const loaded = await loadInitiative(root, 'INIT-BINARY-CONTEXT');

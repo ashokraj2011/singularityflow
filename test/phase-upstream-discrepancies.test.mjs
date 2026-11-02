@@ -21,7 +21,7 @@ test('an author records a wrong approved input and continues instead of editing 
   const workflow = { workItem: { id: 'UPS-1' }, phaseOrder: ['specification', 'planning'],
     phases: { specification: { id: 'specification' }, planning: { id: 'planning' } } };
   const contract = phaseAuthoringContract({}, workflow, workflow.phases.planning);
-  assert.equal(contract.revision, 'phase-authoring-v8');
+  assert.equal(contract.revision, 'phase-authoring-v9');
   assert.equal(contract.recovery.upstreamDefect, 'record-and-continue');
   const lines = phaseAuthoringContractLines(contract).join('\n');
   assert.ok(lines.includes(UPSTREAM_DISCREPANCY_PROTOCOL));

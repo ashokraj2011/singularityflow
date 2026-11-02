@@ -1,3 +1,4 @@
+import { withRepairContinuationProtocol } from './phase-finding-policy.mjs';
 import { usesEpicPlanningLifecycle } from './initiative-phase-roles.mjs';
 import { initiativeGathersRequirements, withRequirementAuthoringProtocol } from './requirement-coverage.mjs';
 import { createHash } from 'node:crypto';
@@ -54,7 +55,7 @@ function phaseContract(initiative, phase) {
   for (const check of phase.checklist) {
     lines.push(`  - \`${check.id}\` (${initiativeCheckRequirement(initiative, phase.id, check)}, gate=${check.gate}, assurance=${check.acceptedAssurance.join('|')})`);
   }
-  return withRequirementAuthoringProtocol(lines.join('\n'), initiativeGathersRequirements(phase));
+  return withRepairContinuationProtocol(withRequirementAuthoringProtocol(lines.join('\n'), initiativeGathersRequirements(phase)));
 }
 
 async function approvedInputSections(root, portfolio, initiative, phase) {
@@ -280,7 +281,7 @@ export async function composeInitiativeContext(root, initiativeId, requestedPhas
         portfolio,
         initiative,
         phase,
-        rendered: withRequirementAuthoringProtocol(await readFile(prompt.absolute, 'utf8'), initiativeGathersRequirements(phase)),
+        rendered: withRepairContinuationProtocol(withRequirementAuthoringProtocol(await readFile(prompt.absolute, 'utf8'), initiativeGathersRequirements(phase))),
         record: verification.record,
         warnings: verification.record.warnings ?? [],
         dryRun,

@@ -60,6 +60,7 @@ import { resolveImpactPromptOverride } from './impact.mjs';
 import { compilePromptSections } from './prompt-budget.mjs';
 import { tokenEconomyDigest } from './token-economy.mjs';
 import { activeClauseCapsule, CLAUSE_CAPSULE_RENDERER } from './active-clause-capsule.mjs';
+import { withRepairContinuationProtocol } from './phase-finding-policy.mjs';
 import { phaseAuthoringContract, phaseAuthoringContractLines } from './phase-authoring-contract.mjs';
 import { withRequirementAuthoringProtocol } from './requirement-coverage.mjs';
 import { stakeholderPromptContext, stakeholderRequestDrift } from './stakeholder-prompt-context.mjs';
@@ -527,7 +528,7 @@ export function withPhasePromptRuntimeGuidance(text, definition, workflow, phase
   const verification = bound && mutationToolProtocol(deriveMutationContract({ definition, workflow, phase })).localVerification.allowed;
   const requirements = bound && phaseOwnsScope(workflow, phase)
     && !phasePromptExecutionContract(definition, workflow, phase).deterministicOnly;
-  return withCommandPresentationProtocol(withAgentPathProtocol(withRequirementAuthoringProtocol(text, Boolean(requirements)), {
+  return withCommandPresentationProtocol(withAgentPathProtocol(withRepairContinuationProtocol(withRequirementAuthoringProtocol(text, Boolean(requirements))), {
     normalizeLegacy: false, authoringVerification: Boolean(verification)
   }));
 }

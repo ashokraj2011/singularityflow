@@ -25,4 +25,4 @@ Reuse a verified pause-aware entry supplied in this invocation before any mutati
 
 TRP: `singularity-flow explain test-recovery`; live review for exceptions. Never answer approval cards or label failed/skipped/unavailable passed.
 
-Follow `resolution.issues[].choices`/`repairLoop.protocol`. Owned repair saves copies. `/sf-appeal`: preservation/eligible risks, live decisions; not approval/passes. Backup failure preserves originals; no cleaning.
+Follow `repairContinuation`/`resolution.issues[].choices`/`repairLoop.protocol`. Owned repair saves copies. `/sf-appeal`: preservation/eligible risks, live decisions; not approval/passes. Backup failure preserves originals.

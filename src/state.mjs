@@ -124,7 +124,7 @@ import { conformanceVerdictGaps } from './conformance-verdicts.mjs';
 import { CONFORMANCE_GAP_RULE, conformanceGapRefusal, reopenAuthorityStep, upstreamIssueStates } from './upstream-routes.mjs';
 import { conformanceEvidenceReuse, inspectPhaseQualifiedConformance, withSelfApprovalDisclosures, withVerdictSummary } from './conformance-readiness.mjs';
 import { runQualityCommand, withoutHostSurfaceVariables } from './quality-command-runner.mjs';
-import { classifyRequiredTestFailure } from './test-execution-diagnostics.mjs';
+import { classifyRequiredTestFailure, requiredTestFailureExamples } from './test-execution-diagnostics.mjs';
 import {
   ENVIRONMENT_IDENTIFIER, loadEnvironmentDeclaration, validateEnvironmentQualityCommandCatalog
 } from './environment-declaration.mjs';
@@ -4226,6 +4226,7 @@ function requiredTestExecutionDiagnostic(root, command, check) {
   };
   return {
     commandId: command.id,
+    hostRuntime: { node: process.version, platform: process.platform, arch: process.arch },
     argv: command.provenance !== 'configured' ? [...command.argv] : null,
     argvWithheld: command.provenance === 'configured',
     provenance: command.provenance ?? 'configured',
@@ -4256,8 +4257,10 @@ async function attachRequiredTestExecution(error, root, command, check) {
   if (check?.resultIsolated) {
     try {
       const parsed = await parseTestResult(root, command, { startedAt: check.startedAt });
+      const failureExamples = await requiredTestFailureExamples(parsed, command.result.adapter).catch(() => []);
       report = {
         status: 'observed', tests: parsed.tests,
+        ...(failureExamples.length ? { failureExamples } : {}),
         sha256: parsed.result.sha256, bytes: parsed.result.bytes,
         failedTestcases: (parsed.testcaseObservation?.occurrences ?? [])
           .filter((entry) => entry.outcome === 'failed').slice(0, 20)

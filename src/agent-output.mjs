@@ -222,6 +222,10 @@ export function agentAct(result) {
     said: 'The packet was not retained. Repair its exact format/citation fields using the returned hints and this invocation\'s stagingProtocol; check changed bytes within the two-repair budget. Do not restart the phase, run generic diagnostics, or invent coverage.' };
   if (result.error && result.remediationPlan) {
     const plan = result.remediationPlan;
+    if (!plan.escalation && plan.repairContinuation?.revision === 'repair-continuation-v1' && plan.repairContinuation.currentTurnRepair === true) return withRoute({
+      state: 'repair', do: null, read: ['error.requiredTestExecution', 'remediationPlan.repairContinuation', 'remediationPlan.steps'],
+      strategy: 'diagnose-repair-verify', said: 'The required test failed: diagnose its saved execution, repair within the admitted authoring scope, verify the changed condition, then rerun the original gate. Do not end authoring merely because tests failed or claim passing evidence from a diagnostic run.'
+    }, (plan.steps ?? []).find((entry) => entry?.command));
     const step = (plan.steps ?? []).find((entry) => entry?.command) ?? null;
     // Every step is the person's own instruction (plain Git to put a rewritten history back, say):
     // "refused" with nothing to do left the agent nowhere, so it went to recover (2026-10-29).
@@ -282,7 +286,7 @@ export function agentAct(result) {
         ...correctionList(result.findings) }, { ...next, reason: oneLine(result.correction.guidance ?? '') });
     }
     const count = Array.isArray(result.findings) ? result.findings.length : null;
-    return { state: 'correct', do: null, read: ['findings', 'correction', 'traceabilityRepair', 'repairLoop'],
+    return { state: 'correct', do: null, read: ['findings', 'correction', 'resolution', 'traceabilityRepair', 'repairLoop'],
       said: oneLine(`${result.status}${count == null ? '' : ` with ${count} finding${count === 1 ? '' : 's'}`}: ${result.correction?.guidance ?? 'fix the listed findings in this draft, then recheck once.'}`),
       ...correctionList(result.findings) };
   }

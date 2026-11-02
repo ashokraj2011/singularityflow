@@ -95,6 +95,8 @@ function projectedReport(value) {
     sha256: typeof value.sha256 === 'string' && SHA256.test(value.sha256) ? value.sha256 : null,
     bytes: safeCount(value.bytes),
     failedTestcases: status === 'observed' ? cases : [],
+    ...(status === 'observed' && Array.isArray(value.failureExamples) ? { failureExamples: [...new Set(value.failureExamples
+      .filter(entry => typeof entry === 'string').map(entry => boundedText(entry, 600)))].slice(0, 3) } : {}),
     reason: status === 'unavailable' && value.reason != null
       ? boundedText(value.reason, 320) : null
   };
@@ -185,6 +187,9 @@ export function requiredTestExecutionForRefusal(error) {
   const report = projectedReport(execution.report);
   return {
     commandId: boundedText(execution.commandId),
+    ...(execution.hostRuntime && typeof execution.hostRuntime === 'object' ? { hostRuntime: {
+      node: boundedText(execution.hostRuntime.node, 64), platform: boundedText(execution.hostRuntime.platform, 32), arch: boundedText(execution.hostRuntime.arch, 32)
+    } } : {}),
     argv: inferred ? argv : null,
     argvWithheld: !inferred,
     argvRedacted,
@@ -202,4 +207,16 @@ export function requiredTestExecutionForRefusal(error) {
     ...(failure ? { failure } : {}),
     ...(report ? { report } : {})
   };
+}
+
+/** Bounded examples from this invocation's parsed report, before transient reports are restored. */
+export async function requiredTestFailureExamples(parsed, adapter) {
+  const { testCaseMessages } = await import('./test-case-messages.mjs');
+  const occurrences = parsed.testcaseObservation?.occurrences ?? [];
+  const messages = testCaseMessages(adapter, (parsed.rawReports ?? []).map(entry => entry.contents), occurrences.length);
+  const examples = new Set();
+  for (let index = 0; index < occurrences.length && examples.size < 3; index += 1) {
+    if (occurrences[index].outcome === 'failed' && messages?.[index]) examples.add(boundedText(messages[index], 600));
+  }
+  return [...examples];
 }

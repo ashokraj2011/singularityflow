@@ -4,7 +4,7 @@ import { generationSkillForPhase, phaseRequiresCodeDelivery } from './code-deliv
 import { submitRoute } from './submit-route.mjs';
 import { canonicalJson } from './records.mjs';
 import { renderPlatformCommand, safeCommandGuidance } from './safe-command-guidance.mjs';
-import { phaseFindingPolicy, phaseFindingCode, phaseFindingIdentity, isArtifactQualityFinding } from './phase-finding-policy.mjs';
+import { repairContinuationForIssues, phaseFindingPolicy, phaseFindingCode, phaseFindingIdentity, isArtifactQualityFinding } from './phase-finding-policy.mjs';
 import { findingDocumentation } from './finding-catalog.mjs';
 import { DISPUTABLE_GATES } from './phase-finding-dispute-schema.mjs';
 import { CONFORMANCE_GAP_RULE, conformanceGapDecisions, upstreamChangeRoutes, upstreamRouteSummary } from './upstream-routes.mjs';
@@ -331,6 +331,7 @@ function advisoryProjection(workflow, phase, advisory) {
 }
 
 export function phaseResolutionProjection(workflow, phase, findings = [], { advisories = [], transition = null } = {}) {
+  const issues = findings.map(finding => ({ ...phaseResolutionChoices(workflow, phase, finding), blocking: true }));
   return { status: findings.length ? 'resolution-required' : 'ready',
     transition,
     contract: { preserveWork: true, automaticDiscard: false, automaticRiskAcceptance: false,
@@ -338,7 +339,8 @@ export function phaseResolutionProjection(workflow, phase, findings = [], { advi
       advisoriesBlockCurrentTransition: false },
     // Only the caller's actual gate findings belong here. Never suppress an integrity/unknown
     // finding because repository-controlled error hints say blocking:false.
-    issues: findings.map(finding => ({ ...phaseResolutionChoices(workflow, phase, finding), blocking: true })),
+    issues,
+    repairContinuation: repairContinuationForIssues({ workId: workflow.workItem.id, phaseId: phase.id, issues, transition }),
     advisories: advisories.map(advisory => advisoryProjection(workflow, phase, advisory)),
     retry: { maximumAttempts: 3, requiresChangedCondition: true, autoAcceptRisk: false,
       fingerprint: digest(findings.map(phaseFindingIdentity).sort((left, right) => canonicalJson(left).localeCompare(canonicalJson(right)))) } };

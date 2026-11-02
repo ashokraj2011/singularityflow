@@ -2300,7 +2300,7 @@ Run `singularity-flow check --for-agent --json` once. Report freshness, mode, in
           <span class="pill">generative</span>
           <span class="pill">story boundary</span>
           <span class="pill">model: never</span>
-          <span class="pill">~2409 body tokens</span>
+          <span class="pill">~2412 body tokens</span>
         </div>
         <dl>
           <div><dt>Command</dt><dd><code>/sflow-code</code></dd></div>
@@ -2335,10 +2335,10 @@ Blocked: relay `resolution.issues[].choices` too. Eligible risk needs reason/exp
 3. Use entry `context.text`; if `not-requested` or stale, rerun it once with `&lt;phase&gt; --work-id &lt;WORK-ID&gt; --compose`. `not-admitted`: relay blockers/next, stop.
 4. Follow `clarification.checkpoint`; off skips. Reuse same-binding human replies; ask only unanswered/changed questions with `ask_user` (unavailable: show them and stop; stage chat replies). File-edit `{&quot;responses&quot;:[...]}` at `clarification.responseStagingPath`; run `checkpoint.recordAction` alone. On refusal preserve replies/staging; repair recording, not questions. Remove staging only on success; record before code mutation; refresh entry once. Staging is JSON only, never handwritten governed records. A new question while coding: never re-ask recorded ones. If the person here can decide it, `ask_user`, stage only that reply, run `checkpoint.newQuestionAction` alone. Otherwise, or none is returned: keep coding on the most conservative reading, list it under `## Upstream discrepancies`, run `singularity-flow upstream-issue raise --from-artifact`.
 5. Verify references; refuse invalid/dirty. `generation &gt; 0`: `singularity-flow revision status --for-agent --json`. Source edits need `codeAuthoringReady: true`, context/clarification. Preserve code/tests; prepare missing artifact via `authoringProgress`. Preparation is not authoring.
-6. Native file-edit tool: finish behavior/tests/artifact/Agent brief and planned bindings. Keep planned test files; assert behavior, never fabricate tags. Preserve managed blocks. Doc-comment APIs; tags aren&#39;t docs. Exclude fixtures/docs/deletions/symlinks. Use the file&#39;s comment syntax (`//`, `#`, `--`, `/*`, `&lt;!--`). Product: `@clause:&lt;WORK-ID&gt;:REQ-001 rationale` (`REQ|BEH|IFC|AC|CON`); tests: `@ac:&lt;WORK-ID&gt;:AC-001` above the test. Honor pinned test-only opt-outs. Follow `toolProtocol.localVerification` for tests/app start/stop and exact `mutationContract.artifacts` evidence. No VS Code task is required.
+6. Native file-edit tool: finish behavior/tests/artifact/Agent brief and planned bindings. Keep planned tests; assert behavior, never fake tags. Preserve managed blocks. Document APIs; tags aren&#39;t docs. Exclude fixtures/docs/deletions/symlinks. Use the file&#39;s comment syntax (`//`, `#`, `--`, `/*`, `&lt;!--`). Product: `@clause:&lt;WORK-ID&gt;:REQ-001 rationale` (`REQ|BEH|IFC|AC|CON`); tests: `@ac:&lt;WORK-ID&gt;:AC-001` above the test. Honor pinned test-only opt-outs. Follow `toolProtocol.localVerification` for tests/app start/stop and exact `mutationContract.artifacts` evidence. No VS Code task is required.
 7. Follow `testExecution.handoff`; `argvWithheld: true` means configured, not missing. No adoption/amendment for redaction/inference or reporter flags. Development tests are allowed during authoring; report argv/cwd/exit/failures. Publication still runs fresh governed tests; manual passes never advance. Never infer withheld argv. `runnerStatus: blocked`: fix that delivery finding first. No skip/list/dry-run/no-tests. Authorized dependencies only; never edit protected config, disable hooks or fabricate results.
-8. Run `singularity-flow phase prepublish &lt;phase&gt; --for-agent --json --publish-if-ready` (includes draft-check). Follow `correction.class`/`sameTurn`, `traceabilityRepair.actions`; verify hashes, repair tags without asking. Never invent, pad, delete markers, nest models or overwrite producers. `ready` is not test success. Follow returned `repairLoop.protocol`; never recheck an unchanged draft; same findings after a change: correct differently, up to `correction.maximumChangedFingerprints` changed drafts, then stop.
-9. Use returned `commands.publish` once when ready unless `publishIfReady.published`; successful required tests continue publication. Advisories/`requiredBefore: approve` don&#39;t hold. Absent: relay `commands.next`, stop. Refusal: report command ID, argv/cwd, exit, bounded stderr/guidance. Nonzero exit fails despite passing JUnit. No test ran: relay `testRunRisk.command` to a step approver; never run it. `/sf-recover`: proven runtime repair permits retry without source changes. `ARTIFACT_AUTHORING_INCOMPLETE`: recheck/retry once. Never submit/approve.
+8. Run `singularity-flow phase prepublish &lt;phase&gt; --for-agent --json --publish-if-ready` (includes draft-check). Follow `correction.class`/`sameTurn`, `traceabilityRepair.actions`; verify hashes, repair tags without asking. Never invent, pad, delete markers, nest models or overwrite producers. `ready` is not test success. Follow `repairContinuation`/`repairLoop.protocol`; no unchanged retries or resets. Respect `correction.maximumChangedFingerprints`; exhausted: preserve work and return manual/owner routes.
+9. Use returned `commands.publish` once when ready unless `publishIfReady.published`; successful required tests continue publication. Advisories/`requiredBefore: approve` don&#39;t hold. Absent: relay `commands.next`, stop. Refusal: use `repairContinuation`; repair admitted causes, verify, retry; report the exact failure. Nonzero exit fails despite passing JUnit. No test ran: relay `testRunRisk.command` to a step approver; never run it. `/sf-recover`: proven runtime repair permits retry without source changes. `ARTIFACT_AUTHORING_INCOMPLETE`: recheck/retry once. Never submit/approve.
 10. `publishIfReady.review`: viewing only, hash-bound references. Relay `publishIfReady.next` after publication.
 
 TRP: `singularity-flow explain test-recovery`.
@@ -2654,7 +2654,7 @@ Reuse a verified pause-aware entry supplied in this invocation before any mutati
           <span class="pill">generative</span>
           <span class="pill">story boundary</span>
           <span class="pill">model: never</span>
-          <span class="pill">~1871 body tokens</span>
+          <span class="pill">~1869 body tokens</span>
         </div>
         <dl>
           <div><dt>Command</dt><dd><code>/sflow-converge</code></dd></div>
@@ -2686,7 +2686,7 @@ Reuse a verified pause-aware entry supplied in this invocation before any mutati
 2. Treat returned commands, producer and channel as kernel output. Never invent an action or authorship. The route-only result is not the final response when the checkpoint is `deterministic-generation`; continue below.
 3. Route `recovery` first with read-only `singularity-flow recover &lt;WORK-ID&gt; --phase &lt;PHASE&gt; --for-agent --json`; follow only its current-phase action. At `approval`, stop: only an authorized human Git identity approves.
 4. At `deterministic-generation`, require the first `NOW` pair to be Copilot `/sf-converge` and Shell `singularity-flow prepare &lt;PHASE&gt;`. Execute that exact returned preparation command once in this same turn. Do not stop after merely displaying the route; do not run `singularity-flow converge --json` again. For adjudication, show each item it names (ID, path, meaning) and the five dispositions in plain words, and ask the person one `ask_user` question per item for a disposition and reason; never preselect one. Record each answer with `singularity-flow story adjudicate &lt;ITEM-ID&gt; --disposition &lt;THEIR-CHOICE&gt; --reason &lt;THEIR-WORDS&gt;` (`--clause` for update-intent), then run the preparation command once more and follow its first `NOW` action here. For rework, intent amendment, or inspection, relay the action and stop for the human decision. If and only if it returns deterministic convergence publication as the first `NOW` action, run `singularity-flow phase prepublish &lt;PHASE&gt; --for-agent --json --publish-if-ready` (includes draft-check). If unready, follow returned `repairLoop.protocol` and its named regenerator/owner route; never loop preparation or start a model. Never invoke a model, author or edit the artifact, or substitute human/governed-agent authorship. Publish using the exact returned publication command (`commands.publish`) when `ready` unless `publishIfReady.published`; absent: relay `commands.next`, stop. Require `--authored deterministic --channel kernel-generator`. Stop immediately after publication; never advance, submit, approve. Report the handoff/document view from `publishIfReady.review`.
-5. At `model-generation`, run `singularity-flow wm compose --phase &lt;PHASE&gt;` once; author from it and `Active supporting evidence`. Run `singularity-flow phase prepublish &lt;PHASE&gt; --for-agent --json --publish-if-ready` (includes draft-check); correct only findings with `correction.sameTurn`, else route to their owner via `correction.guidance`/`correction.skill`. Never blindly delete markers, invent facts or padding, nest models or overwrite producers. Use returned `commands.publish` when `ready` unless `publishIfReady.published`; absent: relay `commands.next`, stop. On `ARTIFACT_AUTHORING_INCOMPLETE`, recheck once; retry only if ready; never loop. Follow returned `repairLoop.protocol`; never recheck an unchanged draft; same findings after a change: correct differently, up to `correction.maximumChangedFingerprints` changed drafts, then stop.
+5. At `model-generation`, run `singularity-flow wm compose --phase &lt;PHASE&gt;` once; author from it and `Active supporting evidence`. Run `singularity-flow phase prepublish &lt;PHASE&gt; --for-agent --json --publish-if-ready` (includes draft-check); correct only findings with `correction.sameTurn`, else route to their owner via `correction.guidance`/`correction.skill`. Never blindly delete markers, invent facts or padding, nest models or overwrite producers. Use returned `commands.publish` when `ready` unless `publishIfReady.published`; absent: relay `commands.next`, stop. On `ARTIFACT_AUTHORING_INCOMPLETE`, recheck once; retry only if ready; never loop. Follow `repairContinuation`/`repairLoop.protocol`; no unchanged retries or resets. Respect `correction.maximumChangedFingerprints`; exhausted: preserve work and return manual/owner routes.
 6. Obey clarification mode: when `off`, never ask phase questions or run `singularity-flow clarification record`; otherwise clarify only when returned.
 7. Missing claims are missing trace evidence, not missing code; open blockers stop advancement.
 8. Report returned milestones and next pairs: `Next in Copilot: /sf-...`, `Terminal equivalent: singularity-flow ...`. Never approve, reject or advance.
@@ -2780,7 +2780,7 @@ Reuse a verified pause-aware entry supplied in this invocation before any mutati
           <span class="pill">generative</span>
           <span class="pill">story boundary</span>
           <span class="pill">model: never</span>
-          <span class="pill">~2019 body tokens</span>
+          <span class="pill">~2017 body tokens</span>
         </div>
         <dl>
           <div><dt>Command</dt><dd><code>/sflow-design</code></dd></div>
@@ -2817,7 +2817,7 @@ Blocked: relay `resolution.issues[].choices` too. Eligible risk needs reason/exp
 5. Preparation is not authoring. Run `singularity-flow prepare &lt;phase&gt;` unless prepared in step 2; use the native file-edit tool to complete the existing document from `context.text` and approved evidence, including Agent brief. Resolve template TODOs, preserve managed blocks; never invent or pad.
 6. Cover components, interfaces, data flow, alternatives, compatibility, security, privacy, observability, migration, rollout/rollback, risks, and implementation order.
 7. State assumptions and tradeoffs. Do not implement production code.
-8. Run `singularity-flow phase prepublish &lt;phase&gt; --for-agent --json --publish-if-ready` (includes draft-check). Unready: reuse findings/resolution; fresh diagnostics only when requested by its next action. Stay in this phase. Correct agent findings from governed evidence only when `correction.sameTurn`; else route to owner/regenerator via `correction.guidance`/`correction.skill`. Never blindly delete markers, invent facts/padding, nest models or overwrite producers. Follow returned `repairLoop.protocol`; never recheck an unchanged draft; same findings after a change: correct differently, up to `correction.maximumChangedFingerprints` changed drafts, then stop.
+8. Run `singularity-flow phase prepublish &lt;phase&gt; --for-agent --json --publish-if-ready` (includes draft-check). Unready: reuse findings/resolution; fresh diagnostics only when requested by its next action. Stay in this phase. Correct agent findings from governed evidence only when `correction.sameTurn`; else route to owner/regenerator via `correction.guidance`/`correction.skill`. Never blindly delete markers, invent facts/padding, nest models or overwrite producers. Follow `repairContinuation`/`repairLoop.protocol`; no unchanged retries or resets. Respect `correction.maximumChangedFingerprints`; exhausted: preserve work and return manual/owner routes.
 9. Use returned `commands.publish` when `ready` unless `publishIfReady.published`; absent: relay `commands.next`, stop. Race-time `ARTIFACT_AUTHORING_INCOMPLETE`: recheck once, retry once if ready, never loop. Never submit or approve.
 10. From `publishIfReady.review`, summarize the published documents with verified Markdown-preview links, generation/hashes, warnings and current `reviewBinding`. Never reproduce bodies or count a summary/link as human review; document reuse never carries approval consent.
 11. Report commit/tokens. Relay each `handoff`: `Next in Copilot: /sf-…` from `copilotCommand`, then `Terminal equivalent: singularity-flow …` from `command`.
@@ -2985,7 +2985,7 @@ When a failure is not explained by the current state, read what actually happene
           <span class="pill">generative</span>
           <span class="pill">story boundary</span>
           <span class="pill">model: never</span>
-          <span class="pill">~1908 body tokens</span>
+          <span class="pill">~1898 body tokens</span>
         </div>
         <dl>
           <div><dt>Command</dt><dd><code>/sflow-document-intake</code></dd></div>
@@ -3020,7 +3020,7 @@ First run `singularity-flow phase enter --compose --for-agent --json` once in ev
 4. Preparation is not authoring. Reuse delivered inputs/reference paths. Run `singularity-flow prepare &lt;phase&gt;` unless prepared in step 3; use the native file-edit tool to complete the existing artifact and Agent brief. Resolve TODOs from evidence, preserve managed blocks; never pad/invent.
 5. Define qualified REQ/AC identities, scenario inputs, observable assertions, evidence and allowed repair paths. Inspect bounded repository manifests; agree exact test commands/tools, authorized targets, test data and visual tolerances. Never install tools, execute tests or assume production access at intake. Missing commands stay pending; offer `/sf-test-setup` for reviewed configuration.
 6. Inspect `singularity-flow evidence scope --json`; show unresolved source dispositions via `/sf-decide` for human review, never decide for them. Explain test-first routing: `pass` requires every required scenario executed successfully; `repair` requires an evidenced defect; missing/inconclusive evidence is `blocked`. Human acceptance and the agent pass are both required to finish. A no-change pass (implementation applicability) and loop limits need a human `/sf-decide` choice, not a false pass.
-7. Preserve validated preparation files. Run `singularity-flow phase prepublish &lt;phase&gt; --for-agent --json --publish-if-ready` (includes draft-check and recovery); correct in-scope findings. Stop for human confirmation or protected/unowned edits. Follow returned `repairLoop.protocol` for persistent correction/resume; never recheck an unchanged draft; same findings after a change: correct differently, up to `correction.maximumChangedFingerprints` changed drafts, then stop.
+7. Preserve validated preparation files. Run `singularity-flow phase prepublish &lt;phase&gt; --for-agent --json --publish-if-ready` (includes draft-check and recovery); correct in-scope findings. Stop for human confirmation or protected/unowned edits. Follow `repairContinuation`/`repairLoop.protocol`; no unchanged retries or resets. Respect `correction.maximumChangedFingerprints`; exhausted: preserve work and return manual/owner routes.
 8. Use returned `commands.publish` once when `ready` unless `publishIfReady.published`; absent: relay `commands.next`, stop. Show `publishIfReady.review`, its references and limitations. Relay each `handoff` using its `copilotCommand` and `command`. Never submit or approve.
 </code></pre>
       </div>
@@ -6051,7 +6051,7 @@ Before any boundary lookup or SFlow action, run `singularity-flow pause status -
           <span class="pill">generative</span>
           <span class="pill">repository boundary</span>
           <span class="pill">model: never</span>
-          <span class="pill">~1291 body tokens</span>
+          <span class="pill">~1292 body tokens</span>
         </div>
         <dl>
           <div><dt>Command</dt><dd><code>/sflow-initiative-phase</code></dd></div>
@@ -6085,7 +6085,7 @@ Before any boundary lookup or SFlow action, run `singularity-flow pause status -
 3. The Repository brief is guidance: never run a World Model check or rebuild, and never block the Initiative phase on it. Never substitute a Story phase for an Initiative phase.
 4. Run `singularity-flow initiative context [PHASE] [--initiative INIT-ID]` and use the complete returned prompt. Do not generate from a summary or from filenames alone.
 5. Run `singularity-flow initiative documents [PHASE] [--initiative INIT-ID]`. Preparation is not authoring: use the native file-edit tool to complete every existing required output at the exact path step 2 or `draft-check` returned, resolve TODOs, preserve managed metadata and satisfy the checklist. Never invent evidence.
-6. Run `singularity-flow initiative phase draft-check [PHASE] [--initiative INIT-ID] --json`. If unready, act only on its `findings` and `correction`, rerun its `commands.recheck`, and keep repair in this phase. Correct every agent finding now from governed evidence only when ownership permits; otherwise route to its producer or human. Recheck up to three changed `draftFingerprint`s and stop on an unchanged `draftFingerprint` (an unedited draft; same findings after an edit: correct differently), relaying the actions of `singularity-flow initiative recover &lt;INIT-ID&gt; --json`. Never blindly delete markers, invent facts or padding, invoke a nested model, or overwrite another producer.
+6. Run `singularity-flow initiative phase draft-check [PHASE] [--initiative INIT-ID] --json`. If unready, act only on its `findings` and `correction`, rerun its `commands.recheck`, and keep repair in this phase. Correct every agent finding now from governed evidence only when ownership permits; otherwise route to its producer or human. Follow the self-healing contract; recheck up to three changed `draftFingerprint`s, never retry unchanged ones. Exhaustion ends automation: preserve work and return the manual/owner actions of `singularity-flow initiative recover &lt;INIT-ID&gt; --json`. Never blindly delete markers, invent facts or padding, invoke a nested model, or overwrite another producer.
 7. Only when `status` is `ready`, run the exact `singularity-flow initiative phase publish` action. Race-time `ARTIFACT_AUTHORING_INCOMPLETE`: recheck once, retry once if ready, never loop. Never submit or approve.
 8. Run `singularity-flow initiative documents [PHASE] [--initiative INIT-ID]` again. Summarize each output with a verified Markdown-preview link, generation and hash; never reproduce document bodies or code. Binary: path/bytes/hash. This is not human review.
 9. Report the prompt snapshot, output hashes, generation commit, push result, checklist blockers, approval requirements, and the first result from `singularity-flow initiative next [INIT-ID] --for-agent --json`. Do not approve automatically.
@@ -7871,7 +7871,7 @@ argument-hint: &quot;[on|off|status]&quot;
           <span class="pill">generative</span>
           <span class="pill">story boundary</span>
           <span class="pill">model: never</span>
-          <span class="pill">~1942 body tokens</span>
+          <span class="pill">~1940 body tokens</span>
         </div>
         <dl>
           <div><dt>Command</dt><dd><code>/sflow-phase</code></dd></div>
@@ -7908,7 +7908,7 @@ Blocked: relay `resolution.issues[].choices` too. Eligible risk needs reason/exp
 5. Run `singularity-flow prepare &lt;phase&gt;` unless prepared in step 2 or `authoringProgress.draft.draftExists`. Preparation is not authoring: finish artifact/Agent brief/TODOs (native file-edit tool, `context.text`/`retainedExecutionEvidence`); never stop there. Preserve drafts/managed blocks/approvals. Deterministic: regenerator only.
 6. Preserve REQ/AC IDs; `/sf-code` owns tags. Follow `scopeReview`. Retained files: `evidence` fulfillment, primary visual/inspection contracts. Review `planningEvidenceRepair` when `sameTurn`; recheck.
 7. Prepublish rechecks recovery; never accept draft holds.
-8. Run `singularity-flow phase prepublish &lt;phase&gt; --for-agent --json --publish-if-ready` (includes draft-check). Correct every agent finding under `correction.class`/`sameTurn`; route others via `correction.guidance`/`correction.skill`, code to `/sf-code`. Never invent, pad, blindly delete markers, nest models or overwrite producers. Follow returned `repairLoop.protocol`; never recheck an unchanged draft; same findings after a change: correct differently, up to `correction.maximumChangedFingerprints` changed drafts, then stop.
+8. Run `singularity-flow phase prepublish &lt;phase&gt; --for-agent --json --publish-if-ready` (includes draft-check). Correct every agent finding under `correction.class`/`sameTurn`; route others via `correction.guidance`/`correction.skill`, code to `/sf-code`. Never invent, pad, blindly delete markers, nest models or overwrite producers. Follow `repairContinuation`/`repairLoop.protocol`; no unchanged retries or resets. Respect `correction.maximumChangedFingerprints`; exhausted: preserve work and return manual/owner routes.
 9. Ready and `publishIfReady.published` false: use returned `commands.publish`; advisories and `requiredBefore: approve` create no hold. Absent: relay `commands.next`, stop. `ARTIFACT_AUTHORING_INCOMPLETE`: recheck/retry once if ready. Keep sanitized `telemetry/&lt;phase&gt;-gen&lt;N&gt;.json`. Never submit/approve.
 10. From `publishIfReady.review`, report commit/push, model/cost, hash-bound documents. Relay `handoff`&#39;s `copilotCommand`/`command`. Not submission/review readiness.
 </code></pre>
@@ -7986,7 +7986,7 @@ Reuse a verified pause-aware entry supplied in this invocation before any mutati
           <span class="pill">generative</span>
           <span class="pill">story boundary</span>
           <span class="pill">model: never</span>
-          <span class="pill">~1757 body tokens</span>
+          <span class="pill">~1755 body tokens</span>
         </div>
         <dl>
           <div><dt>Command</dt><dd><code>/sflow-plan</code></dd></div>
@@ -8020,7 +8020,7 @@ Blocked: relay `resolution.issues[].choices` too. Eligible risk needs reason/exp
 3. If the checkpoint is `recovery`, route it first; nothing else proceeds until its commit reaches the remote.
 4. If the checkpoint is `approval`, stop: only an authorized human Git identity approves.
 5. At `model-generation`, require first `NOW` in `next[]` = `singularity-flow prepare &lt;PHASE&gt;`; execute once, use its artifact path. Otherwise relay the route and stop; no seeded/stale drafting. Use the resolved agent, approved inputs and pinned template/constitution. `singularity-flow wm compose --phase &lt;PHASE&gt;`: use supporting evidence; cite used documents as `DOC-nnn — &lt;name&gt;`. Derive the plan from approved specification clauses. In `Test strategy`, fill the planned-evidence table, one row per authoritative clause: fully qualified ID, backticked exact repository-relative paths (never directories, globs, modules or prose), Fulfillment and Observable result. For non-testable clauses use `not-applicable:` with a reviewed explanation, never to hide unknowns. Non-commentable changes (manifest/lockfile/CI config): `## Supporting files` bullets with exact path/reason. Fill `Agent brief`: approach, surfaces, sequence, proof, risks. `tasks.md` is advisory, never a gate.
-6. Before publication run `singularity-flow phase prepublish &lt;PHASE&gt; --for-agent --json --publish-if-ready` (includes draft-check). Unready: `singularity-flow recover &lt;WORK-ID&gt; --phase &lt;PHASE&gt; --for-agent --json`; stay here. Correct agent findings from governed evidence when `correction.sameTurn`; else route to its owner via `correction.guidance`/`correction.skill`. Never invent, pad, blindly delete markers, nest models or overwrite producers. Use returned `commands.publish` when `ready` unless `publishIfReady.published`; absent: relay `commands.next`, stop. A race-time `ARTIFACT_AUTHORING_INCOMPLETE`: one recheck, one publication retry if ready, never a loop. Follow returned `repairLoop.protocol`; never recheck an unchanged draft; same findings after a change: correct differently, up to `correction.maximumChangedFingerprints` changed drafts, then stop.
+6. Before publication run `singularity-flow phase prepublish &lt;PHASE&gt; --for-agent --json --publish-if-ready` (includes draft-check). Unready: `singularity-flow recover &lt;WORK-ID&gt; --phase &lt;PHASE&gt; --for-agent --json`; stay here. Correct agent findings from governed evidence when `correction.sameTurn`; else route to its owner via `correction.guidance`/`correction.skill`. Never invent, pad, blindly delete markers, nest models or overwrite producers. Use returned `commands.publish` when `ready` unless `publishIfReady.published`; absent: relay `commands.next`, stop. A race-time `ARTIFACT_AUTHORING_INCOMPLETE`: one recheck, one publication retry if ready, never a loop. Follow `repairContinuation`/`repairLoop.protocol`; no unchanged retries or resets. Respect `correction.maximumChangedFingerprints`; exhausted: preserve work and return manual/owner routes.
 New/modified `Expected paths`: product source; `Planned tests`: tests. Test-only obligations use fulfillment `test-only` with `Expected paths` = `-`. Retained files: fulfillment `evidence`, exact Story evidence path, primary visual/inspection `Verification contracts` row. Review returned `planningEvidenceRepair` patches only when `sameTurn`; recheck. File presence never proves a visual pass.
 
 7. Report only returned milestones and operations run. Never submit, approve, reject or advance. Show returned next actions as `Next in Copilot: /sf-...` and exact `Terminal equivalent: singularity-flow ...`; never omit or guess routes.
@@ -8344,7 +8344,7 @@ Before any boundary lookup or SFlow action, run `singularity-flow pause status -
           <span class="pill">mutation</span>
           <span class="pill">story boundary</span>
           <span class="pill">model: never</span>
-          <span class="pill">~1223 body tokens</span>
+          <span class="pill">~1229 body tokens</span>
         </div>
         <dl>
           <div><dt>Command</dt><dd><code>/sflow-publish</code></dd></div>
@@ -8374,7 +8374,7 @@ Reuse a verified pause-aware entry supplied in this invocation before any mutati
 **Boundary:** reuse entry `ready`/`workId`, cwd=`repositoryPath`, or as is from a non-Git (chat) folder: SFlow finds the bound checkout; never refuse or wrap for it; CLI/`workItemRoot` paths only; never `$HOME`. No duplicate lookup. Use exact CLI-returned paths. `repositoryPath` is command cwd, not a prefix for absolute file paths. Never rebase paths or strip `.git/worktrees`. Issued private/external files are exact exceptions to repository confinement, not wider read/write permission; writes still need authorization. Resolve relative paths only against their declared base. On failure, preserve the path and error; never search or recreate it.
 
 1. Bind the optional phase to the active phase in this entry; mismatch: stop with the returned selection route. Publication-only: never edit source/artifacts, compose, prepare, begin a generation, record clarification, submit, approve or change policy.
-2. Run `singularity-flow phase prepublish &lt;phase&gt; --for-agent --json --publish-if-ready` once. Use native file-read tools for captured output, not shell parsers, pipes or command chains. Preserve the existing draft. Unless `status: ready` and `commands.publish` is present, relay exact blockers and author/repair actions, then stop. No re-asking settled clarification or retrying unchanged failures.
+2. Run `singularity-flow phase prepublish &lt;phase&gt; --for-agent --json --publish-if-ready` once. Use native file-read tools for captured output, not shell parsers, pipes or command chains. Preserve the existing draft. Unready: follow `resolution`/`repairContinuation`; diagnose and use its exact author/owner handoff. This publication-only role never edits. No re-asking settled clarification or retrying unchanged failures.
 3. When `ready` it ran returned `commands.publish` once, with its pinned producer/channel (`publishIfReady`); never rerun it; do not invent authorship flags, waive gates or run separate tests. `advisories` never block this attempt; report any `requiredBefore: approve` warning as a later obligation, not a current owner hold. Report open `scopeReview` items with their exact human decision route; publication is not their disposition. Do not edit documentation or package scripts in this publication-only skill. Publication owns any configured fresh test execution. Already-published/no-op results do not authorize a successor or resubmission.
 4. Show publication generation/commit/push and warnings from `publishIfReady` truthfully. If requested to view documents, use the returned document route; publication is not approval. End with exact returned next actions in Copilot, Shell and model-free order. Never advance to the next phase in this turn.
 </code></pre>
@@ -8742,7 +8742,7 @@ Use the durable workspace, work-item, evidence, and repository records. Never in
           <span class="pill">mutation</span>
           <span class="pill">story boundary</span>
           <span class="pill">model: never</span>
-          <span class="pill">~1562 body tokens</span>
+          <span class="pill">~1564 body tokens</span>
         </div>
         <dl>
           <div><dt>Command</dt><dd><code>/sflow-recover</code></dd></div>
@@ -8781,7 +8781,7 @@ Reuse a verified pause-aware entry supplied in this invocation before any mutati
 
 TRP: `singularity-flow explain test-recovery`; live review for exceptions. Never answer approval cards or label failed/skipped/unavailable passed.
 
-Follow `resolution.issues[].choices`/`repairLoop.protocol`. Owned repair saves copies. `/sf-appeal`: preservation/eligible risks, live decisions; not approval/passes. Backup failure preserves originals; no cleaning.
+Follow `repairContinuation`/`resolution.issues[].choices`/`repairLoop.protocol`. Owned repair saves copies. `/sf-appeal`: preservation/eligible risks, live decisions; not approval/passes. Backup failure preserves originals.
 </code></pre>
       </div>
     </details>
@@ -9150,7 +9150,7 @@ On checkpoint, digest, boundary or staged-path errors, preserve bytes and relay 
           <span class="pill">generative</span>
           <span class="pill">story boundary</span>
           <span class="pill">model: never</span>
-          <span class="pill">~2032 body tokens</span>
+          <span class="pill">~2030 body tokens</span>
         </div>
         <dl>
           <div><dt>Command</dt><dd><code>/sflow-release</code></dd></div>
@@ -9185,7 +9185,7 @@ Blocked: relay `resolution.issues[].choices` too. Eligible risk needs reason/exp
 3. Reuse inputs/references and `retainedExecutionEvidence`; reconcile stale prose/IDE discovery with bound governed results, never turn command success into criterion acceptance or rewrite approved reports. Expand only missing material. Follow `clarification.checkpoint`: off skips; reuse replies, record unanswered questions before preparation. Repair recording, not questions.
 4. Preparation is not authoring. Run `singularity-flow prepare &lt;phase&gt;` unless prepared in step 2; use the native file-edit tool to complete the existing release report and every artifact-set member, including Agent brief. Resolve template TODOs and preserve managed blocks. When the step declares a `verification/` member, bind the approved verifying step&#39;s generation, exact paths/hashes, observed results and gaps in its `evidence-index.md`; otherwise list evidence gaps. Never invent evidence. A partial or missing verdict is honest output: never upgrade it to clear a check; it publishes and the delivering step&#39;s approvers decide it.
 5. Cover deployment/preconditions, migrations/flags, validation/metrics/alerts, success, rollback, communication, ownership and escalation.
-6. Run `singularity-flow phase prepublish &lt;phase&gt; --for-agent --json --publish-if-ready` (includes draft-check). Unready: reuse findings/resolution; fresh diagnostics only when requested by its next action. Stay in this phase. Correct agent findings from governed evidence only when `correction.sameTurn`; else route to owner/regenerator via `correction.guidance`/`correction.skill`. Never blindly delete markers, invent facts/padding, nest models or overwrite producers. Follow returned `repairLoop.protocol`; never recheck an unchanged draft; same findings after a change: correct differently, up to `correction.maximumChangedFingerprints` changed drafts, then stop.
+6. Run `singularity-flow phase prepublish &lt;phase&gt; --for-agent --json --publish-if-ready` (includes draft-check). Unready: reuse findings/resolution; fresh diagnostics only when requested by its next action. Stay in this phase. Correct agent findings from governed evidence only when `correction.sameTurn`; else route to owner/regenerator via `correction.guidance`/`correction.skill`. Never blindly delete markers, invent facts/padding, nest models or overwrite producers. Follow `repairContinuation`/`repairLoop.protocol`; no unchanged retries or resets. Respect `correction.maximumChangedFingerprints`; exhausted: preserve work and return manual/owner routes.
 7. Use returned `commands.publish` when `ready` unless `publishIfReady.published`; absent: relay `commands.next`, stop. Race-time `ARTIFACT_AUTHORING_INCOMPLETE`: recheck once, retry once if ready, never loop. Never submit or approve.
 8. From `publishIfReady.review`, summarize the published documents with verified Markdown-preview links, generation/hashes, warnings and current `reviewBinding`. Never reproduce bodies or count a summary/link as human review; document reuse never carries approval consent.
 9. Never submit/approve. Relay each `handoff`: `Next in Copilot: /sf-…` from `copilotCommand`, then `Terminal equivalent: singularity-flow …` from `command`.
@@ -9325,7 +9325,7 @@ Before any boundary lookup or SFlow action, run `singularity-flow pause status -
           <span class="pill">generative</span>
           <span class="pill">story boundary</span>
           <span class="pill">model: never</span>
-          <span class="pill">~2053 body tokens</span>
+          <span class="pill">~2051 body tokens</span>
         </div>
         <dl>
           <div><dt>Command</dt><dd><code>/sflow-requirements</code></dd></div>
@@ -9362,7 +9362,7 @@ Blocked: relay `resolution.issues[].choices` too. Eligible risk needs reason/exp
 5. Preparation is not authoring. Run `singularity-flow prepare &lt;phase&gt;` unless prepared in step 3; use its returned path and `source.json`. Use the native file-edit tool to complete the existing artifact from `context.text` and approved evidence, including Agent brief; resolve template TODOs, preserve managed blocks, never invent or pad.
 6. Inspect only grounding-selected files. Do not implement code.
 7. Cover problem, outcome, scope, measurable acceptance criteria with stable qualified `[WORK-ID:AC-001]` anchors (the work ID in capitals), dependencies, assumptions, risks, confirmed decisions, and deferred questions. Never use a bare `AC-001` as the authoritative clause ID.
-8. Run `singularity-flow phase prepublish &lt;phase&gt; --for-agent --json --publish-if-ready` (includes draft-check). Unready: reuse findings/resolution; fresh diagnostics only when requested by its next action. Stay in this phase. Correct agent findings from governed evidence only when `correction.sameTurn`; else route to owner/regenerator via `correction.guidance`/`correction.skill`. Never blindly delete markers, invent facts/padding, nest models or overwrite producers. Follow returned `repairLoop.protocol`; never recheck an unchanged draft; same findings after a change: correct differently, up to `correction.maximumChangedFingerprints` changed drafts, then stop.
+8. Run `singularity-flow phase prepublish &lt;phase&gt; --for-agent --json --publish-if-ready` (includes draft-check). Unready: reuse findings/resolution; fresh diagnostics only when requested by its next action. Stay in this phase. Correct agent findings from governed evidence only when `correction.sameTurn`; else route to owner/regenerator via `correction.guidance`/`correction.skill`. Never blindly delete markers, invent facts/padding, nest models or overwrite producers. Follow `repairContinuation`/`repairLoop.protocol`; no unchanged retries or resets. Respect `correction.maximumChangedFingerprints`; exhausted: preserve work and return manual/owner routes.
 9. Use returned `commands.publish` when `ready` unless `publishIfReady.published`; absent: relay `commands.next`, stop. Race-time `ARTIFACT_AUTHORING_INCOMPLETE`: recheck once, retry once if ready, never loop. Never submit or approve.
 10. From `publishIfReady.review`, summarize the published documents with verified Markdown-preview links, generation/hashes, warnings and current `reviewBinding`. Never reproduce bodies or count a summary/link as human review; document reuse never carries approval consent.
 11. Report decisions, tokens, and commit. End with each returned `handoff`: `Next in Copilot: /sf-…` from its `copilotCommand`, then `Terminal equivalent: singularity-flow …` from its `command`; do not submit or approve.
@@ -9554,7 +9554,7 @@ Run `singularity-flow return &lt;WORK-ID&gt; --json` first. Show the configured 
           <span class="pill">review</span>
           <span class="pill">story boundary</span>
           <span class="pill">model: never</span>
-          <span class="pill">~1512 body tokens</span>
+          <span class="pill">~1510 body tokens</span>
         </div>
         <dl>
           <div><dt>Command</dt><dd><code>/sflow-review</code></dd></div>
@@ -9591,7 +9591,7 @@ Run `singularity-flow review &lt;phase&gt; --format json` for the explicit or ac
 4. Review correctness, acceptance coverage, maintainability, architecture alignment, security, failures, observability, rollout, rollback, and tests.
 5. Rank findings by severity with file/line references.
 6. Do not silently fix findings unless explicitly asked.
-7. Prepare/author that configured review phase, then `singularity-flow phase prepublish &lt;phase&gt; --for-agent --json --publish-if-ready` (includes draft-check). If unready, act on its `commands.next` and `repairLoop.protocol`; stay here. Correct every agent authoring finding now only when `correction.sameTurn`; route other producers to their owner. Never delete markers blindly, invent facts/padding, nest models or overwrite producers. Substantive findings need a separate human fix decision: publish them in the review, then offer the approver&#39;s post-submission `/sf-reject --to &lt;OWNING-STEP&gt;`, or `singularity-flow upstream-issue raise --phase &lt;OWNING-STEP&gt; --about &lt;ID&gt; --problem &quot;&lt;TEXT&gt;&quot;` for `/sf-decide`. Follow returned `repairLoop.protocol`; never recheck an unchanged draft; same findings after a change: correct differently, up to `correction.maximumChangedFingerprints` changed drafts, then stop.
+7. Prepare/author that configured review phase, then `singularity-flow phase prepublish &lt;phase&gt; --for-agent --json --publish-if-ready` (includes draft-check). If unready, act on its `commands.next` and `repairLoop.protocol`; stay here. Correct every agent authoring finding now only when `correction.sameTurn`; route other producers to their owner. Never delete markers blindly, invent facts/padding, nest models or overwrite producers. Substantive findings need a separate human fix decision: publish them in the review, then offer the approver&#39;s post-submission `/sf-reject --to &lt;OWNING-STEP&gt;`, or `singularity-flow upstream-issue raise --phase &lt;OWNING-STEP&gt; --about &lt;ID&gt; --problem &quot;&lt;TEXT&gt;&quot;` for `/sf-decide`. Follow `repairContinuation`/`repairLoop.protocol`; no unchanged retries or resets. Respect `correction.maximumChangedFingerprints`; exhausted: preserve work and return manual/owner routes.
 8. Use returned `commands.publish` when `ready` unless `publishIfReady.published`; absent: relay `commands.next`, stop. Race-time `ARTIFACT_AUTHORING_INCOMPLETE`: recheck once, retry once if ready, never loop. Never submit or approve.
 9. If published, from `publishIfReady.review` summarize findings/status and give verified Markdown-preview links with generation/hashes and current `reviewBinding`. Read exact source/artifact bytes for the independent review, but never reproduce bodies/code/diffs in chat. Summaries/links are not human review; document reuse never reuses approval consent.
 10. After authoring, refresh `singularity-flow review &lt;phase&gt; --format json`. Relay `continuation.actions`: phase and all three surfaces per the Output contract. Correction, review, human disposition and recovery precede Submit. If absent, `singularity-flow nextsteps &lt;WORK-ID&gt; --for-agent --json`. Never submit or approve automatically.
@@ -10074,7 +10074,7 @@ The capability&#39;s `application.start` entries say how to start it, as typed r
           <span class="pill">generative</span>
           <span class="pill">story boundary</span>
           <span class="pill">model: never</span>
-          <span class="pill">~1958 body tokens</span>
+          <span class="pill">~1948 body tokens</span>
         </div>
         <dl>
           <div><dt>Command</dt><dd><code>/sflow-scenario-check</code></dd></div>
@@ -10108,7 +10108,7 @@ First run `singularity-flow phase enter --compose --for-agent --json` once in ev
 3. Run only the approved scenarios and exact authorized test commands/tool actions. No source/test edits here. Retain tested revision, argv/cwd, environment, exit codes, executed test identities and fresh hashed outputs under CLI-returned artifact paths. Never reuse an old report, skip cases or count zero tests as passing. Missing assertions need a repair request.
 4. Playwright optional: returned server ID, host readiness and live `singularity-flow mcp smoke &lt;SERVER-ID&gt; --url &lt;APPROVED-URL&gt;`; retain tool/phase/output with `singularity-flow mcp record &lt;SERVER-ID&gt;`. No foreign policy/origins, fabricated records or secrets. Approved tools retain real reports; MCP screenshots are not structured test receipts.
 5. Preparation is not authoring. Use the native file-edit tool for the existing report/Agent brief from observed results; resolve TODOs, preserve managed blocks. Entry `testEvidenceFrom` set: verify that step&#39;s Code receipt, rerun approved scenarios. Pass only when every required assertion ran/passed; repair for defects; blocked for unavailable/inconclusive evidence, a verdict to record and publish, not a stop (then name the missing tool/environment and offer `/sf-test-setup`); never code repair. Record clause results and bounded repair requests; never manufacture a pass at a round limit.
-6. Preserve validated context. Run `singularity-flow phase prepublish &lt;phase&gt; --for-agent --json --publish-if-ready` (includes draft-check and recovery); follow owned artifact repairs. Stop for confirmation/protected edits. Code repair belongs to `/sf-scenario-repair`, never this check. Follow returned `repairLoop.protocol` for persistent correction/resume; never recheck an unchanged draft; same findings after a change: correct differently, up to `correction.maximumChangedFingerprints` changed drafts, then stop.
+6. Preserve validated context. Run `singularity-flow phase prepublish &lt;phase&gt; --for-agent --json --publish-if-ready` (includes draft-check and recovery); follow owned artifact repairs. Stop for confirmation/protected edits. Code repair belongs to `/sf-scenario-repair`, never this check. Follow `repairContinuation`/`repairLoop.protocol`; no unchanged retries or resets. Respect `correction.maximumChangedFingerprints`; exhausted: preserve work and return manual/owner routes.
 7. Use returned `commands.publish` once when `ready` unless `publishIfReady.published`; absent: relay `commands.next`, stop. Summarize the report with its verified Markdown-preview link, fresh evidence, limitations and the exact verdict in the returned submit command&#39;s decision vocabulary. Human approval of a failure report authorizes repair, not acceptance; initial no-repair completion also needs human implementation-applicability. Relay each `handoff` with its `copilotCommand` and `command`; never submit or approve.
 </code></pre>
       </div>
@@ -10791,7 +10791,7 @@ New drafts created in Spec Studio or with `singularity-flow spec author new --ti
           <span class="pill">generative</span>
           <span class="pill">story boundary</span>
           <span class="pill">model: never</span>
-          <span class="pill">~1776 body tokens</span>
+          <span class="pill">~1766 body tokens</span>
         </div>
         <dl>
           <div><dt>Command</dt><dd><code>/sflow-specify</code></dd></div>
@@ -10825,7 +10825,7 @@ Blocked: relay `resolution.issues[].choices` too. Eligible risk needs reason/exp
 3. If the checkpoint is `recovery`, route it first. Nothing else may proceed while a retained commit has not reached its remote.
 4. If the checkpoint is `approval`, stop: only an authorized human Git identity approves.
 5. At `model-generation`, require the first `NOW` action in the returned `next[]` to be `singularity-flow prepare &lt;PHASE&gt;`; run that exact returned command once and use its artifact path. If the action differs, stop and relay the returned route; never author a seeded or stale draft. With the resolved agent, approved inputs, pinned template/constitution, and required world-model views, author the specification scenario-first: prioritized Given/When/Then scenarios, actors, empty/failure states, permissions, boundaries, and non-functional requirements. Fill `Agent brief` with approved intent only; the kernel preserves exact sections for review. Run `singularity-flow wm compose --phase &lt;PHASE&gt;` once for its `Active supporting evidence`; under `## Sources` cite each document used as `DOC-nnn — &lt;name&gt;` and list unreadable or unavailable ones as gaps. Where evidence is missing, write `[NEEDS CLARIFICATION: &lt;one question grounded in the current Story evidence&gt;]`, not an invented answer. A blocking marker: ask the person, run `singularity-flow clarification record &lt;PHASE&gt; --marker &quot;&lt;question&gt;&quot; --answer &quot;&lt;reply&gt;&quot;`, write the answer in its place, recheck.
-6. Before publication run `singularity-flow phase prepublish &lt;PHASE&gt; --for-agent --json --publish-if-ready` (includes draft-check). Unready: `singularity-flow recover &lt;WORK-ID&gt; --phase &lt;PHASE&gt; --for-agent --json`; stay here. Repair from approved inputs when `correction.sameTurn`; else route to its owner via `correction.guidance`/`correction.skill`. Never invent, pad, blindly delete markers, nest models or overwrite producers. Use returned `commands.publish` when `ready` unless `publishIfReady.published`; absent: relay `commands.next`, stop. A race-time `ARTIFACT_AUTHORING_INCOMPLETE` permits one recheck and at most one publication retry if ready, never a loop. Never submit or approve. Follow returned `repairLoop.protocol` for persistent correction/resume; never recheck an unchanged draft; same findings after a change: correct differently, up to `correction.maximumChangedFingerprints` changed drafts, then stop.
+6. Before publication run `singularity-flow phase prepublish &lt;PHASE&gt; --for-agent --json --publish-if-ready` (includes draft-check). Unready: `singularity-flow recover &lt;WORK-ID&gt; --phase &lt;PHASE&gt; --for-agent --json`; stay here. Repair from approved inputs when `correction.sameTurn`; else route to its owner via `correction.guidance`/`correction.skill`. Never invent, pad, blindly delete markers, nest models or overwrite producers. Use returned `commands.publish` when `ready` unless `publishIfReady.published`; absent: relay `commands.next`, stop. A race-time `ARTIFACT_AUTHORING_INCOMPLETE` permits one recheck and at most one publication retry if ready, never a loop. Never submit or approve. Follow `repairContinuation`/`repairLoop.protocol`; no unchanged retries or resets. Respect `correction.maximumChangedFingerprints`; exhausted: preserve work and return manual/owner routes.
 7. Claim a milestone only when the router returns it.
 8. State the underlying operations you ran.
 9. Show each returned next action as `Next in Copilot: /sf-...`, then the exact `Terminal equivalent: singularity-flow ...`; never omit or guess either.
@@ -11437,7 +11437,7 @@ TRP: read and follow `singularity-flow explain test-recovery`; returned legal ac
           <span class="pill">review</span>
           <span class="pill">story boundary</span>
           <span class="pill">model: never</span>
-          <span class="pill">~1523 body tokens</span>
+          <span class="pill">~1527 body tokens</span>
         </div>
         <dl>
           <div><dt>Command</dt><dd><code>/sflow-submit</code></dd></div>
@@ -11474,12 +11474,12 @@ Reuse a verified pause-aware entry supplied in this invocation before any mutati
 4. `confirmationRequired: true`: show full warning and returned Work-ID-pinned command; human provides `continue`.
 5. Readiness `classification` `convergence-advance-required`: never generic `singularity-flow submit`. Run returned `singularity-flow story advance` without `--confirm`; show review/digest, stop on unresolved dispositions. Invoked with `--confirm sha256:&lt;DIGEST&gt;` equal to the shown digest, or the person confirms it here: run it with `--confirm` once. Changed digest requires fresh review.
 6. Unless `submitIfReady.submitted`, run returned Work-ID-pinned submit command; ask the person for each `decisionInputs` value, never fill one. `--skip-checks` requires authorization.
-7. On failure, fingerprint refusal plus artifact/check hashes and diagnosed runtime evidence. Nonzero exit fails despite passing JUnit. Proven environment repair permits retry without republishing unchanged source; changed source/artifacts need reviewed rollover. Stop on an unchanged condition or after three distinct repairs. Never loop quality commands or waive tests/integrity/policy. `/sf-recover` never substitutes for terminal decisions.
+7. On failure, fingerprint refusal plus artifact/check hashes and diagnosed runtime evidence. Nonzero exit fails despite passing JUnit. Proven environment repair permits retry without republishing unchanged source; changed source/artifacts need reviewed rollover. Stop on an unchanged condition or after three distinct repairs: automation only; preserve the manual/owner route. Never loop quality commands or waive gates. Recovery never replaces terminal decisions.
 8. Use `submitIfReady.review`, else `singularity-flow phase show &lt;phase&gt; --for-agent --json`. Summarize submitted status/checks/warnings and list each artifact/brief&#39;s identity, generation/hash and verified Markdown-preview link. Preserve `displayBinding` and fresh `reviewBinding`; never reproduce document bodies, code or diffs. Tool output or summaries are not review.
 9. Offer the approval route, not an approval decision. The human must review the complete linked documents; changed/null bindings or incomplete material need fresh review before approval. Never infer review from a summary, opening a preview or successful submission.
 10. Report commit/push/hashes/checks/cost; offer `/sf-approve &lt;PHASE-ID&gt; --work-id &lt;WORK-ID&gt;` with real IDs; never approve.
 
-TRP: follow `singularity-flow explain test-recovery`.
+TRP: `singularity-flow explain test-recovery`.
 </code></pre>
       </div>
     </details>
@@ -11799,7 +11799,7 @@ Before any boundary lookup or SFlow action, run `singularity-flow pause status -
           <span class="pill">generative</span>
           <span class="pill">story boundary</span>
           <span class="pill">model: never</span>
-          <span class="pill">~1757 body tokens</span>
+          <span class="pill">~1747 body tokens</span>
         </div>
         <dl>
           <div><dt>Command</dt><dd><code>/sflow-verify</code></dd></div>
@@ -11836,7 +11836,7 @@ Reuse a verified pause-aware entry supplied in this invocation before any mutati
 6. Use bound runs over stale prose; IDE discovery is not execution. Honor runner ownership; no substitute commands. Command success is not criterion acceptance. Source edits need governed repair/fresh evidence.
 7. Cover relevant regression, boundaries, failures, security, accessibility/performance.
 8. Preparation is not authoring. Run `singularity-flow prepare &lt;phase&gt;`; use the native file-edit tool to complete the existing artifact with observed evidence and `Agent brief`: verdict, failures/omissions, risk, release recommendation. Resolve TODOs, preserve managed blocks. Failed/unavailable tests are not passes but a verdict to write; never invent results.
-9. Run `singularity-flow phase prepublish &lt;phase&gt; --for-agent --json --publish-if-ready` (includes draft-check). If unready, run read-only `singularity-flow recover &lt;WORK-ID&gt; --phase &lt;phase&gt; --for-agent --json`. Correct every agent finding now; route other producers to owner via `correction.guidance`/`correction.skill`. Never delete markers blindly, invent facts, use padding, invoke nested models, or overwrite another producer. Follow returned `repairLoop.protocol` for persistent correction/resume; never recheck an unchanged draft; same findings after a change: correct differently, up to `correction.maximumChangedFingerprints` changed drafts, then stop.
+9. Run `singularity-flow phase prepublish &lt;phase&gt; --for-agent --json --publish-if-ready` (includes draft-check). If unready, run read-only `singularity-flow recover &lt;WORK-ID&gt; --phase &lt;phase&gt; --for-agent --json`. Correct every agent finding now; route other producers to owner via `correction.guidance`/`correction.skill`. Never delete markers blindly, invent facts, use padding, invoke nested models, or overwrite another producer. Follow `repairContinuation`/`repairLoop.protocol`; no unchanged retries or resets. Respect `correction.maximumChangedFingerprints`; exhausted: preserve work and return manual/owner routes.
 10. Use returned `commands.publish` when `ready` unless `publishIfReady.published`; absent: relay `commands.next`, stop. Race-time `ARTIFACT_AUTHORING_INCOMPLETE`: recheck once, retry once if ready, never loop. Never submit or approve.
 11. From `publishIfReady.review`, summarize tests, gaps, publication, verified Markdown-preview links, generation/hashes and `reviewBinding`. No bodies/code/diffs; summaries/links are not human review or reusable approval consent.
 12. Never submit/approve. End with each `handoff` from step 11: `Next in Copilot: /sf-…` from its `copilotCommand`, then `Terminal equivalent: singularity-flow …` from its `command`.
@@ -12031,7 +12031,7 @@ Use the CLI as the authority. Never stage, commit, push, or copy unfinished sour
           <span class="pill">conversational</span>
           <span class="pill">repository boundary</span>
           <span class="pill">model: conditional</span>
-          <span class="pill">~1196 body tokens</span>
+          <span class="pill">~1186 body tokens</span>
         </div>
         <dl>
           <div><dt>Command</dt><dd><code>/sflow-workflow-rules</code></dd></div>
@@ -12065,7 +12065,7 @@ Before any boundary lookup or SFlow action, run `singularity-flow pause status -
 2. Use only the returned branch, immutable `workflow.resolution.workItemRoot`, and CLI-returned artifact/input paths. Never assume a default root, skip phases, or hand-edit lifecycle state, `STATUS.md`, `documents.json`, or approvals.
 3. Create documents only at paths returned by `singularity-flow prepare &lt;PHASE&gt;` or `singularity-flow phase show &lt;PHASE&gt; --for-agent --json`. Upload via `singularity-flow documents upload`; register via `singularity-flow artifact add` or `singularity-flow artifact scan`.
 4. Never store secrets. Treat approved artifacts as inputs and record deviations.
-5. Before agent publication run `singularity-flow phase prepublish &lt;phase&gt; --for-agent --json --publish-if-ready` (includes draft-check). On correction run read-only `singularity-flow recover &lt;WORK-ID&gt; --phase &lt;phase&gt; --for-agent --json`; stay in this phase. Correct only proven agent-owned findings from evidence when `correction.sameTurn`; route other producers to their owner. Use returned `commands.publish` when `ready` unless `publishIfReady.published`; absent: relay `commands.next`, stop; never submit or approve. On race-time `ARTIFACT_AUTHORING_INCOMPLETE`, recheck once; never invent, pad, nest models, overwrite producers, or loop. Follow returned `repairLoop.protocol` for persistent correction/resume; never recheck an unchanged draft; same findings after a change: correct differently, up to `correction.maximumChangedFingerprints` changed drafts, then stop.
+5. Before agent publication run `singularity-flow phase prepublish &lt;phase&gt; --for-agent --json --publish-if-ready` (includes draft-check). On correction run read-only `singularity-flow recover &lt;WORK-ID&gt; --phase &lt;phase&gt; --for-agent --json`; stay in this phase. Correct only proven agent-owned findings from evidence when `correction.sameTurn`; route other producers to their owner. Use returned `commands.publish` when `ready` unless `publishIfReady.published`; absent: relay `commands.next`, stop; never submit or approve. On race-time `ARTIFACT_AUTHORING_INCOMPLETE`, recheck once; never invent, pad, nest models, overwrite producers, or loop. Follow `repairContinuation`/`repairLoop.protocol`; no unchanged retries or resets. Respect `correction.maximumChangedFingerprints`; exhausted: preserve work and return manual/owner routes.
 6. Submit and approval run the governance and final checks themselves; never run a separate gate first. Tag tests with full clauses such as `@ac:WORK-ID:AC-001`.
 7. Compose the exact phase prompt. The Repository brief is guidance; a missing one never delays phase work.
 8. Never choose a workflow. Use the phase-default agent unless `/sf-agent` was invoked; only matching human authority may approve, and `singularity-flow approve` requires an explicit approval request.

@@ -357,7 +357,7 @@ test('Story authoring skills consume one returned persistent repair protocol', a
     'sflow-requirements', 'sflow-release', 'sflow-review', 'sflow-verify', 'sflow-document-intake',
     'sflow-scenario-check', 'sflow-converge', 'sflow-workflow-rules']) {
     const text = await readFile(new URL(`../plugin/skills/${name}/SKILL.md`, import.meta.url), 'utf8');
-    assert.match(text, /returned `repairLoop.protocol`/u, name);
+    assert.match(text, /`repairLoop.protocol`/u, name);
   }
   const converge = await readFile(new URL('../plugin/skills/sflow-converge/SKILL.md', import.meta.url), 'utf8');
   assert.match(converge, /never loop preparation/u);

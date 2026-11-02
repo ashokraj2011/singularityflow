@@ -50,6 +50,8 @@ async function fixture(t, suffix) {
   const root = await mkdtemp(path.join(os.tmpdir(), 'sflow-auto-v2-controls-'));
   t.after(() => rm(root, { recursive: true, force: true }));
   run('git', ['init', '-b', 'main'], root);
+  run('git', ['config', 'core.autocrlf', 'false'], root);
+  run('git', ['config', 'core.longpaths', 'true'], root);
   const flightId = `AFL-${suffix.repeat(26)}`;
   const state = await createAutoFlightState(root, {
     flightId,
@@ -73,6 +75,9 @@ async function governedFixture(t, suffix) {
   const root = await mkdtemp(path.join(os.tmpdir(), 'sflow-auto-v2-governed-'));
   t.after(() => rm(root, { recursive: true, force: true }));
   run('git', ['init', '-b', 'main'], root);
+  // Immutable packet bytes and deep checkpoint paths must not depend on the host Git defaults.
+  run('git', ['config', 'core.autocrlf', 'false'], root);
+  run('git', ['config', 'core.longpaths', 'true'], root);
   run('git', ['config', 'user.name', 'Auto Control Tester'], root);
   run('git', ['config', 'user.email', 'auto-controls@example.com'], root);
   run(process.execPath, [cli, 'init'], root);
@@ -554,6 +559,8 @@ for (const [kind, suffix, control, expectedStatus] of [
       // completing receive-pack maintenance. It can race loose-object replacement and make an
       // otherwise valid clone fail with a missing object destination under aggregate load.
       run('git', ['clone', '--no-local', '--branch', 'main', '--', remote, recoveryRoot], root);
+      run('git', ['config', 'core.autocrlf', 'false'], recoveryRoot);
+      run('git', ['config', 'core.longpaths', 'true'], recoveryRoot);
       run('git', ['config', 'user.name', 'Auto Recovery Tester'], recoveryRoot);
       run('git', ['config', 'user.email', 'auto-recovery@example.com'], recoveryRoot);
       const rebuilt = await rebuildAutoFlightState(recoveryRoot, {

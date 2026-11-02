@@ -2,6 +2,7 @@ import path from 'node:path';
 import { phaseRequiresCodeDelivery } from './code-delivery-policy.mjs';
 import { isConformancePhase, isConvergencePhase, isTestEvidencePhase, phaseOwnsScope, stepResponsibilities } from './phase-roles.mjs';
 import { CLI_PATH_CONTRACT } from './safe-command-guidance.mjs';
+import { REPAIR_CONTINUATION_CONTRACT, REPAIR_CONTINUATION_PROTOCOL } from './phase-finding-policy.mjs';
 import { REQUIREMENT_COVERAGE, REQUIREMENT_AUTHORING_PROTOCOL } from './requirement-coverage.mjs';
 
 /** Resolve responsibilities from the accepted workflow, never from a packaged phase name. */
@@ -35,11 +36,12 @@ export function phaseAuthoringContract(definition, workflow, phase) {
   if (isTestEvidencePhase(phase)) roles.add('verification');
   if (isConformancePhase(phase)) roles.add('closure');
   const evidenceRoot = path.posix.join(definition.workItemRoot ?? 'singularity/work-items', workflow?.workItem?.id ?? '<WORK-ID>', 'evidence');
-  return Object.freeze({ revision: 'phase-authoring-v8', phase: phase.id, roles: [...roles].sort(),
+  return Object.freeze({ revision: 'phase-authoring-v9', phase: phase.id, roles: [...roles].sort(),
     priorApprovalsImmutable: true, revalidatePriorDraftQuality: false,
     executionEvidence: { authority: 'immutable-submission-packets', discoveryIsExecution: false,
       commandSuccessIsCriterionAcceptance: false, priorReportsMutable: false },
     draftDefectsPreventRepair: false, repairIsApproval: false,
+    selfHealing: REPAIR_CONTINUATION_CONTRACT,
     advisories: { blockPublication: false, scopeAccountingRequiredBefore: 'approve', commentsRequireHumanDecision: false },
     configuration: { productSource: false, sourceTagsRequired: false, apiDocumentationRequired: false,
       scopeAccountingRequired: true, candidateAndTestInput: true, protectedPathsEnforced: true },
@@ -86,6 +88,7 @@ export function phaseAuthoringContractLines(contract, { deterministicOnly = fals
   const definesClauses = Boolean(contract.verificationIntent);
   return [
     `- Paths: ${CLI_PATH_CONTRACT}`,
+    `- ${REPAIR_CONTINUATION_PROTOCOL}`,
     '- Repair boundary: the configured producer repairs this open draft in place; regenerate kernel-owned artifacts, never hand-edit them. Draft defects do not forbid repairs. Preserve prior approved artifacts and decisions; never re-author an earlier phase to satisfy a new template. Publication and any configured approvals remain separate checks.',
     '- Unfinished markers: TODO (in capitals), TBD, TBC, FIXME, {{...}} and [describe ...] read as unfinished work and refuse publication, even inside code spans.',
     '- Readiness: advisories are not current blockers. Documentation comments need no human approval; unplanned-path advice names work to account for before approval. When prepublish is ready and returns commands.publish, continue that publication attempt; required tests still run there. A resolved runner does not require editing repository build/test scripts or runner configuration just to emit its configured report.',

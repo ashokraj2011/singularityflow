@@ -1,4 +1,5 @@
 /** Exact, per-generation contracts that authorize one Auto execution unit. */
+import { withRepairContinuationProtocol } from '../phase-finding-policy.mjs';
 import { createHash } from 'node:crypto';
 import path from 'node:path';
 
@@ -94,7 +95,7 @@ export function renderAutoAuthoringPrompt({
   const priorAttempts = Number(state.counters?.authoringAttempts?.[state.story?.phase] ?? 0);
   const attemptKind = repair ? 'repair' : priorAttempts > 0 ? 'resume' : 'initial';
   return [
-    String(composed ?? '').trimEnd(), '',
+    withRepairContinuationProtocol(String(composed ?? '')).trimEnd(), '',
     ...(onDemandSkills ? [String(onDemandSkills).trimEnd(), ''] : []),
     '# Ratified Auto execution boundary', '',
     `- Flight: ${flightId}`,

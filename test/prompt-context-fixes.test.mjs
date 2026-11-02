@@ -9,6 +9,7 @@ import test from 'node:test';
 import { constitutionPromptContext } from '../src/constitution-prompt.mjs';
 import { expandedOnDemandSkills } from '../src/retained-skill-instructions.mjs';
 import { renderAutoAuthoringPrompt } from '../src/auto/auto-phase-contract.mjs';
+import { REPAIR_CONTINUATION_PROTOCOL } from '../src/phase-finding-policy.mjs';
 import { withoutAttachedSkills, withoutTableSection } from '../src/skill-library.mjs';
 import { stakeholderRequestDigests, stakeholderRequestDrift, STAKEHOLDER_PROMPT_RENDERER } from '../src/stakeholder-prompt-context.mjs';
 import { turnBoundaryErrors } from '../scripts/skill-policy.mjs';
@@ -155,6 +156,10 @@ test('Auto receives the on-demand skills it cannot fetch; other prompts are unch
   const base = { composed: '# Composed', flightId: 'F-1', attemptId: 'A-1', state: { counters: {}, story: { phase: 'build' }, evidence: {} },
     plan: { planId: 'P-1', planSha256: 'sha256:1', requirement: { text: 'Do it' }, proposal: { predictedPaths: [] } } };
   const without = renderAutoAuthoringPrompt(base);
+  assert.equal(without.split(REPAIR_CONTINUATION_PROTOCOL).length, 2);
+  assert.ok(without.indexOf(REPAIR_CONTINUATION_PROTOCOL) < without.indexOf('# Ratified Auto execution boundary'));
+  assert.equal(renderAutoAuthoringPrompt({ ...base, composed: `${base.composed}\n${REPAIR_CONTINUATION_PROTOCOL}` })
+    .split(REPAIR_CONTINUATION_PROTOCOL).length, 2, 'Auto keeps one copy of guidance already delivered by composition');
   assert.equal(renderAutoAuthoringPrompt({ ...base, onDemandSkills: '' }), without, 'no on-demand skills: byte-identical prompt');
   const withSkills = renderAutoAuthoringPrompt({ ...base, onDemandSkills: expanded });
   assert.ok(withSkills.indexOf('# On-demand skills') > withSkills.indexOf('# Composed'));

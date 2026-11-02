@@ -105,7 +105,7 @@ export async function reconcileHere(root, { definition, policy, workflow = null,
  * items (by class, agent and skill), and the authorship it is shown beside. Small by design: the full
  * ranges come from `guard reconcile` and `guard report --story`.
  */
-export function attributionBlock(report, { pin = null, authorship = null } = {}) {
+export function attributionBlock(report, { pin = null, authorship = null, claim = null } = {}) {
   const counts = Object.fromEntries(CLASSES.map((name) => [name, Number(report.counts?.[name] ?? 0)]));
   const groups = new Map();
   for (const range of report.ranges ?? []) {
@@ -124,7 +124,9 @@ export function attributionBlock(report, { pin = null, authorship = null } = {})
   // A claimed person's or tool's draft that records show an agent wrote: both are shown [REQ-041].
   const agentLines = counts.declared + counts['outside-workflow'] + counts['unknown-agent'];
   const producer = authorship?.producer ?? null;
-  const contradiction = ['human', 'external-tool'].includes(producer) && agentLines > 0 ? { claimed: producer, agentLines } : null;
+  // SPEC-PSS-v1 §10.7: on a Story SF Guard requires, whether the claim carries its author's signature.
+  const signing = claim ? (claim.signed ? { signed: true, signer: claim.signer ?? null } : { signed: false }) : {};
+  const contradiction = ['human', 'external-tool'].includes(producer) && agentLines > 0 ? { claimed: producer, agentLines, ...signing } : null;
   return sealed({
     schema: SF_GUARD_ATTRIBUTION_SCHEMA, status: report.partial ? 'partial' : 'complete', pin: pin?.status ?? 'none',
     base: report.scope?.base ?? null, lines: report.lines ?? 0, files: report.files ?? 0, removed: report.removed ?? 0, counts,
@@ -153,7 +155,14 @@ export async function storyAttributionBlock(root, config, workflow, phase) {
     const policy = await (await import('./store.mjs')).readPresencePolicy(root);
     const report = await reconcileHere(root, { definition: config, policy, workflow, excludeGoverned: true, perStep: true });
     const authorship = [...(phase?.authorship ?? [])].reverse().find((record) => record.generation === phase.generation) ?? null;
-    return attributionBlock(report, { pin, authorship });
+    let claim = null;
+    if (authorship && pin?.status === 'required' && ['human', 'external-tool'].includes(authorship.producer)) {
+      const { authorshipClaimVerdict, loadPresenceContext } = await import('./person-records.mjs');
+      const context = await loadPresenceContext(root, workflow);
+      const verdict = authorshipClaimVerdict(context, authorship, { workflow, phase: phase?.id ?? null, generation: phase?.generation ?? null });
+      claim = verdict.counts ? { signed: true, signer: authorship.presence?.approver ?? null } : { signed: false };
+    }
+    return attributionBlock(report, { pin, authorship, claim });
   } catch (error) {
     return unavailableAttribution(error?.message ?? error, { pin });
   }
@@ -191,10 +200,17 @@ export function attributionLabels(block, { items = TOP_ITEMS } = {}) {
   }
   if (counts.unattributed) lines.push(`Unattributed (${plural(counts.unattributed, 'line')}): nothing recorded explains them — a person, another tool or a script outside Copilot`);
   if (counts['pre-guard']) lines.push(`Before SF Guard (${plural(counts['pre-guard'], 'line')})`);
-  if (block.authorship) lines.push(`Claimed producer: ${block.authorship.claimed}; ${plural(block.authorship.agentLines, 'line')} recorded as an agent's writes. Both are shown; a label decides nothing.`);
+  if (block.authorship) lines.push(`Claimed producer: ${block.authorship.claimed}${claimWords(block.authorship)}; ${plural(block.authorship.agentLines, 'line')} recorded as an agent's writes. Both are shown; a label decides nothing.`);
   if (block.partial) lines.push(`Partial: reconciliation stopped at the ${block.partial.limit}-${block.partial.reason} bound, so this is not all of the change.`);
   if (!lines.length) lines.push('No changed lines to label.');
   return lines;
+}
+
+/** Whether an authorship claim was signed, where SF Guard read it (SPEC-PSS-v1 §10.7); nothing elsewhere. */
+function claimWords(authorship) {
+  if (authorship?.signed === true) return `, claimed, signed by ${authorship.signer ?? 'its author'}`;
+  if (authorship?.signed === false) return ', claimed, unsigned: treated as agent-written';
+  return '';
 }
 
 /** The counts on one line, as the approval card shows them before Touch ID [AC-008]. */
@@ -213,7 +229,7 @@ export function attributionCardLines(block) {
   const summary = attributionSummary(block);
   if (!summary) return [];
   return [summary, ...(block.status === 'unavailable' ? [] : (block.items ?? []).slice(0, CARD_ITEMS).map((item) => `  ${itemLabel(item)}`)),
-    ...(block.authorship ? [`  Claimed producer ${block.authorship.claimed}, with ${plural(block.authorship.agentLines, 'line')} recorded as an agent's writes`] : [])];
+    ...(block.authorship ? [`  Claimed producer ${block.authorship.claimed}${claimWords(block.authorship)}, with ${plural(block.authorship.agentLines, 'line')} recorded as an agent's writes`] : [])];
 }
 
 /** The latest submission projection of `phaseId` (its generation, else any), from workflow.json. */

@@ -50,7 +50,12 @@ export const PERSON_STEP_FAMILIES = Object.freeze([
   // SPEC-PSS-v1 §10.6: a constitution exception waives an article for the Story; a person's choice at a
   // workflow decision routes it (a rule's routing is never a person's and is never signed).
   { id: 'constitution-exception', list: 'constitutionExceptions', action: 'decision.constitution-exception', label: 'Constitution exception', isPerson: always },
-  { id: 'decision-choice', list: 'decisionLog', action: 'decision.choose', label: 'Decision', isPerson: (entry) => entry?.by === 'person' }
+  { id: 'decision-choice', list: 'decisionLog', action: 'decision.choose', label: 'Decision', isPerson: (entry) => entry?.by === 'person' },
+  // SPEC-PSS-v1 §10.7: a live terminal review's decision keeps its signature in the record it writes. A
+  // quality risk, artifact risk or disputed finding (and its revocation) waives or restores a gate; an
+  // appeal decision accounts for scope. Each is signed in its own transaction, before its retained copy.
+  { id: 'quality-risk', list: 'qualityRiskDecisions', action: 'decision.quality-risk', label: 'Quality risk decision', isPerson: always },
+  { id: 'appeal-decision', list: 'phaseAppealDecisions', action: 'decision.appeal', label: 'Appeal decision', isPerson: always }
 ]);
 
 const familyByList = new Map(PERSON_STEP_FAMILIES.map((family) => [family.list, family]));

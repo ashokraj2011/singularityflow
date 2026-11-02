@@ -17,6 +17,7 @@ import { ArtifactRiskPacketSchema, ArtifactRiskDecisionSchema } from './phase-ar
 import { DISPUTABLE_GATES, FindingDisputeDecisionSchema, FindingDisputePacketSchema, isFindingDispute } from './phase-finding-dispute-schema.mjs';
 import { isArtifactQualityFinding, phaseFindingPolicy } from './phase-finding-policy.mjs';
 import { terminalTransitionAt } from './workflow-terminal-time.mjs';
+import { countedRecords } from './presence/counted.mjs';
 
 const digest = value => `sha256:${createHash('sha256').update(canonicalJson(value)).digest('hex')}`;
 const fail = (message, code = 'PHASE_QUALITY_RISK_INVALID', details = null) => { throw new SingularityFlowError(message, { code, details }); };
@@ -32,13 +33,15 @@ const packetSchema = z.object({ schemaVersion: z.literal(1), kind: z.literal('ph
   gate: z.literal('SPEC_COVERAGE_INCOMPLETE'), clauses: z.array(z.string().min(1).max(200)).min(1).max(200),
   transitions: z.array(z.enum(['publish', 'submit', 'approve', 'consume', 'terminal'])).min(1).max(5), expiresAt: z.string().datetime(),
   reason: reasonSchema, observationSha256: SHA, packetSha256: SHA }).strict();
+// SF Guard (SPEC-PSS-v1 §10.7): the approver's presence block, verified by its readers, never by this schema.
+const presenceBlock = z.object({}).passthrough().optional();
 const decisionSchema = packetSchema.extend({ id: z.string().regex(/^PQR-[a-f0-9]{24}$/u),
   actor: z.string().min(1), authorityGroup: z.string().min(1), identityAssurance: z.string().nullable(),
   authorizationId: z.string().min(1), reviewAssurance: z.literal('live-terminal-risk-review'), at: z.string().datetime(),
-  testsWaived: z.literal(false), phaseApproved: z.literal(false) }).strict();
+  testsWaived: z.literal(false), phaseApproved: z.literal(false), presence: presenceBlock }).strict();
 const revocationSchema = z.object({ kind: z.literal('phase-quality-risk-revocation'), id: z.string().min(1),
   revokes: z.string().regex(/^PQR-[a-f0-9]{24}$/u), reason: reasonSchema, actor: z.string().min(1),
-  authorityGroup: z.string().min(1), authorizationId: z.string().min(1), at: z.string().datetime() }).strict();
+  authorityGroup: z.string().min(1), authorizationId: z.string().min(1), at: z.string().datetime(), presence: presenceBlock }).strict();
 // Closed policy variants, not a lossy upgrade of a coverage decision into a document decision.
 const isArtifactRisk = record => record?.gate === 'PHASE_ARTIFACT_QUALITY';
 // A disputed finding (schema 3) is the step's approvers' exception to one exact gate result.
@@ -161,6 +164,25 @@ export async function retainedQualityRiskRecords(root, config, workflow) {
 }
 const retainedRecords = retainedQualityRiskRecords;
 
+/**
+ * SF Guard (SPEC-PSS-v1 §10.7): on a Story it requires, a risk decision or revocation keeps its
+ * approver's presence signature, taken here (the card, then one touch) before the decision is retained.
+ * A refusal names the person's routes and nothing is written. Elsewhere nothing changes.
+ */
+async function signReviewDecision(root, workflow, record, label) {
+  if (!workflow.resolution?.presence) return;
+  await (await import('./presence/person-steps.mjs')).signPersonRecords(root, workflow,
+    [{ label, action: 'decision.quality-risk', record }]);
+}
+
+/**
+ * Whether a retained risk decision counts under SF Guard: always where it does not apply; on a Story
+ * it requires, only one whose signature verifies (or a signed exception covers) [SPEC-PSS-v1 §10.7].
+ */
+export function qualityRiskDecisionCounts(workflow, record) {
+  return countedRecords(workflow, [record]).length === 1;
+}
+
 export async function qualityRiskStatus(root, config, workflow, phase, error, { transition = 'approve', at = nowIso(), candidate = null } = {}) {
   const eligible = coverageRiskEligibility(error);
   const commit = candidate?.baselineCommit ?? retainedQualityCommit(root, workflow, phase);
@@ -173,11 +195,13 @@ export async function qualityRiskStatus(root, config, workflow, phase, error, { 
   }
   const binding = qualityRiskBinding(workflow, phase, { candidate, config, publishedCommit: commit });
   const entries = await retainedRecords(root, config, workflow);
-  const revoked = new Set(entries.filter(entry => entry.revokes).map(entry => entry.revokes));
+  // SF Guard: on a Story it requires, only a signed revocation or decision counts [SPEC-PSS-v1 §10.7].
+  const revoked = new Set(countedRecords(workflow, entries.filter(entry => entry.revokes)).map(entry => entry.revokes));
   const items = [];
   const accepted = new Set();
   for (const record of entries.filter(entry => entry.gate === 'SPEC_COVERAGE_INCOMPLETE' && entry.binding.phaseId === phase.id)) {
     let status = revoked.has(record.id) ? 'revoked'
+      : !qualityRiskDecisionCounts(workflow, record) ? 'unsigned'
       : Date.parse(record.expiresAt) <= Date.parse(at) ? 'expired'
         : canonicalJson(record.binding) !== canonicalJson(binding) ? 'stale'
           : !record.transitions.includes(transition) ? 'out-of-scope'
@@ -310,6 +334,7 @@ export async function acceptQualityRisk(root, config, workflow, options) {
   const entries = await retainedRecords(root, config, workflow);
   const retained = entries.find(entry => entry.id === id);
   if (retained && entries.some(entry => entry.revokes === id)) fail('This exact risk was revoked. Prepare a fresh packet with a new reviewed reason or expiry; revocation cannot be undone by re-attestation.', 'PHASE_QUALITY_RISK_STALE');
+  if (retained && !qualityRiskDecisionCounts(workflow, retained)) fail(`A decision on this exact risk packet is recorded without its approver's presence signature, so SF Guard does not count it. Nothing was written. Prepare a fresh packet (a new reason or expiry) and accept that one in your own terminal.`, 'PHASE_QUALITY_RISK_UNSIGNED');
   if (retained) return { status: 'needs-reattestation', decision: retained, stateChanged: false,
     next: `singularity-flow appeal risk-attest ${id} --confirm ${digest(retained)}` };
   if (entries.filter(entry => !entry.revokes).length >= MAX_DECISIONS) fail('This Story reached its pilot-risk decision limit. Preserve the audit history and ask its workflow maintainer; existing decisions can still be revoked.', 'PHASE_QUALITY_RISK_INVALID');
@@ -319,7 +344,7 @@ export async function acceptQualityRisk(root, config, workflow, options) {
       ? 'Publish this exact candidate with the disputed gate result recorded as an accepted exception on the attached evidence, not as passing evidence. Required tests and phase approval are not waived.'
       : 'Advance with the exact recorded quality shortfall, not a passing proof. Required tests and phase approval are not waived.' },
   action: { actionId: id, confirmation: { required: true } } };
-  const grant = await captureTerminalActionAuthorization(root, card.plan, card.action, { label: `Accept risk ${id}` });
+  const grant = await captureTerminalActionAuthorization(root, card.plan, card.action, { label: `Accept risk ${id}`, presenceInRecord: true });
   if (!grant) return { status: 'cancelled', stateChanged: false };
   const { value, publication } = await transactStory(root, config, workflow, { type: LIFECYCLE_EVENT.DECISION_MADE,
     phaseId: phase.id, generation: packet.binding.generation, actor, agent: null, authorityGroup: authority.authorityGroup,
@@ -333,6 +358,7 @@ export async function acceptQualityRisk(root, config, workflow, options) {
     const record = riskDecisionSchema(packet).parse({ ...packet, id, actor: actorKey(actor), authorityGroup: authority.authorityGroup,
       identityAssurance: authority.identityAssurance ?? null, authorizationId: grant.authorizationId,
       reviewAssurance: 'live-terminal-risk-review', at: nowIso(), testsWaived: false, phaseApproved: false });
+    await signReviewDecision(root, aggregate, record, 'Quality risk decision');
     await consumeAndRetainHumanReview(root, record, card, grant.token);
     aggregate.qualityRiskDecisions ??= []; aggregate.qualityRiskDecisions.push(record);
     aggregate.history.push({ at: record.at, actor: record.actor, agent: null, event: 'quality_risk_decided', phase: phase.id, detail: id });
@@ -383,7 +409,7 @@ export async function revokeQualityRisk(root, config, workflow, { id, reason, co
   const authority = authorityFor(config, workflow, phase, actor, record.authorityGroup);
   const card = { plan: { planId: `revoke-${id}`, planHash: digest({ record, reason }), subject: record.binding,
     revision: head(root), record, reason }, action: { actionId: `revoke-${id}`, confirmation: { required: true } } };
-  const grant = await captureTerminalActionAuthorization(root, card.plan, card.action, { label: `Revoke risk ${id}` });
+  const grant = await captureTerminalActionAuthorization(root, card.plan, card.action, { label: `Revoke risk ${id}`, presenceInRecord: true });
   if (!grant) return { status: 'cancelled', stateChanged: false };
   const { publication } = await transactStory(root, config, workflow, { type: LIFECYCLE_EVENT.DECISION_MADE,
     phaseId: phase.id, generation: record.binding.generation, actor, agent: null, authorityGroup: authority.authorityGroup,
@@ -393,6 +419,7 @@ export async function revokeQualityRisk(root, config, workflow, { id, reason, co
     if (retained.some(entry => entry.revokes === id)) fail('This risk was already revoked.');
     const revocation = revocationSchema.parse({ kind: 'phase-quality-risk-revocation', id: `revoke-${grant.authorizationId}`,
       revokes: id, reason, actor: actorKey(actor), authorityGroup: authority.authorityGroup, authorizationId: grant.authorizationId, at: nowIso() });
+    await signReviewDecision(root, aggregate, revocation, 'Quality risk revocation');
     await consumeAndRetainHumanReview(root, revocation, card, grant.token);
     aggregate.qualityRiskDecisions.push(revocation);
     aggregate.history.push({ at: revocation.at, actor: revocation.actor, agent: null, event: 'quality_risk_decided', phase: phase.id, detail: `revoked ${id}` });

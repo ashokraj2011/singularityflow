@@ -40,7 +40,9 @@ export const FindingDisputeDecisionSchema = FindingDisputePacketSchema.extend({
   id: z.string().regex(/^PQR-[a-f0-9]{24}$/u), actor: z.string().min(1), authorityGroup: z.string().min(1),
   identityAssurance: z.string().nullable(), authorizationId: z.string().min(1),
   reviewAssurance: z.literal('live-terminal-risk-review'), at: z.string().datetime(),
-  testsWaived: z.literal(false), phaseApproved: z.literal(false)
+  testsWaived: z.literal(false), phaseApproved: z.literal(false),
+  // SF Guard (SPEC-PSS-v1 §10.7): the approver's presence block, verified by its readers, never here.
+  presence: z.object({}).passthrough().optional()
 }).strict();
 
 export const isFindingDispute = (record) => record?.gateMode === 'dispute' && DISPUTABLE_GATES.includes(record?.gate);

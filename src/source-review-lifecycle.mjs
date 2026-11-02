@@ -6,6 +6,7 @@ import path from 'node:path';
 
 import { canonicalJson, recordSha256 } from './records.mjs';
 import { matchApprovalAuthority } from './approval-authority.mjs';
+import { countedRecords } from './presence/counted.mjs';
 import { LIFECYCLE_EVENT } from './lifecycle-event.mjs';
 import { currentSchemaVersion, readRecord } from './schema-migrations.mjs';
 import { documentOfferedToPhase } from './document-identity.mjs';
@@ -546,6 +547,9 @@ async function readDecisions(root, config, workflow, phaseId, reportSha256) {
     }
     await assertRetainedLifecycleEvent(root, config, workflow, record, 'source-review-disposition',
       path.join(directory, name));
+    // SF Guard: on a Story it requires, only a decision its approver signed disposes a finding; an
+    // unsigned one is left out, so the finding stays open for a person to decide [SPEC-PSS-v1 §10.7].
+    if (countedRecords(workflow, [record]).length !== 1) continue;
     decisions.push(record);
   }
   return decisions;
@@ -883,7 +887,8 @@ export async function retainSourceReviewDecision(root, config, workflow, phaseId
   const directory = path.join(sourceReviewDirectory(root, config, workflow, phaseId),
     'decisions', status.reportSha256);
   const body = {
-    schemaVersion: currentSchemaVersion('source-review-decision'), phase: phaseId,
+    // An SF Guard pin writes v2, which can keep the approver's signature; anywhere else stays v1.
+    schemaVersion: workflow.resolution?.presence ? currentSchemaVersion('source-review-decision') : 1, phase: phaseId,
     generation: workflow.phases[phaseId].generation,
     reportSha256: status.reportSha256, lifecycleEventId: publicationEvent.eventId,
     id, decision: 'accepted', reason: reason.trim(),
@@ -891,6 +896,12 @@ export async function retainSourceReviewDecision(root, config, workflow, phaseId
     authorityGroup: authority.authorityGroup,
     identityAssurance: authority.identityAssurance ?? null, decidedAt: nowIso()
   };
+  // SF Guard (SPEC-PSS-v1 §10.7): on a Story it requires, the decision keeps its approver's signature
+  // over these exact fields (the card, then one touch); a refusal names the routes and writes nothing.
+  if (workflow.resolution?.presence) {
+    await (await import('./presence/person-steps.mjs')).signPersonRecords(root, workflow,
+      [{ label: 'Source review decision', action: 'decision.source-review', record: body }]);
+  }
   const record = { ...body, recordSha256: recordSha256(body) };
   await ensureSecureRepositoryDirectory(root, directory, { label: 'Source review decision directory' });
   const file = path.join(directory, `${record.recordSha256}.json`);

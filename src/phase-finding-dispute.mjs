@@ -12,6 +12,7 @@ import { createHash } from 'node:crypto';
 import { readFile } from 'node:fs/promises';
 import { canonicalJson } from './records.mjs';
 import { humanReviewOriginPresent } from './human-review-origin.mjs';
+import { countedRecords } from './presence/counted.mjs';
 import { nowIso, posix, secureRepositoryPath, SingularityFlowError } from './util.mjs';
 import {
   DISPUTABLE_GATES, DISPUTE_EVIDENCE_LIMITS, FindingDisputePacketSchema, isFindingDispute
@@ -125,12 +126,15 @@ export async function codeDeliveryDisputeStatus(root, config, workflow, phase, {
   if (!recorded.length) return { active: null, items: [] };
   const { retainedQualityRiskRecords } = await import('./phase-quality-risk.mjs');
   const retained = await retainedQualityRiskRecords(root, config, workflow);
-  const revoked = new Set(retained.filter((record) => record.revokes).map((record) => record.revokes));
+  // SF Guard: on a Story it requires, only a signed revocation or decision counts [SPEC-PSS-v1 §10.7].
+  const revoked = new Set(countedRecords(workflow, retained.filter((record) => record.revokes)).map((record) => record.revokes));
+  const counted = new Set(countedRecords(workflow, retained));
   const binding = findingDisputeBinding(workflow, phase, candidateSha256);
   let active = null; const items = [];
   for (const record of retained.filter((entry) => isFindingDispute(entry) && entry.binding.phaseId === phase.id)) {
     const covered = disputeCovers(record.problems, problems.map((problem, index) => ({ id: findings[index]?.id ?? null, problem })));
     const status = revoked.has(record.id) ? 'revoked'
+      : !counted.has(record) ? 'unsigned'
       : Date.parse(record.expiresAt) <= Date.parse(at) ? 'expired'
         : canonicalJson(record.binding) !== canonicalJson(binding) ? 'stale'
           : !covered ? 'observation-changed'

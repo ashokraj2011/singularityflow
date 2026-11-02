@@ -772,8 +772,10 @@ export async function runGovernanceGate(root, config, workflow, { terminal = fal
   if (comparisons.length) passes.push(`visual comparisons: ${comparisons.length} deterministic result(s)`);
 
   // A disputed finding stays visible wherever the Story is reviewed: an exception, not a pass.
-  const revokedDisputes = new Set((workflow.qualityRiskDecisions ?? []).map((record) => record?.revokes).filter(Boolean));
-  for (const dispute of (workflow.qualityRiskDecisions ?? []).filter((record) => record?.gateMode === 'dispute'
+  // SF Guard: on a Story it requires, only a signed dispute or revocation counts [SPEC-PSS-v1 §10.7].
+  const countedRisks = countedRecords(workflow, workflow.qualityRiskDecisions ?? []);
+  const revokedDisputes = new Set(countedRisks.map((record) => record?.revokes).filter(Boolean));
+  for (const dispute of countedRisks.filter((record) => record?.gateMode === 'dispute'
     && !record.revokes && !revokedDisputes.has(record.id))) {
     warnings.push(`Accepted disputed finding ${dispute.id}: ${dispute.gate} in ${dispute.binding.phaseId} generation ${dispute.binding.generation} `
       + `(${dispute.problems.length} problem${dispute.problems.length === 1 ? '' : 's'} excepted; evidence ${dispute.evidence.map((item) => item.path).join(', ')}), `

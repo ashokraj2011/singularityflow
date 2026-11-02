@@ -267,7 +267,12 @@ test('frequent lifecycle handlers do not reach the legacy dispatcher and stay un
     // for 9,338,665. The claim's signer and verifier stay lazy; no new eager file.
     // 9,340,000 holds: SF Guard §10.6 signs reopen inside its transaction (state.mjs +624) and every live terminal
     // review over its card (action-authorization.mjs +582), adding 1,206 for 9,339,871; the signers stay lazy.
-    assert.ok(closure.bytes <= 9_340_000, `${file} exceeds the 9 MB eager-source budget (${closure.bytes} bytes)`);
+    // 9,345,000 (next 5,000 boundary): main 97966e04f measures 9,339,871. SF Guard §10.7 keeps a live review's
+    // signature in its decision record and counts it at the readers: the risk, artifact-risk, dispute and appeal
+    // readers and their schemas (phase-quality-risk.mjs +1,931, phase-appeals.mjs +1,574, the two schema files and
+    // readers +896), the one-touch option (action-authorization.mjs +224) and the dispute warning (governance.mjs
+    // +140) bring 9,343,716 (measured). The signer and verifier stay lazy; no new eager file.
+    assert.ok(closure.bytes <= 9_345_000, `${file} exceeds the 9 MB eager-source budget (${closure.bytes} bytes)`);
   }
 });
 

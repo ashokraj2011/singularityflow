@@ -25,6 +25,22 @@ export const LATER_RECORD_FIELDS = Object.freeze([
 const TAKEN_BACK = Object.freeze(['withdrawnAt', 'invalidatedAt', 'revokedAt', 'supersededBy', 'supersededAt']);
 const APPROVAL_DECISIONS = new Set(['approved', 'rejected']);
 
+/**
+ * A Story's person records kept in their own files rather than in workflow.json (SPEC-PSS-v1 §10.7), by
+ * their path under the Story's directory. The remote check verifies each one a change adds, and fails a
+ * change that removes a signed one.
+ */
+export const STORY_RECORD_FILES = Object.freeze([
+  { id: 'source-review-decision', label: 'source review decision',
+    pattern: /^context\/reviews\/(?:specification|planning)\/gen-[1-9][0-9]*\/decisions\/[a-f0-9]{64}\/[a-f0-9]{64}\.json$/u,
+    route: (workId) => `a person decides the finding again in their own terminal, where it takes their Touch ID: singularity-flow review-source decide … --work-id ${workId ?? '<WORK-ID>'}` }
+]);
+
+/** The file store a path under a Story's directory belongs to, or null. */
+export function storyRecordFile(relative) {
+  return STORY_RECORD_FILES.find((store) => store.pattern.test(String(relative ?? ''))) ?? null;
+}
+
 /** One person record's name in a refusal: its list, step and ID. */
 export function personRecordName(entry) {
   const id = entry.record?.id ?? entry.record?.presence?.nonce?.slice(0, 12) ?? `#${entry.index}`;

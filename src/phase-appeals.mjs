@@ -49,14 +49,20 @@ export const PhaseAppealSchema = z.object({ schemaVersion: z.literal(1), kind: z
   baseCommit: z.string().regex(/^[a-f0-9]{40,64}$/u), capturedHead: z.string().regex(/^[a-f0-9]{40,64}$/u),
   requestedDisposition: z.literal('account-scope'), limitations: z.array(z.string()), packetSha256: SHA
 }).strict();
-export const PhaseAppealDecisionSchema = z.object({ schemaVersion: z.literal(1), kind: z.literal('phase-appeal-decision'),
+// v2 (SF Guard, SPEC-PSS-v1 §10.7): a decision on a Story with an SF Guard pin, which may carry its
+// approver's presence block (verified by the readers, never by this schema). v1 never carries one.
+const phaseAppealDecisionFields = { kind: z.literal('phase-appeal-decision'),
   appealId: z.string().regex(/^APL-[a-f0-9]{24}$/u), packetSha256: SHA,
   decision: z.enum(['account-scope', 'request-changes']), reason: text,
   actor: z.string().min(1).max(256), authorityGroup: z.string().min(1).max(256),
   identityAssurance: z.string().max(100).nullable(), reviewAssurance: z.literal('live-terminal-exact-diff-review'),
   authorizationId: z.string().min(1).max(256), amendmentId: z.string().max(100).nullable(),
   at: z.string().datetime(), testsWaived: z.literal(false), phaseApproved: z.literal(false)
-}).strict();
+};
+export const PhaseAppealDecisionSchema = z.union([
+  z.object({ schemaVersion: z.literal(1), ...phaseAppealDecisionFields }).strict(),
+  z.object({ schemaVersion: z.literal(2), ...phaseAppealDecisionFields, presence: z.object({}).passthrough().optional() }).strict()
+]);
 export const phaseAppealDecisionHash = hash;
 async function boundedFile(root, relative, limit, label) {
   const secured = await secureRepositoryPath(root, relative, { mustExist: true, type: 'file', label });
@@ -262,13 +268,17 @@ export async function phaseAppealStatus(root, config, workflow, phase = null) {
     const relevant = current && workflow.currentPhase === current.id && ['in_progress', 'awaiting_approval'].includes(current.status)
       && packet.binding.generation === generation(current);
     let status = decision?.decision ?? (relevant ? 'needs-human' : 'historical');
-    if (relevant && decision && !await humanReviewOriginPresent(root, decision)) status = 'needs-reattestation';
+    // SF Guard: on a Story it requires, an unsigned decision counts for nothing. It neither accounts for
+    // scope (its plan amendment is uncounted too, so the scope gate still sees the change) nor holds the
+    // phase: the person addresses the finding again, for example with a successor appeal they decide.
+    if (relevant && decision && countedRecords(workflow, [decision]).length !== 1) status = 'unsigned';
+    else if (relevant && decision && !await humanReviewOriginPresent(root, decision)) status = 'needs-reattestation';
     if (relevant && decision?.decision === 'request-changes') {
       const unchanged = await Promise.all(packet.diff.map(async entry => {
         const safe = await secureRepositoryPath(root, entry.path, { type: 'file', label: 'Requested correction' });
         return safe.exists && safe.entry.size <= 262144 && bytesHash(await boundedFile(root, entry.path, 262144, 'Requested correction')) === entry.afterSha256;
       }));
-      if (unchanged.some(Boolean) && status !== 'needs-reattestation') status = 'correction-required';
+      if (unchanged.some(Boolean) && !['needs-reattestation', 'unsigned'].includes(status)) status = 'correction-required';
     }
     items.push({ id: packet.id, packetSha256: packet.packetSha256, phaseId: packet.binding.phaseId,
       generation: packet.binding.generation, status,
@@ -309,7 +319,7 @@ export async function decidePhaseAppeal(root, config, workflow, { id, decision, 
   const card = { plan: { planId: id, planHash: hash({ packet: packet.packetSha256, decision, reason, actor, authority }),
     subject: { workId: workflow.workItem.id, phaseId: phase.id }, revision: head(root), packet, decision, reason,
     testsWaived: false, phaseApproved: false }, action: { actionId: `${id}-${decision}`, confirmation: { required: true } } };
-  const grant = await captureTerminalActionAuthorization(root, card.plan, card.action, { label: `Review ${id}` });
+  const grant = await captureTerminalActionAuthorization(root, card.plan, card.action, { label: `Review ${id}`, presenceInRecord: true });
   if (!grant) return { status: 'cancelled', stateChanged: false };
   const { value, publication } = await transactStory(root, config, workflow, { type: LIFECYCLE_EVENT.DECISION_MADE,
     phaseId: phase.id, generation: packet.binding.generation, actor, agent: null,
@@ -324,10 +334,18 @@ export async function decidePhaseAppeal(root, config, workflow, { id, decision, 
     if (decision === 'account-scope') amendment = recordPlanAmendment(aggregate, { changes: packet.changes, reason,
       actor: actorKey(actor), authorityGroup: authority.authorityGroup, identityAssurance: authority.identityAssurance ?? null,
       at: nowIso(), plan: await activePlan(root, config, aggregate) });
-    const record = PhaseAppealDecisionSchema.parse({ schemaVersion: currentSchemaVersion('phase-appeal-decision'), kind: 'phase-appeal-decision', appealId: id, packetSha256: packet.packetSha256,
+    // An SF Guard pin writes v2, which can keep the approver's signature; anywhere else stays v1.
+    const record = PhaseAppealDecisionSchema.parse({ schemaVersion: aggregate.resolution?.presence ? currentSchemaVersion('phase-appeal-decision') : 1, kind: 'phase-appeal-decision', appealId: id, packetSha256: packet.packetSha256,
       decision, reason, actor: actorKey(actor), authorityGroup: authority.authorityGroup,
       identityAssurance: authority.identityAssurance ?? null, reviewAssurance: 'live-terminal-exact-diff-review',
       authorizationId: grant.authorizationId, amendmentId: amendment?.id ?? null, at: nowIso(), testsWaived: false, phaseApproved: false });
+    // SF Guard (SPEC-PSS-v1 §10.7): on a Story it requires, the decision and the plan amendment it binds
+    // keep their approver's signature, from one card and one touch, before either is retained.
+    if (aggregate.resolution?.presence) {
+      await (await import('./presence/person-steps.mjs')).signPersonRecords(root, aggregate, [
+        { label: 'Appeal decision', action: 'decision.appeal', record },
+        ...(amendment && !amendment.presence ? [{ label: 'Plan amendment', action: 'decision.appeal', record: amendment }] : [])]);
+    }
     await consumeAndRetainHumanReview(root, record, card, grant.token);
     await immutable(root, relative(config, aggregate, id, 'decision.json'), canonicalJson(record));
     aggregate.phaseAppealDecisions ??= []; aggregate.phaseAppealDecisions.push(record);

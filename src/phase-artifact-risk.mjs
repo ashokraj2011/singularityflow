@@ -6,6 +6,7 @@ import { phaseInspectionGeneration, requiresProspectivePhaseInspection } from '.
 import { effectivePhasePublicationProducer } from './manual-authorship.mjs';
 import { isConvergencePhase } from './phase-roles.mjs';
 import { humanReviewOriginPresent } from './human-review-origin.mjs';
+import { countedRecords } from './presence/counted.mjs';
 import { nowIso, SingularityFlowError } from './util.mjs';
 import { ArtifactRiskPacketSchema } from './phase-artifact-risk-schema.mjs';
 import { terminalTransitionAt } from './workflow-terminal-time.mjs';
@@ -47,12 +48,15 @@ export async function artifactQualityStatus(root, config, workflow, phase, findi
   const binding = await artifactQualityBinding(root, config, workflow, phase, { generation });
   const { retainedQualityRiskRecords } = await import('./phase-quality-risk.mjs');
   const retained = await retainedQualityRiskRecords(root, config, workflow);
-  const revoked = new Set(retained.filter(record => record.revokes).map(record => record.revokes));
+  // SF Guard: on a Story it requires, only a signed revocation or decision counts [SPEC-PSS-v1 §10.7].
+  const revoked = new Set(countedRecords(workflow, retained.filter(record => record.revokes)).map(record => record.revokes));
+  const counted = new Set(countedRecords(workflow, retained));
   const accepted = new Set(); const items = [];
   for (const record of retained.filter(record => record.gate === 'PHASE_ARTIFACT_QUALITY'
       && record.binding.phaseId === phase.id)) {
     const stillObserved = record.findings.every(finding => eligible.some(current => canonicalJson(current) === canonicalJson(finding)));
     const status = revoked.has(record.id) ? 'revoked'
+      : !counted.has(record) ? 'unsigned'
       : Date.parse(record.expiresAt) <= Date.parse(at) ? 'expired'
         : canonicalJson(record.binding) !== canonicalJson(binding) ? 'stale'
           : !record.transitions.includes(transition) ? 'out-of-scope'

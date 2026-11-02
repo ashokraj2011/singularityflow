@@ -2754,7 +2754,9 @@ const families = [
   family({ id: 'phase-continuation-event', currentVersion: 1, immutable: true }),
   family({ id: 'phase-appeal', currentVersion: 1, immutable: true,
     paths: [/^(?:singularity|\.sdlc)\/work-items\/[^/]+\/appeals\/APL-[a-f0-9]{24}\/packet\.json$/] }),
-  family({ id: 'phase-appeal-decision', currentVersion: 1, immutable: true,
+  // v2 (SF Guard, SPEC-PSS-v1 §10.7): a decision on a Story with an SF Guard pin, which may keep its
+  // approver's presence block. Written only there, so a repository that never opted in writes v1.
+  family({ id: 'phase-appeal-decision', currentVersion: 2, immutable: true, steps: [migration(1, 2, identity(2))],
     paths: [/^(?:singularity|\.sdlc)\/work-items\/[^/]+\/appeals\/APL-[a-f0-9]{24}\/decision\.json$/] }),
   family({ id: 'test-command-adoption-review', currentVersion: 2, immutable: true,
     // Read projections never invent a post-publication revalidation binding for old reviews.
@@ -3260,8 +3262,10 @@ const families = [
     id: 'source-review-pointer', currentVersion: 1,
     paths: [/^singularity\/work-items\/[^/]+\/context\/reviews\/(?:specification|planning)\/gen-[1-9][0-9]*\/current\.json$/]
   }),
+  // v2 (SF Guard, SPEC-PSS-v1 §10.7): a decision on a Story with an SF Guard pin, which may keep its
+  // approver's presence block. Written only there, so a repository that never opted in writes v1.
   family({
-    id: 'source-review-decision', currentVersion: 1, immutable: true,
+    id: 'source-review-decision', currentVersion: 2, immutable: true, steps: [migration(1, 2, identity(2))],
     paths: [/^singularity\/work-items\/[^/]+\/context\/reviews\/(?:specification|planning)\/gen-[1-9][0-9]*\/decisions\/[a-f0-9]{64}\/[a-f0-9]{64}\.json$/]
   }),
   family({

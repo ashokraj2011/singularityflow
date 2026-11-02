@@ -103,7 +103,7 @@ export async function issueActionAuthorization(root, plan, action, {
  * Direct-terminal confirmation. No caller-supplied answer, stream or receipt can stand in for the
  * named action on the exact card. This is terminal-local review, not authenticated Copilot consent.
  */
-export async function captureTerminalActionAuthorization(root, plan, action, { label = 'Confirm action' } = {}) {
+export async function captureTerminalActionAuthorization(root, plan, action, { label = 'Confirm action', presenceInRecord = false } = {}) {
   if (stdin.isTTY !== true || stdout.isTTY !== true || stderr.isTTY !== true
       || !isatty(stdin.fd) || !isatty(stdout.fd) || !isatty(stderr.fd)) {
     throw new SingularityFlowError('This action requires direct terminal review of its exact current plan.',
@@ -138,8 +138,10 @@ export async function captureTerminalActionAuthorization(root, plan, action, { l
     throw new SingularityFlowError('Local identity changed during terminal review; review the action again.',
       { code: 'ACTION_TERMINAL_PRESENTATION_REQUIRED' });
   }
-  // SF Guard (SPEC-PSS-v1 §10.6): where it applies, the confirmed card also takes the person's touch.
-  await (await import('./presence/repository-steps.mjs')).signTerminalReview(root, reviewedPlan, reviewedAction);
+  // SF Guard (SPEC-PSS-v1 §10.6): where it applies, the confirmed card also takes the person's touch. A
+  // review whose decision record carries its own signature (`presenceInRecord`) takes that one touch
+  // where the record is written instead, so the person is asked once.
+  if (!presenceInRecord) await (await import('./presence/repository-steps.mjs')).signTerminalReview(root, reviewedPlan, reviewedAction);
   const record = await issueActionAuthorization(root, reviewedPlan, reviewedAction,
     { confirmation: reviewedAction.actionId, channel: 'terminal', presenceSigned: true });
   terminalPresentations.set(record.token, {

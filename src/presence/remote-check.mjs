@@ -32,7 +32,8 @@ import {
   presenceEventDigest
 } from './chain.mjs';
 import { firstPushTime, githubRepository, hostReview } from './host.mjs';
-import { personRecordRoute, presenceHistoryProblems, storyPersonRecords, storyPresenceReport } from './story-verify.mjs';
+import { loadPresenceContext, personRecordVerdict } from './person-records.mjs';
+import { personRecordRoute, presenceHistoryProblems, storyPersonRecords, storyPresenceReport, storyRecordFile } from './story-verify.mjs';
 
 const KEY_EVENTS = new Set(['register', 'rotate', 'recover']);
 const NO_BASE = /^0+$/u;
@@ -67,6 +68,29 @@ function defaultDependencies(root, { token, repository }) {
         catch { stories.push({ id: entry.name, relative, workflow: null }); }
       }
       return stories;
+    },
+    // A Story's person records kept in their own files (SPEC-PSS-v1 §10.7), as paths under its directory.
+    listStoryFiles: async (directory) => {
+      const found = [];
+      const walk = async (relative, depth) => {
+        if (depth > 8 || found.length >= 5000) return;
+        for (const entry of await readdir(path.join(root, directory, relative), { withFileTypes: true }).catch(() => [])) {
+          const child = relative ? `${relative}/${entry.name}` : entry.name;
+          if (entry.isDirectory()) await walk(child, depth + 1);
+          else if (entry.isFile() && storyRecordFile(child)) found.push(child);
+        }
+      };
+      await walk('context', 1);
+      return found.sort();
+    },
+    listBaseStoryFiles: async (ref, directory) => {
+      let paths;
+      try { paths = (await git).committedTreePaths(root, ref, [`${directory}/context`]); }
+      catch (error) {
+        throw new SingularityFlowError(`SF Guard's remote check cannot list ${directory}/context at the base ${String(ref).slice(0, 12)}: ${error.message}. Check out the full history (actions/checkout with fetch-depth: 0).`,
+          { code: 'PSS_REMOTE_BASE_UNAVAILABLE', details: { base: ref } });
+      }
+      return paths.map((full) => full.slice(directory.length + 1)).filter((relative) => storyRecordFile(relative));
     },
     creationCommit: async (relative) => (await git).commitAddingPath(root, relative),
     isAncestor: async (older, newer) => (await git).isAncestor(root, older, newer),
@@ -215,6 +239,37 @@ export async function remotePresenceCheck(root, { base = null, pullRequest = nul
           : before === await deps.readHeadFile(problem.path));
         if (onBase) warnings.push(`${message} It is already so on the base.`);
         else fail('PSS_PACKET_ALTERED', message, `restore ${problem.path ?? 'the packet'} as the approval sealed it (it is in the Story's history), or the approver reviews the new packet and approves it again in their own terminal: singularity-flow approve ${problem.phase} --work-id ${story.id}`, { story: story.id });
+      }
+    }
+    // SPEC-PSS-v1 §10.7: the Story's person records kept in their own files verify too, and a signed
+    // one never disappears.
+    const directory = path.posix.dirname(story.relative);
+    const headFiles = await deps.listStoryFiles(directory);
+    if (presence.required) {
+      const context = await loadPresenceContext(root, story.workflow, verifyOption);
+      for (const relative of headFiles) {
+        const store = storyRecordFile(relative);
+        const full = `${directory}/${relative}`;
+        const text = await deps.readHeadFile(full);
+        let record = null;
+        try { record = JSON.parse(text); } catch { record = null; }
+        const verdict = record ? personRecordVerdict(context, record, { workflow: story.workflow })
+          : { counts: false, code: 'PSS_RECORD_UNSIGNED', reason: 'it cannot be read as JSON' };
+        if (verdict.counts) continue;
+        const message = `${story.id}: the ${store.label} ${relative.split('/').at(-1)} does not verify (${verdict.reason}).`;
+        if (baseRef && await deps.readBaseFile(baseRef, full) === text) warnings.push(`${message} It is already on the base and counts for nothing.`);
+        else fail(verdict.code ?? 'PSS_RECORD_UNSIGNED', message, store.route(story.id), { story: story.id });
+      }
+    }
+    if (baseRef && baseStory) {
+      const kept = new Set(headFiles);
+      for (const relative of await deps.listBaseStoryFiles(baseRef, directory)) {
+        if (kept.has(relative)) continue;
+        let record = null;
+        try { record = JSON.parse(await deps.readBaseFile(baseRef, `${directory}/${relative}`)); } catch { record = null; }
+        if (!record?.presence) continue;
+        fail('PSS_RECORD_REMOVED', `${story.id}: the ${storyRecordFile(relative).label} ${relative.split('/').at(-1)} is on the base and this change removes it.`,
+          'keep the record; a person decides again with its own command, never by deleting one', { story: story.id });
       }
     }
     if (baseStory) {

@@ -213,9 +213,8 @@ export async function reviewSourceCommand(positionals, options) {
     return;
   }
   assertSourceReviewDecisionConfirmation(decisionPacket, optionString(options, 'confirm'));
-  // SF Guard: on a Story it requires, a source review decision is the approver's signed step (SPEC-PSS-v1 §10.6).
-  await (await import('../presence/person-steps.mjs')).signPersonRecords(root, workflow, [{ label: 'Source review decision', action: 'decision.source-review',
-    record: { phase: phaseId, reportSha256: status.reportSha256, findingId: id, reason, actor: { email: actor?.email ?? null, login: actor?.login ?? null } } }]);
+  // SF Guard: on a Story it requires, the retained decision keeps its approver's signature, taken where it is
+  // written (source-review-lifecycle.mjs, SPEC-PSS-v1 §10.7).
   const { transactStory } = await measureCommandSpan('publication.writer-load', () => import('../story-publication-store.mjs'));
   let retained;
   const { publication } = await transactStory(root, config, workflow, {

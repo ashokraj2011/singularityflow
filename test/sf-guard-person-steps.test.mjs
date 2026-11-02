@@ -281,7 +281,13 @@ function familyRecords(suffix, actor) {
       operations: [], reason: why, authorizationId: '00000000-0000-4000-8000-000000000000', reviewAssurance: 'live-terminal-exact-plan-review', upstreamIssue: null, ...by },
     // SPEC-PSS-v1 §10.6.
     constitutionExceptions: { articleId: `ART-${suffix}`, reason: why, scope: WORK, authority: 'product-approvers', expiresAt: null, workId: WORK, phase: 'specification', ...by },
-    decisionLog: { decision: `route-${suffix}`, after: 'specification', kind: 'forward', route: 'step', target: 'planning', skipped: [], by: 'person', comment: why, ...by }
+    decisionLog: { decision: `route-${suffix}`, after: 'specification', kind: 'forward', route: 'step', target: 'planning', skipped: [], by: 'person', comment: why, ...by },
+    // SPEC-PSS-v1 §10.7: a live terminal review's decision keeps its signature in its record.
+    qualityRiskDecisions: { kind: 'phase-quality-risk', id: `PQR-${String(suffix).repeat(24)}`, gate: 'SPEC_COVERAGE_INCOMPLETE', authorizationId: `auth-${suffix}`,
+      reviewAssurance: 'live-terminal-risk-review', testsWaived: false, phaseApproved: false, reason: why, ...by },
+    phaseAppealDecisions: { schemaVersion: 2, kind: 'phase-appeal-decision', appealId: `APL-${String(suffix).repeat(24)}`, packetSha256: `sha256:${'5'.repeat(64)}`,
+      decision: 'request-changes', reason: why, reviewAssurance: 'live-terminal-exact-diff-review', authorizationId: `auth-${suffix}`, amendmentId: null,
+      testsWaived: false, phaseApproved: false, ...by }
   };
 }
 
@@ -307,7 +313,10 @@ function readers(workflow, suffix) {
     planAmendments: planRowCorrections(workflow).some((entry) => entry.id === `PRC-00${suffix}`),
     // The review's constitution section reads through this counting; a person's choice is the Story's route.
     constitutionExceptions: countedRecords(workflow, workflow.constitutionExceptions).some((entry) => entry.articleId === `ART-${suffix}`),
-    decisionLog: countedRecords(workflow, workflow.decisionLog, (entry) => isPersonStepRecord('decisionLog', entry)).some((entry) => entry.decision === `route-${suffix}`)
+    decisionLog: countedRecords(workflow, workflow.decisionLog, (entry) => isPersonStepRecord('decisionLog', entry)).some((entry) => entry.decision === `route-${suffix}`),
+    // The risk and appeal readers' statuses are covered in sf-guard-retained-reviews.test.mjs; here, the counting they use.
+    qualityRiskDecisions: countedRecords(workflow, workflow.qualityRiskDecisions).some((entry) => entry.id === `PQR-${String(suffix).repeat(24)}`),
+    phaseAppealDecisions: countedRecords(workflow, workflow.phaseAppealDecisions).some((entry) => entry.appealId === `APL-${String(suffix).repeat(24)}`)
   };
 }
 

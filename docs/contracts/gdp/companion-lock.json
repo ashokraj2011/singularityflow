@@ -4,10 +4,11 @@
   "status": "contract-only",
   "baselineCommit": "70db564e59224b03729bab0f9a340807f3086c61",
   "lastReview": {
-    "reviewedAtCommit": "74e9d6385a4ba9844d1bf7157aadabcfa92791d7",
-    "evidence": "docs/contracts/gdp/COMPANION-LOCK-REVIEW-2026-11-02-SF-GUARD-PERSON-STEPS.md",
+    "reviewedAtCommit": "97966e04f267de646cca25b3789b6eedd67258c4",
+    "evidence": "docs/contracts/gdp/COMPANION-LOCK-REVIEW-2026-11-02-SF-GUARD-RETAINED-REVIEWS.md",
     "companionIds": [
-      "action-authorization"
+      "action-authorization",
+      "migration-registry"
     ]
   },
   "companions": [
@@ -89,12 +90,12 @@
     {
       "id": "action-authorization",
       "path": "src/action-authorization.mjs",
-      "sha256": "sha256:8b28870ccf750d54cb91cb62cc4045e7802a310542ab41394c6484ac445807e2"
+      "sha256": "sha256:9b62f5d1749d94a97223844181b893e32fe0b07c228fde74ad0d703c1b2eb44e"
     },
     {
       "id": "migration-registry",
       "path": "src/schema-migrations.mjs",
-      "sha256": "sha256:b57907f1650030733319e8502c9a6d37c0e77f81017e4d20619ecefc8b19ed0c"
+      "sha256": "sha256:76bad0ffb369fa4dea7fbb97c252346e57644d06054ab83136ed81a953f812c8"
     },
     {
       "id": "smart-initialization-v1",

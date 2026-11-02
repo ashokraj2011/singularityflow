@@ -1458,6 +1458,39 @@ test('developers can choose, launch, unpin, and retain favorite menus', async (t
     ['work-start', 'inbox-open', 'help-open']);
 });
 
+test('Spec Studio has one name in Work tools, saved pins, favorite choices and the palette', async (t) => {
+  if (!requireBundle(t)) return;
+  const values = new Map([['singularityFlow.navigationFavorites.v2', ['spec-studio']]]);
+  const { api, registered } = stubVscode();
+  api.workspace.workspaceFolders = undefined;
+  api.window.showQuickPick = async (items, options) => {
+    registered.quickPicks.push({ items, options });
+    return options.canPickMany ? items.filter(item => item.menuId === 'spec-studio')
+      : items.find(item => item.id === 'spec-studio');
+  };
+  await loadExtension(api).activate(context(values));
+  const navigation = registered.webviewViews.get('singularityFlow.navigation');
+  assert.match(navigation.webview.html, /aria-label="Unpin Spec Studio"/,
+    'an existing saved pin gets the current label without changing its ID');
+  assert.doesNotMatch(navigation.webview.html, />Specifications</);
+  const manifest = JSON.parse(readFileSync(path.join(packageRoot, 'apps/vscode/package.json'), 'utf8'));
+  const palette = manifest.contributes.commands.find(item => item.command === 'singularityFlow.openSpecStudio');
+  assert.equal(palette.title, 'Singularity Flow: Spec Studio');
+  await navigation.post({ type: 'action', action: 'favorite:spec-studio' });
+  await until(() => registered.executedCommands.some(entry => entry.id === palette.command));
+  await navigation.post({ type: 'action', action: 'favorites-manage' });
+  await until(() => registered.quickPicks.length === 1);
+  const favorite = registered.quickPicks[0].items.find(item => item.menuId === 'spec-studio');
+  assert.equal(favorite.label, 'Spec Studio');
+  assert.equal(favorite.picked, true);
+  assert.deepEqual(values.get('singularityFlow.navigationFavorites.v2'), ['spec-studio']);
+  await navigation.post({ type: 'action', action: 'work-tools' });
+  await until(() => registered.executedCommands.filter(entry => entry.id === palette.command).length === 2);
+  const tools = registered.quickPicks[1];
+  assert.equal(tools.options.title, 'Work tools');
+  assert.equal(tools.items.find(item => item.id === 'spec-studio').label, 'Spec Studio');
+});
+
 test('an intentionally empty Favorites preference stays empty', async (t) => {
   if (!requireBundle(t)) return;
   const values = new Map([['singularityFlow.navigationFavorites.v2', []]]);

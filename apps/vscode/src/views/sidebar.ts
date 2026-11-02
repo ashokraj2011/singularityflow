@@ -96,7 +96,7 @@ export const FAVORITE_MENUS: readonly FavoriteMenu[] = Object.freeze([
   { id: 'repository-knowledge', label: 'Repository Brief', description: 'rules, journeys, tests and gaps read from the code', icon: 'book', command: ACTION_COMMANDS['repository-knowledge']! },
   { id: 'comprehension-center', label: 'Comprehension Center', description: 'exact change regions, causes, unknowns, and replay', icon: 'code', command: ACTION_COMMANDS['comprehension-center']! },
   { id: 'work-start', label: 'Start new work', description: 'describe a request and start a Story', icon: 'start', command: ACTION_COMMANDS['work-start']! },
-  { id: 'spec-studio', label: 'Specifications', description: 'Spec Studio: write, research, decide and publish a specification before any Story', icon: 'book', command: ACTION_COMMANDS['spec-studio']! },
+  { id: 'spec-studio', label: 'Spec Studio', description: 'Write, research, decide and publish a specification before any Story', icon: 'book', command: ACTION_COMMANDS['spec-studio']! },
   { id: 'story-intake', label: 'View Story intake details', description: 'saved inputs, selected base and recorded setup', icon: 'book', command: ACTION_COMMANDS['story-intake']! },
   { id: 'adhoc-work', label: 'Ad hoc work', description: 'land bounded work without a Story', icon: 'commit', command: ACTION_COMMANDS['adhoc-work']! },
   { id: 'inbox-open', label: 'Inbox', description: 'work waiting on you', icon: 'inbox', command: ACTION_COMMANDS['inbox-open']! },

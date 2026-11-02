@@ -107,7 +107,7 @@ The Navigator keeps related work together instead of adding a second dashboard h
 - **Diagnostics** is under Help. Repository, capability, workspace-reliability, and Schema Health
   tabs render the corresponding CLI census. Future, unreadable, unregistered, or archived schema
   records include the exact documented upgrade or archival remedy rather than being silently rewritten.
-- **Specifications** (the Spec Studio) is under Work tools, and in the palette as
+- **Spec Studio** is under Work tools, and in the palette as
   `Singularity Flow: Spec Studio`. It is the specification library in three columns: the quality
   gate, the governed records, the authoring loop's seven steps and the gap pipeline on the left;
   the active step in the middle; `spec.md` clause by clause on the right, each clause flagged by the

@@ -61,6 +61,9 @@ interface Receipt { token: string; choiceSets: ReceiptChoiceSet[] }
 
 interface StoryReviewBundle {
   evidenceConsistency?: import('./views/webview.ts').EvidenceConsistencyPresentation | null;
+  /** SF Guard's attribution block of this packet, and its labels in words (SPEC-SFG-v1 §7.1). */
+  attribution?: unknown;
+  attributionLabels?: string[];
   workItem?: { id?: string; title?: string };
   phase?: { id?: string; label?: string; generation?: number };
   /** Presentation from the current local Git identity; the approval gate verifies again. */
@@ -443,6 +446,7 @@ export async function approveWithReceipt(
   let blockingCommits: unknown = null;
   let approvalCheck: unknown = null;
   let testRun: { label: string; totals: string } | null = null;
+  let sfGuard: import('./views/approval-review.ts').ApprovalReviewRequest['sfGuard'] = null;
   if (request.kind === 'story') {
     try {
       // Begin may fetch. Read the exact checklist and bytes only after that refresh; the receipt
@@ -461,6 +465,8 @@ export async function approveWithReceipt(
       type Totals = { passed?: number; failed?: number; discovered?: number };
       type Summary = { resultType?: string; run?: { label?: string } | null; totals?: Totals; data?: Summary };
       const tests = client.run<Summary>(['tests', 'summary', '--work-id', request.workId, '--phase', request.phaseId, '--json']).catch(() => null);
+      // SF Guard's verdict on this step's recorded decisions, read the same way (SPEC-PSS-v1 M5). Advisory.
+      const recorded = client.run(['approvals', request.workId, '--json']).catch(() => null);
       storyReview = await client.run<StoryReviewBundle>([
         'review', request.phaseId, '--format', 'json'
       ]);
@@ -476,6 +482,13 @@ export async function approveWithReceipt(
       const summary = answered?.resultType === 'sflow-test-summary' ? answered : answered?.data;
       testRun = summary?.resultType === 'sflow-test-summary' && summary.run ? { label: summary.run.label ?? '',
         totals: `${summary.totals?.passed ?? 0} passed, ${summary.totals?.failed ?? 0} failed of ${summary.totals?.discovered ?? 0}` } : null;
+      {
+        const { attributionSummaryText, storyStandingFrom } = await import('./views/sf-guard-model.ts');
+        const approvals = storyStandingFrom(request.workId, await recorded, null).approvals.filter((entry) => entry.phase === request.phaseId);
+        const summary = attributionSummaryText(storyReview.attribution);
+        const labels = Array.isArray(storyReview.attributionLabels) ? storyReview.attributionLabels.filter((line): line is string => typeof line === 'string') : [];
+        sfGuard = summary || labels.length || approvals.length ? { summary, labels, approvals } : null;
+      }
       if (storyReview.workItem?.id !== request.workId || storyReview.phase?.id !== request.phaseId) {
         throw new Error('The approval review is not bound to the selected Story phase.');
       }
@@ -517,6 +530,7 @@ export async function approveWithReceipt(
       blockingCommits,
       approvalCheck,
       testRun,
+      sfGuard,
       priorExceptions: (storyReview?.priorExceptions ?? []).map((entry) => ({
         article: entry.article,
         decision: entry.decision,

@@ -1057,12 +1057,20 @@ export class CliError extends Error {
   readonly stderr: string;
   /** Structured stdout returned with a deliberate non-zero status, when the command provided it. */
   readonly result: unknown;
-  constructor(message: string, exitCode: number | null, stderr: string, result: unknown = null) {
+  /**
+   * The command that was refused, so a person step the CLI refused for want of a terminal
+   * (`PSS_CARD_NOT_SHOWN`) can be handed, unchanged, to the person's own terminal [SPEC-PSS-v1 M5].
+   * Never the environment: that stays in the child process.
+   */
+  readonly invocation: { repository: string; args: readonly string[]; input: boolean } | null;
+  constructor(message: string, exitCode: number | null, stderr: string, result: unknown = null,
+    invocation: { repository: string; args: readonly string[]; input: boolean } | null = null) {
     super(message);
     this.name = 'CliError';
     this.exitCode = exitCode;
     this.stderr = stderr;
     this.result = result;
+    this.invocation = invocation;
   }
 }
 
@@ -2133,7 +2141,8 @@ export function invokeCli<T = unknown>(options: InvokeOptions): Promise<T> {
             ? `The Singularity Flow command reported ${structuredStatus}.`
             : safeDisplayDiagnosticText(stdout.trim()))
           || `The Singularity Flow CLI exited with ${code}.`;
-        return fail(new CliError(message, code, safeDisplayDiagnosticText(stderr), result));
+        return fail(new CliError(message, code, safeDisplayDiagnosticText(stderr), result,
+          { repository, args: [...args], input: input != null }));
       }
       if (!json) {
         reportTiming('success', code);

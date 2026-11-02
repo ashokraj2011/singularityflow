@@ -15,6 +15,9 @@ import { navigateTo } from './navigate.ts';
 import { registerMessageRouter, stringField, type InboundMessage } from './messages.ts';
 import type { WorkspaceStore } from '../state.ts';
 import { RetainedPanelRenderGate } from '../single-flight.ts';
+import { approvalStandingFor, type StoryStanding } from './sf-guard-model.ts';
+import { approvalPillHtml, SF_GUARD_STYLE, type StoryRead } from './sf-guard-page.ts';
+import type { JourneySfGuard } from './journey.ts';
 
 const STANDING_PILL: Record<string, { className: string; label: string }> = {
   yours: { className: 'ok', label: 'yours to sign' },
@@ -39,7 +42,17 @@ function chainHtml(approval: PendingApproval): string {
     </li>`).join('')}</ul>`;
 }
 
-function cardHtml(approval: PendingApproval): string {
+/** Who signed, each with SF Guard's verdict on their record when the Story pinned it (signed, pre-signing, bypass, not counted). */
+function signaturesHtml(approval: PendingApproval, standing: StoryStanding | null): string {
+  if (!approval.signatures.length) return '';
+  const signed = approval.signatures.map((signature) => {
+    const verdict = approval.source === 'story' ? approvalStandingFor(standing, approval.phase, signature.at) : null;
+    return `${approvalPillHtml(verdict)}${escape(signature.actor)}`;
+  });
+  return `<p class="muted">Signed by ${signed.join(', ')}</p>`;
+}
+
+function cardHtml(approval: PendingApproval, standing: StoryStanding | null = null): string {
   const pill = STANDING_PILL[approval.standing] ?? STANDING_PILL['blocked'];
   return `
   <article class="card ${escape(approval.standing)}">
@@ -53,9 +66,7 @@ function cardHtml(approval: PendingApproval): string {
     ${approval.afterApproval ? `<p class="callout"><b>After approval:</b> ${escape(approval.afterApproval)}</p>` : ''}
     ${approval.sha256 ? `<p><code>${escape(approval.sha256.slice(0, 16))}</code> <span class="muted">the exact bytes being approved</span></p>` : ''}
     ${chainHtml(approval)}
-    ${approval.signatures.length
-    ? `<p class="muted">Signed by ${approval.signatures.map((signature) => escape(signature.actor)).join(', ')}</p>`
-    : ''}
+    ${signaturesHtml(approval, standing)}
     ${approval.selfApproval
     ? '<p class="muted">You generated this. Approving it will be recorded as not independent.</p>'
     : ''}
@@ -74,12 +85,13 @@ function cardHtml(approval: PendingApproval): string {
   </article>`;
 }
 
-function groupHtml(title: string, approvals: PendingApproval[]): string {
+function groupHtml(title: string, approvals: PendingApproval[], standing: StoryStanding | null = null): string {
   if (!approvals.length) return '';
-  return `<section><h2>${icon('approval')}${escape(title)}</h2>${approvals.map(cardHtml).join('')}</section>`;
+  return `<section><h2>${icon('approval')}${escape(title)}</h2>${approvals.map((approval) => cardHtml(approval, standing)).join('')}</section>`;
 }
 
-function bodyHtml(approvals: Approvals): string {
+export function approvalsBodyHtml(approvals: Approvals, sfGuard: StoryRead | null = null): string {
+  const standing = sfGuard && sfGuard !== 'loading' && !('error' in sfGuard) ? sfGuard : null;
   if (approvals.empty) {
     return `<header><h1>${icon('approval', { size: 20 })}Approvals</h1></header>
       <div class="empty"><p>${escape(approvals.empty)}</p></div>`;
@@ -99,9 +111,9 @@ function bodyHtml(approvals: Approvals): string {
     </p>
   </header>
 
-  ${yours.length ? groupHtml('Waiting for you', yours) : ''}
-  ${groupHtml('With someone else', others)}
-  ${groupHtml('Cannot proceed', blocked)}
+  ${yours.length ? groupHtml('Waiting for you', yours, standing) : ''}
+  ${groupHtml('With someone else', others, standing)}
+  ${groupHtml('Cannot proceed', blocked, standing)}
 
   ${approvals.obstacles.length ? `
   <section>
@@ -142,10 +154,12 @@ export class ApprovalsPanel {
     panel: vscode.WebviewPanel,
     store: WorkspaceStore,
     onMessage: (message: ApprovalsMessage) => void,
-    private readonly lease: { dispose(): void }
+    private readonly lease: { dispose(): void },
+    private readonly sfGuard: JourneySfGuard | null = null
   ) {
     this.panel = panel;
     this.store = store;
+    if (sfGuard) this.disposables.push(sfGuard.onDidChange(() => this.render()) as vscode.Disposable);
     this.snapshotRenders = new RetainedPanelRenderGate(
       () => this.panel.visible !== false,
       () => this.render(),
@@ -199,7 +213,8 @@ export class ApprovalsPanel {
   static async show(
     context: vscode.ExtensionContext,
     store: WorkspaceStore,
-    onMessage: (message: ApprovalsMessage) => void
+    onMessage: (message: ApprovalsMessage) => void,
+    sfGuard: JourneySfGuard | null = null
   ): Promise<ApprovalsPanel> {
     if (ApprovalsPanel.current) {
       ApprovalsPanel.current.panel.reveal(vscode.ViewColumn.Active);
@@ -220,7 +235,7 @@ export class ApprovalsPanel {
           retainContextWhenHidden: true,
           localResourceRoots: [vscode.Uri.joinPath(context.extensionUri, 'media')]
         });
-      ApprovalsPanel.current = new ApprovalsPanel(panel, store, onMessage, lease);
+      ApprovalsPanel.current = new ApprovalsPanel(panel, store, onMessage, lease, sfGuard);
     } catch (error) {
       lease.dispose();
       throw error;
@@ -239,14 +254,14 @@ export class ApprovalsPanel {
       : state.stale
         ? `<header><h1>${icon('approval', { size: 20 })}Approvals</h1></header>
           <p>Confirming the current repository before showing approval actions…</p>`
-        : bodyHtml(buildApprovals(state.snapshot));
+        : approvalsBodyHtml(buildApprovals(state.snapshot), this.sfGuard?.standing(state.snapshot?.workflow) ?? null);
     this.panel.webview.html = page(
       'Approvals',
       body,
       contentSecurityPolicy(this.panel.webview, token),
       token,
       SCRIPT,
-      { nav: 'approvals' }
+      { nav: 'approvals', styles: SF_GUARD_STYLE }
     );
   }
 

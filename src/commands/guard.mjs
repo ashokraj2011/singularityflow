@@ -234,7 +234,19 @@ function standingRows(state) {
   return rows;
 }
 
-function statusResult(state, stamps = [], remote = null, recording = null, configuration = null, outside = null) {
+/**
+ * When a pinned key's certificate expires (SPEC-PSS-v1 REQ-014), as this Mac's `sc_auth` listing says,
+ * or why it cannot be read here: another computer, or a key this Mac does not hold.
+ */
+function keyExpiry(listing, keyId) {
+  if (!keyId) return null;
+  if (!listing?.available) return { here: false, validTo: null, valid: null, reason: listing?.reason ?? 'this computer has no macOS sc_auth' };
+  const row = listing.identities.find((entry) => entry.keyId === keyId);
+  if (!row) return { here: false, validTo: null, valid: null, reason: 'this Mac does not hold it' };
+  return { here: true, validTo: row.validTo, valid: row.valid, reason: null };
+}
+
+function statusResult(state, stamps = [], remote = null, recording = null, configuration = null, outside = null, listing = null) {
   const { folded, problems, historyChecked } = state.policy;
   return {
     status: folded.enabled ? 'required' : 'off',
@@ -249,7 +261,7 @@ function statusResult(state, stamps = [], remote = null, recording = null, confi
     agents: stamps.map(({ id, path, stamped, changed, drift }) => ({ id, path, stamp: !stamped ? 'not-stamped' : changed ? 'changed' : 'stamped', ...(drift ? { drift } : {}) })),
     approvers: standingRows(state).map(({ approver, label, groups, standing }) => ({
       approver, label, groups, state: standing.state, standing: standing.label, keyId: standing.pin?.keyId ?? null,
-      recovered: Boolean(standing.pin?.recovered), exception: standing.exception?.id ?? null
+      recovered: Boolean(standing.pin?.recovered), exception: standing.exception?.id ?? null, expiry: keyExpiry(listing, standing.pin?.keyId ?? null)
     })),
     exceptions: [...folded.exceptions.values()],
     retired: folded.retired,
@@ -262,7 +274,10 @@ function statusText(result) {
   if (result.chainId) lines.push(`  Policy chain ${result.chainId}: ${result.validEvents} of ${result.events} event(s) verify${result.historyChecked ? '' : ' (history not checked: not available in this clone)'}.`);
   if (result.remote) lines.push(`  ${remoteStandingText(result.remote)}`);
   else if (result.remoteCheck) lines.push(`  Remote check: ${result.remoteCheck}`);
-  for (const row of result.approvers) lines.push(`  ${row.label} [${row.approver}]: ${row.standing}${row.recovered ? ' (recovered)' : ''}`);
+  for (const row of result.approvers) {
+    const expiry = row.expiry?.here ? `; key ${row.expiry.valid === false ? 'EXPIRED' : 'valid'}${row.expiry.validTo ? ` to ${row.expiry.validTo}` : ''}` : '';
+    lines.push(`  ${row.label} [${row.approver}]: ${row.standing}${row.recovered ? ' (recovered)' : ''}${expiry}`);
+  }
   for (const problem of result.problems) lines.push(`  Problem (${problem.code}): ${problem.message}`);
   if (result.configuration) {
     lines.push(`  Approved configuration ${String(result.configuration.commit).slice(0, 12)}: ${result.configuration.counts ? result.configuration.label ?? result.configuration.state : `${result.configuration.label}; a person approves it in their own terminal (singularity-flow configuration approve <proposal>), where it takes their Touch ID`}.`);
@@ -444,7 +459,10 @@ export async function run(argv, { positionals, options }, dependencies = {}) {
       ? await (await import('../presence/configuration-seal.mjs')).localConfigurationStanding(root, state.policy, state.definition).catch(() => null) : null;
     const recording = await recordingHealth(root).catch(() => null);
     const outside = await outsideStoriesSummary(root, state, recording).catch(() => null);
-    const result = statusResult(state, stamps, remote, recording, configuration, outside);
+    // Key expiry is read from this Mac's own listing, only when a key is pinned (no prompt: an inspection).
+    const pinned = state.policy.folded.pins.size + (state.policy.folded.authorPins?.size ?? 0) > 0;
+    const listing = pinned ? await Promise.resolve().then(() => deps.listIdentities()).catch(() => null) : null;
+    const result = statusResult(state, stamps, remote, recording, configuration, outside, listing);
     return print(options, result, statusText(result));
   }
   const { folded } = state.policy;

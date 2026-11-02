@@ -832,6 +832,11 @@
         "icon": "$(checklist)"
       },
       {
+        "command": "singularityFlow.sfGuard",
+        "title": "Singularity Flow: SF Guard",
+        "icon": "$(shield)"
+      },
+      {
         "command": "singularityFlow.workspaceRunTest",
         "title": "Singularity Flow: Workspace Run & Test",
         "icon": "$(play-circle)"

@@ -304,6 +304,23 @@ export function showResultCard(view: ResultCardView,
   panelChanged.fire();
 }
 
+let signRequiredHandler: ((error: unknown) => boolean) | null = null;
+
+/**
+ * Where a refusal goes when the CLI refused a person step only because it had no terminal for the
+ * card (`PSS_CARD_NOT_SHOWN`): SF Guard's sign card, which hands the same command to the person's own
+ * terminal. The handler says whether it took the refusal; otherwise the ordinary card shows.
+ */
+export function onSignRequired(handler: ((error: unknown) => boolean) | null): void {
+  signRequiredHandler = handler;
+}
+
+/** Whether SF Guard's sign card took this refusal. Never throws. */
+export function signRequired(error: unknown): boolean {
+  if (!signRequiredHandler || (error as { name?: string } | null)?.name !== 'CliError') return false;
+  try { return signRequiredHandler(error) === true; } catch { return false; }
+}
+
 /**
  * The one call that replaces `showErrorMessage` at a refusal site.
  *
@@ -313,6 +330,8 @@ export function showResultCard(view: ResultCardView,
 export function showRefusal(error: unknown, {
   headline, repositoryRoot = repositoryBinding?.root ?? null, preserveFocus = true, reveal = true
 }: { headline?: string; repositoryRoot?: string | null; preserveFocus?: boolean; reveal?: boolean } = {}): void {
+  // A person step SF Guard refused for want of a terminal goes to its sign card instead (SPEC-PSS-v1 M5).
+  if (signRequired(error)) return;
   let refusal: Refusal;
   try {
     refusal = refusalFor(error, { headline, repositoryRoot });

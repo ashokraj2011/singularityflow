@@ -5,7 +5,8 @@
 - **M0:** run by the person on 1 November 2026 (§10.1).
 - **M1:** built. It covers the verifier, the signed policy chain, key pinning with its GitHub anchor, the opt-in, per-person exceptions, `singularity-flow guard` and `/sf-guard`.
 - **M2:** built (§10.2). Approve and reject are presence-signed on a Story SF Guard requires, and only a verified or excepted approval counts.
-- **M3 to M5:** not built.
+- **M3 and M4:** built (§10.3, §10.4).
+- **M5:** built (§10.11): the VS Code surfaces and the first-run card.
 
 **Grounded on:** main `e9fd1a04a`. `file:line` references are to that commit unless they name an M1 file.
 
@@ -311,7 +312,7 @@ A script that runs a command itself is still not caught. That is this spec's job
 | M2 | Approve and reject signed and verified everywhere approvals are counted. The Story pins the policy. `pre-signing` and exception labels on approvals. Signer-unavailable refusal. The foreign-key alarm on every command | AC-006 to AC-009 |
 | M3 | Every other §3 row, family by family, with one lock review | AC-010. Done for every Story decision family recorded in `workflow.json` (§10.3); the rows recorded elsewhere are listed there with their reasons |
 | M4 | Receipt replay, the final check, `governance verify --presence`, the CI recipe, the branch protection read, the remote GitHub re-read, the reviewed-change recovery for a lone approver | AC-011, AC-013. Done (§10.4) |
-| M5 | VS Code surfaces, the first-run card with REQ-012's rule | AC-014 |
+| M5 | VS Code surfaces, the first-run card with REQ-012's rule | AC-014. Done (§10.11) |
 
 ### 10.1 M0 results (1 November 2026)
 
@@ -551,6 +552,17 @@ The two decisions this needs are product decisions, not settled by this specific
 2. **Packaged refresh.** It is derived from the installed product, not from a signed input. Options: (i) route it through a configuration proposal that a person approves (`configuration approve`, sealed); (ii) seal the refresh plan at `--confirm-plan` as a person step, which then requires `--confirm-plan` while SF Guard is on.
 
 **Recommendation.** Option (ii) for enrollment and option (i) for packaged refresh, and sign every class (a) writer at its own confirmation with the configuration seal of §10.9, keyed by the commit it produces. Then the reader, while SF Guard is on, walks `sflow/config` back from the tip to the newest commit with a seal that verifies, and accepts every commit after it only when it is a membership-only enrollment; anything else is refused with `PSS_RECORD_UNSIGNED` and a route a person can take that day: an approver approves the current configuration, a new `configuration approve --current` that seals the tip after showing its diff from the last counted commit. That command does not exist yet, so the reader cannot refuse until it does. Until this is decided, rows 1 to 3 above are built and the reader stays as §10.9 left it: `guard status` names an unsigned approved commit, and nothing refuses it.
+
+### 10.11 M5 as built (2 November 2026)
+
+- **The sign card** (`apps/vscode/src/views/sf-guard.ts`, `SfGuardSignPanel`). A model-free person step VS Code runs (Approve, Reject, Close gap with O1 and sign and the other Spec Studio steps) goes to the CLI unchanged. Without a terminal the CLI refuses it with `PSS_CARD_NOT_SHOWN` before anything is written. The runner keeps the refused command on its `CliError` (`invocation`: repository and arguments, never the environment). `showRefusal`, and Spec Studio's own refusal path, hand that one code to the sign card instead of a refusal card. Every other refusal, `PSS_SIGNER_UNAVAILABLE` included, stays the ordinary card with the CLI's routes.
+- **What the person does.** The card shows the step, the exact command (a receipt token reads `<receipt>`), the repository and REQ-012's rule. **Open my terminal to sign** opens the person's own terminal in that repository and types the same command, without `--json` and without running it. The person presses Enter, so the command is one they started. That process prints its card and takes the touch (REQ-012 mitigations 1 and 2). The bundled engine runs as Node through the terminal's own environment option, never through a variable written into the command. A card whose repository is no longer the extension's refuses to open a terminal.
+- **Agents stay refused.** Only a click on the card's page opens the terminal. No language-model tool or Copilot message reaches it, and the CLI still refuses an agent's process by its markers.
+- **The first-run card.** The Guard page and the first sign card explain the flow and carry the rule. The page's card is dismissed with **Got it**, and the first terminal handoff counts as seen. The flag is kept in this machine's VS Code state (`singularityFlow.sfGuard.firstRunSeen`), never in the repository.
+- **The Guard page** (`Singularity Flow: SF Guard`). It reads `guard status --json` and `guard report --json`, the terminal's readers. It shows on or off, the policy chain, each registered key with its expiry, exceptions labelled "bypass: per-person exception EXC-…", the remote check with branch protection, the recipe route (`guard remote-check --recipe > .github/workflows/sf-guard-verify.yml`, and the recipe itself from `guard remote-check --json` on request), recording, and labels by Story and step (`guard report --story`).
+- **Key expiry.** `guard status` now gives each approver row an `expiry`: `{ here, validTo, valid, reason }`, from this Mac's `sc_auth list-ctk-identities -t ssh`, which is an inspection with no prompt and is read only when a key is pinned. Another computer, or a key this Mac does not hold, reads `here: false` with the reason, and the page says the expiry is read on the Mac that holds it. An expired key names the rotation route.
+- **Story, approval and review views.** For a Story that pinned SF Guard (`resolution.presence`), the Story view and the approvals view read `approvals <WORK-ID> --json` and `guard report --story <WORK-ID> --json` once per change of the Story's approvals or submissions. Each approval then shows the verifier's label as a pill: signed, pre-signing, bypass or not counted. The phase shows its packets' attribution summary (the approval card's line) and labels. The approval review page shows the packet's summary and labels from `review --format json`, and the step's recorded decisions with their standing. A Story that did not pin SF Guard reads nothing new and shows nothing new.
+- **Tests.** `test/vscode-sf-guard.test.mjs` covers the model, the pages and the panels against the real `guard status` of an opted-in repository. `test/vscode-host.test.mjs` takes an approval through the built extension: the review, the refusal, the card, then the terminal. `test/vscode-spec-studio.test.mjs` covers Close gap with O1 and sign handing its refusal to the card. The bundle ceilings rose by the measured modules only: `extension.cjs` 151 to 152, `lazy-panels-runtime.cjs` 300 to 303.
 
 ## 11. Acceptance criteria
 

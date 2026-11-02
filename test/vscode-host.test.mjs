@@ -11063,6 +11063,122 @@ test('an approval held by pending decisions says so on the approval page and ope
 });
 
 /**
+ * SF Guard in the activated extension [SPEC-PSS-v1 M5, AC-014] [SPEC-SFG-v1 G5]: the Guard page reads
+ * `guard status` and `guard report`; an approval the CLI refuses with PSS_CARD_NOT_SHOWN (a person step
+ * started without a terminal, refused before anything is written) opens the sign card instead of a
+ * refusal card, and its one action types the same command into the person's own terminal. `guard *`,
+ * `approvals`, `choices`, `review`, `decisions` and the final `approve` are answered from files the test
+ * writes; every other command is the real engine.
+ */
+async function sfGuardCli(base) {
+  const state = path.join(base, 'sf-guard-state');
+  await mkdir(state, { recursive: true });
+  const write = (name, value) => writeFile(path.join(state, name), JSON.stringify(value));
+  const wrapper = path.join(base, 'sf-guard-cli.mjs');
+  await writeFile(wrapper, `
+    import { appendFileSync, readFileSync } from 'node:fs';
+    const state = ${JSON.stringify(state)};
+    const read = (name) => JSON.parse(readFileSync(state + '/' + name, 'utf8'));
+    const args = process.argv.slice(2);
+    const out = (value) => process.stdout.write(JSON.stringify(value));
+    const words = args.join(' ');
+    appendFileSync(state + '/log.jsonl', JSON.stringify({ argv: args, agent: Boolean(process.env.COPILOT_CLI || process.env.AI_AGENT) }) + '\\n');
+    if (args[0] === 'guard' && args[1] === 'status') out(read('status.json'));
+    else if (args[0] === 'guard' && args[1] === 'report') out(read(args.includes('--story') ? 'story-report.json' : 'report.json'));
+    else if (args[0] === 'approvals') out(read('approvals.json'));
+    else if (args[0] === 'decisions') out({ resultType: 'command-result', data: { items: [], holding: 0, status: 'nothing-to-decide' } });
+    else if (args[0] === 'choices' && args[1] === 'begin') out({ schemaVersion: 1, token: 'receipt-guard-1', choiceSets: [] });
+    else if (args[0] === 'choices' && args[1] === 'answer') out({ schemaVersion: 1, answered: true });
+    else if (args[0] === 'review') out(read('review.json'));
+    else if (args[0] === 'status' || args[0] === 'tests') out({});
+    else if (args[0] === 'approve') {
+      const { refusalEnvelope } = await import(${JSON.stringify(pathToFileURL(path.join(packageRoot, 'src', 'refusal-remediation.mjs')).href)});
+      const { SingularityFlowError } = await import(${JSON.stringify(pathToFileURL(path.join(packageRoot, 'src', 'util.mjs')).href)});
+      const message = 'SF Guard: this decision needs your presence signature, taken in your own terminal (this command has no terminal to show the card in). Nothing was written. Run it there: singularity-flow approve implementation --work-id GUARD-1';
+      process.stderr.write('\\nSingularity Flow error: ' + message + '\\n\\n--- singularity-flow structured refusal v1 ---\\n'
+        + JSON.stringify(refusalEnvelope(new SingularityFlowError(message, { code: 'PSS_CARD_NOT_SHOWN', details: {} }), args)) + '\\n');
+      process.exitCode = 1;
+    } else {
+      await import(${JSON.stringify(pathToFileURL(path.join(packageRoot, 'bin', 'singularity-flow.mjs')).href)});
+    }
+  `);
+  const log = async () => (await readFile(path.join(state, 'log.jsonl'), 'utf8')).trim().split('\n').filter(Boolean).map((line) => JSON.parse(line));
+  return { wrapper, write, log };
+}
+
+test('SF Guard: the Guard page reads status and report, and an approval refused for want of a terminal becomes the sign card, then the person\'s own terminal (PSS AC-014)', async (t) => {
+  if (!requireBundle(t)) return;
+  const root = await demoRepository();
+  t.after(() => removeFixture(path.dirname(root)));
+  const cli = await sfGuardCli(path.dirname(root));
+  await cli.write('status.json', { schemaVersion: 1, resultType: 'sflow-guard', status: 'required', chainId: 'pss-chain-1', events: 3, validEvents: 3, historyChecked: true,
+    remoteCheck: 'sf-guard-verify', remote: { check: 'sf-guard-verify', suggested: 'sf-guard-verify', branch: 'main', repository: null, status: 'required', contexts: ['sf-guard-verify'], reason: null },
+    agents: [], recording: { state: 'on', gaps: 0, lastGap: null }, problems: [], retired: [],
+    approvers: [{ approver: 'approver-000000000001', label: 'Guard One', groups: [], state: 'signed', standing: 'signed with SHA256:one', keyId: 'SHA256:one', recovered: false, exception: null,
+      expiry: { here: true, validTo: '11/1/27, 9:42 PM', valid: true, reason: null } }],
+    exceptions: [{ id: 'EXC-001', approver: 'approver-000000000002', reason: 'Windows: no presence signer yet', active: true }] });
+  await cli.write('report.json', { schemaVersion: 1, resultType: 'sflow-guard-report', sfGuard: 'on', recording: 'on', since: null, story: null,
+    totals: { declared: 3, 'outside-workflow': 1, 'unknown-agent': 0, shell: 0, unattributed: 0, 'pre-guard': 0 }, storyLabels: null, gaps: [], lastGap: null,
+    subjects: [{ scope: 'GUARD-1', counts: { declared: 3, 'outside-workflow': 1 }, groups: [{ classification: 'declared', agent: 'coder', skill: 'sf-code', kind: 'edit', calls: 3 },
+      { classification: 'outside-workflow', agent: 'helper', skill: null, kind: 'edit', calls: 1 }] }] });
+  await cli.write('approvals.json', { resultType: 'command-result', data: { approvalChain: { phases: [{ id: 'implementation', approval: { decisions: [
+    { decision: 'approved', actor: 'Windows Three', at: '2026-11-02T09:05:00.000Z', generation: 1, active: true, presence: 'bypass: per-person exception EXC-001', counted: true }] } }] } } });
+  await cli.write('review.json', { schemaVersion: 1, workItem: { id: 'GUARD-1', title: 'Guarded change' }, phase: { id: 'implementation', label: 'Implementation', generation: 1 },
+    artifact: { path: 'artifacts/implementation/notes.md', sha256: 'c'.repeat(64) }, specificationQuality: null, priorExceptions: [], reviewerSelfApproval: false,
+    attribution: { status: 'complete', counts: { declared: 30, 'outside-workflow': 4 }, items: [] },
+    attributionLabels: ['Declared ✓ (30 lines)', 'Produced outside the workflow: agent helper, skill none (4 lines in 1 file)'] });
+  const { api, registered } = stubVscode();
+  api.workspace.workspaceFolders = [{ uri: { fsPath: root } }];
+  api.workspace.getConfiguration = () => ({ get: (key) => key === 'cliPath' ? cli.wrapper : '', update: async () => {} });
+  const values = new Map();
+  await loadExtension(api).activate(context(values));
+
+  // The Guard page: on, the key's expiry, the exception as a bypass, protection, recording and the report's counts.
+  await registered.commands.get('singularityFlow.sfGuard')();
+  const guardPage = await until(() => registered.panels.find((entry) => entry.id === 'singularityFlow.sfGuard') ?? null);
+  await until(() => guardPage.webview.html.includes('data-sfg-totals'));
+  assert.match(guardPage.webview.html, /<span class="pill ok">on<\/span> Person steps are presence-signed/);
+  assert.match(guardPage.webview.html, /<span class="pill ok">valid to 11\/1\/27, 9:42 PM<\/span>/);
+  assert.match(guardPage.webview.html, /<strong>bypass: per-person exception EXC-001<\/strong>/);
+  assert.match(guardPage.webview.html, /sf-guard-verify is a required status check on main\./);
+  assert.match(guardPage.webview.html, /data-sfg-totals>3 declared · 1 outside the workflow</);
+  assert.match(guardPage.webview.html, /<section class="sfg-first-run"/);
+  assert.ok((await cli.log()).some((entry) => entry.argv.join(' ') === 'guard status --json'));
+  assert.ok((await cli.log()).some((entry) => entry.argv.join(' ') === 'guard report --json'));
+
+  // Approving: the review shows the packet's labels and the step's decisions under SF Guard.
+  registered.reviewConfirmationManual = true;
+  const approving = registered.commands.get('singularityFlow.approve')({ kind: 'action', id: 'story:implementation:approve', label: 'Review and approve',
+    approve: { kind: 'story', workId: 'GUARD-1', phaseId: 'implementation', expected: 'implementation', summary: 'Approve GUARD-1 / Implementation' } });
+  const review = await until(() => registered.panels.find((entry) => entry.id === 'singularityFlow.approvalReview') ?? null);
+  assert.match(review.webview.html, /<p data-sfg-summary>SF Guard labels: 30 declared · 4 outside the workflow \(lines\)<\/p>/);
+  assert.match(review.webview.html, /data-sfg-state="bypass">bypass<\/span>\s*<strong>Windows Three<\/strong>/);
+  await review.post({ type: 'approval.submit', confirmation: 'implementation', acknowledgeSelfApproval: false, decisions: [] });
+  await approving;
+
+  // The CLI refused before writing anything; the sign card took the refusal, and no terminal opened yet.
+  const card = await until(() => registered.panels.find((entry) => entry.id === 'singularityFlow.sfGuardSign') ?? null);
+  const approveArgv = (await cli.log()).find((entry) => entry.argv[0] === 'approve').argv;
+  assert.deepEqual(approveArgv, ['approve', 'GUARD-1', '--fetch', '--phase', 'implementation', '--selection-receipt', 'receipt-guard-1']);
+  assert.match(card.webview.html, /<h2 id="sfg-card-title">approve implementation for GUARD-1<\/h2>/);
+  assert.match(card.webview.html, /--selection-receipt &lt;receipt&gt;/);
+  assert.doesNotMatch(card.webview.html, /receipt-guard-1/);
+  assert.match(card.webview.html, /How SF Guard asks for your touch/, 'the first sign card explains the rule');
+  assert.equal(registered.panels.some((entry) => entry.id === 'singularityFlow.result' && entry.visible && /PSS_CARD_NOT_SHOWN/.test(entry.webview.html)), false,
+    'no refusal card for the step the person is about to sign');
+  const before = registered.terminals.length;
+
+  await card.post({ type: 'sign.terminal' });
+  const terminal = await until(() => registered.terminals.length > before ? registered.terminals.at(-1) : null);
+  assert.equal(terminal.sent.length, 1);
+  assert.equal(terminal.sent[0].addNewLine, false, 'typed, not run: the person presses Enter');
+  assert.match(terminal.sent[0].text, /'approve' 'GUARD-1' '--fetch' '--phase' 'implementation' '--selection-receipt' 'receipt-guard-1'$/);
+  assert.deepEqual(terminal.options.env, { ELECTRON_RUN_AS_NODE: '1' });
+  assert.equal(values.get('singularityFlow.sfGuard.firstRunSeen'), true);
+  assert.equal((await cli.log()).filter((entry) => entry.argv[0] === 'approve').length, 1, 'the extension never retried the step itself');
+});
+
+/**
  * Run and test (docs/SPEC-RUN-AND-TEST-v1.md, VS Code): `app *` and `tests *` are answered from files
  * the test writes, in the shapes the spec gives; every other command is the real engine. The wrapper
  * logs each app/tests argv with its working directory. A small task host records what VS Code asks

@@ -116,7 +116,7 @@ import {
 import type { EvidenceSourceKind } from './views/evidence-manager.ts';
 import { onFormSubmit, showForm, useDraftStore } from './views/form-panel.ts';
 import {
-  onAutoResultAction, onHomeRequest, onResultAction, resultPanelRepositoryChanged,
+  onAutoResultAction, onHomeRequest, onResultAction, onSignRequired, resultPanelRepositoryChanged,
   resultPanelIsHome, onResultPanelChanged, showRefusal, showResultCard
 } from './views/result-panel.ts';
 import { buildResultCard } from './views/result-card-model.ts';
@@ -1229,7 +1229,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     'singularityFlow.openReconciliation',
     'singularityFlow.openEvidenceMatrix', 'singularityFlow.openOutcomeReview', 'singularityFlow.openApmPackages',
     'singularityFlow.showImpact', 'singularityFlow.addCapability', 'singularityFlow.editCapability',
-    'singularityFlow.openDashboard', 'singularityFlow.openDesigner', 'singularityFlow.openWorkflowStudio', 'singularityFlow.addUserAgent', 'singularityFlow.decideStory', 'singularityFlow.decisions',
+    'singularityFlow.openDashboard', 'singularityFlow.openDesigner', 'singularityFlow.openWorkflowStudio', 'singularityFlow.addUserAgent', 'singularityFlow.decideStory', 'singularityFlow.decisions', 'singularityFlow.sfGuard',
     'singularityFlow.workspaceRunTest', 'singularityFlow.startApplication', 'singularityFlow.runTests', 'singularityFlow.testSummary', 'singularityFlow.editRunConfigurations', ...RUN_CONFIGURATION_COMMANDS,
     'singularityFlow.openEnvironmentFiles',
     'singularityFlow.publishConfiguration',
@@ -5007,6 +5007,23 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     onOutput: (text) => output.append(text)
   });
   output.appendLine(`Using CLI (${client.location.source}): ${client.location.cli}`);
+  // SF Guard (SPEC-PSS-v1 M5): a person step the CLI refused only because it had no terminal for its card
+  // goes to the sign card, whose one action types the same command into the person's own terminal.
+  // Checked by code first, so no other refusal loads the panels runtime.
+  const sfGuardSignHooks = () => ({ client: () => client, memento: context.globalState, output, refresh: () => refreshAfterKnownMutation() });
+  const sfGuardSignRequired = (error: unknown): boolean =>
+    cliRefusalCode(error) === 'PSS_CARD_NOT_SHOWN' && lazyPanels().SfGuardSignPanel.fromRefusal(error, sfGuardSignHooks());
+  onSignRequired(sfGuardSignRequired);
+  context.subscriptions.push({ dispose: () => onSignRequired(null) });
+  // A Story's SF Guard standing, read once per change and shared by the Story and approval views.
+  let sfGuardStandingsReader: import('./views/sf-guard.ts').SfGuardStandings | null = null;
+  const sfGuardStandings = () => {
+    if (!sfGuardStandingsReader) {
+      sfGuardStandingsReader = new (lazyPanels().SfGuardStandings)(() => client);
+      context.subscriptions.push(sfGuardStandingsReader);
+    }
+    return sfGuardStandingsReader;
+  };
   for (const [id, handler] of Object.entries(executionContextHandlers(context, client))) handlers.set(id, handler);
   handlers.set('singularityFlow.countCopilotChatUsage', () => turnOnCopilotChatCounting(client));
   handlers.set('singularityFlow.stopCountingCopilotChatUsage', () => turnOffCopilotChatCounting(client));
@@ -8468,7 +8485,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     'singularityFlow.openApprovals':
       async () => {
         const { ApprovalsPanel } = lazyPanels();
-        return ApprovalsPanel.show(context, store, (message) => { void onApprovalsMessage(message); });
+        return ApprovalsPanel.show(context, store, (message) => { void onApprovalsMessage(message); }, sfGuardStandings());
       },
     'singularityFlow.openInbox':
       async () => {
@@ -9048,7 +9065,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     'singularityFlow.openJourney': async () => {
       await reconcileActiveWorkspaceSelection();
       const { JourneyPanel } = lazyPanels();
-      return JourneyPanel.show(context, store, onJourneyMessage, stepActionDeliveries);
+      return JourneyPanel.show(context, store, onJourneyMessage, stepActionDeliveries, sfGuardStandings());
     },
     'singularityFlow.openInvestigation': ((request?: unknown) => openHostRecord('vscode.openInvestigation', request)) as never,
     'singularityFlow.openContextReceipt': ((request?: unknown) => openHostRecord('vscode.openContextReceipt', request)) as never,
@@ -9604,7 +9621,9 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     },
     // The specification library's Studio: `{ specId, revision, clauses, step }`, 'SPEC-ID@N', or the library [SPEC-SPA v1.3 S3].
     'singularityFlow.openSpecStudio': async (target?: unknown) => lazyPanels().SpecStudioPanel.show(client, target,
-      { root: () => repository, refresh: refreshAfterKnownMutation, output }),
+      { root: () => repository, refresh: refreshAfterKnownMutation, output, signRequired: sfGuardSignRequired }),
+    // SF Guard: on or off, keys and expiry, exceptions, branch protection, recording, and labels by Story (SPEC-PSS-v1 M5, SPEC-SFG-v1 G5).
+    'singularityFlow.sfGuard': async () => lazyPanels().SfGuardPanel.show(client, { memento: context.globalState, output, refresh: refreshAfterKnownMutation }),
     'singularityFlow.inspectCompositionCache': async () => {
       const status = await client.run<{ entries: number; bytes: number }>(['wm', 'cache', 'status', '--json']);
       void showCompactInformationMessage(`Composition cache: ${status.entries} exact prompt(s), ${status.bytes.toLocaleString()} bytes.`);

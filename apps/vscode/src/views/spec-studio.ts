@@ -32,6 +32,11 @@ export interface SpecStudioHooks {
   /** Refresh every view after something was written. */
   refresh?: () => Promise<unknown>;
   output?: { appendLine(line: string): void };
+  /**
+   * SF Guard's sign card, for a person step the CLI refused only for want of a terminal: true when it
+   * took the refusal, which then types the same command into the person's own terminal (SPEC-PSS-v1 AC-014).
+   */
+  signRequired?: (error: unknown) => boolean;
 }
 type Client = Pick<SingularityFlowClient, 'run'>;
 
@@ -310,8 +315,13 @@ export class SpecStudioPanel implements vscode.Disposable {
         this.hooks.output?.appendLine(`  ${this.state.notice}`);
         await this.hooks.refresh?.().catch(() => undefined);
       } catch (error) {
-        this.state.error = model.refusalFrom(error);
-        this.state.notice = null;
+        if (this.hooks.signRequired?.(error)) {
+          this.state.error = null;
+          this.state.notice = 'SF Guard: this step takes your Touch ID in your own terminal. Its card is open; nothing was written yet.';
+        } else {
+          this.state.error = model.refusalFrom(error);
+          this.state.notice = null;
+        }
       }
       await this.read();
     });

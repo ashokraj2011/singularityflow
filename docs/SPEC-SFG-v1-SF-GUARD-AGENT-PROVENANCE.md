@@ -5,7 +5,7 @@
 - **G0:** done in the Copilot CLI (1.0.105) and in VS Code (1.144), all but the `Local` session target (§1.1).
 - **G1:** built. Recording, REQ-020 to REQ-024 (§5.1 says what was built).
 - **G2 to G4:** built: the declared set and reconciliation (§4.1, §6.1), labels (§7.1), and whole-repository labels with the agent-file drift label (§7.2).
-- **G5:** not built.
+- **G5:** built (§7.3): the VS Code Guard panel and Story views.
 
 **Part 1** is [SPEC-PSS v1](SPEC-PSS-v1-PRESENCE-SIGNED-STEPS.md): presence-signed person steps, M1 built. Both parts are SF Guard. Clause IDs here are `[SFG:…]`; `[PSS:…]` refers to part 1.
 
@@ -355,6 +355,12 @@ Labels sit beside the work they describe and never replace it. Declared work sho
   The wording: "Agent file drift: developer (.github/agents/developer.agent.md) — stamping hook removed since it was stamped, so its stamps no longer prove which agent ran".
 - **Allow but label, off as before:** nothing reads a drift or a whole-repository class to refuse, prompt or hold. Where SF Guard is off and does not record, `guard report` and `guard reconcile` print exactly what they did before: no `repository` and no `agentDrift`.
 
+### 7.3 As built (G5)
+
+- **The Guard panel** (`apps/vscode/src/views/sf-guard.ts`). It reads `guard report --json`, the same `sfGuardReport` the terminal prints. It shows the report's own totals and, for each Story and for work outside a Story, its counts and group lines, in `sfGuardReportText`'s words. Nothing is recounted (AC-012). **Show labels by step** reads `guard report --story <WORK-ID> --json` and lists each submitted packet's labels and standing (intact, altered, absent). The panel also shows recording and the last gap. Part 1's switch, keys, exceptions and remote check come from `guard status` (SPEC-PSS-v1 §10.11).
+- **Story views.** The Story view's phase detail and the approval review page show each packet's attribution summary, the approval card's line (`attributionSummary`), with its labels beside the work. They never replace it, and they refuse nothing.
+- **Tests.** `test/vscode-sf-guard.test.mjs` checks the page's totals and group lines against `sfGuardReportText`, and the packet summary against `attributionSummary`, for the same answers.
+
 ## 8. Binding into the signed review (part 1)
 
 **[SFG:REQ-050]** The `attribution` block and its digest are part of the review packet, so they are covered by `reviewPacketSha256`, which part 1's statement signs. After approval:
@@ -392,7 +398,7 @@ Before submission, CON-002 applies. With part 1 off, the labels still show, but 
 | G2 | The declared set (§4) and reconciliation (§6) | G1 | AC-005 to AC-007. **Built** (§4.1, §6.1), with the stamping hooks and the drift label |
 | G3 | Labels in packets, receipts, the final check, `guard status` and `guard report` (§7) | G2, part 1 M2 (signed approval) | AC-008 to AC-010. **Built** (§7.1) |
 | G4 | Whole-repository labels outside Stories through D3's route; the agent-file drift label | G2 | AC-011. **Built** (§7.2); D3's commit trailer is still offered later |
-| G5 | VS Code Guard panel and Story views | G3 | AC-012 |
+| G5 | VS Code Guard panel and Story views | G3 | AC-012. **Built** (§7.3) |
 
 G1 and G2 can run alongside part 1's M2. G3 waits for M2's signed packets.
 

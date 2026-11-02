@@ -23,6 +23,7 @@ questions:
   - Why was my --authored human publication recorded as the agent's?
   - How do I register a key if I am not an approver?
   - Why does spec author publish or configuration approve ask for Touch ID?
+  - Where is SF Guard in VS Code?
 keywords:
   - presence signature
   - secure enclave
@@ -42,7 +43,7 @@ related:
   - approvals
   - configuration
   - copilot-and-surfaces
-version: 13
+version: 14
 ---
 SF Guard makes a person's own steps provable. An agent runs as the same user on the same computer: it can read Git configuration, run any command, fake a terminal and write Git records directly, so nothing it can type proves a person decided. SF Guard asks for the one thing it cannot produce, a signature from a Secure Enclave key on the person's Mac made after their Touch ID. It is off until a repository opts in; a repository that never opts in behaves exactly as before. Refusals keep the `PSS_` codes of SPEC-PSS-v1.
 
@@ -54,7 +55,7 @@ Use this topic to see whether SF Guard is on, to pin your presence key, to opt a
 
 - **Shell:** `sflow guard status` reads. Every other action is your own step in your own terminal: `sflow guard register`, `rotate`, `recover`, `revoke`, `enable`, `disable`, and `exception add|revoke`. Each shows a card, then Touch ID prompts. Someone who is not an approver registers a key only to sign their own authorship claims: `sflow guard register --author --github-login <LOGIN>`.
 - **Copilot:** `/sf-guard` shows the status only. Every other `guard` action is refused for agents in every turn, and the refusal names your exact command. On a Story SF Guard requires, an agent's `approve` or `reject` (an `/sf-approve` turn included) is refused with `PSS_CARD_NOT_SHOWN` and your exact command: run it in your own terminal, where the card shows and Touch ID prompts.
-- **VS Code:** run the same command in a terminal; a model-free approval on a Story SF Guard requires names that command. The panel surfaces arrive with M5.
+- **VS Code:** **Singularity Flow: SF Guard** opens the Guard page: whether SF Guard is on, each registered key and when it expires (read on the Mac that holds it), exceptions labelled as a bypass, whether the remote check is a required status check and the route that writes its CI recipe, whether this checkout records, and the labels by Story and step, with the same counts as `guard report`. A model-free person step (Approve, Close gap with O1 and sign, and the other Spec Studio steps) that needs your touch shows its card first; **Open my terminal to sign** types the same command into your own terminal, and you press Enter: the command prints its card, then Touch ID prompts. Nothing is written until you touch. The first time, the card explains the rule. The Story, approvals and review views show each approval as signed, pre-signing, bypass or not counted, and each packet's attribution summary.
 
 ## Guided workflow
 

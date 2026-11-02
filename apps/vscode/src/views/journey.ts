@@ -20,6 +20,14 @@ import { decisionTargetText, pendingListSentence } from '../decisions.ts';
 import type { WorkspaceStore } from '../state.ts';
 import { deliveryState, heldBy, isDeliveryKey, pinnedStepActions, type StepActionDeliveryMonitor } from '../step-action-deliveries.ts';
 import { deliveriesHtml, type JourneyDeliveries } from './journey-deliveries.ts';
+import { approvalStandingFor } from './sf-guard-model.ts';
+import { approvalPillHtml, SF_GUARD_STYLE, storyStandingHtml, type StoryRead } from './sf-guard-page.ts';
+
+/** A Story's SF Guard standing, read by the extension (views/sf-guard.ts `SfGuardStandings`). */
+export interface JourneySfGuard {
+  standing(workflow: unknown): StoryRead | null;
+  onDidChange(listener: () => void): { dispose(): void };
+}
 
 const STATUS_CLASS: Record<string, string> = {
   approved: 'ok',
@@ -126,12 +134,15 @@ function approvalTime(value: string | null): string {
   return Number.isNaN(parsed.getTime()) ? value : parsed.toLocaleString();
 }
 
-function approvalSummaryHtml(journey: Journey): string {
+function approvalSummaryHtml(journey: Journey, sfGuard: StoryRead | null = null): string {
   if (!journey.approvals.length) {
     return '<p class="muted approval-empty">No active approval is recorded for this phase.</p>';
   }
+  // SF Guard's verdict on each approval (signed, pre-signing, bypass, not counted), when the Story pinned it.
+  const standing = sfGuard && sfGuard !== 'loading' && !('error' in sfGuard) ? sfGuard : null;
+  const phase = journey.selectedStage?.id ?? '';
   return `<ul class="approval-summary">${journey.approvals.map((approval) => `
-    <li>${icon('ok', { size: 14 })}<span><strong>${escape(approval.actor)}</strong>
+    <li>${icon('ok', { size: 14 })}<span>${approvalPillHtml(approvalStandingFor(standing, phase, approval.at))}<strong>${escape(approval.actor)}</strong>
       ${approval.authority ? `<small>${escape(approval.authority)}</small>` : ''}
       <small>${escape(approvalTime(approval.at))}</small></span></li>`).join('')}</ul>`;
 }
@@ -162,7 +173,7 @@ function decisionOptionsHtml(journey: Journey): string {
       <div class="decision-options" role="group" aria-label="${escape(pending.label)}">${options}${anyStep}</div>`;
 }
 
-export function journeyBodyHtml(journey: Journey, deliveries: JourneyDeliveries | null = null): string {
+export function journeyBodyHtml(journey: Journey, deliveries: JourneyDeliveries | null = null, sfGuard: StoryRead | null = null): string {
   if (journey.empty) return `<div class="empty"><p>${escape(journey.empty)}</p></div>`;
 
   const blockers = journey.blockers.length
@@ -238,7 +249,8 @@ export function journeyBodyHtml(journey: Journey, deliveries: JourneyDeliveries 
       </div>
       ${artifactsHtml(journey)}
       <h3>${icon('approval', { size: 14 })}Phase approvals</h3>
-      ${approvalSummaryHtml(journey)}
+      ${approvalSummaryHtml(journey, sfGuard)}
+      ${journey.kind === 'story' && journey.selectedStage ? storyStandingHtml(sfGuard, { phase: journey.selectedStage.id }) : ''}
     </section>
 
     ${deliveriesHtml(deliveries, journey)}
@@ -291,16 +303,20 @@ export class JourneyPanel {
   private selectedStageId: string | null = null;
   private subjectKey: string | null;
   private readonly deliveries: StepActionDeliveryMonitor | null;
+  private readonly sfGuard: JourneySfGuard | null;
 
   private constructor(
     panel: vscode.WebviewPanel,
     store: WorkspaceStore,
     onMessage: (message: JourneyMessage) => void,
-    deliveries: StepActionDeliveryMonitor | null = null
+    deliveries: StepActionDeliveryMonitor | null = null,
+    sfGuard: JourneySfGuard | null = null
   ) {
     this.panel = panel;
     this.store = store;
     this.deliveries = deliveries;
+    this.sfGuard = sfGuard;
+    if (sfGuard) this.disposables.push(sfGuard.onDidChange(() => this.render()) as vscode.Disposable);
     this.subjectKey = journeySubjectKey(store);
     this.subscription = store.onDidChange(() => {
       const nextSubject = journeySubjectKey(this.store);
@@ -373,7 +389,8 @@ export class JourneyPanel {
     context: vscode.ExtensionContext,
     store: WorkspaceStore,
     onMessage: (message: JourneyMessage) => void,
-    deliveries: StepActionDeliveryMonitor | null = null
+    deliveries: StepActionDeliveryMonitor | null = null,
+    sfGuard: JourneySfGuard | null = null
   ): JourneyPanel {
     if (JourneyPanel.current) {
       JourneyPanel.current.panel.reveal(vscode.ViewColumn.Active);
@@ -386,7 +403,7 @@ export class JourneyPanel {
       // Nothing outside the extension's own media directory is loadable, and nothing is loaded today.
       localResourceRoots: [vscode.Uri.joinPath(context.extensionUri, 'media')]
     });
-    JourneyPanel.current = new JourneyPanel(panel, store, onMessage, deliveries);
+    JourneyPanel.current = new JourneyPanel(panel, store, onMessage, deliveries, sfGuard);
     JourneyPanel.current.refreshDeliveries();
     return JourneyPanel.current;
   }
@@ -435,11 +452,12 @@ export class JourneyPanel {
     const token = nonce();
     this.panel.webview.html = page(
       'Journey',
-      journeyBodyHtml(buildJourney(this.store.current.snapshot, this.selectedStageId), this.deliveriesView()),
+      journeyBodyHtml(buildJourney(this.store.current.snapshot, this.selectedStageId), this.deliveriesView(),
+        this.sfGuard?.standing(this.store.current.snapshot?.workflow) ?? null),
       contentSecurityPolicy(this.panel.webview, token),
       token,
       JOURNEY_SCRIPT,
-      { nav: 'journey' }
+      { nav: 'journey', styles: SF_GUARD_STYLE }
     );
   }
 

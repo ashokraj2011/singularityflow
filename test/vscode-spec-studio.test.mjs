@@ -276,6 +276,36 @@ test('Close gap with O1 and sign runs spec author decide --option O1; the signer
   studio.dispose();
 });
 
+test('with SF Guard on, Close gap with O1 and sign hands the refused step to SF Guard\'s card, and nothing is written (PSS:AC-014)', async (t) => {
+  const { root } = await storefront(t);
+  const client = recordingClient(root);
+  const { CliError } = await import('../apps/vscode/src/cli/runner.ts');
+  const { refusalEnvelope } = await import('../src/refusal-remediation.mjs');
+  const { SingularityFlowError } = await import('../src/util.mjs');
+  const run = client.run;
+  // The CLI's refusal for a person step started without a terminal, before it writes anything (src/presence/repository-steps.mjs).
+  client.run = async (argv) => {
+    if (argv[2] !== 'decide') return run(argv);
+    client.calls.push(argv);
+    const envelope = refusalEnvelope(new SingularityFlowError('SF Guard: spec.decide needs your presence signature, taken in your own terminal (this command has no terminal to show the card in). Nothing was written.',
+      { code: 'PSS_CARD_NOT_SHOWN', details: {} }), argv);
+    throw new CliError(envelope.error.message, 1, '', envelope, { repository: root, args: argv, input: false });
+  };
+  const handed = [];
+  panels.length = 0;
+  SpecStudioPanel.show(client, SPEC, { root: () => root, signRequired: (error) => { handed.push(error); return error.result?.error?.code === 'PSS_CARD_NOT_SHOWN'; } });
+  const studio = panels.find((panel) => panel.viewType === 'singularityFlow.specStudio');
+  await settled(client, studio);
+  studio.post({ type: 'spec.decide', gap: 'GAP-001', option: 'O1', reason: 'Strictly above, as finance agreed.' });
+  await settled(client, studio);
+  assert.equal(handed.length, 1, 'the refusal went to SF Guard\'s card');
+  assert.deepEqual(handed[0].invocation.args.slice(0, 7), ['spec', 'author', 'decide', SPEC, 'GAP-001', '--option', 'O1'], 'the card gets the exact command');
+  assert.match(studio.webview.html, /SF Guard: this step takes your Touch ID in your own terminal\. Its card is open; nothing was written yet\./u);
+  assert.doesNotMatch(studio.webview.html, /data-error>/u, 'not shown as an error');
+  assert.equal(json(root, ['spec', 'author', 'status', SPEC]).gaps[0].status, 'open', 'nothing was written');
+  studio.dispose();
+});
+
 test('Cancel and Back on every stage write nothing; publishing and discarding ask first, and declining leaves the draft (SPA:AC-020)', async (t) => {
   const { root } = await storefront(t);
   const client = recordingClient(root);

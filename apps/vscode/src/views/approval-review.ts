@@ -15,6 +15,7 @@ import { navigateTo } from './navigate.ts';
 import { approvalBlockingCommits, approvalBlockingCommitsHtml, approvalHoldsHtml, contentSecurityPolicy, escape, evidenceConsistencyHtml,
   navigationTarget, nonce, page, type EvidenceConsistencyPresentation } from './webview.ts';
 import { approvalHolds } from './approvals-model.ts';
+import { APPROVAL_STATE_PILL, type ApprovalStanding } from './sf-guard-model.ts';
 
 export const APPROVAL_DECISIONS = ['satisfied', 'exception', 'not-applicable'] as const;
 export type ApprovalChecklistDecision = {
@@ -97,6 +98,29 @@ export interface ApprovalReviewRequest {
   testRun?: { label: string; totals: string } | null;
   priorExceptions: Array<{ article?: string; decision?: string; reason?: string; actor?: string }>;
   selfApproval: boolean;
+  /**
+   * SF Guard, when this packet carries labels or the Story pinned it: the packet's attribution summary
+   * and labels (`review --format json`), and this step's recorded decisions as SF Guard counts them
+   * (`approvals --json`). Advisory: a label never refuses; the approval gate verifies signatures.
+   */
+  sfGuard?: { summary: string | null; labels: string[]; approvals: ApprovalStanding[] } | null;
+}
+
+/** The packet's labels and this step's decisions under SF Guard, before the person approves. */
+export function sfGuardReviewHtml(guard: ApprovalReviewRequest['sfGuard']): string {
+  if (!guard || (!guard.summary && !guard.labels.length && !guard.approvals.length)) return '';
+  const decisions = guard.approvals.map((entry) => {
+    const pill = APPROVAL_STATE_PILL[entry.state];
+    return `<li><span class="pill ${escape(pill.tone)}" data-sfg-state="${escape(entry.state)}">${escape(pill.words)}</span>
+      <strong>${escape(entry.actor)}</strong> ${escape(entry.decision)}<br><small>${escape(entry.label)}</small></li>`;
+  }).join('');
+  return `<section class="approval-sf-guard" aria-label="SF Guard">
+    <h2>SF Guard</h2>
+    ${guard.summary ? `<p data-sfg-summary>${escape(guard.summary)}</p>` : ''}
+    ${guard.labels.length ? `<ul class="sfg-labels">${guard.labels.map((label) => `<li>${escape(label)}</li>`).join('')}</ul>` : ''}
+    ${decisions ? `<h3>Decisions recorded on this step</h3><ul>${decisions}</ul>` : ''}
+    <p class="muted">Labels never refuse anything. Where this Story requires it, recording your approval takes your Touch ID in your own terminal: VS Code shows the card, then hands you the command.</p>
+  </section>`;
 }
 
 export interface ApprovalReviewSubmission {
@@ -433,7 +457,7 @@ export function approvalReviewBody(request: ApprovalReviewRequest, errors: strin
       <p class="meta">Review the exact generation, record every required decision, then type the phase confirmation.</p>
     </header>
     <div class="review-binding approval-binding">${binding}</div>
-    ${held}${approvalHoldsHtml(approvalHolds(request.approvalCheck), { except: ['STORY_REVIEW_INTERVENING_COMMIT'] })}${approvalBlockingCommitsHtml(approvalBlockingCommits(request.blockingCommits))}${tests}${findings}${witnessed}${prior}${selfApproval}${evidenceConsistencyHtml(request.evidenceConsistency)}
+    ${held}${approvalHoldsHtml(approvalHolds(request.approvalCheck), { except: ['STORY_REVIEW_INTERVENING_COMMIT'] })}${approvalBlockingCommitsHtml(approvalBlockingCommits(request.blockingCommits))}${tests}${sfGuardReviewHtml(request.sfGuard)}${findings}${witnessed}${prior}${selfApproval}${evidenceConsistencyHtml(request.evidenceConsistency)}
       ${decideHere}${checklist}${witnessReview}
       <section class="approval-confirmation">
         <h2>Confirm your decision</h2>

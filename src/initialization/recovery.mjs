@@ -137,7 +137,7 @@ export async function assertNoPendingSmartInitRecovery(root) {
     `Smart initialization has an incomplete exact transaction. Run singularity-flow init --recover --proposal ${pending.journal.proposalSha256}.`,
     {
       code: 'INI_RECOVERY_REQUIRED',
-      details: { proposalSha256: pending.journal.proposalSha256, status: pending.journal.status }
+      details: { nextAction: { executable: 'singularity-flow', argv: ['init', '--recover', '--proposal', pending.journal.proposalSha256], label: 'Inspect or continue the retained operation; recheck before retrying.' },  proposalSha256: pending.journal.proposalSha256, status: pending.journal.status }
     }
   );
 }

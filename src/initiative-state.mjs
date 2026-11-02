@@ -738,7 +738,7 @@ export function initiativeApplicabilityState(portfolio, initiative) {
  */
 export async function restartInitiative(root, id = branch(root), { reason = null, agent = null } = {}) {
   const { portfolio, initiative } = await loadInitiative(root, id);
-  if (branch(root) !== id) throw new SingularityFlowError(`Current branch ${branch(root)} must be ${id} to restart it. Run singularity-flow initiative resume ${id} first.`);
+  if (branch(root) !== id) throw new SingularityFlowError(`Current branch ${branch(root)} must be ${id} to restart it. Run singularity-flow initiative resume ${id} first.`, { details: { nextAction: { executable: 'singularity-flow', argv: ['initiative', 'resume', id], label: 'Inspect or continue the retained operation; recheck before retrying.' } } });
   const definition = await loadDefinition(root);
   const resolved = resolveInitiativeProfile(portfolio, initiative.initiative.profile, {
     workflowDefinition: definition
@@ -1071,7 +1071,7 @@ export async function commitInitiativeChange(root, portfolio, initiative, event,
     id: initiative.initiative.id,
     legacyPath: legacyInitiativePendingPublicationPath(root, portfolio, initiative.initiative.id)
   });
-  if (pending) throw new SingularityFlowError('Initiative publication is pending. Run singularity-flow initiative sync before another mutation.');
+  if (pending) throw new SingularityFlowError('Initiative publication is pending. Run singularity-flow initiative sync before another mutation.', { details: { nextAction: { executable: 'singularity-flow', argv: ['initiative', 'sync'], label: 'Inspect or continue the retained operation; recheck before retrying.' } } });
   const ledgerConfig = normalizeLedgerConfig(initiative.resolution?.ledger ?? {});
   const requestedPhaseId = event?.phaseId ?? initiative.currentPhase ?? null;
   const envelope = lifecycleEvent({
@@ -1269,7 +1269,7 @@ export async function syncInitiativePublication(root, portfolio, initiative, { f
     throw new SingularityFlowError(
       `Initiative '${initiative.initiative.id}' recovery diverged and was stopped safely. ${record.error} `
       + 'Run singularity-flow doctor for the exact journal/branch diagnosis; no commit was pushed.',
-      { code: 'PUBLICATION_RECOVERY_DIVERGED', details: record }
+      { code: 'PUBLICATION_RECOVERY_DIVERGED', details: { ...record, nextAction: { executable: 'singularity-flow', argv: ['doctor', '--json'], label: 'Inspect the exact recovery journal and retained failure before retrying.' } } }
     );
   }
   if (record.recoveryStage === 'interrupted-before-branch-ref-advanced') {
@@ -1296,7 +1296,7 @@ export async function syncInitiativePublication(root, portfolio, initiative, { f
     throw new SingularityFlowError(
       `Initiative '${initiative.initiative.id}' was interrupted before its commit completed. `
       + 'Inspect the working tree, run singularity-flow doctor, and repair or discard the partial local state before retrying.'
-    );
+    , { details: { nextAction: { executable: 'singularity-flow', argv: ['doctor', '--json'], label: 'Inspect or continue the retained operation; recheck before retrying.' } } });
   }
   return withSubjectLock(root, subject, async () => {
     const current = await readPendingPublication(root, pendingOptions);
@@ -1306,14 +1306,14 @@ export async function syncInitiativePublication(root, portfolio, initiative, { f
       throw new SingularityFlowError(
         `Initiative '${initiative.initiative.id}' recovery diverged and was stopped safely. ${currentRecord.error} `
         + 'Run singularity-flow doctor for the exact journal/branch diagnosis; no commit was pushed.',
-        { code: 'PUBLICATION_RECOVERY_DIVERGED', details: currentRecord }
+        { code: 'PUBLICATION_RECOVERY_DIVERGED', details: { ...currentRecord, nextAction: { executable: 'singularity-flow', argv: ['doctor', '--json'], label: 'Inspect the exact recovery journal and retained failure before retrying.' } } }
       );
     }
     if (currentRecord.recoveryStage === 'interrupted-before-branch-ref-advanced') {
       throw new SingularityFlowError(
         `Initiative '${initiative.initiative.id}' recovery state changed while synchronization was acquiring its lock. `
         + 'Run singularity-flow initiative sync again; no commit was pushed.',
-        { code: 'PUBLICATION_RECOVERY_CHANGED' }
+        { details: { nextAction: { executable: 'singularity-flow', argv: ['initiative', 'sync'], label: 'Inspect or continue the retained operation; recheck before retrying.' } },  code: 'PUBLICATION_RECOVERY_CHANGED' }
       );
     }
     const verification = verifyPendingPublicationCommit(root, currentRecord, {
@@ -1328,7 +1328,7 @@ export async function syncInitiativePublication(root, portfolio, initiative, { f
         + 'Run singularity-flow doctor --json and repair or discard the invalid recovery receipt.',
         {
           code: 'PENDING_PUBLICATION_IDENTITY_INVALID',
-          details: { subject, markerPath: current.path, failures: verification.failures }
+          details: { nextAction: { executable: 'singularity-flow', argv: ['doctor', '--json'], label: 'Inspect or continue the retained operation; recheck before retrying.' },  subject, markerPath: current.path, failures: verification.failures }
         }
       );
     }

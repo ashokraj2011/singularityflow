@@ -3279,7 +3279,7 @@ async function ledgerRefSnapshot(root, config, callback, { offline = false, requ
     });
   }
   const ref = ledgerHead(root, config);
-  if (!ref) throw new SingularityFlowError(`Ledger branch '${config.branch}' does not exist. Run singularity-flow ledger init.`);
+  if (!ref) throw new SingularityFlowError(`Ledger branch '${config.branch}' does not exist. Run singularity-flow ledger init.`, { details: { nextAction: { executable: 'singularity-flow', argv: ['ledger', 'init'], label: 'Inspect or continue the retained operation; recheck before retrying.' } } });
   const head = readRefFile(root, ref, HEAD_PATH);
   if (head === null) throw new SingularityFlowError(`Ledger branch is missing ${HEAD_PATH}.`);
   /**

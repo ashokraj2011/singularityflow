@@ -342,7 +342,7 @@ function storyApprovalsOf(snapshot: RepositorySnapshot, workflow: StoryWorkflow)
       authorities,
       // Older pinned Stories may predate effective-policy filtering. Never offer a target that
       // the lifecycle cannot enter, even when its historical rejectTo list still names one.
-      rejectTo: (phase.approvalPolicy?.rejectTo ?? [phase.id]).filter((target) =>
+      rejectTo: (verdict?.correctionTargets ?? phase.approvalPolicy?.rejectTo ?? [phase.id]).filter((target) =>
         workflow.phaseOrder.includes(target) && workflow.phaseOrder.indexOf(target) <= workflow.phaseOrder.indexOf(phase.id)),
       signatures: active.map((approval) => ({
         actor: identityOf(approval.actor) || 'unknown', at: approval.at ?? null

@@ -13,6 +13,7 @@ import path from 'node:path';
 import { assertPlannedClaimsReady } from './config.mjs';
 import { resolvedArtifactSet, memberRoot } from './artifact-sets.mjs';
 import { inputFindingSeverity, qualityValidationVerdict } from './lifecycle-evidence-policy.mjs';
+import { phaseCorrectionTargets } from './phase-finding-policy.mjs';
 
 export const WORKFLOW_LIFECYCLE_SIMULATION_PROFILE = 'story-structural-lifecycle/v1';
 export const WORKFLOW_LIFECYCLE_SIMULATION_LIMITS = Object.freeze({ phases: 64, idBytes: 512, scenarios: 1024,
@@ -442,7 +443,7 @@ export function simulateResolvedWorkflowLifecycle(resolved) {
           conditions: ['verified-accepted-lineage', 'separate-reviewed-package-adoption', 'fresh-publication-and-required-human-approval',
             'qualified-host-before-real-skill-execution'] });
     }
-    for (const phase of captured.phases) for (const targetId of phase.approval.rejectTo ?? []) {
+    for (const phase of captured.phases) for (const targetId of phaseCorrectionTargets(phase)) {
       if (!validId(targetId)) throw failure('WCA_SIMULATION_INVALID');
       const targetIndex = order.indexOf(targetId);
       if (targetIndex < 0 || targetIndex > phase.order || phase.approval.mode === 'none') {

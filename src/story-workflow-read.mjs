@@ -65,7 +65,7 @@ async function readWorkflow(root, config, id, includeExecution) {
   const workflow = attachLegacyGovernedRoots(normalizeCurrentWorkflow(await readJson(file)), config);
   invariant(workflow.workItem?.id === selected.id, `Workflow ID does not match indexed Story ${selected.id}.`);
   if (id == null && !workflowBranchAllowed(workflow, branch(root))) {
-    throw new SingularityFlowError(`Current branch '${branch(root)}' is not registered for Story '${workflow.workItem.id}'. Run singularity-flow story branch attach --parent ${workflow.workItem.id}.`);
+    throw new SingularityFlowError(`Current branch '${branch(root)}' is not registered for Story '${workflow.workItem.id}'. Run singularity-flow story branch attach --parent ${workflow.workItem.id}.`, { details: { nextAction: { executable: 'singularity-flow', argv: ['story', 'branch', 'attach', '--parent', workflow.workItem.id], label: 'Inspect or continue the retained operation; recheck before retrying.' } } });
   }
   let executionCatalog = null;
   if (Number(workflow.workflowSnapshot?.revision ?? 1) > 1) {

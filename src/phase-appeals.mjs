@@ -4,6 +4,7 @@ import { constants } from 'node:fs';
 import { mkdir, open } from 'node:fs/promises';
 import { createHash } from 'node:crypto';
 import { z } from 'zod';
+import { openScopeAppeal } from './phase-finding-policy.mjs';
 import { countedRecords } from './presence/counted.mjs';
 import { branch, exactFileAtObject, head, identity } from './git.mjs';
 import { canonicalJson } from './records.mjs';
@@ -121,9 +122,7 @@ const activePlan = async (root, config, workflow) => mergePlannedClaimRecords(
 /** Does not run tests, alter source, stage files or infer that Copilot authored a diff. */
 export async function preparePhaseAppeal(root, config, workflow, { phaseId = workflow.currentPhase, changes, reason } = {}) {
   const phase = workflow.phases?.[phaseId];
-  if (!phase || phaseId !== workflow.currentPhase || workflow.status !== 'in_progress'
-      || phase.status !== 'in_progress' || !phaseRequiresCodeDelivery(phase)
-      || phase.writeScope !== 'source-and-artifact' || phase.generationIntent?.status !== 'open'
+  if (!openScopeAppeal(workflow, phase, phaseRequiresCodeDelivery(phase))
       || branch(root) !== workflow.workItem.branch) {
     fail('Scope appeals require the current open code-delivery generation. For published/submitted work, inspect recovery and create an authorized successor; do not rewrite history.', 'PHASE_APPEAL_LIFECYCLE',
       { recoveryCommand: `singularity-flow recover ${workflow.workItem.id} --phase ${phaseId ?? workflow.currentPhase} --json` });

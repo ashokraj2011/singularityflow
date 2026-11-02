@@ -256,7 +256,7 @@ export async function renderDesignSourcePromptContext(root, workflow, phase, {
   const relative = posix(path.join('context', `design-sources-${phase.id}-gen${generation}.json`));
   const directory = itemRoot(root, workflow, itemDirectory);
   const inventory = configured.inventoryDigest === 'off' ? null : await readDesignInventory(root, workflow, binding, { itemDirectory: directory });
-  if (!inventory && configured.inventoryDigest === 'required') throw new SingularityFlowError('The approved design source requires a deterministic inventory digest. Run singularity-flow wm design-inventory --from-records.', { code: 'DESIGN_INVENTORY_REQUIRED' });
+  if (!inventory && configured.inventoryDigest === 'required') throw new SingularityFlowError('The approved design source requires a deterministic inventory digest. Run singularity-flow wm design-inventory --from-records.', { details: { nextAction: { executable: 'singularity-flow', argv: ['wm', 'design-inventory', '--from-records'], label: 'Inspect or continue the retained operation; recheck before retrying.' } },  code: 'DESIGN_INVENTORY_REQUIRED' });
   let provenanceSnapshot = null;
   if (record) {
     const target = await secureRepositoryPath(directory, relative, { label: 'Design-source prompt provenance' });

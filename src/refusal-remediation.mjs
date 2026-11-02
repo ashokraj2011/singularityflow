@@ -57,7 +57,7 @@ function explicitCommands(error) {
   const seen = new Set();
   return values.map((value) => {
     if (typeof value === 'string') return safeCommandGuidance({ command: value });
-    if (!value?.command) return null;
+    if (!value?.command && !Array.isArray(value?.argv)) return null;
     const guidance = safeCommandGuidance(value);
     const label = value.label ?? value.detail;
     return guidance ? { ...guidance, ...(typeof label === 'string' && label.trim()

@@ -378,7 +378,7 @@ export async function agentMappingStatus(root) {
 
 export async function findAgent(root, id) {
   const agent = (await discoverAgents(root)).find((candidate) => candidate.id === id);
-  if (!agent) throw new SingularityFlowError(`Unknown agent '${id}'. Run singularity-flow agents list.`);
+  if (!agent) throw new SingularityFlowError(`Unknown agent '${id}'. Run singularity-flow agents list.`, { details: { nextAction: { executable: 'singularity-flow', argv: ['agents', 'list', '--json'], label: 'Inspect or continue the retained operation; recheck before retrying.' } } });
   return agent;
 }
 
@@ -475,7 +475,7 @@ async function materializeLocked(root, agent, lockEntry, dependency, { fetchImpl
   const locked = lockDependency(lockEntry, dependency);
   if (!locked) {
     if (dependency.optional) return { ...dependency, status: 'unavailable', warning: `Optional ${dependency.type} '${dependency.id}' is not locked.` };
-    throw new SingularityFlowError(`Agent '${agent.id}' ${dependency.type} '${dependency.id}' is not locked. Run singularity-flow agents lock ${agent.id} --update.`);
+    throw new SingularityFlowError(`Agent '${agent.id}' ${dependency.type} '${dependency.id}' is not locked. Run singularity-flow agents lock ${agent.id} --update.`, { details: { nextAction: { executable: 'singularity-flow', argv: ['agents', 'lock', agent.id, '--update'], label: 'Inspect or continue the retained operation; recheck before retrying.' } } });
   }
   if (locked.dynamic) return locked;
   if (!locked.sha256) {
@@ -516,8 +516,8 @@ export async function syncAgent(root, agentId, { fetchImpl = globalThis.fetch } 
   const agent = await findAgent(root, agentId);
   if (!agent.dependencies.length) return { agent, dependencies: [], warnings: [] };
   const lock = await loadLock(root); const entry = lock.agents[agentId];
-  if (!entry) throw new SingularityFlowError(`Agent '${agentId}' has remote dependencies but no lock. Run singularity-flow agents lock ${agentId}.`);
-  if (entry.sourceSha256 !== agent.sha256) throw new SingularityFlowError(`Agent '${agentId}' changed after locking. Run singularity-flow agents lock ${agentId} --update.`);
+  if (!entry) throw new SingularityFlowError(`Agent '${agentId}' has remote dependencies but no lock. Run singularity-flow agents lock ${agentId}.`, { details: { nextAction: { executable: 'singularity-flow', argv: ['agents', 'lock', agentId], label: 'Inspect or continue the retained operation; recheck before retrying.' } } });
+  if (entry.sourceSha256 !== agent.sha256) throw new SingularityFlowError(`Agent '${agentId}' changed after locking. Run singularity-flow agents lock ${agentId} --update.`, { details: { nextAction: { executable: 'singularity-flow', argv: ['agents', 'lock', agentId, '--update'], label: 'Inspect or continue the retained operation; recheck before retrying.' } } });
   await (await import('./presence/store-seals.mjs')).assertCountedInline(root, 'agents-lock', entry, `the agents lock entry for '${agentId}'`, agentId);
   const dependencies = []; const warnings = [];
   for (const dependency of agent.dependencies) {

@@ -934,7 +934,7 @@ export interface RepositorySnapshot {
   submissionReadiness?: SubmissionReadiness | null;
   decisions?: StoryDecisionView | null;
   /** The engine's verdict on the approval of the phase awaiting it. */
-  approval?: { phase: string; minimum: number; distinct: number; remainingAuthorities: string[]; met: boolean } | null;
+  approval?: { phase: string; minimum: number; distinct: number; remainingAuthorities: string[]; met: boolean; correctionTargets?: string[] } | null;
   /** Immutable reference inputs and their local detached-checkout health for this Story. */
   referenceRepositories?: StoryReferenceRepositoryStatus | null;
   /** Lazy projection-only SGOS Process inventory; absent until Command Center acquires the slice. */

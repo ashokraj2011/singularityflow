@@ -244,7 +244,7 @@ export function assertActionPlanFresh(root, plan, lifecycleSnapshot) {
     if (current[field] !== plan.revision[field]) {
       throw new SingularityFlowError(
         `Action plan '${plan.planId}' is stale because ${field} changed. Re-run singularity-flow action plan.`
-      );
+      , { details: { nextAction: { executable: 'singularity-flow', argv: ['action', 'plan', '--json'], label: 'Inspect or continue the retained operation; recheck before retrying.' } } });
     }
   }
   return current;

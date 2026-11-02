@@ -74,7 +74,8 @@ test('all findings have an owner route; trust is never an ordinary risk waiver',
   assert.equal(phaseResolutionChoices(workflow, phase, { code: 'CODE_TEST_FAILED' }).choices[0].kind, 'test-repair');
   assert.equal(phaseResolutionChoices({ ...workflow, testRecovery: { id: 'TRA-1' } }, phase, { code: 'CODE_TEST_FAILED' }).choices[0].kind, 'risk-inspection');
   assert.equal(phaseResolutionChoices(workflow, phase, { code: 'never-seen-before' }).choices[0].kind, 'owner-escalation');
-  assert.equal(phaseResolutionChoices(workflow, phase, { code: 'scope.unclaimed' }).choices[0].kind, 'scope-appeal');
+  assert.equal(phaseResolutionChoices(workflow, phase, { code: 'scope.unclaimed' }).choices[0].kind, 'plan-amendment',
+    'a scope appeal cannot run without a current open code generation');
   const unclaimed = { code: 'code.delivery.incomplete',
     details: { sourceCode: 'SPEC_COVERAGE_INCOMPLETE', coverage: { unclaimedChangedPaths: ['src/extra.css'] } } };
   // A scope appeal exists only for the current open code generation; elsewhere it would refuse,

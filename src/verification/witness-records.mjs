@@ -13,6 +13,7 @@ import { SingularityFlowError } from '../util.mjs';
 import { recordSha256 } from '../records.mjs';
 import { phaseNeedsGeneration } from '../phase-generation-need.mjs';
 import { upstreamChangeRoutes } from '../upstream-routes.mjs';
+import { phaseCorrectionTargets } from '../phase-finding-policy.mjs';
 
 export const WITNESS_CHECKLIST = Object.freeze(['states-the-outcome', 'matches-the-criterion', 'current-for-this-change']);
 const AC_ID = /^[A-Z0-9][A-Z0-9._-]{0,63}:AC-\d{3}$/u;
@@ -100,7 +101,7 @@ export function republicationRoute(workflow, owner, clauseId, { from = workflow?
   const order = workflow?.phaseOrder ?? [];
   const next = `${owner} publishes the new image in its next generation`;
   if (owner === from) {
-    if (phase?.status === 'awaiting_approval' && (phase.approvalPolicy?.rejectTo ?? [owner]).includes(owner)) {
+    if (phase?.status === 'awaiting_approval' && phaseCorrectionTargets(phase).includes(owner)) {
       const command = `singularity-flow reject ${owner} --work-id ${workId} --to ${owner} --reason <reason>`;
       return { kind: 'return', command, sentence: `an approver of ${owner} returns it with ${command}, and ${next}.` };
     }

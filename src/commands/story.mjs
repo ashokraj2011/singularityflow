@@ -1662,7 +1662,7 @@ export async function storyAdjudicateCommand(positionals, options) {
       if (!existing) {
         throw new SingularityFlowError(
           `Convergence iteration ${subject.iteration} has not been run. Run singularity-flow story converge first.`
-        );
+        , { details: { nextAction: { executable: 'singularity-flow', argv: ['story', 'converge'], label: 'Inspect or continue the retained operation; recheck before retrying.' } } });
       }
       const { bindings, facts } = currentConvergenceProjectionInputs(workflow, subject);
       assertConvergenceIntegrity(existing, {

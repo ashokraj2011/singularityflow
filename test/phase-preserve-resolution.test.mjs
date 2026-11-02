@@ -33,7 +33,8 @@ async function fixture(t, id = 'team-defined-delivery') {
 }
 
 test('all findings retain a preservation route and installed policy cannot be widened by error hints', () => {
-  const workflow = { workItem: { id: 'P-1' } }; const phase = { id: 'any-phase' };
+  const workflow = { workItem: { id: 'P-1' }, status: 'in_progress', currentPhase: 'any-phase' };
+  const phase = { id: 'any-phase', status: 'in_progress' };
   for (const finding of [
     { code: 'artifact.placeholder.unresolved', category: 'authoring', path: 'report.md', value: 'TODO' },
     { code: 'phase.grounding.required', category: 'grounding' },
@@ -83,7 +84,7 @@ test('advisories cannot create a current blocker, human hold or changed repair b
     assert.deepEqual(result.advisories[0].choices, [], 'API comments require no owner or human decision');
     assert.equal(result.advisories[0].requiredBefore, null);
     assert.equal(result.advisories[1].requiredBefore, 'approve');
-    assert.equal(result.advisories[1].choices[0].kind, 'scope-appeal');
+    assert.equal(result.advisories[1].choices[0].kind, 'plan-amendment', 'no open code generation exists in this projection');
     assert.equal(result.advisories[1].choices[0].blocking, false);
     assert.ok(result.advisories.every(advice => advice.blocking === false && advice.status === 'advisory'));
   }
@@ -100,7 +101,8 @@ test('advisories cannot create a current blocker, human hold or changed repair b
 });
 
 test('missing generation preparation has an executable route, while a consumed intent retains recovery', () => {
-  const workflow = { workItem: { id: 'P-1' } }; const phase = { id: 'team-code', status: 'in_progress' };
+  const workflow = { workItem: { id: 'P-1' }, currentPhase: 'team-code', status: 'in_progress' };
+  const phase = { id: 'team-code', status: 'in_progress' };
   const finding = { code: 'phase.generation-intent.required', category: 'code-delivery',
     details: { sourceCode: 'GENERATION_INTENT_REQUIRED' } };
   const route = phaseResolutionProjection(workflow, phase, [finding]).issues[0].choices[0];

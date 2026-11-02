@@ -340,7 +340,7 @@ export async function activateWorkItemSession(root, definition, workflow) {
       throw new SingularityFlowError(
         `Work item '${workflow.workItem.id}' has no active phase while its status is '${workflow.status ?? 'unknown'}'. `
         + 'Run singularity-flow doctor before attaching the session.'
-      );
+      , { details: { nextAction: { executable: 'singularity-flow', argv: ['doctor', '--json'], label: 'Inspect or continue the retained operation; recheck before retrying.' } } });
     }
     // A terminal Story remains inspectable, but there is no phase contract and
     // therefore no governed phase agent to activate. Clear a stale local agent

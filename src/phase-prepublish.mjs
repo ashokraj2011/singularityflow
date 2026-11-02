@@ -1,6 +1,7 @@
 import { createHash } from 'node:crypto';
 import { readFile } from 'node:fs/promises';
 import path from 'node:path';
+import { findingOwnedByPhase } from './phase-finding-policy.mjs';
 
 import {
   catalogArtifactSet, resolvedArtifactSet, unpublishableRequiredArtifactSetMembers
@@ -561,7 +562,8 @@ export async function phasePrepublish(root, config, workflow, phase, options = {
   const repairBlockers = [...blockers, ...repairRecoveryBlockers]
     .filter(entry => entry.code !== 'LIFECYCLE_STAGED_GOVERNED_REVIEW_REQUIRED');
   const authoringRepairOnly = repairBlockers.length > 0
-    && repairBlockers.every((entry) => phaseFindingPolicy(entry).repairableByProducer);
+    && repairBlockers.every((entry) => findingOwnedByPhase(workflow, phase, entry)
+      && phaseFindingPolicy(entry).repairableByProducer);
   const ownedRecoveryRepair = !retained && lifecycleReady && !hardBlocker
     && !repairDependencies.length && authoringRepairOnly && agentOwnsRepair;
   const producerRoute = ownedRecoveryRepair ? {
@@ -605,6 +607,7 @@ export async function phasePrepublish(root, config, workflow, phase, options = {
     && !retained && lifecycleReady && !hardBlocker && !repairDependencies.length && agentOwnsRepair
     && (ownedRecoveryRepair || draft.correction.sameTurn);
   const sameTurnCorrection = !retained && lifecycleReady && !ready && !hardBlocker && !repairDependencies.length
+    && [...findings.values()].every(entry => findingOwnedByPhase(workflow, phase, entry))
     && ![...findings.values()].some(entry => phaseFindingPolicy(entry).classification === 'integrity-or-authority')
     && (draft.status !== 'ready' ? draft.correction.sameTurn
       : (briefOnly || authoringRepairOnly) && agentOwnsRepair);

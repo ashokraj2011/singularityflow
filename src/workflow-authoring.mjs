@@ -120,7 +120,7 @@ async function loadIn(root, store) {
   const file = path.join(root, store.file);
   let text;
   try { text = await readFile(file, 'utf8'); }
-  catch { throw new SingularityFlowError(`No ${store.file} exists. Run singularity-flow init first.`); }
+  catch { throw new SingularityFlowError(`No ${store.file} exists. Run singularity-flow init first.`, { details: { nextAction: { executable: 'singularity-flow', argv: ['init'], label: 'Inspect or continue the retained operation; recheck before retrying.' } } }); }
   return { file, document: YAML.parseDocument(text), store };
 }
 

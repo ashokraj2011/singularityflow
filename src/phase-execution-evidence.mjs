@@ -9,6 +9,7 @@ import { safeCommandGuidance } from './safe-command-guidance.mjs';
 import { formatCommandRouteLines } from './model-free-commands.mjs';
 import { attemptLocalIntegrationLabel, testReceiptPassing } from './code-delivery-tests.mjs';
 import { SingularityFlowError } from './util.mjs';
+import { phaseCorrectionTargets } from './phase-finding-policy.mjs';
 
 const digest = value => `sha256:${createHash('sha256').update(canonicalJson(value)).digest('hex')}`;
 const SHA = /^sha256:[a-f0-9]{64}$/u;
@@ -24,7 +25,7 @@ function guidance(argv) {
 
 function reconciliation(workflow, phase) {
   if (!phase) return null;
-  const targets = (phase.status === 'awaiting_approval' ? phase.approvalPolicy?.rejectTo ?? [] : [])
+  const targets = (phase.status === 'awaiting_approval' ? phaseCorrectionTargets(phase) : [])
     .filter(id => workflow.phases?.[id]);
   return {
     approvedRecordsImmutable: true, automaticAcceptance: false,
@@ -32,7 +33,7 @@ function reconciliation(workflow, phase) {
       || phase.generationIntent?.status === 'open') ? guidance(['appeal', 'repair-plan', '--work-id', workflow.workItem.id,
       '--phase', phase.id, '--json']) : null,
     inspect: guidance(['phase', 'show', phase.id, '--json']),
-    // Only the pinned human return targets are offered, never a fabricated backward route.
+    // Same-phase technical correction plus pinned business return targets; never a new backward route.
     omittedHumanReturns: Math.max(0, targets.length - LIMIT),
     humanReturns: targets.slice(0, LIMIT)
       .map(id => ({ targetPhase: id, commandGuidance: guidance(['reject', phase.id, '--work-id',

@@ -201,8 +201,8 @@ export async function currentConvergenceContext(root, config, workflow) {
   if (!reconciliationRef?.path) {
     throw new SingularityFlowError(
       `Convergence operates on the reconciliation record for the ${implementation.id} generation, and none exists yet. `
-      + `Run singularity-flow submit ${implementation.id} first.`
-    );
+      + 'Inspect the current recovery plan for the missing retained reconciliation; never resubmit an approved earlier phase or recreate the Story.'
+    , { details: { nextAction: { executable: 'singularity-flow', argv: ['recover', workflow.workItem.id, '--json'], label: 'Inspect or continue the retained operation; recheck before retrying.' } } });
   }
   const itemDirectory = path.join(
     root, config.workItemRoot ?? 'singularity/work-items', workflow.workItem.id

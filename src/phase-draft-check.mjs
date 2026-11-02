@@ -1,5 +1,6 @@
 import { isConvergencePhase } from './phase-roles.mjs';
 import path from 'node:path';
+import { findingOwnedByPhase } from './phase-finding-policy.mjs';
 import { pathToFileURL } from 'node:url';
 import { PACKAGE_ROOT } from './package-root.mjs';
 
@@ -392,6 +393,7 @@ export async function phaseDraftCheck(root, config, workflow, phase, {
       class: repairClass,
       automatic: false,
       sameTurn: prospective && repairClass === 'agent-authoring' && !awaitingApproval
+        && normalizedFindings.every(finding => findingOwnedByPhase(workflow, phase, finding))
         && (!phaseRequiresCodeDelivery(phase) || editableCode)
         && traceabilityRepair?.status !== 'manual-review',
       requiresNewGeneration: (awaitingApproval || retained) && !clean,

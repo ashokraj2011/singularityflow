@@ -96,6 +96,14 @@ test('unplanned code is refused before it is committed, accounted for by a plan 
   for (const authority of Object.values(config.approvalAuthorities)) authority.allowAnyGitIdentity = true;
   // Classic delivery with final coverage enforced, so an unplanned path blocks the code approval.
   config.workTypes['classic-delivery'].spec = { ...(config.workTypes['classic-delivery'].spec ?? {}), mode: 'enforce', coverage: 'enforce' };
+  // A valid custom workflow can omit itself from business send-back targets. Technical correction
+  // must remain available without silently changing that pinned policy or resetting Intake.
+  const delivery = config.workTypes['classic-delivery'];
+  delivery.phaseOverrides ??= {};
+  delivery.phaseOverrides.implementation ??= {};
+  delivery.phaseOverrides.implementation.approval = {
+    ...(delivery.phaseOverrides.implementation.approval ?? {}), rejectTo: ['intake']
+  };
   await writeFile(configPath, YAML.stringify(config));
   run('git', ['add', '.'], root);
   run('git', ['commit', '-m', 'Initialize the amendment fixture'], root);
@@ -165,4 +173,23 @@ test('unplanned code is refused before it is committed, accounted for by a plan 
   assert.deepEqual(workflowState.planAmendments.map((entry) => [entry.id, entry.changes]),
     [['PAM-001', [{ kind: 'add-location', clauseId: `${W}:AC-001`, path: 'src/helper.mjs' }]]]);
   assert.equal(workflowState.history.find((entry) => entry.event === 'plan_amended').detail.startsWith('PAM-001: src/helper.mjs added to AMEND-1:AC-001'), true);
+
+  // Exercise the real mutation on an isolated copy of the submitted author checkout. The other
+  // clone's approval above and the author's scratch note must not be changed by this qualification.
+  const correctionRemote = `${root}-correction.git`; const correctionRoot = `${root}-correction`;
+  t.after(() => Promise.all([correctionRoot, correctionRemote].map(directory =>
+    rm(directory, { recursive: true, force: true, maxRetries: 6, retryDelay: 100 }))));
+  run('git', ['clone', '--bare', root, correctionRemote], root);
+  run('git', ['clone', '--branch', W, correctionRemote, correctionRoot], root);
+  run('git', ['config', 'user.name', 'Amendment Tester'], correctionRoot);
+  run('git', ['config', 'user.email', 'amend@example.test'], correctionRoot);
+  run(process.execPath, [CLI, '--no-model', 'reject', 'implementation', '--to', 'implementation',
+    '--reason', 'Repair this submitted generation in its current phase.'], correctionRoot);
+  const corrected = JSON.parse(await readFile(path.join(correctionRoot, 'singularity/work-items', W, 'workflow.json'), 'utf8'));
+  assert.equal(corrected.currentPhase, 'implementation');
+  assert.equal(corrected.phases.implementation.status, 'in_progress');
+  assert.equal(corrected.phases.intake.status, 'approved');
+  assert.deepEqual(corrected.phases.intake, workflowState.phases.intake, 'prior approved phase is byte-for-byte unchanged');
+  assert.deepEqual(corrected.resolution, workflowState.resolution, 'the pinned business policy stays unchanged');
+  assert.deepEqual(corrected.phases.implementation.approvalPolicy.rejectTo, ['intake']);
 });

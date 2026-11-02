@@ -368,15 +368,30 @@ export function readObjectsBatch(root, specs, {
     const unsized = readObjectsWithoutSizing(root, unique, { runCommand, localEnv, maxObjectBytes, maxBatchBytes, immutablePaths });
     if (unsized) return unsized;
   }
-  const checked = runCommand('git', ['cat-file', '--batch-check=%(objectname) %(objecttype) %(objectsize)'], {
-    cwd: root, allowFailure: true, env: localEnv, maxBuffer: unique.length * 256 + 1024, input: `${unique.join('\n')}\n`
-  });
+  // Older Git (2.43 observed) ends the whole check at the first promised object it may not lazily fetch
+  // ("could not fetch <oid> from promisor remote") instead of answering "<oid> missing". That object
+  // is absent locally: answer it so, and check the rest again (one retry per such object).
+  const absent = new Set();
+  let checked;
+  for (;;) {
+    const asked = unique.filter((spec) => !absent.has(spec));
+    if (!asked.length) { checked = { status: 0 }; break; }
+    checked = runCommand('git', ['cat-file', '--batch-check=%(objectname) %(objecttype) %(objectsize)'], {
+      cwd: root, allowFailure: true, env: localEnv, maxBuffer: asked.length * 256 + 1024, input: `${asked.join('\n')}\n`
+    });
+    const promised = checked.status === 128 && !checked.timedOut && !checked.error
+      && /^fatal: could not fetch ([0-9a-f]{40}|[0-9a-f]{64}) from promisor remote$/mu.exec(String(checked.stderr ?? ''))?.[1];
+    if (!promised || !asked.includes(promised)) break;
+    absent.add(promised);
+  }
   if (checked.status !== 0 || checked.timedOut || checked.error) return null;
-  const lines = String(checked.stdout ?? '').replace(/\n$/u, '').split('\n');
-  if (lines.length !== unique.length) return null;
+  const lines = absent.size === unique.length ? [] : String(checked.stdout ?? '').replace(/\n$/u, '').split('\n');
+  if (lines.length !== unique.length - absent.size) return null;
   const wanted = [];
-  for (let index = 0; index < unique.length; index += 1) {
-    const spec = unique[index]; const line = lines[index];
+  for (let index = 0, cursor = 0; index < unique.length; index += 1) {
+    const spec = unique[index];
+    if (absent.has(spec)) { answers.set(spec, { status: 'unavailable', reason: 'object is not available locally' }); continue; }
+    const line = lines[cursor++];
     if (line === `${spec} missing`) {
       // A `<rev>:<path>` Git cannot resolve is an absent path; an object ID it cannot find is not.
       answers.set(spec, spec.includes(':') ? { status: 'missing' } : { status: 'unavailable', reason: 'object is not available locally' });

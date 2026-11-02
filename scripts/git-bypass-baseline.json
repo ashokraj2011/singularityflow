@@ -1133,7 +1133,7 @@
       "counts": {
         "command-runCommand": 7
       },
-      "digest": "e7ac7703dbcea205b8656fbbc3a582c09fe0c3f2209d11aee5c98861d6cf7211"
+      "digest": "1dbcb885a7937fc2619b957c6f27d16e67d849df1f420a633a75f7cbd6f389c9"
     },
     "src/git-remote-diagnostics.mjs": {
       "counts": {

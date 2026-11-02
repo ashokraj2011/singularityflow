@@ -461,3 +461,28 @@ test('a missing or oversized object falls back to the sized read and its exact a
   assert.deepEqual(limited.get(one), { status: 'too-large', oid: one, size: 5 });
   assert.equal(large.calls.length, 2, 'the sized check refuses it without reading it');
 });
+
+test('a promised object Git 2.43 dies on is answered as absent, not as an unreadable batch', () => {
+  // Older Git (2.43 observed) ends `cat-file --batch-check` with "could not fetch <oid> from promisor remote"
+  // when lazy fetching is disabled, instead of answering "<oid> missing" and carrying on.
+  const present = 'a'.repeat(40), promised = 'b'.repeat(40), other = 'c'.repeat(40);
+  const calls = [];
+  const runCommand = (_command, args, options) => {
+    calls.push(args[0]);
+    const requested = String(options.input).trim().split('\n');
+    const absent = requested.find((oid) => oid === promised || oid === other);
+    if (absent) return { status: 128, stdout: '', stderr: `warning: lazy fetching disabled; some objects may not be available\nfatal: could not fetch ${absent} from promisor remote\n` };
+    return { status: 0, stdout: requested.map((oid) => `${oid} blob 2\n`).join(''), stderr: '' };
+  };
+  const answers = readObjectsBatch('/repository', [promised, present, other], { runCommand, checkOnly: true });
+  assert.deepEqual(answers.get(promised), { status: 'unavailable', reason: 'object is not available locally' });
+  assert.deepEqual(answers.get(other), { status: 'unavailable', reason: 'object is not available locally' });
+  assert.deepEqual(answers.get(present), { status: 'ok', oid: present, type: 'blob', size: 2, bytes: null });
+  assert.equal(calls.length, 3, 'one retry per promised object, never a blind loop');
+
+  const failing = () => ({ status: 128, stdout: '', stderr: 'fatal: not a git repository\n' });
+  assert.equal(readObjectsBatch('/repository', [present], { runCommand: failing, checkOnly: true }), null);
+  const lying = () => ({ status: 128, stdout: '', stderr: `fatal: could not fetch ${'d'.repeat(40)} from promisor remote\n` });
+  assert.equal(readObjectsBatch('/repository', [present], { runCommand: lying, checkOnly: true }), null,
+    'only an object this read asked for may be marked absent');
+});

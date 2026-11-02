@@ -278,7 +278,15 @@ test('SFG AC-008 to AC-010: submission seals the labels, the card shows them bef
   assert.ok(parsed.storyLabels.steps[0].labels.some((line) => /Produced outside the workflow/u.test(line)));
   assert.ok(parsed.subjects.some((subject) => subject.scope === WORK && subject.counts['outside-workflow'] >= 1), JSON.stringify(parsed.subjects));
   const status = await guardRun(root, ['status']);
-  assert.equal(JSON.parse(status.lines.join('\n')).recording.state, 'on');
+  const standing = JSON.parse(status.lines.join('\n'));
+  assert.equal(standing.recording.state, 'on');
+  // G4: status sums the last week's calls outside any Story; the report adds the lines changed here.
+  assert.deepEqual(Object.keys(standing.outsideStories.totals), ['declared', 'outside-workflow', 'unknown-agent', 'shell', 'unattributed', 'pre-guard']);
+  const whole = await guardRun(root, ['report']);
+  assert.equal(whole.error, undefined, whole.error?.stack);
+  const wholeReport = JSON.parse(whole.lines.join('\n'));
+  assert.ok(['complete', 'partial', 'story-checkout'].includes(wholeReport.repository.status), JSON.stringify(wholeReport.repository));
+  assert.deepEqual(wholeReport.agentDrift, []);
 
   // AC-010: the final check lists the labels as advisory lines and refuses nothing for them.
   forgetPresenceContexts();

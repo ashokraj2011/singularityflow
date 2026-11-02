@@ -339,6 +339,26 @@ export async function writeSfGuardStampedAgents(cwd, agents, { now = Date.now() 
 }
 
 /**
+ * The stamped agent files `guard` left (`[{ id, path, sha256 }]`), or null when there is no manifest
+ * here [SPEC-SFG-v1 AC-011, G4]. Paths stay inside the checkout.
+ */
+export async function readSfGuardStampedAgents(cwd) {
+  const repo = await sfGuardRepository(cwd);
+  const manifest = repo ? await readJson(stampedFile(repo), LIMIT.mapBytes) : null;
+  if (manifest?.format !== 'sfg-stamped-agents@1' || !Array.isArray(manifest.agents)) return null;
+  return manifest.agents.slice(0, LIMIT.stamps).filter((entry) => name(entry?.id) && typeof entry.path === 'string'
+    && !entry.path.split('/').includes('..') && !path.isAbsolute(entry.path) && typeof entry.sha256 === 'string')
+    .map(({ id, path: file, sha256 }) => ({ id, path: file, sha256, root: repo.root }));
+}
+
+/** The Story this checkout is bound to (`{ workId, phase }`), or null for the whole repository [G4]. */
+export async function sfGuardCheckoutStory(cwd) {
+  const repo = await sfGuardRepository(cwd);
+  const subject = repo ? await boundSubject(repo).catch(() => null) : null;
+  return subject?.workId ? { workId: subject.workId, phase: subject.phase } : null;
+}
+
+/**
  * The declared agents whose files changed since `guard` stamped them [SPEC-SFG-v1 CON-002, AC-011]:
  * a removed or edited stamping hook, or any other change, could let another agent stamp itself as
  * one. Checked once per person's prompt, from bytes on disk.

@@ -60,7 +60,7 @@ function resolvedStep(workflow, stepId) {
  * commits with the repository's. `perStep` settles each record against the step it names;
  * `excludeGoverned` leaves the Story's own SFlow records out. Reads Git a fixed three times.
  */
-export async function reconcileHere(root, { definition, policy, workflow = null, excludeGoverned = false, perStep = false } = {}) {
+export async function reconcileHere(root, { definition, policy, workflow = null, excludeGoverned = false, perStep = false, outsideStories = false } = {}) {
   const [{ sfGuardChangeSet }, reconcile, { sfGuardDeclaredSet }, xpl2, recorder, { loadSkillLibrary }, { loadAgentMappings }] = await Promise.all([
     import('../git.mjs'), import('./reconcile.mjs'), import('./declared-set.mjs'), import('../comprehension/xpl2/observed-writes.mjs'),
     import('../comprehension/xpl2/sf-guard-recorder.mjs'), import('../skill-library.mjs'), import('../agents.mjs')]);
@@ -85,8 +85,11 @@ export async function reconcileHere(root, { definition, policy, workflow = null,
   const read = reconcile.workingTreeReader(root);
   const changes = sfGuardChangeSet(root, base);
   const governed = { workItemRoot: definition?.workItemRoot, workId: workflow?.workItem?.id ?? null };
+  // The whole-repository view [G4] leaves every Story's own directory, and lines a Story's record explains, to that Story.
+  const storyRoot = `${String(definition?.workItemRoot ?? 'singularity/work-items').replaceAll('\\', '/').replace(/\/+$/u, '')}/`;
   const files = [...reconcile.parseZeroContextPatch(changes.patch), ...await reconcile.untrackedAsAdded(changes.untracked, read)]
-    .filter((file) => !excludeGoverned || !governedRecordPath(file.path, governed));
+    .filter((file) => !excludeGoverned || !governedRecordPath(file.path, governed))
+    .filter((file) => !outsideStories || !file.path.startsWith(storyRoot));
   const repository = await recorder.sfGuardRepository(root);
   const writes = repository ? (await xpl2.readObservedWrites(repository.gitDir, { paths: files.map((file) => file.path) }).catch(() => ({ records: [] }))).records : [];
   const shellRecords = await recorder.readSfGuardShellRecords(root).catch(() => []);
@@ -95,7 +98,8 @@ export async function reconcileHere(root, { definition, policy, workflow = null,
   const guardOnAt = enabled?.kind === 'enable' ? Date.parse(enabled.at) : null;
   const pin = workflow?.resolution?.presence ?? null;
   const report = await reconcile.reconcileChangeSet({ files, readCurrent: read, writes, shellRecords, declared, declaredFor,
-    guardOnAt: Number.isFinite(guardOnAt) ? guardOnAt : null, pinnedOff: Boolean(workflow) && (!pin || pin.status !== 'required') });
+    guardOnAt: Number.isFinite(guardOnAt) ? guardOnAt : null, pinnedOff: Boolean(workflow) && (!pin || pin.status !== 'required'),
+    ...(outsideStories ? { skipSubject: (subject) => typeof subject?.workId === 'string' } : {}) });
   return { scope: workflow ? { kind: 'story', workId: workflow.workItem?.id ?? null, step: stepId, base: changes.base } : { kind: 'repository', base: changes.base },
     sfGuard: policy?.folded?.enabled ? 'on' : 'off', declared: { agents: declared.agents, skills: declared.skills }, ...report };
 }
@@ -105,7 +109,7 @@ export async function reconcileHere(root, { definition, policy, workflow = null,
  * items (by class, agent and skill), and the authorship it is shown beside. Small by design: the full
  * ranges come from `guard reconcile` and `guard report --story`.
  */
-export function attributionBlock(report, { pin = null, authorship = null, claim = null } = {}) {
+export function attributionBlock(report, { pin = null, authorship = null, claim = null, agentDrift = [] } = {}) {
   const counts = Object.fromEntries(CLASSES.map((name) => [name, Number(report.counts?.[name] ?? 0)]));
   const groups = new Map();
   for (const range of report.ranges ?? []) {
@@ -131,7 +135,9 @@ export function attributionBlock(report, { pin = null, authorship = null, claim 
     schema: SF_GUARD_ATTRIBUTION_SCHEMA, status: report.partial ? 'partial' : 'complete', pin: pin?.status ?? 'none',
     base: report.scope?.base ?? null, lines: report.lines ?? 0, files: report.files ?? 0, removed: report.removed ?? 0, counts,
     items, itemsOmitted: Math.max(0, ordered.length - items.length), rangesOmitted: report.rangesOmitted ?? 0,
-    partial: report.partial ?? null, ...(contradiction ? { authorship: contradiction } : {})
+    partial: report.partial ?? null, ...(contradiction ? { authorship: contradiction } : {}),
+    // G4: stamped agent files whose stamping hook was removed or edited (AC-011), sealed with the rest.
+    ...(agentDrift?.length ? { agentDrift } : {})
   });
 }
 
@@ -162,7 +168,8 @@ export async function storyAttributionBlock(root, config, workflow, phase) {
       const verdict = authorshipClaimVerdict(context, authorship, { workflow, phase: phase?.id ?? null, generation: phase?.generation ?? null });
       claim = verdict.counts ? { signed: true, signer: authorship.presence?.approver ?? null } : { signed: false };
     }
-    return attributionBlock(report, { pin, authorship, claim });
+    const drift = await import('./agent-drift.mjs');
+    return attributionBlock(report, { pin, authorship, claim, agentDrift: drift.agentDriftEntries(await drift.readAgentDrift(root)) });
   } catch (error) {
     return unavailableAttribution(error?.message ?? error, { pin });
   }
@@ -201,9 +208,16 @@ export function attributionLabels(block, { items = TOP_ITEMS } = {}) {
   if (counts.unattributed) lines.push(`Unattributed (${plural(counts.unattributed, 'line')}): nothing recorded explains them — a person, another tool or a script outside Copilot`);
   if (counts['pre-guard']) lines.push(`Before SF Guard (${plural(counts['pre-guard'], 'line')})`);
   if (block.authorship) lines.push(`Claimed producer: ${block.authorship.claimed}${claimWords(block.authorship)}; ${plural(block.authorship.agentLines, 'line')} recorded as an agent's writes. Both are shown; a label decides nothing.`);
+  lines.push(...agentDriftLabels(block.agentDrift));
   if (block.partial) lines.push(`Partial: reconciliation stopped at the ${block.partial.limit}-${block.partial.reason} bound, so this is not all of the change.`);
   if (!lines.length) lines.push('No changed lines to label.');
   return lines;
+}
+
+/** The agent-file drift label [AC-011, G4], one line per drifted file (agent-drift.mjs finds them). */
+export function agentDriftLabels(drift) {
+  const words = { 'stamp-removed': 'stamping hook removed', 'stamp-edited': 'stamping hook edited', 'file-removed': 'agent file removed' };
+  return (Array.isArray(drift) ? drift : []).map((entry) => `Agent file drift: ${entry.id} (${entry.path}) — ${words[entry.drift] ?? entry.drift} since it was stamped, so its stamps no longer prove which agent ran`);
 }
 
 /** Whether an authorship claim was signed, where SF Guard read it (SPEC-PSS-v1 §10.7); nothing elsewhere. */
@@ -221,7 +235,8 @@ export function attributionSummary(block) {
   const parts = [`${counts.declared ?? 0} declared`];
   for (const [name, words] of [['outside-workflow', 'outside the workflow'], ['unknown-agent', 'agent unknown'], ['shell', 'shell command'],
     ['unattributed', 'unattributed'], ['pre-guard', 'before SF Guard']]) if (counts[name]) parts.push(`${counts[name]} ${words}`);
-  return `SF Guard labels: ${parts.join(' · ')} (lines)${block.partial ? ', partial' : ''}`;
+  const drift = block.agentDrift?.length ? ` · agent file drift: ${block.agentDrift.map((entry) => entry.id).join(', ')}` : '';
+  return `SF Guard labels: ${parts.join(' · ')} (lines)${drift}${block.partial ? ', partial' : ''}`;
 }
 
 /** The approval card's lines: the counts, then the top items. */
@@ -298,7 +313,7 @@ export function attributionGateWarnings(workflow) {
     const block = latestSubmission(workflow, phaseId, generation)?.projection?.attribution ?? null;
     if (!block) continue;
     const counts = block.counts ?? {};
-    const flagged = block.status === 'unavailable' || block.authorship || ['outside-workflow', 'unknown-agent', 'shell', 'unattributed'].some((name) => counts[name]);
+    const flagged = block.status === 'unavailable' || block.authorship || block.agentDrift?.length || ['outside-workflow', 'unknown-agent', 'shell', 'unattributed'].some((name) => counts[name]);
     if (!flagged) continue;
     lines.push(`SF Guard labels (advisory) for ${phaseId}: ${attributionLabels(block, { items: 3 }).filter((line) => !line.startsWith('Declared')).join('; ')}`);
   }
@@ -336,11 +351,17 @@ export function sinceTime(value, now = Date.now()) {
  * `guard report [--since] [--story ID]` [REQ-041]: the whole-repository view this machine's records
  * give, and for a Story its submitted labels with each packet's standing. One reader, so VS Code's
  * Guard panel (G5) shows the same counts. Read only.
+ *
+ * G4 [REQ-011, D3, AC-011]: work outside every Story settles against the whole repository's declared
+ * set (agent-mappings.yml included), and, without `--story` and outside a Story checkout, the
+ * uncommitted and unpushed lines here are reconciled with it (`repository`: the packet's block shape,
+ * leaving Story work to its Story). `agentDrift` lists stamped agent files whose stamping hook was
+ * removed or edited. `lines: false` skips the Git reads (`guard status`).
  */
-export async function sfGuardReport(root, { definition, policy, since = null, storyId = null, now = Date.now() } = {}) {
-  const [xpl2, recorder, { sfGuardDeclaredSet, sfGuardSettle }, { loadSkillLibrary }] = await Promise.all([
+export async function sfGuardReport(root, { definition, policy, since = null, storyId = null, now = Date.now(), lines = true } = {}) {
+  const [xpl2, recorder, { sfGuardDeclaredSet, sfGuardSettle }, { loadSkillLibrary }, { loadAgentMappings }, drift] = await Promise.all([
     import('../comprehension/xpl2/observed-writes.mjs'), import('../comprehension/xpl2/sf-guard-recorder.mjs'), import('./declared-set.mjs'),
-    import('../skill-library.mjs')]);
+    import('../skill-library.mjs'), import('../agents.mjs'), import('./agent-drift.mjs')]);
   const from = sinceTime(since, now);
   if (Number.isNaN(from)) {
     const { SingularityFlowError } = await import('../util.mjs');
@@ -348,7 +369,8 @@ export async function sfGuardReport(root, { definition, policy, since = null, st
   }
   const repository = await recorder.sfGuardRepository(root);
   const library = await loadSkillLibrary(root).catch(() => ({ skills: new Map() }));
-  const declared = sfGuardDeclaredSet({ agents: definition?.agentCatalog ?? [], librarySkills: [...library.skills.keys()] });
+  const mappings = await loadAgentMappings(root, { agents: definition?.agentCatalog ?? [] }).catch(() => ({ mappings: {} }));
+  const declared = sfGuardDeclaredSet({ agents: definition?.agentCatalog ?? [], librarySkills: [...library.skills.keys()], mappings: mappings.mappings });
   const inWindow = (record) => (from == null || Date.parse(record.recordedAt) >= from) && (!storyId || record.subject?.workId === storyId);
   const writes = repository ? (await xpl2.readObservedWrites(repository.gitDir, { all: true, now }).catch(() => ({ records: [] }))).records.filter(inWindow) : [];
   const shells = (await recorder.readSfGuardShellRecords(root, { now }).catch(() => [])).filter((record) => record.ran !== false).filter(inWindow);
@@ -365,9 +387,31 @@ export async function sfGuardReport(root, { definition, policy, since = null, st
   const on = repository ? (await recorder.sfGuardOn(repository).catch(() => ({ on: false }))).on : false;
   let story = null;
   if (storyId) story = await storyLabels(root, definition, storyId);
+  // G4's additions show only where SF Guard is on or records: elsewhere the report is exactly as before.
+  const active = Boolean(policy?.folded?.enabled) || on;
+  const agentDrift = active ? drift.agentDriftEntries(await drift.readAgentDrift(root)) : null;
+  const repositoryLines = !active || !lines || storyId ? null : await repositoryLabels(root, { definition, policy, recorder, agentDrift });
   return { schemaVersion: 1, resultType: 'sflow-guard-report', sfGuard: policy?.folded?.enabled ? 'on' : 'off', recording: on ? 'on' : 'off', // schema-transient: command result
     since: from == null ? null : new Date(from).toISOString(), story: storyId, totals: tally([...writes, ...shells], settle).counts,
-    subjects, storyLabels: story, gaps: gaps.slice(-5), lastGap: gaps.at(-1) ?? null };
+    subjects, storyLabels: story, ...(repositoryLines ? { repository: repositoryLines } : {}), ...(agentDrift ? { agentDrift } : {}),
+    gaps: gaps.slice(-5), lastGap: gaps.at(-1) ?? null };
+}
+
+/**
+ * The lines changed here outside every Story [G4, REQ-011]: the working tree and unpushed commits,
+ * with the whole repository's declared set, as a packet's block and its labels. A Story checkout's
+ * change set is its Story's (`guard report --story`), so it is not read here. Never throws.
+ */
+async function repositoryLabels(root, { definition, policy, recorder, agentDrift }) {
+  const story = await recorder.sfGuardCheckoutStory(root).catch(() => null);
+  if (story) return { status: 'story-checkout', workId: story.workId };
+  try {
+    const report = await reconcileHere(root, { definition, policy, outsideStories: true });
+    const block = attributionBlock(report, { agentDrift });
+    return { status: block.status, base: report.scope?.base ?? null, inStories: report.inStories ?? 0, attribution: block, labels: attributionLabels(block) };
+  } catch (error) {
+    return { status: 'unavailable', reason: String(error?.message ?? error).slice(0, 200) };
+  }
 }
 
 /** A Story's submitted labels, step by step, each with its packet file's standing. */
@@ -401,6 +445,15 @@ export function sfGuardReportText(result) {
       lines.push(`    ${group.classification}: ${plural(group.calls, group.kind === 'shell' ? 'shell call' : 'edit')} — agent ${group.agent ?? 'none'}, skill ${skillWords(group)}`);
     }
   }
+  const here = result.repository;
+  if (here?.status === 'story-checkout') lines.push(`  Lines changed here: this checkout is Story ${here.workId}'s; see singularity-flow guard report --story ${here.workId}.`);
+  else if (here?.status === 'unavailable') lines.push(`  Lines changed here outside any Story: unavailable (${here.reason}).`);
+  else if (here) {
+    lines.push(`  Lines changed here outside any Story (uncommitted and unpushed, since ${String(here.base).slice(0, 12)}):`);
+    for (const label of here.labels.filter((line) => !line.startsWith('Agent file drift'))) lines.push(`    ${label}`);
+    if (here.inStories) lines.push(`    (${plural(here.inStories, 'more line')} a Story's records explain are left to that Story.)`);
+  }
+  for (const label of agentDriftLabels(result.agentDrift)) lines.push(`  ${label}`);
   for (const step of result.storyLabels?.steps ?? []) {
     lines.push(`  ${step.phase} generation ${step.generation} (packet ${String(step.packetSha256).slice(0, 12)}, ${step.packet}):`);
     for (const label of step.labels) lines.push(`    ${label}`);

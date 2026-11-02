@@ -116,9 +116,11 @@ function shellCallAt(shellRecords, mtimeMs) {
  * predates it, so every line it holds is pre-guard unless a record says otherwise. `declaredFor`,
  * when given, returns the declared set of the Story step a record names (its `subject`), so a line an
  * earlier step wrote settles against that step's agents and skills [G3]; null falls back to `declared`.
+ * `skipSubject`, when given, leaves out each line whose explaining record names a subject it accepts
+ * (the whole-repository view leaves Story work to its Story [G4]); those are counted in `inStories`.
  */
 export async function reconcileChangeSet({ files, readCurrent, writes = [], shellRecords = [], declared, declaredFor = null, guardOnAt = null, pinnedOff = false,
-  limits = SF_GUARD_RECONCILE_LIMITS }) {
+  skipSubject = null, limits = SF_GUARD_RECONCILE_LIMITS }) {
   const setFor = (subject) => (declaredFor ? declaredFor(subject) : null) ?? declared;
   const counts = Object.fromEntries(['declared', 'outside-workflow', 'unknown-agent', 'shell', 'unattributed', 'pre-guard'].map((name) => [name, 0]));
   const fileCounts = new Map();
@@ -126,6 +128,8 @@ export async function reconcileChangeSet({ files, readCurrent, writes = [], shel
   let partial = null;
   let lines = 0;
   let removed = 0;
+  let inStories = 0;
+  const skipped = (subject) => Boolean(skipSubject && subject && skipSubject(subject));
   const byPath = new Map();
   for (const write of writes) for (const file of write.files ?? []) {
     if (typeof file?.path === 'string') byPath.set(file.path, [...(byPath.get(file.path) ?? []), write]);
@@ -146,29 +150,32 @@ export async function reconcileChangeSet({ files, readCurrent, writes = [], shel
     const labelled = [];
     for (const [start, last] of file.added) {
       for (let line = start; line <= last; line += 1) {
-        if (lines >= limits.lines) { partial ??= { reason: 'lines', limit: limits.lines }; break; }
+        if (lines + inStories >= limits.lines) { partial ??= { reason: 'lines', limit: limits.lines }; break; }
         const authoredLine = view ? view.line(line) : line;
         if (authoredLine == null) continue;
-        lines += 1;
         let entry = null;
+        let subject = null;
         if (end && records.length) {
           let attributed = attributeLineWriter({ records, path: file.path, start: { unknown: true }, end, line: authoredLine });
           for (const other of ends.slice(1)) {
             if (attributed.status === 'attributed') break;
             attributed = attributeLineWriter({ records, path: file.path, start: { unknown: true }, end: other, line: authoredLine });
           }
-          if (attributed.status === 'attributed') entry = { line, ...sfGuardSettle(attributed.writer, setFor(attributed.subject)) };
+          if (attributed.status === 'attributed') { subject = attributed.subject; entry = { line, ...sfGuardSettle(attributed.writer, setFor(attributed.subject)) }; }
           else if (attributed.basis === 'unverified-write') entry = { line, classification: 'unattributed' };
         }
         if (!entry && current) {
           const shell = shellCallAt(shellRecords, current.mtimeMs);
           if (shell) {
+            subject = shell.subject;
             const settled = sfGuardSettle(shell.writer, setFor(shell.subject));
             entry = { line, classification: 'shell', agent: settled.agent, skill: settled.skill, command: shell.commandSha256?.slice(0, 12) ?? null };
           }
         }
         if (!entry && (pinnedOff || (guardOnAt != null && current && current.mtimeMs < guardOnAt))) entry = { line, classification: 'pre-guard' };
         entry ??= { line, classification: 'unattributed' };
+        if (skipped(subject)) { inStories += 1; continue; }
+        lines += 1;
         counts[entry.classification] += 1;
         labelled.push(entry);
       }
@@ -180,7 +187,7 @@ export async function reconcileChangeSet({ files, readCurrent, writes = [], shel
     if (partial?.reason === 'lines') break;
   }
   return {
-    lines, removed, files: fileCounts.size, counts,
+    lines, removed, files: fileCounts.size, counts, ...(skipSubject ? { inStories } : {}),
     ranges: found.slice(0, limits.ranges), rangesOmitted: Math.max(0, found.length - limits.ranges),
     partial
   };

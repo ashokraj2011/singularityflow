@@ -198,7 +198,9 @@ async function agentStamps(root, definition) {
     const relative = agent.source ?? path.relative(root, agent.file).split(path.sep).join('/');
     const onDisk = await readFile(path.join(root, relative)).catch(() => null);
     const changed = !onDisk || createHash('sha256').update(onDisk).digest('hex') !== agent.sha256;
-    rows.push({ id: agent.id, path: relative, sha256: agent.sha256, stamped, changed });
+    // G4 (AC-011): a stamped file whose stamping hook was removed or edited is labelled as drift.
+    const drift = stamped && changed ? await (await import('../presence/agent-drift.mjs')).agentFileDrift(onDisk ? onDisk.toString('utf8') : null, agent.id) : null;
+    rows.push({ id: agent.id, path: relative, sha256: agent.sha256, stamped, changed, ...(drift ? { drift } : {}) });
   }
   return rows;
 }
@@ -232,17 +234,19 @@ function standingRows(state) {
   return rows;
 }
 
-function statusResult(state, stamps = [], remote = null, recording = null, configuration = null) {
+function statusResult(state, stamps = [], remote = null, recording = null, configuration = null, outside = null) {
   const { folded, problems, historyChecked } = state.policy;
   return {
     status: folded.enabled ? 'required' : 'off',
     // Whether this checkout records attribution, and the last time it could not (SPEC-SFG-v1 REQ-023, AC-013).
     ...(recording ? { recording } : {}),
+    // G4: the last seven days' recorded Copilot calls outside any Story, by class (guard report has them by agent and skill).
+    ...(outside ? { outsideStories: outside } : {}),
     chainId: folded.chainId, events: folded.length, validEvents: folded.validLength, historyChecked, remoteCheck: folded.remoteCheck,
     ...(remote ? { remote } : {}),
     // The approved configuration commit's approval seal (SPEC-PSS-v1 §10.9).
     ...(configuration ? { configuration: { commit: configuration.commit, state: configuration.state, counts: configuration.counts, label: configuration.label, reason: configuration.reason } } : {}),
-    agents: stamps.map(({ id, path, stamped, changed }) => ({ id, path, stamp: !stamped ? 'not-stamped' : changed ? 'changed' : 'stamped' })),
+    agents: stamps.map(({ id, path, stamped, changed, drift }) => ({ id, path, stamp: !stamped ? 'not-stamped' : changed ? 'changed' : 'stamped', ...(drift ? { drift } : {}) })),
     approvers: standingRows(state).map(({ approver, label, groups, standing }) => ({
       approver, label, groups, state: standing.state, standing: standing.label, keyId: standing.pin?.keyId ?? null,
       recovered: Boolean(standing.pin?.recovered), exception: standing.exception?.id ?? null
@@ -265,13 +269,31 @@ function statusText(result) {
   }
   const unstamped = result.agents.filter((row) => row.stamp !== 'stamped');
   if (result.status === 'required' && result.agents.length) {
-    lines.push(`  Agent stamps: ${result.agents.length - unstamped.length} of ${result.agents.length} agent file(s) stamped${unstamped.length ? `; ${unstamped.map((row) => `${row.id} ${row.stamp === 'changed' ? '(file changed since approved: its work is labelled)' : '(not stamped: its work reads "agent unknown")'}`).join(', ')}. Stamp them: singularity-flow guard stamp-agents` : ''}.`);
+    lines.push(`  Agent stamps: ${result.agents.length - unstamped.length} of ${result.agents.length} agent file(s) stamped${unstamped.length ? `; ${unstamped.map((row) => `${row.id} ${row.drift ? `(drift: ${DRIFT_WORDS[row.drift] ?? row.drift}; its stamps no longer prove which agent ran, and every label says so)` : row.stamp === 'changed' ? '(file changed since approved: its work is labelled)' : '(not stamped: its work reads "agent unknown")'}`).join(', ')}. Stamp them: singularity-flow guard stamp-agents` : ''}.`);
+  }
+  if (result.outsideStories) {
+    const parts = Object.entries(result.outsideStories.totals).filter(([, count]) => count).map(([name, count]) => `${count} ${name}`);
+    lines.push(`  Copilot calls outside any Story, last 7 days: ${parts.length ? parts.join(' · ') : 'none recorded'} (by agent and skill: singularity-flow guard report --since 7d).`);
   }
   if (result.recording) {
     lines.push(`  Attribution recording here: ${result.recording.state}${result.recording.lastGap ? `; last gap ${result.recording.lastGap.code} at ${result.recording.lastGap.at} (${result.recording.gaps} recent; the hooks' answers were unchanged)` : '; no gaps recorded'}.`);
   }
   if (result.status === 'off' && !result.chainId) lines.push('  Opt in: singularity-flow guard register, then singularity-flow guard enable (both in your own terminal, with Touch ID).');
   return lines.join('\n');
+}
+
+const DRIFT_WORDS = Object.freeze({ 'stamp-removed': 'stamping hook removed', 'stamp-edited': 'stamping hook edited', 'file-removed': 'agent file removed' });
+
+/**
+ * The last seven days' recorded calls outside any Story, by class [G4], where this checkout records;
+ * no Git read. Null elsewhere or when unreadable: status never fails for it.
+ */
+async function outsideStoriesSummary(root, state, recording) {
+  if (recording?.state !== 'on') return null;
+  const { sfGuardReport } = await import('../presence/attribution.mjs');
+  const report = await sfGuardReport(root, { definition: state.definition, policy: state.policy, since: '7d', lines: false });
+  const subject = report.subjects.find((entry) => entry.scope === 'repository');
+  return { since: report.since, totals: subject?.counts ?? Object.fromEntries(Object.keys(report.totals).map((name) => [name, 0])) };
 }
 
 /** Whether this checkout records attribution now, and its recent gaps (SPEC-SFG-v1 REQ-023). */
@@ -355,7 +377,7 @@ async function reconcileResult(root, state) {
   }
 }
 
-function reconcileText(result) {
+function reconcileText(result, driftLabels = []) {
   const scope = result.scope.kind === 'story' ? `Story ${result.scope.workId}, step ${result.scope.step}, since ${String(result.scope.base).slice(0, 12)}` : `this repository since ${String(result.scope.base).slice(0, 12)}`;
   const lines = [`SF Guard reconciliation for ${scope}${result.partial ? ` (partial: stopped at the ${result.partial.limit}-${result.partial.reason} bound)` : ''}:`];
   lines.push(`  ${result.lines} changed line(s) in ${result.files} file(s); ${result.removed} removed line(s) are not classed.`);
@@ -364,6 +386,7 @@ function reconcileText(result) {
     if (range.classification === 'declared') continue;
     lines.push(`    ${range.path}:${range.start}${range.end > range.start ? `-${range.end}` : ''} ${range.classification}${range.agent || range.skill ? ` (agent ${range.agent ?? 'unknown'}, skill ${range.skill ?? 'none'})` : ''}${range.agentFilesChanged ? ' [agent files changed]' : ''}`);
   }
+  for (const label of driftLabels) lines.push(`  ${label}`);
   if (result.sfGuard === 'off') lines.push('  SF Guard is off here, so nothing is recorded: work reads unattributed or pre-guard.');
   return lines.join('\n');
 }
@@ -403,8 +426,10 @@ export async function run(argv, { positionals, options }, dependencies = {}) {
   if (GUARD_READ_ACTIONS.includes(action)) {
     if (positionals.length > 2) fail(`guard ${action} takes no further arguments. ${USAGE}`, 'PSS_ARGUMENT_UNEXPECTED');
     if (action === 'reconcile') {
-      const result = await reconcileResult(root, state);
-      return print(options, result, reconcileText(result));
+      const [drift, { agentDriftLabels }] = await Promise.all([import('../presence/agent-drift.mjs'), import('../presence/attribution.mjs')]);
+      const reconciled = await reconcileResult(root, state);
+      const result = reconciled.sfGuard === 'on' ? { ...reconciled, agentDrift: drift.agentDriftEntries(await drift.readAgentDrift(root)) } : reconciled;
+      return print(options, result, reconcileText(result, agentDriftLabels(result.agentDrift)));
     }
     if (action === 'report') {
       const { sfGuardReport, sfGuardReportText } = await import('../presence/attribution.mjs');
@@ -417,7 +442,9 @@ export async function run(argv, { positionals, options }, dependencies = {}) {
     const remote = state.policy.folded.enabled ? await remoteStanding(root, state, deps).catch(() => null) : null;
     const configuration = state.policy.folded.enabled
       ? await (await import('../presence/configuration-seal.mjs')).localConfigurationStanding(root, state.policy, state.definition).catch(() => null) : null;
-    const result = statusResult(state, stamps, remote, await recordingHealth(root).catch(() => null), configuration);
+    const recording = await recordingHealth(root).catch(() => null);
+    const outside = await outsideStoriesSummary(root, state, recording).catch(() => null);
+    const result = statusResult(state, stamps, remote, recording, configuration, outside);
     return print(options, result, statusText(result));
   }
   const { folded } = state.policy;

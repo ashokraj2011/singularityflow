@@ -4,7 +4,8 @@
 - **Decided:** 1 November 2026 (D1-D5, §13).
 - **G0:** done in the Copilot CLI (1.0.105) and in VS Code (1.144), all but the `Local` session target (§1.1).
 - **G1:** built. Recording, REQ-020 to REQ-024 (§5.1 says what was built).
-- **G2 to G5:** not built.
+- **G2 to G4:** built: the declared set and reconciliation (§4.1, §6.1), labels (§7.1), and whole-repository labels with the agent-file drift label (§7.2).
+- **G5:** not built.
 
 **Part 1** is [SPEC-PSS v1](SPEC-PSS-v1-PRESENCE-SIGNED-STEPS.md): presence-signed person steps, M1 built. Both parts are SF Guard. Clause IDs here are `[SFG:…]`; `[PSS:…]` refers to part 1.
 
@@ -334,6 +335,26 @@ Labels sit beside the work they describe and never replace it. Declared work sho
 - **The remote check (AC-009):** for each counted approval, its sealed packet must still be on the Story and hash to its digest (labels included). Otherwise `PSS_PACKET_ALTERED`, with the route: restore it from history, or the approver approves the new packet again. Already so on the base: a note.
 - **`guard status`** adds `recording` (whether this checkout records, the recent gap count and the last gap). **`guard report [--since DATE|7d|12h] [--story WORK-ID]`** (a read in any turn) groups this machine's observed writes and shell calls by class, agent and skill, Story by Story, and with `--story` lists the Story's sealed labels step by step with each packet's standing. VS Code's Guard panel (G5) reads the same `sfGuardReport`.
 
+### 7.2 As built (G4)
+
+- **Work outside every Story (REQ-011, D3 (a)):** G1 already records it machine-locally with subject `repository`. Nothing new is recorded, and no commit trailer is written: D3's `prepare-commit-msg` trailer is still offered later.
+  - **Settled against the whole repository:** `guard report` settles those records against the whole-repository declared set (every catalog agent, every library skill, SFlow's own, and now `agent-mappings.yml`'s names), per class, agent and skill, windowed by `--since`.
+  - **The lines changed here:** without `--story`, `guard report` also reconciles the uncommitted and unpushed lines (§6.1's three Git reads, through `sfGuardChangeSet`) with that set, as `repository`: the packet block's shape (`attributionBlock`) and its labels. It leaves Stories their own: files under the work-item root are not read, and a line whose explaining record names a Story is counted in `inStories`, not classed (`reconcileChangeSet`'s `skipSubject`). In a checkout bound to a Story, the lines are its Story's, and the report points to `guard report --story`.
+  - **`guard status`:** where this checkout records, one line sums the last seven days' calls outside any Story by class (`outsideStories`), from the same reader with no Git read.
+- **The agent-file drift label (CON-002, AC-011):** `src/presence/agent-drift.mjs` reads `guard`'s manifest of stamped agent files (`stamped-agents.json`) and the bytes on disk. A file whose bytes still match is not parsed. Otherwise:
+  - `stamp-removed`: the file no longer carries SF Guard's stamp for its agent;
+  - `stamp-edited`: a stamp is there but is not the exact hook SF Guard writes (on any event), or it stamps another agent;
+  - `file-removed`: the file is gone.
+
+  Other bytes changed with the stamp intact stay G2's `changed` in `guard status`, and the session's records still carry `agentFilesChanged` for any change.
+- **Where the drift label shows:**
+  - **Review packet:** an optional `agentDrift` list (`id`, `path`, `drift`, at most 8) inside the `attribution` block, so `reviewPacketSha256` seals it with the rest. A block without drift is byte-for-byte as before, and the `story-submission-packet` family is unchanged.
+  - **Labels:** the review's labels, the approval card's counts line ("· agent file drift: developer"), the final check's advisory lines (a step whose labels carry drift is listed), and the evidence receipt (the agent IDs, only where the packet sealed any).
+  - **Commands:** `guard reconcile`, `guard report` (`agentDrift`) and `guard status` (each agent row's `drift`).
+
+  The wording: "Agent file drift: developer (.github/agents/developer.agent.md) — stamping hook removed since it was stamped, so its stamps no longer prove which agent ran".
+- **Allow but label, off as before:** nothing reads a drift or a whole-repository class to refuse, prompt or hold. Where SF Guard is off and does not record, `guard report` and `guard reconcile` print exactly what they did before: no `repository` and no `agentDrift`.
+
 ## 8. Binding into the signed review (part 1)
 
 **[SFG:REQ-050]** The `attribution` block and its digest are part of the review packet, so they are covered by `reviewPacketSha256`, which part 1's statement signs. After approval:
@@ -370,7 +391,7 @@ Before submission, CON-002 applies. With part 1 off, the labels still show, but 
 | G1 | Recording (REQ-020 to 024): the per-session agent map, plain and paused turns, shell fingerprints, the "on" check | part 1 M1 (the policy file) | AC-001 to AC-004, the latency target. **Built** (§5.1) |
 | G2 | The declared set (§4) and reconciliation (§6) | G1 | AC-005 to AC-007. **Built** (§4.1, §6.1), with the stamping hooks and the drift label |
 | G3 | Labels in packets, receipts, the final check, `guard status` and `guard report` (§7) | G2, part 1 M2 (signed approval) | AC-008 to AC-010. **Built** (§7.1) |
-| G4 | Whole-repository labels outside Stories through D3's route; the agent-file drift label | G2 | AC-011 |
+| G4 | Whole-repository labels outside Stories through D3's route; the agent-file drift label | G2 | AC-011. **Built** (§7.2); D3's commit trailer is still offered later |
 | G5 | VS Code Guard panel and Story views | G3 | AC-012 |
 
 G1 and G2 can run alongside part 1's M2. G3 waits for M2's signed packets.

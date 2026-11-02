@@ -75,7 +75,9 @@ function presenceProjection(report) {
 function attributionProjection(packet, attribution) {
   const block = packet.attribution;
   return { status: block.status, sha256: block.sha256 ?? null, verified: attribution.attributionDigest(block) === block.sha256,
-    counts: block.counts ?? null };
+    counts: block.counts ?? null,
+    // G4 (AC-011): the agents whose stamped file drifted, only where the packet sealed any, so other receipts are unchanged.
+    ...(Array.isArray(block.agentDrift) && block.agentDrift.length ? { agentDrift: block.agentDrift.map((entry) => entry.id) } : {}) };
 }
 
 /**
@@ -241,7 +243,8 @@ export function receiptAttributionText(receipt) {
     : seal?.status === 'sealed' ? `sealed by ${seal.approvals} counted approval(s)`
       : seal?.status === 'not-yet-approved' ? 'not sealed yet: no counted approval signs this packet'
         : seal ? `the sealed packet ${seal.status === 'absent' ? 'is gone' : `was changed after submission (${seal.reason})`}` : 'seal not checked';
-  return `${parts.join(' · ')} (lines, ${block.status}) · ${standing}`;
+  const drift = block.agentDrift?.length ? ` · agent file drift: ${block.agentDrift.join(', ')}` : '';
+  return `${parts.join(' · ')} (lines, ${block.status})${drift} · ${standing}`;
 }
 
 export function renderEvidenceReceipt(receipt) {

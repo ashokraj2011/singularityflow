@@ -87,8 +87,9 @@ function testFindingRoute(workflow, phase, finding, code) {
 export function phaseResolutionChoices(workflow, phase, finding) {
   // The affected input's owner is not the phase executing this repair. Preservation, input
   // restoration and continuation stay on the active consumer, even for older pinned Stories.
-  const affectedPhase = workflow.phases?.[finding.phaseId ?? finding.phase];
   const activePhase = workflow.phases?.[workflow.currentPhase];
+  const affectedPhase = workflow.phases?.[finding.phaseId ?? finding.phase]
+    ?? (activePhase?.id !== phase.id && phase.status === 'approved' ? phase : null);
   if (activeRepairPhase(workflow, activePhase)) phase = activePhase;
   const workId = workflow.workItem.id;
   const code = phaseFindingCode(finding).toLowerCase();
@@ -358,6 +359,12 @@ function advisoryProjection(workflow, phase, advisory) {
 }
 
 export function phaseResolutionProjection(workflow, phase, findings = [], { advisories = [], transition = null } = {}) {
+  const active = workflow.phases?.[workflow.currentPhase];
+  if (activeRepairPhase(workflow, active) && active.id !== phase.id) {
+    const affected = phase.id;
+    const bindAffected = finding => finding.phaseId || finding.phase ? finding : { ...finding, phaseId: affected };
+    findings = findings.map(bindAffected); advisories = advisories.map(bindAffected); phase = active;
+  }
   const issues = findings.map(finding => ({ ...phaseResolutionChoices(workflow, phase, finding), blocking: true }));
   return { status: findings.length ? 'resolution-required' : 'ready',
     transition,

@@ -374,6 +374,15 @@ test('an admitted test repair uses the persistent producer handoff and never run
   assert.doesNotMatch(JSON.stringify(started.action), /malicious-script/u);
 });
 
+test('a current producer never receives an earlier phase finding as an owned repair', async t => {
+  const f = await fixture(t);
+  const inspect = async () => ({ ...f.observation(), findings: [{ code: 'artifact.placeholder.unresolved',
+    category: 'artifact', phaseId: 'earlier-approved-phase', path: 'earlier.md' }] });
+  const plan = await f.call('plan', null, { inspect });
+  assert.equal(plan.action, null); assert.equal(plan.status, 'needs-human-or-owner');
+  assert.equal((await f.call('status')).consumed, 0);
+});
+
 test('a changed producer closes the old reservation and unknown finding categories stay with the owner', async t => {
   const f = await fixture(t); await reserve(f);
   const changedOwner = { inspect: async () => ({ ...f.observation(), inspection: {

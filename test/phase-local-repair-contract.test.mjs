@@ -52,6 +52,12 @@ test('an upstream finding restores and checkpoints the current consumer, with a 
   assert.ok(!issue.choices.some(choice => choice.argv[0] === 'appeal' && choice.argv.includes('design')));
   assert.equal(result.repairContinuation.tasks[0].resume.phaseId, phase.id);
   assert.equal(result.repairContinuation.tasks[0].mutationAuthorityGranted, false);
+  const earlier = phaseResolutionProjection(workflow, workflow.phases.design,
+    [{ code: 'PHASE_INPUTS_NOT_READY', category: 'inputs', details: { restorable: true } }]);
+  assert.equal(earlier.repairContinuation.phaseId, phase.id);
+  assert.equal(earlier.repairContinuation.tasks[0].binding.phaseId, phase.id);
+  assert.equal(earlier.issues[0].affectedPhase, 'design');
+  assert.equal(earlier.issues[0].choices[0].command, `singularity-flow inputs restore ${phase.id}`);
 });
 
 test('real lifecycle predicates agree with offered checkpoint, scope and correction actions', () => {

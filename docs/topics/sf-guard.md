@@ -13,6 +13,8 @@ questions:
   - I lost my Mac; how do I recover my presence key?
   - Which agent and skill made this change?
   - Which changed lines came from outside the workflow?
+  - What are the SF Guard labels on a review packet?
+  - Why does the approval card show SF Guard labels?
   - Why does approve ask for Touch ID?
   - Why is an approval not counted?
   - Why does a risk or scope decision ask for Touch ID?
@@ -28,6 +30,8 @@ keywords:
   - agent stamp
   - remote check
   - branch protection
+  - labels
+  - guard report
 commands:
   - guard
   - governance
@@ -35,7 +39,7 @@ related:
   - approvals
   - configuration
   - copilot-and-surfaces
-version: 6
+version: 7
 ---
 SF Guard makes a person's own steps provable. An agent runs as the same user on the same computer: it can read Git configuration, run any command, fake a terminal and write Git records directly, so nothing it can type proves a person decided. SF Guard asks for the one thing it cannot produce, a signature from a Secure Enclave key on the person's Mac made after their Touch ID. It is off until a repository opts in; a repository that never opts in behaves exactly as before. Refusals keep the `PSS_` codes of SPEC-PSS-v1.
 
@@ -109,6 +113,16 @@ Plain prompts and paused sessions are recorded too. A shell command keeps only a
 
 It reads Git a fixed three times and stops at 500 files or 20,000 lines; a capped report says it is partial. With SF Guard on, an `upstream-issue raise` or `story intent-amendment propose` that a Copilot shell call runs without `--authored` is recorded as `governed-agent`, and an agent that claims `--authored human` for one is refused with its own command, except for the person's own words in their `/sf-decide`.
 
+### Labels on the review
+
+At submission a step's labels join its review packet (an `attribution` block: counts per class, the top items by class, agent and skill, and the authorship they sit beside). The approval that signs the packet's digest seals them, so a label changed afterwards breaks that seal. Each line settles against the declared set of the step that wrote it. The Story's own SFlow records (its `workflow.json`, briefs, submissions) are left out; its artifacts stay in, read without SFlow's metadata block so the author's lines still count.
+- **Wording:** "Declared ✓ (N lines)", "Produced outside the workflow: agent X, skill Y (N lines in M files)", "Agent unknown: skill Y", "Written by a shell command", "Unattributed (N lines)", "Before SF Guard (N lines)". A plain follow-up that continues an SFlow skill reads "skill: Y (continued)". A step published as a person's or a tool's writing with agent writes recorded shows both.
+- **Where they show:** the review before approval; the approval card, on one line before Touch ID; the evidence receipt ("SF Guard labels: … · sealed by 1 counted approval(s)"); the final check, as advisory lines.
+- **`singularity-flow guard report [--since DATE|7d|12h] [--story WORK-ID]`:** this machine's records for the repository, grouped by class, agent and skill, Story by Story; with `--story`, the Story's sealed labels step by step and whether each packet still holds them. `guard status` also says whether this checkout records, and its last recording gap.
+- **A packet changed after approval:** the receipt reads "the sealed packet was changed after submission", and the remote check fails it (`PSS_PACKET_ALTERED`), naming the route: restore the packet from the Story's history, or the approver reviews the new one and approves again.
+
+A label never refuses, prompts or holds anything. One that cannot be computed reads "unavailable" and the step goes on. A repository that never opted in gets no labels.
+
 ## Troubleshooting
 
 - `PSS_ANCHOR_UNAVAILABLE`: GitHub could not be reached; nothing was recorded. Run the same command again.
@@ -122,6 +136,7 @@ It reads Git a fixed three times and stops at 500 files or 20,000 lines; a cappe
 - `PSS_POLICY_UNREADABLE`: the approved configuration's policy file cannot be read here; nothing was written. `sflow sync`, then run the same command again.
 - An approval shows "not counted" in `sflow approvals`: it carries no valid presence signature. The approver runs `approve` again in their own terminal.
 - The remote check fails (`PSS_REMOTE_CHECK_FAILED`): its output lists each problem with its route. A forged or edited record is dropped from the change, and the person records the decision again in their own terminal.
+- `PSS_PACKET_ALTERED` from the remote check: a counted approval's review packet (and its labels) changed after the approval sealed it. Restore it from the Story's history, or the approver approves the new packet again in their own terminal.
 - `guard status` says the remote check is not required: add the CI recipe (`sflow guard remote-check --recipe`) and make the check required in the repository's branch protection.
 
 ## Related topics

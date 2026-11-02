@@ -27,11 +27,11 @@ import { ctkIdentities, presenceIdentityStanding, readableCopies } from '../pres
 import { presenceNonce } from '../presence/statement.mjs';
 import { optionBoolean, optionString, optionStrings, SingularityFlowError } from '../util.mjs';
 
-export const GUARD_ACTIONS = Object.freeze(['status', 'reconcile', 'remote-check', 'register', 'rotate', 'recover', 'revoke', 'enable', 'disable', 'exception', 'stamp-agents']);
-export const GUARD_READ_ACTIONS = Object.freeze(['status', 'reconcile', 'remote-check']);
+export const GUARD_ACTIONS = Object.freeze(['status', 'reconcile', 'report', 'remote-check', 'register', 'rotate', 'recover', 'revoke', 'enable', 'disable', 'exception', 'stamp-agents']);
+export const GUARD_READ_ACTIONS = Object.freeze(['status', 'reconcile', 'report', 'remote-check']);
 /** The person's own steps: refused for agents, whatever the turn. */
 export const GUARD_PERSON_ACTIONS = Object.freeze(GUARD_ACTIONS.filter((action) => !GUARD_READ_ACTIONS.includes(action)));
-const USAGE = 'Usage: singularity-flow guard <status|reconcile|remote-check|register|rotate|recover|revoke|enable|disable|exception add|exception revoke|stamp-agents> …  (singularity-flow help guard)';
+const USAGE = 'Usage: singularity-flow guard <status|reconcile|report|remote-check|register|rotate|recover|revoke|enable|disable|exception add|exception revoke|stamp-agents> …  (singularity-flow help guard)';
 const fail = (message, code, details = {}) => { throw new SingularityFlowError(message, { code, details }); };
 
 function print(options, json, text) {
@@ -211,10 +211,12 @@ function standingRows(state) {
   return rows;
 }
 
-function statusResult(state, stamps = [], remote = null) {
+function statusResult(state, stamps = [], remote = null, recording = null) {
   const { folded, problems, historyChecked } = state.policy;
   return {
     status: folded.enabled ? 'required' : 'off',
+    // Whether this checkout records attribution, and the last time it could not (SPEC-SFG-v1 REQ-023, AC-013).
+    ...(recording ? { recording } : {}),
     chainId: folded.chainId, events: folded.length, validEvents: folded.validLength, historyChecked, remoteCheck: folded.remoteCheck,
     ...(remote ? { remote } : {}),
     agents: stamps.map(({ id, path, stamped, changed }) => ({ id, path, stamp: !stamped ? 'not-stamped' : changed ? 'changed' : 'stamped' })),
@@ -239,8 +241,20 @@ function statusText(result) {
   if (result.status === 'required' && result.agents.length) {
     lines.push(`  Agent stamps: ${result.agents.length - unstamped.length} of ${result.agents.length} agent file(s) stamped${unstamped.length ? `; ${unstamped.map((row) => `${row.id} ${row.stamp === 'changed' ? '(file changed since approved: its work is labelled)' : '(not stamped: its work reads "agent unknown")'}`).join(', ')}. Stamp them: singularity-flow guard stamp-agents` : ''}.`);
   }
+  if (result.recording) {
+    lines.push(`  Attribution recording here: ${result.recording.state}${result.recording.lastGap ? `; last gap ${result.recording.lastGap.code} at ${result.recording.lastGap.at} (${result.recording.gaps} recent; the hooks' answers were unchanged)` : '; no gaps recorded'}.`);
+  }
   if (result.status === 'off' && !result.chainId) lines.push('  Opt in: singularity-flow guard register, then singularity-flow guard enable (both in your own terminal, with Touch ID).');
   return lines.join('\n');
+}
+
+/** Whether this checkout records attribution now, and its recent gaps (SPEC-SFG-v1 REQ-023). */
+async function recordingHealth(root) {
+  const recorder = await import('../comprehension/xpl2/sf-guard-recorder.mjs');
+  const repository = await recorder.sfGuardRepository(root);
+  const on = repository ? (await recorder.sfGuardOn(repository)).on : false;
+  const gaps = await recorder.readSfGuardGaps(root).catch(() => []);
+  return { state: on ? 'on' : 'off', gaps: gaps.length, lastGap: gaps.at(-1) ?? null };
 }
 
 /**
@@ -305,33 +319,14 @@ async function noteLocalState(root, enabled, stamps = null) {
  * working tree and unpushed commits, with the repository's.
  */
 async function reconcileResult(root, state) {
-  const [{ sfGuardChangeSet }, reconcile, { sfGuardDeclaredSet }, xpl2, recorder, { loadSkillLibrary }, { loadAgentMappings }] = await Promise.all([
-    import('../git.mjs'), import('../presence/reconcile.mjs'), import('../presence/declared-set.mjs'),
-    import('../comprehension/xpl2/observed-writes.mjs'), import('../comprehension/xpl2/sf-guard-recorder.mjs'), import('../skill-library.mjs'), import('../agents.mjs')]);
   const story = await import('../accepted-story-execution.mjs').then(({ loadAcceptedStoryExecution }) => loadAcceptedStoryExecution(root), () => null);
-  const workflow = story?.workflow ?? null;
-  const definition = story?.config ?? state.definition;
-  const stepId = workflow?.currentPhase ?? null;
-  const phase = stepId ? { id: stepId, ...(workflow.resolution?.phases?.find((entry) => entry.id === stepId) ?? {}), ...(workflow.phases?.[stepId] ?? {}) } : null;
-  const library = await loadSkillLibrary(root).catch(() => ({ skills: new Map() }));
-  const mappings = await loadAgentMappings(root, { agents: definition.agentCatalog ?? [] }).catch(() => ({ mappings: {} }));
-  const declared = sfGuardDeclaredSet({ agents: definition.agentCatalog ?? [], librarySkills: [...library.skills.keys()], mappings: mappings.mappings, phase });
-  const base = workflow ? workflow.workIntervals?.current?.sourceBaseCommit ?? phase?.generationIntent?.baseline?.commit ?? null : null;
-  const read = reconcile.workingTreeReader(root);
-  let changes;
-  try { changes = sfGuardChangeSet(root, base); }
-  catch (error) { fail(`SF Guard could not read what changed here: ${error.message}`, 'SFG_CHANGE_SET_UNAVAILABLE'); }
-  const files = [...reconcile.parseZeroContextPatch(changes.patch), ...await reconcile.untrackedAsAdded(changes.untracked, read)];
-  const repository = await recorder.sfGuardRepository(root);
-  const writes = repository ? (await xpl2.readObservedWrites(repository.gitDir, { paths: files.map((file) => file.path) }).catch(() => ({ records: [] }))).records : [];
-  const shellRecords = await recorder.readSfGuardShellRecords(root).catch(() => []);
-  const enabled = [...(state.policy.chain?.events ?? [])].slice(0, state.policy.folded.validLength).reverse().find((event) => event.kind === 'enable' || event.kind === 'disable');
-  const guardOnAt = enabled?.kind === 'enable' ? Date.parse(enabled.at) : null;
-  const pin = workflow?.resolution?.presence ?? null;
-  const report = await reconcile.reconcileChangeSet({ files, readCurrent: read, writes, shellRecords, declared,
-    guardOnAt: Number.isFinite(guardOnAt) ? guardOnAt : null, pinnedOff: Boolean(workflow) && (!pin || pin.status !== 'required') });
-  return { scope: workflow ? { kind: 'story', workId: workflow.workItem?.id ?? null, step: stepId, base: changes.base } : { kind: 'repository', base: changes.base },
-    sfGuard: state.policy.folded.enabled ? 'on' : 'off', declared: { agents: declared.agents, skills: declared.skills }, ...report };
+  const { reconcileHere } = await import('../presence/attribution.mjs');
+  try {
+    return await reconcileHere(root, { definition: story?.config ?? state.definition, policy: state.policy, workflow: story?.workflow ?? null });
+  } catch (error) {
+    if (error?.code) throw error;
+    fail(`SF Guard could not read what changed here: ${error.message}`, 'SFG_CHANGE_SET_UNAVAILABLE');
+  }
 }
 
 function reconcileText(result) {
@@ -384,10 +379,16 @@ export async function run(argv, { positionals, options }, dependencies = {}) {
       const result = await reconcileResult(root, state);
       return print(options, result, reconcileText(result));
     }
+    if (action === 'report') {
+      const { sfGuardReport, sfGuardReportText } = await import('../presence/attribution.mjs');
+      const result = await sfGuardReport(root, { definition: state.definition, policy: state.policy,
+        since: optionString(options, 'since') ?? null, storyId: optionString(options, 'story') ?? null });
+      return print(options, result, sfGuardReportText(result));
+    }
     if (action === 'remote-check') return remoteCheckAction(root, state, options, deps);
     // Branch protection is read only where it matters: SF Guard on, with a remote check named.
     const remote = state.policy.folded.enabled ? await remoteStanding(root, state, deps).catch(() => null) : null;
-    const result = statusResult(state, stamps, remote);
+    const result = statusResult(state, stamps, remote, await recordingHealth(root).catch(() => null));
     return print(options, result, statusText(result));
   }
   const { folded } = state.policy;

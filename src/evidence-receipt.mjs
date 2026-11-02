@@ -68,6 +68,29 @@ function presenceProjection(report) {
     preSigning: report.summary.preSigning, notCounted };
 }
 
+/**
+ * SF Guard's labels as the packet sealed them (SPEC-SFG-v1 REQ-041, REQ-050): their digest, whether
+ * the block still matches it, and the counts. From the packet alone, so the core stays deterministic.
+ */
+function attributionProjection(packet, attribution) {
+  const block = packet.attribution;
+  return { status: block.status, sha256: block.sha256 ?? null, verified: attribution.attributionDigest(block) === block.sha256,
+    counts: block.counts ?? null };
+}
+
+/**
+ * Whether the packet's labels are still sealed here (AC-009): the packet file at its path holds the
+ * bytes its digest names, and a counted approval signs that digest. An observation of this clone.
+ */
+async function attributionSealProjection(root, workflow, packet, attribution) {
+  const entry = workflow.lineage?.submissions?.find((item) => item.packetSha256 === packet.packetSha256) ?? null;
+  const standing = attribution.packetFileStanding(entry?.path ? await attribution.checkoutReader(root)(entry.path).catch(() => null) : null, packet.packetSha256);
+  const approvals = countedApprovals(workflow, (workflow.phases?.[packet.phase]?.approvals ?? [])
+    .filter((item) => !item.invalidatedAt && item.decision === 'approved' && item.reviewPacketSha256 === packet.packetSha256));
+  if (standing.status !== 'intact') return { status: standing.status, reason: standing.reason ?? null, approvals: approvals.length };
+  return { status: approvals.length ? 'sealed' : 'not-yet-approved', approvals: approvals.length };
+}
+
 function contextProjection(packet) {
   if (packet.authorship?.producer !== 'governed-agent') {
     return { status: 'exact', source: 'not-invoked', briefs: 0 };
@@ -121,6 +144,7 @@ export async function composeEvidenceReceipt(root, config, workflow, packet) {
   const phase = workflow.phases?.[packet.phase] ?? null;
   const presence = workflow.resolution?.presence
     ? await (await import('./presence/story-verify.mjs')).storyPresenceReport(root, workflow) : null;
+  const attribution = packet.attribution ? await import('./presence/attribution.mjs') : null;
   let changedPaths = { status: 'unavailable', count: null, sha256: null };
   try {
     const base = workflow.workItem.baseCommit ?? workflow.workItem.baseBranch;
@@ -154,6 +178,7 @@ export async function composeEvidenceReceipt(root, config, workflow, packet) {
     approvals: approvalProjection(phase, packet, workflow),
     context: contextProjection(packet),
     reviewPacket: { status: 'exact', sha256: packet.packetSha256 },
+    ...(attribution ? { attribution: attributionProjection(packet, attribution) } : {}),
     nextHumanAction: packet.status === 'awaiting_review' ? REVIEW_ACTION : 'Continue to the next phase.',
     links: {
       reviewPacket: workflow.lineage?.submissions?.find((entry) => entry.packetSha256 === packet.packetSha256)?.path ?? null,
@@ -165,7 +190,8 @@ export async function composeEvidenceReceipt(root, config, workflow, packet) {
     changes: changedPaths,
     requirements,
     publication: publicationProjection(root, config, packet),
-    ...(presence?.applies ? { presence: presenceProjection(presence) } : {})
+    ...(presence?.applies ? { presence: presenceProjection(presence) } : {}),
+    ...(attribution ? { attributionSeal: await attributionSealProjection(root, workflow, packet, attribution) } : {})
   };
   const receiptCoreSha256 = digest(core);
   const observationSha256 = digest(observations);
@@ -204,6 +230,20 @@ export function receiptPresenceText(presence) {
     ...(presence.notCounted ? [`${presence.notCounted} not counted`] : []), 'every signature re-verified'].join(' · ');
 }
 
+/** SF Guard's labels line on a receipt: the sealed counts, and whether the seal still holds here. */
+export function receiptAttributionText(receipt) {
+  const block = receipt.attribution;
+  if (block.status === 'unavailable') return 'labels unavailable at submission';
+  const words = { 'outside-workflow': 'outside the workflow', 'unknown-agent': 'agent unknown', shell: 'shell command', unattributed: 'unattributed', 'pre-guard': 'before SF Guard' };
+  const parts = [`${block.counts?.declared ?? 0} declared`, ...Object.entries(words).filter(([name]) => block.counts?.[name]).map(([name, word]) => `${block.counts[name]} ${word}`)];
+  const seal = receipt.attributionSeal;
+  const standing = !block.verified ? 'the labels do not match their own digest'
+    : seal?.status === 'sealed' ? `sealed by ${seal.approvals} counted approval(s)`
+      : seal?.status === 'not-yet-approved' ? 'not sealed yet: no counted approval signs this packet'
+        : seal ? `the sealed packet ${seal.status === 'absent' ? 'is gone' : `was changed after submission (${seal.reason})`}` : 'seal not checked';
+  return `${parts.join(' · ')} (lines, ${block.status}) · ${standing}`;
+}
+
 export function renderEvidenceReceipt(receipt) {
   const unavailable = (value) => value == null ? 'unavailable' : String(value);
   return [
@@ -213,6 +253,7 @@ export function renderEvidenceReceipt(receipt) {
     `Checks: ${receipt.checks.passed} passed · ${receipt.checks.failed} failed · ${receipt.checks.unavailable} unavailable (${receipt.checks.status})${receipt.checks.acceptedRisk ? ` · ${receipt.checks.acceptedRisk} under accepted risk` : ''}`,
     `Approvals: ${receiptApprovalText(receipt)}`,
     ...(receipt.presence ? [`SF Guard: ${receiptPresenceText(receipt.presence)}`] : []),
+    ...(receipt.attribution ? [`SF Guard labels: ${receiptAttributionText(receipt)}`] : []),
     `Context: ${receipt.context.status} · Review packet: ${receipt.reviewPacket.sha256.slice(0, 12)}`,
     `Publication: ${receipt.publication.state} · Next: ${receipt.nextHumanAction}`,
     `Receipt core hash: ${receipt.receiptCoreSha256 ?? receipt.receiptSha256}`,
@@ -232,6 +273,7 @@ export function renderEvidenceReceiptMarkdown(receipt) {
     `- Checks: **${receipt.checks.passed} passed**, **${receipt.checks.failed} failed**, **${receipt.checks.unavailable} unavailable** (${receipt.checks.status})${receipt.checks.acceptedRisk ? `, ${receipt.checks.acceptedRisk} under accepted risk` : ''}`,
     `- Approvals: **${receiptApprovalText(receipt)}**`,
     ...(receipt.presence ? [`- SF Guard: **${receiptPresenceText(receipt.presence)}**`] : []),
+    ...(receipt.attribution ? [`- SF Guard labels: **${receiptAttributionText(receipt)}**`] : []),
     `- Context provenance: **${receipt.context.status}**`,
     `- Review packet: \`${receipt.reviewPacket.sha256}\``,
     `- Publication: **${receipt.publication.state}** on \`${receipt.publication.branch}\``,

@@ -6834,8 +6834,12 @@ export async function evaluateApproval(root, config, workflow, {
   } catch (error) {
     if (error !== APPROVAL_PREVIEW_STOP) throw error;
   }
-  // Every check passed: the card, then the approver's touch, over the final record [SPEC-PSS-v1 M2].
-  if (!preview && presence && decision) await (await import('./presence/person-records.mjs')).attachPersonPresence(presence, decision);
+  // Every check passed: the card (with the verified packet's SF Guard labels), then the approver's
+  // touch, over the final record [SPEC-PSS-v1 M2, SPEC-SFG-v1 AC-008].
+  if (!preview && presence && decision) {
+    const cardLines = submittedReview?.attribution ? (await import('./presence/attribution.mjs')).attributionCardLines(submittedReview.attribution) : [];
+    await (await import('./presence/person-records.mjs')).attachPersonPresence(presence, decision, { cardLines });
+  }
   return { holds, warnings, ready: !holds.length, config, phase, session, key, decision, reached, approvalOutcome,
     rejectedIntentAmendments: rejectedAmendments };
 }

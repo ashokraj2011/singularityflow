@@ -50,7 +50,9 @@ test('review readers cannot statically pull in phase authoring or lifecycle publ
   // decodes it) joined through repository-check-cache.mjs in 55ce8103b; main 80bbf5c2a measures 265.
   // 266: git-repository-identity.mjs (Node built-ins only) joined there too, so a remote written another way
   // keeps its read-index record (8133a15db).
-  assert.ok(visited.size < 267, `review read closure grew to ${visited.size} local modules`);
+  // 267: SF Guard M3's presence/counted.mjs (an import-free leaf: only a verified or excepted person record
+  // counts) joined through plan-amendments.mjs in 6ad7b77af; main 74e9d6385 measures 267 against < 267.
+  assert.ok(visited.size < 268, `review read closure grew to ${visited.size} local modules`);
 });
 
 test('only exact read forms share a review command scope; writers and override flags never do', () => {

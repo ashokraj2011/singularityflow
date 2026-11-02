@@ -288,7 +288,7 @@ Unverified lines (the arguments don't explain them) are never credited (`observe
 
 ### 6.1 As built (G2)
 
-- **Command:** `singularity-flow guard reconcile [--json]` is a read open to any turn (`src/presence/reconcile.mjs`). In a Story checkout it reconciles the Story since its base (its work interval's source base, else the step's baseline), with that step's declared set; anywhere else, the working tree and unpushed commits since the upstream commit (else HEAD), with the repository's.
+- **Command:** `singularity-flow guard reconcile [--json]` is a read open to any turn (`src/presence/reconcile.mjs`). In a Story checkout it reconciles the Story since its base (its work interval's source base, else the step's baseline, else the commit the Story started from; G3 added the last, since a specification step has neither and its branch is already pushed), with that step's declared set; anywhere else, the working tree and unpushed commits since the upstream commit (else HEAD), with the repository's.
 - **Git:** a fixed three reads per request (`sfGuardChangeSet` in `src/git.mjs`): the upstream commit, one zero-context patch to the working tree (renames as delete and add), and the untracked files. Never one per file or line.
 - **Per changed line**, from the current bytes on disk:
   - the observed writes' byte chain (XPL2's `attributeLineWriter`, start unknown) credits a verified write's writer, settled per §4.1;
@@ -319,6 +319,20 @@ Labels sit beside the work they describe and never replace it. Declared work sho
 - **The draft's authorship:** if a draft's attribution contradicts its claimed producer (for example `--authored human` with declared-agent writes), the packet shows both. That covers the live reruns' authorship finding.
 
 **[SFG:REQ-042] Never blocks.** No refusal, prompt or gate ever depends on a label. The one exception is the existing person-only refusals, which are part 1's and unchanged.
+
+### 7.1 As built (G3)
+
+- **The block** (`src/presence/attribution.mjs`, `attributionBlock`): `sfg-attribution/1`, with `status` (`complete`, `partial` or `unavailable`), the Story's pin, the base, line, file and removed-line counts, `counts` per class, the top 8 non-declared `items` (class, agent, skill, `continued`, lines, files, `agentFilesChanged`), `itemsOmitted`, `rangesOmitted`, `partial`, and an `authorship` contradiction when a step claimed as `human` or `external-tool` has agent writes recorded. Its own `sha256` is the digest of the rest. Full ranges stay in `guard reconcile` and `guard report --story`.
+- **At submission** (`createStoryReviewPacket` in `src/story-lineage.mjs`): the block joins the packet as `attribution` when the Story was pinned `required` or the repository has SF Guard on now. So `reviewPacketSha256`, which an SF Guard approval signs, seals it (REQ-050). The `story-submission-packet` family is unchanged: the field is optional, older readers rehash the stored body and so verify it, and older packets replay as before. A failure is an `unavailable` block and never stops the submission.
+  - Each line settles against the declared set of the step that wrote it (the write's `subject`), else the submitting step's.
+  - The Story's own SFlow records (everything under its work-item directory but `artifacts/`, and `.sflow/`) are left out.
+  - A published artifact is read through its **authored view** (`authoredView` in `reconcile.mjs`): publication puts SFlow's metadata block (and an artifact may carry approved inputs blocks) around the author's bytes and ends the file with a newline. The view removes whole-line managed blocks exactly as `authoredArtifactText` does, maps each published line to its authored line (managed lines are not classed), and matches the author's recorded write by the view's digest, with or without that one final newline. A block inside a line of text leaves the file read as it stands.
+- **The approval card:** `attachPersonPresence(prepared, record, { cardLines })` puts `attributionCardLines` (the counts on one line, then the top 3 items) on M2's card before Touch ID, from the verified packet.
+- **The review:** `phaseReview` carries `attribution` and `attributionLabels` from the verified packet, and the terminal review prints them under "SF Guard labels".
+- **The evidence receipt:** the core gains `attribution` (`status`, `sha256`, `verified`, `counts`), from the packet alone, so receipts of packets without labels are unchanged. The observations gain `attributionSeal`: `sealed` (a counted approval signs this packet and its file still hashes to its digest), `not-yet-approved`, `altered` or `absent`. The line reads "SF Guard labels: … · sealed by N counted approval(s)".
+- **The final check:** `runGovernanceGate` adds advisory warnings, one per step whose latest labels are not all declared, from workflow.json's projections (no Git read). Never an error.
+- **The remote check (AC-009):** for each counted approval, its sealed packet must still be on the Story and hash to its digest (labels included). Otherwise `PSS_PACKET_ALTERED`, with the route: restore it from history, or the approver approves the new packet again. Already so on the base: a note.
+- **`guard status`** adds `recording` (whether this checkout records, the recent gap count and the last gap). **`guard report [--since DATE|7d|12h] [--story WORK-ID]`** (a read in any turn) groups this machine's observed writes and shell calls by class, agent and skill, Story by Story, and with `--story` lists the Story's sealed labels step by step with each packet's standing. VS Code's Guard panel (G5) reads the same `sfGuardReport`.
 
 ## 8. Binding into the signed review (part 1)
 
@@ -355,7 +369,7 @@ Before submission, CON-002 applies. With part 1 off, the labels still show, but 
 | G0 | The probe of REQ-001 on the user's Copilot CLI and in VS Code | — | **Done** 1 November 2026 in the CLI and in VS Code, all but the `Local` session target (§1.1) |
 | G1 | Recording (REQ-020 to 024): the per-session agent map, plain and paused turns, shell fingerprints, the "on" check | part 1 M1 (the policy file) | AC-001 to AC-004, the latency target. **Built** (§5.1) |
 | G2 | The declared set (§4) and reconciliation (§6) | G1 | AC-005 to AC-007. **Built** (§4.1, §6.1), with the stamping hooks and the drift label |
-| G3 | Labels in packets, receipts, the final check, `guard status` and `guard report` (§7) | G2, part 1 M2 (signed approval) | AC-008 to AC-010 |
+| G3 | Labels in packets, receipts, the final check, `guard status` and `guard report` (§7) | G2, part 1 M2 (signed approval) | AC-008 to AC-010. **Built** (§7.1) |
 | G4 | Whole-repository labels outside Stories through D3's route; the agent-file drift label | G2 | AC-011 |
 | G5 | VS Code Guard panel and Story views | G3 | AC-012 |
 

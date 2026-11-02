@@ -22,6 +22,19 @@ async function reusedTestEvidence(root, config, workflow, phase) {
   return { reusedTestEvidence: [...reuse.active, ...reuse.lapsed] };
 }
 
+/**
+ * SF Guard's labels for the step's current submission (SPEC-SFG-v1 REQ-041), as the verified packet
+ * sealed them, or null when it carries none. A packet that cannot be verified reads as unavailable.
+ */
+async function submittedAttribution(root, config, workflow, phase) {
+  const entry = [...(workflow.lineage?.submissions ?? [])].reverse()
+    .find((item) => item.phase === phase.id && Number(item.generation) === Number(phase.generation));
+  if (!entry?.projection?.attribution) return null;
+  const { readStoryReviewPacket } = await import('../../story-lineage.mjs');
+  const packet = await readStoryReviewPacket(root, config, workflow, entry.packetSha256).catch(() => null);
+  return packet?.attribution ?? { status: 'unavailable', reason: 'the submitted packet could not be verified here' };
+}
+
 export async function phaseReview(root, config, workflow, phase, { includeContinuation = false, includeApprovalCheck = true } = {}) {
   const documentRead = await measureCommandSpan('phase.document-catalog', () => createDocumentReadSession(root, config, workflow));
   const records = documentRead.records
@@ -111,8 +124,9 @@ export async function phaseReview(root, config, workflow, phase, { includeContin
   const exactCriteria = verifiedCriteria.filter((entry) => entry.identity === 'source-bound').length;
   const unmet = criteria.length - verifiedCriteria.length;
   // Both read the one submitted packet; a read scope verifies it once for the two of them.
-  const { witnessReview, reviewBinding, evidenceConsistency } = await withReadScope(async () => ({
+  const { witnessReview, reviewBinding, evidenceConsistency, attribution } = await withReadScope(async () => ({
     witnessReview: await witnessMappingReview(root, config, workflow, phase),
+    attribution: await submittedAttribution(root, config, workflow, phase),
     // Only an available, current submitted review can be bound by a human approval surface.
     // Drafts, historical phases and unavailable document bodies convey no reusable approval binding.
     reviewBinding: phase.id === workflow.currentPhase && phase.status === 'awaiting_approval'
@@ -165,6 +179,8 @@ export async function phaseReview(root, config, workflow, phase, { includeContin
     ...await reusedTestEvidence(root, config, workflow, phase),
     evidenceConsistency,
     witnessReview,
+    // What SF Guard recorded about who wrote the work, beside it; a label never refuses (REQ-042).
+    ...(attribution ? { attribution, attributionLabels: (await import('../../presence/attribution.mjs')).attributionLabels(attribution) } : {}),
     owedDecisions: reviewBinding ? await owedDecisions(root, config, workflow, stepsThrough(workflow, phase.id)) : null,
     // The checklist articles the approver answers, so every surface can ask for them up front.
     ...(reviewBinding ? await import('../../specification-gate.mjs').then(({ approvalChecklistPrompt, resolvedSpecificationQualityPolicy }) => {

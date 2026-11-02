@@ -77,7 +77,9 @@ export function sfGuardSettle(writer, declared) {
   const agentSource = attribution ? attribution.agentSource ?? 'none' : agent ? 'binding' : 'none';
   const skill = attribution ? attribution.skill ?? null : writer?.skill ?? null;
   const drift = Array.isArray(attribution?.agentFilesChanged) && attribution.agentFilesChanged.length ? attribution.agentFilesChanged : null;
-  const result = (classification) => ({ classification, agent, skill, ...(drift ? { agentFilesChanged: drift } : {}) });
+  // A plain follow-up that continues an SFlow skill's turn is that skill's work, worded "(continued)" [REQ-024].
+  const result = (classification) => ({ classification, agent, skill, ...(attribution?.continued === true ? { continued: true } : {}),
+    ...(drift ? { agentFilesChanged: drift } : {}) });
   if (!agent || agentSource === 'none') {
     // Plain Copilot with no agent and no skill is outside the workflow (D1). A declared skill with
     // no agent the hooks could name is that skill's work by an unknown agent; SFlow's own skills run

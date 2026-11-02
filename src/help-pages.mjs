@@ -1444,7 +1444,10 @@ const PAGES = Object.freeze({
       'stamping hook into each agent file this repository owns, so the agent a person picks names itself; stamp-agents',
       'writes any that are missing or edited. guard reconcile reads: it gives every changed line one class (declared,',
       'outside-workflow, unknown-agent, shell, unattributed or pre-guard) against the workflow\'s declared agents and',
-      'skills. Labels never refuse anything.'
+      'skills. Labels never refuse anything. At submission a step\'s labels join its review packet, so an approval that',
+      'signs the packet seals them: the approval card shows the counts before Touch ID, the review and the evidence',
+      'receipt show them, and the final check lists them as advisory lines. guard report reads this machine\'s records',
+      'for the repository and, with --story, a Story\'s sealed labels and whether each packet still holds them.'
     ],
     options: [
       ['--key SHA256:…', 'The presence identity to pin, from /usr/sbin/sc_auth list-ctk-identities -t ssh (register picks the only one).'],
@@ -1455,6 +1458,8 @@ const PAGES = Object.freeze({
       ['--recipe', 'remote-check only: print just the CI workflow, to save as .github/workflows/sf-guard-verify.yml.'],
       ['--package-url URL / --package-sha256 HEX', 'remote-check only: the SFlow release the CI recipe installs, checked by SHA-256.'],
       ['--propose', 'Propose the change for review when the repository has an approved configuration branch.'],
+      ['--since DATE|7d|12h', 'report only: records since a date or a span (default: this machine\'s 14-day records).'],
+      ['--story WORK-ID', 'report only: one Story\'s records and its sealed labels, step by step.'],
       ['--json', 'Machine-readable output (sflow-guard).']
     ],
     examples: [
@@ -1463,6 +1468,7 @@ const PAGES = Object.freeze({
       ['singularity-flow guard enable --remote-check sf-guard-verify --exception approver-0123456789ab', 'Opt in, with a labelled exception for a Windows approver.'],
       ['singularity-flow guard recover --key SHA256:…', 'Lost your Mac: pin a new identity after removing the old key from GitHub.'],
       ['singularity-flow guard reconcile', 'Which changed lines came from a declared agent and skill, and which did not.'],
+      ['singularity-flow guard report --story CHK-12', 'A Story\'s labels, step by step, and whether each sealed packet still holds them.'],
       ['singularity-flow guard stamp-agents', 'Write the stamping hook into agent files that lack it, or whose stamp was edited.'],
       ['singularity-flow guard remote-check', 'Whether the remote check is required on the default branch, and its CI recipe.']
     ],

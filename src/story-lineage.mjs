@@ -498,6 +498,9 @@ export async function createStoryReviewPacket(root, config, workflow, phase) {
     }
   }
   const witnessReview = await witnessReviewSnapshot(root, config, workflow, phase);
+  // SF Guard part 2 (SPEC-SFG-v1 REQ-050): the step's labels join the packet, so the approval that signs
+  // its digest seals them. Only where SF Guard applies; a label never refuses (REQ-042).
+  const attribution = await (await import('./presence/attribution.mjs')).storyAttributionBlock(root, config, workflow, phase);
   const base = {
     schemaVersion: currentSchemaVersion('story-submission-packet'),
     workId: workflow.workItem.id,
@@ -535,6 +538,7 @@ export async function createStoryReviewPacket(root, config, workflow, phase) {
     visualAssurance,
     submissionEvidence,
     witnessReview,
+    ...(attribution ? { attribution } : {}),
     submittedAt: phase.submittedAt ?? nowIso(),
     submittedBy: identity(root),
     status: phase.status === 'approved'

@@ -52,6 +52,10 @@ export function printPhaseReview(review, { showArtifact = false } = {}) {
     console.log(`\n${style.heading('Evidence consistency')} ${style.detail(review.evidenceConsistency.projectionSha256)}`);
     for (const line of review.evidenceConsistency.summary) console.log(`  ${line}`);
   }
+  if (review.attributionLabels?.length) {
+    console.log(`\n${style.heading('SF Guard labels')} ${style.detail('who wrote the changed lines, as recorded; a label decides nothing')}`);
+    for (const line of review.attributionLabels) console.log(`  ${line}`);
+  }
   for (const mapping of review.witnessReview?.mappings ?? []) {
     const safe = (value) => String(value ?? 'unavailable')
       .replace(/[\u0000-\u0008\u000b\u000c\u000e-\u001f\u007f]/gu, '�');

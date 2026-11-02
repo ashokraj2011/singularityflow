@@ -549,7 +549,7 @@ export function argvAllowed(argv, mode, value) {
   // Ending another process's lease is for a person who checked that process is gone, in no turn (SDA M3).
   if (positionals[0] === 'lock' && ['release', 'release-file'].includes(positionals[1])) return false;
   // SF Guard: every action but its reads is signed with the person's Touch ID, in no turn (SPEC-PSS-v1).
-  if (positionals[0] === 'guard' && !['status', 'reconcile', 'remote-check'].includes(positionals[1] ?? 'status')) return false;
+  if (positionals[0] === 'guard' && !['status', 'reconcile', 'report', 'remote-check'].includes(positionals[1] ?? 'status')) return false;
   // Activating a configuration proposal is the reviewer's own decision, in no turn (sweep E7).
   if (positionals[0] === 'configuration' && positionals[1] === 'approve') return false;
   // Environment values come only from the person's own secret helper on standard input, in no turn.

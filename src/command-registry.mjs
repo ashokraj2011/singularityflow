@@ -23,8 +23,8 @@ const LOCK_READS = Object.freeze(['show', 'show-file']);
 // Backups of this laptop's drafts and local documents (SDA M5): inspect reads; restore saves drafts and bytes here only.
 const BACKUP_SUBCOMMANDS = Object.freeze(['create', 'inspect', 'restore']);
 // SF Guard (SPEC-PSS-v1): status reads; every other action is the person's own presence-signed step.
-const GUARD_SUBCOMMANDS = Object.freeze(['status', 'reconcile', 'remote-check', 'register', 'rotate', 'recover', 'revoke', 'enable', 'disable', 'exception', 'stamp-agents']);
-const GUARD_READS = Object.freeze(['status', 'reconcile', 'remote-check']);
+const GUARD_SUBCOMMANDS = Object.freeze(['status', 'reconcile', 'report', 'remote-check', 'register', 'rotate', 'recover', 'revoke', 'enable', 'disable', 'exception', 'stamp-agents']);
+const GUARD_READS = Object.freeze(['status', 'reconcile', 'report', 'remote-check']);
 const UPSTREAM_ISSUE_SUBCOMMANDS = Object.freeze(['raise', 'list', 'decide', 'propose-amendment', 'decide-amendment', 'revalidate']);
 
 const CONFIGURATION_READ_SUBCOMMANDS = Object.freeze([

@@ -551,7 +551,7 @@ export const OWN_TERMINAL_STEPS = Object.freeze([
   ['configuration-approve', ([command, sub]) => command === 'configuration' && sub === 'approve'],
   // SF Guard: registering, rotating, recovering or revoking a presence key, turning the policy on or
   // off and per-person exceptions each take the person's Touch ID (SPEC-PSS-v1); only status reads.
-  ['sf-guard-person-step', ([command, sub]) => command === 'guard' && sub !== undefined && !['status', 'reconcile', 'remote-check'].includes(sub)]
+  ['sf-guard-person-step', ([command, sub]) => command === 'guard' && sub !== undefined && !['status', 'reconcile', 'report', 'remote-check'].includes(sub)]
 ].map(([id, matches]) => Object.freeze({ id, matches })));
 
 /** The id of the own-terminal step this command line is, or null. */

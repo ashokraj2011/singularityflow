@@ -18,10 +18,11 @@ const SEGMENT = /^(\d{4}-\d{2}-\d{2})\.jsonl$/u;
 const FULL_MARKER = /^(\d{4}-\d{2}-\d{2})\.full$/u;
 
 /**
- * The retained records naming one of `paths`, or the Story `subject`'s phase and generation. Records
- * of another format, unreadable lines and full days are counted and contribute nothing.
+ * The retained records naming one of `paths`, or the Story `subject`'s phase and generation, or with
+ * `all` every retained record (SF Guard's `guard report`). Records of another format, unreadable
+ * lines and full days are counted and contribute nothing.
  */
-export async function readObservedWrites(gitDirectory, { paths = null, subject = null, now = Date.now() } = {}) {
+export async function readObservedWrites(gitDirectory, { paths = null, subject = null, all = false, now = Date.now() } = {}) {
   const directory = xpl2ObservedWriteDirectory(gitDirectory);
   const retentionDays = XPL2_OBSERVED_WRITE_LIMITS.retentionDays;
   const info = await lstat(directory).catch(() => null);
@@ -44,7 +45,7 @@ export async function readObservedWrites(gitDirectory, { paths = null, subject =
       let record;
       try { record = JSON.parse(raw); } catch { unreadable += 1; continue; }
       if (record?.kind !== 'xpl2-observed-write' || !XPL2_OBSERVED_WRITE_READ_FORMATS.includes(record.format) || !Array.isArray(record.files)) { unreadable += 1; continue; }
-      const matches = (wanted && record.files.some((file) => wanted.has(file?.path)))
+      const matches = all || (wanted && record.files.some((file) => wanted.has(file?.path)))
         || (subject && record.subject?.workId === subject.workId && record.subject?.phase === subject.phase
           && record.subject?.generation != null && Number(record.subject.generation) === Number(subject.generation));
       if (matches) records.push(record);

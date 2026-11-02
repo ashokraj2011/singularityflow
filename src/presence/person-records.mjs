@@ -376,7 +376,7 @@ export async function preparePersonPresence(root, { workflow, phase, actor, acti
   return {
     context, approver, keyId: pin.keyId,
     /** Sign `record` (its fields final): the card, then one touch. Returns its presence block. */
-    async signRecord(record) {
+    async signRecord(record, { cardLines = [] } = {}) {
       const presence = { schema: PRESENCE_RECORD_SCHEMA, chainId: context.chainId, approver, keyId: pin.keyId,
         at: new Date().toISOString(), nonce: presenceNonce() };
       const statement = recordStatement(record, presence, { chainId: context.chainId, workId: workflow.workItem.id });
@@ -385,6 +385,8 @@ export async function preparePersonPresence(root, { workflow, phase, actor, acti
         lines: [`Step: ${phase.label ?? phase.id}, generation ${record.generation}`,
           `Decision: ${record.decision}${record.target ? ` (back to ${record.target})` : ''}`,
           `Review packet: ${record.reviewPacketSha256 ?? '(none)'}`,
+          // SF Guard's labels for the work, sealed by that packet, read before the touch (SPEC-SFG-v1 AC-008).
+          ...cardLines,
           `Record: ${statement.decision.recordSha256}`],
         keyId: pin.keyId
       });
@@ -399,8 +401,11 @@ async function holdsKey(keyId) {
   return presenceIdentityStanding(ctkIdentities(), keyId).ok;
 }
 
-/** Attach the presence block a prepared step gives `record`: signed, or labelled as a bypass. */
-export async function attachPersonPresence(prepared, record) {
+/**
+ * Attach the presence block a prepared step gives `record`: signed, or labelled as a bypass.
+ * `cardLines` are shown on the card before the touch (the packet's SF Guard labels).
+ */
+export async function attachPersonPresence(prepared, record, { cardLines = [] } = {}) {
   if (!prepared) return record;
   if (prepared.bypass) {
     // Unsigned, and never read as signed: the exception travels with the record and labels it.
@@ -408,7 +413,7 @@ export async function attachPersonPresence(prepared, record) {
     return record;
   }
   record.identityAssurance = 'presence-signed';
-  record.presence = await prepared.signRecord(record);
+  record.presence = await prepared.signRecord(record, { cardLines });
   return record;
 }
 

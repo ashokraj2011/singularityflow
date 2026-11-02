@@ -14,7 +14,9 @@
  * - every person record each Story adds verifies against its pinned keys, no person record
  *   disappears, and no withdrawal or invalidation is taken back;
  * - a Story the change adds that reads as `pre-signing` was really created before the opt-in: by
- *   commit ancestry, then by when the host first received each commit.
+ *   commit ancestry, then by when the host first received each commit;
+ * - each counted approval's sealed review packet, which carries the step's SF Guard labels, still
+ *   holds the bytes the approval signed (SPEC-SFG-v1 AC-009).
  *
  * A record already on the base that does not verify is reported, not failed, so an unrelated change
  * is never held by an older one. A repository that never opted in passes with nothing to check.
@@ -197,6 +199,22 @@ export async function remotePresenceCheck(root, { base = null, pullRequest = nul
         if (onBase.has(canonicalJson(records[index].record))) warnings.push(`${message} It is already on the base and counts for nothing.`);
         else fail(entry.code ?? 'PSS_RECORD_UNSIGNED', message, personRecordRoute(story.workflow, records[index]), { story: story.id });
       });
+    }
+    // AC-009 (SPEC-SFG-v1 REQ-050): a counted approval's sealed packet, and so its SF Guard labels,
+    // still holds the bytes the approval signed. Already so on the base: a note, never a hold.
+    const sealedApprovals = presence.records.map((entry, index) => ({ ...entry, record: records[index].record }))
+      .filter((entry) => entry.list === 'approvals' && entry.counts && entry.active && entry.record?.decision === 'approved');
+    if (sealedApprovals.length) {
+      const { sealedPacketProblems } = await import('./attribution.mjs');
+      for (const problem of await sealedPacketProblems(story.workflow, sealedApprovals, deps.readHeadFile)) {
+        const message = `${story.id}: ${problem.name}: ${problem.reason}.`;
+        const before = problem.path && baseRef ? await deps.readBaseFile(baseRef, problem.path) : undefined;
+        const onBase = baseRef && (problem.status === 'missing'
+          ? !(baseStory?.lineage?.submissions ?? []).some((item) => item.packetSha256 === problem.packetSha256)
+          : before === await deps.readHeadFile(problem.path));
+        if (onBase) warnings.push(`${message} It is already so on the base.`);
+        else fail('PSS_PACKET_ALTERED', message, `restore ${problem.path ?? 'the packet'} as the approval sealed it (it is in the Story's history), or the approver reviews the new packet and approves it again in their own terminal: singularity-flow approve ${problem.phase} --work-id ${story.id}`, { story: story.id });
+      }
     }
     if (baseStory) {
       const history = presenceHistoryProblems(baseStory, story.workflow);

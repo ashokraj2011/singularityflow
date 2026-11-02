@@ -353,6 +353,10 @@ export async function runGovernanceGate(root, config, workflow, { terminal = fal
   const presence = workflow.resolution?.presence
     ? await (await import('./presence/story-verify.mjs')).storyPresenceReport(root, workflow) : null;
   warnings.push(...presenceGateWarnings(presence));
+  // SF Guard part 2 (SPEC-SFG-v1 REQ-041, AC-010): each step's labels, advisory only. Never a refusal.
+  if ((workflow.lineage?.submissions ?? []).some((entry) => entry.projection?.attribution)) {
+    warnings.push(...(await import('./presence/attribution.mjs')).attributionGateWarnings(workflow));
+  }
   try {
     for (const finding of await approvedArtifactQualityFindings(root, config, workflow,
       { transition: terminal ? 'terminal' : 'consume' })) {

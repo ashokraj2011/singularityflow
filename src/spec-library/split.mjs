@@ -51,6 +51,8 @@ const text = (value) => (typeof value === 'string' ? value.trim() : '');
 
 export const splitDirectory = (specId) => `${LIBRARY_ROOT}/${specId}/splits`;
 export const splitPath = (specId, split) => `${splitDirectory(specId)}/${revisionName(split)}/split.json`;
+// SF Guard's seal for a split (SPEC-PSS-v1 §10.9), beside it.
+export const splitSealPath = (specId, split) => `${splitDirectory(specId)}/${revisionName(split)}/presence.json`;
 export const proposeCommand = (name) => `singularity-flow spec split ${name} --propose --file FILE`;
 
 /** A plan file, JSON or YAML, as written. */
@@ -319,13 +321,19 @@ export function readSplits(root, view, specId, { env = process.env } = {}) {
   return { splits, unreadable };
 }
 
-/** Child IDs every published split in the library has taken, with the split that took each. */
-function takenChildren(root, view, { env }) {
+/**
+ * Child IDs every published split in the library has taken, with the split that took each. A split that
+ * does not count under SF Guard (`counts`) takes nothing.
+ */
+function takenChildren(root, view, { env, counts = () => true }) {
   const taken = new Map();
   for (const file of committedTreePaths(root, view.commit, [LIBRARY_ROOT], { env })) {
     if (!SPLIT_PATH.test(file)) continue;
-    try { for (const child of readSplitFile(root, view, file, { env }).children) taken.set(child.specId, file); }
-    catch (error) { if (error?.code === 'SCHEMA_VERSION_FUTURE') throw error; }
+    try {
+      const record = readSplitFile(root, view, file, { env });
+      if (!counts(record)) continue;
+      for (const child of record.children) taken.set(child.specId, file);
+    } catch (error) { if (error?.code === 'SCHEMA_VERSION_FUTURE') throw error; }
   }
   return taken;
 }
@@ -341,11 +349,13 @@ export function childClauses(revision, child, childId = child.specId) {
  * published is returned instead of publishing twice; a child ID the library or another split already
  * holds is refused before anything is written.
  */
-export async function publishSplit(root, config, { revision, analysis, operationId, actor, command, env = process.env }) {
+export async function publishSplit(root, config, { revision, analysis, operationId, actor, command, seal = null, env = process.env }) {
   const { publishToStateBranch } = await import('../ledger.mjs');
   const { specId } = revision;
   const name = `${specId}@${revision.revision}`;
   const planSha256 = planDigest(analysis.plan);
+  // The split record and its SF Guard seal are made once, so a retry asks for no second touch.
+  let prepared = null;
   for (let attempt = 1; attempt <= PUBLISH_ATTEMPTS; attempt += 1) {
     const view = await libraryView(root, config, { env });
     const { splits } = readSplits(root, view, specId, { env });
@@ -357,7 +367,8 @@ export async function publishSplit(root, config, { revision, analysis, operation
       }
       return { record: earlier, commit: view.commit, replayed: true };
     }
-    const taken = takenChildren(root, view, { env });
+    const presence = await (await import('./presence.mjs')).libraryPresence(root, { env });
+    const taken = takenChildren(root, view, { env, counts: (record) => presence.split(view, record).counts });
     for (const child of analysis.plan.children) {
       if (view.specs.has(child.specId)) {
         fail(`${child.specId} is already in the specification library, so it cannot be a new child of this split. Nothing was published; choose another ID and propose again.`,
@@ -369,7 +380,11 @@ export async function publishSplit(root, config, { revision, analysis, operation
       }
     }
     const split = (splits.at(-1)?.split ?? 0) + 1;
-    const record = {
+    if (prepared && prepared.split !== split) {
+      fail(`Split ${prepared.split} of ${specId} was taken while this split was being published. Nothing was published; run the same command again.`,
+        'SPEC_SPLIT_CONFLICT', { specId, nextAction: command });
+    }
+    const record = prepared?.record ?? {
       schemaVersion: currentSchemaVersion(SPLIT_FAMILY), specId, revision: revision.revision, manifestSha256: revision.manifestSha256,
       stateCommit: revision.commit, split, operationId, planSha256,
       publishedBy: actor ? { name: actor.name ?? null, email: actor.email ?? null } : null, recordedAt: new Date().toISOString(),
@@ -379,9 +394,11 @@ export async function publishSplit(root, config, { revision, analysis, operation
     };
     const file = splitPath(specId, split);
     const bytes = Buffer.from(canonicalJson(record), 'utf8');
+    if (!prepared) prepared = { split, record, sealFile: seal ? await seal({ split, splitSha256: digest(bytes) }) : null };
+    const files = { [file]: bytes, ...(prepared.sealFile ? { [splitSealPath(specId, split)]: prepared.sealFile } : {}) };
     try {
-      const published = await publishToStateBranch(root, view.ledger, { [file]: bytes }, `[${specId}][spec:split] split ${split} of revision ${revision.revision}`, {
-        exactBlobSha256: { [file]: digest(bytes) }, pathPreconditions: { [file]: { condition: 'absent' } }, env
+      const published = await publishToStateBranch(root, view.ledger, files, `[${specId}][spec:split] split ${split} of revision ${revision.revision}`, {
+        exactBlobSha256: Object.fromEntries(Object.entries(files).map(([name, content]) => [name, digest(content)])), pathPreconditions: { [file]: { condition: 'absent' } }, env
       });
       return { record, commit: published.commit, replayed: false };
     } catch (error) {

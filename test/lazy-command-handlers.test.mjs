@@ -279,7 +279,10 @@ test('frequent lifecycle handlers do not reach the legacy dispatcher and stay un
     // on a test-recovery entry: the seal lookup and actor-less verdict (person-records.mjs), the review-safe seal
     // rule (approval-check.mjs), the counted selection and risk reads, and the publish/submit hooks (state.mjs)
     // add 2,861: 9,349,205 measured on 67aaccc3e. No new eager file.
-    assert.ok(closure.bytes <= 9_350_000, `${file} exceeds the 9 MB eager-source budget (${closure.bytes} bytes)`);
+    // 9,355,000 (next 5,000 boundary): main 2f5188340 measures 9,349,855. SF Guard §10.9 reads a commit's parents
+    // and committer time for a configuration approval's seal (git.mjs commitShape +651) and adds the
+    // --state-records flag (util.mjs +17): 9,350,523 measured. The seal reader, signer and state check stay lazy.
+    assert.ok(closure.bytes <= 9_355_000, `${file} exceeds the 9 MB eager-source budget (${closure.bytes} bytes)`);
   }
 });
 

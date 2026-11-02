@@ -168,8 +168,9 @@ test('SF Guard on: a repository-level step takes the card and one touch, with ro
     command: 'singularity-flow reopen PSS-7 --to specification --reason "<why>"' }, signer(key, { personTerminal: () => ({ person: false, reason: 'a script' }) })),
   (error) => error.code === 'PSS_CARD_NOT_SHOWN' && /reopening this step/u.test(error.message) && error.details.nextAction.command.startsWith('singularity-flow reopen PSS-7'));
 
-  // From a script, the CLI gates a repository step and a Spec Studio step before anything runs.
-  for (const args of [['agents', 'lock'], ['spec', 'author', 'publish', 'SPEC-NONE']]) {
+  // From a script, the CLI gates a repository step and a Spec Studio step before anything runs. (A
+  // publication takes its touch over the record it writes instead: sf-guard-repository-seals.test.mjs.)
+  for (const args of [['agents', 'lock'], ['spec', 'author', 'settle', 'SPEC-NONE']]) {
     const scripted = spawnSync(process.execPath, [CLI, '--no-model', ...args], { cwd: root, encoding: 'utf8', timeout: childTimeout(60_000),
       env: { ...process.env, NODE_ENV: 'test', SINGULARITY_FLOW_TEST_IDENTITY: ONE.name } });
     assert.notEqual(scripted.status, 0, scripted.stdout);

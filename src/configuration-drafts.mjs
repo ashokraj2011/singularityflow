@@ -1121,10 +1121,17 @@ export async function approveProposal(root, requested, {
       return { schemaVersion: 1, resultType: 'configuration-approval', status: 'declined', activated: false, branch };
     }
   }
+  // SF Guard (SPEC-PSS-v1 §10.9): the approver's one touch over the exact proposal, before anything moves.
+  const presenceSeal = await (await import('./presence/configuration-seal.mjs')).signConfigurationApproval(root, { ...reviewed, branch });
   const result = await activate(root, branch, { confirm: reviewed.proposalCommit, acknowledgeUnprotected: true });
   if (result?.activated !== false && result?.status !== 'review-required' && result?.status !== 'activation-pending') {
     await forgetProposal(root, branch);
     print('Approved. New Stories use these changes; Stories already running keep the configuration they started with.');
+    if (presenceSeal) {
+      const sealed = await (await import('./presence/configuration-seal.mjs')).publishConfigurationSeal(root, presenceSeal);
+      result.presence = { status: sealed.status, path: sealed.path };
+      if (sealed.status === 'failed') print(`SF Guard: ${sealed.message}.`);
+    }
   } else if (result?.status === 'review-required') {
     print(`sflow/config only accepts reviewed merges here. Merge ${branch} through your Git host, then run singularity-flow configuration approve ${branch} again to record it.`);
   } else {

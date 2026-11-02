@@ -2435,7 +2435,9 @@ const PAGES = Object.freeze({
       'approver\'s GitHub account, that every person record a Story adds verifies, that none disappears or is',
       'un-withdrawn, and that a new Story reading as pre-signing really predates the opt-in. It fails with every',
       'problem and its route, so a required status check holds the merge; GitHub unreachable leaves a key event',
-      '"unconfirmed", never failing for that alone. A repository that never opted in passes.'
+      '"unconfirmed", never failing for that alone. A repository that never opted in passes. With',
+      '`--state-records` it checks a push to the state branch instead: every specification revision or split and',
+      'every configuration approval seal the push adds verifies, and no seal disappears.'
     ],
     options: [
       ['--dry-run', 'Preview the exact plan without changing anything.'],
@@ -2448,6 +2450,7 @@ const PAGES = Object.freeze({
       ['--presence', 'With verify: run SF Guard\'s remote check.'],
       ['--base REF', 'With verify: the base commit of the change; without it every record is checked.'],
       ['--pull-request N', 'With verify: the pull request, for confirming a host-reviewed exception.'],
+      ['--state-records', 'With verify: check a push to the state branch (its repository records and seals).'],
       ['--json', 'Emit the CommandResult with the complete plan.']
     ],
     examples: [

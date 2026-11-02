@@ -13,7 +13,8 @@ const COMMANDS = new Set(['configuration', 'initiative', 'epic', 'goal', 'intent
 export function repositoryPersonStep(positionals, options = {}) {
   const [command, sub, verb] = positionals ?? [];
   if (!COMMANDS.has(command) || options['dry-run'] === true) return null;
-  if (command === 'configuration' && sub === 'approve') return { action: 'configuration.approve', label: 'approve a configuration change' };
+  // Signed where it records, over the exact proposal (configuration-seal.mjs), not at dispatch.
+  if (command === 'configuration' && sub === 'approve') return { action: 'configuration.approve', label: 'approve a configuration change', inRecord: true };
   if (EPIC_COMMANDS.has(command) && sub === 'approve') return { action: 'epic.approve', label: 'approve an Epic phase' };
   if (EPIC_COMMANDS.has(command) && sub === 'review' && ['approve', 'reject'].includes(verb)) return { action: `epic.review-${verb}`, label: `${verb} an Epic Story draft` };
   if (EPIC_COMMANDS.has(command) && sub === 'complete') return { action: 'epic.complete', label: 'complete an Epic' };

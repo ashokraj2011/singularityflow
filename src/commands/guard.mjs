@@ -232,7 +232,7 @@ function standingRows(state) {
   return rows;
 }
 
-function statusResult(state, stamps = [], remote = null, recording = null) {
+function statusResult(state, stamps = [], remote = null, recording = null, configuration = null) {
   const { folded, problems, historyChecked } = state.policy;
   return {
     status: folded.enabled ? 'required' : 'off',
@@ -240,6 +240,8 @@ function statusResult(state, stamps = [], remote = null, recording = null) {
     ...(recording ? { recording } : {}),
     chainId: folded.chainId, events: folded.length, validEvents: folded.validLength, historyChecked, remoteCheck: folded.remoteCheck,
     ...(remote ? { remote } : {}),
+    // The approved configuration commit's approval seal (SPEC-PSS-v1 §10.9).
+    ...(configuration ? { configuration: { commit: configuration.commit, state: configuration.state, counts: configuration.counts, label: configuration.label, reason: configuration.reason } } : {}),
     agents: stamps.map(({ id, path, stamped, changed }) => ({ id, path, stamp: !stamped ? 'not-stamped' : changed ? 'changed' : 'stamped' })),
     approvers: standingRows(state).map(({ approver, label, groups, standing }) => ({
       approver, label, groups, state: standing.state, standing: standing.label, keyId: standing.pin?.keyId ?? null,
@@ -258,6 +260,9 @@ function statusText(result) {
   else if (result.remoteCheck) lines.push(`  Remote check: ${result.remoteCheck}`);
   for (const row of result.approvers) lines.push(`  ${row.label} [${row.approver}]: ${row.standing}${row.recovered ? ' (recovered)' : ''}`);
   for (const problem of result.problems) lines.push(`  Problem (${problem.code}): ${problem.message}`);
+  if (result.configuration) {
+    lines.push(`  Approved configuration ${String(result.configuration.commit).slice(0, 12)}: ${result.configuration.counts ? result.configuration.label ?? result.configuration.state : `${result.configuration.label}; a person approves it in their own terminal (singularity-flow configuration approve <proposal>), where it takes their Touch ID`}.`);
+  }
   const unstamped = result.agents.filter((row) => row.stamp !== 'stamped');
   if (result.status === 'required' && result.agents.length) {
     lines.push(`  Agent stamps: ${result.agents.length - unstamped.length} of ${result.agents.length} agent file(s) stamped${unstamped.length ? `; ${unstamped.map((row) => `${row.id} ${row.stamp === 'changed' ? '(file changed since approved: its work is labelled)' : '(not stamped: its work reads "agent unknown")'}`).join(', ')}. Stamp them: singularity-flow guard stamp-agents` : ''}.`);
@@ -374,7 +379,8 @@ async function remoteCheckAction(root, state, options, deps) {
   const remote = await remoteStanding(root, state, deps);
   const sha = optionString(options, 'package-sha256');
   if (sha != null && !/^[0-9a-f]{64}$/u.test(sha)) fail('--package-sha256 takes the release tarball\'s SHA-256 as 64 hex digits.', 'PSS_ARGUMENT_INVALID');
-  const recipe = sfGuardVerifyWorkflowText({ checkName: remote.check ?? remote.suggested, branch: remote.branch,
+  const stateBranch = (await import('../ledger-config.mjs')).normalizeLedgerConfig(state.definition?.ledger ?? {}).branch;
+  const recipe = sfGuardVerifyWorkflowText({ checkName: remote.check ?? remote.suggested, branch: remote.branch, stateBranch,
     packageUrl: optionString(options, 'package-url') ?? null, packageSha256: sha ?? null });
   if (optionBoolean(options, 'recipe')) { process.stdout.write(recipe); return { recipe }; }
   const incomplete = sfGuardRecipeIncomplete(recipe);
@@ -409,7 +415,9 @@ export async function run(argv, { positionals, options }, dependencies = {}) {
     if (action === 'remote-check') return remoteCheckAction(root, state, options, deps);
     // Branch protection is read only where it matters: SF Guard on, with a remote check named.
     const remote = state.policy.folded.enabled ? await remoteStanding(root, state, deps).catch(() => null) : null;
-    const result = statusResult(state, stamps, remote, await recordingHealth(root).catch(() => null));
+    const configuration = state.policy.folded.enabled
+      ? await (await import('../presence/configuration-seal.mjs')).localConfigurationStanding(root, state.policy, state.definition).catch(() => null) : null;
+    const result = statusResult(state, stamps, remote, await recordingHealth(root).catch(() => null), configuration);
     return print(options, result, statusText(result));
   }
   const { folded } = state.policy;

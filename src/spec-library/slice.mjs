@@ -119,6 +119,30 @@ export function assertSliceSize(slices) {
 }
 
 /**
+ * The revision a request names, or without `@N` the highest reviewed one that counts under SF Guard. A
+ * named revision that does not count is refused with the person's route; nothing is attached.
+ */
+function countedRevision(root, view, request, presence, route, { env }) {
+  if (request.revision !== null || !presence.optedIn) {
+    const revision = resolveRevision(root, view, request.specId, request.revision, { env });
+    const verdict = presence.revision(view, revision);
+    if (!verdict.counts) {
+      fail(`${request.specId}@${revision.revision} does not count under SF Guard: ${verdict.reason}. Nothing was attached; ${route(request.specId)}.`,
+        verdict.code ?? 'PSS_RECORD_UNSIGNED', { specId: request.specId, revision: revision.revision, nextAction: `singularity-flow spec author show ${request.specId}` });
+    }
+    return revision;
+  }
+  for (const candidate of [...(view.specs.get(request.specId) ?? [])].reverse()) {
+    const revision = resolveRevision(root, view, request.specId, candidate, { env });
+    if (revision.manifest.reviewState === 'reviewed' && presence.revision(view, revision).counts) return revision;
+  }
+  // Nothing counts: the library's own refusal names what is there.
+  const revision = resolveRevision(root, view, request.specId, null, { env });
+  fail(`${request.specId} has no reviewed revision that counts under SF Guard (the highest, @${revision.revision}, ${presence.revision(view, revision).reason}). Nothing was attached; ${route(request.specId)}.`,
+    'PSS_RECORD_UNSIGNED', { specId: request.specId, nextAction: `singularity-flow spec author show ${request.specId}` });
+}
+
+/**
  * Resolve every `--spec` value against one pinned read of the library. Only a reviewed revision can be
  * attached; without `@N`, the highest reviewed one.
  */
@@ -129,8 +153,11 @@ export async function resolveSlices(root, config, values, { dependencyReason = n
     fail('--allow-partial-dependency needs the reason: --reason TEXT.', 'SPEC_SLICE_REQUEST_INVALID', { nextAction: 'singularity-flow spec author list' });
   }
   const view = await libraryView(root, config, { env });
+  // SF Guard (SPEC-PSS-v1 §10.9): a revision recorded while SF Guard was on counts only with its seal.
+  const { libraryPresence, revisionRoute } = await import('./presence.mjs');
+  const presence = await libraryPresence(root, { env });
   const slices = requests.map((request) => {
-    const revision = resolveRevision(root, view, request.specId, request.revision, { env });
+    const revision = countedRevision(root, view, request, presence, revisionRoute, { env });
     if (revision.manifest.reviewState !== 'reviewed') {
       fail(`${request.specId}@${revision.revision} is a draft revision; only a reviewed revision can be attached to a Story.`, 'SPEC_LIBRARY_NOT_REVIEWED',
         { specId: request.specId, revision: revision.revision, nextAction: `singularity-flow spec author show ${request.specId}` });

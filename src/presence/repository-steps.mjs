@@ -142,7 +142,8 @@ const SIGNED = Symbol.for('singularity-flow.repository-person-step-signed');
 export async function gateRepositoryPersonStep(root, positionals, options) {
   const { repositoryPersonStep } = await import('./repository-step-routes.mjs');
   const step = repositoryPersonStep(positionals, options);
-  if (!step) return null;
+  // A step that keeps its seal with its record signs there, once.
+  if (!step || step.inRecord) return null;
   const key = positionals.join('\0');
   if (globalThis[SIGNED] === key) return null;
   const presence = await signRepositoryStep(root, { action: step.action, title: step.label,

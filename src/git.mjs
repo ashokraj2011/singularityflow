@@ -1392,6 +1392,15 @@ export function recentFirstParentSubjects(root, commit, { limit = 100, env = pro
     .map((line) => line.slice(1).trim()).filter(Boolean);
 }
 
+/** A commit's parents and committer time (`{ parents, committedAt }`), or null when it cannot be read. */
+export function commitShape(root, commit, { env = process.env } = {}) {
+  const result = git(['log', '-1', '--format=%x1f%P%x1f%cI', commit, '--'], { cwd: root, env: immutableLocalGitEnvironment(env), allowFailure: true });
+  const line = result.status === 0 ? String(result.stdout).split('\n').find((entry) => entry.startsWith('\x1f')) : null;
+  if (!line) return null;
+  const [, parents, committedAt] = line.split('\x1f');
+  return { parents: parents.trim() ? parents.trim().split(/\s+/u) : [], committedAt: committedAt.trim() || null };
+}
+
 /**
  * The first-parent commits reachable from `commit` that changed `relative`, newest first, at most
  * `limit`; null when the history cannot be read (a shallow or partial clone, a missing commit).

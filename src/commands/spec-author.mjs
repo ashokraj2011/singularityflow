@@ -450,7 +450,8 @@ async function publishAction(root, positionals, options) {
     : `spp-${draft.head.snapshotSha256.slice('sha256:'.length, 'sha256:'.length + 16)}-${reviewState}`;
   const command = `singularity-flow spec author publish ${specId} --${reviewState} --operation-id ${operationId}`;
   const who = actor(root);
-  const published = await publishRevision(root, await libraryConfig(root), { specId, draft, report, reviewState, operationId, actor: who, command });
+  const published = await publishRevision(root, await libraryConfig(root), { specId, draft, report, reviewState, operationId, actor: who, command,
+    seal: (fields) => repositoryStepSeal(root, 'publish', specId, fields) });
   crashPoint('spec-library-published');
   // The draft continues from what it just published; a lost save here is healed at the next publish.
   await saveDraft(root, specId, {
@@ -467,25 +468,30 @@ async function showAction(root, positionals, options) {
   const { specId, revision } = parseSpecReference(specArgument(positionals, 'show'));
   const view = await libraryView(root, await libraryConfig(root));
   const read = resolveRevision(root, view, specId, revision, { anyState: revision !== null || optionBoolean(options, 'any') });
+  const standing = (await (await import('../spec-library/presence.mjs')).libraryPresence(root)).revision(view, read);
   if (optionBoolean(options, 'json')) {
     return print(options, { action: 'show', specId, revision: read.revision, commit: read.commit, manifest: read.manifest,
-      manifestSha256: read.manifestSha256, spec: read.spec, gaps: read.gaps.events, research: read.research.items, quality: read.quality }, '');
+      manifestSha256: read.manifestSha256, spec: read.spec, gaps: read.gaps.events, research: read.research.items, quality: read.quality,
+      presence: { counts: standing.counts, state: standing.state, label: standing.label } }, '');
   }
-  const header = `${specId}@${read.revision} (${read.manifest.reviewState}) ${read.manifest.title} — published ${read.manifest.recordedAt} by ${read.manifest.publishedBy?.name ?? 'unknown'}; state ${read.commit.slice(0, 12)}`;
+  const header = `${specId}@${read.revision} (${read.manifest.reviewState}) ${read.manifest.title} — published ${read.manifest.recordedAt} by ${read.manifest.publishedBy?.name ?? 'unknown'}; state ${read.commit.slice(0, 12)}${standing.label ? `\nSF Guard: ${standing.label}` : ''}`;
   return console.log(`${header}\n\n${read.spec}`);
 }
 
 async function listAction(root, options) {
   const view = await libraryView(root, await libraryConfig(root));
+  const presence = await (await import('../spec-library/presence.mjs')).libraryPresence(root);
   const specs = [];
   for (const [specId, revisions] of [...view.specs.entries()].sort(([left], [right]) => left.localeCompare(right))) {
     const latest = readManifest(root, view, specId, revisions.at(-1));
-    specs.push({ specId, revisions, latest: { revision: latest.revision, reviewState: latest.manifest.reviewState, title: latest.manifest.title } });
+    const standing = presence.revision(view, latest);
+    specs.push({ specId, revisions, latest: { revision: latest.revision, reviewState: latest.manifest.reviewState, title: latest.manifest.title,
+      ...(standing.state === 'not-required' ? {} : { presence: { counts: standing.counts, state: standing.state, label: standing.label } }) } });
   }
   const drafts = (await listDrafts(root)).map((draft) => ({ specId: draft.specId, sequence: draft.sequence, title: draft.head?.draft.title ?? null, basedOn: draft.head?.draft.basedOn ?? null }));
   return print(options, { action: 'list', state: { status: view.status, commit: view.commit }, specs, drafts }, [
     view.status === 'absent' ? 'The specification library is empty: nothing has been published to the state branch yet.' : `Specification library at ${view.commit.slice(0, 12)}:`,
-    ...specs.map((entry) => `  ${entry.specId}@${entry.latest.revision} (${entry.latest.reviewState}) ${entry.latest.title}`),
+    ...specs.map((entry) => `  ${entry.specId}@${entry.latest.revision} (${entry.latest.reviewState}) ${entry.latest.title}${entry.latest.presence?.counts === false ? ` — SF Guard: ${entry.latest.presence.label}` : ''}`),
     ...(drafts.length ? ['Drafts on this clone:', ...drafts.map((entry) => `  ${entry.specId} snapshot ${entry.sequence}${entry.basedOn ? ` (based on @${entry.basedOn.revision})` : ''} ${entry.title ?? ''}`)] : [])
   ].join('\n'));
 }
@@ -529,6 +535,10 @@ async function coverageAction(root, positionals, options) {
   const { allocatedCoverage, readSplits, splitCoverage } = await import('../spec-library/split.mjs');
   const { records, unreadable } = usage.readUsage(root, view, specId, revision);
   const splits = readSplits(root, view, specId);
+  // SF Guard (SPEC-PSS-v1 §10.9): a split recorded while SF Guard was on allocates only with its seal.
+  const presence = await (await import('../spec-library/presence.mjs')).libraryPresence(root);
+  const uncountedSplits = splits.splits.filter((entry) => !presence.split(view, entry).counts).map((entry) => entry.split);
+  splits.splits = splits.splits.filter((entry) => !uncountedSplits.includes(entry.split));
   const { split, allocation, leftOut, children } = splitCoverage({ ...read, specId }, splits.splits);
   const clauses = allocatedCoverage(usage.coverageOf({ ...read, specId }, records), { allocation, leftOut });
   const counts = Object.fromEntries(['delivered', 'claimed', 'allocated', 'left-out', 'uncovered'].map((status) => [status, clauses.filter((entry) => entry.status === status).length]));
@@ -542,8 +552,9 @@ async function coverageAction(root, positionals, options) {
     lines.push(`  child ${child.specId} (split ${child.split} of @${child.fromRevision}): ${child.status === 'parent-moved' ? `parent moved; ${child.changed.join(', ')} changed since @${child.fromRevision}` : child.status}`);
   }
   if (unreadable.length || splits.unreadable.length) lines.push(`Unreadable records, not counted: ${[...unreadable, ...splits.unreadable].join(', ')}`);
+  if (uncountedSplits.length) lines.push(`Not counted under SF Guard (no valid presence seal): split ${uncountedSplits.join(', ')}; a person publishes the split again (singularity-flow spec split ${specId}@${revision} --publish), where it takes their Touch ID.`);
   return print(options, { action: 'coverage', specId, revision, stateCommit: view.commit, clauses, counts, split, children,
-    unreadable: [...unreadable, ...splits.unreadable], ...(repaired ? { repaired } : {}) }, lines.join('\n'));
+    unreadable: [...unreadable, ...splits.unreadable], ...(uncountedSplits.length ? { uncountedSplits } : {}), ...(repaired ? { repaired } : {}) }, lines.join('\n'));
 }
 
 // How many positionals each action reads (`spec author <action> SPEC-ID` is four). A value past them
@@ -569,17 +580,32 @@ async function personStepPresence(root, step, specId) {
   });
 }
 
+/**
+ * A publication's SF Guard seal (SPEC-PSS-v1 §10.9): the person's one touch over the exact record the
+ * state branch receives, kept beside it as `presence.json`, or null while SF Guard is off here.
+ */
+export async function repositoryStepSeal(root, step, specId, { revision = null, split = null, manifestSha256 = null, splitSha256 = null, reviewState = null }) {
+  const [{ signRepositoryStep }, { repositorySeal, sealBytes, sealedRecord }] = await Promise.all([
+    import('../presence/repository-steps.mjs'), import('../presence/repository-seals.mjs')]);
+  const record = split == null ? sealedRecord('spec-revision', `${specId}@${revision}`, { manifestSha256 })
+    : sealedRecord('spec-split', `${specId}#${split}`, { splitSha256 });
+  const presence = await signRepositoryStep(root, { action: `spec.${step}`, title: `spec ${step} ${split == null ? `${specId}@${revision}` : `${specId} split ${split}`}`,
+    lines: [`Specification: ${specId}`, split == null ? `Revision: @${revision} (${reviewState})` : `Split: ${split}`,
+      `Step: ${step}, a person's own Spec Studio step`], record: { ...record } });
+  return presence ? sealBytes(repositorySeal(presence, record)) : null;
+}
+
 export async function specAuthorCommand(positionals, options) {
   // `spec split` (SPEC-SPA v1.3 §7) shares this module's library reads and output.
   if (positionals[1] === 'split') {
-    if (options.publish === true) await personStepPresence(repoRoot(), 'split-publish', positionals[2] ?? null);
-    return (await import('./spec-split.mjs')).specSplitCommand(positionals, options, { libraryConfig, actor, print, refuseStrayValues });
+    return (await import('./spec-split.mjs')).specSplitCommand(positionals, options, { libraryConfig, actor, print, refuseStrayValues, repositoryStepSeal });
   }
   const action = positionals[2];
   if (!SPEC_AUTHOR_ACTIONS.includes(action)) fail(`${action ? `'${action}' is not a spec author action. ` : ''}${USAGE}`, 'SPEC_AUTHOR_ACTION_UNKNOWN', { action: action ?? null, nextAction: 'singularity-flow help spec' });
   refuseStrayValues(`spec author ${action}`, positionals, POSITIONAL_LIMITS[action] ?? 4);
   const root = repoRoot();
-  if (SPEC_AUTHOR_PERSON_ACTIONS.includes(action) && options['dry-run'] !== true) await personStepPresence(root, action, positionals[3] ?? null);
+  // A publication takes its touch over the exact record it writes (publishRevision's seal), not here.
+  if (SPEC_AUTHOR_PERSON_ACTIONS.includes(action) && action !== 'publish' && options['dry-run'] !== true) await personStepPresence(root, action, positionals[3] ?? null);
   if (action === 'new') return newAction(root, positionals, options);
   if (action === 'edit') return editAction(root, positionals, options);
   if (action === 'research') return researchAction(root, positionals, options);

@@ -24,7 +24,7 @@ const PLACEHOLDER_SHA = 'REPLACE-WITH-ITS-SHA-256';
  * branch, and `packageUrl`/`packageSha256` the SFlow release it installs; left out, they are clearly
  * marked placeholders the person fills in before committing.
  */
-export function sfGuardVerifyWorkflowText({ checkName = SF_GUARD_CHECK_NAME, branch = 'main', packageUrl = null, packageSha256 = null } = {}) {
+export function sfGuardVerifyWorkflowText({ checkName = SF_GUARD_CHECK_NAME, branch = 'main', stateBranch = 'state', packageUrl = null, packageSha256 = null } = {}) {
   const job = String(checkName).replace(/[^A-Za-z0-9_-]/gu, '-');
   return [
     '# SF Guard\'s required remote check (SPEC-PSS-v1 REQ-030), printed by singularity-flow guard remote-check.',
@@ -38,7 +38,9 @@ export function sfGuardVerifyWorkflowText({ checkName = SF_GUARD_CHECK_NAME, bra
     'on:',
     '  pull_request_target:',
     '  push:',
-    `    branches: [${JSON.stringify(branch)}]`,
+    '    # The state branch holds the repository\'s own person records (specification revisions and splits,',
+    '    # configuration approval seals); it takes direct pushes, so the check there is the alarm.',
+    `    branches: [${JSON.stringify(branch)}, ${JSON.stringify(stateBranch)}]`,
     'permissions:',
     '  contents: read',
     '  pull-requests: read',
@@ -74,6 +76,7 @@ export function sfGuardVerifyWorkflowText({ checkName = SF_GUARD_CHECK_NAME, bra
     '          set --',
     '          case "$SF_GUARD_BASE" in ""|0000000000000000000000000000000000000000) ;; *) set -- "$@" --base "$SF_GUARD_BASE" ;; esac',
     '          if [ -n "$SF_GUARD_PULL_REQUEST" ]; then set -- "$@" --pull-request "$SF_GUARD_PULL_REQUEST"; fi',
+    `          if [ "$GITHUB_REF" = ${JSON.stringify(`refs/heads/${stateBranch}`)} ]; then set -- "$@" --state-records; fi`,
     '          singularity-flow governance verify --presence "$@"',
     ''
   ].join('\n');

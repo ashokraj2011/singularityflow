@@ -115,7 +115,7 @@ Usage:
   singularity-flow governance rebuild --dry-run [--remote origin] [--json]
   singularity-flow governance rebuild --confirm-plan grb-DIGEST [--accept-inactive WORKFLOW,...] [--strict] [--json]
   singularity-flow governance restore --plan grb-DIGEST [--dry-run | --confirm grb-DIGEST] [--json]
-  singularity-flow governance verify --presence [--base REF] [--pull-request N] [--json]
+  singularity-flow governance verify --presence [--base REF] [--pull-request N] [--state-records] [--json]
   sflow reset-all [--yes] [--discard-pending-publications] [--json]
   singularity-flow local-reset [--dry-run | --confirm "RESET LOCAL"] [--discard-pending-publications] [--json]
   singularity-flow local-reset --forget-only [--dry-run | --confirm "FORGET LOCAL"] [--json]

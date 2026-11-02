@@ -3770,7 +3770,7 @@ singularity-flow appeal preflight [--phase PHASE] [--work-id WORK-ID] [--json]
 singularity-flow governance rebuild --dry-run [--remote origin] [--json]
 singularity-flow governance rebuild --confirm-plan grb-DIGEST [--accept-inactive WORKFLOW,...] [--strict] [--json]
 singularity-flow governance restore --plan grb-DIGEST [--dry-run | --confirm grb-DIGEST] [--json]
-singularity-flow governance verify --presence [--base REF] [--pull-request N] [--json]
+singularity-flow governance verify --presence [--base REF] [--pull-request N] [--state-records] [--json]
 sflow-next [--task TEXT] [--fetch] [--yes] [--skip-checks]
 singularity-flow inputs [PHASE] [--dry-run] [--json]
 singularity-flow agents list

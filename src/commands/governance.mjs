@@ -116,12 +116,25 @@ async function restore(root, options) {
 }
 
 /**
- * `governance verify --presence [--base <REF>] [--pull-request <N>]`: SF Guard's remote check. A
- * failure exits non-zero with every problem and its route, so a required status check holds the merge.
+ * `governance verify --presence [--base <REF>] [--pull-request <N>] [--state-records]`: SF Guard's remote check
+ * (`--state-records`: the state branch's repository records). A failure exits non-zero with every problem and
+ * its route, so a required status check holds the merge.
  */
 async function verifyPresence(root, options) {
   if (!optionBoolean(options, 'presence')) {
     throw new SingularityFlowError('Name what to verify: singularity-flow governance verify --presence [--base <REF>] [--pull-request <N>]', { code: 'GOVERNANCE_VERIFY_SCOPE_REQUIRED' });
+  }
+  // The state branch's repository records (SPEC-PSS-v1 §10.9): run on a push to the state branch.
+  if (optionBoolean(options, 'state-records')) {
+    const { remoteStateCheck, remoteStateText } = await import('../presence/state-check.mjs');
+    const result = await remoteStateCheck(root, { base: optionString(options, 'base') ?? null });
+    if (result.status === 'failed') {
+      if (!optionBoolean(options, 'json')) console.log(remoteStateText(result));
+      throw new SingularityFlowError(`SF Guard's state branch check failed: ${result.failures.length} problem(s). ${result.failures.map((entry) => `${entry.code}: ${entry.message}`).join(' ')}`,
+        { code: 'PSS_REMOTE_CHECK_FAILED', details: { check: result } });
+    }
+    console.log(optionBoolean(options, 'json') ? JSON.stringify(result, null, 2) : remoteStateText(result));
+    return result;
   }
   const { checkRepository, remotePresenceCheck, remotePresenceText } = await import('../presence/remote-check.mjs');
   const pullRequest = optionString(options, 'pull-request');

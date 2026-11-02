@@ -27,6 +27,8 @@ export const GAP_LEDGER_FAMILY = 'spec-gap-ledger';
 export const RESEARCH_FAMILY = 'spec-research';
 export const QUALITY_FAMILY = 'spec-quality';
 export const REVIEW_STATES = Object.freeze(['reviewed', 'draft']);
+// SF Guard's seal for a revision (SPEC-PSS-v1 §10.9): beside its files, never one of REVISION_FILES.
+export const REVISION_SEAL_FILE = 'presence.json';
 const PUBLISH_ATTEMPTS = 3;
 const REVISION_PATH = new RegExp(`^${LIBRARY_ROOT}/(SPEC-[A-Z0-9]+(?:-[A-Z0-9]+)*)/(\\d{6})/manifest\\.json$`, 'u');
 
@@ -105,6 +107,11 @@ export function readManifest(root, view, specId, revision, { env = process.env }
   return { specId, revision, manifest: parsedManifest(specId, revision, bytes), manifestSha256: bytes ? digest(bytes) : null };
 }
 
+/** A revision's SF Guard seal file at the pinned commit, or null when it has none. */
+export function readRevisionSeal(root, view, specId, revision, { env = process.env } = {}) {
+  return committedFileBytes(root, view.commit, `${revisionDirectory(specId, revision)}/${REVISION_SEAL_FILE}`, { env }) ?? null;
+}
+
 /** One whole revision from the pinned commit, every file verified against the manifest. */
 export function readRevision(root, view, specId, revision, { env = process.env } = {}) {
   requireListed(view, specId, revision);
@@ -172,10 +179,13 @@ export function revisionFiles({ specId, revision, parent, reviewState, operation
  * published since this draft was based; returns the revision already published by this same
  * operation (a lost acknowledgement) instead of publishing twice.
  */
-export async function publishRevision(root, config, { specId, draft, report, reviewState, operationId, actor, command, env = process.env }) {
+export async function publishRevision(root, config, { specId, draft, report, reviewState, operationId, actor, command, seal = null, env = process.env }) {
   const { publishToStateBranch } = await import('../ledger.mjs');
   const head = draft.head;
   const ours = new Set(draft.snapshots.map((snapshot) => snapshot.snapshotSha256));
+  // The revision's files and its SF Guard seal are made once: a retry after another specification
+  // moved the branch publishes the same bytes, so the person is asked for one touch.
+  let prepared = null;
   for (let attempt = 1; attempt <= PUBLISH_ATTEMPTS; attempt += 1) {
     const view = await libraryView(root, config, { env });
     const revisions = view.specs.get(specId) ?? [];
@@ -203,10 +213,19 @@ export async function publishRevision(root, config, { specId, draft, report, rev
         'SPEC_LIBRARY_REVISION_CONFLICT', { specId, latest: latest.revision, basedOn, nextAction: `singularity-flow spec author show ${specId}@${latest.revision}` });
     }
     const revision = (latest?.revision ?? 0) + 1;
-    const { manifest, files } = revisionFiles({ specId, revision, parent: latest, reviewState, operationId, actor,
-      recordedAt: new Date().toISOString(), head, report });
+    if (prepared && prepared.revision !== revision) {
+      fail(`${specId}@${prepared.revision} was taken while this revision was being published. Nothing was published and your draft is unchanged; run the same command again.`,
+        'SPEC_LIBRARY_REVISION_CONFLICT', { specId, latest: revision - 1, nextAction: command });
+    }
+    if (!prepared) {
+      const built = revisionFiles({ specId, revision, parent: latest, reviewState, operationId, actor, recordedAt: new Date().toISOString(), head, report });
+      const sealFile = seal ? await seal({ specId, revision, manifestSha256: digest(built.files['manifest.json']), reviewState }) : null;
+      prepared = { revision, ...built, sealFile };
+    }
+    const { manifest, files, sealFile } = prepared;
     const directory = revisionDirectory(specId, revision);
     const entries = Object.fromEntries(Object.entries(files).map(([name, bytes]) => [`${directory}/${name}`, bytes]));
+    if (sealFile) entries[`${directory}/${REVISION_SEAL_FILE}`] = sealFile;
     try {
       const published = await publishToStateBranch(root, view.ledger, entries, `[${specId}][spec:publish] revision ${revision} (${reviewState})`, {
         exactBlobSha256: Object.fromEntries(Object.entries(entries).map(([file, bytes]) => [file, digest(bytes)])),

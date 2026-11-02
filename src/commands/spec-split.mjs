@@ -53,7 +53,7 @@ async function proposeAction(root, config, name, read, options, { actor, print }
   `Proposed a split of ${name} on this clone; nothing is published yet.\n${planLines(name, analysis)}\nThe person publishes it: singularity-flow spec split ${name} --publish`);
 }
 
-async function publishAction(root, config, name, read, options, { actor, print }) {
+async function publishAction(root, config, name, read, options, { actor, print, repositoryStepSeal }) {
   const proposal = await readProposal(root, read.specId, read.revision);
   if (!proposal) fail(`No split of ${name} is proposed on this clone.`, 'SPEC_SPLIT_PROPOSAL_MISSING', { specId: read.specId, nextAction: proposeCommand(name) });
   if (proposal.damaged || proposal.manifestSha256 !== read.manifestSha256) {
@@ -75,7 +75,8 @@ async function publishAction(root, config, name, read, options, { actor, print }
   }
   const who = actor(root);
   const command = `singularity-flow spec split ${name} --publish --operation-id ${operationId}`;
-  const published = await publishSplit(root, config, { revision: read, analysis, operationId, actor: who, command });
+  const published = await publishSplit(root, config, { revision: read, analysis, operationId, actor: who, command,
+    seal: (fields) => repositoryStepSeal(root, 'split-publish', read.specId, fields) });
   crashPoint('spec-split-published');
   const { split } = published.record;
   const drafted = [];

@@ -180,7 +180,8 @@ export function phaseResolutionChoices(workflow, phase, finding) {
   } else if (code.startsWith('phase_repair_journal')) {
     resolution = route('owner-escalation', 'workflow-maintainer', ['doctor', '--json'],
       'Preserve the private repair journal for diagnosis. Never delete or reset it to obtain a new budget.', '/sf-doctor');
-  } else if (/protected|authority|identity|provenance|snapshot|configuration|integrity|source.boundary/u.test(code)
+  } else if (policy.classification === 'integrity-or-authority'
+      || /protected|authority|identity|provenance|snapshot|configuration|integrity|source.boundary/u.test(code)
       || ['configuration', 'integrity'].includes(category)) {
     resolution = route('configuration-owner', 'configuration-authority',
       ['workspace', 'refresh-configuration', '--dry-run'],

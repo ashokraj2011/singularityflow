@@ -82,6 +82,8 @@ test('unplanned code is refused before it is committed, accounted for by a plan 
   run('git', ['init', '-b', 'main'], root);
   run('git', ['config', 'user.name', 'Amendment Tester'], root);
   run('git', ['config', 'user.email', 'amend@example.test'], root);
+  // The review clone must retain the exact submitted bytes on Windows too.
+  await write('.gitattributes', '* text eol=lf\n');
   await write('package.json', JSON.stringify({ type: 'module', private: true, scripts: { test: 'node --test' } }));
   await write('src/value.mjs', 'export const value = 1;\n');
   await write('test/value.test.mjs', ["import test from 'node:test';", "import assert from 'node:assert/strict';",

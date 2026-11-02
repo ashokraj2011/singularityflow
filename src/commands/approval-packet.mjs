@@ -16,23 +16,32 @@ export async function run({ positionals, options }) {
   if (options.json !== true) {
     throw new SingularityFlowError('--review-packet requires --json.', { code: 'APPROVAL_PACKET_OPTIONS' });
   }
-  const workId = positionals[3];
-  const cwd = process.cwd();
-  const checked = await step(['status', workId, '--submission-readiness', '--json'], cwd);
-  if (!checked.ok) stop(checked, 'status --submission-readiness');
+  console.log(JSON.stringify(await loadApprovalPacket({ workId: positionals[3], cwd: process.cwd(), fetch: options.fetch === true }), null, 2));
+}
+
+/** Stop at known holds before creating consent receipts or loading complete review documents. */
+export async function loadApprovalPacket({ workId, cwd, fetch = false }, { runStep = step, stopStep = stop } = {}) {
+  const checked = await runStep(['status', workId, '--submission-readiness', '--json'], cwd);
+  if (!checked.ok) stopStep(checked, 'status --submission-readiness');
   const readiness = checked.value;
   // Decisions approval would refuse for open the decision list first; no receipt is begun.
   if (['terminal-obligations-required', 'decisions-required'].includes(readiness?.classification)) {
-    return console.log(JSON.stringify({ resultType: 'sflow-approval-packet', begun: false,
-      reason: readiness.classification, approvalPacket: { readiness, review: null } }, null, 2));
+    return { resultType: 'sflow-approval-packet', begun: false,
+      reason: readiness.classification, approvalPacket: { readiness, review: null } };
   }
-  const begun = await step(['choices', 'begin', 'approve', workId, ...(options.fetch === true ? ['--fetch'] : []), '--json'], cwd);
-  if (!begun.ok) stop(begun, 'choices begin approve');
+  if (readiness?.approvalCheck?.ready === false && readiness.approvalCheck.holds?.length) {
+    return { resultType: 'sflow-approval-packet', begun: false, reason: 'approval-holds',
+      nextAction: { command: `singularity-flow decisions ${workId} --for-agent --json`, copilotCommand: `/sf-decide ${workId}`,
+        label: 'Inspect the exact holds and owner actions. No approval confirmation or code rewrite is requested.' },
+      approvalPacket: { readiness, review: null } };
+  }
+  const begun = await runStep(['choices', 'begin', 'approve', workId, ...(fetch ? ['--fetch'] : []), '--json'], cwd);
+  if (!begun.ok) stopStep(begun, 'choices begin approve');
   const phase = begun.value?.approvalContext?.phase;
   if (typeof phase !== 'string') {
     throw new SingularityFlowError(`The approval selection for ${workId} names no phase awaiting approval.`, { code: 'APPROVAL_PACKET_PHASE_MISSING' });
   }
-  const shown = await step(['phase', 'show', phase, '--for-agent', '--json'], cwd);
-  if (!shown.ok) stop(shown, 'phase show');
-  console.log(JSON.stringify({ ...begun.value, approvalPacket: { readiness, review: shown.value } }, null, 2));
+  const shown = await runStep(['phase', 'show', phase, '--for-agent', '--json'], cwd);
+  if (!shown.ok) stopStep(shown, 'phase show');
+  return { ...begun.value, approvalPacket: { readiness, review: shown.value } };
 }

@@ -32,6 +32,14 @@ If the current definition is verified to match its original pin again, the unacc
 stays in history and is reported as inactive rather than another pending decision. This records no
 acceptance and changes no pin. Unreadable definitions retain their pending review and diagnostic.
 
+Scope-only approval holds belong to the plan's approvers. An exact test-support path may be
+accounted for under an existing test-only clause with a narrow plan amendment. This changes no
+clause, primary test, test result or submitted artifact, and never admits product source into a
+test-only delivery. Known holds are returned before an approval receipt or full document packet
+is created, with the decision-list command on all available surfaces. Human visual witnessing
+remains separate from automated tests and scope accounting.
+Owed evidence is reported separately; it blocks phase approval only when the approval gate says so.
+
 ## Evidence and limits
 
 Failed execution diagnostics retain up to three distinct, redacted, bounded examples from that

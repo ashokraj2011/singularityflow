@@ -12,6 +12,7 @@
 import { stepResponsibilities } from './phase-roles.mjs';
 import { countedRecords } from './presence/counted.mjs';
 import { classifySupportingChange, SUPPORTING_CHANGE_CLASSES } from './supporting-changes.mjs';
+import { isTestAutomationPath } from './source-boundary.mjs';
 import { SingularityFlowError, posix } from './util.mjs';
 
 const MAX_CHANGES = 50;
@@ -30,7 +31,7 @@ export function planAuthorities(workflow) {
 
 function exactPath(value, label) {
   const candidate = posix(String(value ?? '').trim());
-  if (!candidate || candidate.startsWith('/') || candidate.split('/').some((segment) => !segment || segment === '.' || segment === '..')
+  if (!candidate || candidate.startsWith('/') || /^[a-z]:/iu.test(candidate) || candidate.split('/').some((segment) => !segment || segment === '.' || segment === '..')
       || /[*?[\]{}\\]/u.test(candidate) || candidate.endsWith('/')) {
     throw new SingularityFlowError(`${label} must be one exact repository-relative file path.`, { code: 'PLAN_AMENDMENT_INVALID' });
   }
@@ -52,10 +53,10 @@ export function recordPlanAmendment(workflow, { changes = [], reason, actor, aut
       if (!claim) {
         throw new SingularityFlowError(`The plan has no row for ${clauseId}; a plan amendment adds to an existing row.`, { code: 'PLAN_AMENDMENT_INVALID', details: { clauseId } });
       }
-      if (claim.fulfillment === 'test-only') {
-        throw new SingularityFlowError(`${clauseId} is test-only, so it has no product paths to add to.`, { code: 'PLAN_AMENDMENT_INVALID', details: { clauseId } });
-      }
       const candidate = exactPath(change.path, `The location for ${clauseId}`);
+      if (claim.fulfillment === 'test-only' && !isTestAutomationPath(candidate)) {
+        throw new SingularityFlowError(`${clauseId} is test-only; only an exact test or test-support path can be accounted for without changing its delivery contract.`, { code: 'PLAN_AMENDMENT_INVALID', details: { clauseId } });
+      }
       if ((claim.expectedPaths ?? []).includes(candidate)) {
         throw new SingularityFlowError(`${candidate} is already an expected path of ${clauseId}.`, { code: 'PLAN_AMENDMENT_INVALID' });
       }

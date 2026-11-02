@@ -674,6 +674,11 @@ export function approvalHoldOwner(error) {
   if (['PHASE_VALIDATION_FAILED', 'CODE_DELIVERY_VALIDATION_REQUIRED'].includes(code) && error.details?.testRunRisk) return 'someone-decides';
   // A coverage gap every clause of which an open upstream issue names is that issue's approvers' to decide.
   if (code === 'SPEC_COVERAGE_INCOMPLETE' && error.details?.upstreamDecision?.complete === true) return 'someone-decides';
+  const coverage = error.details?.coverage;
+  if (code === 'SPEC_COVERAGE_INCOMPLETE' && Array.isArray(coverage?.unclaimedChangedPaths) && coverage.unclaimedChangedPaths.length
+      && ['unimplemented', 'withdrawnButClaimed', 'invalidEvidence'].every(key => Array.isArray(coverage[key]) && coverage[key].length === 0)) {
+    return 'someone-decides'; // The plan's approvers account for scope; no code rewrite is owed.
+  }
   return APPROVAL_HOLD_OWNERS[code] ?? OWNER_PREFIXES.find(([prefix]) => code.startsWith(prefix))?.[1] ?? 'author-repairs';
 }
 
@@ -688,7 +693,10 @@ function holdRoute(error, owner, workflow, phase) {
     ...(Array.isArray(details.recoveryCommands) ? details.recoveryCommands : []), ...(Array.isArray(details.actions) ? details.actions : [])]
     .map((entry) => (typeof entry === 'string' ? { command: entry } : entry))
     .find((entry) => typeof entry?.command === 'string' && safeCommandGuidance({ command: entry.command }));
-  if (named) return { label: String(named.label ?? named.detail ?? '').slice(0, 400), command: safeCommandGuidance({ command: named.command }).command };
+  if (named) return { label: String(named.label ?? named.detail ??
+    (owner === 'someone-decides' && error.code === 'SPEC_COVERAGE_INCOMPLETE' && details.coverage?.unclaimedChangedPaths?.length
+      ? 'An approver of the plan accounts for the exact changed path; preserve the submitted code and test evidence.' : '')).slice(0, 400),
+  command: safeCommandGuidance({ command: named.command }).command };
   const workId = workflow.workItem.id;
   if (owner === 'author-repairs') return { label: `An approver returns ${phase.id} for changes; its author revises it and submits it again.`,
     command: `singularity-flow reject ${phase.id} --work-id ${workId} --fetch --reason <REASON>` };

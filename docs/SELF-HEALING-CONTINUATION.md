@@ -25,6 +25,9 @@ authoring turn merely because tests failed. These projections grant no mutation 
 A publication-only or independent-review turn still hands authoring to its configured producer.
 An original integrity finding keeps its identity even when nested source-code hints name an
 ordinary quality defect; those hints cannot create a repair permission or risk exception.
+Local guard records also use bounded sharing retries for `EPERM`, `EACCES` and `EBUSY` during
+atomic replacement. Overlapping staging-grant refreshes preserve the exact file grant; a persistent
+failure retains its native error, without deleting the destination or bypassing the guard.
 
 Each task has a stable case ID bound to the Story, phase, generation, intent and finding. It separates
 the phase detecting a defect from the phase owning the affected input, and names the repair executor,

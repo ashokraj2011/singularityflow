@@ -278,7 +278,9 @@ test('new composed prompts carry bounded evidence and cached reuse preserves the
   assert.match(prompt, /command success alone proves neither every criterion/i);
   const file = path.join(item.root, 'singularity/work-items/EVIDENCE-1/context/prompts/specification-gen1.md');
   const before = await readFile(file, 'utf8');
-  const recordFile = file.replace('/prompts/', '/').replace(/\.md$/u, '.json');
+  // The receipt is beside prompts/, not inside it. String replacement of POSIX separators
+  // silently addressed the wrong file on Windows even though composition wrote it correctly.
+  const recordFile = path.join(path.dirname(path.dirname(file)), `${path.basename(file, '.md')}.json`);
   const recordBefore = await readFile(recordFile);
   await composePhasePrompt(item.root, { workId: 'EVIDENCE-1', phase: 'specification', agent: 'product-owner' });
   assert.equal(await readFile(file, 'utf8'), before);

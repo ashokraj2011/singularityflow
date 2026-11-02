@@ -41,6 +41,21 @@ export function approverId(member) {
   return identity ? `approver-${sha256(identity).slice(0, 12)}` : null;
 }
 
+/** Every approver the approved configuration names, once each, keyed by approver id. */
+export function presenceApprovers(definition) {
+  const byId = new Map();
+  for (const [group, authority] of Object.entries(definition?.approvalAuthorities ?? {})) {
+    for (const member of authority.members ?? []) {
+      const id = approverId(member);
+      if (!id) continue;
+      const known = byId.get(id) ?? { approver: id, label: member.name || member.githubLogin || member.email, githubLogin: member.githubLogin ?? null, email: member.email ?? null, groups: [] };
+      known.groups.push(group);
+      byId.set(id, known);
+    }
+  }
+  return byId;
+}
+
 export function newChainId() {
   return sha256(globalThis.crypto.getRandomValues(new Uint8Array(32))).slice(0, 32);
 }
@@ -90,7 +105,12 @@ function checkShape(event, index) {
   if (event.seq !== index) return `has sequence ${event.seq}, not ${index}`;
   if (!PRESENCE_EVENT_KINDS.includes(event.kind)) return `has unknown kind ${event.kind}`;
   if (typeof event.at !== 'string' || Number.isNaN(Date.parse(event.at))) return 'has no valid time';
-  if (!Array.isArray(event.signatures) || !event.signatures.length) return 'carries no signature';
+  // The lone-approver fallback (REQ-042): an exception the repository owner's reviewed change records,
+  // which the remote check confirms on the host. It is the only event that carries no signature.
+  const hostReview = hostReviewedException(event);
+  if (!Array.isArray(event.signatures) || (!event.signatures.length && !hostReview)) return 'carries no signature';
+  if (hostReview && event.signatures.length) return 'is a host-reviewed exception, which carries no signature';
+  if (event.authorization !== undefined && !hostReview) return 'names an authorization SF Guard does not know';
   for (const entry of event.signatures) {
     if (!entry || !APPROVER_ID.test(entry.signer ?? '') || typeof entry.keyId !== 'string' || !/^[0-9a-f]{32}$/u.test(entry.nonce ?? '') || typeof entry.signature !== 'string') {
       return 'has a malformed signature entry';
@@ -111,6 +131,12 @@ function checkShape(event, index) {
     return 'gives no reason';
   }
   return null;
+}
+
+/** Whether `event` is the lone-approver exception a reviewed configuration change records (REQ-042). */
+export function hostReviewedException(event) {
+  return event?.kind === 'exception' && event.authorization?.kind === 'host-review'
+    && typeof event.authorization.reason === 'string' && Boolean(event.authorization.reason.trim()) && event.authorization.reason.length <= MAX_REASON;
 }
 
 function exceptionShape(entry) {
@@ -208,6 +234,16 @@ export function foldPresenceChain(chain, { verify = verifyPresenceSignature } = 
       }
       case 'exception': {
         if (!exceptionShape(event.exception)) return stop('PSS_CHAIN_INVALID', 'records a malformed exception');
+        if (hostReviewedException(event)) {
+          // Only for a lone approver: when another approver holds a pinned key, they sign it instead.
+          if ([...state.pins.keys()].some((approver) => approver !== event.exception.approver)) {
+            return stop('PSS_POLICY_UNSIGNED', 'is a host-reviewed exception, but another approver has a pinned key and must sign it');
+          }
+          const added = addException(state, event.exception, index, 'host-review');
+          if (added) return stop('PSS_POLICY_UNSIGNED', added);
+          state.exceptions.get(event.exception.id).hostReview = true;
+          break;
+        }
         if (!byPin.length) return stop('PSS_POLICY_UNSIGNED', 'is not signed by a pinned key');
         const added = addException(state, event.exception, index, byPin[0].signer);
         if (added) return stop('PSS_POLICY_UNSIGNED', added);
@@ -244,6 +280,11 @@ export function nextExceptionId(folded, taken = 0) {
   return `EXC-${String(folded.exceptions.size + taken + 1).padStart(3, '0')}`;
 }
 
+/** How an exception reads everywhere: always a bypass, and for a host-reviewed one, whose review. */
+export function exceptionLabel(exception) {
+  return `bypass: per-person exception ${exception.id}${exception.hostReview ? " (the repository owner's reviewed change; the remote check confirms the review)" : ''}`;
+}
+
 /** The active exception for `approver`, or null. */
 export function activeException(folded, approver) {
   return [...folded.exceptions.values()].find((entry) => entry.active && entry.approver === approver) ?? null;
@@ -257,7 +298,7 @@ export function approverStanding(folded, approver) {
   const exception = activeException(folded, approver);
   const pin = folded.pins.get(approver) ?? null;
   if (!folded.enabled) return { state: 'not-required', pin, exception, label: 'person steps unsigned in this repository' };
-  if (exception) return { state: 'bypass', pin, exception, label: `bypass: per-person exception ${exception.id}` };
+  if (exception) return { state: 'bypass', pin, exception, label: exceptionLabel(exception) };
   if (pin) return { state: 'signed', pin, exception: null, label: `signed with ${pin.keyId}` };
   return { state: 'unregistered', pin: null, exception: null, label: 'no presence key pinned' };
 }

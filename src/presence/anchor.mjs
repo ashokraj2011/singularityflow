@@ -25,13 +25,17 @@ export const GITHUB_SIGNING_KEY_PAGE = `https://${PUBLIC_GITHUB_HOST}/settings/s
 export const GITHUB_KEYS_PAGE = `https://${PUBLIC_GITHUB_HOST}/settings/keys`;
 const MAX_BODY = 1024 * 1024;
 
-/** GET one JSON document from GitHub's REST API: `{ status, body }`, or throws on a transport failure. */
-export function githubApiJson(pathname, { timeoutMs = 10_000 } = {}) {
+/**
+ * GET one JSON document from GitHub's REST API: `{ status, body, link }`, or throws on a transport
+ * failure. `token` is the remote check's own (a CI job's GitHub token); a person's computer sends none.
+ */
+export function githubApiJson(pathname, { timeoutMs = 10_000, token = null } = {}) {
   return new Promise((resolve, reject) => {
     const request = https.request({
       host: GITHUB_API_HOST, servername: GITHUB_API_HOST, port: 443, method: 'GET', path: pathname,
       ca: tls.rootCertificates, agent: false, timeout: timeoutMs,
-      headers: { 'User-Agent': 'singularity-flow-sf-guard', Accept: 'application/vnd.github+json', 'X-GitHub-Api-Version': '2022-11-28' }
+      headers: { 'User-Agent': 'singularity-flow-sf-guard', Accept: 'application/vnd.github+json', 'X-GitHub-Api-Version': '2022-11-28',
+        ...(token ? { Authorization: `Bearer ${token}` } : {}) }
     }, (response) => {
       const chunks = [];
       let size = 0;
@@ -40,7 +44,8 @@ export function githubApiJson(pathname, { timeoutMs = 10_000 } = {}) {
         if (size > MAX_BODY) { request.destroy(new Error('GitHub answered with more than 1 MiB')); return; }
         chunks.push(chunk);
       });
-      response.on('end', () => resolve({ status: response.statusCode ?? 0, body: Buffer.concat(chunks).toString('utf8') }));
+      response.on('end', () => resolve({ status: response.statusCode ?? 0, body: Buffer.concat(chunks).toString('utf8'),
+        link: typeof response.headers.link === 'string' ? response.headers.link : null }));
       response.on('error', reject);
     });
     request.on('timeout', () => request.destroy(new Error(`GitHub did not answer within ${timeoutMs / 1000} s`)));
@@ -61,11 +66,11 @@ function listedKey(entry) {
  * The SSH signing keys GitHub lists for `login`: `{ status: 'listed'|'not-found'|'unavailable',
  * keys, snapshotSha256, fetchedAt, reason }`. `request` is the transport; tests pass their own.
  */
-export async function githubSigningKeys(login, { request = githubApiJson, now = () => new Date() } = {}) {
+export async function githubSigningKeys(login, { request = githubApiJson, now = () => new Date(), token = null } = {}) {
   const fetchedAt = now().toISOString();
   if (!GITHUB_LOGIN.test(String(login ?? ''))) return { status: 'not-found', keys: [], snapshotSha256: null, fetchedAt, reason: 'the approver has no valid GitHub login in the approved configuration' };
   let answer;
-  try { answer = await request(`/users/${encodeURIComponent(login)}/ssh_signing_keys?per_page=100`); }
+  try { answer = await request(`/users/${encodeURIComponent(login)}/ssh_signing_keys?per_page=100`, token ? { token } : undefined); }
   catch (error) { return { status: 'unavailable', keys: [], snapshotSha256: null, fetchedAt, reason: `GitHub could not be reached: ${error.message}` }; }
   if (answer.status === 404) return { status: 'not-found', keys: [], snapshotSha256: null, fetchedAt, reason: 'GitHub has no such account' };
   if (answer.status !== 200) return { status: 'unavailable', keys: [], snapshotSha256: null, fetchedAt, reason: `GitHub answered ${answer.status}` };

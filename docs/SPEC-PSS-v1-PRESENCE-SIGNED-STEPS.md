@@ -310,7 +310,7 @@ A script that runs a command itself is still not caught. That is this spec's job
 | M1 | Statement and verifier (`src/presence/statement.mjs`, `sshsig.mjs`). The signed policy chain in the approved configuration (`chain.mjs`, `store.mjs`, Studio `presence.set`). The GitHub anchor (`anchor.mjs`). One-key pinning with the readable-key and `sc_auth` checks, including expiry (`local-keys.mjs`). The signer path (`signer.mjs`). The opt-in, per-person exceptions, rotation, recovery and revocation. `singularity-flow guard`, `/sf-guard`, help and the `sf-guard` topic | AC-001 to AC-005, AC-012, AC-015, AC-016 |
 | M2 | Approve and reject signed and verified everywhere approvals are counted. The Story pins the policy. `pre-signing` and exception labels on approvals. Signer-unavailable refusal. The foreign-key alarm on every command | AC-006 to AC-009 |
 | M3 | Every other §3 row, family by family, with one lock review | AC-010. Done for every Story decision family recorded in `workflow.json` (§10.3); the rows recorded elsewhere are listed there with their reasons |
-| M4 | Receipt replay, the final check, `governance verify --presence`, the CI recipe, the branch protection read, the remote GitHub re-read, the reviewed-change recovery for a lone approver | AC-011, AC-013 |
+| M4 | Receipt replay, the final check, `governance verify --presence`, the CI recipe, the branch protection read, the remote GitHub re-read, the reviewed-change recovery for a lone approver | AC-011, AC-013. Done (§10.4) |
 | M5 | VS Code surfaces, the first-run card with REQ-012's rule | AC-014 |
 
 ### 10.1 M0 results (1 November 2026)
@@ -375,6 +375,35 @@ What M1 drew from it:
   - **Epic, goal, SGOS, intent, capability lease, host policy and agents lock.** Their own stores, with no Story pin.
   - **Authorship claims (`phase publish --authored human|external-tool`).** The generation-publication and artifact-authorship families. A human author need not be an approver, and keys are registered per approver, so a non-approver author's route is a decision still to make.
 - **Residual, stated.** A withdrawal (`withdrawnAt`) is not signed. An agent can add one to a signed decision, which makes the Story stricter, never looser. It can also remove one to revive the same person's earlier signed decision. M4's remote check, which compares the Story's history, catches both.
+
+### 10.4 M4 as built (2 November 2026)
+
+- **One re-verification.** `src/presence/story-verify.mjs` lists every person record on a Story (each phase's approve and reject decisions, and every person decision in M3's families) and verifies each with M2's verdict against the keys the Story's pinned chain names. The final check, the evidence receipt and the remote check all use it. A Story re-verifies in well under AC-013's 50 ms.
+- **The final check** (`runGovernanceGate`). On a Story pinned `required`, only an approval whose signature verifies counts toward the threshold and the required authorities. A threshold left unmet by uncounted approvals says so and names the approver's command. Each record that does not count is named as a warning, never refused, so a forged record cannot block a Story by itself (REQ-042). The final evaluation's review facet counts the same way, and a phase whose recorded approvals all fail to count reads `pending`. The final-check preview's in-memory decision is marked in a process-local `WeakSet` (`markSyntheticApproval`), never by a field, so a record on disk cannot claim it.
+- **The receipt.** The evidence receipt's approval count counts only verified approvals, and a pinned Story's receipt carries a `presence` observation (signed, bypass, pre-signing, not counted) and the line `SF Guard: … · every signature re-verified`.
+- **The remote check, `governance verify --presence [--base REF] [--pull-request N]`** (`src/presence/remote-check.mjs`), read only. Against the base of the change:
+  - the working tree's policy file must extend the base's, and every event it adds must verify (`PSS_POLICY_REWRITTEN`, `PSS_POLICY_UNSIGNED`). An invalid event already on the base is a note;
+  - each key event the change adds must be listed on the approver's GitHub account now, and a recovery's lost key must not be (`PSS_KEY_NOT_LISTED`, `PSS_KEY_STILL_LISTED`). GitHub unreachable leaves it in `unconfirmed`, and the check passes. Without a base, each pinned key GitHub no longer lists is a note;
+  - each host-reviewed exception the change adds must be approved on the host by a member other than the pull request's author (`PSS_HOST_REVIEW_UNCONFIRMED`; unreadable is `unconfirmed`);
+  - each person record a Story adds or changes must verify (`PSS_RECORD_UNSIGNED`, `PSS_SIGNATURE_INVALID`, each with the person's route). One already on the base is a note, so an older forgery never holds an unrelated change;
+  - no signed or excepted person record on the base disappears (`PSS_RECORD_REMOVED`), and no `withdrawnAt`, `invalidatedAt`, `revokedAt` or `supersededBy` is taken back (`PSS_WITHDRAWAL_REMOVED`). One added is a note: it only makes the Story stricter. Records made before SF Guard carry no stable identity (an engine may add fields to them), so their history is not compared;
+  - a Story that reads as not requiring presence while the repository is opted in must predate the opt-in: if the commit that added the opt-in's `enable` event is an ancestor of the Story's first commit, its pin was forged (`PSS_PIN_FORGED`). For a Story new in the change whose ancestry does not decide it, GitHub's activity record compares when the host first received each commit (`src/presence/host.mjs`); a date the host does not show is `unconfirmed`.
+
+  A failure exits non-zero with every problem and its route (`PSS_REMOTE_CHECK_FAILED`). A repository that never opted in passes (`not-opted-in`). The check sends a GitHub token only inside GitHub Actions (`GITHUB_ACTIONS=true`), never from a person's computer.
+- **The CI recipe** (`src/presence/remote-recipe.mjs`, printed by `guard remote-check --recipe`). It is a GitHub Actions workflow on `pull_request_target` and `push` to the default branch, which:
+  - checks out the pull request's merge ref with full history, without persisting credentials;
+  - installs Node 22 and the SFlow release the person pins (`--package-url`, `--package-sha256`), checked with `sha256sum --check`;
+  - runs `governance verify --presence --base … [--pull-request …]` with the job's own token.
+
+  `pull_request_target` runs the file as the default branch has it, so a pull request cannot change what checks it; its files are read as data and none of its code runs. SF Guard never writes, commits or pushes the recipe, and never changes branch protection.
+- **The branch protection read** (`requiredStatusCheck`). `guard enable` and `guard status` read whether the check the opt-in named is a required status check of the default branch: `required`, `not-required`, `unprotected` or `unavailable`. They say while it is not required. `guard remote-check` (read) shows the same, with the recipe.
+- **The lone approver's reviewed change** (REQ-042). `guard exception add <APPROVER-ID> --host-review --reason TEXT` records an `exception` event with `authorization: { kind: "host-review" }` and no signature. The fold accepts it only while no other approver holds a pinned key (otherwise that approver must sign one), and labels it as the repository owner's reviewed change. The remote check fails it until a member other than the pull request's author approves it on GitHub.
+- **Residuals, stated.**
+  - **A solo owner has no second reviewer,** so the host-review route is closed for them; `guard recover` remains.
+  - **An agent holding the owner's token** could open and merge a pull request through the API where branch protection does not require a review by another member. The route's strength is the host's review rule.
+  - **GitHub's activity record** may not reach back far enough for an old commit; such a comparison stays `unconfirmed`.
+  - **Pull requests from forks:** the recipe reads them through the base repository's merge ref.
+  - **The `setup-node` action** in the recipe is named by tag; the person pins it to a reviewed commit, as the checkout action already is.
 
 ## 11. Acceptance criteria
 

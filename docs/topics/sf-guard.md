@@ -16,6 +16,8 @@ questions:
   - Why does approve ask for Touch ID?
   - Why is an approval not counted?
   - Why does a risk or scope decision ask for Touch ID?
+  - What does the SF Guard remote check verify?
+  - How do I make the SF Guard check required?
 keywords:
   - presence signature
   - secure enclave
@@ -24,13 +26,16 @@ keywords:
   - sc_auth
   - attribution
   - agent stamp
+  - remote check
+  - branch protection
 commands:
   - guard
+  - governance
 related:
   - approvals
   - configuration
   - copilot-and-surfaces
-version: 5
+version: 6
 ---
 SF Guard makes a person's own steps provable. An agent runs as the same user on the same computer: it can read Git configuration, run any command, fake a terminal and write Git records directly, so nothing it can type proves a person decided. SF Guard asks for the one thing it cannot produce, a signature from a Secure Enclave key on the person's Mac made after their Touch ID. It is off until a repository opts in; a repository that never opts in behaves exactly as before. Refusals keep the `PSS_` codes of SPEC-PSS-v1.
 
@@ -67,7 +72,20 @@ The policy is `singularity/presence.json` in the approved configuration: an appe
 
 **A Story's other decisions (M3).** Every other decision a person records on a Story pinned `required` is signed the same way: risk, test-run risk and narrowing acceptances, test command acceptances and revocations, evidence reuse, visual profile and witness decisions, witness exception renewals, scope dispositions, completeness reviews, applicability, upstream issue and forward amendment decisions, and plan amendments and corrections. Each lands in the Story's `workflow.json`, so SF Guard signs where the Story is written: the decisions a command added (never one already on disk) show on one card, then one Touch ID prompt signs them together. The same checks and routes as approve apply first; declining, or any refusal, writes nothing. A request anyone may make, such as a test command request, is never signed and always counts. Each family's own reader (the gates, the scope inventory, the decision list) counts a decision only when its signature verifies against the approver's pinned key, or a per-person exception covers it, so a decision written into `workflow.json` by hand counts for nothing.
 
-After a command you run in your own terminal in an opted-in repository, SF Guard warns (`PSS_FOREIGN_KEY`) when the key pinned under your approver ID is not held by this Mac, and names the revoke route. It never blocks the command. Receipt replay, the final check and the remote check (`governance verify --presence`) re-verify signatures in M4. Steps recorded outside the Story's `workflow.json` (Spec Studio, configuration approval, appeals and their review records, plan actions, Epic and goal approvals, authorship claims) are not signed yet; the SF Guard specification lists each with its reason.
+After a command you run in your own terminal in an opted-in repository, SF Guard warns (`PSS_FOREIGN_KEY`) when the key pinned under your approver ID is not held by this Mac, and names the revoke route. It never blocks the command. Steps recorded outside the Story's `workflow.json` (Spec Studio, configuration approval, appeals and their review records, plan actions, Epic and goal approvals, authorship claims) are not signed yet; the SF Guard specification lists each with its reason.
+
+**Verified again, everywhere (M4).** The final check and the evidence receipt never trust a flag a record carries: each re-verifies every person record on the Story against its pinned keys. An approval that does not verify leaves the threshold unmet, and the refusal says SF Guard did not count it and names the approver's command; the record itself is named as not counted, never refused, so it blocks nothing by itself. The receipt adds a line such as `SF Guard: 2 signed · every signature re-verified`.
+
+**The required remote check.** A clone can be patched, so the boundary is `sflow governance verify --presence`, run by an unmodified SFlow on the Git host's CI as a required status check of the default branch. Against the base of each change it checks that:
+
+- the policy file only grew, and every event it adds verifies (`PSS_POLICY_UNSIGNED`, `PSS_POLICY_REWRITTEN`);
+- each key event it adds is listed on the approver's GitHub account now, and a recovery's lost key is not (`PSS_KEY_NOT_LISTED`, `PSS_KEY_STILL_LISTED`). GitHub unreachable leaves the event "unconfirmed", never failing for that alone;
+- every person record a Story adds verifies (`PSS_RECORD_UNSIGNED`, `PSS_SIGNATURE_INVALID`), no person record disappears (`PSS_RECORD_REMOVED`), and no withdrawal or invalidation is taken back (`PSS_WITHDRAWAL_REMOVED`). A record already on the base that does not verify is named, not failed, so an unrelated change is never held;
+- a Story the change adds that reads as made before the opt-in really was: by commit ancestry, then by when GitHub first received each commit (`PSS_PIN_FORGED`).
+
+Each failure names its route. A repository that never opted in passes. `sflow guard remote-check` shows whether branch protection requires the check SF Guard's opt-in named, and prints the CI recipe (`--recipe`) to save as `.github/workflows/sf-guard-verify.yml` and commit in a reviewed change; pin the SFlow release it installs with `--package-url` and `--package-sha256`. The recipe runs under `pull_request_target`, so a pull request cannot change what checks it, and installs SFlow from the pinned release, never from the repository. SF Guard never writes the recipe, commits it, or changes branch protection: you make the check required in the repository's settings. `guard status` and `guard enable` say while it is not required.
+
+**A lone approver with no key.** When your only key is lost and `guard recover` is not possible (no GitHub account, no Mac), and no other approver can sign an exception for you, record one with `sflow guard exception add <APPROVER-ID> --host-review --reason TEXT` on a branch, and open a pull request. It carries no signature, so it is accepted only while no other approver holds a key, it is labelled as the repository owner's reviewed change, and the remote check fails it until a member other than its author approves the pull request on GitHub (`PSS_HOST_REVIEW_UNCONFIRMED`). A solo owner has no second reviewer, so for them this route is closed: use `guard recover`.
 
 ## Agent and skill attribution
 
@@ -103,6 +121,8 @@ It reads Git a fixed three times and stops at 500 files or 20,000 lines; a cappe
 - `PSS_KEY_NOT_REGISTERED`: register your key (`sflow guard register`), or another approver decides or records an exception for you.
 - `PSS_POLICY_UNREADABLE`: the approved configuration's policy file cannot be read here; nothing was written. `sflow sync`, then run the same command again.
 - An approval shows "not counted" in `sflow approvals`: it carries no valid presence signature. The approver runs `approve` again in their own terminal.
+- The remote check fails (`PSS_REMOTE_CHECK_FAILED`): its output lists each problem with its route. A forged or edited record is dropped from the change, and the person records the decision again in their own terminal.
+- `guard status` says the remote check is not required: add the CI recipe (`sflow guard remote-check --recipe`) and make the check required in the repository's branch protection.
 
 ## Related topics
 

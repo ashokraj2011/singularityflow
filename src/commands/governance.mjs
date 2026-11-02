@@ -2,6 +2,7 @@
  * `singularity-flow governance`: rebuild this repository's governance onto the current model, or
  * restore it from a rebuild [E2G §11]. Every change is plan-first: `rebuild --dry-run` prints the
  * plan digest a confirmation must name, and `restore` previews before it changes anything.
+ * `verify --presence` is SF Guard's required remote check (SPEC-PSS-v1 REQ-030): it reads only.
  */
 import { identity, repoRoot } from '../git.mjs';
 import { activateGovernanceRebuild, planGovernanceRebuild, restoreGovernanceRebuild } from '../governance-rebuild.mjs';
@@ -9,7 +10,7 @@ import { action, because, commandResult, effects, noEffects, succeeded } from '.
 import { emitCommandResult } from '../narration/emit.mjs';
 import { optionBoolean, optionString, SingularityFlowError } from '../util.mjs';
 
-const SUBCOMMANDS = Object.freeze(['rebuild', 'restore']);
+const SUBCOMMANDS = Object.freeze(['rebuild', 'restore', 'verify']);
 const PREVIEW = 'singularity-flow governance rebuild --dry-run';
 
 /** The confirmation a plan needs: its digest, and every failing repository workflow it will leave unstartable. */
@@ -114,14 +115,41 @@ async function restore(root, options) {
   }), json(options));
 }
 
+/**
+ * `governance verify --presence [--base <REF>] [--pull-request <N>]`: SF Guard's remote check. A
+ * failure exits non-zero with every problem and its route, so a required status check holds the merge.
+ */
+async function verifyPresence(root, options) {
+  if (!optionBoolean(options, 'presence')) {
+    throw new SingularityFlowError('Name what to verify: singularity-flow governance verify --presence [--base <REF>] [--pull-request <N>]', { code: 'GOVERNANCE_VERIFY_SCOPE_REQUIRED' });
+  }
+  const { checkRepository, remotePresenceCheck, remotePresenceText } = await import('../presence/remote-check.mjs');
+  const pullRequest = optionString(options, 'pull-request');
+  if (pullRequest != null && !/^[1-9][0-9]{0,9}$/u.test(pullRequest)) {
+    throw new SingularityFlowError(`--pull-request takes a pull request number, not '${pullRequest}'.`, { code: 'GOVERNANCE_VERIFY_ARGUMENT_INVALID' });
+  }
+  // The CI job's own token raises GitHub's read limits there; a person's computer has none to send.
+  const result = await remotePresenceCheck(root, { base: optionString(options, 'base') ?? null, pullRequest: pullRequest ? Number(pullRequest) : null,
+    token: process.env.GITHUB_ACTIONS === 'true' ? process.env.GITHUB_TOKEN ?? null : null, repository: await checkRepository(root) });
+  if (result.status === 'failed') {
+    if (!optionBoolean(options, 'json')) console.log(remotePresenceText(result));
+    throw new SingularityFlowError(`SF Guard's remote check failed: ${result.failures.length} problem(s). ${result.failures.map((entry) => `${entry.code}: ${entry.message}`).join(' ')}`,
+      { code: 'PSS_REMOTE_CHECK_FAILED', details: { check: result } });
+  }
+  if (optionBoolean(options, 'json')) console.log(JSON.stringify(result, null, 2));
+  else console.log(remotePresenceText(result));
+  return result;
+}
+
 export async function run(_argv, { positionals, options }) {
   const subcommand = positionals[1];
   if (!SUBCOMMANDS.includes(subcommand)) {
-    throw new SingularityFlowError(`Unknown action '${subcommand ?? ''}' for singularity-flow governance. Use: ${PREVIEW}`, {
+    throw new SingularityFlowError(`Unknown action '${subcommand ?? ''}' for singularity-flow governance. Use: ${PREVIEW}, or singularity-flow governance verify --presence`, {
       code: 'GOVERNANCE_ACTION_UNKNOWN'
     });
   }
   const root = repoRoot();
   if (subcommand === 'restore') return restore(root, options);
+  if (subcommand === 'verify') return verifyPresence(root, options);
   return optionBoolean(options, 'dry-run') ? rebuildPreview(root, options) : rebuildActivate(root, options);
 }

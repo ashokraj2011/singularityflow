@@ -5,6 +5,7 @@ import {
 } from './specifications.mjs';
 import { applicationPathContext } from './application-paths.mjs';
 import { qualityValidationVerdict } from './lifecycle-evidence-policy.mjs';
+import { countedApprovals } from './presence/counted.mjs';
 import { workDir } from './story-paths.mjs';
 import { run } from './util.mjs';
 
@@ -47,11 +48,24 @@ function checkProjection(phase, packet) {
   };
 }
 
-function approvalProjection(phase, packet) {
+function approvalProjection(phase, packet, workflow) {
   const mode = phase?.approvalPolicy?.mode ?? 'required';
   const required = ['none', 'policy'].includes(mode) ? 0 : phase?.approvalPolicy?.minimum ?? 1;
-  const decisions = (packet.approvals ?? []).filter((entry) => !entry.invalidatedAt && entry.decision === 'approved');
+  // On a Story SF Guard requires, only an approval whose presence signature verifies counts (M4).
+  const decisions = countedApprovals(workflow, (packet.approvals ?? []).filter((entry) => !entry.invalidatedAt && entry.decision === 'approved'));
   return { status: 'exact', mode, required, current: decisions.length };
+}
+
+/**
+ * SF Guard's re-verification of the Story's person records, as the receipt shows it (SPEC-PSS-v1
+ * AC-013): every signature verified again from the pinned keys when the receipt is composed. An
+ * observation, like the publication state: it reads the policy chain as it stands. Deterministic, so
+ * the observation hash is too.
+ */
+function presenceProjection(report) {
+  const notCounted = report.records.filter((entry) => entry.active && !entry.counts).length;
+  return { status: report.required ? 'required' : 'off', signed: report.summary.signed, bypass: report.summary.bypass,
+    preSigning: report.summary.preSigning, notCounted };
 }
 
 function contextProjection(packet) {
@@ -105,6 +119,8 @@ function publicationProjection(root, config, packet) {
  */
 export async function composeEvidenceReceipt(root, config, workflow, packet) {
   const phase = workflow.phases?.[packet.phase] ?? null;
+  const presence = workflow.resolution?.presence
+    ? await (await import('./presence/story-verify.mjs')).storyPresenceReport(root, workflow) : null;
   let changedPaths = { status: 'unavailable', count: null, sha256: null };
   try {
     const base = workflow.workItem.baseCommit ?? workflow.workItem.baseBranch;
@@ -135,7 +151,7 @@ export async function composeEvidenceReceipt(root, config, workflow, packet) {
     work: { id: workflow.workItem.id, phase: packet.phase, generation: packet.generation },
     source: { status: 'exact', commit: packet.sourceCommit, treeSha256: packet.sourceTreeSha256 },
     checks: checkProjection(phase, packet),
-    approvals: approvalProjection(phase, packet),
+    approvals: approvalProjection(phase, packet, workflow),
     context: contextProjection(packet),
     reviewPacket: { status: 'exact', sha256: packet.packetSha256 },
     nextHumanAction: packet.status === 'awaiting_review' ? REVIEW_ACTION : 'Continue to the next phase.',
@@ -148,7 +164,8 @@ export async function composeEvidenceReceipt(root, config, workflow, packet) {
   const observations = {
     changes: changedPaths,
     requirements,
-    publication: publicationProjection(root, config, packet)
+    publication: publicationProjection(root, config, packet),
+    ...(presence?.applies ? { presence: presenceProjection(presence) } : {})
   };
   const receiptCoreSha256 = digest(core);
   const observationSha256 = digest(observations);
@@ -180,6 +197,13 @@ export function receiptApprovalText(receipt) {
   return `${approvals.current}/${approvals.required} (${approvals.status})`;
 }
 
+/** SF Guard's line on a receipt: how the Story's person records verified when it was composed. */
+export function receiptPresenceText(presence) {
+  if (presence.status !== 'required') return `off for this Story${presence.preSigning ? ` (${presence.preSigning} record(s) pre-signing)` : ''}`;
+  return [`${presence.signed} signed`, ...(presence.bypass ? [`${presence.bypass} bypass (per-person exception)`] : []),
+    ...(presence.notCounted ? [`${presence.notCounted} not counted`] : []), 'every signature re-verified'].join(' · ');
+}
+
 export function renderEvidenceReceipt(receipt) {
   const unavailable = (value) => value == null ? 'unavailable' : String(value);
   return [
@@ -188,6 +212,7 @@ export function renderEvidenceReceipt(receipt) {
     `Requirements: ${unavailable(receipt.requirements.claimed)}/${unavailable(receipt.requirements.clauses)} claimed (${receipt.requirements.status})`,
     `Checks: ${receipt.checks.passed} passed · ${receipt.checks.failed} failed · ${receipt.checks.unavailable} unavailable (${receipt.checks.status})${receipt.checks.acceptedRisk ? ` · ${receipt.checks.acceptedRisk} under accepted risk` : ''}`,
     `Approvals: ${receiptApprovalText(receipt)}`,
+    ...(receipt.presence ? [`SF Guard: ${receiptPresenceText(receipt.presence)}`] : []),
     `Context: ${receipt.context.status} · Review packet: ${receipt.reviewPacket.sha256.slice(0, 12)}`,
     `Publication: ${receipt.publication.state} · Next: ${receipt.nextHumanAction}`,
     `Receipt core hash: ${receipt.receiptCoreSha256 ?? receipt.receiptSha256}`,
@@ -206,6 +231,7 @@ export function renderEvidenceReceiptMarkdown(receipt) {
     `- Requirements claimed: **${value(receipt.requirements.claimed)}/${value(receipt.requirements.clauses)}** (${receipt.requirements.status})`,
     `- Checks: **${receipt.checks.passed} passed**, **${receipt.checks.failed} failed**, **${receipt.checks.unavailable} unavailable** (${receipt.checks.status})${receipt.checks.acceptedRisk ? `, ${receipt.checks.acceptedRisk} under accepted risk` : ''}`,
     `- Approvals: **${receiptApprovalText(receipt)}**`,
+    ...(receipt.presence ? [`- SF Guard: **${receiptPresenceText(receipt.presence)}**`] : []),
     `- Context provenance: **${receipt.context.status}**`,
     `- Review packet: \`${receipt.reviewPacket.sha256}\``,
     `- Publication: **${receipt.publication.state}** on \`${receipt.publication.branch}\``,

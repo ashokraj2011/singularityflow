@@ -23,7 +23,7 @@ import { createHash } from 'node:crypto';
 
 import { canonicalJson } from '../records.mjs';
 import { SingularityFlowError } from '../util.mjs';
-import { activeException, approverId, foldPresenceChain, presenceEventDigest } from './chain.mjs';
+import { activeException, approverId, exceptionLabel, foldPresenceChain, presenceEventDigest } from './chain.mjs';
 import { forgetPersonCounts, presencePinKey, registerPersonCounts } from './counted.mjs';
 import { presenceNonce, presenceStatement, statementText } from './statement.mjs';
 import { verifyPresenceSignature } from './sshsig.mjs';
@@ -258,7 +258,7 @@ export function personRecordVerdict(context, record, { workflow }) {
   if (presence.bypass) {
     const exception = exceptionAt(context, presence.bypass, approver, presence.at ?? record.at);
     if (!exception) return invalid('PSS_RECORD_UNSIGNED', `exception ${presence.bypass} does not cover this approver`);
-    return { counts: true, state: 'bypass', label: `bypass: per-person exception ${exception.id}`, code: null, reason: null, signer: approver };
+    return { counts: true, state: 'bypass', label: exceptionLabel(exception), code: null, reason: null, signer: approver };
   }
   const key = keyHistory(context).get(presence.keyId);
   if (!key || key.approver !== approver) return invalid('PSS_SIGNATURE_INVALID', `${presence.keyId ?? 'its key'} is not ${approver}'s pinned key`);

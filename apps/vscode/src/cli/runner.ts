@@ -101,6 +101,7 @@ export const DISPLAY_BOOLEAN_OPTIONS = new Set([
   'refresh-readiness', 'review-ui', 'search-known', 'selected-base-only', 'semantic', 'shadow', 'skip-checks', 'smart-detect', 'staged', 'stale', 'state-only', 'stdin', 'strict', 'submission-readiness', 'table', 'terminal', 'timeline', 'timings', 'today', 'update', 'write',
   'yes', 'verbose', 'show-artifact', 'brief', 'without-defaults', 'launch', 'allow-not-ready',
   'compose', 'for-agent', 'publish-if-ready', 'submit-if-ready', 'review-packet', 'background-sync',
+  'host-review', 'presence', 'recipe',
   'attach-if-missing', 'migrate-world-model', 'hard-cutover', 'cached', 'debug', 'personal', 'from-template', 'clear'
 ]);
 

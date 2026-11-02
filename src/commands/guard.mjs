@@ -8,8 +8,9 @@
  * for agents in every turn (OWN_TERMINAL_STEPS `sf-guard-person-step`), and a forged event never
  * verifies, because it needs the person's touch.
  *
- * In M1 nothing else reads the policy: opting in records it, and person steps start requiring
- * signatures in M2. A repository that never opts in has no file and behaves exactly as before.
+ * `remote-check` reads too (M4): whether the remote check the opt-in named is a required status check
+ * of the default branch, and the CI recipe that runs it. A repository that never opts in has no file
+ * and behaves exactly as before.
  *
  * The signer, GitHub, the key readers and the configuration writer are parameters (`dependencies`),
  * so tests run every route with software keys and no environment switch.
@@ -19,18 +20,18 @@ import path from 'node:path';
 import { identity, repoRoot } from '../git.mjs';
 import { GITHUB_KEYS_PAGE, GITHUB_SIGNING_KEY_PAGE, githubListsKey, githubSigningKeys } from '../presence/anchor.mjs';
 import {
-  activeException, approverId, approverStanding, emptyPresenceChain, foldPresenceChain, nextExceptionId,
-  nextPresenceEvent, PRESENCE_CHAIN_PATH, presenceEventStatement, WINDOWS_EXCEPTION_REASON
+  activeException, approverStanding, emptyPresenceChain, foldPresenceChain, nextExceptionId,
+  nextPresenceEvent, PRESENCE_CHAIN_PATH, presenceApprovers, presenceEventStatement, WINDOWS_EXCEPTION_REASON
 } from '../presence/chain.mjs';
 import { ctkIdentities, presenceIdentityStanding, readableCopies } from '../presence/local-keys.mjs';
 import { presenceNonce } from '../presence/statement.mjs';
 import { optionBoolean, optionString, optionStrings, SingularityFlowError } from '../util.mjs';
 
-export const GUARD_ACTIONS = Object.freeze(['status', 'reconcile', 'register', 'rotate', 'recover', 'revoke', 'enable', 'disable', 'exception', 'stamp-agents']);
-export const GUARD_READ_ACTIONS = Object.freeze(['status', 'reconcile']);
+export const GUARD_ACTIONS = Object.freeze(['status', 'reconcile', 'remote-check', 'register', 'rotate', 'recover', 'revoke', 'enable', 'disable', 'exception', 'stamp-agents']);
+export const GUARD_READ_ACTIONS = Object.freeze(['status', 'reconcile', 'remote-check']);
 /** The person's own steps: refused for agents, whatever the turn. */
 export const GUARD_PERSON_ACTIONS = Object.freeze(GUARD_ACTIONS.filter((action) => !GUARD_READ_ACTIONS.includes(action)));
-const USAGE = 'Usage: singularity-flow guard <status|reconcile|register|rotate|recover|revoke|enable|disable|exception add|exception revoke|stamp-agents> …  (singularity-flow help guard)';
+const USAGE = 'Usage: singularity-flow guard <status|reconcile|remote-check|register|rotate|recover|revoke|enable|disable|exception add|exception revoke|stamp-agents> …  (singularity-flow help guard)';
 const fail = (message, code, details = {}) => { throw new SingularityFlowError(message, { code, details }); };
 
 function print(options, json, text) {
@@ -38,20 +39,6 @@ function print(options, json, text) {
   else console.log(text);
 }
 
-/** Every approver the approved configuration names, once each, with their approver id. */
-function approversOf(definition) {
-  const byId = new Map();
-  for (const [group, authority] of Object.entries(definition?.approvalAuthorities ?? {})) {
-    for (const member of authority.members ?? []) {
-      const id = approverId(member);
-      if (!id) continue;
-      const known = byId.get(id) ?? { approver: id, label: member.name || member.githubLogin || member.email, githubLogin: member.githubLogin ?? null, email: member.email ?? null, groups: [] };
-      known.groups.push(group);
-      byId.set(id, known);
-    }
-  }
-  return byId;
-}
 
 /** The approver the person running this is, from their Git identity. */
 function currentApprover(root, approvers, { identify = identity } = {}) {
@@ -72,7 +59,7 @@ async function readState(root, { verify } = {}) {
   return withApprovedConfigurationRead(root, async () => {
     const definition = await loadDefinition(root);
     const policy = await readPresencePolicy(root, { verify });
-    return { definition, policy, approvers: approversOf(definition) };
+    return { definition, policy, approvers: presenceApprovers(definition) };
   }, { preferAuthority: true });
 }
 
@@ -224,11 +211,12 @@ function standingRows(state) {
   return rows;
 }
 
-function statusResult(state, stamps = []) {
+function statusResult(state, stamps = [], remote = null) {
   const { folded, problems, historyChecked } = state.policy;
   return {
     status: folded.enabled ? 'required' : 'off',
     chainId: folded.chainId, events: folded.length, validEvents: folded.validLength, historyChecked, remoteCheck: folded.remoteCheck,
+    ...(remote ? { remote } : {}),
     agents: stamps.map(({ id, path, stamped, changed }) => ({ id, path, stamp: !stamped ? 'not-stamped' : changed ? 'changed' : 'stamped' })),
     approvers: standingRows(state).map(({ approver, label, groups, standing }) => ({
       approver, label, groups, state: standing.state, standing: standing.label, keyId: standing.pin?.keyId ?? null,
@@ -243,7 +231,8 @@ function statusResult(state, stamps = []) {
 function statusText(result) {
   const lines = [`SF Guard: ${result.status === 'required' ? 'on — person steps are presence-signed (enforced from M2)' : 'off — person steps unsigned in this repository'}`];
   if (result.chainId) lines.push(`  Policy chain ${result.chainId}: ${result.validEvents} of ${result.events} event(s) verify${result.historyChecked ? '' : ' (history not checked: not available in this clone)'}.`);
-  if (result.remoteCheck) lines.push(`  Remote check: ${result.remoteCheck}`);
+  if (result.remote) lines.push(`  ${remoteStandingText(result.remote)}`);
+  else if (result.remoteCheck) lines.push(`  Remote check: ${result.remoteCheck}`);
   for (const row of result.approvers) lines.push(`  ${row.label} [${row.approver}]: ${row.standing}${row.recovered ? ' (recovered)' : ''}`);
   for (const problem of result.problems) lines.push(`  Problem (${problem.code}): ${problem.message}`);
   const unstamped = result.agents.filter((row) => row.stamp !== 'stamped');
@@ -252,6 +241,32 @@ function statusText(result) {
   }
   if (result.status === 'off' && !result.chainId) lines.push('  Opt in: singularity-flow guard register, then singularity-flow guard enable (both in your own terminal, with Touch ID).');
   return lines.join('\n');
+}
+
+/**
+ * Where the remote check stands (SPEC-PSS-v1 REQ-030): the check the opt-in named and whether branch
+ * protection makes it required on the default branch. Read only; SF Guard never changes protection.
+ */
+async function remoteStanding(root, state, deps) {
+  const [{ githubRepository }, { remoteUrl, defaultBranchName }, { SF_GUARD_CHECK_NAME }] = await Promise.all([
+    import('../presence/host.mjs'), import('../git.mjs'), import('../presence/remote-recipe.mjs')]);
+  const check = state.policy.folded.remoteCheck ?? null;
+  const repository = githubRepository(remoteUrl(root, 'origin'));
+  const branch = defaultBranchName(root, state.definition ?? {});
+  const protection = check ? await deps.requiredCheck(repository, branch, check) : null;
+  return { check, suggested: SF_GUARD_CHECK_NAME, branch, repository: repository ? `${repository.owner}/${repository.repo}` : null,
+    status: !check ? 'unnamed' : protection.status, contexts: protection?.contexts ?? [], reason: protection?.reason ?? null };
+}
+
+function remoteStandingText(remote) {
+  if (remote.status === 'unnamed') {
+    return `Remote check: none named. Name one when opting in (singularity-flow guard enable --remote-check ${remote.suggested}); singularity-flow guard remote-check prints the CI recipe.`;
+  }
+  if (remote.status === 'required') return `Remote check: ${remote.check} — a required status check on ${remote.branch}.`;
+  if (remote.status === 'not-required' || remote.status === 'unprotected') {
+    return `Remote check: ${remote.check} — NOT a required status check on ${remote.branch} yet${remote.reason ? ` (${remote.reason})` : ''}. Until it is, a merge is not held by it: add the CI recipe (singularity-flow guard remote-check) and make "${remote.check}" required in the repository's branch protection.`;
+  }
+  return `Remote check: ${remote.check} — whether it is required on ${remote.branch} could not be read (${remote.reason}); check the repository's branch protection.`;
 }
 
 const defaultDependencies = () => ({
@@ -268,7 +283,8 @@ const defaultDependencies = () => ({
   sign: async (request) => (await import('../presence/signer.mjs')).signWithPresence(request),
   write: async (root, changeSet, options, meta) => (await import('../cli.mjs')).applyImportChangeSet(root, changeSet, options, meta),
   identify: identity,
-  verify: undefined
+  verify: undefined,
+  requiredCheck: async (repository, branch, check) => (await import('../presence/host.mjs')).requiredStatusCheck(repository, branch, check)
 });
 
 /**
@@ -332,6 +348,28 @@ function reconcileText(result) {
 }
 
 /** Run one guard action. `dependencies` replaces the signer, readers and writer (tests only pass them in-process). */
+/**
+ * `guard remote-check [--recipe] [--package-url <URL> --package-sha256 <HEX>]`: where the remote check
+ * stands, and the CI recipe that runs it. `--recipe` prints only the workflow, to save as
+ * .github/workflows/sf-guard-verify.yml and commit in a reviewed change. Nothing is written.
+ */
+async function remoteCheckAction(root, state, options, deps) {
+  const [{ sfGuardVerifyWorkflowText, sfGuardRecipeIncomplete, SF_GUARD_CHECK_PATH }] = await Promise.all([import('../presence/remote-recipe.mjs')]);
+  const remote = await remoteStanding(root, state, deps);
+  const sha = optionString(options, 'package-sha256');
+  if (sha != null && !/^[0-9a-f]{64}$/u.test(sha)) fail('--package-sha256 takes the release tarball\'s SHA-256 as 64 hex digits.', 'PSS_ARGUMENT_INVALID');
+  const recipe = sfGuardVerifyWorkflowText({ checkName: remote.check ?? remote.suggested, branch: remote.branch,
+    packageUrl: optionString(options, 'package-url') ?? null, packageSha256: sha ?? null });
+  if (optionBoolean(options, 'recipe')) { process.stdout.write(recipe); return { recipe }; }
+  const incomplete = sfGuardRecipeIncomplete(recipe);
+  return print(options, { action: 'remote-check', remote, path: SF_GUARD_CHECK_PATH, recipe, incomplete }, [
+    remoteStandingText(remote),
+    `CI recipe: save it as ${SF_GUARD_CHECK_PATH} and commit it in a reviewed change (singularity-flow guard remote-check --recipe > ${SF_GUARD_CHECK_PATH}).`,
+    ...(incomplete ? ['  Pin the SFlow release it installs first: --package-url <release tarball URL> --package-sha256 <its SHA-256>, or edit the two marked lines.'] : []),
+    `  Then make "${remote.check ?? remote.suggested}" a required status check of ${remote.branch} in the repository's branch protection; SF Guard reads it, and never changes it.`
+  ].join('\n'));
+}
+
 export async function run(argv, { positionals, options }, dependencies = {}) {
   const deps = { ...defaultDependencies(), ...dependencies };
   const action = positionals[1] ?? 'status';
@@ -340,13 +378,16 @@ export async function run(argv, { positionals, options }, dependencies = {}) {
   const state = await readState(root, { verify: deps.verify });
   const stamps = await agentStamps(root, state.definition).catch(() => []);
   await noteLocalState(root, state.policy.folded.enabled, stamps);
-  if (action === 'status' || action === 'reconcile') {
+  if (GUARD_READ_ACTIONS.includes(action)) {
     if (positionals.length > 2) fail(`guard ${action} takes no further arguments. ${USAGE}`, 'PSS_ARGUMENT_UNEXPECTED');
     if (action === 'reconcile') {
       const result = await reconcileResult(root, state);
       return print(options, result, reconcileText(result));
     }
-    const result = statusResult(state, stamps);
+    if (action === 'remote-check') return remoteCheckAction(root, state, options, deps);
+    // Branch protection is read only where it matters: SF Guard on, with a remote check named.
+    const remote = state.policy.folded.enabled ? await remoteStanding(root, state, deps).catch(() => null) : null;
+    const result = statusResult(state, stamps, remote);
     return print(options, result, statusText(result));
   }
   const { folded } = state.policy;
@@ -428,7 +469,23 @@ export async function run(argv, { positionals, options }, dependencies = {}) {
     summary = 'disable';
   } else {
     const verb = positionals[2];
-    if (!['add', 'revoke'].includes(verb) || positionals.length !== 4) fail('Usage: singularity-flow guard exception add <APPROVER-ID> [--reason "<why>"] | guard exception revoke <EXC-ID> --reason "<why>"', 'PSS_ARGUMENT_REQUIRED');
+    if (!['add', 'revoke'].includes(verb) || positionals.length !== 4) fail('Usage: singularity-flow guard exception add <APPROVER-ID> [--reason "<why>"] [--host-review] | guard exception revoke <EXC-ID> --reason "<why>"', 'PSS_ARGUMENT_REQUIRED');
+    if (verb === 'add' && optionBoolean(options, 'host-review')) {
+      // The lone-approver fallback (REQ-042): no other approver can sign, so the repository owner's
+      // reviewed change records it, and the remote check confirms the review on the host.
+      const approver = positionals[3];
+      const reason = optionString(options, 'reason');
+      if (!/^approver-[0-9a-f]{12}$/u.test(approver)) fail(`'${approver}' is not an approver ID (singularity-flow guard status lists them).`, 'PSS_ARGUMENT_INVALID');
+      if (!reason) fail('Say why no approver can sign it: singularity-flow guard exception add <APPROVER-ID> --host-review --reason "<why>"', 'PSS_ARGUMENT_REQUIRED');
+      if (activeException(folded, approver)) fail(`${approver} already has an active exception.`, 'PSS_POLICY_UNCHANGED');
+      const entry = { id: nextExceptionId(folded), approver, reason };
+      next = { chain: { ...chain, events: [...chain.events, nextPresenceEvent(chain, { kind: 'exception', exception: entry, authorization: { kind: 'host-review', reason } })] },
+        note: `It counts once a member other than its author approves this change on GitHub; the remote check confirms that review before the merge. Commit it on a branch and open a pull request.` };
+      summary = `host-reviewed exception ${entry.id} for ${approver}`;
+    }
+  }
+  if (action === 'exception' && !next) {
+    const verb = positionals[2];
     const pin = requirePin(folded, me, 'record an exception');
     if (verb === 'add') {
       const approver = positionals[3];
@@ -454,7 +511,10 @@ export async function run(argv, { positionals, options }, dependencies = {}) {
   const result = await writeChain(root, next.chain, options, summary, deps, next.stamps ?? []);
   if (!result?.reviewRequired) await noteLocalState(root, checked.enabled, next.stamps?.length ? await writtenStamps(root, stamps) : null);
   const event = next.chain.events.at(-1);
+  // Opting in reads the default branch's protection and says while the remote check is not required.
+  const remote = action === 'enable' ? await remoteStanding(root, { ...state, policy: { ...state.policy, folded: checked } }, deps).catch(() => null) : null;
   return print(options, { action, event: { seq: event.seq, kind: event.kind }, chainId: next.chain.chainId, written: result.written ?? null,
-    branch: result.branch ?? null, reviewRequired: Boolean(result.reviewRequired) },
-  [`SF Guard recorded ${summary} (event ${event.seq}).`, ...writtenLines(result, { stamps: next.stamps?.length ?? 0 })].join('\n'));
+    branch: result.branch ?? null, reviewRequired: Boolean(result.reviewRequired), ...(remote ? { remote } : {}) },
+  [`SF Guard recorded ${summary} (event ${event.seq}).`, ...writtenLines(result, { stamps: next.stamps?.length ?? 0 }),
+    ...(remote ? [remoteStandingText(remote)] : []), ...(next.note ? [next.note] : [])].join('\n'));
 }

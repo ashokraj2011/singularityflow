@@ -9,7 +9,7 @@ export { terminalTransitionAt } from './workflow-terminal-time.mjs';
 import path from 'node:path';
 import { currentPhase } from './phase-generation.mjs';
 import { workDir } from './story-paths.mjs';
-import { countedRecords } from './presence/counted.mjs';
+import { countedApprovals, countedRecords } from './presence/counted.mjs';
 import { sourceTreeHash, validateWorkflow, workflowPublicationBranch } from './state-stores.mjs';
 import { exists, gitHeadIsUnborn, gitReadOutput, posix, snapshot, run } from './util.mjs';
 import { verifyInputsIntegrity } from './inputs.mjs';
@@ -305,6 +305,34 @@ export async function acceptanceSourceTree(root, records, pathContext) {
   return specificationSourceTreeHash(root, pathContext);
 }
 
+/**
+ * SF Guard's lines for the final check (SPEC-PSS-v1 REQ-041): each person record that does not count
+ * and how a person replaces it, each one recorded under a per-person exception, and the records made
+ * before the Story's repository opted in. Never a refusal: a record that does not count simply leaves
+ * its own requirement unmet, and that requirement names its route.
+ */
+function presenceGateWarnings(presence) {
+  if (!presence?.applies) return [];
+  const lines = [];
+  if (presence.required) {
+    for (const entry of presence.records.filter((record) => !record.counts && record.active)) {
+      lines.push(`SF Guard: ${entry.name} does not count (${entry.reason}); it must be recorded again by the person, in their own terminal, with their Touch ID`);
+    }
+    for (const entry of presence.records.filter((record) => record.state === 'bypass')) lines.push(`SF Guard: ${entry.name} — ${entry.label}`);
+  } else if (presence.optedIn && presence.summary.preSigning) {
+    lines.push(`SF Guard: ${presence.summary.preSigning} person record(s) on this Story were recorded before SF Guard applied to it (pre-signing)`);
+  }
+  return lines;
+}
+
+/** The approvals of `phaseId` SF Guard did not count, as a clause for the threshold refusal. */
+function presenceUncounted(presence, phaseId) {
+  if (!presence?.required) return '';
+  const missing = presence.records.filter((record) => record.list === 'approvals' && record.phase === phaseId && record.active && !record.counts);
+  if (!missing.length) return '';
+  return ` (SF Guard did not count ${missing.length} approval(s): ${missing.map((record) => record.reason).join('; ')}. The approver approves again in their own terminal: singularity-flow approve ${phaseId} --work-id ${presence.workId})`;
+}
+
 export async function runGovernanceGate(root, config, workflow, { terminal = false, pendingTransition = false, openStory = null } = {}) {
   config = await resolveStoryExecutionDefinition(root, config, workflow);
   const errors = [], warnings = [], passes = [];
@@ -320,6 +348,11 @@ export async function runGovernanceGate(root, config, workflow, { terminal = fal
   const landingBranch = async () => (landingBase ??= publicationBaseBranch(root, config, workflow));
   const refuseEach = (code, messages, options) => { for (const message of messages ?? []) refuse(code, message, options); };
   const base = await validateWorkflow(root, config, workflow, { strict: true }); refuseEach('gate.state.invalid', base.errors); warnings.push(...base.warnings);
+  // SF Guard M4 (SPEC-PSS-v1 REQ-030): every person record is verified again here, never trusted
+  // from a flag. One that does not verify never counts; it is named, not refused, so it never blocks.
+  const presence = workflow.resolution?.presence
+    ? await (await import('./presence/story-verify.mjs')).storyPresenceReport(root, workflow) : null;
+  warnings.push(...presenceGateWarnings(presence));
   try {
     for (const finding of await approvedArtifactQualityFindings(root, config, workflow,
       { transition: terminal ? 'terminal' : 'consume' })) {
@@ -636,7 +669,8 @@ export async function runGovernanceGate(root, config, workflow, { terminal = fal
     const agentIntegrity = await verifyAgentIntegrity(root, workflow, phase, { itemDirectory: workDir(root, config, workflow.workItem.id) });
     refuseEach('gate.agents.integrity', agentIntegrity.errors, { phase: phaseId }); warnings.push(...agentIntegrity.warnings); passes.push(...agentIntegrity.passes);
     if (phase.status !== 'approved') continue;
-    const decisions = phase.approvals.filter((item) => !item.invalidatedAt && item.decision === 'approved');
+    const decisions = countedApprovals(workflow, phase.approvals.filter((item) => !item.invalidatedAt && item.decision === 'approved'));
+    const uncounted = presenceUncounted(presence, phaseId);
     const distinct = new Set(decisions.map((item) => item.actor?.login ?? item.actor?.email ?? item.actor?.name));
     const policyRequiresPeople = phase.approvalPolicy.mode !== 'none';
     const missingAuthorities = remainingRequiredAuthorities(phase.approvalPolicy, decisions);
@@ -656,8 +690,8 @@ export async function runGovernanceGate(root, config, workflow, { terminal = fal
       }
     }
     const requiresApproval = policyRequiresPeople && !waived;
-    if (requiresApproval && distinct.size < (phase.approvalPolicy.minimum ?? 1)) refuse('gate.approval.threshold', `${phaseId} has ${distinct.size} distinct approvals; requires ${phase.approvalPolicy.minimum ?? 1}`, { phase: phaseId });
-    if (requiresApproval && missingAuthorities.length) refuse('gate.approval.required-authority', `${phaseId} is missing required authority decisions from: ${missingAuthorities.join(', ')}`, { phase: phaseId });
+    if (requiresApproval && distinct.size < (phase.approvalPolicy.minimum ?? 1)) refuse('gate.approval.threshold', `${phaseId} has ${distinct.size} distinct approvals; requires ${phase.approvalPolicy.minimum ?? 1}${uncounted}`, { phase: phaseId });
+    if (requiresApproval && missingAuthorities.length) refuse('gate.approval.required-authority', `${phaseId} is missing required authority decisions from: ${missingAuthorities.join(', ')}${uncounted}`, { phase: phaseId });
     for (const decision of decisions) {
       const authority = matchApprovalAuthority(
         workflow.resolution.approvalAuthorities,

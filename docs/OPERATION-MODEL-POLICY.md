@@ -355,12 +355,14 @@ Every public operation is classified before its implementation module is importe
 | governance.rebuild.preview | read | never | — | — |
 | governance.restore | mutation | never | — | — |
 | governance.restore.preview | read | never | — | — |
+| governance.verify | read | never | — | — |
 | guard.disable | mutation | never | — | — |
 | guard.enable | mutation | never | — | — |
 | guard.exception | mutation | never | — | — |
 | guard.reconcile | read | never | — | — |
 | guard.recover | mutation | never | — | — |
 | guard.register | mutation | never | — | — |
+| guard.remote-check | read | never | — | — |
 | guard.revoke | mutation | never | — | — |
 | guard.rotate | mutation | never | — | — |
 | guard.stamp-agents | mutation | never | — | — |

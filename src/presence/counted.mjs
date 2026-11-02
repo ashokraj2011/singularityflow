@@ -35,3 +35,21 @@ export function countedRecords(workflow, records, isPerson = everyEntry) {
   if (counts === undefined) return pin.status === 'off' ? list : list.filter((entry) => !isPerson(entry));
   return list.filter((entry) => !isPerson(entry) || counts(entry));
 }
+
+// SF Guard M4: the final check's preview approves the closing step with a decision that exists only
+// in memory. It is marked here, never by a field, so a record written to disk can never claim it.
+const SYNTHETIC = Symbol.for('singularity-flow.presence-synthetic-approvals');
+
+/** Mark an in-memory decision the final check's preview made (terminal readiness). */
+export function markSyntheticApproval(record) {
+  (globalThis[SYNTHETIC] ??= new WeakSet()).add(record);
+  return record;
+}
+
+/** The approvals of `approvals` that count, keeping the preview's in-memory decision (SF Guard M4). */
+export function countedApprovals(workflow, approvals) {
+  const synthetic = globalThis[SYNTHETIC];
+  const list = approvals ?? [];
+  const counted = new Set(countedRecords(workflow, list.filter((entry) => !synthetic?.has(entry))));
+  return list.filter((entry) => synthetic?.has(entry) || counted.has(entry));
+}

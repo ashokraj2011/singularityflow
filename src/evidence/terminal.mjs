@@ -18,6 +18,7 @@ import { completionLabel } from './labels.mjs';
 import { upstreamIssueTerminalBlockers } from '../upstream-issues.mjs';
 import { decidableUpstreamStep, raiseUpstreamIssueRoute } from '../upstream-routes.mjs';
 import { forwardAmendmentTerminalBlockers } from '../forward-amendments.mjs';
+import { markSyntheticApproval } from '../presence/counted.mjs';
 
 const MAX_LISTED = 20;
 const BLOCKING_RESULTS = new Set(['failed', 'inconclusive', 'missing', 'pending']);
@@ -206,11 +207,11 @@ export function projectFinalApproval(workflow, { at = nowIso() } = {}) {
     phase.status = 'approved';
     phase.approvedAt = at;
     phase.approvals ??= [];
-    phase.approvals.push({
+    phase.approvals.push(markSyntheticApproval({
       decision: 'approved', generation: phase.generation, at: 'terminal-readiness-preview',
       actor: null, agent: null, authorityGroup: null, selfApproval: false,
       preview: true
-    });
+    }));
   }
   projected.currentPhase = null;
   projected.status = 'closed';

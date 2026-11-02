@@ -12,6 +12,7 @@
  * adapter only counts tests passes through its module command and stops at module-observed.
  */
 import { approvalRequirementsMet } from '../approval-authority.mjs';
+import { countedApprovals } from '../presence/counted.mjs';
 import { qualifiedClauseIds } from '../traceability-ids.mjs';
 import { phaseRequiresCodeDelivery } from '../code-delivery-policy.mjs';
 import { mergeObservedClaimRecords, mergePlannedClaimRecords, plannedProductSourcePaths, testOnlyClaimEvidence } from '../specifications.mjs';
@@ -37,13 +38,19 @@ function phaseFinished(phase) {
   return ['approved', 'skipped'].includes(phase?.status);
 }
 
-/** How a step's own approval stands under the authoritative rule, as one review facet value. */
-export function reviewFacet(phase) {
+/**
+ * How a step's own approval stands under the authoritative rule, as one review facet value. On a
+ * Story SF Guard requires, only an approval whose presence signature verifies counts (M4).
+ */
+export function reviewFacet(phase, workflow = null) {
   if (!phase) return 'pending';
   const policy = phase.approvalPolicy ?? {};
   if (policy.mode === 'none') return 'not-required';
   if (phase.status !== 'approved') return 'pending';
-  const active = (phase.approvals ?? []).filter((item) => !item.invalidatedAt && item.decision === 'approved');
+  const recorded = (phase.approvals ?? []).filter((item) => !item.invalidatedAt && item.decision === 'approved');
+  const active = countedApprovals(workflow, recorded);
+  // Approvals were recorded but none of them counts: the step still waits for a person's approval.
+  if (recorded.length && !active.length) return 'pending';
   if (!active.length) return policy.mode === 'policy' ? 'policy-approved' : 'approved';
   if (!approvalRequirementsMet(policy, active)) return 'pending';
   return active.every((item) => item.selfApproval) ? 'self-approved' : 'approved';
@@ -315,7 +322,7 @@ export function evaluateEvidence(graph, { boundary = 'view', mode = 'projection'
     const planId = obligationId(workId, 'plan', id);
     const plannedBy = claimsPlanned ? (ownerIds.length ? ownerIds : [clause.definedIn])
       : planSteps.length ? planSteps : [clause.definedIn];
-    const planReview = reviewFacet(phases[plannedBy[0]]);
+    const planReview = reviewFacet(phases[plannedBy[0]], workflow);
     const plannersFinished = plannedBy.every((owner) => phaseFinished(phases[owner]));
     const planStatus = planned ? 'met' : !claimsPlanned ? (plannersFinished ? 'met' : 'pending') : plannersFinished ? 'missing' : 'pending';
     if (planStatus === 'missing') rowFindings.push(finding('EVIDENCE_PLAN_MISSING', `${id} is not in the approved plan.`, { obligationIds: [planId] }));
@@ -336,7 +343,7 @@ export function evaluateEvidence(graph, { boundary = 'view', mode = 'projection'
       ? allocatedSteps.every((step) => phaseFinished(phases[step])
         || deliveries.some((delivery) => delivery.phaseId === step && delivery.receipt?.status === 'ready'))
       : submittedCode;
-    const implementReview = implementers.length ? reviewFacet(phases[implementers.at(-1)]) : 'not-required';
+    const implementReview = implementers.length ? reviewFacet(phases[implementers.at(-1)], workflow) : 'not-required';
     let implementStatus;
     if (!implementers.length) implementStatus = 'not-applicable';
     else if (noCode) implementStatus = implementers.every((step) => phaseFinished(phases[step])) ? 'met' : 'pending';
@@ -414,7 +421,7 @@ export function evaluateEvidence(graph, { boundary = 'view', mode = 'projection'
       if (noCode) {
         // A reviewer approved verification evidence that cites the criterion; no test proves it.
         inspectedBy = inspections.filter((entry) => entry.clauseIds.has(id) && phaseFinished(phases[entry.phaseId])
-          && !['pending', 'not-required'].includes(reviewFacet(phases[entry.phaseId]))).map((entry) => entry.phaseId);
+          && !['pending', 'not-required'].includes(reviewFacet(phases[entry.phaseId], workflow))).map((entry) => entry.phaseId);
         execution = 'not-applicable';
         assurance = inspectedBy.length ? 'declared' : 'none';
         status = inspectedBy.length ? 'met' : verifySteps.length && verifySteps.every((step) => phaseFinished(phases[step])) ? 'missing' : 'pending';
@@ -636,7 +643,7 @@ export function evaluateEvidence(graph, { boundary = 'view', mode = 'projection'
     }
     const row = storyRow(responsibility, {
       id, responsibility, subject: 'story', owningSteps: steps, status,
-      facets: { coverage: 'not-applicable', execution, assurance, review: combinedReview(steps.map((step) => reviewFacet(phases[step]))), freshness: 'current', exception }
+      facets: { coverage: 'not-applicable', execution, assurance, review: combinedReview(steps.map((step) => reviewFacet(phases[step], workflow))), freshness: 'current', exception }
     });
     if (status === 'missing') row.findings.push(finding('EVIDENCE_RESPONSIBILITY_UNHELD', `No step on this Story's route holds ${responsibility}.`, { obligationIds: [id] }));
     if (status === 'failed') row.findings.push(finding('EVIDENCE_TEST_FAILED', 'A test command of this Story failed.', { obligationIds: [id] }));

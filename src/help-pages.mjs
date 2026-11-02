@@ -1433,8 +1433,13 @@ const PAGES = Object.freeze({
       'card; a prompt you did not start is an agent asking, so decline it. register pins this Mac\'s Touch ID identity',
       '(/usr/sbin/sc_auth create-ctk-identity -l sf-guard -k p-256-ne -t bio) once GitHub lists it as one of your SSH',
       'signing keys. enable is the signed opt-in, and may name per-person exceptions: an approver with no presence signer',
-      'yet (Windows) keeps unsigned steps, labelled "bypass: per-person exception EXC-…" on every surface. In M1 the',
-      'policy is recorded; person steps start requiring signatures in M2. Refusals keep the PSS_ codes of SPEC-PSS-v1.',
+      'yet (Windows) keeps unsigned steps, labelled "bypass: per-person exception EXC-…" on every surface. On a Story',
+      'that requires it, approve, reject and every other person decision take the signature (M2, M3); the final check',
+      'and the evidence receipt verify every signature again (M4). Refusals keep the PSS_ codes of SPEC-PSS-v1.',
+      'The boundary is the required remote check, `governance verify --presence`, run on the Git host by an unmodified',
+      'SFlow. guard remote-check reads whether branch protection requires it and prints its CI recipe; SF Guard never',
+      'writes the recipe or changes protection. A lone approver whose key is lost, with no one else to sign, records a',
+      'per-person exception with --host-review: it counts once another member approves the change on GitHub.',
       'With SF Guard on, each Copilot change is attributed to its agent and skill (SPEC-SFG-v1). enable also writes a',
       'stamping hook into each agent file this repository owns, so the agent a person picks names itself; stamp-agents',
       'writes any that are missing or edited. guard reconcile reads: it gives every changed line one class (declared,',
@@ -1445,7 +1450,10 @@ const PAGES = Object.freeze({
       ['--key SHA256:…', 'The presence identity to pin, from /usr/sbin/sc_auth list-ctk-identities -t ssh (register picks the only one).'],
       ['--remote-check NAME', 'enable only: the required status check that re-verifies signatures on the remote.'],
       ['--exception APPROVER-ID', 'enable only, repeatable: record a per-person exception in the opt-in itself.'],
-      ['--reason TEXT', 'Why: required to revoke a key, turn SF Guard off or revoke an exception.'],
+      ['--reason TEXT', 'Why: required to revoke a key, turn SF Guard off, revoke an exception, or record a host-reviewed one.'],
+      ['--host-review', 'exception add only: the lone-approver fallback, confirmed by a review on GitHub instead of a signature.'],
+      ['--recipe', 'remote-check only: print just the CI workflow, to save as .github/workflows/sf-guard-verify.yml.'],
+      ['--package-url URL / --package-sha256 HEX', 'remote-check only: the SFlow release the CI recipe installs, checked by SHA-256.'],
       ['--propose', 'Propose the change for review when the repository has an approved configuration branch.'],
       ['--json', 'Machine-readable output (sflow-guard).']
     ],
@@ -1455,9 +1463,10 @@ const PAGES = Object.freeze({
       ['singularity-flow guard enable --remote-check sf-guard-verify --exception approver-0123456789ab', 'Opt in, with a labelled exception for a Windows approver.'],
       ['singularity-flow guard recover --key SHA256:…', 'Lost your Mac: pin a new identity after removing the old key from GitHub.'],
       ['singularity-flow guard reconcile', 'Which changed lines came from a declared agent and skill, and which did not.'],
-      ['singularity-flow guard stamp-agents', 'Write the stamping hook into agent files that lack it, or whose stamp was edited.']
+      ['singularity-flow guard stamp-agents', 'Write the stamping hook into agent files that lack it, or whose stamp was edited.'],
+      ['singularity-flow guard remote-check', 'Whether the remote check is required on the default branch, and its CI recipe.']
     ],
-    seeAlso: ['approve', 'configuration', 'decisions']
+    seeAlso: ['approve', 'configuration', 'decisions', 'governance']
   },
   backup: {
     summary: 'Save the drafts and documents kept only on this laptop, and restore them on another laptop or this one.',
@@ -2413,7 +2422,14 @@ const PAGES = Object.freeze({
       '`--confirm-plan` backs every relevant ref up to a Git-private bundle, writes the rebuilt framework',
       'files, the archive registry and a receipt as one commit on the checked-out branch, and proves it',
       'changed nothing else. Every archived Story stays readable; the engine refuses to change it.',
-      '`restore` puts back every file a rebuild changed, as one new commit, after a preview.'
+      '`restore` puts back every file a rebuild changed, as one new commit, after a preview.',
+      '',
+      '`verify --presence` is SF Guard\'s required remote check, and only reads. Against the base of a change it',
+      'checks that the policy file only grew and every added event verifies, that each new key is listed on the',
+      'approver\'s GitHub account, that every person record a Story adds verifies, that none disappears or is',
+      'un-withdrawn, and that a new Story reading as pre-signing really predates the opt-in. It fails with every',
+      'problem and its route, so a required status check holds the merge; GitHub unreachable leaves a key event',
+      '"unconfirmed", never failing for that alone. A repository that never opted in passes.'
     ],
     options: [
       ['--dry-run', 'Preview the exact plan without changing anything.'],
@@ -2423,10 +2439,14 @@ const PAGES = Object.freeze({
       ['--plan grb-DIGEST', 'With restore: the rebuild to undo.'],
       ['--confirm grb-DIGEST', 'With restore: perform the previewed restore.'],
       ['--remote NAME', 'Read Story branches and the configuration authority from this remote (default origin).'],
+      ['--presence', 'With verify: run SF Guard\'s remote check.'],
+      ['--base REF', 'With verify: the base commit of the change; without it every record is checked.'],
+      ['--pull-request N', 'With verify: the pull request, for confirming a host-reviewed exception.'],
       ['--json', 'Emit the CommandResult with the complete plan.']
     ],
     examples: [
       ['singularity-flow governance rebuild --dry-run', 'Review what a rebuild would replace, keep and archive.'],
+      ['singularity-flow governance verify --presence --base origin/main', 'SF Guard\'s remote check against the default branch.'],
       ['singularity-flow governance rebuild --dry-run --json', 'The same plan, for a skill or a script.'],
       ['singularity-flow governance rebuild --confirm-plan grb-0123456789abcdef01234567', 'Activate the reviewed plan.'],
       ['singularity-flow governance restore --plan grb-0123456789abcdef01234567 --dry-run', 'Preview undoing a rebuild.']

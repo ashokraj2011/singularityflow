@@ -230,6 +230,7 @@ export async function startStory(root, {
   workType,
   agent,
   baseBranch = null,
+  baseBranches = [],
   capabilityId = null,
   targetUrl = null,
   files = [],
@@ -374,7 +375,7 @@ export async function startStory(root, {
     });
   } else {
     storyBase = await storyBaseForRepository(root, {
-      values: baseBranch ? [baseBranch] : [],
+      values: [...(baseBranch ? [baseBranch] : []), ...baseBranches],
       interactive: false,
       remote,
       defaultBranch: initialDefinition.defaultBaseBranch,
@@ -631,7 +632,7 @@ export async function startStory(root, {
     capabilityPublications = await capabilityPublicationPlan(capabilityPreflight, root);
 
     const siblings = storyBase.scope === 'capability'
-      ? storyBase.plan.repositories.map((repository) => {
+      ? storyBase.plan.repositories.filter(repository => repository.id !== storyBase.plan.repositoryId).map((repository) => {
           const target = repoRoot(path.resolve(storyBase.workspaceRoot, repository.path));
           const base = storyBase.plan.resolution.resolved[repository.id];
           const baseRef = `refs/remotes/${remote}/${base.branch}`;
@@ -669,7 +670,7 @@ export async function startStory(root, {
     });
     if (storyBase.scope === 'capability') {
       capabilityRepositoriesPrepared = await prepareCapabilityRepositories(
-        storyBase.workspaceRoot, storyBase.plan, id, { remote, fetched: Boolean(capabilityPreflight) }
+        storyBase.workspaceRoot, storyBase.plan, id, { remote, lifecycleRoot: root, fetched: Boolean(capabilityPreflight) }
       );
       await updateStoryStartJournal(root, id, startJournal.transactionId, {
         stage: 'siblings-prepared', capabilityRepositoriesPrepared
@@ -804,6 +805,7 @@ export async function startStory(root, {
         baseBranch: storyBase.localBase,
         baseCommit,
         baseRemote: remote,
+        repositoryId: storyBase.plan?.repositoryId ?? null,
         workType,
         agent: selectedAgent,
         resolved,

@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { createHash } from 'node:crypto';
 import {
-  mkdir, mkdtemp, readFile, rename, rm, stat, symlink, writeFile
+  chmod, mkdir, mkdtemp, readFile, rename, rm, stat, symlink, writeFile
 } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
@@ -10,6 +10,8 @@ import test from 'node:test';
 import { pathToFileURL } from 'node:url';
 import YAML from 'yaml';
 import { storyBaseCatalog } from '../src/capability-start.mjs';
+import { isolatedTestEnvironment } from '../scripts/test-machine-state.mjs';
+import { childTimeout } from './helpers/child-timeout.mjs';
 import { loadDefinition } from '../src/config.mjs';
 import { onboardRepository } from '../src/onboard.mjs';
 import { manualStorySource, startStory } from '../src/story-start.mjs';
@@ -1066,8 +1068,9 @@ test('POC Story intake requires and durably pins the authorized browser origin',
   assert.deepEqual(resumed.workflow.mcpAuthorizations.playwright.origins, ['https://staging.example.test']);
 });
 
-test('desktop Story intake binds a divergent launch checkout to the exact selected-base capability map', async () => {
+test('desktop Story intake binds a divergent launch checkout to the exact selected-base capability map', async (t) => {
   const base = await mkdtemp(path.join(os.tmpdir(), 'sflow-desktop-capability-story-'));
+  t.after(() => rm(base, { recursive: true, force: true, maxRetries: 6, retryDelay: 100 }));
   const workspaceRoot = path.join(base, 'workspace');
   const repositoriesRoot = path.join(workspaceRoot, 'repos');
   await mkdir(repositoriesRoot, { recursive: true });
@@ -1078,6 +1081,7 @@ test('desktop Story intake binds a divergent launch checkout to the exact select
     run('git', ['init', '-b', 'main'], source);
     run('git', ['config', 'user.name', 'Desktop Story Tester'], source);
     run('git', ['config', 'user.email', 'desktop-story@example.com'], source);
+    run('git', ['config', 'core.autocrlf', 'true'], source);
     await writeFile(path.join(source, 'README.md'), `# ${id}\n`);
     if (governed) {
       run(process.execPath, [path.resolve('bin/singularity-flow.mjs'), 'init'], source);
@@ -1202,7 +1206,7 @@ while read old new ref; do
 done
 exit 0
 `);
-        run('chmod', ['+x', rejectConfigurationHook], lead.source);
+        await chmod(rejectConfigurationHook, 0o755);
       }
     });
     assert.equal(refused.workflow.workItem.id, 'WORK-CAP-REFUSED');
@@ -1210,17 +1214,74 @@ exit 0
     assert.match(refused.approvalEnrollment.pending.message, /^Your Git identity was not added to the approval groups on sflow\/config; .* Git refused the push to sflow\/config \([a-z-]+\): "remote: configuration enrollment rejected"\. .* After fixing that, run: singularity-flow sync psh_[0-9a-f-]+\.$/u);
     assert.match(refused.approvalEnrollment.pending.nextAction.command, /^singularity-flow sync psh_[0-9a-f-]+$/u);
     await rm(rejectConfigurationHook);
-    if (run('git', ['branch', '--show-current'], lead.source).stdout.trim() !== launchBranch) run('git', ['switch', '-q', launchBranch], lead.source);
+    // Keep the first Story and its pinned checkout intact. A second Story launches from its own
+    // clean worktree, including on Windows where Git may materialize config with CRLF.
+    const firstCheckout = lead.source;
+    const nextLaunch = path.join(base, 'next-launch');
+    run('git', ['worktree', 'add', '-q', nextLaunch, launchBranch], lead.source);
+    lead.source = nextLaunch;
 
     const started = await startStory(lead.source, {
       id: 'WORK-CAP-1',
       source: manualStorySource('WORK-CAP-1', { title: 'Coordinate capability change' }),
-      workType: 'feature', baseBranch: 'release-capability', capabilityId: 'payments'
+      workType: 'feature', baseBranch: 'release-capability', baseBranches: ['sibling=main'], capabilityId: 'payments'
     });
     assert.deepEqual(started.capabilityPublication.pending, []);
     assert.deepEqual(started.capabilityPublication.published.map((entry) => entry.repository), ['sibling']);
     assert.equal(started.workflow.resolution.capability.map.sha256, selectedBaseMapSha256);
+    assert.equal(started.workflow.workItem.repositoryId, 'lead');
+    assert.equal(started.workflow.workItem.source.repositoryCount, 2);
+    assert.deepEqual(started.workflow.workItem.repositoryBases, [
+      { repositoryId: 'lead', baseBranch: 'release-capability',
+        baseCommit: run('git', ['rev-parse', 'origin/release-capability'], lead.source).stdout.trim(),
+        baseRemote: 'origin', storyBranch: 'WORK-CAP-1' },
+      { repositoryId: 'sibling', baseBranch: 'main',
+        baseCommit: run('git', ['rev-parse', 'origin/main'], sibling.source).stdout.trim(),
+        baseRemote: 'origin', storyBranch: 'WORK-CAP-1' }
+    ]);
+    const retained = JSON.parse(run('git', ['show', 'WORK-CAP-1:singularity/work-items/WORK-CAP-1/workflow.json'], lead.remote).stdout);
+    assert.deepEqual(retained.workItem.repositoryBases, started.workflow.workItem.repositoryBases,
+      'another laptop reads the same portable bases from published Story state');
     assert.match(run('git', ['ls-remote', sibling.remote, 'refs/heads/WORK-CAP-1'], sibling.source).stdout, /refs\/heads\/WORK-CAP-1/);
+    const cli = JSON.parse(run(process.execPath, [path.resolve('bin/singularity-flow.mjs'), 'start', 'WORK-CAP-CLI',
+      '--isolated-worktree', '--from-branch', 'release-capability', '--from-branch', 'sibling=main',
+      '--work-type', 'feature', '--capability', 'payments', '--title', 'CLI multi-repository Story',
+      '--description', 'Keep each repository base in the Story record', '--json'], lead.source).stdout);
+    const cliRoot = (cli.data ?? cli).repositoryPath;
+    const cliRecord = JSON.parse(await readFile(path.join(cliRoot, 'singularity/work-items/WORK-CAP-CLI/workflow.json'), 'utf8'));
+    assert.equal(cliRecord.workItem.repositoryId, 'lead');
+    assert.deepEqual(cliRecord.workItem.repositoryBases.map(({ repositoryId, baseBranch, baseCommit }) =>
+      ({ repositoryId, baseBranch, baseCommit })), started.workflow.workItem.repositoryBases.map(({ repositoryId, baseBranch, baseCommit }) =>
+      ({ repositoryId, baseBranch, baseCommit })), 'CLI and native intake retain the same per-repository bases');
+    assert.equal(run('git', ['branch', '--show-current'], firstCheckout).stdout.trim(), 'WORK-CAP-REFUSED',
+      'creating another Story must not switch the workspace\'s earlier Story checkout');
+    assert.equal(JSON.parse(await readFile(path.join(firstCheckout,
+      'singularity/work-items/WORK-CAP-REFUSED/workflow.json'), 'utf8')).workItem.id, 'WORK-CAP-REFUSED');
+    const second = path.join(base, 'laptop-two');
+    await mkdir(path.join(second, 'repos'), { recursive: true });
+    for (const entry of [lead, sibling]) {
+      const target = path.join(second, 'repos', entry.id);
+      run('git', ['clone', '--quiet', '--no-local', entry.remote, target], base);
+      run('git', ['config', 'user.name', 'Second Contributor'], target);
+      run('git', ['config', 'user.email', 'second@example.test'], target);
+    }
+    await writeFile(path.join(second, 'workspace.json'), await readFile(path.join(workspaceRoot, 'workspace.json')));
+    const takeoverEnv = { ...isolatedTestEnvironment(path.join(base, 'second-machine')), NODE_ENV: 'test' };
+    const { readWorkspace, rememberWorkspace } = await import('../src/workspace.mjs');
+    await rememberWorkspace(takeoverEnv.SINGULARITY_FLOW_WORKSPACE_REGISTRY, await readWorkspace(second));
+    const takeover = spawnSync(process.execPath, [path.resolve('bin/singularity-flow.mjs'), 'session', 'takeover', 'WORK-CAP-CLI',
+      '--workspace', second, '--repository', 'lead', '--json'], {
+      cwd: path.join(second, 'repos', 'lead'), encoding: 'utf8',
+      env: takeoverEnv,
+      timeout: childTimeout(180_000),
+      maxBuffer: 16 * 1024 * 1024
+    });
+    assert.equal(takeover.status, 0, takeover.stdout + takeover.stderr);
+    const taken = JSON.parse(takeover.stdout);
+    assert.equal(taken.repositories.length, 2);
+    assert.deepEqual(taken.repositories.map(context => [context.repository.id, context.story.binding.baseRef,
+      context.story.binding.baseCommit]), cliRecord.workItem.repositoryBases.map(row =>
+      [row.repositoryId, row.baseBranch, row.baseCommit]), 'a second laptop keeps both exact bases in its own checkouts');
   } finally {
     if (previousSelection == null) delete process.env.SINGULARITY_FLOW_ACTIVE_WORKSPACE;
     else process.env.SINGULARITY_FLOW_ACTIVE_WORKSPACE = previousSelection;

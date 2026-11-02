@@ -74,6 +74,10 @@ test('with a shared branch, one --from-branch for all and repository=branch for 
   assert.equal(basePerRepositoryMode(shared), false, 'one shared choice stays the default');
   assert.deepEqual(bases(intakeCommand(shared)), ['release/24.3']);
   assert.match(intakeHtml(shared), /data-base-per-repository[^-]/, 'per-repository bases are offered');
+  const review = intakeHtml(shared).split('Review your Story')[1];
+  assert.match(review, /<code>payments-api<\/code>: release\/24\.3/);
+  assert.match(review, /<code>payments-web<\/code>: release\/24\.3/,
+    'the shared choice still reviews every affected repository');
 
   const mixed = { ...shared, basePerRepository: true, baseBranchOverrides: { 'payments-web': 'develop' } };
   assert.deepEqual(bases(intakeCommand(mixed)), ['release/24.3', 'payments-web=develop']);

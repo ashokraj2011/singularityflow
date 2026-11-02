@@ -380,7 +380,10 @@ export interface StoryPhase {
 }
 
 export interface StoryWorkflow {
-  workItem: { id: string; title?: string; branch?: string; baseBranch?: string; workType?: string; createdAt?: string | null; createdBy?: StoryCreator };
+  workItem: { id: string; title?: string; branch?: string; baseBranch?: string; baseCommit?: string; baseRemote?: string;
+    repositoryId?: string; repositoryBases?: Array<{ repositoryId: string; baseBranch: string; baseCommit: string;
+      baseRemote: string | null; storyBranch: string }>;
+    workType?: string; createdAt?: string | null; createdBy?: StoryCreator };
   currentPhase: string | null;
   phaseOrder: string[];
   phases: Record<string, StoryPhase>;

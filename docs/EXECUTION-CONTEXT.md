@@ -21,6 +21,19 @@ per-invocation selection and coalescing without loading lifecycle code on ordina
 `workspace-membership.mjs` proves actual clone membership independently of the last profile selection.
 No new mutable lifecycle database or duplicate checkout registry is introduced.
 
+New Stories retain `workItem.repositoryId` and `workItem.repositoryBases`: one verified repository
+ID, base branch, full base commit, remote name and Story branch for every repository selected at
+intake. The launch repository's scalar `baseBranch` and `baseCommit` remain for older readers.
+These bindings contain no laptop paths. CLI and editor intake record the same preflight facts;
+the intake review names every affected repository even when all share a branch. View Story intake
+details shows the retained bases. Execution context and takeover select the current repository's
+own binding, rather than using the launch repository's commit for every checkout. Older Stories
+remain readable; a sibling base that was never recorded is shown as unknown, never inferred from
+today's default branch or another repository's history.
+Sibling preparation uses the actual lifecycle checkout, including when it is a linked worktree;
+it does not revisit an older Story in the workspace's canonical clone. The lifecycle checkout is
+tracked by the root recovery journal once, and sibling journals contain only the other repositories.
+
 ## Commands and surfaces
 
 All repository-scoped commands accept `--context-root <ABSOLUTE-CHECKOUT>` before their existing

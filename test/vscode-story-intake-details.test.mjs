@@ -41,10 +41,32 @@ test('current evidence is not claimed as original intake attachments', () => {
   assert.doesNotMatch(html, /Generated plan/);
 });
 
+test('saved intake shows each repository\'s exact base and leaves old sibling bases unknown', () => {
+  const state = workflow();
+  state.workItem.repositoryId = 'api';
+  state.resolution.capability.deliveries = [{ repositories: ['api', 'web'] }];
+  state.workItem.repositoryBases = [
+    { repositoryId: 'api', baseBranch: 'release/api', baseCommit: 'a'.repeat(40), baseRemote: 'origin', storyBranch: 'STORY-42' },
+    { repositoryId: 'web', baseBranch: 'develop', baseCommit: 'b'.repeat(40), baseRemote: 'origin', storyBranch: 'STORY-42' }
+  ];
+  const html = storyIntakeBody(state, preview());
+  assert.match(html, /<td>api<\/td><td>STORY-42<\/td><td>release\/api<\/td><td>a{40}<\/td>/);
+  assert.match(html, /<td>web<\/td><td>STORY-42<\/td><td>develop<\/td><td>b{40}<\/td>/);
+  state.workItem.repositoryBases = [state.workItem.repositoryBases[0]];
+  assert.match(storyIntakeBody(state, preview()), /<td>web<\/td><td>STORY-42<\/td><td>Not recorded<\/td>/,
+    'a partial old record must not hide another delivery repository');
+  delete state.workItem.repositoryBases;
+  const legacy = storyIntakeBody(state, preview());
+  assert.match(legacy, /<td>web<\/td><td>STORY-42<\/td><td>Not recorded<\/td><td>Not recorded<\/td>/);
+});
+
 test('repository intake, references and document labels cannot inject HTML, actions or executable links', () => {
   const attack = '<img src=x onerror="execute()"><script>execute()</script>';
   const state = workflow();
   state.workItem.title = attack;
+  state.workItem.repositoryId = attack;
+  state.workItem.repositoryBases = [{ repositoryId: attack, baseBranch: attack, baseCommit: attack,
+    baseRemote: attack, storyBranch: attack }];
   state.resolution.referenceRepositories[0].id = attack;
   const html = storyIntakeBody(state, preview({ ...source, description: attack, url: 'javascript:execute()' }),
     [{ id: 'DOC-1', type: 'url', name: attack }]);

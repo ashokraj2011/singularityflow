@@ -1636,7 +1636,7 @@ function storyReviewHtml(form: IntakeForm): string {
           <h4>Acceptance criteria</h4><p class="intake-review-prose" data-intake-review-field="acceptanceCriteria">${value(form.acceptanceCriteria)}</p>` : ''}${edit('details')}</article>
       <article><h3>Workflow & branch</h3><dl><dt>Workflow</dt><dd>${value(workflow?.label ?? form.workType)}</dd>
         <dt>Phases</dt><dd>${workflow ? value(workflow.phases.join(' → ')) : 'Not selected'}</dd>
-        ${basePerRepositoryMode(form) ? `<dt>Base branches</dt><dd data-intake-review-bases><ul class="intake-review-bases">${repositoryBases(form)
+        ${form.baseRepositories.length > 1 ? `<dt>Base branches</dt><dd data-intake-review-bases><ul class="intake-review-bases">${repositoryBases(form)
     .map((row) => `<li><code>${escape(row.id)}</code>: ${value(row.branch)}${baseOverridden(form, row) ? ' <span class="sf-tag">override</span>' : ''}</li>`).join('')}</ul></dd>`
     : `<dt>Base branch</dt><dd>${value(form.baseBranch)}</dd>`}<dt>Story branch</dt><dd>${value(storyBranchName(form))}</dd>
         <dt>Workspace</dt><dd>${value(form.targetWorkspace)}</dd>

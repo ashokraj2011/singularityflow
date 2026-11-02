@@ -442,7 +442,7 @@ async function storyRepositoryPlan(root, {
   // frozen transport wrapper prevent later rewrites from redirecting it.
   const remoteIdentity = configuredRemoteIdentity(root, remote, { direction: 'fetch' });
   const repository = {
-    id: path.basename(root),
+    id: context?.repositoryId ?? path.basename(root),
     url: remoteIdentity.url ?? '',
     path: root,
     defaultBranch

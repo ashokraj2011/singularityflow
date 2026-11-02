@@ -1645,7 +1645,7 @@ async function startCommandAtRoot(positionals, options) {
   const originalSession = await loadSession(root, { required: false });
   const originalCopilotSession = await loadCopilotSession(root);
   const siblingRepositories = storyBase.scope === 'capability'
-    ? storyBase.plan.repositories.map((repository) => {
+    ? storyBase.plan.repositories.filter(repository => repository.id !== storyBase.plan.repositoryId).map((repository) => {
         const verified = capabilityPreflight?.find(entry => entry.repository === repository.id);
         if (!verified) throw new SingularityFlowError(`Required repository '${repository.id}' has no verified Story preparation.`, { code: 'STORY_BASE_INVALID' });
         const target = repoRoot(verified.root);
@@ -1844,6 +1844,7 @@ async function startCommandAtRoot(positionals, options) {
           baseCommit: baseCommitAtStart,
           baseRemote: remote,
           canonicalBranch,
+          repositoryId: storyBase.plan?.repositoryId ?? null,
           workType,
           agent: selectedAgent.agent,
           resolved: resolvedWorkType,

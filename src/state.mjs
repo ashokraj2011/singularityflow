@@ -951,6 +951,7 @@ async function updateArtifactMetadata(root, config, workflow, phase) {
 
 export async function createWorkflow(root, config, {
   id, title, source, baseBranch, baseCommit = null, baseRemote = null,
+  repositoryId = null,
   canonicalBranch = id, workType, agent, resolved, capabilityId = null,
   capabilityMapSha256 = null,
   referenceRepositories = [],
@@ -959,6 +960,7 @@ export async function createWorkflow(root, config, {
   testExecutionMode = 'changed-and-affected',
   qualityGateMode = 'hard',
   readinessRepositories = [],
+  repositoryBases: suppliedRepositoryBases = null,
   testRecoveryPlan = null,
   executionOrigin = null,
   approvedConfigurationSnapshot = null,
@@ -994,6 +996,13 @@ export async function createWorkflow(root, config, {
     expectedMapSha256: capabilityMapSha256
   });
   assertCapabilitySource(capability, source);
+  const readinessRepositoryId = readinessRepositories.length === 1 && readinessRepositories[0].id !== 'lifecycle'
+    ? readinessRepositories[0].id : null;
+  const launchRepositoryId = repositoryId ?? readinessRepositoryId ?? capability?.repositoryId ?? null;
+  const { recordStoryRepositoryBases } = await import('./capability-branches.mjs');
+  const repositoryBases = recordStoryRepositoryBases(suppliedRepositoryBases ?? readinessRepositories, {
+    repositoryId: launchRepositoryId, baseBranch, baseCommit, baseRemote, storyBranch: canonicalBranch
+  });
   const selectedResolution = assertWorkTypeStartable(resolved ?? resolveWorkType(config, selectedType));
   // Pinned below for every server a step smoke-checks against it; the POC workflow requires it.
   const targetOrigin = storyStartTargetOrigin(source?.targetOrigin, selectedResolution.phases, { workType: selectedType });
@@ -1185,6 +1194,8 @@ export async function createWorkflow(root, config, {
       branch: currentBranch, baseBranch,
       ...(baseCommit ? { baseCommit } : {}),
       ...(baseRemote ? { baseRemote } : {}),
+      ...(launchRepositoryId ? { repositoryId: launchRepositoryId } : {}),
+      ...(repositoryBases.length ? { repositoryBases } : {}),
       createdAt, createdBy: actor, source: {
       type: source.type,
       stableId: source.stableId ?? null,
@@ -1194,7 +1205,7 @@ export async function createWorkflow(root, config, {
       fetchedAt: source.fetchedAt ?? null,
       contentSha256: source.contentSha256 ?? null,
       risk: source.risk ?? null,
-      repositoryCount: source.repositoryCount ?? 1,
+      repositoryCount: repositoryBases.length || source.repositoryCount || 1,
       publicInterfaceChange: source.publicInterfaceChange ?? null,
       dataMigration: source.dataMigration ?? null,
       securityBoundaryChange: source.securityBoundaryChange ?? null,

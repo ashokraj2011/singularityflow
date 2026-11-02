@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 
 import {
   baseBranchRecord, baseRefusalReport, branchChoices, capabilityRepositories,
-  isStoryBaseBranch, parseBaseSelection, parseRemoteHeads, resolveCapabilityBase
+  isStoryBaseBranch, parseBaseSelection, parseRemoteHeads, resolveCapabilityBase, recordStoryRepositoryBases
 } from '../src/capability-branches.mjs';
 
 const WORKSPACE = {
@@ -23,6 +23,28 @@ const PUBLISHED = {
   'notifications': ['main', 'develop'],
   'audit-sink': ['main']
 };
+
+test('retained Story bases are exact, portable, complete and independent of workspace paths', () => {
+  const options = { repositoryId: 'api', baseBranch: 'release/api', baseCommit: 'a'.repeat(40),
+    baseRemote: 'origin', storyBranch: 'delivery/MULTI-1' };
+  const repositories = [
+    { id: 'web', root: '/laptop-one/work/web', baseBranch: 'develop', baseCommit: 'b'.repeat(40) },
+    { id: 'api', root: '/laptop-one/work/api', baseBranch: 'release/api', baseCommit: 'a'.repeat(40) }
+  ];
+  const recorded = recordStoryRepositoryBases(repositories, options);
+  assert.deepEqual(recorded.map(row => [row.repositoryId, row.baseBranch, row.baseCommit]),
+    [['api', 'release/api', 'a'.repeat(40)], ['web', 'develop', 'b'.repeat(40)]]);
+  assert.ok(recorded.every(row => row.storyBranch === 'delivery/MULTI-1' && row.baseRemote === 'origin'));
+  assert.doesNotMatch(JSON.stringify(recorded), /laptop-one|root/);
+  for (const invalid of [[repositories[0]], [repositories[1], repositories[1]],
+    [{ ...repositories[1], baseCommit: 'truncated' }], [{ ...repositories[1], baseBranch: 'different' }]]) {
+    assert.throws(() => recordStoryRepositoryBases(invalid, options), { code: 'STORY_REPOSITORY_BASES_INVALID' });
+  }
+  assert.equal(recordStoryRepositoryBases([{ ...repositories[1], id: 'lifecycle' }], options)[0].repositoryId, 'api');
+  assert.deepEqual(recordStoryRepositoryBases([repositories[1], { ...repositories[0], id: 'lifecycle' }], options)
+    .map(row => row.repositoryId), ['api', 'lifecycle'], 'lifecycle can also be a real sibling repository ID');
+  assert.deepEqual(recordStoryRepositoryBases([], {}), [], 'old callers with no exact base are not given invented commits');
+});
 
 test('a capability names its own repositories and nobody else’s', () => {
   assert.deepEqual(capabilityRepositories(WORKSPACE, 'payments').map((entry) => entry.id),

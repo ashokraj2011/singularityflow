@@ -27,6 +27,28 @@ function specificationSlicesHtml(source: Record<string, unknown> | null): string
   }).join('')}</tbody></table></section>`;
 }
 
+/** Render retained repository facts without resolving paths or consulting today's branch defaults. */
+function repositoryBasesHtml(workflow: StoryWorkflow): string {
+  const work = workflow.workItem;
+  const recorded = work.repositoryBases ?? [];
+  const capability = object(object(workflow.resolution).capability);
+  const primary = work.repositoryId ?? (recorded.length === 1 ? recorded[0]?.repositoryId : null)
+    ?? (typeof capability.repositoryId === 'string' ? capability.repositoryId : null);
+  const deliveries = capability.mode === 'implicit' && recorded.length ? []
+    : Array.isArray(capability.deliveries) ? capability.deliveries.map(object) : [];
+  const ids = [...new Set([primary ?? 'Launch repository', ...recorded.map(base => base.repositoryId),
+    ...deliveries.flatMap(delivery => Array.isArray(delivery.repositories) ? delivery.repositories
+      : delivery.repository ? [delivery.repository] : []).filter(id => typeof id === 'string')])];
+  return `<section><h2>Repository bases</h2><p class="muted">Recorded at Story creation. Current branches and laptop paths do not replace these bases.</p>
+    <table><thead><tr><th>Repository</th><th>Story branch</th><th>Base branch</th><th>Base commit</th><th>Remote</th></tr></thead><tbody>${ids.map(id => {
+      const base = recorded.find(entry => entry.repositoryId === id);
+      const launch = id === (primary ?? 'Launch repository');
+      return `<tr>${[id, base?.storyBranch ?? work.branch, base?.baseBranch ?? (launch ? work.baseBranch : null),
+        base?.baseCommit ?? (launch ? work.baseCommit : null), base?.baseRemote ?? (launch ? work.baseRemote : null)]
+        .map(value => `<td>${escape(display(value))}</td>`).join('')}</tr>`;
+    }).join('')}</tbody></table></section>`;
+}
+
 /** Saved intake is data, never executable Markdown, HTML, URLs or command selectors. */
 export function storyIntakeBody(workflow: StoryWorkflow, preview: IntakeDocumentPreview, documents: StoryArtifact[] = []): string {
   if (preview.record?.id !== 'SYS-SOURCE' || preview.binary || typeof preview.content !== 'string') {
@@ -61,6 +83,7 @@ export function storyIntakeBody(workflow: StoryWorkflow, preview: IntakeDocument
       ['Quality gates', resolution.qualityGateMode ?? 'hard']
     ].map(([label, value]) => row(String(label), value)).join('')}</tbody></table>
       <p class="muted">Test policies can be amended after intake. Use Test policy and recovery to inspect current commands, baseline dispositions and risk decisions; absent records are not inferred.</p></section>
+    ${repositoryBasesHtml(workflow)}
     <section><h2>Details entered at intake</h2>${source ? fields.filter(([key]) => source![key] != null && source![key] !== '')
       .map(([key, label]) => `<h3>${escape(label)}</h3><pre class="intake-value">${escape(display(source![key]))}</pre>`).join('')
       : `<p class="warning">${preview.truncated ? 'The source preview is truncated; not all intake details are available.' : 'The saved source could not be interpreted as a JSON object. The returned text is shown below.'}</p>`}

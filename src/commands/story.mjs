@@ -604,6 +604,7 @@ export async function storyFetchCommand(positionals, options) {
     }));
   };
   const creatingWorkflow = !await exists(path.join(workDir(target, config, storyKey), 'workflow.json'));
+  let fetchedRepositoryBases = null;
   // Check explicitly required non-test proof before moving siblings. Test results are baseline
   // context, not a fetch gate; the fetched seed need not be checked out at its parent revision.
   if (creatingWorkflow && readinessRequired) await inspectSeedPrerequisites();
@@ -614,6 +615,17 @@ export async function storyFetchCommand(positionals, options) {
     const prepared = await prepareCapabilityRepositories(
       capabilityBase.workspaceRoot, capabilityBase.plan, storyKey
     );
+    if (readinessBase) fetchedRepositoryBases = [
+      { id: repositoryId, baseBranch: seed.story.parentBranch ?? repository.defaultBranch,
+        baseCommit: readinessBase, remote: targetRemote },
+      // An already-existing sibling branch may contain older work. Its original base was not
+      // retained by this legacy seed, so today's tracking ref cannot be claimed as that base.
+      ...prepared.filter(entry => entry.repository !== repositoryId && entry.action !== 'absent'
+        && (entry.preparedWorktree || entry.checkoutMode?.startsWith('created-from-'))).map(entry => ({
+        id: entry.repository, baseBranch: entry.base,
+        baseCommit: entry.preparedWorktree?.baseCommit ?? refHead(entry.target, `refs/remotes/origin/${entry.base}`), remote: 'origin'
+      }))
+    ];
     if (!optionBoolean(options, 'json')) printCapabilityBase(capabilityBase.plan, prepared);
   }
 
@@ -648,6 +660,9 @@ export async function storyFetchCommand(positionals, options) {
       },
       baseBranch: seed.story.parentBranch ?? repository.defaultBranch,
       baseCommit: readinessBase ?? null,
+      baseRemote: targetRemote,
+      repositoryId,
+      repositoryBases: fetchedRepositoryBases,
       workType,
       agent: agent.agent,
       qualityGateMode: optionString(options, 'gate-mode', 'hard'),

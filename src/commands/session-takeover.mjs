@@ -82,9 +82,14 @@ export async function run(_argv, { positionals, options }) {
   const primary = await captureExecutionContext(root, { workspace: member, workflow,
     configurationPin: workflow.resolution?.configurationSource ?? null, fresh: true });
   bindings.push(primary);
-  const required = [...new Set((workflow.resolution?.capability?.deliveries ?? [])
-    .flatMap(delivery => delivery.repositories ?? (delivery.repository ? [delivery.repository] : [])))];
-  const primaryRepositoryId = member?.repositoryId ?? workflow.resolution?.capability?.repositoryId
+  const repositoryBases = workflow.workItem.repositoryBases ?? [];
+  const deliveries = workflow.resolution?.capability?.mode === 'implicit' ? []
+    : workflow.resolution?.capability?.deliveries ?? [];
+  const required = [...new Set([
+    ...repositoryBases.filter(base => !(repositoryBases.length === 1 && !workflow.workItem.repositoryId
+      && base.repositoryId === 'lifecycle')).map(base => base.repositoryId),
+    ...deliveries.flatMap(delivery => delivery.repositories ?? (delivery.repository ? [delivery.repository] : []))])];
+  const primaryRepositoryId = member?.repositoryId ?? workflow.workItem.repositoryId ?? workflow.resolution?.capability?.repositoryId
     ?? (required.length === 1 ? required[0] : null);
   const completed = [root];
   try {
@@ -113,7 +118,8 @@ export async function run(_argv, { positionals, options }) {
       if (repositoryId === primaryRepositoryId) continue;
       const repository = member.workspace.repositories[repositoryId];
       if (!repository) throw new SingularityFlowError(`Story repository '${repositoryId}' is missing from this workspace.`, { code: 'STORY_TAKEOVER_REPOSITORY_REQUIRED' });
-      const storyRef = workflow.lineage?.canonicalBranch ?? workflow.workItem.branch;
+      const storyRef = repositoryBases.find(base => base.repositoryId === repositoryId)?.storyBranch
+        ?? workflow.lineage?.canonicalBranch ?? workflow.workItem.branch;
       let source = workspaceRepositoryPath(member.workspace, repository);
       if (!(await lstat(path.join(source, '.git')).catch(() => null))) {
         source = (await (await import('../workspace-branch-checkout.mjs')).prepareWorkspaceBranch(

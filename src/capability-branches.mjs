@@ -256,3 +256,33 @@ export function baseBranchRecord(resolution, { capability = null, selectedAt = n
     ))
   });
 }
+
+/** Portable, exact bases from the preflight that actually created the Story, never local paths. */
+export function recordStoryRepositoryBases(repositories = [], {
+  repositoryId = null, baseBranch, baseCommit = null, baseRemote = null, storyBranch
+} = {}) {
+  const selected = repositories.length ? repositories
+    : baseCommit ? [{ id: repositoryId ?? 'lifecycle', baseBranch, baseCommit }] : [];
+  const seen = new Set();
+  const recorded = selected.map((entry) => {
+    const id = selected.length === 1 && entry.id === 'lifecycle' ? repositoryId ?? entry.id : entry.id;
+    if (typeof id !== 'string' || !id || seen.has(id)
+        || typeof entry.baseBranch !== 'string' || !entry.baseBranch
+        || !/^(?:[a-f0-9]{40}|[a-f0-9]{64})$/iu.test(entry.baseCommit ?? '')) {
+      throw new SingularityFlowError('Story repository bases need one exact branch and commit per repository.',
+        { code: 'STORY_REPOSITORY_BASES_INVALID' });
+    }
+    seen.add(id);
+    if (id === repositoryId && (entry.baseBranch !== baseBranch || entry.baseCommit !== baseCommit)) {
+      throw new SingularityFlowError(`The recorded base of '${id}' differs from the Story launch base.`,
+        { code: 'STORY_REPOSITORY_BASES_INVALID' });
+    }
+    return { repositoryId: id, baseBranch: entry.baseBranch, baseCommit: entry.baseCommit,
+      baseRemote: entry.baseRemote ?? entry.remote ?? baseRemote, storyBranch };
+  });
+  if (recorded.length && repositoryId && !seen.has(repositoryId)) {
+    throw new SingularityFlowError(`The Story launch repository '${repositoryId}' has no recorded base.`,
+      { code: 'STORY_REPOSITORY_BASES_INVALID' });
+  }
+  return recorded.sort((a, b) => a.repositoryId.localeCompare(b.repositoryId));
+}

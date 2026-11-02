@@ -35,14 +35,23 @@ export function projectExecutionContext({ identity, workspace = null, workflow =
     });
   }
   const work = workflow?.workItem ?? null;
-  const repositoryId = workspace?.repositoryId ?? workflow?.resolution?.capability?.repositoryId ?? null;
+  const repositoryId = workspace?.repositoryId ?? work?.repositoryId ?? workflow?.resolution?.capability?.repositoryId ?? null;
+  const launchRepositoryId = work?.repositoryId ?? workflow?.resolution?.capability?.repositoryId ?? repositoryId;
+  const repositoryBases = Array.isArray(work?.repositoryBases) ? work.repositoryBases : [];
+  const basesByRepository = new Map(repositoryBases.map(base => [base.repositoryId, base]));
+  const baseFor = id => basesByRepository.get(id)
+    ?? (id === launchRepositoryId && repositoryBases.length === 1 && repositoryBases[0].repositoryId === 'lifecycle'
+      ? repositoryBases[0] : null);
+  const deliveries = workflow?.resolution?.capability?.mode === 'implicit' && repositoryBases.length ? []
+    : workflow?.resolution?.capability?.deliveries ?? [];
   // The approved remote fingerprint remains stable when this clone is registered in a different
   // local workspace. Local clone IDs and the configured portable repository name stay separate.
   const logicalRepository = remote ? `repository-${digest([remote]).slice(0, 24)}` : null;
   const binding = work ? {
     repositoryId, logicalRepositoryId: logicalRepository,
-    storyId: work.id, storyRef: work.branch ?? workflow?.lineage?.canonicalBranch ?? null,
-    baseRef: work.baseBranch ?? null, baseCommit: work.baseCommit ?? null
+    storyId: work.id, storyRef: baseFor(repositoryId)?.storyBranch ?? work.branch ?? workflow?.lineage?.canonicalBranch ?? null,
+    baseRef: baseFor(repositoryId)?.baseBranch ?? (repositoryId === launchRepositoryId ? work.baseBranch ?? null : null),
+    baseCommit: baseFor(repositoryId)?.baseCommit ?? (repositoryId === launchRepositoryId ? work.baseCommit ?? null : null)
   } : null;
   const facts = {
     workspace: workspace ? { id: workspace.workspaceId, path: workspace.workspacePath,
@@ -55,9 +64,12 @@ export function projectExecutionContext({ identity, workspace = null, workflow =
     story: work ? { id: work.id, phase: workflow.currentPhase ?? null, status: workflow.status,
       revision: `sha256:${digest(workflow)}`,
       repositoryBindings: [...new Set([repositoryId,
-        ...(workflow.resolution?.capability?.deliveries ?? []).flatMap(delivery => delivery.repositories ?? (delivery.repository ? [delivery.repository] : []))].filter(Boolean))]
+        ...repositoryBases.map(base => repositoryBases.length === 1 && !work.repositoryId && base.repositoryId === 'lifecycle'
+          ? launchRepositoryId : base.repositoryId),
+        ...deliveries.flatMap(delivery => delivery.repositories ?? (delivery.repository ? [delivery.repository] : []))].filter(Boolean))]
         .map(id => id === repositoryId ? binding : { repositoryId: id, storyId: work.id,
-          storyRef: workflow.lineage?.canonicalBranch ?? work.branch, baseRef: null, baseCommit: null }),
+          storyRef: baseFor(id)?.storyBranch ?? workflow.lineage?.canonicalBranch ?? work.branch,
+          baseRef: baseFor(id)?.baseBranch ?? null, baseCommit: baseFor(id)?.baseCommit ?? null }),
       configurationPin: structuredClone(configurationPin), binding } : null
   };
   return immutable({ schemaVersion: EXECUTION_CONTEXT_VERSION, resultType: 'execution-context',

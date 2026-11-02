@@ -115,6 +115,24 @@ test('invocation scopes coalesce reads but never share mutable observations betw
   assert.equal((await captureExecutionContext(f.root)).worktree.branch, 'next');
 });
 
+test('a sibling checkout and takeover use its own retained base, never the lead repository\'s', () => {
+  const identity = { root: '/work/web', commonDir: '/work/web/.git', gitDir: '/work/web/.git',
+    repositoryInstanceId: 'clone-web', worktreeInstanceId: 'tree-web', branch: 'feature/multi', head: 'c'.repeat(40) };
+  const workflow = { workItem: { id: 'MULTI-1', branch: 'feature/multi', repositoryId: 'api', baseBranch: 'release/api',
+    baseCommit: 'a'.repeat(40), repositoryBases: [
+      { repositoryId: 'api', baseBranch: 'release/api', baseCommit: 'a'.repeat(40), baseRemote: 'origin', storyBranch: 'feature/multi' },
+      { repositoryId: 'web', baseBranch: 'develop', baseCommit: 'b'.repeat(40), baseRemote: 'origin', storyBranch: 'feature/multi' }
+    ] }, resolution: { capability: { repositoryId: 'api', deliveries: [{ repositories: ['api', 'web'] }] } } };
+  const projected = projectExecutionContext({ identity, workspace: { repositoryId: 'web', workspaceId: 'laptop-two' }, workflow });
+  assert.equal(projected.story.binding.baseRef, 'develop');
+  assert.equal(projected.story.binding.baseCommit, 'b'.repeat(40));
+  assert.deepEqual(projected.story.repositoryBindings.map(row => [row.repositoryId, row.baseRef, row.baseCommit]),
+    [['web', 'develop', 'b'.repeat(40)], ['api', 'release/api', 'a'.repeat(40)]]);
+  delete workflow.workItem.repositoryBases;
+  const legacy = projectExecutionContext({ identity, workspace: { repositoryId: 'web' }, workflow });
+  assert.equal(legacy.story.binding.baseCommit, null, 'old records do not copy the lead commit onto a sibling');
+});
+
 test('membership resolves the actual workspace without changing the profile selection', async t => {
   const f = await fixture(t);
   const before = JSON.stringify({ unrelated: true }); await writeFile(f.env.SINGULARITY_FLOW_ACTIVE_WORKSPACE, before);
@@ -273,8 +291,9 @@ test('a chat with no folder open attaches the chosen Story with the returned sel
     return JSON.parse(result.stdout);
   };
   const verified = renderPlatformCommand([process.execPath, realpathSync(cli)], 'linux');
+  const hostInvocation = renderPlatformCommand([process.execPath, realpathSync(cli)], process.platform);
   assert.ok(hook('boundary-turn', { prompt: '/sf-session' }).additionalContext.endsWith(
-    `If \`singularity-flow\` is not found, run each \`singularity-flow …\` command as \`${verified} …\`.`));
+    `If \`singularity-flow\` is not found, run each \`singularity-flow …\` command as \`${hostInvocation} …\`.`));
   const listed = JSON.parse(f.flow(['session', 'open', '--for-agent', '--json'], { cwd: chat, environment }).stdout);
   assert.equal(listed.status, 'choose');
   assert.deepEqual([listed.selectors[0], listed.selectors[2], listed.selectors[3]], ['--workspace', '--repository', 'app']);

@@ -4015,6 +4015,69 @@ test('fresh branch recovery keeps the intake draft and routes readiness and Star
   assert.deepEqual(registered.errors, []);
 });
 
+test('intake takes a base per repository when the capability shares no branch, and Start sends exactly those', async (t) => {
+  if (!requireBundle(t)) return;
+  const { api, registered } = stubVscode();
+  loadExtension(api);
+  const { IntakePanel } = hostRequire(path.join(packageRoot, 'apps/vscode/dist/lazy-panels-runtime.cjs'));
+  const calls = [];
+  // main in one repository, develop in another, both in the third: no branch is in all three.
+  const catalog = {
+    choices: [
+      { branch: 'develop', present: 2, total: 3, everywhere: false, missingFrom: ['payments-api'] },
+      { branch: 'main', present: 2, total: 3, everywhere: false, missingFrom: ['payments-web'] }
+    ],
+    repositoryId: 'payments-api',
+    repositories: [
+      { id: 'payments-api', defaultBranch: 'main', branches: ['main'] },
+      { id: 'payments-web', defaultBranch: 'develop', branches: ['develop'] },
+      { id: 'ledger-core', defaultBranch: 'main', branches: ['develop', 'main'] }
+    ],
+    remote: 'origin', intake: { storyWorkflows: [{ id: 'feature', label: 'Feature', governs: 'story', phases: ['intake'] }] }
+  };
+  let started = null;
+  const client = {
+    repository: path.resolve('/fixture/workspace/repos/payments-api'), prewarmRuntime: async () => {},
+    async run(args) {
+      calls.push(args);
+      if (args[0] === 'start') return { id: 'PAY-7', repositoryPath: path.resolve('/fixture/workspace/story') };
+      if (args.includes('--preflight-story')) {
+        return { ...catalog, repositories: catalog.repositories.map(({ id, defaultBranch }) => ({ id, defaultBranch })),
+          preflight: { passed: true, readiness: { ready: true, warnings: [], blockers: [] } } };
+      }
+      return catalog;
+    }
+  };
+  const panel = IntakePanel.show(context(), client, api.window.createOutputChannel('Intake'), async (result) => { started = result; }, {
+    workspace: 'fixture', repository: client.repository, branch: 'main', inFlight: [], defaults: { source: 'manual' }
+  });
+  t.after(() => panel.dispose());
+  const view = registered.panels.find((entry) => entry.id === 'singularityFlow.intake');
+  await until(() => view.webview.html.includes('data-base-per-repository-required') ? true : null,
+    { what: 'the per-repository bases to open on their own' });
+  assert.equal((view.webview.html.match(/data-base-repository="/g) ?? []).length, 3);
+  await view.post({ type: 'field', field: 'title', value: 'Card limits' });
+  await view.post({ type: 'field', field: 'description', value: 'Limit card spend per day' });
+  await view.post({ type: 'field', field: 'id', value: 'PAY-7' });
+  await until(() => /Story-start readiness confirmed/.test(view.webview.html) ? true : null, { what: 'readiness on the default bases' });
+  const fromBranches = (args) => args.flatMap((value, index) => args[index - 1] === '--from-branch' ? [value] : []);
+  assert.deepEqual(fromBranches(calls.findLast((args) => args.includes('--preflight-story'))),
+    ['payments-api=main', 'payments-web=develop', 'ledger-core=main']);
+  // A branch that repository does not offer is ignored; one it offers becomes its override.
+  await view.post({ type: 'baseRepository', repository: 'payments-api', value: 'develop' });
+  await view.post({ type: 'baseRepository', repository: 'ledger-core', value: 'develop' });
+  await until(() => /ledger-core <span class="sf-tag">override<\/span>/.test(view.webview.html)
+    && /Story-start readiness confirmed/.test(view.webview.html) ? true : null, { what: 'readiness on the overridden bases' });
+  assert.deepEqual(fromBranches(calls.findLast((args) => args.includes('--preflight-story'))),
+    ['payments-api=main', 'payments-web=develop', 'ledger-core=develop']);
+  assert.match(view.webview.html, /<code>ledger-core<\/code>: develop <span class="sf-tag">override<\/span>/, 'the review shows each base');
+  await view.post({ type: 'start' });
+  assert.equal(started?.id, 'PAY-7');
+  assert.deepEqual(fromBranches(calls.find((args) => args[0] === 'start')),
+    ['payments-api=main', 'payments-web=develop', 'ledger-core=develop']);
+  assert.deepEqual(registered.errors, []);
+});
+
 test('readiness deadlines stop checking, preserve intake, offer Retry, and cancel superseded/closed reads', async (t) => {
   if (!requireBundle(t)) return;
   const { api, registered } = stubVscode();

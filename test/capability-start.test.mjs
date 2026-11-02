@@ -174,6 +174,10 @@ test('workspace intake discovery filters names without scanning application hist
   finally { childProcess.spawnSync = originalSpawn; syncBuiltinESMExports(); }
   assert.equal(listed.localMetadata, 'deferred-to-selected-base-preflight');
   assert.deepEqual(listed.choices.map(choice => choice.branch), ['develop', 'main']);
+  // Each repository's own offered list, so an editor can take a base per repository.
+  assert.equal(listed.repositoryId, 'application');
+  assert.deepEqual(listed.repositories.map(({ id, branches }) => ({ id, branches })),
+    [{ id: 'application', branches: ['develop', 'main'] }]);
   assert.ok(listed.intake.storyWorkflows.some(workflow => workflow.id === 'feature'));
   assert.deepEqual(historyReads, [], 'the complete intake handler does not enumerate roots or ancestry');
 });
@@ -189,6 +193,26 @@ test('explicit framework bases are refused before repository inspection', async 
       (error) => error.code === 'STORY_BASE_INVALID' && /cannot be a Story base/.test(error.message)
     );
   }
+});
+
+test('with no branch in every repository, start names the per-repository form and accepts it', async () => {
+  // A capability whose repositories use different names: no shared answer can exist.
+  const catalog = {
+    scope: 'capability', capability: 'payments', remote: 'origin', repositoryId: 'api', stateBranch: 'state',
+    repositories: [{ id: 'api', defaultBranch: 'main' }, { id: 'web', defaultBranch: 'develop' }],
+    published: { api: ['main'], web: ['develop'] }, unreachable: [],
+    choices: [
+      { branch: 'develop', present: 1, total: 2, everywhere: false, missingFrom: ['api'] },
+      { branch: 'main', present: 1, total: 2, everywhere: false, missingFrom: ['web'] }
+    ]
+  };
+  await assert.rejects(storyBaseForRepository('/unused', { values: [], interactive: false, catalog }),
+    (error) => error.code === 'STORY_BASE_REQUIRED'
+      && /--from-branch <REPOSITORY>=<BRANCH>, once for each of api, web/.test(error.message));
+  const chosen = await storyBaseForRepository('/unused', { values: ['api=main', 'web=develop'], interactive: false, catalog });
+  assert.deepEqual(Object.fromEntries(Object.entries(chosen.plan.resolution.resolved).map(([id, entry]) => [id, entry.branch])),
+    { api: 'main', web: 'develop' });
+  assert.equal(chosen.localBase, 'main', 'the launch checkout is cut from its own repository\'s base');
 });
 
 test('an unreachable remote is reported, never treated as a repository with no branches', async () => {

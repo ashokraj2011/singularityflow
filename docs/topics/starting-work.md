@@ -14,9 +14,11 @@ related:
   - pins
   - work-intervals
   - supporting-documents
-version: 34
+version: 35
 ---
 Three intake doors, one result: Jira, a manual description, or a Story released from an Epic breakdown. For every new Jira or manual Story, first run `sflow workspace branches --json` and explicitly choose a branch published by every required repository. `sflow start PAY-1234 --jira --from-branch main` then refreshes that remote base, verifies that the configured remote can accept `PAY-1234`, creates the canonical branch, pins its exact base commit, and pushes only `refs/heads/PAY-1234`. The selected base ref is never changed. Existing and Epic-materialized Stories keep their already-pinned lineage instead of choosing a second base.
+
+**A base per repository.** When a capability's repositories use different branch names, for example `main` in one and `develop` in another, no branch is published by every one of them. Choose a base for each: `--from-branch main --from-branch payments-web=develop` keeps `main` everywhere except `payments-web`, and with no shared branch every repository is named, `--from-branch payments-api=main --from-branch payments-web=develop`. A repository without a `<repository>=<branch>` takes the shared branch, else its own default. The whole selection is checked before any repository is touched, and the refusal names every repository and what it publishes. `sflow workspace branches --json` lists each repository's own branches, and an interactive `sflow start` asks for each. In VS Code, Start Work opens **a base per repository** on its own when no branch is shared, each preselected to its default, and offers **Choose a base per repository** otherwise; a repository set differently is marked as an override, and the review before Start lists every repository's base.
 
 **Story branch names.** The Work ID is the Story's identity; its branch is chosen once, at start, and recorded in the Story (`workItem.branch`). By default the branch is the Work ID. A team that names branches its own way sets a pattern in `singularity/workflow.yml`:
 

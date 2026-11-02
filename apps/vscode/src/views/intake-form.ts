@@ -305,6 +305,14 @@ export interface IntakeForm extends TestRecoveryDraft {
   baseBranchReason: string | null;
   /** Branches left out because they share no history with the default branch (orphan branches). */
   baseBranchOrphans: string[];
+  /** The capability's repositories in manifest order, each with its own offered branches. */
+  baseRepositories: BaseRepository[];
+  /** The repository whose checkout started intake; a fresh branch download fetches its base. */
+  baseLaunchRepository: string | null;
+  /** The person asked to choose a base per repository (always the case when none is shared). */
+  basePerRepository: boolean;
+  /** Per-repository bases the person chose, as `--from-branch <repository>=<branch>`. */
+  baseBranchOverrides: Record<string, string>;
   /** The Story's branch as the person typed it, e.g. feature/ABC-1 or bugfix/profile/fix-1; empty uses the suggestion. */
   storyBranch: string;
   /** The branch the repository's naming pattern gives this Story, from the exact preflight; null until it answers. */
@@ -345,6 +353,21 @@ export interface IntakeForm extends TestRecoveryDraft {
   recoveryCommand: string | null;
   /** Credential-free logical SFlow command used only to resolve the matching Copilot journey. */
   recoveryRouteCommand: string | null;
+}
+
+/** One repository of the capability, its default branch, and the branches it offers as a base. */
+export interface BaseRepository {
+  id: string;
+  defaultBranch: string | null;
+  branches: string[];
+}
+
+/** The base one repository will be cut from, and why that one. */
+export interface RepositoryBase {
+  id: string;
+  branch: string | null;
+  /** `override`: chosen for this repository; `shared`: the branch chosen for all; `default`: its own default. */
+  source: 'override' | 'shared' | 'default' | 'none';
 }
 
 /** One offered base branch, and how much of the capability publishes it. */
@@ -393,6 +416,7 @@ export const EMPTY_INTAKE_FORM: IntakeForm = {
   referenceRepositories: [],
   storyAttachments: emptyStoryAttachmentSlots(),
   baseBranch: null, baseBranchChoices: [], baseRemote: null, baseBranchReason: null, baseBranchOrphans: [],
+  baseRepositories: [], baseLaunchRepository: null, basePerRepository: false, baseBranchOverrides: {},
   storyBranch: '', suggestedStoryBranch: null,
   basePreflightPassed: false, basePreflightChecking: false, basePreflightReason: null,
   basePreflightWarnings: [], baseTestReadiness: null, basePreflightRefreshRecommended: false,
@@ -509,12 +533,82 @@ export function intakeIdentifier(form: IntakeForm): string {
   return (form.tracker === 'jira' ? form.key : form.id).trim();
 }
 
+/**
+ * No branch is published in every repository of the capability, so one shared base cannot exist and
+ * a base has to be chosen for each repository.
+ */
+export function baseNeedsPerRepository(form: IntakeForm): boolean {
+  return form.baseRepositories.length > 1 && !form.baseBranchChoices.some((choice) => choice.everywhere)
+    && form.catalogStatus !== 'loading' && !form.baseBranchReason;
+}
+
+/** Bases are chosen per repository: the person asked to, or no branch is shared. */
+export function basePerRepositoryMode(form: IntakeForm): boolean {
+  return form.baseRepositories.length > 1 && (form.basePerRepository || baseNeedsPerRepository(form));
+}
+
+/**
+ * The base each repository will be cut from, in manifest order: the branch chosen for it, else the
+ * shared branch where it publishes that, else its own default. The CLI's precedence, made visible.
+ */
+export function repositoryBases(form: IntakeForm): RepositoryBase[] {
+  if (!basePerRepositoryMode(form)) {
+    return form.baseRepositories.map((repository) => ({ id: repository.id, branch: form.baseBranch,
+      source: form.baseBranch ? 'shared' : 'none' }));
+  }
+  return form.baseRepositories.map((repository): RepositoryBase => {
+    const chosen = form.baseBranchOverrides[repository.id];
+    if (chosen && repository.branches.includes(chosen)) {
+      return { id: repository.id, branch: chosen, source: chosen === form.baseBranch ? 'shared' : 'override' };
+    }
+    if (form.baseBranch && repository.branches.includes(form.baseBranch)) {
+      return { id: repository.id, branch: form.baseBranch, source: 'shared' };
+    }
+    if (repository.defaultBranch && repository.branches.includes(repository.defaultBranch)) {
+      return { id: repository.id, branch: repository.defaultBranch, source: 'default' };
+    }
+    return { id: repository.id, branch: null, source: 'none' };
+  });
+}
+
+/** Every repository has a base: the shared one, or one each. */
+export function baseSelected(form: IntakeForm): boolean {
+  return basePerRepositoryMode(form)
+    ? repositoryBases(form).every((row) => row.branch !== null)
+    : Boolean(form.baseBranch);
+}
+
+/**
+ * `--from-branch` exactly as the CLI reads it: the shared branch for all, then
+ * `<repository>=<branch>` for each repository whose base differs from it. With no shared branch,
+ * every repository is named.
+ */
+export function baseBranchArguments(form: IntakeForm): string[] {
+  if (!basePerRepositoryMode(form)) return form.baseBranch ? ['--from-branch', form.baseBranch] : [];
+  if (!baseSelected(form)) return [];
+  const shared = form.baseBranch;
+  return [...(shared ? ['--from-branch', shared] : []),
+    ...repositoryBases(form).filter((row) => row.branch !== shared)
+      .flatMap((row) => ['--from-branch', `${row.id}=${row.branch}`])];
+}
+
+/** The base of the repository whose checkout started intake: what a fresh branch download fetches. */
+export function launchBaseBranch(form: IntakeForm): string | null {
+  if (!basePerRepositoryMode(form)) return form.baseBranch;
+  return repositoryBases(form).find((row) => row.id === form.baseLaunchRepository)?.branch ?? form.baseBranch;
+}
+
+/** The whole base selection as one value, for noticing that it changed; null until it is complete. */
+export function baseSelectionKey(form: IntakeForm): string | null {
+  return baseSelected(form) ? JSON.stringify(baseBranchArguments(form)) : null;
+}
+
 /** All user-controlled creation inputs; a confirmation never survives an edit to this tuple. */
 export function intakePlanInputKey(form: IntakeForm): string {
   return JSON.stringify([
     form.targetWorkspace, form.targetRepository, form.targetBranch, form.shape, form.tracker,
     form.key, form.id, form.title, form.description, form.goal, form.acceptanceCriteria,
-    form.targetUrl, form.profile, form.workType, form.baseBranch, form.storyBranch, form.readinessBaseline, form.qualityGateMode,
+    form.targetUrl, form.profile, form.workType, baseSelectionKey(form), form.storyBranch, form.readinessBaseline, form.qualityGateMode,
     form.referenceRepositories.map(({ id, repository, branch }) => [id, repository, branch]),
     form.storyAttachments, form.testBaselineDisposition, form.testExecutionMode, form.testBaselineScope,
     form.testBaselineRecords, form.testBaselineReason, form.testBaselineOwner,
@@ -615,7 +709,11 @@ export function intakeProblems(form: IntakeForm): string[] {
       }
     });
     if (/\s/u.test(form.storyBranch.trim())) problems.push('A Story branch name cannot contain spaces.');
-    if (!form.baseBranch) {
+    if (basePerRepositoryMode(form) && !baseSelected(form)) {
+      const unset = repositoryBases(form).filter((row) => row.branch === null).map((row) => row.id);
+      problems.push(form.baseBranchReason
+        ?? `Choose a base branch for ${unset.join(', ')}: ${unset.length === 1 ? 'it has' : 'they have'} no shared or default branch to use.`);
+    } else if (!baseSelected(form)) {
       problems.push(form.baseBranchReason
         ?? (form.baseBranchChoices.length
           ? 'Choose the remote base branch from which the Story branch will be created.'
@@ -669,9 +767,10 @@ export function intakeCommand(form: IntakeForm): string[] {
   }
 
   // A Story with a tracker is fetched by key; without one, its content is what was typed here.
-  // One base for the whole capability. Omitted entirely when nothing was chosen, so the
-  // single-repository default is reached by the same code path it always was.
-  const capabilityBase = form.baseBranch ? ['--from-branch', form.baseBranch] : [];
+  // One base for the whole capability, plus `<repository>=<branch>` for each repository chosen
+  // differently. Omitted entirely when nothing was chosen, so the single-repository default is
+  // reached by the same code path it always was.
+  const capabilityBase = baseBranchArguments(form);
   const references = referenceRepositoryEntries(form.referenceRepositories)
     .flatMap((entry) => ['--reference-repository', `${entry.id}=${entry.repository}`,
       '--reference-branch', `${entry.id}=${entry.branch}`]);
@@ -714,7 +813,7 @@ export function intakeCommand(form: IntakeForm): string[] {
  */
 export function storyPreflightCommand(form: IntakeForm): string[] | null {
   const identifier = intakeIdentifier(form);
-  if (form.shape !== 'story' || !identifier || !form.baseBranch) return null;
+  if (form.shape !== 'story' || !identifier || !baseSelected(form)) return null;
   // A passing check with a workflow also asks for an intake receipt, which binds this exact request
   // (references included) so Start can verify it in one wave. Incomplete reference rows are left
   // out; Start refuses those anyway.
@@ -726,7 +825,7 @@ export function storyPreflightCommand(form: IntakeForm): string[] | null {
   } catch { references = []; }
   return [
     'workspace', 'branches', '--json', '--intake', '--preflight-story', identifier, '--isolated-worktree',
-    '--from-branch', form.baseBranch, '--selected-base-only',
+    ...baseBranchArguments(form), '--selected-base-only',
     '--readiness-baseline', form.readinessBaseline,
     '--gate-mode', form.qualityGateMode,
     ...(form.workType ? ['--work-type', form.workType, '--mint-intake-receipt'] : []),
@@ -1025,6 +1124,47 @@ function baseStoryNoteHtml(form: IntakeForm): string {
       <code>${escape(story.workId)}</code> lands.</p>`;
 }
 
+/** A repository's base differs from the branch chosen for all: the CLI's `<repository>=<branch>`. */
+function baseOverridden(form: IntakeForm, row: RepositoryBase): boolean {
+  return row.branch !== null && (form.baseBranch ? row.branch !== form.baseBranch : row.source === 'override');
+}
+
+/** Each repository's base in one line: `api: main, web: develop (override)`. */
+export function repositoryBasesSummary(form: IntakeForm): string {
+  return repositoryBases(form).map((row) => `${row.id}: ${row.branch ?? 'not chosen'}${baseOverridden(form, row) ? ' (override)' : ''}`).join(', ');
+}
+
+/** Why this repository is cut from this branch, in words. */
+function repositoryBaseReason(form: IntakeForm, row: RepositoryBase): string {
+  if (row.source === 'none') return 'No shared or default branch here: choose one.';
+  if (row.source === 'shared') return 'The shared base.';
+  if (row.source === 'default') {
+    return form.baseBranch ? `Its default branch, because ${form.baseBranch} is not published here.` : 'Its default branch.';
+  }
+  return form.baseBranch ? `Chosen for this repository instead of ${form.baseBranch}.` : 'Chosen for this repository.';
+}
+
+/** One row per repository, in manifest order: its branches, its default preselected, overrides marked. */
+function repositoryBasesHtml(form: IntakeForm): string {
+  const rows = repositoryBases(form);
+  return `<div class="base-repository-bases" role="group" aria-label="Base branch per repository">
+    ${form.baseRepositories.map((repository, index) => {
+    const row = rows[index]!;
+    const id = `story-base-repository-${index}`;
+    return `<div class="base-repository" data-base-repository-row="${escape(repository.id)}">
+      <label class="field" for="${id}"><span>${escape(repository.id)}${baseOverridden(form, row) ? ' <span class="sf-tag">override</span>' : ''}</span>
+        <select id="${id}" data-base-repository="${escape(repository.id)}"${form.busy ? ' disabled' : ''}>
+          ${row.branch ? '' : '<option value="" selected>Choose a branch…</option>'}
+          ${repository.branches.map((branch) => `<option value="${escape(branch)}"${branch === row.branch ? ' selected' : ''}>${escape(branch)}${branch === repository.defaultBranch ? ' (default)' : ''}</option>`).join('')}
+        </select></label>
+      ${repository.branches.length > 8 ? `<input type="search" class="base-repository-search" data-base-repository-search="${escape(repository.id)}"
+        placeholder="Filter ${escape(repository.id)} branches" aria-controls="${id}" autocomplete="off" spellcheck="false">` : ''}
+      <p class="meta">${escape(repositoryBaseReason(form, row))}${repository.branches.length ? '' : ' It published no branch that can be a Story base.'}</p>
+    </div>`;
+  }).join('')}
+  </div>`;
+}
+
 function baseBranchHtml(form: IntakeForm): string {
   if (form.shape !== 'story') return '';
   if (workflowCatalogCoversBranchFailure(form)) {
@@ -1046,6 +1186,8 @@ function baseBranchHtml(form: IntakeForm): string {
   // They are intentionally separate from application history, not a user-facing intake problem.
   const visibleOrphans = form.baseBranchOrphans.filter((name) => name !== 'state'
     && name !== form.baseStateBranch && !name.startsWith('sflow/') && !name.startsWith('singularity/pins/'));
+  const perRepository = basePerRepositoryMode(form);
+  const forced = baseNeedsPerRepository(form);
   return `
   <section>
     <h2>${icon('workflow')}Base branch</h2>
@@ -1054,6 +1196,15 @@ function baseBranchHtml(form: IntakeForm): string {
     ${form.catalogStatus === 'cached' ? `<p class="meta" role="status">These are the last known
       branches and workflows. Checking the remote for changes…</p>`
       : form.catalogFreshness ? `<p class="meta" role="status" data-catalog-freshness>${escape(form.catalogFreshness)}</p>` : ''}
+    ${forced ? `<p class="notice" role="status" data-base-per-repository-required>No branch is published in all
+      ${form.baseRepositories.length} repositories of this capability, so choose a base for each one. Each starts at
+      its default branch; change any that should start elsewhere.</p>`
+    : form.baseRepositories.length > 1 ? `<label class="choice${perRepository ? ' chosen' : ''}">
+      <input type="checkbox" data-base-per-repository${perRepository ? ' checked' : ''}${form.busy ? ' disabled' : ''}>
+      <span class="choice-label">Choose a base per repository</span>
+      <span class="choice-detail">For repositories that should start from a different branch. The branch chosen below
+        stays the base of every repository you do not change.</span>
+    </label>` : ''}
     ${form.baseBranchChoices.length ? `<div class="base-branch-filter">
       <label for="story-base-branch-search">Search branches
         <input type="search" id="story-base-branch-search" data-base-branch-search
@@ -1078,6 +1229,7 @@ function baseBranchHtml(form: IntakeForm): string {
     </div>
     ${form.baseBranchChoices.length ? `<p class="meta" data-base-branch-empty hidden>No matching branches. Try another name or clear the search.</p>
     <p class="meta" data-base-branch-selected>${form.baseBranch ? `Selected base: ${escape(form.baseBranch)}.` : 'No base selected.'}</p>` : ''}
+    ${perRepository ? repositoryBasesHtml(form) : ''}
     ${form.shape === 'story' ? `<label class="field"><span>Story branch</span><input type="text" value="${escape(form.storyBranch)}"
       data-field="storyBranch" placeholder="${escape(form.suggestedStoryBranch ?? (intakeIdentifier(form) || 'feature/ABC-123'))}" size="48"
       autocomplete="off" spellcheck="false"></label>
@@ -1087,15 +1239,16 @@ function baseBranchHtml(form: IntakeForm): string {
     ${baseStoryNoteHtml(form)}
     ${visibleOrphans.length ? `<p class="meta">Not offered: ${visibleOrphans.map((name) => `<code>${escape(name)}</code>`).join(', ')}
       — ${visibleOrphans.length === 1 ? 'it shares' : 'they share'} no history with the default branch, so no Story can start from ${visibleOrphans.length === 1 ? 'it' : 'them'}.</p>` : ''}
-    ${form.baseBranch && form.basePreflightPassed ? `<p class="meta">Story-start readiness confirmed for
+    ${baseSelected(form) && form.basePreflightPassed ? `<p class="meta">Story-start readiness confirmed for
       workflow <code>${escape(form.workType ?? '')}</code>: create <code>${escape(intakeIdentifier(form) || '<Story ID>')}</code>
-      from <code>${escape(form.baseRemote ?? 'remote')}/${escape(form.baseBranch)}</code> and publish only
+      from ${perRepository ? `each repository's base (${escape(repositoryBasesSummary(form))})`
+    : `<code>${escape(form.baseRemote ?? 'remote')}/${escape(form.baseBranch ?? '')}</code>`} and publish only
       <code>${escape(form.baseRemote ?? 'remote')}/refs/heads/${escape(storyBranchName(form) || '<Story ID>')}</code>.
       Publication access and changed inputs are checked on Start.</p>
       <button type="button" class="secondary" data-readiness-retry ${form.busy || form.basePreflightChecking ? 'disabled' : ''}>Refresh readiness</button>` : ''}
     ${form.basePreflightChecking ? '<p class="meta">Checking approved configuration, workflow agents, and selected branches. Publication access is checked on Start.</p>' : ''}
     ${(form.basePreflightPassed || form.basePreflightChecking) && form.basePreflightReason ? `<p class="meta" role="status">${escape(form.basePreflightReason)}</p>` : ''}
-    ${form.baseBranch && !form.basePreflightPassed && !form.basePreflightChecking && form.basePreflightReason ? `<p class="blockers" role="alert">${escape(form.basePreflightReason)}</p>
+    ${baseSelected(form) && !form.basePreflightPassed && !form.basePreflightChecking && form.basePreflightReason ? `<p class="blockers" role="alert">${escape(form.basePreflightReason)}</p>
       <button type="button" class="secondary" data-readiness-retry ${form.busy ? 'disabled' : ''}>Retry readiness</button>
       ${form.targetWorkspace ? `<button type="button" class="secondary" data-branch-download ${form.busy ? 'disabled' : ''}>Download fresh branch checkout</button>
       <p class="hint">Download the selected branch into workspace/repos, then retry. Existing checkouts and unpublished work are preserved.</p>` : ''}` : ''}
@@ -1118,7 +1271,7 @@ function storyChecksHtml(form: IntakeForm): string {
       <label><input type="radio" name="quality-gate-mode" data-quality-gate-mode value="soft" ${form.qualityGateMode === 'soft' ? 'checked' : ''}> Pilot soft — allow reviewed, recorded coverage risk</label>
       <p class="meta">Soft mode is not a bypass. Each exception requires authorized human review of the exact candidate or generation, a reason and expiry. Tests, protected paths, identity and evidence integrity stay hard.</p>
     </fieldset>
-    ${form.baseBranch ? `<fieldset ${form.baselineRunning ? 'disabled' : ''}><legend>Existing-test baseline</legend>
+    ${baseSelected(form) ? `<fieldset ${form.baselineRunning ? 'disabled' : ''}><legend>Existing-test baseline</legend>
       <label><input type="radio" name="readiness-baseline" data-readiness-baseline value="reuse" ${form.readinessBaseline === 'reuse' ? 'checked' : ''}> Use existing results if available; configure tests later</label>
       <label><input type="radio" name="readiness-baseline" data-readiness-baseline value="run" ${form.readinessBaseline === 'run' ? 'checked' : ''}> Optional: review and run a baseline now</label>
       <label><input type="radio" name="readiness-baseline" data-readiness-baseline value="defer" ${form.readinessBaseline === 'defer' ? 'checked' : ''}> Configure and run tests later with Copilot — not verified</label>
@@ -1483,7 +1636,9 @@ function storyReviewHtml(form: IntakeForm): string {
           <h4>Acceptance criteria</h4><p class="intake-review-prose" data-intake-review-field="acceptanceCriteria">${value(form.acceptanceCriteria)}</p>` : ''}${edit('details')}</article>
       <article><h3>Workflow & branch</h3><dl><dt>Workflow</dt><dd>${value(workflow?.label ?? form.workType)}</dd>
         <dt>Phases</dt><dd>${workflow ? value(workflow.phases.join(' → ')) : 'Not selected'}</dd>
-        <dt>Base branch</dt><dd>${value(form.baseBranch)}</dd><dt>Story branch</dt><dd>${value(storyBranchName(form))}</dd>
+        ${basePerRepositoryMode(form) ? `<dt>Base branches</dt><dd data-intake-review-bases><ul class="intake-review-bases">${repositoryBases(form)
+    .map((row) => `<li><code>${escape(row.id)}</code>: ${value(row.branch)}${baseOverridden(form, row) ? ' <span class="sf-tag">override</span>' : ''}</li>`).join('')}</ul></dd>`
+    : `<dt>Base branch</dt><dd>${value(form.baseBranch)}</dd>`}<dt>Story branch</dt><dd>${value(storyBranchName(form))}</dd>
         <dt>Workspace</dt><dd>${value(form.targetWorkspace)}</dd>
         <dt>Repository</dt><dd>${value(form.targetRepository)}</dd></dl>${edit('workflow')}</article>
       <article><h3>Documents & checks</h3><dl><dt>Documents</dt><dd>${documents.length ? documents.map(entry => {
@@ -1729,7 +1884,7 @@ document.addEventListener('click', (event) => {
   if (problem) {
     const name = problem.dataset.focusField;
     const target = name.startsWith('region:') ? document.querySelector('[data-intake-region="' + name.slice(7) + '"]')
-      : name === 'base' ? document.querySelector('[data-base-branch-search]')
+      : name === 'base' ? (document.querySelector('[data-base-branch-search]') || document.querySelector('[data-base-repository]'))
       : document.querySelector('[data-field="' + name + '"]');
     const folded = target && target.closest('details');
     intakeWizard.reveal(target);
@@ -1805,6 +1960,9 @@ document.addEventListener('change', (event) => {
     filterBaseBranches();
     return vscode.postMessage({ type: 'baseBranch', value: el.dataset.baseBranch });
   }
+  if (el.hasAttribute('data-base-per-repository')) return vscode.postMessage({ type: 'basePerRepository', value: el.checked });
+  if (el.dataset?.baseRepository) return vscode.postMessage({ type: 'baseRepository',
+    repository: el.dataset.baseRepository, value: el.value });
   if (el.dataset?.referenceField) return vscode.postMessage({ type: 'referenceField',
     index: Number(el.dataset.referenceIndex), field: el.dataset.referenceField, value: el.value });
   if (el.dataset?.attachmentName !== undefined) return vscode.postMessage({ type: 'attachmentName',
@@ -1820,6 +1978,15 @@ document.addEventListener('change', (event) => {
 document.addEventListener('input', (event) => {
   if (event.target.hasAttribute('data-workflow-search')) { filterWorkflows(); return; }
   if (event.target.hasAttribute('data-base-branch-search')) return filterBaseBranches();
+  if (event.target.dataset?.baseRepositorySearch !== undefined) {
+    // Narrows one repository's list in place; the chosen branch always stays visible.
+    const list = document.getElementById(event.target.getAttribute('aria-controls'));
+    const query = event.target.value.normalize('NFC').toLowerCase().trim();
+    if (list) for (const option of list.options) {
+      option.hidden = Boolean(query) && option.value !== '' && !option.selected && !option.value.toLowerCase().includes(query);
+    }
+    return;
+  }
   if (event.target.dataset?.referenceField) return vscode.postMessage({ type: 'referenceDraft',
     index: Number(event.target.dataset.referenceIndex), field: event.target.dataset.referenceField,
     value: event.target.value });

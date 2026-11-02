@@ -16,13 +16,13 @@ import {
   contentSecurityPolicy, navigationTarget, nonce, page } from './webview.ts';
 import { navigateTo } from './navigate.ts';
 import { createTerminalIn } from '../terminal-start.ts';
-import { integerField, registerMessageRouter, stringField, type InboundMessage } from './messages.ts';
+import { booleanField, integerField, registerMessageRouter, stringField, type InboundMessage } from './messages.ts';
 import {
   EMPTY_INTAKE_FORM, catalogFreshnessNote, intakeCatalogFailure, intakeCommand, intakeHasInput, intakeHtml, intakeRegions, intakeIdentifier, intakePlanInputKey, intakeProblems, INTAKE_SCRIPT,
   MAX_STORY_ATTACHMENT_SLOTS, mergeStoryAttachments, referenceRepositoryEntries, SHAPES,
   storyPreflightCommand, storyWorkflowSelection, suggestedStoryDocumentName,
-  storyWorkflowSelectionForReload,
-  type BaseBranchChoice, type CatalogSnapshot, type InFlight, type IntakeForm, type ProfileChoice,
+  storyWorkflowSelectionForReload, baseSelected, baseSelectionKey, launchBaseBranch,
+  type BaseBranchChoice, type BaseRepository, type CatalogSnapshot, type InFlight, type IntakeForm, type ProfileChoice,
   type PreflightTestReadiness, type ReferenceRepositoryDraft, type Shape, type StoryAttachmentDraft, type Tracker
 } from './intake-form.ts';
 import { SingularityFlowClient } from '../cli/client.ts';
@@ -136,6 +136,10 @@ interface CatalogListing {
   /** Where the engine's answer came from (SDA §8): read now, or the last-known catalog and why. */
   readinessSnapshot?: CatalogSnapshot;
   choices?: BaseBranchChoice[];
+  /** Each repository's own offered branches; absent from a selected-base answer and older CLIs. */
+  repositories?: { id?: string; defaultBranch?: string | null; branches?: string[] }[];
+  /** The repository whose checkout ran the listing. */
+  repositoryId?: string | null;
   remote?: string;
   stateBranch?: string;
   unreachable?: { repository: string }[];
@@ -151,6 +155,18 @@ interface CatalogListing {
 
 /** The first listing, the fresh one replacing a cached paint, or a reload after a configuration change. */
 type CatalogMode = 'initial' | 'revalidate' | 'reload';
+
+/** A listing's repositories with their own offered branches, or null when it carries none. */
+function baseRepositoriesOf(listed: CatalogListing): BaseRepository[] | null {
+  const repositories = listed.repositories ?? [];
+  if (!repositories.length || !repositories.every((entry) => typeof entry?.id === 'string' && entry.id
+      && Array.isArray(entry.branches))) return null;
+  return repositories.map((entry) => ({
+    id: entry.id!,
+    defaultBranch: typeof entry.defaultBranch === 'string' && entry.defaultBranch ? entry.defaultBranch : null,
+    branches: entry.branches!.filter((name): name is string => typeof name === 'string' && name.length > 0)
+  }));
+}
 
 /**
  * Keep the launch catalog and exact-base preflight catalog on one validation path. An archived
@@ -287,7 +303,7 @@ export class IntakePanel {
   private branchCheckout: { base: string; client: SingularityFlowClient } | null = null;
 
   private get storyExecutionClient(): SingularityFlowClient {
-    return this.form.shape === 'story' && this.branchCheckout?.base === this.form.baseBranch
+    return this.form.shape === 'story' && this.branchCheckout?.base === launchBaseBranch(this.form)
       ? this.branchCheckout.client : this.client;
   }
 
@@ -585,7 +601,7 @@ export class IntakePanel {
       if (!(listed.unreachable ?? []).length && !listed.intake?.workflowReason) {
         try { this.catalogCache?.write(listed); } catch { /* an acceleration only */ }
       }
-      if (mode !== 'initial' && readinessReset && this.form.baseBranch) await this.preflightBaseBranch();
+      if (mode !== 'initial' && readinessReset && baseSelected(this.form)) await this.preflightBaseBranch();
     } catch (error) {
       if (revision !== this.catalogRevision || this.disposed) return;
       const reason = (error as Error).message;
@@ -636,12 +652,22 @@ export class IntakePanel {
     const baseBranchChoices = (listed.choices ?? []).filter((choice) => choice.everywhere);
     const baseBranch = baseBranchChoices.some((choice) => choice.branch === priorBaseBranch)
       ? priorBaseBranch : null;
-    const keepExactWorkflows = mode === 'revalidate' && baseBranch !== null
-      && this.exactCatalogBase === baseBranch;
+    // Each repository's own branches come with a complete listing; otherwise the last lists stay.
+    const baseRepositories = baseRepositoriesOf(listed) ?? (keepChoices ? this.form.baseRepositories : []);
+    // A per-repository choice survives only while its repository still offers that branch.
+    const baseBranchOverrides = keepChoices ? Object.fromEntries(Object.entries(this.form.baseBranchOverrides)
+      .filter(([id, branch]) => baseRepositories.some((repository) => repository.id === id
+        && repository.branches.includes(branch)))) : {};
+    const basePerRepository = keepChoices && this.form.basePerRepository;
+    const selected: IntakeForm = { ...this.form, baseBranch, baseBranchChoices, baseRepositories,
+      baseBranchOverrides, basePerRepository, catalogStatus: 'fresh', baseBranchReason: null };
+    const selectedBase = baseSelectionKey(selected);
+    const keepExactWorkflows = mode === 'revalidate' && selectedBase !== null
+      && this.exactCatalogBase === selectedBase;
     const retainedWorkType = mode === 'revalidate'
       ? storyWorkflowSelection(priorWorkType, workflows.installed)
       : storyWorkflowSelectionForReload(
-        priorWorkType, workflows.installed, mode === 'reload' && Boolean(baseBranch)
+        priorWorkType, workflows.installed, mode === 'reload' && selectedBase !== null
       );
     const workType = keepExactWorkflows ? this.form.workType
       : retainedWorkType
@@ -649,7 +675,7 @@ export class IntakePanel {
         // click; multiple custom workflows remain an explicit, visible choice in the form.
         ?? workflows.installed.find((entry) => entry.id === 'feature')?.id
         ?? workflows.installed[0]?.id ?? null;
-    const readinessReset = !(mode === 'revalidate' && baseBranch !== null && workType === this.form.workType);
+    const readinessReset = !(mode === 'revalidate' && selectedBase !== null && workType === this.form.workType);
     const unreachable = listed.unreachable ?? [];
     return {
       readinessReset,
@@ -673,6 +699,9 @@ export class IntakePanel {
           .filter((name): name is string => typeof name === 'string' && name.length > 0).sort(),
         // A Story base is an explicit, permanent choice. Even one available branch must be selected.
         baseBranch,
+        baseRepositories, baseBranchOverrides, basePerRepository,
+        baseLaunchRepository: typeof listed.repositoryId === 'string' ? listed.repositoryId
+          : keepChoices ? this.form.baseLaunchRepository : null,
         baseRemote: listed.remote ?? null,
         baseStateBranch: listed.stateBranch ?? 'state',
         // Named, because a branch missing from the list because a remote was unreachable looks
@@ -917,6 +946,29 @@ export class IntakePanel {
         });
         return this.scheduleIdentifierPreflight();
       }
+    },
+    basePerRepository: (message) => {
+      if (this.form.busy || this.form.baseRepositories.length < 2) return;
+      const on = booleanField(message, 'value');
+      if (on === this.form.basePerRepository) return;
+      this.cancelBasePreflight();
+      this.preflightVersion += 1;
+      // Leaving per-repository mode drops its choices: the shared branch is the base everywhere again.
+      this.update({ basePerRepository: on, baseBranchOverrides: on ? this.form.baseBranchOverrides : {},
+        error: null, ...emptyStoryPreflight() });
+      return this.scheduleIdentifierPreflight();
+    },
+    baseRepository: (message) => {
+      const repository = this.form.baseRepositories.find((entry) => entry.id === stringField(message, 'repository'));
+      const branch = stringField(message, 'value');
+      // Only a branch that repository actually offers; anything else from the page is ignored.
+      if (this.form.busy || !repository || !branch || !repository.branches.includes(branch)) return;
+      if (this.form.baseBranchOverrides[repository.id] === branch) return;
+      this.cancelBasePreflight();
+      this.preflightVersion += 1;
+      this.update({ baseBranchOverrides: { ...this.form.baseBranchOverrides, [repository.id]: branch },
+        error: null, ...emptyStoryPreflight() });
+      return this.scheduleIdentifierPreflight();
     },
     workType: (message) => {
       const workflow = this.form.storyWorkflows.find((entry) => entry.id === stringField(message, 'value'));
@@ -1303,11 +1355,12 @@ export class IntakePanel {
   /** Explicit recovery never mutates the original checkout or the window's shared client. */
   private async downloadBranch(): Promise<void> {
     if (this.disposed || this.form.busy || this.form.baselineRunning || this.form.basePreflightChecking
-        || !this.form.targetWorkspace || !this.form.baseBranch
+        || !this.form.targetWorkspace || !baseSelected(this.form) || !launchBaseBranch(this.form)
         || this.client.repository !== this.form.targetRepository) return;
     this.cancelBasePreflight();
     this.prep?.cancel(); this.prep = null;
-    const base = this.form.baseBranch;
+    // The launch checkout's own base: with per-repository bases it may differ from the shared one.
+    const base = launchBaseBranch(this.form)!;
     const repository = this.form.targetRepository;
     const version = ++this.preflightVersion;
     const controller = new AbortController();
@@ -1318,7 +1371,7 @@ export class IntakePanel {
       const result = await this.client.run<{ status?: string; branch?: string; repositoryPath?: string; originalPreserved?: boolean }>([
         'workspace', 'prepare-branch', '--repository-path', repository, '--from-branch', base, '--json'
       ], controller.signal);
-      if (this.disposed || version !== this.preflightVersion || this.form.baseBranch !== base
+      if (this.disposed || version !== this.preflightVersion || launchBaseBranch(this.form) !== base
           || this.client.repository !== repository) return;
       if (result.status !== 'ready' || result.branch !== base || result.originalPreserved !== true
           || typeof result.repositoryPath !== 'string' || !path.isAbsolute(result.repositoryPath)) {
@@ -1342,7 +1395,8 @@ export class IntakePanel {
     this.prep?.cancel(); this.prep = null;
     const command = storyPreflightCommand(this.form);
     if (!command) return;
-    const base = this.form.baseBranch;
+    const base = launchBaseBranch(this.form);
+    const selection = baseSelectionKey(this.form);
     const version = ++this.preflightVersion;
     const controller = new AbortController();
     this.preflightController = controller;
@@ -1399,7 +1453,7 @@ export class IntakePanel {
       const readiness = result.preflight?.readiness;
       this.update({ baselinePolicy: 'choice',
         baselineScope: readiness?.repositoryExecution?.scope ?? 'dependency-test' }, { background: true });
-      if (Array.isArray(result.intake?.storyWorkflows)) this.exactCatalogBase = base;
+      if (Array.isArray(result.intake?.storyWorkflows)) this.exactCatalogBase = selection;
       // The selected remote base, not the launch checkout, owns a legacy workflow catalog. Replace
       // the choices with the exact-base response before interpreting readiness. If the previous
       // choice does not exist there, clear it and require a visible user selection.

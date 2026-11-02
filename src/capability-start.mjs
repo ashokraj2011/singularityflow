@@ -587,6 +587,43 @@ export async function askForBaseBranch(choices, { capability, repositoryCount } 
   }
 }
 
+/**
+ * Ask for a base in each repository, when no branch is published in all of them.
+ *
+ * Returns `repository=branch` values for `--from-branch`, or null without a terminal. Enter takes
+ * the repository's own default branch when it is published; every other answer is explicit.
+ */
+export async function askForRepositoryBases(catalog, { defaults = {}, stateBranch = 'state' } = {}) {
+  if (!input.isTTY || !output.isTTY) return null;
+  const io = readline.createInterface({ input, output });
+  try {
+    console.log(`\nNo branch is published in every repository of capability '${catalog.capability}'. Choose a base for each:`);
+    const values = [];
+    for (const repository of catalog.repositories) {
+      const branches = (catalog.published?.[repository.id] ?? [])
+        .filter((name) => isStoryBaseBranch(name, { stateBranch })).sort();
+      const fallback = branches.includes(defaults[repository.id]) ? defaults[repository.id] : null;
+      console.log(`\n${repository.id}:`);
+      branches.forEach((name, index) => console.log(`  ${index + 1}  ${name}${name === fallback ? '  (default)' : ''}`));
+      const answer = (await io.question(fallback ? `Select [${fallback}]: ` : 'Select: ')).trim();
+      const index = Number(answer);
+      const chosen = !answer ? fallback
+        : Number.isInteger(index) && index >= 1 && index <= branches.length ? branches[index - 1]
+          : branches.includes(answer) ? answer : null;
+      if (!chosen) {
+        throw new SingularityFlowError(answer
+          ? `'${answer}' is not a branch of repository '${repository.id}'.`
+          : `Choose a base branch for repository '${repository.id}' explicitly; it has no published default.`,
+        { code: answer ? 'CAPABILITY_BRANCH_INVALID' : 'STORY_BASE_REQUIRED' });
+      }
+      values.push(`${repository.id}=${chosen}`);
+    }
+    return values;
+  } finally {
+    io.close();
+  }
+}
+
 /** Resolve the explicit remote base used by a new Story without touching any checkout. */
 export async function storyBaseForRepository(root, {
   values = [],
@@ -661,22 +698,29 @@ export async function storyBaseForRepository(root, {
   }
 
   const usableChoices = catalog.choices.filter((choice) => choice.everywhere);
-  if (!selection.all && !Object.keys(selection.overrides).length && interactive) {
-    const chosen = await askForBaseBranch(usableChoices, {
-      capability: catalog.capability,
-      repositoryCount: catalog.repositories.length
-    });
-    if (chosen) selection = parseBaseSelection([chosen]);
-  }
-  if (!selection.all && !Object.keys(selection.overrides).length) {
-    throw new SingularityFlowError(
-      `Choose the remote base branch explicitly with --from-branch <BRANCH>. Available: ${usableChoices.map((choice) => choice.branch).join(', ') || 'none'}.`,
-      { code: 'STORY_BASE_REQUIRED' }
-    );
-  }
   const defaults = Object.fromEntries(catalog.repositories.map((repository) => [
     repository.id, repository.defaultBranch ?? defaultBranch
   ]));
+  // With no branch in every repository, one shared answer cannot exist: ask per repository instead.
+  const perRepository = catalog.repositories.length > 1 && !usableChoices.length;
+  if (!selection.all && !Object.keys(selection.overrides).length && interactive) {
+    if (perRepository) {
+      const values = await askForRepositoryBases(catalog, { defaults, stateBranch: selectedStateBranch });
+      if (values) selection = parseBaseSelection(values);
+    } else {
+      const chosen = await askForBaseBranch(usableChoices, {
+        capability: catalog.capability,
+        repositoryCount: catalog.repositories.length
+      });
+      if (chosen) selection = parseBaseSelection([chosen]);
+    }
+  }
+  if (!selection.all && !Object.keys(selection.overrides).length) {
+    throw new SingularityFlowError(perRepository
+      ? `No branch is published in every repository. Choose one per repository with --from-branch <REPOSITORY>=<BRANCH>, once for each of ${catalog.repositories.map((repository) => repository.id).join(', ')}.`
+      : `Choose the remote base branch explicitly with --from-branch <BRANCH>. Available: ${usableChoices.map((choice) => choice.branch).join(', ') || 'none'}.`,
+    { code: 'STORY_BASE_REQUIRED' });
+  }
   const resolution = resolveCapabilityBase({
     repositories: catalog.published,
     selection,

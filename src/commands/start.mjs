@@ -125,6 +125,23 @@ async function isolatedStoryConfiguration(options, root, workId, managedStoryWor
   return handoff;
 }
 
+/**
+ * The launch checkout's own base from `--from-branch`: its `<repository>=<branch>` override, else
+ * the branch named for all, else its repository's default. Null when no base was given.
+ */
+async function launchRepositoryBase(sourceRoot, options) {
+  const values = optionStrings(options, 'from-branch');
+  if (!values.length) return null;
+  const { parseBaseSelection } = await import('../capability-branches.mjs');
+  const selection = parseBaseSelection(values);
+  if (!Object.keys(selection.overrides).length) return selection.all;
+  const { activeWorkspaceFile, workspaceMemberContextForRepository, workspaceRegistryFile } = await import('../workspace-context.mjs');
+  const context = await workspaceMemberContextForRepository(
+    sourceRoot, activeWorkspaceFile(), workspaceRegistryFile(), { strict: true });
+  const own = context?.repositoryId ?? path.basename(sourceRoot);
+  return selection.overrides[own] ?? selection.all ?? context?.workspace?.repositories?.[own]?.defaultBranch ?? null;
+}
+
 async function startCommandInIsolatedWorktree(sourceRoot, id, positionals, options) {
   const {
     completeStoryWorktree, prepareStoryWorktree, rollbackFailedStoryWorktree
@@ -164,7 +181,10 @@ async function startCommandInIsolatedWorktree(sourceRoot, id, positionals, optio
     ?? await loadConfig(sourceRoot).catch(() => null);
   // With object reuse, source HEAD need not be the base selected by the human. Read that exact
   // signed choice before creating the worktree, so receipt-only starts also write the tree once.
-  const requestedBase = optionString(options, 'from-branch')
+  // `--from-branch` may name one branch for all and `<repository>=<branch>` for some; the launch
+  // checkout is cut from its own repository's base. Read as one string, the last value was fetched
+  // as a branch literally named `<repository>=<branch>`.
+  const requestedBase = await launchRepositoryBase(sourceRoot, options)
     ?? (await import('../workspace-story-checkout.mjs')).automaticStorySelection(options, id)
       ?.receipt.answers?.['base-branch']?.id;
   let requestedRemote = optionString(options, 'remote')

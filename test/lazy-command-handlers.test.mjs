@@ -282,6 +282,9 @@ test('frequent lifecycle handlers do not reach the legacy dispatcher and stay un
     // 9,355,000 (next 5,000 boundary): main 2f5188340 measures 9,349,855. SF Guard §10.9 reads a commit's parents
     // and committer time for a configuration approval's seal (git.mjs commitShape +651) and adds the
     // --state-records flag (util.mjs +17): 9,350,523 measured. The seal reader, signer and state check stay lazy.
+    // 9,355,000 holds: a base per repository at Story start. The isolated start reads the launch checkout's own
+    // base from the parsed --from-branch selection (start.mjs +1,275) and an interactive start asks per repository
+    // when no branch is shared (capability-start.mjs +2,515), adding 3,790. No new eager file.
     assert.ok(closure.bytes <= 9_355_000, `${file} exceeds the 9 MB eager-source budget (${closure.bytes} bytes)`);
   }
 });

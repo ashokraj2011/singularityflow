@@ -27,6 +27,7 @@ import { withApprovedConfigurationRead } from '../approved-configuration-reader.
 import { configurationReadSnapshot } from '../configuration-read-scope.mjs';
 import { measureCommandSpan } from '../dx-timing-context.mjs';
 import { withReadScope } from '../read-scope.mjs';
+import { isStoryBaseBranch } from '../capability-branches.mjs';
 
 /**
  * The Story workflows a new Story may start on: installed ones that are not archived. Archived ones
@@ -397,8 +398,14 @@ async function readAtRoot(options, root) {
       selectionRequired: true,
       remote: catalog.remote,
       capability: catalog.capability,
+      // The checkout this command ran in: its base is the one a fresh branch download fetches.
+      repositoryId: catalog.repositoryId ?? null,
+      // Each repository's own offered branches, so a surface can take a base per repository when
+      // no branch is published in all of them. A selected-base answer lists only what was chosen,
+      // so it carries none and never narrows the editor's complete lists.
       repositories: catalog.repositories.map((repository) => ({
-        id: repository.id, defaultBranch: repository.defaultBranch
+        id: repository.id, defaultBranch: repository.defaultBranch,
+        ...(selectedBaseOnly ? {} : { branches: offeredBaseBranches(catalog, repository.id) })
       })),
       // Reported rather than thrown: the editor should render the branches it does know about and
       // say which repositories it could not reach, not show an empty list or an error dialog.
@@ -526,6 +533,13 @@ function initiativeProfileChoices(portfolio) {
   }));
 }
 
+/** The branches one repository offers as a Story base: published, not internal, not an orphan. */
+function offeredBaseBranches(catalog, repositoryId) {
+  const orphans = new Set(catalog.orphaned?.[repositoryId] ?? []);
+  return (catalog.published?.[repositoryId] ?? []).filter((name) => !orphans.has(name)
+    && isStoryBaseBranch(name, { stateBranch: catalog.stateBranch ?? 'state' })).sort();
+}
+
 export function renderWorkspaceBranches(result) {
   console.log(result.scope === 'capability'
     ? `Base branches for capability '${result.capability}' (${result.repositories.length} repositories):`
@@ -534,6 +548,13 @@ export function renderWorkspaceBranches(result) {
     console.log(`  ${choice.branch.padEnd(28)} ${choice.everywhere ? `all ${choice.total}` : `${choice.present} of ${choice.total}`}`
       + (choice.missingFrom.length ? ` — missing from ${choice.missingFrom.join(', ')}` : '')
       + (choice.story ? ` — Story ${choice.story.workId}: ${choice.story.title}` : ''));
+  }
+  // No branch in every repository: each one's own list, and the per-repository form to type.
+  if (result.scope === 'capability' && result.repositories.length > 1 && !result.choices.some((choice) => choice.everywhere)) {
+    console.log('No branch is published in every repository. Choose one per repository with --from-branch <repository>=<branch>:');
+    for (const repository of result.repositories) {
+      console.log(`  ${repository.id.padEnd(28)} ${(repository.branches ?? []).join(', ') || 'no branches read'}`);
+    }
   }
   const orphanNames = [...new Set(Object.values(result.orphaned).flat())].sort();
   if (orphanNames.length) console.log(`Not offered, because they share no history with the default branch: ${orphanNames.join(', ')}`);

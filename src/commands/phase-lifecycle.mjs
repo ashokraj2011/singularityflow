@@ -274,7 +274,7 @@ export async function phaseCommand(positionals, options) {
   // publication checks.
   const authored = explicitAuthored ?? (implicitProducer === 'deterministic' ? 'deterministic' : null);
   const requestedChangeOrigins = optionStrings(options, 'change-origin');
-  const authorshipOptions = normalizeAuthorshipOptions({
+  let authorshipOptions = normalizeAuthorshipOptions({
     producer: authored,
     channel: optionString(options, 'channel'),
     imported: Boolean(sourcePath),
@@ -321,7 +321,25 @@ export async function phaseCommand(positionals, options) {
   // aggregate. The transaction repeats this inspection to close the change-between-check-and-use
   // window; this first read gives CLI and Copilot hosts the complete deterministic remediation
   // without beginning publication work.
-  if (!sourcePath) await measureCommandSpan('publication.preflight', () => inspectPublicationArtifact(targetPath));
+  const preflight = sourcePath ? null : await measureCommandSpan('publication.preflight', () => inspectPublicationArtifact(targetPath));
+  // SF Guard: on a Story it requires, a person's or an external tool's authorship claim is believed only
+  // with its author's presence signature; an unsigned one is recorded and checked as the agent's. The
+  // claimant is the person running this, and a claim they sign records them as its actor.
+  let claimActor = null;
+  if (workflow.resolution?.presence) {
+    const claimant = actionActor(root);
+    const claimed = await (await import('../presence/authorship-claims.mjs')).prepareAuthorshipClaim(root, {
+      workflow, phase: requestedPhase, options: authorshipOptions, generation, artifactSha256: preflight?.sha256 ?? null,
+      actor: claimant, sourcePath: sourcePath ? path.resolve(sourcePath) : null,
+      asAgent: (candidate) => {
+        assertProducerAllowed(candidate, 'governed-agent');
+        return normalizeAuthorshipOptions({ producer: 'governed-agent', channel: 'copilot-host', externalAiUse: authorshipOptions.externalAiUse });
+      }
+    });
+    authorshipOptions = claimed.options;
+    if (authorshipOptions.presence) claimActor = claimant;
+    if (claimed.notice) console.warn(claimed.notice);
+  }
   if (deterministicConvergence) {
     await assertConvergencePublicationReady(root, config, workflow, requestedPhase);
   }
@@ -382,7 +400,7 @@ export async function phaseCommand(positionals, options) {
           : await inspectPublicationArtifact(targetPath);
         const authorship = buildGenerationAuthorship({
           options: authorshipOptions,
-          actor: session.actor,
+          actor: claimActor ?? session.actor,
           governedAgentContext: session.agent,
           source,
           kernelInvocationIds,

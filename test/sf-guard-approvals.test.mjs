@@ -6,6 +6,7 @@ import path from 'node:path';
 import test from 'node:test';
 
 import { approvalRequirementsMet } from '../src/approval-authority.mjs';
+import { main } from '../src/cli.mjs';
 import { approveCommand } from '../src/commands/approve.mjs';
 import { run as guard } from '../src/commands/guard.mjs';
 import { approverId, PRESENCE_CHAIN_PATH } from '../src/presence/chain.mjs';
@@ -15,6 +16,7 @@ import {
   attachPersonPresence, forgetPresenceContexts, loadPresenceContext, personRecordVerdict, pinRequirement,
   preparePersonPresence, presenceCounts, PRESENCE_PIN_SCHEMA, recordStatement
 } from '../src/presence/person-records.mjs';
+import { setPersonStepPresenceDependencies } from '../src/presence/person-steps.mjs';
 import { statementText } from '../src/presence/statement.mjs';
 import { childTimeout } from './helpers/child-timeout.mjs';
 import { ctkListing, softwarePresenceKey } from './helpers/presence-keys.mjs';
@@ -79,6 +81,20 @@ async function sfGuard(root, words, deps) {
   assert.equal(outcome.error, undefined, outcome.error?.message);
 }
 
+/**
+ * Publish `phaseId` as ONE's own work, in this process: on a Story SF Guard requires, a person's
+ * authorship claim is believed only with its author's signature (SPEC-PSS-v1 §10.5).
+ */
+async function publishAsAuthor(root, key, phaseId) {
+  forgetPresenceContexts();
+  setPersonStepPresenceDependencies(signer(key));
+  try {
+    const outcome = await inRoot(root, () => main(['phase', 'publish', phaseId, '--authored', 'human', '--channel', 'manual-in-place', '--json']));
+    assert.equal(outcome.error, undefined, `${outcome.error?.message}\n${outcome.lines.join('\n')}`);
+    return outcome;
+  } finally { setPersonStepPresenceDependencies({}); }
+}
+
 async function approveInProcess(root, presence, options = {}) {
   forgetPresenceContexts();
   return inRoot(root, () => approveCommand(['approve', 'specification'], { yes: true, ...options }, { presence }));
@@ -125,7 +141,8 @@ test('SF Guard required: approve takes the card and the touch before anything is
   assert.equal(started.resolution.presence.status, 'required', 'the Story pins the policy it started under');
   await writeFile(path.join(item, 'artifacts/specification/spec.md'), specification(WORK, 1));
   cli('artifact', 'scan', '--phase', 'specification');
-  cli('phase', 'publish', 'specification', '--authored', 'human', '--channel', 'manual-in-place');
+  await publishAsAuthor(root, key, 'specification');
+  assert.equal((await workflowOf(item)).phases.specification.authorship.at(-1).presence.claim.producer, 'human', 'the claim carries its author\'s signature');
   cli('submit', 'specification', '--skip-checks');
   const decisions = () => (existsSync(path.join(item, 'approvals/specification')) ? readdirSync(path.join(item, 'approvals/specification')) : []);
 
@@ -222,7 +239,7 @@ test('SF Guard required: approve takes the card and the touch before anything is
   const { implementationPlan } = await import('./helpers/submitted-planning-story.mjs');
   await writeFile(path.join(item, 'artifacts/planning/plan.md'), implementationPlan(WORK));
   cli('artifact', 'scan', '--phase', 'planning');
-  cli('phase', 'publish', 'planning', '--authored', 'human', '--channel', 'manual-in-place');
+  await publishAsAuthor(root, key, 'planning');
   cli('submit', 'planning', '--skip-checks');
   const bypassed = cliAs(root, TWO.name, 'approve', 'planning', '--yes');
   assert.equal(bypassed.status, 0, bypassed.stdout + bypassed.stderr);

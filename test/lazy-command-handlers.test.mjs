@@ -261,6 +261,10 @@ test('frequent lifecycle handlers do not reach the legacy dispatcher and stay un
     // 9,340,000 (next 5,000 boundary): main 3a9becd53 measures 9,334,543. The optional
     // ledger.configurationHistory setting validated where the ledger is read (ledger-config.mjs +1,156) brings
     // 9,335,699; the automatic history cleanup itself loads only after a publication, no new eager file.
+    // 9,340,000 holds: main 4fcc9bcde measures 9,335,699. SF Guard §10.5: an authorship claim read through the
+    // counting leaf and withdrawals read by signed decision order (presence/counted.mjs +2,633), the scope,
+    // completeness, applicability and slice readers using them (+271) and the --author flag (util.mjs +82) add 2,966
+    // for 9,338,665. The claim's signer and verifier stay lazy; no new eager file.
     assert.ok(closure.bytes <= 9_340_000, `${file} exceeds the 9 MB eager-source budget (${closure.bytes} bytes)`);
   }
 });
@@ -379,7 +383,10 @@ test('the common session projection does not import attach, state stores or publ
   // 4,030,000: main b77a02a1b measures 4,020,946; SF Guard M3 adds 4,473 for 4,025,419: the counting leaf
   // presence/counted.mjs (+1,804, the one new file) and the person-step family readers counting through it (+2,669).
   // Signing and verification load only on a Story SF Guard requires.
-  assert.ok(current.bytes <= 4_030_000, `session current loads ${current.bytes} source bytes`);
+  // 4,035,000: main 4fcc9bcde measures 4,029,362; an authorship claim read through the counting leaf and
+  // withdrawals read by decision order (presence/counted.mjs +2,633, its readers and the --author flag) add 2,966
+  // for 4,032,328. The claim's signer loads only where SF Guard applies; no new file.
+  assert.ok(current.bytes <= 4_035_000, `session current loads ${current.bytes} source bytes`);
 });
 
 test('early phase and grounding-path entries exclude the deferred authoring and review graphs', async () => {

@@ -21,6 +21,57 @@ export function forgetPersonCounts() {
   globalThis[REGISTRY]?.clear();
 }
 
+// Producers that claim a person's or an external tool's work (person-records.mjs AUTHORSHIP_CLAIM_PRODUCERS).
+const CLAIMS = new Set(['human', 'external-tool', 'legacy-unspecified']);
+
+/**
+ * The producer a generation's authorship record is read as: as recorded, except that on a Story SF
+ * Guard requires a person's or an external tool's claim its author did not sign is read as the agent's
+ * (`governed-agent`), so it gets every agent check [SPEC-PSS-v1 §10.5].
+ */
+export function believedProducer(workflow, authorship, where = {}) {
+  // No authorship record is no claim either way: the reader keeps its own rule for one.
+  if (!authorship || typeof authorship !== 'object') return undefined;
+  const producer = authorship.producer ?? 'legacy-unspecified';
+  const pin = workflow?.resolution?.presence;
+  if (!pin || !CLAIMS.has(producer)) return producer;
+  const counts = globalThis[REGISTRY]?.get(presencePinKey(workflow));
+  if (counts === null) return producer;
+  if (counts === undefined) return pin.status === 'off' ? producer : 'governed-agent';
+  return counts.claim?.(authorship, where) ? producer : 'governed-agent';
+}
+
+/**
+ * The person records of `records` in the order they were decided: on a Story SF Guard requires, by each
+ * record's own signed time, so moving an older signed record to the end of the list revives nothing; a
+ * newer decision supersedes an older one whatever its `withdrawnAt` says [SPEC-PSS-v1 §10.5]. Elsewhere,
+ * the list as it stands.
+ */
+export function inDecisionOrder(workflow, records) {
+  const list = records ?? [];
+  if (!required(workflow)) return list;
+  return list.map((entry, index) => ({ entry, index, at: Date.parse(entry?.at) }))
+    .sort((left, right) => (Number.isFinite(left.at) ? left.at : -Infinity) - (Number.isFinite(right.at) ? right.at : -Infinity) || left.index - right.index)
+    .map(({ entry }) => entry);
+}
+
+/**
+ * Whether `entry` is withdrawn. On a Story SF Guard requires a withdrawal is never read from the
+ * unsigned `withdrawnAt` field: a newer signed decision supersedes it (`inDecisionOrder`), so neither
+ * adding nor removing the field changes which decision stands.
+ */
+export function isWithdrawn(workflow, entry) {
+  return required(workflow) ? false : Boolean(entry?.withdrawnAt);
+}
+
+/** Whether SF Guard requires `workflow`'s person steps, as its pin and the chain this process read say. */
+function required(workflow) {
+  const pin = workflow?.resolution?.presence;
+  if (!pin) return false;
+  const counts = globalThis[REGISTRY]?.get(presencePinKey(workflow));
+  return counts === undefined ? pin.status !== 'off' : counts !== null;
+}
+
 /**
  * The entries of `records` that count: all of them unless SF Guard requires the Story; then a person's
  * decision (`isPerson`) only when its signature verifies against the approver's pinned key, or a

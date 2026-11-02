@@ -9,7 +9,7 @@ export { terminalTransitionAt } from './workflow-terminal-time.mjs';
 import path from 'node:path';
 import { currentPhase } from './phase-generation.mjs';
 import { workDir } from './story-paths.mjs';
-import { countedApprovals, countedRecords } from './presence/counted.mjs';
+import { believedProducer, countedApprovals, countedRecords } from './presence/counted.mjs';
 import { sourceTreeHash, validateWorkflow, workflowPublicationBranch } from './state-stores.mjs';
 import { exists, gitHeadIsUnborn, gitReadOutput, posix, snapshot, run } from './util.mjs';
 import { verifyInputsIntegrity } from './inputs.mjs';
@@ -636,8 +636,9 @@ export async function runGovernanceGate(root, config, workflow, { terminal = fal
       const authorship = generationAuthorship(phase, generation);
       // A governed-agent generation must carry its clarification. Another generation carries one only
       // when its publication bound a record: that record is re-checked the same way, and one that no
-      // longer verifies was never bound (publication warned), so it warns here too.
-      const agentAuthored = authorship?.producer === 'governed-agent';
+      // longer verifies was never bound (publication warned), so it warns here too. On a Story SF Guard
+      // requires, a person's authorship claim its author did not sign is read as the agent's.
+      const agentAuthored = believedProducer(workflow, authorship, { phase: phaseId, generation }) === 'governed-agent';
       if (agentAuthored || await exists(path.join(root, clarificationRecordRelative(config, workflow, phase, generation)))) {
         const clarification = await verifyClarificationRecord(root, config, workflow, phase, { generation });
         if (agentAuthored) refuseEach('gate.clarification.invalid', clarification.errors, { phase: phaseId });

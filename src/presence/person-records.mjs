@@ -183,11 +183,14 @@ export async function loadPresenceContext(root, workflow, { verify } = {}) {
   contexts.set(pinKey(workflow), context);
   // The Story's synchronous readers count its other person records through this (counted.mjs).
   const verdicts = new WeakMap();
-  registerPersonCounts(pinKey(workflow), context.required ? (record) => {
+  const counts = context.required ? (record) => {
     if (!record || typeof record !== 'object') return false;
     if (!verdicts.has(record)) verdicts.set(record, personRecordVerdict(context, record, { workflow }).counts);
     return verdicts.get(record);
-  } : null);
+  } : null;
+  // An authorship claim (`--authored human|external-tool`) is believed only when its author signed it.
+  if (counts) counts.claim = (authorship, where) => authorshipClaimVerdict(context, authorship, { workflow, ...where }).counts;
+  registerPersonCounts(pinKey(workflow), counts);
   return context;
 }
 
@@ -288,6 +291,64 @@ export function personRecordVerdict(context, record, { workflow }) {
   const verified = context.verify({ message: statementText(statement), armored: presence.signature, publicKey: key.key });
   if (!verified.valid) return invalid('PSS_SIGNATURE_INVALID', `the signature does not match this record (${verified.reason})`);
   return { counts: true, state: 'signed', label: `signed with ${presence.keyId}`, code: null, reason: null, signer: approver };
+}
+
+/** The producers that claim a person's or an external tool's work: believed only when signed. */
+export const AUTHORSHIP_CLAIM_PRODUCERS = Object.freeze(['human', 'external-tool', 'legacy-unspecified']);
+
+/**
+ * The IDs a publication's actor may hold a presence key under: an approver's ID when the Story's
+ * configuration lists them, and the email-based ID authors register with (SPEC-PSS-v1 §10.5).
+ */
+export function claimantIds(authorities, actor) {
+  const email = String(actor?.email ?? '').trim().toLowerCase();
+  return [...new Set([actorApproverId(authorities, actor), email.includes('@') ? approverId({ email }) : null].filter(Boolean))];
+}
+
+/** The claim an author's presence signature covers (SPEC-PSS-v1 §10.5). */
+export function authorshipClaimStatement(presence, { chainId }) {
+  const { claim } = presence;
+  return presenceStatement({
+    repository: `presence:${chainId}`, subject: { kind: 'story', id: claim.workId }, step: claim.phase, generation: claim.generation,
+    action: presence.action, decision: { claimSha256: sha256(canonicalJson(claim)) }, reviewed: { artifactSha256: claim.artifactSha256 ?? null },
+    actor: { approver: presence.approver }, authorityGroup: null, at: presence.at, nonce: presence.nonce, keyId: presence.keyId
+  });
+}
+
+/**
+ * How a generation's authorship claim stands under SF Guard: `{ counts, state, label }`. A claim that a
+ * person or an external tool wrote it counts only when its author's presence signature covers this very
+ * claim (producer, channel, Story, step, generation and artifact), or an exception covers its author;
+ * otherwise the generation is read as the agent's, with every agent check (the user's rule: an unsigned
+ * claim is not believed).
+ */
+export function authorshipClaimVerdict(context, authorship, { workflow, phase = null, generation = null } = {}) {
+  const producer = authorship?.producer ?? 'legacy-unspecified';
+  if (!context?.required || !AUTHORSHIP_CLAIM_PRODUCERS.includes(producer)) return { counts: true, state: 'not-a-claim', label: null };
+  const unsigned = (reason) => ({ counts: false, state: 'unsigned', label: `read as the agent's: ${reason}` });
+  const presence = authorship?.presence;
+  if (!presence || typeof presence !== 'object' || !presence.claim || typeof presence.claim !== 'object') return unsigned('the authorship claim carries no presence signature');
+  if (presence.schema !== PRESENCE_RECORD_SCHEMA || presence.chainId !== context.chainId) return unsigned('its presence block names another policy chain');
+  const { claim } = presence;
+  const ids = claimantIds(workflow?.resolution?.approvalAuthorities, authorship.actor);
+  if (!ids.includes(presence.approver) || claim.producer !== producer || claim.channel !== (authorship.channel ?? null)
+      || claim.workId !== workflow?.workItem?.id || (phase && claim.phase !== phase) || (Number.isInteger(generation) && claim.generation !== generation)
+      || (claim.artifactSha256 && authorship.source?.sha256 && claim.artifactSha256 !== authorship.source.sha256)) {
+    return unsigned('its presence signature covers another claim');
+  }
+  if (presence.bypass) {
+    const exception = exceptionAt(context, presence.bypass, presence.approver, presence.at);
+    return exception ? { counts: true, state: 'bypass', label: `bypass: per-person exception ${exception.id}` } : unsigned(`exception ${presence.bypass} does not cover its author`);
+  }
+  const key = keyHistory(context).get(presence.keyId);
+  if (!key || key.approver !== presence.approver) return unsigned(`${presence.keyId ?? 'its key'} is not its author's pinned key`);
+  if (key.retiredAt && !(Date.parse(presence.at) < Date.parse(key.retiredAt))) return unsigned(`${presence.keyId} was retired before the claim was signed`);
+  let statement;
+  try { statement = authorshipClaimStatement(presence, { chainId: context.chainId }); }
+  catch { return unsigned('its presence block is malformed'); }
+  const checked = context.verify({ message: statementText(statement), armored: presence.signature, publicKey: key.key });
+  if (!checked.valid) return unsigned(`the signature does not match the claim (${checked.reason})`);
+  return { counts: true, state: 'signed', label: `signed by its author with ${presence.keyId}` };
 }
 
 /**

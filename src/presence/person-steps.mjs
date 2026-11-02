@@ -69,6 +69,11 @@ export function setPersonStepPresenceDependencies(next = {}) {
   dependencies = { ...next };
 }
 
+/** The signer's readers this process uses for person steps (an authorship claim reads the same ones). */
+export function personStepPresenceDependencies() {
+  return dependencies;
+}
+
 /**
  * The person records the command added: in `workflow`, not signed, and not in the state file before it
  * ran. A record the command only extended (a new disposition withdraws the one before it by adding

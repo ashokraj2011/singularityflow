@@ -8,6 +8,7 @@ import { evaluateAstLifecycleGate, verifyAstLifecycleReceipt } from '../ast-life
 import { verifyClarificationRecord } from '../clarifications.mjs';
 import { normalizeExternalCommand } from '../external-command-policy.mjs';
 import { head } from '../git.mjs';
+import { believedProducer } from '../presence/counted.mjs';
 import { publishedGenerationCommit } from '../generation-publication-store.mjs';
 import { buildRepositorySubjectIndex } from '../repository-subject-index.mjs';
 import {
@@ -89,7 +90,8 @@ async function clarificationsRow(root, config, workflow, phase) {
   const generation = phase?.generation ?? 0;
   if (!generation) return row('clarifications', 'met', 'lifecycle', 'generation:0', { required: 'false' });
   const authorship = [...(phase.authorship ?? [])].reverse().find((entry) => entry.generation === generation);
-  if (authorship?.producer !== 'governed-agent') {
+  // SF Guard: an unsigned person's claim on a Story it requires is read as the agent's.
+  if (believedProducer(workflow, authorship, { phase: phase.id, generation }) !== 'governed-agent') {
     return row('clarifications', 'met', 'lifecycle', `authorship:${authorship?.producer ?? 'unknown'}`, { required: 'false' });
   }
   const verified = await verifyClarificationRecord(root, config, workflow, phase, {

@@ -396,6 +396,8 @@ export function buildGenerationAuthorship({
       ? { value: 'unknown', status: 'unavailable' }
       : { value: options.externalAiUse, status: 'self-reported' },
     changeOrigins: [...(options.changeOrigins ?? [])],
-    source: structuredClone(source)
+    source: structuredClone(source),
+    // SF Guard: the author's presence signature over this claim, or the exception that covers them.
+    ...(options.presence ? { presence: structuredClone(options.presence) } : {})
   });
 }

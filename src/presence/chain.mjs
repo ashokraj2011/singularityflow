@@ -11,8 +11,9 @@
  * blocks anyone either. Verification reads only the pinned keys recorded here, never GitHub; GitHub
  * is read when a key is registered (src/presence/anchor.mjs) and by the remote check.
  *
- * Nothing in this file names a person. Approvers are `approverId`s, derived from the approved
- * configuration's member entries, which keep the emails and logins.
+ * Nothing in this file names an approver. Approvers are `approverId`s, derived from the approved
+ * configuration's member entries, which keep the emails and logins. An author's key event (`role: "author"`,
+ * SPEC-PSS-v1 §10.5) names the GitHub login it is confirmed under, since no member entry lists them.
  */
 import { createHash } from 'node:crypto';
 
@@ -97,7 +98,9 @@ export function presenceChainText(chain) {
 const problem = (event, code, message) => ({ seq: Number.isInteger(event?.seq) ? event.seq : null, kind: event?.kind ?? null, code, message });
 
 function freshState(chainId) {
-  return { chainId, enabled: false, enabledAt: null, remoteCheck: null, pins: new Map(), retired: [], exceptions: new Map(), exceptionCount: 0 };
+  // `authorPins`: keys of people who are not approvers, pinned only to sign their own authorship claims
+  // (`role: 'author'`). They never sign a policy event, an exception or another person's key.
+  return { chainId, enabled: false, enabledAt: null, remoteCheck: null, pins: new Map(), authorPins: new Map(), retired: [], exceptions: new Map(), exceptionCount: 0 };
 }
 
 function checkShape(event, index) {
@@ -120,6 +123,8 @@ function checkShape(event, index) {
     if (!APPROVER_ID.test(event.approver ?? '')) return 'names no approver';
   }
   if (KEY_EVENTS.has(event.kind)) {
+    if (event.role !== undefined && event.role !== 'author') return `has unknown role ${event.role}`;
+    if (event.role === 'author' && (typeof event.githubLogin !== 'string' || !/^[a-z0-9-]{1,39}$/u.test(event.githubLogin))) return 'names no GitHub login for its author';
     const key = parsePresencePublicKey(event.key);
     if (!key.valid) return `pins a key that is not a presence key: ${key.reason}`;
     if (key.keyId !== event.keyId) return 'names a key ID that is not its key';
@@ -163,10 +168,12 @@ export function foldPresenceChain(chain, { verify = verifyPresenceSignature } = 
     const shape = checkShape(event, index);
     if (shape) return stop('PSS_CHAIN_INVALID', shape);
     if (event.previous !== previous) return stop('PSS_CHAIN_INVALID', 'is not linked to the event before it');
-    // Which keys may sign this event: the approver's pinned key, and for a key event the new key.
+    // Which keys may sign this event: the approver's pinned key, and for a key event the new key. An
+    // author's pinned key signs only that author's own key events.
+    const author = KEY_EVENTS.has(event.kind) && event.role === 'author';
     const signedBy = [];
     for (const entry of event.signatures) {
-      const pinned = state.pins.get(entry.signer);
+      const pinned = author ? (entry.signer === event.approver ? state.authorPins.get(entry.signer) : null) : state.pins.get(entry.signer);
       const ownKey = KEY_EVENTS.has(event.kind) && entry.signer === event.approver && entry.keyId === event.keyId ? event.key : null;
       const key = ownKey ?? (pinned?.keyId === entry.keyId ? pinned.key : null);
       if (!key) return stop('PSS_POLICY_UNSIGNED', `is signed by ${entry.keyId}, which is not ${entry.signer}'s pinned key`);
@@ -176,20 +183,22 @@ export function foldPresenceChain(chain, { verify = verifyPresenceSignature } = 
     }
     const byPin = signedBy.filter((entry) => !entry.own);
     const own = signedBy.find((entry) => entry.own);
-    const current = event.approver ? state.pins.get(event.approver) : null;
+    const pins = author ? state.authorPins : state.pins;
+    const current = event.approver ? (event.kind === 'revoke' ? state.pins.get(event.approver) ?? state.authorPins.get(event.approver) : pins.get(event.approver)) : null;
     switch (event.kind) {
       case 'register': {
         if (current) return stop('PSS_POLICY_UNSIGNED', `registers a key for ${event.approver}, who already has one pinned; rotate or recover it instead`);
+        if ((author ? state.pins : state.authorPins).has(event.approver)) return stop('PSS_POLICY_UNSIGNED', `registers ${event.approver} ${author ? 'as an author, who is pinned as an approver' : 'as an approver, who is pinned as an author'}`);
         if (!own) return stop('PSS_POLICY_UNSIGNED', 'is not signed by the key it registers');
-        if ([...state.pins.values()].some((pin) => pin.keyId === event.keyId)) return stop('PSS_POLICY_UNSIGNED', `pins ${event.keyId}, which another approver has pinned`);
-        state.pins.set(event.approver, { keyId: event.keyId, key: event.key, since: index, recovered: false });
+        if ([...state.pins.values(), ...state.authorPins.values()].some((pin) => pin.keyId === event.keyId)) return stop('PSS_POLICY_UNSIGNED', `pins ${event.keyId}, which another person has pinned`);
+        pins.set(event.approver, { keyId: event.keyId, key: event.key, since: index, recovered: false, ...(author ? { role: 'author' } : {}) });
         break;
       }
       case 'rotate': {
         if (!current || current.keyId !== event.previousKeyId) return stop('PSS_POLICY_UNSIGNED', `rotates a key ${event.approver} does not have pinned`);
         if (!own || !byPin.some((entry) => entry.signer === event.approver)) return stop('PSS_POLICY_UNSIGNED', 'is not signed by both the old and the new key');
         state.retired.push({ approver: event.approver, keyId: current.keyId, until: index, why: 'rotated' });
-        state.pins.set(event.approver, { keyId: event.keyId, key: event.key, since: index, recovered: false });
+        pins.set(event.approver, { keyId: event.keyId, key: event.key, since: index, recovered: false, ...(author ? { role: 'author' } : {}) });
         break;
       }
       case 'recover': {
@@ -199,7 +208,7 @@ export function foldPresenceChain(chain, { verify = verifyPresenceSignature } = 
           return stop('PSS_POLICY_UNSIGNED', 'does not record that GitHub no longer lists the lost key');
         }
         state.retired.push({ approver: event.approver, keyId: current.keyId, until: index, why: 'recovered' });
-        state.pins.set(event.approver, { keyId: event.keyId, key: event.key, since: index, recovered: true });
+        pins.set(event.approver, { keyId: event.keyId, key: event.key, since: index, recovered: true, ...(author ? { role: 'author' } : {}) });
         break;
       }
       case 'revoke': {
@@ -207,6 +216,7 @@ export function foldPresenceChain(chain, { verify = verifyPresenceSignature } = 
         if (!byPin.length) return stop('PSS_POLICY_UNSIGNED', 'is not signed by a pinned key');
         state.retired.push({ approver: event.approver, keyId: current.keyId, until: index, why: 'revoked' });
         state.pins.delete(event.approver);
+        state.authorPins.delete(event.approver);
         break;
       }
       case 'enable': {

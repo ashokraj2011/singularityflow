@@ -3,6 +3,7 @@ import { cp, readFile, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import test from 'node:test';
 
+import { main } from '../src/cli.mjs';
 import { approveCommand } from '../src/commands/approve.mjs';
 import { run as guard } from '../src/commands/guard.mjs';
 import { loadDefinition } from '../src/config.mjs';
@@ -16,6 +17,7 @@ import { countedApprovals, markSyntheticApproval } from '../src/presence/counted
 import { githubRepository, hostReview, requiredStatusCheck } from '../src/presence/host.mjs';
 import { parseCtkListing } from '../src/presence/local-keys.mjs';
 import { forgetPresenceContexts, loadPresenceContext } from '../src/presence/person-records.mjs';
+import { setPersonStepPresenceDependencies } from '../src/presence/person-steps.mjs';
 import { remotePresenceCheck, remotePresenceText } from '../src/presence/remote-check.mjs';
 import { sfGuardRecipeIncomplete, sfGuardVerifyWorkflowText } from '../src/presence/remote-recipe.mjs';
 import { statementText } from '../src/presence/statement.mjs';
@@ -120,7 +122,12 @@ test('SF Guard M4: the final check, the receipt and the remote check verify ever
   const { root, git, cli, item } = story;
   await writeFile(path.join(item, 'artifacts/specification/spec.md'), specification(WORK, 1));
   cli('artifact', 'scan', '--phase', 'specification');
-  cli('phase', 'publish', 'specification', '--authored', 'human', '--channel', 'manual-in-place');
+  // A person's authorship claim on this Story is believed only with its author's signature (SPEC-PSS-v1 §10.5).
+  forgetPresenceContexts();
+  setPersonStepPresenceDependencies(signer(key));
+  const published = await inRoot(root, () => main(['phase', 'publish', 'specification', '--authored', 'human', '--channel', 'manual-in-place', '--json']));
+  setPersonStepPresenceDependencies({});
+  assert.equal(published.error, undefined, `${published.error?.message}\n${published.lines.join('\n')}`);
   cli('submit', 'specification', '--skip-checks');
   const beforeApproval = git('rev-parse', 'HEAD');
   forgetPresenceContexts();

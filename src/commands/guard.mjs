@@ -20,7 +20,7 @@ import path from 'node:path';
 import { identity, repoRoot } from '../git.mjs';
 import { GITHUB_KEYS_PAGE, GITHUB_SIGNING_KEY_PAGE, githubListsKey, githubSigningKeys } from '../presence/anchor.mjs';
 import {
-  activeException, approverStanding, emptyPresenceChain, foldPresenceChain, nextExceptionId,
+  activeException, approverId, approverStanding, emptyPresenceChain, foldPresenceChain, nextExceptionId,
   nextPresenceEvent, PRESENCE_CHAIN_PATH, presenceApprovers, presenceEventStatement, WINDOWS_EXCEPTION_REASON
 } from '../presence/chain.mjs';
 import { ctkIdentities, presenceIdentityStanding, readableCopies } from '../presence/local-keys.mjs';
@@ -51,6 +51,23 @@ function currentApprover(root, approvers, { identify = identity } = {}) {
       + 'Ask an approver to add you as a member (singularity-flow configuration people), then run this again.', 'PSS_NOT_AN_APPROVER');
   }
   return match;
+}
+
+/**
+ * The person running this as an author (SPEC-PSS-v1 §10.5): someone who is not an approver, pinning a
+ * key only to sign their own authorship claims (`phase publish --authored human|external-tool`). Their
+ * ID is their Git email's; GitHub must still list the key, under the login they name.
+ */
+function currentAuthor(root, approvers, options, { identify = identity } = {}) {
+  const who = identify(root, { offline: true });
+  const email = String(who?.email ?? '').trim().toLowerCase();
+  const login = String(optionString(options, 'github-login') ?? who?.login ?? '').trim().toLowerCase();
+  if ([...approvers.values()].some((entry) => (email && entry.email === email) || (login && entry.githubLogin === login))) {
+    fail('SF Guard: you are an approver in the approved configuration, so register your presence key as one: singularity-flow guard register (without --author).', 'PSS_ARGUMENT_INVALID');
+  }
+  const id = email.includes('@') ? approverId({ email }) : null;
+  if (!id) fail('SF Guard: your Git identity has no email to register an author key under. Set git config user.email, then run this again.', 'PSS_NOT_AN_APPROVER');
+  return { approver: id, label: email, githubLogin: login || null, email, groups: [], role: 'author' };
 }
 
 async function readState(root, { verify } = {}) {
@@ -207,6 +224,10 @@ function standingRows(state) {
   // Pinned or excepted approvers the configuration no longer lists are still shown.
   for (const approver of new Set([...folded.pins.keys(), ...[...folded.exceptions.values()].filter((entry) => entry.active).map((entry) => entry.approver)])) {
     if (!state.approvers.has(approver)) rows.push({ approver, label: '(not in the approved configuration)', groups: [], standing: approverStanding(folded, approver) });
+  }
+  // Authors: a key that signs only its own authorship claims (SPEC-PSS-v1 §10.5).
+  for (const [author, pin] of folded.authorPins ?? new Map()) {
+    rows.push({ approver: author, label: '(author)', groups: [], standing: { state: 'author', pin, exception: null, label: `author: signs their own authorship claims with ${pin.keyId}` } });
   }
   return rows;
 }
@@ -392,7 +413,9 @@ export async function run(argv, { positionals, options }, dependencies = {}) {
     return print(options, result, statusText(result));
   }
   const { folded } = state.policy;
-  const me = currentApprover(root, state.approvers, { identify: deps.identify });
+  const asAuthor = optionBoolean(options, 'author');
+  if (asAuthor && !['register', 'rotate', 'recover'].includes(action)) fail(`guard ${action} is an approver's step; --author registers, rotates or recovers an author's own key only.`, 'PSS_ARGUMENT_INVALID');
+  const me = asAuthor ? currentAuthor(root, state.approvers, options, { identify: deps.identify }) : currentApprover(root, state.approvers, { identify: deps.identify });
   const chain = baseChain(state.policy);
   const sign = (event, signers) => signEvent(chain, event, signers, deps);
   let summary;
@@ -410,9 +433,11 @@ export async function run(argv, { positionals, options }, dependencies = {}) {
   }
   if (action === 'register' || action === 'recover' || action === 'rotate') {
     if (positionals.length > 2) fail(`guard ${action} takes no positional arguments. ${USAGE}`, 'PSS_ARGUMENT_UNEXPECTED');
-    const current = folded.pins.get(me.approver) ?? null;
-    if (action === 'register' && current) fail(`SF Guard: ${me.label} already has ${current.keyId} pinned. To change it: singularity-flow guard rotate --key <NEW-KEY-ID>, or guard recover --key <NEW-KEY-ID> if the old key is lost.`, 'PSS_KEY_ALREADY_PINNED');
-    if (action !== 'register') requirePin(folded, me, action);
+    const pins = me.role === 'author' ? folded.authorPins : folded.pins;
+    const current = pins.get(me.approver) ?? null;
+    const flag = me.role === 'author' ? ' --author' : '';
+    if (action === 'register' && current) fail(`SF Guard: ${me.label} already has ${current.keyId} pinned. To change it: singularity-flow guard rotate${flag} --key <NEW-KEY-ID>, or guard recover${flag} --key <NEW-KEY-ID> if the old key is lost.`, 'PSS_KEY_ALREADY_PINNED');
+    if (action !== 'register' && !current) fail(`SF Guard: ${me.label} has no presence key pinned, so it cannot ${action}. Register one first: singularity-flow guard register${flag}`, 'PSS_KEY_NOT_REGISTERED', { approver: me.approver });
     if (action !== 'register' && !optionString(options, 'key')) fail(`Name the new key: singularity-flow guard ${action} --key <NEW-KEY-ID> (its SHA256: fingerprint in /usr/sbin/sc_auth list-ctk-identities -t ssh)`, 'PSS_ARGUMENT_REQUIRED');
     const key = await presenceKey(deps, { keyId: optionString(options, 'key') ?? null, purpose: `${action} a presence key` });
     if (current && key.keyId === current.keyId) fail(`${key.keyId} is already ${me.label}'s pinned key.`, 'PSS_KEY_ALREADY_PINNED');
@@ -424,12 +449,13 @@ export async function run(argv, { positionals, options }, dependencies = {}) {
       }
       github.delisted = [current.keyId];
     }
-    const event = nextPresenceEvent(chain, { kind: action, approver: me.approver, key: key.publicKey, keyId: key.keyId,
+    // An author is in no member entry, so their key event names the GitHub login it is confirmed under (§10.5).
+    const event = nextPresenceEvent(chain, { kind: action, ...(me.role === 'author' ? { role: 'author', githubLogin: me.githubLogin } : {}), approver: me.approver, key: key.publicKey, keyId: key.keyId,
       ...(current ? { previousKeyId: current.keyId } : {}), github });
     const signers = [];
     if (action === 'rotate') signers.push(pinSigner(me, current, `rotate ${me.label}'s presence key (old key)`, [`Old key: ${current.keyId}`, `New key: ${key.keyId}`]));
     signers.push({ approver: me.approver, keyId: key.keyId, publicKey: key.publicKey, title: `${action} ${me.label}'s presence key`,
-      lines: [`Approver: ${me.label} [${me.approver}]`, `Key: ${key.keyId} (GitHub lists it)`] });
+      lines: [`${me.role === 'author' ? 'Author (signs only their own authorship claims)' : 'Approver'}: ${me.label} [${me.approver}]`, `Key: ${key.keyId} (GitHub lists it)`] });
     const updated = await sign(event, signers);
     summary = `${action} ${me.approver} ${key.keyId}`;
     next = { chain: updated };

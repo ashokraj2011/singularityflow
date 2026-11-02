@@ -20,6 +20,8 @@ questions:
   - Why does a risk or scope decision ask for Touch ID?
   - What does the SF Guard remote check verify?
   - How do I make the SF Guard check required?
+  - Why was my --authored human publication recorded as the agent's?
+  - How do I register a key if I am not an approver?
 keywords:
   - presence signature
   - secure enclave
@@ -39,7 +41,7 @@ related:
   - approvals
   - configuration
   - copilot-and-surfaces
-version: 7
+version: 8
 ---
 SF Guard makes a person's own steps provable. An agent runs as the same user on the same computer: it can read Git configuration, run any command, fake a terminal and write Git records directly, so nothing it can type proves a person decided. SF Guard asks for the one thing it cannot produce, a signature from a Secure Enclave key on the person's Mac made after their Touch ID. It is off until a repository opts in; a repository that never opts in behaves exactly as before. Refusals keep the `PSS_` codes of SPEC-PSS-v1.
 
@@ -49,7 +51,7 @@ Use this topic to see whether SF Guard is on, to pin your presence key, to opt a
 
 ## Use it from each surface
 
-- **Shell:** `sflow guard status` reads. Every other action is your own step in your own terminal: `sflow guard register`, `rotate`, `recover`, `revoke`, `enable`, `disable`, and `exception add|revoke`. Each shows a card, then Touch ID prompts.
+- **Shell:** `sflow guard status` reads. Every other action is your own step in your own terminal: `sflow guard register`, `rotate`, `recover`, `revoke`, `enable`, `disable`, and `exception add|revoke`. Each shows a card, then Touch ID prompts. Someone who is not an approver registers a key only to sign their own authorship claims: `sflow guard register --author --github-login <LOGIN>`.
 - **Copilot:** `/sf-guard` shows the status only. Every other `guard` action is refused for agents in every turn, and the refusal names your exact command. On a Story SF Guard requires, an agent's `approve` or `reject` (an `/sf-approve` turn included) is refused with `PSS_CARD_NOT_SHOWN` and your exact command: run it in your own terminal, where the card shows and Touch ID prompts.
 - **VS Code:** run the same command in a terminal; a model-free approval on a Story SF Guard requires names that command. The panel surfaces arrive with M5.
 
@@ -76,7 +78,11 @@ The policy is `singularity/presence.json` in the approved configuration: an appe
 
 **A Story's other decisions (M3).** Every other decision a person records on a Story pinned `required` is signed the same way: risk, test-run risk and narrowing acceptances, test command acceptances and revocations, evidence reuse, visual profile and witness decisions, witness exception renewals, scope dispositions, completeness reviews, applicability, upstream issue and forward amendment decisions, and plan amendments and corrections. Each lands in the Story's `workflow.json`, so SF Guard signs where the Story is written: the decisions a command added (never one already on disk) show on one card, then one Touch ID prompt signs them together. The same checks and routes as approve apply first; declining, or any refusal, writes nothing. A request anyone may make, such as a test command request, is never signed and always counts. Each family's own reader (the gates, the scope inventory, the decision list) counts a decision only when its signature verifies against the approver's pinned key, or a per-person exception covers it, so a decision written into `workflow.json` by hand counts for nothing.
 
-After a command you run in your own terminal in an opted-in repository, SF Guard warns (`PSS_FOREIGN_KEY`) when the key pinned under your approver ID is not held by this Mac, and names the revoke route. It never blocks the command. Steps recorded outside the Story's `workflow.json` (Spec Studio, configuration approval, appeals and their review records, plan actions, Epic and goal approvals, authorship claims) are not signed yet; the SF Guard specification lists each with its reason.
+**Authorship claims.** `phase publish --authored human` (or `external-tool`) says a person or an outside tool wrote the step, and such a step skips the checks an agent's draft gets. On a Story pinned `required` the claim is believed only with its author's signature: from your own terminal on your Mac, the card shows the step, generation and artifact, then one Touch ID prompt signs the claim. Any person with a registered key can sign one: an approver, or an author who registered with `--author` (an author's key signs only their own claims and key events, never a policy event or an exception). A claim without a valid signature is not refused; it is recorded and checked as the agent's (`governed-agent`), with every agent check, such as the clarification record, and the output says how to sign next time. A claim changed afterwards, or one written into `workflow.json` by hand, is read as the agent's too. An imported claim (`--from`), or one on a step only a person may author, has no agent reading, so it is refused (`PSS_CLAIM_UNSIGNED`) with the route to sign it.
+
+**Withdrawals.** A newer decision supersedes an older one by each decision's own signed time, never by the unsigned `withdrawnAt` field or the order of the list. So adding, removing or moving withdrawals in `workflow.json` changes which decision stands only if a newer signed decision is deleted, which the remote check catches (M4).
+
+After a command you run in your own terminal in an opted-in repository, SF Guard warns (`PSS_FOREIGN_KEY`) when the key pinned under your approver ID is not held by this Mac, and names the revoke route. It never blocks the command. Steps recorded outside the Story's `workflow.json` (Spec Studio, configuration approval, appeals and their review records, plan actions, Epic and goal approvals) are not signed yet; the SF Guard specification lists each with its reason.
 
 **Verified again, everywhere (M4).** The final check and the evidence receipt never trust a flag a record carries: each re-verifies every person record on the Story against its pinned keys. An approval that does not verify leaves the threshold unmet, and the refusal says SF Guard did not count it and names the approver's command; the record itself is named as not counted, never refused, so it blocks nothing by itself. The receipt adds a line such as `SF Guard: 2 signed · every signature re-verified`.
 
@@ -138,6 +144,8 @@ A label never refuses, prompts or holds anything. One that cannot be computed re
 - The remote check fails (`PSS_REMOTE_CHECK_FAILED`): its output lists each problem with its route. A forged or edited record is dropped from the change, and the person records the decision again in their own terminal.
 - `PSS_PACKET_ALTERED` from the remote check: a counted approval's review packet (and its labels) changed after the approval sealed it. Restore it from the Story's history, or the approver approves the new packet again in their own terminal.
 - `guard status` says the remote check is not required: add the CI recipe (`sflow guard remote-check --recipe`) and make the check required in the repository's branch protection.
+- A `--authored human` publication says it was recorded as the agent's: the claim had no valid signature from you (no key pinned, not your own terminal, or this Mac lacks your key). Register a key (`sflow guard register`, or `--author` if you are not an approver), then publish from your own terminal; or an approver records a per-person exception for you.
+- `PSS_CLAIM_UNSIGNED`: an imported (`--from`) claim, or one on a step only a person may author, needs your signature; nothing was written. Sign it as above.
 
 ## Related topics
 

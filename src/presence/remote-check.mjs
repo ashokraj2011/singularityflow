@@ -141,7 +141,8 @@ export async function remotePresenceCheck(root, { base = null, pullRequest = nul
   // 2. New key events are on GitHub now; a recovery's lost key is not.
   if (baseRef) {
     for (const event of validEvents.filter((entry) => KEY_EVENTS.has(entry.kind) && entry.seq >= baseLength)) {
-      const login = approvers.get(event.approver)?.githubLogin ?? null;
+      // An author (SPEC-PSS-v1 §10.5) is in no member entry: their event names the login it is confirmed under.
+      const login = approvers.get(event.approver)?.githubLogin ?? (event.role === 'author' && typeof event.githubLogin === 'string' ? event.githubLogin : null);
       const name = `SF Guard event ${event.seq} (${event.kind} ${event.keyId} for ${event.approver})`;
       if (!login) {
         fail('PSS_KEY_NOT_LISTED', `${name}: the approver has no GitHub login in the approved configuration, so the key cannot be confirmed.`,

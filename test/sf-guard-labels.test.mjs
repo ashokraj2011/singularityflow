@@ -8,6 +8,7 @@ import test from 'node:test';
 
 import { loadAcceptedStoryExecution } from '../src/accepted-story-execution.mjs';
 import { authoredArtifactText } from '../src/artifact-review-read.mjs';
+import { main } from '../src/cli.mjs';
 import { approveCommand } from '../src/commands/approve.mjs';
 import { run as guard } from '../src/commands/guard.mjs';
 import { recordRepositoryBoundaryTurn, repositoryToolGuard } from '../src/copilot-repository-boundary.mjs';
@@ -20,6 +21,7 @@ import {
 import { PRESENCE_CHAIN_PATH } from '../src/presence/chain.mjs';
 import { parseCtkListing } from '../src/presence/local-keys.mjs';
 import { forgetPresenceContexts } from '../src/presence/person-records.mjs';
+import { setPersonStepPresenceDependencies } from '../src/presence/person-steps.mjs';
 import { authoredView } from '../src/presence/reconcile.mjs';
 import { remotePresenceCheck, remotePresenceText } from '../src/presence/remote-check.mjs';
 import { statementText } from '../src/presence/statement.mjs';
@@ -63,6 +65,15 @@ async function inRoot(root, action) {
   try { return { value: await action(), lines }; }
   catch (error) { return { error, lines }; }
   finally { console.log = log; console.warn = warn; process.chdir(previous); }
+}
+
+function signer(key) {
+  return {
+    personTerminal: () => ({ person: true, reason: null }), signerAvailability: () => ({ available: true, reason: null }),
+    holdsKey: async (keyId) => keyId === key.keyId,
+    card: async (fields) => JSON.stringify(fields),
+    sign: async ({ statement }) => ({ signature: key.sign(statementText(statement)), userVerification: false })
+  };
 }
 
 async function guardRun(root, words, deps, options = {}) {
@@ -209,7 +220,11 @@ test('SFG AC-008 to AC-010: submission seals the labels, the card shows them bef
   await recordRepositoryBoundaryTurn({ sessionId: 's-plain', timestamp: Date.now(), cwd: root, prompt: 'Thanks.' });
   await writeFile(path.join(item, 'artifacts/specification/notes.md'), '# Notes\n\nA person wrote this in another editor.\n');
   cli('artifact', 'scan', '--phase', 'specification');
-  cli('phase', 'publish', 'specification', '--authored', 'human', '--channel', 'manual-in-place');
+  // The person's claim is believed only with their signature (SPEC-PSS-v1 §10.5), so they publish it signed.
+  setPersonStepPresenceDependencies(signer(key));
+  const published = await inRoot(root, () => main(['phase', 'publish', 'specification', '--authored', 'human', '--channel', 'manual-in-place', '--json']));
+  setPersonStepPresenceDependencies({});
+  assert.equal(published.error, undefined, `${published.error?.message}\n${published.lines.join('\n')}`);
   cli('submit', 'specification', '--skip-checks');
 
   // AC-008: the packet carries the block, sealed by its own digest and by the packet's.

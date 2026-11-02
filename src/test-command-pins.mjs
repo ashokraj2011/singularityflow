@@ -437,7 +437,7 @@ function pinChangedError(workflow, phase, pinned, candidate) {
       + `and they accept it (/sf-decide ${workId ?? '<WORK-ID>'}); an agent never accepts it. ${restoreWords}`,
     { code: 'TEST_COMMAND_PIN_CHANGED', details: {
       workId, phase: phase.id,
-      testCommandPin: { phase: phase.id, commandId: candidate.commandId, pin: pinned.id ?? null, changes, command },
+      testCommandPin: { phase: phase.id, commandId: candidate.commandId, pin: pinned.id ?? null, changes, restorePaths: restore, command },
       // The refusal's own route, which every surface renders: anyone requests, a person who approves accepts.
       nextAction: { command, label: `Request the new pin, saying why the test command changed; a person who approves ${phase.id} accepts it `
         + `from the decision list (/sf-decide ${workId ?? '<WORK-ID>'}), and an agent never accepts it. ${restoreWords}` }
@@ -636,6 +636,66 @@ export async function repinRequest(root, config, workflow, phase, command) {
   }
   const { sha256: digest, ...pin } = pinIdentity(candidate);
   return { commandId: command.id, sha256: digest, pinned: recorded.sha256, pin, changes: pinChanges(reference, compared).map(pinChangeWords) };
+}
+
+/**
+ * Pending re-pins are reviews of exact definitions, not permanent obligations. A verified return
+ * to the existing pin needs no acceptance. Retain the request in history and expose why it is no
+ * longer pending; unreadable definitions remain pending, with their actual diagnostic.
+ */
+export async function pendingTestCommandReviews(root, config, workflow, phase, requests, { commands = null } = {}) {
+  const pending = [], inactive = [], bindings = [], unavailable = [];
+  if (!requests.some(request => request.repin)) return { pending: requests, inactive, bindings, unavailable };
+  try {
+    const read = async relative => {
+      try { return (await readRepositoryManifest(root, relative, { maxBytes: MAX_CONFIG_BYTES })).bytes.toString('utf8'); }
+      catch (error) { if (error.code === 'ENOENT') return null; throw error; }
+    };
+    const list = async relative => {
+      try { return (await readdir(path.join(root, relative), { withFileTypes: true })).map(entry => ({ name: entry.name, directory: entry.isDirectory() })); }
+      catch (error) { if (error.code === 'ENOENT') return []; throw error; }
+    };
+    commands ??= (await (await import('./local-test-runs.mjs')).resolveStoryLocalTestCommands(root, config, workflow, { phaseId: phase.id })).commands;
+    const attempts = await recordedRuns(root, config, workflow, phase);
+    const observed = new Map();
+    const pendingIdentities = new Map();
+    for (const request of requests) {
+      if (!request.repin) { pending.push(request); continue; }
+      const command = commands.find(entry => entry.id === request.repin.commandId);
+      // Removal requests and unavailable commands retain their existing owner route.
+      if (request.repin.removed || !command) { pending.push(request); continue; }
+      if (!observed.has(command.id)) {
+        const definition = await commandDefinition(root, command, { read, list });
+        const candidate = pinCandidate(phase, command, definition.entries);
+        const recorded = referencePin(workflow, candidate, attempts);
+        const reference = recorded && comparablePin(recorded);
+        const version = reference ? pinVersion(reference) : DEFINITION_VERSION;
+        const compared = version === DEFINITION_VERSION ? candidate
+          : pinCandidate(phase, command, (await commandDefinition(root, command, { version, read, list })).entries, { version });
+        observed.set(command.id, { candidate, reference, restored: Boolean(reference && reference.sha256 === compared.sha256) });
+      }
+      const { candidate, reference, restored } = observed.get(command.id);
+      const acceptedBy = acceptedRepin(workflow, candidate);
+      const identity = canonicalJson({ phase: request.phase, commandId: command.id, repin: request.repin });
+      const duplicateOf = pendingIdentities.get(identity);
+      const status = restored ? 'original-definition-restored' : acceptedBy ? 'definition-already-accepted'
+        : request.repin.sha256 !== candidate.sha256 ? 'definition-changed-since-request'
+          : duplicateOf ? 'duplicate-pending-request' : 'pending';
+      bindings.push({ request: request.id, status, current: candidate.sha256, reference: reference?.sha256 ?? null });
+      if (status !== 'pending') inactive.push({ request: request.id, phase: request.phase, commandId: command.id, status,
+        ...(acceptedBy ? { acceptedBy } : {}), ...(duplicateOf ? { duplicateOf } : {}),
+        reason: restored ? 'The current test definition matches its existing pin. No re-pin or human acceptance is required; the unaccepted request remains in history.'
+          : acceptedBy ? 'An existing human decision already accepts this exact definition; this request is not another acceptance.'
+            : duplicateOf ? 'The same exact re-pin is already pending under the named request; decide that request once.'
+              : 'The current definition differs from this request. Diagnose the current change and review its exact request; this older request cannot admit it.' });
+      else { pending.push(request); pendingIdentities.set(identity, request.id); }
+    }
+  } catch (error) {
+    // A read failure is never interpreted as a restored definition or permission to drop a review.
+    unavailable.push({ phase: phase.id, reason: error.code ?? 'test-command-definition-unavailable' });
+    return { pending: requests, inactive: [], bindings: [{ status: 'unavailable', reason: unavailable[0].reason }], unavailable };
+  }
+  return { pending, inactive, bindings, unavailable };
 }
 
 /**

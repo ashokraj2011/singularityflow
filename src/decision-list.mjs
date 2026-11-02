@@ -734,6 +734,7 @@ export function decisionPacket(workflow, facts, { authorities, actor, at, reques
     workId, phase: phaseId, phaseLabel: stepName(workflow, phaseId), status: decisions.length ? 'decisions-needed' : 'nothing-to-decide',
     headline, rule: CONFORMANCE_GAP_RULE,
     items, holding, open: items.length,
+    ...(facts.inactiveTestCommands?.length ? { inactiveTestCommands: facts.inactiveTestCommands } : {}),
     // What to do next: the first open item, with its first route.
     next: first ? { item: first.id, kind: first.kind, title: first.title, command: first.options[0]?.action?.command ?? `singularity-flow decisions ${workId}`,
       copilotCommand: first.kind === 'approval' ? `/sf-approve ${phaseId} --work-id ${workId}` : listRoute } : null,

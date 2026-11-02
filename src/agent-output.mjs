@@ -222,6 +222,11 @@ export function agentAct(result) {
     said: 'The packet was not retained. Repair its exact format/citation fields using the returned hints and this invocation\'s stagingProtocol; check changed bytes within the two-repair budget. Do not restart the phase, run generic diagnostics, or invent coverage.' };
   if (result.error && result.remediationPlan) {
     const plan = result.remediationPlan;
+    if (!plan.escalation && plan.repairContinuation?.kind === 'test-command-definition'
+        && plan.repairContinuation.currentTurnRepair === true) return {
+      state: 'repair', do: null, strategy: 'diagnose-test-definition-drift',
+      read: ['error.details.testCommandPin', 'remediationPlan.repairContinuation', 'remediationPlan.steps'],
+      said: 'Diagnose the changed test definition first. Preserve a repair that retains the pin when an incidental config edit is unnecessary; otherwise reuse/request the exact re-pin for human review. No automatic acceptance, blind restoration or unchanged retries.' };
     if (!plan.escalation && plan.repairContinuation?.revision === 'repair-continuation-v1' && plan.repairContinuation.currentTurnRepair === true) return withRoute({
       state: 'repair', do: null, read: ['error.requiredTestExecution', 'remediationPlan.repairContinuation', 'remediationPlan.steps'],
       strategy: 'diagnose-repair-verify', said: 'The required test failed: diagnose its saved execution, repair within the admitted authoring scope, verify the changed condition, then rerun the original gate. Do not end authoring merely because tests failed or claim passing evidence from a diagnostic run.'

@@ -117,7 +117,19 @@ test('a step approver accepts a Story-only test command, and publication and sub
     '--argv', JSON.stringify([process.execPath, 'run-checks.mjs']), '--working-directory', '.', '--affected-root', '.',
     '--adapter', 'sflow-test-result-v1', '--report', '.sflow/results/checks.json', '--reason', 'The team runs run-checks.mjs for this module.');
   assert.equal(requested.data.record.id, 'TCD-001');
-  assert.equal(requested.next[0].command, 'singularity-flow decision test-command QF-1 --accept TCD-001');
+  assert.equal(requested.next[0].command, 'singularity-flow decisions QF-1 --json');
+  assert.equal(requested.next[0].copilotCommand, '/sf-decide QF-1');
+  assert.equal(requested.next[1].command, 'singularity-flow decision test-command QF-1 --accept TCD-001');
+  assert.equal(requested.next[1].copilotCommand, null, 'the review route grants no acceptance authority');
+  const requestedHead = must('git', ['rev-parse', 'HEAD']);
+  const repeated = json('decision', 'test-command', '--phase', 'implement', '--id', 'repository-checks',
+    '--argv', JSON.stringify([process.execPath, 'run-checks.mjs']), '--working-directory', '.', '--affected-root', '.',
+    '--adapter', 'sflow-test-result-v1', '--report', '.sflow/results/checks.json', '--reason', 'The same command is still awaiting the step reviewer.');
+  assert.equal(repeated.data.reused, true);
+  assert.equal(repeated.data.record.id, 'TCD-001');
+  assert.equal(repeated.data.commit, null);
+  assert.equal(repeated.effects.stateChanged, false);
+  assert.equal(must('git', ['rev-parse', 'HEAD']), requestedHead, 'a repeated request does not create a commit');
   assert.equal(refused('phase', 'publish', 'implement').error.code, 'CODE_DELIVERY_TEST_COMMAND_REQUIRED', 'a request alone runs nothing');
 
   // The step's approvers see it in their decision list and accept it there.

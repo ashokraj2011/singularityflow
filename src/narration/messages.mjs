@@ -280,6 +280,10 @@ export const MESSAGES = Object.freeze({
     headline: (s) => `Recorded ${slot(s.record)}; an accepted command runs at every publication and submission of its step, and its tests must pass.`,
     preserves: false
   },
+  'decision.test-command.reused': {
+    headline: (s) => `Reused existing request ${slot(s.request)}; no new request, decision, commit or push was recorded.`,
+    preserves: true
+  },
   'decision.test-risk.succeeded': {
     headline: (s) => `Recorded ${slot(s.record)}; the tests still run every time, and only a run with the same environment cause is let through until it expires or is revoked.`,
     preserves: false

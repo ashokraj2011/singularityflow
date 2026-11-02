@@ -138,3 +138,16 @@ export function repairContinuationForTestFailure(context, execution) {
     instruction: approval ? 'End this approval turn with the exact owner/return route. Diagnose and repair in an authorized authoring turn; never approve, reject or waive on behalf of the human.'
       : REPAIR_CONTINUATION_PROTOCOL };
 }
+
+/** Definition drift may be an unnecessary supporting edit; it is not an automatic new-pin request. */
+export function repairContinuationForPinChange(context, pin) {
+  if (!context || !pin) return null;
+  const approval = context.turn === 'new-turn' || context.operation === 'approve';
+  return { ...REPAIR_CONTINUATION_CONTRACT, kind: 'test-command-definition', workId: context.workId,
+    phaseId: context.phaseId, commandId: pin.commandId, transition: context.operation,
+    status: approval ? 'owner-action' : 'diagnose', currentTurnRepair: !approval,
+    mutationAuthorityGranted: false, testsPassed: false, phaseAdvanced: false,
+    restorePaths: pin.restorePaths ?? [], reuseMatchingPendingRequest: true,
+    instruction: approval ? 'End the approval turn; the configured author inspects the definition change in an authorized turn.'
+      : 'Compare the changed test definition with its pin and diagnose the repair first. If an incidental configuration edit is unnecessary, preserve the actual repair and restore only owned, admitted changes to the pinned definition. Never discard intentional human changes, loosen test scope or reset a pin. If a necessary change remains, request or reuse its exact pending re-pin once and show the human review route. Only an authorized person accepts it; never accept on their behalf. Recheck the original gate against fresh current bytes.' };
+}

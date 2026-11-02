@@ -72,6 +72,21 @@ function facts(workflow, overrides = {}) {
 const actor = { name: 'Release Person', email: 'release@example.invalid', login: null };
 // The step's approval is the list's last item (SPEC-OAP M3); counts here are of the decisions before it.
 const decisionsOf = (packet) => packet.items.filter((item) => item.kind !== 'approval');
+
+test('a restored test definition is historical information, not a decision or implicit acceptance', () => {
+  const workflow = story({ status: 'in_progress' });
+  const inactive = [{ request: 'TCD-001', phase: 'release', commandId: 'unit', status: 'original-definition-restored' }];
+  const data = { gaps: [], issues: [], candidates: [], testCommands: [], inactiveTestCommands: inactive,
+    state: { testCommandReviewBindings: [{ request: 'TCD-001', current: 'same', reference: 'same' }] } };
+  const packet = packetOf(workflow, data);
+  assert.equal(packet.open, 0);
+  assert.equal(packet.status, 'nothing-to-decide');
+  assert.deepEqual(packet.inactiveTestCommands, inactive);
+  assert.equal(packet.next, null);
+  assert.notEqual(packet.packetSha256, packetOf(workflow, { ...data,
+    state: { testCommandReviewBindings: [{ request: 'TCD-001', current: 'changed', reference: 'same' }] } }).packetSha256,
+  'the preview is invalidated if the live definition changes again');
+});
 const packetOf = (workflow, extra = {}, who = actor) => decisionPacket(workflow, facts(workflow, extra),
   { authorities: workflow.resolution.approvalAuthorities, actor: who, at: AT });
 
@@ -185,7 +200,10 @@ test('a typed reason reaches the record command as the person wrote it: a shell 
   const command = decisionRecordCommand('BIN-501', { choices: [['d1', 'dismiss']], digest, values: { reason: { d1: reason } } });
   assert.doesNotMatch(command, /"d1=/u, 'JSON double quotes are not shell quoting');
   const token = command.slice(command.indexOf('--reason ') + '--reason '.length, command.indexOf(' --confirm'));
-  assert.equal(execFileSync('/bin/sh', ['-c', `printf '%s' ${token}`], { encoding: 'utf8' }), `d1=${reason}`);
+  // The command is POSIX syntax; on Windows exercise it in Git's shell, not a nonexistent /bin/sh.
+  const shell = process.platform === 'win32'
+    ? path.resolve(execFileSync('git', ['--exec-path'], { encoding: 'utf8' }).trim(), '../../../usr/bin/sh.exe') : '/bin/sh';
+  assert.equal(execFileSync(shell, ['-c', `printf '%s' ${token}`], { encoding: 'utf8' }), `d1=${reason}`);
   assert.ok(validateSflowExecutionCommand(command, { shell: 'posix' })?.copyable, 'the guard reads it as one command');
   assert.equal(decisionRecordCommand('BIN-501', { choices: [['d1', 'reuse']], digest }),
     `singularity-flow decisions record BIN-501 --choose d1=reuse --confirm ${digest}`, 'plain values stay bare');

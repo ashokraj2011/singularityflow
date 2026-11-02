@@ -88,6 +88,26 @@ test('failed approval and an exhausted escalation do not enter an authoring or r
   assert.equal(agentAct(envelope).state, 'escalate');
 });
 
+test('test definition drift is diagnosed before requesting a new pin and never grants automatic acceptance', () => {
+  const error = Object.assign(new Error('Test definition changed'), { code: 'TEST_COMMAND_PIN_CHANGED', details: {
+    workId: 'W-1', phase: 'custom-delivery', testCommandPin: { phase: 'custom-delivery', commandId: 'unit', restorePaths: ['vite.config.js'],
+      command: 'singularity-flow decision test-command W-1 --phase custom-delivery --repin unit --reason "<why>"' }
+  } });
+  const envelope = refusalEnvelope(error, ['phase', 'publish', 'custom-delivery', '--json']);
+  assert.equal(envelope.remediationPlan.repairContinuation.kind, 'test-command-definition');
+  assert.equal(envelope.remediationPlan.repairContinuation.mutationAuthorityGranted, false);
+  assert.equal(envelope.remediationPlan.repairContinuation.automaticRiskAcceptance, false);
+  assert.deepEqual(envelope.remediationPlan.repairContinuation.restorePaths, ['vite.config.js']);
+  const act = agentAct(envelope);
+  assert.equal(act.state, 'repair');
+  assert.equal(act.do, null, 'the agent must diagnose first, not immediately create another request');
+  assert.ok(act.read.includes('error.details.testCommandPin'));
+  assert.deepEqual(envelope.error.details.testCommandPin.restorePaths, ['vite.config.js']);
+  const approval = refusalEnvelope(error, ['approve', 'custom-delivery', '--json']);
+  assert.equal(approval.remediationPlan.repairContinuation.currentTurnRepair, false);
+  assert.notEqual(agentAct(approval).state, 'repair');
+});
+
 test('legacy prompt overlay is applied once and failure examples are bounded and redacted', () => {
   const original = 'Old pinned prompt: stop after a failed test.';
   const overlaid = withRepairContinuationProtocol(original);

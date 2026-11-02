@@ -21,7 +21,7 @@ import { loadAcceptedStoryExecution } from '../accepted-story-execution.mjs';
 import { requireApprovalAuthority } from '../approval-authority.mjs';
 import { repoRoot } from '../git.mjs';
 import { LIFECYCLE_EVENT } from '../lifecycle-event.mjs';
-import { action, commandResult, effects, succeeded } from '../narration/command-result.mjs';
+import { action, commandResult, effects, noop, succeeded } from '../narration/command-result.mjs';
 import { emitCommandResult } from '../narration/emit.mjs';
 import { loadSession } from '../session.mjs';
 import { actorKey, assertNoPendingPublication, loadConfig, transactStory } from '../state-stores.mjs';
@@ -75,7 +75,8 @@ export async function recordStoryTestCommand(root, config, workflow, { phaseId =
       authorityGroup: authority.authorityGroup, identityAssurance: authority.identityAssurance ?? null,
       selfApproval: aggregate.phases?.[decidingStep(aggregate, phase)]?.approvalPolicy?.allowSelfApproval !== false })
     : recordStoryTestCommandRequest(aggregate, { phaseId, command, repin, reason, ...common });
-  decide(structuredClone(workflow));
+  const preview = decide(structuredClone(workflow));
+  if (!target && storyTestCommandState(workflow, preview.id)) return { record: preview, publication: null, reused: true };
   const verb = accept ? 'accept' : revoke ? 'revoke' : 'request';
   const { value: record, publication } = await transactStory(
     root, config, workflow,
@@ -156,7 +157,7 @@ export async function decisionTestCommandCommand(positionals, options) {
   const actor = actionActor(root);
   const session = await loadSession(root, { required: false });
   const agent = session?.workId === id ? session.agent ?? null : null;
-  const { record, publication } = await recordStoryTestCommand(root, config, workflow,
+  const { record, publication, reused = false } = await recordStoryTestCommand(root, config, workflow,
     { phaseId, command, repin, accept, revoke, reason: optionString(options, 'reason') ?? '' }, { actor, agent });
   const recordId = record.id ?? accept ?? revoke;
   const repinned = accept ? storyTestCommandState(workflow, accept)?.request?.repin ?? null : null;
@@ -171,16 +172,20 @@ export async function decisionTestCommandCommand(positionals, options) {
         : repinned ? `Accepted ${accept}: the next gate run of ${repinned.commandId} records it as the Story's pin. Publish the step again.`
           : accept ? `Accepted ${accept}: it runs at every publication and submission of ${record.phase}, and its tests must pass. Publish the step again.`
             : `Revoked ${revoke}: ${record.phase} no longer runs it.`);
-    console.log(publication.pushed ? `Decision committed ${publication.sha.slice(0, 8)} and pushed.`
-      : `Decision committed ${publication.sha.slice(0, 8)} locally; push is disabled by git.publish: off.`);
+    console.log(reused ? `Reused existing ${record.id}; no new request, decision, commit or push.`
+      : publication.pushed ? `Decision committed ${publication.sha.slice(0, 8)} and pushed.`
+        : `Decision committed ${publication.sha.slice(0, 8)} locally; push is disabled by git.publish: off.`);
   }
   emitCommandResult(commandResult({
     operation: { id: 'decision.test-command', classification: 'mutation' },
     subject: { kind: 'story', id },
-    outcome: succeeded('decision.test-command.succeeded', { record: record.id ? `request ${record.id}` : `the ${accept ? 'acceptance' : 'revocation'} of ${recordId}` }),
-    effects: effects({ stateChanged: true, filesChanged: true, publicationCreated: true }),
-    next: record.id ? [action({ id: 'decision.test-command.accept', command: storyTestCommandAcceptCommand(workflow, record.id), rank: 'NOW', kind: 'review',
+    outcome: reused ? noop('decision.test-command.reused', { request: record.id })
+      : succeeded('decision.test-command.succeeded', { record: record.id ? `request ${record.id}` : `the ${accept ? 'acceptance' : 'revocation'} of ${recordId}` }),
+    effects: effects({ stateChanged: !reused, filesChanged: !reused, publicationCreated: !reused }),
+    next: record.id ? [action({ id: 'decision.test-command.review', command: `singularity-flow decisions ${id} --json`, rank: 'NOW', kind: 'review',
+      label: 'Review the exact request and required human authority. Copilot can explain the decision; it cannot accept it.' }),
+    action({ id: 'decision.test-command.accept', command: storyTestCommandAcceptCommand(workflow, record.id), rank: 'SOON', kind: 'review',
       label: `A person who approves ${record.phase} accepts the requested command in their own terminal; an agent never accepts it.` })] : [],
-    data: { commit: publication.sha, pushed: publication.pushed, record }
+    data: { commit: publication?.sha ?? null, pushed: publication?.pushed ?? false, reused, record }
   }), { json: optionBoolean(options, 'json'), postState: workflow });
 }

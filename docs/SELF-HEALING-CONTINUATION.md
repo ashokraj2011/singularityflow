@@ -22,6 +22,16 @@ it is resolved by the kernel rather than copied into each YAML definition.
 authoring turn merely because tests failed. These projections grant no mutation permission.
 A publication-only or independent-review turn still hands authoring to its configured producer.
 
+Test-definition drift is diagnosed before requesting a new pin. Keep a repair that preserves the
+existing definition when an incidental configuration edit is unnecessary; never discard intentional
+human changes or narrow the tests. Necessary definition changes still need their exact human review.
+Repeated requests reuse the same pending request without a new commit. The handoff offers a Copilot
+review route separately from acceptance in the person's terminal.
+
+If the current definition is verified to match its original pin again, the unaccepted re-pin request
+stays in history and is reported as inactive rather than another pending decision. This records no
+acceptance and changes no pin. Unreadable definitions retain their pending review and diagnostic.
+
 ## Evidence and limits
 
 Failed execution diagnostics retain up to three distinct, redacted, bounded examples from that

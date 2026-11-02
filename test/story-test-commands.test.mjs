@@ -70,3 +70,30 @@ test('an accepted command is resolved like a configured one and owns its affecte
   const commands = await resolveDeliveryQualityCommands(process.cwd(), phase);
   assert.deepEqual(commands.map((entry) => [entry.id, testCommandProvenance(phase, entry)]), [['e2e', 'story-decision']]);
 });
+
+test('repeated requests reuse their identity without manufacturing decisions or losing the first reason', () => {
+  const workflow = story();
+  const first = request(workflow);
+  const again = recordStoryTestCommandRequest(workflow, { phaseId: 'implement', command: command(),
+    reason: 'The second author verified the same exact command.', actor: 'second-author', at: 'later' });
+  assert.equal(again.id, first.id);
+  assert.equal(again.reason, first.reason);
+  assert.equal(workflow.testCommandDecisions.length, 1);
+  assert.equal(storyTestCommandState(workflow, first.id).state, 'requested');
+  assert.deepEqual(activeStoryTestCommands(workflow, 'implement'), []);
+  assert.throws(() => recordStoryTestCommandRequest(workflow, { phaseId: 'implement', command: command(),
+    reason: 'short', actor: 'second-author', at: 'later' }), { code: 'TEST_COMMAND_DECISION_INVALID' });
+});
+
+test('re-pin deduplication uses its portable definition and baseline, never an unrelated pending change', () => {
+  const workflow = story();
+  const repin = { commandId: 'e2e', sha256: 'sha256:new', pinned: 'sha256:original', pin: { argv: ['npm', 'test'] }, changes: ['test configuration changed'] };
+  const make = (value, cmd = command()) => recordStoryTestCommandRequest(workflow, { phaseId: 'implement', command: cmd, repin: value,
+    reason: 'A necessary changed test configuration needs review.', actor: 'author', at: 'now' });
+  const first = make(repin);
+  assert.equal(make(repin, { ...command(), argv: ['npm.cmd', 'test'] }).id, first.id, 'platform wrappers do not duplicate an identical re-pin');
+  assert.notEqual(make({ ...repin, sha256: 'sha256:different' }).id, first.id);
+  assert.notEqual(make({ ...repin, pinned: 'sha256:later-baseline' }).id, first.id);
+  decide(workflow, first.id, 'revoke');
+  assert.notEqual(make(repin).id, first.id, 'a revoked request is not revived');
+});

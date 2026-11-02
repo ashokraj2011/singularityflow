@@ -47,6 +47,13 @@ export function pendingStoryTestCommands(workflow, phaseId) {
     && storyTestCommandState(workflow, entry.id).state === 'requested');
 }
 
+/** Repeating the same request is not another human decision; prose/actor/time do not change its scope. */
+export function matchingPendingTestCommand(workflow, { phaseId, command, repin = null }) {
+  return pendingStoryTestCommands(workflow, phaseId).find(entry => repin
+    ? entry.command.id === command.id && canonicalJson(entry.repin ?? null) === canonicalJson(repin)
+    : !entry.repin && canonicalJson(entry.command) === canonicalJson(command)) ?? null;
+}
+
 /**
  * The commands a step runs because a person accepted them, each bound to its request. The latest
  * acceptance of a command ID wins; a pending request never displaces an accepted command.
@@ -104,11 +111,14 @@ function openStep(workflow, phaseId) {
 export function recordStoryTestCommandRequest(workflow, { phaseId, command, repin = null, reason, actor, at }) {
   openStep(workflow, phaseId);
   if (!command?.id || command.kind !== 'test') fail('A Story-only test command is one structured kind: test command.');
+  const reasonValue = reasonText(reason, 15, '--reason');
+  const existing = matchingPendingTestCommand(workflow, { phaseId, command, repin });
+  if (existing) return existing;
   workflow.testCommandDecisions ??= [];
   const request = {
     id: `TCD-${String(decisions(workflow).filter((entry) => entry.id).length + 1).padStart(3, '0')}`,
     phase: phaseId, command: structuredClone(command), ...(repin ? { repin: structuredClone(repin) } : {}),
-    reason: reasonText(reason, 15, '--reason'), requestedBy: actor, at
+    reason: reasonValue, requestedBy: actor, at
   };
   workflow.testCommandDecisions.push(request);
   return request;

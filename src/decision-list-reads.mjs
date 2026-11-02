@@ -201,6 +201,12 @@ export async function decisionListFacts(root, config, workflow, { phaseId = work
   const state = await pendingStateFacts(root, config, workflow, phase, { ...known, unavailable: blocking.unavailable });
   let evidence = [];
   const tests = await testRisks(root, config, workflow, phase, at);
+  const requests = (workflow.testCommandDecisions ?? []).length
+    ? (await import('./story-test-commands.mjs')).pendingStoryTestCommands(workflow, phase.id) : [];
+  const commandReviews = requests.some(request => request.repin)
+    ? await (await import('./test-command-pins.mjs')).pendingTestCommandReviews(root, config, workflow, phase, requests)
+    : { pending: requests, inactive: [], bindings: [], unavailable: [] };
+  blocking.unavailable = [...(blocking.unavailable ?? []), ...commandReviews.unavailable];
   try { evidence = await evidenceDecisionFacts(root, config, workflow, phase); }
   catch (error) { blocking.unavailable = [...(blocking.unavailable ?? []), { phase: phase.id, reason: error.code ?? 'evidence-unavailable' }]; }
   return {
@@ -210,8 +216,8 @@ export async function decisionListFacts(root, config, workflow, { phaseId = work
     candidates: reuse.candidates, reuseProblems: reuse.problems,
     testRisks: tests.risks,
     testNarrowings: tests.narrowings,
-    testCommands: (workflow.testCommandDecisions ?? []).length
-      ? (await import('./story-test-commands.mjs')).pendingStoryTestCommands(workflow, phase.id) : [],
+    testCommands: commandReviews.pending,
+    inactiveTestCommands: commandReviews.inactive,
     visual: await visualProfiles(root, config, workflow, phase),
     state: {
       phases: Object.fromEntries((workflow.phaseOrder ?? []).map((id) => [id, `${workflow.phases?.[id]?.status}:${Number(workflow.phases?.[id]?.generation ?? 0)}`])),
@@ -219,6 +225,7 @@ export async function decisionListFacts(root, config, workflow, { phaseId = work
       evidenceReuses: (workflow.evidenceReuses ?? []).length, testRunRisks: (workflow.testRunRisks ?? []).length,
       testNarrowings: (workflow.testNarrowings ?? []).length,
       testCommandDecisions: (workflow.testCommandDecisions ?? []).length,
+      testCommandReviewBindings: commandReviews.bindings,
       visualProfileDecisions: (workflow.visualProfileDecisions ?? []).length,
       evidence: evidence.map((entry) => `${entry.criterion}:${entry.result}:${entry.witnesses.map((witness) => witness.slot).join(',')}:${entry.risks.length}`),
       reports: Object.fromEntries(reports.map((entry) => [entry.step.id, entry.digest])),

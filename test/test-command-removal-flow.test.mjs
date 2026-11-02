@@ -69,6 +69,7 @@ test('a pinned suite deleted from its package is refused until a person who appr
   await writeScripts({ test: 'jest', 'test:node': 'node --test' });
   await writeFile(path.join(root, '.gitignore'), 'node_modules/\n.sflow/results/\n');
   await writeFile(path.join(root, 'node_modules/.bin/jest'), FAKE_JEST);
+  await writeFile(path.join(root, 'node_modules/.bin/jest.cmd'), '@echo off\r\nnode "%~dp0jest" %*\r\n');
   await chmod(path.join(root, 'node_modules/.bin/jest'), 0o755);
   await writeFile(path.join(root, 'src/value.mjs'), 'export const value = 1;\n');
   await writeFile(path.join(root, 'test/value.test.mjs'), "import test from 'node:test';\nimport assert from 'node:assert/strict';\nimport { value } from '../src/value.mjs';\ntest('value', () => assert.equal(value, 1));\n");

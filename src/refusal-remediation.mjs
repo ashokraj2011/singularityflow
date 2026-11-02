@@ -10,7 +10,7 @@
 import { specificFindingDocumentation } from './finding-catalog.mjs';
 import { localGitHookFailure, redactDiagnosticText } from './git-remote-diagnostics.mjs';
 import { stripGlobalModelOptions } from './model-mode.mjs';
-import { repairContinuationForTestFailure } from './phase-finding-policy.mjs';
+import { repairContinuationForPinChange, repairContinuationForTestFailure } from './phase-finding-policy.mjs';
 import { requiredTestExecutionForRefusal } from './test-execution-diagnostics.mjs';
 import {
   commandRouteLines, safeCommandGuidance, validateSafeSflowCommand
@@ -1916,6 +1916,9 @@ export function refusalRemediationPlan(error, argv = []) {
     status: 'blocked',
     code,
     ...(documentation ? { documentation } : {}),
+    ...(code === 'TEST_COMMAND_PIN_CHANGED' && phaseContext && error.details?.testCommandPin ? {
+      repairContinuation: repairContinuationForPinChange(phaseContext, error.details.testCommandPin)
+    } : {}),
     ...(requiredTestBlocked && phaseContext && requiredTestExecutionForRefusal(error) ? {
       repairContinuation: repairContinuationForTestFailure(phaseContext, requiredTestExecutionForRefusal(error))
     } : {}),
@@ -2087,7 +2090,7 @@ export function refusalDetails(details) {
     const entry = details[key];
     const words = (value) => (list(value, text).length ? list(value, text).slice(0, 20) : null);
     if (text(entry?.phase) && text(entry.commandId)) projected[key] = compact({ phase: text(entry.phase), commandId: text(entry.commandId),
-      pin: text(entry.pin), changes: words(entry.changes), reasons: words(entry.reasons), decision: text(entry.decision), command: text(entry.command) });
+      pin: text(entry.pin), changes: words(entry.changes), restorePaths: words(entry.restorePaths), reasons: words(entry.reasons), decision: text(entry.decision), command: text(entry.command) });
   }
   // Located workflow.yml problems, so every surface can point at the exact line and its fix.
   const position = (value) => (Number.isSafeInteger(value) && value > 0 ? value : null);

@@ -4,7 +4,7 @@
  */
 import assert from 'node:assert/strict';
 import { execFileSync } from 'node:child_process';
-import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
+import { mkdir, mkdtemp, rm, unlink, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
@@ -12,7 +12,7 @@ import test from 'node:test';
 import { recordSha256 } from '../src/records.mjs';
 import {
   commandDefinition, DEFINITION_VERSION, gateTestCommandPins, packageScriptChain, pinCandidate, pinnedArgv, pinReplayProblem, pinSource, portableArgv,
-  referencePin, removalRequest, repinRequest
+  pendingTestCommandReviews, referencePin, removalRequest, repinRequest
 } from '../src/test-command-pins.mjs';
 import { resolveDeliveryQualityCommands, testCommandProvenance } from '../src/delivery-evidence.mjs';
 
@@ -28,6 +28,62 @@ async function repository(t, files) {
 }
 
 const definitionKeys = (definition) => definition.entries.map((entry) => `${entry.path}#${entry.selector ?? ''}`);
+
+test('restoring the pinned definition removes its re-pin from pending reviews without accepting or deleting it', async t => {
+  const original = 'export default { test: { environment: "jsdom" } };\n';
+  const changed = 'export default { test: { environment: "jsdom", environmentOptions: { jsdom: { url: "http://localhost" } } } };\n';
+  const root = await repository(t, { 'package.json': JSON.stringify({ scripts: { test: 'vitest run' } }), 'vite.config.js': original });
+  const command = { id: 'unit', kind: 'test', argv: ['npm', 'test'], workingDirectory: '.', affectedRoots: ['.'],
+    result: { adapter: 'vitest-json', path: '.sflow/results/test.json' } };
+  const phase = { id: 'custom-build', status: 'in_progress', qualityCommands: [command] };
+  const workflow = { workItem: { id: 'PIN-1' }, phaseOrder: [phase.id], phases: { [phase.id]: phase } };
+  const initial = await gateTestCommandPins(root, {}, workflow, phase, [command]);
+  await initial.record(workflow, ['unit'], { at: 'original' });
+  await writeFile(path.join(root, 'vite.config.js'), changed);
+  const request = { id: 'TCD-001', phase: phase.id, command, repin: await repinRequest(root, {}, workflow, phase, command) };
+  workflow.testCommandDecisions = [request];
+  const before = JSON.stringify(workflow);
+  const review = () => pendingTestCommandReviews(root, {}, workflow, phase, [request], { commands: [command] });
+  assert.deepEqual((await review()).pending, [request], 'a genuine changed definition still requires its human decision');
+  await writeFile(path.join(root, 'vite.config.js'), original);
+  const restored = await review();
+  assert.deepEqual(restored.pending, []);
+  assert.equal(restored.inactive[0].request, 'TCD-001');
+  assert.equal(restored.inactive[0].status, 'original-definition-restored');
+  assert.equal(restored.bindings[0].current, restored.bindings[0].reference);
+  assert.equal(JSON.stringify(workflow), before, 'the reader changes neither history nor authority');
+  await gateTestCommandPins(root, {}, workflow, phase, [command]);
+  await writeFile(path.join(root, 'vite.config.js'), changed);
+  assert.deepEqual((await review()).pending, [request], 'restoring does not secretly accept the changed definition for later');
+  await assert.rejects(gateTestCommandPins(root, {}, workflow, phase, [command]), { code: 'TEST_COMMAND_PIN_CHANGED' });
+  const duplicate = { ...request, id: 'TCD-002' };
+  workflow.testCommandDecisions.push(duplicate);
+  const duplicates = await pendingTestCommandReviews(root, {}, workflow, phase, [request, duplicate], { commands: [command] });
+  assert.deepEqual(duplicates.pending.map(entry => entry.id), ['TCD-001']);
+  assert.equal(duplicates.inactive[0].duplicateOf, 'TCD-001');
+  workflow.testCommandDecisions.push({ accepts: 'TCD-001', phase: phase.id, actor: 'reviewer', authorityGroup: 'team' });
+  const accepted = await pendingTestCommandReviews(root, {}, workflow, phase, [duplicate], { commands: [command] });
+  assert.deepEqual(accepted.pending, []);
+  assert.equal(accepted.inactive[0].acceptedBy, 'TCD-001', 'a duplicate needs no second human acceptance');
+  assert.deepEqual((await pendingTestCommandReviews(root, {}, workflow, phase, [request], { commands: [] })).pending,
+    [request], 'a missing command is not read as a restored pin');
+});
+
+test('an unreadable test definition keeps its review and diagnostic instead of hiding the request', async t => {
+  const root = await repository(t, { 'package.json': JSON.stringify({ scripts: { test: 'vitest run' } }) });
+  const command = { id: 'unit', kind: 'test', argv: ['npm', 'test'], workingDirectory: '.', affectedRoots: ['.'],
+    result: { adapter: 'vitest-json', path: '.sflow/results/tests.json' } };
+  const phase = { id: 'custom-build', status: 'in_progress' };
+  const workflow = { workItem: { id: 'PIN-2' }, phaseOrder: [phase.id], phases: { [phase.id]: phase } };
+  const request = { id: 'TCD-001', phase: phase.id, command, repin: { commandId: 'unit', sha256: 'unreadable' } };
+  await unlink(path.join(root, 'package.json'));
+  await mkdir(path.join(root, 'package.json'));
+  const review = await pendingTestCommandReviews(root, {}, workflow, phase, [request], { commands: [command] });
+  assert.deepEqual(review.pending, [request]);
+  assert.deepEqual(review.inactive, []);
+  assert.equal(review.unavailable.length, 1);
+  assert.ok(review.unavailable[0].reason);
+});
 
 test('a package script is pinned with its whole chain and the runner configuration beside it', async (t) => {
   const root = await repository(t, {

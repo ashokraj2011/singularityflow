@@ -83,11 +83,52 @@ async function regularJson(file) {
   return JSON.parse(await readFile(file, 'utf8'));
 }
 
-async function configDigest(staging) {
+// Editors record their own branch metadata the moment they see a new repository: VS Code's Git
+// extension writes branch.<name>.vscode-merge-base, the GitHub Pull Requests extension its
+// github-pr-* keys. Git never reads them, so a clone they touched is still the clone that completed.
+const EDITOR_BRANCH_KEY = /^\s*(?:vscode-|github-pr-)[a-z0-9-]*\s*(?:=|$)/iu;
+
+/** The config text without editor-only branch keys, and any branch section left empty by that. */
+export function withoutEditorBranchKeys(text) {
+  const kept = [];
+  let section = null;
+  const close = () => {
+    if (section && !(section.removed && !section.other)) kept.push(...section.lines);
+    section = null;
+  };
+  for (const line of String(text).split(/(?<=\n)/u)) {
+    if (/^\s*\[/u.test(line)) {
+      close();
+      section = /^\s*\[\s*branch\s+"/iu.test(line) ? { lines: [line], removed: false, other: false } : null;
+      if (!section) kept.push(line);
+    } else if (!section) kept.push(line);
+    else if (EDITOR_BRANCH_KEY.test(line)) section.removed = true;
+    else {
+      section.lines.push(line);
+      if (line.trim() && !/^\s*[#;]/u.test(line)) section.other = true;
+    }
+  }
+  close();
+  return kept.join('');
+}
+
+async function configBytes(staging) {
   const file = path.join(staging, '.git', 'config');
   const info = await lstat(file);
   if (!info.isFile() || info.isSymbolicLink() || info.nlink !== 1 || info.size > 1024 * 1024) fail('Unsafe retained clone Git configuration.');
-  return createHash('sha256').update(await readFile(file)).digest('hex');
+  return readFile(file);
+}
+
+const sha256Hex = value => createHash('sha256').update(value).digest('hex');
+
+async function configDigest(staging) {
+  return sha256Hex(withoutEditorBranchKeys((await configBytes(staging)).toString('utf8')));
+}
+
+/** A record sealed before this rule holds the digest of the raw bytes; either form matches. */
+async function configMatches(staging, recorded) {
+  const bytes = await configBytes(staging);
+  return recorded === sha256Hex(withoutEditorBranchKeys(bytes.toString('utf8'))) || recorded === sha256Hex(bytes);
 }
 
 function snapshot(staging, operation, env) {
@@ -124,16 +165,20 @@ export async function verifyCompletedWorkspaceClone(stagingRoot, owner, operatio
   const staging = path.join(stagingRoot, 'repository');
   const source = await lstat(staging);
   const gitDirectory = await lstat(path.join(staging, '.git'));
-  if (record.kind !== 'sflow-completed-workspace-clone' || hash(core) !== sha256
-      || hash(currentRecord) !== hash(record)
-      || hash(currentOwner) !== hash(owner) || record.ownerSha256 !== hash(owner)
-      || record.bindingSha256 !== binding(operation)
-      || !source.isDirectory() || source.isSymbolicLink()
-      || !gitDirectory.isDirectory() || gitDirectory.isSymbolicLink()
-      || hash(directoryIdentity(source)) !== hash(record.source)
-      || await configDigest(staging) !== record.gitConfigSha256
-      || hash(snapshot(staging, operation, env)) !== hash(record.snapshot)) fail(
-    `The completed clone no longer matches its recovery record. Its bytes were preserved at ${stagingRoot}.`);
+  // Name each fact that differs, cheapest first; the Git reads run only for an otherwise intact clone.
+  const changed = [];
+  if (record.kind !== 'sflow-completed-workspace-clone' || hash(core) !== sha256 || hash(currentRecord) !== hash(record)) {
+    changed.push('its recovery record');
+  }
+  if (hash(currentOwner) !== hash(owner) || record.ownerSha256 !== hash(owner)) changed.push('its staging owner record');
+  if (record.bindingSha256 !== binding(operation)) changed.push('the workspace repository it was cloned for (target, remote, branch or clone strategy)');
+  if (!source.isDirectory() || source.isSymbolicLink() || !gitDirectory.isDirectory() || gitDirectory.isSymbolicLink()
+      || hash(directoryIdentity(source)) !== hash(record.source)) changed.push('its directory');
+  if (!changed.length && !await configMatches(staging, record.gitConfigSha256)) changed.push('its Git configuration (.git/config)');
+  if (!changed.length && hash(snapshot(staging, operation, env)) !== hash(record.snapshot)) changed.push('its checked-out HEAD or files');
+  if (changed.length) fail(`The completed clone no longer matches its recovery record: ${changed.join(', ')} changed after the clone `
+    + `completed. Its bytes were preserved at ${stagingRoot}. SFlow claims a retained clone only as it completed: undo that change and `
+    + 'run the same command again, or move the retained clone out of the repository folder to download a fresh copy.');
   return record;
 }
 

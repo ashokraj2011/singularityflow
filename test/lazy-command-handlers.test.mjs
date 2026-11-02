@@ -272,7 +272,10 @@ test('frequent lifecycle handlers do not reach the legacy dispatcher and stay un
     // readers and their schemas (phase-quality-risk.mjs +1,931, phase-appeals.mjs +1,574, the two schema files and
     // readers +896), the one-touch option (action-authorization.mjs +224) and the dispute warning (governance.mjs
     // +140) bring 9,343,716 (measured). The signer and verifier stay lazy; no new eager file.
-    assert.ok(closure.bytes <= 9_345_000, `${file} exceeds the 9 MB eager-source budget (${closure.bytes} bytes)`);
+    // 9,350,000 (next 5,000 boundary): main 445e82c5c measures 9,343,716. A completed workspace clone ignores
+    // editor-only branch keys (VS Code's vscode-merge-base) and names the fact that changed when it refuses
+    // (workspace-clone-claim.mjs +2,421, workspace.mjs +207), bringing 9,346,344 (measured); no new eager file.
+    assert.ok(closure.bytes <= 9_350_000, `${file} exceeds the 9 MB eager-source budget (${closure.bytes} bytes)`);
   }
 });
 

@@ -7,7 +7,7 @@ import path from 'node:path';
 import test from 'node:test';
 import { once } from 'node:events';
 import {
-  CLONE_COMPLETION_FILE, cloneClaimPolicy, retryWorkspaceCloneClaim
+  CLONE_COMPLETION_FILE, cloneClaimPolicy, retryWorkspaceCloneClaim, withoutEditorBranchKeys
 } from '../src/workspace-clone-claim.mjs';
 import {
   createWorkspace, previewWorkspace, readWorkspace, repairWorkspace, rememberWorkspace, orphanCloneStagingRoots
@@ -19,8 +19,10 @@ const fast = { ...process.env, SINGULARITY_FLOW_CLONE_CLAIM_TIMEOUT_MS: '15000',
   SINGULARITY_FLOW_CLONE_CLAIM_RETRY_DELAY_MS: '1', SINGULARITY_FLOW_CLONE_CLAIM_MAX_ATTEMPTS: '3' };
 const locked = () => Object.assign(new Error('EBUSY: simulated folder move lock'), { code: 'EBUSY' });
 
-async function fixture(t, { create = false } = {}) {
+async function fixture(t, { create = false, enclosed = false } = {}) {
   const root = await fs.realpath(await fs.mkdtemp(path.join(os.tmpdir(), 'sflow-clone-resume-')));
+  // A workspace may live inside another Git checkout (a Downloads or home folder under version control).
+  if (enclosed) run('git', ['init', '--initial-branch=main'], { cwd: root });
   t.after(() => fs.rm(root, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 }));
   const source = path.join(root, 'source');
   await fs.mkdir(source);
@@ -140,7 +142,8 @@ test('modified retained bytes are refused and not silently recloned or removed',
   const f = await fixture(t);
   const stage = await retain(f);
   await fs.writeFile(path.join(stage, 'repository', 'README.md'), 'local work to preserve');
-  await assert.rejects(() => repairWorkspace(f.workspace, { env: fast, statusLevel: 'readiness' }), /no longer matches its recovery record/);
+  await assert.rejects(() => repairWorkspace(f.workspace, { env: fast, statusLevel: 'readiness' }),
+    /no longer matches its recovery record: its checked-out HEAD or files changed/);
   assert.equal(await fs.readFile(path.join(stage, 'repository', 'README.md'), 'utf8'), 'local work to preserve');
   assert.equal((await f.staging()).length, 1);
 });
@@ -150,8 +153,57 @@ test('retained Git configuration changes are refused before invoking repository 
   const stage = await retain(f);
   const clone = path.join(stage, 'repository');
   run('git', ['config', 'core.fsmonitor', '!unexpected-helper'], { cwd: clone });
-  await assert.rejects(() => repairWorkspace(f.workspace, { env: fast, statusLevel: 'readiness' }), /no longer matches its recovery record/);
+  await assert.rejects(() => repairWorkspace(f.workspace, { env: fast, statusLevel: 'readiness' }), error => {
+    assert.match(error.message, /no longer matches its recovery record: its Git configuration \(\.git\/config\) changed/);
+    assert.doesNotMatch(error.message, /lock or target conflict/);
+    return true;
+  });
   assert.ok((await fs.stat(path.join(stage, CLONE_COMPLETION_FILE))).isFile());
+});
+
+test('editor-only branch keys are not clone changes; every other configuration line is', () => {
+  const base = '[core]\n\tbare = false\n[remote "origin"]\n\turl = https://example.invalid/app.git\n'
+    + '[branch "main"]\n\tremote = origin\n\tmerge = refs/heads/main\n';
+  assert.equal(withoutEditorBranchKeys(`${base}\tvscode-merge-base = origin/main\n`), base);
+  assert.equal(withoutEditorBranchKeys(`${base}[branch "feature"]\n\tvscode-merge-base = origin/main\n`
+    + '\tgithub-pr-owner-number = "o#r#1"\n'), base, 'a section an editor created for its own key goes with it');
+  assert.equal(withoutEditorBranchKeys(base.replace('\tremote = origin', '\tVSCode-Merge-Base = origin/main\n\tremote = origin')), base);
+  const kept = `${base}[core]\n\tvscode-merge-base = x\n[branch "empty"]\n`;
+  assert.equal(withoutEditorBranchKeys(kept), kept, 'keys outside branch sections and empty sections stay');
+  assert.equal(withoutEditorBranchKeys(`${base}\tpushRemote = elsewhere\n`), `${base}\tpushRemote = elsewhere\n`);
+});
+
+test('a clone an editor touched (VS Code merge-base key) is claimed in a workspace inside another repository', async t => {
+  const f = await fixture(t, { enclosed: true });
+  const stage = await retain(f);
+  // VS Code's Git extension records this the moment it sees the new repository, as it did in the field.
+  run('git', ['config', 'branch.main.vscode-merge-base', 'origin/main'], { cwd: path.join(stage, 'repository') });
+  run('git', ['config', 'branch.other.vscode-merge-base', 'origin/main'], { cwd: path.join(stage, 'repository') });
+  await fs.rm(f.remote, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 });
+  const timer = commandTimer('repair');
+  const result = await withCommandTiming(timer, () => repairWorkspace(f.workspace, { env: fast, statusLevel: 'readiness' }));
+  assert.equal(timer.finish().counters['git.remote-clone'] ?? 0, 0, 'the retained clone is reused, nothing is downloaded');
+  assert.equal(result.repaired[0].resumedClone, true);
+  assert.equal(await fs.readFile(path.join(f.target, 'README.md'), 'utf8'), 'retained source\n');
+  assert.equal(run('git', ['rev-parse', '--show-toplevel'], { cwd: f.target }).stdout.trim(), f.target);
+  assert.deepEqual(await f.staging(), []);
+});
+
+test('a clone sealed before the editor-key rule still verifies by its raw configuration digest', async t => {
+  const f = await fixture(t);
+  const stage = await retain(f);
+  const clone = path.join(stage, 'repository');
+  // A record written by an earlier build when an editor had already added its key: the raw digest.
+  run('git', ['config', 'branch.main.vscode-merge-base', 'origin/main'], { cwd: clone });
+  const recordFile = path.join(stage, CLONE_COMPLETION_FILE);
+  const { createHash } = await import('node:crypto');
+  const { canonicalJson } = await import('../src/records.mjs');
+  const { sha256: _old, ...core } = JSON.parse(await fs.readFile(recordFile, 'utf8'));
+  core.gitConfigSha256 = createHash('sha256').update(await fs.readFile(path.join(clone, '.git', 'config'))).digest('hex');
+  await fs.chmod(recordFile, 0o600);
+  await fs.writeFile(recordFile, `${JSON.stringify({ ...core, sha256: createHash('sha256').update(canonicalJson(core)).digest('hex') })}\n`);
+  const result = await repairWorkspace(f.workspace, { env: fast, statusLevel: 'readiness' });
+  assert.equal(result.repaired[0].resumedClone, true);
 });
 
 test('a target populated after its final observation is never overwritten by rename', async t => {

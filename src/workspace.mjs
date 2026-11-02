@@ -3672,7 +3672,9 @@ async function prepareWorkspaceClone(root, operation, { deferClaim, env, policy 
     return true;
   };
 
-  const cleanupFailure = async (message) => {
+  const cleanupFailure = async (message, cause = null) => {
+    // A clone that changed after completing names its own route; only contention is retried as is.
+    if (completion && cause === 'WORKSPACE_CLONE_RESUME_UNSAFE') return message;
     if (completion) return `${message} The completed clone is retained at ${stagingRoot}. `
       + 'Retry the same workspace operation after the lock or target conflict is resolved; no new download is needed.';
     try { if (await cleanupStaging()) return message; }
@@ -3882,7 +3884,7 @@ async function prepareWorkspaceClone(root, operation, { deferClaim, env, policy 
       return {
         status: 1,
         code: 'WORKSPACE_CLONE_CLAIM_PENDING',
-        error: await cleanupFailure(`Clone completed but could not claim its workspace target: ${error.message}`),
+        error: await cleanupFailure(`Clone completed but could not claim its workspace target: ${error.message}`, error.code),
         claimRecovery: { path: stagingRoot, target: operation.target, resumable: true,
           causeCode: error.code ?? null, retry: error.claimRetry ?? null }
       };

@@ -198,9 +198,12 @@ export function inboxHtml(inbox: Inbox, refresh: InboxRefreshState = { refreshin
 const SCRIPT = `
   const vscode = window.__sfVscode;
   document.addEventListener('click', (event) => {
-    const target = event.target.closest('[data-refresh-stories],[data-story],[data-artifact],[data-approve],[data-reject],[data-open-approval],[data-decide],[data-decide-list]');
+    const target = event.target.closest('[data-refresh-stories],[data-story],[data-clone-story],[data-artifact],[data-approve],[data-reject],[data-open-approval],[data-decide],[data-decide-list]');
     if (!target) return;
     if (target.hasAttribute('data-refresh-stories')) vscode.postMessage({ type: 'refresh-stories' });
+    else if (target.dataset.cloneStory) vscode.postMessage({
+      type: 'clone-story', id: target.dataset.cloneStory, repositoryId: target.dataset.repositoryId || ''
+    });
     else if (target.dataset.story) vscode.postMessage({
       type: 'attach-story', id: target.dataset.story, repositoryId: target.dataset.repositoryId || ''
     });
@@ -231,6 +234,7 @@ const SCRIPT = `
 export type InboxMessage =
   | { type: 'refresh-stories' }
   | { type: 'attach-story'; workId: string; repositoryId: string }
+  | { type: 'clone-story'; workId: string; repositoryId: string }
   | { type: 'open-artifact'; artifact: InboxArtifact }
   | { type: 'approve'; approval: PendingApproval }
   | { type: 'reject'; approval: PendingApproval }
@@ -328,6 +332,14 @@ export class InboxPanel {
         const exists = this.currentInbox().stories.some((item) =>
           item.workId === workId && item.repositoryId === repositoryId && item.attachable);
         if (workId && exists) onMessage({ type: 'attach-story', workId, repositoryId });
+      },
+      'clone-story': (message) => {
+        const workId = stringField(message, 'id');
+        const repositoryId = stringField(message, 'repositoryId') ?? '';
+        if (workId && this.currentInbox().stories.some(item => item.workId === workId
+            && item.repositoryId === repositoryId && item.attachable)) {
+          return onMessage({ type: 'clone-story', workId, repositoryId });
+        }
       },
       'open-artifact': (message) => {
         const id = stringField(message, 'id');

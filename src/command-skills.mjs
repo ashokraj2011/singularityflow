@@ -176,6 +176,7 @@ const entries = {
     'sf-epic-drift', 'sf-epic-sync', 'sf-epic-journey'
   ],
   story: [
+    'sf-start',
     'sf-inspect', 'sf-story-start', 'sf-story-inbox', 'sf-story-fetch', 'sf-story-branch',
     'sf-story-checks', 'sf-work-interval', 'sf-story-skill-version', 'sf-return', 'sf-reject',
     'sf-converge', 'sf-submit', 'sf-finalize', 'sf-mcp'
@@ -391,6 +392,7 @@ export const COMMAND_LINE_SKILL_ROUTES = Object.freeze({
     journey: 'sf-epic-journey'
   }),
   story: route('sf-inspect', {
+    clone: 'sf-start',
     start: 'sf-story-start',
     inbox: 'sf-story-inbox',
     fetch: 'sf-story-fetch',

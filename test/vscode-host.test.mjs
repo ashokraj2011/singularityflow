@@ -4111,6 +4111,59 @@ test('intake takes a base per repository when the capability shares no branch, a
   assert.deepEqual(registered.errors, []);
 });
 
+test('Clone Story preserves an unfinished intake and starts with the new request binding', async t => {
+  if (!requireBundle(t)) return;
+  const { api, registered } = stubVscode(); loadExtension(api);
+  const { IntakePanel } = hostRequire(path.join(packageRoot, 'apps/vscode/dist/lazy-panels-runtime.cjs'));
+  const calls = [];
+  const catalog = { choices: [{ branch: 'main', present: 1, total: 1, everywhere: true, missingFrom: [] }],
+    remote: 'origin', intake: { storyWorkflows: [
+      { id: 'feature', label: 'Feature', governs: 'story', phases: ['intake'] },
+      { id: 'custom-flow', label: 'Custom flow', governs: 'story', phases: ['intake'] }
+    ] } };
+  const client = { repository: path.resolve('/fixture/clone-repository'), prewarmRuntime: async () => {},
+    async run(args) { calls.push(args);
+      if (args[0] === 'start') return { id: 'COPY-2', repositoryPath: path.resolve('/fixture/copy-checkout') };
+      return args.includes('--preflight-story') ? { ...catalog,
+        preflight: { passed: true, readiness: { ready: true, warnings: [], blockers: [] } } } : catalog;
+    } };
+  const target = { workspace: 'Fixture', repository: client.repository, branch: 'main', inFlight: [], defaults: { source: 'manual' } };
+  const output = api.window.createOutputChannel('Clone');
+  const normal = IntakePanel.show(context(), client, output, async () => {}, target);
+  t.after(() => normal.dispose());
+  const normalView = registered.panels.at(-1);
+  await normalView.post({ type: 'field', field: 'title', value: 'Unfinished original draft' });
+  let started = null;
+  const clone = IntakePanel.show(context(), client, output, async value => { started = value; }, {
+    ...target, defaults: { source: 'manual', clone: { source: { workId: 'OLD-1', commit: 'a'.repeat(40) },
+      request: { title: 'Original request', description: 'Export invoices.', acceptanceCriteria: '- Download CSV.' },
+      defaults: { workType: 'custom-flow', baseBranch: 'main', repositoryBases: [], referenceRepositories: [], specifications: [] },
+      documents: [{ name: 'Requirements' }] } }
+  });
+  t.after(() => clone.dispose());
+  const view = registered.panels.at(-1);
+  assert.notEqual(view, normalView);
+  assert.match(normalView.webview.html, /Unfinished original draft/);
+  await normalView.post({ type: 'field', field: 'description', value: 'Still editable while cloning' });
+  assert.match(normalView.webview.html, /Still editable while cloning/);
+  await until(() => /data-work-type="custom-flow" checked/.test(view.webview.html) ? true : null,
+    { attempts: 100, what: 'the original workflow choice' });
+  assert.match(view.webview.html, /Clone of OLD-1/);
+  assert.match(view.webview.html, /Attach these documents again/);
+  await view.post({ type: 'field', field: 'title', value: 'Renamed request' });
+  await view.post({ type: 'field', field: 'id', value: 'COPY-2' });
+  await until(() => /Story-start readiness confirmed/.test(view.webview.html) ? true : null, { what: 'cloned intake readiness' });
+  await view.post({ type: 'start' });
+  assert.equal(started?.id, 'COPY-2');
+  const args = calls.find(args => args[0] === 'start');
+  assert.equal(args[1], 'COPY-2');
+  assert.equal(args[args.indexOf('--clone-from') + 1], 'OLD-1');
+  assert.equal(args[args.indexOf('--clone-source-commit') + 1], 'a'.repeat(40));
+  assert.equal(args[args.indexOf('--work-type') + 1], 'custom-flow');
+  assert.equal(args[args.indexOf('--title') + 1], 'Renamed request');
+  assert.match(normalView.webview.html, /Unfinished original draft/);
+});
+
 test('readiness deadlines stop checking, preserve intake, offer Retry, and cancel superseded/closed reads', async (t) => {
   if (!requireBundle(t)) return;
   const { api, registered } = stubVscode();

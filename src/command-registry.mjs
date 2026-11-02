@@ -487,6 +487,7 @@ const STORY_REFERENCE_ACTIONS = Object.freeze(['list', 'verify', 'materialize', 
 const STORY_TEST_POLICY_REVIEW_ACTIONS = Object.freeze(['amend', 'attest', 'accept-risk', 'revoke-risk', 'attest-risk', 'baseline-admission']);
 const STORY_TEST_POLICY_ACTIONS = Object.freeze(['show', 'plan', 'confirm', 'repair', 'baseline', 'risks', ...STORY_TEST_POLICY_REVIEW_ACTIONS]);
 const STORY_SUBCOMMANDS = Object.freeze([
+  'clone',
   'converge', 'enhance-description', 'interval', 'branch', 'intent-amendment', 'skill-version', 'workflow', 'references', 'test-policy', 'target-origin',
   'approvers', ...STORY_READ_SUBCOMMANDS, ...STORY_MUTATION_SUBCOMMANDS
 ]);
@@ -993,6 +994,8 @@ function resolveMcpOperation(definition, positionals, options) {
  */
 function resolveStoryOperation(definition, positionals, options) {
   const subcommand = positionals[1] ?? 'status';
+  if (subcommand === 'clone') return never(`story.clone${optionBoolean(options, 'preview') ? '.preview' : ''}`,
+    definition, optionBoolean(options, 'preview') ? 'read' : 'mutation');
   if (subcommand === 'enhance-description') {
     return operation('story.enhance-description', 'required', {
       classification: 'read', output: definition.output,
@@ -2185,6 +2188,8 @@ export function operationCatalog() {
       externalDependencies: ['copilot-cli']
     }),
     optional('story.converge.assisted', 'story.converge', storyDefinition),
+    never('story.clone.preview', storyDefinition, 'read'),
+    never('story.clone', storyDefinition, 'mutation'),
     ...STORY_INTERVAL_ACTIONS
       .map((name) => never(`story.interval.${name}`, storyDefinition, name === 'status' ? 'read' : 'mutation')),
     ...STORY_BRANCH_ACTIONS

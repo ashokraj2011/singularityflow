@@ -87,6 +87,16 @@ export interface IntakeDefaults {
   source?: 'jira' | 'github-issue' | 'manual' | null;
   workType?: string | null;
   summary?: string | null;
+  clone?: {
+    repository?: { path: string; commonDirectory: string };
+    source: { workId: string; commit: string };
+    request: { title: string; description: string; acceptanceCriteria: string };
+    defaults: { workType: string; baseBranch: string; targetUrl?: string | null;
+      repositoryBases: Array<{ repositoryId: string; baseBranch: string }>;
+      referenceRepositories: Array<{ id: string; repository: string; branch: string }>;
+      specifications: string[]; dependencyReason?: string | null };
+    documents: Array<{ name: string }>;
+  };
 }
 
 interface StoryStartReadinessCheck {
@@ -256,6 +266,7 @@ export function intakeInFlight(snapshot: {
 
 export class IntakePanel {
   private static current: IntakePanel | null = null;
+  private static readonly clones = new Map<string, IntakePanel>();
 
   private readonly panel: vscode.WebviewPanel;
   private readonly client: SingularityFlowClient;
@@ -343,7 +354,21 @@ export class IntakePanel {
           : this.defaults.source === 'jira' ? 'jira' : 'none'
       } : {}),
       ...(this.defaults.summary ? { title: this.defaults.summary } : {}),
-      ...(this.defaults.workType ? { workType: this.defaults.workType } : {})
+      ...(this.defaults.workType ? { workType: this.defaults.workType } : {}),
+      ...(this.defaults.clone ? {
+        cloneFrom: this.defaults.clone.source.workId,
+        cloneSourceCommit: this.defaults.clone.source.commit,
+        cloneDocuments: this.defaults.clone.documents.map(entry => entry.name),
+        cloneSpecifications: this.defaults.clone.defaults.specifications,
+        cloneDependencyReason: this.defaults.clone.defaults.dependencyReason,
+        referenceRepositories: this.defaults.clone.defaults.referenceRepositories.map(entry => ({ ...entry, status: 'idle' as const })),
+        title: `${this.defaults.clone.request.title} (copy)`,
+        description: this.defaults.clone.request.description,
+        acceptanceCriteria: this.defaults.clone.request.acceptanceCriteria,
+        targetUrl: this.defaults.clone.defaults.targetUrl ?? '',
+        workType: this.defaults.clone.defaults.workType,
+        tracker: 'none' as const
+      } : {})
     };
     this.restoreFavourites();
     // Paint the last known choices now; `load` revalidates them against the remote.
@@ -382,6 +407,19 @@ export class IntakePanel {
     onStarted: (started: Started) => Promise<void>,
     target: IntakeTarget
   ): IntakePanel {
+    // A clone gets a separate editable form: opening it must preserve another unsaved intake.
+    const cloneKey = target.defaults?.clone
+      ? JSON.stringify([target.repository, target.defaults.clone.source.workId, target.defaults.clone.source.commit]) : null;
+    if (cloneKey) {
+      const existing = IntakePanel.clones.get(cloneKey);
+      if (existing) { existing.panel.reveal(vscode.ViewColumn.Active); return existing; }
+      const panel = vscode.window.createWebviewPanel('singularityFlow.intake', 'Clone Story', vscode.ViewColumn.Active,
+        { enableScripts: true, retainContextWhenHidden: true,
+          localResourceRoots: [vscode.Uri.joinPath(context.extensionUri, 'media')] });
+      const clone = new IntakePanel(panel, client, output, onStarted, target, context.globalState);
+      IntakePanel.clones.set(cloneKey, clone);
+      return clone;
+    }
     if (IntakePanel.current) {
       if (IntakePanel.current.form.targetRepository === target.repository
           && IntakePanel.current.form.targetBranch === target.branch
@@ -411,16 +449,18 @@ export class IntakePanel {
    * The Store refreshed its lifecycle slice. The form opens on the last known in-flight work instead
    * of waiting for a fresh snapshot, so this is how it learns about work started since.
    */
-  static lifecycleChanged(inFlight: InFlight[]): void {
-    const current = IntakePanel.current;
-    if (!current || current.disposed) return;
-    const favouritesChanged = current.restoreFavourites();
-    if (JSON.stringify(current.inFlight) === JSON.stringify(inFlight)) {
-      if (favouritesChanged) current.renderNow(true);
-      return;
+  static lifecycleChanged(inFlight: InFlight[], repository?: string): void {
+    for (const current of [IntakePanel.current, ...IntakePanel.clones.values()]) {
+      if (!current || current.disposed) continue;
+      if (repository && current.form.targetRepository !== repository) continue;
+      const favouritesChanged = current.restoreFavourites();
+      if (JSON.stringify(current.inFlight) === JSON.stringify(inFlight)) {
+        if (favouritesChanged) current.renderNow(true);
+        continue;
+      }
+      current.inFlight = inFlight;
+      current.update({ inFlight }, { background: true });
     }
-    current.inFlight = inFlight;
-    current.update({ inFlight }, { background: true });
   }
 
   private favouriteKeys(): { saved: string[]; legacy: string[] } {
@@ -449,13 +489,16 @@ export class IntakePanel {
 
   /** Refresh an already-open Intake form after approved configuration changes elsewhere. */
   static async configurationChanged(repository: string | null = null): Promise<boolean> {
-    const current = IntakePanel.current;
-    if (!current || current.disposed) return false;
-    if (repository && current.form.targetRepository
-        && await canonicalFilesystemPath(repository)
-          !== await canonicalFilesystemPath(current.form.targetRepository)) return false;
-    await current.reloadCatalog({ refresh: true });
-    return true;
+    let refreshed = false;
+    for (const current of [IntakePanel.current, ...IntakePanel.clones.values()]) {
+      if (!current || current.disposed) continue;
+      if (repository && current.form.targetRepository
+          && await canonicalFilesystemPath(repository)
+            !== await canonicalFilesystemPath(current.form.targetRepository)) continue;
+      await current.reloadCatalog({ refresh: true });
+      refreshed = true;
+    }
+    return refreshed;
   }
 
   private render(preserveDraft = false): void {
@@ -647,18 +690,20 @@ export class IntakePanel {
     }));
     const workflows = storyWorkflowCatalog(listed.intake);
     const priorProfile = keepChoices ? this.form.profile : null;
-    const priorWorkType = (keepChoices ? this.form.workType : this.defaults.workType) ?? null;
-    const priorBaseBranch = keepChoices ? this.form.baseBranch : null;
+    const priorWorkType = (keepChoices ? this.form.workType : this.defaults.workType ?? this.defaults.clone?.defaults.workType) ?? null;
+    const priorBaseBranch = keepChoices ? this.form.baseBranch : this.defaults.clone?.defaults.baseBranch ?? null;
     const baseBranchChoices = (listed.choices ?? []).filter((choice) => choice.everywhere);
     const baseBranch = baseBranchChoices.some((choice) => choice.branch === priorBaseBranch)
       ? priorBaseBranch : null;
     // Each repository's own branches come with a complete listing; otherwise the last lists stay.
     const baseRepositories = baseRepositoriesOf(listed) ?? (keepChoices ? this.form.baseRepositories : []);
     // A per-repository choice survives only while its repository still offers that branch.
-    const baseBranchOverrides = keepChoices ? Object.fromEntries(Object.entries(this.form.baseBranchOverrides)
+    const requestedOverrides = keepChoices ? this.form.baseBranchOverrides : Object.fromEntries(
+      (this.defaults.clone?.defaults.repositoryBases ?? []).map(entry => [entry.repositoryId, entry.baseBranch]));
+    const baseBranchOverrides = Object.fromEntries(Object.entries(requestedOverrides)
       .filter(([id, branch]) => baseRepositories.some((repository) => repository.id === id
-        && repository.branches.includes(branch)))) : {};
-    const basePerRepository = keepChoices && this.form.basePerRepository;
+        && repository.branches.includes(branch))));
+    const basePerRepository = keepChoices ? this.form.basePerRepository : Object.keys(baseBranchOverrides).length > 1;
     const selected: IntakeForm = { ...this.form, baseBranch, baseBranchChoices, baseRepositories,
       baseBranchOverrides, basePerRepository, catalogStatus: 'fresh', baseBranchReason: null };
     const selectedBase = baseSelectionKey(selected);
@@ -673,8 +718,8 @@ export class IntakePanel {
       : retainedWorkType
         // `feature` is the familiar starter workflow. A repository with one workflow needs no extra
         // click; multiple custom workflows remain an explicit, visible choice in the form.
-        ?? workflows.installed.find((entry) => entry.id === 'feature')?.id
-        ?? workflows.installed[0]?.id ?? null;
+        ?? (this.defaults.clone ? null : workflows.installed.find((entry) => entry.id === 'feature')?.id
+          ?? workflows.installed[0]?.id ?? null);
     const readinessReset = !(mode === 'revalidate' && selectedBase !== null && workType === this.form.workType);
     const unreachable = listed.unreachable ?? [];
     return {
@@ -1714,6 +1759,7 @@ export class IntakePanel {
     this.invalidateEnhancement();
     this.cancelBasePreflight();
     if (IntakePanel.current === this) IntakePanel.current = null;
+    for (const [key, panel] of IntakePanel.clones) if (panel === this) IntakePanel.clones.delete(key);
     this.panel.dispose();
     for (const disposable of this.disposables) disposable.dispose();
   }

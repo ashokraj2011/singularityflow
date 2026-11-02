@@ -782,6 +782,8 @@ Every public operation is classified before its implementation module is importe
 | story.branch.promote | mutation | never | — | — |
 | story.branch.status | read | never | — | — |
 | story.checks | mutation | never | — | — |
+| story.clone | mutation | never | — | — |
+| story.clone.preview | read | never | — | — |
 | story.converge | mutation | never | — | — |
 | story.converge.assisted | mutation | optional | story.converge | copilot-cli |
 | story.discard-worktree | mutation | never | — | — |

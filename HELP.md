@@ -1621,6 +1621,27 @@ a proposal only:
 singularity-flow story enhance-description --draft-stdin --json < story-draft.json
 ```
 
+### Clone a Story with a new name
+
+In **Stories**, choose **Clone Story**, enter a new name and Work ID, review the
+workflow and base branches, then start. The copied intake opens without switching
+the workspace or replacing another unfinished intake form.
+
+```bash
+singularity-flow story clone WORK-123 --preview --json
+singularity-flow story clone WORK-123 WORK-456 --title "Customer search follow-up"
+# Copilot: /sf-start WORK-456 --clone-from WORK-123
+```
+
+Cloning copies the committed request, criteria, scope, constraints and workflow
+choice. Per-repository bases, reference repositories and specification slices are
+revalidated by normal Story start. The new Story uses current configuration and
+starts at its first phase in its own checkout. Application changes, phase artifacts,
+test evidence, approvals and Story decisions stay with the original. Uploaded
+documents and images stay with their original Story; attach the needed files again
+on this laptop. Cloning a Jira or GitHub Story creates a manual request with a new
+identity. `start NEW-ID --clone-from ORIGINAL-ID` is the equivalent low-level form.
+
 ### New repository built from existing repositories
 
 Use the `reference-driven-build` workflow when the current repository is the new
@@ -4044,6 +4065,8 @@ singularity-flow story enhance-description --draft-stdin [--json]
 singularity-flow story references inspect --reference-repository ID=URL --reference-branch ID=BRANCH [--json]
 singularity-flow story references list|verify|materialize [--work-id WORK-ID] [--json]
 singularity-flow story start|inbox|fetch|checks|finalize
+singularity-flow story clone ORIGINAL-ID NEW-ID [--title "New name"]
+singularity-flow story clone ORIGINAL-ID --preview --json
 singularity-flow story return [WORK-ID] [--json]
 singularity-flow story submit
 singularity-flow story converge [--assisted] [--json]

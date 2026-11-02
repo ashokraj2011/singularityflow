@@ -82,6 +82,8 @@ const ISOLATED_STORY_INTAKE_HANDOFF = Symbol('isolated-story-intake-handoff');
 // A selection receipt read and checked in the launch checkout that recorded it. The Story worktree
 // holds none of that checkout's receipts, so the start uses this record and consumes it there.
 const ISOLATED_STORY_SELECTION_HANDOFF = Symbol('isolated-story-selection-handoff');
+// An immutable request copied once in the launch repository, also carried into its new worktree.
+const CLONED_STORY_REQUEST = Symbol('cloned-story-request');
 
 async function assertLaunchCheckoutRepositoryReady(sourceRoot, definition, sourceCommit = head(sourceRoot), baselineChoice = 'reuse') {
   intakeBaselineChoice(baselineChoice);
@@ -443,6 +445,22 @@ async function startCommandAtRoot(positionals, options) {
   // These refusals need neither configuration authority nor a new worktree. Apply them before
   // recovery/isolated routing; the exact selected workflow still enforces its own ID policy later.
   validatePortableWorkId(id);
+  const cloneFrom = optionString(options, 'clone-from');
+  if (cloneFrom && !options[CLONED_STORY_REQUEST]) {
+    if (optionBoolean(options, 'jira') || optionString(options, 'github') || optionString(options, 'story-file')) {
+      throw new SingularityFlowError('Clone Story uses the original request as manual intake; do not combine --clone-from with a tracker or --story-file.');
+    }
+    const { readStoryClone, cloneStartOptions } = await import('../story-clone.mjs');
+    const draft = await readStoryClone(root, cloneFrom, { expectedCommit: optionString(options, 'clone-source-commit') });
+    if (id.toLowerCase() === draft.source.workId.toLowerCase()) throw new SingularityFlowError(
+      'A clone needs a different Story ID. The original Story is preserved.', { code: 'STORY_CLONE_ID_CONFLICT' });
+    options = cloneStartOptions(draft, options);
+    options[CLONED_STORY_REQUEST] = draft;
+    // Supply a title so manual source selection never falls back to interactive tracker intake.
+    options.title ??= `${draft.request.title || draft.source.workId} (copy)`;
+    options.description ??= draft.request.description;
+    options['isolated-worktree'] = true;
+  }
   validBranch(root, optionString(options, 'ref', id));
   if ([optionBoolean(options, 'jira'), Boolean(optionString(options, 'github')),
     Boolean(optionString(options, 'story-file'))].filter(Boolean).length > 1) {
@@ -1102,7 +1120,12 @@ async function startCommandAtRoot(positionals, options) {
   // Parse and snapshot every non-interactive supporting input before automatic enrollment or the
   // first Story checkout. A missing, unreadable, or malformed input therefore cannot publish a
   // shared identity change and then fail before the requested Story exists.
-  preloadedManual = storyFile
+  preloadedManual = options[CLONED_STORY_REQUEST]
+    ? { source: { ...options[CLONED_STORY_REQUEST].request,
+      id, title: title ?? options[CLONED_STORY_REQUEST].request.title,
+      ...(Object.hasOwn(options, 'description') ? { description } : {}),
+      ...(Object.hasOwn(options, 'acceptance-criteria') ? { acceptanceCriteria } : {}) }, documents: [] }
+    : storyFile
     ? await loadManualStory(id, { storyFile, title, description, acceptanceCriteria })
     : null;
   // Explicit, receipt and already-materialized choices can be validated immediately. An ordinary

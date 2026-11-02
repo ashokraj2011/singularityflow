@@ -84,6 +84,8 @@ export function copilotCommandForCommand(command, skill = null, fallback = '/sf-
   if (commandLineWithoutSkill(command)) return null;
   const route = skillRouteForCommand(command, skill, fallback);
   const value = String(command ?? '').trim();
+  const clone = value.match(/^(?:singularity-flow|sflow)\s+story\s+clone\s+([A-Za-z0-9][A-Za-z0-9._-]*)\s+([A-Za-z0-9][A-Za-z0-9._-]*)(?:\s|$)/u);
+  if (clone) return `/sf-start ${clone[2]} --clone-from ${clone[1]}`;
   const digest = value.match(/\s--confirm(?:-plan)?\s+(sha256:[a-f0-9]{64}|[a-z]{2,12}-[a-f0-9]{16,64})(?:\s|$)/u)?.[1];
   if (!digest || route.includes(digest) || /[<>|;&`$\u0000-\u001f\u007f]/u.test(value)) return route;
   const operation = value.match(/^(?:singularity-flow|sflow)\s+(.+)$/u)?.[1];

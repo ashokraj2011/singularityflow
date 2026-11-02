@@ -250,6 +250,12 @@ export interface IntakeForm extends TestRecoveryDraft {
   goal: string;
   /** How it will be judged done. A Story asks for it. */
   acceptanceCriteria: string;
+  /** Host-issued original request binding, never copied execution state. */
+  cloneFrom?: string | null;
+  cloneSourceCommit?: string | null;
+  cloneDocuments?: string[];
+  cloneSpecifications?: string[];
+  cloneDependencyReason?: string | null;
   /** Structured read-only source repositories. The engine revalidates every claim at start. */
   referenceRepositories: ReferenceRepositoryDraft[];
   /** Local documents staged in the UI for the governed Story-start attachment flow. */
@@ -799,7 +805,12 @@ export function intakeCommand(form: IntakeForm): string[] {
   const args = ['start', identifier, '--json', '--fetch',
     '--title', form.title.trim(), '--description', form.description.trim(),
     '--work-type', form.workType!, ...isolated, ...target, ...capabilityBase, ...storyBranchArguments(form), ...references, ...attachments];
-  if (form.acceptanceCriteria.trim()) {
+  if (form.cloneFrom) args.push('--clone-from', form.cloneFrom, '--clone-source-commit', form.cloneSourceCommit!);
+  if (form.cloneFrom && form.cloneSpecifications?.length) {
+    args.push(...form.cloneSpecifications.flatMap(spec => ['--spec', spec]));
+    if (form.cloneDependencyReason) args.push('--allow-partial-dependency', '--reason', form.cloneDependencyReason);
+  }
+  if (form.acceptanceCriteria.trim() || form.cloneFrom) {
     args.push('--acceptance-criteria', form.acceptanceCriteria.trim());
   }
   return args;
@@ -1615,7 +1626,7 @@ function inFlightHtml(form: IntakeForm): string {
 }
 
 export function intakeHtml(form: IntakeForm, journey: StartWizardProgress | null = null): string {
-  return `<div class="intake-view" data-intake-wizard-root aria-busy="${form.busy ? 'true' : 'false'}">${
+  return `${form.cloneFrom ? `<section class="note" role="note"><strong>Clone of ${escape(form.cloneFrom)}</strong><p>Give this Story a new name and ID. Review its workflow and base branches. It starts at the first phase with fresh evidence and approvals.</p>${form.cloneDocuments?.length ? `<p>Attach these documents again if needed: ${form.cloneDocuments.map(escape).join(', ')}. Their files stay with the original Story.</p>` : ''}</section>` : ''}<div class="intake-view" data-intake-wizard-root aria-busy="${form.busy ? 'true' : 'false'}">${
     intakeWizardLayout(intakeRegions(form, journey), form.shape === 'story')}</div>`;
 }
 
@@ -1692,7 +1703,7 @@ export function intakeRegions(form: IntakeForm, journey: StartWizardProgress | n
   const regions: Record<string, string> = {
     progress: startWizardProgress(journey),
     heading: heroHeader({
-    title: 'Start new work',
+    title: form.cloneFrom ? 'Clone Story' : 'Start new work',
     status: problems.length ? 'Needs input' : 'Gates ready',
     subtitle: form.shape === 'story' ? 'Describe the change, choose its workflow and branch, add supporting inputs, then review and start.'
       : 'Work arrives in three shapes and with or without a tracker. Both are answered here, and the rest of the form follows from the answers.'

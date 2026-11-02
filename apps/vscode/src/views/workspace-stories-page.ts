@@ -40,7 +40,8 @@ export function workspaceStoriesHtml(inbox: Inbox, refresh: string): string {
       <td><strong>${escape(story.title)}</strong><div class="muted">${escape(story.workId)}${story.current ? ' · Current Story' : ''}</div>
         <details data-detail-key="${escape(`${story.repositoryId}:${story.workId}`)}"><summary>View details</summary><p>Branch: ${escape(story.branch ?? 'Not reported')}</p><p>${escape(story.repositoryPath || story.repositoryUrl || 'Repository mapping unavailable')}</p><p>${story.materialized ? 'Local checkout available' : 'Materialized only when you switch'}</p></details></td>
       <td>${escape(story.repositoryId)}</td><td>${storyCreatedDateHtml(story.createdAt)}</td><td>${escape(story.createdBy ?? 'Not recorded')}</td><td>${escape(story.phase)}<div class="muted">${escape(story.progress ?? 'Phase totals not reported')}</div></td>
-      <td>${escape(story.status)}</td><td><button type="button" class="secondary" data-story="${escape(story.workId)}" data-repository-id="${escape(story.repositoryId)}"${story.attachable ? '' : ' disabled'}>${story.current ? 'Continue Story' : 'Switch to Story'}</button></td>
+      <td>${escape(story.status)}</td><td><button type="button" class="secondary" data-story="${escape(story.workId)}" data-repository-id="${escape(story.repositoryId)}"${story.attachable ? '' : ' disabled'}>${story.current ? 'Continue Story' : 'Switch to Story'}</button>
+      <button type="button" class="secondary" data-clone-story="${escape(story.workId)}" data-repository-id="${escape(story.repositoryId)}"${story.attachable ? '' : ' disabled'}>Clone Story</button></td>
     </tr>`).join('')}</tbody></table></div>
     <p id="story-empty"${inbox.stories.length ? ' hidden' : ''}>${escape(inbox.empty ?? 'No Stories match. Refresh to check the mapped repositories.')}</p></section>`;
 }

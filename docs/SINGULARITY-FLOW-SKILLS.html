@@ -10915,11 +10915,11 @@ Do not merge or force-push. After a Story merge, synchronize the stack again bef
           <span class="pill">interactive</span>
           <span class="pill">repository boundary</span>
           <span class="pill">model: never</span>
-          <span class="pill">~1271 body tokens</span>
+          <span class="pill">~1270 body tokens</span>
         </div>
         <dl>
           <div><dt>Command</dt><dd><code>/sflow-start</code></dd></div>
-          <div><dt>Arguments</dt><dd><code>&lt;WORK-ID&gt; [--jira | manual story details] [documents and URLs]</code></dd></div>
+          <div><dt>Arguments</dt><dd><code>&lt;NEW-ID&gt; [--clone-from &lt;ORIGINAL-ID&gt; | --jira | manual details]</code></dd></div>
           <div><dt>Model-capable operations</dt><dd>none</dd></div>
           <div><dt>Source</dt><dd><code>plugin/skills/sflow-start/SKILL.md</code></dd></div>
         </dl>
@@ -10931,7 +10931,7 @@ Do not merge or force-push. After a Story merge, synchronize the stack again bef
 name: sflow-start
 description: Explicitly choose a remote base, intake source, and workflow; create and publish the canonical Story branch.
 disable-model-invocation: true
-argument-hint: &quot;&lt;WORK-ID&gt; [--jira | manual story details] [documents and URLs]&quot;
+argument-hint: &quot;&lt;NEW-ID&gt; [--clone-from &lt;ORIGINAL-ID&gt; | --jira | manual details]&quot;
 
 ---
 # Start work
@@ -10944,13 +10944,13 @@ First require an explicit Work ID, then run `singularity-flow workspace branches
 &lt;!-- sflow-execution-boundary --&gt;
 **Boundary:** no Story required; reuse entry `repositoryPath` after its workspace/clean-tree checks. Refuse absent/unready selections; never search `$HOME`/parents. Use exact CLI-returned paths. `repositoryPath` is command cwd, not a prefix for absolute file paths. Never rebase paths or strip `.git/worktrees`. Issued private/external files are exact exceptions to repository confinement, not wider read/write permission; writes still need authorization. Resolve relative paths only against their declared base. On failure, preserve the path and error; never search or recreate it.
 
-1. Use the entry once. `workspace-repair-required`: follow `/sf-workspace` for its exact selected repository; re-enter only after repair. `worktree-review-required`: preserve and list its `changes`; do not create a Story. The person commits, ignores, moves or lands them (`/sf-adhoc`), then reruns `/sf-start`. Use its `repositoryPath`; never search for a checkout.
+1. Reuse entry `repositoryPath`. `workspace-repair-required`: `/sf-workspace` repairs its selected repository before re-entry. `worktree-review-required`: preserve/list `changes`; no Story. The person commits, ignores, moves or lands them (`/sf-adhoc`), then reruns `/sf-start`. Never search for a checkout.
 2. Unless `existingWork.status` is `new`, route existing IDs to `/sf-session` or `singularity-flow resume &lt;WORK-ID&gt;`, never restart. Unreachable/unknown repositories are not new IDs.
-3. The catalog and selected-base preflight check required members together; no workspace-wide status rescan. Repair returned missing-member failures explicitly. Authority failure: Shell `singularity-flow workspace reinitialize --dry-run --json`, Copilot `/sf-admin`; never `init` for an absent local workflow file.
+3. Use catalog/preflight member checks; no workspace-wide rescan. Repair exact missing members. Authority failure: Shell `singularity-flow workspace reinitialize --dry-run --json`, Copilot `/sf-admin`; never `init` for an absent local workflow file.
 4. Choose `&lt;BASE&gt;` explicitly. If `intake.workflowCatalogScope` is not `approved-configuration`, run step 6 without `--work-type`. Choose `&lt;WORKFLOW&gt;` from exact-base `intake.storyWorkflows`.
-5. Collect Jira/manual outcome, criteria, scope, risks, documents. References need ID, credential-free URL and branch: `--reference-repository ID=URL --reference-branch ID=BRANCH`. Pass `--jira`/`--story-file`; pair document inputs with their name flags. Never search for inputs.
+5. Collect outcome, criteria, scope, risks and named documents; never search. Clone: `singularity-flow story clone &lt;ORIGINAL-ID&gt; --preview --json`; review new name/ID, workflow/bases and reattach documents. Add `--clone-from &lt;ORIGINAL-ID&gt; --clone-source-commit &lt;source.commit&gt;`. Pinned inputs survive phase advances; copy no evidence, risk acceptances, decisions or approvals. Otherwise `--jira`/`--story-file`. References: paired `--reference-repository ID=URL --reference-branch ID=BRANCH`.
 6. Choose baseline (`reuse`, optional reviewed `run`, `defer`), tests (`changed-and-affected`, `all-configured`) and gates (`hard`, `soft`) separately. Soft needs exact human coverage-risk review, reason/expiry; tests/integrity stay hard. Run `singularity-flow workspace branches --json --intake --preflight-story &lt;WORK-ID&gt; --from-branch &lt;BASE&gt; --work-type &lt;WORKFLOW&gt; --selected-base-only --mint-intake-receipt --readiness-baseline &lt;CHOICE&gt; --test-execution-mode &lt;MODE&gt; --gate-mode &lt;GATES&gt;`. Missing tests/setup never block creation or imply a pass. No implicit installs/tests; baselines use `/sf-ready`. World Model/AST/models/telemetry: advisory. Never upgrade configuration here. `preflight.storyBranch` is the branch start creates; a person&#39;s own name goes to both as `--ref &lt;BRANCH&gt;`.
-7. Start with identical base/workflow/baseline/test/gate flags; add returned `--intake-receipt`. `targetUrl: required` needs `--target-url`; pass a `recommended` one when given. Without `ask_user`, use step 8 or stop; keep hard gates unless explicitly selected otherwise.
+7. Start with identical base/workflow/baseline/test/gate flags; add returned `--intake-receipt`. `targetUrl: required` needs `--target-url`; pass a `recommended` one when given.
 8. Without `ask_user`, use pinned choices: `singularity-flow choices begin start &lt;WORK-ID&gt; --for-agent --json`, `singularity-flow choices answer &lt;TOKEN&gt;`, pass `--selection-receipt &lt;TOKEN&gt;` (15-minute, single-use).
 9. Show readiness; `/sf-next`. Pending tests: Copilot `/sf-test-setup`; Shell `singularity-flow capability test-setup --json`. Tests run later; publish needs evidence.
 

@@ -5203,7 +5203,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   // panels bundle is never loaded just to listen: no bundle means no open form.
   context.subscriptions.push(store.onDidChange((state) => {
     const panels = lazyPanelsRuntime;
-    if (panels && state.snapshot) panels.IntakePanel.lifecycleChanged(panels.intakeInFlight(state.snapshot));
+    if (panels && state.snapshot) panels.IntakePanel.lifecycleChanged(panels.intakeInFlight(state.snapshot), repository);
   }));
   // Optional, off by default (singularityFlow.outcomeReview.suggest): when a step is submitted for
   // approval, offer the outcome review once for that generation. It records nothing and gates nothing.
@@ -6607,6 +6607,8 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     summary?: string | null;
     guidedStart?: boolean;
     workspaceName?: string | null;
+    repositoryPath?: string;
+    clone?: import('./views/intake-panel.ts').IntakeDefaults['clone'];
   } = {}): Promise<void> => {
     // An Initiative or an Epic starts in this checkout, so asked for directly it refreshes before
     // asking anything: `start` refuses a dirty tree, and discovering that only after somebody
@@ -6713,10 +6715,10 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     // One screen for six paths. An Initiative, an Epic or a Story, each with or without a tracker,
     // used to be six commands you had to already know the names of — which meant the product's front
     // door was documentation rather than a screen.
-    const intakeRepository = repositoryState?.root ?? repository;
-    const intakeCommonDirectory = intakeCatalogKey();
+    const intakeRepository = defaults.repositoryPath ?? repositoryState?.root ?? repository;
+    const intakeCommonDirectory = defaults.clone?.repository?.commonDirectory ?? intakeCatalogKey();
     const { IntakePanel, intakeInFlight } = lazyPanels();
-    IntakePanel.show(context, client, output, async (started) => {
+    IntakePanel.show(context, defaults.repositoryPath ? client.forkForRepository(intakeRepository) : client, output, async (started) => {
       if (defaults.guidedStart) await context.globalState.update(START_WIZARD_KEY, undefined);
       if (started.shape === 'story' && started.repositoryPath
           && await storyCheckoutNeedsWindowSwitch(started.repositoryPath,
@@ -6758,13 +6760,13 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
         return { commonDirectory: intakeCommonDirectory, logicalId: observed
           && sameStoryAttachPath(observed.worktree.path, intakeRepository) ? observed.repository.logicalId : null };
       },
-      branch: repositoryState?.branch ?? null,
+      branch: defaults.repositoryPath ? null : repositoryState?.branch ?? null,
       // Re-project the Store's lifecycle slice rather than spawning a second full `snapshot --json`
       // inside the panel. For a Story it may be the last snapshot; `lifecycleChanged` follows it.
       inFlight: intakeInFlight(store.current.snapshot),
       approvalAuthorityMissing,
       defaults,
-      catalogCache: intakeCatalogCache?.bind(intakeCatalogKey()) ?? null,
+      catalogCache: intakeCatalogCache?.bind(intakeCommonDirectory) ?? null,
       holdBackgroundWork: (reason) => backgroundWork.hold(reason),
       holdNavigation,
       journey: defaults.guidedStart ? {
@@ -7380,6 +7382,20 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
 
   /** The inbox reuses the exact approval transaction and adds all-phase document navigation. */
   const onInboxMessage = async (message: InboxMessage): Promise<void> => {
+    if (message.type === 'clone-story') {
+      const story = buildInbox(store.current.snapshot, workspaceStoryCatalog, repository, inboxRepositoryBinding).stories
+        .find(item => item.workId === message.workId && item.repositoryId === message.repositoryId && item.attachable);
+      if (!story?.repositoryPath) return showRefusal('Refresh Stories and select an available repository before cloning.',
+        { headline: 'Could not clone the selected Story' });
+      try {
+        const draft = await client.forkForRepository(story.repositoryPath)
+          .run<NonNullable<import('./views/intake-panel.ts').IntakeDefaults['clone']>>(
+            ['story', 'clone', story.workId, '--preview', '--json']);
+        return startWork({ shape: 'story', source: 'manual', repositoryPath: story.repositoryPath, clone: draft });
+      } catch (error) {
+        return showRefusal(error, { headline: 'Could not read the Story to clone' });
+      }
+    }
     if (message.type === 'refresh-stories') {
       await reconcileActiveWorkspaceSelection();
       return refreshRemoteStories();

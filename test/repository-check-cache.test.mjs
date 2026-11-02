@@ -21,6 +21,8 @@ async function fixture(t) {
   const env = { ...process.env, GIT_CONFIG_NOSYSTEM: '1', GIT_CONFIG_GLOBAL: path.join(root, 'empty-config'),
     SINGULARITY_FLOW_REPOSITORY_CHECK_PREFERENCES: path.join(root, 'preferences.json') };
   delete env.SINGULARITY_FLOW_GIT_FACT_CACHE;
+  // Injected configuration (a host's GIT_CONFIG_COUNT/KEY/VALUE) disables the Git fact cache by design.
+  for (const name of Object.keys(env)) if (/^GIT_CONFIG_(?:COUNT|PARAMETERS|KEY_\d+|VALUE_\d+)$/u.test(name)) delete env[name];
   delete env.SINGULARITY_FLOW_REPOSITORY_CHECK_MODE;
   delete env.SINGULARITY_FLOW_REPOSITORY_CHECK_INTERVAL_MINUTES;
   const git = args => execFileSync('git', args, { cwd: root, env, stdio: 'pipe', encoding: 'utf8' }).trim();

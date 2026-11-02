@@ -169,7 +169,14 @@ export const THEME_STYLE = `${CALM_PALETTE_STYLE}
   input:not([type]), input[type="text"], input[type="search"], input[type="number"], input[type="date"], input[type="url"],
   input[type="email"], input[type="password"], input[type="time"], select, textarea {
     background: var(--sf-surface-sunken); color: var(--sf-text); border: 1px solid var(--sf-border-strong); border-radius: var(--sf-radius);
+    /* A field sized for wide panels (size="36") never runs past a narrow one. */
+    box-sizing: border-box; max-width: 100%;
   }
+  /* A row of short labelled fields: each shrinks before the row wraps, and a field that still does
+     not fit moves to the next line instead of running past the card. */
+  .inline-fields { display: flex; flex-wrap: wrap; align-items: center; gap: .6rem 1.2rem; }
+  .inline-fields > label { display: inline-flex; align-items: center; gap: .5rem; min-width: 0; max-width: 100%; }
+  .inline-fields > label > input { flex: 1 1 auto; min-width: 0; }
   input:not([type]):focus, input[type="text"]:focus, input[type="search"]:focus, input[type="number"]:focus, input[type="date"]:focus,
   input[type="url"]:focus, select:focus, textarea:focus { border-color: var(--sf-accent); box-shadow: var(--sf-glow); outline: none; }
   input.mono, textarea.mono { font-family: var(--sf-font-mono); }

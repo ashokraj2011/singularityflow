@@ -445,6 +445,10 @@ export class BootstrapPanel {
   private inspectionRevision = 0;
   private inspectionController: AbortController | null = null;
   private readonly inspectedOrganisations = new Map<string, Organisation>();
+  // "Map another capability using this repository", for that exact repository and the map that
+  // already records it. A later re-check (another map chosen, or the checkbox) that proves the same
+  // binding keeps the person in the details instead of returning them to that choice.
+  private reuseBinding: { repositoryUrl: string; leadUrl: string } | null = null;
   private repositorySetupResult: RepositoryOnboardingResult | null = null;
   private activeMapController: AbortController | null = null;
   private operationStorageQueue: Promise<void> = Promise.resolve();
@@ -1753,6 +1757,17 @@ export class BootstrapPanel {
     if (boundLead && selectedLead
       && (status === 'known-repository-unassigned' || status === 'already-mapped')) {
       await this.selectLead(selectedLead);
+      const reuse = this.reuseBinding;
+      if (status === 'already-mapped' && reuse && !this.disposed
+          && sameGitRepository(reuse.repositoryUrl, repositoryUrl) && sameGitRepository(reuse.leadUrl, boundLead)
+          && (!this.form.repositorySetupPlan || this.form.repositorySetupResolved)) {
+        // A repository belongs to one capability map; a second map would make it ambiguous. Keep the
+        // person's decision to map another capability here, and say why the choice snapped back.
+        this.update({ inspectionComplete: true,
+          notice: explicitLead && !sameGitRepository(explicitLead, boundLead)
+            ? `${repositoryUrl} is already recorded in the capability map in ${boundLead}, so another capability using it is recorded there too. To use a different capability map, map a different repository.`
+            : this.form.notice });
+      }
     } else if (boundLead && status === 'not-onboarded' && explicitLead) {
       await this.selectLead(explicitLead);
     } else if (status === 'not-onboarded' && !this.form.leads.length) {
@@ -1823,6 +1838,7 @@ export class BootstrapPanel {
           this.form[field] = message.value;
         }
         if (field === 'repositoryUrl' && message.value !== previousRepository) {
+          this.reuseBinding = null;
           this.invalidateInspection();
           this.mapLoadRevision++;
           this.form.loaded = false;
@@ -2027,6 +2043,8 @@ export class BootstrapPanel {
         this.update({ error: 'The existing capability can be attached now. To map another capability using this repository, complete repository setup first.' });
         return;
       }
+      this.reuseBinding = { repositoryUrl: this.form.inspectionBoundRepositoryUrl ?? this.form.repositoryUrl.trim(),
+        leadUrl: this.form.inspectionBoundLeadUrl ?? this.form.lead.trim() };
       this.update({ inspectionComplete: true });
       return;
     }

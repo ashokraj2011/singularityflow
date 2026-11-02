@@ -1816,7 +1816,15 @@ async function activeWorkspaceForRepository(root) {
   const active = await workspaceMemberContextForRepository(
     root, activeWorkspaceFile(), workspaceRegistryFile(), { strict: true }
   );
-  if (!active?.workspacePath) return null;
+  if (!active?.workspacePath) {
+    // No selection covers this checkout, but a clone that a registered workspace owns is still
+    // governed by that workspace's authority. Falling through to the clone's own origin let a
+    // delivery repository's local sflow/config govern work its workspace assigns to the
+    // organisation map. Physical membership is proven from the clone itself, never inherited
+    // from the last selection; a clone in several workspaces is refused as ambiguous.
+    const { findWorkspaceMembership } = await import('./workspace-membership.mjs');
+    return (await findWorkspaceMembership(root, { registryFile: workspaceRegistryFile() }))?.workspace ?? null;
+  }
   // Use the exact, identity-verified manifest bytes retained with the membership decision. Reading
   // workspace.json again here would allow a concurrent edit to swap configuration authority after
   // membership was proven (a classic check/use race).

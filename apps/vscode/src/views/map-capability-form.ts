@@ -997,7 +997,7 @@ export function mapCapabilityHtml(form: MapCapabilityForm, journey: StartWizardP
 
   <section>
     <h2>${icon('tracker')}Tracking</h2>
-    <p>
+    <p class="inline-fields">
       <label>Jira <input type="text" value="${escape(form.jiraProject)}" data-map="jiraProject" size="12"
         placeholder="PAY"></label>
       <label>App ID <input type="text" value="${escape(form.appId)}" data-map="appId" size="16"

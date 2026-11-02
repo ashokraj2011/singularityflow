@@ -128,3 +128,14 @@ test('configuration overview groups connection controls and keeps advanced actio
     assert.equal((html.match(new RegExp(`data-action="${action}"`, 'g')) ?? []).length, 1);
   }
 });
+
+test('a text field never runs past a narrow panel, and the capability Tracking row wraps inside its card', () => {
+  // The map-capability Tracking row held Jira, App ID and Teams (size="36") inline; at a narrow panel
+  // the Teams field kept its intrinsic width and ran past the card.
+  assert.match(THEME_STYLE, /input\[type="time"\], select, textarea \{[^}]*box-sizing: border-box; max-width: 100%;/);
+  assert.match(THEME_STYLE, /\.inline-fields \{ display: flex; flex-wrap: wrap;/);
+  assert.match(THEME_STYLE, /\.inline-fields > label \{[^}]*min-width: 0; max-width: 100%;/);
+  assert.match(THEME_STYLE, /\.inline-fields > label > input \{ flex: 1 1 auto; min-width: 0; \}/);
+  const form = readFileSync(new URL('../apps/vscode/src/views/map-capability-form.ts', import.meta.url), 'utf8');
+  assert.match(form, /Tracking<\/h2>\s+<p class="inline-fields">\s+<label>Jira/);
+});

@@ -16,7 +16,7 @@ related:
   - developer-home
   - capability-management
   - repository-state-and-snapshots
-version: 26
+version: 27
 ---
 A workspace is the machine-local collection of capability repositories used for one delivery context. Sessions bind a contributor and selected work item without replacing repository state.
 
@@ -183,6 +183,12 @@ The shell command `workspace use` records the machine-local selection but cannot
 parent terminal's directory. CLI session commands still prefer a current directory;
 use exact workspace/repository selectors to inspect another workspace from there. Background
 selection updates do not force other VS Code windows to switch folders.
+
+Story configuration authority follows the workspace that owns a checkout, selected or not. A
+command run inside a registered workspace's clone (or one of its Story worktrees) with no active
+selection covering it still uses that workspace's capability authority, never the clone's own
+`sflow/config`. A clone that belongs to more than one workspace is refused until one is selected
+with `workspace use <WORKSPACE> --repository <ID>`.
 
 Workspace registration normally records the approved capability bindings and planned repository
 paths without cloning application code. `workspace use` can select that workspace and reports the

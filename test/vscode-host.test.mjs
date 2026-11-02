@@ -9605,6 +9605,51 @@ test('a new laptop can find an already-onboarded repository through an explicit 
     'changing authority revokes the exact inspected mapping before another action');
 });
 
+test('mapping another capability for an already-mapped repository keeps its capability map when another is chosen', async (t) => {
+  if (!requireBundle(t)) return;
+  const org = await organisation();
+  // A repository that is its own capability map, beside the organisation map in the lead registry.
+  const own = path.join(org.base, 'own.git');
+  const seed = path.join(org.base, 'own-seed');
+  await mkdir(seed);
+  run('git', ['init', '-q', '-b', 'main', '--bare', own], { cwd: org.base });
+  run('git', ['init', '-q', '-b', 'main', seed], { cwd: org.base });
+  await writeFile(path.join(seed, 'README.md'), '# own\n');
+  run('git', ['add', '-A'], { cwd: seed });
+  run('git', ['-c', 'user.email=org@example.com', '-c', 'user.name=Org', 'commit', '-qm', 'Initial'], { cwd: seed });
+  run('git', ['push', '-q', own, 'main:main'], { cwd: seed });
+  const flow = (...args) => JSON.parse(run(process.execPath,
+    [path.join(packageRoot, 'bin/singularity-flow.mjs'), ...args, '--json'], { cwd: org.base }).stdout);
+  const mapped = flow('capability', 'map', 'own-core', '--lead', own, '--name', 'Own core', '--kind', 'delivery',
+    '--repository', own);
+  flow('capability', 'activate', mapped.branch, '--lead', own, '--confirm', mapped.commit, '--acknowledge-unprotected');
+  await writeFile(org.registry, JSON.stringify({ schemaVersion: 1, leads: [
+    { url: org.lead, usedAt: '2026-01-01T00:00:00.000Z' }, { url: own, usedAt: '2026-01-02T00:00:00.000Z' }] }));
+
+  const { api, registered } = stubVscode();
+  api.workspace.workspaceFolders = undefined;
+  const extension = loadExtension(api);
+  await extension.activate(context());
+  await registered.commands.get('singularityFlow.mapCapability')();
+  const panel = registered.panels.find((entry) => entry.id === 'singularityFlow.mapCapability');
+  await panel.post({ type: 'field', field: 'repositoryUrl', value: own });
+  await panel.post({ type: 'inspectRepository' });
+  await until(() => (panel.webview.html.includes('This repository is already onboarded.') ? panel.webview.html : null),
+    { attempts: 400 });
+  await panel.post({ type: 'reuseRepository' });
+  await until(() => (panel.webview.html.includes('1 capability available as parents') ? panel.webview.html : null));
+
+  // Choosing the other map re-checks the repository, which proves it already belongs to its own map.
+  // The person keeps the details of the capability they chose to map, with the reason, instead of
+  // being sent back to the "already onboarded" choice with the map silently switched back.
+  await panel.post({ type: 'selectLead', value: org.lead });
+  const html = await until(() => (panel.webview.html.includes('so another capability using it is recorded there too')
+    ? panel.webview.html : null), { attempts: 400 });
+  assert.doesNotMatch(html, /data-map-details hidden/);
+  assert.match(html, /1 capability available as parents/);
+  assert.ok(html.includes(`<option value="${own}" selected>`), 'the map that records the repository stays selected');
+});
+
 test('reopening a retained capability mapper refreshes leads and revokes stale discovery', async (t) => {
   if (!requireBundle(t)) return;
   const org = await organisation();

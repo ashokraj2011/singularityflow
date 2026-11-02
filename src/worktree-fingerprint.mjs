@@ -313,7 +313,7 @@ export function worktreeFingerprint(root, {
         && (exhaustiveChanges.length > 0 || splitNull(untracked).length > 0 || unmergedIndex)),
       paths: Object.freeze(paths),
       ...(includeManifest ? { fileDigests: Object.freeze(Object.fromEntries(manifest.map(entry =>
-        [entry.path, sha256(canonicalJson(entry))]))) } : {}),
+        [entry.path, sha256(canonicalJson(entry))]))), untrackedPaths: Object.freeze(splitNull(untracked)) } : {}),
       hiddenChanges: Object.freeze(hiddenChanges),
       ...(exhaustive ? { exhaustiveChanges: Object.freeze(exhaustiveChanges) } : {}),
       diagnosticCodes: Object.freeze([

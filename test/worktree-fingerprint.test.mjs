@@ -27,6 +27,24 @@ function looseObjects(root) {
   return Number(/^count: (\d+)$/m.exec(run('git', ['count-objects', '-v'], { cwd: root }).stdout)?.[1] ?? -1);
 }
 
+test('optional manifests distinguish untracked output without changing durable fingerprint hashes', async t => {
+  const root = await mkdtemp(path.join(os.tmpdir(), 'sflow-fingerprint-output-'));
+  t.after(() => rm(root, { recursive: true, force: true }));
+  run('git', ['init', '-q', '-b', 'main'], { cwd: root });
+  await writeFile(path.join(root, 'tracked.json'), '{}\n');
+  run('git', ['add', 'tracked.json'], { cwd: root });
+  await writeFile(path.join(root, 'tracked.json'), '{"changed":true}\n');
+  await writeFile(path.join(root, 'untracked.json'), '{"passed":1}\n');
+  const ordinary = worktreeFingerprint(root, { fresh: true });
+  const detailed = worktreeFingerprint(root, { fresh: true, includeManifest: true });
+  assert.equal(detailed.sha256, ordinary.sha256);
+  assert.equal(detailed.indexTree, legacyIndexHash(root));
+  assert.deepEqual(detailed.untrackedPaths, ['untracked.json']);
+  assert.ok(Object.hasOwn(detailed.fileDigests, 'tracked.json'));
+  assert.ok(Object.hasOwn(detailed.fileDigests, 'untracked.json'));
+  assert.equal(ordinary.untrackedPaths, undefined);
+});
+
 test('the shared fingerprint covers unborn repositories without mutating their real index', async (t) => {
   const root = await mkdtemp(path.join(os.tmpdir(), 'sflow-fingerprint-'));
   t.after(() => rm(root, { recursive: true, force: true }));

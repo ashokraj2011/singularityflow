@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { spawn, spawnSync } from 'node:child_process';
 import { once } from 'node:events';
-import { mkdtemp, mkdir, readdir, readFile, realpath, rm, stat, symlink, unlink, writeFile } from 'node:fs/promises';
+import { link, mkdtemp, mkdir, readdir, readFile, realpath, rm, stat, symlink, unlink, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
@@ -1324,6 +1324,124 @@ test('native authoring verification runs a real test and starts/stops only its o
   assert.deepEqual(await mutationPostToolGuard(stop), {});
 });
 
+test('native diagnostic reports survive successful and failing test processes without ending authoring', async t => {
+  const f = await fixture(t);
+  const report = '.sflow/results/node-tests.json';
+  await writeFile(path.join(f.root, 'diagnostic.mjs'), `import {mkdirSync,writeFileSync} from 'node:fs';
+import assert from 'node:assert/strict';
+const failed = process.argv[2] === 'fail';
+try { assert.equal(failed ? 0 : 1, 1); } catch { process.exitCode = 1; }
+mkdirSync('.sflow/results',{recursive:true});
+writeFileSync('${report}',JSON.stringify({numTotalTests:1,numPassedTests:failed?0:1,numFailedTests:failed?1:0}));
+`);
+  f.git(['add', 'diagnostic.mjs']); f.git(['commit', '-qm', 'diagnostic runner']);
+  const payload = await f.enter('/sf-phase', 'native-report-continuation');
+  const workflowBytes = await readFile(f.workflowFile, 'utf8');
+  for (const outcome of ['fail', 'pass']) {
+    const call = { ...payload, toolName: 'bash', toolArgs: { command: `node diagnostic.mjs ${outcome}`, cwd: f.root } };
+    assert.deepEqual(await mutationToolGuard(call), {});
+    const run = spawnSync(process.execPath, ['diagnostic.mjs', outcome], { cwd: f.root, encoding: 'utf8' });
+    assert.equal(run.status, outcome === 'fail' ? 1 : 0, run.stderr);
+    assert.deepEqual(await mutationPostToolGuard(call), {}, 'the exit/result is diagnostic, not a forbidden file edit');
+    assert.equal(JSON.parse(await readFile(path.join(f.root, report), 'utf8')).numFailedTests, outcome === 'fail' ? 1 : 0);
+    assert.deepEqual(await mutationToolGuard({ ...payload, toolName: 'edit', toolArgs: {
+      path: 'singularity/work-items/PMC-1/artifacts/custom-step/summary.md'
+    } }), {}, 'continue repairing the admitted draft in the same turn');
+    assert.equal((await mutationToolGuard({ ...payload, toolName: 'edit', toolArgs: { path: report } })).permissionDecision,
+      'deny', 'post-command output classification grants no report file-edit permission');
+  }
+  assert.equal(await readFile(f.workflowFile, 'utf8'), workflowBytes, 'diagnostics never retain evidence or advance a phase');
+  assert.deepEqual(await mutationToolGuard({ ...payload, toolName: 'bash', toolArgs: {
+    command: 'singularity-flow phase prepublish custom-step --json'
+  } }), {});
+});
+
+test('all authoring phases preserve untracked runner output through creation, replacement and cleanup', async t => {
+  const f = await fixture(t);
+  const outputs = ['.sflow/results/node-tests.json', 'packages/ui/.sflow/results/junit.xml',
+    'packages/ui/test-results/.last-run.json', 'playwright-report/index.html', 'blob-report/report.zip'];
+  for (const id of ['specification', 'planning', 'implementation', 'convergence', 'verification', 'release', 'custom-check', 'custom-repair']) {
+    f.workflow.currentPhase = id;
+    f.workflow.phaseOrder = [id];
+    f.workflow.phases = { [id]: { ...f.phase, id } };
+    await writeFile(f.workflowFile, JSON.stringify(f.workflow));
+    const payload = await f.enter('/sf-phase', `runner-output-${id}`);
+    const call = { ...payload, toolName: 'run_in_terminal', toolArgs: { command: 'npm test', cwd: f.root } };
+    for (const mode of ['create', 'replace', 'remove']) {
+      assert.deepEqual(await mutationToolGuard(call), {}, `${id}/${mode}/pre`);
+      for (const file of outputs) {
+        const absolute = path.join(f.root, file);
+        if (mode === 'remove') await unlink(absolute);
+        else {
+          await mkdir(path.dirname(absolute), { recursive: true });
+          await writeFile(absolute, `${mode}: ${id}\n`);
+        }
+      }
+      assert.deepEqual(await mutationPostToolGuard(call), {}, `${id}/${mode}/post`);
+    }
+  }
+});
+
+test('runner output exceptions preserve tracked, linked, protected and retained-state boundaries', async t => {
+  for (const kind of ['tracked', 'staged', 'hardlink', 'symlink', 'protected', 'retained', 'unknown-output']) {
+    await t.test(kind, async t => {
+      const f = await fixture(t);
+      const relative = kind === 'retained' ? 'singularity/work-items/PMC-1/artifacts/earlier/test-results/report.json'
+        : kind === 'unknown-output' ? 'coverage/unknown.json' : '.sflow/results/node-tests.json';
+      const absolute = path.join(f.root, relative);
+      await mkdir(path.dirname(absolute), { recursive: true });
+      if (kind === 'tracked') {
+        await writeFile(absolute, 'original\n');
+        f.git(['add', relative]); f.git(['commit', '-qm', 'retained report']);
+      }
+      if (kind === 'protected') f.definition.governance.protectedPaths.push('.sflow/results');
+      const payload = await f.enter('/sf-phase', `report-boundary-${kind}`);
+      const call = { ...payload, toolName: 'bash', toolArgs: { command: 'npm test', cwd: f.root } };
+      assert.deepEqual(await mutationToolGuard(call), {});
+      if (kind === 'symlink') await symlink(path.join(f.root, 'src', 'App.jsx'), absolute);
+      else if (kind === 'hardlink') await link(path.join(f.root, 'src', 'App.jsx'), absolute);
+      else await writeFile(absolute, 'changed\n');
+      if (kind === 'staged') f.git(['add', relative]);
+      const refusal = await mutationPostToolGuard(call);
+      assert.equal(refusal.continue, false, kind);
+      assert.match(refusal.stopReason, /PHASE_MUTATION_SHELL_CHANGE_DETECTED/u);
+      assert.ok(refusal.stopReason.includes(relative), kind);
+      assert.equal((await mutationToolGuard(call)).permissionDecision, 'deny', 'real findings stay latched');
+      assert.equal(await readFile(path.join(f.root, 'src', 'App.jsx'), 'utf8'), 'export const value = 1;\n');
+    });
+  }
+});
+
+test('older report-only hook findings heal in the same live turn without clearing real findings', async t => {
+  const f = await fixture(t);
+  const report = '.sflow/results/node-tests.json';
+  const payload = await f.enter('/sf-phase', 'old-report-latch');
+  const call = { ...payload, toolName: 'bash', toolArgs: { command: 'npm test', cwd: f.root } };
+  await mutationToolGuard(call);
+  await mkdir(path.join(f.root, '.sflow', 'results'), { recursive: true });
+  await writeFile(path.join(f.root, report), '{"passed":1}\n');
+  const recordPath = path.join(path.dirname(process.env.SINGULARITY_FLOW_COPILOT_MODE_FILE), 'copilot-boundaries',
+    `${createHash('sha256').update(payload.sessionId).digest('hex')}.mutation.json`);
+  async function oldFinding(findings) {
+    const { integritySha256: ignored, ...content } = JSON.parse(await readFile(recordPath, 'utf8'));
+    delete content.baseline.disposableOutputs;
+    content.findings = findings;
+    await writeFile(recordPath, JSON.stringify({ ...content,
+      integritySha256: createHash('sha256').update(JSON.stringify(content)).digest('hex') }));
+  }
+  const artifact = { ...payload, toolName: 'edit', toolArgs: {
+    path: 'singularity/work-items/PMC-1/artifacts/custom-step/summary.md'
+  } };
+  await oldFinding([report]);
+  assert.deepEqual(await mutationToolGuard(artifact), {});
+  assert.deepEqual(JSON.parse(await readFile(recordPath, 'utf8')).findings, []);
+  await oldFinding([report, 'policy/rules.yml', '[HEAD/index changed outside a recorded kernel operation]']);
+  assert.equal((await mutationToolGuard(artifact)).permissionDecision, 'deny');
+  assert.deepEqual(JSON.parse(await readFile(recordPath, 'utf8')).findings,
+    ['policy/rules.yml', '[HEAD/index changed outside a recorded kernel operation]']);
+  assert.equal(await readFile(path.join(f.root, report), 'utf8'), '{"passed":1}\n');
+});
+
 test('a delegation skill takes the turn of the skill it delegates to, so the delegated run is not refused', async t => {
   const { skills } = YAML.parse(readFileSync(new URL('../plugin/skills/registry.yml', import.meta.url), 'utf8'));
   const delegations = Object.entries(skills).filter(([, rule]) => rule.class === 'delegation');
@@ -1388,7 +1506,8 @@ const NOT_RUN_BY_THIS_TURN = Object.freeze({
   'sflow-fix-workflow': [[/^configuration approve\b/u, 'the reviewer approves in their own terminal'],
     [/^workflow studio apply\b.*--propose\b/u, 'proposes only the change set `workflow validate` issued to the turn (its own test)']],
   'sflow-run-app': [[/^capability (?:edit|set)\b/u, 'proposes only the application draft `app suggest` issued to the turn (its own test)']],
-  'sflow-spec-author': [[/^spec author propose\b/u, 'stages only the proposal file `spec author status` issued to the turn (its own test)']],
+  'sflow-spec-author': [[/^spec author propose\b/u, 'stages only the proposal file `spec author status` issued to the turn (its own test)'],
+    [/^spec author new\b/u, 'describes new-draft creation by the person in Spec Studio or their own terminal; this skill proposes to an existing draft']],
   'sflow-reinstall': [[/^plugin verify\b/u, 'the installer\'s own verification, which `singularity-flow reinstall` runs and reports']],
   'sflow-revision-checks': [[/^revision checks run\b/u, 'displayed for separate Shell review; never run from this skill']],
   'sflow-initiative-checklist': [[/^initiative evidence add\b/u, 'shown as an example; registration is /sf-initiative-evidence']],

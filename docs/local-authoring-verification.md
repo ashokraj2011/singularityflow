@@ -22,6 +22,11 @@ the protocol before the first terminal attempt.
   image is not a visual acceptance verdict.
 - Diagnostic tests report their actual command, cwd, exit status and failures. They never replace
   the fresh governed tests required by publication/submission, or count as human approval.
+- Regular untracked SFlow result files and known runner output folders follow the same disposable
+  output classification as recovery. Creating, replacing or cleaning them does not end an admitted
+  authoring turn. Tracked reports, links, protected paths, retained Story state and HEAD/index changes
+  remain subject to the existing checks. This does not grant file-edit tools permission to author
+  reports, or turn a diagnostic result into retained evidence.
 - Independent source-review, publication-only, approval, decision and kernel-only turns retain
   their standalone-command restrictions. This change is not an OS sandbox or a process supervisor;
   it describes existing tool permissions and does not bypass explicit project/environment policy.
@@ -37,6 +42,10 @@ New entries and the code skill now distinguish diagnostic verification from life
 Fresh and cached composed authoring prompts receive the same final runtime correction. Pinned
 agent prompts, canonical prompt receipts and quoted source/evidence remain unchanged. No Story
 recreation, workflow re-pinning, clarification replay or new VS Code task is needed.
+
+Older live hook records that latched only a regular untracked result are reclassified against the
+current verified binding. Other findings remain latched; a clean recovery inspection alone never
+clears a protected edit. No report or draft is deleted, and expired turns still require a new turn.
 
 ## Regression coverage
 

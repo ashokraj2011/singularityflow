@@ -2,10 +2,10 @@
 import path from 'node:path';
 import { createHash, randomUUID } from 'node:crypto';
 import { COMMAND_PRESENTATION_CONTRACT, formatCommandRouteLines } from './model-free-commands.mjs';
-import { readFileSync, realpathSync } from 'node:fs';
+import { lstatSync, readFileSync, realpathSync } from 'node:fs';
 import { lstat, mkdir, readFile, readdir, realpath, rename, rm, unlink, writeFile } from 'node:fs/promises';
 import { fileURLToPath } from 'node:url';
-import { deriveMutationContract, mutationContractPresentation, mutationDenial, mutationPathDecision, mutationTurnMode } from './phase-mutation-contract.mjs';
+import { deriveMutationContract, mutationContractPresentation, mutationDenial, mutationPathDecision, mutationToolProtocol, mutationTurnMode } from './phase-mutation-contract.mjs';
 import { asSflowCommand, copilotModeFile, mentionsHookCli, readCopilotMode } from './copilot-mode.mjs';
 // The guard runs on every tool call: the staging-path helper loads only when a turn's record is built
 // or a staging refusal is written, never on the per-call path.
@@ -16,6 +16,7 @@ import { canonicalCommand, resolveOperation } from './command-registry.mjs';
 import { DECISION_LIST_CHAT_OPTIONS, liveTerminalReviewStep, OWN_TERMINAL_STEPS, planRowCorrectionStep } from './command-skills.mjs';
 import { currentSchemaVersion, readRecord } from './schema-migrations.mjs';
 import { CLI_PATH_REFERENCE, safeCommandGuidance, validateSflowExecutionCommand } from './safe-command-guidance.mjs';
+import { isTestRunnerOutputPath, isTransientTestResultPath } from './application-paths.mjs';
 
 const MAX_AGE = 30 * 60 * 1000;
 
@@ -1308,6 +1309,16 @@ async function currentContract(payload, record) {
         && issued.generation === value.contract.generation && issued.mode === value.contract.turnMode
         && typeof issued.path === 'string' && !value.contract.allow.staging.includes(issued.path)) value.contract.allow.staging.push(issued.path);
   }
+  // Older builds latched disposable runner output as a forbidden edit. Reclassify only those
+  // exact, still-untracked regular files under the verified live contract, never other findings.
+  if (value.findings.some(file => disposableOutputCandidate(value.contract, file))) {
+    const observed = await shellSnapshot(value.contract.repositoryRoot, value.contract);
+    const remaining = value.findings.filter(file => !disposableOutputChange(file, value.baseline, observed, value.contract.repositoryRoot));
+    if (remaining.length !== value.findings.length) {
+      value.findings = remaining;
+      await atomicRecord(recordFile(payload), value);
+    }
+  }
   return value;
 }
 
@@ -1758,7 +1769,7 @@ async function mutationToolDecision(payload, record) {
       // Baseline BEFORE execution, refreshed after kernel-owned operations at the CLI boundary. A
       // command that only reads changes nothing, so it needs none.
       if (!kernel && !readOnlyShell(call, value) && !value.baseline) {
-        value.baseline = await shellSnapshot(contract.repositoryRoot);
+        value.baseline = await shellSnapshot(contract.repositoryRoot, contract);
         await atomicRecord(recordFile(payload), value);
       }
       continue;
@@ -1779,10 +1790,43 @@ async function mutationToolDecision(payload, record) {
   return {};
 }
 
-async function shellSnapshot(root) {
+function disposableOutputCandidate(contract, file) {
+  if (!(isTransientTestResultPath(file, contract.ownership) || isTestRunnerOutputPath(file, contract.ownership))
+      || !mutationToolProtocol(contract).localVerification.allowed) return false;
+  const compared = contract.ownership.caseInsensitivePaths ? file.toLowerCase() : file;
+  const matches = prefix => {
+    const normalized = (contract.ownership.caseInsensitivePaths ? prefix.toLowerCase() : prefix).replace(/\/$/u, '');
+    return compared === normalized || compared.startsWith(`${normalized}/`);
+  };
+  // An output-shaped name under Git, protected configuration or retained Story state remains protected.
+  return !['.git', ...contract.deny.protectedPaths, ...contract.ownership.governedRoots,
+    ...contract.ownership.governedPaths].some(matches);
+}
+
+function disposableOutputChange(file, before, after, root) {
+  if (after.disposableOutputs.includes(file)) return true;
+  if (!before?.disposableOutputs?.includes(file) || Object.hasOwn(after.files, file)) return false;
+  // An absent manifest entry may also be a clean tracked or ignored file. Only actual deletion
+  // counts as cleanup of a previously observed disposable file.
+  try { lstatSync(path.join(root, file)); return false; }
+  catch (error) { return error.code === 'ENOENT'; }
+}
+
+async function shellSnapshot(root, contract) {
   const { worktreeFingerprint } = await import('./worktree-fingerprint.mjs');
   const fingerprint = worktreeFingerprint(root, { fresh: true, includeManifest: true });
-  return { headTree: fingerprint.headTree, indexTree: fingerprint.indexTree, files: fingerprint.fileDigests };
+  const disposableOutputs = [];
+  for (const file of fingerprint.untrackedPaths) {
+    if (!disposableOutputCandidate(contract, file)) continue;
+    // The edit-path check walks ancestors and rejects links/hardlinks. It does not grant edits:
+    // only this post-command observation can classify a runner's untracked output as disposable.
+    const decision = mutationPathDecision(contract, file, root);
+    if (!decision.allowed && !['kernel-owned-state', 'application-edits-not-allowed', 'test-automation-only',
+      'no-approved-code-owner'].includes(decision.reason)) continue;
+    const stat = await lstat(path.join(root, file)).catch(() => null);
+    if (stat?.isFile() && !stat.isSymbolicLink() && stat.nlink === 1) disposableOutputs.push(file);
+  }
+  return { headTree: fingerprint.headTree, indexTree: fingerprint.indexTree, files: fingerprint.fileDigests, disposableOutputs };
 }
 
 export async function mutationPostToolGuard(payload = {}) {
@@ -1843,10 +1887,11 @@ export async function mutationPostToolGuard(payload = {}) {
     if (terminals.every(call => shellAllowed(call, ran.contract.turnMode, ran) || readOnlyShell(call, value))) return {};
     return postFinding(mutationDenial(value.contract, 'PHASE_MUTATION_BASELINE_UNAVAILABLE: detection cannot establish which command changed bytes'));
   }
-  const after = await shellSnapshot(value.contract.repositoryRoot);
+  const after = await shellSnapshot(value.contract.repositoryRoot, value.contract);
   const changed = [...new Set([...Object.keys(value.baseline.files), ...Object.keys(after.files)])]
     .filter(file => value.baseline.files[file] !== after.files[file]);
-  const forbidden = changed.filter(file => !mutationPathDecision(value.contract, file, value.contract.repositoryRoot).allowed);
+  const forbidden = changed.filter(file => !disposableOutputChange(file, value.baseline, after, value.contract.repositoryRoot)
+    && !mutationPathDecision(value.contract, file, value.contract.repositoryRoot).allowed);
   if (value.baseline.headTree !== after.headTree || value.baseline.indexTree !== after.indexTree) forbidden.push('[HEAD/index changed outside a recorded kernel operation]');
   if (forbidden.length) {
     value.findings = [...new Set([...value.findings, ...forbidden])];
@@ -1959,7 +2004,7 @@ export async function refreshMutationContracts(root, accepted = null, { decision
     if (decisionEnded && ['approval-only', 'review-decision-only'].includes(next.contract.turnMode)) next.decisionEnded = true;
     // A confirmation runs once: after a command changed this checkout, its turn has nothing left to run.
     if (advanceBaseline && next.contract.turnMode === 'confirm') next.decisionEnded = true;
-    if (value.baseline && advanceBaseline) next.baseline = await shellSnapshot(root);
+    if (value.baseline && advanceBaseline) next.baseline = await shellSnapshot(root, next.contract);
     await atomicRecord(file, next);
   }
 }

@@ -258,7 +258,10 @@ test('frequent lifecycle handlers do not reach the legacy dispatcher and stay un
     // counting through it (risk, test command, narrowing, test-run risk, evidence reuse, visual profile, witness, scope,
     // applicability, upstream and forward amendment decisions, plan corrections: +1,652) add 3,456 for 9,331,351.
     // The signer and the verifier stay lazy (presence/person-steps.mjs and person-records.mjs).
-    assert.ok(closure.bytes <= 9_335_000, `${file} exceeds the 9 MB eager-source budget (${closure.bytes} bytes)`);
+    // 9,340,000 (next 5,000 boundary): main 3a9becd53 measures 9,334,543. The optional
+    // ledger.configurationHistory setting validated where the ledger is read (ledger-config.mjs +1,156) brings
+    // 9,335,699; the automatic history cleanup itself loads only after a publication, no new eager file.
+    assert.ok(closure.bytes <= 9_340_000, `${file} exceeds the 9 MB eager-source budget (${closure.bytes} bytes)`);
   }
 });
 

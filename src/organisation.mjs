@@ -4784,7 +4784,11 @@ export async function publishCapabilityMap(root, {
       status: 'current', published: false, branch: result.branch,
       reason: 'it is already current there'
     };
-    return { status: 'updated', published: true, branch: result.branch, commit: result.commit };
+    // A new mirror may have retained a new history branch; retiring old ones never fails this publication.
+    const historyCleanup = history ? await (await import('./configuration-history-auto-clean.mjs'))
+      .autoCleanConfigurationHistory(root, ledger, { env }) : null;
+    return { status: 'updated', published: true, branch: result.branch, commit: result.commit,
+      ...(historyCleanup ? { historyCleanup } : {}) };
   } catch (error) {
     return capabilityProjectionFailure(ledger, error);
   }
@@ -6889,11 +6893,17 @@ async function publishActivationAtomically(root, {
       )
     };
   }
+  // The transaction retained a new history branch; retiring old ones never fails this landing.
+  const historyCleanup = updates.some(([ref]) => ref === historyRef)
+    ? await (await import('./configuration-history-auto-clean.mjs'))
+      .autoCleanConfigurationHistory(root, ledger, { env, runRemoteCommand, endpoint: remote }) : null;
   return {
     ...published,
     state: projection.changed
-      ? { status: 'updated', published: true, branch: ledger.branch, commit: stateTip }
-      : { status: 'current', published: false, branch: ledger.branch, reason: 'it is already current there' }
+      ? { status: 'updated', published: true, branch: ledger.branch, commit: stateTip,
+        ...(historyCleanup ? { historyCleanup } : {}) }
+      : { status: 'current', published: false, branch: ledger.branch, reason: 'it is already current there',
+        ...(historyCleanup ? { historyCleanup } : {}) }
   };
 }
 

@@ -16,7 +16,7 @@ function string(value, fallback, label) {
 export function normalizeLedgerConfig(value = {}) {
   if (!value || typeof value !== 'object' || Array.isArray(value)) throw new SingularityFlowError('ledger must be an object.');
   for (const key of Object.keys(value)) {
-    if (!['enabled', 'branch', 'remote', 'behind', 'enforcement', 'signing', 'trustTier', 'maxRetries', 'pinTransport', 'retentionDays', 'publication'].includes(key)) {
+    if (!['enabled', 'branch', 'remote', 'behind', 'enforcement', 'signing', 'trustTier', 'maxRetries', 'pinTransport', 'retentionDays', 'publication', 'configurationHistory'].includes(key)) {
       throw new SingularityFlowError(`ledger contains unknown field '${key}'.`);
     }
   }
@@ -46,6 +46,8 @@ export function normalizeLedgerConfig(value = {}) {
   if (['T2', 'T3'].includes(trustTier) && signing === 'off') {
     throw new SingularityFlowError(`${trustTier} requires ledger.signing: commit or a future event-signature driver.`);
   }
+  const configurationHistory = value.configurationHistory == null ? null
+    : normalizeConfigurationHistory(value.configurationHistory);
   return {
     enabled: value.enabled === true,
     branch,
@@ -57,6 +59,23 @@ export function normalizeLedgerConfig(value = {}) {
     maxRetries,
     pinTransport,
     publication,
-    retentionDays
+    retentionDays,
+    // Only when set, so a pinned Story resolution reads the same as before the field existed.
+    ...(configurationHistory ? { configurationHistory } : {})
   };
+}
+
+/** `ledger.configurationHistory`: auto-clear of old `sflow/config-history/*` branches (on, 10 kept). */
+export function normalizeConfigurationHistory(value) {
+  const label = 'ledger.configurationHistory';
+  if (!value || typeof value !== 'object' || Array.isArray(value)
+    || Object.keys(value).some((key) => key !== 'autoClear' && key !== 'keepRecent')) {
+    throw new SingularityFlowError(`${label} takes only autoClear (boolean) and keepRecent (1-100).`);
+  }
+  const keepRecent = value.keepRecent ?? 10;
+  if ((value.autoClear != null && typeof value.autoClear !== 'boolean')
+    || !Number.isInteger(keepRecent) || keepRecent < 1 || keepRecent > 100) {
+    throw new SingularityFlowError(`${label} takes only autoClear (boolean) and keepRecent (1-100).`);
+  }
+  return { autoClear: value.autoClear !== false, keepRecent };
 }

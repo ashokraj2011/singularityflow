@@ -10,7 +10,7 @@ related:
   - pins
   - quick-fix
   - escalation
-version: 17
+version: 18
 commands:
   - configuration
   - workflow
@@ -149,6 +149,17 @@ for adoption in the **current code phase** through `singularity-flow story test-
 --phase <PHASE> --reason "Configure the previously undetected test runner" --json` and `/sf-recover`.
 Authored code/documents are preserved; fresh execution evidence is required. Inspection alone
 does not establish the pre-code failure baseline, accept failures, or alter intake's test-scope choice.
+
+Each approved configuration commit is kept behind its own `sflow/config-history/<commit>` branch, so the
+remote's branch list grows by one per approved change. After a capability activation, a capability map
+publication or a workspace configuration refresh that changes the state mirror, SFlow clears that list
+itself: the current approved commit and the 10 most recent stay as branches, and each older one is archived
+as its exact tag (`refs/tags/sflow/config-history/<commit>`) before its branch is retired, in one leased,
+atomic push of up to 100. Only those history branches are retired; `sflow/config`, `state`, proposals,
+Story and application branches and other tags are never changed. It never fails or holds the publication:
+a refusal or an unknown outcome is a note in the result naming `configuration cleanup-history`, and the
+next publication tries again. `ledger.configurationHistory.autoClear: false` turns it off and
+`keepRecent` (1-100) changes the count kept; the manual command stays for a one-off cleanup.
 
 These commands can change repository or machine-local state: `configuration`, `workflow`. They remain subject to identity, authority, sequence, freshness, branch, worktree, and exact-confirmation checks. Signed handles are session-bound and are never shared between the shell, Copilot, and VS Code. Durable repository and workspace records are the shared source of truth.
 

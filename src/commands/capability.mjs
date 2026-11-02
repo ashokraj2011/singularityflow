@@ -118,6 +118,9 @@ async function runActivation(context) {
       ? `The ${result.projection.branch} capability projection is already current.`
       : `Capability projection not published: ${result.projection?.reason}.`);
   }
+  const history = result.projection?.historyCleanup;
+  if (history?.archived) console.log(`Archived ${history.archived} old configuration history branch(es) as tags.`);
+  if (history?.command) console.log(`Configuration history was not cleaned (${history.status}); it is retried after the next publication, or run ${history.command}.`);
   if (result.nextAction?.command) await printCommandRoutes(result.nextAction.command, {
     skill: result.nextAction.skill ?? null, label: 'Recovery'
   });

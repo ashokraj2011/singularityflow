@@ -168,7 +168,15 @@
         "trustTier": { "enum": ["T0", "T1", "T2", "T3"], "default": "T0" },
         "maxRetries": { "type": "integer", "minimum": 1, "maximum": 20, "default": 4 },
         "pinTransport": { "enum": ["refs", "branches", "none"], "default": "refs" },
-        "retentionDays": { "type": "integer", "minimum": 0, "maximum": 36500, "default": 2555 }
+        "retentionDays": { "type": "integer", "minimum": 0, "maximum": 36500, "default": 2555 },
+        "configurationHistory": {
+          "type": "object",
+          "properties": {
+            "autoClear": { "type": "boolean", "default": true },
+            "keepRecent": { "type": "integer", "minimum": 1, "maximum": 100, "default": 10 }
+          },
+          "additionalProperties": false
+        }
       },
       "additionalProperties": false
     },

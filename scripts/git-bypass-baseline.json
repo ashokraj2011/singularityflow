@@ -90,6 +90,12 @@
       },
       "digest": "b355093fc77e25d230041555ca6a0618c0c40def0d3d721a5d054cd91438a632"
     },
+    "src/configuration-history-auto-clean.mjs": {
+      "counts": {
+        "command-run": 1
+      },
+      "digest": "25e821d967bdcaed6d2ff2374ba7db25c7348894ed32ebbe8bd6f349257b6b03"
+    },
     "src/story-policy-anchor.mjs": {
       "counts": {
         "command-run": 2
@@ -911,7 +917,7 @@
         "command-git": 2,
         "command-run": 1
       },
-      "digest": "230eb050e213692ac47656f843e6ca9d8b13c92f3ed4e6023d20b53895b62b78"
+      "digest": "6d1513b04aaf2bdf004da6e20cc50fff42f245f51b9bff0349569f6e9f8b6a92"
     },
     "src/configuration-reference-sync.mjs": {
       "counts": {

@@ -50,11 +50,13 @@ export async function cleanupConfigurationHistory(root, { apply = false, confirm
   let scratch, returned;
   const done = value => { returned = value; return value; };
   try {
-    scratch = await mkdtemp(path.join(os.tmpdir(), 'sflow-history-cleanup-'));
-    const git = (args, extra = {}) => run('git', args, { cwd: scratch, env: transport.env,
-      timeoutMs: 15_000, maxBuffer: 1024 * 1024, ...extra });
-    git(['init', '--bare', '--quiet']);
-    if (histories.length) {
+    // Every canonical history ref is within the kept count, so none can retire and no snapshot is
+    // read: the automatic pass after each publication costs one advertisement while history is short.
+    if (histories.length > keep) {
+      scratch = await mkdtemp(path.join(os.tmpdir(), 'sflow-history-cleanup-'));
+      const git = (args, extra = {}) => run('git', args, { cwd: scratch, env: transport.env,
+        timeoutMs: 15_000, maxBuffer: 1024 * 1024, ...extra });
+      git(['init', '--bare', '--quiet']);
       // Commit headers only on filter-capable servers; no application checkout or worktree edits.
       const fetched = await runRemoteCommand(['fetch', '--quiet', '--no-tags', '--filter=tree:0', '--depth=1',
         '--recurse-submodules=no', '--', transport.remote,
@@ -63,16 +65,16 @@ export async function cleanupConfigurationHistory(root, { apply = false, confirm
       { cwd: scratch, env: transport.env, operation: 'remote-configuration' });
       if (fetched.status !== 0) fail('Configuration history could not be inspected. No remote refs changed.',
         'CONFIGURATION_HISTORY_CLEANUP_READ_FAILED');
+      const listing = git(['for-each-ref', '--format=%(objectname)%09%(committerdate:unix)', 'refs/sflow-history-cleanup/']);
+      const dates = new Map(listing.stdout.trim().split(/\r?\n/u).filter(Boolean).map(line => {
+        const [commit, date] = line.split('\t'); return [commit, Number(date)];
+      }));
+      for (const item of histories) {
+        if (!dates.has(item.commit) || !Number.isSafeInteger(dates.get(item.commit))) fail('A snapshot moved during inspection. Preview again.');
+        item.time = dates.get(item.commit);
+      }
+      histories.sort((a, b) => b.time - a.time || a.commit.localeCompare(b.commit));
     }
-    const listing = git(['for-each-ref', '--format=%(objectname)%09%(committerdate:unix)', 'refs/sflow-history-cleanup/']);
-    const dates = new Map(listing.stdout.trim().split(/\r?\n/u).filter(Boolean).map(line => {
-      const [commit, date] = line.split('\t'); return [commit, Number(date)];
-    }));
-    for (const item of histories) {
-      if (!dates.has(item.commit) || !Number.isSafeInteger(dates.get(item.commit))) fail('A snapshot moved during inspection. Preview again.');
-      item.time = dates.get(item.commit);
-    }
-    histories.sort((a, b) => b.time - a.time || a.commit.localeCompare(b.commit));
     const recent = new Set(histories.slice(0, keep).map(item => item.commit));
     const eligible = [];
     for (const item of histories) {

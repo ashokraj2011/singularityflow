@@ -1243,7 +1243,14 @@ recoverable; onboarding/authority reads accept the retained branch or its exact 
 Application branches, `sflow/config`, `state`, proposals, Story files and approvals are not deleted
 or modified. Collisions or changed refs are retained/refused, not overwritten. A lost acknowledgement
 requires a fresh preview to reconcile. Do not delete the archive tags: this is branch-list cleanup,
-not a promise to reclaim Git-object disk space. No scheduled deletion is enabled implicitly.
+not a promise to reclaim Git-object disk space.
+
+The same cleanup also runs by itself after each capability activation, capability map publication
+or workspace configuration refresh that changes the state mirror: one batch per publication, with the
+same preview, confirmation and leases, retiring only `sflow/config-history/*` branches. It never fails
+the publication; a refusal or unknown outcome is a note naming the manual command, and the next
+publication retries. Set `ledger.configurationHistory.autoClear: false` in `singularity/workflow.yml`
+to turn it off, or `ledger.configurationHistory.keepRecent` to change the count kept.
 
 `capability inspect-repository` remains a one-release compatibility diagnostic. An
 `already-mapped` result identifies the existing lead, repository ID, and capabilities, so no

@@ -3354,6 +3354,9 @@ async function publishCandidate(candidate) {
     throw new SingularityFlowError(`State configuration projection for '${repository.displayRemote}' did not verify after publication.`);
   }
   const changed = configurationChanged || state.changed;
+  // A change retained a history branch; retiring old ones never fails this verified publication.
+  const historyCleanup = changed ? await (await import('./configuration-history-auto-clean.mjs'))
+    .autoCleanConfigurationHistory(root, projection.stateConfig, { env }) : null;
   return {
     status: changed ? 'updated' : 'current',
     repository: repository.id,
@@ -3369,7 +3372,8 @@ async function publishCandidate(candidate) {
     files: refresh.files,
     conflicts: refresh.conflicts,
     ...(refresh.worldModelMigration ? { worldModelMigration: refresh.worldModelMigration } : {}),
-    ...(refresh.storyCutover ? { storyCutover: refresh.storyCutover } : {})
+    ...(refresh.storyCutover ? { storyCutover: refresh.storyCutover } : {}),
+    ...(historyCleanup ? { historyCleanup } : {})
   };
   } catch (error) {
     // Configuration and state are two remote publications. If the first succeeded, never report

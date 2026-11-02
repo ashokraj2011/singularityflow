@@ -4233,9 +4233,11 @@ test('activation publishes its audit and state projection atomically, then retir
   assert.equal(activated.proposalCleanup.status, 'deleted');
   // Authority and prior-audit observations, the checkout clone and its two fetches, the decision
   // push, publication, and exact leased proposal retirement. Cleanup adds two observations and
-  // one push but does not change the atomic audit/state publication transaction.
+  // one push but does not change the atomic audit/state publication transaction. The history
+  // auto-clear after it adds one advertisement: two history branches are within the kept count.
   assert.deepEqual({ push: counters['git.remote.command.push'],
-    advertisements: counters['git.remote.command.ls-remote'] }, { push: 3, advertisements: 6 });
+    advertisements: counters['git.remote.command.ls-remote'] }, { push: 3, advertisements: 7 });
+  assert.deepEqual(activated.projection.historyCleanup, { status: 'current', archived: 0, remaining: 0 });
   const clones = counters['git.remote.command.clone'] ?? 0;
   const fetches = counters['git.remote.command.fetch'] ?? 0;
   assert.ok(clones <= 1 && fetches >= 2 && clones + fetches <= 3,
@@ -4270,6 +4272,39 @@ test('activation publishes its audit and state projection atomically, then retir
   assert.equal(run('git', ['rev-parse', event.transport.pinRef], { cwd: org.platform }).stdout.trim(), merge);
   assert.equal(event.payload.targetCommit, merge);
   assert.deepEqual(event.payload.protection, activated.protection);
+});
+
+test('an activation auto-clears configuration history beyond the current and the 10 most recent, as tags', async () => {
+  const { org, proposed } = await activationFixture();
+  // Twelve older approved snapshots beside the one the first publication retained.
+  const emptyTree = '4b825dc642cb6eb9a060e54bf8d69288fbee4904';
+  const seeded = [];
+  for (let index = 0; index < 12; index++) {
+    const date = new Date(Date.UTC(2026, 0, 1, 12) + index * 3_600_000).toISOString();
+    const commit = run('git', ['commit-tree', '--no-gpg-sign', emptyTree, '-m', `Snapshot ${index}`], {
+      cwd: org.platform, env: { ...process.env, GIT_AUTHOR_NAME: 'A B', GIT_AUTHOR_EMAIL: 'a@b.com',
+        GIT_COMMITTER_NAME: 'A B', GIT_COMMITTER_EMAIL: 'a@b.com', GIT_AUTHOR_DATE: date, GIT_COMMITTER_DATE: date }
+    }).stdout.trim();
+    run('git', ['update-ref', `refs/heads/sflow/config-history/${commit}`, commit], { cwd: org.platform });
+    seeded.push(commit);
+  }
+  const histories = () => run('git', ['for-each-ref', '--format=%(refname:lstrip=4)', 'refs/heads/sflow/config-history/'], {
+    cwd: org.platform }).stdout.trim().split('\n').filter(Boolean);
+  const before = new Set(histories());
+  assert.equal(before.size, 13);
+  const activated = await activateCapabilityProposal(org.platform, proposed.branch, {
+    confirm: proposed.commit, acknowledgeUnprotected: true });
+  assert.equal(activated.status, 'activated');
+  assert.deepEqual(activated.projection.historyCleanup, { status: 'cleaned', archived: 4, remaining: 0 });
+  const after = new Set(histories());
+  assert.equal(after.size, 10);
+  assert.ok(after.has(activated.targetCommit), 'the current approved snapshot stays a branch');
+  for (const commit of seeded.slice(0, 4)) {
+    assert.equal(after.has(commit), false);
+    assert.equal(run('git', ['rev-parse', `refs/tags/sflow/config-history/${commit}`], { cwd: org.platform })
+      .stdout.trim(), commit);
+  }
+  for (const commit of before) if (!seeded.slice(0, 4).includes(commit)) assert.ok(after.has(commit));
 });
 
 test('a refused atomic activation publication falls back to the sequential pushes', async () => {

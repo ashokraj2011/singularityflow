@@ -502,6 +502,56 @@ A repository-level person step has no Story to pin SF Guard's policy, so its rec
 | `story adjudicate`; test recovery admission at intake | As §10.8: a convergence hash-contract change (family v4), and the start-time pin threaded into intake. |
 | `action authorize` | A machine-local, single-use token, never committed. |
 
+### 10.10 Repository stores, adjudications and intake (2 November 2026)
+
+Every person step §10.6 to §10.9 left with a touch but no record now keeps its signature with the record, from one touch, and every reader counts only a record that verifies (or that a per-person exception covers, or that was recorded while SF Guard was off: `pre-signing`). The dispatch gate asks no touch of its own any more: every repository-level route signs where it records (`inRecord`).
+
+**Repository stores** (`src/presence/store-seals.mjs`, `STORES`). Each follows the repository's signed policy at the record's own time, as §10.9's seals do (`repositorySealVerdict`, the approver's key pinned in the chain at the time, never GitHub, never an author's key).
+
+| Step | Kept | Reader that counts it | Remote check |
+| --- | --- | --- | --- |
+| `capabilities lease grant|revoke` | inline: `payload.presence` of the ledger entry, over its event, actor, authority group, payload and time | capability policy resolution (`countedLeaseEntries`, used by `capabilities show` and Story start): an unsigned grant relaxes nothing, an unsigned revocation revokes nothing | state branch (`--state-records`): an unsigned lease entry a push adds fails; a signed one never disappears |
+| `repair authorize` | inline: the `repair-authorized` event's `data.presence` | `repair attempt` refuses an authorization that does not count, with the route | none: the repair store is machine-local and never committed (as `action authorize`) |
+| `agents lock` | inline: the lock entry's `presence` | every `agents sync` (and so every agent run that materializes dependencies) refuses an entry that does not count | branch: an entry the change adds or edits must verify; a signed entry never disappears |
+| `ledger deployment-check` with a host-policy assertion | inline: `confirmation.presence` in the report | no reader consumes the report; it is kept for review | branch: a recorded report (`--record`) the change adds must verify |
+| Epic `approve` (`initiative approve`, `epic requirements|planning approve`) | beside: `approvals/records/<sha256>.presence.json`, over the record's exact bytes | `readInitiativeRecords` drops an approval that does not count, so phase readiness, pack and bundle approvals, chains and the summary see only counted ones | branch: an unsigned record or a removed seal fails |
+| Epic `complete` | beside: `delivery/records/<sha256>.presence.json` | delivery readiness reads an uncounted completion as still tracking, and `epic complete` can be run again (the route) | branch, as above |
+| `goal plan approve` | beside: `approvals/plan-generation-<N>-<sha>.presence.json` on the Goal branch | `goal next` and `goal verify` refuse an approved plan whose approval does not count | branch, as above |
+| `program approve --confirm` | beside: `<program>.presence.json`, proposed into `sflow/config` with the record | Program execution admission (`loadApprovedSgosProgramAuthority`) refuses one that does not count | reaches `sflow/config` only through `configuration approve` (§10.9); see below |
+| `intent ratify`, `intent confirm` | beside the `--out` file (`<file>.presence.json`); while SF Guard is on, `--out` is required, refused with that route before any touch | `intent compile` refuses a ratification or Intent IR that does not count | none: the files are the person's working copies |
+| Epic `review approve|reject` | a Story decision: it now takes the Story's own pin with M2's machinery (`preparePersonPresence`), and the signature is kept in the decision record | the Story's approval readers, as any approval | the Story's records, as M4 |
+
+**`story adjudicate`** (family v4). `convergence-record` goes to v4: a finding's decision may keep its approver's presence block (`findings[].decision.presence`) inside the sealed projection, so the hash contract covers it, and the integrity check rebuilds every adjudication with it (`findingAdjudication`). The step projects first, then one touch signs each new decision exactly as its finding records it, then the projection is written with the blocks. Every new projection is v4: the block is optional, so on a Story SF Guard does not require it is the v3 projection with a new version number, and the v3 to v4 step re-seals an older one on read, so every iteration still replays. (Writing v3 there was not an option: a v3 file read back is re-sealed as v4 under a new hash, which would no longer match the convergence artifact that names it.) Readers decide on `countedConvergence`: on a Story SF Guard requires, a finding whose signature does not verify reads as undisposed, its blockers and next steps are recomputed without it, `story advance` and publication refuse with `adjudicate` as the route, and rework and intent amendments see only counted findings. The sealed projection itself is never rewritten by a reader. One GDP companion lock review: `COMPANION-LOCK-REVIEW-2026-11-02-SF-GUARD-ADJUDICATIONS.md`.
+
+**Test-recovery admission at intake.** The Story's SF Guard pin is now taken before the intake review (`createWorkflow`), so the review runs on it: the agreement and each accepted baseline risk decision get a review entry in the new Story (`testRecovery.riskReviews`, action `intake-accepted`), signed with one touch before anything is written (the card-only touch is skipped). On a Story SF Guard requires, a risk decision counts in the test-recovery gate, and an intake decision admits feature work, only while a review entry naming it is signed; the route for one that is not is its re-review, `story test-policy baseline-admission … --apply`. A Story without a pin reads every intake decision as before.
+
+**What a record's time means.** As in §10.9, the time a record claims is the writer's. For the state branch and committed stores, the remote checks fail what a change adds; for a machine-local repair store and an intent's working copy there is no remote form, and a record claiming a time before the opt-in reads `pre-signing` there.
+
+**Running repositories.** A lease, approval, completion, plan approval, lock entry or adjudication recorded while SF Guard was on, before this change, carries no signature and now counts for nothing; each refusal names the command that records it again, signed. A Story pinned before this change whose intake decisions have no review entry needs their re-review.
+
+#### 10.10.1 `sflow/config` writers: options (open decision)
+
+`configuration approve` keeps a seal (§10.9), but readers of the approved configuration do not yet refuse an unsigned approved commit, because other writers move `sflow/config` with no person step. Each writer is one of:
+
+| Writer | Today | Class |
+| --- | --- | --- |
+| `configuration approve` (merge of a reviewed proposal) | sealed | (a) a person's signed approval |
+| `workflow activate --confirm <commit>` | the same merge as `configuration approve`, unsigned | (a), not yet signed |
+| `capability activate` (merge of a capability-map proposal) | `--confirm`, unsigned | (a), not yet signed |
+| `capability setup-activate` (fast-forward to a setup proposal) | `--confirm`, unsigned | (a), not yet signed |
+| `configuration recreate-sync --apply` | a digest confirmation, unsigned | (a), not yet signed |
+| `configuration publish` (commit and push the checked-out branch, which may be `sflow/config`) | no confirmation | (a), not yet signed |
+| `workspace refresh-configuration` (packaged configuration of the installed product) | `--confirm-plan` when given | (b) derived from the product, with no signed input |
+| Approver membership enrollment (`configuration add-current-identity`, and automatically on every Story start unless `autoEnrollNewIdentities: false`) | no person step | (b) derived from the person's Git identity, with no signed input |
+| Creating `sflow/config` (`bootstrap`, `onboard`, workspace initialization, the first capability map, a fresh capability onboard) | before any policy exists | (b) the root, before opt-in |
+
+The two decisions this needs are product decisions, not settled by this specification:
+
+1. **Automatic enrollment.** It runs on every Story start and adds an approver with no person step. Options: (i) while SF Guard is on, stop automatic enrollment, so enrollment is `configuration add-current-identity` signed by an existing approver; (ii) keep it as a derived, membership-only publication: the reader accepts a commit whose change is exactly a member added to an existing group, on top of a counted commit, because under SF Guard a member counts only with a key pinned by a signed chain event, so the addition grants no approval power by itself (the §10.8 reasoning for approver refreshes); (iii) both, by repository setting.
+2. **Packaged refresh.** It is derived from the installed product, not from a signed input. Options: (i) route it through a configuration proposal that a person approves (`configuration approve`, sealed); (ii) seal the refresh plan at `--confirm-plan` as a person step, which then requires `--confirm-plan` while SF Guard is on.
+
+**Recommendation.** Option (ii) for enrollment and option (i) for packaged refresh, and sign every class (a) writer at its own confirmation with the configuration seal of §10.9, keyed by the commit it produces. Then the reader, while SF Guard is on, walks `sflow/config` back from the tip to the newest commit with a seal that verifies, and accepts every commit after it only when it is a membership-only enrollment; anything else is refused with `PSS_RECORD_UNSIGNED` and a route a person can take that day: an approver approves the current configuration, a new `configuration approve --current` that seals the tip after showing its diff from the last counted commit. That command does not exist yet, so the reader cannot refuse until it does. Until this is decided, rows 1 to 3 above are built and the reader stays as §10.9 left it: `guard status` names an unsigned approved commit, and nothing refuses it.
+
 ## 11. Acceptance criteria
 
 | ID | Scenario | Observable result |

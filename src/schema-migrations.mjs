@@ -160,44 +160,25 @@ function assistedConvergenceV1ToV2(source) {
   return { ...clone(source), schemaVersion: 2, recordSha256: null };
 }
 
-function convergenceRecordV1ToV2(source) {
-  // A v1 convergence projection already sealed its core and complete Candidate IDs. Verify that
-  // seal before migration. Candidate source receipts did not have digests in v1, so those records
-  // deliberately migrate with an empty binding list and must be regenerated before publication.
-  const v1Core = clone(source);
-  delete v1Core.convergenceSha256;
-  delete v1Core.candidateSnapshot;
-  if (source.convergenceSha256 !== recordSha256(v1Core)) {
+// A convergence step verifies the stored seal (its core: no convergenceSha256, no candidateSnapshot),
+// applies `fields` and re-seals. v1 candidate source receipts had no digests, so v2 migrates them to an
+// empty binding list that must be regenerated before publication; v4 (SF Guard, SPEC-PSS-v1 §10.10) lets
+// a decision keep its presence block, which no older projection has.
+function resealedConvergence(source, storedVersion, fields) {
+  const core = (value) => { const copy = clone(value); delete copy.convergenceSha256; delete copy.candidateSnapshot; return copy; };
+  if (source.convergenceSha256 !== recordSha256(core(source))) {
     throw new SingularityFlowError(
-      'Convergence record v1 failed its integrity check and cannot be migrated.',
-      { code: 'SCHEMA_MIGRATION_SOURCE_CORRUPT', details: { family: 'convergence-record', storedVersion: 1 } }
+      `Convergence record v${storedVersion} failed its integrity check and cannot be migrated.`,
+      { code: 'SCHEMA_MIGRATION_SOURCE_CORRUPT', details: { family: 'convergence-record', storedVersion } }
     );
   }
-  const migrated = { ...clone(source), schemaVersion: 2, candidateRecordBindings: [] };
-  const currentCore = clone(migrated);
-  delete currentCore.convergenceSha256;
-  delete currentCore.candidateSnapshot;
-  migrated.convergenceSha256 = recordSha256(currentCore);
+  const migrated = { ...clone(source), ...fields };
+  migrated.convergenceSha256 = recordSha256(core(migrated));
   return migrated;
 }
-
-function convergenceRecordV2ToV3(source) {
-  const v2Core = clone(source);
-  delete v2Core.convergenceSha256;
-  delete v2Core.candidateSnapshot;
-  if (source.convergenceSha256 !== recordSha256(v2Core)) {
-    throw new SingularityFlowError(
-      'Convergence record v2 failed its integrity check and cannot be migrated.',
-      { code: 'SCHEMA_MIGRATION_SOURCE_CORRUPT', details: { family: 'convergence-record', storedVersion: 2 } }
-    );
-  }
-  const migrated = { ...clone(source), schemaVersion: 3, legacyMigration: source.legacyMigration ?? null };
-  const currentCore = clone(migrated);
-  delete currentCore.convergenceSha256;
-  delete currentCore.candidateSnapshot;
-  migrated.convergenceSha256 = recordSha256(currentCore);
-  return migrated;
-}
+const convergenceRecordV1ToV2 = (source) => resealedConvergence(source, 1, { schemaVersion: 2, candidateRecordBindings: [] });
+const convergenceRecordV2ToV3 = (source) => resealedConvergence(source, 2, { schemaVersion: 3, legacyMigration: source.legacyMigration ?? null });
+const convergenceRecordV3ToV4 = (source) => resealedConvergence(source, 3, { schemaVersion: 4 });
 
 function autoFlightCheckpointSha256V1(source) {
   return `sha256:${recordSha256({
@@ -3383,10 +3364,11 @@ const families = [
   }),
   family({ id: 'constitution-record', currentVersion: 1, immutable: true }),
   family({
-    id: 'convergence-record', currentVersion: 3,
+    id: 'convergence-record', currentVersion: 4,
     steps: [
       migration(1, 2, convergenceRecordV1ToV2),
-      migration(2, 3, convergenceRecordV2ToV3)
+      migration(2, 3, convergenceRecordV2ToV3),
+      migration(3, 4, convergenceRecordV3ToV4)
     ],
     paths: [/^singularity\/work-items\/[^/]+\/context\/convergence\/iteration-\d+\.json$/]
   }),

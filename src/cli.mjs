@@ -142,7 +142,7 @@ import { activateWorkspaceContext, activeWorkspaceFile, clearActiveWorkspaceCont
 import { refreshWorkspaceConfigurations } from './workspace-configuration-refresh.mjs';
 import { reinitializeWorkspaces } from './workspace-reinitialize.mjs';
 import { INSPECTION_READ, withApprovedConfigurationRead } from './approved-configuration-reader.mjs';
-import { appendLedgerIntent, archiveLedger, createLedgerIntent, initializeLedger, ledgerDoctor, ledgerLog, ledgerShow, ledgerStatus, pinRepairHeadline, reconcileLedger, repairLedgerPins, verifyLedger } from './ledger.mjs';
+import { archiveLedger, createLedgerIntent, initializeLedger, ledgerDoctor, ledgerLog, ledgerShow, ledgerStatus, pinRepairHeadline, reconcileLedger, repairLedgerPins, verifyLedger } from './ledger.mjs';
 import { validateLedgerDeployment } from './ledger-deployment.mjs';
 import { CAPABILITY_KINDS, CAPABILITY_TYPES, CAPABILITIES_PATH, capabilityDeliveries, capabilityForRepository, capabilityTree, editCapability, flattenCapabilityTree, loadCapabilities, resolveCapabilityPolicy, resolveEffectiveCapabilityPolicy, validateCapabilities } from './capabilities.mjs';
 import { bootstrapRepository, repositoryIdFromUrl } from './bootstrap.mjs';
@@ -5244,7 +5244,7 @@ async function capabilitiesCommand(positionals, options) {
   if (subcommand === 'show' || subcommand === 'resolve') {
     const capabilityId = requirePositional(positionals, 2, 'capability ID');
     const ledgerConfig = workflowConfig.ledger ?? {};
-    const entries = ledgerConfig.enabled ? await ledgerLog(root, ledgerConfig, { limit: 1000000 }) : [];
+    const entries = ledgerConfig.enabled ? await (await import('./presence/store-seals.mjs')).countedLeaseEntries(root, await ledgerLog(root, ledgerConfig, { limit: 1000000 })) : [];
     const result = resolveEffectiveCapabilityPolicy(definition, capabilityId, entries);
     if (optionBoolean(options, 'json')) return console.log(JSON.stringify(result, null, 2));
     console.log(`Capability: ${result.capabilityId}`);
@@ -5321,7 +5321,7 @@ async function capabilitiesCommand(positionals, options) {
       });
       intent.subject.generation = intent.eventId;
     } else throw new SingularityFlowError(`Unknown lease action '${action}'. Use grant or revoke.`);
-    const result = await appendLedgerIntent(root, ledgerConfig, intent, head(root));
+    const result = await (await import('./presence/store-seals.mjs')).appendSignedLease(root, ledgerConfig, intent, head(root));
     if (optionBoolean(options, 'json')) return console.log(JSON.stringify({ intent, result }, null, 2));
     console.log(`${action === 'grant' ? 'Granted' : 'Revoked'} capability lease ${intent.payload.leaseId} at ledger sequence ${result.sequence}.`);
     return;

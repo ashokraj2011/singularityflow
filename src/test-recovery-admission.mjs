@@ -8,7 +8,7 @@ import { canonicalJson } from './records.mjs';
 import { storyTestRiskAuthorityContext } from './story-test-risk.mjs';
 import { sealTrpRecord, trpDigest, trpEnvironmentDigest, trpIssueIdentity } from './test-recovery-policy.mjs';
 import { appendTrpAuthorityReceipt, appendTrpRecord, consumeTrpAuthority, loadTrpAuthorityVerifier,
-  loadTrpRecords, trpAuthorityReview } from './test-recovery-store.mjs';
+  loadTrpRecords, trpAuthorityReview, trpWitnessReceipt } from './test-recovery-store.mjs';
 import { nowIso, SingularityFlowError } from './util.mjs';
 
 const fail = (message, code = 'TRP_INTAKE_BASELINE_INVALID') => { throw new SingularityFlowError(message, { code }); };
@@ -58,14 +58,18 @@ export async function authorizeTrpIntake(root, workflow, agreement, preview) {
       principal, planDigest: preview.planDigest }));
   }
   const witnesses = [];
+  // SF Guard (§10.10): on a pinned Story the review is signed in its own review entries, one touch.
+  const signed = workflow.resolution?.presence?.status === 'required';
   for (const record of records) {
     const review = trpAuthorityReview(record, authority.policy);
     const authorization = await captureTerminalActionAuthorization(root, review.plan, review.action, {
-      label: record.kind === 'story-test-recovery-agreement' ? 'Authorize Story test agreement' : 'Accept known baseline failures'
+      label: record.kind === 'story-test-recovery-agreement' ? 'Authorize Story test agreement' : 'Accept known baseline failures',
+      ...(signed ? { presenceInRecord: true } : {})
     });
     if (!authorization) fail('Baseline acceptance was cancelled. No Story was created.', 'TRP_INTAKE_REVIEW_CANCELLED');
     witnesses.push(await consumeTrpAuthority(root, { record, ...authority, review, token: authorization.token }));
   }
+  if (signed) await (await import('./presence/intake-reviews.mjs')).signTrpIntakeReviews(root, workflow, records, witnesses.map(trpWitnessReceipt), preview.planDigest);
   return { records, witnesses, baselineRefs: baselines.map(record => record.recordSha256) };
 }
 
@@ -98,6 +102,8 @@ export async function qualifiedTrpIntakeDecisions(root, config, workflow, agreem
   const at = nowIso();
   const agreementReceipt = verifyAuthority(agreement, { policy: authority.policy });
   if (!agreementReceipt || agreementReceipt.revokedAt && Date.parse(agreementReceipt.revokedAt) <= Date.parse(at)) fail('The initial agreement needs its delegated durable authority receipt.', 'TRP_AUTHORITY_REQUIRED');
+  const { reviewedTrpRecord } = await import('./presence/intake-reviews.mjs');
+  const signedDecisions = new Set(records.filter((record) => reviewedTrpRecord(workflow, record)).map((record) => record.recordSha256));
   const baselines = new Map();
   for (const repo of required) {
     const row = workflow.resolution.testRecoveryInitialReadiness.repositories.find(entry => entry.repositoryId === repo.repositoryId);
@@ -116,7 +122,7 @@ export async function qualifiedTrpIntakeDecisions(root, config, workflow, agreem
     }
   }
   const verifiedDecisions = records.filter(record => {
-    if (record.kind !== 'phase-risk-decision' || record.category !== 'known-test-failure'
+    if (record.kind !== 'phase-risk-decision' || !signedDecisions.has(record.recordSha256) || record.category !== 'known-test-failure'
       || record.agreementSha256 !== agreement.recordSha256 || record.subject.workId !== workflow.workItem.id
       || record.subject.phaseId !== phase.id || record.subject.validationEpoch !== (workflow.testRecovery.validationEpoch ?? 1)
       || !record.applicability.phaseIds.includes(phase.id) || !record.transitions.includes('generation-admission')

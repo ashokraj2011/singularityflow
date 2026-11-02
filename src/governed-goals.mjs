@@ -712,7 +712,26 @@ export async function loadGovernedGoal(context, id, { config = {}, refresh = tru
       governedGoalRelative(goalId, `plans/generation-${state.currentPlan.generation}.json`), 'governed-goal-plan');
     validatePlan(plan, goalId);
   }
-  return { contract, state, plan, revision, policy };
+  return { contract, state, plan, revision, policy, approval: await planApprovalStanding(root, revision.commit, goalId, state) };
+}
+
+/**
+ * SF Guard (SPEC-PSS-v1 §10.10): the plan approval counts only with its person's seal beside the
+ * receipt (`approvals/plan-generation-<N>-<sha>.presence.json`) verifying, or when SF Guard was off as it
+ * was recorded. Null when there is no approval or the repository never opted in.
+ */
+async function planApprovalStanding(root, commit, goalId, state) {
+  const approved = state.approvedPlan;
+  if (!approved?.planSha256) return null;
+  const seals = await import('./presence/store-seals.mjs');
+  const policy = await seals.storePolicy(root);
+  if (!policy) return null;
+  const { committedFileBytes } = await import('./git.mjs');
+  const receipt = governedGoalRelative(goalId, `approvals/plan-generation-${approved.generation}-${approved.planSha256}.json`);
+  const bytes = committedFileBytes(root, commit, receipt);
+  const seal = committedFileBytes(root, commit, seals.sealPathFor(receipt));
+  return seals.fileVerdict(policy, 'goal-plan-approval', { key: `${goalId}/${approved.generation}/${approved.planSha256}`, bytes: bytes ?? '', seal,
+    recordedAt: approved.approvedAt ?? null, routeId: goalId });
 }
 
 export async function listGovernedGoals(context, { config = {}, refresh = true } = {}) {
@@ -763,7 +782,7 @@ async function mutateGovernedGoal(context, id, config, message, mutate, { now = 
   const additions = [];
   const at = nowIso(now);
   const actor = identity(root, { offline: true });
-  const outcome = await mutate({ contract, state, plan: loaded.plan, additions, at, actor });
+  const outcome = await mutate({ contract, state, plan: loaded.plan, additions, at, actor, approval: loaded.approval });
   state.revision += 1;
   state.updatedAt = at;
   state.history.push({ event: outcome.event, at, actor, ...(outcome.detail ? { detail: outcome.detail } : {}) });
@@ -771,7 +790,10 @@ async function mutateGovernedGoal(context, id, config, message, mutate, { now = 
   const publication = await commitDetached(root, loaded.revision.commit, contract.id, loaded.policy, message,
     async (worktree) => {
       await writeGoalProjection(worktree, contract, stateWithHash);
-      for (const addition of additions) await writeJson(path.join(worktree, governedGoalRelative(contract.id, addition.path)), addition.value);
+      for (const addition of additions) {
+        if (addition.bytes) await writeFile(path.join(worktree, governedGoalRelative(contract.id, addition.path)), addition.bytes);
+        else await writeJson(path.join(worktree, governedGoalRelative(contract.id, addition.path)), addition.value);
+      }
       await writeJson(path.join(worktree, governedGoalRelative(contract.id, `records/${String(state.revision).padStart(4, '0')}-${outcome.event}.json`)), withRecordHash({
         schemaVersion: GOAL_RECORD_SCHEMA_VERSION, goalId: contract.id, sequence: state.revision,
         event: outcome.event, at, actor, detail: outcome.detail ?? null,
@@ -971,7 +993,7 @@ export async function compileGovernedGoalPlan(context, id, { config = {}, assist
 export async function approveGovernedGoalPlan(context, id, {
   config = {}, generation, confirmation, now
 } = {}) {
-  return mutateGovernedGoal(context, id, config, `Approve repository Goal plan ${id}`, ({ contract, state, plan, additions, at, actor }) => {
+  return mutateGovernedGoal(context, id, config, `Approve repository Goal plan ${id}`, async ({ contract, state, plan, additions, at, actor }) => {
     if (!plan || Number(generation) !== plan.generation) {
       throw new SingularityFlowError(`Approve the current plan generation ${plan?.generation ?? 'after compiling one'}.`, {
         code: 'GOVERNED_GOAL_PLAN_GENERATION_INVALID'
@@ -988,14 +1010,21 @@ export async function approveGovernedGoalPlan(context, id, {
       decision: 'approved', generation: plan.generation, planSha256: plan.planSha256,
       contractSha256: contract.contractSha256, at, actor
     });
-    additions.push({ path: `approvals/plan-generation-${plan.generation}-${plan.planSha256}.json`, value: receipt });
+    const receiptPath = `approvals/plan-generation-${plan.generation}-${plan.planSha256}.json`;
+    // SF Guard (SPEC-PSS-v1 §10.10): one touch over the receipt's exact bytes, its seal kept beside it.
+    const seals = await import('./presence/store-seals.mjs');
+    const seal = await seals.signBeside(context.leadRepositoryPath, 'goal-plan-approval', { key: `${contract.id}/${plan.generation}/${plan.planSha256}`,
+      bytes: `${JSON.stringify(receipt, null, 2)}\n`, action: 'goal.plan-approve', title: `approve plan generation ${plan.generation} of goal ${contract.id}`,
+      lines: [`Goal: ${contract.id}`, `Generation: ${plan.generation}`, `Plan: ${plan.planSha256}`, 'Step: approve a goal plan'] });
+    additions.push({ path: receiptPath, value: receipt });
+    if (seal) additions.push({ path: seals.sealPathFor(receiptPath), bytes: seal });
     state.approvedPlan = { generation: plan.generation, planSha256: plan.planSha256, approvedAt: at, approvedBy: actor };
     state.status = 'ready';
     return { event: 'plan-approved', plan, planSha256: plan.planSha256, detail: `generation ${plan.generation}` };
   }, { now });
 }
 
-function assertExecutable(state, plan, id) {
+function assertExecutable(state, plan, id, approval = null) {
   if (state.paused) throw new SingularityFlowError(`Repository Goal '${id}' is paused. Resume it before execution.`, { code: 'GOVERNED_GOAL_PAUSED' });
   if (!plan || !state.approvedPlan || state.approvedPlan.planSha256 !== plan.planSha256
       || state.approvedPlan.generation !== plan.generation) {
@@ -1003,12 +1032,17 @@ function assertExecutable(state, plan, id) {
       code: 'GOVERNED_GOAL_PLAN_NOT_APPROVED'
     });
   }
+  if (approval && !approval.counts) {
+    throw new SingularityFlowError(`Repository Goal '${id}': SF Guard does not count its plan approval (${approval.reason}). Route: ${approval.route}.`, {
+      code: approval.code ?? 'PSS_RECORD_UNSIGNED', details: { route: approval.route }
+    });
+  }
   validatePlan(plan, id);
 }
 
 export async function runGovernedGoalNext(context, id, linkStates, { config = {}, now } = {}) {
-  return mutateGovernedGoal(context, id, config, `Advance repository Goal ${id}`, ({ contract, state, plan, additions, at, actor }) => {
-    assertExecutable(state, plan, contract.id);
+  return mutateGovernedGoal(context, id, config, `Advance repository Goal ${id}`, ({ contract, state, plan, additions, at, actor, approval }) => {
+    assertExecutable(state, plan, contract.id, approval);
     const completed = new Set(state.completedStepIds);
     for (const step of plan.steps) {
       const live = linkStates.find((item) => item.kind === step.subject.kind && item.id === step.subject.id
@@ -1046,8 +1080,8 @@ export async function runGovernedGoalNext(context, id, linkStates, { config = {}
 }
 
 export async function verifyGovernedGoal(context, id, linkStates, { config = {}, criterionId = null, now } = {}) {
-  return mutateGovernedGoal(context, id, config, `Verify repository Goal ${id}`, ({ contract, state, plan, additions, at, actor }) => {
-    assertExecutable(state, plan, contract.id);
+  return mutateGovernedGoal(context, id, config, `Verify repository Goal ${id}`, ({ contract, state, plan, additions, at, actor, approval }) => {
+    assertExecutable(state, plan, contract.id, approval);
     const selected = criterionId ? contract.criteria.filter((criterion) => criterion.id === criterionId) : contract.criteria;
     if (!selected.length) throw new SingularityFlowError(`Repository Goal '${id}' has no criterion '${criterionId}'.`, { code: 'GOVERNED_GOAL_CRITERION_NOT_FOUND' });
     const evaluations = selected.map((criterion) => {

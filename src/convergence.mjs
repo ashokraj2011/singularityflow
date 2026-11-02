@@ -362,9 +362,20 @@ export function validateAdjudication(entry, { facts = [], candidates = [] } = {}
     ...(reason ? { reason } : {}),
     clauseIds: sorted(entry?.clauseIds),
     actor: entry?.actor ?? null,
-    at: entry?.at ?? null
+    at: entry?.at ?? null,
+    ...(entry?.presence && typeof entry.presence === 'object' ? { presence: entry.presence } : {})
   };
 }
+
+/** A finding's adjudication as recorded and signed (SPEC-PSS-v1 §10.10), its presence block riding along. */
+export function findingAdjudication(finding) {
+  const { actor, at, reason, presence } = finding?.decision ?? {};
+  return { itemId: finding?.itemId, disposition: finding?.disposition, classification: finding?.classification,
+    clauseIds: finding?.clauseIds, reason, actor, at, ...(presence ? { presence } : {}) };
+}
+
+// A counted view (presence/counted-convergence.mjs) keeps the sealed projection it was read from.
+const recordedConvergence = (projection) => projection?.[Symbol.for('singularity-flow.convergence-recorded')] ?? projection;
 
 /**
  * A governed finding: an item plus the human decision about it. `[SPK:REQ-078]`
@@ -388,7 +399,7 @@ function governedFindings(adjudications, { facts, candidates }) {
     return {
       id: itemId('GF', body),
       ...body,
-      decision: { actor: decision.actor, at: decision.at, reason: decision.reason ?? null }
+      decision: { actor: decision.actor, at: decision.at, reason: decision.reason ?? null, ...(decision.presence ? { presence: decision.presence } : {}) }
     };
   }).sort((left, right) => left.id.localeCompare(right.id));
 }
@@ -600,15 +611,7 @@ export function assertConvergenceIntegrity(record, {
         || Number.isNaN(Date.parse(at))) {
       convergenceIntegrityFailure(`Convergence finding '${finding?.id ?? 'unknown'}' has no valid decision timestamp.`);
     }
-    return {
-      itemId: finding.itemId,
-      disposition: finding.disposition,
-      classification: finding.classification,
-      clauseIds: finding.clauseIds,
-      reason: finding.decision?.reason,
-      actor,
-      at
-    };
+    return findingAdjudication(finding);
   });
   const derived = convergenceProjection({
     workId: record.workId,
@@ -834,7 +837,7 @@ function normalizedConvergenceArtifactBody(value) {
  * loop.
  */
 export function assertConvergencePublishable(projection, authoredArtifactBody) {
-  assertConvergenceIntegrity(projection);
+  assertConvergenceIntegrity(recordedConvergence(projection));
   const allowed = projection.allowedNext ?? [];
   const disposed = new Set((projection.findings ?? []).map((finding) => finding.itemId));
   const candidateItems = (projection.candidateSnapshot ?? []).length
@@ -855,7 +858,8 @@ export function assertConvergencePublishable(projection, authoredArtifactBody) {
           iteration: projection.iteration,
           allowedNext: allowed,
           undisposedItemIds,
-          unresolvedBlockers: projection.unresolvedBlockers ?? []
+          unresolvedBlockers: projection.unresolvedBlockers ?? [],
+          ...(projection.uncountedFindings?.length ? { uncountedFindings: projection.uncountedFindings } : {})
         }
       }
     );

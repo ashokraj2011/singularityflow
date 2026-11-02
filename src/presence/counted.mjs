@@ -49,7 +49,7 @@ export function believedProducer(workflow, authorship, where = {}) {
  */
 export function inDecisionOrder(workflow, records) {
   const list = records ?? [];
-  if (!required(workflow)) return list;
+  if (!presenceRequires(workflow)) return list;
   return list.map((entry, index) => ({ entry, index, at: Date.parse(entry?.at) }))
     .sort((left, right) => (Number.isFinite(left.at) ? left.at : -Infinity) - (Number.isFinite(right.at) ? right.at : -Infinity) || left.index - right.index)
     .map(({ entry }) => entry);
@@ -61,11 +61,11 @@ export function inDecisionOrder(workflow, records) {
  * adding nor removing the field changes which decision stands.
  */
 export function isWithdrawn(workflow, entry) {
-  return required(workflow) ? false : Boolean(entry?.withdrawnAt);
+  return presenceRequires(workflow) ? false : Boolean(entry?.withdrawnAt);
 }
 
 /** Whether SF Guard requires `workflow`'s person steps, as its pin and the chain this process read say. */
-function required(workflow) {
+export function presenceRequires(workflow) {
   const pin = workflow?.resolution?.presence;
   if (!pin) return false;
   const counts = globalThis[REGISTRY]?.get(presencePinKey(workflow));

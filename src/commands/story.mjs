@@ -36,7 +36,7 @@ import {
 import { continuationPacket, submissionBlockedByAmendment } from '../continuation-packet.mjs';
 import {
   adjudicatedConvergenceProjection, advancementBlocked, assertConvergenceIntegrity,
-  convergenceProjection, decodeConvergenceRecord,
+  convergenceProjection, decodeConvergenceRecord, findingAdjudication,
   renderConvergenceArtifact, serializeConvergence
 } from '../convergence.mjs';
 import {
@@ -1540,15 +1540,7 @@ export async function prepareDeterministicConvergence(root, config, workId = nul
           legacyMigration: legacyMigration ?? previous?.legacyMigration ?? null,
           // Carried forward only after the exact current binding and complete candidate source have
           // been verified under the Story mutation lock.
-          adjudications: previous?.findings?.map((finding) => ({
-            itemId: finding.itemId,
-            disposition: finding.disposition,
-            classification: finding.classification,
-            clauseIds: finding.clauseIds,
-            reason: finding.decision?.reason,
-            actor: finding.decision?.actor,
-            at: finding.decision?.at
-          })) ?? []
+          adjudications: previous?.findings?.map(findingAdjudication) ?? []
         }),
         candidateSnapshot: candidates
       };
@@ -1677,17 +1669,20 @@ export async function storyAdjudicateCommand(positionals, options) {
         actor: actorKey(actor),
         at
       }));
-      // SF Guard: on a Story it requires, an adjudication is the approver's signed step (SPEC-PSS-v1 §10.6).
+      const kept = (existing.findings ?? []).filter((finding) => !itemIds.includes(finding.itemId)).map(findingAdjudication);
+      let projection = adjudicatedConvergenceProjection(existing, [...kept, ...decisions]);
+      // SF Guard (SPEC-PSS-v1 §10.10): on a Story it requires, an adjudication is the approver's signed
+      // step. One touch signs each new decision exactly as its finding records it, before anything is
+      // written, and the presence block is kept in the sealed projection (family v4), where every
+      // reader counts it (`countedConvergence`).
+      const signed = projection.findings.filter((finding) => itemIds.includes(finding.itemId)).map(findingAdjudication);
       await (await import('../presence/person-steps.mjs')).signPersonRecords(root, workflow,
-        decisions.map((record) => ({ label: 'Convergence adjudication', action: 'decision.adjudicate', record: { ...record } })));
-      const kept = (existing.findings ?? [])
-        .filter((finding) => !itemIds.includes(finding.itemId))
-        .map((finding) => ({
-          itemId: finding.itemId, disposition: finding.disposition, classification: finding.classification,
-          clauseIds: finding.clauseIds, reason: finding.decision?.reason,
-          actor: finding.decision?.actor, at: finding.decision?.at
-        }));
-      const projection = adjudicatedConvergenceProjection(existing, [...kept, ...decisions]);
+        signed.map((record) => ({ label: 'Convergence adjudication', action: 'decision.adjudicate', record })));
+      if (signed.some((record) => record.presence)) {
+        const presence = new Map(signed.map((record) => [record.itemId, record.presence]));
+        projection = adjudicatedConvergenceProjection(existing,
+          [...kept, ...decisions.map((decision) => ({ ...decision, presence: presence.get(decision.itemId) }))]);
+      }
       await writeConvergenceProjection(root, subject, projection);
       return { decisions, projection, authority };
     },
@@ -1806,7 +1801,7 @@ async function draftIntentAmendment(root, config, workflow, options) {
     let projection = null;
     try {
       const subject = await convergenceSubject(root, config, workflow);
-      projection = await readConvergence(root, subject.itemRelative, subject.iteration);
+      projection = (await import('../presence/counted-convergence.mjs')).countedConvergence(workflow, await readConvergence(root, subject.itemRelative, subject.iteration));
     } catch { projection = null; }
     const items = new Map([...(projection?.facts ?? []), ...(projection?.candidates ?? [])].map((item) => [item.id, item]));
     for (const finding of (projection?.findings ?? []).filter((entry) => entry.disposition === 'update-intent')) {
@@ -2568,14 +2563,16 @@ export async function storyAdvanceCommand(positionals, options) {
       });
       await assertConvergenceSources(root, projection, { itemRelative: subject.itemRelative });
     }
-    const blocked = advancementBlocked(projection);
+    // SF Guard (SPEC-PSS-v1 §10.10): an unsigned adjudication on a Story it requires leaves its item undisposed.
+    const counted = (await import('../presence/counted-convergence.mjs')).countedConvergence(workflow, projection);
+    const blocked = advancementBlocked(counted);
     if (blocked.length) {
       const following = workflow.phaseOrder[workflow.phaseOrder.indexOf(subject.phase.id) + 1] ?? null;
-      const disposed = new Set((projection.findings ?? []).map((finding) => finding.itemId));
+      const disposed = new Set((counted.findings ?? []).map((finding) => finding.itemId));
       const error = new SingularityFlowError(`Convergence cannot advance${following ? ` to ${following}` : ''}:\n- ${blocked.join('\n- ')}`, {
         code: 'CONVERGENCE_REVIEW_REQUIRED', details: {
           workId: workflow.workItem.id, phase: subject.phase.id, iteration: subject.iteration,
-          allowedNext: projection.allowedNext ?? [], unresolvedBlockers: projection.unresolvedBlockers ?? [],
+          allowedNext: counted.allowedNext ?? [], unresolvedBlockers: counted.unresolvedBlockers ?? [],
           undisposedItemIds: [...(projection.facts ?? []), ...(projection.candidates ?? [])]
             .filter((item) => !disposed.has(item.id)).map((item) => item.id)
         }

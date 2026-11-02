@@ -543,7 +543,9 @@ export async function loadVerifiedConvergenceProjection(root, config, workflow) 
     upstreamArtifacts: current.upstreamArtifacts,
     candidateSources
   })}`;
-  return { projection, current, projectionRelative, candidateSources, snapshotSha256 };
+  // SF Guard (SPEC-PSS-v1 §10.10): every reader decides on the findings that count.
+  const { countedConvergence } = await import('./presence/counted-convergence.mjs');
+  return { projection: countedConvergence(workflow, projection), current, projectionRelative, candidateSources, snapshotSha256 };
 }
 
 /**

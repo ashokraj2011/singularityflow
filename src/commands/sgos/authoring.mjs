@@ -370,7 +370,8 @@ export async function runSgosIntentAuthoring(root, positionals, options, { jsonF
     });
     return emit(intentIr, options,
       (value) => `Confirmed ${value.intentId} at ${value.intentIrSha256}; nothing was executed.`,
-      { operation: 'intent.confirm', allowOutput: true });
+      { operation: 'intent.confirm', allowOutput: true, seal: { key: intentIr.intentIrSha256, title: `confirm intent ${intentIr.intentId}`,
+        lines: [`Intent: ${intentIr.intentId}`, `Intent IR: ${intentIr.intentIrSha256}`, 'Step: confirm an intent'] } });
   }
 
   if (action === 'workflow-guide') {
@@ -505,7 +506,8 @@ export async function runSgosIntentAuthoring(root, positionals, options, { jsonF
   });
   return emit(ratification, options,
     (value) => `Ratified exact Workflow ${value.workflowSha256} at ${value.ratificationSha256}; no Program ran.`,
-    { operation: 'intent.ratify', allowOutput: true });
+    { operation: 'intent.ratify', allowOutput: true, seal: { key: ratification.ratificationSha256, title: `ratify workflow ${ratification.workflowSha256}`,
+      lines: [`Workflow: ${ratification.workflowSha256}`, `Ratification: ${ratification.ratificationSha256}`, 'Step: ratify an intent'] } });
 }
 
 /** Return null when the requested Program action is not an authority ceremony. */
@@ -533,6 +535,10 @@ export async function runSgosProgramAuthoring(root, positionals, options, { json
     confirmationSha256,
     approvedAt: requiredOption(options, 'approved-at')
   });
+  // SF Guard (SPEC-PSS-v1 §10.10): one touch over the exact authority record, its seal proposed beside it.
+  const seals = await import('../../presence/store-seals.mjs');
+  const seal = await seals.signBeside(root, 'program-authority', { key: approved.path, bytes: canonicalJson(approved.record), action: 'program.approve',
+    title: `approve Program ${exactProgram.programId}`, lines: [`Program: ${exactProgram.programId}`, `Proposal: ${approved.proposalSha256}`, 'Step: approve a program'] });
   const publication = await proposeConfigurationChange(root, {
     operation: 'sgos-program-authority',
     subject: exactProgram.programId,
@@ -541,6 +547,7 @@ export async function runSgosProgramAuthoring(root, positionals, options, { json
       const output = path.join(scratch, ...approved.path.split('/'));
       await mkdir(path.dirname(output), { recursive: true });
       await writeAtomic(output, canonicalJson(approved.record));
+      if (seal) await writeAtomic(path.join(scratch, ...seals.sealPathFor(approved.path).split('/')), seal.toString('utf8'));
       return {
         authorityStatus: approved.authorityStatus,
         proposalSha256: approved.proposalSha256,

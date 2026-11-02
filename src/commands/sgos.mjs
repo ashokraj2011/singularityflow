@@ -160,15 +160,47 @@ async function compilerRequestForStart(root, options) {
   };
 }
 
+/**
+ * SF Guard (SPEC-PSS-v1 §10.10): `intent compile` counts a ratification or a confirmed Intent IR only
+ * with its person's seal beside the file verifying, or when SF Guard was off as it was recorded.
+ */
+async function assertCountedIntentRecords(root, files) {
+  const seals = await import('../presence/store-seals.mjs');
+  const policy = await seals.storePolicy(root);
+  if (!policy) return;
+  for (const [relative, key, recordedAt] of files) {
+    if (!relative) continue;
+    const file = path.resolve(root, relative);
+    const bytes = await readFile(file);
+    const seal = await readFile(seals.sealPathFor(file)).catch(() => null);
+    const standing = seals.fileVerdict(policy, 'intent-record', { key, bytes, seal, recordedAt });
+    if (!standing.counts) fail(`SF Guard does not count ${relative} (${standing.reason}). Route: ${standing.route}.`, standing.code ?? 'PSS_RECORD_UNSIGNED', { route: standing.route });
+  }
+}
+
 async function emit(value, options, text, {
   operation,
   changed = false,
   allowOutput = false,
   publicationCreated = false,
-  externalSystemsChanged = false
+  externalSystemsChanged = false,
+  seal = null
 } = {}) {
   if (!operation) fail('SGOS narration requires an operation ID.', 'SGOS_OPERATION_REQUIRED');
   const output = optionString(options, 'out');
+  // SF Guard (SPEC-PSS-v1 §10.10): a ratified or confirmed intent is a person's record. While SF Guard is
+  // on, one touch signs its exact bytes and the seal is written beside the --out file, where its reader
+  // (`intent compile`) looks for it; a record printed to the terminal has nowhere to keep it.
+  let sealBytes = null;
+  if (seal) {
+    const seals = await import('../presence/store-seals.mjs');
+    const policy = await seals.storePolicy(repoRoot());
+    if (policy?.folded?.enabled && !output) {
+      fail(`SF Guard is on in this repository, so ${operation} keeps its presence seal beside the record it writes. Nothing was signed or written; run the same command again with --out <FILE>.`,
+        'PSS_RECORD_UNSIGNED', { route: 'run the same command again with --out <FILE>' });
+    }
+    if (output) sealBytes = await seals.signBeside(repoRoot(), 'intent-record', { key: seal.key, bytes: canonicalJson(value), action: operation, title: seal.title, lines: seal.lines });
+  }
   if (output && !allowOutput) {
     fail(`--out is not supported by ${operation}; it is available only for Intent record authoring commands.`,
       'SGOS_OUTPUT_NOT_SUPPORTED', { operation });
@@ -178,6 +210,10 @@ async function emit(value, options, text, {
     const root = repoRoot();
     const file = await exactRepositoryPath(root, output, '--out', { mustExist: false });
     await writeAtomic(file, canonicalJson(value));
+    if (sealBytes) {
+      const { sealPathFor } = await import('../presence/store-seals.mjs');
+      await writeAtomic(sealPathFor(file), sealBytes.toString('utf8'));
+    }
     relativeOutput = path.relative(root, file).split(path.sep).join('/');
   }
   const summary = typeof text === 'function' ? text(value) : text;
@@ -290,6 +326,7 @@ async function intentCommand(root, positionals, options) {
     const intentIr = await jsonFile(root, positionals[2], 'Intent IR');
     const workflow = await jsonFile(root, optionString(options, 'workflow'), '--workflow');
     const ratification = await jsonFile(root, optionString(options, 'ratification'), '--ratification');
+    await assertCountedIntentRecords(root, [[positionals[2], intentIr.intentIrSha256, null], [optionString(options, 'ratification'), ratification.ratificationSha256, ratification.decidedAt]]);
     const policy = await jsonFile(root, optionString(options, 'policy'), '--policy');
     const registrySnapshot = await jsonFile(root, optionString(options, 'registry'), '--registry');
     validateSgosRecord(policy);

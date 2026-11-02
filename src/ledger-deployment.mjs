@@ -150,6 +150,14 @@ export async function validateLedgerDeployment(root, rawConfig = {}, {
     checks,
     valid: !checks.some((check) => check.status === 'fail')
   };
+  // SF Guard (SPEC-PSS-v1 §10.10): the host-policy assertion is a person's step; its one touch signs
+  // the exact assertion, kept in it, so a report written by hand carries none.
+  if (assertionRecord) {
+    const presence = await (await import('./presence/store-seals.mjs')).signInline(root, 'host-policy-assertion', result, { action: 'ledger.host-policy',
+      title: `assert the host policy of ${config.remote}/${config.branch}`, lines: [`Remote: ${config.remote}`, `Branch: ${config.branch}`,
+        `Asserted: ${Object.keys(assertionRecord.policies).join(', ')}`, 'Step: assert the host policy for a deployment check'] });
+    if (presence) assertionRecord.presence = presence;
+  }
   if (record) result.recordedPath = outputPath;
   result.recordSha256 = recordSha256(result);
   if (record) await writeJson(path.join(root, outputPath), result);

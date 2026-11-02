@@ -354,6 +354,11 @@ export async function consumeTrpAuthority(root, { record, policy, pinnedAuthorit
   return witness;
 }
 
+/** The receipt a consumed review will append (SF Guard signs it at intake before any write). */
+export function trpWitnessReceipt(witness) {
+  return WITNESSES.get(witness)?.receipt ?? null;
+}
+
 export async function appendTrpAuthorityReceipt(workRoot, witness) {
   const witnessed = WITNESSES.get(witness);
   if (!witnessed) fail('Only a consumed live human review may create an authority receipt', 'TRP_AUTHORITY_REQUIRED');

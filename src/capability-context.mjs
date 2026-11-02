@@ -540,7 +540,7 @@ export async function resolveLifecycleCapability(root, {
   let entries = [];
   let leaseWarning = null;
   if (config?.ledger?.enabled && !offline) {
-    try { entries = await ledgerLog(mapRoot, config.ledger, { limit: 10000 }); }
+    try { entries = await (await import('./presence/store-seals.mjs')).countedLeaseEntries(mapRoot, await ledgerLog(mapRoot, config.ledger, { limit: 10000 })); }
     catch (error) { leaseWarning = `Capability leases could not be read: ${error.message}`; }
   } else if (config?.ledger?.enabled && offline) {
     leaseWarning = 'Offline capability resolution does not refresh break-glass leases from the state branch.';

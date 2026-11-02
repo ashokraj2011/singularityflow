@@ -8,7 +8,7 @@ import {
   loadInitiative, secureInitiativePath
 } from './state-stores.mjs';
 import {
-  SingularityFlowError, nowIso, writeJson, writeText
+  SingularityFlowError, nowIso, writeText
 } from './util.mjs';
 import { currentSchemaVersion } from './schema-migrations.mjs';
 
@@ -211,9 +211,11 @@ export async function epicDeliveryReadiness(root, initiativeId, {
     ...(!required.length ? ['No blocking Stories are defined'] : []),
     ...required.filter((story) => !story.ready).map((story) => `${story.workId}: ${story.problems.join('; ')}`)
   ];
+  const standing = await epicCompletionStanding(root, portfolio, initiative);
   return {
     initiativeId,
-    status: initiative.delivery?.status ?? 'tracking',
+    status: initiative.delivery?.status === 'complete' && !standing.counts ? 'tracking' : initiative.delivery?.status ?? 'tracking',
+    ...(standing.counts ? {} : { presence: { code: standing.code, reason: standing.reason, route: standing.route } }),
     ready,
     planningComplete,
     materialized,
@@ -223,6 +225,26 @@ export async function epicDeliveryReadiness(root, initiativeId, {
     blockers,
     completion: initiative.delivery?.completion ?? null
   };
+}
+
+/**
+ * SF Guard (SPEC-PSS-v1 §10.10): whether the Epic's completion counts. Its record keeps the person's
+ * seal beside it (`<sha256>.presence.json`); one recorded while SF Guard was on without a seal that
+ * verifies counts for nothing, so the Epic reads as still tracking delivery. `{ counts, state, label,
+ * code, reason, route }`; counts in a repository that never opted in.
+ */
+export async function epicCompletionStanding(root, portfolio, initiative) {
+  const completion = initiative?.delivery?.completion;
+  if (initiative?.delivery?.status !== 'complete' || !completion?.recordPath) return { counts: true, state: 'not-required', label: null, code: null, reason: null, route: null };
+  const seals = await import('./presence/store-seals.mjs');
+  const policy = await seals.storePolicy(root);
+  if (!policy) return { counts: true, state: 'not-required', label: null, code: null, reason: null, route: null };
+  const { readFile } = await import('node:fs/promises');
+  const absolute = path.join(root, completion.recordPath);
+  const bytes = await readFile(absolute).catch(() => null);
+  const seal = await readFile(absolute.replace(/\.json$/u, '.presence.json')).catch(() => null);
+  if (!bytes) return { counts: false, state: 'invalid', label: 'not counted: its record is missing', code: 'PSS_RECORD_UNSIGNED', reason: 'its completion record is missing', route: seals.STORES['epic-completion'].route(initiative.initiative?.id) };
+  return seals.fileVerdict(policy, 'epic-completion', { key: completion.sha256, bytes, seal, recordedAt: initiative.delivery.completedAt ?? null, routeId: initiative.initiative?.id });
 }
 
 export function renderEpicCompletionReport(record) {
@@ -271,7 +293,9 @@ export async function completeEpicDelivery(root, initiativeId, {
       details: { initiativeId, blockers: readiness.blockers }
     });
   }
-  if (initiative.delivery?.status === 'complete') {
+  // A completion recorded while SF Guard was on without its person's seal counts for nothing, so the
+  // route to fix it is completing again, signed (SPEC-PSS-v1 §10.10).
+  if (initiative.delivery?.status === 'complete' && (await epicCompletionStanding(root, portfolio, initiative)).counts) {
     throw new SingularityFlowError(`Epic delivery is already complete at ${initiative.delivery.completedAt}.`, {
       code: 'EPIC_COMPLETION_ALREADY_COMPLETE',
       details: { initiativeId, completedAt: initiative.delivery.completedAt }
@@ -304,7 +328,12 @@ export async function completeEpicDelivery(root, initiativeId, {
     path.join('artifacts', 'delivery', 'spec-to-code-completion.md'),
     { label: `Epic '${initiativeId}' spec-to-code completion report` }
   );
-  await writeJson(recordPath.absolute, record);
+  const recordBytes = `${JSON.stringify(record, null, 2)}\n`;
+  const seal = await (await import('./presence/store-seals.mjs')).signBeside(root, 'epic-completion', { key: record.sha256, bytes: recordBytes,
+    action: 'epic.complete', title: `complete Epic ${initiativeId}`, lines: [`Epic: ${initiativeId}`, `Blocking Stories ready: ${readiness.readyStories}/${readiness.requiredStories}`,
+      `Decision: ${record.sha256}`, 'Step: complete an Epic'] });
+  await writeText(recordPath.absolute, recordBytes);
+  if (seal) await writeText(recordPath.absolute.replace(/\.json$/u, '.presence.json'), seal.toString('utf8'));
   await writeText(reportPath.absolute, renderEpicCompletionReport(record));
   initiative.delivery = {
     status: 'complete',

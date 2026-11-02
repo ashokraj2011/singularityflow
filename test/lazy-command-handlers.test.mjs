@@ -285,7 +285,16 @@ test('frequent lifecycle handlers do not reach the legacy dispatcher and stay un
     // 9,355,000 holds: a base per repository at Story start. The isolated start reads the launch checkout's own
     // base from the parsed --from-branch selection (start.mjs +1,275) and an interactive start asks per repository
     // when no branch is shared (capability-start.mjs +2,515), adding 3,790. No new eager file.
-    assert.ok(closure.bytes <= 9_355_000, `${file} exceeds the 9 MB eager-source budget (${closure.bytes} bytes)`);
+    // 9,358,000 (measured, not the next boundary): main 7e13deb5 already measures 9,355,282. SF Guard §10.10 keeps
+    // each repository store's, adjudication's and intake review's signature with its record: the convergence v4
+    // decision block (convergence.mjs +759, one resealing step for every convergence migration in
+    // schema-migrations.mjs -323), the repair authorization's and agents lock's in-record touch (fault-repair.mjs
+    // +574, agents.mjs +317), the intake review's witness receipt and signed-decision filter
+    // (test-recovery-admission.mjs +675, test-recovery-store.mjs +195), the counted readers (convergence-context.mjs
+    // +213, capability-context.mjs +81, test-recovery-runtime.mjs +80, counted.mjs +31) and the pin taken before
+    // intake (state.mjs +85): 9,357,969 measured. The seals, signer and verifier, the counted convergence view and
+    // the intake reviews stay lazy.
+    assert.ok(closure.bytes <= 9_358_000, `${file} exceeds the 9 MB eager-source budget (${closure.bytes} bytes)`);
   }
 });
 
@@ -411,7 +420,11 @@ test('the common session projection does not import attach, state stores or publ
   // for 4,032,328. The claim's signer loads only where SF Guard applies; no new file.
   // 4,035,000 holds: the live terminal review's signature (action-authorization.mjs +582, SF Guard §10.6) adds 582
   // for 4,032,910. The terminal-review and repository-step signers load only where SF Guard applies; no new file.
-  assert.ok(current.bytes <= 4_035_000, `session current loads ${current.bytes} source bytes`);
+  // 4,036,300 (measured): main 7e13deb5 already measures 4,035,253; SF Guard §10.10's convergence v4 decision
+  // block (convergence.mjs +759, schema-migrations.mjs -323), the repair authorization's in-record touch
+  // (fault-repair.mjs +574) and the exported counting predicate (counted.mjs +31) add 1,041 for 4,036,294.
+  // The counted convergence view and every signer load only where SF Guard applies; no new eager file.
+  assert.ok(current.bytes <= 4_036_300, `session current loads ${current.bytes} source bytes`);
 });
 
 test('early phase and grounding-path entries exclude the deferred authoring and review graphs', async () => {

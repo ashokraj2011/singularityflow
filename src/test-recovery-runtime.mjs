@@ -5,7 +5,7 @@ import { createHash, createHmac, randomBytes, timingSafeEqual } from 'node:crypt
 import os from 'node:os';
 import path from 'node:path';
 import { canonicalJson } from './records.mjs';
-import { countedRecords } from './presence/counted.mjs';
+import { countedRecords, presenceRequires } from './presence/counted.mjs';
 import { projectedLedgerIntentFile } from './lifecycle-event.mjs';
 import { assertClean, exactChangedPathsBetweenObjects, exactFileAtObject, gitDir, governedCommitIdentity, head } from './git.mjs';
 import { lifecycleAuthority } from './sda/story-branch-authority.mjs';
@@ -480,14 +480,15 @@ export async function loadStoryTestRiskContext(root, config, workflow, {
   const verifyEvidence = record => authenticated.has(record.recordSha256)
     ? { recordSha256: record.recordSha256, authenticated: true, reportsAvailable: true,
       verifiedAt: mode === 'historical' ? nowIso() : at } : null;
-  // SF Guard (SPEC-PSS-v1 §10.8): on a Story it requires, a risk decision a review entry names counts only
-  // while one such entry carries its reviewer's verified signature. A decision no review names (accepted at
-  // intake, before the Story existed) keeps today's rule.
+  // SF Guard (SPEC-PSS-v1 §10.8, §10.10): on a Story it requires, a risk decision counts only while a signed
+  // review entry names it (at intake, `intake-accepted`); elsewhere a decision no review names counts.
   const reviews = workflow.testRecovery?.riskReviews ?? [];
   const signedReviews = new Set(countedRecords(workflow, reviews));
+  const guarded = presenceRequires(workflow);
   const reviewed = (record) => reviews.filter(review => review?.record?.recordSha256 === record.recordSha256);
   const decisions = records.filter(record => record.kind === 'phase-risk-decision'
-    && (!reviewed(record).length || reviewed(record).some(review => signedReviews.has(review))));
+    && (guarded ? reviewed(record).some(review => signedReviews.has(review))
+      : !reviewed(record).length || reviewed(record).some(review => signedReviews.has(review))));
   const integrityIssues = [];
   if (['failed', 'passed'].includes(observation?.observedOutcome) && !authority.policy.allowEvidenceReuse) {
     integrityIssues.push({ category: 'policy-integrity', obligationId: observation.obligationId,

@@ -110,7 +110,7 @@ export function personRecordRoute(workflow, entry) {
     testCommandAmendments: `the approver records the test-policy amendment again in their own terminal: singularity-flow story test-policy amend --work-id ${workId} --reason "<why>" --apply --confirm <PLAN-DIGEST>`,
     approverRefreshes: `an approver refreshes the approvers again in their own terminal: singularity-flow story approvers refresh ${workId} --reason "<why>"`,
     'testRecovery.selectionConfirmations': `the reviewer confirms the test selection again in their own terminal: singularity-flow story test-policy confirm --work-id ${workId} --phase <PHASE> --confirm <PLAN-DIGEST>`,
-    'testRecovery.riskReviews': `the reviewer records the test risk decision again in their own terminal: singularity-flow story test-policy accept-risk --work-id ${workId} … (or attest-risk / revoke-risk)`
+    'testRecovery.riskReviews': `the reviewer records the test risk decision again in their own terminal: singularity-flow story test-policy accept-risk --work-id ${workId} … (or attest-risk / revoke-risk; for a baseline accepted at intake: singularity-flow story test-policy baseline-admission ${workId} … --apply)`
   }[entry.list];
   return again ?? 'the person records the decision again in their own terminal, where SF Guard takes their Touch ID';
 }

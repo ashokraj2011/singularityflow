@@ -1256,6 +1256,11 @@ export async function createWorkflow(root, config, {
   inheritFromBaseStory(workflow.lineage, detectBaseStory(root, config, {
     baseBranch, baseCommit: baseCommit ?? head(root), workId: id
   }));
+  // SF Guard's policy as this Story starts (SPEC-PSS-v1 REQ-040): a later change never affects it.
+  // A repository that never opted in has no policy file, and the Story carries no pin. Pinned before the
+  // test-recovery intake review, which is signed on it (§10.10).
+  const presencePin = await (await import('./presence/person-records.mjs')).presencePinForStart(root);
+  if (presencePin) workflow.resolution.presence = presencePin;
   if (freshTrpPlan.enabled) {
     const agreement = initialTestRecoveryAgreement(freshTrpPlan, {
       workId: id, principal: String(actor.email ?? actor.login ?? actor.name), createdAt,
@@ -1308,10 +1313,6 @@ export async function createWorkflow(root, config, {
     template.path = posix(path.relative(root, destination)); delete template.cachePath;
     workflow.resolution.phases.find((phase) => phase.id === phaseId).templateSnapshot = { ...template };
   }
-  // SF Guard's policy as this Story starts (SPEC-PSS-v1 REQ-040): a later change never affects it.
-  // A repository that never opted in has no policy file, and the Story carries no pin.
-  const presencePin = await (await import('./presence/person-records.mjs')).presencePinForStart(root);
-  if (presencePin) workflow.resolution.presence = presencePin;
   // Capture before accepted Story state is written. This rewrites phase-template references to
   // immutable blobs and stamps the exact resulting effective-policy digest.
   workflow.workflowSnapshot = await captureWorkflowSnapshot(root, config, workflow, {

@@ -1334,6 +1334,10 @@ export async function loadApprovedSgosProgramAuthority(root, programValue, {
   if (!isConfigurationReadPath(relative)) {
     fail('SGOS_PROGRAM_AUTHORITY_PATH_INVALID', `Program authority path '${relative}' is outside approved configuration.`);
   }
+  // SF Guard (SPEC-PSS-v1 §10.10): the approval counts only with its approver's seal beside it.
+  const seals = await import('../presence/store-seals.mjs');
+  const sealPolicy = await seals.storePolicy(root);
+  const sealRelative = seals.sealPathFor(relative);
   return withTrustedSgosConfigurationRead(root, async (authority) => {
     if (!authority || authority.kind === 'working-tree' || !authority.ref || !authority.commit) {
       fail('SGOS_PROGRAM_AUTHORITY_UNAVAILABLE',
@@ -1363,6 +1367,17 @@ export async function loadApprovedSgosProgramAuthority(root, programValue, {
       fail('SGOS_PROGRAM_AUTHORITY_INVALID', `Approved Program authority '${relative}' is not valid JSON: ${error.message}`);
     }
     const record = validateProgramAuthorityRecord(parsed, program);
+    if (sealPolicy) {
+      // Read beside the record at the authority's own commit: a narrow selection refuses a path it lacks.
+      const { committedFileBytes } = await import('../git.mjs');
+      const sealAt = (commit) => { try { return commit ? committedFileBytes(root, commit, sealRelative) : null; } catch { return null; } };
+      const seal = sealAt(authority.commit) ?? sealAt(authority.manifest?.source?.commit);
+      const standing = seals.fileVerdict(sealPolicy, 'program-authority', { key: relative, bytes, seal, recordedAt: record.approvedAt ?? null });
+      if (!standing.counts) {
+        fail(standing.code ?? 'PSS_RECORD_UNSIGNED', `SF Guard does not count the Program approval '${relative}' (${standing.reason}). Route: ${standing.route}.`,
+          { path: relative, route: standing.route });
+      }
+    }
     const capabilityPackAuthorities = capabilityPackAuthoritiesFromRecord(record);
     const packCompilationReceipt = await revalidateSgosCapabilityPackAuthoritiesForCompilation(
       root, program, capabilityPackAuthorities, {

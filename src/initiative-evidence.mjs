@@ -52,15 +52,27 @@ async function recordDirectory(root, portfolio, initiativeId, category) {
   });
 }
 
-export async function appendInitiativeRecord(root, portfolio, initiativeId, category, record) {
+/**
+ * `sign(bytes, sha256)` (SF Guard, SPEC-PSS-v1 §10.10): a person's record takes their one touch over its
+ * exact bytes before anything is written, and the seal it returns is kept beside the record as
+ * `<sha256>.presence.json`.
+ */
+export async function appendInitiativeRecord(root, portfolio, initiativeId, category, record, { sign = null } = {}) {
   if (!RECORD_CATEGORIES.has(category)) throw new SingularityFlowError(`Unsupported initiative record category '${category}'.`);
   record = { ...record, schemaVersion: currentSchemaVersion(RECORD_FAMILIES[category]) };
   const sha256 = recordSha256(record);
+  const seal = sign ? await sign(canonicalJson(record), sha256) : null;
   await recordDirectory(root, portfolio, initiativeId, category);
   const target = await secureInitiativePath(root, portfolio, initiativeId, path.join(category, 'records', `${sha256}.json`), {
     label: `Initiative '${initiativeId}' ${category} record`,
     type: 'file'
   });
+  if (seal) {
+    const sealTarget = await secureInitiativePath(root, portfolio, initiativeId, path.join(category, 'records', `${sha256}.presence.json`), {
+      label: `Initiative '${initiativeId}' ${category} record seal`, type: 'file'
+    });
+    await writeText(sealTarget.absolute, seal.toString('utf8'));
+  }
   if (!target.exists) await writeText(target.absolute, canonicalJson(record));
   if (category === 'approvals') await writeInitiativeApprovalSummary(root, portfolio, initiativeId);
   return { sha256, path: target.relative, record };
@@ -84,9 +96,39 @@ export async function readInitiativeRecords(root, portfolio, initiativeId, categ
     const expected = entry.name.slice(0, -5);
     const actual = recordSha256(record);
     if (actual !== expected) throw new SingularityFlowError(`Initiative ${category} record ${entry.name} was modified after creation.`);
-    records.push({ sha256: actual, path: target.relative, record });
+    records.push({ sha256: actual, path: target.relative, record, bytes: raw });
   }
+  if (category === 'approvals' && records.length) await countedInitiativeApprovals(root, portfolio, initiativeId, records);
   return records.sort((left, right) => String(left.record.at ?? left.record.observedAt ?? '').localeCompare(String(right.record.at ?? right.record.observedAt ?? '')));
+}
+
+/**
+ * SF Guard (SPEC-PSS-v1 §10.10): an Epic approval counts only when its seal verifies against the
+ * approver's pinned key, or SF Guard was off when it was recorded (`pre-signing`). Uncounted records are
+ * dropped from `records` in place, so every reader decides the same way; nothing changes in a
+ * repository that never opted in.
+ */
+async function countedInitiativeApprovals(root, portfolio, initiativeId, records) {
+  const seals = await import('./presence/store-seals.mjs');
+  const policy = await seals.storePolicy(root);
+  if (!policy) return;
+  const kept = [];
+  for (const entry of records) {
+    const sealTarget = await secureInitiativePath(root, portfolio, initiativeId, path.join('approvals', 'records', `${entry.sha256}.presence.json`), {
+      label: `Initiative '${initiativeId}' approval seal`, type: 'file'
+    });
+    const seal = sealTarget.exists ? await readFile(sealTarget.absolute) : null;
+    const verdict = seals.fileVerdict(policy, 'epic-approval', { key: entry.sha256, bytes: entry.bytes, seal, recordedAt: entry.record.at ?? null, routeId: initiativeId });
+    if (verdict.counts) kept.push({ ...entry, standing: verdict });
+  }
+  records.splice(0, records.length, ...kept);
+}
+
+/** The seal an Epic approval keeps beside its record, signed over its exact bytes (SF Guard, §10.10). */
+export function signInitiativeApproval(root, initiativeId, phaseId, target) {
+  return async (bytes, sha256) => (await import('./presence/store-seals.mjs')).signBeside(root, 'epic-approval', {
+    key: sha256, bytes, action: 'epic.approve', title: `approve ${target.type} ${target.id} of Epic ${initiativeId}`,
+    lines: [`Epic: ${initiativeId}`, `Phase: ${phaseId}`, `Subject: ${target.type} ${target.id}`, `Subject SHA-256: ${target.sha256}`, 'Step: approve an Epic phase'] });
 }
 
 export function initiativeApprovalSummary(initiativeId, records) {
@@ -1202,7 +1244,7 @@ export async function approveInitiative(root, {
     at,
     selfApproval
   };
-  const appended = await appendInitiativeRecord(root, portfolio, initiativeId, 'approvals', record);
+  const appended = await appendInitiativeRecord(root, portfolio, initiativeId, 'approvals', record, { sign: signInitiativeApproval(root, initiativeId, selectedPhase, target) });
   const after = [...current, appended];
   const chainAfter = approvalChainProgress(target.definition, after);
   const reached = chainAfter ? chainAfter.satisfied : distinctApprovals(after) >= target.definition.minimum;

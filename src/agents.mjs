@@ -462,7 +462,8 @@ export async function lockAgent(root, agentId, { update = false, accepted = fals
   if (existing && !update) throw new SingularityFlowError(`agent '${agentId}' is already locked. Use --update to review new remote hashes.`);
   const resolution = suppliedResolution ?? await resolveAgentLock(root, agent, { fetchImpl, existing });
   if (!accepted) return { agent, resolution, existing, written: false };
-  lock.agents[agentId] = resolution; await saveLock(root, lock);
+  // SF Guard (SPEC-PSS-v1 §10.10): one touch over the exact entry, kept in it.
+  lock.agents[agentId] = await (await import('./presence/store-seals.mjs')).signedAgentLock(root, agentId, resolution); await saveLock(root, lock);
   return { agent, resolution, existing, written: true, path: AGENT_LOCK_PATH };
 }
 
@@ -517,6 +518,7 @@ export async function syncAgent(root, agentId, { fetchImpl = globalThis.fetch } 
   const lock = await loadLock(root); const entry = lock.agents[agentId];
   if (!entry) throw new SingularityFlowError(`Agent '${agentId}' has remote dependencies but no lock. Run singularity-flow agents lock ${agentId}.`);
   if (entry.sourceSha256 !== agent.sha256) throw new SingularityFlowError(`Agent '${agentId}' changed after locking. Run singularity-flow agents lock ${agentId} --update.`);
+  await (await import('./presence/store-seals.mjs')).assertCountedInline(root, 'agents-lock', entry, `the agents lock entry for '${agentId}'`, agentId);
   const dependencies = []; const warnings = [];
   for (const dependency of agent.dependencies) {
     const materialized = await materializeLocked(root, agent, entry, dependency, { fetchImpl });

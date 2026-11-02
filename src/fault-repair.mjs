@@ -1342,12 +1342,14 @@ export async function authorizeRepair(root, repairId, { confirmation, open = fal
       if (!state.workspace?.path || !await exists(state.workspace.path)) {
         throw new SingularityFlowError(`Repair '${id}' isolated worktree is unavailable.`, { code: 'REPAIR_WORKTREE_UNAVAILABLE' });
       }
-      state.lease = newLease(root, state);
+      const lease = newLease(root, state);
+      const presence = await (await import('./presence/store-seals.mjs')).signRepairAuthorization(root, id, expected, lease, state.workspace.branch);
+      state.lease = lease;
       state.status = 'awaiting-patch';
       state.stopReason = null;
       await writeRepairEvent(root, state, 'repair-authorized', {
         planSha256: expected, actor: state.lease.actor, leaseId: state.lease.leaseId,
-        branch: state.workspace.branch, attempt: state.attempts.length + 1
+        branch: state.workspace.branch, attempt: state.attempts.length + 1, ...(presence ? { presence } : {})
       });
       state = await saveRepairState(root, state);
       let opened = false;
@@ -1362,6 +1364,8 @@ export async function authorizeRepair(root, repairId, { confirmation, open = fal
     if (await exists(worktree) || run('git', ['show-ref', '--verify', '--quiet', `refs/heads/${repairBranchName}`], { cwd: root, allowFailure: true }).status === 0) {
       throw new SingularityFlowError(`Repair workspace or branch already exists for '${id}'.`, { code: 'REPAIR_WORKSPACE_EXISTS' });
     }
+    const lease = newLease(root, state);
+    const presence = await (await import('./presence/store-seals.mjs')).signRepairAuthorization(root, id, expected, lease, repairBranchName);
     await safeDirectory(path.dirname(worktree), stateRoot(root));
     state.status = 'authorizing';
     await saveRepairState(root, state);
@@ -1373,12 +1377,12 @@ export async function authorizeRepair(root, repairId, { confirmation, open = fal
       throw new SingularityFlowError(`Unable to create isolated repair worktree: ${created.stderr.trim()}`, { code: 'REPAIR_WORKTREE_FAILED' });
     }
     state.workspace = { path: worktree, branch: repairBranchName, baseline: state.baseline, published: false };
-    state.lease = newLease(root, state);
+    state.lease = lease;
     state.status = 'awaiting-patch';
     state.stopReason = null;
     await writeRepairEvent(root, state, 'repair-authorized', {
       planSha256: expected, actor: state.lease.actor, leaseId: state.lease.leaseId,
-      branch: repairBranchName
+      branch: repairBranchName, ...(presence ? { presence } : {})
     });
     state = await saveRepairState(root, state);
     let opened = false;
@@ -1695,6 +1699,7 @@ export async function attemptRepair(root, repairId, { patchFile } = {}) {
       || authorization.data.leaseId !== state.lease.leaseId) {
       throw new SingularityFlowError(`Repair '${id}' has no current authorization for its immutable plan and lease.`, { code: 'REPAIR_AUTHORIZATION_INVALID' });
     }
+    await (await import('./presence/store-seals.mjs')).assertCountedInline(root, 'repair-authorization', authorization, `the authorization of repair '${id}'`);
     validatePatchScope(touched, plan);
     if (!state.workspace?.path || !await exists(state.workspace.path)) throw new SingularityFlowError(`Repair '${id}' isolated worktree is unavailable.`, { code: 'REPAIR_WORKTREE_UNAVAILABLE' });
     const baseline = commitObjectId(root, state.baseline);

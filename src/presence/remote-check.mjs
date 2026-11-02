@@ -291,7 +291,33 @@ export async function remotePresenceCheck(root, { base = null, pullRequest = nul
     }
     storyRows.push({ workId: story.id, required: presence.required, ...presence.summary, elapsedMs: presence.elapsedMs });
   }
+
+  // 5. The repository stores this branch holds (SPEC-PSS-v1 §10.10): what the change adds counts, and
+  // no sealed record or seal disappears.
+  const headCommit = policy.present && policy.chain ? await deps.headCommit() : null;
+  if (headCommit) {
+    const { storeRecordProblems } = await import('./store-check.mjs');
+    const stores = await storeRecordProblems(policy, { head: headCommit, base: baseRef, initiativeRoot: definition?.initiativeRoot ?? null },
+      { paths: deps.storePaths ?? defaultStorePaths(root, definition), file: deps.storeFile ?? defaultStoreFile(root) });
+    for (const entry of stores.failures) fail(entry.code, entry.message, entry.route);
+    warnings.push(...stores.warnings);
+  }
   return report({ status: failures.length ? 'failed' : 'passed', base: baseRef, chain, failures, warnings, unconfirmed, confirmed, stories: storyRows });
+}
+
+function defaultStorePaths(root, definition) {
+  return async (ref) => {
+    const [{ committedTreePaths }, { storeRoots }] = await Promise.all([import('../git.mjs'), import('./store-check.mjs')]);
+    try { return committedTreePaths(root, ref, storeRoots(definition?.initiativeRoot)); }
+    catch (error) {
+      throw new SingularityFlowError(`SF Guard's remote check cannot list the repository stores at ${String(ref).slice(0, 12)}: ${error.message}. Check out the full history (actions/checkout with fetch-depth: 0).`,
+        { code: 'PSS_REMOTE_BASE_UNAVAILABLE', details: { base: ref } });
+    }
+  };
+}
+
+function defaultStoreFile(root) {
+  return async (ref, relative) => (await import('../git.mjs')).committedFileBytes(root, ref, relative) ?? null;
 }
 
 function report(fields) {

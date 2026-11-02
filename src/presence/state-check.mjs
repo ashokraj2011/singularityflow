@@ -30,6 +30,7 @@ function defaultDependencies(root) {
     readPolicy: async (verify) => (await import('./store.mjs')).readPresencePolicy(root, verify ? { verify } : {}),
     head: async () => (await git).refCommit(root, 'HEAD'),
     paths: async (ref) => (await git).committedTreePaths(root, ref, [LIBRARY_ROOT, 'singularity/presence-seals']),
+    ledgerPaths: async (ref) => { try { return (await git).committedTreePaths(root, ref, ['ledger/entries']); } catch { return []; } },
     file: async (ref, relative) => (await git).committedFileBytes(root, ref, relative) ?? null
   };
 }
@@ -101,6 +102,12 @@ export async function remoteStateCheck(root, { base = null, verify = undefined }
         'remove it; a person approves the configuration in their own terminal (singularity-flow configuration approve <proposal>), where it takes their Touch ID');
     }
   }
+  // Capability lease grants and revocations in the ledger (SPEC-PSS-v1 §10.10).
+  const { storeRecordProblems } = await import('./store-check.mjs');
+  const leases = await storeRecordProblems(policy, { head, base: baseRef, state: true }, { paths: deps.ledgerPaths ?? deps.paths, file: deps.file });
+  failures.push(...leases.failures);
+  warnings.push(...leases.warnings);
+  checked += leases.checked;
   // No seal, and no sealed record, disappears.
   for (const file of [...basePaths].sort()) {
     if (headPaths.has(file)) continue;

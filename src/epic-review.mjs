@@ -260,6 +260,16 @@ export async function epicReviewDecision(root, initiativeId, storyReference, {
     selectedAgent,
     selected.workflow.workItem.id
   );
+  // SF Guard (SPEC-PSS-v1 §10.10): on a Story SF Guard requires, the decision is the approver's
+  // person step on that Story's pin: M2's checks before anything is written, one touch inside the
+  // decision, and the signature kept in the decision record, so its reader counts it.
+  const presence = selected.workflow.resolution?.presence
+    ? await (await import('./presence/person-records.mjs')).preparePersonPresence(selected.clone, {
+      workflow: selected.workflow, phase: selected.workflow.phases[preview.phase],
+      actor: identity(selected.clone), action: decision === 'approve' ? 'phase.approve' : 'phase.reject',
+      command: `singularity-flow epic review ${decision} ${storyReference} --epic ${initiativeId} --packet ${packetSha256}${decision === 'reject' ? ' --reason "<REASON>"' : ''}`
+    })
+    : null;
   const workflowBeforeDecision = structuredClone(selected.workflow);
   // Both decisions begin only after the publication unit has opened its journal and acquired the
   // Story lock. Approval mutates the aggregate even with `persist: false`; performing it before
@@ -282,14 +292,16 @@ export async function epicReviewDecision(root, initiativeId, storyReference, {
             phaseId: preview.phase,
             channel,
             checklist,
-            persist: false
+            persist: false,
+            presence
           });
         } else {
           outcome = await rejectPhase(selected.clone, selected.config, selected.workflow, {
             phaseId: preview.phase,
             target: target ?? preview.phase,
             reason,
-            channel
+            channel,
+            presence
           });
         }
         return outcome;

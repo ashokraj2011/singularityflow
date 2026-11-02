@@ -5,6 +5,7 @@ import { register } from 'node:module';
 import os from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
+import { runInNewContext } from 'node:vm';
 import { fileURLToPath } from 'node:url';
 
 import { childTimeout } from './helpers/child-timeout.mjs';
@@ -89,6 +90,7 @@ export function orderSummary(cart) {
 }
 `;
 const PRICING_TEST = `import test from 'node:test';
+import { runInNewContext } from 'node:vm';
 import assert from 'node:assert/strict';
 import { orderDiscount } from '../src/pricing.mjs';
 
@@ -322,11 +324,11 @@ test('Cancel and Back on every stage write nothing; publishing and discarding as
     assert.equal(stage?.[1], step, `${step} is shown`);
     assert.match(stage[0], /data-message="spec\.back">[\s\S]*?Back<\/button>/u, `${step} has Back`);
     if (/<form class="ss-form" data-form="spec\.(save|research|fact|openGap|settle|defer)"/u.test(stage[0])) {
-      assert.match(stage[0], /data-message="spec\.cancel" data-cancel>Cancel<\/button>/u, `${step}'s forms have Cancel`);
+      assert.ok(stage[0].includes(`data-message="spec.cancel" data-cancel>${step === 'draft' ? 'Discard unsaved changes' : 'Cancel'}</button>`), `${step}'s forms have an explicit cancel action`);
     }
     studio.post({ type: 'spec.cancel' });
     await settled(client, studio);
-    assert.match(studio.webview.html, /Nothing was saved; the draft is unchanged\./u);
+    assert.match(studio.webview.html, /Unsaved edits discarded\. The saved draft is unchanged\.|Nothing was saved; the draft is unchanged\./u);
     studio.post({ type: 'spec.back' });
     await settled(client, studio);
     if (step !== 'elicit') continue;
@@ -542,11 +544,125 @@ test('the Studio\'s pure parts: targets, slices, command classes, and the Story 
     selectedGap: null, impact: null, notice: null, error: { message: 'The state branch <x> is unreachable.', next: 'singularity-flow spec author list' }, busy: null });
   assert.match(empty, /data-view="library"/u);
   assert.match(empty, /The state branch &lt;x&gt; is unreachable\.[\s\S]*Next: <code>singularity-flow spec author list<\/code>/u);
-  assert.match(empty, /<form class="ss-form" data-form="spec\.new"/u);
+  assert.match(empty, /<form class="ss-form ss-create" data-form="spec\.new"/u);
 
   const source = { type: 'manual', title: 'Discounts', specification: [{ revision: `${SPEC}@1`, title: 'Order discount threshold',
     clauses: [{ anchor: `[${SPEC}:REQ-001]`, text: 'WHEN…' }], decisions: [], notThisStory: [] }] };
   const intake = storyIntakeBody({ workItem: { id: 'S-1', title: 'Discounts' }, resolution: {} },
     { record: { id: 'SYS-SOURCE', path: 'singularity/work-items/S-1/source.json' }, content: JSON.stringify(source) }, []);
   assert.match(intake, new RegExp(`<button class="secondary" data-action="spec-studio" data-revision="${SPEC}@1" data-clauses="${SPEC}:REQ-001">Open in Spec Studio</button>`, 'u'));
+});
+
+test('title-first creation uses the returned CLI ID and replays an ambiguous creation without duplicating the draft', async (t) => {
+  const { root } = await storefront(t);
+  const original = recordingClient(root);
+  let lost = true;
+  const client = { ...original, run: async (argv) => {
+    const result = await original.run(argv);
+    if (argv[2] === 'new' && lost) { lost = false; throw new Error('Connection interrupted after saving'); }
+    return result;
+  }};
+  SpecStudioPanel.show(client, undefined, { root: () => root });
+  const studio = panels.at(-1);
+  await settled(original, studio);
+  assert.doesNotMatch(studio.webview.html, /name="specId"/u);
+  assert.match(studio.webview.html, /data-library-search/u);
+  const request = { type: 'spec.new', title: 'Reliable checkout', intent: 'Every shopper sees a clear confirmation.', areas: ['src/pricing.mjs'] };
+  studio.post(request);
+  await settled(original, studio);
+  assert.match(studio.webview.html, /Connection interrupted after saving/u);
+  assert.match(studio.webview.html, /value="Reliable checkout"/u, 'failed creation preserves the inputs');
+  studio.post(request);
+  await settled(original, studio);
+  const creations = original.calls.filter((argv) => argv[2] === 'new');
+  assert.equal(creations.length, 2);
+  assert.deepEqual(creations[0], creations[1], 'retry keeps the operation ID');
+  assert.equal(creations[0][3], '--title', 'the UI does not manufacture an ID');
+  const library = json(root, ['spec', 'author', 'list']);
+  const drafts = library.drafts.filter((draft) => draft.title === request.title);
+  assert.equal(drafts.length, 1);
+  const id = drafts[0].specId;
+  assert.ok(studio.webview.html.includes(`data-spec="${id}"`));
+  assert.match(studio.webview.html, /Every shopper sees a clear confirmation/u);
+  assert.match(studio.webview.html, /data-message="spec.askCopilot">Ask Copilot/u);
+  assert.equal(studio.webview.html.includes('data-stage="draft"'), true);
+  studio.dispose();
+});
+
+test('unsaved prose survives steps, library and refresh; a concurrent save cannot silently replace it', async (t) => {
+  const { root } = await storefront(t);
+  const client = recordingClient(root);
+  SpecStudioPanel.show(client, SPEC, { root: () => root });
+  const studio = panels.at(-1);
+  await settled(client, studio);
+  const status = json(root, ['spec', 'author', 'status', SPEC]);
+  const prose = `${status.spec}\nUnsaved detail <script> remains text.\n`;
+  studio.post({ type: 'spec.editing', spec: SPEC, sequence: status.sequence, text: prose });
+  studio.post({ type: 'spec.step', step: 'research' });
+  await settled(client, studio);
+  studio.post({ type: 'spec.cancel' });
+  await settled(client, studio);
+  studio.post({ type: 'spec.home' });
+  await settled(client, studio);
+  studio.post({ type: 'spec.open', spec: SPEC });
+  await settled(client, studio);
+  studio.post({ type: 'spec.step', step: 'draft' });
+  await settled(client, studio);
+  assert.match(studio.webview.html, /Unsaved detail &lt;script&gt; remains text/u);
+  const before = writes(client.calls).length;
+  const openedChats = chats.length;
+  studio.post({ type: 'spec.askCopilot' });
+  await settled(client, studio);
+  assert.match(studio.webview.html, /Save your writing in Write before asking Copilot/u);
+  assert.equal(chats.length, openedChats, 'Copilot cannot silently receive the older saved version');
+  studio.post({ type: 'spec.publish', state: 'draft' });
+  await settled(client, studio);
+  assert.match(studio.webview.html, /Save or discard your unsaved writing/u);
+  assert.equal(writes(client.calls).length, before, 'publication cannot silently use older saved text');
+  json(root, ['spec', 'author', 'research', SPEC, '--fact', 'Concurrent context', '--source', 'Product owner']);
+  studio.post({ type: 'spec.refresh' });
+  await settled(client, studio);
+  assert.match(studio.webview.html, /A newer snapshot was saved/u);
+  assert.match(studio.webview.html, new RegExp(`name="sequence" value="${status.sequence}"`, 'u'));
+  studio.post({ type: 'spec.save', sequence: status.sequence, text: prose });
+  await settled(client, studio);
+  assert.match(studio.webview.html, /data-error/u);
+  assert.match(studio.webview.html, /Unsaved detail &lt;script&gt; remains text/u, 'stale refusal preserves unsaved content');
+  studio.post({ type: 'spec.cancel' });
+  await settled(client, studio);
+  assert.doesNotMatch(studio.webview.html, /Unsaved detail &lt;script&gt; remains text/u);
+  assert.equal(writes(client.calls).length, before + 1, 'navigation and cancel perform no writes');
+  studio.dispose();
+});
+
+test('the page sends title-only creation and unsaved edits, and searches titles and IDs without CLI requests', () => {
+  const messages = [];
+  const handlers = {};
+  const cards = ['order discount spec-one', 'delivery fee spec-two'].map((search) => ({ dataset: { search }, hidden: false }));
+  const count = { textContent: '' };
+  const empty = { hidden: true };
+  const root = { dataset: { spec: SPEC }, addEventListener: (event, handler) => { handlers[event] = handler; },
+    querySelectorAll: (selector) => selector === '[data-library-item]' ? cards : [],
+    querySelector: (selector) => selector === '[data-search-count]' ? count : empty };
+  runInNewContext(SPEC_STUDIO_SCRIPT, { window: { __sfVscode: { postMessage: (message) => messages.push(JSON.parse(JSON.stringify(message))) } },
+    document: { querySelector: () => root }, setTimeout });
+  const form = { dataset: { form: 'spec.new' }, querySelectorAll: (selector) => selector === '[name]' ? [
+    { name: 'title', value: 'Delivery fee' }, { name: 'intent', value: 'Free above the threshold.' }, { name: 'areas', value: 'src/cart, src/shipping' }
+  ] : [] };
+  handlers.submit({ target: { closest: () => form }, preventDefault() {} });
+  assert.deepEqual(messages.shift(), { type: 'spec.new', title: 'Delivery fee', intent: 'Free above the threshold.', areas: ['src/cart', 'src/shipping'] });
+  const search = { value: 'SPEC-TWO', matches: () => true, closest: () => null };
+  handlers.input({ target: search });
+  assert.deepEqual(cards.map((card) => card.hidden), [true, false]);
+  assert.equal(count.textContent, '1 entry');
+  assert.equal(messages.length, 0, 'search does not request the CLI or a model');
+  search.value = 'unknown'; handlers.input({ target: search });
+  assert.equal(empty.hidden, false);
+  const indicator = { textContent: '' }, words = { textContent: '' };
+  const editor = { querySelectorAll: () => [{ name: 'sequence', value: '3' }, { name: 'text', value: 'Unsaved content' }],
+    querySelector: (selector) => selector === '[data-edit-status]' ? indicator : words };
+  handlers.input({ target: { closest: (selector) => selector === 'form[data-form="spec.save"]' ? editor : null, matches: () => false } });
+  assert.deepEqual(messages.pop(), { type: 'spec.editing', spec: SPEC, sequence: 3, text: 'Unsaved content' });
+  assert.equal(indicator.textContent, 'Unsaved changes');
+  assert.equal(words.textContent, '2 words');
 });

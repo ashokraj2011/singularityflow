@@ -5,6 +5,7 @@
  * clause grammar's namespace rule, and the `SPEC-` prefix keeps it apart from Work IDs. A revision is
  * numbered 1, 2, 3… per specification and lives in a six-digit directory on the state branch.
  */
+import { createHash } from 'node:crypto';
 import { SingularityFlowError } from '../util.mjs';
 
 export const SPEC_ID = /^SPEC-[A-Z0-9]+(?:-[A-Z0-9]+)*$/u;
@@ -13,6 +14,11 @@ export const LIBRARY_ROOT = 'singularity/specifications';
 export const REVISION_FILES = Object.freeze(['manifest.json', 'spec.md', 'gaps.json', 'research.json', 'quality.json']);
 export const GAP_ID = /^GAP-\d{3,}$/u;
 export const RESEARCH_ID = /^R-\d{3,}$/u;
+
+/** Stable across a retried creation operation, without a network counter or a title collision. */
+export function generatedSpecId(operationId) {
+  return `SPEC-${createHash('sha256').update(`specification:${operationId}`).digest('hex').slice(0, 24).toUpperCase()}`;
+}
 
 export function validSpecId(value) {
   return typeof value === 'string' && value.length <= SPEC_ID_MAXIMUM && SPEC_ID.test(value);

@@ -107,26 +107,17 @@ The Navigator keeps related work together instead of adding a second dashboard h
 - **Diagnostics** is under Help. Repository, capability, workspace-reliability, and Schema Health
   tabs render the corresponding CLI census. Future, unreadable, unregistered, or archived schema
   records include the exact documented upgrade or archival remedy rather than being silently rewritten.
-- **Spec Studio** is under Work tools, and in the palette as
-  `Singularity Flow: Spec Studio`. It is the specification library in three columns: the quality
-  gate, the governed records, the authoring loop's seven steps and the gap pipeline on the left;
-  the active step in the middle; `spec.md` clause by clause on the right, each clause flagged by the
-  open gaps that name it. Every read and write is a `spec author … --json` command, so the shell can
-  do everything the Studio does. Closing a gap is one option plus a rationale, signed with your Git
-  identity; publishing asks once, naming the revision; discarding a draft asks for the specification
-  ID; Back and Cancel write nothing. Attach shows the `--spec SPEC-ID@N=CLAUSES` option Story start
-  takes, and the revision's coverage. A Story that started with a slice opens the Studio at it from
-  View Story intake details. The same step splits a reviewed revision: give each clause to Story
-  slices or child specifications, or say why it is not delivered here; Check and propose keeps the
-  plan on this clone, and publishing asks once, drafts each child here and lists one ready start
-  command per slice, starting no Story. Coverage then shows where each clause is allocated and which
-  children took a clause a later revision changed ("parent moved").
-  Nothing in the Studio calls a model. With Copilot allowed, **Ask
-  Copilot** opens Copilot Chat with `/sf-spec-author SPEC-ID #sflowSpecStudio`: Copilot reads the
-  draft and stages proposals (prose edits, cited research, gaps, assisted checklist findings). They
-  wait in the Copilot tab until you accept or reject each one; assisted findings wait in Check, and
-  a reviewed publication waits until you settle them. An edit proposed against older prose can only
-  be accepted with your own merge of it.
+- **Spec Studio** is under Work tools, and in the palette as `Singularity Flow: Spec Studio`. Create a draft with a title and an optional outcome;
+  the CLI generates its unique specification ID. Search the library by title or ID. The two-column
+  editor keeps steps beside the prose; saved previews, draft records and publication details expand
+  when needed. Unsaved prose survives changing steps, opening the library and refreshing this panel;
+  it stays in this panel's memory until saved or explicitly discarded (closing the panel loses it).
+  A save based on an older snapshot is refused without losing your text. **Ask Copilot** opens
+  `/sf-spec-author SPEC-ID #sflowSpecStudio`: Copilot proposes, and you accept or reject its changes,
+  decide gaps, settle findings and publish. Publication and approval rules are unchanged.
+  **Use in a Story** attaches selected clauses, shows coverage, and splits reviewed revisions among
+  child specifications and Story slices; publishing a split starts no Story. Every operation is also
+  available through `spec author … --json` in the shell.
 - **Local Data & Reset** is under Workspaces. Neither reset mode is preselected. Forget-only
   requires `FORGET LOCAL`; physical workspace deletion requires `RESET LOCAL` and is available
   only from an empty VS Code window with no target workspace open.

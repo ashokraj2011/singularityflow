@@ -62,6 +62,8 @@ export class SpecStudioPanel implements vscode.Disposable {
   private opening = true;
   private running = false;
   private disposed = false;
+  private readonly edits = new Map<string, { text: string; sequence: number }>();
+  private pendingCreation: { key: string; operationId: string } | null = null;
   /** #sflowSpecStudio, bound to the draft open here while models are allowed. */
   private tool: { spec: string; dispose(): void } | null = null;
 
@@ -116,9 +118,20 @@ export class SpecStudioPanel implements vscode.Disposable {
     }),
     'spec.step': (message) => this.guard(() => this.step(enumField(message, 'step', model.STEP_IDS))),
     'spec.back': () => this.guard(() => this.back()),
-    'spec.cancel': () => this.guard(async () => { this.state.notice = 'Nothing was saved; the draft is unchanged.'; this.state.error = null; this.render(); }),
+    'spec.cancel': () => this.guard(async () => {
+      if (this.state.step === 'draft' && this.state.target.specId) this.edits.delete(this.state.target.specId);
+      this.state.notice = this.state.step === 'draft' ? 'Unsaved edits discarded. The saved draft is unchanged.' : 'Nothing was saved; the draft is unchanged.';
+      this.state.error = null; this.render();
+    }),
+    'spec.editing': (message) => this.rememberEdit(message),
+    'spec.copyEdits': () => this.copy(this.state.target.specId ? this.edits.get(this.state.target.specId)?.text ?? null : null),
     'spec.gap': (message) => this.guard(() => this.selectGap(stringField(message, 'gap'))),
     'spec.new': (message) => this.guard(() => this.create(message)),
+    'spec.creating': (message) => {
+      if (this.state.target.specId) return;
+      this.state.creation = { title: textField(message, 'title'), intent: textField(message, 'intent'),
+        areas: Array.isArray(message.areas) ? message.areas.filter((entry): entry is string => typeof entry === 'string') : [] };
+    },
     'spec.revise': () => this.guard(() => this.revise()),
     'spec.save': (message) => this.guard(() => this.save(message)),
     'spec.research': (message) => this.guard(() => this.draftWrite('Collecting research from the code…', (specId) => model.researchArgv(specId, {
@@ -348,13 +361,29 @@ export class SpecStudioPanel implements vscode.Disposable {
   private async create(message: InboundMessage): Promise<void> {
     const specId = textField(message, 'specId').trim();
     const title = textField(message, 'title').trim();
+    const intent = textField(message, 'intent').trim();
     const areas = Array.isArray(message.areas) ? message.areas.filter((entry): entry is string => typeof entry === 'string') : [];
-    if (!model.validSpecId(specId)) { this.state.error = { message: `'${specId}' is not a specification ID. Use SPEC- followed by uppercase letters, digits and single hyphens, for example SPEC-CHK-004.`, next: null }; return this.render(); }
+    this.state.creation = { title, intent, areas };
+    if (specId && !model.validSpecId(specId)) { this.state.error = { message: 'This specification ID is invalid. Start a new draft without an ID to generate one automatically.', next: null }; return this.render(); }
     if (!title) { this.state.error = { message: 'A new specification needs its title.', next: null }; return this.render(); }
-    this.retarget({ ...EMPTY, specId });
-    await this.write(`Starting ${specId}'s draft…`, model.newArgv(specId, { title, areas }, operationId()), () => `Started ${specId}'s draft from the library template.`);
-    this.state.step = 'draft';
+    const key = JSON.stringify({ specId, title, intent, areas });
+    if (this.pendingCreation?.key !== key) this.pendingCreation = { key, operationId: operationId() };
+    await this.write('Creating your specification…', model.newArgv(specId || null, { title, intent, areas }, this.pendingCreation.operationId), (result) => {
+      const created = (result as { specId?: unknown }).specId;
+      if (!model.validSpecId(created)) throw new Error('The CLI did not return a valid specification ID. Retry this creation to recover its result.');
+      this.retarget({ ...EMPTY, specId: created, step: 'draft' });
+      this.pendingCreation = null;
+      return 'Draft created. Write here or ask Copilot to help.';
+    });
     this.render();
+  }
+
+  private rememberEdit(message: InboundMessage): void {
+    const status = this.state.status;
+    if (!status || message.spec !== status.specId || typeof message.text !== 'string'
+      || typeof message.sequence !== 'number' || !Number.isInteger(message.sequence) || message.sequence < 1) return;
+    if (message.text === status.spec && message.sequence === status.sequence) this.edits.delete(status.specId);
+    else this.edits.set(status.specId, { text: message.text, sequence: message.sequence });
   }
 
   private async revise(): Promise<void> {
@@ -371,8 +400,9 @@ export class SpecStudioPanel implements vscode.Disposable {
     const sequence = typeof message.sequence === 'number' && Number.isInteger(message.sequence) ? message.sequence : null;
     if (!status || sequence === null || typeof message.text !== 'string') return;
     const text = message.text;
+    this.rememberEdit({ ...message, spec: status.specId });
     await this.withFile('spec.md', text, (file) => this.write(`Saving snapshot ${sequence + 1}…`, model.editArgv(status.specId, file, sequence, operationId()),
-      (result) => `Saved snapshot ${(result as { sequence?: number }).sequence ?? sequence + 1}.`));
+      (result) => { this.edits.delete(status.specId); return `Saved snapshot ${(result as { sequence?: number }).sequence ?? sequence + 1}.`; }));
   }
 
   private async openGap(message: InboundMessage): Promise<void> {
@@ -438,6 +468,10 @@ export class SpecStudioPanel implements vscode.Disposable {
   private async askCopilot(): Promise<void> {
     const status = this.state.status;
     if (!status || !this.modelAvailable()) return;
+    if (this.edits.has(status.specId)) {
+      this.state.error = { message: 'Save your writing in Write before asking Copilot to use it.', next: null };
+      return this.render();
+    }
     await vscode.commands.executeCommand('workbench.action.chat.open', { query: model.copilotPrompt(status.specId, Boolean(this.tool)), isPartialQuery: true });
     this.state.notice = 'Copilot Chat is open for this draft. Its proposals appear in the Copilot tab; only you accept them.';
     this.render();
@@ -478,6 +512,10 @@ export class SpecStudioPanel implements vscode.Disposable {
   private async publish(state: 'reviewed' | 'draft' | null): Promise<void> {
     const status = this.state.status;
     if (!status || !state) return;
+    if (this.edits.has(status.specId)) {
+      this.state.error = { message: 'Save or discard your unsaved writing in Write before publishing the saved specification.', next: null };
+      return this.render();
+    }
     const revision = model.nextRevision(this.state.library, status);
     if (!await collectReviewConfirmation(model.publishConfirmation(status, revision, state))) {
       this.state.notice = 'Nothing was published.'; this.state.error = null;
@@ -497,7 +535,9 @@ export class SpecStudioPanel implements vscode.Disposable {
       this.state.notice = 'Nothing was discarded.'; this.state.error = null;
       return this.render();
     }
-    await this.write(`Discarding ${status.specId}'s draft…`, model.discardArgv(status.specId), () => `Discarded ${status.specId}'s draft on this clone.`);
+    await this.write(`Discarding ${status.specId}'s draft…`, model.discardArgv(status.specId), () => {
+      this.edits.delete(status.specId); return `Discarded ${status.specId}'s draft on this clone.`;
+    });
   }
 
   private async copy(text: string | null): Promise<void> {
@@ -517,8 +557,10 @@ export class SpecStudioPanel implements vscode.Disposable {
 
   private render(): void {
     if (this.disposed) return;
+    this.state.workingDraft = this.state.target.specId ? this.edits.get(this.state.target.specId) : undefined;
     const token = nonce();
-    const title = this.state.target.specId ? `Spec Studio · ${this.state.target.specId}` : 'Spec Studio';
+    const name = this.state.status?.title ?? this.state.revision?.manifest.title ?? this.state.target.specId;
+    const title = name ? `Spec Studio · ${name}` : 'Spec Studio';
     this.panel.title = title;
     this.panel.webview.html = page(title, specStudioHtml(this.state), contentSecurityPolicy(this.panel.webview, token), token,
       `${SPEC_STUDIO_SCRIPT}${split.SPEC_STUDIO_SPLIT_SCRIPT}`, { styles: `${SPEC_STUDIO_STYLE}${split.SPEC_STUDIO_SPLIT_STYLE}` });
@@ -526,6 +568,7 @@ export class SpecStudioPanel implements vscode.Disposable {
 
   dispose(): void {
     this.disposed = true;
+    this.edits.clear();
     this.tool?.dispose();
     this.tool = null;
     for (const subscription of this.subscriptions.splice(0)) subscription.dispose();

@@ -1,7 +1,7 @@
 /**
- * The Spec Studio page (SPEC-SPA v1.3 §3): the library, or one specification in three columns.
- * Left: the quality gate, the governed records, the authoring loop's steps and the gap pipeline.
- * Middle: the active step's stage. Right: `spec.md` clause by clause. Below: findings, manifest and
+ * The Spec Studio page (SPEC-SPA v1.3 §3): a title-first library and a focused specification editor.
+ * Steps and a quality summary sit beside the active stage. The saved clause preview and technical
+ * records expand when needed. Below: findings, manifest and
  * what Copilot proposed (S4), which only the person's own clicks accept, reject or settle.
  * Every button posts a message; the host runs the `spec author` command and renders again.
  */
@@ -34,6 +34,9 @@ export interface SpecStudioPageState {
   busy: string | null;
   /** Copilot Chat can draft here (models allowed), and whether #sflowSpecStudio is bound to this draft. */
   copilot?: { available: boolean; tool: boolean } | null;
+  creation?: { title: string; intent: string; areas: string[] };
+  /** Unsaved text belongs to this panel and the snapshot it was edited from. */
+  workingDraft?: { text: string; sequence: number };
 }
 
 const who = (value: { name: string | null } | null | undefined): string => value?.name ?? 'someone';
@@ -46,7 +49,7 @@ const statusPill = (status: string): string => `<span class="pill ${status === '
 function controls(step: SpecStudioStep, { cancel = true } = {}): string {
   return `<div class="ss-controls">
     <button type="button" class="secondary" data-message="spec.back">${icon('up')}Back</button>
-    ${cancel ? '<button type="button" class="secondary" data-message="spec.cancel" data-cancel>Cancel</button>' : ''}
+    ${cancel ? `<button type="button" class="secondary" data-message="spec.cancel" data-cancel>${step === 'draft' ? 'Discard unsaved changes' : 'Cancel'}</button>` : ''}
     <span class="muted">${escape(SPEC_STUDIO_STEPS.find((entry) => entry.id === step)?.detail ?? '')}</span></div>`;
 }
 
@@ -54,6 +57,7 @@ function notices(state: SpecStudioPageState): string {
   return [
     state.busy ? `<div class="notice warning" role="status" data-busy>${icon('wait')}${escape(state.busy)}</div>` : '',
     state.notice ? `<div class="notice ok" role="status" data-notice>${icon('ok')}${escape(state.notice)}</div>` : '',
+    state.workingDraft && state.step !== 'draft' ? '<div class="notice warning" role="status">Unsaved writing is kept in this panel. <button type="button" class="secondary" data-message="spec.step" data-step="draft">Return to Write</button></div>' : '',
     state.error ? `<div class="notice error" role="alert" data-error>${icon('blocked')}<span>${escape(state.error.message)}</span>${state.error.next
       ? `<span class="ss-next">Next: <code>${escape(state.error.next)}</code>
         <button type="button" class="secondary compact-action" data-message="spec.copy" data-text="${escape(state.error.next)}">Copy</button></span>` : ''}</div>` : ''
@@ -66,28 +70,32 @@ function libraryHtml(state: SpecStudioPageState): string {
   const library = state.library;
   const drafts = library?.drafts ?? [];
   const specs = library?.specs ?? [];
-  const where = !library ? 'The library has not been read yet.'
-    : library.status === 'absent' ? 'Nothing has been published to the state branch yet.'
-      : `State branch at ${(library.commit ?? '').slice(0, 12)}.`;
+  const creation = state.creation;
+  const card = (specId: string, title: string, detail: string, revision?: number): string => `<article class="ss-library-card" data-library-item data-search="${escape(`${title} ${specId}`.toLowerCase())}">
+    <div><h3>${escape(title || 'Untitled specification')}</h3><p class="muted">${detail}</p><code class="ss-id">${escape(specId)}</code></div>
+    <button type="button" class="secondary compact-action" data-message="spec.open" data-spec="${escape(specId)}"${revision ? ` data-revision="${revision}"` : ''}>Open</button></article>`;
   return `<section class="ss-library" aria-label="Specification library">
     <div class="ss-columns-2">
-      <div><h2>Drafts on this clone</h2>${drafts.length ? `<table><thead><tr><th>Specification</th><th>Title</th><th>Snapshot</th><th></th></tr></thead><tbody>${drafts.map((draft) => `<tr>
-        <td><code>${escape(draft.specId)}</code></td><td>${escape(draft.title ?? '')}</td>
-        <td>${draft.sequence}${draft.basedOn ? ` · based on @${draft.basedOn.revision}` : ''}</td>
-        <td><button type="button" class="compact-action" data-message="spec.open" data-spec="${escape(draft.specId)}">Open</button></td></tr>`).join('')}</tbody></table>`
-        : '<p class="muted">No draft on this clone.</p>'}
-      <h2>Published specifications</h2><p class="muted">${escape(where)}</p>${specs.length ? `<table><thead><tr><th>Specification</th><th>Latest</th><th>Title</th><th></th></tr></thead><tbody>${specs.map((spec) => `<tr>
-        <td><code>${escape(spec.specId)}</code></td><td>@${spec.latest.revision} ${statusPill(spec.latest.reviewState)}</td><td>${escape(spec.latest.title)}</td>
-        <td><button type="button" class="compact-action" data-message="spec.open" data-spec="${escape(spec.specId)}" data-revision="${spec.latest.revision}">Open</button></td></tr>`).join('')}</tbody></table>` : ''}</div>
-      <form class="ss-form" data-form="spec.new" aria-label="New specification">
-        <h2>New specification</h2>
-        <label class="field"><span>Specification ID</span><input name="specId" required pattern="SPEC-[A-Z0-9]+(-[A-Z0-9]+)*" placeholder="SPEC-CHK-004" autocomplete="off" spellcheck="false"></label>
-        <label class="field"><span>Title</span><input name="title" required placeholder="Order discount threshold"></label>
-        <label class="field"><span>Area of code (optional)</span><input name="areas" placeholder="src/pricing" autocomplete="off" spellcheck="false">
-          <small class="muted">Paths research starts from; separate several with commas.</small></label>
-        <p class="muted">The draft starts from the library template: Outcome, Actors, User scenarios, Scope, Requirements, Acceptance, and Decisions and open questions.</p>
-        <div class="ss-controls"><button type="submit">${icon('add')}Start the draft</button><button type="reset" class="secondary" data-cancel>Cancel</button></div>
+      <form class="ss-form ss-create" data-form="spec.new" aria-label="New specification">
+        <p class="eyebrow">Start with your idea</p><h2>Create a specification</h2>
+        <label class="field"><span>Title</span><input name="title" required maxlength="240" placeholder="What are you building?" value="${escape(creation?.title ?? '')}"></label>
+        <label class="field"><span>What should it achieve? <small class="muted">Optional</small></span><textarea name="intent" rows="5" placeholder="Describe the outcome, who it helps, and what success looks like.">${escape(creation?.intent ?? '')}</textarea></label>
+        <details class="ss-details"><summary>Code scope <span class="muted">Optional</span></summary>
+          <label class="field"><span>Paths to research</span><input name="areas" placeholder="src/pricing, src/checkout" value="${escape(creation?.areas.join(', ') ?? '')}" autocomplete="off" spellcheck="false">
+          <small class="muted">Separate paths with commas. You can research other paths later.</small></label></details>
+        <div class="ss-controls"><button type="submit"${state.busy ? ' disabled' : ''}>${icon('add')}Create draft</button></div>
+        <p class="muted ss-auto-id">A unique specification ID is generated automatically. Drafts stay on this computer until you publish.</p>
       </form>
+      <div class="ss-library-list"><h2>Your specifications</h2>
+        <label class="field ss-search"><span>Find a specification</span><input type="search" data-library-search placeholder="Search by title or ID" aria-describedby="ss-search-count"></label>
+        <p id="ss-search-count" class="muted" data-search-count role="status">${drafts.length + specs.length} entries</p>
+        <section data-library-group><h3 class="ss-group-heading">Drafts <span class="pill">${drafts.length}</span></h3>
+          ${drafts.length ? drafts.map((draft) => card(draft.specId, draft.title ?? '', `Saved draft${draft.basedOn ? ` · based on revision ${draft.basedOn.revision}` : ''}`)).join('') : '<p class="muted">Your new drafts will appear here.</p>'}</section>
+        <section data-library-group><h3 class="ss-group-heading">Published <span class="pill">${specs.length}</span></h3>
+          ${specs.length ? specs.map((spec) => card(spec.specId, spec.latest.title, `Revision ${spec.latest.revision} · ${escape(spec.latest.reviewState)}`, spec.latest.revision)).join('') : '<p class="muted">Publish a revision to make it available for Stories.</p>'}</section>
+        <p class="muted" data-search-empty hidden>No specifications match your search.</p>
+        ${library ? `<details class="ss-details"><summary>Library details</summary><p class="muted">${library.status === 'absent' ? 'No published library on the state branch yet.' : `State branch: ${escape((library.commit ?? '').slice(0, 12))}`}</p></details>` : ''}
+      </div>
     </div></section>`;
 }
 
@@ -110,11 +118,12 @@ function leftHtml(state: SpecStudioPageState): string {
       <span class="ss-step-number">${index + 1}</span><span><strong>${escape(step.label)}</strong><small>${escape(states[step.id].note || step.detail)}</small></span></button></li>`).join('');
   const pipeline = status ? gapPipeline(status.gaps).map((gap) => `<li><button type="button" class="ss-gap-row${state.selectedGap === gap.id ? ' selected' : ''}" data-message="spec.gap" data-gap="${escape(gap.id)}">
       <span>${escape(gap.id)} ${statusPill(gap.status)}</span><small>${escape(kindLabel(gap.kind))}: ${escape(gap.question)}</small></button></li>`).join('') : '';
-  return `<aside class="ss-left" aria-label="Quality gate, records and steps">
-    <h2>Quality gate</h2>${gate}
-    <h2>Governed records</h2><ul class="ss-records">${records}</ul>
-    <h2>Authoring loop</h2><ol class="ss-steps">${steps}</ol>
-    ${status ? `<h2>Gap pipeline</h2>${pipeline ? `<ul class="ss-pipeline" data-pipeline>${pipeline}</ul>` : '<p class="muted">No gaps yet.</p>'}` : ''}
+  return `<aside class="ss-left" aria-label="Specification steps and quality">
+    <h2>Steps</h2><ol class="ss-steps">${steps}</ol>
+    <div class="ss-quality-summary"><h2>Quality</h2>${status ? `<p>${status.counts.d.passed}/${status.counts.d.total} checks passed</p><p>${status.counts.a.status === 'not-run' ? 'Assisted review not run' : `${status.counts.a.pending} review findings pending`}</p><p>${status.counts.h.open} open decisions</p>` : ''}
+      <details class="ss-details"><summary>Check details</summary>${gate}</details></div>
+    ${status ? `<details class="ss-details"${state.step === 'gaps' ? ' open' : ''}><summary>Open questions (${status.counts.h.open})</summary>${pipeline ? `<ul class="ss-pipeline" data-pipeline>${pipeline}</ul>` : '<p class="muted">No gaps yet.</p>'}</details>` : ''}
+    <details class="ss-details"><summary>Draft records</summary><ul class="ss-records">${records}</ul></details>
   </aside>`;
 }
 
@@ -159,12 +168,12 @@ function standing(item: SpecResearchItem): string {
 
 function elicitStage(status: SpecStatus): string {
   const outcome = sectionText(status.spec, 'Outcome');
-  return `<h2>${icon('edit')}Elicit</h2>
+  return `<h2>${icon('edit')}Overview</h2>
     <dl class="ss-facts"><dt>Title</dt><dd>${escape(status.title)}</dd>
       <dt>Area of code</dt><dd>${status.areas.length ? status.areas.map((area) => `<code>${escape(area || '.')}</code>`).join(' ') : '<span class="muted">none named; research names its own paths</span>'}</dd>
       <dt>Intent (Outcome)</dt><dd>${outcome ? `<pre class="ss-pre">${escape(outcome)}</pre>` : '<span class="muted">The specification has no Outcome section yet.</span>'}</dd>
       <dt>Based on</dt><dd>${status.basedOn ? `@${status.basedOn.revision} (${escape(status.basedOn.reviewState)})` : 'the library template; never published'}</dd></dl>
-    <p class="muted">Change the prose in Draft. The title and area are set when the draft starts.</p>
+    <p class="muted">Change the prose in Write. The title and code scope are set when the draft starts.</p>
     ${controls('elicit', { cancel: false })}`;
 }
 
@@ -186,14 +195,20 @@ function researchStage(status: SpecStatus): string {
     ${controls('research')}`;
 }
 
-function draftStage(status: SpecStatus): string {
-  return `<h2>${icon('document')}Draft</h2>
+function draftStage(status: SpecStatus, workingDraft?: SpecStudioPageState['workingDraft']): string {
+  const content = workingDraft?.text ?? status.spec;
+  const sequence = workingDraft?.sequence ?? status.sequence;
+  return `<h2>${icon('document')}Write your specification</h2>
+    <p class="muted">Describe the behavior, boundaries and evidence that will prove it works.</p>
+    ${workingDraft && sequence !== status.sequence ? '<div class="notice warning" role="alert">A newer snapshot was saved. Your unsaved text is preserved. Copy it, discard unsaved changes to load the latest snapshot, then merge your edits with the saved preview. <button type="button" class="secondary" data-message="spec.copyEdits">Copy unsaved text</button></div>' : ''}
     <form class="ss-form" data-form="spec.save">
-      <input type="hidden" name="sequence" value="${status.sequence}">
-      <label class="field"><span>spec.md, snapshot ${status.sequence}</span>
-        <textarea name="text" class="ss-editor" rows="24" spellcheck="true">${escape(status.spec)}</textarea>
-        <small class="muted">Write each clause with its literal anchor, for example [${escape(status.specId)}:REQ-002]. Saving makes the next snapshot; a save from an older snapshot is refused.</small></label>
-      <div class="ss-controls"><button type="submit">${icon('ok')}Save snapshot ${status.sequence + 1}</button></div></form>
+      <input type="hidden" name="sequence" value="${sequence}">
+      <div class="ss-editor-meta"><span data-edit-status role="status">${workingDraft ? 'Unsaved changes' : 'All changes saved'}</span><span data-word-count>${content.trim().split(/\s+/u).filter(Boolean).length} words</span></div>
+      <label class="field"><span class="sr-only">Specification text</span>
+        <textarea name="text" class="ss-editor" rows="24" spellcheck="true">${escape(content)}</textarea>
+        </label>
+      <details class="ss-details"><summary>Writing requirements and acceptance criteria</summary><p class="muted">Use the section headings in the draft. Give each requirement a stable reference, for example [${escape(status.specId)}:REQ-002], and an acceptance criterion that proves it. Copilot can help structure the draft. Saving keeps a new snapshot.</p></details>
+      <div class="ss-controls"><button type="submit">${icon('ok')}Save draft</button></div></form>
     ${controls('draft')}`;
 }
 
@@ -257,10 +272,10 @@ function checkStage(status: SpecStatus): string {
   const rules = status.rules.map((rule) => `<li class="${rule.passed ? 'ok' : 'bad'}">${icon(rule.passed ? 'ok' : 'blocked')}<span><strong>${escape(rule.label)}</strong>
     ${rule.findings.map((finding) => `<small>${escape(finding.message)}</small>`).join('')}</span></li>`).join('');
   const open = status.gaps.filter((gap) => gap.status === 'open');
-  return `<h2>${icon('gate')}Check</h2>
-    <h3>D · deterministic</h3><ul class="ss-rules" data-rules>${rules}</ul>
-    <h3>A · assisted</h3>${assistedHtml(status)}
-    <h3>H · human</h3>
+  return `<h2>${icon('gate')}Check quality</h2>
+    <h3>Automated checks</h3><ul class="ss-rules" data-rules>${rules}</ul>
+    <h3>Assisted review</h3>${assistedHtml(status)}
+    <h3>Your decisions</h3>
     ${open.length ? `<p>Open gaps: ${open.map((gap) => `<button type="button" class="ss-link" data-message="spec.gap" data-gap="${escape(gap.id)}">${escape(gap.id)}</button>`).join(' ')}</p>` : '<p class="muted">No open gap.</p>'}
     <form class="ss-form" data-form="spec.settle"><table class="ss-table"><thead><tr><th>Checklist article</th><th>Decision</th></tr></thead><tbody>${status.articles.map((entry) => `<tr>
       <td>${escape(entry.article.replaceAll('-', ' '))}</td><td><select name="article:${escape(entry.article)}" aria-label="${escape(entry.article)}"><option value="">${entry.decision ? `${escape(entry.decision)} (recorded)` : 'No decision'}</option>${CHECKLIST_DECISIONS.map((decision) => `<option value="${decision}">${escape(decision)}</option>`).join('')}</select></td></tr>`).join('')}</tbody></table>
@@ -274,7 +289,7 @@ function publishStage(state: SpecStudioPageState, status: SpecStatus): string {
   const name = `${status.specId}@${revision}`;
   return `<h2>${icon('archive')}Publish</h2>
     <p>The next revision is <strong data-next-revision>${escape(name)}</strong>: spec.md, gaps.json, research.json and quality.json, immutable on the state branch.</p>
-    ${status.reviewReady ? '<div class="notice ok">Every D rule passes, no A finding is pending and nothing in H is open.</div>'
+    ${status.reviewReady ? '<div class="notice ok">All automated checks pass, review findings are settled, and no decisions are open.</div>'
       : `<div class="notice warning"><p>Not ready to publish as reviewed:</p><ul>${status.blocking.map((finding) => `<li>${escape(finding.part)} ${escape(finding.message)}</li>`).join('')}</ul></div>`}
     <div class="ss-controls">
       <button type="button" data-message="spec.publish" data-state="reviewed"${status.reviewReady ? '' : ' disabled'}>${icon('approval')}Publish ${escape(name)} as reviewed</button>
@@ -291,7 +306,7 @@ function attachStage(state: SpecStudioPageState): string {
     <input name="revision" inputmode="numeric" pattern="[1-9][0-9]*" value="${revision?.revision ?? ''}" placeholder="highest reviewed"></label>
     <button type="submit" class="secondary">Read it</button></form>`;
   if (!revision) {
-    return `<h2>${icon('story')}Attach or split</h2>${chooser}<p class="muted">A Story attaches a reviewed revision, and a split divides one. Publish one, or read a revision by its number.</p>${controls('attach', { cancel: false })}`;
+    return `<h2>${icon('story')}Use in a Story</h2>${chooser}<p class="muted">A Story attaches a reviewed revision, and a split divides one. Publish one, or read a revision by its number.</p>${controls('attach', { cancel: false })}`;
   }
   const clauses = specClauses(revision.spec, revision.specId);
   const slice = state.target.specId === revision.specId ? state.target.clauses : null;
@@ -306,7 +321,7 @@ function attachStage(state: SpecStudioPageState): string {
         <small class="muted">split ${child.split} of @${child.fromRevision}</small> <span class="pill ${child.status === 'parent-moved' ? 'wait' : ''}">${escape(child.status === 'parent-moved' ? 'parent moved' : child.status)}</span>
         ${child.changed.length ? `<small>${escape(child.changed.map((clause) => shortClause(revision.specId, clause)).join(', '))} changed since @${child.fromRevision}</small>` : ''}</li>`).join('')}</ul>` : ''}
       ${state.coverage.unreadable.length ? `<p class="muted">Unreadable records, not counted: ${escape(state.coverage.unreadable.join(', '))}</p>` : ''}` : '';
-  return `<h2>${icon('story')}Attach or split</h2>${chooser}
+  return `<h2>${icon('story')}Use in a Story</h2>${chooser}
     <p><strong>${escape(revision.specId)}@${revision.revision}</strong> ${statusPill(String(revision.manifest.reviewState ?? ''))} ${escape(String(revision.manifest.title ?? ''))}</p>
     ${reviewed ? '' : '<div class="notice warning">This revision is a draft revision; a Story attaches only a reviewed one.</div>'}
     <form class="ss-form" data-form="spec.slice" data-spec="${escape(revision.specId)}" data-revision="${revision.revision}" data-reviewed="${reviewed}" data-all="${escape(clauses.map((clause) => clause.id).join(' '))}">
@@ -341,7 +356,7 @@ function stageHtml(state: SpecStudioPageState): string {
   else if (!status) body = noDraftStage(state);
   else if (state.step === 'elicit') body = elicitStage(status);
   else if (state.step === 'research') body = researchStage(status);
-  else if (state.step === 'draft') body = draftStage(status);
+  else if (state.step === 'draft') body = draftStage(status, state.workingDraft);
   else if (state.step === 'gaps') body = gapsStage(state, status);
   else if (state.step === 'check') body = checkStage(status);
   else body = publishStage(state, status);
@@ -405,31 +420,54 @@ function tabsHtml(state: SpecStudioPageState): string {
       <dt>Manifest</dt><dd><code>${escape(revision.manifestSha256)}</code></dd><dt>State commit</dt><dd><code>${escape(revision.commit)}</code></dd>
       <dt>Published</dt><dd>${escape(when(String(revision.manifest.recordedAt ?? '')))} by ${escape(who(revision.manifest.publishedBy))}</dd></dl>`
     : status?.basedOn ? `<p>Based on @${status.basedOn.revision}: <code>${escape(status.basedOn.manifestSha256)}</code></p>` : '<p class="muted">Nothing published yet.</p>';
-  return `<section class="ss-tabs" aria-label="Findings and manifest">
+  return `<details class="ss-details ss-review-details"${status && (['check', 'publish'].includes(state.step) || status.proposals.length || status.findings.some((finding) => finding.status === 'pending')) ? ' open' : ''}><summary>Review and publication details${status?.proposals.length ? ` · ${status.proposals.length} Copilot proposals` : ''}${status?.blocking.length ? ` · ${status.blocking.length} quality findings` : ''}</summary><section class="ss-tabs" aria-label="Findings and manifest">
     <div role="tablist"><button type="button" role="tab" aria-selected="true" data-tab="findings">Quality findings${status ? ` (${status.blocking.length})` : ''}</button>
       <button type="button" role="tab" aria-selected="false" data-tab="manifest">State-branch manifest</button>
       ${status ? `<button type="button" role="tab" aria-selected="false" data-tab="copilot">Copilot (${status.proposals.length})</button>` : ''}</div>
     <div role="tabpanel" data-panel="findings">${findings}</div><div role="tabpanel" data-panel="manifest" hidden>${manifest}</div>
-    ${status ? `<div role="tabpanel" data-panel="copilot" hidden>${copilotHtml(state, status)}</div>` : ''}</section>`;
+    ${status ? `<div role="tabpanel" data-panel="copilot" hidden>${copilotHtml(state, status)}</div>` : ''}</section></details>`;
 }
 
 export function specStudioHtml(state: SpecStudioPageState): string {
   const specId = state.status?.specId ?? state.target.specId;
-  const header = `<header class="inbox-header ss-header"><div>${brandLockup()}<p class="eyebrow">Specify</p>
-      <h1>${icon('document', { size: 24 })}Spec Studio${specId ? ` · ${escape(specId)}` : ''}</h1>
-      <p class="meta">${state.status ? `${escape(state.status.title)} · draft snapshot ${state.status.sequence}${state.status.basedOn ? ` · based on @${state.status.basedOn.revision}` : ''}`
+  const header = `<header class="inbox-header ss-header"><div>${brandLockup()}<p class="eyebrow">${specId ? 'Spec Studio' : 'From idea to specification'}</p>
+      <h1>${icon('document', { size: 24 })}${escape(state.status?.title ?? state.revision?.manifest.title ?? (specId || 'Spec Studio'))}</h1>
+      <p class="meta">${state.status ? `${escape(specId ?? '')} · Draft${state.status.basedOn ? ` · based on @${state.status.basedOn.revision}` : ''}`
         : specId ? 'Published revision' : 'Write, research, question and review a specification before any Story exists.'}</p></div>
-    <div class="header-actions">${specId ? `<button type="button" class="secondary" data-message="spec.home">${icon('book')}Library</button>` : ''}
+    <div class="header-actions">${state.status && state.copilot?.available ? '<button type="button" data-message="spec.askCopilot">Ask Copilot</button>' : ''}${specId ? `<button type="button" class="secondary" data-message="spec.home">${icon('book')}Library</button>` : ''}
       <button type="button" class="secondary" data-message="spec.refresh"${state.busy ? ' disabled' : ''}>${icon('refresh')}Refresh</button></div></header>`;
   if (!specId) return `<div class="ss-root" data-view="library">${header}${notices(state)}${libraryHtml(state)}</div>`;
   return `<div class="ss-root" data-view="spec" data-spec="${escape(specId)}">${header}${notices(state)}
-    <div class="ss-grid">${leftHtml(state)}${stageHtml(state)}${rightHtml(state)}</div>${tabsHtml(state)}</div>`;
+    <div class="ss-grid">${leftHtml(state)}<div class="ss-workspace">${stageHtml(state)}<details class="ss-preview ss-details"><summary>Preview saved specification</summary>${rightHtml(state)}</details></div></div>${tabsHtml(state)}</div>`;
 }
 
 export const SPEC_STUDIO_STYLE = `
 body:has(.ss-root) { max-width:none; }
+.ss-root { max-width:96rem; margin:0 auto; }
+.ss-workspace { min-width:0; display:grid; gap:1rem; }
+.ss-details { margin:.8rem 0; }
+.ss-details > summary { cursor:pointer; color:var(--sf-dim); padding:.4rem 0; }
+.ss-details[open] > summary { margin-bottom:.6rem; }
+.ss-quality-summary { margin-top:1.4rem; border-top:var(--sf-border); }
+.ss-quality-summary p { margin:.45rem 0; font-size:.9em; }
+.ss-library .ss-columns-2 { align-items:start; gap:2.5rem; }
+.ss-create { margin:0; padding:1.1rem; background:var(--vscode-editor-background); border:var(--sf-border); border-radius:var(--sf-radius); }
+.ss-create h2, .ss-library-list h2 { margin:0 0 .6rem; }
+.ss-create .field { display:grid; gap:.45rem; }
+.ss-create .field > span { display:flex; align-items:baseline; gap:.4rem; }
+.ss-library-card { display:flex; align-items:center; justify-content:space-between; gap:1rem; padding:1rem 0; border-bottom:var(--sf-border); }
+.ss-library-card[hidden], [data-library-group][hidden] { display:none; }
+.ss-library-card h3 { margin:0; font-size:1rem; }
+.ss-library-card p { margin:.3rem 0; }
+.ss-id { font-size:.8em; color:var(--sf-dim); overflow-wrap:anywhere; }
+.ss-group-heading { margin:1.5rem 0 .25rem; font-size:.9rem; display:flex; align-items:center; gap:.5rem; }
+.ss-search { display:grid; gap:.45rem; }
+.ss-search input { padding:.65rem; width:100%; background:var(--vscode-input-background); color:var(--vscode-input-foreground); border:var(--sf-border); border-radius:var(--sf-radius); }
+.ss-editor-meta { display:flex; justify-content:space-between; gap:1rem; color:var(--sf-dim); font-size:.85em; }
+.ss-auto-id { font-size:.85em; line-height:1.5; }
+.sr-only { position:absolute; width:1px; height:1px; overflow:hidden; clip-path:inset(50%); }
 .ss-header { display:flex; flex-wrap:wrap; justify-content:space-between; gap:1rem; align-items:flex-end; }
-.ss-grid { display:grid; grid-template-columns:minmax(14rem,18rem) minmax(0,1fr) minmax(16rem,28rem); gap:1rem; margin:1rem 0; align-items:start; }
+.ss-grid { display:grid; grid-template-columns:minmax(13rem,16rem) minmax(0,1fr); gap:1rem; margin:1rem 0; align-items:start; }
 @media (max-width: 1100px) { .ss-grid { grid-template-columns:minmax(13rem,16rem) minmax(0,1fr); } .ss-right { grid-column:1 / -1; } }
 @media (max-width: 720px) { .ss-grid { grid-template-columns:minmax(0,1fr); } }
 .ss-left, .ss-stage, .ss-right, .ss-tabs, .ss-library { padding:.9rem; border:var(--sf-border); border-radius:var(--sf-radius); background:var(--sf-surface); min-width:0; }
@@ -457,7 +495,7 @@ body:has(.ss-root) { max-width:none; }
 .ss-form fieldset { display:grid; gap:.3rem; border:var(--sf-border); border-radius:var(--sf-radius); padding:.6rem; }
 .ss-form input:not([type=checkbox]), .ss-form textarea, .ss-form select { width:100%; padding:.4rem .5rem; color:var(--vscode-input-foreground); background:var(--vscode-input-background);
   border:1px solid var(--vscode-input-border,var(--sf-border-color)); border-radius:3px; font:inherit; }
-.ss-editor { font-family:var(--vscode-editor-font-family); font-size:var(--vscode-editor-font-size); min-height:24rem; resize:vertical; }
+.ss-form textarea.ss-editor { line-height:1.65; padding:1rem!important; tab-size:2; font-family:var(--vscode-editor-font-family); font-size:var(--vscode-editor-font-size); min-height:24rem; resize:vertical; }
 .ss-check { display:flex; gap:.4rem; align-items:baseline; }
 .ss-check code { white-space:nowrap; }
 .ss-form.ss-inline button { justify-self:start; }
@@ -488,7 +526,7 @@ body:has(.ss-root) { max-width:none; }
 .ss-gap-head h3 { margin:0; display:flex; gap:.4rem; align-items:center; }
 .ss-evidence { padding-left:1.1rem; }
 .ss-next { display:inline-flex; flex-wrap:wrap; gap:.4rem; align-items:center; margin-left:.4rem; }
-.ss-columns-2 { display:grid; grid-template-columns:minmax(0,1.4fr) minmax(16rem,1fr); gap:1.5rem; }
+.ss-columns-2 { display:grid; grid-template-columns:minmax(18rem,1fr) minmax(22rem,1.2fr); gap:1.5rem; }
 @media (max-width: 900px) { .ss-columns-2 { grid-template-columns:minmax(0,1fr); } }
 .ss-tabs [role=tablist] { display:flex; gap:.4rem; margin-bottom:.6rem; }
 .ss-proposals { list-style:none; padding:0; margin:0 0 .6rem; display:grid; gap:.6rem; }
@@ -518,7 +556,7 @@ export const SPEC_STUDIO_SCRIPT = `
   }
   const split = (text) => String(text || '').split(/[,\\n]/).map((entry) => entry.trim()).filter(Boolean);
   const transforms = {
-    'spec.new': (value) => ({ specId: value.specId.trim(), title: value.title.trim(), areas: split(value.areas) }),
+    'spec.new': (value) => ({ title: value.title.trim(), intent: value.intent.trim(), areas: split(value.areas) }),
     'spec.research': (value) => ({ paths: split(value.paths), refresh: value.refresh === true }),
     'spec.save': (value) => ({ text: value.text, sequence: Number(value.sequence) }),
     'spec.openGap': (value) => {
@@ -600,6 +638,30 @@ export const SPEC_STUDIO_SCRIPT = `
   });
   root.addEventListener('reset', () => { setTimeout(() => { syncDecide(); for (const form of root.querySelectorAll('form[data-form="spec.slice"]')) syncSlice(form); }, 0); });
   root.addEventListener('input', (event) => {
+    const creation = event.target.closest('form[data-form="spec.new"]');
+    if (creation) post(Object.assign({ type: 'spec.creating' }, transforms['spec.new'](fields(creation))));
+    const editor = event.target.closest('form[data-form="spec.save"]');
+    if (editor) {
+      const value = fields(editor);
+      const status = editor.querySelector('[data-edit-status]');
+      if (status) status.textContent = 'Unsaved changes';
+      const words = editor.querySelector('[data-word-count]');
+      if (words) words.textContent = value.text.trim().split(/\\s+/).filter(Boolean).length + ' words';
+      post({ type: 'spec.editing', spec: root.dataset.spec, sequence: Number(value.sequence), text: value.text });
+    }
+    if (event.target.matches('[data-library-search]')) {
+      const query = event.target.value.trim().toLowerCase();
+      let count = 0;
+      for (const card of root.querySelectorAll('[data-library-item]')) {
+        card.hidden = !card.dataset.search.includes(query);
+        if (!card.hidden) count += 1;
+      }
+      for (const group of root.querySelectorAll('[data-library-group]')) {
+        group.hidden = Boolean(query) && !Array.from(group.querySelectorAll('[data-library-item]')).some((card) => !card.hidden);
+      }
+      root.querySelector('[data-search-count]').textContent = count + (count === 1 ? ' entry' : ' entries');
+      root.querySelector('[data-search-empty]').hidden = count !== 0;
+    }
     syncDecide();
     const slice = event.target.closest('form[data-form="spec.slice"]');
     if (slice) syncSlice(slice);

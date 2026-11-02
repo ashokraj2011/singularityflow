@@ -26,12 +26,12 @@ const text = (value) => String(value ?? '').trim();
 const who = (actor) => (actor ? { name: actor.name ?? null, email: actor.email ?? null } : null);
 
 /** The library template: every required section, one literal anchor per clause kind it starts with. */
-export function specTemplate(specId, title) {
+export function specTemplate(specId, title, intent = '') {
   return `# ${title}
 
 ## Outcome
 
-TODO: what is true for the people this serves once it is delivered.
+${text(intent) || 'TODO: what is true for the people this serves once it is delivered.'}
 
 ## Actors
 

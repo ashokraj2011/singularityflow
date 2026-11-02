@@ -104,6 +104,14 @@ function sf(cwd, args, { env = {}, fail = false } = {}) {
 const json = (cwd, args, options) => JSON.parse(sf(cwd, [...args, '--json'], options).stdout);
 const refused = (cwd, args, options = {}) => JSON.parse(sf(cwd, [...args, '--json'], { ...options, fail: true }).stdout).error;
 
+function assertCrash(child, message) {
+  assert.equal(child.error, undefined, child.error?.message);
+  if (process.platform === 'win32') {
+    assert.equal(child.status, 1, message);
+    assert.equal(child.signal, null, 'Windows TerminateProcess does not return a POSIX signal');
+  } else assert.equal(child.signal, 'SIGKILL', message);
+}
+
 async function repository(t) {
   const directory = await mkdtemp(path.join(os.tmpdir(), 'sflow-spec-library-'));
   t.after(() => rm(directory, { recursive: true, force: true, maxRetries: 6, retryDelay: 100 }));
@@ -197,8 +205,13 @@ test('a save is whole or absent after a crash, a retried save is the same snapsh
     cwd: root, encoding: 'utf8', timeout: childTimeout(60_000),
     env: { ...process.env, NODE_ENV: 'test', SINGULARITY_FLOW_NO_MODEL: '1', SINGULARITY_FLOW_TEST_CRASH_AT: 'spec-draft-publish' }
   });
-  assert.equal(crashed.signal, 'SIGKILL', 'the save died between its temporary file and its link');
+  assertCrash(crashed, 'the save died between its temporary file and its link');
   const store = path.join(root, '.git', 'singularity-flow', 'spec-drafts', SPEC);
+  const temporary = (await readdir(store)).filter((name) => name.endsWith('.tmp'));
+  assert.equal(temporary.length, 1, 'abrupt termination leaves the synced, unpublished file');
+  const pending = JSON.parse(await readFile(path.join(store, temporary[0]), 'utf8'));
+  assert.equal(pending.sequence, 2);
+  assert.equal(pending.draft.spec, finishedSpec(), 'the process reached the requested crash boundary');
   assert.deepEqual((await readdir(store)).filter((name) => !name.startsWith('.')), ['000001.json'], 'only the complete first snapshot is visible');
   assert.equal(json(root, ['spec', 'author', 'status', SPEC]).sequence, 1);
 
@@ -344,7 +357,7 @@ test('two clones: the same specification conflicts, different ones both land, a 
   const command = ['spec', 'author', 'publish', SPEC, '--reviewed', '--operation-id', 'publish-second'];
   const crashed = spawnSync(process.execPath, [bin, ...command], { cwd: root, encoding: 'utf8', timeout: childTimeout(60_000),
     env: { ...process.env, NODE_ENV: 'test', SINGULARITY_FLOW_NO_MODEL: '1', SINGULARITY_FLOW_TEST_CRASH_AT: 'spec-library-published' } });
-  assert.equal(crashed.signal, 'SIGKILL');
+  assertCrash(crashed, 'the process died after publication, before recording its acknowledgement');
   const retried = json(root, command);
   assert.deepEqual([retried.revision, retried.replayed], [2, true], 'the retry finds its own revision');
   assert.deepEqual(json(root, ['spec', 'author', 'list']).specs.find((entry) => entry.specId === SPEC).revisions, [1, 2]);
@@ -378,4 +391,25 @@ test('every linked worktree of the clone shares its specification drafts (v1.2 A
   const listed = json(linked, ['spec', 'author', 'list']);
   assert.deepEqual(listed.drafts.map((entry) => entry.specId), [SPEC]);
   assert.equal(await readFile(path.join(root, '.git', 'singularity-flow', 'spec-drafts', SPEC, '000001.json'), 'utf8').then(() => true), true);
+});
+
+test('new specifications receive retry-stable IDs and seed their outcome without allocating a network counter', async (t) => {
+  const { root } = await repository(t);
+  const request = ['spec', 'author', 'new', '--title', 'Checkout reliability', '--intent', 'Shoppers can complete an order.', '--operation-id', 'auto-create-1'];
+  const first = json(root, request);
+  assert.match(first.specId, /^SPEC-[A-F0-9]{24}$/u);
+  assert.equal(first.sequence, 1);
+  const draft = json(root, ['spec', 'author', 'status', first.specId]);
+  assert.match(draft.spec, /## Outcome\n\nShoppers can complete an order\./u);
+  assert.ok(draft.spec.includes(`[${first.specId}:REQ-001]`));
+  const again = json(root, request);
+  assert.equal(again.specId, first.specId);
+  assert.equal(again.replayed, true);
+  assert.equal(again.sequence, 1);
+  assert.equal(refused(root, [...request.slice(0, -2), '--operation-id', 'auto-create-1', '--area', 'src']).code, 'SPEC_DRAFT_OPERATION_REUSED');
+  const second = json(root, [...request.slice(0, -2), '--operation-id', 'auto-create-2']);
+  assert.notEqual(second.specId, first.specId, 'identical titles are separate specifications');
+  assert.equal(refused(root, ['spec', 'author', 'new', '--revise']).code, 'SPEC_ID_INVALID');
+  assert.equal(refused(root, ['spec', 'author', 'new', '--title', 'Import', '--from', 'missing.md', '--intent', 'Do not discard this']).code, 'SPEC_NEW_INPUT_CONFLICT');
+  assert.equal(json(root, ['spec', 'author', 'new', 'SPEC-MANUAL-001', '--title', 'Legacy integration']).specId, 'SPEC-MANUAL-001');
 });

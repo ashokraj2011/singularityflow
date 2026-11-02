@@ -2,20 +2,20 @@
  * The Spec Studio's logic, with no VS Code API (SPEC-SPA v1.3 §3, milestone S3).
  *
  * Every read and write is a `spec author … --json` command; this module builds those command lines,
- * reads the engine's answers defensively, and turns them into the three columns the page renders.
+ * reads the engine's answers defensively, and turns them into the library, steps and editor the page renders.
  * Nothing here calls a model: the authoring loop's seven steps all work by hand. Copilot's proposals
  * and assisted findings (S4) arrive through the engine like everything else, and only the person's
  * own clicks accept, reject or settle them.
  */
 
 export const SPEC_STUDIO_STEPS = [
-  { id: 'elicit', label: 'Elicit', detail: 'Title, intent and the area of code' },
+  { id: 'elicit', label: 'Overview', detail: 'Purpose and scope' },
   { id: 'research', label: 'Research', detail: 'Cited facts the specification relies on' },
-  { id: 'draft', label: 'Draft', detail: 'Clauses with literal anchors' },
+  { id: 'draft', label: 'Write', detail: 'Requirements and acceptance criteria' },
   { id: 'gaps', label: 'Review gaps', detail: 'A person decides each one' },
-  { id: 'check', label: 'Check', detail: 'D, A and H' },
+  { id: 'check', label: 'Check quality', detail: 'Checks, review and open decisions' },
   { id: 'publish', label: 'Publish', detail: 'An immutable revision on the state branch' },
-  { id: 'attach', label: 'Attach or split', detail: 'Story slices, a split into children and slices, and coverage' }
+  { id: 'attach', label: 'Use in a Story', detail: 'Attach, split and track coverage' }
 ] as const;
 export type SpecStudioStep = typeof SPEC_STUDIO_STEPS[number]['id'];
 export const STEP_IDS: readonly SpecStudioStep[] = SPEC_STUDIO_STEPS.map((step) => step.id);
@@ -125,8 +125,8 @@ export const showArgv = (specId: string, revision: number | null): string[] => a
 export const gapImpactArgv = (specId: string, gap: string): string[] => author('gaps', specId, gap);
 export const coverageArgv = (specId: string, revision: number): string[] => author('coverage', `${specId}@${revision}`);
 
-export function newArgv(specId: string, { title, areas = [], revise = false }: { title?: string; areas?: string[]; revise?: boolean }, operationId: string): string[] {
-  return author('new', specId, ...(revise ? ['--revise'] : []), ...(title ? ['--title', title] : []),
+export function newArgv(specId: string | null, { title, intent, areas = [], revise = false }: { title?: string; intent?: string; areas?: string[]; revise?: boolean }, operationId: string): string[] {
+  return author('new', ...(specId ? [specId] : []), ...(revise ? ['--revise'] : []), ...(title ? ['--title', title] : []), ...(intent ? ['--intent', intent] : []),
     ...areas.flatMap((area) => ['--area', area]), '--operation-id', operationId);
 }
 export const editArgv = (specId: string, file: string, sequence: number, operationId: string): string[] =>
@@ -491,11 +491,11 @@ export function stepStates(status: SpecStatus | null): Record<SpecStudioStep, { 
   const stale = status.researchItems.filter((item) => item.standing === 'stale' || item.standing === 'uncited').length;
   const placeholders = status.rules.find((rule) => rule.id === 'placeholders');
   return {
-    elicit: { state: 'done', note: status.areas.length ? status.areas.join(', ') : 'no area named' },
+    elicit: { state: 'done', note: status.areas.length ? status.areas.join(', ') : 'Code scope optional' },
     research: { state: stale ? 'open' : status.researchItems.length ? 'done' : 'idle', note: stale ? `${stale} need attention` : `${status.researchItems.length} item(s)` },
     draft: { state: placeholders && !placeholders.passed ? 'open' : 'done', note: `snapshot ${status.sequence}` },
     gaps: { state: open ? 'open' : 'done', note: open ? `${open} open` : `${status.gaps.length} closed` },
-    check: { state: status.reviewReady ? 'done' : 'open', note: `D ${status.counts.d.passed}/${status.counts.d.total}${status.counts.a.pending ? ` · A ${status.counts.a.pending} pending` : ''} · H ${status.counts.h.open} open` },
+    check: { state: status.reviewReady ? 'done' : 'open', note: `${status.counts.d.passed}/${status.counts.d.total} checks · ${status.counts.h.open} open decisions` },
     publish: { state: status.basedOn ? 'done' : 'idle', note: status.basedOn ? `@${status.basedOn.revision} ${status.basedOn.reviewState}` : 'not yet published' },
     attach: { state: status.basedOn?.reviewState === 'reviewed' ? 'open' : 'idle', note: status.basedOn?.reviewState === 'reviewed' ? `@${status.basedOn.revision} can be attached` : 'needs a reviewed revision' }
   };

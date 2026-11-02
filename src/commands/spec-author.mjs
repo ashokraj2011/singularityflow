@@ -17,7 +17,7 @@ import {
   decideGap, deferGap, foldChecklist, foldGaps, newDraft, openGap, reopenGap, settleArticles, specTemplate
 } from '../spec-library/draft-model.mjs';
 import { crashPoint, discardDraft, listDrafts, newOperationId, readDraft, requireOperationId, saveDraft } from '../spec-library/draft-store.mjs';
-import { parseSpecReference, requireSpecId } from '../spec-library/ids.mjs';
+import { generatedSpecId, parseSpecReference, requireSpecId } from '../spec-library/ids.mjs';
 import { libraryView, publishRevision, readManifest, REVIEW_STATES, resolveRevision } from '../spec-library/library.mjs';
 import {
   acceptProposals, assistedReport, draftAssisted, rejectProposals, settleFindings, stageProposals, stagedProposals, validateProposals
@@ -111,10 +111,13 @@ async function knowledgeAtHead(root, { refresh = false } = {}) {
 }
 
 async function newAction(root, positionals, options) {
-  const specId = requireSpecId(specArgument(positionals, 'new'));
   const operationId = operation(options);
   const revise = optionBoolean(options, 'revise');
+  if (revise && !positionals[3]) fail('Revising a specification needs its existing ID. Use spec author list to find it.', 'SPEC_ID_INVALID', { nextAction: 'singularity-flow spec author list' });
+  const specId = positionals[3] ? requireSpecId(positionals[3]) : generatedSpecId(operationId);
   const from = optionString(options, 'from');
+  const intent = optionString(options, 'intent');
+  if (intent !== undefined && (from || revise)) fail('--intent starts a new template; it cannot be combined with --from or --revise.', 'SPEC_NEW_INPUT_CONFLICT');
   const areas = optionStrings(options, 'area').map(normalizeArea);
   const config = await libraryConfig(root);
   let base = null;
@@ -131,7 +134,7 @@ async function newAction(root, positionals, options) {
   }
   const title = optionString(options, 'title') ?? base?.manifest.title;
   if (!title?.trim()) fail(`spec author new ${specId} needs --title TEXT.`, 'SPEC_TITLE_MISSING', { specId });
-  const spec = base ? base.spec : from ? await readFile(path.resolve(from), 'utf8') : specTemplate(specId, title.trim());
+  const spec = base ? base.spec : from ? await readFile(path.resolve(from), 'utf8') : specTemplate(specId, title.trim(), intent);
   const saved = await saveDraft(root, specId, {
     operationId, operation: 'new', create: true, actor: actor(root),
     payload: { title, from: from ? 'file' : base ? `revision ${base.revision}` : 'template', spec, areas },

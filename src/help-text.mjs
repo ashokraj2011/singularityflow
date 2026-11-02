@@ -661,7 +661,9 @@ Usage:
   singularity-flow spec drift [--work-id WORK-ID] [--ref REV] [--all] [--json]
   singularity-flow spec drift decide CLAUSE-ID (--accept | --adopt --story WORK-ID | --restore --story WORK-ID) --reason TEXT [--json]
   singularity-flow spec drift decide --revoke DRD-ID --work-id WORK-ID --reason TEXT [--json]
-  singularity-flow spec author new SPEC-ID --title TEXT [--from FILE | --revise] [--area PATH]... [--json]
+  singularity-flow spec author new [SPEC-ID] --title TEXT [--intent TEXT | --from FILE] [--area PATH]... [--json]
+  singularity-flow spec author new SPEC-ID --revise [--title TEXT] [--json]
+  # New drafts get a unique ID automatically; use the returned specId for later commands.
   singularity-flow spec author edit SPEC-ID --file FILE --expected-seq N [--json]
   singularity-flow spec author research SPEC-ID [--path PATH]... [--symbol NAME]... [--refresh] [--json]
   singularity-flow spec author research SPEC-ID (--fact TEXT --source NAME | [--remove R-NNN]...) [--json]

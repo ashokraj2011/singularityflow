@@ -69,16 +69,28 @@ So the core of "a Story can attach a spec" is getting the spec's clauses and dec
 
 The Studio is a VS Code panel built like Workflow Studio and its Build view: a lazily loaded panel, page logic in a `*-page.ts` file with pure helpers exposed for tests, and every read and write going through the CLI's `--json` commands. The panel never writes Git or files itself. [SPA:REQ-002]
 
-Layout, three columns as in the requested mockup:
+The library starts with a title and optional outcome. The CLI assigns a unique `SPEC-` ID;
+explicit IDs remain supported for existing integrations. The ID is independent of the title and
+stable when creation is retried with the same operation ID. No remote counter is required.
+The library groups local drafts and published specifications and searches titles and IDs locally.
 
-| Column | Shows |
+The editor uses two columns, with secondary information expanded when needed:
+
+| Area | Shows |
 | --- | --- |
-| Left | Quality gate status: D rules passed, A checks pending, H decisions open. The governed records of the selected revision or draft (`spec.md`, `gaps.json`, `research.json`, `quality.json`). The authoring loop's seven steps with the active one marked. The gap pipeline, open gaps first |
-| Middle (the stage) | The active step's work. For Review gaps: the gap, its evidence, its options, each option's computed impact, a rationale box, and **Close gap with option and sign**. Other steps get their own stage: research list, draft proposals, check findings, publish summary, attach, split planner, coverage |
-| Right | The live `spec.md`, clause by clause, with literal anchors, linked citations, and flags on clauses touched by an open gap (for example "code disagrees, GAP-012") |
-| Bottom tabs | Quality findings, state-branch manifest of the selected revision, the Copilot turn in progress |
+| Left | The seven steps, active step marked, and a plain-language quality summary. Check details, open questions and draft records expand below them |
+| Main stage | The active step's work. Review gaps retains evidence, options, computed impact, rationale and the signed decision action. Write gives the prose more room, with saved/unsaved status and word count |
+| Saved preview | An expandable clause-by-clause preview below the stage, with literal anchors, citations and gap flags |
+| Review details | Quality findings, the state-branch manifest and Copilot proposals. Pending proposals and assisted findings open this section automatically |
 
-Entry points: a Specifications item in the Navigator and the command `singularityFlow.openSpecStudio`. The Studio also opens from a Story when its intake step has a spec attached, focused on that slice. [SPA:REQ-003]
+Unsaved prose survives navigation and refresh in the same panel, scoped to its repository. It stays
+in memory until saved, explicitly discarded, or the panel closes. A concurrent snapshot cannot be
+overwritten silently: the editor retains the old sequence and offers copying the unsaved text before
+merging. Save or discard unsaved writing before publishing.
+
+Entry points: **Spec Studio** under Work tools and `Singularity Flow: Spec Studio` in the command
+palette (`singularityFlow.openSpecStudio`). The Studio also opens from a Story's attached specification,
+focused on that slice. [SPA:REQ-003]
 
 Every action has a CLI equivalent (§9), so the Studio is never the only way to do something. A person can author a spec with no model at all. [SPA:REQ-004]
 
@@ -90,13 +102,13 @@ Seven steps, shown in the left column. A person can move between them freely. On
 
 | Step | What happens | Who |
 | --- | --- | --- |
-| 1. Elicit | Title, intent, area of code, template. Copilot may propose an outline | Person, Copilot proposes |
+| 1. Overview | Title, intent, optional code scope, automatic ID and template. Copilot may propose an outline | Person, Copilot proposes |
 | 2. Research | Facts the spec relies on, each cited. Code facts come from the knowledge model: rules, limits, entry points, journeys, test cases, and test/code disagreements, each with a path, lines and `spanSha256` | Runtime collects; Copilot proposes more |
-| 3. Draft | Clauses with literal anchors, written in EARS shape where it fits | Copilot proposes; person accepts or edits |
+| 3. Write | Clauses with literal anchors, written in EARS shape where it fits | Copilot proposes; person accepts or edits |
 | 4. Review gaps | Questions found by research or drafting, each with options and computed impact | Copilot or person opens; **person decides** |
-| 5. Check | D, A and H, as in §5 | Runtime runs D; Copilot proposes A; person settles A and H |
+| 5. Check quality | Automated checks, assisted review and human decisions (D, A and H in §5) | Runtime runs D; Copilot proposes A; person settles A and H |
 | 6. Publish | A new immutable revision on the state branch (§8) | **Person** |
-| 7. Attach or split | Story slices (§6) or a split plan (§7) | Person, Copilot proposes |
+| 7. Use in a Story | Story slices (§6) or a split plan (§7) | Person, Copilot proposes |
 
 ### 4.1 Generation is proposal-only
 
@@ -223,7 +235,7 @@ Every family is registered in `schema-migrations.mjs` with current and future-ve
 
 | Command | Who | Effect |
 | --- | --- | --- |
-| `spec author new SPEC-ID --title TEXT [--from FILE]` | anyone | New draft from the template or a Markdown file |
+| `spec author new [SPEC-ID] --title TEXT [--intent TEXT | --from FILE]` | anyone | New draft with an automatic ID (explicit IDs remain supported) from the template or a Markdown file |
 | `spec author edit SPEC-ID --file FILE --expected-seq N` | anyone | Saves prose as the next snapshot |
 | `spec author research SPEC-ID [--path PATH]... [--symbol NAME]... [--refresh]`, `--fact TEXT --source NAME`, `--remove R-NNN` | anyone | Collects or refreshes knowledge-model items with the tests that exercise them; adds a person's fact; removes an uncited item |
 | `spec author propose SPEC-ID --file FILE` | anyone (Copilot's route) | Stages proposals; validates them; changes nothing accepted. The issued `proposalPath` (its folder made by `status --json`) is removed once staged; a refused file is kept for its repair |

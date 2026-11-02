@@ -221,6 +221,10 @@ export function agentAct(result) {
     return withRoute({ state: 'blocked', do: null, read: ['approvalPacket.readiness.approvalCheck', 'approvalPacket.readiness.owedDecisions'],
       said: 'Approval has known holds. Show their owners and inspect the returned decision list. Only approvalCheck.holds block this approval; report owed items separately. No receipt or approval was created; do not request confirmation, edit submitted work or repeat document reads.' }, result.nextAction);
   }
+  if (result.resultType === 'sflow-submission-readiness' && result.approvalContinuation) {
+    return withRoute({ state: 'blocked', do: null, read: ['approvalCheck', 'owedDecisions', 'pending'],
+      said: 'The phase is submitted, but its known approval holds must be cleared by their named owners. Open the returned decision list; do not retry approval or rewrite submitted work. Owed evidence is separate and blocks only where the gate says so.' }, result.approvalContinuation);
+  }
   if (result.error?.code === 'SOURCE_REVIEW_REPORT_INVALID' && result.error.details?.repair?.status === 'repair-packet') return {
     state: 'correct', do: null, read: ['error.details.repair', 'error.details.findings'],
     said: 'The packet was not retained. Repair its exact format/citation fields using the returned hints and this invocation\'s stagingProtocol; check changed bytes within the two-repair budget. Do not restart the phase, run generic diagnostics, or invent coverage.' };

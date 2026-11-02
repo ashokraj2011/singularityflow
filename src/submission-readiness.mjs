@@ -1,7 +1,7 @@
 import { convergenceTransitionRoute } from './phase-transition-routes.mjs';
 import { phaseNeedsGeneration, sequenceGateMode } from './sequence.mjs';
 import { generationSkillForPhase } from './code-delivery-policy.mjs';
-import { directCopilotSkill, copilotSkillForCommand } from './copilot-guidance.mjs';
+import { directCopilotSkill, copilotSkillForCommand, approvalHoldContinuation } from './copilot-guidance.mjs';
 import { modelFreeCommandForCommand } from './model-free-commands.mjs';
 import { sourceReviewRequired } from './source-review-policy.mjs';
 import { sourceReviewContinuation } from './source-review-continuation.mjs';
@@ -106,11 +106,16 @@ export async function submissionReadiness(root, config, workflow, options = {}) 
   const readiness = await phaseReadiness(root, config, workflow, options);
   // Whether approving would pass, and the commits after the submission it would refuse for, named
   // while the step is reviewed rather than first by the refusal [SPEC-OAP M1]. Advisory:
-  // classification and routes are unchanged.
+  // classification stays submitted; known blocking holds replace the refusing approval route.
   const phase = readiness.phaseId ? workflow?.phases?.[readiness.phaseId] : null;
   const advisories = phase?.status === 'awaiting_approval'
     ? await (await import('./approval-check.mjs')).approvalAdvisories(root, config, workflow, phase) : null;
-  const result = advisories ? { ...readiness, ...advisories } : readiness;
+  const continuation = readiness.classification === 'already-submitted'
+    ? approvalHoldContinuation(workflow.workItem.id, advisories?.approvalCheck) : null;
+  const result = { ...readiness, ...(advisories ?? {}), ...(continuation ? {
+    approvalContinuation: continuation, command: continuation.command, nextCommand: continuation.command,
+    nextSkill: continuation.skill, reasonCode: 'APPROVAL_HOLDS_REQUIRED'
+  } : {}) };
   // The one list's count and first item, which every editor surface shows [SPEC-OAP M3]. Asked for
   // by the surfaces that show it, never by publish or submit.
   if (!options.pendingList || !phase || phase.id !== workflow.currentPhase) return result;

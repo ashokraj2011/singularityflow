@@ -16,10 +16,28 @@ import YAML from 'yaml';
 
 import { agentAct, agentOutputGoverned, boundedAgentOutput, boundedAgentText, completeAgentResult, DEFAULT_AGENT_OUTPUT_BYTES, LOOP_THRESHOLD, observeAgentLoop, OMITTED_FIELDS_SHOWN, READ_CHUNK_BYTES, READ_PLAN_CHUNKS, returnsAgentPaths, withAgentRoutes } from '../src/agent-output.mjs';
 import { CLI_PATH_REFERENCE } from '../src/safe-command-guidance.mjs';
+import { approvalHoldContinuation } from '../src/copilot-guidance.mjs';
 import { childTimeout } from './helpers/child-timeout.mjs';
 import { slowLane } from './helpers/slow-lane.mjs';
 
 const cli = fileURLToPath(new URL('../bin/singularity-flow.mjs', import.meta.url));
+
+test('known approval holds route every phase to its owner list while approval-time answers stay in approval', () => {
+  for (const phase of ['specification', 'planning', 'implementation', 'convergence', 'verification', 'release', 'custom-review']) {
+    const check = { ready: false, holds: [{ code: 'SPEC_COVERAGE_INCOMPLETE', owner: 'someone-decides' }] };
+    const continuation = approvalHoldContinuation('HELD-1', check);
+    const act = agentAct({ resultType: 'sflow-submission-readiness', workId: 'HELD-1', phaseId: phase,
+      classification: 'already-submitted', approvalCheck: check, approvalContinuation: continuation,
+      nextCommand: continuation.command });
+    assert.equal(act.state, 'blocked');
+    assert.equal(act.do.copilot, '/sf-decide HELD-1');
+    assert.equal(act.do.shell, 'singularity-flow decisions HELD-1 --for-agent --json');
+    assert.ok(act.read.includes('approvalCheck'));
+    assert.doesNotMatch(JSON.stringify(act.do), /approve/u);
+  }
+  assert.equal(approvalHoldContinuation('HELD-1', { ready: true, holds: [] }), null);
+  assert.equal(approvalHoldContinuation('HELD-1', { ready: true, holds: [{ owner: 'you-decide' }] }), null);
+});
 const digest = `sha256:${'e'.repeat(64)}`;
 
 test('every agent command preserves issued path bytes and presents the path rule before material', async () => {

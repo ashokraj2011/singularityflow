@@ -1,6 +1,15 @@
 import { commandLineWithoutSkill, skillForCommandLine } from './command-skills.mjs';
 import { modelFreeCommandForCommand, formatCommandRouteLines } from './model-free-commands.mjs';
 
+/** Known gate holds change the next route, never the submitted packet or the human's decision. */
+export function approvalHoldContinuation(workId, check) {
+  if (check?.ready !== false || !(check.holds ?? []).some(hold => hold.owner !== 'you-decide')) return null;
+  return { command: `singularity-flow decisions ${workId} --for-agent --json`,
+    skill: '/sf-decide', copilotCommand: `/sf-decide ${workId}`,
+    label: 'Inspect the exact holds and owner actions. No approval confirmation or code rewrite is requested.',
+    reason: check.statement ?? 'Clear the known approval holds through their named owners before approval.' };
+}
+
 /**
  * User-facing Copilot commands use the direct, globally installed `/sf-*` aliases.
  * Packaged plugin sources keep their `sflow-*` ids internally; exposing those ids in

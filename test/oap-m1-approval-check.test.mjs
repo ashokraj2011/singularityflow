@@ -63,7 +63,12 @@ test('a real Story: the preview lists every hold in gate order, and recording re
   await writeFile(path.join(root, 'value.mjs'), 'export const value = 1;\n');
   git('add', 'value.mjs');
   git('commit', '-qm', 'Implement the value during the planning review');
-  const held = readiness().approvalCheck;
+  const heldReadiness = readiness(); const held = heldReadiness.approvalCheck;
+  assert.equal(heldReadiness.classification, 'already-submitted');
+  assert.equal(heldReadiness.reasonCode, 'APPROVAL_HOLDS_REQUIRED');
+  assert.equal(heldReadiness.nextCommand, `singularity-flow decisions ${WORK} --for-agent --json`);
+  assert.equal(heldReadiness.command, heldReadiness.nextCommand);
+  assert.equal(heldReadiness.nextSkill, '/sf-decide');
   assert.equal(held.ready, false);
   assert.deepEqual(held.holds.map((hold) => [hold.code, hold.owner]),
     [['STORY_REVIEW_SOURCE_CHANGED', 'author-repairs'], ['STORY_REVIEW_INTERVENING_COMMIT', 'author-repairs']]);

@@ -64,6 +64,9 @@ test-only delivery. Known holds are returned before an approval receipt or full 
 is created, with the decision-list command on all available surfaces. Human visual witnessing
 remains separate from automated tests and scope accounting.
 Owed evidence is reported separately; it blocks phase approval only when the approval gate says so.
+Readiness/status and approval entry share that same hold continuation: a submitted phase with a
+known blocking hold routes to its decision list, rather than recommending an approval that would
+be refused. A checklist the approver can answer inside approval still retains the approval route.
 
 ## Evidence and limits
 

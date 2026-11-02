@@ -11,6 +11,7 @@
  */
 import { step, stop } from '../cli-steps.mjs';
 import { SingularityFlowError } from '../util.mjs';
+import { approvalHoldContinuation } from '../copilot-guidance.mjs';
 
 export async function run({ positionals, options }) {
   if (options.json !== true) {
@@ -31,8 +32,7 @@ export async function loadApprovalPacket({ workId, cwd, fetch = false }, { runSt
   }
   if (readiness?.approvalCheck?.ready === false && readiness.approvalCheck.holds?.length) {
     return { resultType: 'sflow-approval-packet', begun: false, reason: 'approval-holds',
-      nextAction: { command: `singularity-flow decisions ${workId} --for-agent --json`, copilotCommand: `/sf-decide ${workId}`,
-        label: 'Inspect the exact holds and owner actions. No approval confirmation or code rewrite is requested.' },
+      nextAction: readiness.approvalContinuation ?? approvalHoldContinuation(workId, readiness.approvalCheck),
       approvalPacket: { readiness, review: null } };
   }
   const begun = await runStep(['choices', 'begin', 'approve', workId, ...(fetch ? ['--fetch'] : []), '--json'], cwd);

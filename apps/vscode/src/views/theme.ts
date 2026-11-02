@@ -195,15 +195,19 @@ export const THEME_STYLE = `${CALM_PALETTE_STYLE}
   .choice-label { display: flex; align-items: center; flex-wrap: wrap; gap: .55rem; font-family: var(--sf-font-sans); font-weight: 500; color: var(--sf-text); }
   .choice-label .ico { color: var(--sf-accent); }
   .choice-detail { line-height: 1.55; }
-  /* A radio card is a grid, never a flex row: in a row the radio is the item that gives up width, and
-     turns into an oval. Radio, then title and tag; the reason beneath; a footer across the card. */
+  /* A radio or checkbox card is a grid, never a flex row: in a row the control is the item that gives
+     up width (a radio turns into an oval), or, inside an .editor-card whose inputs are width: 100%,
+     takes the whole row and pushes the title out of the card. That holds for a lone card too, not
+     only one inside .choices. Control, then title and tag; the reason beneath; a footer across the card. */
   .choice > input { flex: none; }
-  .choices > .choice:not(.workflow-choice):has(> input[type="radio"]) { display: grid; grid-template-columns: 1rem minmax(0, 1fr);
-    align-items: start; gap: .5rem .85rem; }
-  .choice > input[type="radio"] { grid-column: 1; grid-row: 1; box-sizing: border-box; width: 1rem; min-width: 1rem; height: 1rem;
-    aspect-ratio: 1; margin: .2rem 0 0; }
-  .choice > .choice-label { grid-column: 2; display: flex; align-items: center; flex-wrap: wrap; gap: .45rem .6rem; min-width: 0; }
-  .choice > .choice-detail { grid-column: 2; display: block; }
+  .choice:not(.workflow-choice):has(> input[type="radio"], > input[type="checkbox"]) { display: grid;
+    grid-template-columns: 1rem minmax(0, 1fr); align-items: start; gap: .5rem .85rem; }
+  .choice > input[type="radio"], .choice > input[type="checkbox"] { grid-column: 1; grid-row: 1; box-sizing: border-box;
+    width: 1rem; min-width: 1rem; height: 1rem; aspect-ratio: 1; margin: .2rem 0 0; }
+  /* A repository URL or path in a title has no spaces: let it break anywhere rather than leave the card. */
+  .choice > .choice-label { grid-column: 2; display: flex; align-items: center; flex-wrap: wrap; gap: .45rem .6rem; min-width: 0;
+    overflow-wrap: anywhere; }
+  .choice > .choice-detail { grid-column: 2; display: block; overflow-wrap: anywhere; }
   .choice .sf-tag { display: inline-flex; }
   .choice.sf-tracker > .choice-detail { grid-column: 1 / -1; }
   .choice.sf-tracker > .choice-label .sf-title { flex: 1 1 auto; }

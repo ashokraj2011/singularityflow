@@ -92,6 +92,23 @@ test('the chat avatar pair carries fixed inks that read on their themes and fit 
   }
 });
 
+test('a radio or checkbox choice card is a grid with a 1rem control, inside .choices or alone', () => {
+  // webview.ts declares .choice as a flex row after its grid rule, and .editor-card inputs are width: 100%:
+  // a lone checkbox card fell back to that row, the checkbox took the whole width and pushed the title
+  // out of the card (map-capability "Where this capability is recorded").
+  assert.match(THEME_STYLE, /\.choice:not\(\.workflow-choice\):has\(> input\[type="radio"\], > input\[type="checkbox"\]\) \{ display: grid;\s+grid-template-columns: 1rem minmax\(0, 1fr\)/);
+  assert.doesNotMatch(THEME_STYLE, /\.choices > \.choice:not\(\.workflow-choice\):has/);
+  assert.match(THEME_STYLE, /\.choice > input\[type="radio"\], \.choice > input\[type="checkbox"\] \{ grid-column: 1; grid-row: 1;[^}]*width: 1rem; min-width: 1rem; height: 1rem;/);
+  // A one-repository card's title is a URL or path with no spaces; it must wrap inside the card.
+  assert.match(THEME_STYLE, /\.choice > \.choice-label \{[^}]*overflow-wrap: anywhere;/);
+  const form = readFileSync(new URL('../apps/vscode/src/views/map-capability-form.ts', import.meta.url), 'utf8');
+  for (const control of ['<input type="checkbox" data-use-shipping-repository', '<input type="radio" name="capability-map-repository"']) {
+    const at = form.indexOf(control);
+    assert.ok(at > 0, control);
+    assert.match(form.slice(form.lastIndexOf('<', at - 1), at + control.length), /^<label class="choice[^>]*>\s+<input/, `${control} is a direct child of its choice card`);
+  }
+});
+
 test('grouped action buttons wrap with one shared gap and no extra child margin', () => {
   assert.match(THEME_STYLE, /\.card-foot, \.form-actions, \.actions, \.button-row, \.confirmation-actions[^}]*flex-wrap: wrap[^}]*gap: \.6rem/);
   assert.match(THEME_STYLE, /\.confirmation-actions > button[^}]*margin: 0[^}]*min-height: 2\.25rem/);

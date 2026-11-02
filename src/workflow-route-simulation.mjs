@@ -20,6 +20,7 @@
  * engine choose it (the first route whose rule holds wins, so a later route can be shadowed).
  */
 import { DECISION_END, chooseRoute, routeReach } from './workflow-decisions.mjs';
+import { phaseCorrectionTargets } from './phase-finding-policy.mjs';
 
 const MAX_VALUE_COMBINATIONS = 4096;
 
@@ -243,7 +244,7 @@ export function simulateWorkflowRoutes(resolved, { approvalAuthorities = null } 
   }
   for (const phase of phases) {
     if (phase.approval?.mode !== 'required') continue;
-    for (const target of phase.approval.rejectTo ?? []) {
+    for (const target of phaseCorrectionTargets(phase)) {
       if (!byPhase.has(target) || order.indexOf(target) > order.indexOf(phase.id)) {
         findings.push({ code: 'WORKFLOW_REJECTION_TARGET', severity: 'error', phase: phase.id,
           message: `Rejecting '${phase.id}' returns to '${target}', which is not this step or an earlier one.` });

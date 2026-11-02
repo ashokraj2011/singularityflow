@@ -4,7 +4,7 @@ import { generationSkillForPhase, phaseRequiresCodeDelivery } from './code-deliv
 import { submitRoute } from './submit-route.mjs';
 import { canonicalJson } from './records.mjs';
 import { renderPlatformCommand, safeCommandGuidance } from './safe-command-guidance.mjs';
-import { repairContinuationForIssues, phaseFindingPolicy, phaseFindingCode, phaseFindingIdentity, isArtifactQualityFinding } from './phase-finding-policy.mjs';
+import { repairContinuationForIssues, phaseFindingPolicy, phaseFindingCode, phaseFindingIdentity, isArtifactQualityFinding, activeRepairPhase, openScopeAppeal, phaseCorrectionTargets, phaseRepairActionAdmission } from './phase-finding-policy.mjs';
 import { findingDocumentation } from './finding-catalog.mjs';
 import { DISPUTABLE_GATES } from './phase-finding-dispute-schema.mjs';
 import { CONFORMANCE_GAP_RULE, conformanceGapDecisions, upstreamChangeRoutes, upstreamRouteSummary } from './upstream-routes.mjs';
@@ -46,7 +46,10 @@ const SAFE_ARGUMENT = /^[A-Za-z0-9._:/-]+$/u;
  */
 function testFindingRoute(workflow, phase, finding, code) {
   const workId = workflow.workItem.id;
-  if (workflow.testRecovery || workflow.resolution?.testRecovery?.enabled === true) {
+  const diagnosedFailure = finding.details?.requiredTestExecution?.failure?.kind;
+  const repairableFailure = ['failed-tests', 'missing-launcher', 'missing-dependency', 'timeout',
+    'invalid-or-missing-report', 'process-failed-with-passing-report'].includes(diagnosedFailure);
+  if (!repairableFailure && (workflow.testRecovery || workflow.resolution?.testRecovery?.enabled === true)) {
     return route('risk-inspection', 'validation-approval-authority',
       ['story', 'test-policy', 'risks', '--phase', phase.id, '--operation', 'publish', '--json'],
       'Inspect eligible, exact observed risks and runner repair. Unsupported or stale evidence is not a pass.', '/sf-recover');
@@ -82,31 +85,41 @@ function testFindingRoute(workflow, phase, finding, code) {
 
 /** Closed dispositions, including an honest owner route for an unknown/unsupported blocker. */
 export function phaseResolutionChoices(workflow, phase, finding) {
-  // Downstream checks can name an approved input's owner. Keep its repair/risk routes there,
-  // rather than asking the consuming phase to edit immutable upstream bytes.
-  const ownerPhase = workflow.phases?.[finding.phaseId ?? finding.phase];
-  if (ownerPhase) phase = ownerPhase;
+  // The affected input's owner is not the phase executing this repair. Preservation, input
+  // restoration and continuation stay on the active consumer, even for older pinned Stories.
+  const affectedPhase = workflow.phases?.[finding.phaseId ?? finding.phase];
+  const activePhase = workflow.phases?.[workflow.currentPhase];
+  if (activeRepairPhase(workflow, activePhase)) phase = activePhase;
   const workId = workflow.workItem.id;
-  const code = String(finding.details?.sourceCode ?? finding.code ?? '').toLowerCase();
+  const code = phaseFindingCode(finding).toLowerCase();
   const category = String(finding.category ?? '').toLowerCase();
   const recovery = route('inspect', phase.id, ['recover', workId, '--phase', phase.id, '--json'],
     'Inspect the exact preserved state. No automatic commit, discard, approval or retry.');
-  const policy = phaseFindingPolicy(finding);
+  const basePolicy = phaseFindingPolicy(finding);
+  const foreignApproved = affectedPhase && affectedPhase.id !== phase.id && affectedPhase.status === 'approved';
+  const policy = foreignApproved && basePolicy.repairableByProducer
+    ? Object.freeze({ ...basePolicy, classification: 'upstream-owner', repair: 'review-approved-input', repairableByProducer: false })
+    : basePolicy;
   const preserve = route('preserve-checkpoint', phase.id,
     ['appeal', 'checkpoint', '--work-id', workId, '--phase', phase.id, '--json'],
     'Save private recovery copies of dirty files and the index. No commit, discard, publication or phase advance.', '/sf-appeal');
   let resolution;
   let upstreamReturn = null;
   let gapRoutes = [];
-  if (UPSTREAM_INPUT_CODES.has(code) || category === 'inputs') {
+  if (foreignApproved && isArtifactQualityFinding(finding)) {
+    resolution = route('pilot-risk-review', `${affectedPhase.id}-approval-authority`,
+      ['appeal', 'risk-prepare', '--work-id', workId, '--phase', affectedPhase.id, '--finding', phaseFindingCode(finding),
+        '--gate-mode', 'soft', '--expires', '<YYYY-MM-DD>', '--reason', '<why>', '--json'],
+      'The approved input stays immutable. Its authority may review this exact retained quality exception; the current phase keeps its work and rechecks. This does not waive tests or change the input.', '/sf-appeal');
+  } else if (UPSTREAM_INPUT_CODES.has(code) || category === 'inputs') {
     // The bytes belong to the earlier phase that produced them. Name it, and offer only the routes
     // that can work from here: restore its approved bytes, or its return/amendment route.
-    const producer = finding.details?.upstreamPhase ?? finding.details?.phase ?? null;
+    const producer = finding.details?.upstreamPhase ?? finding.details?.phase ?? affectedPhase?.id ?? null;
     const owner = producer && producer !== phase.id ? producer : 'an earlier phase';
     const upstream = producer && producer !== phase.id
       ? upstreamChangeRoutes(workflow, producer, { currentPhaseId: phase.id }) : null;
     const restorable = finding.details?.restorable === true;
-    resolution = route(restorable ? 'restore-upstream-input' : 'inspect-upstream-input', producer ?? phase.id,
+    resolution = route(restorable ? 'restore-upstream-input' : 'inspect-upstream-input', restorable ? phase.id : producer ?? phase.id,
       restorable ? ['inputs', 'restore', phase.id] : ['inputs', phase.id, '--dry-run', '--json'],
       `This input comes from ${owner} and must not be edited by ${phase.id}. `
       + (restorable ? 'Preview restoring its exact approved bytes; nothing changes until the plan digest is confirmed. ' : '')
@@ -115,6 +128,13 @@ export function phaseResolutionChoices(workflow, phase, finding) {
     if (legal) upstreamReturn = { ...route(legal.kind === 'return' ? 'upstream-return' : 'upstream-amendment', producer,
       legal.command.split(' ').slice(1), `${legal.label} The input comes from ${owner}; ${phase.id} must not edit it.`,
       legal.skill ?? '/sf-reject'), command: legal.command };
+  } else if (foreignApproved && basePolicy.repairableByProducer) {
+    const upstream = upstreamChangeRoutes(workflow, affectedPhase.id, { currentPhaseId: phase.id });
+    const legal = upstream.routes.find(choice => choice.kind === 'upstream-issue') ?? upstream.routes[0];
+    resolution = legal ? route('upstream-owner', `${affectedPhase.id}-approval-authority`,
+      legal.command.split(' ').slice(1), legal.label, legal.skill)
+      : route('owner-escalation', `${affectedPhase.id}-approval-authority`,
+        ['recover', workId, '--phase', phase.id, '--json'], 'Preserve the current phase. The approved input owner must provide an authenticated correction or reviewed amendment.');
   } else if (code === 'conformance.verdict-incomplete') {
     // Keep the honest verdict. Resolve the issue's actual owner, including evidence/plan/scope
     // defects, rather than assigning every partial clause to its code-producing step.
@@ -145,7 +165,7 @@ export function phaseResolutionChoices(workflow, phase, finding) {
   } else if (code === 'generation.document.published-changed') {
     resolution = phase.status === 'awaiting_approval'
       ? route('published-document-return', 'phase-approval-authority',
-        ['reject', phase.id, '--work-id', workId, '--to', '<phase>', '--reason', '<reason>'],
+        ['reject', phase.id, '--work-id', workId, '--to', phase.id, '--reason', '<reason>'],
         'Request an authorized return before changing submitted evidence. Preserve both the retained publication and the new draft.', '/sf-reject')
       : route('published-document-restore', phase.id, ['phase', 'show', phase.id, '--show-artifact'],
         'Preserve the new draft separately and restore exact reviewed bytes from the authenticated publication. Submit the restored publication for authorized return if its content needs rework.', '/sf-phase-documents');
@@ -188,9 +208,7 @@ export function phaseResolutionChoices(workflow, phase, finding) {
     // A scope appeal needs the current open code generation (preparePhaseAppeal's own checks);
     // anywhere else the plan's approvers account for the path with a plan decision instead of a
     // route that would refuse.
-    const openCode = phaseRequiresCodeDelivery(phase) && phase.writeScope === 'source-and-artifact'
-      && phase.generationIntent?.status === 'open' && workflow.currentPhase === phase.id
-      && workflow.status === 'in_progress' && phase.status === 'in_progress';
+    const openCode = openScopeAppeal(workflow, phase, phaseRequiresCodeDelivery(phase));
     resolution = openCode
       ? route('scope-appeal', 'plan-approval-authority', ['appeal', 'prepare', '--phase', phase.id, '--json'],
         'Account for exact unplanned paths through a reviewed scope appeal first. Recheck afterward; only the remaining missing coverage is eligible for pilot risk.', '/sf-appeal')
@@ -221,8 +239,11 @@ export function phaseResolutionChoices(workflow, phase, finding) {
       'Write the Agent brief (or summary) as visible text under its heading, outside any <!-- --> template comment, close every comment, then recheck.',
       generationSkillForPhase(phase, workflow));
   } else if (/unclaimed|outside.*scope/u.test(code) || category === 'coverage') {
-    resolution = route('scope-appeal', 'plan-approval-authority', ['appeal', 'prepare', '--phase', phase.id, '--json'],
-      'Explain each exact extra path and its approved clause or supporting class. Review the diff before accounting for it; tests still have to run.', '/sf-appeal');
+    resolution = openScopeAppeal(workflow, phase, phaseRequiresCodeDelivery(phase))
+      ? route('scope-appeal', 'plan-approval-authority', ['appeal', 'prepare', '--phase', phase.id, '--json'],
+        'Explain each exact extra path and its approved clause or supporting class. Review the diff before accounting for it; tests still have to run.', '/sf-appeal')
+      : route('plan-amendment', 'plan-approval-authority', ['decision', 'plan', workId, '--add-location', '<clause>=<path>', '--reason', '<why>'],
+        'The plan approver accounts for the exact supporting path without resetting an approved phase. Recheck this phase afterward.', '/sf-decide');
   } else if (/test|validation|coverage/u.test(code) || ['test', 'tests', 'validation'].includes(category)) {
     resolution = testFindingRoute(workflow, phase, finding, code);
   } else if (/host|remote|transport|integration|dependency/u.test(code)
@@ -254,7 +275,13 @@ export function phaseResolutionChoices(workflow, phase, finding) {
   }
   // A route its own command refuses for this Story is no way out: inspect instead, and let the
   // check below name someone other than the author.
-  if (routeRefusedForStory(workflow, resolution)) resolution = recovery;
+  if (routeRefusedForStory(workflow, resolution, phase)) resolution = recovery;
+  if (phase.status === 'awaiting_approval' && policy.repairableByProducer
+      && phaseCorrectionTargets(phase).includes(phase.id)) {
+    resolution = route('current-phase-correction', 'phase-approval-authority',
+      ['reject', phase.id, '--work-id', workId, '--to', phase.id, '--reason', '<reason>'],
+      'An authorized reviewer requests correction within this phase. Preserve the submitted packet; its author repairs and tests a successor generation. Earlier approvals remain unchanged.', '/sf-reject');
+  }
   // When the author has delivered everything and the check still misreads it, the step's approvers
   // can accept the exact finding as an exception on evidence [recoverable-findings M2].
   const disputedGate = DISPUTABLE_GATES.find((gate) => gate === phaseFindingCode(finding).toUpperCase()) ?? null;
@@ -264,7 +291,7 @@ export function phaseResolutionChoices(workflow, phase, finding) {
     'When every listed item is delivered and the finding still returns unchanged, the check is misreading the work: stop repairing and prepare a dispute with the evidence (test output, the test file). One of the step\'s approvers reviews it live and may accept it as an exception for this exact candidate; it is recorded as an exception, never a pass, and tests still run.',
     '/sf-appeal') : null;
   const choices = [resolution, ...gapRoutes, ...(dispute ? [dispute] : []), ...(upstreamReturn ? [upstreamReturn] : []), recovery];
-  if (isArtifactQualityFinding(finding)) choices.splice(1, 0, route('pilot-risk-review', 'phase-approval-authority',
+  if (!foreignApproved && isArtifactQualityFinding(finding)) choices.splice(1, 0, route('pilot-risk-review', 'phase-approval-authority',
     ['appeal', 'risk-prepare', '--work-id', workId, '--phase', phase.id, '--finding', phaseFindingCode(finding),
       '--gate-mode', 'soft', '--expires', '<YYYY-MM-DD>', '--reason', '<why>', '--json'],
     'An authorized human may carry this exact document-quality shortfall through the selected transitions. It remains unmet, not passed; tests, trust and phase approval remain required.', '/sf-appeal'));
@@ -274,13 +301,17 @@ export function phaseResolutionChoices(workflow, phase, finding) {
     ['doctor', '--json'],
     `If the author cannot fix this because the check misreads correct work, give the workflow maintainer the exact finding, its entry (${findingDocumentation(finding).command}) and this output; the check is then the defect. Nothing is waived and the work is preserved.`,
     '/sf-doctor'));
-  choices.push(preserve);
-  return { code: finding.code ?? 'unknown', path: finding.path ?? null, policy,
+  if (activeRepairPhase(workflow, phase)) choices.push(preserve);
+  const admitted = choices.filter(choice => !routeRefusedForStory(workflow, choice, phase))
+    .map(choice => ({ ...choice, admission: phaseRepairActionAdmission(workflow, phase, choice,
+      { codeDelivery: phaseRequiresCodeDelivery(phase) }) }));
+  return { code: finding.code ?? 'unknown', canonicalCode: phaseFindingCode(finding), findingIdentity: phaseFindingIdentity(finding), path: finding.path ?? null, policy,
+    detectedPhase: phase.id, affectedPhase: affectedPhase?.id ?? finding.details?.upstreamPhase ?? phase.id,
     // What the finding means, its usual causes, the fix, and who else can act.
     documentation: findingDocumentation(finding),
     status: resolution.kind.endsWith('owner') || resolution.kind === 'owner-escalation'
-      ? 'needs-owner' : resolution.kind.includes('risk') || resolution.kind.includes('appeal') || ['human-review', 'worktree-review', 'plan-amendment', 'decide-upstream-issue'].includes(resolution.kind) ? 'needs-human' : 'needs-correction',
-    choices, preserved: ['working-tree bytes', 'Git index', 'published evidence', 'approval history'] };
+      ? 'needs-owner' : resolution.kind.includes('risk') || resolution.kind.includes('appeal') || ['human-review', 'worktree-review', 'plan-amendment', 'current-phase-correction', 'decide-upstream-issue'].includes(resolution.kind) ? 'needs-human' : 'needs-correction',
+    choices: admitted, preserved: ['working-tree bytes', 'Git index', 'published evidence', 'approval history'] };
 }
 
 /**
@@ -290,13 +321,9 @@ export function phaseResolutionChoices(workflow, phase, finding) {
  * TRP_AUTHORITY_REQUIRED), so offering it would send the reader into a second refusal. Only a
  * known pin decides: a projection that carries no resolution keeps the route.
  */
-export function routeRefusedForStory(workflow, choice) {
-  const [family, group, action] = choice?.argv ?? [];
-  if (family !== 'story' || group !== 'test-policy' || !['risks', 'accept-risk', 'revoke-risk', 'attest-risk'].includes(action)) return false;
-  const resolution = workflow?.resolution;
-  if (!resolution || workflow.testRecovery) return false;
-  const pin = resolution.testRecovery;
-  return !(pin?.enabled === true && pin.riskAuthorities?.length > 0 && resolution.approvalAuthorities);
+export function routeRefusedForStory(workflow, choice, phase = workflow.phases?.[workflow.currentPhase]) {
+  return !phaseRepairActionAdmission(workflow, phase, choice,
+    { codeDelivery: phaseRequiresCodeDelivery(phase) }).allowed;
 }
 
 // Advisories a person must settle before approval, with what each one says, and how many of its
@@ -340,7 +367,9 @@ export function phaseResolutionProjection(workflow, phase, findings = [], { advi
     // Only the caller's actual gate findings belong here. Never suppress an integrity/unknown
     // finding because repository-controlled error hints say blocking:false.
     issues,
-    repairContinuation: repairContinuationForIssues({ workId: workflow.workItem.id, phaseId: phase.id, issues, transition }),
+    repairContinuation: repairContinuationForIssues({ workId: workflow.workItem.id, phaseId: phase.id, phaseStatus: phase.status,
+      generation: phase.generationIntent?.status === 'open' ? phase.generationIntent.generation : phase.generation,
+      intentId: phase.generationIntent?.id ?? null, issues, transition }),
     advisories: advisories.map(advisory => advisoryProjection(workflow, phase, advisory)),
     retry: { maximumAttempts: 3, requiresChangedCondition: true, autoAcceptRisk: false,
       fingerprint: digest(findings.map(phaseFindingIdentity).sort((left, right) => canonicalJson(left).localeCompare(canonicalJson(right)))) } };

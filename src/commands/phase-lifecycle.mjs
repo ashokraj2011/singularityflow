@@ -285,7 +285,7 @@ export async function phaseCommand(positionals, options) {
   if (isConvergencePhase(requestedPhase) && sourcePath) {
     throw new SingularityFlowError(
       `The convergence artifact is a kernel-owned deterministic projection and cannot be imported. Run singularity-flow prepare ${requestedPhase.id}.`,
-      { code: 'CONVERGENCE_ARTIFACT_KERNEL_OWNED' }
+      { details: { nextAction: { executable: 'singularity-flow', argv: ['prepare', requestedPhase.id], label: 'Inspect or continue the retained operation; recheck before retrying.' } },  code: 'CONVERGENCE_ARTIFACT_KERNEL_OWNED' }
     );
   }
   if (sourcePath && !['human', 'external-tool'].includes(authorshipOptions.producer)) {
@@ -451,7 +451,7 @@ export async function phaseCommand(positionals, options) {
                 `The reviewed convergence projection or one of its exact inputs changed while publication was running. Nothing was committed; run singularity-flow prepare ${phase.id} again.`,
                 {
                   code: 'PUBLICATION_SNAPSHOT_CHANGED',
-                  details: {
+                  details: { nextAction: { executable: 'singularity-flow', argv: ['prepare', phase.id], label: 'Inspect or continue the retained operation; recheck before retrying.' },
                     expectedConvergenceSnapshotSha256,
                     currentConvergenceSnapshotSha256: currentConvergence.snapshotSha256
                   }

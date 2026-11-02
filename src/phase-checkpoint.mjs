@@ -8,6 +8,7 @@ import { readPrivateSidecar, writeImmutablePrivateSidecar } from './private-side
 import { requiredArtifactRepoPath } from './publication-preflight.mjs';
 import { secureRepositoryPath, SingularityFlowError } from './util.mjs';
 import { z } from 'zod';
+import { activeRepairPhase } from './phase-finding-policy.mjs';
 
 const MAX_FILES = 512; const MAX_FILE_BYTES = 16 * 1024 * 1024; const MAX_TOTAL_BYTES = 128 * 1024 * 1024;
 const MAX_INDEX_BYTES = 64 * 1024 * 1024;
@@ -58,8 +59,7 @@ async function fileCopy(absolute, maximumBytes) {
 
 /** Capture index plus all dirty paths, not a full repository clone or an application-source scan. */
 export async function createPhaseCheckpoint(root, config, workflow, phase) {
-  if (workflow.currentPhase !== phase.id || workflow.status !== 'in_progress'
-      || !['in_progress', 'awaiting_approval'].includes(phase.status)
+  if (!activeRepairPhase(workflow, phase)
       || branch(root) !== workflow.workItem.branch) fail('Select the current Story checkout before preserving its work.');
   const directory = await storage(root, workflow, phase);
   const revision = head(root); const dirty = changedFiles(root);

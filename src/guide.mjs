@@ -10,6 +10,7 @@ import { decisionSubmitArguments } from './workflow-decisions.mjs';
 import { phaseGovernanceHold } from './phase-governance-routing.mjs';
 import { sourceReviewContinuation } from './source-review-continuation.mjs';
 import { phaseAuthoringProgress } from './phase-authoring-progress.mjs';
+import { phaseCorrectionTargets } from './phase-finding-policy.mjs';
 
 export { phaseNeedsGeneration } from './sequence.mjs';
 
@@ -81,9 +82,8 @@ function nextActions(workflow, phase, sourceReviewEvidence, authoringProgress) {
   ];
   if (phase.status === 'awaiting_approval') return [
     copilotAction({ skill: '/sflow-approve', command: `singularity-flow approve ${phase.id} --work-id ${workflow.workItem.id} --fetch`, reason: `Approve ${phase.id} using an authorized human Git identity; the phase-default agent is recorded automatically.` }),
-    // A step whose policy names no return target cannot be rejected; offer only what reject accepts.
-    ...((phase.approvalPolicy?.rejectTo ?? [phase.id]).length ? [copilotAction({ skill: '/sflow-reject', command: `singularity-flow reject ${phase.id} --work-id ${workflow.workItem.id} --fetch --to <phase> --reason <reason>`,
-      reason: `Return ${phase.id} for correction${phase.approvalPolicy?.rejectTo?.length ? ` (to ${phase.approvalPolicy.rejectTo.join(', ')})` : ''}.` })] : [])
+    ...(phaseCorrectionTargets(phase).length ? [copilotAction({ skill: '/sflow-reject', command: `singularity-flow reject ${phase.id} --work-id ${workflow.workItem.id} --fetch --to ${phase.id} --reason <reason>`,
+      reason: `Request an authorized correction within ${phase.id}; prior phase approvals remain unchanged.` })] : [])
   ];
   const regenerate = phaseNeedsGeneration(workflow, phase);
   if (regenerate && (authoringProgress ?? (phase.generationIntent ? phaseAuthoringProgress(workflow, phase) : null))?.next) {

@@ -633,7 +633,7 @@ export function rollbackFailedStoryWorktree(
       + `The isolated checkout was retained at ${prepared.repositoryPath}; open that folder and run singularity-flow doctor.`,
       {
         code: 'STORY_WORKTREE_RECOVERY_REQUIRED',
-        details: {
+        details: { nextAction: { executable: 'singularity-flow', argv: ['doctor', '--json'], label: 'Inspect or continue the retained operation; recheck before retrying.' },
           repositoryPath: prepared.repositoryPath,
           cleanupStage,
           originalError: original,
@@ -652,7 +652,9 @@ export function rollbackFailedStoryWorktree(
         : `The Story state was retained at ${recovery.repositoryPath}; open that folder and run singularity-flow doctor.`}`,
       {
         code: originalError.code ?? 'STORY_WORKTREE_RECOVERY_REQUIRED',
-        details: { repositoryPath: recovery.repositoryPath, ...(dirty ? {
+        details: { ...(originalError.details ?? {}),
+          diagnosticAction: { executable: 'singularity-flow', argv: ['doctor', '--json'], label: 'Inspect the retained checkout; preserve the original failure and recovery action.' },
+          repositoryPath: recovery.repositoryPath, ...(dirty ? {
           reason: recovery.reason, changedPaths, changedEntries: recovery.changedEntries
         } : {}) },
         cause: originalError

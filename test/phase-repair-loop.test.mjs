@@ -341,6 +341,39 @@ test('cosmetic edits and moved lines do not obtain a new repair condition', () =
   assert.notEqual(phaseRepairConditionHash({ ready: true, findings: [] }), original);
 });
 
+test('test failure progress ignores report timestamps and recognizes changed failures and runtime', () => {
+  const finding = { code: 'PHASE_VALIDATION_FAILED', category: 'tests', details: { requiredTestExecution: {
+    commandId: 'unit', exitCode: 1, failure: { kind: 'failed-tests' },
+    report: { sha256: 'a'.repeat(64), tests: { discovered: 2, passed: 1, failed: 1, skipped: 0 },
+      failedTestcases: [{ name: 'graph renders', status: 'failed' }],
+      failureExamples: ['TypeError: localStorage unavailable\n at setup.js:12:4'] }
+  } } };
+  const hash = value => phaseRepairConditionHash({ ready: false, findings: [value] });
+  const first = hash(finding); const changed = structuredClone(finding);
+  changed.details.requiredTestExecution.report.sha256 = 'b'.repeat(64);
+  changed.details.requiredTestExecution.report.completedAt = '2026-11-02T01:00:00.000Z';
+  changed.details.requiredTestExecution.report.failureExamples[0] = 'TypeError: localStorage unavailable\n at setup.js:90:9';
+  assert.equal(hash(changed), first);
+  changed.details.requiredTestExecution.report.failureExamples[0] = 'AssertionError: expected sine plot';
+  assert.notEqual(hash(changed), first);
+  changed.details.requiredTestExecution.testRuntime = { sha256: repairDigest('repaired-jsdom') };
+  assert.notEqual(hash(changed), first);
+  const alias = structuredClone(finding); alias.code = 'phase_validation_failed';
+  assert.equal(hash(alias), first);
+});
+
+test('an admitted test repair uses the persistent producer handoff and never runs an error-supplied command', async t => {
+  const f = await fixture(t);
+  const inspect = async () => ({ ...f.observation(), findings: [{ code: 'CODE_TEST_FAILED', category: 'tests',
+    details: { command: 'node malicious-script.mjs' } }] });
+  const plan = await f.call('plan', null, { inspect });
+  assert.equal(plan.action.id, 'owned-producer-repair');
+  const started = await f.call('run', plan.confirmation, { inspect });
+  assert.equal(started.status, 'awaiting-producer-repair'); assert.equal(f.syncs(), 0);
+  assert.equal(started.consumed, 1); assert.equal(started.phaseAdvanced, false);
+  assert.doesNotMatch(JSON.stringify(started.action), /malicious-script/u);
+});
+
 test('a changed producer closes the old reservation and unknown finding categories stay with the owner', async t => {
   const f = await fixture(t); await reserve(f);
   const changedOwner = { inspect: async () => ({ ...f.observation(), inspection: {

@@ -11,14 +11,15 @@ import { phaseResolutionProjection, repairLoopAdmission } from './phase-resoluti
 import { storyUsesStepActions } from './step-action-delivery.mjs';
 import { appendPhaseRepairEvent, phaseRepairBinding, phaseRepairJournalQuarantinePlan, phaseRepairLoopSummary, quarantinePhaseRepairJournal, readPhaseRepairJournal, repairDigest } from './phase-repair-journal.mjs';
 import { SingularityFlowError } from './util.mjs';
-import { phaseFindingPolicy } from './phase-finding-policy.mjs';
+import { phaseFindingPolicy, phaseFindingIdentity, PHASE_REPAIR_POLICY_REVISION,
+  findingOwnedByPhase, testRepairProgress } from './phase-finding-policy.mjs';
 import { createPhaseCheckpoint } from './phase-checkpoint.mjs';
 
 const fail = (message, code, details = {}) => { throw new SingularityFlowError(message, { code, details }); };
 /** Progress means changed findings, not padding, moved line numbers or unrelated source edits. */
 export function phaseRepairConditionHash({ ready, findings, pending = null }) {
-  const identities = findings.map(({ code, path, value, details }) => ({ code, path: path ?? null,
-    value: value ?? details?.clauseId ?? null, sourceCode: details?.sourceCode ?? null }))
+  const identities = findings.map(finding => ({ ...phaseFindingIdentity(finding),
+    testFailure: testRepairProgress(finding.details?.requiredTestExecution) }))
     .sort((a, b) => JSON.stringify(a).localeCompare(JSON.stringify(b)));
   return repairDigest({ ready, findings: identities, pending });
 }
@@ -59,6 +60,7 @@ async function context(root, workId, phaseId, dependencies) {
   return { root, config, workflow, phase, binding };
 }
 const policyHash = ({ config, workflow, phase }, observation) => repairDigest({ resolution: workflow.resolution ?? null,
+  installedPolicyRevision: PHASE_REPAIR_POLICY_REVISION,
   testPolicy: workflow.testPolicy ?? null, approvalPolicy: phase.approvalPolicy ?? null,
   generationPolicy: phase.generationPolicy ?? null, repairBudget: phase.repairBudget ?? null,
   governance: config.governance ?? null, producer: observation.inspection.producer ?? null,
@@ -87,7 +89,8 @@ function actionFor(observation, { phase, workflow, config }) {
       && observation.inspection.ownership?.proven === true
       && observation.inspection.correction.class === 'agent-authoring'
       && producerFindings.length > 0
-      && producerFindings.every(finding => phaseFindingPolicy(finding).repairableByProducer)) {
+      && producerFindings.every(finding => findingOwnedByPhase(workflow, phase, finding)
+        && phaseFindingPolicy(finding).repairableByProducer)) {
     return { id: 'owned-producer-repair', mode: 'producer-handoff', pendingHash: null,
       skill: observation.inspection.correction.skill,
       detail: 'The bound producer repairs only the returned owned draft/source findings, then resumes this same attempt. No nested model is launched.' };

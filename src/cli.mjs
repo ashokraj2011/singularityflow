@@ -323,7 +323,7 @@ function configurationBranchInitializationRefusal(relation) {
     + `${CONFIGURATION_BRANCH} branch. Run singularity-flow workspace refresh-configuration, then `
     + `check out the reviewed ${CONFIGURATION_BRANCH} authority and retry. Nothing was changed.`, {
       code: 'INITIALIZATION_CONFIGURATION_AUTHORITY_MISMATCH',
-      details: {
+      details: { nextAction: { executable: 'singularity-flow', argv: ['workspace', 'refresh-configuration', '--dry-run'], label: 'Inspect or continue the retained operation; recheck before retrying.' },
         localCommit: relation.localCommit,
         expectedCommit: relation.expectedCommit
       }
@@ -1461,7 +1461,7 @@ async function agentCommand(positionals, options = {}) {
   const root = repoRoot();
   const { config, workflow } = await loadAcceptedStoryExecution(root, positionals[1]);
   if (!workflowBranchAllowed(workflow, branch(root))) {
-    throw new SingularityFlowError(`Branch '${branch(root)}' is not registered for Story '${workflow.workItem.id}'. Run singularity-flow story branch attach --parent ${workflow.workItem.id}.`);
+    throw new SingularityFlowError(`Branch '${branch(root)}' is not registered for Story '${workflow.workItem.id}'. Run singularity-flow story branch attach --parent ${workflow.workItem.id}.`, { details: { nextAction: { executable: 'singularity-flow', argv: ['story', 'branch', 'attach', '--parent', workflow.workItem.id], label: 'Inspect or continue the retained operation; recheck before retrying.' } } });
   }
   const session = await selectAgent(root, config, actionActor(root), workflow.workItem.id, {
     phaseId: workflow.currentPhase,
@@ -2808,7 +2808,7 @@ async function specCommand(positionals, options) {
     if (!inputFile) throw new SingularityFlowError('Provide --file with a JSON or YAML claim map.');
     const records = await loadActiveSpecRecords(itemDirectory, workflow);
     const clauseIds = records.indexes.flatMap((index) => (index.clauses ?? []).map((clause) => clause.id));
-    if (!clauseIds.length) throw new SingularityFlowError(`No specification index exists. Run singularity-flow spec index --phase ${scopeStepOf(workflow)?.id ?? '<scope-step>'} first.`);
+    if (!clauseIds.length) throw new SingularityFlowError(`No specification index exists. Run singularity-flow spec index --phase ${scopeStepOf(workflow)?.id ?? '<scope-step>'} first.`, { details: { nextAction: { executable: 'singularity-flow', argv: ['spec', 'index', '--phase', scopeStepOf(workflow)?.id ?? '<scope-step>'], label: 'Inspect or continue the retained operation; recheck before retrying.' } } });
     const claims = normalizeClaimMap(await readStructuredFile(root, inputFile), { kind, clauseIds, policy });
     Object.assign(claims, { workId: workflow.workItem.id, phase: phase.id, generation });
     const relative = posix(path.join(itemRelative, 'context', 'claims', `${phase.id}-gen${generation}-${kind}.json`));
@@ -7901,7 +7901,7 @@ async function initiativeCommand(positionals, options) {
       throw new SingularityFlowError(
         `Initiative '${initiativeId}' has an interrupted pre-commit publication that cannot be restored automatically. `
         + 'Its journal was retained; run singularity-flow doctor --json and inspect the reported recovery evidence.'
-      );
+      , { details: { nextAction: { executable: 'singularity-flow', argv: ['doctor', '--json'], label: 'Inspect or continue the retained operation; recheck before retrying.' } } });
     }
   }
   const loaded = await loadInitiativeAggregate(root, initiativeId, portfolio);

@@ -140,6 +140,17 @@ test('the lifecycle tree, approvals and inbox all route a waiting decision to th
   assert.match(buildApprovals(awaiting).pending[0].afterApproval, /goes back to Intake until ready is yes \(round 1 of 3\)/);
 });
 
+test('approval cards use the kernel correction targets without widening pinned business returns', () => {
+  const snapshot = waitingSnapshot(); delete snapshot.workflow.pendingDecision;
+  const phase = snapshot.workflow.phases.requirements;
+  phase.status = 'awaiting_approval';
+  phase.approvalPolicy = { authorities: ['product-approvers'], minimum: 1, rejectTo: [] };
+  snapshot.approval = { phase: phase.id, minimum: 1, distinct: 0,
+    remainingAuthorities: [], met: false, correctionTargets: [phase.id] };
+  assert.deepEqual(buildApprovals(snapshot).pending[0].rejectTo, [phase.id]);
+  assert.deepEqual(phase.approvalPolicy.rejectTo, [], 'a read projection cannot rewrite policy');
+});
+
 test('the host binds each decision control to the exact engine command and asks for a reason', async () => {
   const extension = await readFile(source('extension.ts'), 'utf8');
   assert.match(extension, /client\.run<StoryDecisionView>\(\['decision', 'show', workId, '--json'\]\)/, 'the question is read fresh before choosing');

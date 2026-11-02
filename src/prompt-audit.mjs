@@ -1028,7 +1028,7 @@ export async function recordPromptAudit(root, input) {
     if (maintenance.data?.integrity.status === 'failed') {
       throw new SingularityFlowError(
         `Prompt-audit history failed integrity: ${maintenance.data.warnings.join(' ')} Run singularity-flow prompt-log repair before retrying.`,
-        { code: 'PROMPT_AUDIT_INTEGRITY_FAILED', details: { integrity: maintenance.data.integrity } }
+        { code: 'PROMPT_AUDIT_INTEGRITY_FAILED', details: { nextAction: { executable: 'singularity-flow', argv: ['prompt-log', 'repair'], label: 'Inspect or continue the retained operation; recheck before retrying.' },  integrity: maintenance.data.integrity } }
       );
     }
     let previousEntry = await lastLogRecord(target.logFile);
@@ -1042,13 +1042,13 @@ export async function recordPromptAudit(root, input) {
       if (verification.status !== 'verified') {
         throw new SingularityFlowError(
           `Prompt-audit tail failed integrity: ${verification.findings.join('; ')}. Run singularity-flow prompt-log repair before retrying.`,
-          { code: 'PROMPT_AUDIT_INTEGRITY_FAILED', details: { findings: verification.findings } }
+          { code: 'PROMPT_AUDIT_INTEGRITY_FAILED', details: { nextAction: { executable: 'singularity-flow', argv: ['prompt-log', 'repair'], label: 'Inspect or continue the retained operation; recheck before retrying.' },  findings: verification.findings } }
         );
       }
       if (config.tailMac && previousEntry.storedRecord.integrity.mac !== config.tailMac) {
         throw new SingularityFlowError(
           'Prompt-audit tail does not match its durable chain anchor. Run singularity-flow prompt-log repair before retrying.',
-          { code: 'PROMPT_AUDIT_INTEGRITY_FAILED' }
+          { details: { nextAction: { executable: 'singularity-flow', argv: ['prompt-log', 'repair'], label: 'Inspect or continue the retained operation; recheck before retrying.' } },  code: 'PROMPT_AUDIT_INTEGRITY_FAILED' }
         );
       }
     }

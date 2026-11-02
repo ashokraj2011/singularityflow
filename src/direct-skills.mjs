@@ -121,7 +121,7 @@ export function verifyDirectSkillContents({
     throw new SingularityFlowError(
       `Installed direct Copilot skill content does not match this Singularity Flow build (${details.join(' | ')}). `
       + 'Run singularity-flow plugin install, then restart Copilot Chat or reload VS Code before retrying.'
-    );
+    , { details: { nextAction: { executable: 'singularity-flow', argv: ['plugin', 'install'], label: 'Inspect or continue the retained operation; recheck before retrying.' } } });
   }
   return Object.freeze({
     targetRoot: resolvedTarget,

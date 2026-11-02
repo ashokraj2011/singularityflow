@@ -13,7 +13,7 @@ const awaiting = (approvals) => ({
 test('the approval view is the engine rule: distinct people by their compared identity, and every required group', () => {
   // The same person twice, by email case and by login, is one approver.
   const sameTwice = awaiting([approval({ email: 'Approver@Example.com' }), approval({ email: 'approver@example.com' })]);
-  assert.deepEqual(storyApprovalView(sameTwice), { phase: 'design', minimum: 2, distinct: 1, remainingAuthorities: ['security'], met: false });
+  assert.deepEqual(storyApprovalView(sameTwice), { phase: 'design', correctionTargets: ['design'], minimum: 2, distinct: 1, remainingAuthorities: ['security'], met: false });
 
   const twoWithoutSecurity = awaiting([approval({ email: 'approver@example.com' }), approval({ login: 'reviewertwo' })]);
   assert.deepEqual(storyApprovalView(twoWithoutSecurity).remainingAuthorities, ['security']);

@@ -172,6 +172,24 @@ test('a Story-path refusal with a known route shows that route, never only help,
   assert.deepEqual(buried, []);
 });
 
+test('structured argv recovery actions preserve the actual failure and render all supported surfaces', () => {
+  const cause = Object.assign(new Error('credential helper failed'), { code: 'AUTH_HELPER_FAILED' });
+  const error = Object.assign(new Error('Retained operation failed: credential helper failed'), {
+    code: 'OPERATION_PENDING', cause, details: { originalError: { code: cause.code, message: cause.message },
+      nextAction: { executable: 'singularity-flow', argv: ['recover', 'AUDIT-1', '--phase', 'implementation', '--json'],
+        label: 'Inspect this retained operation before retrying.' } }
+  });
+  const plan = refusalRemediationPlan(error, ['submit', 'implementation']);
+  const step = plan.steps.find(step => step.command === 'singularity-flow recover AUDIT-1 --phase implementation --json');
+  assert.ok(step); assert.ok(step.copilotCommand); assert.ok(step.platformCommands.win32);
+  assert.equal(error.details.originalError.code, 'AUTH_HELPER_FAILED'); assert.equal(error.cause, cause);
+  assert.match(error.message, /credential helper failed/u);
+  const unsafe = refusalRemediationPlan(Object.assign(new Error('data only'), { details: {
+    nextAction: { executable: 'node', argv: ['malicious-script.mjs'] }
+  } }), ['status']);
+  assert.ok(!unsafe.steps.some(step => step.command?.includes('malicious-script')));
+});
+
 /** Throw sites whose message tells the reader to run a command that no structured field carries. */
 async function proseOnlyRefusals() {
   const root = fileURLToPath(new URL('../', import.meta.url));
@@ -201,20 +219,9 @@ async function proseOnlyRefusals() {
 }
 
 /**
- * The prose-only refusals that predate this audit. A refusal names its next command in
- * details (nextAction, recoveryCommand, recoveryCommands) or through a registered route, so this
- * list may only shrink: lower a count when you give one of them a structured route.
+ * Producers carry structured actions. There is no legacy allowance for prose-only commands.
  */
-const PROSE_ONLY_REFUSALS = Object.freeze({
-  'src/action-plans.mjs': 1, 'src/agents.mjs': 4, 'src/cli.mjs': 4,
-  'src/commands/phase-lifecycle.mjs': 3, 'src/commands/start.mjs': 1, 'src/commands/story.mjs': 1, 'src/commands/submit.mjs': 2,
-  'src/config.mjs': 2, 'src/configuration-proposal.mjs': 1, 'src/convergence-context.mjs': 1, 'src/design-sources.mjs': 1,
-  'src/direct-skills.mjs': 1, 'src/epic-review.mjs': 1, 'src/generation-boundary.mjs': 1, 'src/initialization/recovery.mjs': 1,
-  'src/initiative-config.mjs': 1, 'src/initiative-state.mjs': 8, 'src/ledger.mjs': 1, 'src/mcp-readiness.mjs': 3,
-  'src/plugin.mjs': 3, 'src/prompt-audit.mjs': 3, 'src/session-remote-url-discovery.mjs': 1, 'src/session.mjs': 2,
-  'src/state.mjs': 14, 'src/story-state-normalization.mjs': 1, 'src/story-workflow-read.mjs': 1, 'src/story-worktree.mjs': 2,
-  'src/workflow-authoring.mjs': 1, 'src/workspace.mjs': 1
-});
+const PROSE_ONLY_REFUSALS = Object.freeze({});
 
 test('no new refusal names its next command only in prose', async () => {
   const counts = await proseOnlyRefusals();

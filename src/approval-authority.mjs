@@ -190,6 +190,8 @@ export function approvalRequirementsMet(policy, approvals = [], { counts = null 
     && remainingRequiredAuthorities(policy, active).length === 0;
 }
 
+import { phaseCorrectionTargets } from './phase-finding-policy.mjs';
+
 /**
  * One engine-computed view of where the approval of the phase awaiting it stands, so no surface
  * re-implements the rule: how many distinct people approved of how many, and which required groups
@@ -203,6 +205,7 @@ export function storyApprovalView(workflow, { counts = null } = {}) {
   const active = (phase.approvals ?? []).filter((item) => !item.invalidatedAt && item.decision === 'approved' && (!counts || counts(item)));
   return {
     phase: phaseId,
+    correctionTargets: phaseCorrectionTargets(phase),
     minimum: policy.minimum ?? 1,
     distinct: approverIdentities(active).size,
     remainingAuthorities: remainingRequiredAuthorities(policy, active),

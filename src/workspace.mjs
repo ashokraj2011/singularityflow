@@ -2606,7 +2606,7 @@ export async function changeWorkspaceCapability(workspacePath, capabilityId, opt
     if (await workspaceDropLstat(dropRoot)) {
       throw new SingularityFlowError(
         `A retained local-drop transaction already exists for ${preview.planId}. Run singularity-flow workspace repair ${JSON.stringify(current.path)} before retrying.`,
-        { code: 'WORKSPACE_CAPABILITY_DROP_RECOVERY_REQUIRED' }
+        { details: { nextAction: { executable: 'singularity-flow', argv: ['workspace', 'repair', current.path], label: 'Inspect or continue the retained operation; recheck before retrying.' } },  code: 'WORKSPACE_CAPABILITY_DROP_RECOVERY_REQUIRED' }
       );
     }
     await mkdir(dropRoot, { recursive: true });

@@ -1,6 +1,7 @@
 import { submitRoute } from './submit-route.mjs';
 import { isConvergencePhase } from './phase-roles.mjs';
 import { nextPhaseGeneration } from './phase-generation.mjs';
+import { phaseCorrectionTargets } from './phase-finding-policy.mjs';
 import path from 'node:path';
 import { readFile } from 'node:fs/promises';
 import { exactFileAtObject, head } from './git.mjs';
@@ -183,7 +184,7 @@ export async function generationRecovery(root, workflow, phase, generationDigest
   const submitted = phase.status === 'awaiting_approval';
   if (mode !== 'manual') {
     command = submitted
-      ? `singularity-flow reject ${phase.id} --work-id ${workflow.workItem.id} --to <phase> --reason <reason>`
+      ? `singularity-flow reject ${phase.id} --work-id ${workflow.workItem.id} --to ${phase.id} --reason <reason>`
       : `singularity-flow phase rollover ${phase.id} --confirm ${rolloverConfirmation}`;
   }
   return {
@@ -227,7 +228,7 @@ export async function generationRecovery(root, workflow, phase, generationDigest
       command: mode === 'manual' ? 'singularity-flow doctor --json' : command,
       skill: mode === 'manual' ? '/sf-doctor' : submitted ? '/sf-reject' : '/sf-recover',
       evidence: { path: phase.generationIntent.path ?? null, line: null,
-        ...(submitted ? { permittedTargets: phase.approvalPolicy?.rejectTo ?? [] } : {}) }
+        ...(submitted ? { permittedTargets: phaseCorrectionTargets(phase) } : {}) }
     })
   };
 }

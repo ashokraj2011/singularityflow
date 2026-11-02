@@ -26,6 +26,7 @@ import {
   stepResponsibilities
 } from './phase-roles.mjs';
 import { nextPhaseGeneration } from './phase-generation.mjs';
+import { phaseCorrectionTargets } from './phase-finding-policy.mjs';
 import { reservePreparedDocumentSuccessor } from './prepared-document-successor.mjs';
 import { copyFile, cp, lstat, mkdir, mkdtemp, readFile, readdir, readlink, rm, writeFile } from 'node:fs/promises';
 import { existsSync } from 'node:fs';
@@ -1157,7 +1158,7 @@ export async function createWorkflow(root, config, {
         throw new SingularityFlowError(
           `Work type '${selectedType}' requires a constitution at ${resolution.constitution.path} and none exists. `
           + 'Copy examples/constitution/constitution.md there, replace the sample articles, and run singularity-flow constitution generate.'
-        );
+        , { details: { nextAction: { executable: 'singularity-flow', argv: ['constitution', '--help'], label: 'Inspect or continue the retained operation; recheck before retrying.' } } });
       }
       console.warn(`Warning: no constitution at ${resolution.constitution.path}; this Story pins none.`);
     } else {
@@ -5793,7 +5794,7 @@ async function submitPhaseTransition(root, config, workflow, {
     if (!interval || interval.phaseId !== phase.id || interval.status !== 'open') {
       throw new SingularityFlowError(
         `Phase '${phase.id}' has no open work interval. Run singularity-flow prepare ${phase.id} before changing source or submitting.`
-      );
+      , { details: { nextAction: { executable: 'singularity-flow', argv: ['phase', 'enter', phase.id, '--for-agent', '--json'], label: 'Inspect or continue the retained operation; recheck before retrying.' } } });
     }
     const reconciliation = await reconcileWorkInterval(root, config, workflow, {
       phaseId: phase.id,
@@ -7735,7 +7736,7 @@ export async function rejectPhase(root, config, workflow, {
   if (upstreamIssue && workflow.phaseOrder.indexOf(target) >= workflow.phaseOrder.indexOf(phase.id)) {
     throw new SingularityFlowError(`${upstreamIssue.id} returns to an earlier step, not '${target}'.`, { code: 'UPSTREAM_ISSUE_NOT_EARLIER' });
   }
-  const targetId = target ?? phase.id; if (!upstreamIssue && !(phase.approvalPolicy.rejectTo ?? [phase.id]).includes(targetId)) throw new SingularityFlowError(`Phase '${phase.id}' cannot be rejected to '${targetId}'. Allowed: ${(phase.approvalPolicy.rejectTo ?? []).join(', ')}.`);
+  const targetId = target ?? phase.id; if (!upstreamIssue && !phaseCorrectionTargets(phase).includes(targetId)) throw new SingularityFlowError(`Phase '${phase.id}' cannot be rejected to '${targetId}'. Allowed: ${phaseCorrectionTargets(phase).join(', ')}.`);
   const targetIndex = workflow.phaseOrder.indexOf(targetId); if (targetIndex < 0 || targetIndex > workflow.phaseOrder.indexOf(phase.id)) throw new SingularityFlowError(`Invalid rejection target '${targetId}'.`);
   const requestedClauses = [...new Set(clauseIds)];
   if (requestedClauses.length) {
@@ -10204,7 +10205,7 @@ export async function syncPublication(root, config, workflow, { fault = null, re
     throw new SingularityFlowError(
       `Story '${workflow.workItem.id}' was interrupted before its commit completed. `
       + 'Inspect the working tree, run singularity-flow doctor, and repair or discard the partial local state before retrying.'
-    );
+    , { details: { nextAction: { executable: 'singularity-flow', argv: ['doctor', '--json'], label: 'Inspect or continue the retained operation; recheck before retrying.' } } });
   }
   return withSubjectLock(root, subject, async () => {
     // The marker may have been completed while this command waited for the subject lease. Re-read
@@ -10225,14 +10226,14 @@ export async function syncPublication(root, config, workflow, { fault = null, re
       throw new SingularityFlowError(
         `Story '${workflow.workItem.id}' recovery diverged and was stopped safely. ${record.error} `
         + 'Run singularity-flow doctor for the exact journal/branch diagnosis; no commit was pushed.',
-        { code: 'PUBLICATION_RECOVERY_DIVERGED', details: record }
+        { code: 'PUBLICATION_RECOVERY_DIVERGED', details: { ...record, nextAction: { executable: 'singularity-flow', argv: ['doctor', '--json'], label: 'Inspect the exact recovery journal and retained failure before retrying.' } } }
       );
     }
     if (record.recoveryStage === 'interrupted-before-branch-ref-advanced') {
       throw new SingularityFlowError(
         `Story '${workflow.workItem.id}' recovery state changed while synchronization was acquiring its lock. `
         + 'Run singularity-flow sync again; no commit was pushed.',
-        { code: 'PUBLICATION_RECOVERY_CHANGED' }
+        { details: { nextAction: { executable: 'singularity-flow', argv: ['sync'], label: 'Inspect or continue the retained operation; recheck before retrying.' } },  code: 'PUBLICATION_RECOVERY_CHANGED' }
       );
     }
     if (isPendingStoryBranchPromotion(record)) {
@@ -10257,7 +10258,7 @@ export async function syncPublication(root, config, workflow, { fault = null, re
         + 'Run singularity-flow doctor --json and repair or discard the invalid recovery receipt.',
         {
           code: 'PENDING_PUBLICATION_IDENTITY_INVALID',
-          details: { subject, markerPath: current.path, failures: verification.failures }
+          details: { nextAction: { executable: 'singularity-flow', argv: ['doctor', '--json'], label: 'Inspect or continue the retained operation; recheck before retrying.' },  subject, markerPath: current.path, failures: verification.failures }
         }
       );
     }

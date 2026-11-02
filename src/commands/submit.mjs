@@ -148,7 +148,7 @@ export async function runSubmitCommand(positionals, options, submitContext) {
             `The reviewed convergence projection or one of its exact inputs changed while submission was running. Nothing was committed; run singularity-flow prepare ${requested.id} again.`,
             {
               code: 'PUBLICATION_SNAPSHOT_CHANGED',
-              details: {
+              details: { nextAction: { executable: 'singularity-flow', argv: ['prepare', requested.id], label: 'Inspect or continue the retained operation; recheck before retrying.' },
                 expectedConvergenceSnapshotSha256,
                 currentConvergenceSnapshotSha256: current.snapshotSha256
               }

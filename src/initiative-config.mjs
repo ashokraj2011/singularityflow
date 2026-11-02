@@ -658,7 +658,7 @@ export async function loadPortfolio(root, { required = true } = {}) {
   });
   if (!file.exists) {
     if (!required) return null;
-    throw new SingularityFlowError(`No ${PORTFOLIO_PATH} exists. Run singularity-flow init or add the portfolio configuration.`);
+    throw new SingularityFlowError(`No ${PORTFOLIO_PATH} exists. Run singularity-flow init or add the portfolio configuration.`, { details: { nextAction: { executable: 'singularity-flow', argv: ['init'], label: 'Inspect or continue the retained operation; recheck before retrying.' } } });
   }
   let parsed;
   try { parsed = parseYamlText(await readFile(file.absolute, 'utf8')); }

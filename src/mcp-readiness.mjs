@@ -1136,7 +1136,7 @@ export async function verifyMcpHostOffline(root, definition, serverId, {
     if (error?.code === 'PRIVATE_SIDECAR_PATH_UNSAFE') throw error;
     throw new SingularityFlowError(
       `The exact Playwright MCP package is not available in Git-local machine state. Run singularity-flow mcp warm ${serverId} --network first.`,
-      { code: 'MCP_WARM_REQUIRED', cause: error }
+      { details: { nextAction: { executable: 'singularity-flow', argv: ['mcp', 'warm', serverId, '--network'], label: 'Inspect or continue the retained operation; recheck before retrying.' } },  code: 'MCP_WARM_REQUIRED', cause: error }
     );
   }
   const runtime = await resolvePlaywrightAuthRuntime(root, entry, { platform, windowsAcl });
@@ -1264,7 +1264,7 @@ async function managedPlaywrightSmokeRuntime(root, server, entry, options = {}) 
   if (warm.status !== 'valid') {
     throw new SingularityFlowError(
       `Playwright live smoke requires a valid exact-package warm proof (${warm.status}: ${warm.reason}). Run singularity-flow mcp verify-offline playwright if the package is already present, or singularity-flow mcp warm playwright --network.`,
-      { code: 'MCP_WARM_REQUIRED' }
+      { details: { nextAction: { executable: 'singularity-flow', argv: ['mcp', 'verify-offline', 'playwright'], label: 'Inspect or continue the retained operation; recheck before retrying.' } },  code: 'MCP_WARM_REQUIRED' }
     );
   }
   const receipt = await readWarmReceipt(root, server.id);
@@ -1348,7 +1348,7 @@ export async function serveMcpHost(root, definition, serverId, {
   if (!managedPlaywrightHostEntry(entry)) {
     throw new SingularityFlowError(
       `Playwright host entry is not managed by SFlow. Run singularity-flow mcp scaffold playwright --replace-server and review the change.`,
-      { code: 'MCP_HOST_CONFIG_INVALID' }
+      { details: { nextAction: { executable: 'singularity-flow', argv: ['mcp', 'scaffold', 'playwright', '--replace-server'], label: 'Inspect or continue the retained operation; recheck before retrying.' } },  code: 'MCP_HOST_CONFIG_INVALID' }
     );
   }
   const runtime = await managedPlaywrightSmokeRuntime(root, server, entry, {

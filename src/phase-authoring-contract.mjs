@@ -2,7 +2,7 @@ import path from 'node:path';
 import { phaseRequiresCodeDelivery } from './code-delivery-policy.mjs';
 import { isConformancePhase, isConvergencePhase, isTestEvidencePhase, phaseOwnsScope, stepResponsibilities } from './phase-roles.mjs';
 import { CLI_PATH_CONTRACT } from './safe-command-guidance.mjs';
-import { REPAIR_CONTINUATION_CONTRACT, REPAIR_CONTINUATION_PROTOCOL } from './phase-finding-policy.mjs';
+import { REPAIR_CONTINUATION_CONTRACT, REPAIR_CONTINUATION_PROTOCOL, phaseRepairCapabilities } from './phase-finding-policy.mjs';
 import { REQUIREMENT_COVERAGE, REQUIREMENT_AUTHORING_PROTOCOL } from './requirement-coverage.mjs';
 
 /** Resolve responsibilities from the accepted workflow, never from a packaged phase name. */
@@ -42,6 +42,7 @@ export function phaseAuthoringContract(definition, workflow, phase) {
       commandSuccessIsCriterionAcceptance: false, priorReportsMutable: false },
     draftDefectsPreventRepair: false, repairIsApproval: false,
     selfHealing: REPAIR_CONTINUATION_CONTRACT,
+    repairCapabilities: phaseRepairCapabilities(phase),
     advisories: { blockPublication: false, scopeAccountingRequiredBefore: 'approve', commentsRequireHumanDecision: false },
     configuration: { productSource: false, sourceTagsRequired: false, apiDocumentationRequired: false,
       scopeAccountingRequired: true, candidateAndTestInput: true, protectedPathsEnforced: true },

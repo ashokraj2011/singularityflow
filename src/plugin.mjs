@@ -244,7 +244,7 @@ function verifyPackagedSkillContents({ sourceRoot, pluginEntries, expectedNames 
     throw new SingularityFlowError(
       `Installed packaged Copilot skill content does not match this Singularity Flow build (${details.join(' | ')}). `
       + 'Run singularity-flow plugin install, then restart Copilot Chat or reload VS Code before retrying.'
-    );
+    , { details: { nextAction: { executable: 'singularity-flow', argv: ['plugin', 'install'], label: 'Inspect or continue the retained operation; recheck before retrying.' } } });
   }
   return { verified: expectedNames.length };
 }
@@ -320,7 +320,7 @@ function verifyLegacyInventory({ execute, expectedDirectSkills, targetRoot, env,
     throw new SingularityFlowError(
       `Copilot skill verification failed (${details.join(' | ')}). `
       + 'Run singularity-flow plugin install, then restart Copilot Chat or reload VS Code before retrying.'
-    );
+    , { details: { nextAction: { executable: 'singularity-flow', argv: ['plugin', 'install'], label: 'Inspect or continue the retained operation; recheck before retrying.' } } });
   }
   const unrelatedDiagnostics = [...pluginDiagnostics, ...directDiagnostics, ...pluginSkillDiagnostics]
     .filter((diagnostic) => !relevantDiscoveryErrors(
@@ -425,7 +425,7 @@ export function verifyPluginInstallation({
       throw new SingularityFlowError(
         `Copilot skill verification failed (${details.join(' | ')}). `
         + 'Run singularity-flow plugin install, then restart Copilot Chat or reload VS Code before retrying.'
-      );
+      , { details: { nextAction: { executable: 'singularity-flow', argv: ['plugin', 'install'], label: 'Inspect or continue the retained operation; recheck before retrying.' } } });
     }
     const packagedContentVerification = verifyPackagedSkillContents({
       sourceRoot: resolvedSourceRoot,

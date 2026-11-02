@@ -13,6 +13,7 @@ import { commitInitiativeChange } from './state-stores.mjs';
 import { setAgentSession } from './session.mjs';
 import { exists, run, SingularityFlowError } from './util.mjs';
 import { matchApprovalAuthority } from './approval-authority.mjs';
+import { phaseCorrectionTargets } from './phase-finding-policy.mjs';
 import { LIFECYCLE_EVENT } from './lifecycle-event.mjs';
 import { runRemoteGitAsync } from './git-execution.mjs';
 import {
@@ -146,7 +147,7 @@ async function checkoutSubmission(root, initiativeId, storyReference, packetSha2
   const selected = packetSha256 ? latestSubmission(candidates, packetSha256) : finalized;
   if (!selected) throw new SingularityFlowError(
     `Story '${workId}' has no finalized review packet on any published branch. The developer must run singularity-flow finalize.`
-  );
+  , { details: { nextAction: { executable: 'singularity-flow', argv: ['recover', workId, '--json'], label: 'Inspect or continue the retained operation; recheck before retrying.' } } });
   if (packetSha256 && finalized?.finalization.reviewPacketSha256 !== packetSha256) {
     throw new SingularityFlowError(
       `Review packet '${packetSha256.slice(0, 12)}' is not the packet referenced by the latest developer finalization `
@@ -196,7 +197,7 @@ function approvalPreview(selected) {
     availableAgents,
     defaultAgent,
     reviewerAuthority: authority,
-    rejectTo: phase.approvalPolicy?.rejectTo ?? [phase.id],
+    rejectTo: phaseCorrectionTargets(phase),
     reviewer,
     submittedBy: selected.packet.submittedBy,
     generatedBy: phase.generatedBy ?? null,

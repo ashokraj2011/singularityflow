@@ -19,8 +19,10 @@ export function normalizeCurrentWorkflow(workflow) {
   ].filter(([, value]) => value == null).map(([name]) => name);
   if (missing.length) {
     throw new SingularityFlowError(
-      `Story workflow schema ${currentSchemaVersion('story-workflow')} is incomplete (${missing.join(', ')}). Run singularity-flow factory-reset and recreate the Story.`
-    );
+      `Story workflow schema ${currentSchemaVersion('story-workflow')} is incomplete (${missing.join(', ')}). Preserve it and inspect authenticated state recovery; do not reset the repository or recreate the Story.`,
+      { code: 'STORY_STATE_INCOMPLETE', details: { missing, owner: 'repository-state-maintainer', preserved: true,
+        nextAction: { executable: 'singularity-flow', argv: ['doctor', '--json'],
+          label: 'Locate the last authenticated Story record and restore or migrate it before rechecking.' } } });
   }
   workflow.resolution.session = normalizeSessionPolicy(workflow.resolution.session);
   workflow.resolution.contextPolicy = normalizeContextPolicy(workflow.resolution.contextPolicy);

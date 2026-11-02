@@ -37,6 +37,17 @@ test('every alias has the same policy, identity, repair executor and continuatio
   assert.equal(phaseFindingCode({ code: 'wrapper', details: { sourceCode: 'code_test_failed' } }), 'CODE_TEST_FAILED');
   assert.equal(phaseFindingPolicy({ code: 'PROTECTED_SNAPSHOT_CHANGED', category: 'TESTS' }).repairableByProducer, false);
   assert.equal(phaseFindingPolicy({ code: 'UNKNOWN', category: 'tests' }).repairableByProducer, false);
+  for (const code of ['PROTECTED_SNAPSHOT_CHANGED', 'SOURCE_BOUNDARY_MISMATCH', 'BINDING_STALE']) {
+    const finding = { code, path: 'spec.md', category: 'authoring',
+      details: { sourceCode: 'artifact.placeholder.unresolved', riskEligible: true } };
+    const result = phaseResolutionProjection(workflow, phase, [finding]);
+    assert.equal(phaseFindingCode(finding), code);
+    assert.equal(result.issues[0].policy.classification, 'integrity-or-authority');
+    assert.equal(result.issues[0].policy.riskEligible, false);
+    assert.equal(result.issues[0].choices[0].kind, 'configuration-owner');
+    assert.ok(!result.issues[0].choices.some(choice => choice.kind === 'pilot-risk-review'));
+    assert.equal(result.repairContinuation.tasks[0].action, 'owner-review');
+  }
 });
 
 test('an upstream finding restores and checkpoints the current consumer, with a separate immutable owner', () => {

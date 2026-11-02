@@ -92,12 +92,17 @@ const TEST_REPAIR_CODES = new Set(['CODE_TEST_FAILED', 'CODE_TEST_TIMEOUT', 'COD
   'CODE_TEST_ZERO_DISCOVERED', 'CODE_TEST_RESULT_REQUIRED', 'CODE_TEST_SUPPRESSED',
   'TEST_MODULE_AMBIGUOUS', 'TEST_MODULE_UNCOVERED', 'GRADLE_TEST_TARGET_REQUIRED',
   'XCODE_TEST_TARGET_REQUIRED', 'RUST_TEST_ADAPTER_REQUIRED', 'CODE_DELIVERY_TEST_COMMAND_REQUIRED']);
+const INTEGRITY_FINDING_CODE = /integrity|tamper|protected|authority|identity|provenance|snapshot|source[._-]boundary|unsafe|secret|publication_invalid|publication_missing|binding_stale|binding_required/iu;
+const canonicalFindingCode = code => code.includes('.') ? code.toLowerCase() : code.toUpperCase();
 
 export function phaseFindingCode(finding) {
-  const code = String(finding?.details?.sourceCode || finding?.code || 'UNKNOWN_PHASE_FINDING').trim();
   // Both legacy underscore codes and dotted findings cross CLI, hook and review adapters.
   // Canonicalize once, before routing, permission classification or repair journaling.
-  return code.includes('.') ? code.toLowerCase() : code.toUpperCase();
+  const primary = canonicalFindingCode(String(finding?.code || 'UNKNOWN_PHASE_FINDING').trim());
+  // A nested source code explains an ordinary wrapper; it cannot replace an installed integrity
+  // boundary with a quality/risk selector. Routing, identity and policy must all retain that code.
+  return INTEGRITY_FINDING_CODE.test(primary) ? primary
+    : canonicalFindingCode(String(finding?.details?.sourceCode || primary).trim());
 }
 
 /** Lines/messages are presentation, never finding identity or permission. */
@@ -113,7 +118,7 @@ export function phaseFindingPolicy(finding) {
   let repair = 'owner-review';
   let riskEligible = false;
   // Category hints never override an installed integrity/authority/safety boundary.
-  if (/integrity|tamper|protected|authority|identity|provenance|snapshot|source[._-]boundary|unsafe|secret|publication_invalid|publication_missing|binding_stale|binding_required/iu.test(code)
+  if (INTEGRITY_FINDING_CODE.test(code)
       || ['integrity', 'configuration'].includes(category)) {
     classification = 'integrity-or-authority'; repair = 'authenticated-restoration-or-amendment';
   } else if (ARTIFACT_QUALITY.has(code) && typeof finding.path === 'string') {

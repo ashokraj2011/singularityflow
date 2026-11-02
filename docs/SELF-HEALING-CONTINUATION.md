@@ -23,6 +23,8 @@ automatic reservation's old policy binding without refunding its consumed attemp
 `remediationPlan.repairContinuation`, and their agent action starts diagnosis instead of ending the
 authoring turn merely because tests failed. These projections grant no mutation permission.
 A publication-only or independent-review turn still hands authoring to its configured producer.
+An original integrity finding keeps its identity even when nested source-code hints name an
+ordinary quality defect; those hints cannot create a repair permission or risk exception.
 
 Each task has a stable case ID bound to the Story, phase, generation, intent and finding. It separates
 the phase detecting a defect from the phase owning the affected input, and names the repair executor,

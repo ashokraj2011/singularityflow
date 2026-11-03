@@ -1749,7 +1749,8 @@ export function intakeRegions(form: IntakeForm, journey: StartWizardProgress | n
   const checking = summaryProblems.filter((problem) => problem.endsWith('…'));
   const blocking = summaryProblems.filter((problem) => !problem.endsWith('…'));
   regions.status = `<section class="sf-panel">
-    ${problems.length && !blocking.length && checking.length
+    ${form.error && !form.busy ? `<h2>${icon('bad')}Start needs attention</h2><p>The start did not complete successfully. Review the error and recovery action below before retrying.</p>`
+    : problems.length && !blocking.length && checking.length
     ? `<h2>${icon('wait')}Checking…</h2>${checking.map((problem) => `<p class="meta" role="status" aria-live="polite">${escape(problem)}</p>`).join('')}`
     : problems.length
     ? `<h2>${icon('bad')}Before this can start</h2>${blocking.length
@@ -1775,6 +1776,7 @@ export function intakeRegions(form: IntakeForm, journey: StartWizardProgress | n
   regions.actions = `<div class="sf-start-bar" role="group" aria-label="Start ${escape(noun)}">
     <p class="sf-start-bar-summary" role="status" aria-live="polite">${form.busy
     ? escape(form.startStep ? `${form.startStep}…` : 'Starting…')
+    : form.error ? 'Start needs attention'
     : needed
       ? `<button type="button" class="link" data-focus-field="region:status">${needed === 1 ? '1 thing' : `${needed} things`} still needed</button>`
       : problems.length ? 'Checking…' : `${icon('ok')}Ready to start`}</p>

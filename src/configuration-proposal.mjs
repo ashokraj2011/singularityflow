@@ -1065,7 +1065,7 @@ export async function proposeConfigurationChange(root, {
         }
       );
     }
-    createConfigurationProjection(root, scratch, fetched.commit, { branch: CONFIGURATION_BRANCH, env: authorityTransport.env });
+    await createConfigurationProjection(root, scratch, fetched.commit, { branch: CONFIGURATION_BRANCH, env: authorityTransport.env, transport: authorityTransport });
     incrementCommandCounter('configuration.proposal-projection');
 
     const baseCommit = configurationRepositoryHead(scratch, authorityTransport.env);

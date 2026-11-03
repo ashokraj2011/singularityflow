@@ -277,3 +277,11 @@ only the fixed `bundle` or `dist` name into this invocation's private staging. I
 remote, history or Git command; its input and error output are bounded and its deadline is thirty
 seconds. Renames use relative source paths so a swapped ancestor cannot redirect capture elsewhere.
 The frozen process-site baseline includes this installer-only launch; no owner is exempted.
+
+Configuration projections add two bounded local reads: the exact approved tree's blob inventory
+and one batch object-availability check. Both run in the disposable borrower, which has no promisor
+remote, so older Git releases cannot silently fetch through the application's origin. Missing blobs
+are fetched in batches of at most 128 through the existing frozen asynchronous remote boundary,
+from the approved configuration authority into the durable workspace object store. The configured
+configuration-transfer deadline covers all batches. No application index, checkout, ref or Git
+configuration is changed, and the completed inventory is checked before files are populated.

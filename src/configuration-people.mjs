@@ -14,7 +14,7 @@ import {
 } from './configuration-branch.mjs';
 import { PORTFOLIO_PATH, validatePortfolio } from './initiative-config.mjs';
 import { identity } from './git.mjs';
-import { assertCredentialFreeRemote, sanitizeRemote } from './git-remote-diagnostics.mjs';
+import { assertCredentialFreeRemote, sanitizeRemote, frozenRemoteTransport, failureEvidence, safeGitDiagnosticReference } from './git-remote-diagnostics.mjs';
 import { gitDisabledHooksPath } from './git-isolation-paths.mjs';
 import { createAndPushTransportIntent } from './transport-intents.mjs';
 import { gitReadOutput, removeTemporaryTree, run, SingularityFlowError } from './util.mjs';
@@ -258,7 +258,7 @@ export function enrollmentPendingNotice(enrollment) {
 /**
  * Add the caller's current Git identity to approved authority groups and publish one exact commit.
  *
- * The approved branch is cloned into scratch. The caller's index, worktree, HEAD and Story snapshot
+ * The approved branch is projected into scratch. The caller's index, worktree, HEAD and Story snapshot
  * are never edited; only a durable retention ref and, when required, a configuration remote are
  * added to `.git` so a failed push remains recoverable through `singularity-flow push`.
  */
@@ -339,16 +339,18 @@ export async function publishCurrentIdentityToConfiguration(root, {
     // the checkout that outlives a Story, and projected from those exact objects.
     if (!reused) {
       const { fetchConfigurationBase, createConfigurationProjection } = await import('./configuration-projection.mjs');
-      const base = await fetchConfigurationBase(durableCheckout(root), { remote: remoteUrl, env: process.env },
+      const transport = frozenRemoteTransport(remoteUrl);
+      const base = await fetchConfigurationBase(durableCheckout(root), transport,
         { branch: CONFIGURATION_BRANCH });
       if (!base.commit) {
         const failed = base.failure;
         throw new SingularityFlowError(
-          `Cannot read approved configuration: ${String(failed?.stderr || failed?.stdout || '').trim().split('\n')[0]}`
+          `Cannot read approved configuration: ${failed?.failure?.advice ?? safeGitDiagnosticReference(failed)}`,
+          { code: failed?.failure?.code ?? 'CONFIGURATION_PROJECTION_BASE_UNAVAILABLE', details: { evidence: failureEvidence(failed), classification: failed?.failure?.classification ?? 'unknown' } }
         );
       }
-      createConfigurationProjection(durableCheckout(root), scratch, base.commit,
-        { branch: CONFIGURATION_BRANCH, config: { 'core.autocrlf': 'false' } });
+      await createConfigurationProjection(durableCheckout(root), scratch, base.commit,
+        { branch: CONFIGURATION_BRANCH, env: transport.env, transport, config: { 'core.autocrlf': 'false' } });
     }
     const previousCommit = run('git', ['rev-parse', 'HEAD'], { cwd: scratch }).stdout.trim();
     if (expectedSourceCommit != null && previousCommit !== expectedSourceCommit) {

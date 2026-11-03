@@ -881,9 +881,9 @@
     },
     "src/configuration-projection.mjs": {
       "counts": {
-        "command-run": 5
+        "command-run": 7
       },
-      "digest": "f60f44b385d6a9ffbde6c3bc5d5afb40132f1eea9caf7f8b791a0515fee207bb"
+      "digest": "d85e77b6f27ea295234f83a911d6b47e7001e58745aa8ca7efa3b3b6e799c905"
     },
     "src/configuration-read-worker-client.mjs": {
       "counts": {

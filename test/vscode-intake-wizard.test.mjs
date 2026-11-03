@@ -76,6 +76,18 @@ test('Story intake renders four steps, one copy of each field, a final review an
   assert.ok(intakeCommand(form).includes('STORY-42'), 'creation still uses the existing command builder');
 });
 
+test('a failed start never displays stale Ready status and retains the form and error for retry', () => {
+  const form = story({ error: 'Cannot download missing approved configuration files. Sign in to Git and retry.' });
+  const regions = intakeRegions(form);
+  assert.match(regions.status, /Start needs attention/u);
+  assert.match(regions.status, /Sign in to Git and retry/u);
+  assert.doesNotMatch(regions.status, /<h2>[^<]*Ready|class="ok-text"/u);
+  assert.doesNotMatch(regions.actions, /Ready to start/u);
+  assert.match(regions.actions, /Start needs attention/u);
+  assert.doesNotMatch(regions.actions, /data-submit="start" disabled/u, 'A resolved failure can retry the same populated form.');
+  assert.match(regions.review, /STORY-42/u);
+});
+
 test('Back and Next are local, retain controls and data, and expose Start only on Review', () => {
   const view = mount(); const field = view.fields.description;
   assert.equal(view.controller.step, 'details'); assert.equal(view.controls.final.hidden, true);

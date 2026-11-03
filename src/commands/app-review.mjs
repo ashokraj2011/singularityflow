@@ -80,9 +80,19 @@ export async function run(_argv, { positionals, options = {} }) {
   if (sub === 'browser') {
     if (positionals[2] !== 'install' || positionals.length !== 3) araFail('ARA_COMMAND_INVALID', 'Use app-review browser install to provision the pinned Chromium used only by SFlow.');
     const executable = path.join(PACKAGE_ROOT, 'node_modules', 'playwright-core', 'cli.js');
-    const code = await new Promise((resolve, reject) => { const child = spawn(process.execPath, [executable, 'install', 'chromium'], { stdio: 'inherit', shell: false }); child.once('error', reject); child.once('exit', resolve); });
-    if (code !== 0) araFail('ARA_CAPTURE_UNAVAILABLE', 'Review browser provisioning failed. No review or application was modified.');
-    return;
+    const json = optionBoolean(options, 'json') || optionBoolean(options, 'for-agent');
+    if (!json) console.log('Installing the pinned SFlow review browser…');
+    const { runQualityCommand } = await import('../quality-command-runner.mjs');
+    const installed = await runQualityCommand(process.execPath, [executable, 'install', 'chromium'], { cwd: PACKAGE_ROOT, timeoutMs: 600000, maxBuffer: 4 * 1024 * 1024 });
+    if (installed.status !== 0 && installed.exitCode !== 0) {
+      const { redactDiagnosticText } = await import('../git-remote-diagnostics.mjs');
+      araFail('ARA_CAPTURE_UNAVAILABLE', 'Review browser provisioning failed. No review or application was modified.',
+        { exitCode: installed.exitCode ?? installed.status, timedOut: installed.timedOut ?? false, cause: redactDiagnosticText(installed.stderr || installed.stdout || installed.error?.message || 'No process output', { multiline: true }).slice(-4000) });
+    }
+    const result = { schemaVersion: 1, resultType: 'sflow-application-review', status: 'ready', message: 'The pinned SFlow review browser is installed.',
+      commandGuidance: { copilotCommand: '/sf-app-review', command: 'singularity-flow app-review plan --json', modelFreeCommand: null } };
+    console.log(json ? JSON.stringify(result, null, 2) : result.message);
+    return result;
   }
   const { repoRoot } = await import('../git.mjs');
   const root = repoRoot();

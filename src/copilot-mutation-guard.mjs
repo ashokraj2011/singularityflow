@@ -630,7 +630,7 @@ export function argvAllowed(argv, mode, value) {
     && positionals[2] === value.contract.phaseId && (!options['work-id'] || options['work-id'] === value.contract.workId);
   // The /sf-run-app and /sf-test turns: the declared application and tests, and proposing exactly the
   // application block draft `app suggest` issued to this turn (a local map, or a reviewed proposal).
-  if (mode === 'run-and-test') return (positionals[0] === 'app-review' && ['start', 'inspect', 'feedback', 'repair', 'repair-result', 'capture'].includes(positionals[1]))
+  if (mode === 'run-and-test') return (positionals[0] === 'app-review' && ['start', 'inspect', 'accept', 'recheck', 'defer', 'close', 'feedback', 'repair', 'repair-result', 'capture', 'browser'].includes(positionals[1]))
     || (positionals[0] === 'app' && ['start', 'stop'].includes(positionals[1]))
     || (positionals[0] === 'tests' && positionals[1] === 'run')
     || (positionals[0] === 'capability' && positionals.length === 3 && typeof options['application-file'] === 'string'

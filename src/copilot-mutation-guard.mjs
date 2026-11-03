@@ -2089,8 +2089,18 @@ export async function reviewCompletionTurn(payload) {
   } catch { return null; }
 }
 
-export async function saveReviewCompletionTurn(payload, value) {
+export async function saveReviewCompletionTurn(payload, value, { once = false } = {}) {
+  if (once) {
+    // Duplicate stop callbacks can overlap. An exclusive empty claim, removed with this turn's
+    // issued files, consumes the single continuation even if a process dies before replying.
+    const claim = `${issuedReadFile(payload, value.turnId, 'review-completion')}.once`;
+    await mkdir(path.dirname(claim), { recursive: true, mode: 0o700 });
+    if ((await lstat(path.dirname(claim))).isSymbolicLink()) throw new Error('Unsafe completion claim directory');
+    try { await writeFile(claim, '', { flag: 'wx', mode: 0o600 }); }
+    catch (error) { if (error.code === 'EEXIST') return false; throw error; }
+  }
   await atomicRecord(recordFile(payload), value);
+  return true;
 }
 
 /** Register exact generated files as read references only, scoped to live turns in this checkout. */

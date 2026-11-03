@@ -35,7 +35,7 @@ export async function sourceReviewAgentStop(payload = {}) {
   const next = draft && !draft.error ? `Run ${check.command} now, then follow its repair or retention route.`
     : `${draft ? 'Repair the existing JSON' : 'Author the independent report from the issued template and already read pinned inputs'} at ${operation.stagingPath}. Then run ${check.command} and retain when retentionReady.`;
   operation.continued = true;
-  await saveReviewCompletionTurn(payload, value);
+  if (!await saveReviewCompletionTurn(payload, value, { once: true })) return {};
   return { decision: 'block', reason: `SFLOW_SOURCE_REVIEW_INCOMPLETE: ${operation.workId} ${operation.phaseId} generation ${operation.generation} has no completed retained review from this operation. ${next} `
     + 'Continue the existing operation in this turn; do not reload context or repeat the input reads. Preserve exact bindings and independent judgments. Honest semantic gaps may be retained as correction-required findings. Never approve, decide for a human, publish an artifact or advance the phase. '
     + 'This is one automatic continuation only. If a real tool/authority/input blocker remains, preserve the draft and report its exact error and recovery route.' };

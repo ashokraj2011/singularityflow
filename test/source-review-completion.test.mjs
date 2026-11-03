@@ -44,7 +44,9 @@ test('read-only review stops once, resumes a real draft, and never invents findi
     assert.equal(packet.continuation.nextCommand, null, 'an admitted review cannot hand back its entry command');
     const workflowPath = path.join(item.root, 'singularity/work-items/REVIEW-1/workflow.json');
     const before = await readFile(workflowPath);
-    const decision = await item.stop();
+    const overlapping = await Promise.all([item.stop(), item.stop()]);
+    assert.equal(overlapping.filter(result => result.decision === 'block').length, 1, 'overlapping callbacks share one atomic continuation claim');
+    const decision = overlapping.find(result => result.decision === 'block');
     assert.equal(decision.decision, 'block');
     assert.match(decision.reason, /Author the independent report/);
     assert.match(decision.reason, /one automatic continuation/);

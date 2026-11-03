@@ -4,7 +4,7 @@ import { mkdtemp, mkdir, writeFile, readFile, rm } from 'node:fs/promises';
 import path from 'node:path';
 import os from 'node:os';
 import { normalizeApplicationReview, reviewApplicability, newReviewSession, appendReviewEvent, projectReview,
-  reviewDigest, findingRoot, assertCanConfirm, reviewCompletion, reviewReportPages, applicationReviewPolicy } from '../src/application-review-contract.mjs';
+  reviewDigest, findingRoot, findingRepairAttempts, assertCanConfirm, reviewCompletion, reviewReportPages, applicationReviewPolicy } from '../src/application-review-contract.mjs';
 import { createApplicationReviewHumanServer, consumeReviewHumanAction, applicationReviewPage } from '../src/application-review-human.mjs';
 import { serveReviewBuild, applicationResultHtml, evaluateReviewPage } from '../src/application-review-preview.mjs';
 import { recordApplicationReviewAcceptance, applicationReviewSlotResults } from '../src/verification/witness-records.mjs';
@@ -13,6 +13,7 @@ import { applicationReviewAgentView, applicationReviewHostAlive } from '../src/c
 import { agentAct } from '../src/agent-output.mjs';
 import { findReviewSession } from '../src/application-review-read.mjs';
 import { applicationReviewPhase } from '../src/code-delivery-policy.mjs';
+import { applicationRepairContinuation } from '../src/application-review.mjs';
 
 const actor = { name: 'Review User', email: 'review@example.invalid' };
 const at = '2026-11-03T10:00:00.000Z';
@@ -78,6 +79,10 @@ test('duplicates retain the root obligation and reject dangling references and c
   assert.equal(findingRoot(findings, 'b').state, 'open');
   assert.throws(() => findingRoot([{ id: 'a', duplicateOf: 'b' }, { id: 'b', duplicateOf: 'a' }], 'a'), { code: 'ARA_FINDING_LINEAGE_INVALID' });
   assert.throws(() => findingRoot([{ id: 'a', duplicateOf: 'missing' }], 'a'), { code: 'ARA_FINDING_LINEAGE_INVALID' });
+  const merged = { findings: [{ id: 'a', duplicateOf: 'b' }, { id: 'b' }],
+    repairAttempts: [{ id: 'one', rootFindingId: 'a' }, { id: 'two', rootFindingId: 'b' }] };
+  assert.equal(findingRepairAttempts(merged, 'a').length, 2);
+  assert.equal(findingRepairAttempts(merged, 'b').length, 2, 'Duplicate merging cannot reset either consumed root budget.');
 });
 
 test('confirmation requires current target, actual passing tests, coverage and disposed findings', () => {
@@ -191,6 +196,18 @@ test('successor generations and later reporting phases reuse the persistent code
   }, applicationReviews: [session] };
   assert.equal(applicationReviewPhase(workflow), 'deliver');
   assert.equal(findReviewSession(workflow).id, session.id, 'The session root keeps generation 1; its current target may be generation 2.');
+});
+
+test('late defects use the owner route legal in the current phase, including custom workflows', async () => {
+  const workflow = { status: 'in_progress', workItem: { id: 'review-example' }, currentPhase: 'report', phaseOrder: ['deliver', 'report'],
+    phases: { deliver: { id: 'deliver', status: 'approved', generation: 1 },
+      report: { id: 'report', status: 'in_progress', approvalPolicy: { rejectTo: ['deliver'] } } } };
+  assert.match((await applicationRepairContinuation(workflow, 'deliver')).nextAction.command, /upstream-issue raise .*--phase deliver/u);
+  workflow.phases.report.status = 'awaiting_approval';
+  assert.match((await applicationRepairContinuation(workflow, 'deliver')).nextAction.command, /reject report .*--to deliver/u);
+  workflow.status = 'completed';
+  assert.equal((await applicationRepairContinuation(workflow, 'deliver')).nextAction.command,
+    'singularity-flow reopen review-example --reason <reason> --to deliver');
 });
 
 test('static preview serves only its immutable build, rejects writes and does not read ambient files', async t => {

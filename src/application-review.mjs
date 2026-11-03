@@ -11,7 +11,7 @@ import { requireApprovalAuthority } from './approval-authority.mjs';
 import { applicationReviewPhase } from './code-delivery-policy.mjs';
 import { applicationReviewPlan, applicationReviewStatus, applicationReviewResults, findReviewSession, reviewTargetCurrent,
   reviewEvidenceAvailable, reviewLocalRoot, localCheckoutIdentity, bytesDigest, compactReviewResults, reviewSnapshotReference } from './application-review-read.mjs';
-import { araFail, appendReviewEvent, newReviewSession, projectReview, reviewDigest, findingRoot, assertCanConfirm, validateReviewCaptureSet, applicationReviewPolicy } from './application-review-contract.mjs';
+import { araFail, appendReviewEvent, newReviewSession, projectReview, reviewDigest, findingRoot, findingRepairAttempts, assertCanConfirm, validateReviewCaptureSet, applicationReviewPolicy } from './application-review-contract.mjs';
 
 const MAX_SESSIONS = 100;
 const actorKey = actor => actor?.email ?? actor?.login ?? actor?.name;
@@ -136,7 +136,7 @@ export async function prepareApplicationRepair(root, options) {
     if (!finding || !finding.repairRequested) araFail('ARA_REPAIR_NOT_AUTHORIZED', 'Report and fix authorizes an in-scope repair; Report only does not.');
     if (finding.state !== 'ready-for-repair') araFail('ARA_REPAIR_NOT_READY', 'An existing attempt or recheck is still owed. Continue it, or have the person explicitly request another repair of this same finding; its budget is preserved.');
     const rootFinding = findingRoot(view.findings, finding.id);
-    if (view.repairAttempts.filter(item => item.rootFindingId === rootFinding.id).length >= findReviewSession(workflow, options.sessionId).policy.repairAttempts
+    if (findingRepairAttempts(view, finding.id).length >= findReviewSession(workflow, options.sessionId).policy.repairAttempts
         || (workflow.applicationReviews ?? []).flatMap(item => projectReview(item).repairAttempts).length >= findReviewSession(workflow, options.sessionId).policy.totalRepairAttempts) {
       araFail('ARA_REPAIR_LIMIT_REACHED', 'The persistent automatic repair budget is exhausted. Preserve the draft and use manual repair or an authorized policy continuation.',
         { nextAction: { command: `singularity-flow appeal prepare --work-id ${workflow.workItem.id} --phase ${view.subject.phaseId} --json`, label: 'Prepare an owner-reviewed continuation; the automatic counter is preserved.' } });
@@ -144,7 +144,7 @@ export async function prepareApplicationRepair(root, options) {
     const phase = workflow.phases[view.subject.phaseId];
     if (workflow.currentPhase !== phase.id || !['in_progress', 'awaiting_approval'].includes(phase.status)) {
       araFail('ARA_SUCCESSOR_REQUIRED', 'This delivery is closed to source edits. Use the owner’s admitted successor generation before repair; the reviewed result stays immutable.',
-        { nextAction: { command: `singularity-flow phase rollover ${phase.id} --json` } });
+        await applicationRepairContinuation(workflow, phase.id));
     }
     if (phase.status === 'awaiting_approval') {
       if (finding.provenance !== 'actual-local-user-action') araFail('ARA_REPAIR_DIRECTION_REQUIRED', 'The closed delivery needs its owner’s actual repair instruction.');
@@ -192,6 +192,19 @@ export async function prepareApplicationRepair(root, options) {
     return intent;
   });
   return { ...prepared, generationIntent };
+}
+
+/** Reuse the owner's routes that are legal now; never suggest rolling over an approved phase. */
+export async function applicationRepairContinuation(workflow, phaseId) {
+  const workId = workflow.workItem.id;
+  if (['completed', 'cancelled'].includes(workflow.status)) return { nextAction: {
+    command: `singularity-flow reopen ${workId} --reason <reason> --to ${phaseId}`,
+    label: 'An authorized owner reopens this existing Story for the reported correction.' } };
+  const { upstreamChangeRoutes } = await import('./upstream-routes.mjs');
+  const continuation = upstreamChangeRoutes(workflow, phaseId);
+  return { nextAction: continuation.routes[0] ?? {
+    command: `singularity-flow phase enter --work-id ${workId} --for-agent --json`,
+    label: 'Inspect the current phase and its owner-authorized continuation.' }, notes: continuation.notes };
 }
 
 export async function confirmApplicationReview(root, options) {

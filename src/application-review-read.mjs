@@ -205,9 +205,12 @@ export async function applicationReviewStatus(root, config, workflow, sessionId 
   const { reviewCompletion } = await import('./application-review-contract.mjs');
   const decisionsCurrent = view.decisions.every(decision => (workflow.applicationAcceptanceRecords ?? []).some(record => record.id === decision.id
     && record.targetId === view.target.id && record.confirmation === decision.confirmation));
+  const continuation = view.findings.some(finding => finding.repairRequested && finding.state === 'ready-for-repair')
+    && (workflow.currentPhase !== view.subject.phaseId || !['in_progress', 'awaiting_approval'].includes(workflow.phases[view.subject.phaseId].status))
+    ? await (await import('./application-review.mjs')).applicationRepairContinuation(workflow, view.subject.phaseId) : null;
   return { ...view, state: targetCurrent || !view.target ? view.state : 'stale', completion: reviewCompletion(view, { targetCurrent, evidenceAvailable, decisionsCurrent }),
     localEvidence: evidenceAvailable ? 'available' : view.captures.length ? 'missing-on-this-laptop' : 'not-captured',
-    repositoryPath: root, phaseApproval: workflow.phases[session.subject.phaseId].status, documents,
+    repositoryPath: root, currentPhase: workflow.currentPhase, phaseApproval: workflow.phases[session.subject.phaseId].status, documents, continuation,
     routes: { copilot: '/sf-app-review', shell: `singularity-flow app-review inspect ${session.id}`, vscode: null } };
 }
 

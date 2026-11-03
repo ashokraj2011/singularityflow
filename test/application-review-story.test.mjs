@@ -10,6 +10,7 @@ import { loadAcceptedStoryExecution } from '../src/accepted-story-execution.mjs'
 import { startApplicationReview, mutateApplicationReview, confirmApplicationReview, finalizeApplicationReview, recordApplicationFeedback, prepareApplicationRepair } from '../src/application-review.mjs';
 import { applicationReviewStatus, applicationReviewResults, findReviewSession, applicationReviewSnapshot, reviewLocalRoot } from '../src/application-review-read.mjs';
 import { createApplicationReviewHumanServer } from '../src/application-review-human.mjs';
+import { createApplicationReviewHost } from '../src/application-review-host.mjs';
 import { captureApplicationReview } from '../src/application-review-preview.mjs';
 import { reviewDigest, reviewReportPages } from '../src/application-review-contract.mjs';
 import { applicationReviewHostDescriptor, applicationReviewHostAlive, inspectApplicationReview } from '../src/commands/app-review.mjs';
@@ -128,9 +129,9 @@ test('Report and fix admits a submitted delivery successor through its existing 
   const repo = await repository(t, { implementCommands: false, applicationReview: { mode: 'required', surface: 'backend' } });
   await startQuickFix(repo);
   repo.sflow('prepare', 'implement');
-  await writeFile(path.join(repo.root, 'src/value.mjs'), '// @clause:QF-1:AC-001 — approved value\nexport const value = 2;\n');
+  await writeFile(path.join(repo.root, 'src/value.mjs'), '// @clause:QF-1:AC-001 — approved value\nexport const value = 1;\n');
   await writeFile(path.join(repo.root, 'test/value.test.mjs'), ["import test from 'node:test';", "import assert from 'node:assert/strict';", "import { value } from '../src/value.mjs';",
-    '// @ac:QF-1:AC-001', "test('returns the approved value', () => assert.equal(value, 2));", ''].join('\n'));
+    '// @ac:QF-1:AC-001', "test('returns the current value', () => assert.equal(value, 1));", ''].join('\n'));
   repo.sflow('prepare', 'implement');
   repo.sflow('phase', 'publish', 'implement', '--authored', 'deterministic', '--channel', 'kernel-generator');
   repo.sflow('submit', 'implement');
@@ -173,4 +174,37 @@ test('Report and fix admits a submitted delivery successor through its existing 
   assert.equal(current.lineage.submissions.some(item => item.packetSha256 === packet), true, 'The inspected submission remains immutable history.');
   assert.equal(await readFile(path.join(repo.root, 'src/value.mjs'), 'utf8'), originalSource, 'Preparing a repair never edits application source.');
   assert.equal((await read()).findings[0].state, 'repairing', 'Neither generation admission nor test passes resolve the human finding.');
+  // The approved behavior is 2. The earlier test passed while asserting the wrong behavior;
+  // the repair corrects both source and assertion under the admitted successor generation.
+  await writeFile(path.join(repo.root, 'src/value.mjs'), originalSource.replace('value = 1', 'value = 2'));
+  await writeFile(path.join(repo.root, 'test/value.test.mjs'), ["import test from 'node:test';", "import assert from 'node:assert/strict';", "import { value } from '../src/value.mjs';",
+    '// @ac:QF-1:AC-001', "test('returns the approved value', () => assert.equal(value, 2));", ''].join('\n'));
+  repo.sflow('prepare', 'implement');
+  repo.sflow('phase', 'publish', 'implement', '--authored', 'deterministic', '--channel', 'kernel-generator');
+  repo.sflow('submit', 'implement');
+  const host = await createApplicationReviewHost(repo.root, { workId: 'QF-1', sessionId: session.id });
+  t.after(() => host.close());
+  const post = async (action, fields = {}) => {
+    const html = await (await fetch(host.url)).text();
+    const body = new URLSearchParams({ nonce: html.match(/name="nonce" value="([^"]+)"/u)?.[1],
+      actionId: html.match(/name="actionId" value="([^"]+)"/u)?.[1], action });
+    for (const [key, values] of Object.entries(fields)) for (const value of Array.isArray(values) ? values : [values]) body.append(key, value);
+    const response = await fetch(new URL('action', host.url), { method: 'POST', headers: { Origin: host.origin, 'Content-Type': 'application/x-www-form-urlencoded' }, body });
+    assert.equal(response.status, 200, await response.text());
+  };
+  await post('refresh');
+  let repaired = await read();
+  assert.equal(repaired.subject.generation, 2);
+  assert.equal(repaired.findings[0].state, 'ready-for-recheck');
+  assert.equal(repaired.repairAttempts[0].result.source, 'runtime-observation');
+  assert.notEqual(repaired.repairAttempts[0].result.packet, packet, 'The repair owns a fresh submitted test packet.');
+  await post('recheck', { findingId: finding.id, result: 'fixed', reason: 'I verified the corrected value in the current retained result.' });
+  repaired = await read();
+  assert.equal(repaired.findings[0].state, 'resolved');
+  assert.equal(repaired.completion.reviewSatisfied, false, 'A fixed recheck is separate from All good.');
+  await post('accept', { dimension: ['functional'], coverage: repaired.coverage.map(item => item.id) });
+  const accepted = await read();
+  assert.equal(accepted.completion.reviewSatisfied, true, 'The actual native form confirms, captures and finalizes the repaired target.');
+  assert.equal(accepted.repairAttempts.length, 1);
+  assert.equal((await loadAcceptedStoryExecution(repo.root, 'QF-1')).workflow.phases.implement.status, 'awaiting_approval');
 });

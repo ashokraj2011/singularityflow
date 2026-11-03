@@ -1,7 +1,7 @@
 ---
 id: app-review
 title: Application review and acceptance
-version: 3
+version: 4
 commands: [app-review]
 ---
 
@@ -53,6 +53,8 @@ Provision the pinned SFlow browser once using `singularity-flow app-review brows
 The local review host proves readiness with a fresh challenge bound to its private instance, checkout, session and process. Startup and reuse do not depend on PowerShell process-start queries; the probe reads no Story state and grants no human consent.
 
 Use **Report and fix** to authorize an in-scope repair, or **Report only** to retain an observation. Missing screenshots do not prevent feedback. The configured phase agent, skills, instructions, tests, scope and publication rules remain authoritative. A closed delivery needs its existing owner to admit a successor before source edits. Passing tests leads to recheck; it does not resolve a human finding.
+
+After the workflow advances, the review retains feedback and shows the existing owner route legal in the current phase. Approved code is corrected through an authorized return or reopening. Once a repaired target has its own submitted checks, SFlow records the actual outcome automatically; duplicate finding merges preserve the consumed repair budget.
 
 ## Accept and capture
 

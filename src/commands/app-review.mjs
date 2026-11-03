@@ -171,8 +171,10 @@ export async function run(_argv, { positionals, options = {} }) {
     }
   }
   const sessionId = result.session?.id ?? (result.kind !== 'application-review-plan' ? result.id ?? result.sessionId : null);
+  const ownerAction = (result.session?.continuation ?? result.continuation)?.nextAction;
   const value = { schemaVersion: 1, resultType: 'sflow-application-review', repositoryPath: root, ...result,
-    commandGuidance: sub === 'repair' || sub === 'repair-result'
+    commandGuidance: ownerAction ? { copilotCommand: ownerAction.skill ?? null, command: ownerAction.command, modelFreeCommand: null }
+      : sub === 'repair' || sub === 'repair-result'
       ? { copilotCommand: '/sf-code', command: `singularity-flow phase enter ${phaseId} --work-id ${workId} --compose --for-agent --json`, modelFreeCommand: null }
       : { copilotCommand: '/sf-app-review', command: `singularity-flow app-review ${sessionId ? `inspect ${sessionId}` : sub === 'plan' ? 'start' : 'plan'} --work-id ${workId}`, modelFreeCommand: null } };
   const presented = optionBoolean(options, 'for-agent') ? applicationReviewAgentView(value) : value;
@@ -197,6 +199,6 @@ export function applicationReviewAgentView(value) {
       attempt: session.repairAttempts?.at(-1)?.id } : null,
     results: (value.results ?? session.target?.results) ? { packet: (value.results ?? session.target.results).packet,
       ready: (value.results ?? session.target.results).ready, reason: (value.results ?? session.target.results).reason } : null,
-    error: session.error, commandGuidance: value.commandGuidance,
+    error: session.error, continuation: session.continuation, commandGuidance: value.commandGuidance,
     instruction: 'Open the exact local review session. The person reports, rechecks and confirms there; opening it, model text and passing tests never constitute acceptance.' };
 }

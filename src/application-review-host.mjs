@@ -65,6 +65,19 @@ export async function createApplicationReviewHost(root, { workId = null, session
       view = await read();
       await mutateApplicationReview(root, { ...options(view, `${actionId}-ready`, { targetId: target.id }), type: 'target-ready',
         prepare: () => ({ target, snapshotRecord: { ...plan.snapshot, schemaVersion: 1, kind: 'application-review-snapshot' } }) });
+      // Observe the actual successor once it has submitted its own checks. A model's result
+      // claim is unnecessary; only a later human recheck can resolve the reported problem.
+      if (plan.results.ready) {
+        view = await read();
+        for (const attempt of view.repairAttempts.filter(item => !item.result && item.currentTarget !== target.id)) {
+          view = await read();
+          const result = { source: 'runtime-observation', targetId: target.id, sourceSnapshot: target.snapshot.digest,
+            packet: plan.results.packet, resultsDigest: plan.results.digest, testsPassed: true,
+            changedPaths: workflow.phases[plan.subject.phaseId].deliveryEvidence?.sourcePaths ?? [] };
+          await mutateApplicationReview(root, { ...options(view, `${actionId}-observed-${attempt.id}`, { attemptId: attempt.id, result }),
+            type: 'repair-observed', prepare: () => ({ attemptId: attempt.id, result }) });
+        }
+      }
     } catch (error) {
       view = await read();
       await mutateApplicationReview(root, { ...options(view, `${actionId}-blocked`, { code: error.code ?? 'ARA_BUILD_FAILED' }), type: 'target-blocked',
@@ -109,7 +122,10 @@ export async function createApplicationReviewHost(root, { workId = null, session
       const view = await read();
       const feedback = { observed: input.observed, expected: input.expected, intent: input.action, targetId: input.targetId };
       await recordApplicationFeedback(root, { ...options(view, actionId, feedback), expectedRevision, human: grant(feedback) });
-      return { message: input.action === 'report-and-fix' ? 'Problem retained with your repair instruction. Continue through /sf-code; mapping and scope are checked before source edits.' : 'Observation retained. No repair was authorized.' };
+      const continuation = input.action === 'report-and-fix' && (view.currentPhase !== view.subject.phaseId || !['in_progress', 'awaiting_approval'].includes(view.phaseApproval))
+        ? (await read()).continuation : null;
+      return { message: continuation ? `Problem retained with your repair instruction. ${continuation.nextAction.label} ${continuation.nextAction.command}`
+        : input.action === 'report-and-fix' ? 'Problem retained with your repair instruction. Continue through /sf-code; mapping and scope are checked before source edits.' : 'Observation retained. No repair was authorized.' };
     }
     if (busy) araFail('ARA_OPERATION_PENDING', 'The current review operation is still running. Keep feedback and refresh when it finishes.');
     busy = true;

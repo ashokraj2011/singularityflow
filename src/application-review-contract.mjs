@@ -83,6 +83,12 @@ export function findingRoot(findings, id) {
   return finding;
 }
 
+/** Merging duplicate lineages never gives their consumed attempts a new root budget. */
+export function findingRepairAttempts(view, findingId) {
+  const root = findingRoot(view.findings, findingId).id;
+  return view.repairAttempts.filter(attempt => findingRoot(view.findings, attempt.rootFindingId).id === root);
+}
+
 export function projectReview(session) {
   validateReviewSession(session);
   const view = { id: session.id, subject: session.subject, revision: session.revision, state: 'offered', target: null,

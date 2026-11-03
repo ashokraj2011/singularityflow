@@ -12,6 +12,7 @@ export const COMMAND_LOADERS = Object.freeze({
   './commands/about.mjs': () => import('./commands/about.mjs'),
   './commands/adhoc.mjs': () => import('./commands/adhoc.mjs'),
   './commands/appeal.mjs': () => import('./commands/appeal.mjs'),
+  './commands/app-review.mjs': () => import('./commands/app-review.mjs'),
   './commands/approvals.mjs': () => import('./commands/approvals.mjs'),
   './commands/approve.mjs': () => import('./commands/approve.mjs'),
   './commands/auto.mjs': () => import('./commands/auto.mjs'),

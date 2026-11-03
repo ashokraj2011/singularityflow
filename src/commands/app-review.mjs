@@ -23,14 +23,37 @@ export async function applicationReviewHostDescriptor(root, sessionId) {
   return path.join(reviewLocalRoot(root), 'hosts', `${reviewDigest({ sessionId, checkout: localCheckoutIdentity(root) }).slice(7)}.json`);
 }
 
+/** Positive, instance-bound loopback proof also works when Windows cannot query OS start ticks. */
+export async function applicationReviewHostAlive(record, { timeoutMs = 1500 } = {}) {
+  if (record?.kind !== 'local-application-review-host' || !Number.isSafeInteger(record.pid) || record.pid <= 0
+      || !/^[a-f0-9-]{36}$/u.test(record.instance ?? '')) return false;
+  try {
+    const url = new URL(record.url);
+    if (url.protocol !== 'http:' || url.hostname !== '127.0.0.1' || !/^\/[a-f0-9]{64}\/$/u.test(url.pathname)
+        || url.username || url.password || url.search || url.hash) return false;
+    const challenge = randomUUID().replaceAll('-', '');
+    const target = new URL('identity', url); target.searchParams.set('challenge', challenge);
+    const response = await fetch(target, { redirect: 'error', signal: AbortSignal.timeout(timeoutMs) });
+    if (!response.ok || !response.headers.get('content-type')?.startsWith('application/json')) { await response.body?.cancel(); return false; }
+    let text = ''; let bytes = 0;
+    for await (const chunk of response.body) {
+      if ((bytes += chunk.length) > 4096) return false;
+      text += Buffer.from(chunk).toString('utf8');
+    }
+    const actual = JSON.parse(text);
+    return actual.kind === 'application-review-host-identity' && actual.instance === record.instance
+      && actual.sessionId === record.sessionId && actual.checkout === record.checkout && actual.pid === record.pid && actual.challenge === challenge;
+  } catch { return false; }
+}
+
 /** Open only the retained owned host. Its private secret URL is never returned to a model. */
 export async function inspectApplicationReview(root, workId, sessionId, { openReview = null } = {}) {
   const descriptor = await applicationReviewHostDescriptor(root, sessionId);
   const { readPrivateSidecar } = await import('../private-sidecar.mjs');
-  const { recordedProcessAlive } = await import('../application-run.mjs');
   const { localCheckoutIdentity } = await import('../application-review-read.mjs');
   const checkout = localCheckoutIdentity(root);
-  const read = async (launchId = null) => {
+  let readiness = 'descriptor-not-published';
+  const read = async (launchId = null, probeTimeoutMs = 1500) => {
     const bytes = await readPrivateSidecar(root, descriptor, { optional: true, maximumBytes: 8192 });
     if (!bytes) return null;
     const record = JSON.parse(bytes.toString('utf8'));
@@ -42,7 +65,9 @@ export async function inspectApplicationReview(root, workId, sessionId, { openRe
     const url = new URL(record.url);
     if (url.protocol !== 'http:' || url.hostname !== '127.0.0.1' || !/^\/[a-f0-9]{64}\/$/u.test(url.pathname)
         || url.username || url.password || url.search || url.hash) araFail('ARA_HOST_INVALID', 'The retained review host address is invalid. No browser was opened.');
-    return recordedProcessAlive(record, { requireIdentity: true, fresh: true }) ? record : null;
+    const alive = await applicationReviewHostAlive(record, { timeoutMs: probeTimeoutMs });
+    readiness = alive ? 'verified-instance' : 'descriptor-published; live-instance-proof-unavailable';
+    return alive ? record : null;
   };
   const { withSubjectLock } = await import('../subject-lock.mjs');
   const record = await withSubjectLock(root, { kind: 'application-review-host', id: `${checkout}:${sessionId}` }, async () => {
@@ -54,12 +79,19 @@ export async function inspectApplicationReview(root, workId, sessionId, { openRe
         detached: true, stdio: 'ignore', shell: false, windowsHide: true, env: { ...process.env, SINGULARITY_FLOW_SURFACE_CONTEXT: '' }
       });
       child.once('error', error => { launchError = error; }); child.unref();
-      for (let index = 0; index < 300; index += 1) {
-        await delay(100); current = await read(launchId);
+      const deadline = performance.now() + 30000;
+      while (performance.now() < deadline) {
+        await delay(Math.min(100, Math.max(1, deadline - performance.now())));
+        current = await read(launchId, Math.min(1500, Math.max(1, Math.ceil(deadline - performance.now()))));
         if (current || launchError || child.exitCode != null) break;
       }
-      if (!current) araFail('ARA_HOST_UNAVAILABLE', 'The local review host did not become ready. The review is retained; inspect its status and retry the same session.',
-        { cause: launchError ? { code: launchError.code, message: launchError.message } : null, exitCode: child.exitCode, timeoutMs: 30000 });
+      if (!current) {
+        // This handle belongs to the child just spawned here; never signal a PID from a stale file.
+        let stopRequested = false;
+        try { stopRequested = child.kill(); } catch { /* retain the original startup failure */ }
+        araFail('ARA_HOST_UNAVAILABLE', 'The local review host did not become ready. The review is retained; inspect its status and retry the same session.',
+          { cause: launchError ? { code: launchError.code, message: launchError.message } : null, exitCode: child.exitCode, timeoutMs: 30000, readiness, stopRequested });
+      }
     }
     return current;
   });

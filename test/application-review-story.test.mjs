@@ -12,8 +12,7 @@ import { applicationReviewStatus, applicationReviewResults, findReviewSession, a
 import { createApplicationReviewHumanServer } from '../src/application-review-human.mjs';
 import { captureApplicationReview } from '../src/application-review-preview.mjs';
 import { reviewDigest, reviewReportPages } from '../src/application-review-contract.mjs';
-import { applicationReviewHostDescriptor, inspectApplicationReview } from '../src/commands/app-review.mjs';
-import { recordedProcessAlive } from '../src/application-run.mjs';
+import { applicationReviewHostDescriptor, applicationReviewHostAlive, inspectApplicationReview } from '../src/commands/app-review.mjs';
 
 test('adopted backend review survives metadata commits and accepts only after real post-confirmation capture', slowLane({ timeout: 360000 }), async t => {
   const repo = await repository(t, { implementCommands: false, applicationReview: { mode: 'required', surface: 'backend' } });
@@ -118,9 +117,9 @@ test('adopted backend review survives metadata commits and accepts only after re
     if (!host) {
       try { host = JSON.parse(await readFile(await applicationReviewHostDescriptor(repo.root, id), 'utf8')); } catch { /* startup never claimed a host */ }
     }
-    if (host?.pid && recordedProcessAlive(host, { requireIdentity: true, fresh: true })) {
+    if (host?.pid && await applicationReviewHostAlive(host)) {
       process.kill(host.pid, 'SIGTERM');
-      for (let count = 0; count < 50 && recordedProcessAlive(host, { requireIdentity: true, fresh: true }); count += 1) await delay(100);
+      for (let count = 0; count < 50 && await applicationReviewHostAlive(host); count += 1) await delay(100);
     }
   }
 });

@@ -9,7 +9,7 @@ import { createApplicationReviewHumanServer, consumeReviewHumanAction, applicati
 import { serveReviewBuild, applicationResultHtml, evaluateReviewPage } from '../src/application-review-preview.mjs';
 import { recordApplicationReviewAcceptance, applicationReviewSlotResults } from '../src/verification/witness-records.mjs';
 import { contractResult } from '../src/verification/contract-results.mjs';
-import { applicationReviewAgentView } from '../src/commands/app-review.mjs';
+import { applicationReviewAgentView, applicationReviewHostAlive } from '../src/commands/app-review.mjs';
 import { agentAct } from '../src/agent-output.mjs';
 import { findReviewSession } from '../src/application-review-read.mjs';
 import { applicationReviewPhase } from '../src/code-delivery-policy.mjs';
@@ -149,6 +149,25 @@ test('late feedback keeps its inspected target while acceptance requires a fresh
   assert.equal((await post('accept')).status, 409);
   assert.equal((await post('report-and-fix')).status, 200);
   assert.equal(observed.expectedRevision, 5); assert.equal(observed.input.targetId, 'old-target');
+});
+
+test('host readiness proves the live instance without OS start-time queries or Story reads', async t => {
+  let reads = 0;
+  const identity = { kind: 'application-review-host-identity', instance: '01234567-89ab-4def-8123-456789abcdef',
+    sessionId: 'ARA-0123456789abcdef01234567', checkout: 'verified-checkout', pid: process.pid };
+  const server = await createApplicationReviewHumanServer({ root: os.tmpdir(), sessionId: identity.sessionId, identity,
+    read: async () => { reads += 1; throw new Error('A readiness probe must not load Story state.'); }, render: () => '', perform: () => {} });
+  t.after(server.close);
+  const descriptor = { ...identity, kind: 'local-application-review-host', url: server.url, processStartedAt: null };
+  assert.equal(await applicationReviewHostAlive(descriptor), true, 'Unavailable PowerShell start ticks do not orphan an authenticated live host.');
+  for (const changed of [{ pid: identity.pid + 1 }, { checkout: 'another-checkout' }, { sessionId: 'another-session' },
+    { instance: '11234567-89ab-4def-8123-456789abcdef' }, { url: server.url.replace('127.0.0.1', 'localhost') }]) {
+    assert.equal(await applicationReviewHostAlive({ ...descriptor, ...changed }), false, 'A port or PID alone is not the owned host.');
+  }
+  assert.equal((await fetch(new URL('identity', server.url))).status, 400, 'The host requires a fresh challenge.');
+  assert.equal(reads, 0);
+  server.close();
+  assert.equal(await applicationReviewHostAlive(descriptor, { timeoutMs: 100 }), false, 'A stopped host cannot be reused.');
 });
 
 test('partial dimensions remain owed and Copilot gets compact state with exact repair admission', () => {

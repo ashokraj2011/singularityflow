@@ -16,6 +16,7 @@ import { redactDiagnosticText } from './git-remote-diagnostics.mjs';
 const safeErrorMessage = error => redactDiagnosticText(error.message ?? String(error), { multiline: true }).slice(0, 4000);
 
 export async function createApplicationReviewHost(root, { workId = null, sessionId, onClose = () => {} } = {}) {
+  const identity = { kind: 'application-review-host-identity', instance: randomUUID(), sessionId, checkout: localCheckoutIdentity(root), pid: process.pid };
   let preview = null;
   let closed = false;
   let busy = false;
@@ -185,10 +186,10 @@ export async function createApplicationReviewHost(root, { workId = null, session
     if (bytesDigest(bytes) !== `sha256:${digest}` || !bytes.subarray(0, 8).equals(Buffer.from([137, 80, 78, 71, 13, 10, 26, 10]))) araFail('ARA_EVIDENCE_UNAVAILABLE', 'The admitted image is missing or changed. Its receipt is retained.');
     return bytes;
   };
-  const server = await createApplicationReviewHumanServer({ root, sessionId, read, render: applicationReviewPage, perform, renderReport, renderImage });
+  const server = await createApplicationReviewHumanServer({ root, sessionId, read, render: applicationReviewPage, perform, renderReport, renderImage, identity });
   const close = async () => {
     if (closed) return; closed = true; clearTimeout(lifecycleTimer); lifecycleWatch?.close(); server.close(); await preview?.close();
     onClose();
   };
-  return { ...server, close, read };
+  return { ...server, close, read, identity };
 }

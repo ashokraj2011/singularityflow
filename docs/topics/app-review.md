@@ -1,7 +1,7 @@
 ---
 id: app-review
 title: Application review and acceptance
-version: 2
+version: 3
 commands: [app-review]
 ---
 
@@ -49,6 +49,8 @@ Required profiles need an existing human approval boundary on every code-bearing
 The read-only `app-review plan` and `app-review status` commands do not launch an application, capture images, record consent, or alter Story state. Opening the local review page also does not start the application. Choose **Start / refresh verified preview** to authorize its declared local build and controlled browser.
 
 Provision the pinned SFlow browser once using `singularity-flow app-review browser install`. It is separate from the team's browser and global Node installation. Review and capture do not silently download it.
+
+The local review host proves readiness with a fresh challenge bound to its private instance, checkout, session and process. Startup and reuse do not depend on PowerShell process-start queries; the probe reads no Story state and grants no human consent.
 
 Use **Report and fix** to authorize an in-scope repair, or **Report only** to retain an observation. Missing screenshots do not prevent feedback. The configured phase agent, skills, instructions, tests, scope and publication rules remain authoritative. A closed delivery needs its existing owner to admit a successor before source edits. Passing tests leads to recheck; it does not resolve a human finding.
 

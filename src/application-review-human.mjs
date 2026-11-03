@@ -13,7 +13,7 @@ export function consumeReviewHumanAction(handle, expected) {
 }
 
 /** The secret route and form nonce go only to the person's browser, never to a Copilot result. */
-export async function createApplicationReviewHumanServer({ root, sessionId, read, render, perform, renderReport = null, renderImage = null, timeoutMs = 2 * 60 * 60 * 1000 }) {
+export async function createApplicationReviewHumanServer({ root, sessionId, read, render, perform, renderReport = null, renderImage = null, identity = null, timeoutMs = 2 * 60 * 60 * 1000 }) {
   const secret = randomBytes(32).toString('hex');
   const nonce = randomBytes(32).toString('hex');
   let origin;
@@ -39,6 +39,11 @@ export async function createApplicationReviewHumanServer({ root, sessionId, read
         return send(200, render(view, { nonce, actionId, route: `/${secret}/action`, resultsRoute: `/${secret}/results?page=0`, evidenceRoute: `/${secret}/evidence/` }));
       }
       const requested = new URL(request.url, origin);
+      if (identity && request.method === 'GET' && requested.pathname === `/${secret}/identity`) {
+        const challenge = requested.searchParams.get('challenge');
+        if (!/^[a-f0-9]{32}$/u.test(challenge ?? '')) return send(400, 'A fresh host challenge is required.');
+        return send(200, JSON.stringify({ ...identity, challenge }), 'application/json');
+      }
       if (request.method === 'GET' && requested.pathname.startsWith(`/${secret}/evidence/`) && renderImage) {
         const digest = requested.pathname.slice(`/${secret}/evidence/`.length);
         if (!/^[a-f0-9]{64}$/u.test(digest) || !issuedImages.has(digest)) return send(404, 'No such admitted review image.');

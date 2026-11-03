@@ -13,7 +13,7 @@ related:
   - recovery
   - approvals
   - configuration
-version: 27
+version: 28
 ---
 Test and Recovery (TRP) is an explicitly enabled pilot for a Story's test policy, baseline repair and phase issues. It keeps what a check observed separate from the decision about whether work may continue. A failed test remains failed even when a current, authorized exception permits a named transition. Normal phase approval remains separate.
 
@@ -266,7 +266,17 @@ A test command Singularity Flow guessed for a module is pinned for the Story the
 
 A named file or workspace that is not there is pinned as missing, never left out, so creating it later is a change too. A configured or Story-only command records its definition the same way. The pin is written to `workflow.testCommandPins` when the gate commits; until then the step's first recorded run stands for it. Pins recorded before these rules (with no `definitionVersion`) keep the rules they were recorded under for their Story, so a running Story is not refused only because the rules grew; a person's accepted re-pin moves the command to the current rules.
 
-A later gate whose command differs (an edited `"test": "jest src/one"`, a new runner config, other argv) is refused with `TEST_COMMAND_PIN_CHANGED` before it runs, naming each change. Restore what was pinned, or request the new pin:
+A later gate whose command differs (an edited `"test": "jest src/one"`, a new runner config, other argv) is refused with `TEST_COMMAND_PIN_CHANGED` before it runs, naming each change.
+
+A repair also counts as restoration when each changed definition entry matches the recorded
+generation baseline and all other pinned bindings remain unchanged. For example, restoring
+`vite.config.js` after a failed first run keeps an unchanged `vitest run` script added in this
+generation. SFlow reads only the changed baseline files, preserves failed attempts, and reports an
+unneeded re-pin request as inactive without accepting or deleting it. Fresh required tests still
+run before publication. An unreadable baseline is reported as unavailable and cannot dismiss a
+pending review; changed runner arguments, adapters or affected roots still require review.
+
+For a genuine change, request the new pin:
 
 ```text
 singularity-flow decision test-command <WORK-ID> --phase <PHASE> --repin <COMMAND-ID> --reason "<why the test command changed>"

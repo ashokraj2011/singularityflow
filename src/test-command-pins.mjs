@@ -19,6 +19,9 @@
  * [TCE:REQ-014]. Pins are kept in `workflow.testCommandPins`, append-only apart from the baseline a
  * pin gains at its first passing run. The gate also gathers here what narrows each run before it
  * runs (src/test-narrowing.mjs), from the same script texts.
+ * A repair may restore changed entries to the recorded generation baseline while preserving all
+ * unchanged pinned entries, including a new test script. This needs no human acceptance; its exact
+ * baseline and restored entries are recorded by the next successful gate, and failed attempts stay.
  *
  * What a command resolves through is read by src/test-command-resolution.mjs, which the Node reporter
  * shares: the workspace a step selects, each script it reaches and each file a runner is told to read,
@@ -32,6 +35,7 @@ import { readdir } from 'node:fs/promises';
 import path from 'node:path';
 
 import { committedFilesAtRevisions } from './git.mjs';
+import { readRefTreeResult } from './git-ref-tree.mjs';
 import { canonicalJson, recordSha256 } from './records.mjs';
 import { readRepositoryManifest } from './repository-manifest.mjs';
 import { storyTestCommandState } from './story-test-commands.mjs';
@@ -107,6 +111,20 @@ export function pinnedArgv(argv) {
 async function readText(root, relative) {
   try { return (await readRepositoryManifest(root, relative, { maxBytes: MAX_CONFIG_BYTES })).bytes.toString('utf8'); }
   catch { return null; }
+}
+
+// Gates and decision projections distinguish missing inputs from an unreadable definition.
+function definitionReads(root) {
+  return {
+    read: async relative => {
+      try { return (await readRepositoryManifest(root, relative, { maxBytes: MAX_CONFIG_BYTES })).bytes.toString('utf8'); }
+      catch (error) { if (error.code === 'ENOENT') return null; throw error; }
+    },
+    list: async relative => {
+      try { return (await readdir(path.join(root, relative), { withFileTypes: true })).map(entry => ({ name: entry.name, directory: entry.isDirectory() })); }
+      catch (error) { if (error.code === 'ENOENT') return []; throw error; }
+    }
+  };
 }
 
 /** A directory's entries in the checkout, as `{ name, directory }`. */
@@ -413,6 +431,68 @@ export function pinChanges(recorded, candidate) {
   return changes;
 }
 
+function restorationBase(workflow, phase, fallback = null) {
+  const interval = workflow?.workIntervals?.current;
+  return phase.generationIntent?.baseline?.commit
+    ?? (interval?.phaseId === phase.id ? interval.sourceBaseCommit : null)
+    ?? workflow?.workItem?.baseCommit ?? fallback;
+}
+
+/** The same semantic value a definition entry pins, read from its immutable baseline file. */
+function baselineEntryHash(entry, text) {
+  if (text == null) return MISSING;
+  const selector = entry.selector;
+  let value;
+  if (selector == null) value = text;
+  else if (selector.startsWith('scripts.') || PACKAGE_RUNNER_KEYS.includes(selector)) {
+    const manifest = JSON.parse(text);
+    value = selector.startsWith('scripts.') ? manifest.scripts?.[selector.slice(8)]
+      : manifest[selector] === undefined ? null : canonicalJson(manifest[selector]);
+    if (typeof value !== 'string') value = null;
+  } else if (selector === 'test-plugins') value = mavenTestConfiguration(text);
+  else if (selector === 'test-tasks') value = gradleTestConfiguration(text);
+  else if (selector === 'tool.pytest') value = iniSection(text, '[tool.pytest');
+  else if (selector === 'tool:pytest') value = iniSection(text, '[tool:pytest]');
+  else if (selector === 'pytest') value = iniSection(text, '[pytest]');
+  else return undefined;
+  return value == null ? MISSING : textSha256(value);
+}
+
+/**
+ * A restoration changes only definition entries, each back to the generation's own value.
+ * Unchanged entries retain their pin, including a test script first added during this generation.
+ * Read only the changed baseline files; absence is proved by a complete, bounded Git tree read.
+ */
+function baselineRestoration(root, reference, candidate, commit) {
+  if (!commit || !reference || reference.sha256 === candidate.sha256) return null;
+  const changes = pinChanges(reference, candidate);
+  if (!changes.length || changes.some(change => change.field !== 'definition')) return null;
+  const paths = new Set(changes.map(change => change.path));
+  const nonFiles = [];
+  const observed = readRefTreeResult(root, commit, [...paths], {
+    maxObjectBytes: MAX_CONFIG_BYTES,
+    pathFilter(file, metadata) {
+      if (!paths.has(file)) return false;
+      if (!['100644', '100755'].includes(metadata.mode)) { nonFiles.push(file); return false; }
+      return true;
+    }
+  });
+  if (observed.status !== 'ok' || nonFiles.length) throw new SingularityFlowError(
+    `Cannot verify test-definition restoration against generation baseline '${commit}'.`, {
+      code: 'TEST_COMMAND_BASELINE_UNAVAILABLE', details: { baselineCommit: commit,
+        paths: [...paths], status: observed.status, diagnostics: observed.errors, nonFiles }
+    });
+  const key = entry => `${entry.path}#${entry.selector ?? ''}`;
+  const now = new Map(candidate.definition.map(entry => [key(entry), entry]));
+  const definitions = [];
+  for (const change of changes) {
+    const expected = baselineEntryHash(change, observed.contents.get(change.path) ?? null);
+    if (expected === undefined || (now.get(key(change))?.sha256 ?? MISSING) !== expected) return null;
+    definitions.push({ path: change.path, selector: change.selector, sha256: expected });
+  }
+  return { commit, definitions };
+}
+
 /** One change in words: "argv [npm, test] → [npm, test, --, --json]", "package.json scripts.test changed". */
 export function pinChangeWords(change) {
   if (change.field === 'definition') return `${change.path}${change.selector ? ` ${change.selector}` : ''} ${change.change}`;
@@ -545,14 +625,15 @@ export async function gateTestCommandPins(root, config, workflow, phase, command
   const attempts = await recordedRuns(root, config, workflow, phase);
   const { gateNarrowing, narrowingFacts, skippedByAgreement } = await import('./test-narrowing.mjs');
   const prepared = new Map();
+  const reads = definitionReads(root);
   for (const command of commands) {
-    const current = await commandDefinition(root, command);
+    const current = await commandDefinition(root, command, reads);
     const latest = pinCandidate(phase, command, current.entries);
     const recordedReference = referencePin(workflow, latest, attempts);
     const reference = recordedReference && comparablePin(recordedReference);
     // A pin keeps the rules it was recorded under: a Story running when they grew is compared as before.
     const version = reference ? pinVersion(reference) : DEFINITION_VERSION;
-    const resolved = version === DEFINITION_VERSION ? current : await commandDefinition(root, command, { version });
+    const resolved = version === DEFINITION_VERSION ? current : await commandDefinition(root, command, { ...reads, version });
     let candidate = version === DEFINITION_VERSION ? latest : pinCandidate(phase, command, resolved.entries, { version });
     let { scripts } = resolved;
     let acceptedBy = reference && reference.sha256 !== candidate.sha256 ? acceptedRepin(workflow, candidate) : null;
@@ -562,16 +643,16 @@ export async function gateTestCommandPins(root, config, workflow, phase, command
       candidate = latest;
       ({ scripts } = current);
     }
-    // Back to exactly what the base commit runs is the team's own setup, never a change to decide.
-    const restoredToBase = Boolean(reference && reference.sha256 !== candidate.sha256 && !acceptedBy && baseCommit
-      && pinCandidate(phase, command, (await commandDefinition(root, command, { read: async (relative) => baseText(root, baseCommit, relative), version })).entries,
-        { version }).sha256 === candidate.sha256);
+    // Restore changed entries without requiring newly added, unchanged test scripts at the base.
+    const restoration = !acceptedBy ? baselineRestoration(root, reference, candidate,
+      restorationBase(workflow, phase, baseCommit)) : null;
+    const restoredToBase = Boolean(restoration);
     if (reference && reference.sha256 !== candidate.sha256 && !acceptedBy && !restoredToBase) throw pinChangedError(workflow, phase, reference, candidate);
     const recorded = storyPin(workflow, candidate);
     const baseline = (recorded?.sha256 === candidate.sha256 ? recorded.baseline : null) ?? firstPassingRun(attempts, candidate.sha256);
     // What narrows the run before it runs: filters, focused tests, and the pin's baseline [TCE:REQ-021].
     const narrowing = await narrowingFacts(root, command, { scripts, testPaths, baseline, inferred: candidate.source.kind === 'inferred', baseCommit });
-    prepared.set(command.id, { candidate, reference, acceptedBy, restoredToBase, scripts, baseline, narrowing });
+    prepared.set(command.id, { candidate, reference, acceptedBy, restoredToBase, restoration, scripts, baseline, narrowing });
   }
   // A suite the Story pinned that no longer runs at all is refused too: per-command counts cannot see it [TCE:REQ-012].
   const removed = await removedSuite(root, workflow, phase, commands, attempts, deliveryEvidence, baseCommit);
@@ -590,8 +671,8 @@ export async function gateTestCommandPins(root, config, workflow, phase, command
 
 /**
  * Write the pins of the commands a passing gate ran onto the Story: a new pin at first use, after an
- * accepted re-pin (naming the pin it replaces and the request that admitted it) or on a return to
- * exactly the base commit's definition (`restoredToBase`), and a pin's baseline at its first passing run.
+ * accepted re-pin (naming the pin it replaces and the request that admitted it) or a verified return
+ * of changed entries to baseline (`restoredToBase`), and a pin's baseline at its first passing run.
  */
 export function recordTestCommandPins(workflow, phase, prepared, { ran, at, attempts = [] }) {
   const ranIds = new Set(ran);
@@ -609,6 +690,7 @@ export function recordTestCommandPins(workflow, phase, prepared, { ran, at, atte
       ...pinIdentity(entry.candidate),
       ...(previous ? { replaces: previous.id } : {}), ...(entry.acceptedBy ? { acceptedBy: entry.acceptedBy } : {}),
       ...(entry.restoredToBase ? { restoredToBase: true } : {}),
+      ...(entry.restoration ? { baselineRestoration: entry.restoration } : {}),
       baseline: firstPassingRun(attempts, entry.candidate.sha256), at
     });
   }
@@ -620,7 +702,8 @@ export function recordTestCommandPins(workflow, phase, prepared, { ran, at, atte
  * (its first gate run pins it) or one unchanged since it was pinned.
  */
 export async function repinRequest(root, config, workflow, phase, command) {
-  const { entries } = await commandDefinition(root, command);
+  const reads = definitionReads(root);
+  const { entries } = await commandDefinition(root, command, reads);
   const candidate = pinCandidate(phase, command, entries);
   const recorded = referencePin(workflow, candidate, await recordedRuns(root, config, workflow, phase));
   const reference = recorded && comparablePin(recorded);
@@ -628,11 +711,16 @@ export async function repinRequest(root, config, workflow, phase, command) {
   // the pin a person accepts is the current rules' one.
   const version = reference ? pinVersion(reference) : DEFINITION_VERSION;
   const compared = version === DEFINITION_VERSION ? candidate
-    : pinCandidate(phase, command, (await commandDefinition(root, command, { version })).entries, { version });
-  if (!reference || reference.sha256 === compared.sha256) {
+    : pinCandidate(phase, command, (await commandDefinition(root, command, { ...reads, version })).entries, { version });
+  if (!reference || reference.sha256 === compared.sha256
+      || baselineRestoration(root, reference, compared, restorationBase(workflow, phase))) {
     throw new SingularityFlowError(reference
-      ? `Test command ${command.id} is unchanged since it was pinned for this Story${reference.id ? ` (${reference.id})` : ''}; there is nothing to re-pin.`
-      : `Test command ${command.id} is not pinned for this Story yet; its first gate run pins it.`, { code: 'TEST_COMMAND_REPIN_UNNEEDED' });
+      ? `Test command ${command.id} is unchanged or its changed definition entries were restored to the generation baseline; there is nothing to re-pin.`
+      : `Test command ${command.id} is not pinned for this Story yet; its first gate run pins it.`, {
+      code: 'TEST_COMMAND_REPIN_UNNEEDED', details: { workId: workflow.workItem?.id ?? null, phase: phase.id,
+        nextAction: { command: 'singularity-flow nextsteps --json',
+          label: 'Continue from the current workflow state; no re-pin acceptance is needed.' } }
+    });
   }
   const { sha256: digest, ...pin } = pinIdentity(candidate);
   return { commandId: command.id, sha256: digest, pinned: recorded.sha256, pin, changes: pinChanges(reference, compared).map(pinChangeWords) };
@@ -647,14 +735,7 @@ export async function pendingTestCommandReviews(root, config, workflow, phase, r
   const pending = [], inactive = [], bindings = [], unavailable = [];
   if (!requests.some(request => request.repin)) return { pending: requests, inactive, bindings, unavailable };
   try {
-    const read = async relative => {
-      try { return (await readRepositoryManifest(root, relative, { maxBytes: MAX_CONFIG_BYTES })).bytes.toString('utf8'); }
-      catch (error) { if (error.code === 'ENOENT') return null; throw error; }
-    };
-    const list = async relative => {
-      try { return (await readdir(path.join(root, relative), { withFileTypes: true })).map(entry => ({ name: entry.name, directory: entry.isDirectory() })); }
-      catch (error) { if (error.code === 'ENOENT') return []; throw error; }
-    };
+    const { read, list } = definitionReads(root);
     commands ??= (await (await import('./local-test-runs.mjs')).resolveStoryLocalTestCommands(root, config, workflow, { phaseId: phase.id })).commands;
     const attempts = await recordedRuns(root, config, workflow, phase);
     const observed = new Map();
@@ -672,19 +753,23 @@ export async function pendingTestCommandReviews(root, config, workflow, phase, r
         const version = reference ? pinVersion(reference) : DEFINITION_VERSION;
         const compared = version === DEFINITION_VERSION ? candidate
           : pinCandidate(phase, command, (await commandDefinition(root, command, { version, read, list })).entries, { version });
-        observed.set(command.id, { candidate, reference, restored: Boolean(reference && reference.sha256 === compared.sha256) });
+        observed.set(command.id, { candidate, reference, restored: Boolean(reference && reference.sha256 === compared.sha256),
+          restoration: !acceptedRepin(workflow, candidate)
+            ? baselineRestoration(root, reference, compared, restorationBase(workflow, phase)) : null });
       }
-      const { candidate, reference, restored } = observed.get(command.id);
+      const { candidate, reference, restored, restoration } = observed.get(command.id);
       const acceptedBy = acceptedRepin(workflow, candidate);
       const identity = canonicalJson({ phase: request.phase, commandId: command.id, repin: request.repin });
       const duplicateOf = pendingIdentities.get(identity);
-      const status = restored ? 'original-definition-restored' : acceptedBy ? 'definition-already-accepted'
+      const status = restored ? 'original-definition-restored' : restoration ? 'baseline-definition-restored' : acceptedBy ? 'definition-already-accepted'
         : request.repin.sha256 !== candidate.sha256 ? 'definition-changed-since-request'
           : duplicateOf ? 'duplicate-pending-request' : 'pending';
-      bindings.push({ request: request.id, status, current: candidate.sha256, reference: reference?.sha256 ?? null });
+      bindings.push({ request: request.id, status, current: candidate.sha256, reference: reference?.sha256 ?? null,
+        ...(restoration ? { baselineRestoration: restoration } : {}) });
       if (status !== 'pending') inactive.push({ request: request.id, phase: request.phase, commandId: command.id, status,
         ...(acceptedBy ? { acceptedBy } : {}), ...(duplicateOf ? { duplicateOf } : {}),
         reason: restored ? 'The current test definition matches its existing pin. No re-pin or human acceptance is required; the unaccepted request remains in history.'
+          : restoration ? 'Changed test-definition entries match the generation baseline; all other pinned bindings are unchanged. No re-pin acceptance is required; the request remains in history.'
           : acceptedBy ? 'An existing human decision already accepts this exact definition; this request is not another acceptance.'
             : duplicateOf ? 'The same exact re-pin is already pending under the named request; decide that request once.'
               : 'The current definition differs from this request. Diagnose the current change and review its exact request; this older request cannot admit it.' });
@@ -692,7 +777,8 @@ export async function pendingTestCommandReviews(root, config, workflow, phase, r
     }
   } catch (error) {
     // A read failure is never interpreted as a restored definition or permission to drop a review.
-    unavailable.push({ phase: phase.id, reason: error.code ?? 'test-command-definition-unavailable' });
+    unavailable.push({ phase: phase.id, reason: error.code ?? 'test-command-definition-unavailable',
+      message: error.message, ...(error.details ? { details: error.details } : {}) });
     return { pending: requests, inactive: [], bindings: [{ status: 'unavailable', reason: unavailable[0].reason }], unavailable };
   }
   return { pending, inactive, bindings, unavailable };

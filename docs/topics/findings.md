@@ -14,7 +14,7 @@ related:
   - recovery
   - phase-appeals
   - escalation
-version: 17
+version: 18
 ---
 A finding is one exact reason a step cannot publish, submit or finish. Every finding has an owner and a recovery route: the step's own author fixes its draft, an earlier step's approvers decide an upstream issue, a person records a decision, or an owner restores trusted bytes. Each refusal names its finding code; read its entry here with `sflow explain findings --section <CODE>` (the code is matched without regard to case). No finding routes only back to its own author: each names at least one route for someone else, its approvers, an earlier step, an owner, or, when nothing more specific exists, the workflow maintainer. Nothing in this catalog waives a test, approves a step or accepts a risk by itself.
 
@@ -112,7 +112,14 @@ A build manifest test detection reads (a `package.json`) is not valid JSON. The 
 
 ### TEST_COMMAND_PIN_CHANGED
 
-A test command changed since its first gate run pinned it for the Story: its argv or adapter, or a script, workspace, runner configuration or preloaded file it resolves through (the refusal lists each change; a file the command names that is not there is pinned as missing, so creating it is a change too). Nothing ran. It is also the refusal for a suite the Story pinned that its module no longer declares (a deleted `test:node` beside Jest): the refusal says `removed`, and the request with the same `--repin` asks that it no longer run. Restore what was pinned (a return to exactly what the Story's base commit runs is also accepted, recorded as `restoredToBase`, with no decision), or request the new pin with `decision test-command <WORK-ID> --phase <PHASE> --repin <COMMAND-ID> --reason <TEXT>`; a person who approves the step accepts it from the decision list, and the next gate run records it. An agent may request, never accept.
+A test command changed since its first gate run pinned it for the Story: its argv or adapter, or a script, workspace, runner configuration or preloaded file it resolves through (the refusal lists each change; a file the command names that is not there is pinned as missing, so creating it is a change too). Nothing ran. It is also the refusal for a suite the Story pinned that its module no longer declares (a deleted `test:node` beside Jest): the refusal says `removed`, and the request with the same `--repin` asks that it no longer run. Restore what was pinned, or restore each changed definition entry to its recorded generation-baseline value while keeping every other binding unchanged (`restoredToBase`, with baseline and entry hashes recorded by the next successful gate). This requires no human acceptance; an unnecessary re-pin request stays in history as inactive. For a genuine change, request the new pin with `decision test-command <WORK-ID> --phase <PHASE> --repin <COMMAND-ID> --reason <TEXT>`; a person who approves the step accepts it from the decision list, and the next gate run records it. An agent may request, never accept.
+
+### TEST_COMMAND_BASELINE_UNAVAILABLE
+
+SFlow could not verify a proposed restoration against the recorded generation baseline. The
+diagnostics distinguish a missing ref or object, an unreadable or oversized file, a timeout, and
+an invalid file type. Pending requests remain pending. Recover the named local Git data and retry
+the same authoring action; this error never accepts a re-pin or substitutes a different baseline.
 
 ### CODE_TEST_NARROWED
 

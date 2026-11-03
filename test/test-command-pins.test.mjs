@@ -15,6 +15,7 @@ import {
   pendingTestCommandReviews, referencePin, removalRequest, repinRequest
 } from '../src/test-command-pins.mjs';
 import { resolveDeliveryQualityCommands, testCommandProvenance } from '../src/delivery-evidence.mjs';
+import { recordTestAttempt, stepAttempts } from '../src/verification/attempts.mjs';
 
 async function repository(t, files) {
   const root = await mkdtemp(path.join(os.tmpdir(), 'sflow-pins-'));
@@ -28,6 +29,146 @@ async function repository(t, files) {
 }
 
 const definitionKeys = (definition) => definition.entries.map((entry) => `${entry.path}#${entry.selector ?? ''}`);
+
+function commitBaseline(root) {
+  execFileSync('git', ['add', '.'], { cwd: root });
+  execFileSync('git', ['-c', 'user.name=Pin Test', '-c', 'user.email=pin@example.invalid',
+    'commit', '-qm', 'Generation baseline'], { cwd: root });
+  return execFileSync('git', ['rev-parse', 'HEAD'], { cwd: root, encoding: 'utf8' }).trim();
+}
+
+test('restoring baseline configuration keeps a newly pinned test script and retires its unnecessary review', async t => {
+  const original = 'export default { plugins: [] };\n';
+  const root = await repository(t, { 'package.json': '{"scripts":{}}\n', 'vite.config.js': original });
+  const base = commitBaseline(root);
+  await writeFile(path.join(root, 'package.json'), '{"scripts":{"test":"vitest run"}}\n');
+  await writeFile(path.join(root, 'vite.config.js'), 'export default { test: { environment: "jsdom" } };\n');
+  const command = { id: 'unit', kind: 'test', argv: ['npm', 'test'], workingDirectory: '.', affectedRoots: ['.'],
+    result: { adapter: 'vitest-json', path: '.sflow/results/tests.json' } };
+  const phase = { id: 'custom-build', status: 'in_progress', generationIntent: { baseline: { commit: base } } };
+  const workflow = { workItem: { id: 'PIN-RESTORE' }, phaseOrder: [phase.id], phases: { [phase.id]: phase } };
+  const first = await gateTestCommandPins(root, {}, workflow, phase, [command]);
+  const { attempt } = await recordTestAttempt(root, 'singularity/work-items/PIN-RESTORE', {
+    command, purpose: 'preflight', workId: 'PIN-RESTORE', phaseId: phase.id, generation: 1,
+    check: { status: 'failed', exitCode: 1, resultIsolated: false }, pin: first.attempt('unit').pin
+  });
+  assert.notEqual(attempt.status, 'passed');
+  await writeFile(path.join(root, 'vite.config.js'), original);
+  const restoredPin = pinCandidate(phase, command, (await commandDefinition(root, command)).entries);
+  const request = { id: 'TCD-001', phase: phase.id, command,
+    repin: { commandId: command.id, sha256: restoredPin.sha256, pinned: attempt.pin.sha256,
+      pin: restoredPin, changes: ['vite.config.js changed'] } };
+  workflow.testCommandDecisions = [request];
+  const before = JSON.stringify(workflow);
+  const ready = await gateTestCommandPins(root, {}, workflow, phase, [command]);
+  assert.equal(ready.prepared.get('unit').restoredToBase, true);
+  assert.equal(ready.prepared.get('unit').acceptedBy, null);
+  const review = await pendingTestCommandReviews(root, {}, workflow, phase, [request], { commands: [command] });
+  assert.deepEqual(review.pending, []);
+  assert.equal(review.inactive[0].status, 'baseline-definition-restored');
+  assert.equal(JSON.stringify(workflow), before, 'restoration does not accept or rewrite a human decision');
+  await assert.rejects(repinRequest(root, {}, workflow, phase, command), error => {
+    assert.equal(error.code, 'TEST_COMMAND_REPIN_UNNEEDED');
+    assert.equal(error.details.nextAction.command, 'singularity-flow nextsteps --json');
+    return true;
+  });
+  const [retained] = await stepAttempts(root, 'singularity/work-items/PIN-RESTORE', 'PIN-RESTORE', phase.id);
+  assert.equal(retained.pin.sha256, attempt.pin.sha256, 'the failed attempt keeps its original definition');
+  await ready.record(workflow, ['unit'], { at: 'restored' });
+  assert.equal(workflow.testCommandPins[0].restoredToBase, true);
+  assert.equal(workflow.testCommandPins[0].acceptedBy, undefined);
+  assert.deepEqual(workflow.testCommandPins[0].baselineRestoration, { commit: base,
+    definitions: [{ path: 'vite.config.js', selector: null,
+      sha256: restoredPin.definition.find(entry => entry.path === 'vite.config.js').sha256 }] });
+  assert.equal(workflow.testCommandDecisions.length, 1);
+  await writeFile(path.join(root, 'vite.config.js'), 'export default { test: { include: ["one.test.js"] } };\n');
+  await assert.rejects(gateTestCommandPins(root, {}, workflow, phase, [command]), { code: 'TEST_COMMAND_PIN_CHANGED' });
+});
+
+test('baseline restoration cannot admit new runner arguments, result adapters, or removal of existing configuration', async t => {
+  const root = await repository(t, { 'package.json': '{"scripts":{"test":"vitest run"}}\n',
+    'vite.config.js': 'export default {};\n' });
+  const base = commitBaseline(root);
+  const phase = { id: 'verify-custom', status: 'in_progress', generationIntent: { baseline: { commit: base } } };
+  const workflow = { workItem: { id: 'PIN-GUARDS' }, phases: { [phase.id]: phase }, phaseOrder: [phase.id] };
+  const command = { id: 'unit', kind: 'test', argv: ['npm', 'test'], result: { adapter: 'vitest-json' } };
+  const original = await gateTestCommandPins(root, {}, workflow, phase, [command]);
+  await original.record(workflow, ['unit'], { at: 'original' });
+  for (const changed of [
+    { ...command, argv: ['npm', 'test', '--', '--testNamePattern=only'] },
+    { ...command, result: { adapter: 'jest-json' } },
+    { ...command, affectedRoots: ['one-module'] }
+  ]) await assert.rejects(gateTestCommandPins(root, {}, workflow, phase, [changed]), { code: 'TEST_COMMAND_PIN_CHANGED' });
+  await unlink(path.join(root, 'vite.config.js'));
+  await assert.rejects(gateTestCommandPins(root, {}, workflow, phase, [command]), { code: 'TEST_COMMAND_PIN_CHANGED' },
+    'current-directory enumeration must not mistake a deleted baseline config for an absent baseline file');
+});
+
+test('removing a newly introduced temporary configuration restores baseline without removing a new test script', async t => {
+  const root = await repository(t, { 'package.json': '{"scripts":{}}\n' });
+  const base = commitBaseline(root);
+  const phase = { id: 'custom-repair', status: 'in_progress', generationIntent: { baseline: { commit: base } } };
+  const workflow = { workItem: { id: 'PIN-TEMP' }, phases: { [phase.id]: phase }, phaseOrder: [phase.id] };
+  const command = { id: 'unit', argv: ['npm', 'test'], result: { adapter: 'vitest-json' } };
+  await writeFile(path.join(root, 'package.json'), '{"scripts":{"test":"vitest run"}}\n');
+  await writeFile(path.join(root, 'vitest.config.js'), 'export default { test: { environment: "jsdom" } };\n');
+  const first = await gateTestCommandPins(root, {}, workflow, phase, [command]);
+  await first.record(workflow, ['unit'], { at: 'first' });
+  await unlink(path.join(root, 'vitest.config.js'));
+  const restored = await gateTestCommandPins(root, {}, workflow, phase, [command]);
+  assert.equal(restored.prepared.get('unit').restoredToBase, true);
+  assert.ok(restored.prepared.get('unit').candidate.definition.some(entry => entry.selector === 'scripts.test'));
+});
+
+test('an unavailable generation baseline keeps the pending review and exposes its Git diagnostic', async t => {
+  const root = await repository(t, { 'package.json': '{"scripts":{"test":"vitest run"}}\n',
+    'vite.config.js': 'export default {};\n' });
+  const phase = { id: 'custom-qa', status: 'in_progress', generationIntent: { baseline: { commit: 'f'.repeat(40) } } };
+  const workflow = { workItem: { id: 'PIN-MISSING' }, phases: { [phase.id]: phase }, phaseOrder: [phase.id] };
+  const command = { id: 'unit', argv: ['npm', 'test'], result: { adapter: 'vitest-json' } };
+  const initial = await gateTestCommandPins(root, {}, workflow, phase, [command]);
+  await initial.record(workflow, ['unit'], { at: 'initial' });
+  await writeFile(path.join(root, 'vite.config.js'), 'export default { test: {} };\n');
+  const candidate = pinCandidate(phase, command, (await commandDefinition(root, command)).entries);
+  const request = { id: 'TCD-001', phase: phase.id, command, repin: { commandId: command.id, sha256: candidate.sha256 } };
+  workflow.testCommandDecisions = [request];
+  await assert.rejects(gateTestCommandPins(root, {}, workflow, phase, [command]), { code: 'TEST_COMMAND_BASELINE_UNAVAILABLE' });
+  const review = await pendingTestCommandReviews(root, {}, workflow, phase, [request], { commands: [command] });
+  assert.deepEqual(review.pending, [request]);
+  assert.deepEqual(review.inactive, []);
+  assert.equal(review.unavailable[0].reason, 'TEST_COMMAND_BASELINE_UNAVAILABLE');
+  assert.equal(review.unavailable[0].details.diagnostics[0].code, 'REF_TREE_REF_MISSING');
+});
+
+test('backend repairs restore semantic test configuration while retaining newly pinned support files', async t => {
+  const cases = [
+    { name: 'Maven', argv: ['mvn', 'test'], file: 'pom.xml',
+      original: '<project><properties><skipTests>false</skipTests></properties></project>',
+      temporary: '<project><properties><skipTests>true</skipTests></properties></project>',
+      support: '.mvn/maven.config', supportText: '-DtrimStackTrace=false\n' },
+    { name: 'pytest', argv: ['python3', '-m', 'pytest'], file: 'pyproject.toml',
+      original: '[tool.pytest.ini_options]\naddopts = "-ra"\n',
+      temporary: '[tool.pytest.ini_options]\naddopts = "-k only"\n',
+      support: 'conftest.py', supportText: '# New fixture support\n' }
+  ];
+  for (const fixture of cases) await t.test(fixture.name, async t => {
+    const root = await repository(t, { [fixture.file]: fixture.original });
+    const base = commitBaseline(root);
+    const command = { id: 'unit', kind: 'test', argv: fixture.argv, result: { adapter: 'junit-xml' } };
+    const phase = { id: 'backend-repair', status: 'in_progress', generationIntent: { baseline: { commit: base } } };
+    const workflow = { workItem: { id: 'PIN-BACKEND' }, phases: { [phase.id]: phase }, phaseOrder: [phase.id] };
+    await writeFile(path.join(root, fixture.file), fixture.temporary);
+    await mkdir(path.dirname(path.join(root, fixture.support)), { recursive: true });
+    await writeFile(path.join(root, fixture.support), fixture.supportText);
+    const initial = await gateTestCommandPins(root, {}, workflow, phase, [command]);
+    await initial.record(workflow, ['unit'], { at: 'initial' });
+    await writeFile(path.join(root, fixture.file), fixture.original);
+    const repaired = await gateTestCommandPins(root, {}, workflow, phase, [command]);
+    assert.equal(repaired.prepared.get('unit').restoredToBase, true);
+    assert.deepEqual(repaired.prepared.get('unit').restoration.definitions.map(entry => entry.path), [fixture.file]);
+    assert.ok(repaired.prepared.get('unit').candidate.definition.some(entry => entry.path === fixture.support));
+  });
+});
 
 test('restoring the pinned definition removes its re-pin from pending reviews without accepting or deleting it', async t => {
   const original = 'export default { test: { environment: "jsdom" } };\n';

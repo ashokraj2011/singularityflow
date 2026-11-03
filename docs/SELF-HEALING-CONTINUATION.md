@@ -53,9 +53,14 @@ human changes or narrow the tests. Necessary definition changes still need their
 Repeated requests reuse the same pending request without a new commit. The handoff offers a Copilot
 review route separately from acceptance in the person's terminal.
 
-If the current definition is verified to match its original pin again, the unaccepted re-pin request
-stays in history and is reported as inactive rather than another pending decision. This records no
-acceptance and changes no pin. Unreadable definitions retain their pending review and diagnostic.
+If the current definition matches its original pin again, or every changed definition entry is
+verified against the recorded generation baseline while all other pinned entries stay unchanged,
+the unaccepted re-pin request stays in history and is reported as inactive. A new test script need
+not have existed at baseline for an incidental runner-configuration repair to count as restoration.
+This records no acceptance. The next successful gate records the restored pin with its baseline
+and restored-entry hashes; earlier failed attempts keep their original pins. Unreadable definitions
+or baseline objects retain their pending review and diagnostic. Runner arguments, adapters and
+scope changes still require the existing human decision; restoration admits none of them.
 
 Scope-only approval holds belong to the plan's approvers. An exact test-support path may be
 accounted for under an existing test-only clause with a narrow plan amendment. This changes no

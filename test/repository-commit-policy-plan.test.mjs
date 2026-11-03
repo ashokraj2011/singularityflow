@@ -4,6 +4,7 @@ import { resolveRepositoryCommitPolicy, resolveCommitTracking } from '../src/rep
 import { planRepositoryCommit, issuedCommitPolicyPlan, assertCommitPlanCurrent } from '../src/repository-commit-policy/plan.mjs';
 import { retainCommitPolicyRecord, readCommitPolicyRecord, writeCommitPolicyOperation, readCommitPolicyOperation } from '../src/repository-commit-policy/records.mjs';
 import { rcpFixture, registeredRcpPolicy } from './helpers/rcp-fixture.mjs';
+import {createHash} from 'node:crypto';
 
 test('an exact approved owner plan resolves immutable Jira identity without borrowing its parent Epic', async t => {
   const f = await rcpFixture(t); const tree = await f.candidate();
@@ -48,4 +49,12 @@ test('validation records live outside their own tree, keep immutable references 
   assert.equal(reloaded.changedNormalizationAttempts, 2);
   assert.equal(f.git(f.root, ['rev-parse', 'HEAD']), f.parent);
   assert.equal(await readFile(path.join(f.root, 'source.js'), 'utf8'), 'export const value = 2;\n');
+});
+
+test('registered equivalence cannot claim coverage of the actual unqualified pre-push invocation', async t => {
+  const script = '#!/bin/sh\nexit 0\n', policy = registeredRcpPolicy();
+  policy.profiles['message-v1'].coverage.push({stage:'pre-push', path:'@hooks/pre-push', sha256:`sha256:${createHash('sha256').update(script).digest('hex')}`, checks:['message']});
+  const f = await rcpFixture(t,policy); await writeFile(path.join(f.root,'.git/hooks/pre-push'),script,{mode:0o755});
+  await assert.rejects(planRepositoryCommit(f.root,{subject:f.subject,ref:f.ref,tree:await f.candidate(),parents:[f.parent],message:'Change endpoint'}),{code:'RCP_VALIDATION_UNSUPPORTED'});
+  assert.equal(f.git(f.root,['rev-parse','HEAD']),f.parent);
 });

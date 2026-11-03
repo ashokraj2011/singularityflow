@@ -130,7 +130,7 @@ export function selectCommitProfile(binding, { purpose, ref, paths = [] }) {
         && (entry.path === `@hooks/${hook.stage}` || path.resolve(discovery.repositoryPath, entry.path) === hook.path))) rcpFailure('RCP_VALIDATION_UNSUPPORTED', `The effective ${hook.stage} hook has no exact approved coverage.`, { stage: hook.stage, hookSha256: hook.sha256 });
     if (hook.status === 'present' && hook.nativeAvailability === 'not-executable' && required.length) rcpFailure('RCP_HOOK_SETUP_REQUIRED', `The required ${hook.stage} hook is not executable.`);
   }
-  if (profile.adapter === 'native-git' && discovery.hooks.some(hook => hook.stage === 'pre-push' && hook.status === 'present')) rcpFailure('RCP_VALIDATION_UNSUPPORTED', 'Native pre-push stage/effect tracing is not qualified by the commit adapter. Adopt a reviewed registered pre-push equivalent or a separately qualified publication adapter; no hook is skipped.');
+  if (discovery.hooks.some(hook => hook.stage === 'pre-push' && hook.status === 'present')) rcpFailure('RCP_VALIDATION_UNSUPPORTED', 'Installed pre-push hook stage/effect tracing requires a separately qualified publication adapter. A registered equivalent cannot suppress the actual hook that Git will still execute. No hook is skipped and no commit or push is admitted by this profile.');
   if (profile.adapter === 'registered-checks') for (const entry of profile.coverage) {
     if (entry.path && ['post-commit','pre-push'].includes(entry.stage) && !entry.checks.length) rcpFailure('RCP_VALIDATION_UNSUPPORTED', 'An installed notification/publication obligation has no executable registered equivalent.', {stage:entry.stage});
   }

@@ -75,7 +75,7 @@ Metadata defaults to the ordinary policy. An explicit `metadata.mode: scoped-pro
 | Registered equivalent | Exact staged-tree blobs and the complete proposed message; labels native hooks **not executed** |
 | Native Git | Original working directory and branch semantics, with an explicitly compatible private Git directory; real Git runs the adopted hooks before the owner's authoritative ref moves |
 | Native merge-message semantics | Unsupported; no alternate strategy is selected |
-| Native pre-push tracing | Unsupported by the commit adapter; requires a reviewed registered publication equivalent or separately qualified adapter |
+| Installed pre-push hooks | Require a separately qualified publication adapter; registered equivalence cannot suppress the actual hook Git still executes, so this version refuses that path |
 | Git-directory-sensitive hooks or native execution from a configuration projection | Unsupported unless a faithful contract is separately qualified; use an approved metadata equivalent where appropriate |
 | Unknown hook bytes, undeclared dependency inputs, missing tools or unsupported OS | Setup/unavailable/unsupported, never a guessed replacement or passing check |
 | Legacy writer without a qualified owner bridge | Admission refused before an authoritative write; universal compatibility is not claimed |
@@ -117,4 +117,4 @@ The Git bypass audit records the new bounded call sites. No new general process/
 
 The `test/repository-commit-policy-*.test.mjs` suite exercises full-message rendering, canonical Jira identity, approved policy drift, exact-tree checks, finite formatter budgets, actual native hooks, hook-created files and index drift, SSH signatures, retained-object retries, metadata restrictions, and state-provider takeover from a second clone. Standard and custom phase owners use the same publication bridge. `test/cli-bundle.test.mjs` also executes an enforced commit through the compiled writer and its optional source service, checking that they share one admission boundary.
 
-Native merge messages, native pre-push tracing, and Git-directory-sensitive/projection hook contexts remain explicitly unsupported. The feature does not qualify arbitrary hook frameworks or every legacy writer by implication. An unsupported path requires an approved compatible profile or a qualified owner bridge; it cannot fall back or report universal compliance.
+Native merge messages, installed pre-push hooks, and Git-directory-sensitive/projection hook contexts remain explicitly unsupported. The feature does not qualify arbitrary hook frameworks or every legacy writer by implication. An unsupported path requires an approved compatible profile or a qualified owner bridge; it cannot fall back or report universal compliance.

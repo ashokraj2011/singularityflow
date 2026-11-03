@@ -25,7 +25,7 @@ export const MIGRATED_NARRATION_COMMANDS = Object.freeze([
   // Backups of this laptop's drafts and documents (SDA M5): sflow-backup-create, -inspect, -restore.
   'backup',
   // SF Guard (SPEC-PSS-v1): its --json is its own structured result (sflow-guard).
-  'guard',
+  'guard', 'git-policy',
   // Returns another command's kept result as that command returned it, or why there is none.
   'result',
   // Emits the sflow-result v2 envelope the gateway serves, which is a structured result too [INT:IFC-020].

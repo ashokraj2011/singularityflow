@@ -57,7 +57,7 @@ const FAMILIES = Object.freeze([
   // One additional coarse file avoids loading the legacy generation/model engine on first writes.
   // The ordinary product requirement verdict must not import the entire phase/installer family.
   // Its actual installer dependencies are lazy; share this existing bounded local-gate slot.
-  ['publication', ['story-publication-store.mjs', 'story-publication-service.mjs', 'product-requirement.mjs',
+  ['publication', ['commands/git-policy.mjs', 'story-publication-store.mjs', 'story-publication-service.mjs', 'product-requirement.mjs',
     'publication-unit-of-work.mjs']],
   ['hook-context', ['commands/phase-show.mjs', 'commands/shared/session-repository-authority.mjs', 'agent-hooks.mjs',
     'accepted-story-execution.mjs', 'delivery-evidence.mjs', 'worktree-fingerprint.mjs']],
@@ -178,9 +178,10 @@ export async function buildColdCliBundle({ root, outdir, toolRoot, entries, exte
       // No module-by-module deployment: the complete installed engine has a small fixed envelope.
       if (output.length > 21) throw new Error(`Cold bundle produced ${output.length} files; maximum is 21.`);
       // Rollup owns identity/chunking. Like the VS Code build, esbuild also compacts syntax for
-      // the Node 20 target, but retains identifiers and never re-bundles or duplicates modules.
+      // the Node 20 target, compacting local identifiers while preserving function/class names.
+      // It never re-bundles or duplicates modules.
       const transformed = await transform(chunk.code, { format: 'esm', platform: 'node', target: 'node20',
-        minifyWhitespace: true, minifySyntax: true, legalComments: 'none' });
+        minifyWhitespace: true, minifySyntax: true, minifyIdentifiers: true, keepNames: true, legalComments: 'none' });
       const bytes = Buffer.from(transformed.code);
       await writeFile(path.join(staging, chunk.fileName), bytes);
       outputs.push({ file: chunk.fileName, bytes: bytes.length, modules: Object.keys(chunk.modules).length,

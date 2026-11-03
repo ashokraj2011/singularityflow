@@ -1,3 +1,4 @@
+import { repositoryCommitPolicyModule } from './util.mjs';
 /** Publish approval membership to the shared configuration authority without touching a Story checkout. */
 import os from 'node:os';
 import path from 'node:path';
@@ -15,7 +16,7 @@ import {
 import { PORTFOLIO_PATH, validatePortfolio } from './initiative-config.mjs';
 import { identity } from './git.mjs';
 import { assertCredentialFreeRemote, sanitizeRemote, frozenRemoteTransport, failureEvidence, safeGitDiagnosticReference } from './git-remote-diagnostics.mjs';
-import { gitDisabledHooksPath } from './git-isolation-paths.mjs';
+import { gitDisabledHooksPath } from './platform-process.mjs';
 import { createAndPushTransportIntent } from './transport-intents.mjs';
 import { gitReadOutput, removeTemporaryTree, run, SingularityFlowError } from './util.mjs';
 import { canonicalJson } from './records.mjs';
@@ -438,13 +439,15 @@ export async function publishCurrentIdentityToConfiguration(root, {
       ...(autoEnrollmentChanged ? [{ op: 'approval-security.set', field: 'autoEnrollNewIdentities', value: desiredAutoEnrollment }] : [])
     ] };
     const intentSha256 = `sha256:${createHash('sha256').update(canonicalJson(intent)).digest('hex')}`;
-    run('git', [
+    await (await repositoryCommitPolicyModule('writer', scratch)).runPolicyCommit(scratch, [
       '-c', `core.hooksPath=${gitDisabledHooksPath()}`,
       '-c', `user.name=${member.name || 'Singularity Flow contributor'}`,
       '-c', `user.email=${member.email || 'unknown@invalid'}`,
       'commit', '-m', `[configuration] add ${member.email || member.githubLogin} to approval authorities`,
       '-m', `Sflow-Intent-Kind: ${intent.kind}\nSflow-Intent-Sha256: ${intentSha256}`
-    ], { cwd: scratch });
+    ], {
+      env: process.env, legacyRun: (argv, opts) => run('git', argv, {...opts, cwd: scratch})
+    });
     const commit = run('git', ['rev-parse', 'HEAD'], { cwd: scratch }).stdout.trim();
 
     // A Story starts in its own checkout, which a failed start removes. Retain and push the commit

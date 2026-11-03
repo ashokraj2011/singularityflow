@@ -34,6 +34,7 @@ const entries = {
   lock: ['sf-doctor'],
   backup: ['sf-doctor'],
   guard: ['sf-guard'],
+  'git-policy': ['sf-git-policy'],
   'factory-reset': ['sf-factory-reset'],
   governance: ['sf-governance-rebuild'],
   'reset-all': ['sf-reset-all'],

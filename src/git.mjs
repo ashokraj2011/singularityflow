@@ -1,3 +1,4 @@
+import { repositoryCommitPolicyModule } from './util.mjs';
 import path from 'node:path';
 import os from 'node:os';
 import { createHash } from 'node:crypto';
@@ -9,7 +10,7 @@ import {
 } from 'node:fs';
 import { SingularityFlowError, gitReadOutput, invariant, isGitRefName, run, writeAtomic, removeTemporaryTree, SUBPROCESS_MAX_BUFFER_BYTES } from './util.mjs';
 import { processResultCompleted, processResultSucceeded } from './process-result.mjs';
-import { gitEmptyConfigPath, gitDisabledHooksPath } from './git-isolation-paths.mjs';
+import { gitEmptyConfigPath, gitDisabledHooksPath } from './platform-process.mjs';
 import { readLocalGitBlobs, repositoryObjectFormat } from './git-blob-batch.mjs';
 import { repositoryGitPath } from './git-directory.mjs';
 import {
@@ -3358,7 +3359,7 @@ export function commit(root, message, paths = null) {
 /** Human-reviewed authoring commit, not publication. Keep normal hooks/signing and the user's
  * unrelated staged changes. A veto or a changed hook output never advances the workflow. */
 export async function commitReviewedPaths(root, message, paths, {
-  expectedHead, stabilityGuard, onCleanupWarning = warning => console.warn(warning)
+  expectedHead, stabilityGuard, commitPolicyContext = null, onCleanupWarning = warning => console.warn(warning)
 } = {}) {
   invariant(expectedHead && stabilityGuard && paths?.length, 'An exact reviewed commit scope is required.');
   const reference = `refs/heads/${branch(root)}`;
@@ -3382,6 +3383,17 @@ export async function commitReviewedPaths(root, message, paths, {
     const tree = git(['write-tree'], { cwd: root, env }).stdout.trim();
     admitExactProspectiveTree(root, { baselineCommit: expectedHead, candidateTree: tree, label: 'Reviewed authoring commit' });
     await assertStable();
+    const binding = await (await repositoryCommitPolicyModule('context', root)).resolveRepositoryCommitPolicy(root);
+    if (binding.mode === 'enforce') {
+      const policy = await repositoryCommitPolicyModule('writer');
+      committed = await policy.commitPolicyIndex(root, message, {
+        ...commitPolicyContext, env, allowedPaths: paths, beforeRefAdvance: assertStable,
+        legacyCreate: () => { throw new Error('Enforced reviewed commits cannot select a legacy fallback.'); }
+      });
+      const refreshed = git(['reset', '-q', '--no-refresh', committed, '--', ...scope], { cwd: root, env: immutableLocalGitEnvironment(), allowFailure: true });
+      if (refreshed.status !== 0) deferIndexRefresh(root, committed, refreshed);
+      return committed;
+    }
     // Unlike lifecycle commit-tree, this deliberately respects repository hooks and signing.
     const result = git(['commit', '-m', message], { cwd: root, env, allowFailure: true });
     const observed = head(root);
@@ -3545,7 +3557,8 @@ export async function commitIsolated(root, message, paths, {
   transaction = null,
   expectedTree = null,
   onCommitCreated = null,
-  onRefAdvanced = null
+  onRefAdvanced = null,
+  commitPolicyContext = null
 } = {}) {
   const localEnv = immutableLocalGitEnvironment();
   const checkedOutRef = () => {
@@ -3678,10 +3691,18 @@ export async function commitIsolated(root, message, paths, {
             + `\nSingularity-Flow-Candidate-Profile-SHA256: ${boundTransaction.candidate.verificationProfileSha256}`
           : '')
       : message;
-    sourceCommit = git(
-      ['commit-tree', tree, '-p', expectedHead, ...signing, '-m', transactionMessage],
-      { cwd: root, env }
-    ).stdout.trim();
+    const commitPolicy = await repositoryCommitPolicyModule('runtime', root);
+    const policyCommit = await commitPolicy.createRepositoryPolicyCommit(root, {
+      subject: commitPolicyContext?.subject ?? { kind: 'maintenance', id: 'repository-maintenance' },
+      purpose: commitPolicyContext?.purpose ?? 'maintenance', ref: expectedRef ?? initialRef,
+      tree, parents: [expectedHead], expectedLocalRef: expectedHead, message: transactionMessage,
+      allowedPaths: scope, phase: commitPolicyContext?.phase ?? null, generation: commitPolicyContext?.generation ?? null,
+      operationId: commitPolicyContext?.operationId ?? transaction?.id ?? null,
+      ...(commitPolicyContext?.expectedRemote === undefined ? {} : { expectedRemote: commitPolicyContext.expectedRemote })
+    }, { env, sign, signingKey, commitIdentity: commitPolicyContext?.commitIdentity ?? null,
+      legacyCreate: proposed => git(['commit-tree', tree, '-p', expectedHead, ...signing, '-m', proposed], { cwd: root, env }).stdout.trim()
+    });
+    sourceCommit = policyCommit.commit;
     if (onCommitCreated) await onCommitCreated({ expectedHead, sourceCommit, tree, transaction: boundTransaction });
     if (fault) await fault('after-commit-object', { expectedHead, sourceCommit, tree });
 
@@ -3701,10 +3722,10 @@ export async function commitIsolated(root, message, paths, {
       throw new SingularityFlowError('Detached HEAD is not supported for publication.');
     }
     if (boundTransaction?.id) {
-      const outcome = publicationLocalRefCas(root, Object.freeze({
+      const outcome = await commitPolicy.withRepositoryPolicyRefAdmission(policyCommit.admission, () => publicationLocalRefCas(root, Object.freeze({
         kind: 'publication-local-ref-cas', ref, expectedOldOid: expectedHead,
         newCommitOid: sourceCommit, treeOid: tree, transactionId: boundTransaction.id
-      }));
+      })));
       if (outcome !== 'applied') {
         const error = new SingularityFlowError(
           'Publication could not prove whether its exact branch compare-and-swap applied. '
@@ -3728,9 +3749,9 @@ export async function commitIsolated(root, message, paths, {
     } else {
       // Non-lifecycle owners have their own recovery contracts. Migrate them separately rather
       // than silently changing how they classify a failed ref update in this first GAL increment.
-      const update = git(['update-ref', ref, sourceCommit, expectedHead], {
+      const update = await commitPolicy.withRepositoryPolicyRefAdmission(policyCommit.admission, () => git(['update-ref', ref, sourceCommit, expectedHead], {
         cwd: root, env: localEnv, allowFailure: true
-      });
+      }), { noDereference: false });
       if (update.status !== 0) {
         throw new SingularityFlowError(
           `Publication lost its branch-head race: ${(update.stderr || update.stdout).trim() || 'compare-and-swap failed'}. `

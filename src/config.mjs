@@ -1,4 +1,5 @@
 import { normalizeApplicationReview } from './code-delivery-policy.mjs';
+import { createRequire } from 'node:module';
 import { createHash } from 'node:crypto';
 import { assertStoryBranchNaming } from './story-branch-name.mjs';
 import { readConfigurationSource } from './configuration-source.mjs';
@@ -963,6 +964,13 @@ export function validateDefinition(definition, { storyBootstrap = false } = {}) 
   definition.workItemRoot = normalizeWorkItemRoot(definition.workItemRoot);
   assertRelative(definition.templatesRoot, 'templatesRoot');
   assertStoryBranchNaming(definition.git?.branchNaming);
+  if (definition.git?.commitPolicy != null) {
+    // Opt-in policy validation must not add hook/profile compilers to every ordinary read bundle.
+    // This is trusted, packaged code, never executable repository configuration.
+    if (!process.features.require_module) throw new SingularityFlowError('Repository commit policy requires the SFlow-managed runtime or Node 22.12 or later.', {code: 'RCP_RUNTIME_UNSUPPORTED'});
+    const policyModule = path.join(PACKAGE_ROOT, 'src/repository-commit-policy/policy.mjs');
+    definition.git.commitPolicy = createRequire(path.join(PACKAGE_ROOT, 'package.json'))(policyModule).normalizeCommitPolicy(definition.git.commitPolicy);
+  }
   /**
    * The catalog, and then every reference against it. Existence is checked here rather than in
    * `assertTemplate` because a phase is validated before the file is necessarily whole — a
@@ -2122,6 +2130,7 @@ export async function snapshotResolution(root, definition, resolved) {
   const impact = await loadImpactDefinition(root);
   return {
     configSha256: definitionSnapshot.sha256,
+    ...(definition.git?.commitPolicy == null ? {} : { repositoryCommitPolicy: structuredClone(definition.git.commitPolicy) }),
     // The state root is part of the immutable Story contract. Consumers that receive only the
     // workflow aggregate (visual evidence, reference handles, recovery) cannot safely fall back to
     // the product default when a repository selected a different governed location.

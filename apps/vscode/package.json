@@ -344,6 +344,7 @@
           { "name": "next", "description": "Read the next legal action without executing it" },
           { "name": "status", "description": "Show bounded Story and phase status" },
           { "name": "checks", "description": "Run the read-only quick readiness checks" },
+          { "name": "git-policy", "description": "Inspect repository commit policy and hook coverage" },
           { "name": "check", "description": "Refresh local repository and accepted workflow checks now; no tests or lifecycle changes" },
           { "name": "explain", "description": "Resolve a reviewed help topic without a model" },
           { "name": "converge", "description": "Read the convergence router result without following it" },

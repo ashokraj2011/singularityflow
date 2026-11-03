@@ -2,7 +2,7 @@
 import { AsyncLocalStorage } from 'node:async_hooks';
 import path from 'node:path';
 import { incrementCommandCounter } from './dx-timing-context.mjs';
-import { gitDisabledHooksPath } from './git-isolation-paths.mjs';
+import { gitDisabledHooksPath } from './platform-process.mjs';
 import { installPublicationGitResult } from './git.mjs';
 
 const contexts = new AsyncLocalStorage();

@@ -151,7 +151,8 @@
       "required": ["remote", "publish"],
       "properties": {
         "remote": { "type": "string", "minLength": 1 },
-        "publish": { "enum": ["required", "off"] }
+        "publish": { "enum": ["required", "off"] },
+        "commitPolicy": { "$ref": "repository-commit-policy.schema.json" }
       },
       "additionalProperties": false
     },

@@ -1,0 +1,628 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://example.invalid/singularity-flow/repository-commit-policy.schema.json",
+  "title": "RCP v1 repository commit policy",
+  "type": "object",
+  "properties": {
+    "schemaVersion": {
+      "const": 1
+    },
+    "mode": {
+      "enum": [
+        "off",
+        "discover",
+        "enforce"
+      ]
+    },
+    "subjectTemplate": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 4096
+    },
+    "subjectPattern": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 512
+    },
+    "maxSubjectBytes": {
+      "type": "integer",
+      "minimum": 1,
+      "maximum": 8192
+    },
+    "tracking": {
+      "type": "object",
+      "properties": {
+        "required": {
+          "type": "boolean"
+        },
+        "allowedKinds": {
+          "type": "array",
+          "maxItems": 128,
+          "items": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 4096
+          },
+          "uniqueItems": true
+        },
+        "bindings": {
+          "type": "object",
+          "properties": {
+            "story": {
+              "enum": [
+                "repository-story",
+                "approved-planning-story",
+                "approved-tracking-reference",
+                "approved-maintenance-story"
+              ]
+            },
+            "initiative": {
+              "enum": [
+                "repository-story",
+                "approved-planning-story",
+                "approved-tracking-reference",
+                "approved-maintenance-story"
+              ]
+            },
+            "run": {
+              "enum": [
+                "repository-story",
+                "approved-planning-story",
+                "approved-tracking-reference",
+                "approved-maintenance-story"
+              ]
+            },
+            "configuration": {
+              "enum": [
+                "repository-story",
+                "approved-planning-story",
+                "approved-tracking-reference",
+                "approved-maintenance-story"
+              ]
+            },
+            "ledger": {
+              "enum": [
+                "repository-story",
+                "approved-planning-story",
+                "approved-tracking-reference",
+                "approved-maintenance-story"
+              ]
+            },
+            "maintenance": {
+              "enum": [
+                "repository-story",
+                "approved-planning-story",
+                "approved-tracking-reference",
+                "approved-maintenance-story"
+              ]
+            },
+            "candidate": {
+              "enum": [
+                "repository-story",
+                "approved-planning-story",
+                "approved-tracking-reference",
+                "approved-maintenance-story"
+              ]
+            },
+            "recovery": {
+              "enum": [
+                "repository-story",
+                "approved-planning-story",
+                "approved-tracking-reference",
+                "approved-maintenance-story"
+              ]
+            }
+          },
+          "required": [],
+          "additionalProperties": false
+        },
+        "references": {
+          "type": "object",
+          "maxProperties": 128,
+          "additionalProperties": {
+            "type": "object",
+            "properties": {
+              "kind": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 4096
+              },
+              "key": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 4096
+              },
+              "subjectId": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 4096
+              },
+              "repository": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 4096
+              },
+              "immutableIssueId": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 4096
+              }
+            },
+            "required": [
+              "kind",
+              "key",
+              "subjectId",
+              "repository"
+            ],
+            "additionalProperties": false
+          }
+        },
+        "keyPattern": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 512
+        },
+        "requireBranchAgreement": {
+          "type": "boolean"
+        },
+        "branchTemplate": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 4096
+        }
+      },
+      "required": [
+        "required"
+      ],
+      "additionalProperties": false
+    },
+    "validation": {
+      "type": "object",
+      "properties": {
+        "adapter": {
+          "enum": [
+            "registered-checks",
+            "native-git"
+          ]
+        },
+        "profile": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 4096
+        }
+      },
+      "required": [
+        "adapter",
+        "profile"
+      ],
+      "additionalProperties": false
+    },
+    "profiles": {
+      "type": "object",
+      "maxProperties": 128,
+      "additionalProperties": {
+        "type": "object",
+        "properties": {
+          "schemaVersion": {
+            "const": 1
+          },
+          "adapter": {
+            "enum": [
+              "registered-checks",
+              "native-git"
+            ]
+          },
+          "platforms": {
+            "type": "array",
+            "maxItems": 128,
+            "items": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 4096
+            },
+            "uniqueItems": true
+          },
+          "coverage": {
+            "type": "array",
+            "maxItems": 128,
+            "items": {
+              "type": "object",
+              "properties": {
+                "stage": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 4096
+                },
+                "path": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 4096
+                },
+                "sha256": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 4096
+                },
+                "checks": {
+                  "type": "array",
+                  "maxItems": 128,
+                  "items": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 4096
+                  },
+                  "uniqueItems": true
+                },
+                "differences": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 4096
+                }
+              },
+              "required": [
+                "stage",
+                "checks"
+              ],
+              "additionalProperties": false
+            }
+          },
+          "inputs": {
+            "type": "array",
+            "maxItems": 128,
+            "items": {
+              "type": "object",
+              "properties": {
+                "path": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 4096
+                },
+                "sha256": {
+                  "type": "string",
+                  "pattern": "^sha256:[a-f0-9]{64}$"
+                }
+              },
+              "required": [
+                "path",
+                "sha256"
+              ],
+              "additionalProperties": false
+            }
+          },
+          "checks": {
+            "type": "array",
+            "maxItems": 32,
+            "items": {
+              "type": "object",
+              "properties": {
+                "id": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 4096
+                },
+                "rule": {
+                  "enum": [
+                    "message-envelope",
+                    "no-trailing-whitespace",
+                    "final-newline",
+                    "valid-utf8"
+                  ]
+                },
+                "paths": {
+                  "type": "array",
+                  "maxItems": 128,
+                  "items": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 4096
+                  },
+                  "uniqueItems": true
+                }
+              },
+              "required": [
+                "id",
+                "rule"
+              ],
+              "additionalProperties": false
+            }
+          },
+          "normalization": {
+            "type": "object",
+            "properties": {
+              "maximumChangedAttempts": {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 10
+              },
+              "steps": {
+                "type": "array",
+                "maxItems": 16,
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "rule": {
+                      "enum": [
+                        "trim-trailing-whitespace",
+                        "ensure-final-newline"
+                      ]
+                    },
+                    "paths": {
+                      "type": "array",
+                      "maxItems": 128,
+                      "items": {
+                        "type": "string",
+                        "minLength": 1,
+                        "maxLength": 4096
+                      },
+                      "uniqueItems": true
+                    }
+                  },
+                  "required": [
+                    "rule",
+                    "paths"
+                  ],
+                  "additionalProperties": false
+                }
+              }
+            },
+            "required": [
+              "steps"
+            ],
+            "additionalProperties": false
+          },
+          "native": {
+            "type": "object",
+            "properties": {
+              "context": {
+                "const": "original-worktree-private-git"
+              },
+              "gitDirectory": {
+                "const": "candidate-compatible"
+              },
+              "timeoutMs": {
+                "type": "integer",
+                "minimum": 1,
+                "maximum": 600000
+              },
+              "maxOutputBytes": {
+                "type": "integer",
+                "minimum": 1,
+                "maximum": 1048576
+              },
+              "maximumObservedFiles": {
+                "type": "integer",
+                "minimum": 1,
+                "maximum": 100000
+              },
+              "maximumObservedBytes": {
+                "type": "integer",
+                "minimum": 1,
+                "maximum": 1073741824
+              },
+              "messageTransform": {
+                "type": "object",
+                "properties": {
+                  "producer": {
+                    "enum": [
+                      "prepare-commit-msg",
+                      "commit-msg"
+                    ]
+                  },
+                  "placement": {
+                    "enum": [
+                      "subject-suffix",
+                      "body-suffix"
+                    ]
+                  },
+                  "delimiter": {
+                    "type": "string",
+                    "maxLength": 32
+                  },
+                  "prefix": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 4096
+                  },
+                  "encoding": {
+                    "const": "unix-seconds"
+                  },
+                  "maximumClockSkewSeconds": {
+                    "type": "integer",
+                    "minimum": 0,
+                    "maximum": 86400
+                  }
+                },
+                "required": [
+                  "producer",
+                  "placement",
+                  "delimiter",
+                  "prefix",
+                  "encoding",
+                  "maximumClockSkewSeconds"
+                ],
+                "additionalProperties": false
+              }
+            },
+            "required": [
+              "context",
+              "gitDirectory"
+            ],
+            "additionalProperties": false
+          }
+        },
+        "required": [
+          "schemaVersion",
+          "adapter",
+          "platforms",
+          "coverage"
+        ],
+        "additionalProperties": false
+      }
+    },
+    "metadata": {
+      "type": "object",
+      "properties": {
+        "mode": {
+          "enum": [
+            "same-policy",
+            "scoped-profile"
+          ]
+        },
+        "profile": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 4096
+        },
+        "refs": {
+          "type": "array",
+          "maxItems": 128,
+          "items": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 4096
+          },
+          "uniqueItems": true
+        },
+        "paths": {
+          "type": "array",
+          "maxItems": 128,
+          "items": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 4096
+          },
+          "uniqueItems": true
+        },
+        "purposes": {
+          "type": "array",
+          "maxItems": 128,
+          "items": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 4096
+          },
+          "uniqueItems": true
+        },
+        "requireBranchAgreement": {
+          "type": "boolean"
+        }
+      },
+      "required": [],
+      "additionalProperties": false
+    },
+    "defaults": {
+      "type": "object",
+      "properties": {
+        "type": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 4096
+        },
+        "scope": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 4096
+        }
+      },
+      "required": [],
+      "additionalProperties": false
+    },
+    "types": {
+      "type": "array",
+      "maxItems": 128,
+      "items": {
+        "type": "string",
+        "minLength": 1,
+        "maxLength": 4096
+      },
+      "uniqueItems": true
+    },
+    "scopes": {
+      "type": "array",
+      "maxItems": 128,
+      "items": {
+        "type": "string",
+        "minLength": 1,
+        "maxLength": 4096
+      },
+      "uniqueItems": true
+    },
+    "body": {
+      "type": "object",
+      "properties": {
+        "maxBytes": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 65536
+        },
+        "requiredTrailers": {
+          "type": "array",
+          "maxItems": 128,
+          "items": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 4096
+          },
+          "uniqueItems": true
+        },
+        "pattern": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 512
+        }
+      },
+      "required": [],
+      "additionalProperties": false
+    },
+    "signing": {
+      "type": "object",
+      "properties": {
+        "required": {
+          "type": "boolean"
+        }
+      },
+      "required": [],
+      "additionalProperties": false
+    },
+    "outgoingRange": {
+      "enum": [
+        "latest",
+        "new-commits"
+      ]
+    },
+    "organizationFloor": {
+      "type": "object",
+      "properties": {
+        "subjectPattern": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 512
+        },
+        "trackingRequired": {
+          "type": "boolean"
+        },
+        "signingRequired": {
+          "type": "boolean"
+        },
+        "requiredCoverage": {
+          "type": "array",
+          "maxItems": 128,
+          "items": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 4096
+          },
+          "uniqueItems": true
+        }
+      },
+      "required": [],
+      "additionalProperties": false
+    }
+  },
+  "required": [
+    "schemaVersion",
+    "mode"
+  ],
+  "additionalProperties": false,
+  "$comment": "RCP namespace: Repository Commit Policy and Hook Compatibility. Enforced adoption uses existing reviewed repository configuration; a draft or screenshot cannot activate this policy."
+}

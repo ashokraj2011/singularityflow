@@ -1,4 +1,6 @@
+import { repositoryCommitPolicyModule } from './util.mjs';
 import { AsyncLocalStorage } from 'node:async_hooks';
+import {commitPolicyEnforcedHint, withAdmittedCommitGit, commitGitRequestDigest} from './util.mjs';
 import { createHash, randomUUID } from 'node:crypto';
 import { lstat, mkdir, mkdtemp, readFile, readdir, realpath, rm, writeFile } from 'node:fs/promises';
 import os from 'node:os';
@@ -20,7 +22,7 @@ import { LEDGER_INTENT_DIRECTORY, LIFECYCLE_EVENT_TYPES } from './lifecycle-even
 import { currentSchemaVersion, readRecord } from './schema-migrations.mjs';
 import { GitRemoteSession, runRemoteGitAsync, gitRemoteProbeTimeout } from './git-execution.mjs';
 import { observePublicationHookEffects } from './git-hook-effects.mjs';
-import { gitDisabledHooksPath } from './git-isolation-paths.mjs';
+import { gitDisabledHooksPath } from './platform-process.mjs';
 import { incrementCommandCounter } from './dx-timing-context.mjs';
 import { storyPointersFromLedger } from './story-state-index.mjs';
 import { compactCanonicalJson } from './records.mjs';
@@ -198,7 +200,7 @@ function optionalDirectStateRef(root, config, ref, env = process.env, observatio
   return observed.commit;
 }
 
-function updateDirectLocalStateRef(root, config, commit, expectedCommit, env = process.env) {
+async function updateDirectLocalStateRef(root, config, commit, expectedCommit, env = process.env) {
   const ref = localRef(config);
   const before = directRefObservation(root, ref, env);
   if (before.status === 'symbolic' || before.status === 'unavailable') {
@@ -215,9 +217,12 @@ function updateDirectLocalStateRef(root, config, commit, expectedCommit, env = p
     throw localStateConcurrencyError(config, expectedCommit, before.commit);
   }
 
-  const updated = git(root, [
-    'update-ref', '--no-deref', ref, commit, expectedCommit ?? '0'.repeat(commit.length)
-  ], { allowFailure: true, env });
+  const args = ['update-ref', '--no-deref', ref, commit, expectedCommit ?? '0'.repeat(commit.length)];
+  const action = () => git(root, args, {allowFailure:true,env});
+  const incoming = optionalDirectStateRef(root, config, remoteRef(config), env) === commit;
+  const updated = incoming
+    ? await withAdmittedCommitGit(root,{kind:'private-ref',requestSha256:commitGitRequestDigest(args,{env})},action)
+    : await (await repositoryCommitPolicyModule('runtime', root)).withRetainedPolicyRefAdmission(root,commit,ref,action,{env});
   const after = directRefObservation(root, ref, env);
   // A lost process acknowledgement is safe only when the exact named direct ref contains the
   // intended object. Never retry without the original lease and never follow a symbolic alias.
@@ -266,7 +271,7 @@ function synchronizeRemoteTrackingRefAfterPush(root, config, commit, expectedRem
   ], { allowFailure: true, env });
 }
 
-function synchronizeLocalStateRefAfterRemotePush(root, config, commit, env = process.env) {
+async function synchronizeLocalStateRefAfterRemotePush(root, config, commit, env = process.env) {
   const ref = localRef(config);
   const observed = directRefObservation(root, ref, env);
   if (observed.status === 'symbolic' || observed.status === 'unavailable') return;
@@ -279,9 +284,11 @@ function synchronizeLocalStateRefAfterRemotePush(root, config, commit, env = pro
     'merge-base', '--is-ancestor', current, commit
   ], { allowFailure: true, env }).status === 0;
   if (!replaceable) return;
-  git(root, [
-    'update-ref', '--no-deref', ref, commit, current ?? '0'.repeat(commit.length)
-  ], { allowFailure: true, env });
+  const args = ['update-ref', '--no-deref', ref, commit, current ?? '0'.repeat(commit.length)];
+  // The caller has just reconciled the remote CAS and installed that exact tracking ref.
+  // Mirror only that observed object; this grants no commit validation or publication authority.
+  if (optionalDirectStateRef(root, config, remoteRef(config), env) !== commit) return;
+  withAdmittedCommitGit(root, {kind:'private-ref',requestSha256:commitGitRequestDigest(args,{env})}, () => git(root,args,{allowFailure:true,env}));
 }
 
 function localStateConcurrencyError(config, expectedLocalSha, observedLocalSha) {
@@ -758,6 +765,7 @@ async function temporaryWorktree(root, ref, callback, { env = process.env } = {}
   }
   let result;
   let callbackFailure = null;
+  const releasePolicy = (await repositoryCommitPolicyModule('context', root)).bindCommitPolicyProjection(root, worktree, null);
   try {
     if (bootstrap) {
       git(worktree, ['symbolic-ref', 'HEAD', bootstrapRef], { env });
@@ -766,7 +774,7 @@ async function temporaryWorktree(root, ref, callback, { env = process.env } = {}
     result = await callback(worktree);
   } catch (error) {
     callbackFailure = error;
-  }
+  } finally {releasePolicy();}
 
   const removed = git(root, ['worktree', 'remove', '--force', worktree], {
     allowFailure: true, env
@@ -1028,10 +1036,11 @@ async function pushLedgerAsync(worktree, config, expectedRemoteSha = undefined, 
   const frozen = transportRemote === undefined
     ? null
     : frozenRemoteTransport(transportRemote, { push: true, env });
+  const enforcePolicy = commitPolicyEnforcedHint(worktree);
   return runRemoteGitAsync([
-    'push', '--no-verify', lease,
+    'push', ...(enforcePolicy ? [] : ['--no-verify']), lease,
     frozen?.remote ?? config.remote,
-    `HEAD:refs/heads/${config.branch}`
+    `${enforcePolicy ? git(worktree, ['rev-parse', 'HEAD'], {env}).stdout.trim() : 'HEAD'}:refs/heads/${config.branch}`
   ], { cwd: worktree, operation: 'remote-push', env: frozen?.env ?? env });
 }
 
@@ -1160,11 +1169,18 @@ async function commitInitialLedgerRoot(worktree, config, operation, env) {
   await writeCanonicalJson(path.join(worktree, HEAD_PATH), initialHead());
   await writeAtomic(path.join(worktree, README_PATH), LEDGER_README);
   git(worktree, ['add', README_PATH, HEAD_PATH], { env });
+  return (await repositoryCommitPolicyModule('writer', worktree)).commitPolicyDetachedIndex(worktree, 'Initialize Singularity Flow capability ledger', {
+    ref: `refs/heads/${config.branch}`, subject: {kind:'ledger',id:config.branch}, purpose:'ledger', env,
+    identity: operation.commitIdentity, sign: config.signing === 'commit', allowedPaths:[README_PATH,HEAD_PATH],
+    legacyCreate: () => {
   git(worktree, commitArgs(
     config, 'Initialize Singularity Flow capability ledger',
     operation.commitIdentity, operation.commitSigning
   ), { env: gitCommitIdentityEnvironment(env, operation.commitIdentity) });
-  return git(worktree, ['rev-parse', 'HEAD'], { env }).stdout.trim();
+    return git(worktree, ['rev-parse', 'HEAD'], {env}).stdout.trim();
+    }
+  });
+
 }
 
 export async function initializeLedger(root, rawConfig = {}, {
@@ -1197,7 +1213,7 @@ export async function initializeLedger(root, rawConfig = {}, {
       { path: HEAD_PATH, text: canonicalJson(initialHead()) },
       { path: README_PATH, text: LEDGER_README }
     ], 'Initialize Singularity Flow capability ledger', operation, env);
-    updateDirectLocalStateRef(root, config, sha, null, env);
+    await updateDirectLocalStateRef(root, config, sha, null, env);
     return { created: true, branch: config.branch, commit: sha, orphan: true, refspecInstalled };
   }
   return temporaryWorktree(root, null, async (worktree) => {
@@ -1205,7 +1221,7 @@ export async function initializeLedger(root, rawConfig = {}, {
     // Keep the orphan root reachable locally before attempting the network operation.
     // If the first push fails, `ledger init` can be retried without losing the commit
     // when this temporary worktree is removed.
-    updateDirectLocalStateRef(root, config, sha, null, env);
+    await updateDirectLocalStateRef(root, config, sha, null, env);
     if (publish && hasRemoteInEnvironment(root, config.remote, env)) {
       // This is an orphan-root create, so bind it explicitly to an absent remote ref. A concurrent
       // initializer is joined after one recovery fetch; no force update can replace its state root.
@@ -1218,7 +1234,7 @@ export async function initializeLedger(root, rawConfig = {}, {
           // The losing initializer created a local orphan before its absent-ref lease was refused.
           // Point that local convenience ref at the proven winner so direct `state:` reads cannot
           // observe the losing root while ledgerHead correctly prefers the remote-tracking ref.
-          updateDirectLocalStateRef(root, config, concurrentCommit, sha, env);
+          await updateDirectLocalStateRef(root, config, concurrentCommit, sha, env);
           return {
             created: false, branch: config.branch, ref: concurrent,
             commit: concurrentCommit,
@@ -1583,7 +1599,7 @@ async function publishPinAsync(root, config, intent, publishedCommit, {
   }
   // Create-only: a pin names one commit for good, and the probe above found none.
   const pushed = await runRemoteGitAsync([
-    'push', '--no-verify', `--force-with-lease=${ref}:`, remote, `${publishedCommit}:${ref}`
+    'push', ...(commitPolicyEnforcedHint(root) ? [] : ['--no-verify']), `--force-with-lease=${ref}:`, remote, `${publishedCommit}:${ref}`
   ], { cwd: root, operation: 'remote-push', env: remoteEnv });
   if (pushed.status !== 0) {
     throw new SingularityFlowError(
@@ -1950,7 +1966,7 @@ async function appendOnce(root, config, intent, publishedCommit, {
       }
     } else {
       const expectedLocalSha = requireDirectLocalStateRef(root, config, env);
-      updateDirectLocalStateRef(root, config, ledgerCommit, expectedLocalSha, env);
+      await updateDirectLocalStateRef(root, config, ledgerCommit, expectedLocalSha, env);
     }
     return {
       duplicate: false,
@@ -2011,11 +2027,19 @@ async function commitLedgerEntry(worktree, config, intent, publishedCommit, idem
   env = process.env, commitIdentity, commitSigning
 } = {}) {
   const prepared = ledgerEntryFiles(config, intent, publishedCommit, idempotency, head, pin);
+  const policyEvidence = await (await repositoryCommitPolicyModule('evidence', worktree)).commitPolicyEvidenceFile(worktree, publishedCommit);
+  if (policyEvidence) prepared.files.push(policyEvidence);
   for (const file of prepared.files) await writeAtomic(path.join(worktree, file.path), file.text);
   git(worktree, ['add', ...prepared.files.map((file) => file.path)], { env });
+  const ledgerCommit = await (await repositoryCommitPolicyModule('writer', worktree)).commitPolicyDetachedIndex(worktree, prepared.message, {
+    ref: `refs/heads/${config.branch}`, subject:{kind:'ledger',id:config.branch}, purpose:'ledger',env,
+    identity:commitIdentity,sign:config.signing==='commit',allowedPaths:prepared.files.map(file=>file.path),
+    legacyCreate:()=>{
   git(worktree, commitArgs(config, prepared.message, commitIdentity, commitSigning),
     { env: gitCommitIdentityEnvironment(env, commitIdentity) });
-  const ledgerCommit = git(worktree, ['rev-parse', 'HEAD'], { env }).stdout.trim();
+  return  git(worktree, ['rev-parse', 'HEAD'], { env }).stdout.trim();
+    }
+  });
   return { entryHash: prepared.entryHash, sequence: prepared.sequence, ledgerCommit };
 }
 
@@ -2072,6 +2096,8 @@ async function prepareLedgerAppendFromObjects(root, config, base, intent, publis
   if (!files.has(HEAD_PATH)) throw new SingularityFlowError(`Ledger branch is missing ${HEAD_PATH}.`);
   const head = readRecord('ledger-entry', files.get(HEAD_PATH)).record;
   const prepared = ledgerEntryFiles(config, intent, publishedCommit, idempotency, head, pin);
+  const policyEvidence = await (await repositoryCommitPolicyModule('evidence', root)).commitPolicyEvidenceFile(root, publishedCommit);
+  if (policyEvidence) prepared.files.push(policyEvidence);
   const ledgerCommit = await commitLedgerFilesFromObjects(
     root, config, base, prepared.files, prepared.message, operation, env
   );
@@ -2105,11 +2131,18 @@ async function commitLedgerFilesFromObjects(root, config, base, files, message, 
       ...files.flatMap((file, index) => ['--cacheinfo', `100644,${blobs[index]},${file.path}`])], { env: indexEnv });
     const tree = git(root, ['write-tree'], { env: indexEnv }).stdout.trim();
     const signed = config.signing === 'commit';
-    const ledgerCommit = git(root, [
-      ...(operation.commitIdentity ? gitCommitIdentityArgs(operation.commitIdentity) : []),
-      ...(signed ? gitCommitSigningArgs(operation.commitSigning) : []),
-      'commit-tree', tree, ...(base ? ['-p', base] : []), ...(signed ? ['-S'] : []), '-m', message
-    ], { env: gitCommitIdentityEnvironment(env, operation.commitIdentity) }).stdout.trim();
+    const policy = await repositoryCommitPolicyModule('runtime', root);
+    const built = await policy.createRepositoryPolicyCommit(root, {
+      subject: {kind: 'ledger', id: config.branch}, purpose: 'ledger', ref: `refs/heads/${config.branch}`,
+      tree, parents: base ? [base] : [], message, allowedPaths: files.map(file => file.path)
+    }, {env, sign: signed, commitIdentity: operation.commitIdentity,
+      legacyCreate: proposed => git(root, [
+        ...(operation.commitIdentity ? gitCommitIdentityArgs(operation.commitIdentity) : []),
+        ...(signed ? gitCommitSigningArgs(operation.commitSigning) : []),
+        'commit-tree', tree, ...(base ? ['-p', base] : []), ...(signed ? ['-S'] : []), '-m', proposed
+      ], { env: gitCommitIdentityEnvironment(env, operation.commitIdentity) }).stdout.trim()
+    });
+    const ledgerCommit = built.commit;
     if (!/^[0-9a-f]{40,64}$/u.test(ledgerCommit)) {
       throw new SingularityFlowError('Git did not create the ledger commit.', { code: 'state_branch.commit_unavailable' });
     }
@@ -2191,7 +2224,7 @@ async function appendLedgerIntentAtomically(root, config, intent, publishedCommi
     ? null
     : frozenRemoteTransport(transportRemote, { push: true, env });
   const pushed = await runRemoteGitAsync([
-    'push', '--no-verify', '--atomic', '--porcelain',
+    'push', ...(commitPolicyEnforcedHint(root) ? [] : ['--no-verify']), '--atomic', '--porcelain',
     ...updates.map(([ref, , expected]) => `--force-with-lease=${ref}:${expected ?? ''}`),
     frozen?.remote ?? config.remote, ...updates.map(([ref, commit]) => `${commit}:${ref}`)
   ], { cwd: root, operation: 'remote-push', env: frozen?.env ?? env, allowFailure: true });
@@ -2207,7 +2240,7 @@ async function appendLedgerIntentAtomically(root, config, intent, publishedCommi
     if (!landed) return { uncertain: true };
   }
   try {
-    recordStatePublication(root, config, audit.ledgerCommit, audit.expectedRemoteSha, { env });
+    await recordStatePublication(root, config, audit.ledgerCommit, audit.expectedRemoteSha, { env });
   } catch {
     // The landing is verified. Local tracking refs are a cache the next ledger read refreshes.
   }
@@ -2355,7 +2388,7 @@ export async function publishBranchWithLedgerEntry(root, rawConfig, intent, {
   }
   recordBranchPublication(root, branch, commit, upstreamRemote);
   try {
-    recordStatePublication(root, config, audit.ledgerCommit, audit.expectedRemoteSha, { env });
+    await recordStatePublication(root, config, audit.ledgerCommit, audit.expectedRemoteSha, { env });
   } catch {
     // The landing is verified. Local tracking refs are a cache the next ledger read refreshes.
   }
@@ -2429,12 +2462,12 @@ export async function prepareLedgerAppend(root, rawConfig, intent, publishedComm
  * Align the local state refs with a state commit the caller just published under an exact lease,
  * exactly as publishToStateBranch does after its own push.
  */
-export function recordStatePublication(root, rawConfig, commit, expectedRemoteSha, {
+export async function recordStatePublication(root, rawConfig, commit, expectedRemoteSha, {
   env = process.env
 } = {}) {
   const config = normalizeLedgerConfig(rawConfig);
   synchronizeRemoteTrackingRefAfterPush(root, config, commit, expectedRemoteSha, env);
-  synchronizeLocalStateRefAfterRemotePush(root, config, commit, env);
+  await synchronizeLocalStateRefAfterRemotePush(root, config, commit, env);
 }
 
 /**
@@ -2668,10 +2701,16 @@ export async function publishToStateBranch(root, rawConfig, files, message, {
     const operation = frozenCommitOperation(root, config, {
       env, commitIdentity, commitSigning
     });
+    const commit = await (await repositoryCommitPolicyModule('writer', worktree)).commitPolicyDetachedIndex(worktree, message, {
+      ref:`refs/heads/${config.branch}`,subject:{kind:'ledger',id:config.branch},purpose:'ledger',env,
+      identity:operation.commitIdentity,sign:config.signing==='commit',
+      legacyCreate:()=>{
     git(worktree, commitArgs(
       config, message, operation.commitIdentity, operation.commitSigning
     ), { env: gitCommitIdentityEnvironment(env, operation.commitIdentity) });
-    const commit = git(worktree, ['rev-parse', 'HEAD'], { env }).stdout.trim();
+    return  git(worktree, ['rev-parse', 'HEAD'], { env }).stdout.trim();
+      }
+    });
     for (const [file, expected] of exactBlobs) {
       const committed = git(worktree, ['show', `${commit}:${file}`], {
         env, encoding: 'buffer'
@@ -2728,7 +2767,7 @@ export async function publishToStateBranch(root, rawConfig, files, message, {
       // `git rev-parse state:singularity/world-model` — so a push that left the local ref behind
       // means the machine that did the publishing is the one that cannot see it. Allowed to fail:
       // if the branch is checked out somewhere, the remote ref still answers.
-      synchronizeLocalStateRefAfterRemotePush(root, config, commit, env);
+      await synchronizeLocalStateRefAfterRemotePush(root, config, commit, env);
     } else {
       const observedBeforeAdvance = requireDirectLocalStateRef(root, config, env);
       if (observedBeforeAdvance !== publicationBaseCommit) {
@@ -3713,7 +3752,7 @@ export async function repairLedgerPins(root, rawConfig, {
       const leases = toPush.map((item) => `--force-with-lease=${item.pinRef}:`);
       const atomic = toPush.length > 1 ? ['--atomic'] : [];
       const preflight = await runRemoteGitAsync([
-        'push', '--no-verify', '--dry-run', ...atomic, ...leases, remote, ...refspecs
+        'push', ...(commitPolicyEnforcedHint(root) ? [] : ['--no-verify']), '--dry-run', ...atomic, ...leases, remote, ...refspecs
       ], { cwd: root, operation: 'remote-push' });
       if (preflight.status !== 0) {
         throw new SingularityFlowError(
@@ -3722,7 +3761,7 @@ export async function repairLedgerPins(root, rawConfig, {
         );
       }
       const pushed = await runRemoteGitAsync([
-        'push', '--no-verify', ...atomic, ...leases, remote, ...refspecs
+        'push', ...(commitPolicyEnforcedHint(root) ? [] : ['--no-verify']), ...atomic, ...leases, remote, ...refspecs
       ], { cwd: root, operation: 'remote-push' });
       if (pushed.status !== 0) {
         throw new SingularityFlowError(
@@ -3922,4 +3961,15 @@ async function ledgerStatusUncached(root, config, { offline }) {
     remoteView,
     config
   };
+}
+
+/** Exact provider lookup for portable commit-policy facts; never scans code branches or history. */
+export async function ledgerCommitPolicyEvidence(root, rawConfig, commit) {
+  if (!/^(?:[a-f0-9]{40}|[a-f0-9]{64})$/u.test(commit ?? '')) return null;
+  const snapshot = await ledgerSnapshotCommit(root, rawConfig, {offline: true});
+  if (!snapshot) return null;
+  const text = readRefFile(root, snapshot, `evidence/repository-commit-policy/${commit}.json`);
+  if (!text) return null;
+  if (Buffer.byteLength(text) > 2 * 1024 * 1024) throw new SingularityFlowError('Portable commit policy evidence exceeds its byte limit.', {code:'RCP_RECORD_INVALID'});
+  return JSON.parse(text);
 }

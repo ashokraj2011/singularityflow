@@ -1,3 +1,4 @@
+import { repositoryCommitPolicyModule } from './util.mjs';
 /**
  * Shared Singularity configuration lives on a branch that is independent of application history.
  *
@@ -43,7 +44,7 @@ import {
 } from './git-remote-diagnostics.mjs';
 import { executeGitQuery } from './git-query.mjs';
 import { enterpriseGitEnvironment, inheritEnterpriseGitEnvironment } from './git-enterprise-environment.mjs';
-import { gitDisabledHooksPath } from './git-isolation-paths.mjs';
+import { gitDisabledHooksPath } from './platform-process.mjs';
 import { processResultCompleted, processResultSucceeded } from './process-result.mjs';
 import {
   createAndPushTransportIntent, listTransportIntents, pendingPublicationNote, retryTransportIntent
@@ -1385,11 +1386,13 @@ export async function ensureConfigurationBranch(remote, {
       env: frozen.env
     });
     run('git', ['add', '-A'], { cwd: scratch, env: frozen.env });
-    run('git', [
+    await (await repositoryCommitPolicyModule('writer', scratch)).runPolicyCommit(scratch, [
       '-c', `user.name=${actor.name || 'Singularity Flow'}`,
       '-c', `user.email=${actor.email || 'unknown@invalid'}`,
       'commit', '-m', '[configuration] establish Singularity configuration authority'
-    ], { cwd: scratch, env: frozen.env });
+    ], {
+      env: frozen.env, legacyRun: (argv, opts) => run('git', argv, {...opts, cwd: scratch})
+    });
     const commit = configurationRepositoryHead(scratch, frozen.env);
     let push;
     let transportIntent = null;

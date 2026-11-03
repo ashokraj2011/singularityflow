@@ -282,7 +282,8 @@ export class GitPublicationUnitOfWork {
     let revisionSelection = null;
     let revisionPrepared = null;
     const unwind = async (error) => {
-      if (ledgerIntentPath) await rm(path.join(root, ledgerIntentPath), { force: true });
+      const hookEditedIntent = ledgerIntentPath && error?.details?.effects?.changedPaths?.includes(ledgerIntentPath);
+      if (ledgerIntentPath && !hookEditedIntent) await rm(path.join(root, ledgerIntentPath), { force: true });
       let restoreFailure = null;
       let restoration = null;
       if (wroteState) {
@@ -324,6 +325,9 @@ export class GitPublicationUnitOfWork {
           + `The original failure was: ${originalError}`,
           { code: 'PUBLICATION_ROLLBACK_FAILED', details: { subject, originalError, rollbackError } }
         );
+      }
+      if (restoration?.rescuePath && String(error?.code ?? '').startsWith('RCP_')) {
+        error.details = {...error.details,publicationRecovery:{stateRestored:true,rescuePath:restoration.rescuePath,hookChangesPreserved:true}};
       }
       await clearPublicationJournal(root, subject, { transactionId: journal.transactionId });
       throw error;
@@ -470,6 +474,14 @@ export class GitPublicationUnitOfWork {
         expectedTree: candidateBinding?.candidateTree ?? null,
         sign: commitSpec.sign === true,
         signingKey: commitSpec.signingKey ?? null,
+        commitPolicyContext: {
+          subject: { kind: subject.kind, id: subject.id },
+          purpose: subject.kind === 'story' ? 'story' : subject.kind === 'epic' || subject.kind === 'initiative' || subject.kind === 'goal' ? 'initiative' : 'run',
+          phase: envelope?.phaseId ?? null,
+          generation: envelope?.generation ?? null,
+          operationId: journal.transactionId,
+          ...(publication.expectedRemoteSha === undefined ? {} : { expectedRemote: publication.expectedRemoteSha })
+        },
         fault,
         stabilityGuard,
         transaction: {

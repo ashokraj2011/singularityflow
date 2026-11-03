@@ -29,6 +29,7 @@ export const COMMAND_LOADERS = Object.freeze({
   './commands/fast-path.mjs': () => import('./commands/fast-path.mjs'),
   './commands/fos.mjs': () => import('./commands/fos.mjs'),
   './commands/goal.mjs': () => import('./commands/goal.mjs'),
+  './commands/git-policy.mjs': () => import('./commands/git-policy.mjs'),
   './commands/governance.mjs': () => import('./commands/governance.mjs'),
   './commands/guide.mjs': () => import('./commands/guide.mjs'),
   './commands/help.mjs': () => import('./commands/help.mjs'),

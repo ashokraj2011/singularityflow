@@ -2,7 +2,7 @@ import { createHash } from 'node:crypto';
 import { constants as fsConstants } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { gitEmptyConfigPath } from './git-isolation-paths.mjs';
+import { gitEmptyConfigPath } from './platform-process.mjs';
 import { lstat, mkdir, mkdtemp, open, readFile, readdir, realpath, rename, rm, writeFile } from 'node:fs/promises';
 import { copilotSkillsDirectory, uninstallDirectSkills } from './direct-skills.mjs';
 import { machineStateRoot, pendingPublicationResetRefusal, pendingPublications } from './factory-reset.mjs';

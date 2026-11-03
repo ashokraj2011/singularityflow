@@ -5,7 +5,7 @@ import path from 'node:path';
 import YAML from 'yaml';
 import { createGitRuntime } from './git-access.mjs';
 import { FosGitObjectService } from './fos-object-service.mjs';
-import { gitDisabledHooksPath } from './git-isolation-paths.mjs';
+import { gitDisabledHooksPath } from './platform-process.mjs';
 import { withoutGitProcessOverrides } from './git-enterprise-environment.mjs';
 import { normalizeWorkItemRoot } from './work-item-location.mjs';
 import { validatePortableWorkId } from './work-id.mjs';

@@ -1,3 +1,4 @@
+import { repositoryCommitPolicyModule } from './util.mjs';
 /**
  * Author shared configuration without ever borrowing the caller's application checkout.
  *
@@ -1217,12 +1218,14 @@ export async function proposeConfigurationChange(root, {
       cwd: scratch, env: authorityTransport.env
     });
     const actor = gitCommitIdentity(root, { env: identityEnv });
-    run('git', [
+    await (await repositoryCommitPolicyModule('writer', scratch)).runPolicyCommit(scratch, [
       '-c', `user.name=${actor.name || 'Singularity Flow contributor'}`,
       '-c', `user.email=${actor.email || 'unknown@invalid'}`,
       'commit', '-m', String(message ?? '').trim() || `[configuration] ${operationId} ${subjectId}`,
       ...(intentRecord ? ['-m', `Sflow-Intent-Kind: ${intentRecord.kind}\nSflow-Intent-Sha256: ${intentRecord.sha256}`] : [])
-    ], { cwd: scratch, env: authorityTransport.env });
+    ], {
+      env: authorityTransport.env, legacyRun: (argv, opts) => run('git', argv, {...opts, cwd: scratch})
+    });
     const commit = configurationRepositoryHead(scratch, authorityTransport.env);
     if (verifiedTree) {
       const committed = exactConfigurationProposalGitTree(scratch, {

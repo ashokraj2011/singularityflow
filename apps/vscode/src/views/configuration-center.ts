@@ -8,10 +8,10 @@ import { navigateTo } from './navigate.ts';
 import {
   configurationCenterView, configurationPendingProposalStatus, configurationRefreshDecision,
   pendingConfigurationProposal,
-  updateAuthorityYaml, updateAutoYaml, updateMcpYaml, updateWorldModelYaml,
+  updateAuthorityYaml, updateAutoYaml, updateCommitPolicyYaml, updateMcpYaml, updateWorldModelYaml,
   validateAuthorityDraft, validateAutoDraft, validateMcpDraft, validateWorldModelDraft,
   CONFIGURATION_TABS,
-  type AutoDraft, type AuthorityDraft, type AuthorityView, type ConfigurationTab, type McpDraft, type McpServerView,
+  type ConfigurationCenterView, type AutoDraft, type AuthorityDraft, type AuthorityView, type ConfigurationTab, type McpDraft, type McpServerView,
   type ConfigurationProposalObservation, type PendingConfigurationProposal,
   type WorldModelDraft
 } from './configuration-center-model.ts';
@@ -30,6 +30,7 @@ export type ConfigurationCenterMessage =
       allowSelfApproval: boolean; autoEnrollNewIdentities: boolean;
     }
   | { type: 'action'; action: string }
+  | { type: 'inspect-commit-policy' }
   | { type: 'inspect-test-setup'; sourceRoots: string[] }
   | { type: 'proposal-status'; branch: string; proposalCommit: string }
   /**
@@ -51,7 +52,7 @@ export type ConfigurationCenterReply = string | null | {
 } | {
   error: string | null;
   inspection: TestSetupInspection;
-};
+} | {error: string | null; commitPolicyInspection: ConfigurationCenterView['commitPolicyInspection']};
 
 type ConfigurationSaveOutcome = {
   error: string | null;
@@ -72,6 +73,7 @@ export class ConfigurationCenterPanel {
   private newAuthority = false;
   private newMcp = false;
   private notice: string | null = null;
+  private commitPolicyInspection: ConfigurationCenterView['commitPolicyInspection'] = null;
   private errors: string[] = [];
   private dirty = false;
   private saving = false;
@@ -285,10 +287,10 @@ export class ConfigurationCenterPanel {
       await vscode.commands.executeCommand('singularityFlow.explainError', 'configuration');
       return;
     }
-    const mutation = ['save-profile', 'add-current-identity', 'save-authority', 'save-mcp', 'save-auto', 'save-world-model', 'save-test-setup']
+    const mutation = ['save-profile', 'add-current-identity', 'save-authority', 'save-mcp', 'save-auto', 'save-world-model', 'save-test-setup', 'save-commit-policy']
       .includes(String(message.type))
       || (message.type === 'action' && ['delete-authority', 'delete-mcp'].includes(String(message.action)));
-    const authorityMutation = ['add-current-identity', 'save-authority', 'save-mcp', 'save-auto', 'save-world-model', 'save-test-setup']
+    const authorityMutation = ['add-current-identity', 'save-authority', 'save-mcp', 'save-auto', 'save-world-model', 'save-test-setup', 'save-commit-policy']
       .includes(String(message.type))
       || (message.type === 'action' && ['delete-authority', 'delete-mcp'].includes(String(message.action)));
     if (authorityMutation && this.pendingProposal) {
@@ -474,6 +476,18 @@ export class ConfigurationCenterPanel {
       } catch (error) { return this.showErrors([(error as Error).message]); }
       return this.render();
     }
+    if (message.type === 'save-commit-policy') {
+      try {
+        const snapshot = this.store.current.snapshot!;
+        const text = this.renderedTexts.definitionText;
+        const outcome = await this.save(snapshot.definitionPath ?? 'singularity/workflow.yml', updateCommitPolicyYaml(text, String(message.policy ?? '')), text);
+        if (outcome.error) return this.showErrors([outcome.error]);
+        this.dirty = false;
+        this.notice = this.savedNotice('Policy draft saved for existing configuration review. No policy or work approval was recorded.', outcome.disposition);
+        if (outcome.disposition?.kind === 'proposal') return;
+      } catch (error) {return this.showErrors([(error as Error).message]);}
+      return this.render();
+    }
     if (message.type === 'save-world-model') {
       try {
         const draft = message as unknown as WorldModelDraft;
@@ -496,6 +510,15 @@ export class ConfigurationCenterPanel {
     }
     if (message.type === 'action') {
       const action = String(message.action ?? '');
+      if (action === 'git-policy') return this.selectTab('git-policy');
+      if (action === 'inspect-commit-policy') {
+        if (this.dirty) return this.showErrors(['Save or discard the current policy draft before refreshing inspection.']);
+        const result = await this.onMessage({type: 'inspect-commit-policy'});
+        const error = ConfigurationCenterPanel.replyError(result);
+        if (error) return this.showErrors([error]);
+        if (result && typeof result === 'object' && 'commitPolicyInspection' in result) this.commitPolicyInspection = result.commitPolicyInspection;
+        return this.render();
+      }
       if (action === 'world-model') return this.selectTab('world-model');
       if (action === 'new-authority') { this.newAuthority = true; this.authorityKey = null; return this.selectTab('people'); }
       if (action === 'new-mcp') { this.newMcp = true; this.mcpId = null; return this.selectTab('mcp'); }
@@ -599,7 +622,7 @@ export class ConfigurationCenterPanel {
     this.panel.webview.html = page(
       'Configuration Center',
       configurationCenterHtml(
-        view, this.tab, selectedAuthority, selectedMcp, this.notice, this.errors, this.pendingProposal,
+        {...view, commitPolicyInspection: this.commitPolicyInspection}, this.tab, selectedAuthority, selectedMcp, this.notice, this.errors, this.pendingProposal,
         { targets: testSetupTargetsFromYaml(this.renderedTexts.definitionText), selected: this.testTarget,
           inspection: this.testInspection?.repositoryPath === this.store.current.snapshot?.repository?.root ? this.testInspection : null }
       ),

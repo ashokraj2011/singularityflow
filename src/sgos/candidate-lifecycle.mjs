@@ -18,7 +18,7 @@ import {
   governedCommitIdentity, head, hasRemote, publicationPushOutcome, pushCommitToBranchAsync
 } from '../git.mjs';
 import { configuredRemoteAuthority } from '../git-remote-diagnostics.mjs';
-import { gitDisabledHooksPath } from '../git-isolation-paths.mjs';
+import { gitDisabledHooksPath } from '../platform-process.mjs';
 import { configurationReadRoot } from '../configuration-read-scope.mjs';
 import {
   sealMachineLocalPublicationReceipt, verifyMachineLocalPublicationReceipt

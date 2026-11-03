@@ -1419,6 +1419,22 @@ const PAGES = Object.freeze({
     ],
     seeAlso: ['import', 'agents', 'skill']
   },
+  'git-policy': {
+    summary: 'Inspect approved repository commit policy, discover effective hooks, and validate exact owner-issued plans.',
+    description: [
+      'Discovery reads effective Git configuration, hook bytes and setup files. It never runs hooks, imports JavaScript configuration or installs tooling.',
+      'Policy is opt-in at git.commitPolicy in approved singularity/workflow.yml. Use existing configuration proposals and review to adopt it.',
+      'Templates use canonical destination-specific tracking references. Existing Story state settles the key; branch names and message history do not invent it.',
+      'Enforcement selects one approved registered equivalent or qualified native profile, verifies the complete actual object, and leaves commits, leases and recovery with their existing owners.',
+      'plan and validate require an operation ID issued by an existing owner on this host. Diagnostic validation never commits, pushes, approves or reruns a native message hook.',
+      'Configuration Center has Repository commit policy inspection. Copilot uses /sf-git-policy; the model-free read is @sflow /git-policy. See docs/repository-commit-policy.md for profiles and limitations.'
+    ],
+    examples: [
+      ['singularity-flow git-policy discover --json', 'Inspect effective hook locations and hashes without executing repository code.'],
+      ['singularity-flow git-policy show --json', 'Show adopted mode, authority, profile capabilities and exact next routes.'],
+      ['singularity-flow git-policy validate --operation sha256:<OWNER-ISSUED-ID> --json', 'Recheck an issued registered plan. No commit or approval is implied.']
+    ], seeAlso: ['configuration', 'phase', 'push', 'recover']
+  },
   guard: {
     summary: 'SF Guard: presence-signed person steps. See whether it is on, and pin, rotate or recover your Touch ID presence key.',
     description: [

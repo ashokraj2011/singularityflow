@@ -851,7 +851,7 @@
       "counts": {
         "command-run": 34
       },
-      "digest": "afa9a427aa9cb912b7ea6d1129b4cbdca117e006c0e116af01970f510aab905e"
+      "digest": "ba24bc91edaa9c85d8f8e329d4130ca5fe686428e528c4c7d5e0923089a7c5c8"
     },
     "src/creation-git-context.mjs": {
       "counts": {
@@ -863,7 +863,7 @@
       "counts": {
         "command-run": 9
       },
-      "digest": "3c373562aa881d27ed39bfb1db97085b87121b1c4d2cccdfbe62f31b69018eb1"
+      "digest": "d1a2525725b958337f21f286beb1924119c50856b4853a3627dd64d75cc1bb9f"
     },
     "src/configuration-object-reader.mjs": {
       "counts": {
@@ -896,7 +896,7 @@
       "counts": {
         "command-run": 14
       },
-      "digest": "f04b8a1e1eb846b068d1f12b4c71713db9432867dbc0b334befa293490f38665"
+      "digest": "be211e85eb4bf135544db5e423c37f15439e1ce3d784082f88716f4aab1a8392"
     },
     "src/configuration-state-git.mjs": {
       "counts": {
@@ -1273,10 +1273,10 @@
     },
     "src/ledger.mjs": {
       "counts": {
-        "command-git": 80,
+        "command-git": 81,
         "command-run": 2
       },
-      "digest": "639443bd6639873df3c6e7e75a77986bb20662934c33df9b9a6b4aa5f209a5c9"
+      "digest": "f2b026a0c2d5702016c0d41aef28eb12b8c15a5e0db51fd6d00dcb2bf8a443eb"
     },
     "src/local-evidence-review.mjs": {
       "counts": {
@@ -1858,6 +1858,55 @@
         "process-launch": 1
       },
       "digest": "4c1aa1502d26066401919108316ec997c14742b27bc50eaec0d78905e6d44346"
+    },
+    "src/repository-commit-policy/checks.mjs": {
+      "counts": {
+        "command-run": 1
+      },
+      "digest": "3d10919147a958a9efe33db25198f6df42949a9f6c4f0e59c18afe973b87eb6b"
+    },
+    "src/repository-commit-policy/discovery.mjs": {
+      "counts": {
+        "command-git": 1
+      },
+      "digest": "c3345003f1bf49e2a9c9240a54da32ce20e0466f5e997bcfd319c377a8d8e98b"
+    },
+    "src/repository-commit-policy/effects.mjs": {
+      "counts": {
+        "command-run": 1
+      },
+      "digest": "a450557c0cd3b4068b5d23b522fd832cf41aded7c7277da3e0264405e1624e49"
+    },
+    "src/repository-commit-policy/native.mjs": {
+      "counts": {
+        "command-git-literal": 1,
+        "command-run": 3
+      },
+      "digest": "4241f7945cbbd89933c26f8bd0934b94209ca3e6a2c830f8720217476b27e602"
+    },
+    "src/repository-commit-policy/plan.mjs": {
+      "counts": {
+        "command-run": 1
+      },
+      "digest": "eca8fce93aac54569cb93f7630bb99b088c28ce6c18aed4437c6439fb2930f58"
+    },
+    "src/repository-commit-policy/publication.mjs": {
+      "counts": {
+        "command-run": 1
+      },
+      "digest": "e27a23b869ad5fee0469c53fc9df1e1b8ed98088232895a292a74ecabc01345a"
+    },
+    "src/repository-commit-policy/runtime.mjs": {
+      "counts": {
+        "command-run": 5
+      },
+      "digest": "7e1be689d417d4cad036f5132242a6c597016a41e6d1c28ca0553a0809d01b88"
+    },
+    "src/repository-commit-policy/writer.mjs": {
+      "counts": {
+        "command-run": 4
+      },
+      "digest": "986b007d044799fde382c11c160a133aa1bdcbdbb84d295146ab6c89d3432db6"
     }
   }
 }

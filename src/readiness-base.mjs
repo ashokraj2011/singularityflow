@@ -5,7 +5,7 @@ import { mkdtemp, mkdir, readFile, writeFile } from 'node:fs/promises';
 import { head } from './git.mjs';
 import { run, removeTemporaryTree, SingularityFlowError } from './util.mjs';
 import { withoutGitProcessOverrides } from './git-enterprise-environment.mjs';
-import { gitDisabledHooksPath } from './git-isolation-paths.mjs';
+import { gitDisabledHooksPath } from './platform-process.mjs';
 
 function baselineGit(root, args, { allowFailure = false } = {}) {
   return run('git', ['-c', `core.hooksPath=${gitDisabledHooksPath()}`, ...args], {

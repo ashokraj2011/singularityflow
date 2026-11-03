@@ -65,7 +65,7 @@ import {
 } from './views/workflow-transfer-presentation.ts';
 import type { ConfigurationCenterMessage, ConfigurationCenterReply } from './views/configuration-center.ts';
 import type { ConfigurationTab } from './views/configuration-center-model.ts';
-import { configurationPathTarget } from './views/configuration-path-target.ts';
+import { configurationPathTarget } from './views/configuration-save.ts';
 import { activateReviewedWorkflowProposal, configurationSaveDisposition, configurationSavePlanCliArgs } from './views/configuration-save.ts';
 import type { ConfigurationGitFailure } from './views/configuration-save.ts';
 import type { HelpDocument } from './views/help-page.ts';
@@ -7791,6 +7791,14 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   };
 
   const configurationMessage = async (message: ConfigurationCenterMessage): Promise<ConfigurationCenterReply> => {
+    if (message.type === 'inspect-commit-policy') {
+      const root = client.repository;
+      try {
+        const result = await client.run<any>(['git-policy', 'discover', '--json']);
+        if (client.repository !== root) return 'The selected repository changed. Reopen commit policy inspection.';
+        return {error: null, commitPolicyInspection: result.data ?? result};
+      } catch (error) {return (error as Error).message;}
+    }
     if (message.type === 'inspect-test-setup') {
       const root = client.repository;
       try {

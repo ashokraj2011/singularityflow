@@ -44,11 +44,13 @@ const packageRootPlugin = {
       contents: `
         import { existsSync } from 'node:fs';
         import path from 'node:path';
-        const extensionRoot = path.resolve(__dirname, '..');
-        const stagedCliRoot = path.join(extensionRoot, 'cli');
-        export const PACKAGE_ROOT = existsSync(path.join(stagedCliRoot, 'package.json'))
-          ? stagedCliRoot
-          : path.resolve(extensionRoot, '..', '..');
+        export const PACKAGE_ROOT = /* @__PURE__ */ (() => {
+          const extensionRoot = path.resolve(__dirname, '..');
+          const stagedCliRoot = path.join(extensionRoot, 'cli');
+          return existsSync(path.join(stagedCliRoot, 'package.json'))
+            ? stagedCliRoot
+            : path.resolve(extensionRoot, '..', '..');
+        })();
       `
     }));
   }

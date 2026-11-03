@@ -340,6 +340,10 @@ Every public operation is classified before its implementation module is importe
 | gateway.serve | mutation | never | — | — |
 | gateway.session | read | never | — | — |
 | gateway.tools | read | never | — | — |
+| git-policy.discover | read | never | — | — |
+| git-policy.plan | read | never | — | — |
+| git-policy.show | read | never | — | — |
+| git-policy.validate | read | never | — | — |
 | goal.abandon | mutation | never | — | — |
 | goal.change | read | never | — | — |
 | goal.complete | mutation | never | — | — |

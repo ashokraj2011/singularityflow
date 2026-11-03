@@ -1,3 +1,4 @@
+import { repositoryCommitPolicyModule, commitPolicyEnforcedHint, retainedRepositoryCommitPolicy, assertCommitGitAdmission } from './util.mjs';
 /**
  * One boundary for Git commands that contact a remote.
  *
@@ -22,7 +23,7 @@ import {
   resolvePlatformProcess, withoutAutomaticGitMaintenance, withoutInteractiveGitPrompts, withoutOptionalStatusLocks
 } from './platform-process.mjs';
 import { processResultCompleted, processResultSucceeded } from './process-result.mjs';
-import { gitDisabledHooksPath } from './git-isolation-paths.mjs';
+import { gitDisabledHooksPath } from './platform-process.mjs';
 import { inReadScope, scopedReadSync } from './read-scope.mjs';
 import { localReadDeadlineAt, localReadDeadlineTimeoutMs } from './local-read-deadline.mjs';
 import { gitDeveloperToolsUnavailable, gitHostChildEnvironment } from './git-host-selection.mjs';
@@ -444,6 +445,12 @@ function runRemoteGitImpl(args, {
  * classification contract while allowing bounded `mapLimit` concurrency.
  */
 export async function runRemoteGitAsync(args, options = {}) {
+  if (args.includes('push') && (commitPolicyEnforcedHint(options.cwd ?? process.cwd()) || retainedRepositoryCommitPolicy(options.cwd ?? process.cwd()))) {
+    const { withRepositoryPolicyPushAdmission } = await repositoryCommitPolicyModule('publication');
+    return withRepositoryPolicyPushAdmission(options.cwd ?? process.cwd(), args, options, () =>
+      measurePerformance('network', 'git.remote', () => runRemoteGitAsyncImpl(args, options)));
+  }
+  assertCommitGitAdmission(options.cwd ?? process.cwd(), args, options);
   return measurePerformance(options.operation === 'local-read' ? 'git-local' : 'network',
     options.operation === 'local-read' ? 'git.async-read' : 'git.remote', () => runRemoteGitAsyncImpl(args, options));
 }

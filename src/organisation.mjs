@@ -77,7 +77,7 @@ import {
 import {
   enterpriseGitEnvironment, withoutGitProcessOverrides
 } from './git-enterprise-environment.mjs';
-import { gitDisabledHooksPath } from './git-isolation-paths.mjs';
+import { gitDisabledHooksPath } from './platform-process.mjs';
 import {
   gitRepositoryComparisonKey, sameGitRepository
 } from './git-repository-identity.mjs';
@@ -6875,7 +6875,7 @@ async function publishActivationAtomically(root, {
     refs: named, includeHead: false, refresh: true
   });
   if (!after.ok || updates.some(([ref, commit]) => after.refs.get(ref) !== commit)) return null;
-  recordStatePublication(root, ledger, stateTip, audit.expectedRemoteSha, { env });
+  await recordStatePublication(root, ledger, stateTip, audit.expectedRemoteSha, { env });
   const published = {
     audit: Object.freeze({
       duplicate: false, eventId: audit.eventId, entryHash: audit.entryHash,

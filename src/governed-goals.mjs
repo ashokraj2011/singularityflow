@@ -21,7 +21,7 @@ import {
 import { currentSchemaVersion, readRecord } from './schema-migrations.mjs';
 import { SingularityFlowError, run } from './util.mjs';
 import { runRemoteGitAsync } from './git-execution.mjs';
-import { gitDisabledHooksPath } from './git-isolation-paths.mjs';
+import { gitDisabledHooksPath } from './platform-process.mjs';
 import { LIFECYCLE_EVENT, lifecycleEvent } from './lifecycle-event.mjs';
 import { lifecycleAuthority } from './sda/story-branch-authority.mjs';
 

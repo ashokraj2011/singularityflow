@@ -9,4 +9,4 @@ import { fileURLToPath } from 'node:url';
  * bundle. Keeping the host-specific resolution at this boundary prevents core modules from
  * embedding `import.meta` in the CommonJS bundle.
  */
-export const PACKAGE_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
+export const PACKAGE_ROOT = /* @__PURE__ */ (() => path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..'))();

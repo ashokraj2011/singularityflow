@@ -1,3 +1,4 @@
+import { repositoryCommitPolicyModule } from './util.mjs';
 /**
  * A configuration projection: the approved configuration's files at one exact commit, for editing,
  * with no clone and no application checkout (SDA M3, SDA-AC-013).
@@ -126,5 +127,6 @@ export async function createConfigurationProjection(root, directory, commit, {
   await measureCommandSpan('configuration.projection-hydrate', () => hydrateProjection(root, directory, commit, localEnv, transport, runRemoteCommand));
   const populated = run('git', ['read-tree', '-u', '--reset', 'HEAD'], { cwd: directory, env: localEnv, allowFailure: true });
   if (populated.status !== 0) unavailable('The approved configuration files could not be written after their Git objects were checked. Inspect local storage and retry the same operation; existing work was preserved.', populated, { commit });
+  (await repositoryCommitPolicyModule('context', root)).bindCommitPolicyProjection(root, directory, commit);
   return directory;
 }

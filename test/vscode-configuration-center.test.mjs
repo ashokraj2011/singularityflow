@@ -21,6 +21,7 @@ const {
   updateAuthorityYaml,
   updateMcpYaml,
   updateWorldModelYaml,
+  updateCommitPolicyYaml,
   validateAuthorityDraft,
   validateAutoDraft,
   validateMcpDraft,
@@ -28,6 +29,15 @@ const {
   validateWorldModelDraftShape
 } = await import(source('configuration-center-model.ts'));
 const { configurationCenterHtml, CONFIGURATION_CENTER_SCRIPT } = await import(source('configuration-center-page.ts'));
+
+test('commit policy discovery displays its actual adoption diagnostic without rendering untrusted markup', () => {
+  const view = configurationCenterView(snapshot);
+  view.commitPolicyInspection = {mode: 'unadopted', compliance: 'analysis-only-no-admission', discovery: {hooks: []}, diagnostic: {code: 'RCP_POLICY_NOT_ADOPTED', message: 'Review <candidate> before enforcement'}};
+  const html = configurationCenterHtml(view, 'git-policy', null, null, null, []);
+  assert.match(html, /role="alert"><strong>RCP_POLICY_NOT_ADOPTED/u);
+  assert.match(html, /Review &lt;candidate&gt; before enforcement/u);
+  assert.doesNotMatch(html, /Review <candidate>/u);
+});
 
 test('Constitution has a first-class Configuration route into the reviewed Studio editor', async () => {
   const html = configurationCenterHtml(configurationCenterView(snapshot), 'overview', null, null, null, []);
@@ -326,7 +336,7 @@ test('world-model save rejects malformed retained-webview payloads without deref
 test('configuration center serializes every configuration mutation through one host gate', async () => {
   const host = await readFile(source('configuration-center.ts'), 'utf8');
   assert.match(host,
-    /\['save-profile', 'add-current-identity', 'save-authority', 'save-mcp', 'save-auto', 'save-world-model', 'save-test-setup'\]/);
+    /\['save-profile', 'add-current-identity', 'save-authority', 'save-mcp', 'save-auto', 'save-world-model', 'save-test-setup', 'save-commit-policy'\]/);
   assert.match(host, /\['delete-authority', 'delete-mcp'\]/);
   assert.match(host, /if \(mutation && this\.saving\)/);
   assert.match(host, /try \{ await this\.receiveReady\(message\); \}\s*finally \{[\s\S]{0,300}this\.saving = false;[\s\S]{0,300}this\.storeChanged\(\);/);
@@ -768,4 +778,14 @@ test('the sidebar view is not named after its own container', async () => {
   const visible = views.filter((view) => !view.when);
   assert.deepEqual(visible.map((view) => view.id), ['singularityFlow.navigation']);
   assert.equal(visible[0].name, 'Navigator');
+});
+
+
+test('commit policy edits stay in the reviewed configuration draft and preserve unrelated YAML', () => {
+  const original = '# keep the repository intent\nversion: 2\ngit:\n  remote: origin\nworldModel:\n  sourceRoots: [src]\n';
+  const rewritten = updateCommitPolicyYaml(original, JSON.stringify({schemaVersion:1,mode:'discover'}));
+  const value = YAML.parse(rewritten);
+  assert.deepEqual(value.git.commitPolicy,{schemaVersion:1,mode:'discover'});
+  assert.equal(value.git.remote,'origin');assert.deepEqual(value.worldModel.sourceRoots,['src']);assert.match(rewritten,/# keep the repository intent/u);
+  assert.throws(()=>updateCommitPolicyYaml(original,'[]'),/JSON object/u);
 });

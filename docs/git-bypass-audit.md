@@ -285,3 +285,17 @@ are fetched in batches of at most 128 through the existing frozen asynchronous r
 from the approved configuration authority into the durable workspace object store. The configured
 configuration-transfer deadline covers all batches. No application index, checkout, ref or Git
 configuration is changed, and the completed inventory is checked before files are populated.
+
+Repository Commit Policy (RCP) adds bounded, fixed Git observations for effective hook/configuration
+inputs, exact staged trees, actual commit objects/signatures and explicit outgoing ranges. The
+existing central process owner holds the shared in-process write admission; source services and
+editor/CLI bundles share that exact grant. Optional execution services load from trusted packaged
+sources so repositories without this opt-in do not load hook/profile executors during ordinary
+reads. Native hooks use the existing supervised quality runner and an approved private Git context;
+its object import and private retention ref do not advance a lifecycle branch. The existing owner
+retains ref CAS, publication, pending recovery and rollback. Metadata/configuration bridges preserve
+legacy off-mode behavior and use exact destination policy when enforced. Incoming state convenience
+refs mirror only reconciled remote objects and create no validation receipt. Portable facts are
+projected through the existing ledger, outside their source candidate. New call sites and changed
+configuration/ledger callback contexts are reviewed explicitly; no general process owner, hook-skip
+permission, history/branch scan, arbitrary executable or approval exemption is registered.

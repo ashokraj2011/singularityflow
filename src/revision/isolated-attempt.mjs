@@ -10,7 +10,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { applicationPathContext, isApplicationPath } from '../application-paths.mjs';
 import { readLocalGitBlobs } from '../git-blob-batch.mjs';
-import { gitDisabledHooksPath } from '../git-isolation-paths.mjs';
+import { gitDisabledHooksPath } from '../platform-process.mjs';
 import { recordSha256 } from '../records.mjs';
 import { freezeSgosCandidate, readSgosRetainedCandidate } from '../sgos/candidate-lifecycle.mjs';
 import { run, SingularityFlowError } from '../util.mjs';

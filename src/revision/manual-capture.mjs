@@ -8,7 +8,7 @@ import { createHash } from 'node:crypto';
 import { lstat, readFile, realpath } from 'node:fs/promises';
 import path from 'node:path';
 import { applicationPathContext, isApplicationPath } from '../application-paths.mjs';
-import { gitDisabledHooksPath } from '../git-isolation-paths.mjs';
+import { gitDisabledHooksPath } from '../platform-process.mjs';
 import { recordSha256 } from '../records.mjs';
 import { repositoryCaseInsensitivePaths } from '../repository-change-set.mjs';
 import { scannablePath, scanEntries, secretRefusal } from '../secrets.mjs';

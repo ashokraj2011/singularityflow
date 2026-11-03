@@ -480,6 +480,9 @@ export function phasePromptExecutionContract(definition, workflow, phase, { temp
         ? `- Code completion: preserve existing implementation and tests on resume. Write the planned code and tests and reconcile exact planned source/test paths and traceability; then run \`singularity-flow prepare ${phase.id}\`, which rebuilds the summary from what changed, and prepublish. Passing a manual test command does not publish the phase or justify ending with no next action.`
         : '- Code completion: preserve existing implementation and tests on resume. Complete the configured implementation summary and Agent brief, reconcile exact planned source/test paths and traceability, then prepublish. Passing a manual test command does not publish the phase or justify ending with no next action.'
     ] : []),
+    ...((workflow?.resolution?.repositoryCommitPolicy ?? definition.git?.commitPolicy)?.mode === 'enforce' ? [
+      '- Repository commit policy: use the returned kernel publication/repair route. The shared writer resolves this destination’s canonical work key, complete message and approved hook profile; do not run a separate Git commit, invent a prefix/timestamp, install a guessed tool or disable a hook. Format only during authorized authoring before candidate/review freeze. If returned effects change source, capture a new candidate and rerun the affected checks and application review. Retained objects are retried unchanged. Policy checks never grant human approval or trigger All good/screenshots.'
+    ] : []),
     `- Generation requirement: \`${generationPolicy.requirement}\``,
     `- Default publication producer: \`${publication.producer}\``,
     `- Allowed publication producers: ${allowedProducers.map((producer) => `\`${producer}\``).join(', ')}`,

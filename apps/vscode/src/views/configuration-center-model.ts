@@ -14,7 +14,7 @@ export {
  * rendered tab whose own strip button was silently dropped. Deriving the type from the list makes
  * adding a tab and accepting it the same edit.
  */
-export const CONFIGURATION_TABS = ['overview', 'tests', 'auto', 'world-model', 'models', 'people', 'mcp'] as const;
+export const CONFIGURATION_TABS = ['overview', 'git-policy', 'tests', 'auto', 'world-model', 'models', 'people', 'mcp'] as const;
 
 export type ConfigurationTab = (typeof CONFIGURATION_TABS)[number];
 
@@ -60,6 +60,8 @@ export interface ConfigurationCenterView {
   mcpErrors: string[];
   mcpWarnings: string[];
   worldModel: WorldModelSettingsView;
+  gitCommitPolicy?: unknown;
+  commitPolicyInspection?: {mode: string; compliance: string; policySha256?: string | null; diagnostic?: {code: string; message: string}; discovery: {hooks: Array<{stage: string; status: string; execution: string}>}} | null;
   /** Approved policy and an optional validated working-tree draft are intentionally distinct. */
   configurationState: {
     editor: 'effective' | 'candidate';
@@ -271,6 +273,7 @@ export function configurationCenterView(snapshot: RepositorySnapshot, profile: P
           : 'disabled'
       })).sort((left, right) => left.label.localeCompare(right.label) || left.id.localeCompare(right.id))
     },
+    gitCommitPolicy: (definition.git as Record<string, unknown> | undefined)?.commitPolicy ?? null,
     worldModel: {
       sourceRoots: Array.isArray(worldModel.sourceRoots) ? worldModel.sourceRoots : [],
       sharedRoots: Array.isArray(worldModel.sharedRoots) ? worldModel.sharedRoots : []
@@ -278,7 +281,7 @@ export function configurationCenterView(snapshot: RepositorySnapshot, profile: P
   };
 }
 
-export { configurationPathTarget, type ConfigurationPathTarget } from './configuration-path-target.ts';
+export { configurationPathTarget, type ConfigurationPathTarget } from './configuration-save.ts';
 
 export function validateAutoDraft(draft: AutoDraft, knownWorkTypeIds?: Iterable<string>): string[] {
   const errors: string[] = [];
@@ -482,5 +485,15 @@ export function updateWorldModelYaml(text: string, draft: WorldModelDraft): stri
   // [] is a deliberate choice of the whole repository, so it is written too.
   parsed.setIn(['worldModel', 'sourceRoots'], draft.sourceRoots);
   parsed.setIn(['worldModel', 'sharedRoots'], draft.sharedRoots);
+  return String(parsed);
+}
+
+/** Only a draft value; the CLI performs full policy/profile validation before proposing it. */
+export function updateCommitPolicyYaml(text: string, policyText: string): string {
+  if (Buffer.byteLength(policyText) > 262144) throw new Error('The policy draft exceeds 256 KiB.');
+  const policy: unknown = JSON.parse(policyText);
+  if (!policy || typeof policy !== 'object' || Array.isArray(policy)) throw new Error('Commit policy must be a JSON object.');
+  const parsed = document(text, 'workflow.yml');
+  parsed.setIn(['git', 'commitPolicy'], policy);
   return String(parsed);
 }

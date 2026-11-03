@@ -1246,6 +1246,7 @@ export async function createWorkflow(root, config, {
       tokenEconomy: structuredClone(snapshotState.tokenEconomy ?? normalizeTokenEconomy(config.tokenEconomy ?? {})),
       ledger: structuredClone(snapshotState.ledger ?? normalizeLedgerConfig(config.ledger ?? {})),
       sourceSha256: createHash('sha256').update(`${JSON.stringify(source, null, 2)}\n`).digest('hex'),
+      ...(snapshotState.repositoryCommitPolicy == null ? {} : { repositoryCommitPolicy: structuredClone(snapshotState.repositoryCommitPolicy) }),
       phases: resolution.phases
     },
     status: 'in_progress',

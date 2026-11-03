@@ -1088,6 +1088,18 @@ function renderParticipantResult(
   if (command.template === 'next-action') return renderNextAction(value);
   if (command.template === 'status') return renderStatus(value);
   if (command.template === 'checks') return renderChecks(value);
+  if (command.template === 'repository-policy') {
+    const envelope = jsonObject(value) ?? {};
+    const report = jsonObject(envelope.data) ?? envelope;
+    const discovery = jsonObject(report.discovery) ?? {};
+    let markdown = `### Repository commit policy · ${markdownValue(report.mode)}\n\n`;
+    markdown += `Validation: ${markdownValue(report.compliance)}\n\nPolicy: ${markdownValue(report.policySha256 ?? 'not adopted')}\n\n`;
+    for (const hook of jsonArray(discovery.hooks).map(jsonObject).filter((item): item is JsonObject => Boolean(item))) {
+      if (hook.status !== 'missing') markdown += `- ${markdownValue(hook.stage)} · ${markdownValue(hook.classification)} · ${markdownValue(hook.execution)}\n`;
+    }
+    markdown += '\nDiscovery did not execute hooks, commit, push, activate policy or approve work. Use Configuration Center for reviewed policy changes.\n';
+    return { markdown, ...renderedCommand(report.next) };
+  }
   if (command.template === 'repository-check') {
     const envelope = jsonObject(value) ?? {};
     const result = jsonObject(envelope.data) ?? envelope;

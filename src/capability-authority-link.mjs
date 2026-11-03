@@ -27,7 +27,7 @@ import {
   isGitRefName, mapLimit, removeTemporaryTree, run, SingularityFlowError, writeAtomic
 } from './util.mjs';
 import { gitRepositoryComparisonKey } from './git-repository-identity.mjs';
-import { gitDisabledHooksPath } from './git-isolation-paths.mjs';
+import { gitDisabledHooksPath } from './platform-process.mjs';
 import { acquireFileLease } from './file-lease.mjs';
 import { incrementCommandCounter } from './dx-command-timing.mjs';
 

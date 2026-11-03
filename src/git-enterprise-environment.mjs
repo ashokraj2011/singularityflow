@@ -9,7 +9,7 @@
 import os from 'node:os';
 
 import { run, SingularityFlowError } from './util.mjs';
-import { gitEmptyConfigPath } from './git-isolation-paths.mjs';
+import { gitEmptyConfigPath } from './platform-process.mjs';
 import { APPLE_GIT_UNAVAILABLE_MESSAGE, gitDeveloperToolsUnavailable } from './git-host-selection.mjs';
 
 const ENTERPRISE_GIT_CONFIG_PATTERN = [

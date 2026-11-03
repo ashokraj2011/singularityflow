@@ -14,9 +14,13 @@ import { buildCliBundle } from '../scripts/build-cli-bundle.mjs';
 import { readPerformanceReport } from '../src/performance-trace-store.mjs';
 import { childTimeout } from './helpers/child-timeout.mjs';
 import { slowLane } from './helpers/slow-lane.mjs';
+import { rcpFixture } from './helpers/rcp-fixture.mjs';
 
 const root = fileURLToPath(new URL('..', import.meta.url));
 const cli = path.join(root, 'bin', 'singularity-flow.mjs');
+// Cold chunks compact identifiers while retaining diagnostic function names. Inspect both
+// equivalent representations so closure checks still detect accidentally imported services.
+const namedFunction = name => new RegExp(`(?:function ${name}\\b|,["']${name}["']\\))`, 'u');
 
 test('every command module has a literal loader, so the bundle carries it', () => {
   const paths = [...new Set(COMMAND_REGISTRY.map((definition) => definition.modulePath))].sort();
@@ -72,6 +76,19 @@ test('the bundled CLI answers exactly like the sources while opening a handful o
   const outdir = path.join(root, `.bundle-test-${process.pid}`);
   t.after(() => rm(outdir, { recursive: true, force: true }));
   const { manifest } = await buildCliBundle({ outdir });
+  await t.test('bundled publication and optional policy services share the exact owner admission', async (ownerTest) => {
+    const fixture = await rcpFixture(ownerTest);
+    const core = await import(pathToFileURL(path.join(outdir, 'cold-core.mjs')).href);
+    const commit = Object.values(core).find(value => typeof value === 'function' && value.name === 'commitIsolated');
+    assert.equal(typeof commit, 'function', 'the bundled owner must retain its function identity');
+    await fixture.candidate();
+    const object = await commit(fixture.root, 'publish bundled work', ['source.js'], {
+      expectedHead: fixture.parent, expectedRef: fixture.ref,
+      commitPolicyContext: { subject: fixture.subject, purpose: 'story', phase: 'implementation', generation: 1 }
+    });
+    assert.equal(fixture.git(fixture.root, ['rev-parse', 'HEAD']), object);
+    assert.equal(fixture.git(fixture.root, ['show', '-s', '--format=%s', object]), 'WEB-221: publish bundled work');
+  });
   assert.equal(manifest.format, 2);
   assert.ok(manifest.outputs.length <= 21, 'bounded coarse chunks, including one narrow publication writer');
   const closure = file => {
@@ -94,14 +111,14 @@ test('the bundled CLI answers exactly like the sources while opening a handful o
   assert.match(startupCode, /validateSkillRequest/u, 'early argv validation must not import the catalog chunk');
   assert.match(startupCode, /validateInstructionRequest/u, 'instruction validation must remain in the startup chunk');
   for (const name of ['readCopilotMode', 'withCreationContext']) {
-    assert.match(startupCode, new RegExp(`function ${name}\\b`, 'u'), `cli-entry's lazy ${name} must stay in the startup chunk`);
+    assert.match(startupCode, namedFunction(name), `cli-entry's lazy ${name} must stay in the startup chunk`);
   }
   const statusClosure = closure('cold-status.mjs');
   const statusBytes = statusClosure.reduce((sum, item) => sum + item.bytes, 0);
   assert.ok(statusBytes < 1.5 * 1024 * 1024,
     `ordinary JSON status must not inherit catalog or review closures: ${statusBytes} bytes`);
   const statusCode = (await Promise.all(statusClosure.map(item => readFile(path.join(outdir, item.file), 'utf8')))).join('\n');
-  assert.doesNotMatch(statusCode, /function (?:emitCommandResult|attachContinuation|workflowNextSteps)\b/u,
+  for (const name of ['emitCommandResult', 'attachContinuation', 'workflowNextSteps']) assert.doesNotMatch(statusCode, namedFunction(name),
     'the root error lookup must not pull the output boundary or workflow planner into ordinary status');
   for (const name of ['cold-catalogs.mjs', 'cold-hook-context.mjs', 'cold-narrow-reads.mjs', 'cold-compatibility.mjs']) {
     assert.ok(!statusClosure.some(item => item.file === name), `status must not statically reach ${name}`);
@@ -433,14 +450,14 @@ test('the bundled CLI answers exactly like the sources while opening a handful o
   // the actor-less verdict, nested families and their routes) add 2,113 for 7,746,386. No new file.
   assert.ok(hookContext < 7_750_000,
     `phase-review reads retain their existing byte ceiling after moving families (${hookContext} bytes)`);
-  assert.match(await readFile(path.join(outdir, 'cold-light.mjs'), 'utf8'), /function enterPhase\b/u,
+  assert.match(await readFile(path.join(outdir, 'cold-light.mjs'), 'utf8'), namedFunction('enterPhase'),
     'phase binding must not fall through to the compatibility/admin bundle');
   const phaseCode = await readFile(path.join(outdir, 'cold-phases.mjs'), 'utf8');
-  assert.match(phaseCode, /function completePhaseEntry\b/u);
-  assert.match(phaseCode, /function composePhasePrompt\b/u,
+  assert.match(phaseCode, namedFunction('completePhaseEntry'));
+  assert.match(phaseCode, namedFunction('composePhasePrompt'),
     'passive composition belongs in the existing prepared phase family, not the model/admin dispatcher');
   for (const name of ['readPendingList', 'pendingSummary', 'approvalAdvisories']) {
-    assert.match(phaseCode, new RegExp(`function ${name}\\b`, 'u'), `nextsteps' ${name} must not fall through to the compatibility/admin bundle`);
+    assert.match(phaseCode, namedFunction(name), `nextsteps' ${name} must not fall through to the compatibility/admin bundle`);
   }
   // 5,245,000 (next 5,000 boundary over 5 MiB): main 3bd739a8 measures 5,241,916. A test command's literal `env`
   // (SPEC-TCE M6) adds 1,741 for 5,243,657, because every configuration read validates its commands:

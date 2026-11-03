@@ -22,6 +22,8 @@ The opt-in is `git.commitPolicy` in approved `singularity/workflow.yml`.
 
 A branch-local edit cannot adopt its own policy. Configuration projections retain their original repository's approved authority. A stricter current policy applies to a retained push without automatically amending its existing object.
 
+`organizationFloor` represents mandatory rules in the approved configuration snapshot. This version does not discover or synchronize an external organization-policy service. That snapshot must be adopted through the existing configuration authority; local runtime settings cannot weaken it.
+
 The template supports `{trackingKey}`, `{summary}`, `{type}`, `{scope}` and `{phase}`. Required values are typed, single-line, bounded UTF-8 text. The original body and SFlow transaction trailers are preserved and validated. Defaults and type/scope allowlists must come from the repository's approved configuration.
 
 An example **message-only equivalent profile** follows. It is suitable only when its complete obligations are actually approved. It is not an automatic equivalent for an arbitrary pre-commit or pre-push hook.
@@ -118,3 +120,16 @@ The Git bypass audit records the new bounded call sites. No new general process/
 The `test/repository-commit-policy-*.test.mjs` suite exercises full-message rendering, canonical Jira identity, approved policy drift, exact-tree checks, finite formatter budgets, actual native hooks, hook-created files and index drift, SSH signatures, retained-object retries, metadata restrictions, and state-provider takeover from a second clone. Standard and custom phase owners use the same publication bridge. `test/cli-bundle.test.mjs` also executes an enforced commit through the compiled writer and its optional source service, checking that they share one admission boundary.
 
 Native merge messages, installed pre-push hooks, and Git-directory-sensitive/projection hook contexts remain explicitly unsupported. The feature does not qualify arbitrary hook frameworks or every legacy writer by implication. An unsupported path requires an approved compatible profile or a qualified owner bridge; it cannot fall back or report universal compliance.
+
+Native qualification run `41632120305` tested implementation commit `7c84475e30c688c716a3d37703b190ea34c8f673`:
+
+| Host | Node | Feature/editor tests | Compiled CLI tests | Skipped |
+| --- | --- | --- | --- | --- |
+| macOS | 22.23.4 | 88 passed | 4 passed | 0 |
+| macOS | 26.13.0 | 88 passed | 4 passed | 0 |
+| Windows | 22.23.4 | 88 passed | 4 passed | 0 |
+| Windows | 26.13.0 | 88 passed | 4 passed | 0 |
+
+All four jobs also passed typechecking, CLI/editor builds, product checks, schema boundaries and the Git bypass audit. Installed npm-artifact CLI smoke tests passed on both Node 26 hosts. This Mac separately passed 448 affected compatibility tests and all 41 RCP tests, without skips. The broader native compatibility matrix ran separately at `4c79a2b8d`; this is feature qualification, not whole-product release certification.
+
+One inherited gate remains failing: the editor gateway has 824 modules against an 817-module budget. The untouched base had 825. No ceiling was raised, and this existing failure is not represented as a passing budget check. Other editor bundle budgets passed. The temporary hosted-workflow files were confined to the CI branch and are absent from the implementation branch.

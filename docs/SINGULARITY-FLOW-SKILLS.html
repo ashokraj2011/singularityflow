@@ -9793,7 +9793,7 @@ Human-decision-only: no direct repository edits, reviewer retention, tests, publ
           <span class="pill">review</span>
           <span class="pill">story boundary</span>
           <span class="pill">model: never</span>
-          <span class="pill">~1670 body tokens</span>
+          <span class="pill">~1923 body tokens</span>
         </div>
         <dl>
           <div><dt>Command</dt><dd><code>/sflow-review-source</code></dd></div>
@@ -9824,6 +9824,8 @@ Review: first run `singularity-flow review-source context --for-agent --json` on
 **Boundary:** reuse this invocation&#39;s review entry: require `ready`/`workId`, valid `phaseAgent`; cwd=`repositoryPath`, or as is from a non-Git (chat) folder: SFlow finds the bound checkout; never refuse or wrap for it. Use returned `workItemRoot`/artifact and Git-private staging paths; never `$HOME`. Use exact CLI-returned paths. `repositoryPath` is command cwd, not a prefix for absolute file paths. Never rebase paths or strip `.git/worktrees`. Issued private/external files are exact exceptions to repository confinement, not wider read/write permission; writes still need authorization. Resolve relative paths only against their declared base. On failure, preserve the path and error; never search or recreate it.
 
 Explicit `stage`/`check`/`submit`: relay once. `status`: read. Legacy `decide`: retain phase/finding/reason; hand off to `/sf-review-decide` in a new turn. Never confirm/decide as reviewer. Unknown: help, stop.
+
+**Resume the operation:** read `progress` first. `author-report`: write the report now. `repair-report`: read the exact existing `stagingPath`, preserve its work, apply the returned repairs and check the changed packet. `retain-report`: run `progress.nextAction` now. `retained`: report the retained result and its continuation, then end. `read-error`/`reload-context`: preserve work and report the exact blocker. `afterRetention` is future guidance until retention succeeds. Never finish merely because reading is done, decline to retain honest correction-required findings, or relay the context command while report authoring remains. A host continuation marked `SFLOW_SOURCE_REVIEW_INCOMPLETE` belongs to this same invocation: reuse its entry and reads, then finish the outstanding write/check/retain step. A real authority, input or tool failure remains a stop. `agentOutput.complete: false` describes the bounded display; use the issued safe ranges, including an omitted field&#39;s `read` ranges when present.
 
 Read pinned `clarifications`/`clarificationGuidance`; acknowledge `clarificationsReviewed` IDs and phase/generation/question. Never re-ask settled answers. Deferred answers waive nothing. Correct mistaken reviews in this generation; real gaps need successors.
 

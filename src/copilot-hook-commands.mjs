@@ -1,6 +1,6 @@
 /** Host-neutral bootstrap commands: VS Code supplies PLUGIN_ROOT; CLI hosts may use
  * COPILOT_PLUGIN_ROOT. These commands must resolve the installed launcher before Node runs. */
-const ACTIONS = new Set(['boundary-turn', 'boundary-guard', 'boundary-after', 'boundary-end', 'agent-start']);
+const ACTIONS = new Set(['boundary-turn', 'boundary-guard', 'boundary-after', 'boundary-end', 'agent-start', 'boundary-stop', 'boundary-failure']);
 const UNAVAILABLE = 'SFLOW_HOOK_PLUGIN_ROOT_UNAVAILABLE: The packaged SFlow hook launcher was not found using PLUGIN_ROOT or COPILOT_PLUGIN_ROOT. Repair the installation, run singularity-flow plugin install, and reload VS Code. Preserve the Story; do not disable hooks.';
 
 export function copilotHookCommand(action, shell) {

@@ -1,6 +1,6 @@
 param([string]$Action)
 $ErrorActionPreference = 'Stop'
-if ($Action -notin @('boundary-turn', 'boundary-guard', 'boundary-after', 'boundary-end', 'agent-start')) {
+if ($Action -notin @('boundary-turn', 'boundary-guard', 'boundary-after', 'boundary-end', 'agent-start', 'boundary-stop', 'boundary-failure')) {
   Write-Output '{}'; exit 0
 }
 # With no SFlow turn recorded the runtime's guard still refuses a person's own step in any prompt
@@ -74,7 +74,7 @@ if (Test-Path -LiteralPath $managedActive -PathType Leaf) {
     $managedNode = Join-Path $managedRoot "runtimes/$managedRuntime/node.exe"
     $managedCli = Join-Path $managedRoot "releases/$managedRelease/node_modules/singularity-flow/bin/singularity-flow.mjs"
     if ((Test-Path -LiteralPath $managedNode -PathType Leaf) -and (Test-Path -LiteralPath $managedCli -PathType Leaf)) {
-      if ($Action -in @('boundary-guard', 'boundary-after', 'boundary-end')) {
+      if ($Action -in @('boundary-guard', 'boundary-after', 'boundary-end', 'boundary-stop', 'boundary-failure')) {
         $managedMode = if ($env:SINGULARITY_FLOW_COPILOT_MODE_FILE) { $env:SINGULARITY_FLOW_COPILOT_MODE_FILE } else { Join-Path $homeDirectory '.singularity-flow/copilot-mode.json' }
         if ([IO.Path]::IsPathRooted($managedMode) -and $managedMode -notmatch '[\\/]\.\.?([\\/]|$)' -and $managedMode -notmatch '[\\/]$') {
           $managedBoundaries = Join-Path (Split-Path -Parent $managedMode) 'copilot-boundaries'
@@ -116,7 +116,7 @@ if ($nodePath) {
   # call that names no SFlow command, so give that answer here instead of starting Node. Any entry,
   # including the marker a runtime that failed to load leaves, sends the hook to Node as before.
   # Mirrors copilotModeFile() and hook-launcher.sh.
-  if ($Action -in @('boundary-guard', 'boundary-after', 'boundary-end')) {
+  if ($Action -in @('boundary-guard', 'boundary-after', 'boundary-end', 'boundary-stop', 'boundary-failure')) {
     $modeFile = if ($env:SINGULARITY_FLOW_COPILOT_MODE_FILE) { $env:SINGULARITY_FLOW_COPILOT_MODE_FILE }
       elseif ($homeDirectory) { Join-Path $homeDirectory '.singularity-flow/copilot-mode.json' } else { $null }
     if ($modeFile -and [System.IO.Path]::IsPathRooted($modeFile) -and $modeFile -notmatch '[\\/]\.\.?([\\/]|$)' -and $modeFile -notmatch '[\\/]$') {

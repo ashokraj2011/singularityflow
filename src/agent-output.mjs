@@ -310,9 +310,17 @@ export function agentAct(result) {
       said: oneLine(`${result.status}${count == null ? '' : ` with ${count} finding${count === 1 ? '' : 's'}`}: ${result.correction?.guidance ?? 'fix the listed findings in this draft, then recheck once.'}`),
       ...correctionList(result.findings) };
   }
-  if (result.resultType === 'source-review-agent-context' && result.canReview) return {
-    state: 'review', do: null, read: ['reviewGuide', 'citationGuide', 'sources', 'clarifications', 'artifact', 'reportTemplate', 'stagingProtocol'],
-    said: 'Perform the independent review now. Read pinned source text files with native file tools; their 1-based lines are citation lines. Stage, check, repair the changed packet within the bounded budget, then retain. Reading and summarising is not the review: end only after the filled report is staged and checked. Do not stop at a repairable packet error or invent coverage.' };
+  if (result.resultType === 'source-review-agent-context' && result.canReview) {
+    const progress = result.progress;
+    if (progress?.complete) return { state: 'review-complete', do: null, read: ['progress', 'continuation'], said: progress.instruction };
+    if (progress?.state === 'retain-report') return withRoute({ state: 'retain', do: null,
+      read: ['progress', 'stagingProtocol'], said: progress.instruction }, progress.nextAction);
+    if (progress?.state === 'read-error' || progress?.state === 'reload-context') return { state: 'blocked', do: null,
+      read: ['progress'], said: progress.instruction };
+    return { state: progress?.state === 'repair-report' ? 'correct' : 'review', do: null,
+      read: ['progress', 'reviewGuide', 'citationGuide', 'sources', 'clarifications', 'artifact', 'reportTemplate', 'stagingProtocol'],
+      said: progress?.instruction ?? 'Perform the independent review now. Read pinned source text files with native file tools; their 1-based lines are citation lines. Stage, check, repair the changed packet within the bounded budget, then retain. Reading and summarising is not the review: end only after the filled report is staged and checked. Do not stop at a repairable packet error or invent coverage.' };
+  }
   if (result.resultType === 'source-review-check') {
     if (result.repair?.status === 'reload-context') return withRoute({ state: 'next', do: null,
       read: ['repair'], said: result.repair.instruction }, result.continuation?.nextAction);
@@ -870,8 +878,21 @@ async function keptAgentOutput(text, { cwd = process.cwd(), budget = agentOutput
   const textFiles = Object.fromEntries(keys.map((key) => [key, texts.filter((entry) => entry.field === key || entry.field.startsWith(`${key}.`))
     .map(({ field, textFile, bytes: length, lines }) => ({ field, path: textFile, bytes: length, lines,
       ...(length > READ_CHUNK_BYTES ? { read: lineRanges(readFileSync(textFile, 'utf8')) } : {}) }))]));
-  const reference = (ranges) => Object.fromEntries(keys.map((key) => [key,
-    { field: key, bytes: size[key], lines: ranges[key] ?? null, ...(textFiles[key].length ? { textFiles: textFiles[key] } : {}) }]));
+  const reference = (ranges, document = null) => {
+    const lines = document?.split('\n');
+    return Object.fromEntries(keys.map((key) => {
+      const range = ranges[key];
+      // Field sizes used to describe compact JSON, while ranges point into pretty JSON. A 4 KB
+      // schema occupied 9 KB on disk and its advertised whole-field range was refused by the hook.
+      const text = lines && range ? `${lines.slice(range[0] - 1, range[1]).join('\n')}\n`
+        : `${JSON.stringify(full[key], null, 2)}\n`;
+      const chunks = bytes(text) > READ_CHUNK_BYTES ? lineRanges(text) : [];
+      return [key, { field: key, bytes: bytes(text), lines: range ?? null,
+        ...(chunks.length ? { read: chunks.map(([start, end]) => document
+          ? [range[0] + start - 1, range[0] + end - 1] : [range?.[0] ?? start, range?.[1] ?? end]) } : {}),
+        ...(textFiles[key].length ? { textFiles: textFiles[key] } : {}) }];
+    }));
+  };
   const render = (kept, agentOutput, references, order = keys, values = ordered, index = null) => agentJson({ act: { ...(act ?? {}), complete: false }, agentOutput,
     ...omittedList(order.filter((key) => !kept.has(key)).map((key) => references[key]), index ?? INDEX_PLACEHOLDER),
     ...Object.fromEntries(keys.filter((key) => kept.has(key)).map((key) => [key, values[key]])) });
@@ -910,7 +931,7 @@ async function keptAgentOutput(text, { cwd = process.cwd(), budget = agentOutput
   const ranges = topLevelRanges(fullText);
   const read = readPlan(fullText, ranges, omitted);
   const agentOutput = { ...describe(fullText, instruction), ...(read.length ? { read } : {}) };
-  const placed = reference(ranges);
+  const placed = reference(ranges, fullText);
   let index = null;
   if (omitted.length > OMITTED_FIELDS_SHOWN) {
     // Every omitted field's reference, in a file of its own the agent pages through when it needs one.

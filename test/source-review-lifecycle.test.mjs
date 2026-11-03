@@ -304,7 +304,8 @@ test('kernel staging in a linked Story checkout stays in its own Git-private dir
 
 test('review context binds Story snapshot, exact attachment bytes, and published artifact', async (t) => {
   const { root, config, workflow } = await fixture(t);
-  const packet = await sourceReviewContext(root, config, workflow, 'specification', '/tmp/report.json');
+  const packet = await sourceReviewContext(root, config, workflow, 'specification',
+    sourceReviewStagingPath(gitDir(root), workflow, workflow.phases.specification));
   assert.equal(packet.sources.length, 2);
   assert.equal(packet.sources[0].text, STORY);
   assert.equal(packet.sources[1].originalSha256, sha(Buffer.from(NOTES)));
@@ -313,7 +314,8 @@ test('review context binds Story snapshot, exact attachment bytes, and published
   assert.equal(packet.reportTemplate.binding.sources.length, 2);
   assert.equal(packet.reportSchema.properties.kind.const, 'specification');
   assert.equal(packet.canReview, true);
-  assert.equal(packet.continuation.nextSkill, '/sf-review-source');
+  assert.equal(packet.progress.state, 'author-report');
+  assert.equal(packet.continuation.nextCommand, null, 'context is already admitted; the next step is the reviewer writing the report');
   assert.equal((await readSourceReviewStatus(root, config, workflow, 'specification')).status, 'missing');
 });
 

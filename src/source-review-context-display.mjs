@@ -1,4 +1,6 @@
 /** Display only verified context; an unpublished successor has no reviewable artifact packet. */
+import { formatCommandRouteLines } from './model-free-commands.mjs';
+
 export function sourceReviewContextText(packet) {
   if (packet.status === 'documents-required') return [packet.documentReadiness.instruction,
     ...packet.documentReadiness.missing.map(record => `${record.id} — ${record.name}\n${record.commandGuidance.command}`)].join('\n');
@@ -7,6 +9,9 @@ export function sourceReviewContextText(packet) {
   );
   return [
     `Source review context: ${packet.workId} ${packet.phase} generation ${packet.generation}`,
+    ...(packet.progress ? [`Review progress: ${packet.progress.state}`, packet.progress.instruction,
+      ...(packet.progress.error ? [`${packet.progress.error.code}: ${packet.progress.error.message}`] : []),
+      ...(packet.progress.nextAction ? ['', ...formatCommandRouteLines(packet.progress.nextAction), ''] : [])] : []),
     `Artifact: ${packet.artifact.path} · authored-content SHA-256 ${packet.artifact.authoredContentSha256}`,
     `Registered full-file SHA-256: ${packet.artifact.registeredFileSha256} (includes managed metadata; verified)`,
     ...packet.sources.map(source => `Source: ${source.id} · ${source.path} · ${source.originalSha256}`),

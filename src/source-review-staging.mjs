@@ -68,6 +68,10 @@ async function stageReport(root, config, workflow, phaseId, reportJson) {
     await handle?.close().catch(() => {});
     await rm(temporary, { force: true }).catch(() => {});
   }
+  const progress = (await import('./source-review-progress.mjs')).sourceReviewCheckProgress({ binding: context.binding }, stagingPath, checked,
+    sourceReviewStagingProtocol(phaseId, stagingPath));
+  await (await import('./copilot-mutation-guard.mjs')).recordSourceReviewProgress(root,
+    { workId: workflow.workItem.id, phaseId, generation: phase.generation, ...progress });
   return { schemaVersion: 1, resultType: 'source-review-stage', workId: workflow.workItem.id,
     phase: phaseId, generation: phase.generation, stagingPath, status: 'staged',
     effects: { privateStagingChanged: true, filesChanged: true, stateChanged: false, storyAdvanced: false,

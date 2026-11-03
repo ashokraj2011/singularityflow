@@ -21,6 +21,7 @@ import { withCommandObservability } from '../command-observability.mjs';
 import { withCommandConfirmation } from '../command-confirmation.mjs';
 import { withFreshSourceReviewSnapshot } from '../source-review-snapshot.mjs';
 import { measureCommandSpan } from '../dx-timing-context.mjs';
+import { sourceReviewCheckProgress, sourceReviewProgress } from '../source-review-progress.mjs';
 
 export async function run(argv, { positionals, options }) {
   return withCommandObservability(positionals[0], argv, options,
@@ -137,6 +138,9 @@ export async function reviewSourceCommand(positionals, options) {
     if (action === 'check') {
       const checked = checkSourceReviewReport(report, input);
       const protocol = sourceReviewStagingProtocol(phaseId, stagingPath);
+      const progress = sourceReviewCheckProgress(input, stagingPath, checked, protocol);
+      await (await import('../copilot-mutation-guard.mjs')).recordSourceReviewProgress(root,
+        { workId: workflow.workItem.id, phaseId, generation: phase.generation, ...progress });
       const commandGuidance = checked.evaluation?.status === 'stale'
         ? safeCommandGuidance({ argv: ['review-source', 'context', phaseId, '--json'] })
         : checked.retentionReady ? protocol.retain : protocol.check;
@@ -145,7 +149,7 @@ export async function reviewSourceCommand(positionals, options) {
         workId: workflow.workItem.id, phase: phaseId, generation: phase.generation,
         status: checked.format.status !== 'ready' ? checked.format.status : checked.evaluation.status,
         ...checked, findings: [...checked.format.findings, ...(checked.evaluation?.findings ?? [])],
-        stagingPath, stagingProtocol: protocol,
+        stagingPath, stagingProtocol: protocol, progress,
         continuation: { automaticAdvance: false,
           nextAction: { ...guidance, reason: checked.repair.instruction },
           actions: [{ ...guidance, reason: checked.repair.instruction }] } };
@@ -177,6 +181,9 @@ export async function reviewSourceCommand(positionals, options) {
       return retained;
     });
     const status = await readSourceReviewStatus(root, config, await loadStoryAggregate(root, config, workflow.workItem.id), phaseId);
+    const progress = await sourceReviewProgress({ input, retained: status, stagingPath });
+    await (await import('../copilot-mutation-guard.mjs')).recordSourceReviewProgress(root,
+      { workId: workflow.workItem.id, phaseId, generation: phase.generation, ...progress });
     const result = { ...status, commit: publication.sha, pushed: publication.pushed };
     if (optionBoolean(options, 'json')) return console.log(JSON.stringify(result, null, 2));
     console.log(`Source review retained: ${retained.reportSha256} · ${retained.path}`);

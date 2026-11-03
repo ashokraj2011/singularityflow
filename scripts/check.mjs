@@ -177,7 +177,8 @@ if (hooksJson.hooks?.sessionStart != null) fail('plugin/hooks.json must not inje
 // No blanket lifecycle guard: discovery and file edits are restricted only during an explicit SFlow
 // invocation. Keep the closed hook map so native turns cannot acquire an unrelated policy gate.
 const expectedHooks = { userPromptSubmitted: 'boundary-turn', preToolUse: 'boundary-guard',
-  postToolUse: 'boundary-after', sessionEnd: 'boundary-end', subagentStart: 'agent-start' };
+  postToolUse: 'boundary-after', sessionEnd: 'boundary-end', subagentStart: 'agent-start',
+  agentStop: 'boundary-stop', postToolUseFailure: 'boundary-failure' };
 if (Object.keys(hooksJson.hooks ?? {}).sort().join(',') !== Object.keys(expectedHooks).sort().join(',')) {
   fail('plugin/hooks.json must contain only the explicit-turn boundary and custom-agent mapping hooks');
 }

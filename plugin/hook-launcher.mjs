@@ -13,7 +13,7 @@ const [action, ...given] = process.argv.slice(2);
 // shell shares: the turn then names the Node and entry verified below (setHookCli in src/copilot-mode.mjs).
 const OFF_PATH = '--cli-off-path';
 const candidates = given.filter(value => value !== OFF_PATH);
-const actions = new Set(['boundary-turn', 'boundary-guard', 'boundary-after', 'boundary-end', 'agent-start']);
+const actions = new Set(['boundary-turn', 'boundary-guard', 'boundary-after', 'boundary-end', 'agent-start', 'boundary-stop', 'boundary-failure']);
 // The shell launcher skips Node while no SFlow turn is recorded. A runtime that cannot load could
 // not record one either, so leave a marker (RUNTIME_UNAVAILABLE_MARKER in
 // copilot-repository-boundary.mjs) that sends later hooks back here, where the guard refuses.

@@ -1804,6 +1804,10 @@ through native tools, recording method, page/region and observations. It never i
 from upload success or invents text lines for an image. Without a suitable host tool it asks for
 inspection help or a text export; native visual inspection is not built-in OCR.
 
+Source review resumes its existing draft and reports whether authoring, repair or retention remains.
+Hosts with the SFlow stop hook request one continuation when a full review stops after reading.
+See [Resuming a source review](docs/source-review-completion.md) for checkpoints and stop conditions.
+
 Detaching requires a reason and exact confirmation. It never deletes bytes. Singularity Flow records an append-only decision, marks the prompt records of published work that used the document stale, reopens the earliest such phase up to the current one, invalidates its downstream approval cone, commits, and pushes through the lifecycle publication transaction. `--dry-run` previews exactly that. Unrelated phases remain valid. Use `/sf-documents` or `/sf-upload` for the same attach/list/view/detach flow in Copilot, or **Lifecycle → Manage evidence & designs** in VS Code.
 
 Revision feedback files use a separate staging command, not `documents upload`. In an active Story phase, `/sf-revision-attachments` previews a verifiable local text file, shows its original digest and extraction status, and registers it only after exact-plan confirmation. In VS Code, `@sflow /attachments` can preview one local file reference from the exact active Story worktree, but never registers it automatically. The host cannot supply original bytes for opaque chat uploads, so a chat-visible upload alone returns `REV_CHAT_ATTACHMENT_UNAVAILABLE`; save the same file locally and supply its path. Preview stages a short-lived private plan in Git's repository-local storage but changes no Story lifecycle state or Git ref. Registration does not run a REV loop, call a model, change approved intent, approve, or publish. PDF/image registration is disabled until approved malware scanning and validated parsing exist. Run `sflow explain revision-feedback-attachments` for the precise boundary.

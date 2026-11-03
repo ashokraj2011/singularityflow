@@ -6276,7 +6276,7 @@ async function cockpitCommand() {
   ]) printCommandRoutes(command, { indent: '  ' });
 }
 
-const HOOK_EVENTS = ['turn-intent', 'turn-end', 'agent-start', 'session-start', 'agent-guard', 'boundary-turn', 'boundary-guard', 'boundary-end', 'boundary-after'];
+const HOOK_EVENTS = ['turn-intent', 'turn-end', 'agent-start', 'session-start', 'agent-guard', 'boundary-turn', 'boundary-guard', 'boundary-end', 'boundary-after', 'boundary-stop', 'boundary-failure'];
 
 async function hookCommand(positionals) {
   const event = requirePositional(positionals, 1, 'hook event');
@@ -6294,7 +6294,8 @@ async function hookCommand(positionals) {
       const boundary = await import('./copilot-repository-boundary.mjs');
       const handler = { 'boundary-turn': boundary.recordRepositoryBoundaryTurn,
         'boundary-guard': boundary.repositoryToolGuard, 'boundary-end': boundary.endRepositoryBoundaryTurn,
-        'boundary-after': boundary.repositoryPostToolGuard }[event];
+        'boundary-after': boundary.repositoryPostToolGuard, 'boundary-stop': boundary.repositoryAgentStop,
+        'boundary-failure': boundary.repositoryToolFailure }[event];
       return console.log(JSON.stringify(await handler(payload)));
     }
     if ((await import('./copilot-mode.mjs')).readCopilotMode().paused) return console.log('{}');

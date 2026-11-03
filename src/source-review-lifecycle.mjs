@@ -688,7 +688,7 @@ async function evaluateRetainedSourceReview(root, config, workflow, phaseId, inp
   };
 }
 
-/** Build the JSON payload a reviewer authors, with no lifecycle or filesystem mutation. */
+/** Build the reviewer payload and private continuation checkpoint, without changing Story state. */
 export async function sourceReviewContext(root, config, workflow, phaseId, stagingPath) {
   return withSourceReviewSnapshot(root, () => loadSourceReviewContext(root, config, workflow, phaseId, stagingPath));
 }
@@ -724,10 +724,18 @@ async function loadSourceReviewContext(root, config, workflow, phaseId, stagingP
     integrity: { status: 'verified', registeredFileMatches: true,
       comparison: 'distinct-hash-domains', message: 'The registered digest includes managed metadata; the review binds authored content. Do not compare these digests for equality.' },
     text: artifact.text });
+  const stagingProtocol = !conflict && stagingPath
+    ? (await import('./source-review-staging.mjs')).sourceReviewStagingProtocol(phaseId, stagingPath) : null;
+  const { sourceReviewProgress, sourceReviewProgressContinuation } = await import('./source-review-progress.mjs');
+  const progress = stagingProtocol ? await sourceReviewProgress({ input, retained: status, stagingPath,
+    gitDirectory: (await import('./git-execution.mjs')).gitDir(root), protocol: stagingProtocol, check: checkSourceReviewReport }) : null;
+  if (progress && globalThis.__SFLOW_EXTENSION_HOST__ !== true) await (await import('./copilot-mutation-guard.mjs'))
+    .recordSourceReviewProgress(root, { workId: input.workId, phaseId, generation: input.generation, ...progress });
   return {
     schemaVersion: 1, resultType: 'source-review-context', workId: input.workId, // schema-transient
     phase: phaseId, kind: input.kind, generation: input.generation, binding: input.binding,
-    canReview: !conflict, continuation: status.continuation,
+    canReview: !conflict, continuation: progress ? sourceReviewProgressContinuation(progress, status.continuation) : status.continuation,
+    ...(progress ? { progress, afterRetention: status.continuation } : {}),
     authorAgentId: input.authorAgentId, requiredReviewerAgentId: input.reviewerAgentId,
     reviewerAgentSha256: input.reviewerAgentSha256,
     reviewer: { id: input.reviewerAgentId, sha256: input.reviewerAgentSha256,
@@ -747,8 +755,7 @@ async function loadSourceReviewContext(root, config, workflow, phaseId, stagingP
     ...(input.upstreamSpec ? { upstreamSpec: hashView(input.upstreamSpec, input.binding.upstreamSpec) } : {}),
     citationGuide: sourceReviewCitationGuide(input),
     reportSchema: sourceReviewReportSchema(input.kind), reportTemplate, stagingPath,
-    stagingProtocol: !conflict && stagingPath
-      ? (await import('./source-review-staging.mjs')).sourceReviewStagingProtocol(phaseId, stagingPath) : null
+    stagingProtocol
   };
 }
 

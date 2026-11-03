@@ -197,6 +197,7 @@ async function createRecord(payload, record, root, accepted, previous = null) {
   const draftStaging = [...new Set([...sourceText, ...(previous?.draftStaging ?? [])])];
   const value = { schemaVersion: currentSchemaVersion('copilot-mutation-contract'), kind: 'copilot-mutation-contract',
     turnId: record.turnId, sessionId: record.sessionId, skill: record.skill, recordedAt: record.recordedAt,
+    ...(record.reviewCompletionRequested ? { reviewCompletionRequested: true } : {}),
     modeChangedAt: record.modeChangedAt, contract,
     originPhase: previous?.originPhase ?? contract.phaseId,
     // The generation this turn's edits belong to, when one is open; XPL2 observed writes name it.
@@ -210,6 +211,7 @@ async function createRecord(payload, record, root, accepted, previous = null) {
     ...(previous?.fixStaging ? { fixStaging: previous.fixStaging } : {}),
     ...(previous?.specStaging ? { specStaging: previous.specStaging } : {}),
     ...(previous?.appDraftStaging ? { appDraftStaging: previous.appDraftStaging } : {}),
+    ...(samePhase && previous?.reviewOperation ? { reviewOperation: previous.reviewOperation } : {}),
     ...(draftStaging.length ? { draftStaging } : {}),
     // Which turn rules this conversation already has: a refreshed contract does not take them back.
     ...(previous?.contextDigest ? { contextDigest: previous.contextDigest } : {}) };
@@ -1288,7 +1290,7 @@ function bootstrapAllowed(call, record) {
   return Boolean(safe) && families.includes(parseCli(safe.argv).positionals[0]) && shellAllowed(call, 'kernel-only', record);
 }
 
-async function currentContract(payload, record) {
+async function currentContract(payload, record, { reclassifyOutputs = true } = {}) {
   const value = await boundedRecord(recordFile(payload));
   if (record.corrupt || !value.contract || value.turnId !== record.turnId || value.sessionId !== record.sessionId
       || !Number.isFinite(record.recordedAt) || Date.now() < record.recordedAt
@@ -1314,7 +1316,7 @@ async function currentContract(payload, record) {
   }
   // Older builds latched disposable runner output as a forbidden edit. Reclassify only those
   // exact, still-untracked regular files under the verified live contract, never other findings.
-  if (value.findings.some(file => disposableOutputCandidate(value.contract, file))) {
+  if (reclassifyOutputs && value.findings.some(file => disposableOutputCandidate(value.contract, file))) {
     const observed = await shellSnapshot(value.contract.repositoryRoot, value.contract);
     const remaining = value.findings.filter(file => !disposableOutputChange(file, value.baseline, observed, value.contract.repositoryRoot));
     if (remaining.length !== value.findings.length) {
@@ -2053,6 +2055,42 @@ export async function issueMutationStaging(root, target, purpose) {
     });
     await atomicRecord(file, value);
   }
+}
+
+/** A review checkpoint carries no authority: it is scoped to the existing live, exact edit grant. */
+export async function recordSourceReviewProgress(root, progress) {
+  if (readCopilotMode().paused) return;
+  root = await realpath(root);
+  for (const name of (await readdir(directory()).catch(() => [])).filter(name => /^[a-f0-9]{64}\.mutation\.json$/u.test(name))) {
+    const file = path.join(directory(), name);
+    const value = await boundedRecord(file).catch(() => null);
+    if (value?.contract?.repositoryRoot !== root || skillName(value.skill) !== 'review-source') continue;
+    const record = await turn({ sessionId: value.sessionId });
+    if (!record || record.turnId !== value.turnId || turnExpired(value)
+        || value.contract.turnMode !== 'read-only-review' || value.contract.workId !== progress.workId
+        || value.contract.phaseId !== progress.phaseId || value.contract.generation !== progress.generation
+        || !value.contract.allow.staging.includes(path.resolve(progress.stagingPath))) continue;
+    value.reviewOperation = { workId: progress.workId, phaseId: progress.phaseId, generation: progress.generation,
+      bindingSha256: progress.bindingSha256, stagingPath: progress.stagingPath, state: progress.state,
+      complete: progress.complete, instruction: progress.instruction,
+      continued: value.reviewOperation?.continued === true, blocked: value.reviewOperation?.blocked === true };
+    await atomicRecord(file, value);
+  }
+}
+
+/** Completion checks reuse native file stamps; they never discover repositories or spawn Git. */
+export async function reviewCompletionTurn(payload) {
+  const record = await turn(payload);
+  if (!record || record.corrupt || skillName(record.skill) !== 'review-source') return null;
+  try {
+    const value = await currentContract(payload, record, { reclassifyOutputs: false });
+    return value.reviewCompletionRequested === true && value.contract.turnMode === 'read-only-review'
+      && !value.decisionEnded && !value.findings.length ? value : null;
+  } catch { return null; }
+}
+
+export async function saveReviewCompletionTurn(payload, value) {
+  await atomicRecord(recordFile(payload), value);
 }
 
 /** Register exact generated files as read references only, scoped to live turns in this checkout. */

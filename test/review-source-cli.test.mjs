@@ -135,6 +135,12 @@ test('kernel review staging preserves published bytes and proceeds through check
     assert.equal(checked.continuation.nextAction.command, packet.stagingProtocol.retain.command);
     const retained = await guarded(['review-source', 'submit', phaseId, '--report-file', staged.stagingPath, '--json']);
     assert.ok(retained.reportSha256);
+    const retainedHead = git(root, 'rev-parse', 'HEAD');
+    const reopened = completeAgentResult(cli(root, 'review-source', 'context', phaseId, '--for-agent', '--json'));
+    assert.equal(reopened.progress.state, 'retained');
+    assert.equal(reopened.progress.complete, true);
+    assert.equal(reopened.progress.reportSha256, retained.reportSha256);
+    assert.equal(git(root, 'rev-parse', 'HEAD'), retainedHead, 'retrying a completed review cannot commit a duplicate');
     const status = completeAgentResult(cli(root, 'status', WORK_ID, '--json'));
     assert.equal(status.currentPhase, phaseId);
     assert.equal(status.phases[phaseId].generatedAgent, JSON.parse(stateBefore.toString()).phases[phaseId].generatedAgent);
@@ -191,7 +197,8 @@ test('real and copied workflow preparation returns authoring instead of reviewin
     assert.equal(successor.canReview, true);
     assert.equal(successor.binding.generation, 2);
     assert.match(successor.stagingPath, /gen2\.json$/);
-    assert.equal(successor.continuation.nextSkill, '/sf-review-source');
+    assert.equal(successor.progress.state, 'author-report');
+    assert.equal(successor.continuation.nextCommand, null, 'an admitted review proceeds to authoring, not another context entry');
     assert.equal(reviewRoute(root, phaseId).nextCommand,
       `singularity-flow review-source context ${phaseId} --json`);
     assert.notEqual(git(root, 'rev-parse', 'HEAD'), head);

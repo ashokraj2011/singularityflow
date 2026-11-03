@@ -43,6 +43,14 @@ export function explicitSflowSkill(prompt) {
     ?? prompt.trim().match(/^\/((?:sf|sflow)-[a-z0-9-]+)(?=\s|$)/u)?.[1] ?? null;
 }
 
+/** Only the complete review invocation opts into completion; explicit stage/check/status are single steps. */
+export function sourceReviewCompletionRequested(prompt) {
+  if (!['sf-review-source', 'sflow-review-source'].includes(explicitSflowSkill(prompt))) return false;
+  const args = prompt.trim().startsWith('/') ? prompt.trim().replace(/^\/\S+\s*/u, '')
+    : prompt.match(/\bARGUMENTS:\s*([^]*?)\s*<\/skill-context>/u)?.[1];
+  return typeof args === 'string' && !/^(?:context|stage|check|submit|status|decide|decision-context)(?:\s|$)/u.test(args);
+}
+
 /**
  * The one reviewed digest a /sf-confirm prompt carries, or null when it carries none or several.
  * Only this value is kept, never the prompt: it binds the turn to the command the person confirmed.
@@ -119,6 +127,14 @@ async function recordTurn(payload, { now = Date.now(), captureMutation = null })
   await removeRecord(path.join(path.dirname(copilotModeFile()), 'copilot-boundaries', RUNTIME_UNAVAILABLE_MARKER))
     .catch(() => {});
   await settleObservedEdits(payload).catch(() => {});
+  // Some hosts deliver a stop continuation through the prompt hook again. Keep the already issued
+  // live scope for that one continuation; the marker alone cannot create or widen permissions.
+  if (typeof payload.prompt === 'string' && payload.prompt.startsWith('SFLOW_SOURCE_REVIEW_INCOMPLETE:')) {
+    const value = await (await import('./copilot-mutation-guard.mjs')).reviewCompletionTurn(payload);
+    if (value?.reviewOperation?.continued && !value.reviewOperation.complete && !value.reviewOperation.blocked) {
+      return { additionalContext: 'Continue the same admitted source review using its existing exact paths and pinned inputs; no new entry or authority was granted.' };
+    }
+  }
   const file = recordPath(payload);
   if (!file) return {};
   const mode = readCopilotMode();
@@ -136,7 +152,8 @@ async function recordTurn(payload, { now = Date.now(), captureMutation = null })
   if (!stat.isDirectory() || stat.isSymbolicLink()) return {};
   const confirm = ['sf-confirm', 'sflow-confirm'].includes(skill) ? confirmedDigest(payload.prompt) : null;
   const record = { schemaVersion: currentSchemaVersion(FAMILY), sessionId: sessionId(payload), skill, turnId: randomUUID(),
-    recordedAt: now, modeChangedAt: mode.changedAt, ...(confirm ? { confirmDigest: confirm } : {}) };
+    recordedAt: now, modeChangedAt: mode.changedAt, ...(confirm ? { confirmDigest: confirm } : {}),
+    ...(sourceReviewCompletionRequested(payload.prompt) ? { reviewCompletionRequested: true } : {}) };
   const temporary = path.join(directory, `.${randomUUID()}.tmp`);
   try {
     await writeFile(temporary, `${JSON.stringify(record)}\n`, { flag: 'wx', mode: 0o600 });
@@ -163,6 +180,8 @@ export async function endRepositoryBoundaryTurn(payload = {}) {
 export async function repositoryToolGuard(payload = {}) {
   const explicitTurn = await hasBoundaryTurn(payload);
   const decision = explicitTurn ? await turnToolGuard(payload) : await personStepGuard(payload);
+  if (explicitTurn && decision.permissionDecision === 'deny') await (await import('./copilot-review-completion.mjs'))
+    .noteReviewCompletionFailure(payload, decision.permissionDecisionReason).catch(() => {});
   await attribute(payload, (recorder, directory) => recorder.sfGuardNoteToolCall(payload, decision, { directory, explicitTurn }));
   return decision;
 }
@@ -184,6 +203,14 @@ export async function repositoryPostToolGuard(payload = {}) {
   if (!(await hasBoundaryTurn(payload))) return {};
   try { return await (await import('./copilot-mutation-guard.mjs')).mutationPostToolGuard(payload); }
   catch { const refusal = boundaryGuardUnavailable(); return { ...refusal, continue: false, additionalContext: refusal.permissionDecisionReason }; }
+}
+
+export async function repositoryAgentStop(payload = {}) {
+  return (await import('./copilot-review-completion.mjs')).sourceReviewAgentStop(payload);
+}
+
+export async function repositoryToolFailure(payload = {}) {
+  return (await import('./copilot-review-completion.mjs')).noteReviewCompletionFailure(payload);
 }
 
 /** A tool call that names no SFlow command passes untouched; the guard loads only for one that does. */
@@ -415,7 +442,8 @@ export async function runRepositoryBoundaryHook(event, input = process.stdin) {
     }
     const handler = { 'boundary-turn': recordRepositoryBoundaryTurn,
       'boundary-guard': repositoryToolGuard, 'boundary-end': endRepositoryBoundaryTurn,
-      'boundary-after': repositoryPostToolGuard }[event];
+      'boundary-after': repositoryPostToolGuard, 'boundary-stop': repositoryAgentStop,
+      'boundary-failure': repositoryToolFailure }[event];
     // A Windows hook launcher passes this through PowerShell, which decodes it in the console's code page.
     return console.log(codePageSafeJson(JSON.stringify(await handler(payload))));
   } catch { return console.log('{}'); }

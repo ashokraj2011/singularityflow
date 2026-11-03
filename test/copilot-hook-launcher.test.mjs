@@ -16,8 +16,8 @@ const packageRoot = fileURLToPath(new URL('../', import.meta.url));
 const pluginRoot = path.join(packageRoot, 'plugin');
 const bootstrap = path.join(pluginRoot, 'hook-launcher.mjs');
 const cli = path.join(packageRoot, 'bin/singularity-flow.mjs');
-const actions = ['boundary-turn', 'boundary-guard', 'boundary-after', 'boundary-end', 'agent-start'];
-const events = ['userPromptSubmitted', 'preToolUse', 'postToolUse', 'sessionEnd', 'subagentStart'];
+const actions = ['boundary-turn', 'boundary-guard', 'boundary-after', 'boundary-end', 'agent-start', 'boundary-stop', 'boundary-failure'];
+const events = ['userPromptSubmitted', 'preToolUse', 'postToolUse', 'sessionEnd', 'subagentStart', 'agentStop', 'postToolUseFailure'];
 // Restrict execution-policy bypass to these disposable test processes, not the machine policy.
 const powershellArgs = ['-NoLogo', '-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass', '-Command'];
 const powershell = ['pwsh', ...(process.platform === 'win32' ? ['powershell'] : [])].find(command =>

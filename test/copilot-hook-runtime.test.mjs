@@ -43,7 +43,7 @@ async function fixture(t) {
 
 test('dedicated entry preserves native, malformed and paused hook responses outside Git', async t => {
   const item = await fixture(t);
-  const actions = ['boundary-turn', 'boundary-guard', 'boundary-after', 'boundary-end', 'agent-start'];
+  const actions = ['boundary-turn', 'boundary-guard', 'boundary-after', 'boundary-end', 'agent-start', 'boundary-stop', 'boundary-failure'];
   for (const action of actions) {
     assert.deepEqual(item.same(action, '{}'), {});
     assert.deepEqual(item.same(action, '{broken'), {});

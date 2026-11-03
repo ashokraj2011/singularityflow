@@ -770,7 +770,7 @@ async function runMain(argv, utilityEntry = null, explicitContextRoot = null) {
     const operation = resolveOperation({ requestedCommand: 'hook', positionals, options });
     return withOperationContext({ operation, modelMode, root: null, argvSha256,
       argvHash: `sha256:${argvSha256}`, command: 'hook', startedAt: new Date().toISOString() }, async () => {
-      if (['boundary-turn', 'boundary-guard', 'boundary-after', 'boundary-end'].includes(positionals[1])) {
+      if (['boundary-turn', 'boundary-guard', 'boundary-after', 'boundary-end', 'boundary-stop', 'boundary-failure'].includes(positionals[1])) {
         return (await import('./copilot-repository-boundary.mjs')).runRepositoryBoundaryHook(positionals[1]);
       }
       // A declared agent's stamping hook [SPEC-SFG-v1 D4]; it records while paused too, and answers {}.

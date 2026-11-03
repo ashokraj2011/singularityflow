@@ -4,7 +4,7 @@
 set -u
 action=${1:-}
 case "$action" in
-  boundary-turn|boundary-guard|boundary-after|boundary-end|agent-start) ;;
+  boundary-turn|boundary-guard|boundary-after|boundary-end|agent-start|boundary-stop|boundary-failure) ;;
   *) printf '%s\n' '{}'; exit 0 ;;
 esac
 launcher_dir=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd -P)
@@ -59,7 +59,7 @@ if [[ "$managed_root" == /* && -f "$managed_root/active" ]]; then
     managed_cli="$managed_root/releases/$managed_release/node_modules/singularity-flow/bin/singularity-flow.mjs"
     if [[ -x "$managed_node" && -f "$managed_cli" ]]; then
       case "$action" in
-        boundary-guard|boundary-after|boundary-end)
+        boundary-guard|boundary-after|boundary-end|boundary-stop|boundary-failure)
           managed_mode=${SINGULARITY_FLOW_COPILOT_MODE_FILE:-${HOME:-}/.singularity-flow/copilot-mode.json}
           if [[ "$managed_mode" == /* && "$managed_mode" != */ && "$managed_mode" != *'/./'* && "$managed_mode" != *'/../'* ]]; then
             shopt -s nullglob
@@ -95,7 +95,7 @@ if [[ -n "$node_path" ]]; then
   # a call). Any entry, including the marker a runtime that failed to load leaves, sends the hook
   # to Node as before. Mirrors copilotModeFile().
   case "$action" in
-    boundary-guard|boundary-after|boundary-end)
+    boundary-guard|boundary-after|boundary-end|boundary-stop|boundary-failure)
       mode_file=${SINGULARITY_FLOW_COPILOT_MODE_FILE:-}
       if [[ -z "$mode_file" && "${HOME:-}" == /* ]]; then mode_file="$HOME/.singularity-flow/copilot-mode.json"; fi
       if [[ "$mode_file" == /* && "$mode_file" != */ && "$mode_file" != *'/./'* && "$mode_file" != *'/../'* ]]; then

@@ -10,7 +10,7 @@ import { resolveModelMode } from './model-mode.mjs';
 import { withOperationContext } from './operation-context.mjs';
 
 export const COPILOT_PLUGIN_HOOK_ACTIONS = Object.freeze([
-  'boundary-turn', 'boundary-guard', 'boundary-after', 'boundary-end', 'agent-start'
+  'boundary-turn', 'boundary-guard', 'boundary-after', 'boundary-end', 'agent-start', 'boundary-stop', 'boundary-failure'
 ]);
 
 async function runAgentStart(input) {

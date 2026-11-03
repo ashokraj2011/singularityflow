@@ -388,6 +388,29 @@ test('a source review\'s reads all fit what the host file tool shows in one read
   assert.equal(story.read, undefined, 'a short source is read whole');
 });
 
+test('omitted pretty JSON fields advertise safe field-specific reads and actual disk bytes', async t => {
+  const root = await mkdtemp(path.join(os.tmpdir(), 'sflow-schema-reads-'));
+  t.after(() => rm(root, { recursive: true, force: true }));
+  assert.equal(spawnSync('git', ['init', '-q', root]).status, 0);
+  const reportSchema = { type: 'object', properties: Object.fromEntries(Array.from({ length: 95 }, (_, i) =>
+    [`field${i}`, { type: 'string', minLength: 1, maxLength: 128 }])) };
+  assert.ok(Buffer.byteLength(JSON.stringify(reportSchema)) < READ_CHUNK_BYTES, 'compact value misleadingly fits one read');
+  const result = { resultType: 'source-review-agent-context', canReview: true, ready: true, repositoryPath: root,
+    sources: [{ id: 'story', text: 'Keep the pinned source.' }], reportSchema,
+    artifact: { text: 'Authored artifact.\n'.repeat(500) } };
+  const output = await boundedAgentOutput(JSON.stringify(result), { cwd: root });
+  assert.ok(Buffer.byteLength(output) <= DEFAULT_AGENT_OUTPUT_BYTES);
+  const view = JSON.parse(output);
+  const reference = view.omittedFields.find(field => field.field === 'reportSchema');
+  const lines = (await readFile(view.agentOutput.path, 'utf8')).split('\n');
+  const range = lines.slice(reference.lines[0] - 1, reference.lines[1]).join('\n') + '\n';
+  assert.equal(reference.bytes, Buffer.byteLength(range));
+  assert.ok(reference.bytes > 8000);
+  assert.ok(reference.read.length >= 2);
+  for (const [start, end] of reference.read) assert.ok(Buffer.byteLength(lines.slice(start - 1, end).join('\n')) <= READ_CHUNK_BYTES);
+  assert.deepEqual(completeAgentResult(view).reportSchema, reportSchema);
+});
+
 test('review document bodies and text given elsewhere become reference files outside the reads, restored whole', async (t) => {
   const root = await mkdtemp(path.join(os.tmpdir(), 'sflow-agent-references-'));
   t.after(() => rm(root, { recursive: true, force: true }));

@@ -15,7 +15,7 @@ The context reports the next step from the actual files and retained evidence:
 | `retained` | Show the existing review and its next action; do not retain a duplicate. |
 | `review-changed-inputs` | Use the fresh context to independently re-review; the old draft is preserved at `previousDraftPath`. |
 | `read-error` | Show the original file error and preserve the existing bytes. |
-| `reload-context` | Resolve the changed input binding before reviewing again. |
+| `reload-context` | A check observed changed inputs; load fresh context once, then use its current report template. |
 
 A new invocation uses a fresh binding and resumes the existing generation's private draft.
 It does not recreate the Story or copy judgments into changed inputs. An admitted context
@@ -40,3 +40,17 @@ no permissions. A host without this stop hook still receives the same resumable 
 Omitted output fields report their formatted-file byte size and safe inclusive `read` ranges.
 Use those ranges exactly. `agentOutput.complete: false` means the display is bounded; it does
 not declare whether the review is complete.
+
+## Qualification
+
+The final checkpoint, stale-draft preservation and portable hook tests ran natively on macOS
+and Windows with Node 22.23.4 and 26.13.0. Both macOS cells passed 85 tests without skips.
+Both Windows cells passed 76 tests; nine shell-specific cases were skipped there and executed
+on macOS. All four cells passed CLI building, VS Code typechecking and the 3,406 product checks.
+The earlier full review matrix also exercised publication, fresh retention bindings, citations
+and independent-reviewer provenance; its two Windows fixture assumptions were corrected and
+rechecked in the final matrix.
+
+Existing main debt remains separate: nine skill-wording assertions fail in the broader plugin
+suite, and the gateway bundle has 824 modules against its 817 limit. This change adds no gateway
+modules and raises no limits. This feature qualification does not grant release approval.

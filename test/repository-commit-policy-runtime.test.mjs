@@ -7,6 +7,7 @@ import {rcpFixture,registeredRcpPolicy} from './helpers/rcp-fixture.mjs';
 import {createRepositoryPolicyCommit,withRepositoryPolicyRefAdmission,observePolicyCommit} from '../src/repository-commit-policy/runtime.mjs';
 import {run} from '../src/util.mjs';
 import {withoutGitProcessOverrides} from '../src/git-enterprise-environment.mjs';
+import {operationForCommit,readCommitPolicyRecord} from '../src/repository-commit-policy/records.mjs';
 const environment=()=>({...withoutGitProcessOverrides(process.env),GIT_NO_REPLACE_OBJECTS:'1',GIT_NO_LAZY_FETCH:'1'});
 function request(f,tree,id='one'){return {subject:f.subject,purpose:'story',ref:f.ref,tree,parents:[f.parent],message:'implement behavior\n\nSingularity-Flow-Transaction: test',allowedPaths:['source.js'],operationId:id};}
 async function advance(f,result){return withRepositoryPolicyRefAdmission(result.admission,()=>run('git',['update-ref','--no-deref',f.ref,result.commit,f.parent],{cwd:f.root,env:environment()}));}
@@ -19,6 +20,9 @@ test('registered object verification precedes the owner CAS and preserves unrela
  assert.equal(f.git(f.root,['rev-parse','HEAD']),f.parent);
  const object=observePolicyCommit(f.root,result.commit); assert.equal(object.tree,tree);assert.equal(object.parents[0],f.parent);
  assert.match(object.message,/^WEB-221: implement behavior\n\nSingularity-Flow-Transaction: test\n$/u);
+ const retained=await operationForCommit(f.root,result.commit),discovery=await readCommitPolicyRecord(f.root,retained.discovery),issued=await readCommitPolicyRecord(f.root,retained.plan);
+ assert.equal(discovery.discoverySha256,issued.discoverySha256);assert.equal(discovery.observationsOnly,true);
+ assert.ok(discovery.configuration.some(setting=>setting.name==='user.name'&&setting.origin));
  assert.equal(f.git(f.root,['diff','--cached']),before);
  await advance(f,result);assert.equal(f.git(f.root,['rev-parse','HEAD']),result.commit);
  const resumed=await createRepositoryPolicyCommit(f.root,request(f,tree));assert.equal(resumed.commit,result.commit);assert.equal(resumed.reused,true);assert.equal(resumed.refAdvanced,true);

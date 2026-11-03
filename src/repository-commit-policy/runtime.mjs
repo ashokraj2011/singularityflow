@@ -54,7 +54,8 @@ export async function createRepositoryPolicyCommit(root, request, {
     ? { ownerActionId: request.operationId, subject: request.subject, purpose: request.purpose, ref: request.ref }
     : { subject: request.subject, purpose: request.purpose, ref: request.ref, tree: request.tree, parents: request.parents, message: request.message });
   const prior = await readCommitPolicyOperation(root, operationId);
-  const policyBinding = await (await import('./context.mjs')).resolveRepositoryCommitPolicy(root,{env});
+  const {resolveRepositoryCommitPolicy,repositoryCommitPolicyBinding}=await import('./context.mjs');
+  const policyBinding = await resolveRepositoryCommitPolicy(root,{env});
   const plan = await planRepositoryCommit(root, { ...request, policyBinding, operationId, ...(prior ? { expectedLocalRef: prior.expectedLocalRef } : {}) });
   if (plan.status === 'not-applicable') {
     if (typeof legacyCreate !== 'function') return null;
@@ -85,9 +86,10 @@ export async function createRepositoryPolicyCommit(root, request, {
     const signing = resolveGitCommitSigning(root, { env, required: sign || policy.signing?.required === true });
     if (signingKey && signing.key !== signingKey) rcpFailure('RCP_PLAN_STALE', 'The owner’s frozen signing key no longer matches the configured signer. No commit was created.');
     const planReference = await retainCommitPolicyRecord(root, 'plan', plan);
+    const discoveryReference = await retainCommitPolicyRecord(root, 'discovery', repositoryCommitPolicyBinding(policyBinding).discovery);
     operation ??= { createdAt: nowIso(), changedNormalizationAttempts: 0, attempts: [] };
     operation = await writeCommitPolicyOperation(root, operationId, { ...operation, stage: 'planned', planSha256: plan.planSha256,
-      plan: planReference, ownerActionId: request.operationId ?? null, subject: plan.subject, purpose: plan.purpose, ref: plan.ref, identity, expectedLocalRef: plan.expectedLocalRef });
+      plan: planReference, discovery: discoveryReference, ownerActionId: request.operationId ?? null, subject: plan.subject, purpose: plan.purpose, ref: plan.ref, identity, expectedLocalRef: plan.expectedLocalRef });
     let validation = null, native = null;
     if (profile.adapter === 'registered-checks') validation = await validateRegisteredCommitPlan(plan, { operationId });
     await assertCommitPlanCurrent(plan);

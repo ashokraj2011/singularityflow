@@ -17,12 +17,15 @@ export async function rcpFixture(t, policy = registeredRcpPolicy()) {
   const base = await mkdtemp(path.join(os.tmpdir(), 'sflow-rcp-owner-'));
   t.after(() => rm(base, { recursive: true, force: true, maxRetries: 10, retryDelay: 80 }));
   function git(cwd, args, options = {}) {
-    const result = spawnSync('git', args, { cwd, encoding: 'utf8', timeout: 30000, ...options });
-    if (result.status !== 0) throw new Error(`${args[0]}: ${result.stderr}`);
+    const result = spawnSync('git', args, { cwd, encoding: 'utf8', timeout: 60000, maxBuffer: 4 * 1024 * 1024, ...options });
+    if (result.status !== 0) throw new Error(`${args[0]} (${result.error?.code ?? result.status}): ${result.stderr}`);
     return result.stdout.trim();
   }
   const source = path.join(base, 'source'), remote = path.join(base, 'authority.git'), root = path.join(base, 'workspace');
   git(base, ['init', '-q', '--template=', '-b', 'main', source]);
+  // These exact-byte fixtures use LF on both hosts; do not inherit the runner's mass
+  // checkout-conversion warnings or turn slow fixture setup into a product refusal.
+  git(source, ['config', 'core.autocrlf', 'false']);
   git(source, ['config', 'user.name', 'Repository Owner']); git(source, ['config', 'user.email', 'owner@example.invalid']);
   await initializeDefinition(source);
   const definitionFile = path.join(source, 'singularity/workflow.yml');
@@ -33,6 +36,7 @@ export async function rcpFixture(t, policy = registeredRcpPolicy()) {
   git(source, ['add', '.']); git(source, ['commit', '-qm', 'Existing repository setup']);
   git(source, ['branch', 'sflow/config']); git(base, ['clone', '-q', '--bare', source, remote]);
   git(base, ['clone', '-q', pathToFileURL(remote).href, root]);
+  git(root, ['config', 'core.autocrlf', 'false']);
   git(root, ['config', 'user.name', 'Story Author']); git(root, ['config', 'user.email', 'author@example.invalid']);
   git(root, ['switch', '-q', '-c', 'WEB-221']);
   await mkdir(path.join(root, 'singularity/work-items/WEB-221'), { recursive: true });

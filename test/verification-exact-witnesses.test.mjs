@@ -210,7 +210,9 @@ test('§12 #8 for JUnit 5 through a real Story: skipped, filtered, missing and d
     'pom.xml': '<project><modelVersion>4.0.0</modelVersion><groupId>example</groupId><artifactId>order</artifactId><version>1</version></project>\n',
     '.gitignore': 'target/\n',
     // A stand-in Maven wrapper: it writes the Surefire report a real run of this module produces.
-    mvnw: `#!/bin/sh\nmkdir -p target/surefire-reports\ncat > target/surefire-reports/TEST-example.OrderTest.xml <<'XML'\n${report}XML\n`,
+    mvnw: '#!/bin/sh\nexec node tools/maven-shim.mjs\n',
+    'mvnw.cmd': '@echo off\r\nnode "%~dp0tools\\maven-shim.mjs"\r\n',
+    'tools/maven-shim.mjs': `import { mkdir, writeFile } from 'node:fs/promises';\nawait mkdir('target/surefire-reports', { recursive: true });\nawait writeFile('target/surefire-reports/TEST-example.OrderTest.xml', ${JSON.stringify(report)});\n`,
     'src/main/java/example/Order.java': 'package example;\nfinal class Order { int total() { return 1; } }\n',
     'src/test/java/example/OrderTest.java': 'package example;\nimport org.junit.jupiter.api.Test;\nfinal class OrderTest {\n  @Test void totalsTheOrder() {}\n}\n'
   }, { executables: ['mvnw'] });

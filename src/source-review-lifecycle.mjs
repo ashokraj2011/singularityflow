@@ -729,6 +729,8 @@ async function loadSourceReviewContext(root, config, workflow, phaseId, stagingP
   const { sourceReviewProgress, sourceReviewProgressContinuation } = await import('./source-review-progress.mjs');
   const progress = stagingProtocol ? await sourceReviewProgress({ input, retained: status, stagingPath,
     gitDirectory: (await import('./git-execution.mjs')).gitDir(root), protocol: stagingProtocol, check: checkSourceReviewReport }) : null;
+  if (progress?.previousDraftPath && globalThis.__SFLOW_EXTENSION_HOST__ !== true) await (await import('./copilot-mutation-guard.mjs'))
+    .issueMutationReadPaths(root, [progress.previousDraftPath]);
   if (progress && globalThis.__SFLOW_EXTENSION_HOST__ !== true) await (await import('./copilot-mutation-guard.mjs'))
     .recordSourceReviewProgress(root, { workId: input.workId, phaseId, generation: input.generation, ...progress });
   return {

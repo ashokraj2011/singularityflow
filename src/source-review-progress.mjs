@@ -1,6 +1,7 @@
 /** Resume from observed private drafts and retained evidence; never infer reviewer judgments. */
 import { constants } from 'node:fs';
-import { lstat, open } from 'node:fs/promises';
+import { createHash, randomUUID } from 'node:crypto';
+import { link, lstat, open, rm } from 'node:fs/promises';
 import path from 'node:path';
 import { recordSha256 } from './records.mjs';
 
@@ -26,9 +27,31 @@ export async function readSourceReviewDraft(file, gitDirectory) {
     if (!info.isFile() || info.nlink !== 1 || info.size > MAXIMUM_BYTES) throw new Error('Review draft changed while opening.');
     const text = await handle.readFile('utf8');
     if (Buffer.byteLength(text) > MAXIMUM_BYTES) throw new Error('Review draft grew beyond its read limit.');
-    try { return { report: JSON.parse(text) }; }
-    catch (error) { return { error: { code: 'SOURCE_REVIEW_REPORT_INVALID', message: error.message } }; }
+    try { return { report: JSON.parse(text), raw: text }; }
+    catch (error) { return { raw: text, error: { code: 'SOURCE_REVIEW_REPORT_INVALID', message: error.message } }; }
   } finally { await handle.close(); }
+}
+
+/** Preserve stale draft bytes independently of the editable staging inode, without overwriting. */
+async function preservePreviousDraft(file, gitDirectory, draft) {
+  const sha = createHash('sha256').update(draft.raw).digest('hex');
+  const previous = path.join(path.dirname(file), `previous-review-${sha}.txt`);
+  const temporary = path.join(path.dirname(file), `.previous-review-${randomUUID()}.tmp`);
+  let handle;
+  try {
+    handle = await open(temporary, 'wx', 0o600);
+    await handle.writeFile(draft.raw); await handle.sync(); await handle.close(); handle = null;
+    try { await link(temporary, previous); }
+    catch (error) {
+      if (error.code !== 'EEXIST') throw error;
+      const existing = await readSourceReviewDraft(previous, gitDirectory);
+      if (existing?.raw !== draft.raw) throw new Error('The previous review backup does not match its content address; existing files were preserved.');
+    }
+  } finally {
+    await handle?.close().catch(() => {});
+    await rm(temporary, { force: true });
+  }
+  return previous;
 }
 
 export function sourceReviewCheckProgress(input, stagingPath, checked, protocol) {
@@ -54,7 +77,17 @@ export async function sourceReviewProgress({ input, retained, stagingPath, gitDi
     instruction: 'Author the independent report at stagingPath now using reportTemplate and the pinned inputs. Then check and retain it. An honest correction-required review can be retained; an unwritten report cannot. Do not relay the context command as the next step.' };
   if (draft.error) return { ...base, state: 'repair-report', error: draft.error, nextAction: protocol.check,
     instruction: 'Read and repair the JSON at stagingPath, preserving the existing draft. Check the changed packet and retain it when valid.' };
-  return sourceReviewCheckProgress(input, stagingPath, check(draft.report, input), protocol);
+  const progress = sourceReviewCheckProgress(input, stagingPath, check(draft.report, input), protocol);
+  if (progress.state !== 'reload-context') return progress;
+  // This invocation already loaded fresh inputs. Re-entering context would find the same stale
+  // file forever. Keep it as an exact private backup and require new independent judgments here.
+  try {
+    const previousDraftPath = await preservePreviousDraft(stagingPath, gitDirectory, draft);
+    return { ...base, state: 'review-changed-inputs', previousDraftPath,
+      instruction: 'This context is already fresh. The previous draft is preserved at previousDraftPath. Independently review the current pinned inputs and author a replacement from reportTemplate at stagingPath; never transplant stale citations, binding or judgments. Then check and retain it. Do not request context again.' };
+  } catch (error) { return { ...base, state: 'read-error',
+    error: { code: error.code ?? 'SOURCE_REVIEW_DRAFT_PRESERVATION_FAILED', message: error.message },
+    instruction: 'Preserve the original staged report and report this exact preservation error; no draft was replaced.' }; }
 }
 
 /** The operation already entered: its next step is authoring/repair/retention, never entry again. */

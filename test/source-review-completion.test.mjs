@@ -121,9 +121,19 @@ test('interrupted malformed/citation drafts resume at repair while honest retain
   assert.equal(resumed.progress.state, 'repair-report');
   assert.ok(resumed.progress.repair.citations.length);
   const stale = structuredClone(report); stale.binding.generation = 2;
-  await writeFile(packet.stagingPath, JSON.stringify(stale));
+  const oldDraft = JSON.stringify(stale);
+  await writeFile(packet.stagingPath, oldDraft);
   resumed = await item.context();
-  assert.equal(resumed.progress.state, 'reload-context');
+  assert.equal(resumed.progress.state, 'review-changed-inputs');
+  assert.equal(resumed.continuation.nextCommand, null, 'the current fresh context must not route to another context');
+  assert.equal(await readFile(resumed.progress.previousDraftPath, 'utf8'), oldDraft);
+  assert.deepEqual(await repositoryToolGuard({ ...item.hook, toolName: 'view',
+    toolArgs: { path: resumed.progress.previousDraftPath } }), {}, 'the exact preserved draft is issued for reading');
+  const repeated = await item.context();
+  assert.equal(repeated.progress.previousDraftPath, resumed.progress.previousDraftPath, 'unchanged drafts share one content-addressed backup');
+  assert.equal((await item.stop()).decision, 'block', 'a fresh entry owns independent re-review of an old-bound draft');
+  await writeFile(packet.stagingPath, JSON.stringify(reviewReport(packet)));
+  assert.equal(await readFile(resumed.progress.previousDraftPath, 'utf8'), oldDraft, 'editing the new draft never changes the preserved inode');
   const complete = await sourceReviewProgress({ input: { binding: packet.binding }, stagingPath: packet.stagingPath,
     retained: { status: 'correction-required', reportPath: 'retained.json', reportSha256: 'a'.repeat(64) } });
   assert.equal(complete.complete, true, 'retaining an honest gap completes review, not approval');

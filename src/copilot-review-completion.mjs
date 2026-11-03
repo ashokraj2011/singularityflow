@@ -21,7 +21,7 @@ export async function sourceReviewAgentStop(payload = {}) {
   const value = await reviewCompletionTurn(payload);
   const operation = value?.reviewOperation;
   if (!operation || operation.continued || operation.blocked || operation.complete
-      || !['author-report', 'repair-report', 'retain-report'].includes(operation.state)
+      || !['author-report', 'repair-report', 'retain-report', 'review-changed-inputs'].includes(operation.state)
       || operation.workId !== value.contract.workId || operation.phaseId !== value.contract.phaseId
       || operation.generation !== value.contract.generation
       || !value.contract.allow.staging.includes(operation.stagingPath)) return {};
@@ -29,10 +29,13 @@ export async function sourceReviewAgentStop(payload = {}) {
   try { draft = await readSourceReviewDraft(operation.stagingPath, value.binding.gitDir); }
   catch { return {}; }
   // An independently changed binding needs a fresh entry, never a transplanted judgment.
-  if (draft?.report?.binding && recordSha256(draft.report.binding) !== operation.bindingSha256) return {};
+  if (draft?.report?.binding && recordSha256(draft.report.binding) !== operation.bindingSha256
+      && operation.state !== 'review-changed-inputs') return {};
   const check = safeCommandGuidance({ argv: ['review-source', 'check', operation.phaseId,
     '--report-file', operation.stagingPath, '--for-agent', '--json'] });
-  const next = draft && !draft.error ? `Run ${check.command} now, then follow its repair or retention route.`
+  const next = operation.state === 'review-changed-inputs'
+    ? `The current context is fresh and the old draft was preserved. Independently review the current pinned inputs and author a replacement from the current reportTemplate at ${operation.stagingPath}; never reuse stale bindings or judgments. Then run ${check.command} and retain when retentionReady.`
+    : draft && !draft.error && operation.state !== 'repair-report' ? `Run ${check.command} now, then follow its repair or retention route.`
     : `${draft ? 'Repair the existing JSON' : 'Author the independent report from the issued template and already read pinned inputs'} at ${operation.stagingPath}. Then run ${check.command} and retain when retentionReady.`;
   operation.continued = true;
   if (!await saveReviewCompletionTurn(payload, value, { once: true })) return {};

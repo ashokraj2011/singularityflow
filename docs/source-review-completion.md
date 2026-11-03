@@ -13,6 +13,7 @@ The context reports the next step from the actual files and retained evidence:
 | `repair-report` | Preserve the existing draft, correct its JSON/citations/mappings and check the changed packet. |
 | `retain-report` | Retain the validated report using the returned command. |
 | `retained` | Show the existing review and its next action; do not retain a duplicate. |
+| `review-changed-inputs` | Use the fresh context to independently re-review; the old draft is preserved at `previousDraftPath`. |
 | `read-error` | Show the original file error and preserve the existing bytes. |
 | `reload-context` | Resolve the changed input binding before reviewing again. |
 

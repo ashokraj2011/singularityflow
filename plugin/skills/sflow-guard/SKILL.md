@@ -2,6 +2,7 @@
 name: sflow-guard
 description: Show SF Guard, presence-signed person steps — whether it is on, each approver's pinned key, per-person exceptions and policy problems. Read-only.
 disable-model-invocation: true
+
 ---
 # Show SF Guard
 

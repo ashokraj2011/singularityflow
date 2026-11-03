@@ -6,6 +6,32 @@ import { phaseUsesDeterministicGeneration } from './manual-authorship.mjs';
 import { safeCommandGuidance } from './safe-command-guidance.mjs';
 import { phaseAuthoredReviewArtifacts } from './artifact-review-read.mjs';
 
+/** The current task, not a promise that reading or preparation completed its deliverable. */
+export function phaseTaskCompletion(result) {
+  const successor = result?.status === 'successor-preparation-required' && result.successor?.preparation;
+  if (result?.resultType !== 'sflow-phase-entry' || !result.ready || result.paused
+      || !result.workId || !result.phase || !successor && (!result.authoringProgress
+      || result.authoring?.entry?.status !== 'authoring-entry')) return null;
+  const allowed = result.authoringAllowed === true && result.contextAdmission?.allowed !== false;
+  const loadContext = allowed && result.contextComposition === 'not-requested';
+  const compact = action => {
+    const value = action?.commandGuidance ?? action;
+    return value ? { command: value.command ?? null, copilotCommand: value.copilotCommand ?? value.skill ?? null,
+      modelFreeCommand: value.modelFreeCommand ?? null } : null;
+  };
+  return { revision: 'workflow-task-completion-v1', kind: 'phase-authoring', workId: result.workId,
+    phaseId: result.phase, generation: successor ? result.successor.targetGeneration : result.authoringProgress.generation,
+    complete: false, state: successor ? 'prepare-successor' : loadContext ? 'load-context' : allowed ? 'author-draft' : 'blocked',
+    checkpoint: 'published-generation', publicationVerified: false,
+    nextAction: compact(successor || (loadContext ? safeCommandGuidance({ argv: ['phase', 'enter', result.phase,
+      '--work-id', result.workId, '--compose', '--for-agent', '--json'] })
+      : allowed ? result.authoringProgress.next : result.next?.[0])),
+    recheck: compact(safeCommandGuidance({ argv: ['phase', 'prepublish', result.phase, '--work-id', result.workId,
+      '--for-agent', '--json', '--publish-if-ready'] })),
+    recovery: compact(safeCommandGuidance({ argv: ['recover', result.workId, '--phase', result.phase, '--for-agent', '--json'] })),
+    instruction: 'Input reads, preparation and diagnostic tests are incomplete. Finish the admitted task or preserve its exact blocker and owner route. Never submit, approve or start another phase.' };
+}
+
 export function phaseAuthoringProgress(workflow, phase, { draftEvidence = null } = {}) {
   if (!phase || phase.status !== 'in_progress' || workflow.currentPhase !== phase.id
       || !phaseNeedsGeneration(workflow, phase) || phaseUsesDeterministicGeneration(phase)) return null;

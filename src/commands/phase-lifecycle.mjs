@@ -207,6 +207,7 @@ export async function phaseCommand(positionals, options) {
       requestedProducer: optionBoolean(options, 'for-agent') ? agentPublicationProducer(phase) : null
     });
     if (optionBoolean(options, 'for-agent')) {
+      await (await import('../copilot-mutation-guard.mjs')).recordPhaseTaskCheck(root, result).catch(() => {});
       const { phaseAgentResult } = await import('../phase-agent-result.mjs');
       return console.log(JSON.stringify(phaseAgentResult(result)));
     }

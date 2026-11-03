@@ -257,7 +257,8 @@ export function mutationToolProtocol(contract) {
   const authoring = contract.turnMode === 'authoring';
   const verification = authoring && (contract.allow.application || contract.allow.artifacts.length > 0);
   return { paths: CLI_PATH_CONTRACT,
-    read: `Use native file-read tools at the exact issued path, including Git-private files outside the checkout.${authoring ? '' : ' Do not run shell parsers or wrappers in a restricted turn.'}`,
+    read: `Use native file-read tools at the exact issued path, including Git-private files outside the checkout. Recover size/range limits using issued readRequests/readRanges in the reader's supported parameters; finish the remaining ranges and continue the current task. Preserve real missing-file/permission errors and their owner recovery routes; never recreate inputs or retry unchanged access.${authoring ? '' : ' Do not run shell parsers or wrappers in a restricted turn.'}`,
+    completion: 'Honor the current taskCompletion checkpoint. Reading inputs, preparation and diagnostic test passes do not complete authoring or review. Finish only within the admitted scope; otherwise report the exact blocker and owner route. Human approval and single-step requests keep their original boundaries.',
     staging: 'Use a file-edit tool only at an exact kernel-issued staging path. No shell writers, mkdir or arbitrary temporary paths.',
     terminal: authoring
       ? 'Run SFlow lifecycle commands standalone with cwd=repositoryPath; do not wrap or chain kernel mutations. Repository-local authoring shell commands are permitted under the pinned file policy and before/after change detection; this is not a standalone-SFlow-only terminal.'

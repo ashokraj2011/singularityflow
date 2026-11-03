@@ -148,6 +148,7 @@ test('unsafe staging is reported without replacing the file or requesting a cont
   const resumed = await item.context();
   assert.equal(resumed.progress.state, 'read-error');
   assert.equal(resumed.progress.error.code, 'SOURCE_REVIEW_REPORT_STAGING_INVALID');
+  assert.match(resumed.progress.nextAction?.command ?? '', new RegExp(`recover REVIEW-1 --phase ${item.phaseId}`));
   assert.deepEqual(await item.stop(), {});
 });
 
@@ -167,7 +168,9 @@ test('packaged dedicated and legacy stop/failure hooks preserve the bounded cont
     assert.equal(invoke(runtime, 'boundary-stop').decision, 'block');
     assert.deepEqual(invoke(runtime, 'boundary-stop', { stop_hook_active: true }), {});
     await item.start(); await item.context();
-    assert.deepEqual(invoke(runtime, 'boundary-failure', { error: 'The tool was denied.' }), {});
+    const failure = invoke(runtime, 'boundary-failure', { error: 'The tool was denied.' });
+    assert.match(failure.additionalContext, /The tool was denied/);
+    assert.match(failure.additionalContext, /singularity-flow recover REVIEW-1/);
     assert.deepEqual(invoke(runtime, 'boundary-stop'), {});
   }
 });

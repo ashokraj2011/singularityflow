@@ -268,7 +268,7 @@ export function agentAct(result) {
     if (result.status === 'documents-required') return { state: 'ask-person', do: null,
       read: ['documentReadiness', 'next'],
       said: 'Ask the person to upload the missing original documents on this laptop. Restore the existing IDs with the exact returned commands and an explicitly chosen file; then resume this phase. Never recreate the Story, duplicate documents or repeat settled requirements questions.' };
-    if (result.status === 'authoring-entry') return { state: 'author', do: null, read: ['mutationContract', 'authoringProgress', 'scopeReview', 'context', ...(result.applicationReviewRepair ? ['applicationReviewRepair'] : [])],
+    if (result.status === 'authoring-entry') return { state: 'author', do: null, read: ['mutationContract', ...(result.taskCompletion ? ['taskCompletion'] : []), 'authoringProgress', 'scopeReview', 'context', ...(result.applicationReviewRepair ? ['applicationReviewRepair'] : [])],
       said: `Authoring ${result.phase ?? 'this step'} is admitted: do this step's own drafting now, inside mutationContract. It is not a next action to relay.` };
     if (result.status === 'clarification-required') return { state: 'ask-person', do: null, read: ['clarification', 'context'],
       said: oneLine(`Ask the unanswered questions now, as clarification.checkpoint says${result.context ? '' : ' after composing the context once'}; this is this skill's own step.`) };

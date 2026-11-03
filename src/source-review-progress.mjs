@@ -4,6 +4,7 @@ import { createHash, randomUUID } from 'node:crypto';
 import { link, lstat, open, rm } from 'node:fs/promises';
 import path from 'node:path';
 import { recordSha256 } from './records.mjs';
+import { safeCommandGuidance } from './safe-command-guidance.mjs';
 
 const MAXIMUM_BYTES = 8 * 1024 * 1024;
 
@@ -66,12 +67,16 @@ export function sourceReviewCheckProgress(input, stagingPath, checked, protocol)
 
 export async function sourceReviewProgress({ input, retained, stagingPath, gitDirectory, protocol, check }) {
   const base = { complete: false, bindingSha256: recordSha256(input.binding), stagingPath };
+  const workId = input.workId ?? input.binding?.workId;
+  const phaseId = input.phaseId ?? input.phase ?? input.binding?.phaseId ?? input.binding?.phase;
+  const readRecovery = workId && phaseId ? safeCommandGuidance({ argv: ['recover', workId,
+    '--phase', phaseId, '--for-agent', '--json'] }) : null;
   if (retained.reportSha256 && retained.status !== 'stale') return { ...base, state: 'retained', complete: true,
     reportPath: retained.reportPath, reportSha256: retained.reportSha256,
     instruction: 'The review is already retained for these inputs. Report its actual findings and continuation; do not write or retain it again.' };
   let draft;
   try { draft = await readSourceReviewDraft(stagingPath, gitDirectory); }
-  catch (error) { return { ...base, state: 'read-error', error: { code: error.code ?? 'SOURCE_REVIEW_DRAFT_READ_FAILED', message: error.message },
+  catch (error) { return { ...base, state: 'read-error', ...(readRecovery ? { nextAction: readRecovery } : {}), error: { code: error.code ?? 'SOURCE_REVIEW_DRAFT_READ_FAILED', message: error.message, path: stagingPath },
     instruction: 'Preserve the existing draft and report this exact read error. Do not replace or recreate the file.' }; }
   if (!draft) return { ...base, state: 'author-report',
     instruction: 'Author the independent report at stagingPath now using reportTemplate and the pinned inputs. Then check and retain it. An honest correction-required review can be retained; an unwritten report cannot. Do not relay the context command as the next step.' };
@@ -85,7 +90,7 @@ export async function sourceReviewProgress({ input, retained, stagingPath, gitDi
     const previousDraftPath = await preservePreviousDraft(stagingPath, gitDirectory, draft);
     return { ...base, state: 'review-changed-inputs', previousDraftPath,
       instruction: 'This context is already fresh. The previous draft is preserved at previousDraftPath. Independently review the current pinned inputs and author a replacement from reportTemplate at stagingPath; never transplant stale citations, binding or judgments. Then check and retain it. Do not request context again.' };
-  } catch (error) { return { ...base, state: 'read-error',
+  } catch (error) { return { ...base, state: 'read-error', ...(readRecovery ? { nextAction: readRecovery } : {}),
     error: { code: error.code ?? 'SOURCE_REVIEW_DRAFT_PRESERVATION_FAILED', message: error.message },
     instruction: 'Preserve the original staged report and report this exact preservation error; no draft was replaced.' }; }
 }

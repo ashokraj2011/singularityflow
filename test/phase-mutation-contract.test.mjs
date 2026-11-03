@@ -60,9 +60,9 @@ test('all generated context, JSON, catalog, refusal and text files get exact rea
       assert.deepEqual(decision.next, []);
       await assert.rejects(readFile(wrong), error => ['ENOENT', 'ENOTDIR'].includes(error.code));
     }
-    assert.deepEqual(await mutationToolGuard({ ...payload, toolName: 'read_file', toolArgs: { path: exact } }), {});
+    assert.deepEqual(await mutationToolGuard({ ...payload, toolName: 'read_file', toolArgs: { path: exact, start_line: 1, end_line: 10 } }), {});
     // A range one file read shows; a longer whole read is turned back with its ranges (below).
-    assert.deepEqual(await mutationToolGuard({ ...payload, toolName: 'view', toolArgs: { path: pathToFileURL(exact).href, view_range: [1, 100] } }), {});
+    assert.deepEqual(await mutationToolGuard({ ...payload, toolName: 'view', toolArgs: { path: pathToFileURL(exact).href, view_range: [1, 1] } }), {});
     assert.equal((await mutationToolGuard({ ...payload, toolName: 'edit', toolArgs: { path: exact } })).permissionDecision, 'deny');
   }
   // The clone's info/exclude covers its linked worktrees: nothing SFlow wrote shows as a change.
@@ -95,7 +95,7 @@ test('generated output hints work in every phase and custom author/review/sessio
     const wrong = path.join(f.root, 'singularity-flow/agent-results', path.basename(exact));
     const decision = await mutationToolGuard({ ...payload, toolName: 'read_file', toolArgs: { filePath: wrong } });
     assert.equal(decision.pathCorrections[0].issuedPath, exact, id);
-    assert.deepEqual(await mutationToolGuard({ ...payload, toolName: 'read_file', toolArgs: { filePath: exact } }), {}, id);
+    assert.deepEqual(await mutationToolGuard({ ...payload, toolName: 'read_file', toolArgs: { filePath: exact, startLine: 1, endLine: 10 } }), {}, id);
   }
 });
 

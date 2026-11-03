@@ -1,5 +1,8 @@
 # Resuming a source review
 
+This is the review specialization of the shared [workflow task-completion contract](workflow-task-completion.md),
+which also covers document/code authoring and custom workflow phases.
+
 `/sf-review-source <phase>` owns reading the pinned inputs, writing the independent report,
 checking it and retaining it. Reading the inputs alone leaves the review unfinished.
 This applies to steps with specification or planning responsibilities, including copied and
@@ -41,9 +44,15 @@ Omitted output fields report their formatted-file byte size and safe inclusive `
 Use those ranges exactly. `agentOutput.complete: false` means the display is bounded; it does
 not declare whether the review is complete.
 
-## Qualification
+## Current task and reader qualification
 
-The final checkpoint, stale-draft preservation and portable hook tests ran natively on macOS
+The generalized workflow-task and native-reader update was tested on this Mac, including the full
+Story journey, real CLI publication, custom phases and dedicated/legacy hooks. Native Windows tests
+were not rerun for this update; the following results describe the earlier review-only feature.
+
+## Earlier source-review qualification
+
+The original source-review checkpoint, stale-draft preservation and portable hook tests ran natively on macOS
 and Windows with Node 22.23.4 and 26.13.0. Both macOS cells passed 85 tests without skips.
 Both Windows cells passed 76 tests; nine shell-specific cases were skipped there and executed
 on macOS. All four cells passed CLI building, VS Code typechecking and the 3,406 product checks.

@@ -4,7 +4,7 @@ title: Compact phase entry for Copilot
 commands: [phase, nextsteps, inputs, review-source]
 aliases: [phase-entry]
 related: [artifacts-and-generation, approvals, phase-appeals, nextsteps]
-version: 16
+version: 17
 ---
 # Compact phase entry for Copilot
 
@@ -27,6 +27,12 @@ pause/session/status, recovery, clarification and reference lookups with one ver
 No production token-reduction composer or unqualified cache policy is enabled by this change.
 Existing approved-input briefs and exact clause capsules remain the context authority. Token and
 Git-call savings depend on workflow content; fewer CLI calls are not a claim of fewer validators.
+
+Authoring entries return the shared `taskCompletion` checkpoint for the target generation. Reading
+inputs, preparing a template and passing diagnostic tests do not complete a publication. Native
+hosts can continue an admitted unfinished task once, without reloading unchanged inputs. Real
+missing-file, permission and human-decision blockers retain their exact error and owner route.
+See [Completing a workflow task](../workflow-task-completion.md) for custom phases and file readers.
 
 ## Approval-to-authoring conversation handoff
 

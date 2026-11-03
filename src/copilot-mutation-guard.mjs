@@ -17,6 +17,7 @@ import { DECISION_LIST_CHAT_OPTIONS, liveTerminalReviewStep, OWN_TERMINAL_STEPS,
 import { currentSchemaVersion, readRecord } from './schema-migrations.mjs';
 import { CLI_PATH_REFERENCE, safeCommandGuidance, validateSflowExecutionCommand } from './safe-command-guidance.mjs';
 import { isTestRunnerOutputPath, isTransientTestResultPath } from './application-paths.mjs';
+import { hasPublishedPhaseGeneration } from './phase-inspection-generation.mjs';
 
 const MAX_AGE = 30 * 60 * 1000;
 
@@ -195,9 +196,19 @@ async function createRecord(payload, record, root, accepted, previous = null) {
   const sourceText = await derivedDraftStaging(record.skill, gitIdentity.gitDir);
   contract.summary += sourceTextRule(sourceText);
   const draftStaging = [...new Set([...sourceText, ...(previous?.draftStaging ?? [])])];
+  const taskOperation = previous?.taskOperation && previous.contract?.workId === contract.workId
+    && previous.contract?.phaseId === contract.phaseId ? { ...previous.taskOperation } : null;
+  if (taskOperation && Number(phase?.generation) >= taskOperation.generation
+      && hasPublishedPhaseGeneration(phase) && !contract.policy.editable) {
+    taskOperation.complete = true;
+    taskOperation.publicationVerified = true;
+    taskOperation.state = 'complete';
+  }
   const value = { schemaVersion: currentSchemaVersion('copilot-mutation-contract'), kind: 'copilot-mutation-contract',
     turnId: record.turnId, sessionId: record.sessionId, skill: record.skill, recordedAt: record.recordedAt,
     ...(record.reviewCompletionRequested ? { reviewCompletionRequested: true } : {}),
+    ...(record.taskCompletionRequested ? { taskCompletionRequested: true } : {}),
+    ...(record.taskCompletionRequested ? { taskEntryRequested: samePhase && previous?.taskEntryRequested === true } : {}),
     modeChangedAt: record.modeChangedAt, contract,
     originPhase: previous?.originPhase ?? contract.phaseId,
     // The generation this turn's edits belong to, when one is open; XPL2 observed writes name it.
@@ -212,6 +223,7 @@ async function createRecord(payload, record, root, accepted, previous = null) {
     ...(previous?.specStaging ? { specStaging: previous.specStaging } : {}),
     ...(previous?.appDraftStaging ? { appDraftStaging: previous.appDraftStaging } : {}),
     ...(samePhase && previous?.reviewOperation ? { reviewOperation: previous.reviewOperation } : {}),
+    ...(taskOperation ? { taskOperation } : {}),
     ...(draftStaging.length ? { draftStaging } : {}),
     // Which turn rules this conversation already has: a refreshed contract does not take them back.
     ...(previous?.contextDigest ? { contextDigest: previous.contextDigest } : {}) };
@@ -317,12 +329,17 @@ export async function clearMutationTurn(payload) {
 function calls(payload) {
   return (payload.toolCalls ?? [{ name: payload.toolName ?? payload.tool_name, args: payload.toolArgs ?? payload.tool_input }])
     .map(call => {
-      let args = call.args ?? {};
+      let args = call.args ?? call.toolArgs ?? call.tool_input ?? call.arguments ?? call.input ?? {};
       if (typeof args === 'string') { try { args = JSON.parse(args); } catch { args = { patch: args }; } }
-      let name = String(call.name ?? '').toLowerCase().split(/[.:]/u).at(-1);
+      const toolName = call.name ?? call.toolName ?? call.tool_name;
+      let name = String(toolName ?? '').toLowerCase().split(/[.:]|__/u).at(-1);
       if (name === 'str_replace_editor') name = args.command === 'view' ? 'view' : 'edit';
-      return { name, args };
+      return { name, args, toolName };
     });
+}
+/** One reader classification for permission interception and native failure handling. */
+export function nativeFileReadCalls(payload) {
+  return calls(payload).filter(call => FILE_READS.has(call.name)).map(call => ({ ...call, paths: targets(call.args) }));
 }
 function isEdit(name) { return /(?:patch|edit|replace|insert|write|delete|remove|create|mkdir|move|rename).*?(?:file|directory)|^(?:patch|edit|replace|insert|write|delete|remove|create|mkdir|move|rename|apply_patch)$/u.test(name); }
 function targets(args) {
@@ -1572,6 +1589,28 @@ export async function mutationToolGuard(payload = {}) {
   const personal = turnPersonDecisionDenial(payload, record);
   if (personal) return personal;
   const decision = await mutationToolDecision(payload, record);
+  if (decision.permissionDecision !== 'deny' && record.taskCompletionRequested) {
+    // Only the chat that requested the entry receives its completion checkpoint. CLI issuers
+    // otherwise share a checkout's grants, which must not arm an unrelated chat after its reads.
+    const terminals = calls(payload).filter(call => {
+      if (!TERMINALS.has(call.name)) return false;
+      const text = JSON.stringify(call.args);
+      return text.includes('phase') && text.includes('enter');
+    });
+    if (terminals.length) {
+      try {
+        const value = await currentContract(payload, record, { reclassifyOutputs: false });
+        if (terminals.some(call => {
+          const safe = verifiedShellForm(call, value);
+          const words = safe ? parseCli(safe.argv).positionals : [];
+          return words[0] === 'phase' && words[1] === 'enter';
+        })) {
+          value.taskEntryRequested = true;
+          await atomicRecord(recordFile(payload), value);
+        }
+      } catch { /* Advisory tracking cannot change this tool's permission decision. */ }
+    }
+  }
   await observeEdits(payload, record, decision).catch(() => {});
   return decision;
 }
@@ -1590,34 +1629,78 @@ const LONG_READ_RANGES_SHOWN = 10;
  * up. Turn it back before it runs, naming the exact ranges to request together. A short read, an
  * image or other binary, a link, and a text whose single line is longer than one read pass as before.
  */
-async function longFileRead(toolCalls, cwd) {
+async function longFileRead(toolCalls, cwd, { force = false } = {}) {
+  const plans = [];
   for (const call of toolCalls) {
-    if (call.name !== 'view') continue;
+    if (!FILE_READS.has(call.name)) continue;
     const [target] = targets(call.args);
     if (typeof target !== 'string' || !target) continue;
+    const pair = [['start_line', 'end_line'], ['startLine', 'endLine'], ['line_start', 'line_end']]
+      .find(([start, end]) => call.args[start] !== undefined || call.args[end] !== undefined);
+    const hasRange = Array.isArray(call.args.view_range) || Boolean(pair);
     let file;
     try { file = target.startsWith('file:') ? fileURLToPath(target) : path.resolve(call.args.cwd ?? cwd ?? process.cwd(), target); }
     catch { continue; }
+    if (/\.(?:png|jpe?g|gif|webp|avif|ico|bmp|tiff?|pdf|docx?|pptx?|xlsx?|zip|gz|tgz|7z|mp[34]|mov|wav)$/iu.test(file)) continue;
     const info = await lstat(file).catch(() => null);
-    if (!info?.isFile() || info.size <= LONG_READ_BYTES || info.size > LONG_READ_SCAN_BYTES) continue;
-    const text = await readFile(file, 'utf8').catch(() => null);
-    if (text == null || text.includes('\u0000')) continue;
+    if (!info?.isFile() || (!force && info.size <= LONG_READ_BYTES && !hasRange) || info.size > LONG_READ_SCAN_BYTES) continue;
+    const raw = await readFile(file).catch(() => null);
+    if (raw == null || raw.includes(0)) continue;
+    const text = raw.toString('utf8');
+    if (!Buffer.from(text).equals(raw)) continue;
     const lines = text.split('\n');
     if (lines.at(-1) === '') lines.pop();
-    const range = Array.isArray(call.args.view_range) ? call.args.view_range.map(Number) : null;
-    const first = Math.max(1, range?.[0] || 1);
-    const last = range && range[1] > 0 ? Math.min(range[1], lines.length) : lines.length;
-    if (first > last) continue;
+    const range = Array.isArray(call.args.view_range) ? call.args.view_range.map(Number)
+      : pair ? [Number(call.args[pair[0]] ?? 1), Number(call.args[pair[1]] ?? -1)] : null;
+    // Offset/head/tail semantics differ by native reader. Do not reinterpret their coordinates
+    // or reject an already bounded request as another whole-file read.
+    if (!range && Object.keys(call.args).some(key => /offset|limit|range|start|end|head|tail/iu.test(key))) continue;
+    const invalid = range && (!Number.isSafeInteger(range[0]) || !Number.isSafeInteger(range[1])
+      || range[0] < 1 || range[0] > lines.length || range[1] > lines.length
+      || (range[1] !== -1 && range[1] < range[0]));
+    const first = Number.isSafeInteger(range?.[0]) && range[0] > 0 && range[0] <= lines.length ? range[0] : 1;
+    const last = Number.isSafeInteger(range?.[1]) && range[1] >= first ? Math.min(range[1], lines.length) : lines.length;
+    if (!lines.length || first > last) continue;
     const part = lines.slice(first - 1, last);
-    if (Buffer.byteLength(part.join('\n')) <= LONG_READ_BYTES || part.some(line => Buffer.byteLength(line) >= READ_CHUNK_BYTES)) continue;
-    const ranges = lineRanges(part.join('\n')).map(([start, end]) => [start + first - 1, end + first - 1]);
+    const partBytes = Buffer.byteLength(part.join('\n'));
+    const chunkBytes = force ? Math.min(READ_CHUNK_BYTES / 2, Math.max(1, Math.floor(partBytes / 2))) : READ_CHUNK_BYTES;
+    if ((!force && !invalid && partBytes <= LONG_READ_BYTES) || part.some(line => Buffer.byteLength(line) >= chunkBytes)) continue;
+    const ranges = lineRanges(part.join('\n'), chunkBytes).map(([start, end]) => [start + first - 1, end + first - 1]);
     const shown = ranges.slice(0, LONG_READ_RANGES_SHOWN);
     const more = ranges.length > shown.length ? ` Then continue from line ${shown.at(-1)[1] + 1} the same way, or search the file for what you need.` : '';
-    return { permissionDecision: 'deny', next: [], readRanges: [{ path: target, ranges }],
-      permissionDecisionReason: `FILE_READ_TOO_LONG: ${target}${range ? ` lines ${first}-${last}` : ''} is longer than one file read shows (about 8 KB), so it would come back cut or refused. Nothing was read. `
-        + `Request these view_range values together in one response: ${shown.map(([start, end]) => `[${start}, ${end}]`).join(', ')}.${more}` };
+    const shape = Array.isArray(call.args.view_range) || call.name === 'view' ? 'view_range' : pair;
+    plans.push({ path: target, ranges, code: invalid ? 'FILE_READ_RANGE_INVALID' : 'FILE_READ_TOO_LONG', ...(shape ? { requests: shown.map(([start, end]) => ({
+      tool: call.toolName ?? call.name, args: { ...call.args, ...(shape === 'view_range' ? { view_range: [start, end] }
+        : { [shape[0]]: start, [shape[1]]: end }) }
+    })) } : {}),
+    reason: (invalid ? `FILE_READ_RANGE_INVALID: ${target} has ${lines.length} lines; the requested range is invalid. Nothing was read. `
+      : `FILE_READ_TOO_LONG: ${target}${range ? ` lines ${first}-${last}` : ''} is longer than one file read shows (about 8 KB), so it would come back cut or refused. Nothing was read. `)
+      + `Request these ${shape === 'view_range' ? 'view_range values' : '1-based inclusive line ranges using this reader\'s supported range parameters'} together in one response: ${shown.map(([start, end]) => `[${start}, ${end}]`).join(', ')}.${more}` });
   }
-  return null;
+  return plans.length ? { permissionDecision: 'deny', next: [], recoverable: true, code: plans[0].code,
+    readRanges: plans.map(({ path, ranges }) => ({ path, ranges })),
+    readRequests: plans.flatMap(plan => plan.requests ?? []),
+    permissionDecisionReason: plans.map(plan => plan.reason).join('\n')
+      + ' Continue the current task after these reads; this read limit is not a missing file, permission failure or completed task.' } : null;
+}
+
+/** A native reader with a lower limit gets smaller windows, never the unchanged failed request. */
+export async function nativeReadFailureRecovery(payload) {
+  const readers = nativeFileReadCalls(payload);
+  const windows = readers.filter(call => Number.isSafeInteger(call.args.offset) && call.args.offset >= 0
+    && Number.isSafeInteger(call.args.limit) && call.args.limit > 1
+    && Number.isSafeInteger(call.args.offset + call.args.limit));
+  if (windows.length === readers.length && windows.length) return { readRequests: windows.flatMap(call => {
+    const first = Math.floor(call.args.limit / 2);
+    return [{ tool: call.toolName, args: { ...call.args, limit: first } },
+      { tool: call.toolName, args: { ...call.args, offset: call.args.offset + first, limit: call.args.limit - first } }];
+  }) };
+  const recovered = await longFileRead(readers, payload.cwd, { force: true });
+  if (!recovered) return null;
+  const readRanges = recovered.readRanges.map(({ path, ranges }) => ({ path, ranges: ranges.slice(0, LONG_READ_RANGES_SHOWN),
+    ...(ranges.length > LONG_READ_RANGES_SHOWN ? { continueFromLine: ranges[LONG_READ_RANGES_SHOWN - 1][1] + 1 } : {}) }));
+  return { readRanges, ...(Buffer.byteLength(JSON.stringify(recovered.readRequests)) <= 5000
+    ? { readRequests: recovered.readRequests } : {}) };
 }
 
 async function mutationToolDecision(payload, record) {
@@ -2078,6 +2161,64 @@ export async function recordSourceReviewProgress(root, progress) {
   }
 }
 
+/** An admitted task checkpoint is advisory; it neither opens a generation nor grants a write. */
+export async function recordPhaseTaskProgress(root, progress) {
+  if (readCopilotMode().paused || !root || progress?.kind !== 'phase-authoring') return;
+  root = await realpath(root);
+  for (const name of (await readdir(directory()).catch(() => [])).filter(name => /^[a-f0-9]{64}\.mutation\.json$/u.test(name))) {
+    const file = path.join(directory(), name);
+    const value = await boundedRecord(file).catch(() => null);
+    if (!value?.taskCompletionRequested || !value.taskEntryRequested || value.contract?.repositoryRoot !== root
+        || value.contract.turnMode !== 'authoring' || value.contract.workId !== progress.workId
+        || value.contract.phaseId !== progress.phaseId || !Number.isInteger(progress.generation)
+        || progress.generation !== Number(value.contract.generation) + 1) continue;
+    const record = await turn({ sessionId: value.sessionId });
+    if (!record || record.turnId !== value.turnId || turnExpired(value) || value.decisionEnded) continue;
+    const prior = value.taskOperation;
+    value.taskOperation = { ...progress, continued: prior?.continued === true,
+      blocked: Boolean(prior?.failure) || progress.state === 'blocked',
+      ...(prior?.failure ? { failure: prior.failure } : {}) };
+    await atomicRecord(file, value);
+  }
+}
+
+/** Gate results update the current task; readiness alone never supplies publication evidence. */
+export async function recordPhaseTaskCheck(root, result) {
+  if (!root || readCopilotMode().paused || !['sflow-phase-prepublish', 'sflow-phase-draft-check'].includes(result?.resultType)) return;
+  root = await realpath(root);
+  for (const name of (await readdir(directory()).catch(() => [])).filter(name => /^[a-f0-9]{64}\.mutation\.json$/u.test(name))) {
+    const file = path.join(directory(), name);
+    const value = await boundedRecord(file).catch(() => null);
+    const operation = value?.taskOperation;
+    if (!operation || value.contract?.repositoryRoot !== root || operation.workId !== result.workId
+        || value.contract.workId !== result.workId || operation.phaseId !== result.phase
+        || operation.generation !== result.generation || value.contract.turnMode !== 'authoring') continue;
+    const record = await turn({ sessionId: value.sessionId });
+    if (!record || record.turnId !== value.turnId || turnExpired(value) || value.decisionEnded) continue;
+    const repair = result.status === 'correction-required' && result.correction?.sameTurn === true;
+    const publication = result.status === 'ready' && typeof result.commands?.publish === 'string'
+      ? safeCommandGuidance({ command: result.commands.publish }) : null;
+    const producer = publication?.argv?.[publication.argv.indexOf('--authored') + 1];
+    const publish = Boolean(publication && ['governed-agent', 'deterministic'].includes(producer));
+    operation.state = publish ? 'publish-ready' : repair ? 'repair-draft' : 'blocked';
+    operation.nextAction = publication ?? result.commandGuidance?.next ?? operation.recovery;
+    operation.blocked = Boolean(operation.failure) || !publish && !repair;
+    await atomicRecord(file, value);
+  }
+}
+
+/** Native file stamps only: stop hooks cannot reload a Story, scan history or spawn Git. */
+export async function workflowCompletionTurn(payload) {
+  const record = await turn(payload);
+  if (!record || record.corrupt || !(record.taskCompletionRequested || record.reviewCompletionRequested)) return null;
+  try {
+    const value = await currentContract(payload, record, { reclassifyOutputs: false });
+    const enabled = value.taskCompletionRequested && value.contract.turnMode === 'authoring'
+      || value.reviewCompletionRequested && value.contract.turnMode === 'read-only-review';
+    return enabled && !value.decisionEnded && !value.findings.length ? value : null;
+  } catch { return null; }
+}
+
 /** Completion checks reuse native file stamps; they never discover repositories or spawn Git. */
 export async function reviewCompletionTurn(payload) {
   const record = await turn(payload);
@@ -2093,7 +2234,7 @@ export async function saveReviewCompletionTurn(payload, value, { once = false } 
   if (once) {
     // Duplicate stop callbacks can overlap. An exclusive empty claim, removed with this turn's
     // issued files, consumes the single continuation even if a process dies before replying.
-    const claim = `${issuedReadFile(payload, value.turnId, 'review-completion')}.once`;
+    const claim = `${issuedReadFile(payload, value.turnId, value.taskOperation ? 'task-completion' : 'review-completion')}.once`;
     await mkdir(path.dirname(claim), { recursive: true, mode: 0o700 });
     if ((await lstat(path.dirname(claim))).isSymbolicLink()) throw new Error('Unsafe completion claim directory');
     try { await writeFile(claim, '', { flag: 'wx', mode: 0o600 }); }

@@ -1,5 +1,10 @@
 # Self-healing continuation
 
+Full authoring and review tasks also use the shared [task-completion checkpoint](workflow-task-completion.md).
+Recoverable file-size/range constraints resume the exact input read and current task. Real missing
+files, permissions and human gates retain their explicit error and owner route. Input reads and
+preparation alone cannot stand for a completed publication or retained review.
+
 Every phase uses the installed `repair-continuation-v1` contract: observe the exact failure,
 diagnose it, preserve the draft, repair admitted work, verify the changed condition, and recheck
 the original gate. The contract applies to seeded, imported, duplicated and future custom workflows;

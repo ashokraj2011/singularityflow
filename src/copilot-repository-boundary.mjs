@@ -7,6 +7,7 @@ import { copilotModeFile, hookCliLine, mentionsHookCli, readCopilotMode } from '
 import { currentSchemaVersion, readRecord } from './schema-migrations.mjs';
 import { formatCommandRouteLines } from './model-free-commands.mjs';
 import { platformPathWithin } from './util.mjs';
+import { AUTHORING_SKILL_DECLARATION } from './authoring-skills.mjs';
 
 const FAMILY = 'copilot-repository-boundary';
 /**
@@ -49,6 +50,16 @@ export function sourceReviewCompletionRequested(prompt) {
   const args = prompt.trim().startsWith('/') ? prompt.trim().replace(/^\/\S+\s*/u, '')
     : prompt.match(/\bARGUMENTS:\s*([^]*?)\s*<\/skill-context>/u)?.[1];
   return typeof args === 'string' && !/^(?:context|stage|check|submit|status|decide|decision-context)(?:\s|$)/u.test(args);
+}
+
+/** Opt in full authoring tasks by capability, never by a workflow's phase names. */
+export function workflowTaskCompletionRequested(prompt) {
+  const skill = explicitSflowSkill(prompt)?.replace(/^sf-/u, 'sflow-');
+  if (!skill || !(AUTHORING_SKILL_DECLARATION[skill]
+      || ['sflow-call', 'sflow-implement', 'sflow-specify', 'sflow-plan', 'sflow-verify', 'sflow-scenario-repair'].includes(skill))) return false;
+  const args = prompt.trim().startsWith('/') ? prompt.trim().replace(/^\/\S+\s*/u, '')
+    : prompt.match(/\bARGUMENTS:\s*([^]*?)\s*<\/skill-context>/u)?.[1];
+  return typeof args === 'string' && !/^(?:context|stage|check|status|show|preview|prepare|publish)(?:\s|$)/u.test(args);
 }
 
 /**
@@ -135,6 +146,12 @@ async function recordTurn(payload, { now = Date.now(), captureMutation = null })
       return { additionalContext: 'Continue the same admitted source review using its existing exact paths and pinned inputs; no new entry or authority was granted.' };
     }
   }
+  if (typeof payload.prompt === 'string' && payload.prompt.startsWith('SFLOW_WORKFLOW_TASK_INCOMPLETE:')) {
+    const value = await (await import('./copilot-mutation-guard.mjs')).workflowCompletionTurn(payload);
+    if (value?.taskOperation?.continued && !value.taskOperation.complete && !value.taskOperation.blocked) {
+      return { additionalContext: 'Continue the same admitted workflow task with its exact input paths and existing scope. No new entry, permissions or human decisions were granted.' };
+    }
+  }
   const file = recordPath(payload);
   if (!file) return {};
   const mode = readCopilotMode();
@@ -153,7 +170,8 @@ async function recordTurn(payload, { now = Date.now(), captureMutation = null })
   const confirm = ['sf-confirm', 'sflow-confirm'].includes(skill) ? confirmedDigest(payload.prompt) : null;
   const record = { schemaVersion: currentSchemaVersion(FAMILY), sessionId: sessionId(payload), skill, turnId: randomUUID(),
     recordedAt: now, modeChangedAt: mode.changedAt, ...(confirm ? { confirmDigest: confirm } : {}),
-    ...(sourceReviewCompletionRequested(payload.prompt) ? { reviewCompletionRequested: true } : {}) };
+    ...(sourceReviewCompletionRequested(payload.prompt) ? { reviewCompletionRequested: true } : {}),
+    ...(workflowTaskCompletionRequested(payload.prompt) ? { taskCompletionRequested: true } : {}) };
   const temporary = path.join(directory, `.${randomUUID()}.tmp`);
   try {
     await writeFile(temporary, `${JSON.stringify(record)}\n`, { flag: 'wx', mode: 0o600 });
@@ -181,7 +199,7 @@ export async function repositoryToolGuard(payload = {}) {
   const explicitTurn = await hasBoundaryTurn(payload);
   const decision = explicitTurn ? await turnToolGuard(payload) : await personStepGuard(payload);
   if (explicitTurn && decision.permissionDecision === 'deny') await (await import('./copilot-review-completion.mjs'))
-    .noteReviewCompletionFailure(payload, decision.permissionDecisionReason).catch(() => {});
+    .noteTaskCompletionFailure(payload, decision).catch(() => {});
   await attribute(payload, (recorder, directory) => recorder.sfGuardNoteToolCall(payload, decision, { directory, explicitTurn }));
   return decision;
 }
@@ -206,11 +224,11 @@ export async function repositoryPostToolGuard(payload = {}) {
 }
 
 export async function repositoryAgentStop(payload = {}) {
-  return (await import('./copilot-review-completion.mjs')).sourceReviewAgentStop(payload);
+  return (await import('./copilot-review-completion.mjs')).workflowTaskAgentStop(payload);
 }
 
 export async function repositoryToolFailure(payload = {}) {
-  return (await import('./copilot-review-completion.mjs')).noteReviewCompletionFailure(payload);
+  return (await import('./copilot-review-completion.mjs')).noteTaskCompletionFailure(payload);
 }
 
 /** A tool call that names no SFlow command passes untouched; the guard loads only for one that does. */

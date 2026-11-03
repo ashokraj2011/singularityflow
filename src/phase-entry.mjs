@@ -21,5 +21,7 @@ export async function enterPhase({ cwd = process.cwd(), phaseId = null, workId =
       detail: 'This session has not selected a Story; attach the one this checkout holds.'
     })], authoringAllowed: false };
   const { completePhaseEntry } = await measureCommandSpan('phase-entry.authoring-load', () => import('./phase-entry-authoring.mjs'));
-  return completePhaseEntry(entry, base, { compose, modelEnabled });
+  const result = await completePhaseEntry(entry, base, { compose, modelEnabled });
+  const taskCompletion = (await import('./phase-authoring-progress.mjs')).phaseTaskCompletion(result);
+  return taskCompletion ? { ...result, taskCompletion } : result;
 }

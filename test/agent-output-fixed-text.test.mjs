@@ -7,7 +7,7 @@
  */
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
-import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
+import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
@@ -60,7 +60,9 @@ test('no fixed instruction a result repeats is over 200 bytes', async (t) => {
     recovery: { blockers: Array.from({ length: 60 }, (_, index) => ({ id: index, detail: 'x'.repeat(120) })) } };
   const bounded = JSON.parse(await boundedAgentOutput(JSON.stringify(large), { cwd: root }));
   const session = sessionAgentResult({ repositoryPath: root, ready: true, workId: 'W-1' }, 'singularity/work-items');
-  const open = spawnSync('/usr/bin/grep', ['-o', "agentInstruction: 'Reuse this verified[^']*'", fileURLToPath(new URL('../src/commands/session-open.mjs', import.meta.url))], { encoding: 'utf8' }).stdout.trim();
+  const source = await readFile(new URL('../src/commands/session-open.mjs', import.meta.url), 'utf8');
+  const open = source.match(/agentInstruction: 'Reuse this verified[^']*'/u)?.[0];
+  assert.ok(open, 'the session-open instruction is present in the source on every platform');
   const fixed = { 'act.paths': bounded.act.paths, 'agentOutput.instruction': bounded.agentOutput.instruction,
     'session agentInstruction': session.agentInstruction, 'session-open agentInstruction': open.replace(/^agentInstruction: '|'$/gu, '') };
   for (const [field, text] of Object.entries(fixed)) {

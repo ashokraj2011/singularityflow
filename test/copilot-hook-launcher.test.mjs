@@ -372,7 +372,7 @@ test('PowerShell hook uses applications and closed operations without profile or
   for (const action of actions) assert.ok(content.includes(`'${action}'`));
 });
 
-test('with no SFlow turn recorded, bash guard, after-tool and end hooks answer without starting Node', {
+test('with no SFlow turn recorded, bash guard, completion and failure hooks answer without starting Node', {
   skip: process.platform === 'win32'
 }, async t => {
   const item = await fixture(t);
@@ -386,7 +386,7 @@ test('with no SFlow turn recorded, bash guard, after-tool and end hooks answer w
     cwd: item.cwd, env: { ...item.env, PATH: `${bin}:/usr/bin:/bin` }, input, encoding: 'utf8', timeout: childTimeout(10_000)
   });
   const nodeStarts = () => (existsSync(started) ? readFileSync(started, 'utf8').split('\n').filter(Boolean).length : 0);
-  for (const action of ['boundary-guard', 'boundary-after', 'boundary-end']) {
+  for (const action of ['boundary-guard', 'boundary-after', 'boundary-end', 'boundary-stop', 'boundary-failure']) {
     const result = launch(action);
     assert.equal(result.status, 0, result.stderr);
     assert.deepEqual(JSON.parse(result.stdout), {}, action);
@@ -561,7 +561,7 @@ test('a runtime that cannot load keeps the shell guard failing closed until a wo
   assert.deepEqual(readdirSync(boundaries), [], 'a working runtime cleared the marker');
 });
 
-test('with no SFlow turn recorded, PowerShell guard, after-tool and end hooks answer without starting Node', {
+test('with no SFlow turn recorded, PowerShell guard, completion and failure hooks answer without starting Node', {
   skip: !powershell && 'PowerShell host unavailable'
 }, async t => {
   const item = await fixture(t);
@@ -578,7 +578,7 @@ test('with no SFlow turn recorded, PowerShell guard, after-tool and end hooks an
       cwd: item.cwd, env: { ...item.env, PATH: `${bin}${path.delimiter}${item.env.PATH}` }, input, encoding: 'utf8', timeout: childTimeout(30_000)
     });
   const nodeStarts = () => (existsSync(started) ? readFileSync(started, 'utf8').split(/\r?\n/u).filter(Boolean).length : 0);
-  for (const action of ['boundary-guard', 'boundary-after', 'boundary-end']) {
+  for (const action of ['boundary-guard', 'boundary-after', 'boundary-end', 'boundary-stop', 'boundary-failure']) {
     const result = launch(action);
     assert.equal(result.status, 0, result.stderr);
     assert.deepEqual(JSON.parse(result.stdout), {}, action);
@@ -711,7 +711,8 @@ test('the PowerShell launcher, managed engine or not, marks an off-PATH CLI and 
   const appData = path.join(item.directory, 'Windows app data');
   await mkdir(path.join(appData, 'npm', 'node_modules'), { recursive: true });
   await symlink(packageRoot, path.join(appData, 'npm', 'node_modules', 'singularity-flow'), 'junction');
-  const engine = await managedEngine(item, `node-v26.0.0-win32-${process.arch === 'arm64' ? 'arm64' : 'x64'}`);
+  const runtime = `node-v26.0.0-win32-${process.arch === 'arm64' ? 'arm64' : 'x64'}`;
+  const engine = await managedEngine(item, runtime);
   const turn = ({ onPath = false, managed = false } = {}) => {
     const result = spawnSync(host, [...powershellArgs, `& '${path.join(pluginRoot, 'hook-launcher.ps1')}' boundary-turn`], {
       cwd: item.cwd, input: turnPayload(item, '/sf-session'), encoding: 'utf8', timeout: childTimeout(30_000),
@@ -723,6 +724,9 @@ test('the PowerShell launcher, managed engine or not, marks an off-PATH CLI and 
   const line = offPathLine(process.execPath, entry);
   assert.deepEqual(turn(), { additionalContext: line }, 'Node on PATH, the CLI under APPDATA\\npm');
   assert.deepEqual(turn({ onPath: true }), {});
-  assert.deepEqual(turn({ managed: true }), { additionalContext: line });
+  // POSIX symlinks resolve to the original executable; Windows hard links retain the managed
+  // executable's own launch path. Both must name exactly the runtime the launcher selected.
+  const managedNode = process.platform === 'win32' ? path.join(engine, 'runtimes', runtime, 'node.exe') : process.execPath;
+  assert.deepEqual(turn({ managed: true }), { additionalContext: offPathLine(managedNode, entry) });
   assert.deepEqual(turn({ managed: true, onPath: true }), {});
 });

@@ -832,7 +832,10 @@ test('listing and inspecting workflow proposals read exact objects in place: no 
     run('git', ['clone', '-q', '-b', 'sflow/config', item.remote, authoring]);
     run('git', ['switch', '-q', '-c', proposalBranch], { cwd: authoring });
     const workflowPath = path.join(authoring, 'singularity/workflow.yml');
-    await writeFile(workflowPath, (await readFile(workflowPath, 'utf8')).replace('    label: Feature\n', '    label: Reviewed feature\n'));
+    const before = await readFile(workflowPath, 'utf8');
+    const after = before.replace(/^( {4}label: )Feature(\r?)$/mu, '$1Reviewed feature$2');
+    assert.notEqual(after, before, 'The fixture must change its intended label under LF and CRLF.');
+    await writeFile(workflowPath, after);
     run('git', ['-c', 'user.name=Workflow Author', '-c', 'user.email=workflow@example.test', 'commit', '-qam', 'relabel feature'], { cwd: authoring });
     run('git', ['push', '-q', 'origin', `HEAD:refs/heads/${proposalBranch}`], { cwd: authoring });
     const commit = run('git', ['rev-parse', 'HEAD'], { cwd: authoring }).stdout.trim();

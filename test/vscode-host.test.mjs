@@ -1801,6 +1801,12 @@ test('the five SFlow language-model tools answer through the gateway, and a paus
   await extension.activate(hostContext);
   const names = ['sflow_resolve', 'sflow_read', 'sflow_next', 'sflow_run', 'sflow_explain'];
   assert.deepEqual([...tools.keys()].filter((name) => name.startsWith('sflow_')), names);
+  const witnessTool = tools.get('singularityFlow_witnessReview');
+  assert.ok(witnessTool, 'Copilot can open native witness review without recording model-supplied answers');
+  const forged = JSON.parse((await witnessTool.invoke({ input: { workId: 'HEX-1', answers: { 'matches-the-criterion': true } } })).content[0].value);
+  assert.equal(forged.status, 'blocked');
+  assert.equal(forged.recorded, null);
+  assert.match(forged.message, /accepts only a Story ID, criterion and slot/u);
   // Every answer fits one tool result, as the model reads it (host.mjs boundedToolAnswer).
   const call = async (name, input) => {
     const text = (await tools.get(name).invoke({ input })).content[0].value;

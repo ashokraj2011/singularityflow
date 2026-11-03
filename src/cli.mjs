@@ -21,7 +21,7 @@ import { recordCompletenessReview, recordScopeDecision, scopeAuthorities } from 
 import { planAuthorities, recordPlanAmendment } from './plan-amendments.mjs';
 import { recordRiskDecision, recordRiskRevocation, riskAuthorities } from './evidence/risk-decisions.mjs';
 import { readStdinText as stdinText } from './read-stdin.mjs';
-import { recordWitness } from './verification/witness-records.mjs';
+import { recordWitness, assertWitnessReviewBinding } from './verification/witness-records.mjs';
 import { isConvergencePhase, scopeStepOf, stepResponsibilities } from './phase-roles.mjs';
 import readline from 'node:readline/promises';
 import { actionActor, activatePhaseAgent, activeActionContext, summary } from './commands/kernel.mjs';
@@ -4445,12 +4445,18 @@ async function decisionWitnessCommand(positionals, options) {
   if (optionStrings(options, 'confirm').some((item) => optionStrings(options, 'deny').includes(item))) {
     throw new SingularityFlowError('A checklist item cannot be both confirmed and denied.', { code: 'WITNESS_RECORD_INVALID' });
   }
-  const decide = (aggregate) => recordWitness(aggregate, {
-    clauseId, slot, file: secured.relative ?? file, sha256, answers, reason: optionString(options, 'reason') ?? '',
-    actor: actorKey(actor), authorityGroup: authority.authorityGroup, identityAssurance: authority.identityAssurance ?? null, at: nowIso(),
-    plannedClaim: mergePlannedClaimRecords(plans)[clauseId] ?? null
-  });
-  decide(structuredClone(workflow));
+  const decide = async (aggregate) => {
+    const current = await secureRepositoryPath(root, file, { label: 'Witnessed file', mustExist: true, type: 'file' });
+    const actualFile = `sha256:${createHash('sha256').update(await readFile(current.absolute)).digest('hex')}`;
+    assertWitnessReviewBinding(aggregate, { expectedContext: optionString(options, 'expected-context-sha256'),
+      expectedFile: optionString(options, 'expected-file-sha256') ?? sha256, actualFile });
+    return recordWitness(aggregate, {
+      clauseId, slot, file: secured.relative ?? file, sha256, answers, reason: optionString(options, 'reason') ?? '',
+      actor: actorKey(actor), authorityGroup: authority.authorityGroup, identityAssurance: authority.identityAssurance ?? null, at: nowIso(),
+      plannedClaim: mergePlannedClaimRecords(plans)[clauseId] ?? null
+    });
+  };
+  await decide(structuredClone(workflow));
   const { value: record, publication } = await transactStory(
     root, config, workflow,
     {
@@ -4460,7 +4466,7 @@ async function decisionWitnessCommand(positionals, options) {
     `[${id}][witness] ${clauseId} ${slotName}`,
     async (aggregate) => {
       await assertNoPendingPublication(root, config, aggregate, 'record a witness');
-      const recorded = decide(aggregate);
+      const recorded = await decide(aggregate);
       aggregate.history.push({
         at: recorded.at, actor: recorded.actor, agent, event: 'witness_recorded', phase: aggregate.currentPhase ?? null,
         detail: `${recorded.id}: ${recorded.method} of ${recorded.file} for ${recorded.clauseId} slot ${recorded.slot} ${recorded.outcome === 'met' ? 'satisfies it' : 'does not satisfy it'}. ${recorded.reason}`

@@ -798,6 +798,17 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     }
   }
 
+  if (typeof lm?.registerTool === 'function' && typeof parts.LanguageModelToolResult === 'function') {
+    context.subscriptions.push(lm.registerTool('singularityFlow_witnessReview', {
+      invoke: async (options: { input?: Record<string, unknown> }) => {
+        let result;
+        try { result = await vscode.commands.executeCommand('singularityFlow.reviewWitness', options.input ?? {}); }
+        catch (error) { result = { status: 'blocked', message: (error as Error).message, recorded: null, next: 'Refresh Decisions before retrying; a failed publication can retain a local record.' }; }
+        return new parts.LanguageModelToolResult([new parts.LanguageModelTextPart(JSON.stringify(result))]);
+      }
+    }));
+  }
+
   onAutoResultAction(async ({ command, repositoryRoot }) => {
     const activeRoot = activeRepositoryContext()?.root;
     if (!activeRoot || path.resolve(activeRoot) !== path.resolve(repositoryRoot)) return;
@@ -1229,7 +1240,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     'singularityFlow.openReconciliation',
     'singularityFlow.openEvidenceMatrix', 'singularityFlow.openOutcomeReview', 'singularityFlow.openApmPackages',
     'singularityFlow.showImpact', 'singularityFlow.addCapability', 'singularityFlow.editCapability',
-    'singularityFlow.openDashboard', 'singularityFlow.openDesigner', 'singularityFlow.openWorkflowStudio', 'singularityFlow.addUserAgent', 'singularityFlow.decideStory', 'singularityFlow.decisions', 'singularityFlow.sfGuard',
+    'singularityFlow.openDashboard', 'singularityFlow.openDesigner', 'singularityFlow.openWorkflowStudio', 'singularityFlow.addUserAgent', 'singularityFlow.decideStory', 'singularityFlow.decisions', 'singularityFlow.reviewWitness', 'singularityFlow.sfGuard',
     'singularityFlow.workspaceRunTest', 'singularityFlow.startApplication', 'singularityFlow.runTests', 'singularityFlow.testSummary', 'singularityFlow.editRunConfigurations', ...RUN_CONFIGURATION_COMMANDS,
     'singularityFlow.openEnvironmentFiles',
     'singularityFlow.publishConfiguration',
@@ -9350,6 +9361,12 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       return chooseStoryDecision(typeof workId === 'string' ? workId : null, null);
     },
     // Everything the current step waits on, decided in one place: `{ workId, phase }` or the selected Story.
+    'singularityFlow.reviewWitness': async (target?: import('./views/decision-list-model.ts').WitnessReviewTarget) => {
+      const selected = target ?? { workId: store.current.snapshot?.workflow?.workItem.id ?? '' };
+      const result = await lazyPanels().reviewWitness(client, selected, refreshAfterKnownMutation);
+      if (result.message) void showCompactInformationMessage(result.message);
+      return result;
+    },
     'singularityFlow.decisions': async (target?: unknown) => {
       const requested = typeof target === 'string' ? target : (target as { workId?: unknown } | undefined)?.workId;
       const phase = (target as { phase?: unknown } | undefined)?.phase;

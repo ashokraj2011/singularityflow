@@ -96,6 +96,35 @@
         }
       },
       {
+        "name": "singularityFlow_witnessReview",
+        "displayName": "SFlow human evidence review",
+        "toolReferenceName": "sflowWitnessReview",
+        "canBeReferencedInPrompt": true,
+        "userDescription": "Open a human visual or inspection sign-off for a Story, including a sign-off owed by an earlier phase.",
+        "modelDescription": "Open native human evidence review. Select only the exact workId, criterion and slot returned by SFlow decisions. The person inspects the local evidence, answers each checklist question, writes a reason and confirms in VS Code. The tool accepts no evidence path, answers, reason, confirmation or shell command from the model. Cancelling records nothing. It never approves a phase. Report only the returned recorded ID and remaining decisions.",
+        "inputSchema": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "workId"
+          ],
+          "properties": {
+            "workId": {
+              "type": "string",
+              "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$"
+            },
+            "criterion": {
+              "type": "string",
+              "pattern": "^[A-Z0-9][A-Z0-9._-]{0,63}:AC-\\d{3}$"
+            },
+            "slot": {
+              "type": "string",
+              "pattern": "^[A-Za-z0-9._-]{1,128}$"
+            }
+          }
+        }
+      },
+      {
         "name": "sflow_resolve",
         "displayName": "SFlow resolve",
         "toolReferenceName": "sflow_resolve",
@@ -825,6 +854,11 @@
         "command": "singularityFlow.decideStory",
         "title": "Singularity Flow: Choose What Happens Next",
         "icon": "$(git-compare)"
+      },
+      {
+        "command": "singularityFlow.reviewWitness",
+        "title": "Review Story Evidence and Sign Off",
+        "category": "Singularity Flow"
       },
       {
         "command": "singularityFlow.decisions",

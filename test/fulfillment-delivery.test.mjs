@@ -9,6 +9,9 @@ import { fileURLToPath } from 'node:url';
 import YAML from 'yaml';
 import { completeAgentResult } from '../src/agent-output.mjs';
 import { verifyCodeDeliveryReceipt } from '../src/delivery-evidence.mjs';
+import { decisionListFacts } from '../src/decision-list-reads.mjs';
+import { loadConfig } from '../src/state-stores.mjs';
+import { witnessContextBinding } from '../src/verification/witness-records.mjs';
 import { planningEvidenceRepair } from '../src/planning-evidence-repair.mjs';
 
 import {
@@ -240,11 +243,32 @@ test('a real Story delivers source, configuration, test-only, removal, document 
     assert.ok(witnessRefusal.includes(expected), `${expected}\n${witnessRefusal}`);
   }
   await write(SCREEN, publishedImage);
+  // A native review pins the inspected bytes and candidate; neither may silently change before recording.
+  for (const flag of ['--expected-file-sha256', '--expected-context-sha256']) {
+    const stale = run(process.execPath, [CLI, '--no-model', 'decision', 'witness', W, '--criterion', ac(6),
+      '--slot', 'retained-evidence', '--file', SCREEN, flag, `sha256:${'0'.repeat(64)}`,
+      '--confirm', 'states-the-outcome', '--confirm', 'matches-the-criterion', '--confirm', 'current-for-this-change',
+      '--reason', 'This native review was bound to a previous snapshot.'], root, { allowFailure: true });
+    assert.notEqual(stale.status, 0);
+    assert.match(`${stale.stdout} ${stale.stderr}`, /WITNESS_REVIEW_CHANGED|changed after inspection/u);
+    assert.equal((JSON.parse(await readFile(path.join(item, 'workflow.json'), 'utf8')).witnessRecords ?? []).length, 0);
+  }
   // The approver confirms the screenshot with the approval itself, in its commit (2026-10-28).
   const approved = cli('approve', 'implementation', '--yes', '--confirm-evidence');
   assert.match(approved.stdout, new RegExp(`Confirmed with this approval: each file states the outcome, matches its criterion and is current for this change\\.\\n  ${ac(6).replace(/[.]/gu, '\\.')} retained-evidence: ${SCREEN.replace(/[.]/gu, '\\.')}`, 'u'));
 
   const workflowState = JSON.parse(await readFile(path.join(item, 'workflow.json'), 'utf8'));
+  const acceptedConfig = await loadConfig(root);
+  const afterSignOff = await decisionListFacts(root, acceptedConfig, workflowState, { reuse: false, publication: false, approvalCheck: null });
+  assert.equal(afterSignOff.pending.owed.some(entry => entry.kind === 'witness' && entry.clauseId === ac(6)), false,
+    'a valid sign-off must not be asked again after the phase advances');
+  const withoutSignOff = structuredClone(workflowState);
+  delete withoutSignOff.witnessRecords;
+  const afterAdvancement = await decisionListFacts(root, acceptedConfig, withoutSignOff, { reuse: false, publication: false, approvalCheck: null });
+  const stillOwed = afterAdvancement.pending.owed.find(entry => entry.kind === 'witness' && entry.clauseId === ac(6));
+  assert.ok(stillOwed, 'an earlier sign-off stays visible while the next phase is in progress');
+  assert.equal(stillOwed.contextBinding, witnessContextBinding(withoutSignOff));
+  assert.equal(workflowState.phases[workflowState.currentPhase].status, 'in_progress');
   const [witnessed] = workflowState.witnessRecords;
   assert.deepEqual([witnessed.clauseId, witnessed.slot, witnessed.file, witnessed.outcome, Object.values(witnessed.checklist)],
     [ac(6), 'retained-evidence', SCREEN, 'met', ['yes', 'yes', 'yes']]);

@@ -39,6 +39,16 @@ export function witnessContextBinding(workflow, { legacy = false } = {}) {
     }) })}`;
 }
 
+/** Refuse a native review whose inspected candidate or file changed before its record is written. */
+export function assertWitnessReviewBinding(workflow, { expectedContext, expectedFile, actualFile }) {
+  const digest = /^sha256:[a-f0-9]{64}$/u;
+  if (expectedContext != null && (!digest.test(expectedContext) || expectedContext !== witnessContextBinding(workflow))
+      || expectedFile != null && (!digest.test(expectedFile) || expectedFile !== actualFile)) {
+    throw new SingularityFlowError('The candidate or evidence changed after inspection. Nothing was recorded; reopen the current human witness review.',
+      { code: 'WITNESS_REVIEW_CHANGED' });
+  }
+}
+
 /** The bindings a record may carry and still belong to this candidate: today's, and the legacy form. */
 export function witnessContextBindings(workflow) {
   return [witnessContextBinding(workflow), witnessContextBinding(workflow, { legacy: true })];

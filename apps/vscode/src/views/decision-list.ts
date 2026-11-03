@@ -8,8 +8,9 @@
  * has changed; it lives in a private temporary folder for the one command and is removed after it.
  * The list is read again after every attempt, so what remains is always the engine's answer.
  */
-import { mkdtemp, rm, writeFile } from 'node:fs/promises';
+import { mkdtemp, rm, writeFile, readFile, realpath } from 'node:fs/promises';
 import os from 'node:os';
+import { createHash } from 'node:crypto';
 import path from 'node:path';
 import * as vscode from 'vscode';
 import type { SingularityFlowClient } from '../cli/client.ts';
@@ -18,7 +19,7 @@ import { navigateTo } from './navigate.ts';
 import { registerMessageRouter, stringField } from './messages.ts';
 import { collectReviewConfirmation } from './review-confirmation.ts';
 import {
-  buildDecisionListView, decisionAnswersDocument, decisionAnswersFromChoices, decisionConfirmationRequest, decisionListArgv,
+  runWitnessReview, type WitnessReviewTarget, buildDecisionListView, decisionAnswersDocument, decisionAnswersFromChoices, decisionConfirmationRequest, decisionListArgv,
   decisionPacketFrom, decisionPreviewArgv, decisionPreviewEmptyReason, decisionPreviewFrom, decisionRecordArgv, decisionRecordOutcome,
   type DecisionAnswers, type DecisionChoice, type DecisionListOutcome, type DecisionPacket
 } from './decision-list-model.ts';
@@ -81,6 +82,7 @@ export class DecisionListPanel implements vscode.Disposable {
   private router = registerMessageRouter('singularityFlow.decisions', {
     'decisions.refresh': () => this.guard(() => this.load()),
     'decisions.review': (message) => this.guard(() => this.review(message.choices, stringField(message, 'digest'))),
+    'decisions.witness': (message) => this.guard(() => this.witness(stringField(message, 'item'), stringField(message, 'option'))),
     'decisions.copy': (message) => this.copy(stringField(message, 'item'), stringField(message, 'option'))
   });
 
@@ -183,6 +185,20 @@ export class DecisionListPanel implements vscode.Disposable {
     await this.load();
   }
 
+  private async witness(itemId: string | null, optionId: string | null): Promise<void> {
+    const item = this.packet?.items.find(entry => entry.id === itemId);
+    const option = item?.options.find(entry => entry.id === optionId);
+    const review = option?.action?.humanReview;
+    if (!review || !option?.decidedBy.allowed) return;
+    this.busy = true; this.render();
+    try {
+      const result = await reviewWitness(this.client, { workId: this.target.workId, criterion: review.clauseId, slot: review.slot }, this.hooks.refresh);
+      this.notice = result.message ?? 'The witness review finished. The list below shows what remains.';
+      this.error = null;
+    } catch (error) { this.error = (error as Error).message; }
+    finally { this.busy = false; await this.load(); }
+  }
+
   private async copy(itemId: string | null, optionId: string | null): Promise<void> {
     const item = this.packet?.items.find((entry) => entry.id === itemId);
     if (!item) return;
@@ -207,4 +223,61 @@ export class DecisionListPanel implements vscode.Disposable {
     for (const subscription of this.subscriptions.splice(0)) subscription.dispose();
     if (DecisionListPanel.current === this) DecisionListPanel.current = null;
   }
+}
+
+let reviewing = false;
+
+async function reviewedPath(repository: string, file: string): Promise<string> {
+  const root = await realpath(repository);
+  const absolute = await realpath(path.resolve(root, file));
+  const relative = path.relative(root, absolute);
+  if (!relative || relative === '..' || relative.startsWith(`..${path.sep}`) || path.isAbsolute(relative)) {
+    throw new Error('Select evidence inside this Story checkout. Outside files must first be attached or captured through the Story evidence flow.');
+  }
+  return absolute;
+}
+
+export async function reviewWitness(client: SingularityFlowClient, target: WitnessReviewTarget, refresh?: () => Promise<unknown>) {
+  if (reviewing) return { status: 'busy', message: 'Finish or cancel the open witness review first.' };
+  if (!target || Object.keys(target).some(key => !['workId', 'criterion', 'slot'].includes(key))) {
+    throw new Error('A witness review accepts only a Story ID, criterion and slot. Checklist answers, reasons and commands come from the person in the native review.');
+  }
+  reviewing = true;
+  try {
+    const result = await runWitnessReview(target, {
+      read: async () => {
+        client.invalidateReads();
+        const packet = decisionPacketFrom(await client.run(['decisions', target.workId, '--json'], undefined, { priority: 'interactive' }));
+        if (!packet) throw new Error('The current witness decisions could not be read.');
+        return packet;
+      },
+      choose: async choices => (await vscode.window.showQuickPick(choices.map(choice => ({ label: `${choice.clauseId} · ${choice.slot}`, choice })),
+        { title: 'Choose a human evidence review', ignoreFocusOut: true }))?.choice,
+      file: async (repository, files) => {
+        if (files.length === 1) return files[0];
+        const selected = await vscode.window.showOpenDialog({ defaultUri: vscode.Uri.file(repository), canSelectFiles: true,
+          canSelectFolders: false, canSelectMany: false, openLabel: 'Inspect this evidence file' });
+        if (!selected?.[0]) return undefined;
+        const file = path.relative(repository, await reviewedPath(repository, selected[0].fsPath)).split(path.sep).join('/');
+        if (files.length && !files.includes(file)) throw new Error('Select one of the evidence files named by this witness slot.');
+        return file;
+      },
+      digest: async (repository, file) => `sha256:${createHash('sha256').update(await readFile(await reviewedPath(repository, file))).digest('hex')}`,
+      inspect: async (repository, file) => { await vscode.commands.executeCommand('vscode.open', vscode.Uri.file(await reviewedPath(repository, file))); },
+      answer: async question => (await vscode.window.showQuickPick([{ label: 'Yes', answer: true }, { label: 'No', answer: false }],
+        { title: 'Human evidence review', placeHolder: question, ignoreFocusOut: true }))?.answer,
+      reason: async () => vscode.window.showInputBox({ title: 'What did you inspect?', prompt: 'Describe your observation of this evidence, in your own words.',
+        ignoreFocusOut: true, validateInput: value => value.trim().length >= 10 && value.trim().length <= 1000 ? null : 'Enter 10 to 1000 characters.' }),
+      confirm: detail => collectReviewConfirmation({ title: 'Record human evidence review', summary: 'Review your file, answers and reason. This records a witness, not phase approval.',
+        detail, confirmLabel: 'Record my review' }),
+      record: (repository, argv) => client.forkForRepository(repository).run(argv)
+    });
+    if (result.status !== 'recorded') return result;
+    let refreshWarning: string | undefined;
+    try { await refresh?.(); } catch (error) { refreshWarning = (error as Error).message; }
+    const data = (result.result as { data?: { record?: { id?: string; outcome?: string; clauseId?: string }; commit?: string } })?.data;
+    if (!data?.record?.id) throw new Error('The witness command returned no verifiable record ID. Refresh Decisions before retrying.');
+    return { status: 'recorded', ...(refreshWarning ? { refreshWarning } : {}), record: data?.record?.id, outcome: data?.record?.outcome,
+      criterion: data?.record?.clauseId, commit: data?.commit, message: 'The human witness review was recorded. Refresh Decisions for remaining items; no phase approval was performed.' };
+  } finally { reviewing = false; }
 }

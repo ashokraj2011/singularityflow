@@ -137,7 +137,8 @@ function itemLines(item, index, { numbered = false } = {}) {
 }
 
 function packetText(packet) {
-  const lines = [packet.headline];
+  const lines = [packet.headline, ...(packet.recorded?.length ? ['', 'Recorded plan accounting (separate from visual sign-off):',
+    ...packet.recorded.map(entry => `  ${entry.id}: ${entry.summary}`)] : [])];
   if (!packet.items.length) return `${lines.join('\n')}\n`;
   lines.push('');
   for (const [index, item] of packet.items.entries()) lines.push(...itemLines(item, index), '');

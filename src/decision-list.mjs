@@ -323,12 +323,18 @@ function evidenceItem(workflow, context, entry) {
   const name = clauseName(workflow, entry.criterion);
   const slots = entry.witnesses.map((witness) => witness.files.length === 1 ? witness.files[0] : `slot ${witness.slot}`);
   const options = [
-    ...entry.witnesses.map((witness) => personalStep({
+    ...entry.witnesses.map((witness) => {
+      const owed = (context.facts.pending?.owed ?? []).find(row => row.kind === 'witness' && row.clauseId === entry.criterion && row.slot === witness.slot);
+      const step = personalStep({
       id: `witness-${witness.slot}`,
       label: witness.files.length === 1 ? `I checked ${witness.files[0]}: witness it` : `I checked the ${witness.method} evidence for slot ${witness.slot}: witness it`,
       command: witness.command,
       words: 'You look at the evidence yourself and record the witness with its three confirmations; nothing is decided here.'
-    })),
+      });
+      return owed ? { ...step, decidedBy: stepDecidedBy(workflow, context, [...new Set(owed.owners.flatMap(id => approvers(workflow, id)))], step.words),
+        action: { ...step.action, humanReview: { kind: 'witness', clauseId: owed.clauseId, clauseText: owed.clauseText, slot: owed.slot, method: owed.method,
+          files: owed.files, owners: owed.owners, contextBinding: owed.contextBinding } } } : step;
+    }),
     ...entry.risks.map((risk, index) => personalStep({
       id: entry.risks.length === 1 ? 'accept-obligation-risk' : `accept-obligation-risk-${index + 1}`,
       label: 'Accept it as a risk until a date',
@@ -446,7 +452,8 @@ function stepDecidedBy(workflow, { authorities, actor }, groups, words) {
 
 /** One item that is a person's own step, with who takes it. */
 function stepItem(workflow, context, { kind, title, why, groups = [], options, details }) {
-  const steps = options.map((entry) => ({ ...personalStep(entry), decidedBy: stepDecidedBy(workflow, context, groups, entry.words) }));
+  const steps = options.map((entry) => ({ ...personalStep(entry),
+    ...(entry.humanReview ? { action: { command: entry.command, humanReview: entry.humanReview } } : {}), decidedBy: stepDecidedBy(workflow, context, groups, entry.words) }));
   return { kind, title, why, options: steps, details: { ...details, commands: steps.map((entry) => entry.action.command) } };
 }
 
@@ -531,10 +538,12 @@ function owedItem(workflow, context, entry) {
       : `${entry.text ? `"${entry.text}" ` : ''}needs a link or a disposition from an approver of the step that defines the scope before the Story ends.`,
     groups: witness ? [...new Set(entry.owners.flatMap((id) => approvers(workflow, id)))] : [],
     options: [{ id: witness ? 'witness' : 'disposition', label: witness ? 'Sign it off after inspecting it' : 'Include it, or say it exists, naming its clauses',
-      command: entry.command ?? `singularity-flow evidence matrix ${workflow.workItem.id} --json`, words: 'Only a person records it; an agent never answers it.' },
+      command: entry.command ?? `singularity-flow evidence matrix ${workflow.workItem.id} --json`, words: 'Only a person records it; an agent never answers it.',
+      ...(witness ? { humanReview: { kind: 'witness', clauseId: entry.clauseId, clauseText: entry.clauseText, slot: entry.slot, method: entry.method,
+        files: entry.files, owners: entry.owners, contextBinding: entry.contextBinding } } : {}) },
     ...(entry.otherCommand ? [{ id: 'other-disposition', label: 'Exclude, defer or set it aside, with a reason', command: entry.otherCommand,
       words: 'Only a person records it; an agent never answers it.' }] : [])],
-    details: witness ? { clause: entry.clauseId, slot: entry.slot } : { scopeItem: entry.id }
+    details: witness ? { clause: entry.clauseId, slot: entry.slot, contextBinding: entry.contextBinding } : { scopeItem: entry.id }
   });
 }
 
@@ -675,7 +684,9 @@ export function decisionPacket(workflow, facts, { authorities, actor, at, reques
     ...(facts.testNarrowings ?? []).map((entry) => testNarrowingItem(workflow, context, entry)),
     ...(facts.testCommands ?? []).map((request) => testCommandItem(workflow, context, request)),
     ...(facts.evidence ?? []).map((entry) => evidenceItem(workflow, context, entry)),
-    ...(pending.owed ?? []).map((entry) => owedItem(workflow, context, entry))
+    ...(pending.owed ?? []).filter(entry => entry.kind !== 'witness' || !(facts.evidence ?? []).some(row =>
+      row.criterion === entry.clauseId && row.witnesses.some(witness => witness.slot === entry.slot)))
+      .map((entry) => owedItem(workflow, context, entry))
   ];
   // Each refusal approval names that no item carries becomes an item of its own; the approval itself
   // names the rest, so the list and the approval check never disagree [SPEC-OAP M3].
@@ -731,6 +742,9 @@ export function decisionPacket(workflow, facts, { authorities, actor, at, reques
   const listRoute = decisions.length && decisions.every(theirsAlone) ? null : `/sf-decide ${workId}`;
   return {
     schemaVersion: 1, resultType: 'sflow-decisions', revision: DECISION_LIST_REVISION,
+    ...(facts.repositoryPath ? { repositoryPath: facts.repositoryPath } : {}),
+    recorded: (workflow.planAmendments ?? []).slice(-10).map(record => ({ id: record.id, kind: 'plan-accounting',
+      at: record.at, summary: (record.changes ?? []).map(change => `${change.path} accounted for${change.clauseId ? ` under ${change.clauseId}` : ''}`).join('; ') })),
     workId, phase: phaseId, phaseLabel: stepName(workflow, phaseId), status: decisions.length ? 'decisions-needed' : 'nothing-to-decide',
     headline, rule: CONFORMANCE_GAP_RULE,
     items, holding, open: items.length,

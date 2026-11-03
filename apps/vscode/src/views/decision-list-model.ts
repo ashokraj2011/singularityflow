@@ -27,7 +27,7 @@ export interface DecisionOptionPacket {
   /** False for a person's own action (capturing a screenshot) that the list never records. */
   recordable?: boolean;
   available?: boolean;
-  action?: { command: string; alternativeCommands?: string[] };
+  action?: { command: string; alternativeCommands?: string[]; humanReview?: { kind: 'witness'; clauseId: string; clauseText?: string | null; slot: string; method: string; files: string[]; owners: string[]; contextBinding: string } };
 }
 
 export interface DecisionItemPacket {
@@ -40,6 +40,8 @@ export interface DecisionItemPacket {
 export interface DecisionPacket {
   resultType: 'sflow-decisions';
   workId: string; phase: string; phaseLabel: string;
+  repositoryPath?: string;
+  recorded?: Array<{ id: string; kind: string; summary: string; at?: string }>;
   status: 'decisions-needed' | 'nothing-to-decide' | string;
   headline: string; rule?: string;
   items: DecisionItemPacket[];
@@ -73,7 +75,7 @@ export interface DecisionOptionRow {
   /** Why it is not a button, in the engine's words, when it is not. */
   notChoosable: string | null;
   /** A person's own action (take the screenshot and record it): its command, never run here. */
-  yours: { command: string; alternativeCommands: string[] } | null;
+  yours: { command: string; alternativeCommands: string[]; humanReview?: boolean } | null;
   needs: DecisionNeeds;
 }
 
@@ -106,6 +108,7 @@ export interface DecisionListView {
   notice: string | null; error: string | null;
   outcome: DecisionListOutcome | null;
   busy: boolean;
+  recorded?: string[];
 }
 
 const ITEM = /^d\d{1,3}$/u;
@@ -144,7 +147,7 @@ function ordered(options: DecisionOptionPacket[]): DecisionOptionPacket[] {
 }
 
 function optionRow(option: DecisionOptionPacket): DecisionOptionRow {
-  const yours = option.action?.command ? { command: option.action.command, alternativeCommands: option.action.alternativeCommands ?? [] } : null;
+  const yours = option.action?.command ? { command: option.action.command, alternativeCommands: option.action.alternativeCommands ?? [], ...(option.action.humanReview ? { humanReview: true } : {}) } : null;
   const recorded = option.recordable !== false;
   const available = option.available !== false;
   const allowed = option.decidedBy?.allowed === true;
@@ -199,7 +202,8 @@ export function buildDecisionListView(packet: DecisionPacket | null, {
     items,
     unavailable: (packet.unavailable ?? []).map((entry) => `${entry.phase ?? 'A step'}'s report could not be read (${entry.reason ?? 'unreadable'}).`),
     chosen: items.filter((item) => item.chosen).length,
-    notice, error, outcome, busy
+    notice, error, outcome, busy,
+    recorded: (packet.recorded ?? []).map(entry => `${entry.id}: ${entry.summary}`)
   };
 }
 
@@ -375,4 +379,78 @@ export function decisionRecordOutcome(result: unknown, failure: { message: strin
   }
   if (refusal?.code === 'DECISIONS_NOT_YOURS') return { outcome: { kind: 'not-yours', message, recorded: [], remaining: [] }, packet: null };
   return { outcome: { kind: 'failed', message, recorded: [], remaining: [] }, packet: null };
+}
+
+/** Human witness orchestration. Tool input selects a review; only native UI supplies answers. */
+
+export interface WitnessReviewTarget { workId: string; criterion?: string; slot?: string }
+export interface WitnessReviewChoice {
+  clauseId: string; clauseText?: string | null; slot: string; method: string; files: string[]; contextBinding: string;
+}
+export interface WitnessReviewHost {
+  read(): Promise<DecisionPacket>;
+  choose(choices: WitnessReviewChoice[]): Promise<WitnessReviewChoice | undefined>;
+  file(repository: string, files: string[]): Promise<string | undefined>;
+  digest(repository: string, file: string): Promise<string>;
+  inspect(repository: string, file: string): Promise<void>;
+  answer(question: string): Promise<boolean | undefined>;
+  reason(): Promise<string | undefined>;
+  confirm(detail: string): Promise<boolean>;
+  record(repository: string, argv: string[]): Promise<unknown>;
+}
+export const WITNESS_QUESTIONS = [
+  ['states-the-outcome', 'Does this file show the acceptance criterion’s observable outcome?'],
+  ['matches-the-criterion', 'Does the evidence match the acceptance criterion as written?'],
+  ['current-for-this-change', 'Is this evidence current for this change?']
+] as const;
+
+export function witnessReviewChoices(packet: DecisionPacket): WitnessReviewChoice[] {
+  const seen = new Set<string>();
+  return packet.items.flatMap(item => item.options.filter(option => option.decidedBy.allowed).flatMap(option => {
+    const review = option.action?.humanReview;
+    if (!review || review.kind !== 'witness' || !/^sha256:[a-f0-9]{64}$/u.test(review.contextBinding ?? '')) return [];
+    const key = `${review.clauseId}\0${review.slot}`;
+    if (seen.has(key)) return [];
+    seen.add(key);
+    return [review];
+  }));
+}
+
+/** No selection, answer or reason ever arrives from Copilot. Closing any native prompt cancels. */
+export async function runWitnessReview(target: WitnessReviewTarget, host: WitnessReviewHost) {
+  if (typeof target.workId !== 'string' || !/^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$/u.test(target.workId)
+      || target.criterion && !/^[A-Z0-9][A-Z0-9._-]{0,63}:AC-\d{3}$/u.test(target.criterion)
+      || target.slot && !/^[A-Za-z0-9._-]{1,128}$/u.test(target.slot)) throw new Error('Select an exact Story, acceptance criterion and witness slot.');
+  const packet = await host.read();
+  if (packet.workId !== target.workId || !packet.repositoryPath) throw new Error('The witness review has no verified Story checkout.');
+  const choices = witnessReviewChoices(packet).filter(entry => (!target.criterion || entry.clauseId === target.criterion) && (!target.slot || entry.slot === target.slot));
+  if (!choices.length) return { status: 'unavailable', message: 'No pending witness review is available to your identity for this selection. Refresh Decisions for the current status and approval authority.' };
+  const review = choices.length === 1 ? choices[0]! : await host.choose(choices);
+  if (!review) return { status: 'cancelled', message: 'No witness was recorded.' };
+  const repository = packet.repositoryPath;
+  const file = await host.file(repository, review.files);
+  if (!file) return { status: 'cancelled', message: 'No witness was recorded.' };
+  const digest = await host.digest(repository, file);
+  await host.inspect(repository, file);
+  const answers: Array<[string, boolean]> = [];
+  for (const [id, question] of WITNESS_QUESTIONS) {
+    const answer = await host.answer(`${review.clauseId} · ${review.slot}: ${question}`);
+    if (answer === undefined) return { status: 'cancelled', message: 'No witness was recorded.' };
+    answers.push([id, answer]);
+  }
+  const reason = (await host.reason())?.trim();
+  if (!reason) return { status: 'cancelled', message: 'No witness was recorded.' };
+  if (reason.length < 10 || reason.length > 1000) throw new Error('Describe what you inspected in 10 to 1000 characters.');
+  const detail = [`Story: ${target.workId}`, `Criterion: ${review.clauseId}`, ...(review.clauseText ? [`Approved criterion: ${review.clauseText}`] : []), `Slot: ${review.slot} (${review.method})`,
+    `File: ${file}`, `File SHA-256: ${digest}`, `Candidate binding: ${review.contextBinding}`,
+    ...answers.map(([id, answer]) => `${id}: ${answer ? 'yes' : 'no'}`), `Your reason: ${reason}`].join('\n');
+  if (!await host.confirm(detail)) return { status: 'cancelled', message: 'No witness was recorded.' };
+  const fresh = await host.read();
+  const current = witnessReviewChoices(fresh).find(entry => entry.clauseId === review.clauseId && entry.slot === review.slot);
+  if (fresh.workId !== target.workId || fresh.repositoryPath !== repository || current?.contextBinding !== review.contextBinding
+      || await host.digest(repository, file) !== digest) throw new Error('The candidate, evidence or pending review changed while you inspected it. Nothing was recorded; reopen the current review.');
+  const result = await host.record(repository, ['decision', 'witness', '--work-id', target.workId, '--criterion', review.clauseId,
+    '--slot', review.slot, '--file', file, '--reason', reason, '--expected-context-sha256', review.contextBinding,
+    '--expected-file-sha256', digest, ...answers.flatMap(([id, answer]) => [answer ? '--confirm' : '--deny', id]), '--json']);
+  return { status: 'recorded', result };
 }

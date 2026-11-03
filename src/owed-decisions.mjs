@@ -9,7 +9,7 @@
  * its exact command. Nothing here blocks, records or decides: only the authorized person may.
  */
 import { stepResponsibilities } from './phase-roles.mjs';
-import { WITNESS_CHECKLIST } from './verification/witness-records.mjs';
+import { WITNESS_CHECKLIST, witnessContextBinding } from './verification/witness-records.mjs';
 import { commandRouteLines, safeCommandGuidance } from './safe-command-guidance.mjs';
 import { scopeDecisionArgv, scopeDecisionCommandLine } from './scope/extract.mjs';
 
@@ -52,7 +52,7 @@ function witnessesOf({ mergedVerificationContracts, plannedClaimsForObservedPhas
       // route the reviewer into that unrelated menu or let an agent pre-answer a checklist.
       const command = { ...shell, skill: null, copilotCommand: null, copilotStatus: 'unavailable',
         copilotReason: 'Use the human witness terminal or VS Code witness review. /sf-decide does not implement decision witness.' };
-      witnesses.push({ clauseId, slot: slot.slot, method: slot.method, status, files: unique, owners,
+      witnesses.push({ clauseId, clauseText: (graph.records.indexes ?? []).flatMap(index => index.clauses ?? []).find(clause => clause.id === clauseId)?.body ?? null, slot: slot.slot, method: slot.method, status, files: unique, owners,
         checklist: WITNESS_CHECKLIST, commandGuidance: command, humanRequired: true,
         availableAfterPublication: true, availableAfterSubmission: true, contractClassificationIsWitness: false,
         detail: 'After submission pins fresh candidate/test evidence, an authorized human must inspect the published candidate and exact file before confirming every checklist item. No agent may answer this checklist.' });
@@ -86,8 +86,8 @@ export function witnessingSteps(workflow, phaseIds) {
   return stepsHolding(workflow, phaseIds, ['implement', 'verify']);
 }
 
-function listed(entries) {
-  return { entries: entries.slice(0, MAX_LISTED), more: Math.max(0, entries.length - MAX_LISTED) };
+function listed(entries, limit = MAX_LISTED) {
+  return { entries: entries.slice(0, limit), more: Math.max(0, entries.length - limit) };
 }
 
 /** Statements of the Story's sources nobody has linked to a clause or dispositioned. */
@@ -106,7 +106,7 @@ function scopeItemsOf(workflow, inventory) {
  * most MAX_LISTED of each; null when none is owed. Advisory: an unreadable evidence graph reports
  * itself unavailable and nothing here throws.
  */
-export async function owedDecisions(root, config, workflow, phaseIds) {
+export async function owedDecisions(root, config, workflow, phaseIds, { limit = MAX_LISTED } = {}) {
   const witnessing = witnessingSteps(workflow, phaseIds);
   const scoping = stepsHolding(workflow, phaseIds, ['scope']);
   if (!witnessing.length && !scoping.length) return null;
@@ -121,13 +121,13 @@ export async function owedDecisions(root, config, workflow, phaseIds) {
     const witnesses = !evaluation ? [] : witnessing.flatMap((phaseId) => witnessesOf(reader, workflow, graph, evaluation, phaseId)
       .filter((witness) => witness.status !== 'met' && witness.owners.includes(phaseId)))
       .filter((witness) => !seen.has(`${witness.clauseId}\u0000${witness.slot}`) && seen.add(`${witness.clauseId}\u0000${witness.slot}`))
-      .map((witness) => ({ clauseId: witness.clauseId, slot: witness.slot, method: witness.method, status: witness.status,
+      .map((witness) => ({ clauseId: witness.clauseId, clauseText: witness.clauseText, slot: witness.slot, method: witness.method, status: witness.status,
         files: witness.files, owners: witness.owners, humanRequired: true, command: witness.commandGuidance.command ?? null }));
     const scopeItems = !scoping.length ? []
       : scopeItemsOf(workflow, graph.untrusted ? await reader.previewScopeInventory(root, config, workflow) : graph.scope);
     if (!witnesses.length && !scopeItems.length) return null;
-    const owedWitnesses = listed(witnesses), owedScope = listed(scopeItems);
-    return { advisory: true, status: 'owed',
+    const owedWitnesses = listed(witnesses, limit), owedScope = listed(scopeItems, limit);
+    return { advisory: true, status: 'owed', contextBinding: witnessContextBinding(workflow),
       witnesses: owedWitnesses.entries, scopeItems: owedScope.entries, more: { witnesses: owedWitnesses.more, scopeItems: owedScope.more },
       instruction: 'Relay each item with its exact command to the user. Only a person who approves the owning step decides these: a sign-off after inspecting its file, a scope item by linking or dispositioning the statement; an agent never records or answers them. The Story cannot end without them. This does not block the current step.' };
   } catch (error) {

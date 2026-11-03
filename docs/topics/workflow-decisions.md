@@ -22,7 +22,7 @@ related:
   - workflow-authoring
   - story-lifecycle
   - approvals
-version: 13
+version: 14
 ---
 A decision sits after one phase of a Story workflow and chooses what happens next: the next phase, a later one (skipping those between), an earlier one, or the end of the Story. Running Stories keep the decisions they started with.
 
@@ -47,6 +47,25 @@ In new reports, name the owning phase and each affected qualified clause ID in t
 Impact or Clause field, and cite an already-filed UPI-ID in the relevant comparison row. Avoid
 ambiguous phrases such as “some clauses.” Legacy “both clauses” is resolved only for an actual
 two-clause table and a matching source-item provenance; an unrelated section issue cannot claim it.
+
+## Plan accounting and human evidence reviews
+
+The decision list includes visual and inspection sign-offs owed by earlier phases even while the
+current phase is still in progress. An earlier approval does not hide those reviews or make them
+hold an unrelated phase. A completed plan amendment, such as accounting for a test setup file,
+appears under **Recorded plan accounting**, separately from pending visual sign-off.
+
+In VS Code, use **Decisions → Review evidence and sign off**, or the Command Palette action
+**Singularity Flow: Review Story Evidence and Sign Off**. `/sf-decide <WORK-ID>` can open the same
+native review with `#sflowWitnessReview`. You inspect the local evidence, answer three checklist
+questions, supply your own reason and confirm the exact record. Copilot supplies only the Story,
+criterion and slot IDs. Closing any prompt records nothing, and a negative answer stays negative.
+
+The review rechecks the pending item, candidate and file bytes before recording. The CLI repeats
+the binding check while writing the record. A changed candidate or file requires a fresh human
+review; an already-completed review is never duplicated. Existing terminal `decision witness`
+commands remain supported. If native review is unavailable, Copilot shows that exact Shell action
+rather than sending a visual sign-off back to an unrelated decision menu.
 
 ## Purpose and prerequisites
 

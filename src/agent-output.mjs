@@ -330,7 +330,7 @@ export function agentAct(result) {
       : { state: 'confirm-in-terminal', do: null, read: [`${at}preview`],
         said: `Show ${at}preview.summary. The person records it by running ${at}preview.record.command in their own terminal; never run it or change its digest.` };
     if (list.items?.length) return { state: 'ask-person', do: null, read: [`${at}items`, `${at}record`],
-      said: 'Show each item\'s title and why; ask the person to pick one of its options (recommended first) and any date or reason, offering its default. Never choose for them.' };
+      said: 'Show each item\'s title and why; ask the person to pick one of its options (recommended first) and any date or reason, offering its default. Never choose for them. action.humanReview opens native #sflowWitnessReview with workId, criterion and slot only; the person supplies its checklist and reason there. If that tool is unavailable, give the exact human Shell command; do not send a witness back to /sf-decide. Recorded plan accounting is separate from pending visual sign-off.' };
     return { state: 'read', do: null, said: oneLine(list.headline) };
   }
   const action = genericAction(result);

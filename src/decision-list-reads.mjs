@@ -166,12 +166,13 @@ async function pendingStateFacts(root, config, workflow, phase, { approvalCheck,
     } catch (error) { unavailable.push({ phase: phase.id, reason: error.code ?? 'appeals-unreadable' }); }
   }
   let owedEntries = [];
-  const owedRead = owed !== undefined ? owed : awaiting && !phaseEndsStory(workflow, phase)
-    ? await (async () => { const { owedDecisions, stepsThrough } = await import('./owed-decisions.mjs'); return owedDecisions(root, config, workflow, stepsThrough(workflow, phase.id)); })()
-    : null;
+  const owedRead = owed !== undefined ? owed
+    : await (async () => { const { owedDecisions, stepsThrough } = await import('./owed-decisions.mjs'); return owedDecisions(root, config, workflow, stepsThrough(workflow, phase.id), { limit: 1000 }); })();
   if (owedRead?.status === 'owed') {
-    owedEntries = [...(owedRead.witnesses ?? []).map((entry) => ({ kind: 'witness', ...entry })), ...(owedRead.scopeItems ?? []).map((entry) => ({ kind: 'scope', ...entry }))];
+    owedEntries = [...(owedRead.witnesses ?? []).map((entry) => ({ kind: 'witness', ...entry, contextBinding: owedRead.contextBinding })), ...(owedRead.scopeItems ?? []).map((entry) => ({ kind: 'scope', ...entry }))];
   }
+  if (owedRead?.status === 'unavailable') unavailable.push({ phase: phase.id, reason: owedRead.reason ?? 'owed-decisions-unavailable' });
+  if (owedRead?.more?.witnesses || owedRead?.more?.scopeItems) unavailable.push({ phase: phase.id, reason: 'owed-decisions-truncated' });
   const check = approvalCheck !== undefined ? approvalCheck : awaiting
     ? (await (await import('./approval-check.mjs')).approvalAdvisories(root, config, workflow, phase))?.approvalCheck ?? null : null;
   let retained = publication ?? null;
@@ -212,6 +213,7 @@ export async function decisionListFacts(root, config, workflow, { phaseId = work
   return {
     ...blocking,
     ...state,
+    repositoryPath: root,
     evidence,
     candidates: reuse.candidates, reuseProblems: reuse.problems,
     testRisks: tests.risks,
@@ -226,6 +228,8 @@ export async function decisionListFacts(root, config, workflow, { phaseId = work
       testNarrowings: (workflow.testNarrowings ?? []).length,
       testCommandDecisions: (workflow.testCommandDecisions ?? []).length,
       testCommandReviewBindings: commandReviews.bindings,
+      planAmendments: (workflow.planAmendments ?? []).length,
+      witnessRecords: (workflow.witnessRecords ?? []).length,
       visualProfileDecisions: (workflow.visualProfileDecisions ?? []).length,
       evidence: evidence.map((entry) => `${entry.criterion}:${entry.result}:${entry.witnesses.map((witness) => witness.slot).join(',')}:${entry.risks.length}`),
       reports: Object.fromEntries(reports.map((entry) => [entry.step.id, entry.digest])),

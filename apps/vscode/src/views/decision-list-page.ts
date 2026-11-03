@@ -33,6 +33,7 @@ function optionHtml(item: DecisionItemRow, option: DecisionOptionRow): string {
   if (option.yours) {
     return `<div class="dl-option yours" data-yours="${escape(option.id)}">
       <strong>${escape(option.label)}</strong>${recommended}<small>${escape(option.notChoosable ?? '')} ${escape(option.words)}</small>
+      ${option.yours.humanReview ? `<button type="button" class="compact-action" data-witness-item="${escape(item.id)}" data-witness-option="${escape(option.id)}">Review evidence and sign off</button>` : ''}
       <code>${escape(option.yours.command)}</code>
       <button type="button" class="secondary compact-action" data-copy-item="${escape(item.id)}" data-copy-option="${escape(option.id)}">Copy the command</button>
     </div>`;
@@ -95,6 +96,7 @@ export function decisionListHtml(view: DecisionListView): string {
     ${outcomeHtml(view)}
     ${view.error ? `<div class="notice error" role="alert">${icon('blocked')}${escape(view.error)}</div>` : ''}
     ${view.unavailable.map((line) => `<div class="notice warning">${icon('warning')}${escape(line)}</div>`).join('')}
+    ${view.recorded?.length ? `<details class="notice"><summary>Recorded plan accounting (${view.recorded.length})</summary><ul>${view.recorded.map(line => `<li>${escape(line)}</li>`).join('')}</ul><p>This accounting does not record visual sign-off. Pending reviews appear below.</p></details>` : ''}
     <div class="dl-items">${items}</div>
     ${view.rule ? `<p class="muted dl-rule">${escape(view.rule)}</p>` : ''}
     ${yours ? `<div class="dl-actions"><p class="muted" data-progress aria-live="polite"></p>
@@ -177,6 +179,8 @@ export const DECISION_LIST_SCRIPT = `
       show(item); sync();
       return;
     }
+    const witness = event.target.closest('[data-witness-item]');
+    if (witness) { api.postMessage({ type: 'decisions.witness', item: witness.dataset.witnessItem, option: witness.dataset.witnessOption }); return; }
     const copy = event.target.closest('[data-copy-item]');
     if (copy) { api.postMessage({ type: 'decisions.copy', item: copy.dataset.copyItem, option: copy.dataset.copyOption || '' }); return; }
     const action = event.target.closest('[data-action="refresh"]');

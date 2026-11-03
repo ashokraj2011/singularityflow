@@ -30,7 +30,7 @@ export function isApplicationReviewEventChange(change) {
   if (recordSha256(before.history ?? []) !== recordSha256((after.history ?? []).slice(0, -1))
       || (after.history?.length ?? 0) !== (before.history?.length ?? 0) + 1
       || recordSha256(before.publicationProjections ?? []) !== recordSha256((after.publicationProjections ?? []).slice(0, -1))) return false;
-  const expected = { applicationAcceptanceRecords: structuredClone(before.applicationAcceptanceRecords ?? []) };
+  const expected = { ...after, applicationAcceptanceRecords: structuredClone(before.applicationAcceptanceRecords ?? []) };
   if (reviewEvent.type === 'acceptance-finalized') {
     try {
       const view = projectReview(session);

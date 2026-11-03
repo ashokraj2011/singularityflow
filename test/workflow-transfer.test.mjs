@@ -117,6 +117,40 @@ async function addPortableFeature(root, label = 'Portable feature') {
   await writeWorkflowConfiguration(root, configuration);
 }
 
+test('application review bundles retain their policy and authority closure and require an explicit interpreter', async t => {
+  const source = await initializedRepository(t, 'sflow-transfer-review-source-');
+  const target = await initializedRepository(t, 'sflow-transfer-review-target-');
+  const configuration = await workflowConfiguration(source);
+  configuration.workTypes['reviewed-feature'] = structuredClone(configuration.workTypes.feature);
+  configuration.approvalAuthorities['application-reviewers'] = { label: 'Application reviewers', members: [{ name: 'Review User', email: 'review@example.invalid' }] };
+  const policy = { mode: 'optional', surface: 'backend', authorities: ['application-reviewers'],
+    repairAttempts: 3, totalRepairAttempts: 8, quality: ['Confirm error responses against the approved contract.'] };
+  configuration.workTypes['reviewed-feature'].applicationReview = policy;
+  await writeWorkflowConfiguration(source, configuration);
+  const bundle = await exportWorkflowBundle(source, ['reviewed-feature']);
+  assert.equal(bundle.semantics.applicationReview, 'sflow-phase-semantics/ara-v1');
+  assert.deepEqual(bundle.objects.story.approvalAuthorities['application-reviewers'],
+    configuration.approvalAuthorities['application-reviewers']);
+  const before = await readFile(path.join(target, 'singularity/workflow.yml'));
+  for (const mutate of [candidate => { delete candidate.semantics.applicationReview; },
+    candidate => { candidate.semantics.applicationReview = 'unknown-review-interpreter'; }]) {
+    const invalid = structuredClone(bundle); mutate(invalid); invalid.bundleSha256 = bundleDigest(invalid);
+    await assert.rejects(() => planWorkflowImport(target, invalid), { code: 'SKP_WORKFLOW_PACKAGE_INVALID' });
+    assert.deepEqual(await readFile(path.join(target, 'singularity/workflow.yml')), before);
+  }
+  const plan = await planWorkflowImport(target, bundle);
+  assert.equal(plan.status, 'ready', JSON.stringify(plan.conflicts));
+  await applyWorkflowImport(target, bundle, { expectedPlanSha256: plan.planSha256 });
+  assert.deepEqual((await workflowConfiguration(target)).workTypes['reviewed-feature'].applicationReview, policy);
+  const adopted = await resolveWorkType(await loadDefinition(target), 'reviewed-feature');
+  assert.equal(adopted.phaseSemantics.profile, bundle.semantics.applicationReview);
+  assert.equal(adopted.applicationReview.repairAttempts, 3);
+  const again = await planWorkflowImport(target, bundle);
+  assert.equal(again.added.length, 0, 'repeat import preserves the existing review policy');
+  const ordinary = await exportWorkflowBundle(source, ['feature']);
+  assert.equal(Object.hasOwn(ordinary.semantics, 'applicationReview'), false);
+});
+
 test('transfer plan confirmation binds exact approved remote source and mirror commits, not mount paths or ref aliases', async (t) => {
   const source = await initializedRepository(t, 'sflow-transfer-authority-source-');
   const target = await initializedRepository(t, 'sflow-transfer-authority-target-');

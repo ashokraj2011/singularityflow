@@ -1,9 +1,9 @@
 {
   "schemaVersion": 2,
   "generatedFrom": "docs/topics",
-  "sourceCommit": "6843eef50306e16c4666b41edc06b38e1d3ddfe9",
+  "sourceCommit": "d7fc48e89332a7de289e1217003db1c5c7a6f5b2",
   "topicCount": 89,
-  "contentSha256": "8a0eb37d17f39001f182f8f01ad24f6ac2423620e9f59a1e0a0540ed1c3d6382",
+  "contentSha256": "20a171c8747f3f889c640fb5b2cb14bb896d4ba98130e8fa7cd45302370703b4",
   "topics": [
     {
       "id": "activity-and-prompt-audit",
@@ -48,8 +48,8 @@
     {
       "id": "app-review",
       "title": "Application review and acceptance",
-      "version": 1,
-      "sha256": "f89062ae5d8040ecab11a4dcadf41d37ca1028f6aeba4a55e71f83e9f193d01a",
+      "version": 2,
+      "sha256": "d3f17a8cda6d13ef451b2b4214ac31d4127154d94556c2cc287a69901c380857",
       "routingSha256": "a025f23b9e1e24124bea8efcccb2631b7b586ca95dd8aebf1130723d9ab42c60",
       "file": "app-review.md"
     },

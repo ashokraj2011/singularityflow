@@ -1,7 +1,7 @@
 ---
 id: app-review
 title: Application review and acceptance
-version: 1
+version: 2
 commands: [app-review]
 ---
 
@@ -36,6 +36,8 @@ Existing Stories retain their pinned policy. Installation, saving a specificatio
 
 Adopted Stories pin the `sflow-phase-semantics/ara-v1` runtime profile. An older runtime that cannot enforce it must upgrade before operating on that pinned Story; the usual phase interpretation remains unchanged for non-adopted Stories.
 
+Workflow exports carry the same interpreter requirement, review policy and referenced approval groups. Importers verify that requirement before writing configuration; an older importer refuses the profile instead of silently dropping application review.
+
 Required profiles need an existing human approval boundary on every code-bearing phase. The first release refuses `required` with `approval.mode: none` before Story creation; it does not create a hidden extra approval step. Optional profiles can name `authorities` from configured approval groups. Neither setting creates group membership.
 
 ## Open the review
@@ -67,13 +69,14 @@ The initial adapters support a controlled static web preview and actual retained
 | Capability | Implemented behavior |
 | --- | --- |
 | Story phases | One repository and its current code-bearing phase, including custom phase names |
-| Static web | Declared build steps, immutable output, managed Chromium, the actual inspected page/context |
+| Static web | Declared build steps, immutable output, managed Chromium, one actual inspected page/context; extra pages, native dialogs and socket-backed runtimes require another adapter |
 | Backend / CLI / library | Actual submitted structured test results; no application launched just for a report image |
 | Feedback and repair | Text-only reporting, exact existing obligation mapping, owner-admitted successor and human recheck; two attempts per root and ten total by default |
 | Human confirmation | Actual local review form; visual and functional dimensions remain separate |
 | Capture recovery | Same confirmation reused; admitted evidence can finish finalization without capture, test or API replay |
 | Evidence and takeover | Images local, published metadata only; another laptop re-establishes and inspects its local target |
-| Existing contracts | Application acceptance does not manufacture an older screenshot-inspection checklist or waive a separately required artifact review |
+| Existing contracts | Valid live visual acceptance satisfies its named visual slots; it never manufactures a screenshot-inspection checklist or waives a separate document-inspection slot |
+| Signed person presence | Explicitly unavailable until a signed-review adapter is qualified; Story creation refuses this combination instead of enabling unsigned acceptance |
 
 Refreshing unchanged inputs preserves the existing confirmation and decisions. Starting a replacement preview creates a new instance binding and requires inspection of that result. Closing a successful preview removes only its owned disposable build; failed materializations are retained for diagnosis, and admitted images remain available.
 

@@ -24,7 +24,7 @@ export async function applicationReviewHostDescriptor(root, sessionId) {
 }
 
 /** Open only the retained owned host. Its private secret URL is never returned to a model. */
-async function inspectReview(root, workId, sessionId) {
+export async function inspectApplicationReview(root, workId, sessionId, { openReview = null } = {}) {
   const descriptor = await applicationReviewHostDescriptor(root, sessionId);
   const { readPrivateSidecar } = await import('../private-sidecar.mjs');
   const { recordedProcessAlive } = await import('../application-run.mjs');
@@ -51,7 +51,7 @@ async function inspectReview(root, workId, sessionId) {
       const launchId = randomUUID();
       let launchError;
       const child = spawn(process.execPath, [path.join(PACKAGE_ROOT, 'bin', 'app-review-host.mjs'), root, sessionId, workId ?? '', launchId], {
-        detached: true, stdio: 'ignore', shell: false, env: { ...process.env, SINGULARITY_FLOW_SURFACE_CONTEXT: '' }
+        detached: true, stdio: 'ignore', shell: false, windowsHide: true, env: { ...process.env, SINGULARITY_FLOW_SURFACE_CONTEXT: '' }
       });
       child.once('error', error => { launchError = error; }); child.unref();
       for (let index = 0; index < 300; index += 1) {
@@ -64,7 +64,7 @@ async function inspectReview(root, workId, sessionId) {
     return current;
   });
   const { openBrowser } = await import('../local-evidence-review.mjs');
-  await openBrowser(record.url);
+  await (openReview ?? openBrowser)(record.url);
   return { status: 'opened', sessionId, message: 'Application review opened locally. Report problems, recheck repairs and say All good there. No acceptance was inferred from opening this view.' };
 }
 
@@ -112,7 +112,7 @@ export async function run(_argv, { positionals, options = {} }) {
     const session = findReviewSession(workflow, positionals[2] ?? null, phaseId);
     if (positionals.length > 3) araFail('ARA_COMMAND_INVALID', APPLICATION_REVIEW_USAGE);
     if (sub === 'status') result = await applicationReviewStatus(root, config, workflow, session.id);
-    else if (['inspect', 'accept', 'recheck', 'capture', 'defer', 'close'].includes(sub)) result = await inspectReview(root, workId, session.id);
+    else if (['inspect', 'accept', 'recheck', 'capture', 'defer', 'close'].includes(sub)) result = await inspectApplicationReview(root, workId, session.id);
     else {
       const inputFile = optionString(options, 'input');
       const inline = optionString(options, 'input-json');

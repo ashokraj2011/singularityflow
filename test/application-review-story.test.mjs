@@ -3,10 +3,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import path from 'node:path';
 import { readFile, writeFile, readdir } from 'node:fs/promises';
-import { spawn } from 'node:child_process';
-import { once } from 'node:events';
 import { setTimeout as delay } from 'node:timers/promises';
-import { fileURLToPath } from 'node:url';
 import { repository, startQuickFix, cli } from './helpers/run-and-test-fixture.mjs';
 import { slowLane } from './helpers/slow-lane.mjs';
 import { loadAcceptedStoryExecution } from '../src/accepted-story-execution.mjs';
@@ -15,7 +12,8 @@ import { applicationReviewStatus, applicationReviewResults, findReviewSession, a
 import { createApplicationReviewHumanServer } from '../src/application-review-human.mjs';
 import { captureApplicationReview } from '../src/application-review-preview.mjs';
 import { reviewDigest, reviewReportPages } from '../src/application-review-contract.mjs';
-import { applicationReviewHostDescriptor } from '../src/commands/app-review.mjs';
+import { applicationReviewHostDescriptor, inspectApplicationReview } from '../src/commands/app-review.mjs';
+import { recordedProcessAlive } from '../src/application-run.mjs';
 
 test('adopted backend review survives metadata commits and accepts only after real post-confirmation capture', slowLane({ timeout: 360000 }), async t => {
   const repo = await repository(t, { implementCommands: false, applicationReview: { mode: 'required', surface: 'backend' } });
@@ -98,23 +96,32 @@ test('adopted backend review survives metadata commits and accepts only after re
   const approval = repo.run(process.execPath, [cli, '--no-model', 'approve', 'implement', '--yes', '--json']);
   assert.equal(approval.status, 0, approval.stdout + approval.stderr);
   assert.equal(JSON.parse(await readFile(path.join(repo.root, 'singularity/work-items/QF-1/workflow.json'), 'utf8')).phases.implement.status, 'approved');
-  const worker = spawn(process.execPath, [fileURLToPath(new URL('../bin/app-review-host.mjs', import.meta.url)), repo.root, id, 'QF-1', 'native-host-fixture'], {
-    env: { ...process.env }, stdio: 'ignore'
-  });
+  let host;
+  const openedUrls = [];
   try {
+    await inspectApplicationReview(repo.root, 'QF-1', id, { openReview: async url => { openedUrls.push(url); } });
     const descriptor = await applicationReviewHostDescriptor(repo.root, id);
-    let host;
-    for (let attempt = 0; attempt < 100; attempt += 1) {
-      try { host = JSON.parse(await readFile(descriptor, 'utf8')); if (host) break; } catch { /* wait for the owned worker descriptor */ }
-      await delay(100);
-    }
-    assert.equal(host?.kind, 'local-application-review-host', JSON.stringify(host?.error)); assert.equal(host?.launchId, 'native-host-fixture');
+    host = JSON.parse(await readFile(descriptor, 'utf8'));
+    assert.equal(host?.kind, 'local-application-review-host', JSON.stringify(host?.error));
+    await inspectApplicationReview(repo.root, 'QF-1', id, { openReview: async url => { openedUrls.push(url); } });
+    assert.equal(JSON.parse(await readFile(descriptor, 'utf8')).pid, host.pid, 'The same owned host is reused, not spawned twice.');
+    assert.deepEqual(openedUrls, [host.url, host.url]);
     const opened = await fetch(host.url);
-    assert.equal(opened.status, 200); assert.match(await opened.text(), /Review your application/u);
+    assert.equal(opened.status, 200);
+    const html = await opened.text(); assert.match(html, /Review your application/u); assert.match(html, /Captured evidence/u);
+    const image = html.match(/src="([^"<>]+\/evidence\/[a-f0-9]{64})"/u)?.[1];
+    assert.ok(image, 'Admitted images are visible after confirmation.');
+    const picture = await fetch(new URL(image, host.url)); assert.equal(picture.status, 200); assert.equal(picture.headers.get('content-type'), 'image/png');
+    assert.equal(Buffer.from(await picture.arrayBuffer()).readUInt32BE(0), 0x89504e47);
     assert.ok(!JSON.stringify((await loadAcceptedStoryExecution(repo.root, 'QF-1')).workflow).includes(host.url), 'Private action URLs never enter published Story state.');
   } finally {
-    // Windows holds a process's cwd open. Stop our worker before the repository fixture removes it.
-    if (worker.exitCode == null && worker.signalCode == null) { const exited = once(worker, 'exit'); worker.kill(); await exited; }
+    if (!host) {
+      try { host = JSON.parse(await readFile(await applicationReviewHostDescriptor(repo.root, id), 'utf8')); } catch { /* startup never claimed a host */ }
+    }
+    if (host?.pid && recordedProcessAlive(host, { requireIdentity: true, fresh: true })) {
+      process.kill(host.pid, 'SIGTERM');
+      for (let count = 0; count < 50 && recordedProcessAlive(host, { requireIdentity: true, fresh: true }); count += 1) await delay(100);
+    }
   }
 });
 

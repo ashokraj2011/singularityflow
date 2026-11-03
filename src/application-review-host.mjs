@@ -1,19 +1,44 @@
 /** Persistent local inspection host. No model invocation; every human choice arrives in native forms. */
 import { randomUUID } from 'node:crypto';
 import { readFile } from 'node:fs/promises';
+import { watch } from 'node:fs';
+import path from 'node:path';
 import { loadAcceptedStoryExecution } from './accepted-story-execution.mjs';
-import { applicationReviewPlan, applicationReviewStatus, findReviewSession, reviewTargetCurrent, localCheckoutIdentity, compactReviewResults, reviewSnapshotReference } from './application-review-read.mjs';
+import { applicationReviewPlan, applicationReviewStatus, findReviewSession, reviewTargetCurrent, localCheckoutIdentity, compactReviewResults, reviewSnapshotReference, reviewLocalRoot, bytesDigest } from './application-review-read.mjs';
 import { createApplicationReviewHumanServer, applicationReviewPage } from './application-review-human.mjs';
 import { mutateApplicationReview, recordApplicationFeedback, confirmApplicationReview, finalizeApplicationReview, prepareApplicationRepair } from './application-review.mjs';
 import { araFail, projectReview, reviewDigest, reviewReportPages, findingRoot, validateReviewCaptureSet } from './application-review-contract.mjs';
 import { captureApplicationReview, prepareStaticReview, reviewedPageFingerprint, applicationResultHtml } from './application-review-preview.mjs';
+import { workDirRelative } from './story-paths.mjs';
+import { readRecord } from './schema-migrations.mjs';
+import { redactDiagnosticText } from './git-remote-diagnostics.mjs';
+
+const safeErrorMessage = error => redactDiagnosticText(error.message ?? String(error), { multiline: true }).slice(0, 4000);
 
 export async function createApplicationReviewHost(root, { workId = null, sessionId, onClose = () => {} } = {}) {
   let preview = null;
   let closed = false;
   let busy = false;
+  let lifecycleWatch = null;
+  let lifecycleTimer = null;
   const read = async () => {
     const { config, workflow } = await loadAcceptedStoryExecution(root, workId);
+    if (!lifecycleWatch && !['completed', 'cancelled', 'archived'].includes(workflow.status)) {
+      const directory = path.join(root, workDirRelative(config, workflow.workItem.id));
+      try {
+        lifecycleWatch = watch(directory, { persistent: false }, (_event, filename) => {
+          if (filename && String(filename) !== 'workflow.json') return;
+          clearTimeout(lifecycleTimer);
+          lifecycleTimer = setTimeout(async () => {
+            try {
+              const current = readRecord('story-workflow', await readFile(path.join(directory, 'workflow.json'), 'utf8')).record;
+              if (['completed', 'cancelled', 'archived'].includes(current.status)) await close();
+            } catch (error) { if (error.code === 'ENOENT') await close(); }
+          }, 100); lifecycleTimer.unref();
+        });
+        lifecycleWatch.on('error', () => { void close(); });
+      } catch { /* A non-filesystem provider keeps the existing finite host lifetime. */ }
+    }
     return applicationReviewStatus(root, config, workflow, sessionId, { includeResults: true });
   };
   const options = (view, actionId, input = {}) => ({ workId, sessionId, actionId, expectedRevision: view.revision, input });
@@ -42,7 +67,7 @@ export async function createApplicationReviewHost(root, { workId = null, session
     } catch (error) {
       view = await read();
       await mutateApplicationReview(root, { ...options(view, `${actionId}-blocked`, { code: error.code ?? 'ARA_BUILD_FAILED' }), type: 'target-blocked',
-        prepare: () => ({ code: error.code ?? 'ARA_BUILD_FAILED', message: error.message, operationId: actionId }) });
+        prepare: () => ({ code: error.code ?? 'ARA_BUILD_FAILED', message: safeErrorMessage(error), operationId: actionId }) });
       throw error;
     }
   };
@@ -72,7 +97,7 @@ export async function createApplicationReviewHost(root, { workId = null, session
     } catch (error) {
       view = await read();
       await mutateApplicationReview(root, { ...options(view, `${actionId}-failed`, { code: error.code ?? 'ARA_CAPTURE_FAILED' }), type: admitted ? 'acceptance-blocked' : 'capture-blocked',
-        prepare: () => ({ code: error.code ?? 'ARA_CAPTURE_FAILED', message: error.message, confirmation: view.confirmation.id }) });
+        prepare: () => ({ code: error.code ?? 'ARA_CAPTURE_FAILED', message: safeErrorMessage(error), confirmation: view.confirmation.id }) });
       throw error;
     }
   };
@@ -155,9 +180,14 @@ export async function createApplicationReviewHost(root, { workId = null, session
     const warning = !pages.complete ? `<p>The retained report is incomplete at the adopted limit: ${pages.missingCases} missing case records; ${pages.omittedPages} omitted pages. No missing case is assumed passed.</p>` : '';
     return { html: applicationResultHtml(pages.pages[index], view.target).replace('<h1>', `${warning}<h1>`), pages: pages.pages.length };
   };
-  const server = await createApplicationReviewHumanServer({ root, sessionId, read, render: applicationReviewPage, perform, renderReport });
+  const renderImage = async digest => {
+    const bytes = await readFile(path.join(reviewLocalRoot(root), 'artifacts', `${digest}.png`));
+    if (bytesDigest(bytes) !== `sha256:${digest}` || !bytes.subarray(0, 8).equals(Buffer.from([137, 80, 78, 71, 13, 10, 26, 10]))) araFail('ARA_EVIDENCE_UNAVAILABLE', 'The admitted image is missing or changed. Its receipt is retained.');
+    return bytes;
+  };
+  const server = await createApplicationReviewHumanServer({ root, sessionId, read, render: applicationReviewPage, perform, renderReport, renderImage });
   const close = async () => {
-    if (closed) return; closed = true; server.close(); await preview?.close();
+    if (closed) return; closed = true; clearTimeout(lifecycleTimer); lifecycleWatch?.close(); server.close(); await preview?.close();
     onClose();
   };
   return { ...server, close, read };

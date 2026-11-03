@@ -4,10 +4,11 @@ import { mkdtemp, mkdir, writeFile, readFile, rm } from 'node:fs/promises';
 import path from 'node:path';
 import os from 'node:os';
 import { normalizeApplicationReview, reviewApplicability, newReviewSession, appendReviewEvent, projectReview,
-  reviewDigest, findingRoot, assertCanConfirm, reviewCompletion, reviewReportPages } from '../src/application-review-contract.mjs';
+  reviewDigest, findingRoot, assertCanConfirm, reviewCompletion, reviewReportPages, applicationReviewPolicy } from '../src/application-review-contract.mjs';
 import { createApplicationReviewHumanServer, consumeReviewHumanAction, applicationReviewPage } from '../src/application-review-human.mjs';
-import { serveReviewBuild, applicationResultHtml } from '../src/application-review-preview.mjs';
-import { recordApplicationReviewAcceptance } from '../src/verification/witness-records.mjs';
+import { serveReviewBuild, applicationResultHtml, evaluateReviewPage } from '../src/application-review-preview.mjs';
+import { recordApplicationReviewAcceptance, applicationReviewSlotResults } from '../src/verification/witness-records.mjs';
+import { contractResult } from '../src/verification/contract-results.mjs';
 import { applicationReviewAgentView } from '../src/commands/app-review.mjs';
 import { agentAct } from '../src/agent-output.mjs';
 import { findReviewSession } from '../src/application-review-read.mjs';
@@ -33,6 +34,7 @@ test('ARA is explicit adoption, validates finite limits and rejects authority-sh
   const policy = normalizeApplicationReview({}); assert.equal(policy.mode, 'optional'); assert.equal(policy.repairAttempts, 2);
   assert.deepEqual(normalizeApplicationReview(policy), policy);
   assert.throws(() => normalizeApplicationReview({ schemaVersion: 2 }), { code: 'SCHEMA_VERSION_FUTURE' });
+  assert.throws(() => applicationReviewPolicy({ resolution: { applicationReview: policy, presence: { status: 'required' } } }), { code: 'ARA_AUTHORITY_ADAPTER_UNAVAILABLE' });
   for (const value of [{ mode: 'anything' }, { approvedBy: 'model' }, { repairAttempts: 0 }, { totalRepairAttempts: Infinity },
     { preview: { outputDirectory: '../elsewhere' } }, { capture: { maximumPages: 0 } }, { capture: { viewport: { width: 1, height: 800 } } }]) {
     assert.throws(() => normalizeApplicationReview(value));
@@ -183,6 +185,10 @@ test('static preview serves only its immutable build, rejects writes and does no
   assert.equal(server.manifest.length, 2);
 });
 
+test('a non-responsive browser frame has a finite deadline without a fabricated result', async () => {
+  await assert.rejects(evaluateReviewPage({ evaluate: () => new Promise(() => {}) }, () => null, 20), { code: 'ARA_TARGET_UNVERIFIED' });
+});
+
 test('decision bridge retains live review basis and refuses images captured before confirmation', () => {
   const workflow = {};
   const confirmation = { id: 'confirmation-1', hostAction: { id: 'human-action-1' }, targetId: 'target-1', dimensions: ['functional'],
@@ -195,4 +201,23 @@ test('decision bridge retains live review basis and refuses images captured befo
   assert.equal(workflow.applicationAcceptanceRecords[0].observationBasis, 'retained-structured-results');
   assert.equal(workflow.witnessRecords, undefined);
   assert.throws(() => recordApplicationReviewAcceptance({}, { confirmation, target, decisions, captures: [{ ...captures[0], capturedAt: '2026-11-03T09:59:59.000Z' }], actor, authorityGroup: 'reviewers', at }), { code: 'ARA_ACCEPTANCE_INVALID' });
+});
+
+test('live acceptance satisfies its visual contract slots without manufacturing another screenshot review', () => {
+  const { target, session } = fixture('web');
+  target.plan.items = [{ id: 'visual-item', dimension: 'visual', source: { kind: 'approved-clause', id: 'REVIEW-EXAMPLE:AC-001' }, slots: [{ slot: 'saved-value', target: 'saved value after reload' }] }];
+  const workflow = { workItem: { id: 'review-example' }, resolution: { applicationReview: session.policy }, phaseOrder: ['deliver'], phases: { deliver: { generation: 1 } } };
+  const confirmation = { id: 'confirmation', targetId: target.id, dimensions: ['visual'], coverage: ['visual-item'], at, reviewedBasis: 'live-application-and-retained-results', hostAction: { channel: 'local-review', id: 'human-click' } };
+  const captures = [{ id: 'receipt', confirmation: 'confirmation', targetId: target.id, status: 'captured', capturedAt: '2026-11-03T10:00:01.000Z' }];
+  const decision = { id: 'ARA-WIT-' + '0'.repeat(24), dimension: 'visual', confirmation: confirmation.id, targetId: target.id, captureReceipts: ['receipt'] };
+  recordApplicationReviewAcceptance(workflow, { confirmation, captures, decisions: [decision], target, actor, authorityGroup: 'reviewers', at });
+  const view = { id: session.id, target, decisions: [decision], captures };
+  const records = applicationReviewSlotResults(workflow, view, { targetCurrent: true, evidenceAvailable: true });
+  assert.equal(records.length, 1); assert.equal(workflow.witnessRecords, undefined, 'No fake answers to the old screenshot checklist.');
+  const contract = { combination: 'all', slots: [{ slot: 'saved-value', method: 'visual', role: 'primary', witness: { target: 'saved value after reload' } }] };
+  assert.equal(contractResult('REVIEW-EXAMPLE:AC-001', contract, [], { submitted: true, rowSubmitted: true, requiredAssurance: 'source-bound', records }).status, 'met');
+  assert.deepEqual(applicationReviewSlotResults(workflow, view, { targetCurrent: false, evidenceAvailable: true }), []);
+  assert.deepEqual(applicationReviewSlotResults(workflow, view, { targetCurrent: true, evidenceAvailable: false }), []);
+  workflow.phases.deliver.deliveryEvidence = { sourceTreeSha256: 'changed' };
+  assert.deepEqual(applicationReviewSlotResults(workflow, view, { targetCurrent: true, evidenceAvailable: true }), []);
 });

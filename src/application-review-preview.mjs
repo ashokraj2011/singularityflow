@@ -6,11 +6,21 @@ import { mkdir, readdir, readFile, lstat, chmod, rm } from 'node:fs/promises';
 import { applicationReviewSnapshot, bytesDigest, reviewLocalRoot, localCheckoutIdentity } from './application-review-read.mjs';
 import { araFail, reviewDigest, reviewReportPages } from './application-review-contract.mjs';
 import { escapeReviewHtml } from './application-review-human.mjs';
-import { writeAtomicExclusive, secureRepositoryPath } from './util.mjs';
+import { writeAtomicExclusive, secureRepositoryPath, SingularityFlowError } from './util.mjs';
 import { redactDiagnosticText } from './git-remote-diagnostics.mjs';
 import { redactionEntries, redactText } from './output-redaction.mjs';
 
 export const ARA_BROWSER_VERSION = '1.64.1';
+
+/** A stuck frame/font cannot hold a human action or its capture operation indefinitely. */
+export async function evaluateReviewPage(page, script, timeoutMs = 10000) {
+  let timer;
+  try {
+    return await Promise.race([page.evaluate(script), new Promise((_resolve, reject) => {
+      timer = setTimeout(() => reject(new SingularityFlowError('The inspected browser frame did not answer before its deadline. Close the unsupported dialog or restart the verified preview; confirmation and evidence are preserved.', { code: 'ARA_TARGET_UNVERIFIED' })), timeoutMs);
+    })]);
+  } finally { clearTimeout(timer); }
+}
 
 export async function reviewBrowser({ headless = true, timeoutMs = 30000 } = {}) {
   const { chromium } = await import('playwright-core');
@@ -123,9 +133,11 @@ export async function prepareStaticReview(root, config, workflow, session, { hea
       if (url.origin === served.origin || ['data:', 'blob:'].includes(url.protocol)) return route.continue();
       blockedOrigins.add(url.origin); return route.abort();
     });
+    await browserContext.routeWebSocket('**/*', socket => { blockedOrigins.add(new URL(socket.url()).origin); socket.close(); });
     const page = await browserContext.newPage();
+    page.on('dialog', async dialog => { blockedOrigins.add(`unsupported-dialog:${dialog.type()}`); await dialog.dismiss().catch(() => {}); });
     await page.goto(served.origin, { waitUntil: 'networkidle', timeout: 30000 });
-    await page.evaluate(() => document.fonts.ready);
+    await evaluateReviewPage(page, () => document.fonts.ready);
     return { page, browser, served, blockedOrigins,
       binding: { adapter: 'static-web', checkout: localCheckoutIdentity(root), instance: served.instance, origin: served.origin,
         buildManifest: served.manifest, buildDigest: served.digest, sourceDigest: snapshot.digest, commandDigest: applicationCommandSha256(context, entry),
@@ -136,15 +148,21 @@ export async function prepareStaticReview(root, config, workflow, session, { hea
 }
 
 export async function reviewedPageFingerprint(preview) {
-  if (!preview || preview.page.isClosed() || preview.blockedOrigins.size) araFail('ARA_TARGET_UNVERIFIED', 'The current browser context is unavailable or attempted an unbound external service.');
+  if (!preview || preview.page.isClosed() || preview.blockedOrigins.size || preview.page.context().pages().filter(page => !page.isClosed()).length !== 1) {
+    araFail('ARA_TARGET_UNVERIFIED', 'This static adapter needs its one inspected page, with no unbound runtime channel or native dialog. Close extra tabs or use a qualified adapter.');
+  }
   if (new URL(preview.page.url()).origin !== preview.served.origin) araFail('ARA_REVIEW_STALE', 'The browser no longer shows this verified application.');
-  return reviewDigest(await preview.page.evaluate(() => {
+  return reviewDigest(await evaluateReviewPage(preview.page, () => {
     const copy = document.documentElement.cloneNode(true);
     // Playwright temporarily hides the caret and can leave an empty style attribute behind.
     // Empty attributes have no presentation effect; substantive styles remain in the binding.
     for (const element of copy.querySelectorAll('[style]')) if (!element.getAttribute('style').trim()) element.removeAttribute('style');
-    return { url: location.href, body: document.body?.innerText, html: copy.outerHTML,
-      values: [...document.querySelectorAll('input,textarea,select')].map(element => ({ value: element.value, checked: element.checked })), scroll: [scrollX, scrollY] };
+    const html = copy.outerHTML; const body = document.body?.innerText ?? '';
+    const fields = [...document.querySelectorAll('input,textarea,select')];
+    if (html.length > 4194304 || body.length > 4194304 || fields.length > 10000) throw new Error('The inspected page exceeds the supported observation bound.');
+    const values = fields.map(element => ({ value: element.value, checked: element.checked }));
+    if (JSON.stringify(values).length > 4194304) throw new Error('The inspected form state exceeds the supported observation bound.');
+    return { url: location.href, body, html, values, scroll: [scrollX, scrollY] };
   }));
 }
 
@@ -183,7 +201,7 @@ export async function captureApplicationReview(root, view, policy, preview = nul
   if (plan.applicationUi) {
     if (!preview || reviewDigest(preview.binding) !== reviewDigest(view.target.binding)
         || plan.pageFingerprint !== await reviewedPageFingerprint(preview)) araFail('ARA_REVIEW_STALE', 'The confirmed live screen or browser instance is no longer available. Reinspect it; no journey was replayed.');
-    await preview.page.evaluate(() => document.fonts.ready);
+    await evaluateReviewPage(preview.page, () => document.fonts.ready, Math.min(10000, remaining()));
     await retain(await preview.page.screenshot({ type: 'png', animations: 'disabled', timeout: remaining() }), 'application-ui', { id: 'reviewed-current-page' }, policy.capture.viewport, preview.browser.version());
     if (plan.pageFingerprint !== await reviewedPageFingerprint(preview)) araFail('ARA_REVIEW_STALE', 'The application state changed during capture.');
   }
@@ -195,8 +213,8 @@ export async function captureApplicationReview(root, view, policy, preview = nul
     for (const item of results.pages) {
       page.setDefaultTimeout(remaining());
       await page.setContent(applicationResultHtml(item, view.target), { waitUntil: 'load', timeout: remaining() });
-      await page.evaluate(() => document.fonts.ready);
-      const height = await page.evaluate(() => document.documentElement.scrollHeight);
+      await evaluateReviewPage(page, () => document.fonts.ready, Math.min(10000, remaining()));
+      const height = await evaluateReviewPage(page, () => document.documentElement.scrollHeight, Math.min(10000, remaining()));
       if (height > 16000) araFail('ARA_CAPTURE_INCOMPLETE', 'A report page would be unreadable at the image bound. Reduce the adopted cases-per-page limit.');
       await retain(await page.screenshot({ type: 'png', fullPage: true, timeout: remaining() }), item.kind, item, { width: 1280, height }, browser.version());
     }

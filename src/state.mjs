@@ -1273,6 +1273,9 @@ export async function createWorkflow(root, config, {
   // test-recovery intake review, which is signed on it (§10.10).
   const presencePin = await (await import('./presence/person-records.mjs')).presencePinForStart(root);
   if (presencePin) workflow.resolution.presence = presencePin;
+  if (presencePin?.status === 'required' && workflow.resolution.applicationReview && workflow.resolution.applicationReview.mode !== 'off') {
+    throw new SingularityFlowError('Application review needs a signed person-presence adapter for this repository. This build does not provide it; use a compatible workflow or runtime. No unsigned acceptance was enabled.', { code: 'ARA_AUTHORITY_ADAPTER_UNAVAILABLE' });
+  }
   if (freshTrpPlan.enabled) {
     const agreement = initialTestRecoveryAgreement(freshTrpPlan, {
       workId: id, principal: String(actor.email ?? actor.login ?? actor.name), createdAt,

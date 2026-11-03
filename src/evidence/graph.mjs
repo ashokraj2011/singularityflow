@@ -1,7 +1,8 @@
 /**
  * Load one Story's evidence graph for the evaluator, in projection mode [E2G-028, E2G-033].
  *
- * Projection mode reads committed records only: no network, no test runs and no live tree digest.
+ * Projection mode uses no network or test runs. Adopted ARA witnesses also verify their current
+ * source and local image bytes; ordinary Stories retain the existing read path.
  * A record that cannot be read or trusted is never skipped quietly; it becomes a finding and the
  * rows it would have supported read inconclusive.
  */
@@ -405,6 +406,16 @@ export async function evidenceGraphFromAggregate(root, definition, workflow) {
   }
   const inspections = await loadInspections(root, directory, workflow, findings);
   const witnessRecords = await loadWitnessRecords(root, workflow);
+  if (workflow.applicationAcceptanceRecords?.length) {
+    const { applicationReviewWitnesses } = await import('../verification/witness-records.mjs');
+    for (const record of await applicationReviewWitnesses(root, workflow, definition)) {
+      const at = witnessRecords.findIndex(item => item.clauseId === record.clauseId && item.slot === record.slot && item.method === 'visual');
+      const previous = at < 0 ? null : witnessRecords[at];
+      const previousAt = previous && workflow.witnessRecords?.find(item => item.id === previous.recordId)?.at;
+      if (at < 0) witnessRecords.push(record);
+      else if (previous.status === 'missing' || Date.parse(record.at) > (Date.parse(previousAt) || 0)) witnessRecords[at] = record;
+    }
+  }
   const scope = await loadScopeInventory(root, definition, workflow, directory, records, findings);
   const graph = evidenceGraph({ workflow, records, deliveries, inspections, witnessRecords, findings, untrusted, scope });
   try {

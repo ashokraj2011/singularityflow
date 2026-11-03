@@ -13,30 +13,37 @@ export function consumeReviewHumanAction(handle, expected) {
 }
 
 /** The secret route and form nonce go only to the person's browser, never to a Copilot result. */
-export async function createApplicationReviewHumanServer({ root, sessionId, read, render, perform, renderReport = null, timeoutMs = 2 * 60 * 60 * 1000 }) {
+export async function createApplicationReviewHumanServer({ root, sessionId, read, render, perform, renderReport = null, renderImage = null, timeoutMs = 2 * 60 * 60 * 1000 }) {
   const secret = randomBytes(32).toString('hex');
   const nonce = randomBytes(32).toString('hex');
   let origin;
   let closed = false;
   const cards = new Map();
+  let issuedImages = new Set();
   const server = createServer(async (request, response) => {
     let responseCard = null;
     const send = (status, body, type = 'text/html; charset=utf-8') => {
       if (responseCard) { responseCard.completed = { status, body, type }; responseCard.pending = false; }
       response.writeHead(status, { 'Content-Type': type, 'Cache-Control': 'no-store', 'Referrer-Policy': 'no-referrer',
-        'X-Content-Type-Options': 'nosniff', 'Content-Security-Policy': "default-src 'none'; style-src 'unsafe-inline'; form-action 'self'; frame-ancestors 'none'; base-uri 'none'" });
+        'X-Content-Type-Options': 'nosniff', 'Content-Security-Policy': "default-src 'none'; img-src 'self'; style-src 'unsafe-inline'; form-action 'self'; frame-ancestors 'none'; base-uri 'none'" });
       response.end(body);
     };
     if (closed || request.headers.host !== new URL(origin).host) return send(403, 'Review unavailable.');
     try {
       if (request.method === 'GET' && request.url === `/${secret}/`) {
         const view = await read();
+        issuedImages = new Set((view.captures ?? []).filter(item => item.status === 'captured').map(item => item.sha256?.slice(7)).filter(Boolean));
         const actionId = randomUUID();
         cards.set(actionId, { revision: view.revision, targetId: view.target?.id ?? null });
         if (cards.size > 100) cards.delete(cards.keys().next().value);
-        return send(200, render(view, { nonce, actionId, route: `/${secret}/action`, resultsRoute: `/${secret}/results?page=0` }));
+        return send(200, render(view, { nonce, actionId, route: `/${secret}/action`, resultsRoute: `/${secret}/results?page=0`, evidenceRoute: `/${secret}/evidence/` }));
       }
       const requested = new URL(request.url, origin);
+      if (request.method === 'GET' && requested.pathname.startsWith(`/${secret}/evidence/`) && renderImage) {
+        const digest = requested.pathname.slice(`/${secret}/evidence/`.length);
+        if (!/^[a-f0-9]{64}$/u.test(digest) || !issuedImages.has(digest)) return send(404, 'No such admitted review image.');
+        return send(200, await renderImage(digest), 'image/png');
+      }
       if (request.method === 'GET' && requested.pathname === `/${secret}/results` && renderReport) {
         const index = Number(requested.searchParams.get('page') ?? '0');
         if (!Number.isSafeInteger(index) || index < 0 || index > 500) return send(400, 'Choose an available result page.');
@@ -104,6 +111,7 @@ export function applicationReviewPage(view, form) {
   return `<!doctype html><html lang="en"><meta charset="utf-8"><meta name="viewport" content="width=device-width"><title>Application review</title>
     <style>body{font:16px system-ui;max-width:1100px;margin:40px auto;padding:0 24px;background:#10181f;color:#e7edf3}section{background:#19242f;border:1px solid #344758;border-radius:12px;margin:20px 0;padding:24px}button{padding:12px 18px;background:#88bfa9;border:0;border-radius:6px;color:#101820;cursor:pointer}textarea{display:block;width:95%;min-height:75px;margin:12px 0;padding:12px;background:#10181f;color:#fff;border:1px solid #60788c;border-radius:6px}label{display:block;margin:12px 0}small{color:#a9bac9}table{border-collapse:collapse;width:100%}td,th{text-align:left;padding:10px;border-bottom:1px solid #344758}code{overflow-wrap:anywhere}a{color:#a8d3ef}</style>
     <h1>Review your application</h1><p>${e(view.subject.workId)} · ${e(view.state)} · <small>Phase approval: ${e(view.phaseApproval)}</small></p>
+    ${view.state === 'stale' ? '<p role="status">The delivery, references, results or local runtime binding changed. Refresh delivery and results, then inspect this laptop’s current target. Earlier reviews remain historical.</p>' : ''}
     <section><h2>Try this delivery</h2><p>${e(view.target?.applicability?.surface)} · ${e(view.target?.assurance)}</p>
     <p>Review the declared journeys and explore beyond them. Acceptance applies to this delivery and its results.</p>
     ${(view.target?.changedSurfaces ?? []).length ? `<details><summary>Changed application paths (${view.target.changedSurfaces.length})</summary><ul>${view.target.changedSurfaces.map(file => `<li><code>${e(file)}</code></li>`).join('')}</ul></details>` : ''}
@@ -121,8 +129,9 @@ export function applicationReviewPage(view, form) {
     <section><h2>Confirm this result</h2><p>All good records what you inspected live and in the retained results. SFlow then captures evidence automatically. It does not approve the phase or claim that you inspected images created afterwards.</p>
     <form method="post" action="${e(form.route)}">${fields}${view.coverage.map(item => `<label><input type="checkbox" name="coverage" value="${e(item.id)}"> ${e(item.text)} <small>(${e(item.dimension)})</small></label>`).join('')}
     ${Object.entries(view.dimensions ?? view.target?.applicability?.dimensions ?? {}).map(([dimension, status]) => status === 'not-applicable' ? `<p>${e(dimension)}: not applicable (${e(view.target.applicability.reason)})</p>` : status === 'accepted' ? `<p>${e(dimension)}: accepted for this target</p>` : `<label><input type="checkbox" name="dimension" value="${e(dimension)}"> I accept the current ${e(dimension)} result</label>`).join('')}
-    <button name="action" value="accept">All good — capture and accept</button></form>
+    <button name="action" value="accept" ${view.completion?.reviewSatisfied ? 'disabled' : ''}>${view.completion?.reviewSatisfied ? 'Application accepted' : 'All good — capture and accept'}</button></form>
     ${view.confirmation ? `<p>Confirmation retained. Capture: ${e(view.state)}.</p>${button('capture', 'Resume evidence capture')}` : ''}
+    ${form.evidenceRoute && view.captures?.length ? `<details><summary>Captured evidence (${view.captures.length})</summary>${view.captures.map(item => `<figure><figcaption>${e(item.captureKind)} · ${e(item.captureItem)} · ${e(item.capturedAt)}</figcaption><a href="${e(form.evidenceRoute + item.sha256.slice(7))}" target="_blank" rel="noreferrer">Open image</a><img loading="lazy" style="display:block;max-width:100%;margin:12px 0" src="${e(form.evidenceRoute + item.sha256.slice(7))}" alt="${e(item.captureItem)}"></figure>`).join('')}</details>` : ''}
     ${view.error ? `<p>${e(view.error.message ?? view.error.code)}</p>` : ''}</section>
     <section><h2>Continue</h2><p>For an admitted repair, use Copilot <code>/sf-code</code>. Repair never resolves a finding without your recheck.</p>${button('refresh', 'Refresh delivery and results')}${button('defer', 'Review later')}${button('close', 'Close review and stop its preview')}</section></html>`;
 }

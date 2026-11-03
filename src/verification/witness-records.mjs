@@ -14,6 +14,9 @@ import { recordSha256 } from '../records.mjs';
 import { phaseNeedsGeneration } from '../phase-generation-need.mjs';
 import { upstreamChangeRoutes } from '../upstream-routes.mjs';
 import { phaseCorrectionTargets } from '../phase-finding-policy.mjs';
+import path from 'node:path';
+import { pathToFileURL } from 'node:url';
+import { PACKAGE_ROOT } from '../package-root.mjs';
 
 export const WITNESS_CHECKLIST = Object.freeze(['states-the-outcome', 'matches-the-criterion', 'current-for-this-change']);
 
@@ -36,12 +39,40 @@ export function recordApplicationReviewAcceptance(workflow, { confirmation, capt
     }
     const record = { schemaVersion: 1, kind: 'application-review-acceptance', ...decision, subject: target.subject,
       observationBasis: confirmation.reviewedBasis, humanAction: confirmation.hostAction, confirmedAt: confirmation.at,
-      screenshotsInspectedByHuman: false, capturedAfterConfirmation: true, actor, authorityGroup, at };
+      screenshotsInspectedByHuman: false, capturedAfterConfirmation: true, contextBinding: witnessContextBinding(workflow),
+      witnesses: decision.dimension === 'visual' && confirmation.reviewedBasis === 'live-application-and-retained-results'
+        ? (target.plan?.items ?? []).filter(item => item.dimension === 'visual' && confirmation.coverage.includes(item.id) && item.source?.kind === 'approved-clause')
+          .flatMap(item => (item.slots ?? []).map(slot => ({ clauseId: item.source.id, slot: slot.slot, target: slot.target }))) : [],
+      actor, authorityGroup, at };
     const prior = workflow.applicationAcceptanceRecords.find(item => item.id === record.id);
     if (prior && recordSha256(prior) !== recordSha256(record)) throw invalid('Acceptance identity already has different content.', 'ARA_IDEMPOTENCY_CONFLICT');
     if (!prior) workflow.applicationAcceptanceRecords.push(record);
   }
   return decisions;
+}
+
+/** Distinct live-review semantics: never fabricate the legacy screenshot checklist. */
+export function applicationReviewSlotResults(workflow, view, { targetCurrent, evidenceAvailable }) {
+  if (!workflow.resolution?.applicationReview || workflow.resolution.applicationReview.mode === 'off'
+      || !targetCurrent || !evidenceAvailable || view.target?.applicability.surface !== 'web') return [];
+  const active = new Set(view.decisions.map(item => item.id));
+  const context = witnessContextBinding(workflow);
+  return (workflow.applicationAcceptanceRecords ?? []).filter(record => active.has(record.id) && record.dimension === 'visual'
+    && record.targetId === view.target.id && record.contextBinding === context && record.observationBasis === 'live-application-and-retained-results'
+    && view.decisions.some(decision => decision.id === record.id && decision.confirmation === record.confirmation && decision.targetId === record.targetId)
+    && record.captureReceipts?.length && record.captureReceipts.every(id => view.captures?.some(receipt => receipt.id === id && receipt.confirmation === record.confirmation && receipt.targetId === record.targetId))
+    && record.screenshotsInspectedByHuman === false && record.capturedAfterConfirmation === true)
+    .flatMap(record => (record.witnesses ?? []).map(witness => ({ ...witness, recordId: record.id, method: 'visual', status: 'met', assurance: 'source-bound',
+      reviewer: record.actor, observationBasis: record.observationBasis, applicationReview: view.id,
+      captureReceipts: record.captureReceipts, authorityGroup: record.authorityGroup, at: record.at, file: null })));
+}
+
+/** Lazy owner adapter; ordinary witnesses load no application-review or browser closure. */
+export async function applicationReviewWitnesses(root, workflow, config = null) {
+  if (!workflow?.applicationAcceptanceRecords?.length) return [];
+  const runtime = pathToFileURL(path.join(PACKAGE_ROOT, 'src', 'application-review-read.mjs')).href;
+  return (await import(runtime)).applicationReviewWitnessResults(root,
+    config ?? { workItemRoot: workflow.resolution?.workItemRoot ?? 'singularity/work-items' }, workflow);
 }
 const AC_ID = /^[A-Z0-9][A-Z0-9._-]{0,63}:AC-\d{3}$/u;
 

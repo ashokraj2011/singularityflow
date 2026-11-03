@@ -11,7 +11,7 @@ import { requireApprovalAuthority } from './approval-authority.mjs';
 import { applicationReviewPhase } from './code-delivery-policy.mjs';
 import { applicationReviewPlan, applicationReviewStatus, applicationReviewResults, findReviewSession, reviewTargetCurrent,
   reviewEvidenceAvailable, reviewLocalRoot, localCheckoutIdentity, bytesDigest, compactReviewResults, reviewSnapshotReference } from './application-review-read.mjs';
-import { araFail, appendReviewEvent, newReviewSession, projectReview, reviewDigest, findingRoot, assertCanConfirm, validateReviewCaptureSet } from './application-review-contract.mjs';
+import { araFail, appendReviewEvent, newReviewSession, projectReview, reviewDigest, findingRoot, assertCanConfirm, validateReviewCaptureSet, applicationReviewPolicy } from './application-review-contract.mjs';
 
 const MAX_SESSIONS = 100;
 const actorKey = actor => actor?.email ?? actor?.login ?? actor?.name;
@@ -71,6 +71,7 @@ async function writeEvent(root, config, workflow, session, event, snapshotRecord
 /** Actual host action identity is retained; repeat transport delivery cannot duplicate effects. */
 export async function mutateApplicationReview(root, { workId = null, sessionId, actionId, expectedRevision, type, input = {}, prepare, human = null }) {
   const { config, workflow } = await loadAcceptedStoryExecution(root, workId);
+  if (!applicationReviewPolicy(workflow) || workflow.resolution.applicationReview.mode === 'off') araFail('ARA_NOT_ADOPTED', 'Application review is not adopted for this Story. No review mutation was recorded.');
   const original = findReviewSession(workflow, sessionId);
   const session = structuredClone(original);
   const actor = identity(root, { offline: true });

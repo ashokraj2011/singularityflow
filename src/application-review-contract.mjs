@@ -8,6 +8,9 @@ export const reviewDigest = value => `sha256:${recordSha256(value)}`;
 
 export function applicationReviewPolicy(workflow) {
   const policy = workflow?.resolution?.applicationReview;
+  if (policy && policy.mode !== 'off' && workflow.resolution.presence && workflow.resolution.presence.status !== 'off') {
+    araFail('ARA_AUTHORITY_ADAPTER_UNAVAILABLE', 'This Story requires signed person-presence records. The local application-review adapter does not implement that signing boundary; no unsigned acceptance can substitute for it. Use a qualified signed-review adapter.');
+  }
   return policy ? readRecord('application-review-policy', policy).record : null;
 }
 

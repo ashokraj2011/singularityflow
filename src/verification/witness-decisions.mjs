@@ -16,7 +16,7 @@ import { createHash } from 'node:crypto';
 import { recordSha256 } from '../records.mjs';
 import { countedRecords } from '../presence/counted.mjs';
 import { secureRepositoryPath } from '../util.mjs';
-import { witnessContextBindings } from './witness-records.mjs';
+import { witnessContextBindings, applicationReviewWitnesses } from './witness-records.mjs';
 import { approvedInputPhases } from '../phase-input-policy.mjs';
 import {
   isConformancePhase, isTestEvidencePhase, isVisualVerificationPhase, stepResponsibilities
@@ -80,8 +80,18 @@ async function currentWitnessedBytes(root, workflow) {
 
 /** Every active witness decision of the Story, with its binding checked against the files now. */
 export async function storyWitnessDecisions(root, workflow) {
-  if (!workflow?.witnessRecords?.length) return [];
-  return witnessDecisionsFrom(workflow, await currentWitnessedBytes(root, workflow));
+  const existing = workflow?.witnessRecords?.length ? witnessDecisionsFrom(workflow, await currentWitnessedBytes(root, workflow)) : [];
+  for (const record of await applicationReviewWitnesses(root, workflow)) {
+    const next = { id: record.recordId, clauseId: record.clauseId, slot: record.slot, method: 'visual', file: null,
+      target: record.target, sha256: null, decision: 'satisfies', actor: record.reviewer?.email ?? record.reviewer?.login ?? record.reviewer?.name,
+      authorityGroup: record.authorityGroup, at: record.at,
+      binding: 'live-target-and-evidence-unchanged', candidate: 'unchanged', valid: true, observationBasis: record.observationBasis, applicationReview: record.applicationReview };
+    const at = existing.findIndex(item => item.clauseId === next.clauseId && item.slot === next.slot && item.method === 'visual');
+    if (at < 0) existing.push(next);
+    else if (existing[at].binding !== 'bound-file-unchanged' || existing[at].candidate === 'changed'
+      || Date.parse(next.at) > (Date.parse(existing[at].at) || 0)) existing[at] = next;
+  }
+  return existing;
 }
 
 /**
@@ -103,20 +113,23 @@ export function witnessDecisionProjection(workflow, phase, decisions) {
   const core = {
     revision: WITNESS_DECISIONS_REVISION, workId: workflow?.workItem?.id ?? null, phase: phase?.id ?? null,
     readOnly: true, reviews, omittedReviews: decisions.length - reviews.length,
-    supersededRecords: (workflow?.witnessRecords?.length ?? 0) - decisions.length,
-    instruction: WITNESS_DECISIONS_INSTRUCTION
+    supersededRecords: Math.max(0, (workflow?.witnessRecords?.length ?? 0) - decisions.filter(item => !item.applicationReview).length),
+    instruction: decisions.some(item => item.applicationReview)
+      ? 'Report the listed human reviews as recorded. An ARA record witnesses an inspected live application and retained results, with images captured afterwards; never claim that the person inspected those later images. File-inspection records keep their own exact-file basis. Valid listed decisions satisfy only their named criterion slots. Do not invent or omit acceptance.'
+      : WITNESS_DECISIONS_INSTRUCTION
   };
   return { ...core, projectionSha256: `sha256:${recordSha256(core)}` };
 }
 
 /** The recorded reviews a step that reports on visual evidence is shown, or null. */
 export async function phaseWitnessDecisions(root, workflow, phase) {
-  if (!workflow?.witnessRecords?.length || !phaseReadsWitnessDecisions(workflow, phase)) return null;
+  if (!workflow?.witnessRecords?.length && !workflow?.applicationAcceptanceRecords?.length || !phaseReadsWitnessDecisions(workflow, phase)) return null;
   return witnessDecisionProjection(workflow, phase, await storyWitnessDecisions(root, workflow));
 }
 
 /** One review's binding, in the words the block uses. */
 export function witnessBindingStatus(review) {
+  if (review.observationBasis === 'live-application-and-retained-results') return 'live result and post-confirmation evidence unchanged';
   if (review.binding === 'bound-file-changed') return 'bound file changed since: not valid';
   if (review.binding === 'bound-file-unreadable') return 'bound file missing or unreadable: not valid';
   if (review.binding === 'unchecked') return 'bound file not checked';
@@ -125,6 +138,7 @@ export function witnessBindingStatus(review) {
 }
 
 function reviewLine(review) {
+  if (review.observationBasis === 'live-application-and-retained-results') return [`- ${review.id}: authorized human visual acceptance of the live application and retained results satisfies ${review.clauseId} slot \`${review.slot}\`. Evidence was captured afterwards; the human did not claim to inspect those later images. Session: ${review.applicationReview}.`];
   const outcome = review.decision === 'satisfies' ? 'satisfies it'
     : `does not satisfy it${review.answeredNo?.length ? ` (answered no: ${review.answeredNo.join(', ')})` : ''}`;
   const by = [review.actor ? `by ${review.actor}` : null, review.authorityGroup ? `for ${review.authorityGroup}` : null,

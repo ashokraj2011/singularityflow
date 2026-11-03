@@ -7,9 +7,12 @@ import { writeMutablePrivateSidecar } from '../src/private-sidecar.mjs';
 import { processStartIdentity } from '../src/lease-liveness.mjs';
 import { localCheckoutIdentity } from '../src/application-review-read.mjs';
 import { redactDiagnosticText } from '../src/git-remote-diagnostics.mjs';
+import { PACKAGE_ROOT } from '../src/package-root.mjs';
 
 const [root, sessionId, workId, launchId] = process.argv.slice(2);
-process.chdir(root);
+// Every operation carries its explicit Story root. Keeping cwd out of the worktree also lets
+// Windows release a completed checkout while the read-only review window is still closing.
+process.chdir(PACKAGE_ROOT);
 const descriptor = await applicationReviewHostDescriptor(root, sessionId);
 try {
   const host = await createApplicationReviewHost(root, { sessionId, workId, onClose: () => process.exit(0) });

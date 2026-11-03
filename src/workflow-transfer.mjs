@@ -20,6 +20,7 @@ import { inspectApprovedSkillPackage } from './configuration-branch.mjs';
 import { executeGitQuery } from './git-query.mjs';
 import { remoteFingerprint } from './git-remote-diagnostics.mjs';
 import { normalizeCodeDeliveryPolicy } from './code-delivery-policy.mjs';
+import { ARA_PHASE_SEMANTICS_PROFILE } from './phase-semantics.mjs';
 import { normalizeExternalCommand } from './external-command-policy.mjs';
 import { normalizeIntegrations } from './step-actions.mjs';
 import { SKP_CONTRACT_COMPILER, validateConfiguredSkillPhase } from './skp-contract.mjs';
@@ -89,6 +90,12 @@ const SKILL_SEMANTICS = Object.freeze({
   skillPackageReader: SKP_PACKAGE_FORMAT, skillTextParser: SKP_PARSER_PROFILE,
   skillPhaseBinding: SKP_CONTRACT_COMPILER
 });
+
+function bundleSemantics(objects) {
+  const adopted = Object.values(objects.story.workTypes).some(workflow =>
+    workflow?.applicationReview != null && workflow.applicationReview.mode !== 'off');
+  return adopted ? { ...SKILL_SEMANTICS, applicationReview: ARA_PHASE_SEMANTICS_PROFILE } : SKILL_SEMANTICS;
+}
 
 const STORE = Object.freeze({
   story: Object.freeze({
@@ -310,13 +317,14 @@ function selectedSkillBindings(bundle, storedVersion = WORKFLOW_BUNDLE_SCHEMA_VE
 function validateSkillPackages(bundle, storedVersion) {
   const selected = selectedSkillBindings(bundle, storedVersion);
   if (storedVersion === 1) {
-    if (bundle.skillPackages != null || bundle.semantics != null) {
-      fail('Workflow bundle v1 cannot carry version-2 skill package metadata.', 'SKP_WORKFLOW_TRANSFER_UNSUPPORTED');
+    if (bundle.skillPackages != null || bundle.semantics != null
+        || bundleSemantics(bundle.objects).applicationReview) {
+      fail('Workflow bundle v1 cannot carry skill package or application review interpretation metadata.', 'SKP_WORKFLOW_TRANSFER_UNSUPPORTED');
     }
     return;
   }
   if (!Array.isArray(bundle.skillPackages) || bundle.skillPackages.length > MAX_SKILL_PACKAGES
-      || canonicalJson(bundle.semantics) !== canonicalJson(SKILL_SEMANTICS)
+      || canonicalJson(bundle.semantics) !== canonicalJson(bundleSemantics(bundle.objects))
       || bundle.skillPackages.length !== selected.length) {
     fail('Workflow bundle is missing its exact selected skill inventory or interpretation profile.',
       'SKP_WORKFLOW_PACKAGE_INVALID');
@@ -1607,7 +1615,7 @@ async function buildBundle(root, workflowIds, { seedAgents = [], serverScope = '
     workflows: workflows.sort((a, b) => `${a.governs}:${a.id}`.localeCompare(`${b.governs}:${b.id}`)),
     objects,
     skillPackages: [],
-    semantics: SKILL_SEMANTICS,
+    semantics: bundleSemantics(objects),
     agentLocks,
     imports,
     assets: assets.sort((a, b) => `${a.kind}:${a.governs ?? ''}:${a.path}`

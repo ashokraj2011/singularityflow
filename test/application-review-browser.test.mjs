@@ -55,4 +55,11 @@ test('static adapter builds the checked snapshot and captures the actual inspect
   assert.throws(() => validateReviewCaptureSet(view, captures.slice(1), policy), { code: 'ARA_CAPTURE_INCOMPLETE' });
   await preview.page.locator('#value').fill('Changed after confirmation');
   await assert.rejects(captureApplicationReview(root, view, policy, preview), { code: 'ARA_REVIEW_STALE' });
+  const extra = await preview.page.context().newPage();
+  await assert.rejects(reviewedPageFingerprint(preview), { code: 'ARA_TARGET_UNVERIFIED' });
+  await extra.close();
+  await preview.page.evaluate(origin => { const socket = new WebSocket(origin.replace(/^http/u, 'ws')); socket.onerror = () => {}; }, preview.served.origin);
+  for (let count = 0; count < 20 && !preview.blockedOrigins.size; count += 1) await new Promise(resolve => setTimeout(resolve, 25));
+  assert.ok(preview.blockedOrigins.size, 'An unbound socket cannot silently escape the static runtime profile.');
+  await assert.rejects(reviewedPageFingerprint(preview), { code: 'ARA_TARGET_UNVERIFIED' });
 });

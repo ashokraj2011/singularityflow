@@ -22,7 +22,7 @@ const MANAGED_METADATA = /^<!-- singularity-flow:(?:initiative-)?metadata\n[\s\S
 const MANAGED_INPUTS = /<!-- singularity-flow:inputs:start -->[\s\S]*?<!-- singularity-flow:inputs:end -->/gu;
 const QUALIFIED_CRITERION = /\b[A-Z0-9][A-Z0-9._-]{0,63}:AC-\d{3}\b/giu;
 const BARE_CRITERION = /(?<![\w:.-])AC-\d{3}\b/gu;
-const WITNESS_ID = /\bWIT-\d{3,}\b/gu;
+const WITNESS_ID = /\b(?:WIT-\d{3,}|ARA-WIT-[a-f0-9]{24})\b/gu;
 
 /** Phrases that say a criterion has no human visual review or acceptance. */
 export const ABSENT_VISUAL_REVIEW = Object.freeze([
@@ -132,7 +132,7 @@ export function witnessReportFindings(markdown, witnesses = []) {
  */
 export async function witnessReportAdvisories(root, workflow, phase, artifact) {
   try {
-    if (!workflow?.witnessRecords?.length || !artifact?.exists || !phaseReadsWitnessDecisions(workflow, phase)) return [];
+    if (!workflow?.witnessRecords?.length && !workflow?.applicationAcceptanceRecords?.length || !artifact?.exists || !phaseReadsWitnessDecisions(workflow, phase)) return [];
     const markdown = await readReviewArtifact(root, artifact.path, 'Required phase artifact');
     if (markdown == null) return [];
     return witnessReportFindings(markdown, await storyWitnessDecisions(root, workflow))

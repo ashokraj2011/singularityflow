@@ -147,7 +147,8 @@ export async function applicationReviewPlan(root, config, workflow, { phaseId = 
   return { schemaVersion: 1, kind: 'application-review-plan', subject, policy, required: policy.mode === 'required', status: applicability.resolved && documents.status === 'ready' ? 'available' : 'blocked', documents,
     snapshot: { digest: snapshot.digest, manifest: snapshot.manifest }, applicability, changedSurfaces, items, results,
     capabilities: { review: 'available', staticWeb: policy.preview ? 'available' : 'unavailable', testResults: 'available', executionRun: 'unsupported',
-      attestedBrowser: 'unsupported', compositeRepositoryRepair: 'unsupported', freeTextAcceptance: 'unsupported' } };
+      attestedBrowser: 'unsupported', signedPersonPresence: 'unsupported', reviewExceptions: 'unsupported', feedbackImageUpload: 'unsupported',
+      compositeRepositoryRepair: 'unsupported', freeTextAcceptance: 'unsupported' } };
 }
 
 export function findReviewSession(workflow, sessionId = null, phaseId = applicationReviewPhase(workflow)) {
@@ -197,6 +198,7 @@ export async function applicationReviewStatus(root, config, workflow, sessionId 
   const view = projectReview(session);
   const plan = await applicationReviewPlan(root, config, workflow, { phaseId: view.subject.phaseId });
   const targetCurrent = await reviewTargetCurrent(root, config, workflow, view.target, { plan });
+  if (!targetCurrent) view.dimensions = Object.fromEntries(Object.entries(view.dimensions).map(([dimension, status]) => [dimension, status === 'not-applicable' ? status : 'stale']));
   const evidenceAvailable = await reviewEvidenceAvailable(root, view.captures);
   const documents = plan.documents;
   if (includeResults && targetCurrent) view.target.results = plan.results;
@@ -207,4 +209,26 @@ export async function applicationReviewStatus(root, config, workflow, sessionId 
     localEvidence: evidenceAvailable ? 'available' : view.captures.length ? 'missing-on-this-laptop' : 'not-captured',
     repositoryPath: root, phaseApproval: workflow.phases[session.subject.phaseId].status, documents,
     routes: { copilot: '/sf-app-review', shell: `singularity-flow app-review inspect ${session.id}`, vscode: null } };
+}
+
+/** Evidence-graph read without calling the graph again. Only adopted live decisions can witness UI. */
+export async function applicationReviewWitnessResults(root, config, workflow) {
+  if (!applicationReviewPolicy(workflow) || !workflow.applicationAcceptanceRecords?.length) return [];
+  const { applicationReviewSlotResults, witnessContextBinding } = await import('./verification/witness-records.mjs');
+  const views = (workflow.applicationReviews ?? []).map(projectReview).filter(view => view.decisions.length && view.target?.applicability.surface === 'web');
+  if (!views.length) return [];
+  const snapshot = await applicationReviewSnapshot(root, config, workflow);
+  const output = [];
+  for (const view of views) {
+    if (view.target.binding?.checkout !== localCheckoutIdentity(root) || view.target.snapshot.digest !== snapshot.digest
+        || view.target.subject.generation !== workflow.phases[view.subject.phaseId]?.generation
+        || !workflow.applicationAcceptanceRecords.some(record => view.decisions.some(decision => decision.id === record.id)
+          && record.contextBinding === witnessContextBinding(workflow))) continue;
+    const results = await applicationReviewResults(root, config, workflow, view.subject.phaseId);
+    const documents = await (await import('./document-runtime.mjs')).phaseDocumentReadiness(root, config, workflow, view.subject.phaseId, { includeReferences: true });
+    const current = results.ready && results.digest === view.target.results.digest && documents.status === 'ready'
+      && reviewDigest(documents.references) === view.target.referencesDigest;
+    output.push(...applicationReviewSlotResults(workflow, view, { targetCurrent: current, evidenceAvailable: await reviewEvidenceAvailable(root, view.captures) }));
+  }
+  return output;
 }

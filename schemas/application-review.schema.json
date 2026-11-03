@@ -647,6 +647,37 @@
         "at": {
           "type": "string",
           "format": "date-time"
+        },
+        "contextBinding": {
+          "type": "string",
+          "pattern": "^sha256:[a-f0-9]{64}$"
+        },
+        "witnesses": {
+          "type": "array",
+          "maxItems": 10000,
+          "items": {
+            "type": "object",
+            "properties": {
+              "clauseId": {
+                "type": "string"
+              },
+              "slot": {
+                "type": "string"
+              },
+              "target": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              }
+            },
+            "required": [
+              "clauseId",
+              "slot",
+              "target"
+            ],
+            "additionalProperties": false
+          }
         }
       },
       "required": [
@@ -666,7 +697,9 @@
         "capturedAfterConfirmation",
         "actor",
         "authorityGroup",
-        "at"
+        "at",
+        "contextBinding",
+        "witnesses"
       ],
       "additionalProperties": false
     }

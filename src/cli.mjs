@@ -4449,7 +4449,7 @@ async function decisionWitnessCommand(positionals, options) {
     const current = await secureRepositoryPath(root, file, { label: 'Witnessed file', mustExist: true, type: 'file' });
     const actualFile = `sha256:${createHash('sha256').update(await readFile(current.absolute)).digest('hex')}`;
     assertWitnessReviewBinding(aggregate, { expectedContext: optionString(options, 'expected-context-sha256'),
-      expectedFile: optionString(options, 'expected-file-sha256') ?? sha256, actualFile });
+      expectedFile: optionString(options, 'expected-file-sha256') ?? sha256, actualFile, clauseId, slot: slotName, file: current.relative ?? file });
     return recordWitness(aggregate, {
       clauseId, slot, file: secured.relative ?? file, sha256, answers, reason: optionString(options, 'reason') ?? '',
       actor: actorKey(actor), authorityGroup: authority.authorityGroup, identityAssurance: authority.identityAssurance ?? null, at: nowIso(),

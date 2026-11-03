@@ -40,13 +40,19 @@ export function witnessContextBinding(workflow, { legacy = false } = {}) {
 }
 
 /** Refuse a native review whose inspected candidate or file changed before its record is written. */
-export function assertWitnessReviewBinding(workflow, { expectedContext, expectedFile, actualFile }) {
+export function assertWitnessReviewBinding(workflow, { expectedContext, expectedFile, actualFile, clauseId, slot, file }) {
   const digest = /^sha256:[a-f0-9]{64}$/u;
   if (expectedContext != null && (!digest.test(expectedContext) || expectedContext !== witnessContextBinding(workflow))
       || expectedFile != null && (!digest.test(expectedFile) || expectedFile !== actualFile)) {
     throw new SingularityFlowError('The candidate or evidence changed after inspection. Nothing was recorded; reopen the current human witness review.',
       { code: 'WITNESS_REVIEW_CHANGED' });
   }
+  // Native review selected a still-pending slot, not a second signature on a completed review.
+  const existing = expectedContext && (workflow.witnessRecords ?? []).find(record => record.clauseId === clauseId
+    && record.slot === slot && record.file === file && record.sha256 === actualFile && record.outcome === 'met'
+    && witnessContextBindings(workflow).includes(record.contextBinding));
+  if (existing) throw new SingularityFlowError(`${existing.id} already signs off ${clauseId} slot ${slot} for this evidence and candidate. No duplicate was recorded. Refresh Decisions for the remaining items.`,
+    { code: 'WITNESS_ALREADY_RECORDED' });
 }
 
 /** The bindings a record may carry and still belong to this candidate: today's, and the legacy form. */

@@ -269,6 +269,13 @@ test('a real Story delivers source, configuration, test-only, removal, document 
   assert.ok(stillOwed, 'an earlier sign-off stays visible while the next phase is in progress');
   assert.equal(stillOwed.contextBinding, witnessContextBinding(withoutSignOff));
   assert.equal(workflowState.phases[workflowState.currentPhase].status, 'in_progress');
+  const duplicate = run(process.execPath, [CLI, '--no-model', 'decision', 'witness', W, '--criterion', ac(6),
+    '--slot', 'retained-evidence', '--file', SCREEN, '--expected-context-sha256', witnessContextBinding(workflowState),
+    '--expected-file-sha256', sha(publishedImage), '--confirm', 'states-the-outcome', '--confirm', 'matches-the-criterion',
+    '--confirm', 'current-for-this-change', '--reason', 'This slot was already confirmed for the same published evidence.'], root, { allowFailure: true });
+  assert.notEqual(duplicate.status, 0);
+  assert.match(`${duplicate.stdout} ${duplicate.stderr}`, /WITNESS_ALREADY_RECORDED|already signs off/u);
+  assert.equal(JSON.parse(await readFile(path.join(item, 'workflow.json'), 'utf8')).witnessRecords.length, 1);
   const [witnessed] = workflowState.witnessRecords;
   assert.deepEqual([witnessed.clauseId, witnessed.slot, witnessed.file, witnessed.outcome, Object.values(witnessed.checklist)],
     [ac(6), 'retained-evidence', SCREEN, 'met', ['yes', 'yes', 'yes']]);

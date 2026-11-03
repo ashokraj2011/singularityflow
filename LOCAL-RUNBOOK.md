@@ -166,9 +166,10 @@ registry, or valid custom repository agents not bundled with Singularity Flow.
 If a custom agent prevents the installed definition from loading, its exact bytes
 are moved out of active discovery to
 `.github/singularity-flow-recovered-agents/<sha256>/`; review the path, digest,
-and reason printed by the preview before proceeding. The next workspace registry
-read automatically forgets registrations whose lead explicitly
-declares a non-v2 workflow; `singularity-flow workspace prune --json` reports them.
+and reason printed by the preview before proceeding. Workspace reads preserve
+registrations, including those with an older workflow in the base checkout.
+Only an explicit `singularity-flow workspace prune --json` forgets registrations
+whose lead declares a non-v2 workflow; it preserves directories and Story files.
 
 ### Fresh machine reset and reinstall
 

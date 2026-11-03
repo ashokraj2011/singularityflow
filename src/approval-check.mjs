@@ -615,6 +615,9 @@ export function pendingAmendmentRefusal(workflow, phase, proposals) {
  * test/oap-m1-approval-check.test.mjs fails on a new one.
  */
 export const APPROVAL_HOLD_OWNERS = Object.freeze({
+  ARA_REVIEW_REQUIRED: 'you-decide',
+  ARA_EVIDENCE_UNAVAILABLE: 'you-decide',
+  ARA_REVIEW_STALE: 'you-decide',
   STORY_ARCHIVED_BY_REBUILD: 'someone-decides',
   READ_ONLY_AGENT_CANNOT_MUTATE: 'you-decide',
   SOURCE_REVIEW_REVIEWER_CANNOT_APPROVE: 'you-decide',

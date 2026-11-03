@@ -1,5 +1,7 @@
 import { readFile } from 'node:fs/promises';
 import path from 'node:path';
+import { pathToFileURL } from 'node:url';
+import { PACKAGE_ROOT } from './package-root.mjs';
 import { createHash } from 'node:crypto';
 import { recoveryPlan } from './collaboration.mjs';
 import { verifyClarificationRecord } from './clarifications.mjs';
@@ -227,7 +229,9 @@ export async function completePhaseEntry(entry, base, { compose, modelEnabled })
   }));
   // A retest step names the step whose Code evidence it re-checks; skills read this, never a step name.
   const testEvidenceFrom = workflow.resolution?.phases?.find((entry) => entry.id === phase.id)?.testEvidenceFrom ?? null;
-  return { ...base, repositoryChecks: repositoryCheckStatus(root), status, upstream, scopeReview, testEvidenceFrom, authoringAllowed, codeAuthoringReady, authoringProgress, contextAdmission,
+  const applicationReviewRepair = workflow.applicationReviews?.length && phaseRequiresCodeDelivery(phase)
+    ? (await import(pathToFileURL(path.join(PACKAGE_ROOT, 'src', 'application-review.mjs')).href)).applicationReviewRepairContext(workflow, phase) : null;
+  return { ...base, ...(applicationReviewRepair ? { applicationReviewRepair } : {}), repositoryChecks: repositoryCheckStatus(root), status, upstream, scopeReview, testEvidenceFrom, authoringAllowed, codeAuthoringReady, authoringProgress, contextAdmission,
     ...(preparationAdmitted ? { successor: { targetGeneration: authoring.entry.targetGeneration,
       preparation: authoring.entry.preparation, automatic: false } } : {}),
     authoring, recovery, retainedExecutionEvidence, evidenceConsistency, ...(recordedVisualReviews ? { recordedVisualReviews } : {}),

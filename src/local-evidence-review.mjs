@@ -85,7 +85,7 @@ export async function createLocalEvidenceReview(card, label, bytes, { timeoutMs 
   return { url: `${origin}/${secret}/`, decision, close };
 }
 
-function openBrowser(url) {
+export function openBrowser(url) {
   // Fixed argument vectors, never a shell command or repository-provided executable.
   const executable = process.platform === 'darwin' ? '/usr/bin/open'
     : process.platform === 'win32' ? resolveWindowsSystemTool(process.env, 'rundll32.exe') : 'xdg-open';

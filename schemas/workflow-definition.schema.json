@@ -451,6 +451,7 @@
         "required": ["label", "phases"],
         "properties": {
           "label": { "type": "string", "minLength": 1 },
+          "applicationReview": { "$ref": "application-review.schema.json#/$defs/policy" },
           "phases": { "type": "array", "minItems": 1, "items": { "type": "string" }, "uniqueItems": true },
           "reworkLoops": {
             "type": "array",

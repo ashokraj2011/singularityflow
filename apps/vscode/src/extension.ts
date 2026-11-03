@@ -1238,7 +1238,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     'singularityFlow.createSgosWorkflow', 'singularityFlow.reviewSgosMetaTool',
     'singularityFlow.reviewLocalRunner',
     'singularityFlow.openReconciliation',
-    'singularityFlow.openEvidenceMatrix', 'singularityFlow.openOutcomeReview', 'singularityFlow.openApmPackages',
+    'singularityFlow.openEvidenceMatrix', 'singularityFlow.openOutcomeReview', 'singularityFlow.applicationReview', 'singularityFlow.openApmPackages',
     'singularityFlow.showImpact', 'singularityFlow.addCapability', 'singularityFlow.editCapability',
     'singularityFlow.openDashboard', 'singularityFlow.openDesigner', 'singularityFlow.openWorkflowStudio', 'singularityFlow.addUserAgent', 'singularityFlow.decideStory', 'singularityFlow.decisions', 'singularityFlow.reviewWitness', 'singularityFlow.sfGuard',
     'singularityFlow.workspaceRunTest', 'singularityFlow.startApplication', 'singularityFlow.runTests', 'singularityFlow.testSummary', 'singularityFlow.editRunConfigurations', ...RUN_CONFIGURATION_COMMANDS,
@@ -9203,6 +9203,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     },
     // Optional: what a Story delivered, read once per refresh; nothing waits for it.
     'singularityFlow.openOutcomeReview': async () => lazyPanels().OutcomeReviewPanel.show(context, store, client),
+    'singularityFlow.applicationReview': async () => lazyPanels().OutcomeReviewPanel.show(context, store, client).reviewApplication(),
     // The repository's APM packages and the steps their agents draft; read once per refresh [APM A7].
     'singularityFlow.openApmPackages': async () => lazyPanels().ApmPackagesPanel.show(client, {
       steps: () => Object.entries(store.current.snapshot?.definition?.phases ?? {}).map(([id, phase]) => ({ id, label: phase.label ?? id })),

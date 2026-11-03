@@ -41,7 +41,7 @@ function criterionHtml(criterion: OutcomeCriterion, index: number, capture: bool
  */
 export function outcomeReviewHtml(view: OutcomeView | null, error: string | null, { capture = false }: { capture?: boolean } = {}): string {
   const header = `<header><h1>Check the outcome</h1>
-    <p>Try what this Story delivered, see what proves each acceptance criterion, and what is still open. Optional: nothing here is recorded and no step waits for it.</p>
+    <p>Try what this Story delivered, see what proves each acceptance criterion, and what is still open. ${view?.applicationReview?.required ? 'This Story requires application acceptance in its separate review surface before phase approval.' : 'Optional: nothing here is recorded and no step waits for it.'}</p>
     ${button('refresh', 'Refresh')}</header>`;
   if (error || !view) return `${header}<p class="notice${error ? ' error' : ''}" role="status">${escape(error ?? 'Reading the outcome…')}</p>`;
   const app = view.application;
@@ -59,6 +59,7 @@ export function outcomeReviewHtml(view: OutcomeView | null, error: string | null
   return `${header}
     <p class="meta">${escape(view.workId)}${view.title ? ` · ${escape(view.title)}` : ''}</p>
     <p><strong>${escape(view.lifecycle ?? 'Lifecycle unknown')}</strong> · ${escape(view.completion ?? 'Completion unknown')}</p>
+    ${view.applicationReview ? `<section><h2>Application review</h2><p>${view.applicationReview.required ? 'Application acceptance is required before this code phase can finish.' : 'Inspect, report problems and accept this delivery.'} Evidence stays on this laptop; phase approval is separate.</p>${button('app-review', 'Open application review', {}, false)}</section>` : ''}
     <section><h2>Try it</h2>${appHtml}</section>
     <section><h2>Acceptance criteria</h2>${view.criteria.length ? view.criteria.map((criterion, index) => criterionHtml(criterion, index, capture)).join('') : '<p>No acceptance criteria are recorded yet.</p>'}
       <div class="outcome-actions">${button('tests', 'Run the tests')}${button('matrix', 'Open the Evidence Matrix')}</div></section>

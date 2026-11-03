@@ -19,6 +19,7 @@ export interface OutcomeView {
   application: OutcomeApplication; criteria: OutcomeCriterion[];
   open: { scopeItems: OutcomeScopeItem[]; blocking: Array<{ code: string; message: string }> };
   testsCommand: string | null;
+  applicationReview?: { required: boolean; sessionId: string | null };
 }
 
 const text = (value: unknown): value is string => typeof value === 'string';
@@ -53,6 +54,7 @@ export function outcomeView(raw: unknown): OutcomeView | null {
       scopeItems: Array.isArray(open.scopeItems) ? open.scopeItems.filter((item: OutcomeScopeItem) => item && text(item.id) && text(item.command)) : [],
       blocking: Array.isArray(open.blocking) ? open.blocking.filter((finding: { code: string; message: string }) => finding && text(finding.message)) : []
     },
+    ...(data.applicationReview ? { applicationReview: { required: data.applicationReview.required === true, sessionId: text(data.applicationReview.sessionId) ? data.applicationReview.sessionId : null } } : {}),
     testsCommand: text(data.routes?.tests?.command) ? data.routes.tests.command : null
   };
 }

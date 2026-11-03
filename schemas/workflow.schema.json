@@ -5,6 +5,8 @@
   "type": "object",
   "required": ["schemaVersion", "workItem", "status", "currentPhase", "phaseOrder", "phases", "history"],
   "properties": {
+    "applicationReviews": { "type": "array", "maxItems": 100, "items": { "$ref": "application-review.schema.json#/$defs/session" } },
+    "applicationAcceptanceRecords": { "type": "array", "items": { "$ref": "application-review.schema.json#/$defs/acceptance" } },
     "schemaVersion": { "enum": [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13] },
     "workflowSnapshot": {
       "anyOf": [
@@ -478,6 +480,7 @@
     "resolution": {
       "type": "object",
       "properties": {
+        "applicationReview": { "$ref": "application-review.schema.json#/$defs/policy" },
         "inputsMode": { "enum": ["off", "record", "enforce"] },
         "worldModelGrounding": { "enum": ["off", "warn", "enforce"] },
         "worldModelHistoryPin": {

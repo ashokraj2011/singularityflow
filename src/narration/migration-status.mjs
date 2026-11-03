@@ -17,7 +17,7 @@ export const MIGRATED_NARRATION_COMMANDS = Object.freeze([
   'reinstall', 'reject', 'repair', 'request', 'resume', 'return', 'revise', 'revision', 'review-source', 'secrets', 'specify', 'precheck',
   'instruction', 'skill', 'start', 'submit', 'task', 'tokens', 'upstream-issue', 'decisions', 'outcome', 'verify', 'why',
   // Like env: model-free commands whose --json is their own structured result (sflow-app-*, sflow-test-*, sflow-apm-*).
-  'app', 'tests', 'call', 'apm',
+  'app', 'tests', 'call', 'apm', 'app-review',
   // The read index (SDA M2): its --json is its own structured result (sflow-index-*).
   'index',
   // Lease review and release (SDA M3): sflow-lock-show, sflow-lock-release.

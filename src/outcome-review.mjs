@@ -10,6 +10,7 @@
 import { loadAcceptedStoryExecution } from './accepted-story-execution.mjs';
 import { owedDecisions } from './owed-decisions.mjs';
 import { safeCommandGuidance } from './safe-command-guidance.mjs';
+import { applicationReviewPhase, phaseRequiresCodeDelivery } from './code-delivery-policy.mjs';
 
 const MAX_TEXT = 400;
 const PORT_PROBE_MS = 300;
@@ -33,9 +34,15 @@ export async function outcomeReview(root, { workId = null, capabilityId = null }
     owedDecisions(root, definition, workflow, workflow.phaseOrder ?? []),
     applicationOutcome(root, capabilityId)
   ]);
-  return buildOutcomeReview({ workflow, graph, evaluation, owed, application,
+  const reviewPhase = applicationReviewPhase(workflow);
+  const reviewSession = workflow.applicationReviews?.findLast(item => item.subject.phaseId === reviewPhase);
+  const applicationReview = phaseRequiresCodeDelivery(workflow.phases[reviewPhase]) && workflow.resolution?.applicationReview?.mode && workflow.resolution.applicationReview.mode !== 'off'
+    ? { required: workflow.resolution.applicationReview.mode === 'required', sessionId: reviewSession?.id ?? null,
+      command: reviewSession ? `singularity-flow app-review inspect ${reviewSession.id} --work-id ${workflow.workItem.id}`
+        : `singularity-flow app-review start --work-id ${workflow.workItem.id}`, copilotCommand: '/sf-app-review' } : null;
+  return { ...(applicationReview ? { applicationReview } : {}), ...buildOutcomeReview({ workflow, graph, evaluation, owed, application,
     contracts: mergedVerificationContracts(graph.records?.planned ?? []),
-    workItemRoot: workflow.resolution?.workItemRoot ?? definition?.workItemRoot ?? 'singularity/work-items' });
+    workItemRoot: workflow.resolution?.workItemRoot ?? definition?.workItemRoot ?? 'singularity/work-items' }) };
 }
 
 /** The outcome from what the readers returned. Pure, so the shape is tested without a Story. */

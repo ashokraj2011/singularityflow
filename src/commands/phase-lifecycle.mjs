@@ -18,7 +18,7 @@ import { phasePrepublish, prepublishTestExecutionLines } from '../phase-prepubli
 import { publishedGenerationCommit } from '../generation-publication-store.mjs';
 import { phaseDraftCheck } from '../phase-draft-check.mjs';
 import { operationContext } from '../operation-context.mjs';
-import { phaseRequiresCodeDelivery, generationSkillForPhase } from '../code-delivery-policy.mjs';
+import { phaseRequiresCodeDelivery, generationSkillForPhase, applicationReviewOffer } from '../code-delivery-policy.mjs';
 import { agentPublicationProducer, effectivePhasePublicationProducer, normalizeAuthorshipOptions, assertProducerAllowed, inspectDeterministicInPlaceArtifact, inspectInPlaceArtifact, importManualArtifact, buildGenerationAuthorship } from '../manual-authorship.mjs';
 import { isConvergencePhase } from '../phase-roles.mjs';
 import { actionActor } from './kernel.mjs';
@@ -508,6 +508,7 @@ export async function phaseCommand(positionals, options) {
   );
   // Never blocks: an earlier approved artifact that changed is named now, not only at the final check.
   const approvedDrift = await (await import('./input-restore.mjs')).approvedArtifactDriftWarnings(root, config, workflow, phase).catch(() => []);
+  const applicationReview = applicationReviewOffer(workflow, phase);
   if (optionBoolean(options, 'json')) {
     // Publication is complete here. A GUI needs the exact receipt, not a second expensive review
     // projection before it can acknowledge success. Documents remain available on explicit request.
@@ -517,11 +518,13 @@ export async function phaseCommand(positionals, options) {
       commit: result.sha, pushed: result.pushed === true,
       effects: { committed: true, pushed: result.pushed === true },
       artifact: phase.requiredArtifact.path,
+      ...(applicationReview ? { applicationReview } : {}),
       ...(approvedDrift.length ? { warnings: approvedDrift } : {})
     }));
     return;
   }
   console.log(`Published ${phase.id} generation ${phase.generation} at ${result.sha.slice(0, 8)}${result.pushed ? ' and pushed' : ''}${result.revisionSelection ? ` from REV Candidate ${result.revisionSelection.candidateId}` : ''}.`);
+  if (applicationReview) for (const line of commandGuidanceLines(applicationReview, 'Review application')) console.log(line);
   for (const warning of approvedDrift) console.log(`Warning: ${warning.message}`);
   const telemetry = (phase.telemetry ?? []).find((item) => item.generation === phase.generation);
   const generationUsage = (phase.usage ?? []).filter((item) => item.generation === phase.generation);

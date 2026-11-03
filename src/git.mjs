@@ -2095,6 +2095,11 @@ export function committedChangedPaths(root, base) {
   return nullList(git(['diff', '--name-only', '-z', '--no-renames', base, 'HEAD', '--'], { cwd: root, allowFailure: true }).stdout ?? '');
 }
 
+/** Exact tracked working-tree changes since one retained commit, with read errors preserved. */
+export function workingTreeChangedPaths(root, base) {
+  return nullList(git(['--no-optional-locks', 'diff', '--no-ext-diff', '--no-textconv', '--name-only', '-z', '--no-renames', base, '--'], { cwd: root }).stdout);
+}
+
 /** Directories `.gitignore` excludes, repository-relative without a trailing slash. */
 export function ignoredDirectories(root) {
   return nullList(git(['ls-files', '--others', '--ignored', '--exclude-standard', '--directory', '-z'], { cwd: root, allowFailure: true }).stdout ?? '')

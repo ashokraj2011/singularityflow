@@ -1621,6 +1621,22 @@ const PAGES = Object.freeze({
     ],
     seeAlso: ['home', 'explain']
   },
+  'app-review': {
+    summary: 'Inspect a delivery, report and repair problems, then capture evidence after human acceptance.',
+    description: ['Application review is explicitly adopted per workflow and pinned per Story.',
+      'plan and status are reads. start creates or resumes a review; inspect opens the local human review surface.',
+      'Report and fix continues through the current sf-code owner. All good is collected from the live human surface.',
+      'Images stay local; missing evidence on another laptop is disclosed. Application acceptance does not approve a phase.',
+      'Static web preview and retained backend test reports are supported; external-service attestation and EXR remain unsupported.'],
+    options: [['--work-id ID', 'The existing Story.'], ['--phase PHASE', 'The code-bearing phase, regardless of its name.'],
+      ['--json', 'Return the verified review state.'], ['--action-id ID', 'Retry the same host action without duplicate effects.'],
+      ['--revision NUMBER', 'Compare against the reviewed session revision.'], ['--input FILE', 'A bounded observation or repair input; never human acceptance.']],
+    examples: [['singularity-flow app-review plan --json', 'Read the adopted review contract.'],
+      ['singularity-flow app-review start --json', 'Create or resume this delivery review.'],
+      ['singularity-flow app-review inspect ARA-0123456789abcdef01234567', 'Open the human inspection and feedback surface.'],
+      ['singularity-flow app-review browser install', 'Provision the pinned review-only Chromium.']],
+    seeAlso: ['outcome', 'app', 'tests', 'decisions']
+  },
   outcome: {
     summary: 'Check what a Story delivered: try the application, see each criterion\'s proof, and what is still open.',
     description: [

@@ -25,7 +25,7 @@ export function interpretsForAgent([command, subcommand] = []) {
   // This read-only operation needs bounded repair hints in Copilot's non-TTY shell. Context still
   // owns its strict entry protocol; stage/submit/decide keep their existing authority boundaries.
   if (command === 'review-source' && subcommand === 'check') return false;
-  return ['phase', 'approve', 'nextsteps', 'inputs', 'review-source', 'session'].includes(command);
+  return ['phase', 'approve', 'nextsteps', 'inputs', 'review-source', 'session', 'app-review'].includes(command);
 }
 
 /** The argv a command sees when --for-agent only shapes its output; tokens after `--` are data. */

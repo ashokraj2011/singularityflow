@@ -16,7 +16,7 @@ async function localDocuments(root, definition, workflow, phaseId) {
     isLocalDocument(record) && evidenceIsActive(record) && documentOfferedToPhase(record, phaseId));
 }
 
-export async function phaseDocumentReadiness(root, definition, workflow, phaseId = workflow.currentPhase) {
+export async function phaseDocumentReadiness(root, definition, workflow, phaseId = workflow.currentPhase, { includeReferences = false } = {}) {
   const records = await localDocuments(root, definition, workflow, phaseId);
   const missing = [];
   for (const record of records) {
@@ -35,6 +35,8 @@ export async function phaseDocumentReadiness(root, definition, workflow, phaseId
   }
   return { resultType: 'document-readiness', status: missing.length ? 'upload-required' : 'ready', phase: phaseId,
     workId: workflow.workItem.id, localDocumentCount: records.length, missing,
+    ...(includeReferences ? { references: records.map(record => ({ id: record.id, name: record.name, sha256: record.sha256,
+      bytes: record.size, mimeType: effectiveDocumentMimeType(record), basis: 'attached-original' })) } : {}),
     instruction: missing.length
       ? 'This phase needs documents that are not available on this laptop. Ask for the listed originals, restore each existing document ID, then retry this phase. Other phases and approvals are unchanged.'
       : 'Every machine-local document offered to this phase is present and hash-verified.' };

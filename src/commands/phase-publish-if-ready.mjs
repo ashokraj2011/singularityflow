@@ -68,6 +68,7 @@ export async function run({ positionals, options }) {
   // First, with what follows: the prepublish fields after it describe the draft before publication.
   console.log(JSON.stringify({ publishIfReady: {
     published: true, next: nextAfterStep(shown.value, 'Published.'), command: prepublish.commands.publish,
+    ...(published.value?.applicationReview ? { applicationReview: published.value.applicationReview } : {}),
     output: published.stdout.trim().split('\n').slice(-40).join('\n'),
     review: shown.value
   }, ...prepublish }));

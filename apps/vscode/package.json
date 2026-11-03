@@ -1213,6 +1213,11 @@
         "icon": "$(checklist)"
       },
       {
+        "command": "singularityFlow.applicationReview",
+        "title": "Singularity Flow: Review Application",
+        "icon": "$(eye)"
+      },
+      {
         "command": "singularityFlow.openOutcomeReview",
         "title": "Singularity Flow: Check the Outcome",
         "icon": "$(eye)"

@@ -41,7 +41,7 @@ def test_round():
     assert 1 == 2
 `;
 
-export async function repository(t, { extraCommands = [], implementCommands = true, implementQualityCommands = null, files = {} } = {}) {
+export async function repository(t, { extraCommands = [], implementCommands = true, implementQualityCommands = null, files = {}, applicationReview = null } = {}) {
   const base = await mkdtemp(path.join(os.tmpdir(), 'sflow-tests-run-'));
   t.after(() => rm(base, { recursive: true, force: true }));
   const root = path.join(base, 'repo');
@@ -78,6 +78,10 @@ export async function repository(t, { extraCommands = [], implementCommands = tr
   const config = YAML.parse(await readFile(configPath, 'utf8'));
   config.worldModel.grounding = 'off';
   config.approvalSecurity = { profile: 'poc' };
+  if (applicationReview) {
+    config.workTypes['quick-fix'].applicationReview = applicationReview;
+    config.phases.implement.approval = { mode: 'required', authorities: ['engineering-reviewers'], minimum: 1, rejectTo: ['implement', 'intake'] };
+  }
   for (const authority of Object.values(config.approvalAuthorities)) authority.allowAnyGitIdentity = true;
   if (implementQualityCommands) config.phases.implement.qualityCommands = implementQualityCommands;
   else if (implementCommands) config.phases.implement.qualityCommands = [

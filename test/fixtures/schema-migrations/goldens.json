@@ -1,4 +1,10 @@
 {
+  "application-review-policy": [{ "schemaVersion": 1 }],
+  "application-review-snapshot": [{ "schemaVersion": 1 }],
+  "application-review-session": [{ "schemaVersion": 1 }],
+  "application-review-event": [{ "schemaVersion": 1 }],
+  "application-review-capture": [{ "schemaVersion": 1 }],
+  "application-review-acceptance": [{ "schemaVersion": 1 }],
   "phase-repair-loop-event": [{ "schemaVersion": 1 }],
   "performance-trace": [{ "schemaVersion": 1, "resultType": "sflow-performance-trace" }],
   "phase-continuation-event": [{ "schemaVersion": 1 }],

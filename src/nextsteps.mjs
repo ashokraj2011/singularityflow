@@ -5,7 +5,7 @@ import { sourceReviewContinuation } from './source-review-continuation.mjs';
 import { sourceReviewRequired } from './source-review-policy.mjs';
 import { copilotAction, copilotSkillForCommand } from './copilot-guidance.mjs';
 import { commandRouteLines, safeCommandGuidance } from './safe-command-guidance.mjs';
-import { generationSkillForPhase } from './code-delivery-policy.mjs';
+import { generationSkillForPhase, applicationReviewOffer } from './code-delivery-policy.mjs';
 import {
   effectivePhasePublicationProducer, phasePublicationCommand, phasePublicationCommandForProducer
 } from './manual-authorship.mjs';
@@ -296,6 +296,8 @@ export function workflowNextSteps(workflow, {
       : entry);
   }
   const actions = [...prerequisites.map(copilotAction), ...undecided, ...immediate];
+  const applicationReview = !needsGeneration && applicationReviewOffer(workflow, phase);
+  if (applicationReview) actions.push(action('alternative', applicationReview.copilotCommand, applicationReview.command, applicationReview.reason));
   if (needsGeneration && !modelMode.enabled) {
     // The draft `prepare` writes is published in place, the route prepublish offers when it is
     // ready, the footers repeat and refusals name (phasePublicationCommandForMode). A file written

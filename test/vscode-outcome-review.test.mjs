@@ -79,4 +79,13 @@ test('the outcome suggestion is a personal VS Code setting that is off unless tu
   assert.equal(setting.type, 'boolean');
   assert.equal(setting.default, false, 'nothing is offered until a person turns it on');
   assert.ok(manifest.contributes.commands.some((entry) => entry.command === 'singularityFlow.openOutcomeReview'));
+  assert.ok(manifest.contributes.commands.some((entry) => entry.command === 'singularityFlow.applicationReview'));
+});
+
+test('an adopted required application review is distinct from the optional outcome read', () => {
+  const view = outcomeView(result());
+  view.applicationReview = { adopted: true, required: true, command: 'singularity-flow app-review start --work-id OUT-2', sessionId: null };
+  const html = outcomeReviewHtml(view, null);
+  assert.match(html, /requires application acceptance/u); assert.doesNotMatch(html, /Optional: nothing here/u);
+  assert.match(html, /Open application review/u);
 });

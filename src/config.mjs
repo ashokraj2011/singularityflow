@@ -1,3 +1,4 @@
+import { normalizeApplicationReview } from './code-delivery-policy.mjs';
 import { createHash } from 'node:crypto';
 import { assertStoryBranchNaming } from './story-branch-name.mjs';
 import { readConfigurationSource } from './configuration-source.mjs';
@@ -32,7 +33,7 @@ import { specificationQualityPolicy } from './specification-quality.mjs';
 import { normalizeArtifactSets } from './artifact-sets.mjs';
 import { assertNoAutonomousConvergence } from './convergence.mjs';
 import { isConvergencePhase, isVisualVerificationPhase, reviewKindForResponsibilities } from './phase-roles.mjs';
-import { assertPhaseTopology, PHASE_SEMANTICS_PROFILE, phaseTopologyFindings } from './phase-semantics.mjs';
+import { assertPhaseTopology, PHASE_SEMANTICS_PROFILE, ARA_PHASE_SEMANTICS_PROFILE, phaseTopologyFindings } from './phase-semantics.mjs';
 import { analysisLimits } from './analysis-limits.mjs';
 import { VERSION } from './version.mjs';
 import { constitutionPolicy } from './constitution.mjs';
@@ -1990,6 +1991,23 @@ export function resolveWorkType(definition, workTypeId) {
     workTypeId, phases, plannedClaims,
     approvalAuthorities: normalizeApprovalAuthorities(definition.approvalAuthorities, definition.approvalSecurity)
   });
+  const applicationReview = normalizeApplicationReview(workType.applicationReview);
+  if (applicationReview) {
+    if (applicationReview.mode === 'required' && applicationReview.surface === 'web' && !applicationReview.preview) {
+      throw new SingularityFlowError('A required web review needs its declared static preview entry and output directory before Story creation. Configure applicationReview.preview; no Story was created.', { code: 'ARA_PREVIEW_CONFIGURATION_REQUIRED' });
+    }
+    const registeredAuthorities = normalizeApprovalAuthorities(definition.approvalAuthorities, definition.approvalSecurity);
+    for (const group of applicationReview.authorities ?? []) {
+      if (!Object.hasOwn(registeredAuthorities, group)) throw new SingularityFlowError(`Application review references unknown approval group '${group}'.`, { code: 'ARA_POLICY_INVALID' });
+    }
+    if (applicationReview.mode === 'required' && phases.some(phase => phaseRequiresCodeDelivery(phase) && phase.approval?.mode === 'none')) {
+      throw new SingularityFlowError('Required application review needs a code-phase completion boundary with configured approval authority. Configure that boundary before starting a Story; approval:none is not supported by this required profile.', { code: 'ARA_COMPLETION_ADAPTER_UNAVAILABLE' });
+    }
+    if (applicationReview.mode !== 'off' && !applicationReview.authorities?.length
+        && phases.some(phase => phaseRequiresCodeDelivery(phase) && !phase.approval?.authorities?.length)) {
+      throw new SingularityFlowError('Application review needs configured human authority. Name existing applicationReview.authorities or configure the code phase’s approvers before starting a Story.', { code: 'ARA_AUTHORITY_UNAVAILABLE' });
+    }
+  }
   // Which responsibilities every route guarantees. Never throws: a work type with error findings
   // stays readable, and Story start refuses it.
   const obligationGraph = compileObligationGraph({
@@ -2004,7 +2022,7 @@ export function resolveWorkType(definition, workTypeId) {
     definition.agentCatalog, { workTypeId });
   return {
     id: workTypeId,
-    phaseSemantics: { profile: PHASE_SEMANTICS_PROFILE },
+    phaseSemantics: { profile: applicationReview && applicationReview.mode !== 'off' ? ARA_PHASE_SEMANTICS_PROFILE : PHASE_SEMANTICS_PROFILE },
     obligationGraph,
     label: workType.label,
     ...(reworkLoops.length ? { reworkLoops } : {}),
@@ -2040,6 +2058,7 @@ export function resolveWorkType(definition, workTypeId) {
     spec,
     sourceReview,
     plannedClaims,
+    ...(applicationReview ? { applicationReview } : {}),
     codeDelivery: normalizeCodeDeliveryPolicy(definition.codeDelivery ?? {}),
     testRuntime: normalizeTestRuntime(definition.repositoryReadiness?.testRuntime),
     ...(definition.testRecovery ? { testRecovery: normalizeTestRecoveryPolicy(definition.testRecovery) } : {}),
@@ -2141,6 +2160,7 @@ export async function snapshotResolution(root, definition, resolved) {
     // digest stay byte-identical.
     ...(resolved.decisions?.length ? { decisions: structuredClone(resolved.decisions) } : {}),
     codeDelivery: structuredClone(resolved.codeDelivery ?? normalizeCodeDeliveryPolicy(definition.codeDelivery ?? {})),
+    ...(resolved.applicationReview ? { applicationReview: structuredClone(resolved.applicationReview) } : {}),
     ...(resolved.testRecovery ? { testRecovery: structuredClone(resolved.testRecovery) } : {}),
     // Fault-repair is resolved per workflow just like code delivery. It must be pinned into the
     // Story snapshot; otherwise every later recovery gate silently falls back to product defaults.

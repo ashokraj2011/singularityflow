@@ -5848,7 +5848,17 @@ async function submitPhaseTransition(root, config, workflow, {
   }
   const waiver = waiverPolicy ? evaluateQuickFixWaiver(root, config, workflow, phase, waiverPolicy) : null;
   if (waiver && !waiver.eligible) console.warn(`Warning: ${waiverNotAppliedMessage(phase.id, waiver)}`);
-  if (!reviewableFailure && (phase.approvalPolicy.mode === 'none' || waiver?.eligible)) {
+  let applicationReviewPending = false;
+  if (workflow.resolution?.applicationReview?.mode === 'required' && phaseRequiresCodeDelivery(phase)) {
+    try { await (await import(pathToFileURL(path.join(PACKAGE_ROOT, 'src', 'application-review.mjs')).href)).assertApplicationReviewComplete(root, config, workflow, phase); }
+    catch (error) {
+      if (error.code !== 'ARA_REVIEW_REQUIRED') throw error;
+      // Pin the authoritative submission first. Human review must never deadlock by requiring
+      // acceptance of a test packet that this same submission has not produced yet.
+      applicationReviewPending = true;
+    }
+  }
+  if (!reviewableFailure && !applicationReviewPending && (phase.approvalPolicy.mode === 'none' || waiver?.eligible)) {
     phase.status = 'approved';
     phase.approvedAt = phase.submittedAt;
     phase.approvedBy = null;
@@ -6151,6 +6161,12 @@ export async function reviewHistoryCommits(root, config, workflow, phase, submit
   for (const commit of unallowed()) {
     if (applicabilityDecisionCommit(root, config, workflow, commit)) allowedReviewCommits.add(commit);
   }
+  if (workflow.applicationReviews?.length && unallowed().length) {
+    const { applicationReviewCommit } = await import(pathToFileURL(path.join(PACKAGE_ROOT, 'src', 'application-review-history.mjs')).href);
+    for (const commit of unallowed()) {
+      if (applicationReviewCommit(root, governedStateChange(root, config, workflow, commit))) allowedReviewCommits.add(commit);
+    }
+  }
   // Intent-amendment records (approval-check.mjs): a rejected amendment's proposal and rejection as
   // one pair, an undecided proposal (approval waits for its decision) and an acknowledgement.
   const amendments = unallowed().length ? await import('./approval-check.mjs') : null;
@@ -6282,6 +6298,11 @@ export async function evaluateApproval(root, config, workflow, {
     await stage('sequence', async () => {
       phase = await assertPhaseSequence(root, workflow, 'approve', { requestedPhase: phaseId, allowedStatuses: ['awaiting_approval'] });
     }, { foundation: true });
+    await stage('application-review', async () => {
+      if (workflow.resolution?.applicationReview?.mode === 'required') {
+        await (await import(pathToFileURL(path.join(PACKAGE_ROOT, 'src', 'application-review.mjs')).href)).assertApplicationReviewComplete(root, config, workflow, phase);
+      }
+    });
     await stage('repair', async () => {
       const { assertPhaseRepairSettled } = await import('./phase-repair-journal.mjs');
       await assertPhaseRepairSettled(root, workflow, phase);

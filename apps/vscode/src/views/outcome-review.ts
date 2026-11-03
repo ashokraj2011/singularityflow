@@ -81,8 +81,30 @@ export class OutcomeReviewPanel {
     return this.view?.criteria[criterion]?.checks[check] ?? null;
   }
 
+  /** Palette and outcome button share the same bound Story and owner-issued session. */
+  async reviewApplication(): Promise<void> {
+    await this.reload();
+    if (!this.view?.applicationReview) {
+      void showCompactInformationMessage('This Story did not adopt application review. Its pinned workflow is unchanged.');
+      return;
+    }
+    await this.act('app-review', null, null, null);
+  }
+
   private async act(action: string, criterion: number | null, check: number | null, item: number | null): Promise<void> {
     if (action === 'refresh') return this.reload();
+    if (action === 'app-review' && this.view?.applicationReview) {
+      if (vscode.workspace.isTrusted === false) throw new Error('Trust the workspace before opening application review.');
+      const workId = this.view.workId;
+      let sessionId = this.view.applicationReview.sessionId;
+      if (!sessionId) {
+        const result = await this.client.run<{ session?: { id?: string } }>(['app-review', 'start', '--work-id', workId, '--json']);
+        sessionId = result.session?.id ?? null;
+      }
+      if (!sessionId) throw new Error('The engine did not issue a review session. No application was started.');
+      await this.client.run(['app-review', 'inspect', sessionId, '--work-id', workId, '--json']);
+      await this.reload(); return;
+    }
     if (action === 'start') { await vscode.commands.executeCommand('singularityFlow.startApplication'); return; }
     if (action === 'tests') { await vscode.commands.executeCommand('singularityFlow.runTests'); return; }
     if (action === 'matrix') { await vscode.commands.executeCommand('singularityFlow.openEvidenceMatrix'); return; }

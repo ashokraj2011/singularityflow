@@ -108,6 +108,8 @@ Usage:
   singularity-flow tests plan [--capability ID | --work-id ID [--phase PHASE]] [--command ID]... [--json]
   singularity-flow tests run [--capability ID | --work-id ID [--phase PHASE]] [--command ID]... [--environment ENV] [--expect-command sha256:DIGEST]... [--json]
   singularity-flow tests summary [--capability ID | --work-id ID [--phase PHASE]] [--run RUN-ID] [--json]
+  singularity-flow app-review plan|start|status|inspect|feedback|repair|recheck|accept|capture|defer|close [SESSION] [--work-id ID] [--json]
+  singularity-flow app-review browser install
   singularity-flow outcome [WORK-ID] [--capability ID] [--json]
   singularity-flow result last [--wait [SECONDS]] [--command WORDS] [--json]
   singularity-flow refresh-branch [--remote origin] [--branch CURRENT] [--json]

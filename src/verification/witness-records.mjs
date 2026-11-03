@@ -16,6 +16,33 @@ import { upstreamChangeRoutes } from '../upstream-routes.mjs';
 import { phaseCorrectionTargets } from '../phase-finding-policy.mjs';
 
 export const WITNESS_CHECKLIST = Object.freeze(['states-the-outcome', 'matches-the-criterion', 'current-for-this-change']);
+
+/**
+ * ARA live/result-based acceptance is a separate observation basis in this authoritative human
+ * decision service. It never invents answers to the older file-inspection checklist. Images are
+ * admitted after the actual human confirmation, and these records reference both events.
+ */
+export function recordApplicationReviewAcceptance(workflow, { confirmation, captures, decisions, target, actor, authorityGroup, at }) {
+  if (!confirmation?.hostAction?.id || !['live-application-and-retained-results', 'retained-structured-results'].includes(confirmation.reviewedBasis)
+      || confirmation.targetId !== target?.id || !captures.length || !authorityGroup || !actor
+      || captures.some(item => item.confirmation !== confirmation.id || item.targetId !== target.id || item.status !== 'captured'
+        || Date.parse(item.capturedAt) < Date.parse(confirmation.at))) {
+    throw invalid('Application acceptance needs the actual current human confirmation and its admitted post-confirmation evidence.', 'ARA_ACCEPTANCE_INVALID');
+  }
+  workflow.applicationAcceptanceRecords ??= [];
+  for (const decision of decisions) {
+    if (!confirmation.dimensions.includes(decision.dimension) || decision.confirmation !== confirmation.id || decision.targetId !== target.id) {
+      throw invalid('Application acceptance differs from the actual confirmed dimensions.', 'ARA_ACCEPTANCE_INVALID');
+    }
+    const record = { schemaVersion: 1, kind: 'application-review-acceptance', ...decision, subject: target.subject,
+      observationBasis: confirmation.reviewedBasis, humanAction: confirmation.hostAction, confirmedAt: confirmation.at,
+      screenshotsInspectedByHuman: false, capturedAfterConfirmation: true, actor, authorityGroup, at };
+    const prior = workflow.applicationAcceptanceRecords.find(item => item.id === record.id);
+    if (prior && recordSha256(prior) !== recordSha256(record)) throw invalid('Acceptance identity already has different content.', 'ARA_IDEMPOTENCY_CONFLICT');
+    if (!prior) workflow.applicationAcceptanceRecords.push(record);
+  }
+  return decisions;
+}
 const AC_ID = /^[A-Z0-9][A-Z0-9._-]{0,63}:AC-\d{3}$/u;
 
 function invalid(message, code = 'WITNESS_RECORD_INVALID') {

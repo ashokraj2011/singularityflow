@@ -376,6 +376,7 @@ export async function resolveStoryExecutionCatalog(root, definition, workflow) {
     ['spec', policy.spec],
     ['plannedClaims', policy.plannedClaims],
     ['codeDelivery', policy.codeDelivery],
+    ['applicationReview', policy.applicationReview],
     ['faultRepair', policy.faultRepair],
     ['constitution', policy.constitution],
     ['analysisLimits', policy.analysisLimits],

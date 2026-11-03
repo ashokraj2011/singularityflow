@@ -163,6 +163,7 @@
   },
   "dependencies": {
     "@agentclientprotocol/sdk": "1.4.0",
+    "playwright-core": "1.64.1",
     "pyright": "1.1.414",
     "sql.js": "1.14.2",
     "tslib": "2.8.1",
@@ -177,7 +178,8 @@
     "tslib",
     "typescript",
     "yaml",
-    "zod"
+    "zod",
+    "playwright-core"
   ],
   "devDependencies": {
     "@rollup/plugin-commonjs": "29.0.3",

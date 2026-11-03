@@ -1,0 +1,674 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://example.invalid/singularity-flow/application-review.schema.json",
+  "title": "Application review policy and versioned records",
+  "oneOf": [
+    {
+      "$ref": "#/$defs/event"
+    },
+    {
+      "$ref": "#/$defs/session"
+    },
+    {
+      "$ref": "#/$defs/snapshot"
+    },
+    {
+      "$ref": "#/$defs/capture"
+    },
+    {
+      "$ref": "#/$defs/acceptance"
+    }
+  ],
+  "$defs": {
+    "subject": {
+      "type": "object",
+      "properties": {
+        "kind": {
+          "const": "story-phase"
+        },
+        "workId": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 4096
+        },
+        "phaseId": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 4096
+        },
+        "generation": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 1000000
+        }
+      },
+      "required": [
+        "kind",
+        "workId",
+        "phaseId",
+        "generation"
+      ],
+      "additionalProperties": false
+    },
+    "policy": {
+      "type": "object",
+      "properties": {
+        "schemaVersion": {
+          "const": 1
+        },
+        "mode": {
+          "enum": [
+            "off",
+            "optional",
+            "required"
+          ]
+        },
+        "surface": {
+          "enum": [
+            "auto",
+            "web",
+            "backend",
+            "cli",
+            "library",
+            "artifact"
+          ]
+        },
+        "preview": {
+          "anyOf": [
+            {
+              "type": "null"
+            },
+            {
+              "type": "object",
+              "properties": {
+                "entry": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "outputDirectory": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 4096
+                }
+              },
+              "required": [
+                "outputDirectory"
+              ],
+              "additionalProperties": false
+            }
+          ]
+        },
+        "authorities": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "pattern": "^[a-z0-9]+(?:-[a-z0-9]+)*$"
+          },
+          "maxItems": 100
+        },
+        "repairAttempts": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 10
+        },
+        "totalRepairAttempts": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 100
+        },
+        "quality": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 1000
+          },
+          "maxItems": 50
+        },
+        "capture": {
+          "type": "object",
+          "properties": {
+            "maximumPages": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 500
+            },
+            "casesPerPage": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 50
+            },
+            "maximumBytes": {
+              "type": "integer",
+              "minimum": 1024,
+              "maximum": 268435456
+            },
+            "timeoutMs": {
+              "type": "integer",
+              "minimum": 1000,
+              "maximum": 600000
+            },
+            "viewport": {
+              "type": "object",
+              "properties": {
+                "width": {
+                  "type": "integer",
+                  "minimum": 640,
+                  "maximum": 3840
+                },
+                "height": {
+                  "type": "integer",
+                  "minimum": 480,
+                  "maximum": 2160
+                }
+              },
+              "required": [
+                "width",
+                "height"
+              ],
+              "additionalProperties": false
+            }
+          },
+          "required": [],
+          "additionalProperties": false
+        }
+      },
+      "required": [],
+      "additionalProperties": false
+    },
+    "event": {
+      "type": "object",
+      "properties": {
+        "schemaVersion": {
+          "const": 1
+        },
+        "kind": {
+          "const": "application-review-event"
+        },
+        "sessionId": {
+          "type": "string",
+          "pattern": "^ARA-[a-f0-9]{24}$"
+        },
+        "subject": {
+          "$ref": "#/$defs/subject"
+        },
+        "revision": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 2000
+        },
+        "previous": {
+          "anyOf": [
+            {
+              "type": "string",
+              "pattern": "^sha256:[a-f0-9]{64}$"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "actionId": {
+          "type": "string",
+          "pattern": "^[A-Za-z0-9_-]{8,128}$"
+        },
+        "requestSha256": {
+          "type": "string",
+          "pattern": "^sha256:[a-f0-9]{64}$"
+        },
+        "type": {
+          "enum": [
+            "target-preparing",
+            "target-blocked",
+            "target-ready",
+            "feedback-recorded",
+            "finding-repair-requested",
+            "repair-prepared",
+            "repair-observed",
+            "finding-rechecked",
+            "finding-dispositioned",
+            "review-confirmed",
+            "capture-started",
+            "capture-blocked",
+            "acceptance-blocked",
+            "capture-admitted",
+            "acceptance-finalized",
+            "review-stale",
+            "review-deferred",
+            "review-cancelled"
+          ]
+        },
+        "payload": {
+          "type": "object"
+        },
+        "actor": {
+          "type": "object"
+        },
+        "at": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "digest": {
+          "type": "string",
+          "pattern": "^sha256:[a-f0-9]{64}$"
+        }
+      },
+      "required": [
+        "schemaVersion",
+        "kind",
+        "sessionId",
+        "subject",
+        "revision",
+        "previous",
+        "actionId",
+        "requestSha256",
+        "type",
+        "payload",
+        "actor",
+        "at",
+        "digest"
+      ],
+      "additionalProperties": false
+    },
+    "session": {
+      "type": "object",
+      "properties": {
+        "schemaVersion": {
+          "const": 1
+        },
+        "kind": {
+          "const": "application-review-session"
+        },
+        "id": {
+          "type": "string",
+          "pattern": "^ARA-[a-f0-9]{24}$"
+        },
+        "subject": {
+          "$ref": "#/$defs/subject"
+        },
+        "policy": {
+          "$ref": "#/$defs/policy"
+        },
+        "revision": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 2000
+        },
+        "events": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/event"
+          },
+          "maxItems": 2000
+        }
+      },
+      "required": [
+        "schemaVersion",
+        "kind",
+        "id",
+        "subject",
+        "policy",
+        "revision",
+        "events"
+      ],
+      "additionalProperties": false
+    },
+    "snapshot": {
+      "type": "object",
+      "properties": {
+        "schemaVersion": {
+          "const": 1
+        },
+        "kind": {
+          "const": "application-review-snapshot"
+        },
+        "manifest": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "path": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 4096
+              },
+              "sha256": {
+                "type": "string",
+                "pattern": "^sha256:[a-f0-9]{64}$"
+              },
+              "bytes": {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 33554432
+              },
+              "executable": {
+                "type": "boolean"
+              }
+            },
+            "required": [
+              "path",
+              "sha256",
+              "bytes",
+              "executable"
+            ],
+            "additionalProperties": false
+          },
+          "maxItems": 50000
+        }
+      },
+      "required": [
+        "schemaVersion",
+        "kind",
+        "manifest"
+      ],
+      "additionalProperties": false
+    },
+    "capture": {
+      "type": "object",
+      "properties": {
+        "schemaVersion": {
+          "const": 1
+        },
+        "kind": {
+          "const": "application-review-capture"
+        },
+        "id": {
+          "type": "string",
+          "pattern": "^sha256:[a-f0-9]{64}$"
+        },
+        "confirmation": {
+          "type": "string",
+          "pattern": "^sha256:[a-f0-9]{64}$"
+        },
+        "trigger": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 4096
+        },
+        "targetId": {
+          "type": "string",
+          "pattern": "^sha256:[a-f0-9]{64}$"
+        },
+        "subject": {
+          "$ref": "#/$defs/subject"
+        },
+        "sourceSnapshot": {
+          "type": "string",
+          "pattern": "^sha256:[a-f0-9]{64}$"
+        },
+        "resultsDigest": {
+          "type": "string",
+          "pattern": "^sha256:[a-f0-9]{64}$"
+        },
+        "captureKind": {
+          "enum": [
+            "application-ui",
+            "test-results",
+            "test-case-detail"
+          ]
+        },
+        "captureItem": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 4096
+        },
+        "cases": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 4096
+          },
+          "maxItems": 50000
+        },
+        "attempts": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 4096
+          },
+          "maxItems": 1000
+        },
+        "obligations": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 4096
+          },
+          "maxItems": 10000
+        },
+        "capturedAt": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "browser": {
+          "type": "object",
+          "properties": {
+            "provider": {
+              "const": "playwright-chromium"
+            },
+            "version": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 4096
+            },
+            "adapterVersion": {
+              "type": "string",
+              "minLength": 1
+            }
+          },
+          "required": [
+            "provider",
+            "version",
+            "adapterVersion"
+          ],
+          "additionalProperties": false
+        },
+        "image": {
+          "type": "object",
+          "properties": {
+            "format": {
+              "const": "png"
+            },
+            "type": {
+              "enum": [
+                "viewport",
+                "full-page"
+              ]
+            },
+            "width": {
+              "type": "integer",
+              "minimum": 640,
+              "maximum": 3840
+            },
+            "height": {
+              "type": "integer",
+              "minimum": 480,
+              "maximum": 16000
+            }
+          },
+          "required": [
+            "format",
+            "type",
+            "width",
+            "height"
+          ],
+          "additionalProperties": false
+        },
+        "sha256": {
+          "type": "string",
+          "pattern": "^sha256:[a-f0-9]{64}$"
+        },
+        "bytes": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 268435456
+        },
+        "artifactRef": {
+          "type": "object",
+          "properties": {
+            "kind": {
+              "const": "local-application-review-image"
+            },
+            "digest": {
+              "type": "string",
+              "pattern": "^sha256:[a-f0-9]{64}$"
+            }
+          },
+          "required": [
+            "kind",
+            "digest"
+          ],
+          "additionalProperties": false
+        },
+        "checkout": {
+          "type": "string",
+          "pattern": "^sha256:[a-f0-9]{64}$"
+        },
+        "status": {
+          "const": "captured"
+        }
+      },
+      "required": [
+        "schemaVersion",
+        "kind",
+        "id",
+        "confirmation",
+        "trigger",
+        "targetId",
+        "subject",
+        "sourceSnapshot",
+        "resultsDigest",
+        "captureKind",
+        "captureItem",
+        "cases",
+        "attempts",
+        "obligations",
+        "capturedAt",
+        "browser",
+        "image",
+        "sha256",
+        "bytes",
+        "artifactRef",
+        "checkout",
+        "status"
+      ],
+      "additionalProperties": false
+    },
+    "acceptance": {
+      "type": "object",
+      "properties": {
+        "schemaVersion": {
+          "const": 1
+        },
+        "kind": {
+          "const": "application-review-acceptance"
+        },
+        "id": {
+          "type": "string",
+          "pattern": "^ARA-WIT-[a-f0-9]{24}$"
+        },
+        "dimension": {
+          "enum": [
+            "visual",
+            "functional"
+          ]
+        },
+        "confirmation": {
+          "type": "string",
+          "pattern": "^sha256:[a-f0-9]{64}$"
+        },
+        "targetId": {
+          "type": "string",
+          "pattern": "^sha256:[a-f0-9]{64}$"
+        },
+        "reviewedBasis": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 4096
+        },
+        "captureReceipts": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "pattern": "^sha256:[a-f0-9]{64}$"
+          },
+          "maxItems": 501
+        },
+        "subject": {
+          "$ref": "#/$defs/subject"
+        },
+        "observationBasis": {
+          "enum": [
+            "live-application-and-retained-results",
+            "retained-structured-results"
+          ]
+        },
+        "humanAction": {
+          "type": "object",
+          "properties": {
+            "channel": {
+              "const": "local-review"
+            },
+            "id": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 4096
+            }
+          },
+          "required": [
+            "channel",
+            "id"
+          ],
+          "additionalProperties": false
+        },
+        "confirmedAt": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "screenshotsInspectedByHuman": {
+          "const": false
+        },
+        "capturedAfterConfirmation": {
+          "const": true
+        },
+        "actor": {
+          "type": "object"
+        },
+        "authorityGroup": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 4096
+        },
+        "at": {
+          "type": "string",
+          "format": "date-time"
+        }
+      },
+      "required": [
+        "schemaVersion",
+        "kind",
+        "id",
+        "dimension",
+        "confirmation",
+        "targetId",
+        "reviewedBasis",
+        "captureReceipts",
+        "subject",
+        "observationBasis",
+        "humanAction",
+        "confirmedAt",
+        "screenshotsInspectedByHuman",
+        "capturedAfterConfirmation",
+        "actor",
+        "authorityGroup",
+        "at"
+      ],
+      "additionalProperties": false
+    }
+  }
+}

@@ -1851,6 +1851,13 @@
         "command-run": 2
       },
       "digest": "dc497e979fc30f9f109f83a1ae921ebf678ffcbecd723251d76824661fec3562"
+    },
+    "src/commands/app-review.mjs": {
+      "counts": {
+        "process-import": 1,
+        "process-launch": 2
+      },
+      "digest": "bf9bd1c0d5aceda707e6c4f67194d802a9058ab434d7edad8d5d30f420d5072b"
     }
   }
 }

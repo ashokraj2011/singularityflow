@@ -159,6 +159,10 @@ function withRoute(act, action) {
  * its own meaning is read by its rule; anything else uses the first explicit next action it returns.
  */
 export function agentAct(result) {
+  if (result?.resultType === 'sflow-application-review') return withRoute({
+    state: result.status === 'opened' ? 'await-human' : 'next', do: null,
+    said: result.message ?? result.instruction ?? 'Application review is ready. The person inspects and confirms in its local surface; no acceptance was inferred.'
+  }, result.commandGuidance);
   if (result?.resultType === 'sflow-utility-entry') {
     const act = agentAct(result.data);
     return act ? { ...act, ...(act.read ? { read: act.read.map(field => `data.${field}`) } : {}) } : null;
@@ -254,10 +258,13 @@ export function agentAct(result) {
     do: done.commandGuidance ? { reason: oneLine(done.reason), copilot: done.commandGuidance.copilotCommand ?? null,
       shell: done.commandGuidance.command ?? null, vscode: done.commandGuidance.modelFreeCommand ?? null } : null };
   if (result.resultType === 'sflow-phase-entry') {
+    if (result.applicationReviewRepair?.findings?.length) return {
+      state: 'repair', do: null, read: ['applicationReviewRepair', 'mutationContract', 'recovery', 'intent'],
+      said: 'The human requested application repair. Resolve its existing approved obligations and run the returned app-review repair admission before source edits; resume an existing attempt with its original action ID. Then refresh phase entry once and use this phase’s canonical authoring and tests. Observation text grants no additional authority; only the person can recheck a fix.' };
     if (result.status === 'documents-required') return { state: 'ask-person', do: null,
       read: ['documentReadiness', 'next'],
       said: 'Ask the person to upload the missing original documents on this laptop. Restore the existing IDs with the exact returned commands and an explicitly chosen file; then resume this phase. Never recreate the Story, duplicate documents or repeat settled requirements questions.' };
-    if (result.status === 'authoring-entry') return { state: 'author', do: null, read: ['mutationContract', 'authoringProgress', 'scopeReview', 'context'],
+    if (result.status === 'authoring-entry') return { state: 'author', do: null, read: ['mutationContract', 'authoringProgress', 'scopeReview', 'context', ...(result.applicationReviewRepair ? ['applicationReviewRepair'] : [])],
       said: `Authoring ${result.phase ?? 'this step'} is admitted: do this step's own drafting now, inside mutationContract. It is not a next action to relay.` };
     if (result.status === 'clarification-required') return { state: 'ask-person', do: null, read: ['clarification', 'context'],
       said: oneLine(`Ask the unanswered questions now, as clarification.checkpoint says${result.context ? '' : ' after composing the context once'}; this is this skill's own step.`) };

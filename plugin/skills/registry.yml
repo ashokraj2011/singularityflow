@@ -121,6 +121,7 @@ skills:
   sflow-docs: { class: echo, executionBoundary: machine, gatewayTools: true }
   sflow-evidence: { class: echo, executionBoundary: repository }
   sflow-outcome: { class: echo, executionBoundary: repository }
+  sflow-app-review: { class: guided, executionBoundary: repository }
   sflow-explain: { class: conversational }
   sflow-explain-code: { class: conversational, executionBoundary: repository, kernelModelPolicy: conditional }
   sflow-import: { class: mutation, executionBoundary: repository }

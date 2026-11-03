@@ -7,6 +7,8 @@ import { isKnownPackagedAssetHash } from './packaged-asset-history.mjs';
 import { SingularityFlowError } from './util.mjs';
 
 export const PHASE_SEMANTICS_PROFILE = 'sflow-phase-semantics/v1';
+export const ARA_PHASE_SEMANTICS_PROFILE = 'sflow-phase-semantics/ara-v1';
+const SUPPORTED_PHASE_PROFILES = new Set([PHASE_SEMANTICS_PROFILE, ARA_PHASE_SEMANTICS_PROFILE]);
 const LEGACY_CONVERGENCE_TEMPLATE = 'singularity/templates/spec-driven/convergence.md';
 
 function legacyConvergenceCandidate(phase) {
@@ -19,7 +21,7 @@ function legacyConvergenceCandidate(phase) {
 export function needsAcceptedPhaseInterpretation(workflow) {
   return Boolean(workflow?.workflowSnapshot) && (
     workflow.resolution?.phaseSemantics?.profile !== undefined
-      && workflow.resolution.phaseSemantics.profile !== PHASE_SEMANTICS_PROFILE
+      && !SUPPORTED_PHASE_PROFILES.has(workflow.resolution.phaseSemantics.profile)
     || workflow.resolution?.obligationGraph?.compilerVersion != null
       && workflow.resolution.obligationGraph.compilerVersion !== 1
     || !workflow.resolution?.obligationGraph
@@ -35,7 +37,7 @@ export function installAcceptedPhaseInterpretation(workflow, policy, phaseTempla
       { code: 'WFA_RUNTIME_INCOMPATIBLE' });
   }
   const profile = policy.phaseSemantics?.profile ?? semantics.phaseSemantics;
-  if (profile != null && profile !== PHASE_SEMANTICS_PROFILE) {
+  if (profile != null && !SUPPORTED_PHASE_PROFILES.has(profile)) {
     throw new SingularityFlowError(`This Story requires unsupported phase semantics '${profile}'. Use a compatible Singularity Flow build; do not rewrite its accepted policy.`,
       { code: 'WFA_RUNTIME_INCOMPATIBLE', details: { profile } });
   }

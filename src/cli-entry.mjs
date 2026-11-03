@@ -615,7 +615,7 @@ export async function main(argv) {
     // for the others it shapes the output only, and a paused SFlow answers before any Git or lookup.
     const agentFlag = options['for-agent'] !== undefined;
     const ownsFlag = interpretsForAgent(positionals);
-    if ((utilityEntry || agentFlag && !ownsFlag) && !['pause', 'hook'].includes(positionals[0])) {
+    if ((utilityEntry || agentFlag && (!ownsFlag || positionals[0] === 'app-review')) && !['pause', 'hook'].includes(positionals[0])) {
       const paused = await copilotPause();
       if (paused) return console.log(optionBoolean(options, 'json') ? JSON.stringify(paused, null, 2) : paused.message);
     }

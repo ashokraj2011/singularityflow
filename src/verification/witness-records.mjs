@@ -48,10 +48,9 @@ export function assertWitnessReviewBinding(workflow, { expectedContext, expected
       { code: 'WITNESS_REVIEW_CHANGED' });
   }
   // Native review selected a still-pending slot, not a second signature on a completed review.
-  const existing = expectedContext && (workflow.witnessRecords ?? []).find(record => record.clauseId === clauseId
-    && record.slot === slot && record.file === file && record.sha256 === actualFile && record.outcome === 'met'
-    && witnessContextBindings(workflow).includes(record.contextBinding));
-  if (existing) throw new SingularityFlowError(`${existing.id} already signs off ${clauseId} slot ${slot} for this evidence and candidate. No duplicate was recorded. Refresh Decisions for the remaining items.`,
+  const existing = expectedContext && witnessRecordResults(workflow.witnessRecords, new Map([[file, actualFile]]),
+    { contextBinding: witnessContextBindings(workflow) }).find(record => record.clauseId === clauseId && record.slot === slot && record.status === 'met');
+  if (existing) throw new SingularityFlowError(`${existing.recordId} already signs off ${clauseId} slot ${slot} for this evidence and candidate. No duplicate was recorded. Refresh Decisions for the remaining items.`,
     { code: 'WITNESS_ALREADY_RECORDED' });
 }
 

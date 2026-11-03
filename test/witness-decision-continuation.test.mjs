@@ -109,3 +109,17 @@ test('the writer verifies the native context and evidence hashes while preservin
   w.phases.build.deliveryEvidence={sourceTreeSha256:'new-source'};
   assert.throws(()=>assertWitnessReviewBinding(w,{expectedContext:binding,expectedFile:HASH,actualFile:HASH}),{code:'WITNESS_REVIEW_CHANGED'});
 });
+
+
+test('duplicate detection uses the latest valid witness, not an older passing review',()=>{
+  const w=workflow(),binding=witnessContextBinding(w),file='evidence/plot.png';
+  const input={expectedContext:binding,expectedFile:HASH,actualFile:HASH,clauseId:C,slot:'plot',file};
+  const met={id:'WIT-001',clauseId:C,slot:'plot',method:'visual',file,sha256:HASH,outcome:'met',contextBinding:binding,
+    checklist:{'states-the-outcome':'yes','matches-the-criterion':'yes','current-for-this-change':'yes'}};
+  w.witnessRecords=[met];
+  assert.throws(()=>assertWitnessReviewBinding(w,input),{code:'WITNESS_ALREADY_RECORDED'});
+  w.witnessRecords.push({...met,id:'WIT-002',outcome:'failed',checklist:{...met.checklist,'matches-the-criterion':'no'}});
+  assert.doesNotThrow(()=>assertWitnessReviewBinding(w,input),'an older pass cannot suppress a later failed review');
+  w.witnessRecords[1]={...met,id:'WIT-002',sha256:'sha256:old'};
+  assert.doesNotThrow(()=>assertWitnessReviewBinding(w,input),'a stale latest review needs inspection again');
+});

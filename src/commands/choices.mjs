@@ -6,9 +6,10 @@ import { withApprovedConfigurationRead } from '../approved-configuration-reader.
 import { sessionDiscoveryConfiguration } from './shared/session-discovery-configuration.mjs';
 import { sessionRepositoryAuthority } from './shared/session-repository-authority.mjs';
 import { loadStoryAggregate } from '../story-aggregate-read.mjs';
+import { loadAcceptedStoryExecution } from '../accepted-story-execution.mjs';
 import { validateId, loadConfig, assertNoPendingPublication } from '../state-stores.mjs';
 import { beginSelectionReceipt, answerSelectionReceipt, selectionReceiptStatus } from '../choices.mjs';
-import { assertLifecycleWorktreeClean } from '../lifecycle-worktree.mjs';
+import { assertApprovalSubmitted, assertLifecycleWorktreeClean } from '../lifecycle-worktree.mjs';
 import { printSelectionReceipt } from './shared/print-selection-receipt.mjs';
 import { withCommandObservability } from '../command-observability.mjs';
 import { withCommandConfirmation } from '../command-confirmation.mjs';
@@ -45,12 +46,23 @@ export async function choicesCommand(positionals, options) {
       validateId(config, workId);
       let workflow = null;
       if (action === 'approve') {
-        assertLifecycleWorktreeClean(root, config, null, { workId });
+        try { assertLifecycleWorktreeClean(root, config, null, { workId }); }
+        catch (error) {
+          if (error.code !== 'LIFECYCLE_WORKTREE_REVIEW_REQUIRED') throw error;
+          // A dirty draft of this exact target resumes authoring. Clean checkouts retain the
+          // existing fetch-first path, including an approver behind another laptop's submission.
+          let current = null;
+          try { current = await loadAcceptedStoryExecution(root); }
+          catch (readError) { if (readError.code !== 'STORY_NOT_FOUND') throw readError; }
+          if (current?.workflow.workItem.id === workId) await assertApprovalSubmitted(root, current.definition, current.workflow);
+          throw error;
+        }
         // The Story's own branch, which need not be named after its ID.
         await checkoutStoryBranch(root, config, workId, { fetch: optionBoolean(options, 'fetch') });
         config = await loadConfig(root);
         workflow = await loadStoryAggregate(root, config, workId);
         await assertNoPendingPublication(root, config, workflow, 'prepare an approval selection');
+        await assertApprovalSubmitted(root, config, workflow);
         assertLifecycleWorktreeClean(root, config, workflow);
       }
       receipt = await beginSelectionReceipt(root, config, { action, workId, workflow });

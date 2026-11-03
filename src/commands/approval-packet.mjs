@@ -12,6 +12,7 @@
 import { step, stop } from '../cli-steps.mjs';
 import { SingularityFlowError } from '../util.mjs';
 import { approvalHoldContinuation } from '../copilot-guidance.mjs';
+import { safeCommandGuidance } from '../safe-command-guidance.mjs';
 
 export async function run({ positionals, options }) {
   if (options.json !== true) {
@@ -33,6 +34,17 @@ export async function loadApprovalPacket({ workId, cwd, fetch = false }, { runSt
   if (readiness?.approvalCheck?.ready === false && readiness.approvalCheck.holds?.length) {
     return { resultType: 'sflow-approval-packet', begun: false, reason: 'approval-holds',
       nextAction: readiness.approvalContinuation ?? approvalHoldContinuation(workId, readiness.approvalCheck),
+      approvalPacket: { readiness, review: null } };
+  }
+  if ((readiness.phaseStatus && readiness.phaseStatus !== 'awaiting_approval')
+      || (!readiness.phaseStatus && readiness.classification !== 'already-submitted')) {
+    const command = readiness.nextCommand ?? readiness.command ?? 'singularity-flow nextsteps --json';
+    const nextAction = readiness.authoringProgress?.next ?? safeCommandGuidance({
+      command,
+      skill: readiness.nextSkill ?? undefined
+    }) ?? safeCommandGuidance(command) ?? safeCommandGuidance('singularity-flow nextsteps --json');
+    return { resultType: 'sflow-approval-packet', begun: false,
+      reason: readiness.classification, preserveDraft: true, turnBoundary: 'end', nextAction,
       approvalPacket: { readiness, review: null } };
   }
   const begun = await runStep(['choices', 'begin', 'approve', workId, ...(fetch ? ['--fetch'] : []), '--json'], cwd);

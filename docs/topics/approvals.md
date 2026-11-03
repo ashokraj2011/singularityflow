@@ -26,11 +26,17 @@ related:
   - waivers
   - inbox-and-review
   - sequence-gates
-version: 18
+version: 19
 ---
 Approval is an authorization event, never an agent utterance. Authority comes from `approvalAuthorities` groups in pinned configuration; the ceremony shows the exact artifact and its SHA-256, then requires typing the exact confirmation — nothing auto-fills it. The record binds identity, authority group, and artifact hash, verifiable offline. If artifact bytes change afterward, the approval goes stale automatically; the old signature remains in history attached to the bytes it actually covered. Agents cannot approve. Normal team configuration defaults self-approval and first-use identity enrollment on; both are explicit `approvalSecurity` switches in **People & approvals**, while the regulated profile defaults them off. Rejections require reasons — which become pinned context the next generation literally reads.
 
 ## Purpose and prerequisites
+
+Approval starts only after the current phase is submitted. If authoring or publication is still
+in progress, SFlow preserves the existing draft and returns its exact authoring, review or submit
+route before creating an approval receipt or loading review documents. End the approval-only turn
+and follow that route in a new turn. Source edits made after submission still block approval of the
+unchanged review packet and retain the normal recovery requirement.
 
 Use this topic when the current goal matches **approvals**. Start in a repository that uses Singularity Flow unless the command explicitly operates on installation or machine-local workspace state. Run `sflow doctor` when setup, identity, credentials, or repository health is uncertain, and use `sflow status` or `sflow home` to confirm the selected work before a mutation.
 

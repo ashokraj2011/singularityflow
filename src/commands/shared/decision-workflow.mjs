@@ -5,7 +5,7 @@ import { optionString, optionBoolean, SingularityFlowError } from '../../util.mj
 import { loadStoryDecisionExecution } from '../../story-decision-context.mjs';
 import { prefetchStoryPublicationObservation, assertNoPendingPublication, previewTestingRepair, storyPublicationPending } from '../../state-stores.mjs';
 import { assertPhaseSequence } from '../../sequence.mjs';
-import { assertLifecycleWorktreeClean } from '../../lifecycle-worktree.mjs';
+import { assertApprovalSubmitted, assertLifecycleWorktreeClean } from '../../lifecycle-worktree.mjs';
 import { resolveSelectionReceipt } from '../../choices.mjs';
 import { phaseUsesDeterministicGeneration } from '../../manual-authorship.mjs';
 import { actionActor, activatePhaseAgent } from '../kernel.mjs';
@@ -21,6 +21,7 @@ export async function decisionWorkflow(positionals, options, action) {
     if (await storyPublicationPending(root, config, workflow.workItem.id)) await assertNoPendingPublication(root, config, workflow, action);
     await assertPhaseSequence(root, workflow, action, { requestedPhase });
   }
+  if (action === 'approve') await assertApprovalSubmitted(root, config, workflow, { phaseId: requestedPhase ?? workflow.currentPhase });
   if (receiptToken) assertLifecycleWorktreeClean(root, null, null, { workId: optionString(options, 'work-id') ?? branch(root) });
   if (action === 'approve') assertLifecycleWorktreeClean(root, config, workflow);
   const workId = workflow.workItem.id;

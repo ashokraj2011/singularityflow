@@ -73,6 +73,11 @@ Readiness/status and approval entry share that same hold continuation: a submitt
 known blocking hold routes to its decision list, rather than recommending an approval that would
 be refused. A checklist the approver can answer inside approval still retains the approval route.
 
+Premature approval checks lifecycle state before treating authoring changes as cleanup work.
+An unsubmitted phase returns its existing authoring, review or submit route without a receipt or
+review packet; its draft stays in place. Approval-only turns end before following that route.
+Submitted phases keep the clean-worktree and exact-review-binding checks.
+
 ## Evidence and limits
 
 Failed execution diagnostics retain up to three distinct, redacted, bounded examples from that

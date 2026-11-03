@@ -14,7 +14,7 @@ related:
   - recovery
   - phase-appeals
   - escalation
-version: 18
+version: 19
 ---
 A finding is one exact reason a step cannot publish, submit or finish. Every finding has an owner and a recovery route: the step's own author fixes its draft, an earlier step's approvers decide an upstream issue, a person records a decision, or an owner restores trusted bytes. Each refusal names its finding code; read its entry here with `sflow explain findings --section <CODE>` (the code is matched without regard to case). No finding routes only back to its own author: each names at least one route for someone else, its approvers, an earlier step, an owner, or, when nothing more specific exists, the workflow maintainer. Nothing in this catalog waives a test, approves a step or accepts a risk by itself.
 
@@ -120,6 +120,14 @@ SFlow could not verify a proposed restoration against the recorded generation ba
 diagnostics distinguish a missing ref or object, an unreadable or oversized file, a timeout, and
 an invalid file type. Pending requests remain pending. Recover the named local Git data and retry
 the same authoring action; this error never accepts a re-pin or substitutes a different baseline.
+
+### PHASE_NOT_AWAITING_APPROVAL
+
+The current phase has not been submitted for approval. Its existing draft remains authoring work:
+follow the returned preparation, prepublish, source-review or submit route in a new turn. No
+approval receipt or packet is created, and no draft cleanup is required by this premature approval
+attempt. Once submitted, source changes outside the exact reviewed packet still require the
+existing recovery boundary before approval.
 
 ### CODE_TEST_NARROWED
 

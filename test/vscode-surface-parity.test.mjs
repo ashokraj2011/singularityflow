@@ -6,6 +6,16 @@ import { commandClass } from '../apps/vscode/src/cli/client.ts';
 import { canActivateGoal, goalCreateArgs, repairPlanArgs, resetExecuteArgs, resetPlanFingerprint, resetPreviewArgs, SCHEMA_REMEDIES, schemaRecordRemedy, verificationArgv } from '../apps/vscode/src/views/surface-contracts.ts';
 import { publicFaultText, publicVerificationArgv } from '../apps/vscode/src/views/surface-adapters.ts';
 
+test('repository commit policy routes stay read-only across editor and model-free callers', () => {
+  for (const action of ['show', 'discover', 'plan', 'validate']) {
+    assert.equal(commandClass(['git-policy', action, '--json']), 'read');
+  }
+  assert.equal(commandClass(['git-policy']), 'read');
+  for (const action of ['apply', 'commit', 'push', 'approve', 'unknown']) {
+    assert.equal(commandClass(['git-policy', action, '--json']), 'unknown');
+  }
+});
+
 test('the five parity commands are public VS Code interfaces', async () => {
   const manifest = JSON.parse(await readFile(new URL('../apps/vscode/package.json', import.meta.url), 'utf8'));
   const commands = new Set(manifest.contributes.commands.map((entry) => entry.command));

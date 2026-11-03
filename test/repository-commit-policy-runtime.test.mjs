@@ -8,6 +8,7 @@ import {createRepositoryPolicyCommit,withRepositoryPolicyRefAdmission,observePol
 import {run} from '../src/util.mjs';
 import {withoutGitProcessOverrides} from '../src/git-enterprise-environment.mjs';
 import {operationForCommit,readCommitPolicyRecord} from '../src/repository-commit-policy/records.mjs';
+import YAML from 'yaml';
 const environment=()=>({...withoutGitProcessOverrides(process.env),GIT_NO_REPLACE_OBJECTS:'1',GIT_NO_LAZY_FETCH:'1'});
 function request(f,tree,id='one'){return {subject:f.subject,purpose:'story',ref:f.ref,tree,parents:[f.parent],message:'implement behavior\n\nSingularity-Flow-Transaction: test',allowedPaths:['source.js'],operationId:id};}
 async function advance(f,result){return withRepositoryPolicyRefAdmission(result.admission,()=>run('git',['update-ref','--no-deref',f.ref,result.commit,f.parent],{cwd:f.root,env:environment()}));}
@@ -139,4 +140,22 @@ test('a fresh process preserves explicit off mode and recognizes an escaped YAML
  await writeFile(file,text.replace('commitPolicy:', '"commit\\u0050olicy":').replace('mode: off','mode: enforce'));
  const enforced=invoke();assert.equal(enforced.status,2,enforced.stderr);assert.match(enforced.stdout,/RCP_OWNER_ADMISSION_REQUIRED/u);
  assert.equal(f.git(f.root,['rev-parse','HEAD']),f.parent);
+});
+
+test('off mode preserves normal Git when local and remote approved definitions differ',async t=>{
+ const f=await rcpFixture(t,{schemaVersion:1,mode:'off'});
+ f.git(f.root,['switch','-q','-c','sflow/config','origin/sflow/config']);
+ const file=path.join(f.root,'singularity/workflow.yml');
+ await writeFile(file,(await readFile(file,'utf8'))+'\n# Pending repository configuration update\n');
+ f.git(f.root,['add','singularity/workflow.yml']);f.git(f.root,['commit','-qm','Update repository configuration']);
+ const result=run('git',['push','origin','sflow/config'],{cwd:f.root});
+ assert.equal(result.status,0);assert.equal(f.git(f.remote,['rev-parse','refs/heads/sflow/config']),f.git(f.root,['rev-parse','HEAD']));
+});
+
+test('a local off definition cannot hide the enforced policy on the approved remote',async t=>{
+ const f=await rcpFixture(t);f.git(f.root,['switch','-q','-c','sflow/config','origin/sflow/config']);
+ const file=path.join(f.root,'singularity/workflow.yml'),definition=YAML.parse(await readFile(file,'utf8'));
+ definition.git.commitPolicy={schemaVersion:1,mode:'off'};await writeFile(file,YAML.stringify(definition));
+ f.git(f.root,['add','singularity/workflow.yml']);f.git(f.root,['commit','-qm','Propose disabling policy']);
+ assert.throws(()=>run('git',['commit-tree',f.git(f.root,['rev-parse','HEAD^{tree}']),'-p',f.git(f.root,['rev-parse','HEAD']),'-m','unadmitted'],{cwd:f.root}),{code:'RCP_OWNER_ADMISSION_REQUIRED'});
 });

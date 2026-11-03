@@ -1614,7 +1614,8 @@ function rcpHinted(root) {
   }
   const approved = (rcpState.inspectApproved ?? inspectApprovedCommitPolicyHint)(base);
   if (approved?.uncertain) return true;
-  if (typeof approved === 'string') {try {if (!['off','discover','absent'].includes(rcpModeIn(approved))) return true;} catch {return true;}}
+  const definitions = Array.isArray(approved) ? approved : typeof approved === 'string' ? [approved] : [];
+  for (const definition of definitions) {try {if (!['off','discover','absent'].includes(rcpModeIn(definition))) return true;} catch {return true;}}
   if (observedStamp !== rcpPolicyStamp(root)) return true;
   registerCommitPolicyMode(root,'off');
   return false;
@@ -1703,16 +1704,27 @@ function inspectApprovedCommitPolicyHint(root) {
   const refs=[...new Set(listed.stdout.trim().split(/\r?\n/u).filter(Boolean))];
   if(refs.length>8)return {uncertain:true};
   if(!refs.length)return null;
-  const present=[];
+  const blobs=new Set();
   for(const ref of refs){
     if(!/^(?:[a-f0-9]{40}|[a-f0-9]{64})$/u.test(ref))return {uncertain:true};
     // An existing configuration branch may legitimately have no SFlow definition. Establish
     // that absence from its exact tree; an unreadable tree/blob remains an actual failure.
     const tree=run('git',['ls-tree','-z',ref,'--','singularity/workflow.yml'],settings);
     if(tree.status!==0)return {uncertain:true};
-    if(tree.stdout)present.push(ref);
+    if(tree.stdout){
+      const entry=/^100(?:644|755) blob ([a-f0-9]{40}(?:[a-f0-9]{24})?)\tsingularity\/workflow\.yml\0$/u.exec(tree.stdout);
+      if(!entry)return {uncertain:true};
+      blobs.add(entry[1]);
+    }
   }
-  if(!present.length)return null;
-  const inspected=run('git',['show',...present.map(ref=>`${ref}:singularity/workflow.yml`)],settings);
-  return inspected.status===0?inspected.stdout:{uncertain:true};
+  const definitions=[];
+  // Different local/remote revisions are separate YAML documents. Concatenating their
+  // contents makes ordinary duplicate keys look like an unreadable enforced policy.
+  // Identical blobs are read once; the bounded roster never visits application history.
+  for(const blob of blobs){
+    const inspected=run('git',['cat-file','blob',blob],settings);
+    if(inspected.status!==0)return {uncertain:true};
+    definitions.push(inspected.stdout);
+  }
+  return definitions;
 }

@@ -295,7 +295,7 @@ function cacheableRead(args: string[]): boolean {
   // The decision list is reviewed and confirmed by digest: always read it now, never from the cache.
   // `app status` is a live process and URL probe, `app plan` is what the next start runs and a
   // test summary changes with every run: each is read now.
-  return !args.includes('--for-agent') && !['check', 'review-source', 'choices', 'phase', 'decisions', 'app-review', 'app', 'tests'].includes(args[0] ?? '')
+  return !args.includes('--for-agent') && !['check', 'review-source', 'choices', 'phase', 'decisions', 'app-review', 'app', 'tests', 'git-policy'].includes(args[0] ?? '')
     && !args.includes('--submission-readiness') && !args.includes('--submit-if-ready')
     && !(args[0] === 'configuration' && args[1] === 'validate')
     // Speculative object transfer is advisory, but it must execute, not replay a read cache/worker.
@@ -339,6 +339,7 @@ function cacheableRead(args: string[]): boolean {
 
 export function commandClass(args: string[]): 'read' | 'mutation' | 'unknown' {
   if (!args[0]) return 'unknown';
+  if (args[0] === 'git-policy') return ['show', 'discover', 'plan', 'validate'].includes(args[1] ?? 'show') ? 'read' : 'unknown';
   if (args[0] === 'instruction') {
     if (['list', 'show'].includes(args[1] ?? '')) return 'read';
     return ['create', 'edit', 'remove'].includes(args[1] ?? '') && enabledBooleanOption(args, 'dry-run') ? 'read' : 'mutation';

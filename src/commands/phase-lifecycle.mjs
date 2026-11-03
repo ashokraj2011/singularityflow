@@ -206,12 +206,17 @@ export async function phaseCommand(positionals, options) {
       modelEnabled: operationContext()?.modelMode.enabled !== false, session,
       requestedProducer: optionBoolean(options, 'for-agent') ? agentPublicationProducer(phase) : null
     });
+    const { observeWorkflowTaskCheck, readWorkflowTaskResume } = await import('../workflow-task-store.mjs');
+    if (subcommand === 'draft-check') await observeWorkflowTaskCheck(root, workflow, phase, result);
+    const taskResume = await readWorkflowTaskResume(root, workflow, phase, { generation: result.generation,
+      progress: { state: result.status === 'ready' ? 'publish-ready' : result.correction?.sameTurn ? 'repair-draft' : 'blocked',
+        nextAction: result.commandGuidance?.next ?? result.commandGuidance?.publish } });
     if (optionBoolean(options, 'for-agent')) {
       await (await import('../copilot-mutation-guard.mjs')).recordPhaseTaskCheck(root, result).catch(() => {});
       const { phaseAgentResult } = await import('../phase-agent-result.mjs');
-      return console.log(JSON.stringify(phaseAgentResult(result)));
+      return console.log(JSON.stringify(phaseAgentResult({ ...result, taskResume })));
     }
-    if (optionBoolean(options, 'json')) return console.log(JSON.stringify(result, null, 2));
+    if (optionBoolean(options, 'json')) return console.log(JSON.stringify({ ...result, taskResume }, null, 2));
     const pendingTests = subcommand === 'prepublish'
       && result.testExecution?.status === 'not-run';
     console.log(`${phase.label} ${subcommand === 'prepublish' ? 'prepublish' : 'draft'}: ${result.status}${pendingTests && result.status === 'ready' ? ' for a publication attempt' : ''}.`);
@@ -377,6 +382,8 @@ export async function phaseCommand(positionals, options) {
     : null;
   let phase = requestedPhase;
   let publicationStabilityGuard = null;
+  await (await import('../workflow-task-store.mjs')).observeWorkflowTask(root, workflow, phase,
+    { state: 'publication-requested', checkpoint: 'publication-requested' }, { generation });
   const result = await commitAndPublish(
     root,
     config,

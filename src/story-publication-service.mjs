@@ -398,6 +398,7 @@ export async function commitAndPublish(root, config, workflow, event, message, e
         // The transition above moved the Story on; the ledger lists it as it is committed.
         if (ledgerIntent) Object.assign(ledgerIntent.subject, storyLedgerSummary(workflow));
         recordPublicationProjection(workflow, publicationEvent, ledgerIntent);
+        await (await import('./workflow-task-store.mjs')).batchWorkflowTaskProgress(root, workflow, publicationEvent);
         await saveWorkflow(root, config, workflow);
         return { event: publicationEvent, transitionResult };
       },

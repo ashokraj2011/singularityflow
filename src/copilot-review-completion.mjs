@@ -6,6 +6,16 @@ import { reviewCompletionTurn, workflowCompletionTurn, nativeFileReadCalls, nati
 import { formatCommandRouteLines } from './model-free-commands.mjs';
 import { redactDiagnosticText } from './git-remote-diagnostics.mjs';
 
+async function reserveTaskContinuation(value, operation) {
+  if (!operation.operationId) return true; // Compatibility with older issued prompts.
+  const { reserveWorkflowTaskContinuation } = await import('./workflow-task-store.mjs');
+  const reserved = await reserveWorkflowTaskContinuation(value.contract.repositoryRoot, operation.operationId, {
+    workId: operation.workId, phaseId: operation.phaseId, generation: operation.generation,
+    role: operation.kind === 'phase-authoring' ? 'author' : 'source-reviewer'
+  });
+  return reserved.allowed;
+}
+
 function failureDetails(error, payload = {}) {
   const message = typeof error === 'string' ? error : error?.permissionDecisionReason ?? error?.message ?? '';
   let args = payload.toolArgs ?? payload.tool_input;
@@ -77,16 +87,18 @@ export async function workflowTaskAgentStop(payload = {}) {
   if (!operation || operation.continued || operation.blocked || operation.complete
       || operation.kind !== 'phase-authoring' || operation.workId !== value.contract.workId
       || operation.phaseId !== value.contract.phaseId || operation.generation !== Number(value.contract.generation) + 1) return {};
-  const next = ['publish-ready', 'prepare-successor', 'load-context'].includes(operation.state) ? safeCommandGuidance(operation.nextAction)
+  const next = ['publish-ready', 'prepare-successor', 'load-context', 'validate-draft', 'open-code-generation'].includes(operation.state) ? safeCommandGuidance(operation.nextAction)
     : safeCommandGuidance(operation.recheck);
   if (!next) return {};
   operation.continued = true;
-  if (!await saveReviewCompletionTurn(payload, value, { once: true })) return {};
+  if (!await saveReviewCompletionTurn(payload, value, { once: true }) || !await reserveTaskContinuation(value, operation)) return {};
   return { decision: 'block', reason: `SFLOW_WORKFLOW_TASK_INCOMPLETE: ${operation.workId} ${operation.phaseId} generation ${operation.generation} has no verified completed publication from this task. `
     + 'If an issued command is still running, cut off or not yet observed complete, first run singularity-flow result last --wait --for-agent --json and follow that result; never replay the command. Otherwise: '
     + (operation.state === 'load-context' ? `The admitted entry did not compose context. Run ${next.command} once, then use its delivered inputs and complete the current task. `
       : operation.state === 'prepare-successor' ? `Run only the returned successor preparation, ${next.command}; preserve prior publications and private drafts, then refresh phase entry once before authoring. `
       : operation.state === 'publish-ready' ? `Run only the returned publication command, ${next.command}, under its existing fresh checks. `
+      : operation.state === 'validate-draft' ? `Preserve the authored draft and run its returned validation, ${next.command}; repair only current-scope findings and publish only when fresh checks permit it. `
+      : operation.state === 'open-code-generation' ? `Open only the returned code generation with ${next.command} before any application edit, then follow the admitted authoring contract. `
       : `Reuse the current exact paths, prompt and already read inputs. Finish the configured deliverables and required verification inside the current mutation contract; repair only current-scope findings. Then run ${next.command}. `)
     + 'Input reads, preparation, an authored draft and diagnostic tests are not task completion. Continue this existing task in this turn; never reload unchanged context, restart implementation, change protected files, submit, approve or start a new phase. '
     + 'This is one automatic continuation only. If a real missing-file, permission, tool, human-approval or owner blocker remains, preserve the draft and report the exact error and returned recovery route. Never infer success or make a decision for a person.' };
@@ -115,7 +127,7 @@ export async function sourceReviewAgentStop(payload = {}) {
     : draft && !draft.error && operation.state !== 'repair-report' ? `Run ${check.command} now, then follow its repair or retention route.`
     : `${draft ? 'Repair the existing JSON' : 'Author the independent report from the issued template and already read pinned inputs'} at ${operation.stagingPath}. Then run ${check.command} and retain when retentionReady.`;
   operation.continued = true;
-  if (!await saveReviewCompletionTurn(payload, value, { once: true })) return {};
+  if (!await saveReviewCompletionTurn(payload, value, { once: true }) || !await reserveTaskContinuation(value, operation)) return {};
   return { decision: 'block', reason: `SFLOW_SOURCE_REVIEW_INCOMPLETE: ${operation.workId} ${operation.phaseId} generation ${operation.generation} has no completed retained review from this operation. ${next} `
     + 'If an issued command is still running, cut off or not yet observed complete, first run singularity-flow result last --wait --for-agent --json and follow that result; never replay the command. '
     + 'Continue the existing operation in this turn; do not reload context or repeat the input reads. Preserve exact bindings and independent judgments. Honest semantic gaps may be retained as correction-required findings. Never approve, decide for a human, publish an artifact or advance the phase. '

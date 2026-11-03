@@ -795,6 +795,8 @@ async function sessionCommandUncached(positionals, options, renderCandidates = p
     const result = {
       workId: id, branch: workflow.workItem.branch, remote, commit: remoteSha,
       phase: workflow.currentPhase, status: workflow.status, materialization, agent: session.selectedAgent,
+      ...(workflow.currentPhase ? await (await import('../workflow-task-store.mjs')).attachWorkflowTaskProgress(
+        attachmentRoot, workflow, workflow.phases[workflow.currentPhase]) : { taskResume: null }),
       context: {
         operation: 'context.brief',
         arguments: { workId: id, slice: 'brief', maxOutputBytes: 32768 },
@@ -846,6 +848,8 @@ async function sessionCommandUncached(positionals, options, renderCandidates = p
    */
   const status = {
     ...await agentSessionStatus(root, statusConfig, workflow),
+    taskResume: workflow?.currentPhase ? await (await import('../workflow-task-store.mjs')).readWorkflowTaskResume(
+      root, workflow, workflow.phases[workflow.currentPhase]) : null,
     repositoryPath: root,
     resolvedFrom: resolved.resolvedFrom,
     workspaceId: resolved.workspaceId

@@ -1,6 +1,6 @@
 ---
 id: phase-appeals
-version: 6
+version: 7
 title: Phase appeals and recoverable blockers
 summary: Preserve and review exact extra work without silently bypassing tests, intent or configuration authority.
 audience: [developer, approver, administrator]
@@ -37,6 +37,18 @@ The installed finding policy separates author-owned correction, current-phase pr
 5. Recheck the returned phase route. Tests, evidence freshness, traceability, independent reviews and phase approval still run normally.
 
 ### Preserve before repair
+
+Task progress has two metadata-only operations. `appeal task-checkpoint --work-id <WORK-ID>
+--phase <phase> --role author --json` shares progress on the configured state branch for takeover;
+use `--role source-reviewer` for an independent review task. It leaves dirty application files and
+local attachments on this laptop. Session attach imports the selected exact checkpoints and issues
+fresh local paths when phase entry resumes.
+
+`appeal task-quarantine --work-id <WORK-ID> --phase <phase> --role author --json` previews recovery
+of damaged progress. Its exact returned confirmation preserves the original bytes and keeps all
+automatic budgets spent; it never edits evidence or grants approval. The current owned draft can
+still be corrected and checked. Preview destinations are not readable backup files until recovery
+reports `quarantined` and returns the created `backupPath`.
 
 `singularity-flow appeal checkpoint --phase PHASE --json` makes content-addressed private recovery copies of dirty files, the primary phase draft, deletion markers and the exact Git index. It does not stage, commit, stash, push, restore files or advance the phase. Owned-producer `repair-run` captures a checkpoint before reserving its repair; the journal retains its ID so interruption does not lose the recovery route. `repair-status` shows retained checkpoint commands.
 

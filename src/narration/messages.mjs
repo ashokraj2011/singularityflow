@@ -46,6 +46,10 @@ export const MESSAGES = Object.freeze({
     headline: (s) => `Phase appeal ${slot(s.action)}: ${slot(s.status)}. Read-only inspection; no tests, changes, risk acceptance or phase advance.`,
     preserves: true
   },
+  'task.progress': {
+    headline: (s) => `Task progress ${slot(s.action)}: ${slot(s.status)}.`,
+    preserves: false
+  },
   'appeal.review-result': {
     headline: (s) => `Phase appeal ${slot(s.action)}: ${slot(s.status)}. Scope accounting and local review restoration do not waive tests or approve the phase.`,
     preserves: false

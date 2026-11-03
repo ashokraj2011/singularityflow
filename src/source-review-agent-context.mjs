@@ -20,7 +20,7 @@ import { withRequirementReviewProtocol, REQUIREMENT_REVIEW_PROTOCOL } from './re
  */
 const FIRST_FIELDS = ['schemaVersion', 'resultType', 'paused', 'personalization', 'ready', 'repositoryPath', 'workItemRoot',
   'workId', 'story', 'phase', 'phaseStatus', 'generation', 'kind', 'canReview', 'status', 'reason', 'continuation', 'recovery',
-  'progress', 'reviewGuide', 'citationGuide', 'bindingPath', 'reportTemplate', 'stagingPath', 'stagingProtocol', 'authorAgentId', 'requiredReviewerAgentId',
+  'progress', 'taskResume', 'reviewGuide', 'citationGuide', 'bindingPath', 'reportTemplate', 'stagingPath', 'stagingProtocol', 'authorAgentId', 'requiredReviewerAgentId',
   'reviewer', 'documentReadiness', 'clarifications', 'clarificationGuidance', 'visualSources', 'visualGuidance', 'unreadableSources', 'sources', 'upstreamSpec', 'artifact', 'reportSchema'];
 
 /** Lossless review projection: one authoritative binding, no duplicated inventory. */

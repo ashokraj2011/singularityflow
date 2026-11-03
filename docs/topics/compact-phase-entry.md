@@ -4,7 +4,7 @@ title: Compact phase entry for Copilot
 commands: [phase, nextsteps, inputs, review-source]
 aliases: [phase-entry]
 related: [artifacts-and-generation, approvals, phase-appeals, nextsteps]
-version: 17
+version: 18
 ---
 # Compact phase entry for Copilot
 
@@ -32,6 +32,10 @@ Authoring entries return the shared `taskCompletion` checkpoint for the target g
 inputs, preparing a template and passing diagnostic tests do not complete a publication. Native
 hosts can continue an admitted unfinished task once, without reloading unchanged inputs. Real
 missing-file, permission and human-decision blockers retain their exact error and owner route.
+`taskResume` identifies the same operation after a chat restart and preserves its spent budgets.
+Its next step is reconstructed from current facts and newly issued local paths. An explicit
+`taskResume.handoff` command shares only progress on state before another laptop takes over;
+uncommitted drafts and local documents still require content handoff or re-upload.
 See [Completing a workflow task](../workflow-task-completion.md) for custom phases and file readers.
 
 ## Approval-to-authoring conversation handoff

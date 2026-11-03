@@ -162,6 +162,8 @@ export async function sessionCurrent(options, { agentEntry = null } = {}) {
     selectionSource: context.selectionSource ?? null,
     selectionStatus: context.selectionStatus ?? 'ready'
   };
+  if (workflow?.currentPhase) result.taskResume = await (await import('../workflow-task-store.mjs')).readWorkflowTaskResume(
+    executionRoot, workflow, workflow.phases[workflow.currentPhase]);
   const { captureExecutionContext, agentExecutionContext } = await import('../execution-context.mjs');
   result.executionContext = await captureExecutionContext(executionRoot, {
     // Reuse this read's exact verified checkout/revision, rather than joining a second HEAD

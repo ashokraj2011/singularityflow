@@ -139,6 +139,10 @@ export async function reviewSourceCommand(positionals, options) {
       const checked = checkSourceReviewReport(report, input);
       const protocol = sourceReviewStagingProtocol(phaseId, stagingPath);
       const progress = sourceReviewCheckProgress(input, stagingPath, checked, protocol);
+      const { observeWorkflowTaskCheck } = await import('../workflow-task-store.mjs');
+      await observeWorkflowTaskCheck(root, workflow, phase, { ...checked, generation: phase.generation,
+        reportSha256: (await import('../records.mjs')).recordSha256(report) }, { role: 'source-reviewer', inputSha256: (await import('../records.mjs')).recordSha256(input.binding) });
+      progress.operationId = (await import('../workflow-task.mjs')).workflowTaskIdentity(workflow, phase, 'source-reviewer').id;
       await (await import('../copilot-mutation-guard.mjs')).recordSourceReviewProgress(root,
         { workId: workflow.workItem.id, phaseId, generation: phase.generation, ...progress });
       const commandGuidance = checked.evaluation?.status === 'stale'
@@ -165,6 +169,10 @@ export async function reviewSourceCommand(positionals, options) {
     }
     const session = scopedSourceReviewerSession(input, await loadSession(root));
     const evaluation = evaluateSubmittedSourceReview(report, input, session);
+    await (await import('../workflow-task-store.mjs')).observeWorkflowTask(root, workflow, phase, {
+      state: 'retention-requested', checkpoint: 'retention-requested',
+      inputSha256: (await import('../records.mjs')).recordSha256(input.binding)
+    }, { role: 'source-reviewer', generation: phase.generation });
     const { transactStory } = await measureCommandSpan('publication.writer-load', () => import('../story-publication-store.mjs'));
     let retained;
     const { publication } = await transactStory(root, config, workflow, {
@@ -181,6 +189,10 @@ export async function reviewSourceCommand(positionals, options) {
       return retained;
     });
     const status = await readSourceReviewStatus(root, config, await loadStoryAggregate(root, config, workflow.workItem.id), phaseId);
+    await (await import('../workflow-task-store.mjs')).observeWorkflowTask(root, workflow, phase, {
+      state: 'complete', checkpoint: 'retained-review', fingerprint: status.reportSha256,
+      inputSha256: (await import('../records.mjs')).recordSha256(input.binding)
+    }, { role: 'source-reviewer', generation: phase.generation });
     const progress = await sourceReviewProgress({ input, retained: status, stagingPath });
     await (await import('../copilot-mutation-guard.mjs')).recordSourceReviewProgress(root,
       { workId: workflow.workItem.id, phaseId, generation: phase.generation, ...progress });

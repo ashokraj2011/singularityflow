@@ -2733,6 +2733,7 @@ const families = [
   family({ id: 'workflow-snapshot-amendment', currentVersion: 1, immutable: true }),
   family({ id: 'phase-repair-loop-event', currentVersion: 1, immutable: true }),
   family({ id: 'phase-continuation-event', currentVersion: 1, immutable: true }),
+  family({ id: 'workflow-task-record', currentVersion: 1 }),
   family({ id: 'phase-appeal', currentVersion: 1, immutable: true,
     paths: [/^(?:singularity|\.sdlc)\/work-items\/[^/]+\/appeals\/APL-[a-f0-9]{24}\/packet\.json$/] }),
   // v2 (SF Guard, SPEC-PSS-v1 §10.7): a decision on a Story with an SF Guard pin, which may keep its

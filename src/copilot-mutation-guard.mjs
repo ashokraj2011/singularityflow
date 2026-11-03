@@ -2155,6 +2155,8 @@ export async function recordSourceReviewProgress(root, progress) {
         || !value.contract.allow.staging.includes(path.resolve(progress.stagingPath))) continue;
     value.reviewOperation = { workId: progress.workId, phaseId: progress.phaseId, generation: progress.generation,
       bindingSha256: progress.bindingSha256, stagingPath: progress.stagingPath, state: progress.state,
+      ...(progress.operationId ? { operationId: progress.operationId } : {}),
+      ...(progress.continuationBudget ? { continuationBudget: progress.continuationBudget } : {}),
       complete: progress.complete, instruction: progress.instruction,
       continued: value.reviewOperation?.continued === true, blocked: value.reviewOperation?.blocked === true };
     await atomicRecord(file, value);

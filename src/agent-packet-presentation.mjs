@@ -75,7 +75,7 @@ export function agentPacketPresentation(packet, platform = process.platform) {
  */
 const ENTRY_CONTROL_ORDER = ['contextBoundary', 'ready', 'workId', 'phase', 'phaseStatus', 'status',
   'authoringAllowed', 'codeAuthoringReady', 'authoring', 'clarification', 'mutationContract',
-  'authoringProgress', 'taskCompletion', 'applicationReviewRepair', 'scopeReview', 'contextAdmission', 'next', 'testEvidenceFrom', 'upstream'];
+  'authoringProgress', 'taskCompletion', 'taskResume', 'applicationReviewRepair', 'scopeReview', 'contextAdmission', 'next', 'testEvidenceFrom', 'upstream'];
 
 // Instructions the composed prompt renders word for word in its own sections.
 const PROMPT_RENDERED_TEXTS = [['mutationContract', 'toolProtocol', 'paths'],

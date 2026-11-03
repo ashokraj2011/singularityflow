@@ -257,6 +257,10 @@ export function agentAct(result) {
       said: oneLine(plan.escalation?.instruction ?? `${result.error.code ?? 'Refused'}: ${result.error.message ?? ''}`),
       strategy: plan.context?.strategy ?? null, do: null }, step && { ...step, reason: step.label });
   }
+  if (['inspect-interrupted-operation', 'tracking-unavailable'].includes(result.taskResume?.state)) return withRoute({
+    state: 'next', do: null, read: ['taskResume', ...(result.taskProgressImport ? ['taskProgressImport'] : []), ...(result.recovery ? ['recovery'] : [])],
+    said: oneLine(`${result.taskResume.error ? `${result.taskResume.error.code}: ${result.taskResume.error.message} ` : ''}Keep the verified Story binding and existing draft. Inspect the interrupted or unavailable task outcome before any replay; follow its exact recovery route. Progress grants no permission or approval.`)
+  }, result.taskResume.nextAction);
   const done = result.publishIfReady?.published ? result.publishIfReady.next : result.submitIfReady?.submitted ? result.submitIfReady.next : null;
   if (done) return { state: 'next', said: oneLine(done.instruction?.split('. ')[0] ?? 'Done.'),
     do: done.commandGuidance ? { reason: oneLine(done.reason), copilot: done.commandGuidance.copilotCommand ?? null,
@@ -268,7 +272,7 @@ export function agentAct(result) {
     if (result.status === 'documents-required') return { state: 'ask-person', do: null,
       read: ['documentReadiness', 'next'],
       said: 'Ask the person to upload the missing original documents on this laptop. Restore the existing IDs with the exact returned commands and an explicitly chosen file; then resume this phase. Never recreate the Story, duplicate documents or repeat settled requirements questions.' };
-    if (result.status === 'authoring-entry') return { state: 'author', do: null, read: ['mutationContract', ...(result.taskCompletion ? ['taskCompletion'] : []), 'authoringProgress', 'scopeReview', 'context', ...(result.applicationReviewRepair ? ['applicationReviewRepair'] : [])],
+    if (result.status === 'authoring-entry') return { state: 'author', do: null, read: ['mutationContract', ...(result.taskCompletion ? ['taskCompletion'] : []), ...(result.taskResume ? ['taskResume'] : []), 'authoringProgress', 'scopeReview', 'context', ...(result.applicationReviewRepair ? ['applicationReviewRepair'] : [])],
       said: `Authoring ${result.phase ?? 'this step'} is admitted: do this step's own drafting now, inside mutationContract. It is not a next action to relay.` };
     if (result.status === 'clarification-required') return { state: 'ask-person', do: null, read: ['clarification', 'context'],
       said: oneLine(`Ask the unanswered questions now, as clarification.checkpoint says${result.context ? '' : ' after composing the context once'}; this is this skill's own step.`) };
@@ -322,7 +326,7 @@ export function agentAct(result) {
     if (progress?.state === 'read-error' || progress?.state === 'reload-context') return { state: 'blocked', do: null,
       read: ['progress'], said: progress.instruction };
     return { state: progress?.state === 'repair-report' ? 'correct' : 'review', do: null,
-      read: ['progress', 'reviewGuide', 'citationGuide', 'sources', 'clarifications', 'artifact', 'reportTemplate', 'stagingProtocol'],
+      read: ['progress', ...(result.taskResume ? ['taskResume'] : []), 'reviewGuide', 'citationGuide', 'sources', 'clarifications', 'artifact', 'reportTemplate', 'stagingProtocol'],
       said: progress?.instruction ?? 'Perform the independent review now. Read pinned source text files with native file tools; their 1-based lines are citation lines. Stage, check, repair the changed packet within the bounded budget, then retain. Reading and summarising is not the review: end only after the filled report is staged and checked. Do not stop at a repairable packet error or invent coverage.' };
   }
   if (result.resultType === 'source-review-check') {

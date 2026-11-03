@@ -14,6 +14,8 @@ export function phaseTaskCompletion(result) {
       || result.authoring?.entry?.status !== 'authoring-entry')) return null;
   const allowed = result.authoringAllowed === true && result.contextAdmission?.allowed !== false;
   const loadContext = allowed && result.contextComposition === 'not-requested';
+  const state = result.authoringProgress?.stage === 'validate-existing-draft' ? 'validate-draft'
+    : result.authoringProgress?.stage === 'open-code-generation' ? 'open-code-generation' : 'author-draft';
   const compact = action => {
     const value = action?.commandGuidance ?? action;
     return value ? { command: value.command ?? null, copilotCommand: value.copilotCommand ?? value.skill ?? null,
@@ -21,7 +23,7 @@ export function phaseTaskCompletion(result) {
   };
   return { revision: 'workflow-task-completion-v1', kind: 'phase-authoring', workId: result.workId,
     phaseId: result.phase, generation: successor ? result.successor.targetGeneration : result.authoringProgress.generation,
-    complete: false, state: successor ? 'prepare-successor' : loadContext ? 'load-context' : allowed ? 'author-draft' : 'blocked',
+    complete: false, state: successor ? 'prepare-successor' : loadContext ? 'load-context' : allowed ? state : 'blocked',
     checkpoint: 'published-generation', publicationVerified: false,
     nextAction: compact(successor || (loadContext ? safeCommandGuidance({ argv: ['phase', 'enter', result.phase,
       '--work-id', result.workId, '--compose', '--for-agent', '--json'] })

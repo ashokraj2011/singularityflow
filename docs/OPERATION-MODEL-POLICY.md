@@ -94,6 +94,9 @@ Every public operation is classified before its implementation module is importe
 | appeal.risk-revoke | mutation | never | — | — |
 | appeal.show | read | never | — | — |
 | appeal.submit | mutation | never | — | — |
+| appeal.task-checkpoint | mutation | never | — | — |
+| appeal.task-quarantine | mutation | never | — | — |
+| appeal.task-quarantine.preview | read | never | — | — |
 | approvals | read | never | — | — |
 | approve | mutation | never | — | — |
 | artifact | mutation | never | — | — |

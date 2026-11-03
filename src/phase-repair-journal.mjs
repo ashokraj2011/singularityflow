@@ -115,8 +115,12 @@ export async function phaseRepairLoopSummary(root, workflow, phase) {
   const binding = await phaseRepairBinding(root, workflow, phase);
   const journal = await readPhaseRepairJournal(root, binding);
   const maximum = Math.min(journal.maximum, phase.repairBudget?.maxAttempts ?? 3);
-  return { status: journal.active ? 'recheck-required' : journal.consumed >= maximum ? 'budget-exhausted' : 'available',
-    binding, consumed: journal.consumed, maximum, attemptsRemaining: Math.max(0, maximum - journal.consumed),
+  const progress = await (await import('./workflow-task-store.mjs')).readWorkflowTask(root, workflow, phase, { generation: binding.generation });
+  const consumed = Math.max(journal.consumed, progress?.repairConsumed ?? 0);
+  return { status: journal.active ? 'recheck-required' : consumed >= maximum ? 'budget-exhausted' : 'available',
+    binding, consumed, maximum, attemptsRemaining: Math.max(0, maximum - consumed),
+    ...(consumed > journal.consumed ? { carriedProgress: true, automaticReservationHistoryAvailable: false,
+      instruction: 'Spent repair attempts were carried with this Story. Correct the current owned draft and recheck; do not reserve another automated repair without its original journal.' } : {}),
     ...(journal.quarantined?.length ? { quarantined: journal.quarantined } : {}),
     revision: journal.revision, active: journal.active,
     checkpoints: journal.attempts.filter(attempt => attempt.checkpointId).map(attempt => ({

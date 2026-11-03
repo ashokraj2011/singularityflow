@@ -94,6 +94,7 @@ export async function saveWorkflow(root, config, workflow) {
   // SF Guard M3: on a Story it requires, the person records this command added are signed (the card,
   // then one touch) before anything is written; a refusal writes nothing.
   if (workflow.resolution?.presence) await (await import('./presence/person-steps.mjs')).signNewPersonRecords(root, workflow, file);
+  await (await import('./workflow-task-store.mjs')).batchWorkflowTaskProgress(root, workflow);
   await writeJson(file, workflow);
   await writeText(statusPath(root, config, workflow.workItem.id), storyStatusMarkdown(workflow));
   // Keep the aggregate's idea of what is on disk current. Every legitimate write by this process

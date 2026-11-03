@@ -23,5 +23,17 @@ export async function enterPhase({ cwd = process.cwd(), phaseId = null, workId =
   const { completePhaseEntry } = await measureCommandSpan('phase-entry.authoring-load', () => import('./phase-entry-authoring.mjs'));
   const result = await completePhaseEntry(entry, base, { compose, modelEnabled });
   const taskCompletion = (await import('./phase-authoring-progress.mjs')).phaseTaskCompletion(result);
-  return taskCompletion ? { ...result, taskCompletion } : result;
+  const { resumeWorkflowTask } = await import('./workflow-task-store.mjs');
+  const taskResume = await resumeWorkflowTask(entry.root, entry.workflow, entry.phase, {
+    generation: taskCompletion?.generation ?? (result.authoring?.entry?.status === 'retained-generation' ? entry.phase.generation : base.inspectionGeneration),
+    progress: taskCompletion,
+    published: result.authoring?.entry?.status === 'retained-generation',
+    blocked: taskCompletion?.state === 'blocked' ? { code: result.documentReadiness?.status === 'ready'
+      ? 'PHASE_ENTRY_NOT_ADMITTED' : result.documentReadiness ? 'DOCUMENT_REUPLOAD_REQUIRED' : 'PHASE_ENTRY_NOT_ADMITTED',
+    nextAction: taskCompletion.nextAction } : null
+  });
+  return { ...result, taskResume, ...(taskCompletion && taskResume ? { taskCompletion: { ...taskCompletion,
+    operationId: taskResume.operationId, continuationBudget: taskResume.continuationBudget,
+    ...(taskResume.state === 'inspect-interrupted-operation' ? { state: 'blocked', nextAction: taskResume.nextAction,
+      instruction: 'Inspect the interrupted operation before any replay. Preserve its draft and original recovery route.' } : {}) } } : {}) };
 }

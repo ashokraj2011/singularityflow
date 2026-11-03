@@ -18,6 +18,7 @@
   "phase-repair-loop-event": [{ "schemaVersion": 1 }],
   "performance-trace": [{ "schemaVersion": 1, "resultType": "sflow-performance-trace" }],
   "phase-continuation-event": [{ "schemaVersion": 1 }],
+  "workflow-task-record": [{ "schemaVersion": 1 }],
   "phase-appeal": [{ "schemaVersion": 1 }],
   "phase-appeal-decision": [{ "schemaVersion": 1 }, { "schemaVersion": 2 }],
   "copilot-mode-preference": [{ "schemaVersion": 1, "paused": true, "changedAt": "2026-10-06T00:00:00.000Z" }],

@@ -6,14 +6,14 @@ import { coordinatePhaseContinuation } from '../phase-continuation-runtime.mjs';
 import { coordinatePhaseRepair } from '../phase-repair-runtime.mjs';
 import { acceptQualityRisk, attestQualityRisk, prepareQualityRisk, revokeQualityRisk } from '../phase-quality-risk.mjs';
 import { operationContext } from '../operation-context.mjs';
-import { commandResult, effects, noEffects, succeeded } from '../narration/command-result.mjs';
+import { commandResult, effects, noEffects, succeeded, action as nextAction } from '../narration/command-result.mjs';
 import { emitCommandResult } from '../narration/emit.mjs';
 import { optionBoolean, optionString, optionStrings, SingularityFlowError } from '../util.mjs';
 import { createPhaseCheckpoint, inspectPhaseCheckpoint } from '../phase-checkpoint.mjs';
 import { withSubjectLock } from '../subject-lock.mjs';
 import { prepareEvidenceContractCorrection, acceptEvidenceContractCorrection } from '../phase-evidence-amendment.mjs';
 
-const actions = ['preflight', 'resolve', 'resolve-run', 'resolve-resume', 'prepare', 'submit', 'list', 'show', 'decide', 'attest', 'risk-prepare', 'risk-accept', 'risk-attest', 'risk-revoke', 'repair-plan', 'repair-status', 'repair-run', 'repair-resume', 'repair-quarantine', 'checkpoint', 'checkpoint-show', 'evidence-prepare', 'evidence-accept'];
+const actions = ['preflight', 'resolve', 'resolve-run', 'resolve-resume', 'prepare', 'submit', 'list', 'show', 'decide', 'attest', 'risk-prepare', 'risk-accept', 'risk-attest', 'risk-revoke', 'repair-plan', 'repair-status', 'repair-run', 'repair-resume', 'repair-quarantine', 'task-quarantine', 'task-checkpoint', 'checkpoint', 'checkpoint-show', 'evidence-prepare', 'evidence-accept'];
 function riskRequest(options) {
   return { phaseId: optionString(options, 'phase') ?? undefined, gateMode: optionString(options, 'gate-mode') ?? undefined,
     clauses: optionStrings(options, 'clause'), transitions: optionStrings(options, 'transition').length
@@ -44,6 +44,8 @@ export async function run(argv, { positionals = argv, options = {}, root = repoR
       + 'submit: --confirm PACKET_SHA256\ndecide: --decision account-scope|request-changes --reason TEXT --confirm PACKET_SHA256 (live terminal review required)\n'
       + 'repair-plan/repair-status: --phase ID; repair-run: --phase ID --confirm PLAN_SHA256; repair-resume: --phase ID\n'
       + 'repair-quarantine: --phase ID previews a corrupt repair journal; --confirm SHA256 moves it to private quarantine (nothing deleted, budget not refunded)\n'
+      + 'task-quarantine: --phase ID [--role author|source-reviewer] previews exact task progress; --confirm SHA256 preserves its bytes and disables automatic retries for this task, while current owned draft correction remains available\n'
+      + 'task-checkpoint: --phase ID [--role author|source-reviewer] shares progress metadata through state for laptop takeover; it never shares uncommitted source or local attachments\n'
       + 'resolve: --phase ID previews the shared journey; resolve-run: --confirm SHA256 runs at most publish then submit through normal gates (tests may run); resolve-resume inspects an interrupted operation without replay. Never approves or answers human reviews.\n'
       + 'checkpoint: --phase ID saves private dirty-file/index recovery copies; checkpoint-show PCP-ID verifies them without restoring files\n'
       + 'risk-prepare/risk-accept: --phase ID [--gate-mode soft] [--clause EXACT-ID | --finding EXACT-CODE] [--transition publish|submit|approve|consume|terminal] --expires YYYY-MM-DD --reason TEXT; risk-accept also --confirm PACKET_SHA256 (live human review)\n'
@@ -61,6 +63,8 @@ export async function run(argv, { positionals = argv, options = {}, root = repoR
   if (['evidence-prepare', 'evidence-accept'].includes(action)) ['clause', 'path', 'method', 'reason',
     ...(action === 'evidence-accept' ? ['confirm', 'review-ui'] : [])].forEach(key => allowed.add(key));
   if (['repair-run', 'repair-quarantine'].includes(action)) allowed.add('confirm');
+  if (action === 'task-quarantine') { allowed.add('confirm'); allowed.add('role'); }
+  if (action === 'task-checkpoint') allowed.add('role');
   if (action === 'resolve-run') allowed.add('confirm');
   if (['risk-prepare', 'risk-accept'].includes(action)) ['gate-mode', 'clause', 'finding', 'evidence-file', 'transition', 'expires', 'reason', ...(action === 'risk-accept' ? ['confirm'] : [])].forEach(key => allowed.add(key));
   if (['risk-attest', 'risk-revoke'].includes(action)) ['confirm', ...(action === 'risk-revoke' ? ['reason'] : [])].forEach(key => allowed.add(key));
@@ -70,6 +74,10 @@ export async function run(argv, { positionals = argv, options = {}, root = repoR
   const phase = workflow.phases?.[optionString(options, 'phase') ?? workflow.currentPhase];
   if ((action !== 'list' || optionString(options, 'phase')) && !phase) throw new SingularityFlowError('Choose an existing phase with --phase.');
   let data;
+  if (action === 'task-checkpoint') data = await (await import('../workflow-task-store.mjs')).shareWorkflowTaskProgress(
+    root, workflow, phase, { role: optionString(options, 'role') ?? 'author' });
+  if (action === 'task-quarantine') data = await (await import('../workflow-task-store.mjs')).quarantineWorkflowTaskProgress(
+    root, workflow, phase, { role: optionString(options, 'role') ?? 'author', confirm: optionString(options, 'confirm') });
   const modelEnabled = operationContext()?.modelMode?.enabled !== false;
   if (action.startsWith('resolve')) {
     for (const key of ['work-id', 'phase', 'confirm']) if (optionStrings(options, key).length > 1) {
@@ -126,11 +134,15 @@ export async function run(argv, { positionals = argv, options = {}, root = repoR
     ? (await loadAcceptedStoryExecution(root, workflow.workItem.id)).workflow : workflow;
   if (!optionBoolean(options, 'json')) console.log(JSON.stringify(data, null, 2));
   return emitCommandResult(commandResult({
-    operation: action === 'repair-quarantine'
-      ? { id: `appeal.repair-quarantine${optionString(options, 'confirm') ? '' : '.preview'}`, classification: optionString(options, 'confirm') ? 'mutation' : 'read' }
-      : { id: `appeal.${action}`, classification: ['submit', 'decide', 'attest', 'risk-accept', 'risk-attest', 'risk-revoke', 'repair-run', 'repair-resume', 'resolve-run', 'resolve-resume', 'checkpoint', 'evidence-accept'].includes(action) ? 'mutation' : 'read' },
+    operation: ['repair-quarantine', 'task-quarantine'].includes(action)
+      ? { id: `appeal.${action}${optionString(options, 'confirm') ? '' : '.preview'}`, classification: optionString(options, 'confirm') ? 'mutation' : 'read' }
+      : { id: `appeal.${action}`, classification: ['submit', 'decide', 'attest', 'risk-accept', 'risk-attest', 'risk-revoke', 'repair-run', 'repair-resume', 'resolve-run', 'resolve-resume', 'checkpoint', 'task-checkpoint', 'evidence-accept'].includes(action) ? 'mutation' : 'read' },
     subject: { kind: 'story', id: workflow.workItem.id },
-    outcome: succeeded(['submit', 'decide', 'attest', 'risk-accept', 'risk-attest', 'risk-revoke', 'repair-run', 'repair-resume', 'evidence-accept'].includes(action) ? 'appeal.review-result' : 'appeal.inspected', { action, status: data.status ?? 'informational' }),
+    ...(data.status === 'owner-required' ? { restState: 'blocked' } : {}),
+    ...(action.startsWith('task-') && data.commandGuidance ? { next: [nextAction({ id: `task.${action}.next`,
+      command: data.commandGuidance.command, skill: data.commandGuidance.skill,
+      label: data.status === 'confirmation-required' ? 'Review the exact task metadata recovery.' : 'Resume the current task from fresh bindings.', rank: 'NOW' })] } : {}),
+    outcome: succeeded(action.startsWith('task-') ? 'task.progress' : ['submit', 'decide', 'attest', 'risk-accept', 'risk-attest', 'risk-revoke', 'repair-run', 'repair-resume', 'evidence-accept'].includes(action) ? 'appeal.review-result' : 'appeal.inspected', { action, status: data.status ?? 'informational' }),
     effects: changed ? effects({ stateChanged: true, filesChanged: true, publicationCreated: true,
       externalSystemsChanged: Boolean(data.publication?.pushed) }) : data.journalChanged ? effects({ filesChanged: true,
       externalSystemsChanged: data.registeredOperationExecuted === true }) : data.localFilesChanged ? effects({ filesChanged: true }) : noEffects(), data

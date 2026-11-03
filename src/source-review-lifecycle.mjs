@@ -729,6 +729,12 @@ async function loadSourceReviewContext(root, config, workflow, phaseId, stagingP
   const { sourceReviewProgress, sourceReviewProgressContinuation } = await import('./source-review-progress.mjs');
   const progress = stagingProtocol ? await sourceReviewProgress({ input, retained: status, stagingPath,
     gitDirectory: (await import('./git-execution.mjs')).gitDir(root), protocol: stagingProtocol, check: checkSourceReviewReport }) : null;
+  const taskResume = await (await import('./workflow-task-store.mjs')).resumeWorkflowTask(root, workflow, phase, {
+    role: 'source-reviewer', generation: input.generation, inputSha256: recordSha256(input.binding), review: progress,
+    blocked: conflict || progress?.state === 'read-error' ? { code: conflict ? 'SOURCE_REVIEW_AUTHOR_CONFLICT' : progress.error.code,
+      nextAction: progress?.nextAction ?? status.continuation?.actions?.[0] } : null
+  });
+  if (progress) Object.assign(progress, { operationId: taskResume.operationId, continuationBudget: taskResume.continuationBudget });
   if (progress?.previousDraftPath && globalThis.__SFLOW_EXTENSION_HOST__ !== true) await (await import('./copilot-mutation-guard.mjs'))
     .issueMutationReadPaths(root, [progress.previousDraftPath]);
   if (progress && globalThis.__SFLOW_EXTENSION_HOST__ !== true) await (await import('./copilot-mutation-guard.mjs'))
@@ -737,7 +743,7 @@ async function loadSourceReviewContext(root, config, workflow, phaseId, stagingP
     schemaVersion: 1, resultType: 'source-review-context', workId: input.workId, // schema-transient
     phase: phaseId, kind: input.kind, generation: input.generation, binding: input.binding,
     canReview: !conflict, continuation: progress ? sourceReviewProgressContinuation(progress, status.continuation) : status.continuation,
-    ...(progress ? { progress, afterRetention: status.continuation } : {}),
+    taskResume, ...(progress ? { progress, afterRetention: status.continuation } : {}),
     authorAgentId: input.authorAgentId, requiredReviewerAgentId: input.reviewerAgentId,
     reviewerAgentSha256: input.reviewerAgentSha256,
     reviewer: { id: input.reviewerAgentId, sha256: input.reviewerAgentSha256,

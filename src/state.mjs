@@ -170,6 +170,7 @@ import { configuredRemoteAuthority, redactDiagnosticText } from './git-remote-di
 import { prefetchRemoteBranchObservation, takeRemoteBranchObservation } from './remote-observation-prefetch.mjs';
 import { executeGitQuery } from './git-query.mjs';
 import { LIFECYCLE_EVENT, lifecycleEvent, projectedLedgerIntentFile, recordPublicationProjection } from './lifecycle-event.mjs';
+import { workflowTaskDeltaSafe } from './workflow-task.mjs';
 import { lifecycleAuthority } from './sda/story-branch-authority.mjs';
 import { captureAggregateRecovery, restoreAggregateRecovery } from './aggregate-recovery.mjs';
 import { validateDocumentPublicationTree } from './document-publication.mjs';
@@ -698,7 +699,8 @@ function applicabilityDecisionCommit(root, config, workflow, commit) {
   const evidence = witnessed && change.changed.includes(witnessed.file)
     ? witnessEvidenceFile(change.item, witnessed, exactFileAtObject(root, identity.commit, witnessed.file)) : null;
   if (change.changed.some((file) => !change.ownPaths.includes(file) && file !== evidence)) return false;
-  if (!kind || !stateChangesOnly(change, [kind.list, 'history', 'publicationProjections'])) return false;
+  if (!kind || !workflowTaskDeltaSafe(change.before, change.after)
+      || !stateChangesOnly(change, [kind.list, 'history', 'publicationProjections', 'taskOperations'])) return false;
   // Each list keeps what it had and gains exactly one entry; earlier decisions only gain a withdrawal.
   const appendsOne = (key) => {
     const prior = before[key] ?? [];
@@ -2505,6 +2507,9 @@ export async function preparePhaseInputs(root, config, workflow, requested = und
     }
     reservePreparedDocumentSuccessor(workflow, phase, nowIso());
   }
+  await (await import('./workflow-task-store.mjs')).observeWorkflowTask(root, workflow, phase, {
+    state: 'author-draft', checkpoint: 'prepared', fingerprint: rendered.sha256
+  }, { generation: inputs.generation ?? nextPhaseGeneration(phase) });
   return {
     phase, path: posix(path.relative(root, target)), ...inputs,
     renderedSha256: rendered.sha256, metadataRepair,

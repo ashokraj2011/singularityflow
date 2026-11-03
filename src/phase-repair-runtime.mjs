@@ -100,11 +100,17 @@ function actionFor(observation, { phase, workflow, config }) {
 async function preview(current, dependencies) {
   const { root, config, workflow, phase, binding } = current;
   const journal = await readPhaseRepairJournal(root, binding);
+  const carried = await (await import('./workflow-task-store.mjs')).readWorkflowTask(root, workflow, phase, { generation: binding.generation });
+  const carriedConsumed = carried?.repairConsumed ?? 0;
+  const localConsumed = journal.consumed;
+  journal.consumed = Math.max(journal.consumed, carriedConsumed);
   const observation = await dependencies.inspect(root, config, workflow, phase);
   const action = actionFor(observation, current);
   const maximum = Math.min(3, journal.maximum, phase.repairBudget?.maxAttempts ?? 3);
   const admission = journal.active ? { allowed: false, reason: 'resume-recorded-attempt' }
     : journal.quarantined?.length ? { allowed: false, reason: 'journal-quarantined' }
+    : carriedConsumed > localConsumed ? { allowed: false, reason: 'carried-repair-history-unavailable',
+      instruction: 'Correct the current owned draft and recheck. Carried spent attempts are not refunded; automated reservation requires the original repair journal.' }
     : action ? repairLoopAdmission(journal.attempts, { actionId: action.id, conditionHash: observation.conditionHash }, { maximumAttempts: maximum })
       : { allowed: false, reason: observation.ready ? 'already-ready' : 'human-or-owner-route' };
   const core = { schemaVersion: 1, binding, policyHash: policyHash(current, observation), journalRevision: journal.revision,
@@ -236,6 +242,8 @@ export async function coordinatePhaseRepair({ root, workId = null, phaseId = nul
       maximum: plan.maximum, actionId: plan.action.id, conditionHash: plan.conditionHash,
       confirmation: plan.confirmation, policyHash: plan.policyHash, revisionHash: plan.revisionHash, pendingHash: plan.action.pendingHash,
       ...(checkpoint ? { checkpointId: checkpoint.id } : {}) });
+    await (await import('./workflow-task-store.mjs')).observeWorkflowTask(root, current.workflow, current.phase,
+      { state: 'repair-draft', repairConsumed: journal.consumed }, { generation: current.binding.generation });
     await overrides.afterReservation?.();
     if (plan.action.id === 'owned-producer-repair') return { ...publicPlan(plan), checkpoint, localFilesChanged: true, status: 'awaiting-producer-repair',
       consumed: journal.consumed, attemptsRemaining: Math.max(0, plan.maximum - journal.consumed), journalChanged: true,

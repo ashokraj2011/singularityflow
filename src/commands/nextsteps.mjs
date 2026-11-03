@@ -281,6 +281,11 @@ export async function resolveStorySnapshot(root, { workflow, definition, executi
     evidence: evidenceSummary(workflow),
     repositoryChecks: repositoryCheckStatus(root)
   };
+  if (active) snapshot.taskResume = await (await import('../workflow-task-store.mjs')).readWorkflowTaskResume(root, workflow, active, {
+    published: !phaseNeedsGeneration(workflow, active), pendingPublication: listPublication,
+    nextAction: snapshot.actions.find(action => action.timing === 'now'),
+    progress: { state: authoringProgress?.draft?.draftModified ? 'repair-draft' : 'load-context' }
+  });
   if (documentReadiness?.status !== 'ready' && documentReadiness) return { ...snapshot,
     state: 'documents-required', documentReadiness,
     actions: documentReadiness.missing.map(record => ({ timing: 'now', ...record.commandGuidance,

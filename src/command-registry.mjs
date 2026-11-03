@@ -1698,10 +1698,11 @@ export function resolveOperation({ requestedCommand, positionals, options = {}, 
   }
   if (definition.name === 'appeal') {
     const action = positionals[1] ?? 'preflight';
-    const actions = ['preflight', 'resolve', 'resolve-run', 'resolve-resume', 'prepare', 'submit', 'list', 'show', 'decide', 'attest', 'risk-prepare', 'risk-accept', 'risk-attest', 'risk-revoke', 'repair-plan', 'repair-status', 'repair-run', 'repair-resume', 'repair-quarantine', 'checkpoint', 'checkpoint-show', 'evidence-prepare', 'evidence-accept'];
+    const actions = ['preflight', 'resolve', 'resolve-run', 'resolve-resume', 'prepare', 'submit', 'list', 'show', 'decide', 'attest', 'risk-prepare', 'risk-accept', 'risk-attest', 'risk-revoke', 'repair-plan', 'repair-status', 'repair-run', 'repair-resume', 'repair-quarantine', 'task-quarantine', 'task-checkpoint', 'checkpoint', 'checkpoint-show', 'evidence-prepare', 'evidence-accept'];
     if (!actions.includes(action)) return unknownSubcommand('appeal', action, actions);
-    if (action === 'repair-quarantine') return optionString(options, 'confirm')
-      ? never('appeal.repair-quarantine', definition, 'mutation') : never('appeal.repair-quarantine.preview', definition, 'read');
+    if (action === 'task-checkpoint') return never('appeal.task-checkpoint', definition, 'mutation');
+    if (['repair-quarantine', 'task-quarantine'].includes(action)) return optionString(options, 'confirm')
+      ? never(`appeal.${action}`, definition, 'mutation') : never(`appeal.${action}.preview`, definition, 'read');
     return never(`appeal.${action}`, definition, ['submit', 'decide', 'attest', 'risk-accept', 'risk-attest', 'risk-revoke', 'repair-run', 'repair-resume', 'resolve-run', 'resolve-resume', 'checkpoint', 'evidence-accept'].includes(action) ? 'mutation' : 'read');
   }
   if (definition.name === 'review-source') {
@@ -1970,6 +1971,9 @@ export function operationCatalog() {
     ...['submit', 'decide', 'attest', 'risk-accept', 'risk-attest', 'risk-revoke', 'repair-run', 'repair-resume', 'resolve-run', 'resolve-resume', 'checkpoint', 'evidence-accept'].map(name => never(`appeal.${name}`, commandDefinition('appeal'), 'mutation')),
     never('appeal.repair-quarantine.preview', commandDefinition('appeal'), 'read'),
     never('appeal.repair-quarantine', commandDefinition('appeal'), 'mutation'),
+    never('appeal.task-quarantine.preview', commandDefinition('appeal'), 'read'),
+    never('appeal.task-quarantine', commandDefinition('appeal'), 'mutation'),
+    never('appeal.task-checkpoint', commandDefinition('appeal'), 'mutation'),
     never('revise.preview', reviseDefinition, 'read'),
     never('revise.apply', reviseDefinition, 'mutation'),
     ...REVISION_READ_SUBCOMMANDS.map((name) => never(`revision.${name}`, revisionDefinition, 'read')),

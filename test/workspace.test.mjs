@@ -3324,8 +3324,9 @@ test('the registry caps active recency without deleting archived workspace histo
   assert.ok(entries.some((entry) => entry.anchorKey === 'PAY-0'));
 });
 
-test('workspace registry discards explicit non-v2 workflows without deleting workspace files', async () => {
+test('workspace registry pruning is explicit; ordinary commands preserve old workflow registrations', async (t) => {
   const root = await mkdtemp(path.join(os.tmpdir(), 'sflow-workspace-v2-only-'));
+  t.after(() => rm(root, { recursive: true, force: true }));
   const registry = path.join(root, 'registry.json');
   const selection = path.join(root, 'active.json');
   const platform = await remoteRepository(root, 'platform');
@@ -3364,7 +3365,35 @@ test('workspace registry discards explicit non-v2 workflows without deleting wor
     'hot list/activation reads must keep an old-format workspace visible for reinitialization');
   assert.equal((await readWorkspaceRegistry(registry)).length, 1);
 
-  const result = await discardUnsupportedWorkflowWorkspaces(registry, selection);
+  const registered = await readFile(registry, 'utf8');
+  const selected = await readFile(selection, 'utf8');
+  for (const args of [
+    ['status', created.workspace.path, '--level', 'readiness'],
+    ['open', created.workspace.path],
+    ['unknown-action', created.workspace.path]
+  ]) {
+    const command = spawnSync(process.execPath, [cli, 'workspace', ...args, '--json'], {
+      cwd: root, encoding: 'utf8',
+      env: { ...process.env, SINGULARITY_FLOW_WORKSPACE_REGISTRY: registry,
+        SINGULARITY_FLOW_ACTIVE_WORKSPACE: selection }
+    });
+    assert.equal(command.status, args[0] === 'unknown-action' ? 1 : 0,
+      `${args[0]}: ${command.stderr || command.stdout}`);
+    assert.equal((await readWorkspaceRegistry(registry)).length, 1,
+      `${args[0]} must not forget an existing workspace based on the base checkout's workflow`);
+    assert.equal(await readFile(selection, 'utf8'), selected,
+      `${args[0]} must preserve the active selection`);
+    if (args[0] === 'status') assert.equal(await readFile(registry, 'utf8'), registered,
+      'status is a read and must not rewrite the workspace registry');
+  }
+
+  const pruned = spawnSync(process.execPath, [cli, 'workspace', 'prune', '--json'], {
+    cwd: root, encoding: 'utf8',
+    env: { ...process.env, SINGULARITY_FLOW_WORKSPACE_REGISTRY: registry,
+      SINGULARITY_FLOW_ACTIVE_WORKSPACE: selection }
+  });
+  assert.equal(pruned.status, 0, pruned.stderr || pruned.stdout);
+  const result = JSON.parse(pruned.stdout);
   assert.equal(result.removed.length, 1);
   assert.equal(result.removed[0].version, 1);
   assert.deepEqual(await readWorkspaceRegistry(registry), []);

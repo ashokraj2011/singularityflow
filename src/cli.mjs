@@ -9295,14 +9295,12 @@ async function workspaceCommand(positionals, options) {
   }
   const registry = workspaceRegistryFile();
   const selectionFile = activeWorkspaceFile();
-  // Refresh and reinitialization are the recovery boundary for old repositories. Removing their
-  // registration based on a stale application-checkout workflow before either command can inspect
-  // approved sflow/config turns repair into a misleading zero-target success.
+  // Registration is navigation state, not a workflow-compatibility verdict. The base checkout
+  // can retain an older projection while approved sflow/config and a pinned Story are current.
+  // Only an explicit prune may forget registrations; reads, opening another workspace and even
+  // failed commands must never make an existing workspace or Story disappear from every surface.
   const compatibility = await discardUnsupportedWorkflowWorkspaces(registry, selectionFile, {
-    preserveForRecovery: [
-      'list', 'current', 'prompt', 'use', 'switch', 'refresh-configuration', 'reinitialize',
-      'migrate-schemas'
-    ].includes(subcommand)
+    preserveForRecovery: subcommand !== 'prune'
   });
   if (subcommand === 'prepare') {
     const source = requirePositional(positionals, 2, 'repository URL or workspace manifest');

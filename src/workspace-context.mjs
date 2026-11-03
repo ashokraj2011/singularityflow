@@ -165,9 +165,9 @@ async function verifiedWorkspaceMemberRepository(root, member, { strict }) {
  *
  * Missing workflow files stay registered: an uninitialized clone is a valid setup state. YAML that
  * cannot be parsed also stays registered so Configuration can expose the file for repair. Only an
- * unambiguous, successfully parsed non-v2 declaration is discarded. Recovery callers preserve
- * those registrations because approved sflow/config—not this potentially stale checkout—is their
- * upgrade source of truth. There is intentionally no implicit in-place conversion path.
+ * unambiguous, successfully parsed non-v2 declaration is discarded by an explicit prune.
+ * Ordinary commands preserve registrations because approved sflow/config—not this potentially
+ * stale checkout—is their upgrade source of truth. There is no implicit conversion path.
  */
 export async function discardUnsupportedWorkflowWorkspaces(registryFile, selectionFile = null, {
   preserveForRecovery = false

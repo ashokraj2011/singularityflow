@@ -389,12 +389,13 @@ singularity-flow init --check
 git status --short
 ```
 
-Saved workspaces whose lead repository explicitly declares workflow version 1
-are automatically forgotten when the workspace registry is read. This removes
-only the machine-local registration and active selection; it never deletes the
-workspace directory or repository clone. Run `singularity-flow workspace prune`
-to see the discarded registrations. Recreate the workspace after resetting its
-lead repository to the bundled version-2 configuration.
+Saved workspaces remain registered when their base checkout has an older workflow
+file. Status, listing and opening a workspace preserve registrations and the active
+selection; approved configuration and a Story's pinned configuration can be newer
+than that checkout. Use configuration refresh or reinitialization to repair an old
+projection. Only the explicit `singularity-flow workspace prune` command forgets
+registrations with a non-v2 workflow. It removes the machine-local registration and
+its active selection, while preserving workspace directories, clones and Stories.
 
 This discards uncommitted workflow state, generated artifacts, templates,
 prompts, sessions, locks, local telemetry, and pending

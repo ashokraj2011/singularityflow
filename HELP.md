@@ -3321,10 +3321,11 @@ registry, and valid non-packaged custom agents are preserved in place. A custom
 agent that is invalid against the installed definition is preserved byte-for-byte
 under `.github/singularity-flow-recovered-agents/<sha256>/` and removed from
 active agent discovery; the preview and result name its source, recovery path,
-digest, byte count, and validation reason. On the next registry read, workspaces
-whose lead explicitly declares a non-v2 workflow are forgotten
-without deleting their directories. Use `singularity-flow workspace prune --json`
-to inspect that cleanup. Use
+digest, byte count, and validation reason. Workspace reads and ordinary commands
+preserve registrations even when a base checkout has an older workflow file.
+Only an explicit `singularity-flow workspace prune --json` forgets registrations
+whose lead declares a non-v2 workflow; directories and Stories are preserved.
+Use configuration refresh or reinitialization to repair an older projection. Use
 `/sf-factory-reset` in Copilot for the same guarded flow.
 
 VS Code provides the same no-migration operation. Open **Workspaces → Fast

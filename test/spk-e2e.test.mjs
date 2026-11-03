@@ -26,6 +26,7 @@ import { slowLane } from './helpers/slow-lane.mjs';
 import { fileURLToPath } from 'node:url';
 import YAML from 'yaml';
 import { currentSchemaVersion } from '../src/schema-migrations.mjs';
+import { loadSession } from '../src/session.mjs';
 
 const packageRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const CLI = path.join(packageRoot, 'bin', 'singularity-flow.mjs');
@@ -672,6 +673,27 @@ test('a Story runs specification through release from a fresh clone', slowLane()
   assert.match(staleConfirmation.output, /CONVERGENCE_ADVANCE_CONFIRMATION_STALE|changed after preview/i);
   sflow(root, ['story', 'advance', '--work-id', WORK, '--confirm', confirmation]);
   assert.equal((await workflowOf(root)).phases.convergence.status, 'awaiting_approval');
+  // Convergence deliberately ends the author session. All approval surfaces must still preview
+  // the human's real approval path, rather than inventing an author repair or a resume loop.
+  assert.equal(await loadSession(root, { required: false }), null);
+  const convergenceState = await readFile(path.join(root, `singularity/work-items/${WORK}/workflow.json`));
+  const convergenceHead = git(root, 'rev-parse', 'HEAD');
+  for (const args of [
+    ['status', WORK, '--submission-readiness', '--json'],
+    ['phase', 'show', 'convergence', '--json']
+  ]) {
+    const { approvalCheck } = JSON.parse(sflow(root, args).stdout);
+    assert.equal(approvalCheck.ready, true, JSON.stringify(approvalCheck));
+    assert.deepEqual(approvalCheck.holds, []);
+  }
+  const convergenceDecisions = JSON.parse(sflow(root, ['decisions', WORK, '--json']).stdout).data;
+  assert.ok(convergenceDecisions.items.some(entry => entry.kind === 'approval'));
+  assert.ok(convergenceDecisions.items.every(entry => entry.kind !== 'approval-hold'));
+  assert.equal(convergenceDecisions.next.copilotCommand, `/sf-approve convergence --work-id ${WORK}`);
+  assert.equal(convergenceDecisions.next.command, `singularity-flow approve convergence --work-id ${WORK} --fetch`);
+  assert.equal(await loadSession(root, { required: false }), null);
+  assert.equal(git(root, 'rev-parse', 'HEAD'), convergenceHead);
+  assert.ok(convergenceState.equals(await readFile(path.join(root, `singularity/work-items/${WORK}/workflow.json`))));
   sflow(root, ['approve', 'convergence', '--yes']);
   assert.equal((await workflowOf(root)).currentPhase, 'verification');
 

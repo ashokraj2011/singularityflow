@@ -13,7 +13,8 @@
 import readline from 'node:readline/promises';
 import { stdin as input, stdout as output } from 'node:process';
 
-import { identity } from '../git.mjs';
+import { actionActor } from '../git.mjs';
+export { actionActor };
 import { storyLineageLines } from '../story-base-lineage.mjs';
 import { currentPhase } from '../phase-generation.mjs';
 import { SingularityFlowError } from '../util.mjs';
@@ -40,18 +41,6 @@ export function summary(workflow) {
     console.log(`Registered artifacts: ${active.artifacts.length}`);
   }
   if (workflow.sequenceOverrides?.length) console.warn(`Warning: ${workflow.sequenceOverrides.length} confirmed soft sequence override(s) are recorded for this work item.`);
-}
-
-/**
- * Who is acting.
- *
- * In Git-host automation the git identity is the runner, not a person, so an explicitly declared
- * actor wins — otherwise every governed decision made by automation would be attributed to a bot.
- */
-export function actionActor(root) {
-  return process.env.SINGULARITY_FLOW_GITHUB_ACTOR
-    ? { name: process.env.SINGULARITY_FLOW_GITHUB_ACTOR, login: process.env.SINGULARITY_FLOW_GITHUB_ACTOR, email: null }
-    : identity(root);
 }
 
 /** Typing the phase id to approve it. Deliberately not a y/n: approval should cost a moment. */

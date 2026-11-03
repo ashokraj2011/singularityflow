@@ -26,7 +26,7 @@ related:
   - waivers
   - inbox-and-review
   - sequence-gates
-version: 19
+version: 20
 ---
 Approval is an authorization event, never an agent utterance. Authority comes from `approvalAuthorities` groups in pinned configuration; the ceremony shows the exact artifact and its SHA-256, then requires typing the exact confirmation — nothing auto-fills it. The record binds identity, authority group, and artifact hash, verifiable offline. If artifact bytes change afterward, the approval goes stale automatically; the old signature remains in history attached to the bytes it actually covered. Agents cannot approve. Normal team configuration defaults self-approval and first-use identity enrollment on; both are explicit `approvalSecurity` switches in **People & approvals**, while the regulated profile defaults them off. Rejections require reasons — which become pinned context the next generation literally reads.
 
@@ -37,6 +37,12 @@ in progress, SFlow preserves the existing draft and returns its exact authoring,
 route before creating an approval receipt or loading review documents. End the approval-only turn
 and follow that route in a new turn. Source edits made after submission still block approval of the
 unchanged review packet and retain the normal recovery requirement.
+
+Approval readiness uses the current reviewer's Git identity, or the execution's explicit automation
+actor, through the same resolver as the approval command. A local authoring session is optional:
+deterministic phases end it, and a reviewer taking over on another laptop may never have one.
+Readiness never creates a session or an approval. A selected read-only agent remains restricted;
+group membership, distinct reviewers, self-approval policy, and fresh packet checks still apply.
 
 Use this topic when the current goal matches **approvals**. Start in a repository that uses Singularity Flow unless the command explicitly operates on installation or machine-local workspace state. Run `sflow doctor` when setup, identity, credentials, or repository health is uncertain, and use `sflow status` or `sflow home` to confirm the selected work before a mutation.
 

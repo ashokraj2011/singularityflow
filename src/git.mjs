@@ -712,6 +712,16 @@ export function preflightGitCommitIdentity(root, value, {
   return commitIdentity;
 }
 
+/**
+ * The current actor, shared by approval previews and recorded commands. An explicit Git-host
+ * actor names the person directing automation; the runner's configured Git identity may be a bot.
+ */
+export function actionActor(root) {
+  return process.env.SINGULARITY_FLOW_GITHUB_ACTOR
+    ? { name: process.env.SINGULARITY_FLOW_GITHUB_ACTOR, login: process.env.SINGULARITY_FLOW_GITHUB_ACTOR, email: null }
+    : identity(root);
+}
+
 export function identity(root, { offline = false, env = process.env } = {}) {
   if (env.NODE_ENV === 'test' && env.SINGULARITY_FLOW_TEST_IDENTITY) {
     return {

@@ -57,7 +57,7 @@ import { assertStoryTestRiskGate, beginStoryTestRiskRun, captureStoryTestRiskObs
 import { trpCaseInventoryDeclaration, trpExecutionEnvironment, trpNativeReportCapture } from './test-recovery-adapters.mjs';
 import { inspectRepositoryReadinessReceipt, loadRepositoryTestBaseline } from './initialization/runtime-readiness.mjs';
 import {
-  artifactChangeInventory, branch, changedFiles, commitIsAncestor, commitsTouchingSince, committedChangedPaths, headTreeEntries, refHead, exactChangedPathsBetweenObjects, exactFileAtObject, exactRemoteBranchObservationAsync, gitCommonDir, governedCommitIdentity, head, identity,
+  actionActor, artifactChangeInventory, branch, changedFiles, commitIsAncestor, commitsTouchingSince, committedChangedPaths, headTreeEntries, refHead, exactChangedPathsBetweenObjects, exactFileAtObject, exactRemoteBranchObservationAsync, gitCommonDir, governedCommitIdentity, head, identity,
   publicationPushOutcome, pushCommitToBranchAsync, refreshStalePublishedIndex, remoteContains, shallowBoundaryCommit, untrackedFiles
 } from './git.mjs';
 import {
@@ -6721,8 +6721,12 @@ export async function evaluateApproval(root, config, workflow, {
       }
     });
     await stage('identity', async () => {
-      session ??= await loadSession(root);
-      actor = session.actor;
+      // Approval belongs to the current person, not the phase's authoring session. Kernel-owned
+      // phases deliberately end that session, and another reviewer may use a different laptop.
+      // Keep any selected agent for the role restriction checked above; never manufacture or
+      // persist an authoring session merely to preview the same identity the command would use.
+      actor = decisionActor ?? actionActor(root);
+      session = { ...(session ?? {}), actor, agent: session?.agent ?? null };
       key = actorKey(actor);
       // On a Story SF Guard requires, only a verified or excepted approval counts [SPEC-PSS-v1 REQ-030].
       const counts = await presenceCountsFor(root, workflow);

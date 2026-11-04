@@ -81,7 +81,8 @@ test('the client never reuses an app or tests answer from its read cache', async
   const { readFile } = await import('node:fs/promises');
   const client = await readFile(source('cli/client.ts'), 'utf8');
   const cacheable = client.slice(client.indexOf('function cacheableRead'), client.indexOf('export function commandClass'));
-  assert.match(cacheable, /'decisions', 'app', 'tests'\]\.includes\(args\[0\]/);
+  const check = new Function('enabledBooleanOption', `return (${cacheable.trim().replace('args: string[]', 'args').replace('): boolean', ')')});`)(() => false);
+  for (const command of ['app', 'tests', 'decisions', 'outcome', 'app-review']) assert.equal(check([command, '--json']), false, `${command} must be read now`);
 });
 
 test('app plan is read from its array or envelope; an entry VS Code cannot run exactly is left out', () => {

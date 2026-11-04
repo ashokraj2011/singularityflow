@@ -652,6 +652,10 @@ export function argvAllowed(argv, mode, value) {
   if (mode === 'run-and-test') return (positionals[0] === 'app-review' && ['start', 'inspect', 'accept', 'recheck', 'defer', 'close', 'feedback', 'repair', 'repair-result', 'capture', 'browser'].includes(positionals[1]))
     || (positionals[0] === 'app' && ['start', 'stop'].includes(positionals[1]))
     || (positionals[0] === 'tests' && positionals[1] === 'run')
+    || (positionals[0] === 'app' && positionals[1] === 'config' && positionals[2] === 'save-local' && positionals.length === 3
+      && typeof options['application-file'] === 'string' && path.isAbsolute(options['application-file'])
+      && (value.appDraftStaging ?? []).includes(path.resolve(options['application-file']))
+      && Object.keys(options).every(key => ['application-file', 'capability', 'json'].includes(key)))
     || (positionals[0] === 'capability' && positionals.length === 3 && typeof options['application-file'] === 'string'
       && path.isAbsolute(options['application-file']) && (value.appDraftStaging ?? []).includes(path.resolve(options['application-file']))
       && (positionals[1] === 'set'
@@ -1443,9 +1447,9 @@ async function runAndTestGuard(payload, record, toolCalls) {
       const own = personStepCall(call, payload.cwd);
       if (own) return own;
       const draft = unissuedDraftOption(call, scope, 'run-and-test', 'appDraftStaging',
-        (positionals, options) => positionals[0] === 'capability' ? options['application-file'] : null);
+        (positionals, options) => positionals[0] === 'capability' || positionals[0] === 'app' && positionals[1] === 'config' && positionals[2] === 'save-local' ? options['application-file'] : null);
       if (draft) return deny(`RUN_AND_TEST_DRAFT_NOT_ISSUED: ${draft} is not issued to this turn. Run singularity-flow app suggest --json standalone in this turn first: it issues the same draft file and leaves what is in it unchanged. Then run this command again`);
-      return deny('RUN_AND_TEST_OPERATION_NOT_ALLOWED: run one standalone SFlow read, app start|stop, tests run, or capability set|edit --application-file <the draft app suggest issued>; no other mutations, chains or wrappers');
+      return deny('RUN_AND_TEST_OPERATION_NOT_ALLOWED: run one standalone SFlow read, app start|stop, tests run, app config save-local or capability set|edit --application-file <the draft app suggest issued>; no other mutations, chains or wrappers');
     }
     if (!isEdit(call.name)) continue;
     const paths = targets(call.args);

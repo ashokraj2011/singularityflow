@@ -81,11 +81,14 @@ export function buildOutcomeReview({ workflow, graph, evaluation, owed = null, a
     };
   });
   const phase = workflow.phases?.[workflow.currentPhase] ?? null;
+  const codePhase = phaseRequiresCodeDelivery(phase) ? { id: workflow.currentPhase, ...phase }
+    : (workflow.phaseOrder ?? Object.keys(workflow.phases ?? {})).map(id => workflow.phases[id] && { id, ...workflow.phases[id] })
+      .findLast(item => phaseRequiresCodeDelivery(item) && item.generation > 0) ?? null;
   const codeRepair = phaseRequiresCodeDelivery(phase) && phase.status === 'in_progress' && phase.generation > 0;
   const repair = codeRepair
     ? ['phase', 'begin', workflow.currentPhase, '--work-id', workId, '--json']
     : ['recover', workId, ...(phase ? ['--phase', phase.id ?? workflow.currentPhase] : []), '--for-agent', '--json'];
-  return {
+  const review = {
     resultType: 'sflow-outcome-review',
     workId,
     title: workflow.workItem.title ?? null,
@@ -102,7 +105,7 @@ export function buildOutcomeReview({ workflow, graph, evaluation, owed = null, a
       blocking: (evaluation?.findings ?? []).filter((finding) => finding.blocking).map(({ code, message }) => ({ code, message }))
     },
     routes: {
-      tests: safeCommandGuidance({ argv: ['tests', 'run', '--work-id', workId] }),
+      tests: codePhase ? safeCommandGuidance({ argv: ['tests', 'run', '--work-id', workId, '--phase', codePhase.id] }) : null,
       matrix: safeCommandGuidance({ argv: ['evidence', 'matrix', workId] }),
       decisions: safeCommandGuidance({ argv: ['decisions', workId] }),
       repair: safeCommandGuidance({ argv: repair, ...(codeRepair ? { skill: authoringRoute(phase, workflow).effectiveAuthoringSkill } : {}) }),
@@ -110,6 +113,61 @@ export function buildOutcomeReview({ workflow, graph, evaluation, owed = null, a
     },
     optional: true
   };
+  return { ...review, validation: deliveryValidation(review, codePhase, graph) };
+}
+
+/** One presentation contract for CLI, Copilot and the editor. Choices grant no acceptance. */
+function deliveryValidation(review, delivered, graph) {
+  const delivery = (graph?.deliveries ?? []).find(item => item.phaseId === delivered?.id && item.generation === delivered?.generation);
+  const runs = (delivery?.executions ?? []).filter(item => item.kind !== 'phase-validation-observation').map(item => ({
+    commandId: item.commandId, status: item.record?.status ?? 'unavailable',
+    exitCode: item.record?.exitCode ?? null, timedOut: item.record?.timedOut === true,
+    retained: Boolean(item.record && item.record.countsForStep !== false), terminal: item.record?.terminal !== false,
+    tests: item.record?.tests ?? {}
+  }));
+  const tests = {
+    status: !delivered ? 'not-applicable' : !runs.length ? 'not-recorded'
+      : runs.some(run => run.status === 'failed' || run.timedOut || run.exitCode !== null && run.exitCode !== 0) ? 'failed'
+      : runs.every(run => run.retained && run.terminal && run.status === 'passed' && run.exitCode === 0 && !run.tests.failed && !run.tests.skipped) ? 'passed' : 'incomplete',
+    phase: delivered?.id ?? null, generation: delivered?.generation ?? null, runs,
+    diagnosticRuns: (delivery?.preflight ?? []).map(item => ({ commandId: item.commandId, status: item.record?.status ?? 'unavailable', tests: item.record?.tests ?? {} }))
+  };
+  const app = review.application;
+  const checks = review.criteria.flatMap(criterion => criterion.checks.filter(check => check.method !== 'test')
+    .map(check => ({ criterion: criterion.id, slot: check.slot, method: check.method, status: check.status })));
+  const choices = review.routes.tests ? [{ id: 'tests', label: 'Run tests', description: `Run this Story’s configured tests from ${delivered.id}.`, route: review.routes.tests }] : [];
+  if (app.status === 'declared') {
+    for (const entry of app.entries ?? []) {
+      if (entry.started && entry.ready) choices.push({ id: `open:${entry.id}`, label: `Open ${entry.name}`, description: entry.url, entryId: entry.id });
+      else if (!entry.started && !entry.portTaken && entry.start) choices.push({ id: `start:${entry.id}`, label: `Start ${entry.name}`,
+        description: 'Use this checkout’s declared launch configuration.', entryId: entry.id, route: entry.start });
+    }
+  }
+  if (['declared', 'none-declared'].includes(app.status)) choices.push({ id: 'configure', label: 'Set up or change local run configuration',
+    description: 'Review launch commands, dependencies and environment files in Run & Test. Save launch settings for this checkout.',
+    route: app.setup ?? safeCommandGuidance({ argv: ['app', 'suggest', ...(app.capability ? ['--capability', app.capability] : [])] }) });
+  choices.push({ id: 'review', label: checks.length ? 'Review acceptance evidence' : 'Check acceptance criteria',
+    description: checks.length ? 'Inspect screenshots or files and record any required human sign-off.' : 'Exercise the approved behavior; API and CLI deliveries need no web screen.', route: review.routes.matrix });
+  choices.push({ id: 'repair', label: 'Request a repair', description: 'Keep this Story and use its current repair admission.', route: review.routes.repair },
+    { id: 'continue', label: 'Continue workflow', description: 'Show the next workflow action. Outstanding checks remain owed.', route: review.routes.continue });
+  return { schemaVersion: 1, binding: { workId: review.workId, phase: review.step?.id ?? null, generation: review.step?.generation ?? null },
+    question: `What would you like to validate for ${review.workId}?`, tests,
+    steps: [
+      { id: 'tests', label: 'Automated tests', status: tests.status, detail: tests.status === 'not-applicable'
+        ? 'This Story has no code delivery to test yet. Follow its current workflow step.' : tests.status === 'not-recorded'
+        ? 'No retained test execution is recorded for this delivery. Diagnostic passes do not replace publication checks.'
+        : `${runs.length} recorded test command(s). ${runs.slice(0, 8).map(run => `${run.commandId}: ${run.status}; ${run.tests.passed ?? 'unknown'} passed, ${run.tests.failed ?? 'unknown'} failed, ${run.tests.skipped ?? 'unknown'} skipped.`).join(' ')} Passing counts alone do not establish clause acceptance.` },
+      { id: 'application', label: 'Try the application or API', status: app.status === 'none-declared' ? 'setup-available'
+        : app.status === 'unavailable' ? 'unavailable' : app.entries?.some(entry => entry.started && entry.ready) ? 'ready'
+          : app.entries?.some(entry => entry.started) ? 'starting' : 'not-running',
+        detail: app.message ?? (app.status === 'none-declared' ? 'No launch configuration is declared. Set one up locally, or validate through tests and API/CLI evidence.'
+          : app.entries?.some(entry => entry.portTaken) ? 'An address is occupied by another process. Review the local configuration before starting.'
+          : 'Use this Story’s checkout and environment. Starting or configuring requires your choice.') },
+      { id: 'evidence', label: 'Acceptance evidence and human review', status: checks.some(check => check.status !== 'met') ? 'pending' : checks.length ? 'met' : 'criteria-review',
+        detail: checks.length ? 'Capture or attach genuine evidence, then use the human review checklist. A screenshot alone is not a sign-off.'
+          : 'Check the acceptance criteria against tests, API responses or CLI output.' }
+    ], choices, recordsAcceptance: false,
+    instruction: 'Ask this question now with these choices. Prefer the native sflowDeliveryValidation tool; otherwise use the host question tool. Execute only the selected returned route when this surface permits it; otherwise hand off to that exact skill. Cancellation records nothing. Continue does not waive checks, submit or approve.' };
 }
 
 /**

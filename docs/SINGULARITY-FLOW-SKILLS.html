@@ -2401,11 +2401,11 @@ Blocked: relay `resolution.issues[].choices` too. Eligible risk needs reason/exp
 3. Use entry `context.text`; if `not-requested` or stale, rerun it once with `&lt;phase&gt; --work-id &lt;WORK-ID&gt; --compose`. `not-admitted`: relay blockers/next, stop.
 4. Follow `clarification.checkpoint`; off skips. Reuse same-binding human replies; ask only unanswered/changed questions with `ask_user` (unavailable: show them and stop; stage chat replies). File-edit `{&quot;responses&quot;:[...]}` at `clarification.responseStagingPath`; run `checkpoint.recordAction` alone. On refusal preserve replies/staging; repair recording, not questions. Remove staging only on success; record before code mutation; refresh entry once. Stage JSON, never governed records. New question: if this person can decide it, `ask_user`, stage only that reply, run `checkpoint.newQuestionAction` alone. Otherwise, or none is returned: keep coding on the most conservative reading, list it under `## Upstream discrepancies`, run `singularity-flow upstream-issue raise --from-artifact`.
 5. Refuse invalid/dirty references. `generation &gt; 0`: `singularity-flow revision status --for-agent --json`. Source edits need `codeAuthoringReady: true`, context/clarification. Preserve code/tests; prepare missing artifact via `authoringProgress`. Preparation is not authoring.
-6. Native file-edit tool: finish behavior/tests/artifact/Agent brief and bindings. Keep planned tests; assert behavior, never fake tags. Preserve managed blocks. Document APIs; tags aren&#39;t docs. Exclude fixtures/docs/deletions/symlinks. Use native comments. Product: `@clause:&lt;WORK-ID&gt;:REQ-001 rationale` (`REQ|BEH|IFC|AC|CON`); tests: `@ac:&lt;WORK-ID&gt;:AC-001` above the test. Honor pinned test-only opt-outs. Follow `toolProtocol.localVerification` for tests/app start/stop and exact `mutationContract.artifacts` evidence. No VS Code task is required.
+6. Native file-edit tool: finish behavior/tests/artifact/Agent brief and bindings. Keep planned tests; assert behavior, never fake tags. Preserve managed blocks. Document APIs; tags aren&#39;t docs. Exclude fixtures/docs/deletions/symlinks. Use native comments. Product: `@clause:&lt;WORK-ID&gt;:REQ-001 rationale` (`REQ|BEH|IFC|AC|CON`); tests: `@ac:&lt;WORK-ID&gt;:AC-001` above the test. Honor pinned test-only opt-outs. Follow `toolProtocol.localVerification`/`mutationContract.artifacts` for tests/app/evidence. Missing capture: ask start/setup/upload. No VS Code task is required.
 7. Follow `testExecution.handoff`; `argvWithheld: true` means configured, not missing. No adoption/amendment for redaction/inference or reporter flags. Development tests allowed; report argv/cwd/exit/failures. Publication still runs fresh governed tests; manual passes never advance. Never infer withheld argv. `runnerStatus: blocked`: fix that delivery finding first. No skip/list/dry-run/no-tests. Authorized dependencies only; never edit protected config, disable hooks or fabricate results.
 8. Run `singularity-flow phase prepublish &lt;phase&gt; --for-agent --json --publish-if-ready` (includes draft-check). Follow `correction.class`/`sameTurn`, `traceabilityRepair.actions`; verify hashes, repair tags without asking. Never invent, pad, delete markers, nest models or overwrite producers. `ready` is not test success. Follow `repairContinuation`/`repairLoop.protocol`; no unchanged retries or resets. Respect `correction.maximumChangedFingerprints`; exhausted: preserve work and return manual/owner routes.
 9. Use returned `commands.publish` once when ready unless `publishIfReady.published`. Advisories/`requiredBefore: approve` don&#39;t hold. Absent: relay `commands.next`, stop. Refusal: use `repairContinuation`; repair admitted causes, verify, retry; report the exact failure. Nonzero exit fails despite passing JUnit. No test ran: relay `testRunRisk.command` to a step approver; never run it. `/sf-recover`: proven runtime repair permits retry without source changes. `ARTIFACT_AUTHORING_INCOMPLETE`: recheck/retry once. Never submit/approve.
-10. Published: read `outcomeReview.agentCommand` once; summarize criteria/tests, run options, owed checks and repair/continue routes. Wait for the person; no app start, acceptance, submission or approval. `afterReview`=lifecycle; `review`=references. Read errors keep publication.
+10. Published: read `outcomeReview.agentCommand` once; ask `validation.question`/`choices` now (`sflowDeliveryValidation` or `ask_user`). Only the chosen route may run; no acceptance/submission/approval. `afterReview`=lifecycle. Read errors keep publication.
 
 TRP: `singularity-flow explain test-recovery`.
 </code></pre>
@@ -7876,7 +7876,7 @@ Read-only utility: run the requested read once with `--utility-entry --for-agent
     <details>
       <summary>
         <span class="skill-number">112</span>
-        <span class="skill-title"><strong>sflow-outcome</strong><span>Show what a Story delivered - the app to try, each criterion&#39;s tests and checks, and what is still open - without changing anything.</span></span>
+        <span class="skill-title"><strong>sflow-outcome</strong><span>Review a Story delivery and ask which test, local application setup, evidence review or repair to perform next.</span></span>
         <span class="chevron" aria-hidden="true"></span>
       </summary>
       <div class="skill-content">
@@ -7885,7 +7885,7 @@ Read-only utility: run the requested read once with `--utility-entry --for-agent
           <span class="pill">echo</span>
           <span class="pill">repository boundary</span>
           <span class="pill">model: never</span>
-          <span class="pill">~896 body tokens</span>
+          <span class="pill">~1013 body tokens</span>
         </div>
         <dl>
           <div><dt>Command</dt><dd><code>/sflow-outcome</code></dd></div>
@@ -7899,7 +7899,7 @@ Read-only utility: run the requested read once with `--utility-entry --for-agent
         </div>
         <pre data-source="sflow-outcome"><code>---
 name: sflow-outcome
-description: Show what a Story delivered - the app to try, each criterion&#39;s tests and checks, and what is still open - without changing anything.
+description: Review a Story delivery and ask which test, local application setup, evidence review or repair to perform next.
 disable-model-invocation: true
 argument-hint: &quot;[WORK-ID] [--capability ID]&quot;
 
@@ -7916,10 +7916,10 @@ Before any boundary lookup or SFlow action, run `singularity-flow pause status -
 
 1. Use the Boundary repository. With an explicit Work ID, do not require or change the active Story. Without an ID, run `singularity-flow session current --json` and require its `ready` Story; use its exact `repositoryPath` as cwd.
 2. Run `singularity-flow outcome &lt;WORK-ID&gt; --for-agent --json`, adding `--capability` only when the person named one.
-3. From `data.outcome`, show `lifecycle` and `completion`. Under &quot;Try it&quot;, list each `application.entries` item with its `url`, whether it is `started`, and the route it carries to start it or shut it down; when `portTaken` is true, say another process already listens at that address. If `application.status` is not `declared`, show its `message` or `setup` route.
-4. For each `criteria` item show its `id`, `text`, `result` and `methods`; each test with its `outcome`; and each check with its `method`, `status`, `reference`, `suggestedFile` and `signOff` command.
-5. List `open.scopeItems` with both commands and `open.blocking` messages. Offer `routes.tests`, `routes.repair` for an in-scope repair/owner-admitted successor, and `routes.continue` for the existing workflow actions. When `applicationReview` is present, offer its separate human surface; final acceptance requires submitted test evidence. Opening this read is not acceptance. Wait for the person to try the result or report a problem.
-6. Only relay. Never start the application or shut it down, run tests, take a screenshot, sign off or record a decision here: those are the person&#39;s routes, run when they ask. A screenshot or a passing test is not a sign-off.
+3. From `data.outcome`, summarize `lifecycle`, `completion`, `validation.steps`, retained test results and diagnostic runs separately. Show application readiness and genuine errors. A missing launch configuration is a setup choice, not a Story blocker. Backend and CLI deliveries use their declared tests and evidence without an invented web UI.
+4. Show acceptance gaps and owed checks, with exact reference/evidence paths. An existing screenshot is not a recorded sign-off. Preserve `open.scopeItems` and `open.blocking` routes; never turn an advisory into a new approval gate.
+5. Ask `validation.question` now with its `choices`. Prefer native `sflowDeliveryValidation` with the exact Work ID and returned `application.capability`. Without that tool use `ask_user`; without a question tool print the question and choices and wait. A summary alone is not the handoff. Do not call the native tool again after cancellation or an unchanged refusal.
+6. Only after an explicit choice: run the selected returned app start/stop or tests route. Missing launch settings: use the setup route and `/sf-run-app`&#39;s exact issued draft, preview it and save a personal checkout profile after the person confirms it. Do not modify shared test definitions, source files or secret values. A required environment binding is the person&#39;s terminal action. Report actual results and offer the remaining choices, without automatically asking them again. Repair uses its exact author/owner route; Continue shows existing workflow actions and waives nothing. Human sign-off uses `sflowWitnessReview` or the person&#39;s exact witness command, never model-supplied checklist answers. No acceptance, submission or approval here.
 </code></pre>
       </div>
     </details>
@@ -7993,7 +7993,7 @@ argument-hint: &quot;[on|off|status]&quot;
           <span class="pill">generative</span>
           <span class="pill">story boundary</span>
           <span class="pill">model: never</span>
-          <span class="pill">~2037 body tokens</span>
+          <span class="pill">~2040 body tokens</span>
         </div>
         <dl>
           <div><dt>Command</dt><dd><code>/sflow-phase</code></dd></div>
@@ -8032,7 +8032,7 @@ Blocked: relay `resolution.issues[].choices` too. Eligible risk needs reason/exp
 7. Prepublish rechecks recovery; never accept draft holds.
 8. Run `singularity-flow phase prepublish &lt;phase&gt; --for-agent --json --publish-if-ready` (includes draft-check). Correct every agent finding under `correction.class`/`sameTurn`; route others via `correction.guidance`/`correction.skill`, code to `/sf-code`. Never invent, pad, blindly delete markers, nest models or overwrite producers. Follow `repairContinuation`/`repairLoop.protocol`; no unchanged retries or resets. Respect `correction.maximumChangedFingerprints`; exhausted: preserve work and return manual/owner routes.
 9. Ready and `publishIfReady.published` false: use returned `commands.publish`; advisories and `requiredBefore: approve` create no hold. Absent: relay `commands.next`, stop. `ARTIFACT_AUTHORING_INCOMPLETE`: recheck/retry once if ready. Keep sanitized `telemetry/&lt;phase&gt;-gen&lt;N&gt;.json`. Never submit/approve.
-10. From `publishIfReady.review`, report commit/push, model/cost, hash-bound documents. Relay `handoff`&#39;s `copilotCommand`/`command`. Not submission/review readiness.
+10. Report `publishIfReady.review` commit/push/model/cost/documents. Code offer: read outcome; ask its choices. Relay `handoff`&#39;s `copilotCommand`/`command`. No submit/approve.
 </code></pre>
       </div>
     </details>
@@ -8466,7 +8466,7 @@ Before any boundary lookup or SFlow action, run `singularity-flow pause status -
           <span class="pill">mutation</span>
           <span class="pill">story boundary</span>
           <span class="pill">model: never</span>
-          <span class="pill">~1359 body tokens</span>
+          <span class="pill">~1473 body tokens</span>
         </div>
         <dl>
           <div><dt>Command</dt><dd><code>/sflow-publish</code></dd></div>
@@ -8498,7 +8498,7 @@ Reuse a verified pause-aware entry supplied in this invocation before any mutati
 1. Bind the optional phase to the active phase in this entry; mismatch: stop with the returned selection route. Publication-only: never edit source/artifacts, compose, prepare, begin a generation, record clarification, submit, approve or change policy.
 2. Run `singularity-flow phase prepublish &lt;phase&gt; --for-agent --json --publish-if-ready` once. Use native file-read tools for captured output, not shell parsers, pipes or command chains. Preserve the existing draft. Unready: follow `resolution`/`repairContinuation`; diagnose and use its exact author/owner handoff. This publication-only role never edits. No re-asking settled clarification or retrying unchanged failures.
 3. When `ready` it ran returned `commands.publish` once, with its pinned producer/channel (`publishIfReady`); never rerun it; do not invent authorship flags, waive gates or run separate tests. `advisories` never block this attempt; report any `requiredBefore: approve` warning as a later obligation, not a current owner hold. Report open `scopeReview` items with their exact human decision route; publication is not their disposition. Do not edit documentation or package scripts in this publication-only skill. Publication owns any configured fresh test execution. Already-published/no-op results do not authorize a successor or resubmission.
-4. Show generation/commit/push and warnings truthfully. Published code: read returned `outcomeReview.agentCommand` once, summarize criteria/tests/run options and owed checks, then wait for the person. A failed read never undoes publication. `afterReview` preserves lifecycle; no app start, acceptance or approval. Requested documents use returned references only. End with exact next routes. Never advance to the next phase in this turn.
+4. Show generation/commit/push and warnings truthfully. Published code: read returned `outcomeReview.agentCommand` once, summarize retained tests, runtime readiness and owed checks, then ask `data.outcome.validation.question` now with its `choices`. Prefer native `sflowDeliveryValidation` with the exact Work ID; otherwise `ask_user`. A summary without a question is incomplete. The native tool opens only the person&#39;s selected action; fallback hands off to the exact returned skill, since this publication-only turn never runs app/tests/configuration commands. Cancellation records nothing; no repeated question. A failed read never undoes publication. `afterReview` preserves lifecycle; no automatic app start, acceptance or approval. Continue keeps all owed checks. Requested documents use returned references only. End with exact next routes. Never advance to the next phase in this turn.
 </code></pre>
       </div>
     </details>
@@ -10141,7 +10141,7 @@ At the authoring boundary, load the exact returned canonical `/sf-*` skill once 
           <span class="pill">guided</span>
           <span class="pill">repository boundary</span>
           <span class="pill">model: never</span>
-          <span class="pill">~1258 body tokens</span>
+          <span class="pill">~1332 body tokens</span>
         </div>
         <dl>
           <div><dt>Command</dt><dd><code>/sflow-run-app</code></dd></div>
@@ -10175,7 +10175,7 @@ The capability&#39;s `application.start` entries say how to start it, as typed r
 3. To start: run `singularity-flow app start &lt;ID&gt; [--environment &lt;ENV&gt;]` with your terminal tool&#39;s background (async) mode so it keeps running, then run `singularity-flow app status --json` until that entry is `ready` or reports its failure, within its `ready.timeoutMs`. Report the URL. To debug, add `--debug` when the entry has a `debug` block without a `refusal`. Report `Debugger listening at 127.0.0.1:&lt;port&gt;` and the attach target: the editor&#39;s attach configuration for that runtime, or the pid for dotnet. A `debug.refusal` names what the person installs; show it.
 4. To check: `singularity-flow app status --json`. To stop: `singularity-flow app stop &lt;ID&gt;`; it stops only what `singularity-flow app start` recorded. Never kill any other process.
 5. Report the entry, environment, URL and state, and the next action (run the tests with `/sf-test`, or stop it).
-6. To suggest entries: run `singularity-flow app suggest --json`. Show each suggestion&#39;s source file, `start.argv`, per-environment `arguments`, `debug` and `environmentNames` (secrets are names only), and its `notes`. Ask with `ask_user` which to keep and their ids. The file replaces the whole application block: write `applicationDraft` to `draft.applicationFile` with a file-edit tool, keeping its existing entries and `tests` exactly, and removing only the suggested entries the person did not keep. Run `singularity-flow app config preview --application-file &lt;draft.applicationFile&gt; --json`; fix each located error in the draft (its `path` names the field) until it is `valid`. Show the draft and the preview&#39;s command lines, and only on the person&#39;s confirmation run, with `&lt;URL&gt;` from `singularity-flow capability leads --json`, `singularity-flow capability edit &lt;CAPABILITY&gt; --lead &lt;URL&gt; --application-file &lt;draft.applicationFile&gt; --mode set --json` (for a local map: `singularity-flow capability set &lt;CAPABILITY&gt; --application-file &lt;draft.applicationFile&gt; --json`). Show `environmentsDraft` for the person to propose through `/sf-configuration`; never add a value for a secret.
+6. To suggest entries: run `singularity-flow app suggest --json`, preserving any explicit capability selection. Show each suggestion&#39;s source file, `start.argv`, per-environment `arguments`, `debug` and `environmentNames` (secrets are names only), and its `notes`. Ask with `ask_user` which to keep and their ids. Write `applicationDraft` to the exact issued `draft.applicationFile` with a file-edit tool, keeping existing entries and `tests` exactly, removing only unselected suggestions. Run `singularity-flow app config preview --application-file &lt;draft.applicationFile&gt; --json`; fix located draft errors until `valid`. Summarize the launch commands, working directories, dependency checks and environment names; never paste the whole draft. After the person confirms, default to `singularity-flow app config save-local --application-file &lt;draft.applicationFile&gt; --json` (add the same explicit `--capability` when used): it saves launch settings for this checkout, changes no shared configuration and cannot change tests. An explicit request to share uses `singularity-flow capability edit &lt;CAPABILITY&gt; --lead &lt;URL&gt; --application-file &lt;draft.applicationFile&gt; --mode set --json` (local map: `singularity-flow capability set &lt;CAPABILITY&gt; --application-file &lt;draft.applicationFile&gt; --json`); use the verified lead and reviewed proposal. Offer Start after setup; saving alone starts nothing. Missing environment values remain the person&#39;s binding action; never read or write secrets.
 </code></pre>
       </div>
     </details>

@@ -11,7 +11,8 @@ const { outcomeReviewHtml, OUTCOME_REVIEW_SCRIPT } = await import('../apps/vscod
 // can never disagree about the shape.
 function result() {
   const outcome = buildOutcomeReview({
-    workflow: { workItem: { id: 'OUT-2', title: 'Plot <b>' }, currentPhase: 'verification', phases: { verification: { status: 'in_progress', generation: 1 } } },
+    workflow: { workItem: { id: 'OUT-2', title: 'Plot <b>' }, currentPhase: 'verification', phases: {
+      implementation: { generation: 1, generationPolicy: { task: 'code' } }, verification: { status: 'in_progress', generation: 1 } } },
     graph: { records: { indexes: [{ clauses: [{ id: 'OUT-2:AC-001', body: 'Shows <script>alert(1)</script> the plot.', verification: { methods: ['test', 'visual'] } }] }] } },
     evaluation: {
       lifecycle: { words: 'In progress at Verification' }, completion: { label: 'Incomplete' },
@@ -34,7 +35,8 @@ test('the outcome page shows the app, each check with its reference, and only ex
   const view = outcomeView(result());
   assert.ok(view, 'the panel reads what the engine emits');
   assert.equal(view.criteria.length, 1);
-  assert.equal(view.testsCommand, 'singularity-flow tests run --work-id OUT-2');
+  assert.equal(view.testsCommand, 'singularity-flow tests run --work-id OUT-2 --phase implementation');
+  assert.equal(view.testsPhase, 'implementation');
   const html = outcomeReviewHtml(view, null);
   for (const words of ['Check the outcome', 'Opening this review records no acceptance and changes no approval policy',
     'Another process already listens at that address', 'Start the application', 'compared with <code>DOC-001</code>',
@@ -95,9 +97,31 @@ test('review actions are bound to the exact Story and generation, including afte
   assert.equal(view.repairCopilot, '/sf-recover');
   const ended = result();
   ended.data.outcome.step = null;
+  ended.data.outcome.validation.binding = { workId: 'OUT-2', phase: null, generation: null };
   const historical = outcomeView(ended);
   assert.equal(sameOutcomeTarget(historical.target, { workId: 'OUT-2', phase: null, generation: null }), true,
     'a completed Story can still be inspected and run without creating an active phase');
+});
+
+test('validation rejects stale bindings and unknown executable choices, and preserves compatibility with older CLI results', () => {
+  const raw = result();
+  raw.data.outcome.validation.binding.workId = 'OTHER';
+  assert.equal(outcomeView(raw), null);
+  const injected = result();
+  injected.data.outcome.validation.choices.push({ id: 'execute-shell', label: 'Run', description: 'node outside.mjs' });
+  assert.equal(outcomeView(injected), null);
+  const legacy = result();
+  delete legacy.data.outcome.validation;
+  assert.ok(outcomeView(legacy), 'an older CLI can still display the readonly review');
+  const html = outcomeReviewHtml(outcomeView(result()), null);
+  assert.match(html, /What would you like to validate for OUT-2/);
+  assert.match(html, /Set up or change local run configuration/);
+  const manifest = JSON.parse(readFileSync(new URL('../apps/vscode/package.json', import.meta.url), 'utf8'));
+  const tool = manifest.contributes.languageModelTools.find(item => item.name === 'singularityFlow_deliveryValidation');
+  assert.deepEqual(tool.inputSchema.required, ['workId']);
+  assert.deepEqual(Object.keys(tool.inputSchema.properties), ['workId', 'capability'], 'model can pass only context IDs, never an action, command, witness or checklist answers');
+  assert.equal(tool.inputSchema.additionalProperties, false);
+  assert.ok(manifest.contributes.commands.some(item => item.command === 'singularityFlow.guideDeliveryValidation'));
 });
 
 test('an adopted required application review is distinct from the optional outcome read', () => {

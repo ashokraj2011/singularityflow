@@ -6,7 +6,8 @@
 import { escape } from './webview.ts';
 import { documentReference, type OutcomeCriterion, type OutcomeView } from './outcome-review-model.ts';
 
-const STATUS_WORDS: Record<string, string> = { met: 'done', missing: 'not done yet', pending: 'pending' };
+const STATUS_WORDS: Record<string, string> = { met: 'done', missing: 'not done yet', pending: 'pending',
+  'not-recorded': 'not recorded', 'not-applicable': 'not applicable', 'setup-available': 'setup available', 'not-running': 'not running', 'criteria-review': 'review criteria' };
 
 function button(action: string, label: string, data: Record<string, number> = {}, secondary = true): string {
   const attributes = Object.entries(data).map(([name, value]) => ` data-${name}="${value}"`).join('');
@@ -48,9 +49,14 @@ export function outcomeReviewHtml(view: OutcomeView | null, error: string | null
   const appHtml = app.status === 'declared' && app.entries?.length
     ? `<ul>${app.entries.map((entry) => `<li><strong>${escape(entry.name)}</strong> at <code>${escape(entry.url)}</code>: ${entry.started ? `running (pid ${escape(String(entry.pid ?? ''))})` : 'not running'}
         ${entry.portTaken ? '<p class="notice warning">Another process already listens at that address. Stop it before starting this one.</p>' : ''}</li>`).join('')}</ul>
-      <div class="outcome-actions">${button('start', 'Start the application', {}, false)}</div>`
+      <div class="outcome-actions">${button('start', 'Start the application', {}, false)}${button('configure', 'Edit local run configuration')}</div>`
     : `<p>${escape(app.status === 'none-declared' ? 'No application is declared for this capability.' : app.message ?? 'The application could not be read.')}</p>`;
   const open = view.open;
+  const validation = view.validation;
+  const guidedHtml = validation ? `<section class="outcome-guide"><h2>${escape(validation.question)}</h2>
+    <ol>${validation.steps.map(step => `<li><strong>${escape(step.label)}</strong> · ${escape(STATUS_WORDS[step.status] ?? step.status)}<p>${escape(step.detail)}</p></li>`).join('')}</ol>
+    <div class="outcome-actions">${validation.choices.map((choice, index) => button('validation-choice', choice.label, { item: index }, choice.id !== 'tests')).join('')}</div>
+    <p class="muted">Choose a check to perform now. Continue keeps all outstanding checks and approvals.</p></section>` : '';
   const openHtml = open.scopeItems.length || open.blocking.length
     ? `<section><h2>Still open for the Story's end</h2><ul>
         ${open.scopeItems.map((item, index) => `<li><strong>${escape(item.id)}</strong>: ${escape(item.text)} ${button('copy-scope', 'Copy the scope command', { item: index })}</li>`).join('')}
@@ -59,10 +65,11 @@ export function outcomeReviewHtml(view: OutcomeView | null, error: string | null
   return `${header}
     <p class="meta">${escape(view.workId)}${view.title ? ` · ${escape(view.title)}` : ''}</p>
     <p><strong>${escape(view.lifecycle ?? 'Lifecycle unknown')}</strong> · ${escape(view.completion ?? 'Completion unknown')}</p>
+    ${guidedHtml}
     ${view.applicationReview ? `<section><h2>Application review</h2><p>${view.applicationReview.required ? 'Application acceptance is required before this code phase can finish.' : 'Inspect, report problems and accept this delivery.'} Evidence stays on this laptop; phase approval is separate.</p>${button('app-review', 'Open application review', {}, false)}</section>` : ''}
-    <section><h2>1. Try the Story result</h2>${appHtml}<p>Use this Story’s checkout and local configuration. Check expected behavior, invalid inputs and relevant boundaries; for a backend, exercise its APIs or executable tests.</p><div class="outcome-actions">${button('run-test', 'Workspace Run & Test')}${button('test-summary', 'Open test summary')}</div></section>
+    <section><h2>1. Try the Story result</h2>${appHtml}<p>Use this Story’s checkout and local configuration. Check expected behavior, invalid inputs and relevant boundaries; for a backend, exercise its APIs or executable tests.</p><div class="outcome-actions">${button('run-test', 'Workspace Run & Test')}${view.testsCommand ? button('test-summary', 'Open test summary') : ''}</div></section>
     <section><h2>2. Check acceptance criteria</h2><p>These rows use retained Story evidence. Local test reruns do not replace the publication and submission checks.</p>${view.criteria.length ? view.criteria.map((criterion, index) => criterionHtml(criterion, index, capture)).join('') : '<p>No acceptance criteria are recorded yet.</p>'}
-      <div class="outcome-actions">${button('tests', 'Run the tests')}${button('matrix', 'Open the Evidence Matrix')}</div></section>
+      <div class="outcome-actions">${view.testsCommand ? button('tests', 'Run the tests') : ''}${button('matrix', 'Open the Evidence Matrix')}</div></section>
     ${openHtml}
     <section><h2>3. Repair or continue</h2><p>${view.applicationReview ? 'Use application review to report a problem and recheck the fix. Final All good acceptance requires the submitted test evidence; phase approval remains separate.' : 'Request repair to prepare this Story’s exact repair admission in Copilot. You review and send that request; opening it changes no files.'}</p><div class="outcome-actions">${view.repairCopilot || view.applicationReview ? button('request-repair', 'Request a repair', {}, false) : ''}${button('continue', 'Continue workflow')}</div><p class="muted">Continue workflow opens the current submission, review and approval actions. It records no acceptance and approves nothing.</p></section>
     <p class="muted">A screenshot or a passing test is not a sign-off. Sign-offs and decisions stay with the people who own them.</p>`;

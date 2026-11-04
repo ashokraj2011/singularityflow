@@ -13,7 +13,7 @@ test('the outcome shows each criterion\'s tests and checks, and the sign-off a p
   // graph-plot, 2026-10-26: the plan asked a person to compare the running screen with DOC-001, and no
   // step showed the app, the screenshot or the sign-off; a later step reported the criterion partial.
   const workflow = { workItem: { id: 'OUT-1', title: 'Plot' }, currentPhase: 'implementation',
-    phases: { implementation: { status: 'in_progress', generation: 1 } } };
+    phases: { implementation: { status: 'in_progress', generation: 1, generationPolicy: { task: 'code' } } } };
   const graph = { records: { indexes: [{ clauses: [{ id: 'OUT-1:AC-001',
     body: 'The screen shows the plot. [scope:SRI-0123456789ab] *(S1)*', verification: { methods: ['test', 'visual'] } }] }] } };
   const evaluation = {
@@ -52,7 +52,7 @@ test('the outcome shows each criterion\'s tests and checks, and the sign-off a p
   assert.equal(review.open.signOffs[0].command, visual.signOff);
   assert.deepEqual(review.open.scopeItems.map((item) => item.id), ['DOC-001']);
   assert.deepEqual(review.open.blocking.map((finding) => finding.code), ['EVIDENCE_VISUAL_MISSING']);
-  assert.equal(review.routes.tests.command, 'singularity-flow tests run --work-id OUT-1');
+  assert.equal(review.routes.tests.command, 'singularity-flow tests run --work-id OUT-1 --phase implementation');
   assert.equal(review.routes.tests.copilotCommand, '/sf-test');
 });
 
@@ -82,4 +82,74 @@ test('outcome is an optional read: it names no next action and changes nothing',
   const refused = run('outcome', '--row', 'x');
   assert.notEqual(refused.status, 0);
   assert.match(refused.stderr, /outcome does not accept --row/u);
+});
+
+test('the validation question is available for legacy and custom code deliveries without enabling acceptance policy', () => {
+  for (const id of ['implementation', 'repair-api', 'custom-angular', 'future-step']) {
+    const phase = { id, generation: 2, status: 'in_progress', generationPolicy: { task: 'code' } };
+    const workflow = { workItem: { id: 'TRY-1' }, phaseOrder: [id], currentPhase: id, phases: { [id]: phase } };
+    if (id === 'implementation') { delete phase.generationPolicy; phase.requiredArtifact = { kind: 'implementation-summary' }; }
+    const before = structuredClone(workflow);
+    const review = buildOutcomeReview({ workflow, application: { status: 'none-declared', capability: 'api' } });
+    const guide = review.validation;
+    assert.deepEqual(guide.binding, { workId: 'TRY-1', phase: id, generation: 2 });
+    assert.equal(guide.tests.phase, id);
+    assert.equal(guide.tests.status, 'not-recorded');
+    assert.equal(guide.steps.find(step => step.id === 'application').status, 'setup-available');
+    assert.equal(guide.choices.find(choice => choice.id === 'configure').route.copilotCommand, '/sf-run-app');
+    assert.ok(!guide.choices.some(choice => /^(start|open):/.test(choice.id)), 'no guessed start command or web screen');
+    assert.ok(guide.choices.some(choice => choice.id === 'continue'), 'setup is not a new gate');
+    assert.match(guide.instruction, /Ask this question now/);
+    assert.equal(guide.recordsAcceptance, false);
+    assert.deepEqual(workflow, before);
+  }
+});
+
+test('validation summarizes only the bound delivery and never promotes diagnostic or incomplete tests', () => {
+  const workflow = { workItem: { id: 'TRY-2' }, phaseOrder: ['code', 'verification'], currentPhase: 'verification',
+    phases: { code: { id: 'code', generation: 2, generationPolicy: { task: 'code' } }, verification: { id: 'verification', generation: 1 } } };
+  const run = (patch = {}) => ({ commandId: 'unit', kind: 'test-execution', record: { status: 'passed', exitCode: 0, tests: { passed: 15, failed: 0, skipped: 0 }, ...patch } });
+  const guide = (executions, preflight = []) => buildOutcomeReview({ workflow, graph: { deliveries: [
+    { phaseId: 'code', generation: 1, executions: [run()] }, { phaseId: 'code', generation: 2, executions, preflight }
+  ] } }).validation;
+  assert.equal(guide([]).tests.status, 'not-recorded', 'an earlier implementation run cannot verify this generation');
+  assert.deepEqual(buildOutcomeReview({ workflow }).routes.tests.argv, ['tests', 'run', '--work-id', 'TRY-2', '--phase', 'code'],
+    'a later document phase still targets the code step that owns the runner');
+  const diagnostic = guide([], [{ commandId: 'unit', record: run().record }]);
+  assert.equal(diagnostic.tests.status, 'not-recorded');
+  assert.equal(diagnostic.tests.diagnosticRuns[0].status, 'passed');
+  assert.equal(guide([run()]).tests.status, 'passed');
+  assert.match(guide([run()]).steps.find(step => step.id === 'tests').detail, /15 passed, 0 failed, 0 skipped/);
+  for (const patch of [{ countsForStep: false }, { terminal: false }, { status: 'passed', exitCode: null }, { tests: { passed: 14, skipped: 1 } }]) {
+    assert.equal(guide([run(patch)]).tests.status, 'incomplete', JSON.stringify(patch));
+  }
+  assert.equal(guide([run({ status: 'failed', exitCode: 1 })]).tests.status, 'failed');
+  assert.equal(guide([run({ timedOut: true })]).tests.status, 'failed');
+  assert.equal(guide([{ commandId: 'unit', record: null }]).tests.status, 'incomplete');
+  assert.equal(guide([{ commandId: 'unit', kind: 'phase-validation-observation', record: null }]).tests.status, 'not-recorded');
+});
+
+test('a Story without a code step offers no impossible test action or invented runner', () => {
+  const review = buildOutcomeReview({ workflow: { workItem: { id: 'DOC-1' }, currentPhase: 'specification',
+    phases: { specification: { id: 'specification', generation: 1, generationPolicy: { task: 'document' } } } } });
+  assert.equal(review.routes.tests, null);
+  assert.equal(review.validation.tests.status, 'not-applicable');
+  assert.ok(!review.validation.choices.some(choice => choice.id === 'tests'));
+  assert.ok(review.validation.choices.some(choice => choice.id === 'continue'));
+});
+
+test('validation chooses only ready local apps or free declared launch entries and preserves actual failures', () => {
+  const workflow = { workItem: { id: 'TRY-3' }, currentPhase: 'code', phases: { code: { id: 'code', generation: 1, generationPolicy: { task: 'code' } } } };
+  const entries = [
+    { id: 'web', name: 'Web', started: true, ready: true, url: 'http://localhost:5173' },
+    { id: 'api', name: 'API', started: false, ready: false, start: { command: 'singularity-flow app start api' } },
+    { id: 'occupied', name: 'Occupied', started: false, portTaken: true, start: { command: 'singularity-flow app start occupied' } },
+    { id: 'starting', name: 'Starting', started: true, ready: false }
+  ];
+  const guide = buildOutcomeReview({ workflow, application: { status: 'declared', entries } }).validation;
+  assert.deepEqual(guide.choices.filter(choice => choice.entryId).map(choice => choice.id), ['open:web', 'start:api']);
+  const failure = buildOutcomeReview({ workflow, application: { status: 'unavailable', code: 'EACCES', message: 'EACCES: cannot read local profile' } });
+  assert.equal(failure.validation.steps.find(step => step.id === 'application').detail, 'EACCES: cannot read local profile');
+  assert.ok(!failure.validation.choices.some(choice => choice.id === 'configure'), 'a permission failure is not presented as absent configuration');
+  assert.ok(failure.validation.choices.some(choice => choice.id === 'repair'));
 });

@@ -35,7 +35,10 @@ test('existing implementation is completed through summary, planned assertions a
   assert.match(code, /--publish-if-ready/);
   assert.match(code, /once when ready unless `publishIfReady\.published`/);
   assert.match(code, /Published: read `outcomeReview\.agentCommand` once/);
-  assert.match(code, /Wait for the person; no app start, acceptance, submission or approval/);
+  assert.match(code, /ask `validation\.question`\/`choices` now/);
+  assert.match(code, /sflowDeliveryValidation` or `ask_user/);
+  assert.match(code, /Only the chosen route may run; no acceptance\/submission\/approval/);
+  assert.match(code, /Missing capture: ask start\/setup\/upload/);
   assert.match(code, /`afterReview`=lifecycle/);
   assert.match(code, /Never submit\/approve/);
 });

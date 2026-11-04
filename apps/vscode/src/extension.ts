@@ -800,6 +800,25 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   }
 
   if (typeof lm?.registerTool === 'function' && typeof parts.LanguageModelToolResult === 'function') {
+    context.subscriptions.push(lm.registerTool('singularityFlow_deliveryValidation', {
+      invoke: async (options: { input?: Record<string, unknown> }) => {
+        let result;
+        try {
+          const input = options.input;
+          if (!input || Object.keys(input).some(key => !['workId', 'capability'].includes(key)) || typeof input.workId !== 'string'
+              || !/^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$/u.test(input.workId)
+              || input.capability !== undefined && (typeof input.capability !== 'string' || !/^[a-z0-9][a-z0-9-]*$/u.test(input.capability))) {
+            throw new Error('Delivery validation accepts only an exact Story ID and optional capability ID; the person chooses the action in VS Code.');
+          }
+          result = await vscode.commands.executeCommand('singularityFlow.guideDeliveryValidation', input);
+        }
+        catch (error) {
+          const failure = error as Error & { result?: unknown };
+          result = { status: 'blocked', recorded: null, message: failure.message, ...(failure.result ? { refusal: failure.result } : {}) };
+        }
+        return new parts.LanguageModelToolResult([new parts.LanguageModelTextPart(JSON.stringify(result))]);
+      }
+    }));
     context.subscriptions.push(lm.registerTool('singularityFlow_witnessReview', {
       invoke: async (options: { input?: Record<string, unknown> }) => {
         let result;
@@ -1244,7 +1263,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     'singularityFlow.createSgosWorkflow', 'singularityFlow.reviewSgosMetaTool',
     'singularityFlow.reviewLocalRunner',
     'singularityFlow.openReconciliation',
-    'singularityFlow.openEvidenceMatrix', 'singularityFlow.openOutcomeReview', 'singularityFlow.applicationReview', 'singularityFlow.openApmPackages',
+    'singularityFlow.openEvidenceMatrix', 'singularityFlow.openOutcomeReview', 'singularityFlow.guideDeliveryValidation', 'singularityFlow.applicationReview', 'singularityFlow.openApmPackages',
     'singularityFlow.showImpact', 'singularityFlow.addCapability', 'singularityFlow.editCapability',
     'singularityFlow.openDashboard', 'singularityFlow.openDesigner', 'singularityFlow.openWorkflowStudio', 'singularityFlow.addUserAgent', 'singularityFlow.decideStory', 'singularityFlow.decisions', 'singularityFlow.reviewWitness', 'singularityFlow.sfGuard',
     'singularityFlow.workspaceRunTest', 'singularityFlow.startApplication', 'singularityFlow.runTests', 'singularityFlow.testSummary', 'singularityFlow.editRunConfigurations', ...RUN_CONFIGURATION_COMMANDS,
@@ -7511,6 +7530,21 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       lazyPanels().CapabilityProposalPanel.show(context, lead, branch, run, async () => { await refreshAfterKnownMutation(); }, capability);
     },
     afterLocalChange: async () => { await refreshAfterKnownMutation(); } });
+  // Outcome choices carry a Story target. Pin the client before any configuration/environment
+  // picker, and refuse an obsolete target instead of falling back to a different capability.
+  const deliveryRunHost = (target?: unknown) => {
+    const requested = target as { workId?: string; phase?: string; generation?: number; testPhase?: string; local?: boolean } | undefined;
+    const host = runAndTestHost();
+    if (!requested?.workId) return host;
+    const state = store.current, workflow = state.snapshot?.workflow;
+    const phase = workflow?.currentPhase ? workflow.phases[workflow.currentPhase] : null;
+    if (state.stale || state.error || workflow?.workItem.id !== requested.workId || workflow.currentPhase !== requested.phase
+        || phase?.generation !== requested.generation) throw new Error('The Story or generation changed. Refresh Check the Outcome before running or configuring it.');
+    const testPhase = requested.testPhase ?? requested.phase;
+    if (testPhase && !workflow.phases[testPhase]) throw new Error('The test-owning phase changed. Refresh Check the Outcome before running its tests.');
+    return { ...host, client: client.forkForRepository(client.repository), workId: () => requested.workId!,
+      localRunConfiguration: true, ...(testPhase ? { testsScope: { workId: requested.workId, phase: testPhase } } : {}) };
+  };
   /**
    * The run widget, the Run view and the Testing view (lazy panels) [RUN amendment §3, §4]. Whether
    * this repository declares an application is a read of its capability map file, never a CLI
@@ -9228,6 +9262,11 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     },
     // Optional: what a Story delivered, read once per refresh; nothing waits for it.
     'singularityFlow.openOutcomeReview': async () => lazyPanels().OutcomeReviewPanel.show(context, store, client),
+    'singularityFlow.guideDeliveryValidation': async (target?: { workId?: string; capability?: string }) => {
+      const workId = target?.workId ?? store.current.snapshot?.workflow?.workItem.id;
+      if (!workId || !/^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$/u.test(workId)) throw new Error('Select the Story whose delivery you want to validate.');
+      return lazyPanels().OutcomeReviewPanel.show(context, store, client, null, target?.capability ?? null).guideDelivery(workId);
+    },
     'singularityFlow.applicationReview': async () => lazyPanels().OutcomeReviewPanel.show(context, store, client).reviewApplication(),
     // The repository's APM packages and the steps their agents draft; read once per refresh [APM A7].
     'singularityFlow.openApmPackages': async () => lazyPanels().ApmPackagesPanel.show(client, {
@@ -9403,11 +9442,11 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     },
     // Run & test from the palette; `testSummary` also takes `{ workId, phase, beside }` or `{ capability }`.
     'singularityFlow.workspaceRunTest': (target?: { workspace?: string }) => lazyPanels().WorkspaceRuntimePanel.show(context, runAndTestHost(), target?.workspace),
-    'singularityFlow.startApplication': () => lazyPanels().runAndTestCommand('start', runAndTestHost()),
-    'singularityFlow.runTests': () => lazyPanels().runAndTestCommand('tests', runAndTestHost()),
+    'singularityFlow.startApplication': (target?: unknown) => lazyPanels().runAndTestCommand('start', deliveryRunHost(target), target),
+    'singularityFlow.runTests': (target?: unknown) => lazyPanels().runAndTestCommand('tests', deliveryRunHost(target), target),
     'singularityFlow.testSummary': (target?: unknown) => lazyPanels().runAndTestCommand('summary', runAndTestHost(), target),
     // The Run/Debug Configurations editor; other surfaces pass `{ capability, configuration }` (a start entry ID to select).
-    'singularityFlow.editRunConfigurations': (target?: unknown) => lazyPanels().editRunConfigurationsCommand(runAndTestHost(), target),
+    'singularityFlow.editRunConfigurations': (target?: unknown) => lazyPanels().editRunConfigurationsCommand(deliveryRunHost(target), target),
     // Environment files; other surfaces pass `{ environment, capability }`.
     'singularityFlow.openEnvironmentFiles': (target?: unknown) => lazyPanels().environmentFilesCommand(runAndTestHost(), target),
     // The run widget and the Run view: a row, `{ key }` or `{ capability, configuration }` names a configuration.

@@ -17,6 +17,7 @@ import { taskStartFolder } from '../terminal-start.ts';
 import { integerField, registerMessageRouter, stringField } from './messages.ts';
 import { documentReference, outcomeView, sameOutcomeTarget, signOffArgs, signOffQuestions, type OutcomeCheck, type OutcomeTarget, type OutcomeView } from './outcome-review-model.ts';
 import { OUTCOME_REVIEW_SCRIPT, OUTCOME_REVIEW_STYLE, outcomeReviewHtml } from './outcome-review-page.ts';
+import { loopbackUrl } from './run-and-test-model.ts';
 
 export class OutcomeReviewPanel {
   private static current: OutcomeReviewPanel | null = null;
@@ -27,23 +28,29 @@ export class OutcomeReviewPanel {
   private disposed = false;
   private readRepository: string | null = null;
   private expected: OutcomeTarget | null = null;
+  private capability: string | null = null;
+  private loading: Promise<void> = Promise.resolve();
+  private choosing = false;
   private readonly disposables: vscode.Disposable[] = [];
 
-  static show(_context: vscode.ExtensionContext, store: WorkspaceStore, client: SingularityFlowClient, expected: OutcomeTarget | null = null): OutcomeReviewPanel {
+  static show(_context: vscode.ExtensionContext, store: WorkspaceStore, client: SingularityFlowClient, expected: OutcomeTarget | null = null, capability: string | null = null): OutcomeReviewPanel {
     if (OutcomeReviewPanel.current) {
-      OutcomeReviewPanel.current.expected = expected;
       OutcomeReviewPanel.current.panel.reveal(vscode.ViewColumn.Active);
-      void OutcomeReviewPanel.current.reload();
+      if (OutcomeReviewPanel.current.choosing) return OutcomeReviewPanel.current;
+      OutcomeReviewPanel.current.expected = expected;
+      OutcomeReviewPanel.current.capability = capability;
+      OutcomeReviewPanel.current.loading = OutcomeReviewPanel.current.reload();
       return OutcomeReviewPanel.current;
     }
     const panel = vscode.window.createWebviewPanel('singularityFlow.outcomeReview', 'Check the Outcome', vscode.ViewColumn.Active,
       { enableScripts: true, retainContextWhenHidden: true });
-    return OutcomeReviewPanel.current = new OutcomeReviewPanel(panel, store, client, expected);
+    return OutcomeReviewPanel.current = new OutcomeReviewPanel(panel, store, client, expected, capability);
   }
 
   private constructor(private readonly panel: vscode.WebviewPanel, private readonly store: WorkspaceStore,
-    private readonly client: SingularityFlowClient, expected: OutcomeTarget | null = null) {
+    private readonly client: SingularityFlowClient, expected: OutcomeTarget | null = null, capability: string | null = null) {
     this.expected = expected;
+    this.capability = capability;
     const router = registerMessageRouter('singularityFlow.outcomeReview', {
       action: (message) => this.act(stringField(message, 'action') ?? '', integerField(message, 'criterion'),
         integerField(message, 'check'), integerField(message, 'item'))
@@ -56,7 +63,7 @@ export class OutcomeReviewPanel {
     }, null, this.disposables);
     this.panel.onDidDispose(() => this.dispose(), null, this.disposables);
     this.render();
-    void this.reload();
+    this.loading = this.reload();
   }
 
   private async reload(): Promise<void> {
@@ -69,7 +76,7 @@ export class OutcomeReviewPanel {
     try {
       const repository = this.client.repository;
       const workId = this.store.current.snapshot.workflow.workItem.id;
-      const result = await this.client.run<unknown>(['outcome', workId, '--json']);
+      const result = await this.client.run<unknown>(['outcome', workId, ...(this.capability ? ['--capability', this.capability] : []), '--json']);
       if (revision !== this.revision || this.client.repository !== repository) return;
       this.view = outcomeView(result);
       if (this.view?.workId !== workId || this.expected && !sameOutcomeTarget(this.view?.target, this.expected)) {
@@ -119,6 +126,55 @@ export class OutcomeReviewPanel {
     await this.act('app-review', null, null, null);
   }
 
+  /** A native question, not a model-supplied action or answer. One choice per invocation. */
+  async guideDelivery(workId: string): Promise<unknown> {
+    if (this.choosing) return { status: 'already-open', workId, recorded: null, message: 'Finish the open validation choice first.' };
+    this.choosing = true;
+    try {
+      await this.loading;
+      if (this.store.current.stale || this.store.current.error) await this.act('refresh', null, null, null);
+      const view = this.view;
+      if (view?.workId !== workId || !this.currentDelivery()) {
+        return { status: 'blocked', workId, recorded: null, message: this.error ?? 'Select this Story in VS Code before opening its delivery validation.' };
+      }
+      if (!view.validation) {
+        return { status: 'blocked', workId, recorded: null,
+          message: 'This CLI did not return a delivery validation guide. Update the CLI and VS Code integration together, then reopen Check the Outcome. The existing review remains readable.' };
+      }
+      const binding = view.target;
+      const choice = await vscode.window.showQuickPick(view.validation.choices.map((item, index) => ({
+        label: item.label, detail: item.description, index
+      })), { title: `Validate ${workId}`, placeHolder: view.validation.question, ignoreFocusOut: true });
+      if (!choice) return { status: 'cancelled', workId, recorded: null };
+      if (this.disposed || this.view !== view || !this.currentDelivery(binding)) return { status: 'blocked', workId, recorded: null,
+        message: this.error ?? 'The outcome changed while the choice was open. Refresh before choosing again.' };
+      await this.chooseValidation(choice.index);
+      return { status: 'selected', workId, binding, capability: view.application.capability ?? null,
+        choice: view.validation.choices[choice.index]?.id, recorded: null,
+        message: 'Opened the selected validation action. Inspect its result; selection alone establishes no test success, acceptance, submission or approval.' };
+    } finally { this.choosing = false; }
+  }
+
+  private async chooseValidation(index: number): Promise<void> {
+    if (!this.currentDelivery()) return;
+    const choice = this.view?.validation?.choices[index];
+    if (!choice) return;
+    if (choice.id === 'review') { this.panel.reveal(vscode.ViewColumn.Active); return; }
+    if (choice.id === 'repair') return this.act('request-repair', null, null, null);
+    const entry = this.view?.application.entries?.find(item => item.id === choice.entryId);
+    if (choice.id.startsWith('open:')) {
+      const url = entry?.started && entry.ready ? loopbackUrl(entry.url) : null;
+      if (!url) throw new Error('The selected application has no ready local address. Refresh before opening it.');
+      await vscode.env.openExternal(vscode.Uri.parse(url)); return;
+    }
+    if (choice.id.startsWith('start:')) {
+      if (!entry || entry.started || entry.portTaken) throw new Error('The selected application cannot be started from this outcome. Refresh its current status.');
+      await vscode.commands.executeCommand('singularityFlow.startApplication', { ...this.view?.target, capability: this.view?.application.capability, configuration: entry.id });
+      return;
+    }
+    if (['configure', 'tests', 'continue'].includes(choice.id)) return this.act(choice.id, null, null, null);
+  }
+
   private async act(action: string, criterion: number | null, check: number | null, item: number | null): Promise<void> {
     if (action === 'refresh') {
       this.expected = null;
@@ -143,6 +199,11 @@ export class OutcomeReviewPanel {
       return this.reload();
     }
     if (!this.currentDelivery()) return;
+    if (action === 'validation-choice' && item !== null) return this.chooseValidation(item);
+    if (action === 'configure') {
+      await vscode.commands.executeCommand('singularityFlow.editRunConfigurations', { ...this.view?.target,
+        capability: this.view?.application.capability, local: true }); return;
+    }
     if (action === 'app-review' && this.view?.applicationReview) {
       if (vscode.workspace.isTrusted === false) throw new Error('Trust the workspace before opening application review.');
       const workId = this.view.workId;
@@ -157,9 +218,9 @@ export class OutcomeReviewPanel {
       await this.client.run(['app-review', 'inspect', sessionId, '--work-id', workId, '--json']);
       await this.reload(); return;
     }
-    if (action === 'start') { await vscode.commands.executeCommand('singularityFlow.startApplication'); return; }
+    if (action === 'start') { await vscode.commands.executeCommand('singularityFlow.startApplication', { ...this.view?.target, capability: this.view?.application.capability }); return; }
     if (action === 'run-test') { await vscode.commands.executeCommand('singularityFlow.workspaceRunTest'); return; }
-    if (action === 'test-summary') { await vscode.commands.executeCommand('singularityFlow.testSummary'); return; }
+    if (action === 'test-summary') { await vscode.commands.executeCommand('singularityFlow.testSummary', { workId: this.view?.workId, phase: this.view?.testsPhase ?? this.view?.target?.phase }); return; }
     if (action === 'continue') { await vscode.commands.executeCommand('singularityFlow.openJourney'); return; }
     if (action === 'request-repair') {
       if (this.view?.applicationReview) return this.act('app-review', null, null, null);
@@ -172,7 +233,8 @@ export class OutcomeReviewPanel {
         query: `${view.repairCopilot}\nWork ID: ${view.workId}; phase: ${view.target?.phase}; generation: ${view.target?.generation}.\nHuman repair request: ${JSON.stringify(feedback.trim())}\nThe returned repair admission is: ${view.repairCommand}\nRun that exact admission once before source edits, then refresh phase entry and fix the reported in-scope behavior. Preserve this Story and its existing code; if admission requires an owner, retain that route. Do not recreate the Story, waive tests, accept the application or approve a phase.` });
       return;
     }
-    if (action === 'tests') { await vscode.commands.executeCommand('singularityFlow.runTests'); return; }
+    if (action === 'tests' && this.view?.testsCommand) { await vscode.commands.executeCommand('singularityFlow.runTests', { ...this.view.target,
+      capability: this.view.application.capability, testPhase: this.view.testsPhase ?? this.view.target?.phase }); return; }
     if (action === 'matrix') { await vscode.commands.executeCommand('singularityFlow.openEvidenceMatrix'); return; }
     if (action === 'decisions') { await vscode.commands.executeCommand('singularityFlow.decisions'); return; }
     if (action === 'copy-scope') {

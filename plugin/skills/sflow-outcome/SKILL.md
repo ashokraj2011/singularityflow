@@ -1,6 +1,6 @@
 ---
 name: sflow-outcome
-description: Show what a Story delivered - the app to try, each criterion's tests and checks, and what is still open - without changing anything.
+description: Review a Story delivery and ask which test, local application setup, evidence review or repair to perform next.
 disable-model-invocation: true
 argument-hint: "[WORK-ID] [--capability ID]"
 
@@ -17,7 +17,7 @@ Before any boundary lookup or SFlow action, run `singularity-flow pause status -
 
 1. Use the Boundary repository. With an explicit Work ID, do not require or change the active Story. Without an ID, run `singularity-flow session current --json` and require its `ready` Story; use its exact `repositoryPath` as cwd.
 2. Run `singularity-flow outcome <WORK-ID> --for-agent --json`, adding `--capability` only when the person named one.
-3. From `data.outcome`, show `lifecycle` and `completion`. Under "Try it", list each `application.entries` item with its `url`, whether it is `started`, and the route it carries to start it or shut it down; when `portTaken` is true, say another process already listens at that address. If `application.status` is not `declared`, show its `message` or `setup` route.
-4. For each `criteria` item show its `id`, `text`, `result` and `methods`; each test with its `outcome`; and each check with its `method`, `status`, `reference`, `suggestedFile` and `signOff` command.
-5. List `open.scopeItems` with both commands and `open.blocking` messages. Offer `routes.tests`, `routes.repair` for an in-scope repair/owner-admitted successor, and `routes.continue` for the existing workflow actions. When `applicationReview` is present, offer its separate human surface; final acceptance requires submitted test evidence. Opening this read is not acceptance. Wait for the person to try the result or report a problem.
-6. Only relay. Never start the application or shut it down, run tests, take a screenshot, sign off or record a decision here: those are the person's routes, run when they ask. A screenshot or a passing test is not a sign-off.
+3. From `data.outcome`, summarize `lifecycle`, `completion`, `validation.steps`, retained test results and diagnostic runs separately. Show application readiness and genuine errors. A missing launch configuration is a setup choice, not a Story blocker. Backend and CLI deliveries use their declared tests and evidence without an invented web UI.
+4. Show acceptance gaps and owed checks, with exact reference/evidence paths. An existing screenshot is not a recorded sign-off. Preserve `open.scopeItems` and `open.blocking` routes; never turn an advisory into a new approval gate.
+5. Ask `validation.question` now with its `choices`. Prefer native `sflowDeliveryValidation` with the exact Work ID and returned `application.capability`. Without that tool use `ask_user`; without a question tool print the question and choices and wait. A summary alone is not the handoff. Do not call the native tool again after cancellation or an unchanged refusal.
+6. Only after an explicit choice: run the selected returned app start/stop or tests route. Missing launch settings: use the setup route and `/sf-run-app`'s exact issued draft, preview it and save a personal checkout profile after the person confirms it. Do not modify shared test definitions, source files or secret values. A required environment binding is the person's terminal action. Report actual results and offer the remaining choices, without automatically asking them again. Repair uses its exact author/owner route; Continue shows existing workflow actions and waives nothing. Human sign-off uses `sflowWitnessReview` or the person's exact witness command, never model-supplied checklist answers. No acceptance, submission or approval here.

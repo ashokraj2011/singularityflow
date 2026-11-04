@@ -805,13 +805,14 @@ export class RunAndTest implements vscode.Disposable {
   }
 
   /** Palette: pick the start entry (and environment, when it allows several), then start it. */
-  async startFromPalette(capability: string): Promise<void> {
+  async startFromPalette(capability: string, configuration: string | null = null): Promise<void> {
     if (!this.trusted(capability)) return;
     await this.load(capability);
     const state = this.stateOf(capability);
     const entries = state.plan ?? [];
     if (!entries.length) return void showCompactWarningMessage(state.planNote ?? `${capability} declares no start entry.`);
-    const entry = entries.length === 1 ? entries[0]
+    if (configuration && !entries.some(entry => entry.id === configuration)) throw new Error('The selected launch configuration changed. Refresh Run & Test.');
+    const entry = configuration ? entries.find(entry => entry.id === configuration) : entries.length === 1 ? entries[0]
       : (await vscode.window.showQuickPick(entries.map((item) => ({ label: item.id, description: item.argv.join(' '), entry: item })),
         { title: `Start ${capability}`, placeHolder: 'Which start entry?', ignoreFocusOut: true }))?.entry;
     if (!entry) return;
@@ -882,7 +883,8 @@ export async function editRunConfigurationsCommand(host: RunAndTestHost, target?
 /** The three palette commands: Start Application, Run Tests, Test Summary. */
 export async function runAndTestCommand(kind: 'start' | 'tests' | 'summary', host: RunAndTestHost, target?: unknown): Promise<void> {
   const controller = RunAndTest.attach(host);
-  const requested = (target && typeof target === 'object' ? target : {}) as { workId?: unknown; phase?: unknown; capability?: unknown; beside?: unknown };
+  const requested = (target && typeof target === 'object' ? target : {}) as { workId?: unknown; phase?: unknown; capability?: unknown; configuration?: unknown; beside?: unknown };
+  if (kind !== 'summary' && typeof requested.workId === 'string' && requested.workId !== host.workId?.()) throw new Error('The selected Story changed. Refresh before running its application or tests.');
   if (kind === 'summary' && typeof requested.workId === 'string' && requested.workId) {
     return void TestSummaryPanel.show(host.client, { kind: 'story', workId: requested.workId, phase: typeof requested.phase === 'string' ? requested.phase : null },
       { beside: requested.beside === true });
@@ -891,9 +893,10 @@ export async function runAndTestCommand(kind: 'start' | 'tests' | 'summary', hos
     return void TestSummaryPanel.show(host.client, { kind: 'capability', capability: requested.capability });
   }
   const title = kind === 'start' ? 'Start Application' : kind === 'tests' ? 'Run Tests' : 'Test Summary';
-  const picked = await controller.pickCapability(title, kind === 'summary' ? host.workId?.() ?? null : null);
+  const picked = typeof requested.capability === 'string' && CONFIGURATION_TARGET.test(requested.capability)
+    ? { capability: requested.capability } : await controller.pickCapability(title, kind === 'summary' ? host.workId?.() ?? null : null);
   if (!picked) return;
   if ('story' in picked) return void TestSummaryPanel.show(host.client, { kind: 'story', workId: picked.story, phase: null });
   if (kind === 'summary') return void TestSummaryPanel.show(host.client, { kind: 'capability', capability: picked.capability });
-  return kind === 'start' ? controller.startFromPalette(picked.capability) : controller.testsFromPalette(picked.capability);
+  return kind === 'start' ? controller.startFromPalette(picked.capability, typeof requested.configuration === 'string' ? requested.configuration : null) : controller.testsFromPalette(picked.capability);
 }

@@ -1807,6 +1807,14 @@ test('the five SFlow language-model tools answer through the gateway, and a paus
   assert.equal(forged.status, 'blocked');
   assert.equal(forged.recorded, null);
   assert.match(forged.message, /accepts only a Story ID, criterion and slot/u);
+  const validationTool = tools.get('singularityFlow_deliveryValidation');
+  assert.ok(validationTool, 'Copilot can ask the person how to validate a delivery');
+  for (const input of [{ workId: 'HEX-1', action: 'start' }, { workId: '../outside' }, {}]) {
+    const refused = JSON.parse((await validationTool.invoke({ input })).content[0].value);
+    assert.equal(refused.status, 'blocked');
+    assert.equal(refused.recorded, null);
+    assert.match(refused.message, /accepts only an exact Story ID/u);
+  }
   // Every answer fits one tool result, as the model reads it (host.mjs boundedToolAnswer).
   const call = async (name, input) => {
     const text = (await tools.get(name).invoke({ input })).content[0].value;
@@ -7125,12 +7133,12 @@ test('Check the Outcome opens its own read-only page, and a target it never load
   await registered.commands.get('singularityFlow.openOutcomeReview')();
   const panel = registered.panels.find((entry) => entry.id === 'singularityFlow.outcomeReview');
   assert.ok(panel, 'the command opened its panel');
-  for (let wait = 0; wait < 100 && !/Try it|Open a Story to check its outcome|could not be read/u.test(panel.webview.html); wait += 1) {
+  for (let wait = 0; wait < 100 && !/Try the Story result|Open a Story to check its outcome|could not be read/u.test(panel.webview.html); wait += 1) {
     await new Promise((resolve) => setTimeout(resolve, 20));
   }
   assert.match(panel.webview.html, /Check the outcome/u);
-  assert.match(panel.webview.html, /Optional: nothing here is recorded and no step waits for it/u);
-  assert.match(panel.webview.html, /Try it|Open a Story to check its outcome/u);
+  assert.match(panel.webview.html, /Opening this review records no acceptance and changes no approval policy/u);
+  assert.match(panel.webview.html, /Try the Story result|Open a Story to check its outcome/u);
   await panel.post({ type: 'action', action: 'copy-sign-off', criterion: 9, check: 9 });
   await panel.post({ type: 'action', action: 'copy-scope', item: 9 });
   assert.deepEqual(registered.clipboard, [], 'only what the panel loaded is copied');

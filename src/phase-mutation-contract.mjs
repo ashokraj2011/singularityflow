@@ -56,7 +56,7 @@ export function mutationTurnMode(skill) {
   if (name === 'confirm') return 'confirm';
   // /sf-run-app and /sf-test start, check and stop the declared application and run the declared
   // tests (`app` and `tests`); they edit nothing and never bind environment values.
-  if (['run-app', 'test', 'app-review'].includes(name)) return 'run-and-test';
+  if (['run-app', 'test', 'app-review', 'outcome'].includes(name)) return 'run-and-test';
   // /sf-inbox, /sf-stories and /sf-workspace-session read and then attach a session (`session attach`,
   // the /sf-session steps, `session workspace`).
   if (['inbox', 'stories', 'workspace-session'].includes(name)) return 'session-only';

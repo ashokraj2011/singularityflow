@@ -44,7 +44,7 @@ export const READ_PLAN_CHUNKS = 10;
 export const LOOP_THRESHOLD = 3;
 const LOOP_WINDOW_MS = 2 * 60 * 60 * 1000;
 // `wait`: reading a result again while its command still runs is never a loop.
-const UNCOUNTED_STATES = new Set(['author', 'read', 'paused', 'wait']);
+const UNCOUNTED_STATES = new Set(['author', 'read', 'paused', 'wait', 'await-human']);
 const LARGE_TEXT_BYTES = 4_000;
 const FIELD_ORDER = 'agentOutputFieldOrder';
 // Recorded sessions read review document bodies back in every approval, publish and submit result
@@ -265,11 +265,16 @@ export function agentAct(result) {
     : result.resultType === 'sflow-phase-publication' && result.status === 'published' ? result.outcomeReview : null;
   if (codeOffer) return withRoute({
     state: 'next', do: null, read: result.publishIfReady?.published ? ['publishIfReady.outcomeReview', 'publishIfReady.afterReview'] : ['outcomeReview', ...(result.applicationReview ? ['applicationReview'] : [])],
-    said: 'Code published. Read the returned outcome once, then let the person try the application and check its acceptance criteria. Opening the review starts no app and records no acceptance or approval.'
+    said: 'Code published. Read the returned outcome once, then ask its validation.question with the returned choices. Prefer the native sflowDeliveryValidation tool; otherwise use the host question tool. A summary without that question is not the human handoff. Opening the review starts no app and records no acceptance or approval.'
   }, { ...codeOffer, command: codeOffer.agentCommand ?? codeOffer.command });
   if (result.data?.outcome?.resultType === 'sflow-outcome-review') return {
     state: 'await-human', do: null, read: ['data.outcome'],
-    said: 'Show the application/run options, actual test results, each acceptance criterion and outstanding human checks. Offer the returned repair and continuation routes. Wait for the person to inspect or report a problem; do not start applications, run tests, accept, submit or approve unless explicitly requested. Reading this screen is not acceptance.' };
+    ...(result.data.outcome.validation ? { ask: { kind: 'choice', question: result.data.outcome.validation.question,
+      choices: result.data.outcome.validation.choices.map(({ id, label, description }) => ({ id, label, description })),
+      tool: { name: 'sflowDeliveryValidation', input: { workId: result.data.outcome.workId,
+        ...(result.data.outcome.application?.capability ? { capability: result.data.outcome.application.capability } : {}) } },
+      how: 'Ask now using the native tool or host question tool. Execute only the selected returned route if this skill permits it; otherwise relay its exact skill. Cancellation records nothing; do not repeat the question unchanged.' } } : {}),
+    said: 'Show actual retained test results, diagnostic runs separately, application readiness and outstanding human checks. Ask the returned validation question now. Start or configure the app, run tests, or open evidence only after the person chooses. Continue preserves all existing sign-offs; never accept, submit or approve from this choice.' };
   const done = result.publishIfReady?.published ? result.publishIfReady.next : result.submitIfReady?.submitted ? result.submitIfReady.next : null;
   if (done) return { state: 'next', said: oneLine(done.instruction?.split('. ')[0] ?? 'Done.'),
     do: done.commandGuidance ? { reason: oneLine(done.reason), copilot: done.commandGuidance.copilotCommand ?? null,

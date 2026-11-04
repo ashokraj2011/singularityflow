@@ -96,6 +96,23 @@
         }
       },
       {
+        "name": "singularityFlow_deliveryValidation",
+        "displayName": "SFlow delivery validation",
+        "toolReferenceName": "sflowDeliveryValidation",
+        "canBeReferencedInPrompt": true,
+        "userDescription": "Choose whether to run Story tests, configure or start its application, inspect evidence, request repair or continue.",
+        "modelDescription": "After reading SFlow outcome, ask the person what to validate next using this native choice. Pass the exact workId and application.capability when returned. Accepts only these IDs; never an action or answer. VS Code displays the engine's current choices and opens only the action the person selects, bound to this checkout and generation. Cancelling records nothing. Selecting an action establishes no test success, evidence acceptance, witness, submission or approval. Never call repeatedly after cancellation or an unchanged refusal. For human sign-off use sflowWitnessReview with the exact owed criterion and slot.",
+        "inputSchema": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["workId"],
+          "properties": {
+            "workId": { "type": "string", "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$" },
+            "capability": { "type": "string", "pattern": "^[a-z0-9][a-z0-9-]*$" }
+          }
+        }
+      },
+      {
         "name": "singularityFlow_witnessReview",
         "displayName": "SFlow human evidence review",
         "toolReferenceName": "sflowWitnessReview",
@@ -1222,6 +1239,11 @@
         "command": "singularityFlow.openOutcomeReview",
         "title": "Singularity Flow: Check the Outcome",
         "icon": "$(eye)"
+      },
+      {
+        "command": "singularityFlow.guideDeliveryValidation",
+        "title": "Singularity Flow: Validate Story Delivery",
+        "icon": "$(checklist)"
       },
       {
         "command": "singularityFlow.openApmPackages",

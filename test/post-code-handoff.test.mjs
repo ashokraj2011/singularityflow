@@ -68,6 +68,15 @@ test('code publication hands to outcome review while preserving the unchanged su
   const human = agentAct({ data: { outcome: { resultType: 'sflow-outcome-review' } } });
   assert.equal(human.state, 'await-human');
   assert.equal(human.do, null, 'reading cannot start an app or advance the Story');
+  const outcome = buildOutcomeReview({ workflow });
+  const question = agentAct({ data: { outcome } });
+  assert.equal(question.ask.kind, 'choice');
+  assert.equal(question.ask.question, outcome.validation.question);
+  assert.deepEqual(question.ask.tool, { name: 'sflowDeliveryValidation', input: { workId: 'TRY-1' } });
+  assert.deepEqual(question.ask.choices.map(choice => choice.id), outcome.validation.choices.map(choice => choice.id));
+  assert.equal(question.do, null, 'the model cannot select a runtime action by reading the result');
+  const scoped = buildOutcomeReview({ workflow, application: { status: 'none-declared', capability: 'api' } });
+  assert.deepEqual(agentAct({ data: { outcome: scoped } }).ask.tool.input, { workId: 'TRY-1', capability: 'api' });
 });
 
 test('VS Code offers only the exact engine-selected delivery and rejects stale, future and completed targets', () => {
@@ -126,6 +135,9 @@ test('real code publication offers the review and its snapshot without starting 
   const outcome = repo.sflowJson('outcome', 'QF-1');
   assert.equal(outcome.status, 0, JSON.stringify(outcome));
   assert.equal(outcome.value.effects.externalSystemsChanged, false);
+  assert.equal(outcome.value.data.outcome.validation.schemaVersion, 1);
+  assert.equal(outcome.value.data.outcome.validation.binding.phase, 'implement');
+  assert.ok(outcome.value.data.outcome.validation.choices.some(choice => choice.id === 'configure'));
   const criterion = outcome.value.data.outcome.criteria.find(row => row.id === 'QF-1:AC-001');
   assert.ok(criterion, 'the person receives the approved acceptance criterion');
   assert.ok(criterion.tests.some(result => result.outcome === 'passed'), JSON.stringify(criterion));
@@ -138,6 +150,8 @@ test('real code publication offers the review and its snapshot without starting 
   } finally { repo.env.SINGULARITY_FLOW_AGENT_OUTPUT = display; }
   assert.equal(agentReview.act.state, 'await-human');
   assert.equal(agentReview.act.do, null);
+  assert.equal(agentReview.act.ask.kind, 'choice', 'the bounded Copilot output still contains the explicit question');
+  assert.equal(agentReview.act.ask.tool.input.workId, 'QF-1');
   assert.equal(agentReview.data.outcome.workId, 'QF-1');
   assert.equal(outcome.value.data.outcome.routes.continue.command, 'singularity-flow nextsteps QF-1 --for-agent --json');
   assert.equal(outcome.value.data.outcome.routes.repair.command, 'singularity-flow phase begin implement --work-id QF-1 --json');

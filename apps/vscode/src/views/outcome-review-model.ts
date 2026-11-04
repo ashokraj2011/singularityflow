@@ -15,15 +15,23 @@ export interface OutcomeEntry { id: string; name: string; url: string; started: 
 export interface OutcomeApplication { status: string; capability?: string | null; entries?: OutcomeEntry[]; message?: string | null }
 export interface OutcomeScopeItem { id: string; text: string; command: string; otherCommand?: string }
 export interface OutcomeTarget { workId: string; phase: string | null; generation: number | null }
+export interface DeliveryChoice { id: string; label: string; description: string; entryId?: string }
+export interface DeliveryValidation {
+  schemaVersion: 1; binding: OutcomeTarget; question: string;
+  steps: Array<{ id: string; label: string; status: string; detail: string }>;
+  choices: DeliveryChoice[];
+}
 export interface OutcomeView {
   workId: string; title: string | null; lifecycle: string | null; completion: string | null;
   target?: OutcomeTarget | null;
   application: OutcomeApplication; criteria: OutcomeCriterion[];
   open: { scopeItems: OutcomeScopeItem[]; blocking: Array<{ code: string; message: string }> };
   testsCommand: string | null;
+  testsPhase?: string | null;
   repairCommand?: string | null;
   repairCopilot?: string | null;
   applicationReview?: { required: boolean; sessionId: string | null };
+  validation?: DeliveryValidation;
 }
 
 const text = (value: unknown): value is string => typeof value === 'string';
@@ -50,10 +58,18 @@ export function outcomeView(raw: unknown): OutcomeView | null {
   if (!application || !text(application.status)) return null;
   if (application.entries && !application.entries.every((entry) => entry && text(entry.id) && text(entry.url) && typeof entry.started === 'boolean')) return null;
   const open = data.open ?? {};
+  const target = { workId: data.workId, phase: text(data.step?.id) ? data.step.id : null,
+    generation: Number.isSafeInteger(data.step?.generation) ? data.step.generation : null };
+  const validation = data.validation as DeliveryValidation | undefined;
+  if (validation && (validation.schemaVersion !== 1 || !sameOutcomeTarget(validation.binding, target)
+      || !text(validation.question) || !Array.isArray(validation.steps) || !validation.steps.every(step => step && text(step.id) && text(step.label) && text(step.status) && text(step.detail))
+      || !Array.isArray(validation.choices) || !validation.choices.every(choice => choice && text(choice.id) && text(choice.label) && text(choice.description)
+        && (['tests', 'configure', 'review', 'repair', 'continue'].includes(choice.id)
+          || /^(?:start|open):[A-Za-z0-9._-]+$/u.test(choice.id) && text(choice.entryId) && choice.id.endsWith(`:${choice.entryId}`))))) return null;
   return {
     workId: data.workId, title: text(data.title) ? data.title : null,
-    target: { workId: data.workId, phase: text(data.step?.id) ? data.step.id : null,
-      generation: Number.isSafeInteger(data.step?.generation) ? data.step.generation : null },
+    target,
+    ...(validation ? { validation } : {}),
     lifecycle: text(data.lifecycle) ? data.lifecycle : null, completion: text(data.completion) ? data.completion : null,
     application, criteria: data.criteria,
     open: {
@@ -62,6 +78,7 @@ export function outcomeView(raw: unknown): OutcomeView | null {
     },
     ...(data.applicationReview ? { applicationReview: { required: data.applicationReview.required === true, sessionId: text(data.applicationReview.sessionId) ? data.applicationReview.sessionId : null } } : {}),
     testsCommand: text(data.routes?.tests?.command) ? data.routes.tests.command : null,
+    testsPhase: text(data.validation?.tests?.phase) ? data.validation.tests.phase : null,
     repairCommand: text(data.routes?.repair?.command) ? data.routes.repair.command : null,
     repairCopilot: text(data.routes?.repair?.copilotCommand) ? data.routes.repair.copilotCommand : null
   };

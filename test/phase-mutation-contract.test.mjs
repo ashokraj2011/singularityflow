@@ -488,9 +488,10 @@ test('/sf-run-app and /sf-test turns run the declared application and tests; no 
   const f = await fixture(t);
   assert.equal(mutationTurnMode('sf-run-app'), 'run-and-test');
   assert.equal(mutationTurnMode('sflow-test'), 'run-and-test');
+  assert.equal(mutationTurnMode('sflow-outcome'), 'run-and-test');
   assert.equal(f.contract('run-and-test').allow.application, false);
   assert.deepEqual(f.contract('run-and-test').allow.artifacts, []);
-  for (const skill of ['/sf-run-app web', '/sf-test']) {
+  for (const skill of ['/sf-run-app web', '/sf-test', '/sf-outcome PMC-1']) {
     const payload = await f.enter(skill, `runner-${skill}`);
     const shell = command => mutationToolGuard({ ...payload, toolName: 'bash', toolArgs: { command, cwd: f.root } });
     for (const command of ['singularity-flow app plan --json', 'singularity-flow app start web --environment qa',
@@ -514,14 +515,17 @@ test('/sf-run-app and /sf-test turns run the declared application and tests; no 
   const edit = target => mutationToolGuard({ ...suggest, toolName: 'edit', toolArgs: { path: target } });
   assert.equal((await edit(draft)).permissionDecision, 'deny', 'nothing is issued before app suggest');
   // Every live /sf-run-app or /sf-test turn for this repository receives it: the two above and this one.
-  assert.equal(await issueRunAppDraftStaging(draft, { root: f.root }), 3);
+  assert.equal(await issueRunAppDraftStaging(draft, { root: f.root }), 4);
   assert.deepEqual(await edit(draft), {});
   for (const target of [other, 'src/App.jsx', 'singularity/capabilities.yml']) assert.equal((await edit(target)).permissionDecision, 'deny', target);
   for (const command of [`singularity-flow capability set web --application-file ${draft} --json`,
+    `singularity-flow app config save-local --application-file ${draft} --capability web --json`,
     `singularity-flow capability edit web --lead https://example.invalid/lead.git --application-file ${draft} --mode set --json`]) {
     assert.deepEqual(await suggestShell(command), {}, command);
   }
   for (const command of [`singularity-flow capability set web --application-file ${other}`,
+    `singularity-flow app config save-local --application-file ${other} --json`,
+    `singularity-flow app config save-local --application-file ${draft} --force`,
     `singularity-flow capability set web --application-file ${draft} --name Other`,
     `singularity-flow capability edit web --lead https://example.invalid/lead.git --application-file ${draft} --mode remove`,
     `singularity-flow capability edit web --application-file ${draft} --mode set`, 'singularity-flow capability add web']) {
@@ -1505,7 +1509,7 @@ const NOT_RUN_BY_THIS_TURN = Object.freeze({
   'sflow-build-workflow': [[/^configuration approve\b/u, 'the reviewer approves in their own terminal']],
   'sflow-fix-workflow': [[/^configuration approve\b/u, 'the reviewer approves in their own terminal'],
     [/^workflow studio apply\b.*--propose\b/u, 'proposes only the change set `workflow validate` issued to the turn (its own test)']],
-  'sflow-run-app': [[/^capability (?:edit|set)\b/u, 'proposes only the application draft `app suggest` issued to the turn (its own test)']],
+  'sflow-run-app': [[/^(?:capability (?:edit|set)|app config save-local)\b/u, 'saves or proposes only the application draft `app suggest` issued to the turn (its own test)']],
   'sflow-spec-author': [[/^spec author propose\b/u, 'stages only the proposal file `spec author status` issued to the turn (its own test)'],
     [/^spec author new\b/u, 'describes new-draft creation by the person in Spec Studio or their own terminal; this skill proposes to an existing draft']],
   'sflow-reinstall': [[/^plugin verify\b/u, 'the installer\'s own verification, which `singularity-flow reinstall` runs and reports']],

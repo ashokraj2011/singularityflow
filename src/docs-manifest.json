@@ -1,9 +1,9 @@
 {
   "schemaVersion": 2,
   "generatedFrom": "docs/topics",
-  "sourceCommit": "638b83ce4c1df3536e74f6b33ee2efdfad752965",
+  "sourceCommit": "c1862872439f5f5c650413d56b91d7b950a2b717",
   "topicCount": 90,
-  "contentSha256": "bb559df4bbd1dc57d93472630e3e7128261c07b18bd2267f449443c1533726ca",
+  "contentSha256": "31b658c6f58dd3923a11e0e49ab560b0862e7d1d52fc35624e521848053ba71d",
   "topics": [
     {
       "id": "activity-and-prompt-audit",
@@ -408,8 +408,8 @@
     {
       "id": "outcome-review",
       "title": "Check what a Story delivered",
-      "version": 5,
-      "sha256": "a3c35582e44e4a4ce7ad0b4bc622ec1c46aae939efe911a9d50b1e646e1f19f2",
+      "version": 6,
+      "sha256": "e2e6b1dc4082c5618ebd6908d9b16edf9ad2eedbcb3cc369a7437fe0c2078496",
       "routingSha256": "91254a29f3d357532975441b9450011800bc186ba491849cffa41e20375b0c2e",
       "file": "outcome-review.md"
     },

@@ -146,14 +146,19 @@ test('unplanned code is refused before it is committed, accounted for by a plan 
   // Nothing is committed and the helper stays in the worktree.
   const refused = run(process.execPath, [CLI, '--no-model', 'phase', 'publish', 'implementation', '--authored', 'human', '--channel', 'manual-in-place'], root, { allowFailure: true });
   assert.notEqual(refused.status, 0);
-  assert.match(refused.stdout + refused.stderr, /It ran on the candidate without these files no plan names: NOTES\.md, src\/helper\.mjs\./);
-  assert.match(refused.stdout + refused.stderr, /decision plan --add-location/);
+  assert.match(refused.stdout + refused.stderr, /These changed files would be excluded from implementation/);
+  assert.match(refused.stdout + refused.stderr, /decision plan.*--add-location/);
   assert.equal(await readFile(path.join(root, 'src/helper.mjs'), 'utf8'), 'export const approved = 2;\n', 'the helper stays in the worktree');
 
   cli('decision', 'plan', '--add-location', `${W}:AC-001=src/helper.mjs`, '--reason', 'The helper holds the approved value the module returns.');
+  const noteRecovery = JSON.parse(cli('recover', W, '--json').stdout);
+  const preserveNote = noteRecovery.actions.find(action => action.id === 'set-aside-worktree');
+  assert.deepEqual(preserveNote.paths, ['NOTES.md']);
+  const noteCopy = JSON.parse(cli(...preserveNote.commandGuidance.argv).stdout);
+  const noteManifest = JSON.parse(cli('appeal', 'checkpoint-show', noteCopy.setAside.checkpoint, '--work-id', W, '--phase', 'implementation', '--json').stdout);
+  assert.ok(JSON.stringify(noteManifest).includes('NOTES.md'));
   cli('phase', 'publish', 'implementation', '--authored', 'human', '--channel', 'manual-in-place');
-  // The note stays the person's: editing it after publication changes nothing the generation bound.
-  await write('NOTES.md', 'Remember to tell the team about the helper, and thank the reviewer.\n');
+  // The unrelated note is kept privately before publication, never silently left for approval.
   cli('submit', 'implementation');
   // Approval is a separate human boundary: perform it in a clean review clone, without stashing
   // or claiming the author's unrelated scratch note.
@@ -165,9 +170,9 @@ test('unplanned code is refused before it is committed, accounted for by a plan 
   run(process.execPath, [CLI, '--no-model', 'approve', 'implementation', '--yes'], reviewRoot);
   const generation = JSON.parse(await readFile(path.join(item, 'workflow.json'), 'utf8')).phases.implementation;
   const receipt = JSON.parse(await readFile(path.join(root, generation.deliveryEvidence.receiptPath), 'utf8'));
-  assert.deepEqual(receipt.excludedChanges, ['NOTES.md']);
+  assert.deepEqual(receipt.excludedChanges ?? [], []);
   assert.equal(run('git', ['ls-files', '--', 'NOTES.md'], root).stdout.trim(), '', 'the note was never committed');
-  assert.equal(await readFile(path.join(root, 'NOTES.md'), 'utf8'), 'Remember to tell the team about the helper, and thank the reviewer.\n', 'and it is still in the worktree');
+  await assert.rejects(readFile(path.join(root, 'NOTES.md')), { code: 'ENOENT' });
   const workflowState = JSON.parse(await readFile(path.join(item, 'workflow.json'), 'utf8'));
   assert.equal(workflowState.phases.implementation.status, 'awaiting_approval');
   assert.deepEqual(workflowState.planAmendments.map((entry) => [entry.id, entry.changes]),

@@ -26,6 +26,8 @@ test('installed contracts follow capabilities across all phases, renamed workflo
     const story = workflow(names);
     const before = structuredClone(story);
     const contracts = story.phaseOrder.map(id => phaseAuthoringContract({ workItemRoot: 'team/stories' }, story, story.phases[id]));
+    assert.ok(contracts[1].planning.touchpointReview.includes('entry-points'));
+    assert.match(phaseAuthoringContractLines(contracts[1]).join('\n'), /Implementation reconciles every newly touched file in its own phase/);
     assert.deepEqual(contracts.map(entry => entry.roles), [['scope'], ['plan'], ['code'], ['convergence'], ['verification'], ['closure']]);
     for (const contract of contracts) {
       assert.equal(contract.priorApprovalsImmutable, true);

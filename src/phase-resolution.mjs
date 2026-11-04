@@ -199,6 +199,10 @@ export function phaseResolutionChoices(workflow, phase, finding) {
       || code === 'phase_artifact_only_changes' || code === 'phase_source_change_ungoverned') {
     resolution = route('worktree-review', 'human-reviewer', ['recover', workId, '--phase', phase.id, '--json'],
       'Review exact current bytes. Recovery can offer a hash-confirmed scoped commit and revalidation; unrelated edits and the index are preserved. Published work needs an authorized successor.');
+  } else if (code === 'generation_excluded_changes_unresolved') {
+    resolution = route('plan-amendment', 'plan-approval-authority',
+      ['decision', 'plan', workId, '--add-location', `<CLAUSE>=${finding.details?.paths?.[0] ?? '<path>'}`, '--reason', '<why>'],
+      'Include each Story edit through a narrow amendment to an existing approved clause, then recheck this phase. Preserve unrelated edits through the hash-confirmed recovery copy. Do not return to Planning, discard bytes or silently publish without these files.', '/sf-decide');
   } else if (code === 'spec_coverage_incomplete' && finding.details?.upstreamDecision?.complete === true) {
     // Every clause still without delivery waits on an open upstream issue: its step's approvers decide.
     const decision = finding.details.upstreamDecision;

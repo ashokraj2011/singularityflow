@@ -23,6 +23,8 @@ const CODE_SECTIONS = new Map(Object.entries({
     'gradle_test_target_required', 'xcode_test_target_required', 'rust_test_adapter_required', 'code_test_result_required',
     'code_test_suppressed'],
   'SPEC_COVERAGE_INCOMPLETE': ['spec_coverage_incomplete'],
+  'Unclaimed changed paths': ['generation_excluded_changes_unresolved'],
+  'test-repair': ['code_test_failed', 'code_test_timeout', 'code_test_skipped', 'code_test_zero_discovered'],
   // An honest partial or missing verdict, its approval refusal and its gate code share one entry.
   'conformance.verdict-incomplete': ['conformance.verdict-incomplete', 'conformance_blocking_verdicts', 'gate.conformance.blocking-verdict'],
   'conformance.verdict-contradicted': ['conformance.verdict-contradicted', 'conformance.verdict-summary-stale'],

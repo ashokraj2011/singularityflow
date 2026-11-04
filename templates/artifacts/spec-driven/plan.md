@@ -22,6 +22,12 @@ TODO: Explain how this will be built and why this approach was selected.
 TODO: Identify the modules, contracts, data, and interfaces this touches. Expected paths are a
 planning aid; the authority on what actually changed remains reconciliation `[SPK:CON-031]`.
 
+Inspect relevant entry points, page/layout shells, assets, data/contracts, manifests and test/runtime
+setup. A browser title or theme may touch an entry HTML file as well as component styles; an API or
+CLI has different entry points. Map product changes to approved clauses and configuration to
+supporting files. Newly discovered implementation paths are reconciled in that phase through a
+narrow plan amendment or private preservation; they never require rewriting this approved plan.
+
 | Surface | Change | Serves |
 |---|---|---|
 | `<path or module>` | <what changes> | [{{work.id}}:REQ-001] |

@@ -19,7 +19,7 @@ import { worktreeFingerprint } from './worktree-fingerprint.mjs';
 import { expectedPhaseEvidencePaths, expectedPreparationContextPaths, expectedStepOwnedPaths } from './recovery-preparation-context.mjs';
 import { setAsideWorktreeAction } from './recovery-set-aside.mjs';
 import { inspectLifecycleWorktree } from './lifecycle-worktree.mjs';
-import { reviewedWorktreeCommitAction } from './recovery-worktree-commit.mjs';
+import { reviewedWorktreeCommitAction, submittedWorktreeCorrectionAction } from './recovery-worktree-commit.mjs';
 import { recoveryActionGuidance } from './recovery-action-guidance.mjs';
 import { evidenceContractRecoveryActions } from './phase-evidence-amendment.mjs';
 import { inspectDraftEvidenceHold } from './draft-evidence-hold.mjs';
@@ -113,7 +113,8 @@ export async function workingTreeAction(root, config, workflow, phase, status, p
   }
   const applicationScope = current && simpleStatus
     ? await inspectPhaseWorktreeScope(root, config, workflow, phase) : null;
-  const applicationPaths = relevantPaths.filter(candidate => applicationScope?.paths.includes(candidate));
+  const applicationPaths = relevantPaths.filter(candidate => applicationScope?.paths.includes(candidate)
+    && !applicationScope.excludedChanges?.includes(candidate));
   const expectedPaths = relevantPaths.filter((candidate) => (expected.has(candidate) || applicationPaths.includes(candidate))
     && !protectedPaths.some((guard) => pathWithin(candidate, guard)));
   const unexpectedPaths = relevantPaths.filter((candidate) => !expectedPaths.includes(candidate));
@@ -366,6 +367,9 @@ async function readRecoveryPlan(root, config, workflow, { fetch, phaseId, inspec
       const commitAction = await reviewedWorktreeCommitAction(root, config, workflow, phase ?? activePhase,
         worktreeInspection, worktreeAction?.applicationScope);
       if (commitAction) actions.push(commitAction);
+      const correction = await submittedWorktreeCorrectionAction(root, config, workflow, phase ?? activePhase,
+        worktreeInspection, worktreeAction?.applicationScope);
+      if (correction) actions.push(correction);
       // A published document edited in place: when HEAD still holds the published bytes, setting it aside
       // restores exactly what was reviewed.
       const dirty = new Set(changedFiles(root));
@@ -416,6 +420,7 @@ async function readRecoveryPlan(root, config, workflow, { fetch, phaseId, inspec
       entry.automatic && entry.command ? `automatic:${entry.command}` : entry.id,
       entry
     ])).values()],
+    reviewRequired: actions.some(entry => entry.id === 'working-tree' && entry.confirmation === 'human-authority'),
     requiresRecovery: pending.status !== 'absent'
       || phaseRecovery.requiresLifecycleRecovery
       || Boolean(terminalGate?.errors.length)

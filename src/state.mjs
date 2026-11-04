@@ -2868,9 +2868,9 @@ export async function scanArtifacts(root, config, workflow, phaseId = undefined)
   // the approval's `artifactSha256`. Name them, so adopting them is a decision rather than an
   // accident.
   if (excluded.size) {
-    console.warn(`${phase.id} leaves out ${excluded.size} changed file(s) its plan does not name; they stay in your worktree, outside this generation:`);
+    console.warn(`${phase.id} has ${excluded.size} changed file(s) outside its planned candidate that need reconciliation before publication:`);
     [...excluded].sort().forEach((file) => console.warn(`  ${file}`));
-    console.warn('If one belongs to this Story, account for it with singularity-flow decision plan, then scan again.');
+    console.warn('Account for Story edits with singularity-flow decision plan. Preserve unrelated edits through the confirmed private-copy action in recovery, then scan again. No file was discarded or added automatically.');
   }
   if (adopted.length) {
     console.warn(`Warning: ${phase.id} is adopting ${adopted.length} untracked file(s) as artifacts:`);
@@ -3695,7 +3695,7 @@ export async function publishGeneration(root, config, workflow, {
   if (phaseRequiresCodeDelivery(phase)) {
     await assertPlannedSpecificationClaims(root, config, workflow, phase);
   }
-  let deliveryPreflight = await evaluateCodeDeliveryPreflight(root, config, workflow, phase);
+  let deliveryPreflight = await evaluateCodeDeliveryPreflight(root, config, workflow, phase, { requireReconciled: true });
   const dependencyOptions = { producer: effectiveAuthorship.producer,
     generation: nextPhaseGeneration(phase), agent: session.agent };
   let dependencies = await assertPhasePublicationReadiness(root, config, workflow, phase, dependencyOptions);
@@ -3713,7 +3713,7 @@ export async function publishGeneration(root, config, workflow, {
     // Tests are repository-owned programs and may generate or rewrite files. Rebind delivery
     // evidence after they finish so publication never commits bytes that were absent from the
     // preflight change set or retains hashes for bytes the test command changed.
-    deliveryPreflight = await evaluateCodeDeliveryPreflight(root, config, workflow, phase);
+    deliveryPreflight = await evaluateCodeDeliveryPreflight(root, config, workflow, phase, { requireReconciled: true });
     if (testedSelection) {
       const commands = await resolveDeliveryQualityCommands(root, { ...phase, deliveryEvidence: deliveryPreflight },
         { executionMode: workflow.resolution?.testExecutionMode });

@@ -112,7 +112,7 @@ test('workspace dependencies resolve to candidate source, not excluded working-t
   assert.match(await readFile(path.join(root, 'packages/lib/index.js'), 'utf8'), /excluded/);
 });
 
-test('an unrelated local edit that would break the tests stays in the worktree while the candidate is verified, published and approved [D9]', async (t) => {
+test('local verification isolates unrelated edits; publication requires explicit accounting or private preservation [D9]', async (t) => {
   const root = await mkdtemp(path.join(os.tmpdir(), 'sflow-candidate-isolation-'));
   const remote = `${root}.git`;
   // Git's detached maintenance can still be writing .git/objects as the test ends (ENOTEMPTY).
@@ -197,40 +197,36 @@ test('an unrelated local edit that would break the tests stays in the worktree w
 
   // A committed passing report in the candidate must not turn a no-op into fresh evidence.
   await write('test/runner.cjs', '// intentionally emit no report\n');
-  const stale = run(process.execPath, [CLI, '--no-model', 'phase', 'publish', 'implementation', '--authored', 'human', '--channel', 'manual-in-place'], root, { allowFailure: true });
-  assert.notEqual(stale.status, 0, 'old committed JUnit is not evidence of this no-op');
-  assert.match(stale.stdout + stale.stderr, /CODE_TEST_RESULT|Structured test|JUnit|test result/i);
+  const stale = run(process.execPath, [CLI, '--no-model', 'tests', 'run', '--work-id', W, '--phase', 'implementation', '--json'], root, { allowFailure: true });
+  assert.ok(stale.status !== 0 || JSON.parse(stale.stdout).commands.some(command => command.status !== 'passed'), 'old committed JUnit is not evidence of this no-op');
   assert.equal(await readFile(path.join(root, '.sflow/results/unit.xml'), 'utf8'), oldReport, 'the original report is restored');
   await write('test/runner.cjs', runner);
-
+  const local = JSON.parse(cli('tests', 'run', '--work-id', W, '--phase', 'implementation', '--json').stdout);
+  assert.ok(local.commands.every(command => command.status === 'passed'), JSON.stringify(local));
+  assert.equal(await readFile(path.join(root, 'src/config.mjs'), 'utf8'), unrelated);
+  const refused = run(process.execPath, [CLI, '--no-model', 'phase', 'publish', 'implementation', '--authored', 'human', '--channel', 'manual-in-place'], root, { allowFailure: true });
+  assert.notEqual(refused.status, 0);
+  assert.match(refused.stdout + refused.stderr, /These changed files would be excluded from implementation/);
+  const recovery = JSON.parse(cli('recover', W, '--json').stdout);
+  const aside = recovery.actions.find(action => action.id === 'set-aside-worktree');
+  assert.deepEqual(aside.paths, ['component.mdx', 'data.txt', 'src/config.mjs', 'src/scratch.mjs']);
+  const preserved = JSON.parse(cli(...aside.commandGuidance.argv).stdout);
+  const checkpoint = JSON.parse(cli('appeal', 'checkpoint-show', preserved.setAside.checkpoint, '--work-id', W, '--phase', 'implementation', '--json').stdout);
+  for (const file of aside.paths) assert.ok(JSON.stringify(checkpoint).includes(file), file);
   cli('phase', 'publish', 'implementation', '--authored', 'human', '--channel', 'manual-in-place');
-  // Back to the committed runner after the refused run is the team's own setup: no person decides it [TCE:REQ-012].
+  // The diagnostic runner edit was restored before publication; it needs no human re-pin.
   const pins = JSON.parse(await readFile(path.join(item, 'workflow.json'), 'utf8')).testCommandPins;
-  assert.deepEqual(pins.map((pin) => [pin.commandId, pin.restoredToBase ?? false]), [['isolated-tests', true]]);
+  assert.deepEqual(pins.map(pin => pin.commandId), ['isolated-tests']);
   cli('submit', 'implementation');
-  const dirtyApproval = run(process.execPath, [CLI, '--no-model', 'approve', 'implementation', '--yes'], root, { allowFailure: true });
-  assert.notEqual(dirtyApproval.status, 0, 'unrelated authoring still needs review before a local lifecycle decision');
-  assert.match(dirtyApproval.stdout + dirtyApproval.stderr, /changes that are not part of this lifecycle decision/u);
-  // Review the exact published candidate in a clean clone, without committing or discarding
-  // unrelated work in the original checkout. This is a reviewed alternative, not --allow-dirty.
-  const reviewRoot = await mkdtemp(path.join(os.tmpdir(), 'sflow-candidate-review-'));
-  t.after(() => rm(reviewRoot, removed));
-  run('git', ['clone', '--branch', W, remote, reviewRoot], root);
-  run('git', ['config', 'user.name', 'Isolation Tester'], reviewRoot);
-  run('git', ['config', 'user.email', 'iso@example.test'], reviewRoot);
-  run(process.execPath, [CLI, '--no-model', 'session', 'attach', W, '--json'], reviewRoot);
-  run(process.execPath, [CLI, '--no-model', 'approve', 'implementation', '--yes'], reviewRoot);
-  run('git', ['pull', '--ff-only', 'origin', W], root);
+  cli('approve', 'implementation', '--yes');
   const workflow = JSON.parse(await readFile(path.join(item, 'workflow.json'), 'utf8'));
   assert.equal(workflow.phases.implementation.status, 'approved');
   const receipt = JSON.parse(await readFile(path.join(root, workflow.phases.implementation.deliveryEvidence.receiptPath), 'utf8'));
-  assert.deepEqual(receipt.excludedChanges, ['component.mdx', 'data.txt', 'src/config.mjs', 'src/scratch.mjs']);
-  assert.ok(workflow.phases.implementation.checks.some((check) => check.executionIsolation === 'candidate-worktree'
-    && check.excludedFromRun.includes('src/config.mjs')), 'submission ran its checks on the candidate');
-  // Nothing was cleaned, stashed, reset or committed: the unrelated work is exactly as it was.
-  assert.equal(await readFile(path.join(root, 'src/config.mjs'), 'utf8'), unrelated);
-  assert.equal(await readFile(path.join(root, 'data.txt'), 'utf8'), 'excluded text');
-  assert.equal(await readFile(path.join(root, 'component.mdx'), 'utf8'), 'excluded MDX');
+  assert.deepEqual(receipt.excludedChanges ?? [], []);
+  // Only the explicit, hash-confirmed action moved the unrelated edits to their recovery copy.
+  assert.equal(await readFile(path.join(root, 'src/config.mjs'), 'utf8'), 'export const factor = 1;\n');
+  assert.equal(await readFile(path.join(root, 'data.txt'), 'utf8'), 'committed text');
+  assert.equal(await readFile(path.join(root, 'component.mdx'), 'utf8'), 'committed MDX');
   assert.equal(run('git', ['show', 'HEAD:src/config.mjs'], root).stdout, 'export const factor = 1;\n');
   assert.equal(run('git', ['ls-files', '--', 'src/scratch.mjs'], root).stdout.trim(), '');
   assert.equal(run('git', ['worktree', 'list', '--porcelain'], root).stdout.split('\n').filter((line) => line.startsWith('worktree ')).length, 1,

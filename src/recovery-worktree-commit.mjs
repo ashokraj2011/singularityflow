@@ -11,14 +11,15 @@ import { optionBoolean, optionString, SingularityFlowError } from './util.mjs';
 // files, transport reports, links, renames/deletions and out-of-scope edits never get swept in.
 export async function reviewedWorktreeCommitAction(root, config, workflow, phase, inspection, knownScope = null) {
   if (!phaseRequiresCodeDelivery(phase) || phase.id !== workflow.currentPhase
-      || !['in_progress', 'awaiting_approval'].includes(phase.status)
+      || phase.status !== 'in_progress'
       || branch(root) !== workflow.workItem.branch) return null;
   const scope = knownScope ?? await inspectPhaseWorktreeScope(root, config, workflow, phase);
   if (scope?.status !== 'verified') return null;
   const paths = inspection.entries.filter(entry => entry.path.kind === 'utf8'
     && (entry.type === 'untracked' || (entry.type === 'ordinary' && !entry.submodule.isSubmodule
       && ['.M', 'M.', 'MM', 'A.', 'AM', '.A'].includes(entry.xy.raw)))
-    && scope.paths.includes(entry.path.value) && regularWorktreeFile(root, entry.path.value))
+    && scope.paths.includes(entry.path.value) && !scope.excludedChanges?.includes(entry.path.value)
+    && regularWorktreeFile(root, entry.path.value))
     .map(entry => entry.path.value).sort();
   if (!paths.length) return null;
   return {
@@ -28,6 +29,21 @@ export async function reviewedWorktreeCommitAction(root, config, workflow, phase
     preserved: ['unlisted working-tree bytes', 'unlisted Git index entries', 'test reports', 'published generations', 'approval history'],
     scope: { phaseId: phase.id, basis: scope.basis, baseCommit: scope.baseCommit, changeSetDigest: scope.changeSetDigest }
   };
+}
+
+/** Submitted bytes remain immutable: keep edits through an authorized same-phase correction. */
+export async function submittedWorktreeCorrectionAction(root, config, workflow, phase, inspection, knownScope = null) {
+  if (!phaseRequiresCodeDelivery(phase) || phase.id !== workflow.currentPhase || phase.status !== 'awaiting_approval'
+      || branch(root) !== workflow.workItem.branch) return null;
+  const scope = knownScope ?? await inspectPhaseWorktreeScope(root, config, workflow, phase);
+  const paths = inspection.entries.filter(entry => entry.path.kind === 'utf8' && scope?.paths.includes(entry.path.value)
+    && regularWorktreeFile(root, entry.path.value)).map(entry => entry.path.value).sort();
+  if (!paths.length) return null;
+  return { id: 'return-current-phase-for-edits', safe: false, automatic: false, mode: 'manual',
+    confirmation: 'human-authority', reviewRequired: true, paths, skill: '/sf-reject',
+    command: `singularity-flow reject ${phase.id} --work-id ${workflow.workItem.id} --to ${phase.id} --reason <why>`,
+    detail: 'To include these edits, an authorized reviewer returns this submitted phase to itself, preserving the files and all earlier approvals. Account for newly touched paths, open the successor, then publish, test and resubmit. Do not make a standalone source commit after submission.',
+    preserved: ['working-tree bytes', 'Git index', 'published generations', 'prior approvals'] };
 }
 
 export async function commitReviewedRecovery(root, config, workflow, options) {

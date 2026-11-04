@@ -5,6 +5,7 @@ import path from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { PACKAGE_ROOT } from './package-root.mjs';
 import { formatCommandRouteLines } from './model-free-commands.mjs';
+import { renderPlatformCommand } from './safe-command-guidance.mjs';
 
 const CORNER_CASE_MODULE = pathToFileURL(path.join(PACKAGE_ROOT, 'src/verification/corner-case-obligations.mjs')).href;
 
@@ -39,7 +40,7 @@ import {
 } from './verification/adapters.mjs';
 import { normalizeQualifiedClauseId } from './traceability-ids.mjs';
 import { scanSourceClauseTags } from './source-clause-tags.mjs';
-import { codeCandidateScope, outsideEveryCandidate } from './candidate-scope.mjs';
+import { codeCandidateScope, outsideEveryCandidate, unreconciledCandidatePaths } from './candidate-scope.mjs';
 import { crossPhaseChange, describeCrossPhaseChange } from './evidence/cross-phase-change.mjs';
 import { contractRequiresTestTag, effectiveContract, mergedVerificationContracts } from './verification/contracts.mjs';
 import { scanJavaScriptDeclarations } from './verification/javascript-declarations.mjs';
@@ -1213,7 +1214,7 @@ function assertPublishedDocumentationBaseline(root, config, workflow, phase, pri
 }
 
 /** Refuse a code phase before generation state or telemetry is mutated. */
-export async function evaluateCodeDeliveryPreflight(root, config, workflow, phase, { strictCoverage = false, ignoreDisputes = false } = {}) {
+export async function evaluateCodeDeliveryPreflight(root, config, workflow, phase, { strictCoverage = false, ignoreDisputes = false, requireReconciled = false } = {}) {
   if (!phaseRequiresCodeDelivery(phase)) return null;
   if ((phase.writeScope ?? 'artifact-only') !== 'source-and-artifact') {
     throw new SingularityFlowError(
@@ -1292,6 +1293,16 @@ export async function evaluateCodeDeliveryPreflight(root, config, workflow, phas
       }
     );
   }
+  const unresolved = requireReconciled ? await unreconciledCandidatePaths(root, config, workflow, phase, scope) : [];
+  if (unresolved.length) throw new SingularityFlowError(
+    `These changed files would be excluded from ${phase.id}: ${unresolved.join(', ')}. Account for Story edits under an approved clause with a narrow plan amendment, or preserve unrelated edits through recovery's confirmed private-copy route. Resolve them here before publication; do not reset Planning or commit them manually.`, {
+      code: 'GENERATION_EXCLUDED_CHANGES_UNRESOLVED', details: {
+        workId: workflow.workItem.id, phase: phase.id, paths: unresolved, excludedChanges: unresolved,
+        priorApprovalsPreserved: true, repairScope: 'current-phase',
+        accountingCommand: `singularity-flow decision plan ${workflow.workItem.id} --add-location ${renderPlatformCommand([`<CLAUSE>=${unresolved[0]}`], 'darwin')} --reason <why>`,
+        recoveryCommand: `singularity-flow recover ${workflow.workItem.id} --phase ${phase.id} --json`
+      }
+    });
   const applicationEntries = scope
     ? allApplicationEntries.filter((entry) => entryPaths(entry).every((candidate) => scope.allows(candidate)))
     : allApplicationEntries;

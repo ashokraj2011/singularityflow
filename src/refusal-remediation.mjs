@@ -1026,8 +1026,14 @@ const KNOWN = Object.freeze({
         phase ? `singularity-flow phase begin ${phase} --json` : null, 'remediation')
     ];
   },
-  // Changes nobody can attribute to the decision. A person keeps them (commits them) or sets them aside
-  // through recovery's confirmed route; rejecting the submission is not the remedy.
+  // Reconcile intended Story edits or preserve unrelated bytes before a code publication.
+  GENERATION_EXCLUDED_CHANGES_UNRESOLVED: (argv, error) => [
+    step('account-story-files', 'For intended Story edits, a plan approver adds the exact paths to existing clause rows with a narrow amendment. The current phase then rechecks and publishes them; earlier approved artifacts stay unchanged.',
+      error?.details?.accountingCommand ?? null, 'remediation', '/sf-decide'),
+    step('preserve-unrelated-files', 'For unrelated edits, inspect recovery and have the person confirm its exact set-aside-worktree action. It saves a private copy before restoring only those files; nothing is discarded automatically.',
+      error?.details?.recoveryCommand ?? null, 'remediation', '/sf-recover')
+  ],
+  // Unrelated changes must be preserved before the lifecycle decision can run.
   LIFECYCLE_WORKTREE_REVIEW_REQUIRED: (argv, error) => [
     step('review-held-changes',
       'The checkout has changes that are not part of this decision (details.paths). A person looks at them and sets them aside with the set-aside-worktree command recovery returns (it keeps a private recovery copy), or moves them out of the checkout. Committing them by hand is not a way through: approval then refuses until the step is returned and resubmitted. Then run the decision again; nothing needs rejecting.',

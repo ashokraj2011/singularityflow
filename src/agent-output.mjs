@@ -261,6 +261,10 @@ export function agentAct(result) {
     state: 'next', do: null, read: ['taskResume', ...(result.taskProgressImport ? ['taskProgressImport'] : []), ...(result.recovery ? ['recovery'] : [])],
     said: oneLine(`${result.taskResume.error ? `${result.taskResume.error.code}: ${result.taskResume.error.message} ` : ''}Keep the verified Story binding and existing draft. Inspect the interrupted or unavailable task outcome before any replay; follow its exact recovery route. Progress grants no permission or approval.`)
   }, result.taskResume.nextAction);
+  if (result.reviewRequired === true && Array.isArray(result.actions)
+      && result.actions.some(action => action.id === 'working-tree')) return {
+    state: 'await-human', do: null, read: ['actions', 'containment', 'blockers'],
+    said: 'Review the exact changed paths. Keep intended Story edits through scope accounting and the returned same-phase correction/successor; preserve unrelated edits using the person’s hash-confirmed private-copy route. Do not commit submitted edits by hand, discard files or claim readiness because requiresRecovery is false. No approval is recorded.' };
   const codeOffer = result.publishIfReady?.published ? result.publishIfReady.outcomeReview
     : result.resultType === 'sflow-phase-publication' && result.status === 'published' ? result.outcomeReview : null;
   if (codeOffer) return withRoute({

@@ -1,9 +1,9 @@
 {
   "schemaVersion": 2,
   "generatedFrom": "docs/topics",
-  "sourceCommit": "c1862872439f5f5c650413d56b91d7b950a2b717",
+  "sourceCommit": "e15dfd7d797a1c32f8bf390ef61e227d1499d5f0",
   "topicCount": 90,
-  "contentSha256": "31b658c6f58dd3923a11e0e49ab560b0862e7d1d52fc35624e521848053ba71d",
+  "contentSha256": "dce70d4a004740fde18004dcb08f972f4aef13197eab6489e3497ef35b52b4b8",
   "topics": [
     {
       "id": "activity-and-prompt-audit",
@@ -256,8 +256,8 @@
     {
       "id": "findings",
       "title": "Findings — what a blocking finding means and how to recover",
-      "version": 19,
-      "sha256": "379123692ac17dd8f42d02778fe3fce64932497ebdc1a5934dbf7974404abba4",
+      "version": 20,
+      "sha256": "a4857f12c52230fb12493e2249c2bbaae8eadf507b616e6609cdcdf55b4beb13",
       "routingSha256": "63e669eb5eb939fd7ee9a8f6447d098138d7e424eac2ee4ff55901d902118539",
       "file": "findings.md"
     },
@@ -688,8 +688,8 @@
     {
       "id": "workflow-decisions",
       "title": "Decisions, branches and loops in Story workflows",
-      "version": 14,
-      "sha256": "a9e1a2cd816c34d63d96e1a89192393a99127723c0894607d59b28b65296c48d",
+      "version": 15,
+      "sha256": "052633fc25a145d70571a526e7290506557f3044b4d12bf4c082979e96db6d0c",
       "routingSha256": "5110d25a7fb5a02e587f6538eab3744c621b6613b6d4e1db4844706c5ef1f0a9",
       "file": "workflow-decisions.md"
     },

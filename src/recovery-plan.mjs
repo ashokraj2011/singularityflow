@@ -24,6 +24,7 @@ import { isTestAutomationPath } from './source-boundary.mjs';
 import { effectivePhasePublicationProducer, phasePublicationCommandForProducer } from './manual-authorship.mjs';
 import { assertConvergencePublicationReady } from './convergence-context.mjs';
 import { generationSkillForPhase } from './code-delivery-policy.mjs';
+import { unreconciledCandidatePaths } from './candidate-scope.mjs';
 import { directCopilotSkill } from './copilot-guidance.mjs';
 import { convergenceReviewRoute } from './convergence-review-route.mjs';
 import { inspectPhasePublicationReadiness } from './phase-publication-readiness.mjs';
@@ -125,7 +126,8 @@ export async function inspectPhaseWorktreeScope(root, config, workflow, phase) {
       && [entry.oldPath, entry.newPath].filter(Boolean).every(candidate =>
         !protectedPaths.has(candidate) && !outsideBoundaryPaths.has(candidate)))
       .map(entry => entry.newPath).sort();
-    return { status: 'verified', basis: consumed ? 'published-generation' : 'open-generation',
+    const excludedChanges = await unreconciledCandidatePaths(root, config, workflow, phase);
+    return { status: 'verified', basis: consumed ? 'published-generation' : 'open-generation', excludedChanges,
       phaseId: phase.id, generation: nextPhaseGeneration(phase), baseCommit,
       changeSetDigest: changeSet.digest, paths,
       protectedPaths: [...protectedPaths].sort(), outsideBoundaryPaths: [...outsideBoundaryPaths].sort(),
@@ -439,7 +441,7 @@ export async function inspectPhaseRecovery(root, config, workflow, phase, {
       let deliveryEvidence = publishedCodeGeneration ? phase.deliveryEvidence : null;
       if (!publishedCodeGeneration) {
         try {
-          deliveryEvidence = await evaluateCodeDeliveryPreflight(root, config, workflow, phase);
+          deliveryEvidence = await evaluateCodeDeliveryPreflight(root, config, workflow, phase, { requireReconciled: true });
         } catch (error) {
           deliveryErrors.push(error);
           // This candidate has passed the intent/scope checks. Incomplete coverage must not
@@ -543,7 +545,8 @@ export async function inspectPhaseRecovery(root, config, workflow, phase, {
         blockers.push({
           code: 'code.delivery.incomplete', category: 'code-delivery', blocking: true,
           phase: phase.id, generation: inspectionGeneration,
-          path: null, line: null, value: null,
+          path: error.code === 'GENERATION_EXCLUDED_CHANGES_UNRESOLVED' ? error.details?.paths?.[0] ?? null : null,
+          line: null, value: error.code === 'GENERATION_EXCLUDED_CHANGES_UNRESOLVED' ? JSON.stringify(error.details?.paths ?? []) : null,
           details: {
             sourceCode: error.code ?? null, message: error.message, ...(error.details ?? {}),
             ...(invalidPinnedCommand ? {
@@ -579,6 +582,14 @@ export async function inspectPhaseRecovery(root, config, workflow, phase, {
             detail: `${error.details.nextAction?.label ?? 'The earlier step\'s approvers decide the open upstream issue.'} The clauses without delivery wait on it, not on ${phase.id}'s code; nothing more is written here until it is decided.`,
             command: error.details.nextAction?.command ?? `singularity-flow decisions ${workflow.workItem.id} --json`, skill: '/sf-decide'
           }));
+          continue;
+        }
+        if (error.code === 'GENERATION_EXCLUDED_CHANGES_UNRESOLVED') {
+          actions.push(action({ id: `reconcile-excluded-files:${phase.id}`, mode: 'manual',
+            detail: error.message, command: error.details.accountingCommand, skill: '/sf-decide' }));
+          actions.push(action({ id: `preserve-excluded-files:${phase.id}`, mode: 'guided',
+            detail: 'For unrelated edits, preview recovery and use its exact human-confirmed private-copy action. Keep intended Story files for narrow plan accounting; never commit them manually.',
+            command: error.details.recoveryCommand, skill: '/sf-recover' }));
           continue;
         }
         actions.push(action({

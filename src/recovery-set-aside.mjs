@@ -27,7 +27,7 @@ export function setAsideWorktreeAction(worktreeAction, workflow, phase, publishe
     id: 'set-aside-worktree', safe: false, automatic: false, mode: 'guided', confirmation: 'plan-hash',
     reviewRequired: true, humanOnly: true, paths, command: null, skill: null,
     ...(publishedEdits.length ? { publishedEdits } : {}),
-    detail: 'For the person, after looking at each listed file: to keep it, commit it yourself (an edited published document is kept only through an authorized return or successor); to drop it, run this command in your own terminal. It first saves every changed file and the Git index in a private recovery copy (appeal checkpoint-show lists it), then returns exactly the listed paths to their committed bytes, deleting the untracked ones. An agent must show this command and stop.',
+    detail: 'For the person, after inspecting each listed file: use this command only to keep the edits outside the delivery. It first saves every changed file and the Git index in a private recovery copy (appeal checkpoint-show lists it), then returns exactly the listed paths to their committed bytes, removing untracked copies. Intended Story edits use current-phase scope accounting and an authorized successor or return; never commit submitted edits by hand. An agent must show this command and stop.',
     preserved: ['a private recovery copy of every changed file and the Git index', 'unlisted working-tree bytes', 'published generations', 'approval history']
   };
 }

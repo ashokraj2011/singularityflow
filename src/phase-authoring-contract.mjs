@@ -56,6 +56,7 @@ export function phaseAuthoringContract(definition, workflow, phase) {
     ...(plans ? { planning: {
       rows: 'one-per-approved-clause', preserveIdsAndMeaning: true,
       emptyPathCell: 'unquoted-dash', retainedEvidencePrefix: `${evidenceRoot}/`,
+      touchpointReview: ['entry-points', 'layouts-and-assets', 'data-and-contracts', 'configuration-and-test-support'],
       verification: { criterion: 'exact-approved-AC', method: ['test', 'inspection', 'visual'], inheritApprovedMethods: true,
         role: ['primary', 'supporting'], visualAssurance: ['declared', 'source-bound'] }
     } } : {}),
@@ -112,6 +113,7 @@ export function phaseAuthoringContractLines(contract, { deterministicOnly = fals
       '- Conformance: one comparison table with a Clause ID column and a Verdict column, one row per clause, each Verdict starting with one word of matched, partial, missing, deviated or unplanned, then any note.'
     ] : []),
     ...(contract.planning ? [
+      '- Planning touchpoints: inspect the actual entry points, page/layout shells, shared assets, data/contracts, manifests and test/runtime setup relevant to the approved behavior. Account for expected product files under clause rows and configuration under supporting files; never require a web entry point for an API or CLI. Expected paths are estimates: Implementation reconciles every newly touched file in its own phase through narrow accounting or privately preserved exclusion, without rewriting an approved earlier plan.',
       definesClauses
         ? '- Planning rows: cover every requirement and acceptance ID this draft defines, in a table whose first columns are Clause | Expected paths | Planned tests, in that order. Use a bare - for an empty path cell, never `-` (which names a file).'
         : '- Planning rows: cover every approved requirement and acceptance ID from the authoritative clause capsule; preserve its meaning. The table\'s first columns are Clause | Expected paths | Planned tests, in that order. Use a bare - for an empty path cell, never `-` (which names a file).',

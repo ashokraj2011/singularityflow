@@ -29,25 +29,24 @@ For `singularity-flow story intent-amendment`, use this route, not phase rejecti
    Every workflow supports it after scope approval; do not invent an `update-intent` convergence
    finding or change YAML. The CLI binds the phase and exact clause diff. Propose only when nextsteps returns the
    `singularity-flow story intent-amendment propose` action; otherwise record the change in clarification and revise the scope draft.
-3. Show amendment ID, clause diff and blast radius.
-   Only an authorized human scope reviewer may decide with exact confirmation; do not self-approve.
-   A stale proposal can be rejected by that authority and replaced without changing approved intent.
-4. Acknowledge only when asked, using the returned command. Revalidate downstream phases and
-   grounding; never waive tests or approvals. Closed Stories use reviewed reopening. Stop after the requested action.
+3. Show amendment ID, diff and blast radius. Only a human scope authority decides with exact confirmation;
+   never self-approve. They may reject and replace stale proposals without changing approved intent.
+4. Acknowledge only as requested with the issued command. Revalidate downstream inputs/grounding;
+   waive no tests or approvals. Closed Stories need reviewed reopening. Stop after the action.
 
 ## Phase correction
 
-1. Show status, hashes, `rejectTo` targets, Git identity/authority and agent.
-   Require a specific rejection reason and target phase; do not invent either.
+1. Show status, hashes, targets, Git identity/authority and agent. Obtain the human's reason and target.
 2. Awaiting approval: `singularity-flow reject <phase> --work-id <WORK-ID> --fetch --to <earlier-phase> --reason "..."`.
-   For an in-progress review holding source/test edits, preserve them and preview only the returned
-   `details.repairCommand` (it names both steps); never choose the steps yourself.
-   Show paths/digest and request confirmation before repeating with `--confirm <sha256>`.
-   Do not `--fetch` a dirty bound worktree. Retest and approve the new Code generation before review.
+   Recovery's `return-current-phase-for-edits` uses its exact same-phase command, even if older
+   `rejectTo` omits it. Show paths; preserve dirty files and prior approvals. Add no fetch, cleanup or
+   selection receipt; never commit submitted edits by hand. Identity/authority checks still apply.
+   For an in-progress review holding source/test edits, preview its exact `details.repairCommand`;
+   never choose steps yourself. Show paths/digest and obtain confirmation before `--confirm <sha256>`.
+   Never fetch a dirty checkout. Retest and approve Code before review.
 3. Closed Story: `singularity-flow reopen <WORK-ID> --fetch --to <phase> --reason "..."`.
-4. Show invalidations. Relay identity, target, reopening, freshness or publication refusals;
-   agent changes grant no authority. Report decision ID, comment, identity/authority, agent,
-   target, invalidations and commit/push. Author repairs only when requested.
+4. Report decision, reason, identity/authority, agent, target, invalidations and commit/push.
+   Relay refusals. Repair only when requested.
 
 ## Abandon rework
 

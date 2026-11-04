@@ -22,7 +22,7 @@ related:
   - workflow-authoring
   - story-lifecycle
   - approvals
-version: 14
+version: 15
 ---
 A decision sits after one phase of a Story workflow and chooses what happens next: the next phase, a later one (skipping those between), an earlier one, or the end of the Story. Running Stories keep the decisions they started with.
 
@@ -54,6 +54,25 @@ The decision list includes visual and inspection sign-offs owed by earlier phase
 current phase is still in progress. An earlier approval does not hide those reviews or make them
 hold an unrelated phase. A completed plan amendment, such as accounting for a test setup file,
 appears under **Recorded plan accounting**, separately from pending visual sign-off.
+
+Planning checks relevant entry points, layouts/assets, data/contracts and configuration/test support.
+Expected paths remain estimates. When Implementation discovers another file, it accounts for that
+file in its own phase through a narrow plan amendment; the earlier approved plan is not rewritten.
+
+Before publishing any code-producing phase, prepublish and direct publication check all dirty
+application files against its candidate. `GENERATION_EXCLUDED_CHANGES_UNRESOLVED` lists files that
+would otherwise be left out. Keep intended Story edits with `decision plan --add-location` under an
+existing approved clause, using the plan's approver authority. For unrelated edits, inspect recovery
+and confirm its exact **set-aside-worktree** action: it saves every byte and the index privately before
+restoring only the listed paths. No file is discarded or added to the delivery automatically.
+Diagnostic tests may still run on an isolated candidate while these edits remain unresolved; a
+local pass does not authorize publication.
+
+Older Stories already awaiting approval keep their submitted packet unchanged. Recovery offers
+an authorized return to that same phase for intended edits, followed by accounting, a successor
+publication, tests and resubmission. It no longer offers a standalone source commit while awaiting
+approval. To leave edits outside the delivery, the private-copy action remains available. A recovery
+report's `reviewRequired: true` is a real human boundary even when `requiresRecovery` is false.
 
 In VS Code, use **Decisions → Review evidence and sign off**, or the Command Palette action
 **Singularity Flow: Review Story Evidence and Sign Off**. `/sf-decide <WORK-ID>` can open the same

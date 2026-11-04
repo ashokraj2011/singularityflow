@@ -2526,9 +2526,9 @@ test('prepublish keeps a complete code draft red when its repository test contra
   assert.equal(checked.readiness.knownRecoveryBlockers, false);
   assert.equal(checked.commands.publish, null);
   assert.ok(checked.findings.some((finding) => finding.details?.sourceCode === 'CODE_DELIVERY_TEST_COMMAND_REQUIRED'));
-  assert.equal(checked.correction.skill, '/sf-phase-documents');
-  assert.equal(checked.commands.next, 'singularity-flow phase show implementation --json');
-  assert.equal(checked.correction.sameTurn, false);
+  assert.equal(checked.correction.skill, '/sf-code');
+  assert.equal(checked.commands.next, 'singularity-flow phase prepublish implementation --json');
+  assert.equal(checked.correction.sameTurn, true);
   assert.equal(checked.mutates, false);
 });
 

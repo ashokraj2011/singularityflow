@@ -14,7 +14,7 @@ related:
   - recovery
   - phase-appeals
   - escalation
-version: 19
+version: 20
 ---
 A finding is one exact reason a step cannot publish, submit or finish. Every finding has an owner and a recovery route: the step's own author fixes its draft, an earlier step's approvers decide an upstream issue, a person records a decision, or an owner restores trusted bytes. Each refusal names its finding code; read its entry here with `sflow explain findings --section <CODE>` (the code is matched without regard to case). No finding routes only back to its own author: each names at least one route for someone else, its approvers, an earlier step, an owner, or, when nothing more specific exists, the workflow maintainer. Nothing in this catalog waives a test, approves a step or accepts a risk by itself.
 
@@ -47,6 +47,10 @@ The step's own author fixes its current draft: the artifact, its tags, its tests
 ### quality
 
 A document-quality shortfall, such as a placeholder left in, a required section that is too short, or an empty heading. The author fixes it in the draft. For a pilot phase, the step's approvers may instead carry the exact shortfall forward with an expiry through `sflow appeal risk-prepare`; it stays unmet, never passed, and tests, review and approval still apply.
+
+### test-repair
+
+`CODE_TEST_FAILED`, `CODE_TEST_TIMEOUT`, `CODE_TEST_SKIPPED` and `CODE_TEST_ZERO_DISCOVERED` require repair of the current phase's implementation, tests or owned test environment, followed by a fresh recorded run. Read the retained output before retrying. A timeout or missing prerequisite keeps its actual cause and explicit environment/setup route; it is not proof that an assertion failed. Skipped or undiscovered tests are not passing evidence. A test that ran and failed must be fixed; no documentation change, plan amendment or private-copy action can waive it.
 
 ### upstream-defect
 
@@ -140,6 +144,8 @@ A clause the step owes has no evidence, a changed path is not claimed by any cla
 ### Unclaimed changed paths
 
 A file changed that no clause claims, such as a test helper, mock data or a new module. Each changed path belongs to a clause row: tests in the Planned tests column, product files under Expected paths. The plan's approvers add it with `sflow decision plan <WORK-ID> --add-location <CLAUSE>=<PATH> --reason <TEXT>` or `--add-test <CLAUSE>=<PATH>`; while the code step is open, `sflow appeal prepare` accounts for it after review of the exact diff.
+
+`GENERATION_EXCLUDED_CHANGES_UNRESOLVED` means publication would leave changed application files outside its planned candidate. Resolve them in the current code phase: a plan approver accounts for intended Story edits through a narrow amendment to existing clauses; a person preserves unrelated edits using recovery's exact, hash-confirmed private-copy action. Local isolated diagnostic tests can still run, but do not authorize publication with unresolved files. Earlier approved artifacts remain unchanged. For an already-submitted phase, recovery offers an authorized return to the same phase before a successor is published, tested and resubmitted; do not commit submitted edits by hand or discard them to clear approval.
 
 ### Agent brief findings
 

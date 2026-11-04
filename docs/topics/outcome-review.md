@@ -11,7 +11,7 @@ related:
   - app-review
 commands:
   - outcome
-version: 4
+version: 5
 ---
 Once a Story's code and tests are in, the outcome review puts in one place what a person checks before approval: the application to try, each acceptance criterion with its retained test results, the screens and files a person signs off, and what the Story's end still waits for. Publication of any code-producing phase returns this handoff, including copied, imported, legacy and custom code phases. Opening the review records no acceptance and changes no approval policy.
 
@@ -46,6 +46,7 @@ The review is a read. It writes no file, commit or record, and its result names 
 - *Not running, and another process listens at the address:* that process is from something else, often an old dev server. Stop it, or give this checkout a different personal port in Run & Test.
 - *No application is declared:* `singularity-flow app suggest` drafts a start entry from the repository.
 - *A visual check says "not done yet" after a screenshot exists:* the sign-off is what records it; a file alone is not proof.
+- *An action asks you to refresh:* **Refresh** first renews the shared Story snapshot, then reads the outcome. Actions stay disabled during that refresh. A snapshot failure shows its original error; the panel does not poll or use a stale result to run or sign off anything.
 
 ## Related topics
 

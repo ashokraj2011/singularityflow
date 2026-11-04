@@ -191,8 +191,16 @@ export function workflowTaskResume(workflow, phase, { role = 'author', generatio
   else if (role === 'author' && phase.status !== 'in_progress') {
     state = 'lifecycle-handoff'; next ??= safeCommandGuidance({ argv: ['nextsteps', identity.workId, '--for-agent', '--json'] });
   }
-  else if (record && ['publication-requested', 'retention-requested'].includes(record.state) && !inputChanged) {
-    state = 'inspect-interrupted-operation'; next = recovery;
+  else if (record && ['publication-requested', 'retention-requested'].includes(record.state) && !inputChanged
+      && (role === 'author' || !review)) {
+    // A fresh source-review context has already observed retained state and checked its draft.
+    // Authors still need a fresh read-only draft check: generic recover did not clear the request
+    // marker, so its clean entry route returned here forever. A draft check records its findings
+    // without replaying publication or bypassing the later prepublish/fresh binding checks.
+    const inspection = role === 'author' ? safeCommandGuidance({ argv: ['phase', 'draft-check', phase.id,
+      '--work-id', identity.workId, '--for-agent', '--json'] }) : null;
+    state = 'inspect-interrupted-operation';
+    next = inspection ? { ...inspection, copilotCommand: null, reason: 'Inspect the current draft without publishing; follow its fresh findings.' } : recovery;
   }
   if (!next && !complete) next = safeCommandGuidance({ argv: role === 'author'
     ? ['phase', 'enter', phase.id, '--work-id', identity.workId, '--compose', '--for-agent', '--json']

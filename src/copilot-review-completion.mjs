@@ -29,12 +29,22 @@ function failureDetails(error, payload = {}) {
     ...(readPaths.length > 1 ? { attemptedPaths: readPaths.slice(0, 10).map(value => redactDiagnosticText(value).slice(0, 4096)) } : {}) };
 }
 
+function issuedReadCorrections(payload, error) {
+  const paths = nativeFileReadCalls(payload).flatMap(call => call.paths);
+  const corrections = error?.pathCorrections;
+  return Array.isArray(corrections) && corrections.length > 0 && corrections.every(correction =>
+    correction?.operation === 'read' && paths.includes(correction.attemptedPath)
+    && typeof correction.issuedPath === 'string' && correction.issuedPath.length > 0
+    && correction.issuedPath !== correction.attemptedPath) ? corrections : null;
+}
+
 /** Size/range constraints and exact issued-path corrections resume reads, not the whole entry. */
 export function recoverableWorkflowReadFailure(payload, error) {
   const details = failureDetails(error);
   if (['ENOENT', 'EACCES', 'EPERM', 'EBUSY'].includes(details.code)
       || /\b(?:ENOENT|EACCES|EPERM)\b|permission denied|access denied|(?:file|path) (?:was )?(?:not found|does not exist)/iu.test(details.message)) return false;
-  const named = /^(?:FILE_READ_TOO_LONG|FILE_READ_RANGE_INVALID|INVALID_LINE_RANGE|LINE_RANGE_OUT_OF_BOUNDS|CLI_ISSUED_PATH_MISMATCH)$/u.test(details.code);
+  const named = /^(?:FILE_READ_TOO_LONG|FILE_READ_RANGE_INVALID|INVALID_LINE_RANGE|LINE_RANGE_OUT_OF_BOUNDS|CLI_ISSUED_PATH_MISMATCH)$/u.test(details.code)
+    || details.code === 'PHASE_MUTATION_STAGING_PATH_MISMATCH' && Boolean(issuedReadCorrections(payload, error));
   const calls = payload.toolCalls ?? [{ name: payload.toolName ?? payload.tool_name, args: payload.toolArgs ?? payload.tool_input }];
   const reader = nativeFileReadCalls(payload).length > 0;
   if (error?.permissionDecision === 'deny' && !named) return false;
@@ -50,14 +60,22 @@ export async function noteTaskCompletionFailure(payload, error = payload.error) 
   const operation = value?.taskOperation ?? value?.reviewOperation;
   if (!operation) return {};
   if (recoverableWorkflowReadFailure(payload, error)) {
-    const details = failureDetails(error);
+    const corrections = issuedReadCorrections(payload, error);
+    const supplied = Object.fromEntries(['readRanges', 'readRequests'].filter(key => Array.isArray(error?.[key])
+      && error[key].length > 0).map(key => [key, error[key]]));
+    const suppliedPlan = Object.keys(supplied).length > 0;
     // An installed guard already supplied its plan. Native-host failures need a smaller plan,
     // because replaying the same prescribed range can exceed a different host's lower limit.
-    const recovery = error?.readRanges || details.code === 'CLI_ISSUED_PATH_MISMATCH' ? null
+    const recovery = suppliedPlan || corrections ? null
       : await nativeReadFailureRecovery(payload).catch(() => null);
-    return { additionalContext: 'Recover the file read in this task using the issued exact path and bounded readRanges/readRequests. Use only parameters supported by the native reader. Finish the remaining input ranges, then continue the admitted task; do not reload context or treat input reading as completion. This grants no writes or decisions.'
+    // A known reader at its smallest safe window cannot make progress by being continued again.
+    // Older hook prompts without a tool identity still use their already-issued stable read hint.
+    if (suppliedPlan || corrections || recovery || nativeFileReadCalls(payload).length === 0) {
+      return { additionalContext: 'Recover the file read in this task using the issued exact path and bounded readRanges/readRequests. Use only parameters supported by the native reader. Finish the remaining input ranges, then continue the admitted task; do not reload context or treat input reading as completion. This grants no writes or decisions.'
+      + (corrections ? ` Exact read-only path corrections: ${JSON.stringify(corrections)}` : '')
       + (recovery ? ` Smaller native read windows: ${JSON.stringify(recovery)}`
         : ' Follow the existing read/path correction. If this reader cannot safely narrow the content, preserve its exact error and use the task\'s owner/recovery route; never repeat an unchanged failed range.') };
+    }
   }
   operation.blocked = true;
   operation.failure = failureDetails(error, payload);

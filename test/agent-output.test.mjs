@@ -721,10 +721,16 @@ test('every route form given --for-agent is accepted, fits the host, and a pause
     // Copilot shows a result inline below 8,192 characters and saves a larger one outside the workspace.
     assert.ok(Buffer.byteLength(result.stdout) <= DEFAULT_AGENT_OUTPUT_BYTES + 1, `${command}: ${Buffer.byteLength(result.stdout)} bytes`);
   }
-  // Plain text is bounded the same way; the complete text is in the file it names, inside the repository.
-  const whole = run(['explain', 'workflow-markup']).stdout;
-  assert.ok(Buffer.byteLength(whole) > DEFAULT_AGENT_OUTPUT_BYTES, 'the fixture text is larger than the host shows');
-  const bounded = run(['explain', 'workflow-markup', '--for-agent']).stdout;
+  // A maintained help topic may shrink below the host limit. Exercise the real text route without
+  // assuming its editorial length, then use controlled oversized text to verify the retained file.
+  const explained = run(['explain', 'workflow-markup']);
+  const agentExplain = run(['explain', 'workflow-markup', '--for-agent']);
+  assert.equal(explained.status, 0, explained.stderr);
+  assert.equal(agentExplain.status, 0, agentExplain.stderr);
+  assert.ok(Buffer.byteLength(agentExplain.stdout) <= DEFAULT_AGENT_OUTPUT_BYTES);
+  if (Buffer.byteLength(explained.stdout) <= DEFAULT_AGENT_OUTPUT_BYTES) assert.equal(agentExplain.stdout, explained.stdout);
+  const whole = 'A requirement has an observable outcome and verifiable evidence. Ω\n'.repeat(2000);
+  const bounded = await boundedAgentText(whole, { cwd: root, kind: 'explain' });
   assert.ok(Buffer.byteLength(bounded) <= DEFAULT_AGENT_OUTPUT_BYTES, `${Buffer.byteLength(bounded)} bytes`);
   const [, file, relative] = /The complete output is (\S+) \(([^)]+)\)/u.exec(bounded);
   assert.match(relative, /^\.sflow\/out\/explain-[0-9a-f]{8}\.txt$/u);

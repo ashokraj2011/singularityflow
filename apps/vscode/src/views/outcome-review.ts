@@ -97,6 +97,7 @@ export class OutcomeReviewPanel {
   }
 
   private currentDelivery(expected = this.view?.target): boolean {
+    if (!this.view) return false; // Keep a failed read's actual diagnostic visible.
     if (this.readRepository === this.client.repository && sameOutcomeTarget(expected, this.view?.target)
         && sameOutcomeTarget(this.view?.target, this.currentTarget())) return true;
     this.error = 'The active Story or generation changed. Refresh before running, recording evidence or requesting a repair.';
@@ -119,7 +120,28 @@ export class OutcomeReviewPanel {
   }
 
   private async act(action: string, criterion: number | null, check: number | null, item: number | null): Promise<void> {
-    if (action === 'refresh') { this.expected = null; return this.reload(); }
+    if (action === 'refresh') {
+      this.expected = null;
+      // The action guard also uses the shared snapshot. Reloading only outcome left a stale or
+      // failed snapshot unchanged, making every subsequent action ask for the same refresh again.
+      const revision = ++this.revision;
+      this.view = null;
+      this.readRepository = null;
+      this.error = null;
+      this.render();
+      try {
+        await this.store.refresh();
+        if (this.disposed || revision !== this.revision) return;
+        const state = this.store.current;
+        if (state.error) throw state.error;
+        if (state.stale) throw new Error('The active Story snapshot is still stale.');
+      } catch (failure) {
+        if (this.disposed || revision !== this.revision) return;
+        this.error = `The active Story could not be refreshed: ${failure instanceof Error ? failure.message : String(failure)}`;
+        this.render(); return;
+      }
+      return this.reload();
+    }
     if (!this.currentDelivery()) return;
     if (action === 'app-review' && this.view?.applicationReview) {
       if (vscode.workspace.isTrusted === false) throw new Error('Trust the workspace before opening application review.');

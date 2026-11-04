@@ -177,6 +177,48 @@ test('size and exact-path recovery applies to native read aliases, never real ac
   assert.deepEqual(await f.stop(), {});
 });
 
+test('an unsplittable native read preserves its error and yields instead of forcing another attempt', async t => {
+  for (const phaseId of ['planning', 'verification', 'release', 'custom-inspection']) await t.test(phaseId, async t => {
+    const f = await fixture(t, { phaseId });
+    const file = path.join(f.root, 'single-line.json');
+    const content = JSON.stringify({ value: 'x'.repeat(12000) });
+    await writeFile(file, content);
+    const head = f.git('rev-parse', 'HEAD');
+    for (const range of [{ start_line: 1, end_line: 1 }, { offset: 0, limit: 1 }]) {
+      await f.start(); await f.arm();
+      const failure = await repositoryToolFailure({ ...f.payload, toolName: 'read_file', toolArgs: { path: file, ...range },
+        error: { code: 'FILE_READ_TOO_LONG', message: 'File too large to read at once' } });
+      assert.match(failure.additionalContext, /FILE_READ_TOO_LONG/);
+      assert.ok(failure.additionalContext.includes(file));
+      assert.match(failure.additionalContext, new RegExp(`singularity-flow recover TASK-1 --phase ${phaseId}`));
+      assert.deepEqual(await f.stop(), {}, 'an unchanged failed read must not trigger completion retries');
+    }
+    assert.equal(await readFile(file, 'utf8'), content);
+    assert.equal(f.git('rev-parse', 'HEAD'), head);
+  });
+});
+
+test('only an explicit read-only staging correction continues the current read task', async t => {
+  const f = await fixture(t);
+  const attemptedPath = path.join(f.root, 'singularity-flow/source-reviews/report.json');
+  const issuedPath = path.join(f.root, '.git/singularity-flow/source-reviews/report.json');
+  const correction = { permissionDecision: 'deny',
+    permissionDecisionReason: `PHASE_MUTATION_STAGING_PATH_MISMATCH: read the issued staging file at exactly ${issuedPath}.`,
+    pathCorrections: [{ attemptedPath, issuedPath, operation: 'read' }] };
+  const payload = { ...f.payload, toolName: 'Read', toolArgs: { path: attemptedPath } };
+  assert.equal(recoverableWorkflowReadFailure(payload, correction), true);
+  await f.arm();
+  const result = await repositoryToolFailure({ ...payload, error: correction });
+  assert.ok(result.additionalContext.includes(issuedPath), 'the correction must carry the actual issued path');
+  assert.equal((await f.stop()).decision, 'block');
+  for (const operation of ['write', 'unknown']) {
+    const denied = { ...correction, pathCorrections: [{ ...correction.pathCorrections[0], operation }] };
+    assert.equal(recoverableWorkflowReadFailure(payload, denied), false);
+  }
+  assert.equal(recoverableWorkflowReadFailure({ ...payload, toolName: 'edit' }, correction), false);
+  assert.equal(recoverableWorkflowReadFailure(payload, { ...correction, pathCorrections: [] }), false);
+});
+
 test('human gates and permissions retain their route; ready is incomplete until publication is observed', async t => {
   const f = await fixture(t);
   const result = { resultType: 'sflow-phase-prepublish', workId: 'TASK-1', phase: 'planning', generation: 1,

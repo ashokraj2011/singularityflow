@@ -529,6 +529,8 @@ test('session agent entry retains the verified custom-root binding with no Story
       const left = structuredClone(packet[key]), right = structuredClone(value);
       left.observation.observedAt = right.observation.observedAt = null;
       assert.deepEqual(left, right, key);
+    } else if (key === 'taskResume') {
+      assert.deepEqual(packet[key], await withAgentRoutes(value), key);
     } else assert.deepEqual(packet[key], value, key);
   }
   assert.equal(packet.resultType, 'sflow-session-entry');

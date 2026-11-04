@@ -100,8 +100,28 @@ test('ambiguous publication resumes by observation before any command replay', (
     inputSha256: workflowTaskInputSha256(workflow, phase), state: 'publication-requested', checkpoint: 'publication-requested' });
   const value = workflowTaskResume(workflow, phase, { record });
   assert.equal(value.state, 'inspect-interrupted-operation');
-  assert.match(value.nextAction.command, /^singularity-flow recover TASK-RESUME --phase custom-inspection/);
+  assert.match(value.nextAction.command, /^singularity-flow phase draft-check custom-inspection --work-id TASK-RESUME/);
+  assert.equal(value.nextAction.copilotCommand, null, 'a read-only inspection cannot route back to phase authoring');
   assert.equal(workflowTaskResume(workflow, phase, { record, published: true }).complete, true);
+});
+
+test('interrupted tasks across phase names preserve pending publications and real owner blockers', () => {
+  for (const phaseId of ['specification', 'planning', 'implementation', 'verification', 'release', 'custom-code', 'future-task']) {
+    const { workflow, phase } = story(phaseId);
+    const record = updateWorkflowTask(workflowTaskIdentity(workflow, phase), null, {
+      inputSha256: workflowTaskInputSha256(workflow, phase), state: 'publication-requested', continuations: 2, repairConsumed: 1 });
+    const inspection = workflowTaskResume(workflow, phase, { record });
+    assert.deepEqual(inspection.nextAction.argv, ['phase', 'draft-check', phaseId, '--work-id', workflow.workItem.id, '--for-agent', '--json']);
+    assert.equal(inspection.continuationBudget.consumed, 2);
+    assert.equal(inspection.repairConsumed, 1);
+    const pending = workflowTaskResume(workflow, phase, { record, pendingPublication: true });
+    assert.equal(pending.state, 'blocked');
+    assert.match(pending.nextAction.command, /^singularity-flow recover /);
+    const owner = safeCommandGuidance({ argv: ['decisions', workflow.workItem.id, '--json'] });
+    const blocked = workflowTaskResume(workflow, phase, { record, blocked: { code: 'HUMAN_APPROVAL_REQUIRED', nextAction: owner } });
+    assert.equal(blocked.state, 'blocked');
+    assert.deepEqual(blocked.nextAction, owner);
+  }
 });
 
 test('Copilot receives the interruption recovery before authoring or review and pause still takes precedence', () => {
@@ -113,7 +133,8 @@ test('Copilot receives the interruption recovery before authoring or review and 
     const packet = { resultType, status: 'authoring-entry', canReview: true, taskResume };
     const action = agentAct(packet);
     assert.equal(action.state, 'next');
-    assert.match(action.do.shell, /^singularity-flow recover/);
+    assert.match(action.do.shell, /^singularity-flow phase draft-check/);
+    assert.equal(action.do.copilot, null);
     assert.equal(agentAct({ ...packet, paused: true }).state, 'paused');
     assert.equal(agentAct({ ...packet, documentReadiness: { status: 'upload-required' } }).state, 'ask-person');
     const refusal = agentAct({ ...packet, error: { code: 'EACCES', message: 'The issued file cannot be read.' },
@@ -315,6 +336,29 @@ test('current gate facts drive remaining work and checkpoint publication batches
   assert.equal(f.workflow.taskOperations[id].state, 'complete');
   assert.ok(f.workflow.taskOperations[id].checkpoints.some(entry => entry.kind === 'publication'));
   assert.equal((await readWorkflowTaskResume(f.root, f.workflow, f.phase)).complete, true);
+});
+
+test('an interrupted publication inspects the draft and resumes without a recovery-entry loop', async t => {
+  const id = 'TASK-INTERRUPTED';
+  const f = await startedSpecificationStory(t, id, { configure(config) { config.phases.specification.clarification = { mode: 'off' }; } });
+  const entry = completeAgentResult(f.cli('phase', 'enter', '--compose', '--for-agent', '--json').stdout);
+  await writeFile(path.join(f.item, 'artifacts/specification/spec.md'), specification(id, 1));
+  const workflow = JSON.parse(await readFile(path.join(f.item, 'workflow.json'), 'utf8'));
+  await observeWorkflowTask(f.root, workflow, workflow.phases.specification,
+    { state: 'publication-requested', checkpoint: 'publication-requested' });
+  const interrupted = completeAgentResult(f.cli('phase', 'enter', '--for-agent', '--json').stdout);
+  assert.equal(interrupted.taskResume.operationId, entry.taskResume.operationId);
+  assert.equal(interrupted.taskResume.state, 'inspect-interrupted-operation');
+  const inspection = interrupted.taskResume.nextAction;
+  assert.match(inspection.command, /phase draft-check specification/);
+  assert.match(interrupted.act.do.shell, /phase draft-check specification/);
+  assert.doesNotMatch(interrupted.act.do.shell, /publish-if-ready/);
+  const head = f.git('rev-parse', 'HEAD');
+  f.cli(...inspection.argv);
+  assert.equal(f.git('rev-parse', 'HEAD'), head, 'inspection cannot publish or replay a mutation');
+  const resumed = completeAgentResult(f.cli('phase', 'enter', '--for-agent', '--json').stdout);
+  assert.notEqual(resumed.taskResume.state, 'inspect-interrupted-operation');
+  assert.equal(resumed.taskResume.complete, false);
 });
 
 test('a real publication carries progress through Git takeover and phase entry observes completion without replay', async t => {

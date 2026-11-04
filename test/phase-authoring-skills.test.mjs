@@ -19,21 +19,24 @@ test('code author opens the exact generation before composition and verifies per
   assert.match(code, /Consumed intent requires `\/sf-recover`/);
   assert.match(code, /record before code mutation; refresh entry once/i);
   assert.match(code, /Remove staging only on success/);
-  assert.match(code, /Staging is JSON only, never handwritten governed records/);
+  assert.match(code, /Stage JSON, never governed records/);
 });
 
 test('existing implementation is completed through summary, planned assertions and publication, not discarded or inferred complete', async () => {
   const code = await skill('sflow-code');
   assert.match(code, /Preserve code\/tests; prepare missing artifact via `authoringProgress`/);
-  assert.match(code, /finish behavior\/tests\/artifact\/Agent brief and planned bindings/);
-  assert.match(code, /Keep planned test files; assert behavior, never fabricate tags/);
+  assert.match(code, /finish behavior\/tests\/artifact\/Agent brief and bindings/);
+  assert.match(code, /Keep planned tests; assert behavior, never fake tags/);
   assert.match(code, /`argvWithheld: true` means configured, not missing/);
   // Development test runs are allowed while authoring (d6074584); they never replace publication's.
-  assert.match(code, /Development tests are allowed during authoring/);
+  assert.match(code, /Development tests allowed/);
   assert.match(code, /Publication still runs fresh governed tests; manual passes never advance/);
   assert.match(code, /commands\.publish` once when ready/);
-  assert.match(code, /successful required tests continue publication/);
-  assert.match(code, /Relay `publishIfReady\.next` after publication\./);
+  assert.match(code, /--publish-if-ready/);
+  assert.match(code, /once when ready unless `publishIfReady\.published`/);
+  assert.match(code, /Published: read `outcomeReview\.agentCommand` once/);
+  assert.match(code, /Wait for the person; no app start, acceptance, submission or approval/);
+  assert.match(code, /`afterReview`=lifecycle/);
   assert.match(code, /Never submit\/approve/);
 });
 

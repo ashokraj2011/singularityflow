@@ -149,7 +149,8 @@ test('pause and resume invalidate the old scope; expired or corrupt records stay
   assert.deepEqual(await item.guard('find /Users'), {});
   const file = path.join(item.directory, 'copilot-boundaries', (await readdir(path.join(item.directory, 'copilot-boundaries')))[0]);
   const record = JSON.parse(await readFile(file, 'utf8'));
-  assert.deepEqual(Object.keys(record).sort(), ['modeChangedAt', 'recordedAt', 'schemaVersion', 'sessionId', 'skill', 'turnId']);
+  assert.deepEqual(Object.keys(record).sort(), ['modeChangedAt', 'recordedAt', 'schemaVersion', 'sessionId', 'skill', 'taskCompletionRequested', 'turnId']);
+  assert.equal(record.taskCompletionRequested, true, 'task intent carries no contract or file permissions');
   await writeFile(file, '{bad');
   assert.deepEqual(await item.guard('find /Users'), {});
 });

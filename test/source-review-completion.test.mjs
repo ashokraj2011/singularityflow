@@ -16,6 +16,9 @@ import { captureMutationTurn } from '../src/copilot-mutation-guard.mjs';
 import { sourceReviewAgentStop, noteReviewCompletionFailure } from '../src/copilot-review-completion.mjs';
 import { setCopilotPaused } from '../src/copilot-mode.mjs';
 import { agentAct } from '../src/agent-output.mjs';
+import { validateSafeSflowCommand } from '../src/safe-command-guidance.mjs';
+import { observeWorkflowTask } from '../src/workflow-task-store.mjs';
+import { recordSha256 } from '../src/records.mjs';
 
 async function fixture(t, copied = false) {
   const item = await publishedSpecificationStory(t, { copied });
@@ -65,6 +68,21 @@ test('read-only review stops once, resumes a real draft, and never invents findi
     assert.equal(draftStop.decision, 'block');
     assert.match(draftStop.reason, /Run singularity-flow review-source check/);
     assert.deepEqual(JSON.parse(await readFile(packet.stagingPath)), report, 'a resume preserves independent judgments');
+    const issuedCheck = validateSafeSflowCommand(draftStop.reason.match(/Run (singularity-flow review-source check .+?) now,/u)?.[1]);
+    assert.ok(issuedCheck, 'the completion checkpoint issues a parseable check');
+    const cli = fileURLToPath(new URL('../bin/singularity-flow.mjs', import.meta.url));
+    const checked = spawnSync(process.execPath, [cli, '--no-model', ...issuedCheck.argv],
+      { cwd: item.root, encoding: 'utf8', timeout: childTimeout(30000) });
+    assert.equal(checked.status, 0, checked.stderr || checked.stdout);
+    assert.equal(JSON.parse(checked.stdout).retentionReady, true);
+    assert.deepEqual(await readFile(workflowPath), before, 'checking cannot retain a review or publish a generation');
+    const { workflow } = await loadAcceptedStoryExecution(item.root);
+    await observeWorkflowTask(item.root, workflow, workflow.phases[item.phaseId], {
+      state: 'retention-requested', inputSha256: recordSha256(resumed.binding), checkpoint: 'retention-requested'
+    }, { role: 'source-reviewer', generation: resumed.generation });
+    const interrupted = await item.context();
+    assert.equal(interrupted.taskResume.state, 'retain-report', 'fresh retained-state and draft observations resolve an interrupted retention');
+    assert.equal(interrupted.taskResume.complete, false);
   });
 });
 

@@ -19,7 +19,11 @@ The shared resolver serves phase entry, prepublish, source review, session curre
 next-step guidance. It chooses work from current kernel observations, not saved commands or model
 claims. A prepared artifact, diagnostic test pass, ready check or stored `complete` state cannot
 establish publication or retained review. Interrupted publication/retention first receives its
-inspection route; an unknown outcome is never replayed blindly. Approval-only steps receive no
+inspection route; an unknown outcome is never replayed blindly. After an interrupted author publication,
+the exact read-only `phase draft-check` records the current findings so entry can resume without a
+recovery/entry cycle. Fresh source-review context already checks retained state and the report;
+it resumes from that observation. Pending publication and real owner blockers keep their recovery
+routes, and final prepublish/retention checks still run. Approval-only steps receive no
 invented author task, and submitted phases retain their lifecycle handoff.
 
 Progress is versioned, content-hashed metadata under the Git common directory's
@@ -80,6 +84,9 @@ A native failure at a smaller host limit halves the current window. Numeric offs
 split in their existing native units without assuming whether the original offset starts at zero
 or one. Unsplittable content retains its original diagnostic and owner route.
 
+An unsplittable native failure disables automatic completion for that attempt, rather than forcing
+another read without a smaller plan. A staging-path correction continues only when every correction
+explicitly targets a read from the attempted path to its CLI-issued path; write denials stay denials.
 Issued-path corrections remain exact hints, not grants. Real missing-file, sharing and permission
 errors retain their native code, attempted path and read-only recovery/owner route. No input is
 searched for, recreated or overwritten, and unchanged access is not retried automatically. Images,

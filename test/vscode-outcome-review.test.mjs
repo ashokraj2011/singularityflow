@@ -4,7 +4,7 @@ import test from 'node:test';
 
 import { buildOutcomeReview } from '../src/outcome-review.mjs';
 
-const { outcomeView, documentReference, signOffArgs, signOffQuestions } = await import('../apps/vscode/src/views/outcome-review-model.ts');
+const { outcomeView, sameOutcomeTarget, documentReference, signOffArgs, signOffQuestions } = await import('../apps/vscode/src/views/outcome-review-model.ts');
 const { outcomeReviewHtml, OUTCOME_REVIEW_SCRIPT } = await import('../apps/vscode/src/views/outcome-review-page.ts');
 
 // What `singularity-flow outcome --json` carries, built by the engine itself so the page and the CLI
@@ -36,11 +36,12 @@ test('the outcome page shows the app, each check with its reference, and only ex
   assert.equal(view.criteria.length, 1);
   assert.equal(view.testsCommand, 'singularity-flow tests run --work-id OUT-2');
   const html = outcomeReviewHtml(view, null);
-  for (const words of ['Check the outcome', 'Optional: nothing here is recorded and no step waits for it',
+  for (const words of ['Check the outcome', 'Opening this review records no acceptance and changes no approval policy',
     'Another process already listens at that address', 'Start the application', 'compared with <code>DOC-001</code>',
     'Open DOC-001', 'Copy the sign-off command', 'singularity/work-items/OUT-2/evidence/ac-001-screen.png',
     'Attach a screenshot…', 'Sign off…', 'Run the tests', 'Open the Evidence Matrix', 'Copy the scope command', 'Open the decisions',
-    'A screenshot or a passing test is not a sign-off']) {
+    'A screenshot or a passing test is not a sign-off', 'Workspace Run &amp; Test', 'Request a repair', 'Continue workflow',
+    'Local test reruns do not replace the publication and submission checks']) {
     assert.ok(html.includes(words), words);
   }
   assert.ok(!html.includes('<script>alert(1)</script>') && html.includes('&lt;script&gt;'), 'engine text is escaped');
@@ -73,13 +74,30 @@ test('the page\'s sign-off asks the three checklist items in plain words and run
     '--confirm', 'states-the-outcome', '--deny', 'matches-the-criterion', '--confirm', 'current-for-this-change', '--reason', 'Looked at the plot.', '--json']);
 });
 
-test('the outcome suggestion is a personal VS Code setting that is off unless turned on', () => {
+test('the post-code handoff is enabled by default without adopting an acceptance policy', () => {
   const manifest = JSON.parse(readFileSync(new URL('../apps/vscode/package.json', import.meta.url), 'utf8'));
   const setting = manifest.contributes.configuration.properties['singularityFlow.outcomeReview.suggest'];
   assert.equal(setting.type, 'boolean');
-  assert.equal(setting.default, false, 'nothing is offered until a person turns it on');
+  assert.equal(setting.default, true, 'published code has a standard human handoff');
+  assert.match(setting.description, /custom code phases/);
+  assert.match(setting.description, /approval policies are unchanged/);
   assert.ok(manifest.contributes.commands.some((entry) => entry.command === 'singularityFlow.openOutcomeReview'));
   assert.ok(manifest.contributes.commands.some((entry) => entry.command === 'singularityFlow.applicationReview'));
+});
+
+test('review actions are bound to the exact Story and generation, including after asynchronous input', () => {
+  const view = outcomeView(result());
+  assert.equal(sameOutcomeTarget(view.target, { workId: 'OUT-2', phase: 'verification', generation: 1 }), true);
+  for (const changed of [{ workId: 'OTHER', phase: 'verification', generation: 1 },
+    { workId: 'OUT-2', phase: 'release', generation: 1 }, { workId: 'OUT-2', phase: 'verification', generation: 2 }, null]) {
+    assert.equal(sameOutcomeTarget(view.target, changed), false);
+  }
+  assert.equal(view.repairCopilot, '/sf-recover');
+  const ended = result();
+  ended.data.outcome.step = null;
+  const historical = outcomeView(ended);
+  assert.equal(sameOutcomeTarget(historical.target, { workId: 'OUT-2', phase: null, generation: null }), true,
+    'a completed Story can still be inspected and run without creating an active phase');
 });
 
 test('an adopted required application review is distinct from the optional outcome read', () => {

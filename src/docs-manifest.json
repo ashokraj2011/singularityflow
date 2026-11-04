@@ -1,9 +1,9 @@
 {
   "schemaVersion": 2,
   "generatedFrom": "docs/topics",
-  "sourceCommit": "d4eec8e1813a03cf91296dd38ef120b82b318ddc",
+  "sourceCommit": "4f7fe7329f3ea7eb63f010991a84a3906f1a72e4",
   "topicCount": 90,
-  "contentSha256": "ddf0c54f038113d4092ea880176883827269f25b51e1ca82fc9f6bdc1d5d29e2",
+  "contentSha256": "9cd4aaaa6bc4130688070d2db1aa9b606fb865d19fa2e1a1d88ef19c2e595a9f",
   "topics": [
     {
       "id": "activity-and-prompt-audit",
@@ -48,8 +48,8 @@
     {
       "id": "app-review",
       "title": "Application review and acceptance",
-      "version": 4,
-      "sha256": "c7013719232c0ded7a651d3a1f8eb24c356bc832223b0796599805d766c21c17",
+      "version": 5,
+      "sha256": "aae05f253e380c6e1470a2d2d73e584f22fdaa6efe06637880f235b8df58551e",
       "routingSha256": "a025f23b9e1e24124bea8efcccb2631b7b586ca95dd8aebf1130723d9ab42c60",
       "file": "app-review.md"
     },
@@ -408,9 +408,9 @@
     {
       "id": "outcome-review",
       "title": "Check what a Story delivered",
-      "version": 3,
-      "sha256": "6e0495d11bfb0e2d0e8667ef416570d07e9dfff04114cec10d4f6d2d955ab64e",
-      "routingSha256": "37e507f7ec34cbf3029fdcb850c458b81a3a3c6f6968b6da6d3bbdaf1909d3c1",
+      "version": 4,
+      "sha256": "2faf8f34da6b594072a59be4fcd363e844a3d10aac8053031f39cf7cdc10343a",
+      "routingSha256": "91254a29f3d357532975441b9450011800bc186ba491849cffa41e20375b0c2e",
       "file": "outcome-review.md"
     },
     {

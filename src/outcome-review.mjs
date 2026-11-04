@@ -3,14 +3,14 @@
  * application to try, each acceptance criterion with the tests that prove it and how they last ran,
  * the screens and files a person signs off, and what the Story's end still waits for.
  *
- * Optional, and a read. It records nothing and gates nothing, no lifecycle result routes to it, and
+ * A standard post-code read. It records nothing and gates nothing, and
  * every route it shows is a command that already exists. The decisions it lists stay the person's:
  * a sign-off after inspecting the file, a scope disposition, an approval.
  */
 import { loadAcceptedStoryExecution } from './accepted-story-execution.mjs';
 import { owedDecisions } from './owed-decisions.mjs';
 import { safeCommandGuidance } from './safe-command-guidance.mjs';
-import { applicationReviewPhase, phaseRequiresCodeDelivery } from './code-delivery-policy.mjs';
+import { applicationReviewPhase, authoringRoute, phaseRequiresCodeDelivery } from './code-delivery-policy.mjs';
 
 const MAX_TEXT = 400;
 const PORT_PROBE_MS = 300;
@@ -81,6 +81,10 @@ export function buildOutcomeReview({ workflow, graph, evaluation, owed = null, a
     };
   });
   const phase = workflow.phases?.[workflow.currentPhase] ?? null;
+  const codeRepair = phaseRequiresCodeDelivery(phase) && phase.status === 'in_progress' && phase.generation > 0;
+  const repair = codeRepair
+    ? ['phase', 'begin', workflow.currentPhase, '--work-id', workId, '--json']
+    : ['recover', workId, ...(phase ? ['--phase', phase.id ?? workflow.currentPhase] : []), '--for-agent', '--json'];
   return {
     resultType: 'sflow-outcome-review',
     workId,
@@ -100,7 +104,9 @@ export function buildOutcomeReview({ workflow, graph, evaluation, owed = null, a
     routes: {
       tests: safeCommandGuidance({ argv: ['tests', 'run', '--work-id', workId] }),
       matrix: safeCommandGuidance({ argv: ['evidence', 'matrix', workId] }),
-      decisions: safeCommandGuidance({ argv: ['decisions', workId] })
+      decisions: safeCommandGuidance({ argv: ['decisions', workId] }),
+      repair: safeCommandGuidance({ argv: repair, ...(codeRepair ? { skill: authoringRoute(phase, workflow).effectiveAuthoringSkill } : {}) }),
+      continue: safeCommandGuidance({ argv: ['nextsteps', workId, '--for-agent', '--json'] })
     },
     optional: true
   };

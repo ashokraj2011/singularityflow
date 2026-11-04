@@ -12,7 +12,7 @@ import { matrixText } from '../evidence/matrix.mjs';
 import { contextXrayText } from '../context-xray.mjs';
 import { tokenLedgerText } from '../token-ledger.mjs';
 import { table } from '../util.mjs';
-import { safeCommandGuidance } from '../safe-command-guidance.mjs';
+import { safeCommandGuidance, commandGuidanceLines } from '../safe-command-guidance.mjs';
 import * as style from '../style.mjs';
 import { nextSuggestionsHeading } from '../personalization.mjs';
 
@@ -587,7 +587,10 @@ function outcomeReviewText(result) {
     '', style.heading('Acceptance criteria:'), ...(criterionLines.length ? criterionLines : ['  None recorded yet.']),
     ...(openLines.length ? ['', style.heading("Still open for the Story's end:"), ...openLines] : []),
     '', `Run the tests again: ${review.routes.tests?.command ?? 'singularity-flow tests run'}`,
-    'This review is optional: it records nothing and no step waits for it. Sign-offs and decisions stay yours.'
+    ...commandGuidanceLines(review.applicationReview, 'Application review'),
+    ...commandGuidanceLines(review.routes.repair, 'Request repair / inspect the legal owner route'),
+    ...commandGuidanceLines(review.routes.continue, 'Continue with the current workflow actions'),
+    'Opening this review records no acceptance or approval. Existing sign-off and application-review requirements still apply.'
   ].join('\n');
 }
 

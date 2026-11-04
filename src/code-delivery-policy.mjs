@@ -3,6 +3,7 @@ import { readRecord } from './schema-migrations.mjs';
 import { authoringSkillCatalog, authoringSkillEntry, authoringSkillSourceId } from './authoring-skills.mjs';
 import { phaseUsesDeterministicGeneration } from './manual-authorship.mjs';
 import { isConvergencePhase } from './phase-roles.mjs';
+import { phaseNeedsGeneration } from './phase-generation-need.mjs';
 
 const CODE_DELIVERY_ARTIFACT_KINDS = new Set(['implementation-summary']);
 
@@ -363,6 +364,22 @@ export function applicationReviewOffer(workflow, phase) {
   return { copilotCommand: '/sf-app-review', command: `singularity-flow app-review start --work-id ${workflow.workItem.id} --phase ${phase.id}`,
     modelFreeCommand: null, required: policy.mode === 'required',
     reason: 'Inspect the delivered application and report problems. Final acceptance uses this generation’s submitted test results; phase approval stays separate.' };
+}
+
+/** Every delivered code phase hands back to a person; the read never adopts acceptance policy. */
+export function codeOutcomeReviewOffer(workflow, phase) {
+  if (!workflow?.workItem?.id || !phaseRequiresCodeDelivery(phase)
+      || workflow.status && workflow.status !== 'in_progress'
+      || !Number.isSafeInteger(phase.generation) || phase.generation < 1
+      || phase.generationIntent?.status === 'open' || phaseNeedsGeneration(workflow, phase)) return null;
+  const workId = workflow.workItem.id;
+  return { workId, phase: phase.id, generation: phase.generation,
+    key: JSON.stringify([workId, workflow.workItem.createdAt ?? null, phase.id, phase.generation]),
+    command: `singularity-flow outcome ${workId}`, copilotCommand: `/sf-outcome ${workId}`, modelFreeCommand: null,
+    agentCommand: `singularity-flow outcome ${workId} --for-agent --json`,
+    required: false, recordsAcceptance: false,
+    reason: 'Try this Story’s application and check each acceptance criterion, its test results and outstanding human checks before approval.',
+    instruction: 'Open the outcome review for this exact Story. Inspection starts no application and records no acceptance or approval. Let the person try the result or request a repair. Final application acceptance, when adopted, uses submitted test evidence; continue through the existing submission and approval routes.' };
 }
 export function araFail(code, message, details = {}) {
   throw new SingularityFlowError(message, { code, details });

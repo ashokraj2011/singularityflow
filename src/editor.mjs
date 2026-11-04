@@ -103,7 +103,7 @@ import { INSPECTION_READ, withApprovedConfigurationRead } from './approved-confi
 import { readObjectsBatch } from './git-ref-tree.mjs';
 import { isConfigurationReadCopy } from './configuration-read-scope.mjs';
 import { loadSgosCommandCenter } from './sgos/command-center.mjs';
-import { workflowCodeGeneration } from './code-delivery-policy.mjs';
+import { workflowCodeGeneration, codeOutcomeReviewOffer } from './code-delivery-policy.mjs';
 import { captureEnvironmentDeclaration, ENVIRONMENT_DECLARATION_PATH, validateEnvironmentQualityCommandCatalog } from './environment-declaration.mjs';
 import { normalizeExternalCommand } from './external-command-policy.mjs';
 import { portableFilesystemPathIdentity } from './configuration-assets.mjs';
@@ -795,6 +795,7 @@ async function fullRepositorySnapshot(root, requestedWorkId = null, requestedIni
     } : null,
     workflow,
     submissionReadiness: submission,
+    outcomeReview: codeOutcomeReviewOffer(workflow, workflow?.phases?.[workflow.currentPhase]),
     // One engine-computed view of the Story's decisions, so no surface re-implements their rules.
     decisions: workflow ? storyDecisionView(workflow) : null,
     // The same for approval: the engine's verdict on the phase awaiting it.
@@ -910,6 +911,7 @@ async function lifecycleSlice(root, requestedWorkId, requestedInitiativeId, revi
     selectedInitiativeId,
     workflow,
     submissionReadiness: submission,
+    outcomeReview: codeOutcomeReviewOffer(workflow, workflow?.phases?.[workflow.currentPhase]),
     // One engine-computed view of the Story's decisions, so no surface re-implements their rules.
     decisions: workflow ? storyDecisionView(workflow) : null,
     // The same for approval: the engine's verdict on the phase awaiting it.

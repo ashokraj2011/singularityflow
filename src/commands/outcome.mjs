@@ -1,7 +1,7 @@
 /**
  * `singularity-flow outcome [WORK-ID] [--capability ID] [--json]`: what a person checks once a
- * Story's code and tests are in (src/outcome-review.mjs). Optional and a read: it changes nothing,
- * nothing requires it, and its result names no next action, so no agent acts on it unasked.
+ * Story's code and tests are in (src/outcome-review.mjs). A read: it changes nothing and never
+ * starts an application, records acceptance or runs the continuation routes on the person's behalf.
  */
 import { repoRoot } from '../git.mjs';
 import { because, commandResult, noEffects, succeeded } from '../narration/command-result.mjs';

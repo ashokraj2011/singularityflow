@@ -41,7 +41,7 @@ function criterionHtml(criterion: OutcomeCriterion, index: number, capture: bool
  */
 export function outcomeReviewHtml(view: OutcomeView | null, error: string | null, { capture = false }: { capture?: boolean } = {}): string {
   const header = `<header><h1>Check the outcome</h1>
-    <p>Try what this Story delivered, see what proves each acceptance criterion, and what is still open. ${view?.applicationReview?.required ? 'This Story requires application acceptance in its separate review surface before phase approval.' : 'Optional: nothing here is recorded and no step waits for it.'}</p>
+    <p>Try what this Story delivered, check each acceptance criterion, and request a repair before approval. ${view?.applicationReview?.required ? 'This Story requires application acceptance in its separate review surface before phase approval.' : 'Opening this review records no acceptance and changes no approval policy.'}</p>
     ${button('refresh', 'Refresh')}</header>`;
   if (error || !view) return `${header}<p class="notice${error ? ' error' : ''}" role="status">${escape(error ?? 'Reading the outcome…')}</p>`;
   const app = view.application;
@@ -60,10 +60,11 @@ export function outcomeReviewHtml(view: OutcomeView | null, error: string | null
     <p class="meta">${escape(view.workId)}${view.title ? ` · ${escape(view.title)}` : ''}</p>
     <p><strong>${escape(view.lifecycle ?? 'Lifecycle unknown')}</strong> · ${escape(view.completion ?? 'Completion unknown')}</p>
     ${view.applicationReview ? `<section><h2>Application review</h2><p>${view.applicationReview.required ? 'Application acceptance is required before this code phase can finish.' : 'Inspect, report problems and accept this delivery.'} Evidence stays on this laptop; phase approval is separate.</p>${button('app-review', 'Open application review', {}, false)}</section>` : ''}
-    <section><h2>Try it</h2>${appHtml}</section>
-    <section><h2>Acceptance criteria</h2>${view.criteria.length ? view.criteria.map((criterion, index) => criterionHtml(criterion, index, capture)).join('') : '<p>No acceptance criteria are recorded yet.</p>'}
+    <section><h2>1. Try the Story result</h2>${appHtml}<p>Use this Story’s checkout and local configuration. Check expected behavior, invalid inputs and relevant boundaries; for a backend, exercise its APIs or executable tests.</p><div class="outcome-actions">${button('run-test', 'Workspace Run & Test')}${button('test-summary', 'Open test summary')}</div></section>
+    <section><h2>2. Check acceptance criteria</h2><p>These rows use retained Story evidence. Local test reruns do not replace the publication and submission checks.</p>${view.criteria.length ? view.criteria.map((criterion, index) => criterionHtml(criterion, index, capture)).join('') : '<p>No acceptance criteria are recorded yet.</p>'}
       <div class="outcome-actions">${button('tests', 'Run the tests')}${button('matrix', 'Open the Evidence Matrix')}</div></section>
     ${openHtml}
+    <section><h2>3. Repair or continue</h2><p>${view.applicationReview ? 'Use application review to report a problem and recheck the fix. Final All good acceptance requires the submitted test evidence; phase approval remains separate.' : 'Request repair to prepare this Story’s exact repair admission in Copilot. You review and send that request; opening it changes no files.'}</p><div class="outcome-actions">${view.repairCopilot || view.applicationReview ? button('request-repair', 'Request a repair', {}, false) : ''}${button('continue', 'Continue workflow')}</div><p class="muted">Continue workflow opens the current submission, review and approval actions. It records no acceptance and approves nothing.</p></section>
     <p class="muted">A screenshot or a passing test is not a sign-off. Sign-offs and decisions stay with the people who own them.</p>`;
 }
 

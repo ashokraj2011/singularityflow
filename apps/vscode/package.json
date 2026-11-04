@@ -389,8 +389,8 @@
           "description": "Maximum age of successful routine verification in Cached mode. Use Singularity Flow: Check Repository Now or @sflow /check to refresh immediately."
         },
         "singularityFlow.outcomeReview.suggest": {
-          "type": "boolean", "default": false,
-          "description": "Offer Check the Outcome once when a Story step is submitted for approval: the app to try, each criterion's tests and checks, and what is still open. Optional; nothing waits for it and nothing is recorded."
+          "type": "boolean", "default": true,
+          "description": "Open Check the Outcome once for each published code generation, including custom code phases: try the Story application, inspect criterion-linked test results and request repairs before approval. Starts no application and records no acceptance. Existing application-review and approval policies are unchanged."
         },
         "singularityFlow.warmReads": {
           "type": "boolean",

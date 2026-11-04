@@ -15,7 +15,7 @@ import { navigateTo } from './navigate.ts';
 import { showCompactInformationMessage, showCompactWarningMessage } from '../compact-message.ts';
 import { taskStartFolder } from '../terminal-start.ts';
 import { integerField, registerMessageRouter, stringField } from './messages.ts';
-import { documentReference, outcomeView, signOffArgs, signOffQuestions, type OutcomeCheck, type OutcomeView } from './outcome-review-model.ts';
+import { documentReference, outcomeView, sameOutcomeTarget, signOffArgs, signOffQuestions, type OutcomeCheck, type OutcomeTarget, type OutcomeView } from './outcome-review-model.ts';
 import { OUTCOME_REVIEW_SCRIPT, OUTCOME_REVIEW_STYLE, outcomeReviewHtml } from './outcome-review-page.ts';
 
 export class OutcomeReviewPanel {
@@ -25,21 +25,25 @@ export class OutcomeReviewPanel {
   private revision = 0;
   private playwright: string | null = null;
   private disposed = false;
+  private readRepository: string | null = null;
+  private expected: OutcomeTarget | null = null;
   private readonly disposables: vscode.Disposable[] = [];
 
-  static show(_context: vscode.ExtensionContext, store: WorkspaceStore, client: SingularityFlowClient): OutcomeReviewPanel {
+  static show(_context: vscode.ExtensionContext, store: WorkspaceStore, client: SingularityFlowClient, expected: OutcomeTarget | null = null): OutcomeReviewPanel {
     if (OutcomeReviewPanel.current) {
+      OutcomeReviewPanel.current.expected = expected;
       OutcomeReviewPanel.current.panel.reveal(vscode.ViewColumn.Active);
       void OutcomeReviewPanel.current.reload();
       return OutcomeReviewPanel.current;
     }
     const panel = vscode.window.createWebviewPanel('singularityFlow.outcomeReview', 'Check the Outcome', vscode.ViewColumn.Active,
       { enableScripts: true, retainContextWhenHidden: true });
-    return OutcomeReviewPanel.current = new OutcomeReviewPanel(panel, store, client);
+    return OutcomeReviewPanel.current = new OutcomeReviewPanel(panel, store, client, expected);
   }
 
   private constructor(private readonly panel: vscode.WebviewPanel, private readonly store: WorkspaceStore,
-    private readonly client: SingularityFlowClient) {
+    private readonly client: SingularityFlowClient, expected: OutcomeTarget | null = null) {
+    this.expected = expected;
     const router = registerMessageRouter('singularityFlow.outcomeReview', {
       action: (message) => this.act(stringField(message, 'action') ?? '', integerField(message, 'criterion'),
         integerField(message, 'check'), integerField(message, 'item'))
@@ -63,9 +67,17 @@ export class OutcomeReviewPanel {
       return this.render();
     }
     try {
-      const result = await this.client.run<unknown>(['outcome', '--json']);
-      if (revision !== this.revision) return;
+      const repository = this.client.repository;
+      const workId = this.store.current.snapshot.workflow.workItem.id;
+      const result = await this.client.run<unknown>(['outcome', workId, '--json']);
+      if (revision !== this.revision || this.client.repository !== repository) return;
       this.view = outcomeView(result);
+      if (this.view?.workId !== workId || this.expected && !sameOutcomeTarget(this.view?.target, this.expected)) {
+        this.view = null;
+        this.error = 'The Story or delivered generation changed. Refresh to review the current result.';
+        return this.render();
+      }
+      this.readRepository = repository;
       this.error = this.view ? null : 'The outcome review returned a shape this panel does not read.';
       this.playwright = await this.localPlaywright();
     } catch (failure) {
@@ -74,6 +86,21 @@ export class OutcomeReviewPanel {
       this.error = `The outcome could not be read: ${failure instanceof Error ? failure.message : String(failure)}`;
     }
     this.render();
+  }
+
+  private currentTarget(): OutcomeTarget | null {
+    const state = this.store.current;
+    const workflow = state.stale || state.error ? null : state.snapshot?.workflow;
+    const phase = workflow?.currentPhase ? workflow.phases[workflow.currentPhase] : null;
+    if (!workflow || workflow.currentPhase && !phase) return null;
+    return { workId: workflow.workItem.id, phase: workflow.currentPhase ?? null, generation: phase?.generation ?? null };
+  }
+
+  private currentDelivery(expected = this.view?.target): boolean {
+    if (this.readRepository === this.client.repository && sameOutcomeTarget(expected, this.view?.target)
+        && sameOutcomeTarget(this.view?.target, this.currentTarget())) return true;
+    this.error = 'The active Story or generation changed. Refresh before running, recording evidence or requesting a repair.';
+    this.render(); return false;
   }
 
   private check(criterion: number | null, check: number | null): OutcomeCheck | null {
@@ -92,20 +119,37 @@ export class OutcomeReviewPanel {
   }
 
   private async act(action: string, criterion: number | null, check: number | null, item: number | null): Promise<void> {
-    if (action === 'refresh') return this.reload();
+    if (action === 'refresh') { this.expected = null; return this.reload(); }
+    if (!this.currentDelivery()) return;
     if (action === 'app-review' && this.view?.applicationReview) {
       if (vscode.workspace.isTrusted === false) throw new Error('Trust the workspace before opening application review.');
       const workId = this.view.workId;
+      const target = this.view.target;
       let sessionId = this.view.applicationReview.sessionId;
       if (!sessionId) {
         const result = await this.client.run<{ session?: { id?: string } }>(['app-review', 'start', '--work-id', workId, '--json']);
         sessionId = result.session?.id ?? null;
       }
       if (!sessionId) throw new Error('The engine did not issue a review session. No application was started.');
+      if (!this.currentDelivery(target)) return;
       await this.client.run(['app-review', 'inspect', sessionId, '--work-id', workId, '--json']);
       await this.reload(); return;
     }
     if (action === 'start') { await vscode.commands.executeCommand('singularityFlow.startApplication'); return; }
+    if (action === 'run-test') { await vscode.commands.executeCommand('singularityFlow.workspaceRunTest'); return; }
+    if (action === 'test-summary') { await vscode.commands.executeCommand('singularityFlow.testSummary'); return; }
+    if (action === 'continue') { await vscode.commands.executeCommand('singularityFlow.openJourney'); return; }
+    if (action === 'request-repair') {
+      if (this.view?.applicationReview) return this.act('app-review', null, null, null);
+      const view = this.view;
+      if (!view?.repairCopilot) return;
+      const feedback = await vscode.window.showInputBox({ title: 'Request a Story repair', prompt: 'What did you try, what happened, and what did you expect?',
+        ignoreFocusOut: true, validateInput: value => value.trim() ? undefined : 'Describe the observed problem.' });
+      if (!feedback?.trim() || !this.currentDelivery(view.target)) return;
+      await vscode.commands.executeCommand('workbench.action.chat.open', { isPartialQuery: true,
+        query: `${view.repairCopilot}\nWork ID: ${view.workId}; phase: ${view.target?.phase}; generation: ${view.target?.generation}.\nHuman repair request: ${JSON.stringify(feedback.trim())}\nThe returned repair admission is: ${view.repairCommand}\nRun that exact admission once before source edits, then refresh phase entry and fix the reported in-scope behavior. Preserve this Story and its existing code; if admission requires an owner, retain that route. Do not recreate the Story, waive tests, accept the application or approve a phase.` });
+      return;
+    }
     if (action === 'tests') { await vscode.commands.executeCommand('singularityFlow.runTests'); return; }
     if (action === 'matrix') { await vscode.commands.executeCommand('singularityFlow.openEvidenceMatrix'); return; }
     if (action === 'decisions') { await vscode.commands.executeCommand('singularityFlow.decisions'); return; }
@@ -138,16 +182,18 @@ export class OutcomeReviewPanel {
 
   /** Copy a screenshot the person picks to the path the review suggested; nothing is recorded yet. */
   private async attach(relative: string): Promise<void> {
+    const binding = this.view?.target;
     const target = this.repositoryPath(relative);
     if (!target) return;
     const [picked] = await vscode.window.showOpenDialog({ canSelectMany: false, openLabel: 'Attach screenshot',
       filters: { Images: ['png', 'jpg', 'jpeg', 'webp', 'gif'] } }) ?? [];
-    if (!picked) return;
+    if (!picked || !this.currentDelivery(binding)) return;
     if (await stat(target).then(() => true, () => false)) {
       const replace = await showCompactWarningMessage(`${relative} already exists. Replace it with the picked screenshot?`, { modal: true }, 'Replace');
       if (replace !== 'Replace') return;
     }
     await mkdir(path.dirname(target), { recursive: true });
+    if (!this.currentDelivery(binding)) return;
     await copyFile(picked.fsPath, target);
     await vscode.commands.executeCommand('vscode.open', vscode.Uri.file(target));
     void showCompactInformationMessage(`Saved as ${relative}. Look at it, then sign off; the sign-off commits it with its record.`);
@@ -170,6 +216,7 @@ export class OutcomeReviewPanel {
    * person can watch; like a test run it needs a trusted workspace. Nothing is recorded by capturing.
    */
   private async capture(relative: string): Promise<void> {
+    const binding = this.view?.target;
     const target = this.repositoryPath(relative);
     const url = this.runningUrl();
     if (!target || !url || !this.playwright) return;
@@ -182,6 +229,7 @@ export class OutcomeReviewPanel {
       if (replace !== 'Replace') return;
     }
     await mkdir(path.dirname(target), { recursive: true });
+    if (!this.currentDelivery(binding)) return;
     const execution = new vscode.ProcessExecution(this.playwright, ['screenshot', '--viewport-size=1280,800', url, target],
       { cwd: taskStartFolder(this.client.repository) });
     const task = new vscode.Task({ type: 'singularityFlow', action: 'outcome-capture', capability: this.view?.application.capability ?? 'default' },
@@ -208,6 +256,7 @@ export class OutcomeReviewPanel {
    * else; nothing is preselected and nothing is recorded until they confirm.
    */
   private async signOff(criterionIndex: number, check: OutcomeCheck): Promise<void> {
+    const binding = this.view?.target;
     const criterion = this.view?.criteria[criterionIndex];
     const relative = check.files?.[0] ?? check.suggestedFile ?? null;
     const file = this.repositoryPath(relative);
@@ -232,7 +281,7 @@ export class OutcomeReviewPanel {
     const confirmed = await showCompactWarningMessage(
       `Record this sign-off of ${criterion.id} (${check.slot}) as ${met ? 'satisfied' : 'not satisfied'}? It is committed with ${relative}, under your name.`,
       { modal: true }, 'Record sign-off');
-    if (confirmed !== 'Record sign-off') return;
+    if (confirmed !== 'Record sign-off' || !this.currentDelivery(binding)) return;
     try {
       await this.client.run(signOffArgs(this.view.workId, criterion.id, check.slot, relative, answers, reason));
       void showCompactInformationMessage(`Recorded the sign-off of ${criterion.id} (${check.slot}).`);

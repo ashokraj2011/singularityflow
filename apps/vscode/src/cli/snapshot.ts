@@ -881,6 +881,19 @@ export interface StoryReferenceRepositoryStatus {
   }>;
 }
 
+export interface CodeOutcomeOffer { workId: string; phase: string; generation: number; key: string; reason: string }
+
+/** Use only the engine's current delivery offer; a phase label or a cached count is not one. */
+export function currentCodeOutcomeOffer(snapshot: RepositorySnapshot | null | undefined): CodeOutcomeOffer | null {
+  const workflow = snapshot?.workflow;
+  const phase = workflow?.currentPhase ? workflow.phases[workflow.currentPhase] : null;
+  const offer = snapshot?.outcomeReview;
+  return workflow && phase && offer && ['in_progress', 'awaiting_approval'].includes(phase.status)
+    && (!workflow.status || workflow.status === 'in_progress')
+    && typeof offer.key === 'string' && offer.key.length > 0 && Number.isSafeInteger(offer.generation) && offer.generation > 0
+    && offer.workId === workflow.workItem.id && offer.phase === workflow.currentPhase && offer.generation === phase.generation ? offer : null;
+}
+
 export interface RepositorySnapshot {
   executionContext?: {
     schemaVersion: number;
@@ -919,6 +932,8 @@ export interface RepositorySnapshot {
   selectedInitiativeId: string | null;
   initiative: InitiativeSnapshot | null;
   workflow: StoryWorkflow | null;
+  /** Engine-derived offer for the current published code phase; no application or test is run. */
+  outcomeReview?: CodeOutcomeOffer | null;
   /**
    * Engine-owned classification of approved workflows by workflow ID.
    *

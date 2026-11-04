@@ -41,6 +41,18 @@ export function personAuthoredPublication(argv) {
   return Boolean(argv) && !['governed-agent', 'deterministic'].includes(authored);
 }
 
+/** Review is the next human handoff for code; keep the canonical lifecycle route alongside it. */
+export function afterPublication(published, shown) {
+  const lifecycle = nextAfterStep(shown, 'Published.');
+  const offer = published?.outcomeReview;
+  if (!offer) return { next: lifecycle };
+  return { outcomeReview: offer, afterReview: lifecycle, next: {
+    instruction: `Published. ${offer.instruction} Show this next action with its Copilot, Shell and VS Code (model-free) routes.`,
+    reason: offer.reason, commandGuidance: { command: offer.command, copilotCommand: offer.copilotCommand,
+      modelFreeCommand: offer.modelFreeCommand ?? null }
+  } };
+}
+
 export async function run({ positionals, options }) {
   if (options['for-agent'] !== true || options.json !== true) {
     throw new SingularityFlowError('--publish-if-ready requires --for-agent --json.', { code: 'PHASE_PUBLISH_IF_READY_OPTIONS' });
@@ -67,7 +79,7 @@ export async function run({ positionals, options }) {
   if (!shown.ok) stop(shown, 'phase show');
   // First, with what follows: the prepublish fields after it describe the draft before publication.
   console.log(JSON.stringify({ publishIfReady: {
-    published: true, next: nextAfterStep(shown.value, 'Published.'), command: prepublish.commands.publish,
+    published: true, ...afterPublication(published.value, shown.value), command: prepublish.commands.publish,
     ...(published.value?.applicationReview ? { applicationReview: published.value.applicationReview } : {}),
     output: published.stdout.trim().split('\n').slice(-40).join('\n'),
     review: shown.value

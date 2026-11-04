@@ -1,7 +1,7 @@
 ---
 id: app-review
 title: Application review and acceptance
-version: 4
+version: 5
 commands: [app-review]
 ---
 
@@ -41,6 +41,8 @@ Workflow exports carry the same interpreter requirement, review policy and refer
 Required profiles need an existing human approval boundary on every code-bearing phase. The first release refuses `required` with `approval.mode: none` before Story creation; it does not create a hidden extra approval step. Optional profiles can name `authorities` from configured approval groups. Neither setting creates group membership.
 
 ## Open the review
+
+Every published code phase first offers **Check the Outcome**, regardless of whether Application Review is adopted. VS Code opens that read-only handoff once per delivered generation by default. Its application-review button appears only when this Story pinned the profile below; opening the outcome never opts an existing Story into acceptance policy.
 
 - Copilot: `/sf-app-review`
 - Shell: `singularity-flow app-review start --json`, then `singularity-flow app-review inspect <SESSION>`

@@ -32,6 +32,7 @@ import { RepositorySnapshotFileCache } from './snapshot-file-cache.ts';
 import { IntakeCatalogCache } from './intake-catalog-cache.ts';
 import { BackgroundWorkGovernor } from './background-governor.ts';
 import type { CapabilityNode, DecisionInputSpec, RepositorySnapshot, StoryDecisionView } from './cli/snapshot.ts';
+import { currentCodeOutcomeOffer } from './cli/snapshot.ts';
 import {
   decisionChoiceItems, decisionChooseArgv, decisionInputPrompt, pendingDecisionSummary, pendingListOf, submitArgvWithDecisionValues,
   prepareRefusal, PUBLISH_AUTHORSHIP, publishArgv
@@ -5216,19 +5217,30 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     const panels = lazyPanelsRuntime;
     if (panels && state.snapshot) panels.IntakePanel.lifecycleChanged(panels.intakeInFlight(state.snapshot), repository);
   }));
-  // Optional, off by default (singularityFlow.outcomeReview.suggest): when a step is submitted for
-  // approval, offer the outcome review once for that generation. It records nothing and gates nothing.
+  // The engine identifies code delivery, including custom phases. Open its human handoff once per
+  // generation; no new snapshot, application process, test or acceptance is triggered by this offer.
+  const outcomeOffered = new Set(context.workspaceState.get<string[]>('singularityFlow.outcomeOffered') ?? []);
   context.subscriptions.push(store.onDidChange((state) => {
-    if (vscode.workspace.getConfiguration('singularityFlow').get<boolean>('outcomeReview.suggest', false) !== true) return;
-    const workflow = state.stale || state.error ? null : state.snapshot?.workflow;
-    const phase = workflow?.currentPhase ? workflow.phases[workflow.currentPhase] : null;
-    if (!workflow || !phase || phase.status !== 'awaiting_approval') return;
-    const key = `${workflow.workItem.id}:${workflow.currentPhase}:${phase.generation}`;
-    const offered = context.workspaceState.get<string[]>('singularityFlow.outcomeOffered') ?? [];
-    if (offered.includes(key)) return;
-    void context.workspaceState.update('singularityFlow.outcomeOffered', [...offered, key].slice(-50));
-    void showCompactInformationMessage(`${phase.label || workflow.currentPhase} is waiting for approval. Check the outcome first?`, 'Check the Outcome')
-      .then((choice) => { if (choice === 'Check the Outcome') void vscode.commands.executeCommand('singularityFlow.openOutcomeReview'); });
+    if (vscode.workspace.getConfiguration('singularityFlow').get<boolean>('outcomeReview.suggest', true) !== true) return;
+    const offer = state.stale || state.error ? null : currentCodeOutcomeOffer(state.snapshot);
+    if (!offer) return;
+    const targetRepository = repository;
+    const key = JSON.stringify([targetRepository, offer.key]);
+    if (outcomeOffered.has(key)) return;
+    outcomeOffered.add(key);
+    void Promise.resolve().then(async () => {
+      const latest = store.current;
+      const current = latest.snapshot?.workflow;
+      if (repository !== targetRepository || latest.stale || latest.error || current?.workItem.id !== offer.workId
+          || current.currentPhase !== offer.phase || current.phases[offer.phase]?.generation !== offer.generation) {
+        outcomeOffered.delete(key); return;
+      }
+      lazyPanels().OutcomeReviewPanel.show(context, store, client, { workId: offer.workId, phase: offer.phase, generation: offer.generation });
+      await context.workspaceState.update('singularityFlow.outcomeOffered', [...outcomeOffered].slice(-50));
+    }).catch((error) => {
+      outcomeOffered.delete(key);
+      output.appendLine(`The code result review could not be opened: ${error instanceof Error ? error.message : String(error)}. Open Singularity Flow: Check the Outcome to retry.`);
+    });
   }));
   // Registered before the tree-model listeners, so the benchmark labels the render they queue
   // with the exact projection that caused it. This is inert outside the explicit host benchmark.

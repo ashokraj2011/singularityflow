@@ -74,7 +74,9 @@ test('outcome is an optional read: it names no next action and changes nothing',
   const text = run('outcome', 'REVIEW-1');
   assert.equal(text.status, 0, text.stderr);
   assert.match(text.stdout, /Try it:/u);
-  assert.match(text.stdout, /This review is optional: it records nothing and no step waits for it/u);
+  assert.match(text.stdout, /Opening this review records no acceptance or approval/u);
+  assert.match(text.stdout, /Request repair \/ inspect the legal owner route/u);
+  assert.match(text.stdout, /Continue with the current workflow actions/u);
   assert.equal(status(), before, 'reading the outcome changed nothing in the checkout');
 
   const refused = run('outcome', '--row', 'x');

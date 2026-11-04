@@ -261,6 +261,15 @@ export function agentAct(result) {
     state: 'next', do: null, read: ['taskResume', ...(result.taskProgressImport ? ['taskProgressImport'] : []), ...(result.recovery ? ['recovery'] : [])],
     said: oneLine(`${result.taskResume.error ? `${result.taskResume.error.code}: ${result.taskResume.error.message} ` : ''}Keep the verified Story binding and existing draft. Inspect the interrupted or unavailable task outcome before any replay; follow its exact recovery route. Progress grants no permission or approval.`)
   }, result.taskResume.nextAction);
+  const codeOffer = result.publishIfReady?.published ? result.publishIfReady.outcomeReview
+    : result.resultType === 'sflow-phase-publication' && result.status === 'published' ? result.outcomeReview : null;
+  if (codeOffer) return withRoute({
+    state: 'next', do: null, read: result.publishIfReady?.published ? ['publishIfReady.outcomeReview', 'publishIfReady.afterReview'] : ['outcomeReview', ...(result.applicationReview ? ['applicationReview'] : [])],
+    said: 'Code published. Read the returned outcome once, then let the person try the application and check its acceptance criteria. Opening the review starts no app and records no acceptance or approval.'
+  }, { ...codeOffer, command: codeOffer.agentCommand ?? codeOffer.command });
+  if (result.data?.outcome?.resultType === 'sflow-outcome-review') return {
+    state: 'await-human', do: null, read: ['data.outcome'],
+    said: 'Show the application/run options, actual test results, each acceptance criterion and outstanding human checks. Offer the returned repair and continuation routes. Wait for the person to inspect or report a problem; do not start applications, run tests, accept, submit or approve unless explicitly requested. Reading this screen is not acceptance.' };
   const done = result.publishIfReady?.published ? result.publishIfReady.next : result.submitIfReady?.submitted ? result.submitIfReady.next : null;
   if (done) return { state: 'next', said: oneLine(done.instruction?.split('. ')[0] ?? 'Done.'),
     do: done.commandGuidance ? { reason: oneLine(done.reason), copilot: done.commandGuidance.copilotCommand ?? null,

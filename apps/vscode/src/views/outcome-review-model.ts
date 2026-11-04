@@ -14,11 +14,15 @@ export interface OutcomeCriterion {
 export interface OutcomeEntry { id: string; name: string; url: string; started: boolean; ready: boolean; pid: number | null; portTaken?: boolean }
 export interface OutcomeApplication { status: string; capability?: string | null; entries?: OutcomeEntry[]; message?: string | null }
 export interface OutcomeScopeItem { id: string; text: string; command: string; otherCommand?: string }
+export interface OutcomeTarget { workId: string; phase: string | null; generation: number | null }
 export interface OutcomeView {
   workId: string; title: string | null; lifecycle: string | null; completion: string | null;
+  target?: OutcomeTarget | null;
   application: OutcomeApplication; criteria: OutcomeCriterion[];
   open: { scopeItems: OutcomeScopeItem[]; blocking: Array<{ code: string; message: string }> };
   testsCommand: string | null;
+  repairCommand?: string | null;
+  repairCopilot?: string | null;
   applicationReview?: { required: boolean; sessionId: string | null };
 }
 
@@ -48,6 +52,8 @@ export function outcomeView(raw: unknown): OutcomeView | null {
   const open = data.open ?? {};
   return {
     workId: data.workId, title: text(data.title) ? data.title : null,
+    target: { workId: data.workId, phase: text(data.step?.id) ? data.step.id : null,
+      generation: Number.isSafeInteger(data.step?.generation) ? data.step.generation : null },
     lifecycle: text(data.lifecycle) ? data.lifecycle : null, completion: text(data.completion) ? data.completion : null,
     application, criteria: data.criteria,
     open: {
@@ -55,8 +61,15 @@ export function outcomeView(raw: unknown): OutcomeView | null {
       blocking: Array.isArray(open.blocking) ? open.blocking.filter((finding: { code: string; message: string }) => finding && text(finding.message)) : []
     },
     ...(data.applicationReview ? { applicationReview: { required: data.applicationReview.required === true, sessionId: text(data.applicationReview.sessionId) ? data.applicationReview.sessionId : null } } : {}),
-    testsCommand: text(data.routes?.tests?.command) ? data.routes.tests.command : null
+    testsCommand: text(data.routes?.tests?.command) ? data.routes.tests.command : null,
+    repairCommand: text(data.routes?.repair?.command) ? data.routes.repair.command : null,
+    repairCopilot: text(data.routes?.repair?.copilotCommand) ? data.routes.repair.copilotCommand : null
   };
+}
+
+/** A panel never silently acts on another Story or a replacement code generation. */
+export function sameOutcomeTarget(left: OutcomeTarget | null | undefined, right: OutcomeTarget | null | undefined): boolean {
+  return Boolean(left && right && left.workId === right.workId && left.phase === right.phase && left.generation === right.generation);
 }
 
 /** The three checklist items in the person's words, in the order `decision witness` takes them. */

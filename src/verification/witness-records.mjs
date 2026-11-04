@@ -17,6 +17,7 @@ import { phaseCorrectionTargets } from '../phase-finding-policy.mjs';
 import path from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { PACKAGE_ROOT } from '../package-root.mjs';
+import { createHash } from 'node:crypto';
 
 export const WITNESS_CHECKLIST = Object.freeze(['states-the-outcome', 'matches-the-criterion', 'current-for-this-change']);
 
@@ -229,7 +230,10 @@ function unpublishedWitnessRefusal(workflow, { clauseId, file, sha256, published
     return new SingularityFlowError(`Nothing has published ${file} for ${clauseId}`
       + `${recorded ? ` (${recorded.phase}'s delivery recorded it ${recorded.state})` : ': no step\'s delivery records it'}, `
       + 'so there is no published image to witness yet. The code step that owes it saves it and publishes it with its delivery; witness it after that. Nothing was recorded.',
-    { code: 'WITNESS_EVIDENCE_UNPUBLISHED', details: { workId: workflow?.workItem?.id ?? null, paths: [file], retainedEvidence: [], routes: [], notes: [] } });
+    { code: 'WITNESS_EVIDENCE_UNPUBLISHED', details: { workId: workflow?.workItem?.id ?? null, paths: [file], retainedEvidence: [], routes: [], notes: [],
+      ...(workflow?.workItem?.id ? { nextAction: { argv: ['recover', workflow.workItem.id,
+        ...(workflow.currentPhase ? ['--phase', workflow.currentPhase] : []), '--for-agent', '--json'],
+      label: 'Inspect the current delivery and its publication requirements before attempting a witness again.' } } : {}) } });
   }
   const entry = published.find((item) => item.sha256 !== sha256) ?? published[0];
   const route = republicationRoute(workflow, entry.phase, clauseId);
@@ -247,7 +251,7 @@ function unpublishedWitnessRefusal(workflow, { clauseId, file, sha256, published
  * Append one witness record. `slot` is the contract slot it witnesses; `file` the inspected path
  * with its current `sha256`; `answers` maps every checklist item to yes or no.
  */
-export function recordWitness(workflow, { clauseId, slot, file, sha256, answers = {}, reason, actor, authorityGroup, identityAssurance = null, at, plannedClaim = null }) {
+function recordWitnessWithEvidence(workflow, { clauseId, slot, file, sha256, answers = {}, reason, actor, authorityGroup, identityAssurance = null, at, plannedClaim = null }, publishedEvidence = null) {
   if (!AC_ID.test(String(clauseId ?? ''))) throw invalid('--criterion must name one acceptance criterion, such as ORDER:AC-001.');
   if (!slot || !['inspection', 'visual'].includes(slot.method)) {
     throw invalid(`${clauseId}'s contract has no inspection or visual slot by that name; tests are witnessed by their own runs.`);
@@ -260,7 +264,7 @@ export function recordWitness(workflow, { clauseId, slot, file, sha256, answers 
   if (retained.length) {
     const expected = retained.flatMap((entry) => entry.expectedPaths);
     if (!expected.includes(file)) throw invalid(`${clauseId}'s retained evidence is ${expected.join(', ')}, not ${file}.`);
-    const published = publishedRetainedEvidence(workflow).filter((entry) => entry.clauseId === clauseId && entry.path === file);
+    const published = (publishedEvidence ?? publishedRetainedEvidence(workflow)).filter((entry) => entry.clauseId === clauseId && entry.path === file);
     // The refusal names who published which bytes, the file's bytes now and both ways on (ws-graph, 2026-10-27).
     if (!published.length || published.some((entry) => entry.sha256 !== sha256)) {
       throw unpublishedWitnessRefusal(workflow, { clauseId, file, sha256, published });
@@ -286,6 +290,61 @@ export function recordWitness(workflow, { clauseId, slot, file, sha256, answers 
   };
   workflow.witnessRecords.push(record);
   return record;
+}
+
+/** Pure record construction for already bound internal aggregates and fixture callers. */
+export function recordWitness(workflow, input) {
+  return recordWitnessWithEvidence(workflow, input);
+}
+
+/**
+ * Read the authenticated publication, not the nullable submission marker or mutable draft metadata.
+ * Publication commits cannot contain their own hash. `generationCommit` is populated on submission;
+ * a human may inspect the delivered image before then. Resolve its existing immutable publication
+ * record and read the exact committed fulfillment and file bytes without changing the aggregate.
+ */
+export async function readPublishedWitnessEvidence(root, workflow, { clauseId, file }) {
+  const [{ publishedGenerationCommit, generationPublicationRelative }, { exactFileAtObject }] = await Promise.all([
+    import('../generation-publication-store.mjs'), import('../git.mjs')
+  ]);
+  const evidence = [];
+  for (const phase of Object.values(workflow.phases ?? {})) {
+    if (!(Number(phase.generation) > 0) || !fulfillmentEntries(phase).some(entry => entry?.clauseId === clauseId
+        && entry.fulfillment === 'evidence' && entry.paths?.some(item => item?.path === file))) continue;
+    const commit = publishedGenerationCommit(root, workflow, phase);
+    if (!commit) continue;
+    const publication = phase.generationPublications?.find(entry => Number(entry.generation) === Number(phase.generation));
+    const recordPath = publication?.record?.path ?? generationPublicationRelative(phase);
+    const workflowPath = recordPath && `${path.posix.dirname(path.posix.dirname(path.posix.dirname(recordPath)))}/workflow.json`;
+    const fail = () => { throw new SingularityFlowError(`The retained evidence for ${clauseId} could not be verified in ${phase.id}'s publication ${commit}. Preserve the image and inspect that publication before retrying.`, {
+      code: 'WITNESS_PUBLICATION_INVALID', details: { workId: workflow.workItem.id, phase: phase.id, paths: [file],
+        nextAction: { argv: ['recover', workflow.workItem.id, '--phase', phase.id, '--for-agent', '--json'],
+          label: 'Inspect the exact retained publication; no witness was recorded.' },
+        routes: [{ kind: 'diagnostic', command: `singularity-flow recover ${workflow.workItem.id} --phase ${phase.id} --for-agent --json`, label: 'Inspect the exact retained publication; no witness was recorded.' }] }
+    }); };
+    const bytes = workflowPath && exactFileAtObject(root, commit, workflowPath, { maximumBytes: 32 * 1024 * 1024, regularOnly: true });
+    if (!bytes) fail();
+    let stored;
+    try { stored = JSON.parse(bytes.toString('utf8')); } catch { fail(); }
+    const saved = stored?.phases?.[phase.id];
+    if (stored?.workItem?.id !== workflow.workItem.id || Number(saved?.generation) !== Number(phase.generation)) fail();
+    const entries = publishedRetainedEvidence({ phaseOrder: [phase.id], phases: { [phase.id]: { ...saved, generationCommit: commit } } })
+      .filter(entry => entry.clauseId === clauseId && entry.path === file);
+    if (entries.length) {
+      const image = exactFileAtObject(root, commit, file, { maximumBytes: 64 * 1024 * 1024, regularOnly: true });
+      if (!image || entries.some(entry => entry.sha256 !== `sha256:${createHash('sha256').update(image).digest('hex')}`)) fail();
+      evidence.push(...entries);
+    }
+  }
+  return evidence;
+}
+
+/** Authoritative witness entry: final publication binding stays inside the existing transaction. */
+export async function recordPublishedWitness(root, workflow, input) {
+  const obligations = input.plannedClaim?.obligations ?? (input.plannedClaim ? [input.plannedClaim] : []);
+  const evidence = obligations.some(entry => entry.fulfillment === 'evidence')
+    ? await readPublishedWitnessEvidence(root, workflow, input) : null;
+  return recordWitnessWithEvidence(workflow, input, evidence);
 }
 
 /**

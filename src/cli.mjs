@@ -21,7 +21,7 @@ import { recordCompletenessReview, recordScopeDecision, scopeAuthorities } from 
 import { planAuthorities, recordPlanAmendment } from './plan-amendments.mjs';
 import { recordRiskDecision, recordRiskRevocation, riskAuthorities } from './evidence/risk-decisions.mjs';
 import { readStdinText as stdinText } from './read-stdin.mjs';
-import { recordWitness, assertWitnessReviewBinding } from './verification/witness-records.mjs';
+import { recordPublishedWitness, assertWitnessReviewBinding } from './verification/witness-records.mjs';
 import { isConvergencePhase, scopeStepOf, stepResponsibilities } from './phase-roles.mjs';
 import readline from 'node:readline/promises';
 import { actionActor, activatePhaseAgent, activeActionContext, summary } from './commands/kernel.mjs';
@@ -4450,7 +4450,7 @@ async function decisionWitnessCommand(positionals, options) {
     const actualFile = `sha256:${createHash('sha256').update(await readFile(current.absolute)).digest('hex')}`;
     assertWitnessReviewBinding(aggregate, { expectedContext: optionString(options, 'expected-context-sha256'),
       expectedFile: optionString(options, 'expected-file-sha256') ?? sha256, actualFile, clauseId, slot: slotName, file: current.relative ?? file });
-    return recordWitness(aggregate, {
+    return recordPublishedWitness(root, aggregate, {
       clauseId, slot, file: secured.relative ?? file, sha256, answers, reason: optionString(options, 'reason') ?? '',
       actor: actorKey(actor), authorityGroup: authority.authorityGroup, identityAssurance: authority.identityAssurance ?? null, at: nowIso(),
       plannedClaim: mergePlannedClaimRecords(plans)[clauseId] ?? null

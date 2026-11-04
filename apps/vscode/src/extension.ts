@@ -804,7 +804,12 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       invoke: async (options: { input?: Record<string, unknown> }) => {
         let result;
         try { result = await vscode.commands.executeCommand('singularityFlow.reviewWitness', options.input ?? {}); }
-        catch (error) { result = { status: 'blocked', message: (error as Error).message, recorded: null, next: 'Refresh Decisions before retrying; a failed publication can retain a local record.' }; }
+        catch (error) {
+          const failure = error as Error & { result?: unknown };
+          result = { status: 'blocked', message: failure.message, recorded: null,
+            ...(failure.result ? { refusal: failure.result } : {}),
+            next: 'Follow the returned repair or recovery route before reopening this review. A failed publication can retain a local record; inspect its outcome instead of repeating an unchanged witness.' };
+        }
         return new parts.LanguageModelToolResult([new parts.LanguageModelTextPart(JSON.stringify(result))]);
       }
     }));

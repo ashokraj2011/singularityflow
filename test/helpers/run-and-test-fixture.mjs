@@ -98,7 +98,7 @@ export async function repository(t, { extraCommands = [], implementCommands = tr
 }
 
 /** A quick-fix Story at its implement step, on a branch published to a local bare remote. */
-export async function startQuickFix(repo) {
+export async function startQuickFix(repo, { retainedScreenshot = null } = {}) {
   const { root, sflow, must } = repo;
   must('git', ['init', '-q', '--bare', '-b', 'main', path.join(repo.base, 'remote.git')], repo.base);
   must('git', ['remote', 'add', 'origin', path.join(repo.base, 'remote.git')]);
@@ -108,9 +108,16 @@ export async function startQuickFix(repo) {
   await writeFile(path.join(root, 'singularity/work-items/QF-1/artifacts/intake/intake.md'), [
     '# QF-1 — Quick fix scope and plan', '', '## Problem and fix', '', 'The value must be 2; change the exported constant.', '',
     '## Acceptance criteria', '', '| Clause | Observable outcome |', '|---|---|', '| [QF-1:AC-001] | The exported value equals 2. |', '',
+    ...(retainedScreenshot ? ['## Requirements', '', 'The module exports the approved value 2. [QF-1:REQ-001]', ''] : []),
     '## Planned implementation evidence', '',
     '| Clause | Expected paths | Planned tests | Fulfillment | Observable result |', '|---|---|---|---|---|',
-    '| `QF-1:AC-001` | `src/value.mjs` | `test/value.test.mjs` | modified | The test reads 2. |', '',
+    `| \`QF-1:${retainedScreenshot ? 'REQ' : 'AC'}-001\` | \`src/value.mjs\` | \`test/value.test.mjs\` | modified | The test reads 2. |`,
+    ...(retainedScreenshot ? [
+      `| \`QF-1:AC-001\` | \`${retainedScreenshot}\` | \`test/value.test.mjs\` | evidence | The reviewed screen shows the value 2. |`, '',
+      '## Verification contracts', '',
+      '| Criterion | Slot | Method | Witness | Role | Required assurance |', '|---|---|---|---|---|---|',
+      '| `QF-1:AC-001` | screen | visual | `Value display` | primary | source-bound |', ''
+    ] : []), '',
     '## Out of scope', '', 'Nothing else changes in the module or its interface.', ''].join('\n'));
   sflow('phase', 'publish', 'intake', '--authored', 'human', '--channel', 'manual-in-place');
   sflow('submit', 'intake');

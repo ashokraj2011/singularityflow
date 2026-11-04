@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict';
-import { mkdtemp, mkdir, rm, writeFile } from 'node:fs/promises';
+import { mkdtemp, mkdir, readFile, rm, writeFile } from 'node:fs/promises';
+import { createHash } from 'node:crypto';
 import os from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
@@ -12,6 +13,8 @@ import { lifecycleEvent, recordPublicationProjection } from '../src/lifecycle-ev
 import { recordSha256 } from '../src/records.mjs';
 import { generationResultDigest } from '../src/state.mjs';
 import { run } from '../src/util.mjs';
+import { readPublishedWitnessEvidence, recordPublishedWitness, WITNESS_CHECKLIST } from '../src/verification/witness-records.mjs';
+import { refusalRemediationPlan } from '../src/refusal-remediation.mjs';
 
 function git(root, args) {
   const result = run('git', args, { cwd: root, allowFailure: true });
@@ -19,7 +22,7 @@ function git(root, args) {
   return result.stdout.trim();
 }
 
-async function committedGenerationPublicationV1({ tampered = false } = {}) {
+async function committedGenerationPublicationV1({ tampered = false, phaseId = 'intake', retainedEvidence = false, missingImage = false } = {}) {
   const root = await mkdtemp(path.join(os.tmpdir(), 'sflow-generation-publication-v1-'));
   git(root, ['init', '-q', '-b', 'main']);
   git(root, ['config', 'user.name', 'Generation Publication']);
@@ -31,15 +34,21 @@ async function committedGenerationPublicationV1({ tampered = false } = {}) {
   const parentTree = git(root, ['rev-parse', 'HEAD^{tree}']);
 
   const workId = tampered ? 'V1-TAMPERED' : 'V1-VALID';
-  const phaseId = 'intake';
   const generation = 1;
   const workDirectory = `singularity/work-items/${workId}`;
-  const artifactPath = `${workDirectory}/artifacts/intake/intake.md`;
+  const artifactPath = `${workDirectory}/artifacts/${phaseId}/intake.md`;
   const workflowPath = `${workDirectory}/workflow.json`;
-  const recordPath = `${workDirectory}/context/generation-publications/intake-gen1.json`;
+  const recordPath = `${workDirectory}/context/generation-publications/${phaseId}-gen1.json`;
   await mkdir(path.join(root, path.dirname(artifactPath)), { recursive: true });
   await mkdir(path.join(root, path.dirname(recordPath)), { recursive: true });
   await writeFile(path.join(root, artifactPath), '# Intake\n\nPublished by a v1 runtime.\n');
+  const evidencePath = `${workDirectory}/evidence/screen Ω.png`;
+  const image = Buffer.from('fixture image bytes');
+  const evidenceSha256 = createHash('sha256').update(image).digest('hex');
+  if (retainedEvidence && !missingImage) {
+    await mkdir(path.dirname(path.join(root, evidencePath)), { recursive: true });
+    await writeFile(path.join(root, evidencePath), image);
+  }
 
   const transactionId = `generation-publication-${workId.toLowerCase()}`;
   const publishedAt = '2026-01-02T03:04:05.000Z';
@@ -84,7 +93,10 @@ async function committedGenerationPublicationV1({ tampered = false } = {}) {
     generation,
     status: 'in_progress',
     artifacts: [{ path: artifactPath }],
-    requiredArtifact: { path: 'artifacts/intake/intake.md', kind: 'intake' },
+    requiredArtifact: { path: `artifacts/${phaseId}/intake.md`, kind: 'intake' },
+    ...(retainedEvidence ? { generationCommit: null, deliveryEvidence: { fulfillment: [
+      { clauseId: `${workId}:AC-001`, fulfillment: 'evidence', paths: [{ path: evidencePath, state: 'present', sha256: evidenceSha256 }] }
+    ] } } : {}),
     generationPublications: [{
       generation,
       resultDigestVersion: 2,
@@ -116,10 +128,70 @@ async function committedGenerationPublicationV1({ tampered = false } = {}) {
     '-m', `Singularity-Flow-Transaction: ${transactionId}\nSingularity-Flow-Event-SHA256: ${eventSha256}`
   ]);
   return {
-    root, workflow, phase, recordPath, recordBytes,
+    root, workflow, phase, recordPath, recordBytes, evidencePath, evidenceSha256, image,
     commit: git(root, ['rev-parse', 'HEAD'])
   };
 }
+
+function witnessInput(f, sha256 = `sha256:${f.evidenceSha256}`) {
+  return { clauseId: `${f.workflow.workItem.id}:AC-001`, slot: { slot: 'screen', method: 'visual', witness: { target: 'Value display' } },
+    file: f.evidencePath, sha256, plannedClaim: { fulfillment: 'evidence', expectedPaths: [f.evidencePath] },
+    answers: Object.fromEntries(WITNESS_CHECKLIST.map(item => [item, 'yes'])), reason: 'The fixture reviewer inspected these exact retained bytes.',
+    actor: 'reviewer@example.test', authorityGroup: 'engineering-reviewers', at: '2026-11-04T00:00:00Z' };
+}
+
+test('witness publication binding works before submission for current and custom phase names', async t => {
+  for (const phaseId of ['implementation', 'verification', 'release', 'team-owned-phase']) await t.test(phaseId, async t => {
+    const f = await committedGenerationPublicationV1({ phaseId, retainedEvidence: true });
+    t.after(() => rm(f.root, { recursive: true, force: true }));
+    const input = witnessInput(f);
+    const workflowPath = path.join(f.root, `singularity/work-items/${f.workflow.workItem.id}/workflow.json`);
+    const bytes = await readFile(workflowPath);
+    const rows = await readPublishedWitnessEvidence(f.root, f.workflow, input);
+    assert.equal(rows.length, 1);
+    assert.equal(rows[0].generationCommit, f.commit);
+    assert.equal(rows[0].sha256, `sha256:${f.evidenceSha256}`);
+    const record = await recordPublishedWitness(f.root, f.workflow, input);
+    assert.equal(record.outcome, 'met');
+    assert.equal(f.phase.generationCommit, null, 'publication lookup cannot set the later submission marker');
+    assert.equal(f.phase.status, 'in_progress');
+    assert.deepEqual(await readFile(workflowPath), bytes);
+    assert.equal(git(f.root, ['rev-parse', 'HEAD']), f.commit, 'read binding writes no commit');
+  });
+});
+
+test('mutable fulfillment cannot substitute different bytes for the authenticated published image', async t => {
+  const f = await committedGenerationPublicationV1({ retainedEvidence: true });
+  t.after(() => rm(f.root, { recursive: true, force: true }));
+  const replacement = Buffer.from('a different image');
+  const forged = createHash('sha256').update(replacement).digest('hex');
+  f.phase.deliveryEvidence.fulfillment[0].paths[0].sha256 = forged;
+  await writeFile(path.join(f.root, f.evidencePath), replacement);
+  const input = witnessInput(f, `sha256:${forged}`);
+  const rows = await readPublishedWitnessEvidence(f.root, f.workflow, input);
+  assert.equal(rows[0].sha256, `sha256:${f.evidenceSha256}`);
+  await assert.rejects(recordPublishedWitness(f.root, f.workflow, input), error => error.code === 'WITNESS_EVIDENCE_UNPUBLISHED'
+    && error.details.retainedEvidence[0].publishedSha256 === `sha256:${f.evidenceSha256}`);
+  assert.equal(f.workflow.witnessRecords, undefined);
+});
+
+test('missing image blobs and corrupt publication records remain explicit refusals', async t => {
+  for (const options of [{ missingImage: true }, { tampered: true }]) {
+    const f = await committedGenerationPublicationV1({ ...options, retainedEvidence: true });
+    t.after(() => rm(f.root, { recursive: true, force: true }));
+    await assert.rejects(recordPublishedWitness(f.root, f.workflow, witnessInput(f)), error => {
+      assert.equal(error.code, options.tampered ? 'GENERATION_PUBLICATION_INVALID' : 'WITNESS_PUBLICATION_INVALID');
+      if (options.missingImage) {
+        assert.match(error.details.routes[0].command, /singularity-flow recover/);
+        const recovery = refusalRemediationPlan(error, ['decision', 'witness', '--work-id', f.workflow.workItem.id]);
+        assert.ok(recovery.steps.some(step => step.command?.startsWith(`singularity-flow recover ${f.workflow.workItem.id}`)));
+      }
+      return true;
+    });
+    assert.equal(f.workflow.witnessRecords, undefined);
+    assert.equal(git(f.root, ['rev-parse', 'HEAD']), f.commit);
+  }
+});
 
 test('a restored Code generation starts above the abandoned watermark while retaining its authenticated baseline', async (t) => {
   const { root, workflow, phase, commit } = await committedGenerationPublicationV1();

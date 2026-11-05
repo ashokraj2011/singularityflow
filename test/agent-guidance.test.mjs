@@ -33,6 +33,10 @@ test('legacy agent path wording is adapted only at delivery, idempotently and wi
   const delivered = withAgentPathProtocol(pinnedEvidence, { normalizeLegacy: false });
   assert.ok(delivered.startsWith(pinnedEvidence), 'composed source/evidence bytes are never normalized as agent instructions');
   assert.equal(withAgentPathProtocol(delivered, { normalizeLegacy: false }), delivered);
+  const stated = withAgentPathProtocol(pinnedEvidence, { normalizeLegacy: false, pathRuleStated: true });
+  assert.doesNotMatch(stated, new RegExp(CLI_PATH_CONTRACT.slice(0, 30).replace(/[.*+?^${}()|[\]\\]/gu, '\\$&'), 'u'), 'a prompt that states the rule keeps one copy of it');
+  assert.match(stated, /takes precedence over older agent or skill confinement wording/u);
+  assert.equal(withAgentPathProtocol(stated, { normalizeLegacy: false, pathRuleStated: true }), stated);
   const quotedRuntime = `Source quotes a runtime block:\n${effective}\nEnd of pinned source.`;
   assert.ok(withAgentPathProtocol(quotedRuntime, { normalizeLegacy: false }).startsWith(quotedRuntime));
 });

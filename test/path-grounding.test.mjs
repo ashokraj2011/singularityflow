@@ -512,7 +512,7 @@ test('prepare, inputs, and compose replay complete repository-rooted paths witho
   assert.equal(composed.status, 0, composed.stderr);
   const prompt = await readFile(path.join(repository, promptRelative), 'utf8');
   assert.ok(prompt.includes(CLI_PATH_CONTRACT));
-  assert.match(prompt, /Keep CLI-issued absolute paths unchanged, including exact private\/external files/);
+  assert.match(prompt, /Issued private\/external files are exact exceptions to repository confinement/);
   assert.doesNotMatch(prompt, /Resolve every named path inside|Paths in Flow output are relative to one of these two roots/);
   const canonicalRepository = git(repository, 'rev-parse', '--show-toplevel');
   assert.match(prompt, /Repository root: `\.` \(the verified current repository checkout\)/);

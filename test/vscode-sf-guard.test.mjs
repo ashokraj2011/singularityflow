@@ -38,11 +38,12 @@ class EventEmitter {
   fire(value) { for (const listener of [...this.listeners]) listener(value); }
   dispose() { this.listeners.clear(); }
 }
+const executed = [];
 globalThis.__sfGuardTestVscode = {
   ViewColumn: { Active: 1, Beside: 2 },
   Uri: { file: (fsPath) => ({ fsPath }), joinPath: () => ({}) },
   EventEmitter,
-  commands: { executeCommand: async () => undefined },
+  commands: { executeCommand: async (command) => { executed.push(command); }, getCommands: async () => ['singularityFlow.openApprovals'] },
   env: { clipboard: { writeText: async (text) => { copied.push(text); } } },
   workspace: { workspaceFolders: [{ uri: { fsPath: os.tmpdir() } }], getConfiguration: () => ({ get: (_key, fallback) => fallback }) },
   window: {
@@ -388,6 +389,10 @@ test('VS Code "Close gap with O1 and sign": the card, then the person\'s own ter
   stale.post({ type: 'sign.terminal' });
   await until(() => stale.webview.html.includes('data-sign-state="stale"'), 'the stale card');
   assert.equal(terminals.length, 1);
+  // A stale card has no action of its own, and says to start the step again from its view: the footer goes there.
+  assert.match(stale.webview.html, /<nav class="page-nav"[^>]*>.*data-nav="approvals"/su);
+  stale.post({ type: 'navigate', to: 'approvals' });
+  await until(() => executed.includes('singularityFlow.openApprovals'), 'the footer link');
   stale.dispose();
 });
 

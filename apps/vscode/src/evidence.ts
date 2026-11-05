@@ -2,6 +2,11 @@ import { readdir } from 'node:fs/promises';
 import path from 'node:path';
 import type { EpicSourceRecord, RepositorySnapshot, StoryArtifact } from './cli/snapshot.ts';
 
+/** Mirrors what the engine cannot read for secrets (SKIP_PATH in src/secrets.mjs), which it refuses in Git. */
+export function unreadableInGit(file: string): boolean {
+  return /\.(?:png|jpe?g|gif|ico|pdf|zip|gz|tgz|mp4|mov|webp|bmp|tiff?|heic|fig|doc|xls|ppt)$/iu.test(file);
+}
+
 export type EvidenceTarget = {
   kind: 'story' | 'epic';
   id: string;

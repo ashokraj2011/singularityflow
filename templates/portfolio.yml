@@ -121,8 +121,9 @@ storage:
   maxBytes: 104857600
   allowedMimeTypes: []
   providers:
-    # Bytes committed alongside the Epic, addressed by their own hash. Self-contained and offline,
-    # at the cost of the repository carrying them.
+    # Bytes committed alongside the Epic, addressed by their own hash. Self-contained and offline, so
+    # it takes only what SFlow can read for secrets: text and Word, Excel or PowerPoint documents. A
+    # PDF, an image or an archive needs a provider that holds its bytes outside Git.
     local: { type: local }
     jira: { type: jira-attachment }
 

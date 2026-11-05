@@ -22,7 +22,7 @@
  * assignments that look like `password = "..."`. Broad guessing produces noise, and a check people
  * routinely override is a check that is not running.
  */
-import { configValueFindings, configValuesRefused, entropy, reservedExampleHost } from './config-values.mjs';
+import { configValueFindings, configValuesRefused, entropy, reservedExampleHost, proseValueFindings } from './config-values.mjs';
 import { SingularityFlowError } from './util.mjs';
 
 /**
@@ -170,6 +170,9 @@ export const SECRET_RULES = Object.freeze([
  */
 const SKIP_PATH = /(?:^|\/)(?:node_modules|\.git)\/|\.(?:png|jpg|jpeg|gif|ico|pdf|zip|gz|tgz|woff2?|ttf|eot|mp4|mov|vsix|webp|bmp|tiff?|heic|fig|doc|xls|ppt)$|(?:^|\/)(?:package-lock\.json|pnpm-lock\.yaml|yarn\.lock)$/i;
 
+/** Text that is written rather than configured, whose values sit in sentences. */
+const PROSE_PATH = /\.(?:md|markdown|txt|rst|adoc|log|csv|tsv|sql)$/iu;
+
 /** Office documents scanned through their extracted text, which is what reaches prompts. */
 const EXTRACTED_TEXT_PATH = /\.(?:docx|xlsx|pptx)$/i;
 
@@ -188,7 +191,7 @@ export function scannedAsExtractedText(filePath) {
  * waiver on a line suppresses every rule on that line: a line with two credentials is one mistake
  * with one reason, and demanding a marker per rule would push people toward a blanket ignore.
  */
-export function scanText(content, { path: filePath = '<input>', inGit = [] } = {}) {
+export function scanText(content, { path: filePath = '<input>', inGit = [], attached = false } = {}) {
   const findings = [];
   const lines = String(content ?? '').split('\n');
   lines.forEach((line, index) => {
@@ -218,9 +221,12 @@ export function scanText(content, { path: filePath = '<input>', inGit = [] } = {
   // A shared config file's settings, which people write unquoted. A line a rule already found is one finding.
   const flagged = new Set(findings.map((finding) => finding.line));
   const settingKey = ({ name, value }) => `${name}\0${value}`;
-  const known = new Set(inGit.flatMap((text) => configValueFindings(filePath, text)).map(settingKey));
-  for (const { name, value, line } of configValueFindings(filePath, content)) {
+  // Notes, logs and dumps hold values in sentences, and whatever a person attaches can reach a model.
+  const settings = (text) => [...configValueFindings(filePath, text), ...(attached || PROSE_PATH.test(String(filePath)) ? proseValueFindings(text) : [])];
+  const known = new Set(inGit.flatMap(settings).map(settingKey));
+  for (const { name, value, line } of settings(content)) {
     if (flagged.has(line)) continue;
+    flagged.add(line);
     // The line above counts too: a marker on the line itself becomes part of a .properties value, and JSON has no comments.
     const waiver = WAIVER.exec(lines[line - 1]) ?? (line > 1 ? WAIVER.exec(lines[line - 2]) : null);
     // Its length and no more: a model sees this output, and a short value's first characters are most of it.
@@ -261,7 +267,7 @@ export function scanEntries(entries = [], { alwaysLocal = [], env = process.env 
         { code: 'SECRET_SCAN_UNREADABLE' }
       );
     }
-    findings.push(...scanText(entry.content, { path: filePath, inGit: entry.inGit ?? [] }));
+    findings.push(...scanText(entry.content, { path: filePath, inGit: entry.inGit ?? [], attached: entry.attached === true }));
   }
   return Object.freeze({
     resultType: 'secret-scan',

@@ -109,7 +109,7 @@ import {
 import { SecureCredentials } from './credentials.ts';
 import {
   defaultEvidencePhases, evidenceCatalog, evidenceCommands, evidenceDetachCommand, evidenceDetachPreviewCommand,
-  evidenceScopeCommand, evidenceStorageChoices, evidenceTargets, evidenceUsesLabel,
+  evidenceScopeCommand, evidenceStorageChoices, evidenceTargets, evidenceUsesLabel, unreadableInGit,
   suggestedEvidenceName, validateEvidenceName,
   expandEpicEvidenceDirectory, validateEvidenceUrl,
   type EpicSourceBrowse, type EvidenceCatalogItem, type EvidenceTarget
@@ -6953,10 +6953,16 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     };
     // Where a Story file is kept: only what its document policy allows, its default first; one
     // choice is no choice. Undefined on cancel.
-    const askStorage = async (plural: boolean): Promise<'git' | 'local' | undefined> => {
+    const askStorage = async (plural: boolean, paths: string[] = []): Promise<'git' | 'local' | undefined> => {
       const policy = evidenceStorageChoices(
         (store.current.snapshot?.workflow?.resolution as { documents?: { storage?: { allowed?: unknown; default?: unknown } } } | undefined)?.documents);
       if (policy.allowed.length <= 1) return policy.default;
+      // The engine refuses these in Git: SFlow cannot read them for secrets, so asking would only lead to a refusal.
+      const unreadable = paths.filter(unreadableInGit);
+      if (unreadable.length) {
+        void vscode.window.showInformationMessage(`${unreadable.map((file) => path.basename(file)).join(', ')} will stay on this machine: SFlow cannot read PDFs, images or archives for secrets, and the repository must never hold one.`);
+        return 'local';
+      }
       const options = [{
         label: 'Commit to Git', description: 'Everyone working on this Story gets the file', value: 'git' as const
       }, {
@@ -6986,7 +6992,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       if (!names) return;
       let storage: 'git' | 'local' = 'git';
       if (target.kind === 'story') {
-        const chosen = await askStorage(paths.length > 1);
+        const chosen = await askStorage(paths.length > 1, paths);
         if (!chosen) return;
         storage = chosen;
       }

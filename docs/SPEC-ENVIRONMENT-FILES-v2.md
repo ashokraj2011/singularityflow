@@ -24,6 +24,8 @@ Decided 2026-11-06:
 
 5. **Plain chats.** A Copilot chat with no `/sf-` command gets the same refusals, and a capability can turn that
    off. See "Plain chats" below.
+6. **Attachments.** The repository never holds a secret. What SFlow can read it scans, and what it cannot read
+   stays out of Git. See "Attachments" below.
 
 ## Model
 
@@ -147,6 +149,35 @@ or key extension (`yml`, `yaml`, `properties`, `toml`, `ini`, `cfg`, `conf`, `en
 `jks`, `keystore`) or the word `secret` or `credential`. A false match costs one Node start. A declared file with none of
 these in its name, such as `config/uat.txt`, is therefore not seen in a plain chat, though a `/sf-` turn still refuses it.
 
+### Attachments
+
+A document, an Epic source or a note can reach Git and a model, so each is checked before anything is stored.
+
+| What is attached | In Git | On this laptop only |
+|---|---|---|
+| Text of any kind, including Markdown, CSV, SQL, logs and SVG | Scanned. A value is refused | Scanned. A value is refused |
+| Word, Excel and PowerPoint | Their extracted text is scanned. One with no text is refused | Their extracted text is scanned |
+| A PDF, an image, an archive, or an older `.doc`, `.xls` or `.ppt` | Refused: SFlow cannot read it | Kept. It never leaves the laptop |
+| A file with an always-local name | Refused | Refused |
+
+An attachment's text is read more closely than a source file: a value in a sentence (`the password is …`), a setting
+in any text file and SQL's `IDENTIFIED BY '…'` all count, with the same waiver marker. Markdown, text, log, CSV and SQL
+files get the same reading at a commit. A value already in Git warns there, as it does in shared config.
+
+- **Story documents.** `documents upload`, `documents fetch` and `--document` at `start` follow the table, and so
+  does moving a local document into Git. VS Code does not offer Git for a file it would refuse. Another clone lists a
+  local document as unavailable, which is the cost of this rule.
+- **Epic sources.** `epic sources add` and `note` are scanned too. The `local` provider commits what it is given, so it
+  follows the Git column: a PDF brief is saved as text or a Word document, pasted with `epic sources note`, or pinned with
+  a provider that holds bytes outside Git. Those providers are scanned the same way and take binary files unread.
+- **Already in Git.** Nothing is moved or deleted. A file committed earlier stays in history until a person removes it.
+
+These still reach Git unread, and the spec does not claim otherwise:
+
+- A PDF, image or archive added to the application's own code by a commit. Applications ship such files, so the gate
+  skips them.
+- A viewable file in a reviewed agent folder, and the evidence screenshot an Outcome sign-off commits.
+
 ### What the Copilot check cannot see
 
 It reads what a call says. These still get through, and the spec does not claim otherwise:
@@ -156,6 +187,8 @@ It reads what a call says. These still get through, and the spec does not claim 
 - A path in a variable or a script, or a shared config file reached through `cd` first.
 - A running program that reads the file for itself. `source .env` and `--env-file .env` are refused because
   they name it; a test command that loads it is not.
+- A file attached to the chat itself, such as `#file:.env`. The host adds it to the prompt without a tool call, so
+  no tool guard sees it.
 
 ## Nothing dead-ends
 

@@ -312,8 +312,8 @@ test('each Story-start document has its own phases and storage, and an image is 
   const { root } = await repository();
   const uploads = await mkdtemp(path.join(os.tmpdir(), 'sflow-per-document-start-'));
   const brief = path.join(uploads, 'brief.md'); await writeFile(brief, '# Brief\nRetry a failed payment once.\n');
-  const mockup = path.join(uploads, 'checkout.png');
-  await writeFile(mockup, Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNkYPhfDwAChwGA60e6kgAAAABJRU5ErkJggg==', 'base64'));
+  const mockup = path.join(uploads, 'checkout.svg');
+  await writeFile(mockup, '<svg xmlns="http://www.w3.org/2000/svg"><rect width="1" height="1"/></svg>\n');
   const notes = path.join(uploads, 'notes.md'); await writeFile(notes, '# Notes\nKept private.\n');
   const documents = ['--document', brief, '--document-name', 'Brief', '--document', mockup, '--document-name', 'Checkout mockup',
     '--document', notes, '--document-name', 'Private notes'];
@@ -333,8 +333,8 @@ test('each Story-start document has its own phases and storage, and an image is 
   assert.deepEqual(byName['Checkout mockup'].phases, workflow.phaseOrder);
   assert.deepEqual(byName['Private notes'].phases, ['design']);
   assert.deepEqual(manifest.documents.map((record) => record.storage.kind), ['git', 'git', 'local']);
-  assert.equal(byName['Checkout mockup'].mimeType, 'image/png');
-  assert.match(run('git', ['ls-files', 'singularity/work-items/EACH-1/inputs'], root).stdout, /checkout\.png/,
+  assert.equal(byName['Checkout mockup'].mimeType, 'image/svg+xml');
+  assert.match(run('git', ['ls-files', 'singularity/work-items/EACH-1/inputs'], root).stdout, /checkout\.svg/,
     'the image is committed with the Story');
   assert.doesNotMatch(run('git', ['log', '-p', '--all'], root).stdout, /Kept private/);
 });

@@ -22,15 +22,15 @@ related:
   - artifacts-and-generation
   - specification-quality
   - epics-and-planning
-version: 12
+version: 13
 ---
 Supporting documents are the evidence a Story is built from: a brief, API notes, a spreadsheet of rules, a design export or screenshot. Images (PNG, JPEG, GIF, WebP, SVG) are attached like any other file. Each one is attached with a name, a storage location, and the phases that read it. `sflow documents upload <FILE> --name <NAME>` attaches a file and pins it by SHA-256; the Story's `documents.json` records its `DOC-nnn` ID, name, hash, size, storage, and phases. Names are required and unique within the Story: case and spacing are ignored, and a detached document keeps its name. Prompts list each document as `DOC-nnn — <name>`, and artifacts cite it the same way.
 
 ## Where a document is kept
 
-- **Git** (`--store git`, for older Stories whose approved policy allows it): the bytes are committed under
-  `singularity/work-items/<WORK-ID>/inputs/DOC-nnn/` and pushed with the Story, so every clone,
-  reviewer, and pipeline reads the same evidence.
+- **Git** (`--store git`, for older Stories whose approved policy allows it, and only for files SFlow can read
+  for secrets): the bytes are committed under `singularity/work-items/<WORK-ID>/inputs/DOC-nnn/` and pushed with the
+  Story, so every clone, reviewer, and pipeline reads the same evidence.
 - **This laptop only** (`--store local`, the default for new uploads): the bytes stay in this clone's Git directory
   (`singularity-flow-documents/<WORK-ID>/<sha256>/`, shared by its worktrees) and are never
   committed or pushed. Git records only the name, SHA-256, and size. Other clones list the document
@@ -166,7 +166,10 @@ their sources with `sflow epic sources add` instead.
 ## State and safety
 
 - Every upload is scanned for secrets before it is recorded, including the text extracted from
-  Word and Excel files; a detected secret refuses the upload.
+  Word and Excel files; a detected secret refuses the upload, wherever it would be kept.
+- The repository never holds a secret, so a file SFlow cannot read stays out of Git. A PDF, an image, an archive
+  or an older `.doc`, `.xls` or `.ppt` is refused with `--store git` (`DOCUMENT_UNREADABLE_IN_GIT`), and kept with
+  `--store local`. To share one, save it as text or a Word document.
 - Names are checked before anything is written: a missing, duplicate, or ID-shaped name is refused,
   and every file needs its own `--name`.
 - Detaching (`sflow documents detach <DOC-ID|NAME> --reason TEXT --yes`) keeps the record and its

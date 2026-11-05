@@ -317,7 +317,9 @@ test('frequent lifecycle handlers do not reach the legacy dispatcher and stay un
     // VS Code (packaged-asset-history.mjs +3619). No new eager file.
     // 9,466,700 (measured 9,466,698): policy.plainChatSecrets (capabilities.mjs +835), the remote a frozen alias stands for
     // (git-remote-diagnostics.mjs +249) and two routed subcommands (command-registry.mjs +22). The guard's reads are lazy; no new eager file.
-    assert.ok(closure.bytes <= 9_466_700, `${file} exceeds the 9 MB eager-source budget (${closure.bytes} bytes)`);
+    // 9,469,650 (measured 9,469,641): values in sentences and SQL (config-values.mjs +1290, secrets.mjs +452), Epic sources get a
+    // Story document's check (epic-sources.mjs +1037) and each route says where the bytes go (documents.mjs +164). The check itself stays lazy; no new eager file.
+    assert.ok(closure.bytes <= 9_469_650, `${file} exceeds the 9 MB eager-source budget (${closure.bytes} bytes)`);
     assert.equal(closure.files.has(path.join(sourceRoot, 'workflow-task.mjs')), false, `${file} eagerly loads the workflow task record`);
   }
 });
@@ -473,7 +475,8 @@ test('the common session projection does not import attach, state stores or publ
   // 4,099,900 (measured 4,099,875): the same copilot-guidance.mjs +282 as start.
   // 4,103,500 (measured 4,103,494): the same packaged-asset-history.mjs +3619 as start.
   // 4,103,800 (measured 4,103,765): the same git-remote-diagnostics.mjs +249 and command-registry.mjs +22 as root dispatch.
-  assert.ok(current.bytes <= 4_103_800, `session current loads ${current.bytes} source bytes`);
+  // 4,105,550 (measured 4,105,507): the same config-values.mjs +1290 and secrets.mjs +452 as start.
+  assert.ok(current.bytes <= 4_105_550, `session current loads ${current.bytes} source bytes`);
 });
 
 test('early phase and grounding-path entries exclude the deferred authoring and review graphs', async () => {

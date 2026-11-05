@@ -12,9 +12,9 @@ related:
   - starting-work
   - inbox-and-review
   - supporting-documents
-version: 4
+version: 5
 ---
-Epic intake (`sflow epic start --jira` or local) runs planning: the brief and its sources (`sflow epic sources add --file <PATH>` or `--url <URL>`, and `sflow epic sources note --text-file <FILE>` for authored notes — each hash-pinned) become inputs; requirements and a story breakdown are drafted after clarifying questions. The breakdown is the product owner's to shape — edit, `split`, `adopt`, reorder (in VS Code, the Stories view is the business review boundary; every change reopens the exact planning package). Approved stories arrive on developer desks ready to start, carrying lineage to the epic and acceptance criteria as addressable clauses the implementation must claim.
+Epic intake (`sflow epic start --jira` or local) runs planning: the brief and its sources (`sflow epic sources add --file <PATH>` or `--url <URL>`, and `sflow epic sources note --text-file <FILE>` for authored notes — each hash-pinned and scanned for secrets; the `local` provider commits what it is given, so it refuses a PDF, an image or an archive, which SFlow cannot read) become inputs; requirements and a story breakdown are drafted after clarifying questions. The breakdown is the product owner's to shape — edit, `split`, `adopt`, reorder (in VS Code, the Stories view is the business review boundary; every change reopens the exact planning package). Approved stories arrive on developer desks ready to start, carrying lineage to the epic and acceptance criteria as addressable clauses the implementation must claim.
 
 ## Purpose and prerequisites
 

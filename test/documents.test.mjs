@@ -1,6 +1,7 @@
+import { createHash } from 'node:crypto';
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdir, mkdtemp, readdir, readFile, realpath, writeFile } from 'node:fs/promises';
+import { mkdir, mkdtemp, readdir, readFile, realpath, writeFile, rm } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -67,10 +68,28 @@ test('saved Story intake system documents are readable by exact Work ID without 
   assert.equal(await readFile(path.join(root, 'singularity/work-items/INTAKE-VIEW/workflow.json'), 'utf8'), before.workflow);
 });
 
+/**
+ * A binary a Story committed before uploads refused what SFlow cannot read. New uploads cannot make one, and
+ * those Stories still read, preview and verify them, so the record and bytes are put in place as they were.
+ */
+async function olderCommittedBinary(root, workId, documentId, name) {
+  const bytes = Buffer.from('89504e470d0a1a0a', 'hex');
+  const manifestPath = path.join(root, 'singularity/work-items', workId, 'documents.json');
+  const manifest = JSON.parse(await readFile(manifestPath, 'utf8'));
+  const record = manifest.documents.find((entry) => entry.id === documentId);
+  await rm(path.join(root, record.path));
+  record.path = path.posix.join(path.posix.dirname(record.path), name);
+  Object.assign(record, { mimeType: 'image/png', sha256: createHash('sha256').update(bytes).digest('hex'), size: bytes.length });
+  await writeFile(path.join(root, record.path), bytes);
+  await writeFile(manifestPath, `${JSON.stringify(manifest, null, 2)}\n`);
+  run('git', ['add', '-A', 'singularity/work-items'], root);
+  run('git', ['commit', '-qm', 'A document committed by an earlier version'], root);
+}
+
 test('progress and document commands upload, list, and view files, images, and Figma links', async () => {
   const root = await repository(); const uploads = await mkdtemp(path.join(os.tmpdir(), 'sflow-uploads-'));
-  const notes = path.join(uploads, 'research notes.md'); const image = path.join(uploads, 'wireframe.png');
-  await writeFile(notes, '# Research\nCustomer workflow evidence.\n'); await writeFile(image, Buffer.from('89504e470d0a1a0a', 'hex'));
+  const notes = path.join(uploads, 'research notes.md'); const image = path.join(uploads, 'wireframe.svg');
+  await writeFile(notes, '# Research\nCustomer workflow evidence.\n'); await writeFile(image, '<svg xmlns="http://www.w3.org/2000/svg"><rect width="1" height="1"/></svg>\n');
   flow(root, ['start', 'DOCS-1', '--from-branch', 'main', '--title', 'Document intake']);
 
   const credentialed = flow(root, [
@@ -109,6 +128,7 @@ test('progress and document commands upload, list, and view files, images, and F
   assert.notEqual(misspelt.status, 0);
   assert.match(misspelt.stderr, /has no option --phase\. Did you mean --phases\?/);
   flow(root, ['documents', 'upload', notes, image, '--kind', 'research', '--name', 'Research notes', '--name', 'Checkout wireframe']);
+  await olderCommittedBinary(root, 'DOCS-1', 'DOC-002', 'wireframe.png');
   // The earlier --label spelling still names a single document.
   flow(root, ['documents', 'upload', '--url', 'https://www.figma.com/design/example', '--label', 'Checkout design']);
   const taken = flow(root, ['documents', 'upload', notes, '--name', 'research NOTES'], { allowFailure: true });
@@ -255,8 +275,8 @@ test('phase review exposes partial text without changing the document size or pr
 
 test('inline previews reject tampering and document paths outside the governed work item', async () => {
   const root = await repository(); const uploads = await mkdtemp(path.join(os.tmpdir(), 'sflow-preview-'));
-  const image = path.join(uploads, 'screen.png'); const pdf = path.join(uploads, 'design-spec.pdf');
-  await writeFile(image, Buffer.from('89504e470d0a1a0a', 'hex')); await writeFile(pdf, Buffer.from('%PDF-1.4\n%%EOF\n'));
+  const image = path.join(uploads, 'screen.svg'); const pdf = path.join(uploads, 'design-spec.pdf');
+  await writeFile(image, '<svg xmlns="http://www.w3.org/2000/svg"><rect width="1" height="1"/></svg>\n'); await writeFile(pdf, Buffer.from('%PDF-1.4\n%%EOF\n'));
   flow(root, ['start', 'PREVIEW-1', '--from-branch', 'main', '--title', 'Governed preview']);
   flow(root, ['documents', 'upload', image, pdf, '--kind', 'figma-export', '--name', 'Screen', '--name', 'Design specification']);
   const catalog = JSON.parse(flow(root, ['documents', 'list', '--json']).stdout); const record = catalog.find((item) => item.id === 'DOC-001');
@@ -295,19 +315,19 @@ test('document upload recursively imports an exported design directory with stab
   const root = await repository(); const exportRoot = await mkdtemp(path.join(os.tmpdir(), 'figma-export-'));
   await mkdir(path.join(exportRoot, 'components'), { recursive: true }); await mkdir(path.join(exportRoot, 'screens/login'), { recursive: true });
   await writeFile(path.join(exportRoot, 'components/button.json'), JSON.stringify({ name: 'Button', variants: ['primary', 'disabled'] }));
-  await writeFile(path.join(exportRoot, 'screens/login/default.png'), Buffer.from('89504e470d0a1a0a', 'hex'));
+  await writeFile(path.join(exportRoot, 'screens/login/default.svg'), '<svg xmlns="http://www.w3.org/2000/svg"><rect width="1" height="1"/></svg>\n');
   flow(root, ['start', 'FIGMA-DIR-1', '--from-branch', 'main', '--title', 'Import exported mobile design']);
 
   const upload = flow(root, ['documents', 'upload', exportRoot, '--kind', 'figma-export', '--name', 'Mobile export']);
   assert.match(upload.stdout, /DOC-001[\s\S]*DOC-002/);
   const records = JSON.parse(flow(root, ['documents', 'list', '--json']).stdout).filter((item) => item.id.startsWith('DOC-'));
-  assert.deepEqual(records.map((item) => item.name), ['Mobile export/components/button.json', 'Mobile export/screens/login/default.png'],
+  assert.deepEqual(records.map((item) => item.name), ['Mobile export/components/button.json', 'Mobile export/screens/login/default.svg'],
     'each member of a folder is named after the folder and its relative path');
-  assert.deepEqual(records.map((item) => item.sourceRelativePath), ['components/button.json', 'screens/login/default.png']);
+  assert.deepEqual(records.map((item) => item.sourceRelativePath), ['components/button.json', 'screens/login/default.svg']);
   assert.ok(records.every((item) => item.packageId === 'PKG-001'));
   assert.ok(records.every((item) => item.kind === 'figma-export'));
   assert.match(records[0].path, /inputs\/DOC-001\/figma-export-[^/]+\/components\/button\.json$/);
-  assert.match(records[1].path, /inputs\/DOC-002\/figma-export-[^/]+\/screens\/login\/default\.png$/);
+  assert.match(records[1].path, /inputs\/DOC-002\/figma-export-[^/]+\/screens\/login\/default\.svg$/);
   assert.match(flow(root, ['documents', 'view', 'DOC-001']).stdout, /Button/);
   const catalog = JSON.parse(flow(root, ['documents', 'list', '--json']).stdout);
   assert.ok(catalog.some((item) => item.id === 'PACKAGE-PKG-001-INVENTORY'));
@@ -319,11 +339,12 @@ test('document upload recursively imports an exported design directory with stab
 
 test('active evidence is rendered deterministically and every local file is hash-verified', async () => {
   const root = await repository(); const uploads = await mkdtemp(path.join(os.tmpdir(), 'sflow-prompt-evidence-'));
-  const notes = path.join(uploads, 'requirements.md'); const image = path.join(uploads, 'checkout.png');
+  const notes = path.join(uploads, 'requirements.md'); const image = path.join(uploads, 'checkout.svg');
   await writeFile(notes, '# Requirement\nA customer can review the checkout total before payment.\n');
-  await writeFile(image, Buffer.from('89504e470d0a1a0a', 'hex'));
+  await writeFile(image, '<svg xmlns="http://www.w3.org/2000/svg"><rect width="1" height="1"/></svg>\n');
   flow(root, ['start', 'EVIDENCE-1', '--from-branch', 'main', '--title', 'Deterministic prompt evidence']);
   flow(root, ['documents', 'upload', notes, image, '--name', 'Checkout requirement', '--name', 'Checkout screen']);
+  await olderCommittedBinary(root, 'EVIDENCE-1', 'DOC-002', 'checkout.png');
   flow(root, ['documents', 'upload', '--url', 'https://www.figma.com/design/pinned-reference', '--name', 'Live Figma reference']);
   const definition = await loadDefinition(root);
   const workflow = await loadStoryAggregate(root, definition, 'EVIDENCE-1');
@@ -350,7 +371,7 @@ test('file and package detachment preserve bytes, hide evidence, and create dist
   const root = await repository(); const exportRoot = await mkdtemp(path.join(os.tmpdir(), 'sflow-detach-package-'));
   await mkdir(path.join(exportRoot, 'screens'));
   await writeFile(path.join(exportRoot, 'tokens.json'), '{"color":"green"}\n');
-  await writeFile(path.join(exportRoot, 'screens', 'checkout.png'), Buffer.from('89504e470d0a1a0a', 'hex'));
+  await writeFile(path.join(exportRoot, 'screens', 'checkout.svg'), '<svg xmlns="http://www.w3.org/2000/svg"><rect width="1" height="1"/></svg>\n');
   flow(root, ['start', 'DETACH-1', '--from-branch', 'main', '--title', 'Detach governed evidence']);
   flow(root, ['documents', 'upload', exportRoot, '--kind', 'figma-export', '--name', 'Checkout export']);
   const initial = JSON.parse(flow(root, ['documents', 'list', '--json']).stdout)

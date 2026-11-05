@@ -65,14 +65,34 @@ function refuseSecretText(scan, refused) {
   throw new SingularityFlowError(message, { code: 'SECRET_DETECTED' });
 }
 
-export function assertDocumentInputContainsNoSecret(input, captured, { refused = null } = {}) {
+/**
+ * The repository never holds a secret (docs/SPEC-ENVIRONMENT-FILES-v2.md, "Attachments"). What can be read is
+ * read; what cannot be read, such as a PDF, an image or an archive, cannot be shown to hold none, so it stays out of Git.
+ */
+function refuseUnreadableInGit(logicalPath, refused, alternative) {
+  throw new SingularityFlowError(
+    `${refused ?? 'Document upload was refused before any bytes were copied'}: SFlow cannot read '${logicalPath}' for secrets, and the repository must never hold one. ${alternative}`,
+    { code: 'DOCUMENT_UNREADABLE_IN_GIT', details: { path: logicalPath } });
+}
+
+const decodedText = (bytes) => {
+  if (bytes.includes(0)) return null;
+  try { return new TextDecoder('utf-8', { fatal: true }).decode(bytes); } catch { return null; }
+};
+
+export function assertDocumentInputContainsNoSecret(input, captured, {
+  refused = null, storage = null,
+  alternative = 'Keep it on this laptop with --store local, or save it as text or a Word document to share it.'
+} = {}) {
   const logicalPath = input.sourceRelativePath ? posix(input.sourceRelativePath) : safeName(input.source);
   // An Office document's text reaches prompts through its rendition, so that text is scanned too.
   const type = mimeType(input.source);
   if (hasTextExtractor(type)) {
     const extracted = extractSourceText(captured.bytes, type);
     if (extracted.status === 'extracted') {
-      refuseSecretText(scanEntries([{ path: `${logicalPath}${TEXT_RENDITION_SUFFIX}`, content: extracted.text }]), refused);
+      refuseSecretText(scanEntries([{ path: `${logicalPath}${TEXT_RENDITION_SUFFIX}`, content: extracted.text, attached: true }]), refused);
+    } else if (extracted.empty && storage === 'git') {
+      refuseUnreadableInGit(logicalPath, refused, alternative);
     } else if (!extracted.empty) {
       throw new SingularityFlowError(
         `${refused ?? 'Document upload was refused before any bytes were copied'}: the text of '${logicalPath}' could not be read to scan it for secrets (${extracted.reason}).`,
@@ -81,18 +101,19 @@ export function assertDocumentInputContainsNoSecret(input, captured, { refused =
     }
     return;
   }
-  if (!scannablePath(logicalPath)) return;
-  let content;
-  try {
-    if (captured.bytes.includes(0)) throw new TypeError('NUL byte');
-    content = new TextDecoder('utf-8', { fatal: true }).decode(captured.bytes);
-  } catch {
+  const content = decodedText(captured.bytes);
+  // A name is not proof: a text file called .pdf is read like any other. Only real binary bytes go unread.
+  if (!scannablePath(logicalPath) && content == null) {
+    if (storage === 'git') refuseUnreadableInGit(logicalPath, refused, alternative);
+    return;
+  }
+  if (content == null) {
     throw new SingularityFlowError(
       `${refused ?? 'Document upload was refused before any bytes were copied'}: '${logicalPath}' is not valid NUL-free UTF-8 text.`,
       { code: 'DOCUMENT_CONTENT_UNSCANNABLE', details: { path: logicalPath } }
     );
   }
-  refuseSecretText(scanEntries([{ path: logicalPath, content }]), refused);
+  refuseSecretText(scanEntries([{ path: logicalPath, content, attached: true, forceScan: true }]), refused);
 }
 
 /**

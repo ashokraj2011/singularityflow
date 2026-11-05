@@ -613,7 +613,9 @@ export async function storeDocumentInGit(root, config, workflow, { documentId } 
   const { bytes } = await readLocalDocument(root, workflow.workItem.id, record);
   const filename = safeName(record.sourceName ?? record.storage.key.split('/').at(-1));
   // Committing makes the bytes everyone's, so they are checked as a Git upload would be.
-  (await import('./document-admission.mjs')).assertDocumentInputContainsNoSecret({ source: filename }, { bytes });
+  (await import('./document-admission.mjs')).assertDocumentInputContainsNoSecret({ source: filename }, { bytes }, {
+    storage: 'git', refused: `'${record.id}' stays on this laptop`, alternative: 'Save it as text or a Word document to share it.'
+  });
   const relative = path.posix.join(workDirRelative(config, workflow.workItem.id), 'inputs', record.id, filename);
   await ensureInputsStoredExactly(root, config, workflow);
   const destination = path.join(root, relative);
@@ -871,7 +873,7 @@ export async function addDocuments(root, config, workflow, {
     const captured = expected
       ? await readFrozenDocument(input.source, expected)
       : await readStableDocument(input.source, policy.maxFileBytes ?? 26214400);
-    (await import('./document-admission.mjs')).assertDocumentInputContainsNoSecret(input, captured);
+    (await import('./document-admission.mjs')).assertDocumentInputContainsNoSecret(input, captured, { storage });
     capturedBySource.set(path.resolve(input.source), captured);
   }
   const session = await loadSession(root); if (session.workId && session.workId !== workflow.workItem.id) throw new SingularityFlowError(`Active agent session belongs to ${session.workId}; resume ${workflow.workItem.id} before uploading.`);
@@ -1097,7 +1099,7 @@ export async function fetchRemoteDocument(root, config, workflow, {
     additionalCandidates: [requestedFilename, headMeta?.name, remoteRef],
     sourceIsLocalPath: false
   });
-  (await import('./document-admission.mjs')).assertDocumentInputContainsNoSecret(input, { bytes: fetchedBytes });
+  (await import('./document-admission.mjs')).assertDocumentInputContainsNoSecret(input, { bytes: fetchedBytes }, { storage });
   const manifest = await loadManifest(root, config, workflow);
   const id = nextId(manifest.documents);
   const remote = {

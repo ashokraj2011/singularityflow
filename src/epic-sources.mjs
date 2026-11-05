@@ -287,12 +287,11 @@ export function storageAdapter(providerId, provider, runtime = {}) {
       return { exists: true, version: result.response.headers?.get?.('etag') ?? reference.version, etag: result.response.headers?.get?.('etag') ?? null };
     }
   };
-  // The only provider that needs nothing outside the repository. Every other adapter reaches a
-  // system — Jira, Artifactory, SharePoint, S3 — so a repository with none of them configured could
-  // pin a Markdown note and nothing else: a PDF brief, the most ordinary intake document there is,
-  // had no path in. Bytes are committed beside the initiative rather than cached under .git, because
-  // a pinned source has to verify on somebody else's machine; a cache that only exists locally would
-  // make `epic sources verify` pass for the author and fail for the reviewer.
+  // The only provider that needs nothing outside the repository. Bytes are committed beside the
+  // initiative rather than cached under .git, because a pinned source has to verify on somebody else's
+  // machine; a cache that only exists locally would make `epic sources verify` pass for the author and
+  // fail for the reviewer. So it takes only what can be read for secrets: registerEpicSource refuses a
+  // PDF, an image or an archive here, and those belong with a provider that holds bytes outside Git.
   if (type === 'local') {
     const blobPath = (initiativeId, contentSha, filename) => path.posix.join('sources', 'blobs', contentSha, filename);
     const resolve = async (initiativeId, relative, options = {}) => {
@@ -442,6 +441,17 @@ export function sourceRuntime(runtime, providerId) {
   return { ...runtime, token: runtime.token ?? process.env[envName] ?? null };
 }
 
+/** The same check a Story document gets. Only the `local` provider commits what it is given. */
+async function assertEpicSourceAdmissible(name, bytes, provider) {
+  const words = { refused: 'This Epic source was not added', becoming: 'an Epic source' };
+  const { assertDocumentInputContainsNoSecret, assertNotPrivateEnvironmentName } = await import('./document-admission.mjs');
+  assertNotPrivateEnvironmentName(name, words);
+  assertDocumentInputContainsNoSecret({ source: name }, { bytes }, {
+    refused: words.refused, storage: provider.type === 'local' ? 'git' : null,
+    alternative: 'Save it as text or a Word document, paste what it says with epic sources note, or pin it with a provider that holds bytes outside Git (Jira, S3, SharePoint, Artifactory).'
+  });
+}
+
 export async function registerEpicSource(root, {
   initiativeId,
   providerId = null,
@@ -477,6 +487,7 @@ export async function registerEpicSource(root, {
     displayName = path.basename(absolute);
     filename = portableFilename(displayName, 'Epic source filename');
     bytes = await readFile(absolute);
+    await assertEpicSourceAdmissible(displayName, bytes, provider);
     contentSha = info.sha256;
     size = info.size;
     remote = await adapter.put({ initiativeId, filename, bytes, filePath: absolute, mimeType, sha256: contentSha });
@@ -491,6 +502,7 @@ export async function registerEpicSource(root, {
     bytes = fetched.bytes;
     displayName = remoteRef?.filename || path.basename(new URL(url).pathname) || 'source';
     filename = portableFilename(displayName, 'Epic source filename');
+    await assertEpicSourceAdmissible(displayName, bytes, provider);
     contentSha = sha256(bytes);
     size = bytes.length;
     remote = {
@@ -555,6 +567,8 @@ export async function registerEpicTextSource(root, {
   const content = String(text ?? '').trim();
   if (!content) throw new SingularityFlowError('Epic text source cannot be empty.');
   if (!['note', 'question-answer'].includes(kind)) throw new SingularityFlowError(`Unsupported Epic text source kind '${kind}'.`);
+  (await import('./document-admission.mjs')).assertDocumentInputContainsNoSecret(
+    { source: `${kind}.md` }, { bytes: Buffer.from(content, 'utf8') }, { refused: 'This Epic note was not added' });
   const { portfolio, initiative } = await loadInitiative(root, initiativeId);
   const contentSha = sha256(Buffer.from(`${content}\n`, 'utf8'));
   const sourceId = `SRC-${contentSha.slice(0, 12).toUpperCase()}`;

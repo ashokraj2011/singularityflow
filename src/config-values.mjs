@@ -137,6 +137,31 @@ export function settingHoldsSecret(name, value, { envStyle = false } = {}) {
   return (envStyle || words.some((word) => SETTING_WORD.test(word) || WEAK_WORDS.has(word))) && tokenShaped(text);
 }
 
+// What a person writes in notes, logs and dumps: `the password is X`, `API key: X`, SQL's IDENTIFIED BY 'X'.
+const PROSE_SETTING = /\b(password|passwd|pwd|passphrase|secret|token|api[ _-]?key|access[ _-]?key|client[ _-]?secret)\b(?:\s+is\b|\s*[:=])\s*["'`]?([^\s"'`,;]+)/giu;
+const SQL_PASSWORD = /\b(identified\s+by|with\s+password|password)\s+["'`]([^"'`\s]+)["'`]/giu;
+
+/**
+ * Values in text that is not a settings file: a Story's notes, a pasted log, a SQL dump. These lines are
+ * sentences and samples, so a value needs a digit or a symbol too: `password: required` and
+ * `token = getToken()` stay what they are.
+ */
+export function proseValueFindings(content) {
+  const found = [];
+  String(content ?? '').split(/\r?\n/u).forEach((line, index) => {
+    if (line.length > MAXIMUM_LINE) return;
+    for (const pattern of [PROSE_SETTING, SQL_PASSWORD]) {
+      for (const match of line.matchAll(pattern)) {
+        const value = match[2].replace(/[.)\]>]+$/u, '');
+        if (!/^[\w+/=@#$%^&*!~.:-]+$/u.test(value) || !/[\d!@#$%^&*~]/u.test(value)) continue;
+        const name = pattern === SQL_PASSWORD ? 'password' : match[1].replace(/[ -]/gu, '_');
+        if (settingHoldsSecret(name, value)) found.push({ name, value, line: index + 1 });
+      }
+    }
+  });
+  return found;
+}
+
 /** The setting's text: inside its quotes, or up to a trailing comment. */
 function settingText(raw) {
   const text = String(raw ?? '').trim();

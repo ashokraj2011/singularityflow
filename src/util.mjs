@@ -1561,7 +1561,7 @@ function rcpPolicyStamp(root) {
       const config=path.join(git.common,'config');
       const text=existsSync(config)?readFileSync(config,'utf8'):'';
       const remotes=[...text.matchAll(/\[remote "([A-Za-z0-9._-]+)"\]/gu)].map(match=>match[1]);
-      for(const file of [config,path.join(git.common,'packed-refs'),path.join(git.directory,'singularity/workflow.yml'),path.join(git.common,'refs/heads/sflow/config')]) {const info=statSync(file,{throwIfNoEntry:false});parts.push([file,info?.ino??null,info?.size??null,info?.mtimeMs??null]);}
+      for(const file of [config,path.join(git.common,'packed-refs'),path.join(git.directory,'singularity/workflow.yml'),path.join(git.common,'refs/heads/sflow/config')]) {const info=existsSync(file)?statSync(file):null;parts.push([file,info?.ino??null,info?.size??null,info?.mtimeMs??null]);}
       for(const remote of new Set(['origin',...remotes])) {const file=path.join(git.common,'refs/remotes',remote,'sflow/config');parts.push([file,existsSync(file)?readFileSync(file,'utf8'):null]);}
     }
   } catch {return `unavailable:${Date.now()}:${Math.random()}`;}
@@ -1684,7 +1684,7 @@ export function repositoryCommitPolicyModule(name, root = null) {
   return import(pathToFileURL(path.join(PACKAGE_ROOT, 'src/repository-commit-policy', `${name}.mjs`)).href);
 }
 
-// The approved configuration refs as stored, or null when only Git can list them: no process per write.
+// The approved configuration refs as stored; null when only Git can list them.
 function rcpStoredConfigurationRefs(common) {
   const packed=path.join(common,'packed-refs');
   if(existsSync(path.join(common,'reftable'))||statSync(packed,{throwIfNoEntry:false})?.size>4194304)return null;

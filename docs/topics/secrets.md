@@ -12,7 +12,7 @@ related:
   - quick-fix
 commands:
   - secrets
-version: 4
+version: 5
 ---
 A credential that reaches a commit is in the history on every clone, and deleting it in the next commit does not remove it — so the check runs before the commit exists rather than after. Every publication and every `commit()` passes through one gate that scans the exact content going in: the working-tree version of scoped paths, the staged blob when the whole index is committed. It fails closed — an unreadable file refuses the commit, because an unscanned file is not a clean file — and it never prints the value it found, since a refusal echoed into a terminal, a CI log and a scrollback buffer has published the credential more widely than the commit would have. `sflow secrets scan [--staged]` runs it by hand and exits non-zero, so CI fails too; `sflow secrets protect` installs a `pre-commit` hook so plain `git commit` is covered, running the CLI it was installed from rather than whatever is first on PATH. Detection is conservative on purpose — provider formats that are recognisable on sight, plus one entropy-gated rule for assignments — because a check that fires on documentation is a check people learn to wave through. Real examples are waived per line with a reason (`# sflow-allow-secret: why this is not a real credential`), so the exemption appears in the diff and is reviewed with the change instead of being set once in a config file and forgotten.
 
@@ -38,7 +38,7 @@ Use this topic when the current goal matches **secrets**. Start in a repository 
 
 These commands can change repository or machine-local state: `secrets`. They remain subject to identity, authority, sequence, freshness, branch, worktree, and exact-confirmation checks. Signed handles are session-bound and are never shared between the shell, Copilot, and VS Code. Durable repository and workspace records are the shared source of truth.
 
-The scan also reads shared config files setting by setting, so an unquoted `password: Xq7m…` in `application.yml` is found, and `--staged` refuses a file with an always-local name such as `.env`. During rollout a value in shared config warns and does not stop a commit. `sflow explain environment-bindings` has what is private with no setup and how to clear a finding.
+The scan also reads shared config files setting by setting, so an unquoted `password: Xq7m…` in `application.yml` is found, and `--staged` refuses a file with an always-local name such as `.env`. A new value in shared config is refused, and one already in Git only warns. `sflow explain environment-bindings` has what is private with no setup, how to classify a file and how to clear a finding.
 
 ## Troubleshooting
 

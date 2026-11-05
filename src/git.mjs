@@ -26,7 +26,7 @@ import {
 import { withoutGitProcessOverrides } from './git-enterprise-environment.mjs';
 import { inWorktreeReadScope, scopedReadSync } from './read-scope.mjs';
 import { freshGitFactsRequired } from './git-fact-cache.mjs';
-import { ALWAYS_LOCAL_EXCLUDE_COMMENT, ALWAYS_LOCAL_EXCLUDES, alwaysLocalName } from './local-config-policy.mjs';
+import { ALWAYS_LOCAL_EXCLUDE_COMMENT, ALWAYS_LOCAL_EXCLUDES, alwaysLocalName, classifiedShared } from './local-config-policy.mjs';
 import { configValueWarning, scannablePath, scannedAsExtractedText, scanEntries, secretRefusal } from './secrets.mjs';
 import { extractSourceTextForPath } from './source-text.mjs';
 import {
@@ -2728,21 +2728,23 @@ export function add(root, paths) {
  * second gate. The declaration contains names and path rules only, so diagnostics can identify the
  * offending path and rule without ever reading or printing an environment value.
  */
-function assertNoEnvironmentLocalPaths(root, declarations, paths, { label, changed }) {
+function assertNoEnvironmentLocalPaths(root, declarations, paths, { label, changed, read }) {
   const policies = [declarations, environmentFilesRegistryPolicySync(root)].flat().filter(Boolean);
   const candidates = [...new Set((paths ?? []).filter(Boolean).map((item) => item.replaceAll('\\', '/')))]
     // The names-only declaration is the policy source, not environment-local content. A broad
     // safety pattern must not make it impossible to tighten or repair the declaration itself.
     .filter((item) => item !== ENVIRONMENT_DECLARATION_PATH);
-  // A declared rule covers the whole tree. A name covers only what this change adds, so a file a team
-  // already tracks never stops a commit or a merge: its values are read as shared config, and `env audit` reports it.
+  // A declared rule covers the whole tree. A name covers only what this change adds and no person has
+  // classified as shared, so a file a team already tracks never stops a commit or a merge: its values are
+  // read as shared config, and `env audit` asks for its class.
   const named = candidates.some((item) => alwaysLocalName(item));
   if (!policies.length && !named) return;
   const added = new Set(named ? changed?.() ?? [] : []);
+  const stillPrivate = (item) => added.has(item) && !classifiedShared(read?.(item));
   const findings = candidates
     .flatMap((item) => (policies.length ? policies : [null]).flatMap((declaration) => {
       const match = matchEnvironmentLocalPath(declaration, item);
-      return match && (match.kind !== 'always-local' || added.has(item)) ? [{ path: item, match }] : [];
+      return match && (match.kind !== 'always-local' || stillPrivate(item)) ? [{ path: item, match }] : [];
     }))
     .filter((entry, index, entries) => entries.findIndex((candidate) =>
       candidate.path === entry.path
@@ -2755,12 +2757,15 @@ function assertNoEnvironmentLocalPaths(root, declarations, paths, { label, chang
       : match.environmentId ? `environments.${match.environmentId}.localFiles` : 'neverCommit';
     return `- ${item} matches ${owner} rule '${rule}'`;
   }).join('\n');
+  const classifiable = findings.find(({ match }) => match.kind === 'always-local');
   throw new SingularityFlowError(
     `${label} was refused because environment-local content must never enter Git:\n\n${rendered}\n\n`
-      + 'Remove the path from the index with git rm --cached (your copy stays) and keep its value in a machine-local environment binding.',
+      + 'Remove the path from the index with git rm --cached (your copy stays) and keep its value in a machine-local environment binding.'
+      + (classifiable ? ' If it holds no secrets and the team means to share it, run singularity-flow env files classify <path> shared --reason <why>.' : ''),
     {
       code: 'ENVIRONMENT_LOCAL_CONTENT_REFUSED',
-      details: { paths: findings.map((entry) => entry.path) }
+      details: { paths: findings.map((entry) => entry.path),
+        ...(classifiable ? { nextAction: `singularity-flow env files classify ${classifiable.path} shared --reason <why>` } : {}) }
     }
   );
 }
@@ -2987,7 +2992,7 @@ export function admitExactProspectiveTree(root, {
     exactEnvironmentDeclarationAtRef(root, candidateTree, env)
   ], treePaths(root, candidateTree, env), { label, changed: () => nullList(git([
     'diff', '--name-only', '-z', '--diff-filter=ACR', baselineCommit, candidateTree, '--'
-  ], { cwd: root, env }).stdout) });
+  ], { cwd: root, env }).stdout), read: (item) => committedFileText(root, candidateTree, item, { env }) });
 
   if (!listed.length) return remember(Object.freeze({ tree: candidateTree, baselineTree, paths: Object.freeze([]), scan: null }));
 
@@ -3078,7 +3083,7 @@ export function admitExactProspectiveTree(root, {
     }
     return [{ path: item, content, forceScan }];
   });
-  const scan = scanEntries(entries);
+  const scan = scanAgainstGit(root, entries, [baselineCommit], { env });
   const refusal = secretRefusal(scan);
   if (refusal) {
     throw new SingularityFlowError(`${label} was refused.\n\n${refusal}`, {
@@ -3101,7 +3106,7 @@ function assertCommitEnvironmentPolicy(root, paths, { label }) {
   if (!paths?.length) {
     const env = immutableLocalGitEnvironment();
     const prospective = exactIndexedEnvironmentDeclaration(root, env);
-    assertNoEnvironmentLocalPaths(root, [baseline, prospective], indexPaths(root, env), { label, changed: () => stagedAdditions(root, env) });
+    assertNoEnvironmentLocalPaths(root, [baseline, prospective], indexPaths(root, env), { label, changed: () => stagedAdditions(root, env), read: (item) => committedFileText(root, '', item, { env }) });
     return;
   }
 
@@ -3138,7 +3143,8 @@ function assertCommitEnvironmentPolicy(root, paths, { label }) {
     // environment file, or an always-local name), which `add -A` skips.
     const forced = nullList(git(['ls-files', '-z', '--', ...paths], { cwd: root, env: baselineEnv }).stdout);
     assertNoEnvironmentLocalPaths(root, [baseline, prospective], [...indexPaths(root, env), ...forced], { label,
-      changed: () => [...stagedAdditions(root, env), ...stagedAdditions(root, baselineEnv, paths)] });
+      changed: () => [...stagedAdditions(root, env), ...stagedAdditions(root, baselineEnv, paths)],
+      read: (item) => committedFileText(root, '', item, { env }) ?? committedFileText(root, '', item, { env: baselineEnv }) });
   } finally {
     rmSync(scratch, { recursive: true, force: true });
   }
@@ -3186,7 +3192,7 @@ export function assertNoSecrets(root, paths = null, { label = 'This commit' } = 
 
   // A scoped commit takes the working tree; an index commit takes the staged blob. Read whichever
   // one this commit will actually use.
-  if (!paths?.length) return refuseSecrets(stagedEntriesForPaths(root, listed, { env, label: `${label} staged blobs` }), label);
+  if (!paths?.length) return refuseSecrets(root, stagedEntriesForPaths(root, listed, { env, label: `${label} staged blobs` }), label);
   const entries = [];
   for (const item of listed) {
     const absolute = path.resolve(root, item);
@@ -3212,11 +3218,31 @@ export function assertNoSecrets(root, paths = null, { label = 'This commit' } = 
     }
     entries.push({ path: item, content });
   }
-  return refuseSecrets(entries, label);
+  return refuseSecrets(root, entries, label);
 }
 
-function refuseSecrets(entries, label) {
-  const scan = scanEntries(entries);
+/**
+ * Scan what is about to be committed, with each refs' copy of a file that holds a value, so that a value
+ * already in Git warns and only a new one refuses. A merge names its other side, because a teammate's
+ * value arrives through it. Read only when there is a finding: most commits pay nothing.
+ */
+export function scanAgainstGit(root, entries, refs = ['HEAD', 'MERGE_HEAD'], { env = process.env } = {}) {
+  const first = scanEntries(entries);
+  const held = new Set(first.blocking.filter((finding) => finding.rule === 'config-value').map((finding) => finding.path));
+  if (!held.size) return first;
+  return scanEntries(entries.map((entry) => (held.has(entry.path)
+    ? { ...entry, inGit: refs.flatMap((ref) => committedFileText(root, ref, entry.path, { env }) ?? []) } : entry)));
+}
+
+/** Every file in this checkout with an always-local name, tracked or not. */
+export function localConfigNamedPaths(root) {
+  return [...new Set(nullList(gitAnswer(['ls-files', '-z', '--cached', '--others', '--',
+    ':(glob)**/.env', ':(glob)**/.env.*', ':(glob)**/application-local.*', ':(glob)**/*.local.*'], { cwd: root }, 'Files with always-local names')))]
+    .filter((item) => alwaysLocalName(item) && !item.split('/').includes('node_modules')).sort();
+}
+
+function refuseSecrets(root, entries, label) {
+  const scan = scanAgainstGit(root, entries, undefined, { env: immutableLocalGitEnvironment() });
   const refusal = secretRefusal(scan);
   if (refusal) {
     throw new SingularityFlowError(`${label} was refused.\n\n${refusal}`, { code: 'SECRET_DETECTED' });

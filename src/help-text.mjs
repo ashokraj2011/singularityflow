@@ -93,6 +93,7 @@ Usage:
   singularity-flow env files link <ENVIRONMENT> <PATH> --to <FILE> [--repository ID | --workspace] [--json]
   singularity-flow env files unlink <ENVIRONMENT> <PATH> [--repository ID | --workspace] [--json]
   singularity-flow env files adopt <ENVIRONMENT> <PATH> [--repository ID | --workspace] [--json]
+  singularity-flow env files classify [<PATH> shared --reason <WHY> | <PATH> private] [--repository ID] [--json]
   singularity-flow env files add <ENVIRONMENT> <PATH> --personal [--repository ID | --workspace] [--json]
   singularity-flow env files remove <ENVIRONMENT> <PATH> --personal [--repository ID | --workspace] [--json]
   singularity-flow env files path <ENVIRONMENT> <PATH> [--repository ID | --workspace] [--json]

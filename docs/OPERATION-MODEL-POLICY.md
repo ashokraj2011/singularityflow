@@ -296,6 +296,7 @@ Every public operation is classified before its implementation module is importe
 | env.bind | mutation | never | — | — |
 | env.files.add | mutation | never | — | — |
 | env.files.adopt | mutation | never | — | — |
+| env.files.classify | mutation | never | — | — |
 | env.files.create | mutation | never | — | — |
 | env.files.link | mutation | never | — | — |
 | env.files.list | read | never | — | — |

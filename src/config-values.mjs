@@ -5,8 +5,8 @@
  */
 import { configShapedPath } from './local-config-policy.mjs';
 
-/** The rollout: `warn` for one release, then someone changes this to `refuse`. Nothing flips it by itself. */
-export const CONFIG_VALUES_DEFAULT = 'warn';
+/** A commit refuses a new value. `SINGULARITY_FLOW_CONFIG_VALUES=warn` holds that off for a team that needs time. */
+export const CONFIG_VALUES_DEFAULT = 'refuse';
 export const configValuesRefused = (env = process.env) => (env.SINGULARITY_FLOW_CONFIG_VALUES || CONFIG_VALUES_DEFAULT) === 'refuse';
 
 const MAXIMUM_LINE = 4_096;

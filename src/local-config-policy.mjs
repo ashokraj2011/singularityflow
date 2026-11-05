@@ -16,6 +16,14 @@ export function alwaysLocalName(file) {
   return null;
 }
 
+/**
+ * A person's decision that a file with such a name is shared: `sflow-shared: <why>` in its first lines. It
+ * lives in the file, so it shows in the diff, is reviewed and travels with the file. Its values are still read.
+ */
+export function classifiedShared(content) {
+  return String(content ?? '').split(/\r?\n/u, 10).some((line) => /sflow-shared:\s*\S/u.test(line));
+}
+
 /** Whether a file is shared settings. JSON is mostly data, so only settings files by name. */
 export function configShapedPath(file) {
   const name = baseName(file).toLowerCase();

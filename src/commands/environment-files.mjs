@@ -8,13 +8,13 @@ import path from 'node:path';
 
 import { optionBoolean, optionString, SingularityFlowError } from '../util.mjs';
 
-export const ENV_FILES_ACTIONS = Object.freeze(['override', 'create', 'link', 'unlink', 'adopt', 'add', 'remove', 'path', 'root', 'place', 'suggest']);
+export const ENV_FILES_ACTIONS = Object.freeze(['override', 'create', 'link', 'unlink', 'adopt', 'add', 'remove', 'path', 'root', 'place', 'suggest', 'classify']);
 const OPTIONS = Object.freeze({
   override: ['clear', 'repository'],
   list: ['repository', 'workspace'], create: ['from-template', 'repository', 'workspace'], link: ['to', 'clear', 'repository', 'workspace'],
   unlink: ['repository', 'workspace'],
   adopt: ['repository', 'workspace'], add: ['personal', 'repository', 'workspace'], remove: ['personal', 'repository', 'workspace'],
-  path: ['repository', 'workspace'], root: ['clear'], place: ['capability', 'workspace'], suggest: ['repository']
+  path: ['repository', 'workspace'], root: ['clear'], place: ['capability', 'workspace'], suggest: ['repository'], classify: ['reason', 'repository']
 });
 const USAGE = Object.freeze({
   override: 'env files override <ENV> <PATH> [--clear] [--json]',
@@ -28,7 +28,8 @@ const USAGE = Object.freeze({
   path: 'env files path <ENV> <PATH> [--repository ID | --workspace] [--json]',
   root: 'env files root <ENV> <DIR> | --clear [--json]',
   place: 'env files place <ENV> [--capability ID | --workspace] [--json]',
-  suggest: 'env files suggest [--repository ID] [--json]'
+  suggest: 'env files suggest [--repository ID] [--json]',
+  classify: 'env files classify [<PATH> shared --reason <WHY> | <PATH> private] [--repository ID] [--json]'
 });
 
 function fail(message, code = 'ENV_FILES_INVALID', details = null) {
@@ -129,6 +130,15 @@ function emit(result, json, text) {
   return result;
 }
 
+function classesText(result) {
+  if (!result.files.length) return 'No files with always-local names in this checkout.';
+  return result.files.map((file) => `${file.path}: ${file.class}. ${file.next}`).join('\n');
+}
+
+function classifiedText(result) {
+  return `${result.path} is ${result.class}${result.changed ? '' : ' already'}. ${result.next}`;
+}
+
 export async function run(_argv, { positionals, options = {} }) {
   const action = ENV_FILES_ACTIONS.includes(positionals[2]) ? positionals[2] : 'list';
   checkOptions(action, options);
@@ -148,6 +158,13 @@ export async function run(_argv, { positionals, options = {} }) {
     const scope = await engine.commandScope(root, { repository });
     const { suggestEnvironmentFiles, suggestionText } = await import('../environment-files-suggest.mjs');
     return emit(await suggestEnvironmentFiles(scope), json, suggestionText);
+  }
+  if (action === 'classify') {
+    const [file = null, kind = null] = words(action, positionals, { minimum: 0, maximum: 2 });
+    if (file && !['shared', 'private'].includes(kind)) fail(`Usage: singularity-flow ${USAGE.classify}`);
+    const scope = await engine.commandScope(root, { repository });
+    if (!file) return emit(await engine.localConfigClasses(scope), json, classesText);
+    return emit(await engine.classifyLocalConfig(scope, engine.filePathArgument(file), kind, { reason: optionString(options, 'reason', null) }), json, classifiedText);
   }
   if (action === 'root') {
     const values = words(action, positionals, { minimum: 1, maximum: 2 });

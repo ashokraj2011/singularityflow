@@ -256,9 +256,12 @@ export async function secretsCommand(positionals, options) {
     }
   }
 
-  // A name refuses what a commit adds. A file already tracked is read as shared config, and `env audit` reports it.
-  const { alwaysLocalName } = await import('../local-config-policy.mjs');
-  const scan = scanEntries(entries, { alwaysLocal: added.filter((item) => alwaysLocalName(item)) });
+  // A name refuses what a commit adds, unless a person classified it as shared. A file already tracked is
+  // read as shared config, and `env audit` asks for its class.
+  const { alwaysLocalName, classifiedShared } = await import('../local-config-policy.mjs');
+  const alwaysLocal = added.filter((item) => alwaysLocalName(item) && !classifiedShared(entries.find((entry) => entry.path === item)?.content));
+  const { scanAgainstGit } = await import('../git.mjs');
+  const scan = alwaysLocal.length ? scanEntries(entries, { alwaysLocal }) : staged ? scanAgainstGit(root, entries) : scanEntries(entries);
   const scope = staged ? 'staged' : 'tracked';
   const slots = { scanned: scan.scanned, scope, blocking: scan.blocking.length, warnings: scan.warnings.length };
   const narration = commandResult({

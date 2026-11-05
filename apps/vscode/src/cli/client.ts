@@ -445,7 +445,7 @@ export function commandClass(args: string[]): 'read' | 'mutation' | 'unknown' {
   if (args[0] === 'call') return args[1] === 'add' && args.includes('--confirm') ? 'mutation' : 'read';
   // Environment files: the list, a file's location and the suggestions read; every other files
   // action creates, links, moves or records a file on this computer. [ENVF]
-  if (args[0] === 'env' && args[1] === 'files') return ['override', 'create', 'link', 'unlink', 'adopt', 'add', 'remove', 'root', 'place'].includes(args[2] ?? '') ? 'mutation' : 'read';
+  if (args[0] === 'env' && args[1] === 'files') return ['override', 'create', 'link', 'unlink', 'adopt', 'add', 'remove', 'root', 'place', 'classify'].includes(args[2] ?? '') ? 'mutation' : 'read';
   // Run and test: plan, status, suggest, summary (and the plan of a test run) read; start, stop and
   // run execute repository code, so they are never reads.
   // Without a subcommand `app` shows status and `tests` the summary, as the CLI resolves them.

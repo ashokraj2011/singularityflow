@@ -308,9 +308,9 @@ test('frequent lifecycle handlers do not reach the legacy dispatcher and stay un
     // document catalog (documents-read.mjs and documents.mjs, +3,089 net), inherited constraints in USER-STORY.md (state.mjs
     // +734), the shared-draft record families (schema-migrations.mjs +716), a specification's own document owner
     // (document-storage.mjs +347), start.mjs +271, spec author's routes (command-registry.mjs +134) and an option (util.mjs +13). No new eager file.
-    // 9,457,600 (measured 9,457,577): SPEC-ENVF v2. The scanner is synchronous and every gate needs its value check, so
+    // 9,460,900 (measured 9,460,870): SPEC-ENVF v2. The scanner is synchronous and every gate needs its value check, so
     // config-values.mjs (with the link helpers from the lazy share-check.mjs) and local-config-policy.mjs are new eager files.
-    assert.ok(closure.bytes <= 9_457_600, `${file} exceeds the 9 MB eager-source budget (${closure.bytes} bytes)`);
+    assert.ok(closure.bytes <= 9_460_900, `${file} exceeds the 9 MB eager-source budget (${closure.bytes} bytes)`);
     assert.equal(closure.files.has(path.join(sourceRoot, 'workflow-task.mjs')), false, `${file} eagerly loads the workflow task record`);
   }
 });
@@ -370,7 +370,8 @@ test('root dispatch stays small and orchestration entrypoints load their handler
   // 856,950 (measured 856,931): Spec Studio's five record families (schema-migrations.mjs +716), spec author's own
   // routes and read actions (command-registry.mjs +134) and one option (util.mjs +13). Neither can load later: every command reads them to dispatch.
   // 856,957 (measured 856,957): the screen read action (command-registry.mjs +12) and --for-person (util.mjs +14), for the same reason.
-  assert.ok(root.bytes <= 856_957, `root dispatch loads ${root.bytes} source bytes`);
+  // 856,970 (measured 856,969): env files classify in command-registry.mjs, which every command reads to dispatch.
+  assert.ok(root.bytes <= 856_970, `root dispatch loads ${root.bytes} source bytes`);
   assert.equal(root.files.has(path.join(sourceRoot, 'git.mjs')), false);
   assert.equal(root.files.has(path.join(sourceRoot, 'config.mjs')), false);
   // Only the pause-checking entries and Story creation read these; most commands never do.
@@ -460,8 +461,8 @@ test('the common session projection does not import attach, state stores or publ
   // util.mjs +14,078 (commit policy admission, see root dispatch), code-delivery-policy.mjs +7,561, config.mjs +3,330,
   // git.mjs +2,731, schema-migrations.mjs +2,382, command-registry.mjs +2,052 and smaller. No new eager file.
   // 4,077,050 (measured 4,077,020): the same schema-migrations.mjs +716, command-registry.mjs +134 and util.mjs +13 as root dispatch.
-  // 4,096,300 (measured 4,096,296): SPEC-ENVF v2, the same two eager files as start, the gates in git.mjs and the scanner's value check.
-  assert.ok(current.bytes <= 4_096_300, `session current loads ${current.bytes} source bytes`);
+  // 4,099,600 (measured 4,099,593): SPEC-ENVF v2, the same two eager files as start, the gates in git.mjs and the scanner's value check.
+  assert.ok(current.bytes <= 4_099_600, `session current loads ${current.bytes} source bytes`);
 });
 
 test('early phase and grounding-path entries exclude the deferred authoring and review graphs', async () => {

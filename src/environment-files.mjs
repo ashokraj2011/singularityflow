@@ -20,15 +20,17 @@
 import { createHash, randomUUID } from 'node:crypto';
 import { constants as fsConstants } from 'node:fs';
 import {
-  appendFile, chmod, copyFile, lstat, mkdir, open, readFile, readlink, realpath, rename, rm, stat, symlink, unlink
+  appendFile, chmod, copyFile, lstat, mkdir, open, readFile, readlink, realpath, rename, rm, stat, symlink, unlink, writeFile
 } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 
-import { ENVIRONMENT_IDENTIFIER, isExactEnvironmentFilePath, loadEnvironmentDeclaration } from './environment-declaration.mjs';
+import { ENVIRONMENT_IDENTIFIER, isExactEnvironmentFilePath, loadEnvironmentDeclaration, matchEnvironmentLocalPath } from './environment-declaration.mjs';
 import { repositoryGitDirectory } from './git-directory.mjs';
 import { repositoryWorktreeDirectory } from './git-worktree-directory.mjs';
-import { gitCommonDir, trackedPaths } from './git.mjs';
+import { excludeAlwaysLocalNames, gitCommonDir, localConfigNamedPaths, trackedPaths, withEnvironmentFilesRegistry } from './git.mjs';
+import { configValueFindings } from './config-values.mjs';
+import { alwaysLocalName, classifiedShared } from './local-config-policy.mjs';
 import {
   listPrivateSidecar, readPrivateSidecar, safePrivateSidecarDirectory, writeMutablePrivateSidecar, writeImmutablePrivateSidecar
 } from './private-sidecar.mjs';
@@ -488,6 +490,85 @@ export async function ensureExcluded(scope, paths) {
   const addition = `${text && !text.endsWith('\n') ? '\n' : ''}${lines.has(EXCLUDE_COMMENT) ? '' : `${EXCLUDE_COMMENT}\n`}${missing.map(excludeLine).join('\n')}\n`;
   await appendFile(file, addition, { encoding: 'utf8', flag: fsConstants.O_WRONLY | fsConstants.O_APPEND | fsConstants.O_CREAT | (fsConstants.O_NOFOLLOW ?? 0) });
   return missing;
+}
+
+// ---------------------------------------------------------------------------------------------
+// The class of a file with an always-local name [SPEC-ENVF v2]: private until a person says it is shared.
+
+const MAXIMUM_CLASSIFIED_BYTES = 262_144;
+
+async function classifiableText(absolute) {
+  const info = await lstat(absolute).catch(notFound);
+  if (!info || !info.isFile() || info.size > MAXIMUM_CLASSIFIED_BYTES) return null;
+  return readFile(absolute, 'utf8').catch(() => null);
+}
+
+const heldSettings = (relative, text) => configValueFindings(relative, text).map(({ name, line }) => `${name} on line ${line}`);
+
+/** Every file with an always-local name in this checkout, its class and what to do next. Names only, never a value. */
+export async function localConfigClasses(scope) {
+  if (scope.kind !== 'repository') fail('env files classify works on one repository.', 'ENV_FILES_INVALID');
+  const named = localConfigNamedPaths(scope.checkout);
+  const tracked = new Set(trackedPaths(scope.checkout, named));
+  const files = [];
+  for (const relative of named) {
+    const text = await classifiableText(path.join(scope.checkout, ...relative.split('/')));
+    if (text === null) continue;
+    const held = heldSettings(relative, text);
+    const kind = classifiedShared(text) ? 'shared' : tracked.has(relative) ? 'unclassified' : 'private';
+    const next = held.length ? `It holds real-looking values (${held.join(', ')}): move them out${tracked.has(relative) ? ' and rotate them' : ''}${kind === 'private' ? ', or leave it on this laptop' : ''}.`
+      : kind === 'shared' ? 'Git can carry it.'
+        : kind === 'unclassified' ? `It holds no real values: singularity-flow env files classify ${relative} shared --reason <why>, or git rm --cached to take it out of Git.`
+          : `It stays on this laptop. It holds no real values, so if the team means to share it: singularity-flow env files classify ${relative} shared --reason <why>.`;
+    files.push({ path: relative, class: kind, tracked: tracked.has(relative), values: held.length, next });
+  }
+  return { schemaVersion: 1, resultType: 'sflow-local-config-classes', repository: scope.repositoryId, files };
+}
+
+/** `env files classify`: a person's decision, written in the file so that it is reviewed with it. Copilot may not run this. */
+export async function classifyLocalConfig(scope, relative, kind, { reason = null } = {}) {
+  if (scope.kind !== 'repository') fail('env files classify works on one repository.', 'ENV_FILES_INVALID');
+  if (!alwaysLocalName(relative)) {
+    fail(`${relative} is shared config by its name, so it needs no class. Its values are read at every commit either way.`, 'ENV_FILE_CLASS_NOT_NEEDED', { path: relative });
+  }
+  const declaration = withEnvironmentFilesRegistry(scope.checkout, await loadEnvironmentDeclaration(scope.checkout, { optional: true }));
+  const rule = matchEnvironmentLocalPath(declaration, relative);
+  if (kind === 'shared' && rule && rule.kind !== 'always-local') {
+    fail(`${relative} is local by ${rule.kind === 'environment-file' ? 'this machine\'s env files registry' : 'a rule in singularity/environments.yml'}, which a class does not override. Change that first.`, 'ENV_FILE_CLASS_DECLARED', { path: relative, rule: rule.pattern });
+  }
+  const absolute = path.join(scope.checkout, ...relative.split('/'));
+  const text = await classifiableText(absolute);
+  if (text === null) fail(`${relative} is not a regular file of at most 256 KiB here, so it cannot be classified.`, 'ENV_FILE_CLASS_UNREADABLE', { path: relative });
+  const excludes = await excludeFile(scope);
+  const allowLine = `!/${relative}`;
+  const tracked = trackedPaths(scope.checkout, [relative]).length > 0;
+  if (kind === 'private') {
+    const kept = text.split('\n').filter((line, index) => !(index < 10 && /sflow-shared:\s*\S/u.test(line)));
+    const changed = kept.join('\n') !== text;
+    if (changed) await writeFile(absolute, kept.join('\n'));
+    const lines = (await readFile(excludes, 'utf8').catch(() => '')).split('\n');
+    if (lines.includes(allowLine)) await writeFile(excludes, lines.filter((line) => line !== allowLine).join('\n'));
+    return { schemaVersion: 1, resultType: 'sflow-local-config-classified', path: relative, class: 'private', changed,
+      next: tracked ? `Git still tracks it: git rm --cached ${relative} takes it out and leaves your copy.` : 'It stays on this laptop.' };
+  }
+  const why = String(reason ?? '').replace(/\s+/gu, ' ').trim();
+  if (!why) fail(`Say why ${relative} is safe to share: singularity-flow env files classify ${relative} shared --reason <why>.`, 'ENV_FILE_CLASS_REASON_REQUIRED', { path: relative });
+  const held = heldSettings(relative, text);
+  if (held.length) {
+    fail(`${relative} holds real-looking values (${held.join(', ')}), so it cannot be shared yet. Replace each with \${NAME} and keep the value in a private file such as .env.local. If one is only an example, put the waiver marker sflow-allow-secret, a colon and why on that line or the line above it.`,
+      'ENV_FILE_HOLDS_VALUES', { path: relative, settings: held });
+  }
+  if (/\.json$/iu.test(relative) && !classifiedShared(text)) {
+    fail(`${relative} is JSON, which has no comments. Add "_note": "sflow-shared: ${why}" near the top by hand, in the first ten lines.`, 'ENV_FILE_CLASS_BY_HAND', { path: relative });
+  }
+  const changed = !classifiedShared(text);
+  if (changed) await writeFile(absolute, `# sflow-shared: ${why}\n${text}`);
+  // Git stops offering these names in this clone, so this one has to be let back in.
+  excludeAlwaysLocalNames(scope.checkout);
+  const current = await readFile(excludes, 'utf8').catch(() => '');
+  if (!current.split('\n').includes(allowLine)) await appendFile(excludes, `${current && !current.endsWith('\n') ? '\n' : ''}${allowLine}\n`);
+  return { schemaVersion: 1, resultType: 'sflow-local-config-classified', path: relative, class: 'shared', changed,
+    next: `Its values are still read at every commit. Commit it with: git add ${relative}.` };
 }
 
 // ---------------------------------------------------------------------------------------------

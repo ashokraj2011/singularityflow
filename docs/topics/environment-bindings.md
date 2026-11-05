@@ -14,7 +14,7 @@ related:
   - visual-verification
 commands:
   - env
-version: 5
+version: 6
 ---
 An environment binding separates a names-only repository declaration from values held in private machine state. Put the closed declaration in `singularity/environments.yml`, bind values through standard input or an approved reference, and inspect only redacted status metadata. SFlow refuses declared local files at commit, candidate, publication, document-intake, and World Model boundaries. A missing binding is unavailable and never a pass. An environment-linked check runs on this machine only when the capability policy `localIntegrationEvidence` is `allowed` and the binding is complete: its values go to that process only, its output is redacted, and the run is recorded as `local-integration`, never as governed or isolated evidence. With the policy `off` (the default) it stays blocked.
 
@@ -53,14 +53,15 @@ The commit, publication and document-intake gates refuse every environment-file 
 
 Two things need no declaration (`docs/SPEC-ENVIRONMENT-FILES-v2.md`).
 
-- **Always-local names:** `.env`, `.env.*`, `application-local.yml|yaml|properties` and `*.local.yml|yaml|json|properties|toml|ini`. A commit that adds one is refused, Copilot is refused it, and it cannot become a document or a specification source. Git stops offering it through the clone's `.git/info/exclude`. Templates such as `.env.example` and `.env.local.sample` are shared. A file with one of these names that a team already tracks stays shared config, and `env audit` reports it. A repository can add names with `neverCommit` and cannot remove these.
-- **A real value in shared config:** for example an unquoted `password: Xq7m…` in `application.yml`, `config.yaml` or `src/test/resources/application-test.yml`. `password: ${DB_PASSWORD}` is fine. Copilot is refused the file until the value is gone, and a document is refused. A commit warns on stderr for now and refuses in a later release; `SINGULARITY_FLOW_CONFIG_VALUES=refuse` turns that on early.
+- **Always-local names:** `.env`, `.env.*`, `application-local.yml|yaml|properties` and `*.local.yml|yaml|json|properties|toml|ini`. A commit that adds one is refused, Copilot is refused it, and it cannot become a document or a specification source. Git stops offering it through the clone's `.git/info/exclude`. Templates such as `.env.example` and `.env.local.sample` are shared. A file with one of these names that a team already tracks stays shared config, and `env audit` asks for its class. A repository can add names with `neverCommit` and cannot remove these.
+- **A real value in shared config:** for example an unquoted `password: Xq7m…` in `application.yml`, `config.yaml` or `src/test/resources/application-test.yml`. `password: ${DB_PASSWORD}` is fine. Copilot is refused the file until the value is gone, and a document is refused. A commit refuses a new value. One already in Git only warns, so nothing stops a merge. `SINGULARITY_FLOW_CONFIG_VALUES=warn` holds refusal off for a machine or a CI job that needs time.
+- **A class for `.env.*`:** a file with such a name is private until a person says otherwise. `singularity-flow env files classify` lists each one with its class. `singularity-flow env files classify <PATH> shared --reason <why>` records that it is safe to share, in the file, so the diff shows it. Its values are still read, and it is refused while it holds a real one. Copilot may not run this.
 
 To clear a finding:
 
 1. An untracked file: `singularity-flow env files add <ENV> <PATH> --personal`, then `singularity-flow env files adopt <ENV> <PATH>`. It moves to the private store and links back, so tests still find it.
 2. A tracked file: commit `${NAME}` and keep the value in an always-local file such as `application-local.yml` or `.env`, or in `env bind` where the repository declares the name.
-3. A committed always-local file: `git rm --cached <PATH>`, then a commit that names no paths. Your copy stays, and the gates let that removal through.
+3. A committed always-local file: `git rm --cached <PATH>`, then a commit that names no paths. Your copy stays, and the gates let that removal through. If the team means to keep it in Git, classify it as shared instead.
 4. A false alarm: put `# sflow-allow-secret: <why>` on the line or the line above it. It shows in the diff and is reviewed.
 
 `singularity-flow env audit` lists all of this with no declaration. A value already in the last publication is in Git's history, so rotate it; history is never rewritten automatically.

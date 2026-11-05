@@ -190,6 +190,16 @@ async function auditEnvironment(root) {
     worktreeEntries.push({ path: relative, content });
   }
 
+  // A person's recorded class settles a file with an always-local name; one the team tracks with no class is asked for it.
+  const { classifiedShared } = await import('../local-config-policy.mjs');
+  const shared = new Set(worktreeEntries.filter((entry) => classifiedShared(entry.content)).map((entry) => entry.path));
+  const classified = findings.filter((finding) => !(finding.kind === 'always-local' && shared.has(finding.path)))
+    .map((finding) => (finding.kind === 'always-local' && finding.code === 'environment.local-file-tracked' && !finding.advice
+      ? Object.freeze({ ...finding, advice: `Tracked with no class: singularity-flow env files classify ${finding.path} shared --reason <why> if it holds no secrets, or git rm --cached to take it out of Git.` })
+      : finding));
+  findings.length = 0;
+  findings.push(...classified);
+
   const scans = [
     ['worktree', worktreeEntries],
     ['candidate-index', gitSnapshot.stagedEntries],

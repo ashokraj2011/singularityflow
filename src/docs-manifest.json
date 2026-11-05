@@ -1,9 +1,9 @@
 {
   "schemaVersion": 2,
   "generatedFrom": "docs/topics",
-  "sourceCommit": "8542481ce9dff8ad376fa40af4e57867956941c1",
+  "sourceCommit": "c8bde057ba26d9c2fef7e065929e092b0cfc2be9",
   "topicCount": 90,
-  "contentSha256": "6c15f4260091ea3f4b7231f18c6c209b9aec98d9983b8744fd355c9634a329f2",
+  "contentSha256": "c4d988b550527c139d66eb4bf64c34ddc7398180d469efd50d7b106e51a83c5e",
   "topics": [
     {
       "id": "activity-and-prompt-audit",
@@ -192,8 +192,8 @@
     {
       "id": "environment-bindings",
       "title": "Test environments without committing their values",
-      "version": 5,
-      "sha256": "0633034ebfba9cf27594f6f034283fb73798a2abd462d58e01bc93930ad40f0f",
+      "version": 6,
+      "sha256": "b1f1137a5a43b6a032b0495d473e2640182ec761d409af66814c456c185a2bed",
       "routingSha256": "3f61bd3248485e24065d018c2cc3d1fcd7f9e68c572106f2f5ae5e77f7c668bb",
       "file": "environment-bindings.md"
     },
@@ -544,8 +544,8 @@
     {
       "id": "secrets",
       "title": "Refusing to commit a credential",
-      "version": 4,
-      "sha256": "acac303016c5c623a0f358ddce0177b58a3aeebb160847e4ca7aa9f2c12ac452",
+      "version": 5,
+      "sha256": "6ba9d243802f03a7e6367f9084958d435a0586a6b1a309d76f3326777db1f3ee",
       "routingSha256": "49da34867a0d139cd67eb4f9775ee43b0eb4819eb33db5a2aee70d81bd20dae3",
       "file": "secrets.md"
     },

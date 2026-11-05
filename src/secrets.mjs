@@ -33,7 +33,7 @@ import { SingularityFlowError } from './util.mjs';
  */
 const CONFIG_VALUE_RULE = 'config-value';
 const ALWAYS_LOCAL_RULE = 'always-local';
-const ALWAYS_LOCAL_ROUTE = 'Run git rm --cached <path>: your copy stays on this laptop and the commit leaves it out.';
+const ALWAYS_LOCAL_ROUTE = 'Run git rm --cached <path>: your copy stays on this laptop and the commit leaves it out. If it holds no secrets and the team means to share it, run singularity-flow env files classify <path> shared --reason <why>.';
 const MOVE_THE_VALUE_OUT = 'Replace it with ${NAME} and keep the value in an always-local file such as application-local.yml or .env, or in singularity-flow env bind. If it is only an example, put the waiver marker sflow-allow-secret, a colon and why on that line or the line above it.';
 
 export const WAIVER = /sflow-allow-secret:\s*(\S.*?)\s*$/;
@@ -188,7 +188,7 @@ export function scannedAsExtractedText(filePath) {
  * waiver on a line suppresses every rule on that line: a line with two credentials is one mistake
  * with one reason, and demanding a marker per rule would push people toward a blanket ignore.
  */
-export function scanText(content, { path: filePath = '<input>' } = {}) {
+export function scanText(content, { path: filePath = '<input>', inGit = [] } = {}) {
   const findings = [];
   const lines = String(content ?? '').split('\n');
   lines.forEach((line, index) => {
@@ -217,13 +217,16 @@ export function scanText(content, { path: filePath = '<input>' } = {}) {
   });
   // A shared config file's settings, which people write unquoted. A line a rule already found is one finding.
   const flagged = new Set(findings.map((finding) => finding.line));
+  const settingKey = ({ name, value }) => `${name}\0${value}`;
+  const known = new Set(inGit.flatMap((text) => configValueFindings(filePath, text)).map(settingKey));
   for (const { name, value, line } of configValueFindings(filePath, content)) {
     if (flagged.has(line)) continue;
     // The line above counts too: a marker on the line itself becomes part of a .properties value, and JSON has no comments.
     const waiver = WAIVER.exec(lines[line - 1]) ?? (line > 1 ? WAIVER.exec(lines[line - 2]) : null);
     // Its length and no more: a model sees this output, and a short value's first characters are most of it.
     findings.push(Object.freeze({ rule: CONFIG_VALUE_RULE, label: `a value for ${name}`, severity: 'likely', path: filePath, line,
-      preview: `(${value.length} chars)`, waived: Boolean(waiver), reason: waiver?.[1] ?? null }));
+      preview: `(${value.length} chars)`, waived: Boolean(waiver), reason: waiver?.[1] ?? null,
+      alreadyInGit: known.has(settingKey({ name, value })) }));
   }
   return findings;
 }
@@ -240,7 +243,8 @@ export function scanEntries(entries = [], { alwaysLocal = [], env = process.env 
     severity: 'certain', path: file, line: 0, preview: '', waived: false, reason: null }));
   const skipped = [];
   const refused = configValuesRefused(env);
-  const warnOnly = (finding) => finding.rule === CONFIG_VALUE_RULE && !refused;
+  // Refusing a value already in Git would stop a merge or an unrelated edit, and take it out of no clone.
+  const warnOnly = (finding) => finding.rule === CONFIG_VALUE_RULE && (!refused || finding.alreadyInGit);
   for (const entry of entries) {
     const filePath = String(entry?.path ?? '');
     // Git admission sets `forceScan` for non-regular entries such as symbolic links. A filename
@@ -257,7 +261,7 @@ export function scanEntries(entries = [], { alwaysLocal = [], env = process.env 
         { code: 'SECRET_SCAN_UNREADABLE' }
       );
     }
-    findings.push(...scanText(entry.content, { path: filePath }));
+    findings.push(...scanText(entry.content, { path: filePath, inGit: entry.inGit ?? [] }));
   }
   return Object.freeze({
     resultType: 'secret-scan',
@@ -265,7 +269,7 @@ export function scanEntries(entries = [], { alwaysLocal = [], env = process.env 
     findings: Object.freeze(findings),
     /** What must stop a commit, as opposed to what was reviewed and excused on the line. */
     blocking: Object.freeze(findings.filter((finding) => !finding.waived && !warnOnly(finding))),
-    /** A value in shared config during its rollout: said out loud, and not yet refused. */
+    /** A value in shared config that is already in Git, or while refusal is held off: said out loud, not refused. */
     warnings: Object.freeze(findings.filter((finding) => !finding.waived && warnOnly(finding))),
     waived: Object.freeze(findings.filter((finding) => finding.waived)),
     skipped: Object.freeze(skipped),
@@ -274,12 +278,14 @@ export function scanEntries(entries = [], { alwaysLocal = [], env = process.env 
   });
 }
 
-/** The warning a commit carries while a value in shared config is not yet refused, or null. */
+/** The warning a commit carries for a value in shared config it does not refuse, or null. */
 export function configValueWarning(findings = []) {
   if (!findings.length) return null;
   return ['Warning: this change holds what look like real values in shared config:',
-    ...findings.map((finding) => `  ${finding.path}:${finding.line} — ${finding.label} ${finding.preview}`),
-    `This does not stop the commit yet. A later release refuses it, because a value in a commit is in every clone's history. ${MOVE_THE_VALUE_OUT}`].join('\n');
+    ...findings.map((finding) => `  ${finding.path}:${finding.line} — ${finding.label} ${finding.preview}${finding.alreadyInGit ? ' (already in Git)' : ''}`),
+    findings.some((finding) => finding.alreadyInGit)
+      ? `A value already in Git does not stop this commit, but every clone has it, so rotate it. ${MOVE_THE_VALUE_OUT}`
+      : `This does not stop the commit, because SINGULARITY_FLOW_CONFIG_VALUES is warn. ${MOVE_THE_VALUE_OUT}`].join('\n');
 }
 
 /**

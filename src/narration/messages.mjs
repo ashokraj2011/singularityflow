@@ -444,7 +444,7 @@ export const MESSAGES = Object.freeze({
     preserves: true
   },
   'secrets.warned': {
-    headline: (s) => `${slot(s.warnings)} real-looking value(s) in shared config, in ${slot(s.scanned)} ${slot(s.scope)} file(s). Not refused yet.`,
+    headline: (s) => `${slot(s.warnings)} real-looking value(s) in shared config, in ${slot(s.scanned)} ${slot(s.scope)} file(s). Not refused.`,
     preserves: true
   },
   'secrets.protected': {

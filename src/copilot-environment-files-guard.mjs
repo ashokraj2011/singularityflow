@@ -19,7 +19,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { asSflowCommand } from './copilot-mode.mjs';
-import { alwaysLocalName, configShapedPath } from './local-config-policy.mjs';
+import { alwaysLocalName, classifiedShared, configShapedPath } from './local-config-policy.mjs';
 
 const DECLARATION = path.join('singularity', 'environments.yml');
 const TERMINALS = new Set(['bash', 'powershell', 'run_in_terminal', 'execute', 'exec_command', 'write_stdin', 'write_bash']);
@@ -28,7 +28,7 @@ const MAXIMUM_RECORD_BYTES = 262_144;
 const MAXIMUM_SCANNED_BYTES = 262_144;
 // `env files` subcommands Copilot may run: they print paths and statuses, or create from a template.
 const ALLOWED_ENV_FILES = new Set(['', 'list', 'path', 'suggest', 'create', 'place', 'override']);
-const KNOWN_ENV_FILES = Object.freeze(['list', 'path', 'suggest', 'override', 'create', 'place', 'link', 'unlink', 'adopt', 'add', 'remove', 'root']);
+const KNOWN_ENV_FILES = Object.freeze(['list', 'path', 'suggest', 'override', 'create', 'place', 'link', 'unlink', 'adopt', 'add', 'remove', 'root', 'classify']);
 
 function exists(file) { try { return lstatSync(file); } catch { return null; } }
 // What does not exist yet keeps its names below the nearest directory that does, spelled as the
@@ -222,15 +222,18 @@ async function trackedInGit(absolute) {
 }
 
 /**
- * An always-local name, or a link to one. A file the team already tracks is in Git for anyone to read,
- * so it is judged by its values like any shared config.
+ * An always-local name, or a link to one. A file the team already tracks is in Git for anyone to read, and
+ * a person may have classified one as shared, so both are judged by their values like any shared config.
  */
 async function alwaysLocalTarget(target, cwd) {
   if (typeof target !== 'string' || target.startsWith('-')) return null;
   const absolute = absoluteOf(target, cwd);
   const named = alwaysLocalName(target) || globTakesLocalName(target) || (absolute && alwaysLocalName(canonical(absolute)));
   if (!named) return null;
-  return absolute && exists(absolute) && await trackedInGit(absolute) ? null : target;
+  if (!absolute || !exists(absolute)) return target;
+  if (await trackedInGit(absolute)) return null;
+  try { return statSync(absolute).size <= MAXIMUM_SCANNED_BYTES && classifiedShared(readFileSync(absolute, 'utf8')) ? null : target; }
+  catch { return target; }
 }
 
 // What a shell line shows of a file: nothing, for these. Their words are text or a question about the file.

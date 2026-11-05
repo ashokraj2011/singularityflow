@@ -43,10 +43,14 @@ async function fixture(t, id = 'planning') {
   return { root, config, workflow, phase, session, itemDirectory, itemRelative, absolute, git };
 }
 
+// Prepublish keeps its findings as local task progress (4f7fe7329). That is the one write it may make.
+const TASK_PROGRESS = path.join('.git', 'singularity-flow', 'workflow-tasks');
+
 async function tree(root, relative = '') {
   const files = [];
   for (const entry of await readdir(path.join(root, relative), { withFileTypes: true })) {
     const file = path.join(relative, entry.name);
+    if (file === TASK_PROGRESS) continue;
     if (entry.isDirectory()) files.push(...await tree(root, file));
     else files.push([file, createHash('sha256').update(await readFile(path.join(root, file))).digest('hex')]);
   }
@@ -72,6 +76,10 @@ async function expectBlocked(f, category, code) {
     return true;
   });
   assert.deepEqual(await tree(f.root), before, 'includes .git: no receipt, outbox, artifact or recovery state was written');
+  for (const name of await readdir(path.join(f.root, TASK_PROGRESS))) {
+    const record = JSON.parse(await readFile(path.join(f.root, TASK_PROGRESS, name), 'utf8'));
+    assert.equal(record.authority, 'progress-only', 'task progress is never evidence, consent or a lease');
+  }
   return preview;
 }
 

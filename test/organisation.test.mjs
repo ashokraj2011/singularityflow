@@ -4975,11 +4975,9 @@ test('a failed push is reconciled as success only when the exact proposal commit
 const { spawnSync } = require('node:child_process');
 const args = process.argv.slice(2);
 const realGit = ${JSON.stringify(realGit)};
-const result = spawnSync(realGit, args, {
-  cwd: process.cwd(), env: process.env, encoding: 'utf8'
-});
-if (result.stdout) process.stdout.write(result.stdout);
-if (result.stderr) process.stderr.write(result.stderr);
+// Inherited, not relayed: process.exit below can cut a relayed pipe write off at 64 KB, and a
+// truncated workflow.yml reads as a commit policy nobody can establish.
+const result = spawnSync(realGit, args, { cwd: process.cwd(), env: process.env, stdio: 'inherit' });
 const proposalPush = args[0] === 'push' && args.some((arg) =>
   String(arg).includes(':refs/heads/sflow/config-change/capability/map-reconciled-push-'));
 if (proposalPush && result.status === 0) {

@@ -3817,7 +3817,9 @@ test('seeded reinitialization refuses a symbolic workflow authority before readi
   git(root, ['config', 'user.name', 'Configuration Test']);
   git(root, ['config', 'user.email', 'configuration@example.test']);
   git(root, ['add', '-A']);
-  git(root, ['commit', '-m', 'Seed symbolic workflow authority']);
+  // The person's own Git, outside SFlow: SFlow refuses a Git write where a symbolic definition could
+  // hide a commit policy (4c79a2b8d), and this repository must exist for the refusal under test.
+  childProcess.execFileSync('git', ['commit', '-qm', 'Seed symbolic workflow authority'], { cwd: root });
   const headBefore = git(root, ['rev-parse', 'HEAD']);
   const indexBefore = run('git', ['ls-files', '--stage', '-z'], {
     cwd: root, encoding: 'buffer'

@@ -1,6 +1,6 @@
 import { createHash, randomUUID } from 'node:crypto';
 import {
-  accessSync, constants as FS_CONSTANTS, existsSync, readFileSync, realpathSync, statSync, lstatSync
+  accessSync, constants as FS_CONSTANTS, existsSync, readdirSync, readFileSync, realpathSync, statSync, lstatSync
 } from 'node:fs';
 import { spawn, spawnSync } from 'node:child_process';
 import { constants as bufferConstants } from 'node:buffer';
@@ -1530,7 +1530,7 @@ export const YAML_OUTPUT = Object.freeze({ flowCollectionPadding: false, lineWid
 // A staged native source service and an editor/CLI bundle share the execution owner's exact
 // in-process grant. Nothing serialized, cross-process or supplied by a model becomes a grant.
 const RCP_STATE = Symbol.for('singularity-flow.repository-commit-policy.execution.v1');
-const rcpState = globalThis[RCP_STATE] ??= {contexts: new AsyncLocalStorage(), repositories: new Map(), hintParser: null, inspectApproved: null, projections: new Map()};
+const rcpState = globalThis[RCP_STATE] ??= {contexts: new AsyncLocalStorage(), repositories: new Map(), hintParser: null, projections: new Map(), plainApproved: new Set()};
 export function bindRepositoryCommitPolicyProjection(applicationRoot, projectionRoot, sourceCommit) {
   const target=rcpRootKey(projectionRoot);
   rcpState.projections.set(target,{applicationRoot:rcpRootKey(applicationRoot),sourceCommit});
@@ -1538,28 +1538,33 @@ export function bindRepositoryCommitPolicyProjection(applicationRoot, projection
 }
 export function repositoryCommitPolicyProjection(root) { return rcpState.projections.get(rcpRootKey(root)) ?? null; }
 export function installCommitPolicyHintParser(parse) { rcpState.hintParser = parse; }
-export function installCommitPolicyGitInspector(inspect) { rcpState.inspectApproved = inspect; }
 function rcpRootKey(root) { try { return realpathSync.native(root); } catch { return path.resolve(root); } }
-function rcpPolicyStamp(root) {
-  const parts = [];
-  let directory = path.resolve(root);
-  for (let depth=0;depth<32;depth++) {
+function rcpGitLayout(root) {
+  let directory=path.resolve(root);
+  for(let depth=0;depth<32;depth++){
     const dot=path.join(directory,'.git');
-    if(existsSync(dot)) {
-      let gitDirectory=dot;
-      try {if(lstatSync(dot).isFile())gitDirectory=path.resolve(directory,readFileSync(dot,'utf8').replace(/^gitdir:\s*/u,'').trim());
-        if(existsSync(path.join(gitDirectory,'commondir')))gitDirectory=path.resolve(gitDirectory,readFileSync(path.join(gitDirectory,'commondir'),'utf8').trim());
-        const config=path.join(gitDirectory,'config');
-        const text=existsSync(config)?readFileSync(config,'utf8'):'';
-        const remotes=[...text.matchAll(/\[remote "([A-Za-z0-9._-]+)"\]/gu)].map(match=>match[1]);
-        const files=[config,path.join(gitDirectory,'packed-refs'),path.join(directory,'singularity/workflow.yml'),path.join(gitDirectory,'refs/heads/sflow/config'),...new Set(['origin',...remotes])].map(value=>value);
-        for(const file of files.slice(0,4)) {const info=statSync(file,{throwIfNoEntry:false});parts.push([file,info?.ino??null,info?.size??null,info?.mtimeMs??null]);}
-        for(const remote of new Set(['origin',...remotes])) {const file=path.join(gitDirectory,'refs/remotes',remote,'sflow/config');parts.push([file,existsSync(file)?readFileSync(file,'utf8'):null]);}
-      } catch {return `unavailable:${Date.now()}:${Math.random()}`;}
-      break;
+    if(existsSync(dot)){
+      const info=lstatSync(dot);
+      const gitDirectory=info.isFile()?path.resolve(directory,readFileSync(dot,'utf8').replace(/^gitdir:\s*/u,'').trim()):dot;
+      const shared=path.join(gitDirectory,'commondir');
+      return {directory,link:info.isSymbolicLink(),gitDirectory,common:existsSync(shared)?path.resolve(gitDirectory,readFileSync(shared,'utf8').trim()):gitDirectory};
     }
     const parent=path.dirname(directory);if(parent===directory)break;directory=parent;
   }
+  return null;
+}
+function rcpPolicyStamp(root) {
+  const parts = [];
+  try {
+    const git=rcpGitLayout(root);
+    if(git){
+      const config=path.join(git.common,'config');
+      const text=existsSync(config)?readFileSync(config,'utf8'):'';
+      const remotes=[...text.matchAll(/\[remote "([A-Za-z0-9._-]+)"\]/gu)].map(match=>match[1]);
+      for(const file of [config,path.join(git.common,'packed-refs'),path.join(git.directory,'singularity/workflow.yml'),path.join(git.common,'refs/heads/sflow/config')]) {const info=statSync(file,{throwIfNoEntry:false});parts.push([file,info?.ino??null,info?.size??null,info?.mtimeMs??null]);}
+      for(const remote of new Set(['origin',...remotes])) {const file=path.join(git.common,'refs/remotes',remote,'sflow/config');parts.push([file,existsSync(file)?readFileSync(file,'utf8'):null]);}
+    }
+  } catch {return `unavailable:${Date.now()}:${Math.random()}`;}
   return JSON.stringify(parts);
 }
 export function registerCommitPolicyMode(root, mode) { rcpState.repositories.set(rcpRootKey(root), {mode,stamp:rcpPolicyStamp(root)}); }
@@ -1587,53 +1592,41 @@ export function withAdmittedCommitGit(root, request, action) {
   if (!request || !['commit-object', 'private-ref', 'verified-ref', 'verified-push'].includes(request.kind)) throw new TypeError('A closed RCP Git request is required.');
   return rcpState.contexts.run({ root: rcpRootKey(root), request }, action);
 }
-function rcpHinted(root) {
+const RCP_MARKER='singularity-flow/repository-commit-policy/enforced.json';
+function rcpHintedRead(root) {
   const observedStamp = rcpPolicyStamp(root);
   const known = rcpState.repositories.get(rcpRootKey(root));
   if (known?.stamp === observedStamp) return known.mode === 'enforce';
-  let base = path.resolve(root), gitDirectory = null;
-  for (let depth = 0; depth < 32; depth++) {
-    const dot = path.join(base, '.git');
-    if (existsSync(dot)) {
-      const info = lstatSync(dot);
-      if (info.isSymbolicLink()) return true;
-      gitDirectory = info.isDirectory() ? dot : path.resolve(base, readFileSync(dot, 'utf8').replace(/^gitdir:\s*/u, '').trim());
-      break;
-    }
-    const parent = path.dirname(base); if (parent === base) break; base = parent;
+  // Null: .git changed during this read.
+  const settled = hinted => observedStamp === rcpPolicyStamp(root) ? hinted : null;
+  const plain = bytes => {try {return ['off','discover','absent'].includes(rcpModeIn(bytes));} catch {return false;}};
+  const git = rcpGitLayout(root);
+  if (!git) return false;
+  if (git.link) return true;
+  for (const file of [git.gitDirectory,git.common].map(directory => path.join(directory,RCP_MARKER))) if (existsSync(file)) return true;
+  const definition = path.join(git.directory,'singularity/workflow.yml');
+  if (existsSync(definition)) {
+    const info = lstatSync(definition); if (!info.isFile() || info.size > 4 * 1024 * 1024) return true;
+    if (!plain(readFileSync(definition,'utf8'))) return settled(true);
   }
-  const directories = gitDirectory ? [gitDirectory] : [];
-  if (gitDirectory && existsSync(path.join(gitDirectory, 'commondir'))) directories.push(path.resolve(gitDirectory, readFileSync(path.join(gitDirectory, 'commondir'), 'utf8').trim()));
-  for (const file of [...directories.map(directory => path.join(directory, 'singularity-flow/repository-commit-policy/enforced.json')), path.join(base, 'singularity/workflow.yml')]) {
-    if (!existsSync(file)) continue;
-    const info = lstatSync(file); if (!info.isFile() || info.isSymbolicLink() || info.size > 4 * 1024 * 1024) return true;
-    const bytes = readFileSync(file, 'utf8');
-    if (bytes.length > 4 * 1024 * 1024) return true;
-    if (file.endsWith('enforced.json')) return true;
-    try {if (!['off','discover','absent'].includes(rcpModeIn(bytes))) return true;} catch {return true;}
-  }
-  const approved = (rcpState.inspectApproved ?? inspectApprovedCommitPolicyHint)(base);
-  if (approved?.uncertain) return true;
-  const definitions = Array.isArray(approved) ? approved : typeof approved === 'string' ? [approved] : [];
-  for (const definition of definitions) {try {if (!['off','discover','absent'].includes(rcpModeIn(definition))) return true;} catch {return true;}}
-  if (observedStamp !== rcpPolicyStamp(root)) return true;
-  registerCommitPolicyMode(root,'off');
+  const approved = inspectApprovedCommitPolicyHint(git.directory,git.common);
+  if (approved.uncertain || approved.definitions.some(bytes => !plain(bytes))) return settled(true);
+  for (const object of approved.objects) rcpState.plainApproved.add(object);
+  if (settled(false) === null) return null;
+  rcpState.repositories.set(rcpRootKey(root),{mode:'off',stamp:observedStamp});
   return false;
 }
-export function commitPolicyEnforcedHint(root) { return rcpHinted(root); }
-export function retainedRepositoryCommitPolicy(root) {
-  let directory=path.resolve(root);
-  for(let depth=0;depth<32;depth++){
-    const dot=path.join(directory,'.git');
-    if(existsSync(dot)){
-      try {let base=lstatSync(dot).isDirectory()?dot:path.resolve(directory,readFileSync(dot,'utf8').replace(/^gitdir:\s*/u,'').trim());
-        if(existsSync(path.join(base,'commondir')))base=path.resolve(base,readFileSync(path.join(base,'commondir'),'utf8').trim());
-        return existsSync(path.join(base,'singularity-flow/repository-commit-policy/enforced.json'));
-      }catch{return true;}
-    }
-    const parent=path.dirname(directory);if(parent===directory)break;directory=parent;
+// Another process may write this .git at any moment: a refusal needs an answer that holds.
+export function commitPolicyEnforcedHint(root) {
+  for (let attempt = 0; attempt < 5; attempt++) {
+    try {const hinted = rcpHintedRead(root); if (hinted !== null) return hinted;}
+    catch (error) {if (error.code !== 'ENOENT') throw error;}
   }
-  return false;
+  return true;
+}
+export function retainedRepositoryCommitPolicy(root) {
+  try {const git=rcpGitLayout(root);return Boolean(git)&&(git.link||existsSync(path.join(git.common,RCP_MARKER)));}
+  catch{return true;}
 }
 function rcpSelectedRoots(root, args, {env = process.env} = {}) {
   let selected = path.resolve(root); const roots = [selected];
@@ -1652,7 +1645,7 @@ export function assertCommitGitAdmission(root, args, options = {}) {
   const verb = commitPolicyGitVerb(args);
   if (!['commit', 'commit-tree', 'update-ref', 'push', 'merge', 'cherry-pick', 'rebase', 'am'].includes(verb)) return;
   if (verb === 'update-ref' && !args.includes('--stdin') && !args.slice(rcpVerbAt(args) + 1).some(value => value === 'HEAD' || value.startsWith('refs/heads/'))) return;
-  if (!rcpSelectedRoots(root,args,options).some(rcpHinted)) return;
+  if (!rcpSelectedRoots(root,args,options).some(selected => commitPolicyEnforcedHint(selected))) return;
   const scope = rcpState.contexts.getStore();
   const permitted = scope?.root === rcpRootKey(root) && scope.request.requestSha256 === commitGitRequestDigest(args, options) && (
     ['commit', 'commit-tree'].includes(verb) && scope.request.kind === 'commit-object'
@@ -1685,27 +1678,44 @@ export function repositoryCommitPolicyModule(name, root = null) {
       resolveRepositoryCommitPolicy: async()=>({mode:'off',compliance:'compatibility-not-policy-validation'}),
       bindCommitPolicyProjection:bindRepositoryCommitPolicyProjection
     });
-    if (name === 'evidence') {
-      // An enforced operation always leaves this shared in-process binding and a private marker.
-      // A repository with no policy has no local operation facts to project into its ledger.
-      if (!rcpState.repositories.has(rcpRootKey(root))) return Promise.resolve({commitPolicyEvidenceFile:async()=>null});
-    }
+    // An enforced operation always leaves a private marker, so no facts exist to project.
+    if (name === 'evidence') return Promise.resolve({commitPolicyEvidenceFile:async()=>null});
   }
   return import(pathToFileURL(path.join(PACKAGE_ROOT, 'src/repository-commit-policy', `${name}.mjs`)).href);
 }
 
+// The approved configuration refs as stored, or null when only Git can list them: no process per write.
+function rcpStoredConfigurationRefs(common) {
+  const packed=path.join(common,'packed-refs');
+  if(existsSync(path.join(common,'reftable'))||statSync(packed,{throwIfNoEntry:false})?.size>4194304)return null;
+  const refs=new Map(existsSync(packed)?[...readFileSync(packed,'utf8').matchAll(/^([a-f0-9]{40,64}) (refs\/(?:heads|remotes\/[^/\n]+)\/sflow\/config)$/gmu)].map(match=>[match[2],match[1]]):[]);
+  const remotes=path.join(common,'refs/remotes');
+  for(const ref of ['refs/heads/sflow/config',...(existsSync(remotes)?readdirSync(remotes).map(name=>`refs/remotes/${name}/sflow/config`):[])]){
+    const file=path.join(common,ref);
+    if(!existsSync(file))continue;
+    const value=lstatSync(file).isFile()?readFileSync(file,'utf8').trim():'';
+    if(!/^[a-f0-9]{40,64}$/u.test(value))return null;
+    refs.set(ref,value);
+  }
+  return [...refs.values()];
+}
 // Only reached for a Git mutation with no bound policy/marker. Inspect the exact local approved
 // configuration ref; never scan application branches or history, and never execute repository code.
-function inspectApprovedCommitPolicyHint(root) {
+function inspectApprovedCommitPolicyHint(root, common) {
   const env = Object.fromEntries(Object.entries(process.env).filter(([name]) => !/^GIT_(?:DIR|COMMON_DIR|WORK_TREE|INDEX_FILE|OBJECT_DIRECTORY|ALTERNATE_OBJECT_DIRECTORIES|CONFIG(?:_|$))/u.test(name)));
   const settings={cwd:root,env:{...env,GIT_NO_LAZY_FETCH:'1',GIT_NO_REPLACE_OBJECTS:'1'},allowFailure:true,timeoutMs:15000,maxBuffer:4*1024*1024};
-  const listed=run('git',['for-each-ref','--format=%(objectname)','refs/remotes/*/sflow/config','refs/heads/sflow/config'],settings);
-  if(listed.status!==0)return existsSync(path.join(root,'.git'))?{uncertain:true}:null;
-  const refs=[...new Set(listed.stdout.trim().split(/\r?\n/u).filter(Boolean))];
+  let stored=rcpStoredConfigurationRefs(common);
+  if(!stored){
+    const listed=run('git',['for-each-ref','--format=%(objectname)','refs/remotes/*/sflow/config','refs/heads/sflow/config'],settings);
+    if(listed.status!==0)return {uncertain:true};
+    stored=listed.stdout.trim().split(/\r?\n/u).filter(Boolean);
+  }
+  const refs=[...new Set(stored)];
   if(refs.length>8)return {uncertain:true};
-  if(!refs.length)return null;
   const blobs=new Set();
+  // An object read before says the same, whichever clone holds it.
   for(const ref of refs){
+    if(rcpState.plainApproved.has(ref))continue;
     if(!/^(?:[a-f0-9]{40}|[a-f0-9]{64})$/u.test(ref))return {uncertain:true};
     // An existing configuration branch may legitimately have no SFlow definition. Establish
     // that absence from its exact tree; an unreadable tree/blob remains an actual failure.
@@ -1714,17 +1724,15 @@ function inspectApprovedCommitPolicyHint(root) {
     if(tree.stdout){
       const entry=/^100(?:644|755) blob ([a-f0-9]{40}(?:[a-f0-9]{24})?)\tsingularity\/workflow\.yml\0$/u.exec(tree.stdout);
       if(!entry)return {uncertain:true};
-      blobs.add(entry[1]);
+      if(!rcpState.plainApproved.has(entry[1]))blobs.add(entry[1]);
     }
   }
   const definitions=[];
-  // Different local/remote revisions are separate YAML documents. Concatenating their
-  // contents makes ordinary duplicate keys look like an unreadable enforced policy.
-  // Identical blobs are read once; the bounded roster never visits application history.
+  // One document per revision: concatenated, ordinary duplicate keys would look unreadable.
   for(const blob of blobs){
     const inspected=run('git',['cat-file','blob',blob],settings);
     if(inspected.status!==0)return {uncertain:true};
     definitions.push(inspected.stdout);
   }
-  return definitions;
+  return {definitions,objects:[...refs,...blobs]};
 }

@@ -1,6 +1,6 @@
 import { repositoryCommitPolicyModule } from './util.mjs';
 import { AsyncLocalStorage } from 'node:async_hooks';
-import {commitPolicyEnforcedHint, withAdmittedCommitGit, commitGitRequestDigest} from './util.mjs';
+import {commitPolicyEnforcedHint, retainedRepositoryCommitPolicy, withAdmittedCommitGit, commitGitRequestDigest} from './util.mjs';
 import { createHash, randomUUID } from 'node:crypto';
 import { lstat, mkdir, mkdtemp, readFile, readdir, realpath, rm, writeFile } from 'node:fs/promises';
 import os from 'node:os';
@@ -201,6 +201,8 @@ function optionalDirectStateRef(root, config, ref, env = process.env, observatio
   return observed.commit;
 }
 
+const hasCommitPolicy = root => commitPolicyEnforcedHint(root) || retainedRepositoryCommitPolicy(root);
+
 async function updateDirectLocalStateRef(root, config, commit, expectedCommit, env = process.env) {
   const ref = localRef(config);
   const before = directRefObservation(root, ref, env);
@@ -220,10 +222,11 @@ async function updateDirectLocalStateRef(root, config, commit, expectedCommit, e
 
   const args = ['update-ref', '--no-deref', ref, commit, expectedCommit ?? '0'.repeat(commit.length)];
   const action = () => git(root, args, {allowFailure:true,env});
-  const incoming = optionalDirectStateRef(root, config, remoteRef(config), env) === commit;
-  const updated = incoming
-    ? await withAdmittedCommitGit(root,{kind:'private-ref',requestSha256:commitGitRequestDigest(args,{env})},action)
-    : await (await repositoryCommitPolicyModule('runtime', root)).withRetainedPolicyRefAdmission(root,commit,ref,action,{env});
+  // Choosing an admission needs the remote ref; a repository with no commit policy needs neither.
+  const updated = !hasCommitPolicy(root) ? action()
+    : optionalDirectStateRef(root, config, remoteRef(config), env) === commit
+      ? await withAdmittedCommitGit(root,{kind:'private-ref',requestSha256:commitGitRequestDigest(args,{env})},action)
+      : await (await repositoryCommitPolicyModule('runtime', root)).withRetainedPolicyRefAdmission(root,commit,ref,action,{env});
   const after = directRefObservation(root, ref, env);
   // A lost process acknowledgement is safe only when the exact named direct ref contains the
   // intended object. Never retry without the original lease and never follow a symbolic alias.
@@ -288,7 +291,7 @@ async function synchronizeLocalStateRefAfterRemotePush(root, config, commit, env
   const args = ['update-ref', '--no-deref', ref, commit, current ?? '0'.repeat(commit.length)];
   // The caller has just reconciled the remote CAS and installed that exact tracking ref.
   // Mirror only that observed object; this grants no commit validation or publication authority.
-  if (optionalDirectStateRef(root, config, remoteRef(config), env) !== commit) return;
+  if (hasCommitPolicy(root) && optionalDirectStateRef(root, config, remoteRef(config), env) !== commit) return;
   withAdmittedCommitGit(root, {kind:'private-ref',requestSha256:commitGitRequestDigest(args,{env})}, () => git(root,args,{allowFailure:true,env}));
 }
 

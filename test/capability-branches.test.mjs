@@ -3,7 +3,8 @@ import assert from 'node:assert/strict';
 
 import {
   baseBranchRecord, baseRefusalReport, branchChoices, capabilityRepositories,
-  isStoryBaseBranch, parseBaseSelection, parseRemoteHeads, resolveCapabilityBase, recordStoryRepositoryBases
+  isStoryBaseBranch, parseBaseSelection, parseRemoteHeads, resolveCapabilityBase, recordStoryRepositoryBases,
+  storyRepositoryBases, storyRepositoryBaseText
 } from '../src/capability-branches.mjs';
 
 const WORKSPACE = {
@@ -44,6 +45,32 @@ test('retained Story bases are exact, portable, complete and independent of work
   assert.deepEqual(recordStoryRepositoryBases([repositories[1], { ...repositories[0], id: 'lifecycle' }], options)
     .map(row => row.repositoryId), ['api', 'lifecycle'], 'lifecycle can also be a real sibling repository ID');
   assert.deepEqual(recordStoryRepositoryBases([], {}), [], 'old callers with no exact base are not given invented commits');
+});
+
+test('a recorded base says where it came from, and an older record reads as it always did', () => {
+  const options = { repositoryId: 'api', baseBranch: 'release/api', baseCommit: 'a'.repeat(40),
+    baseRemote: 'origin', storyBranch: 'delivery/MULTI-1' };
+  const repositories = [
+    { id: 'web', baseBranch: 'develop', baseCommit: 'b'.repeat(40) },
+    { id: 'api', baseBranch: 'release/api', baseCommit: 'a'.repeat(40) }
+  ];
+  const { repositories: sources } = baseBranchRecord(resolveCapabilityBase({
+    repositories: { api: ['release/api'], web: ['develop'] },
+    selection: parseBaseSelection(['release/api', 'web=develop'])
+  }));
+  const recorded = recordStoryRepositoryBases(repositories, { ...options, sources });
+  assert.deepEqual(recorded.map(row => [row.repositoryId, row.source]), [['api', 'requested'], ['web', 'override']]);
+  assert.deepEqual(recordStoryRepositoryBases(repositories, { ...options, sources: { web: { branch: 'main', source: 'override' } } })
+    .map(row => Object.hasOwn(row, 'source')), [false, false], 'a resolution that chose another branch says nothing about this base');
+  assert.deepEqual(recordStoryRepositoryBases(repositories, options).map(row => Object.hasOwn(row, 'source')), [false, false]);
+
+  const workflow = { workItem: { repositoryBases: recorded } };
+  assert.deepEqual(storyRepositoryBases(workflow).map(storyRepositoryBaseText),
+    [`api: release/api @ ${'a'.repeat(12)}`, `web: develop @ ${'b'.repeat(12)} (override)`]);
+  assert.deepEqual(storyRepositoryBases({ workItem: { repositoryBases: [recorded[0]] } }), [], 'one repository has nothing to tell apart');
+  assert.deepEqual(storyRepositoryBases({ workItem: {} }), [], 'a Story from before the record has none');
+  assert.equal(storyRepositoryBaseText({ repositoryId: 'web', baseBranch: 'develop', baseCommit: 'b'.repeat(40) }),
+    `web: develop @ ${'b'.repeat(12)}`, 'an older record has no source and no marker');
 });
 
 test('a capability names its own repositories and nobody else’s', () => {

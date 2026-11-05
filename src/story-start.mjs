@@ -822,6 +822,7 @@ export async function startStory(root, {
         approvedConfigurationSnapshot,
         repositoryReadiness,
         readinessRepositories,
+        repositoryBaseSources: storyBase.plan?.record?.repositories ?? null,
         qualityGateMode
       });
       if (flightPlan) await pinAcceptedChangeFlightPlan(root, definition, workflow, flightPlan);

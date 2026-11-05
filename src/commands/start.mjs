@@ -1874,6 +1874,7 @@ async function startCommandAtRoot(positionals, options) {
           approvedConfigurationSnapshot,
           repositoryReadiness,
           readinessRepositories,
+          repositoryBaseSources: storyBase.plan?.record?.repositories ?? null,
           readinessBaseline: optionString(options, 'readiness-baseline', 'reuse'),
           testExecutionMode: optionString(options, 'test-execution-mode', 'changed-and-affected'),
           qualityGateMode: optionString(options, 'gate-mode', 'hard'),

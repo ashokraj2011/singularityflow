@@ -4,7 +4,7 @@ import { mkdir, mkdtemp, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 
-import { composeEvidenceReceipt, renderEvidenceReceipt } from '../src/evidence-receipt.mjs';
+import { composeEvidenceReceipt, renderEvidenceReceipt, renderEvidenceReceiptMarkdown } from '../src/evidence-receipt.mjs';
 import { storyPullRequestBody } from '../src/pull-request.mjs';
 import { run } from '../src/util.mjs';
 
@@ -77,6 +77,47 @@ test('submission evidence is concise, honest, and reproducible from durable inpu
   assert.match(pullRequest, new RegExp(first.receiptSha256));
   assert.match(pullRequest, new RegExp(first.reviewPacket.sha256));
   assert.doesNotMatch(JSON.stringify(first), new RegExp(root.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')));
+});
+
+test('a Story with several repositories shows each base as an observation, and its receipt core still replays', async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), 'sflow-gjy-bases-'));
+  git(root, ['init', '-q', '-b', 'main']);
+  git(root, ['config', 'user.name', 'Golden Journey']);
+  git(root, ['config', 'user.email', 'golden@example.com']);
+  await writeFile(path.join(root, 'app.js'), 'export const ready = false;\n');
+  git(root, ['add', 'app.js']);
+  git(root, ['commit', '-q', '-m', 'base']);
+  const baseCommit = git(root, ['rev-parse', 'HEAD']).stdout.trim();
+  const base = { repositoryId: 'api', baseBranch: 'main', baseCommit, baseRemote: 'origin', storyBranch: 'WRK-1' };
+  const sibling = { ...base, repositoryId: 'web', baseBranch: 'develop', baseCommit: 'b'.repeat(40), source: 'override' };
+  const workflow = repositoryBases => ({
+    workItem: { id: 'WRK-1', branch: 'WRK-1', baseCommit, ...(repositoryBases ? { repositoryBases } : {}) },
+    resolution: { spec: { coverage: 'off' } },
+    phases: { implementation: { qualityCommands: [], approvalPolicy: { mode: 'none' } } },
+    lineage: { submissions: [] }
+  });
+  const packet = {
+    workId: 'WRK-1', phase: 'implementation', generation: 1, sourceCommit: baseCommit, sourceTreeSha256: 'tree-sha256',
+    submittedBranch: 'WRK-1', packetSha256: 'f'.repeat(64), status: 'awaiting_review', checks: [], approvals: []
+  };
+  const config = { git: { publish: 'off' } };
+  const older = await composeEvidenceReceipt(root, config, workflow(null), packet);
+  const single = await composeEvidenceReceipt(root, config, workflow([base]), packet);
+  const several = await composeEvidenceReceipt(root, config, workflow([base, sibling]), packet);
+  assert.equal(single.observationSha256, older.observationSha256, 'one repository changes nothing, not even the observation');
+  assert.equal(Object.hasOwn(single, 'repositoryBases'), false);
+  assert.equal(several.receiptCoreSha256, older.receiptCoreSha256, 'the bases never enter the hashed core');
+  assert.equal(several.receiptSha256, older.receiptSha256);
+  assert.notEqual(several.observationSha256, older.observationSha256);
+  assert.deepEqual(several.observations.repositoryBases, [
+    { repositoryId: 'api', baseBranch: 'main', baseCommit },
+    { repositoryId: 'web', baseBranch: 'develop', baseCommit: 'b'.repeat(40), source: 'override' }
+  ]);
+  const expected = `Bases: api: main @ ${baseCommit.slice(0, 12)} · web: develop @ ${'b'.repeat(12)} (override)`;
+  assert.ok(renderEvidenceReceipt(several).split('\n').includes(expected), renderEvidenceReceipt(several));
+  assert.match(renderEvidenceReceiptMarkdown(several), /- Bases: `api: main @ [0-9a-f]{12}`, `web: develop @ b{12} \(override\)`/u);
+  assert.doesNotMatch(renderEvidenceReceipt(single), /Bases:/);
+  assert.doesNotMatch(renderEvidenceReceiptMarkdown(older), /Bases:/);
 });
 
 test('every recorded check lands in one count, and accepted risk stays a failure', async () => {

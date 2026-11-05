@@ -1,3 +1,4 @@
+import { storyRepositoryBases, storyRepositoryBaseText } from '../capability-branches.mjs';
 import { workflowAuthoringRoutes } from '../code-delivery-policy.mjs';
 import { branch } from '../git.mjs';
 import { executeGitQuery } from '../git-query.mjs';
@@ -17,6 +18,8 @@ function summary(workflow) {
   console.log(`\n${workflow.workItem.id} — ${workflow.workItem.title}`);
   console.log(`Branch: ${workflow.workItem.branch}`);
   for (const line of storyLineageLines(workflow)) console.log(line);
+  const bases = storyRepositoryBases(workflow);
+  if (bases.length) console.log(`Bases:\n${bases.map(base => `  ${storyRepositoryBaseText(base)}`).join('\n')}`);
   console.log(`Status: ${storyStatusLabel(workflow.status)}`);
   console.log(`Current phase: ${active ? `${active.id} (${active.status})` : noCurrentPhaseLabel(workflow.status)}`);
   if (active) {

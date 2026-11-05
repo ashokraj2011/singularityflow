@@ -964,6 +964,7 @@ export async function createWorkflow(root, config, {
   qualityGateMode = 'hard',
   readinessRepositories = [],
   repositoryBases: suppliedRepositoryBases = null,
+  repositoryBaseSources = null,
   testRecoveryPlan = null,
   executionOrigin = null,
   approvedConfigurationSnapshot = null,
@@ -1004,7 +1005,8 @@ export async function createWorkflow(root, config, {
   const launchRepositoryId = repositoryId ?? readinessRepositoryId ?? capability?.repositoryId ?? null;
   const { recordStoryRepositoryBases } = await import('./capability-branches.mjs');
   const repositoryBases = recordStoryRepositoryBases(suppliedRepositoryBases ?? readinessRepositories, {
-    repositoryId: launchRepositoryId, baseBranch, baseCommit, baseRemote, storyBranch: canonicalBranch
+    repositoryId: launchRepositoryId, baseBranch, baseCommit, baseRemote, storyBranch: canonicalBranch,
+    sources: repositoryBaseSources
   });
   const selectedResolution = assertWorkTypeStartable(resolved ?? resolveWorkType(config, selectedType));
   // Pinned below for every server a step smoke-checks against it; the POC workflow requires it.

@@ -23,7 +23,8 @@ No new mutable lifecycle database or duplicate checkout registry is introduced.
 
 New Stories retain `workItem.repositoryId` and `workItem.repositoryBases`: one verified repository
 ID, base branch, full base commit, remote name and Story branch for every repository selected at
-intake. The launch repository's scalar `baseBranch` and `baseCommit` remain for older readers.
+intake, and on newer records `source`: whether the branch was `requested` for all, an `override` or
+the repository's `default`. The launch repository's scalar `baseBranch` and `baseCommit` remain for older readers.
 These bindings contain no laptop paths. CLI and editor intake record the same preflight facts;
 the intake review names every affected repository even when all share a branch. View Story intake
 details shows the retained bases. Execution context and takeover select the current repository's

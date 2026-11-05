@@ -320,7 +320,12 @@ export function agentNextSteps(snapshot) {
  * the two cannot list different actions.
  */
 export function agentNextStepsView(snapshot) {
+  // The resume state's next step is usually the first `now` action; the list says it once. A different
+  // step (an interrupted operation to inspect first) stays, and the tool answer's byte limit holds.
+  const { nextAction: _listed, ...resume } = snapshot.taskResume ?? {};
+  const listed = JSON.stringify(snapshot.taskResume?.nextAction) === JSON.stringify(snapshot.actions.find(action => action.timing === 'now'));
   return { ...snapshot, actions: snapshot.actions.filter(action => action.timing !== 'then'),
+    ...(snapshot.taskResume && listed ? { taskResume: resume } : {}),
     projection: { kind: 'agent', omitted: ['actions[timing=then]'],
       fullCommand: ['singularity-flow nextsteps', snapshot.workId, '--json'].filter(Boolean).join(' ') } };
 }
@@ -352,7 +357,7 @@ export async function nextStepsAgentPacket(workId = null, { cwd = process.cwd() 
   const { contextBoundary: entryBoundary, ...bindingPacket } = packet;
   const view = agentNextStepsView(snapshot);
   return agentPacketPresentation({ ...bindingPacket, ...snapshot, resultType: 'sflow-nextsteps', inputs,
-    actions: view.actions, projection: view.projection });
+    actions: view.actions, projection: view.projection, ...(view.taskResume ? { taskResume: view.taskResume } : {}) });
 }
 
 export async function run(_argv, { positionals, options }) {

@@ -973,9 +973,11 @@ not a rate. Every step finished without a stall, and so did a further code step 
 
 Still open:
 
-- Copilot's base context was 27.7K tokens in VS Code (154 tools, 46 listed skills, mostly from Java migration
-  and Python extensions), against 14K on SFlow's own model calls. Turning those extensions off in a workspace
-  should help but has not been measured.
+- Copilot's base context was 27.7K tokens in VS Code. Two extensions add a measured 5.6K of that to every call:
+  GitHub Copilot modernization (34 listed skills, 18,098 characters) and Pylance (9 skills, 4,196 characters).
+  Tools are a separate 13,305 tokens that Copilot reports only as a total, and that total stayed the same with
+  8 more tools, so extension tools add little until used. VS Code's Help & diagnostics → Copilot extensions shows this
+  per extension. The effect of turning them off has not been measured in a real chat.
 - A full cache rewrite happened 5 times in 11 recorded chats (4.9 of 70 credits), mostly with a switch between
   Auto and a named model at a slash command. Nothing in SFlow sets the model.
 - Over ACP, with no question tool, a person's phase answer arrives as a new turn, which is not a `/sf-approve`

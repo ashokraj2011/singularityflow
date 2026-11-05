@@ -19,7 +19,7 @@ related:
   - governed-execution
   - revision-loop
   - revision-feedback-attachments
-version: 34
+version: 35
 ---
 CLI, Copilot, and VS Code read the same durable repository and workspace records through shared projections. They do not share an in-memory global store, conversation history, or signed handles. Bundled skills are explicit-only: installing SFlow never opts ordinary Copilot requests into a Story. Invoke an `/sf-*` skill or explicitly select the SFlow workflow agent for natural-language routing. That agent accepts seven closed intents: orient, continue, start, inspect, act, recover, and help. Help retrieves cited packaged documentation; it does not convert an answer into an action.
 
@@ -36,6 +36,16 @@ Instructions already loaded in a chat cannot be unloaded by a CLI preference. Sw
 A result too long for the host stays whole in `.sflow/out/`. `agentOutput.read` lists the line ranges this step needs, and a `textFiles` entry marked `need` is a file it needs. A result whose `act` names no fields is read whole. The other `omittedFields` are listed so that a later step can open them by line. The same path holds the same bytes, so a path already read in this chat is not read again.
 
 Source review, submission and approval each read their own packet, so they cost less from a new chat. SFlow's replies suggest one, and VS Code's next-step button opens one for source review. It is advice: each step also works from the chat you are in.
+
+## Copilot extensions
+
+Other extensions can add skills and tools to Copilot, and Copilot reads its starting context again on every call. In VS Code, **Help & diagnostics → Copilot extensions** lists each extension that adds something: its skills with their size, its tools, and advice for this workspace.
+
+- **Turn off here:** it adds skills to every call, and nothing in this workspace matches the files it says it works on.
+- **Your call:** it adds skills, and this workspace has files it works on, or SFlow can't tell.
+- **Leave on:** it adds no skills, or it's Copilot, VS Code or SFlow.
+
+Skill sizes come from your last chat's own prompt. Copilot reports tools only as one total and can load them on demand, so the page counts them but doesn't price them. It changes nothing itself: **Open in Extensions** shows VS Code's own page, where **Disable (Workspace)** keeps the extension on elsewhere. Start a new chat and choose **Check again** to see the new number.
 
 ## A person's own steps, in any chat
 

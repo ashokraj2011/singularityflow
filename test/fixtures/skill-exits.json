@@ -3,12 +3,11 @@
     "If unsupported, stop with the compatibility error, never retry blindly."
   ],
   "sflow-appeal": [
-    "Stop unchanged failures at the owner route.",
     "Exhaustion stops automation, not manual repair."
   ],
   "sflow-approve": [
-    "on `approvalPacket.readiness` `terminal-obligations-required`, relay blockers/actions and stop without choices or generic recovery.",
-    "mismatch or missing binding stops.",
+    "stop without choices or generic recovery.",
+    "missing/mismatched bindings stop.",
     "stop.",
     "End this turn before next-phase authoring."
   ],
@@ -46,14 +45,12 @@
   ],
   "sflow-code": [
     "unavailable: `/sf-session` or `/sf-workspaces`, stop.",
-    "Review `recovery`, `intent`, test handoff and exact diffs/untracked bytes including `workflow.json`.",
-    "Otherwise stop on protected/unrelated/unowned edits or lifecycle/authority blockers.",
-    "unchanged publication: relay `next`, stop.",
+    "Inspect `recovery`, `intent`, test handoff and exact diffs/untracked bytes including `workflow.json`.",
+    "Stop on protected/unrelated/unowned changes or lifecycle/authority holds.",
+    "Otherwise unchanged publication: relay `next`, stop.",
     "`not-admitted`: relay blockers/next, stop.",
     "ask only unanswered/changed questions with `ask_user` (unavailable: show them and stop;",
-    "Follow `toolProtocol.localVerification` for tests/app start/stop and exact `mutationContract.artifacts` evidence.",
     "Follow `testExecution.handoff`;",
-    "same findings after a change: correct differently, up to `correction.maximumChangedFingerprints` changed drafts, then stop.",
     "Absent: relay `commands.next`, stop."
   ],
   "sflow-code-docs": [
@@ -73,13 +70,13 @@
     "For rework, intent amendment, or inspection, relay the action and stop for the human decision.",
     "absent: relay `commands.next`, stop.",
     "Stop immediately after publication;",
-    "Report the handoff/document view from `publishIfReady.review`.",
+    "Report the handoff from `publishIfReady.review.handoff`.",
     "absent: relay `commands.next`, stop.",
-    "same findings after a change: correct differently, up to `correction.maximumChangedFingerprints` changed drafts, then stop.",
     "open blockers stop advancement."
   ],
   "sflow-decide": [
-    "An option without `action`: do 11-14, then stop;",
+    "stop.",
+    "stop.",
     "stop.",
     "stop.",
     "stop."
@@ -91,7 +88,6 @@
     "stop for protected/unowned edits or required human decisions.",
     "Not admitted: relay blockers/next, stop.",
     "Unavailable: show questions and stop;",
-    "same findings after a change: correct differently, up to `correction.maximumChangedFingerprints` changed drafts, then stop.",
     "absent: relay `commands.next`, stop.",
     "Relay each `handoff`: `Next in Copilot: /sf-…` from `copilotCommand`, then `Terminal equivalent: singularity-flow …` from `command`."
   ],
@@ -102,7 +98,6 @@
     "stop for protected/unowned edits or required human decisions.",
     "Not admitted: relay blockers/next, stop.",
     "Stop for human confirmation or protected/unowned edits.",
-    "same findings after a change: correct differently, up to `correction.maximumChangedFingerprints` changed drafts, then stop.",
     "absent: relay `commands.next`, stop.",
     "Relay each `handoff` using its `copilotCommand` and `command`."
   ],
@@ -195,9 +190,6 @@
   "sflow-initiative-materialize": [
     "continue only when its review `phaseStatus` is `approved`, otherwise relay it and stop."
   ],
-  "sflow-initiative-phase": [
-    "Recheck up to three changed `draftFingerprint`s and stop on an unchanged `draftFingerprint` (an unedited draft;"
-  ],
   "sflow-inputs": [
     "unavailable: `/sf-session` or `/sf-workspaces`, stop.",
     "On `Out of sequence`, stop immediately and relay the error.",
@@ -238,6 +230,10 @@
     "If unsupported, stop with the compatibility error, never retry blindly.",
     "If this chat already worked on an earlier phase, show its ordered `commandGuidance.copilotCommand` (`/clear`, then `/sf-next`, or `/compact`, then `/sf-next`) and stop;"
   ],
+  "sflow-outcome": [
+    "A summary alone is not the handoff.",
+    "Only after an explicit choice: run the selected returned app start/stop or tests route."
+  ],
   "sflow-phase": [
     "unavailable: `/sf-session` or `/sf-workspaces`, stop.",
     "false `policyVerified`: show `policyReason`, offer `/sf-validate` then `/sf-recover`, stop.",
@@ -247,7 +243,6 @@
     "`not-admitted`: relay blockers/next, stop;",
     "ask only unanswered/changed questions with `ask_user` (unavailable: show them and stop;",
     "never stop there.",
-    "same findings after a change: correct differently, up to `correction.maximumChangedFingerprints` changed drafts, then stop.",
     "Absent: relay `commands.next`, stop.",
     "Relay `handoff`'s `copilotCommand`/`command`."
   ],
@@ -259,15 +254,15 @@
     "`not-routed`: relay `next[]`, stop.",
     "If the checkpoint is `approval`, stop: only an authorized human Git identity approves.",
     "Otherwise relay the route and stop;",
-    "absent: relay `commands.next`, stop.",
-    "same findings after a change: correct differently, up to `correction.maximumChangedFingerprints` changed drafts, then stop."
+    "absent: relay `commands.next`, stop."
   ],
   "sflow-progress": [
     "If unsupported, stop with the compatibility error, never retry blindly."
   ],
   "sflow-publish": [
     "mismatch: stop with the returned selection route.",
-    "Unless `status: ready` and `commands.publish` is present, relay exact blockers and author/repair actions, then stop."
+    "diagnose and use its exact author/owner handoff.",
+    "fallback hands off to the exact returned skill, since this publication-only turn never runs app/tests/configuration commands."
   ],
   "sflow-push": [
     "`outcome-unknown` means stop: the remote could not be read, so another push is not authorized."
@@ -291,7 +286,7 @@
     "If the plan is stale, stop and preview again;"
   ],
   "sflow-reject": [
-    "Stop after the requested action."
+    "Stop after the action."
   ],
   "sflow-release": [
     "unavailable: `/sf-session` or `/sf-workspaces`, stop.",
@@ -299,7 +294,6 @@
     "`retained-generation`: relay `next`, stop.",
     "stop for protected/unowned edits or required human decisions.",
     "Not admitted: relay blockers/next, stop.",
-    "same findings after a change: correct differently, up to `correction.maximumChangedFingerprints` changed drafts, then stop.",
     "absent: relay `commands.next`, stop.",
     "Relay each `handoff`: `Next in Copilot: /sf-…` from `copilotCommand`, then `Terminal equivalent: singularity-flow …` from `command`."
   ],
@@ -313,7 +307,6 @@
     "stop for protected/unowned edits or human decisions.",
     "Not admitted: relay blockers/next, stop.",
     "Unavailable: show questions and stop;",
-    "same findings after a change: correct differently, up to `correction.maximumChangedFingerprints` changed drafts, then stop.",
     "absent: relay `commands.next`, stop.",
     "End with each returned `handoff`: `Next in Copilot: /sf-…` from its `copilotCommand`, then `Terminal equivalent: singularity-flow …` from its `command`;"
   ],
@@ -329,7 +322,6 @@
   "sflow-review": [
     "return its exact lifecycle handoff.",
     "Otherwise perform inspection steps 3–6 and handoff 10;",
-    "same findings after a change: correct differently, up to `correction.maximumChangedFingerprints` changed drafts, then stop.",
     "absent: relay `commands.next`, stop."
   ],
   "sflow-review-decide": [
@@ -341,6 +333,7 @@
     "unavailable: `/sf-session` or `/sf-workspaces`, stop.",
     "hand off to `/sf-review-decide` in a new turn.",
     "Unknown: help, stop.",
+    "A real authority, input or tool failure remains a stop.",
     "`canReview: false`: relay `continuation.actions`, stop;",
     "Unavailable/truncated sources: name their IDs and stop;",
     "If `retentionReady` is false afterward, stop without commit/push;"
@@ -376,7 +369,6 @@
     "Not admitted: relay blockers/next, stop.",
     "blocked for unavailable/inconclusive evidence, a verdict to record and publish, not a stop (then name the missing tool/environment and offer `/sf-test-setup`);",
     "Stop for confirmation/protected edits.",
-    "same findings after a change: correct differently, up to `correction.maximumChangedFingerprints` changed drafts, then stop.",
     "absent: relay `commands.next`, stop.",
     "Relay each `handoff` with its `copilotCommand` and `command`;"
   ],
@@ -414,8 +406,7 @@
     "`not-routed`: relay `next[]`, stop.",
     "If the checkpoint is `approval`, stop: only an authorized human Git identity approves.",
     "If the action differs, stop and relay the returned route;",
-    "absent: relay `commands.next`, stop.",
-    "same findings after a change: correct differently, up to `correction.maximumChangedFingerprints` changed drafts, then stop."
+    "absent: relay `commands.next`, stop."
   ],
   "sflow-stack": [
     "say so and stop."
@@ -444,7 +435,7 @@
     "`Out of sequence`: stop;",
     "For `terminal-obligations-required`, relay blockers/actions and stop—no submit or generic recovery.",
     "show review/digest, stop on unresolved dispositions.",
-    "Stop on an unchanged condition or after three distinct repairs."
+    "Stop on an unchanged condition or after three distinct repairs: automation only;"
   ],
   "sflow-upload": [
     "**Output contract:** Run the canonical skill once and preserve its result and handoff;",
@@ -458,7 +449,6 @@
     "otherwise relay the nextsteps route and stop.",
     "stop.",
     "If `effectiveAuthoringSkill` is not `/sf-phase` (a release step returns `/sf-release`), relay it and stop.",
-    "same findings after a change: correct differently, up to `correction.maximumChangedFingerprints` changed drafts, then stop.",
     "absent: relay `commands.next`, stop.",
     "End with each `handoff` from step 11: `Next in Copilot: /sf-…` from its `copilotCommand`, then `Terminal equivalent: singularity-flow …` from its `command`."
   ],
@@ -468,7 +458,6 @@
   "sflow-workflow-rules": [
     "stop after its report.",
     "absent: relay `commands.next`, stop;",
-    "same findings after a change: correct differently, up to `correction.maximumChangedFingerprints` changed drafts, then stop.",
     "For `/sf-next`, run `singularity-flow nextsteps <WORK-ID> --for-agent --json`, load the first `NOW` returned SFlow skill route, complete its preflight, execute at most one authorized action, and stop."
   ],
   "sflow-workflows": [

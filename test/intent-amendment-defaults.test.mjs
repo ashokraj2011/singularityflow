@@ -95,6 +95,6 @@ test('Copilot guidance distinguishes unapproved drafts from universally availabl
   const skill = await readFile(new URL('../plugin/skills/sflow-reject/SKILL.md', import.meta.url), 'utf8');
   assert.match(skill, /intent-amendment propose --work-id/);
   assert.match(skill, /do not invent an `update-intent` convergence/);
-  assert.match(skill, /Only an authorized human scope reviewer/);
-  assert.match(skill, /stale proposal can be rejected/);
+  assert.match(skill, /Only a human scope authority decides with exact confirmation/);
+  assert.match(skill, /reject and replace stale proposals/);
 });

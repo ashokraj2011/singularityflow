@@ -143,7 +143,7 @@ test('the Journey retries only a delivery key, and the window announces deliveri
   const extension = await readFile(path.join(packageRoot, 'apps/vscode/src/extension.ts'), 'utf8');
   assert.match(extension, /if \(state\.snapshot && !state\.stale\) stepActionDeliveries\.observe\(state\.snapshot\.workflow \?\? null, state\.snapshot\.submissionReadiness\?\.reasonCode \?\? ''\);/);
   assert.match(extension, /showCompactWarningMessage\(notice\.message, 'Show deliveries', 'Retry now'\)/);
-  assert.match(extension, /JourneyPanel\.show\(context, store, onJourneyMessage, stepActionDeliveries\)/);
+  assert.match(extension, /JourneyPanel\.show\(context, store, onJourneyMessage, stepActionDeliveries, sfGuardStandings\(\)\)/);
 });
 
 test('a required action is shown as holding the next step until its approved delivery is delivered and recorded', async () => {

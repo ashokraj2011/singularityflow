@@ -30,13 +30,6 @@
     "confirmation": "none"
   },
   {
-    "id": "git-policy", "class": "deterministic", "transport": "cli", "effect": "read",
-    "runtime": ["git-policy", "show", "--json"], "template": "repository-policy", "skill": "/sf-git-policy",
-    "description": "Inspect adopted repository commit policy and exact hook coverage",
-    "keywords": ["git-policy", "commit policy"], "acceptsArguments": false,
-    "requiresRepository": true, "requiresSession": false, "confirmation": "none"
-  },
-  {
     "id": "status",
     "class": "deterministic",
     "transport": "cli",
@@ -65,6 +58,13 @@
     "requiresRepository": true,
     "requiresSession": false,
     "confirmation": "none"
+  },
+  {
+    "id": "git-policy", "class": "deterministic", "transport": "cli", "effect": "read",
+    "runtime": ["git-policy", "show", "--json"], "template": "repository-policy", "skill": "/sf-git-policy",
+    "description": "Inspect adopted repository commit policy and exact hook coverage",
+    "keywords": ["git-policy", "commit policy"], "acceptsArguments": false,
+    "requiresRepository": true, "requiresSession": false, "confirmation": "none"
   },
   {
     "id": "check", "class": "deterministic", "transport": "cli", "effect": "read",

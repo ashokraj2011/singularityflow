@@ -492,8 +492,7 @@ const STORY_REFERENCE_ACTIONS = Object.freeze(['list', 'verify', 'materialize', 
 const STORY_TEST_POLICY_REVIEW_ACTIONS = Object.freeze(['amend', 'attest', 'accept-risk', 'revoke-risk', 'attest-risk', 'baseline-admission']);
 const STORY_TEST_POLICY_ACTIONS = Object.freeze(['show', 'plan', 'confirm', 'repair', 'baseline', 'risks', ...STORY_TEST_POLICY_REVIEW_ACTIONS]);
 const STORY_SUBCOMMANDS = Object.freeze([
-  'clone',
-  'converge', 'enhance-description', 'interval', 'branch', 'intent-amendment', 'skill-version', 'workflow', 'references', 'test-policy', 'target-origin',
+  'converge', 'clone', 'enhance-description', 'interval', 'branch', 'intent-amendment', 'skill-version', 'workflow', 'references', 'test-policy', 'target-origin',
   'approvers', ...STORY_READ_SUBCOMMANDS, ...STORY_MUTATION_SUBCOMMANDS
 ]);
 const SESSION_READ_SUBCOMMANDS = Object.freeze(['current', 'doctor', 'context', 'candidates', 'status']);

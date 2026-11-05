@@ -1652,7 +1652,7 @@ export function assertCommitGitAdmission(root, args, options = {}) {
     || verb === 'update-ref' && ['private-ref', 'verified-ref'].includes(scope.request.kind)
     || verb === 'push' && scope.request.kind === 'verified-push');
   if (!permitted) {
-    const error = new Error('The adopted repository commit policy requires an exact owner-issued plan and verified object before this Git write. Preserve work and inspect singularity-flow git-policy show --json.');
+    const error = new Error('This Git write needs an exact owner-issued plan and verified object: a commit policy is adopted, or none could be confirmed absent. Preserve work and inspect singularity-flow git-policy show --json.');
     error.name = 'SingularityFlowError'; error.code = 'RCP_OWNER_ADMISSION_REQUIRED';
     error.details = { verb, nextAction: { copilot: '/sf-git-policy show', shell: 'singularity-flow git-policy show --json', vscode: '@sflow /git-policy', command: 'singularity-flow git-policy show --json', copilotCommand: '/sf-git-policy show', modelFreeCommand: '@sflow /git-policy' } };
     throw error;

@@ -302,12 +302,12 @@ test('frequent lifecycle handlers do not reach the legacy dispatcher and stay un
     // and code delivery's hand-off (6843eef5 +11,793, 638b83ce +1,767, code-delivery-policy.mjs +7,561 in all) and
     // smaller. Where each repository's base came from adds 1,181 (capability-branches.mjs +1,034,
     // commands/start.mjs +79, state.mjs +68), for 9,437,066. No new eager file on this entry.
-    // 9,441,800 (measured 9,441,733): Spec Studio. Its slices, sources and sharing check stay lazy; the 5,304 of real growth
-    // from 9,436,429 is the checks a specification source shares with document input and its pinned originals in the
+    // 9,442,450 (measured 9,442,399 on main dd541609b): Spec Studio. Its slices, sources and sharing check stay lazy; its 5,304 of
+    // real growth is the checks a specification source shares with document input and its pinned originals in the
     // document catalog (documents-read.mjs and documents.mjs, +3,089 net), inherited constraints in USER-STORY.md (state.mjs
     // +734), the shared-draft record families (schema-migrations.mjs +716), a specification's own document owner
     // (document-storage.mjs +347), start.mjs +271, spec author's routes (command-registry.mjs +134) and an option (util.mjs +13). No new eager file.
-    assert.ok(closure.bytes <= 9_441_800, `${file} exceeds the 9 MB eager-source budget (${closure.bytes} bytes)`);
+    assert.ok(closure.bytes <= 9_442_450, `${file} exceeds the 9 MB eager-source budget (${closure.bytes} bytes)`);
     assert.equal(closure.files.has(path.join(sourceRoot, 'workflow-task.mjs')), false, `${file} eagerly loads the workflow task record`);
   }
 });

@@ -881,9 +881,9 @@
     },
     "src/configuration-projection.mjs": {
       "counts": {
-        "command-run": 7
+        "command-run": 5
       },
-      "digest": "d85e77b6f27ea295234f83a911d6b47e7001e58745aa8ca7efa3b3b6e799c905"
+      "digest": "1a158f797d2522f8561cf408e94b1e8b9b454031ade1b56cc8cbd7c72e554352"
     },
     "src/configuration-read-worker-client.mjs": {
       "counts": {
@@ -1273,10 +1273,10 @@
     },
     "src/ledger.mjs": {
       "counts": {
-        "command-git": 81,
+        "command-git": 80,
         "command-run": 2
       },
-      "digest": "f2b026a0c2d5702016c0d41aef28eb12b8c15a5e0db51fd6d00dcb2bf8a443eb"
+      "digest": "0de1e89f9348d377584dd744be8c7781452a66da525b7cb73546b03e62db362e"
     },
     "src/local-evidence-review.mjs": {
       "counts": {
@@ -1859,23 +1859,11 @@
       },
       "digest": "4c1aa1502d26066401919108316ec997c14742b27bc50eaec0d78905e6d44346"
     },
-    "src/repository-commit-policy/checks.mjs": {
-      "counts": {
-        "command-run": 1
-      },
-      "digest": "3d10919147a958a9efe33db25198f6df42949a9f6c4f0e59c18afe973b87eb6b"
-    },
     "src/repository-commit-policy/discovery.mjs": {
       "counts": {
         "command-git": 1
       },
       "digest": "c3345003f1bf49e2a9c9240a54da32ce20e0466f5e997bcfd319c377a8d8e98b"
-    },
-    "src/repository-commit-policy/effects.mjs": {
-      "counts": {
-        "command-run": 1
-      },
-      "digest": "a450557c0cd3b4068b5d23b522fd832cf41aded7c7277da3e0264405e1624e49"
     },
     "src/repository-commit-policy/native.mjs": {
       "counts": {
@@ -1898,15 +1886,21 @@
     },
     "src/repository-commit-policy/runtime.mjs": {
       "counts": {
-        "command-run": 5
+        "command-run": 1
       },
-      "digest": "7e1be689d417d4cad036f5132242a6c597016a41e6d1c28ca0553a0809d01b88"
+      "digest": "674e131652170e6fc4b730aafc8c26e262616c7e6d410a85d21f2eefa5ff3b58"
     },
     "src/repository-commit-policy/writer.mjs": {
       "counts": {
         "command-run": 4
       },
       "digest": "986b007d044799fde382c11c160a133aa1bdcbdbb84d295146ab6c89d3432db6"
+    },
+    "src/git-exact-reads.mjs": {
+      "counts": {
+        "command-run": 1
+      },
+      "digest": "ff731b344aefafceb6bdc0df127ff50688a95cd7adad66de5aa35787c103bee6"
     }
   }
 }

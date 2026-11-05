@@ -2,6 +2,8 @@ import {redactionEntries, redactText} from '../output-redaction.mjs';
 import {redactDiagnosticText} from '../git-remote-diagnostics.mjs';
 import { TextDecoder } from 'node:util';
 import { run, nowIso } from '../util.mjs';
+import { exactCommitObject, exactCommitSignatureVerified } from '../git-exact-reads.mjs';
+import { sourceRevision } from '../source-inspection.mjs';
 import { withoutGitProcessOverrides } from '../git-enterprise-environment.mjs';
 import { resolveGitCommitIdentity, resolveGitCommitSigning, gitCommitIdentityArgs, gitCommitIdentityEnvironment, gitCommitSigningArgs, validateGitCommitIdentity } from '../git.mjs';
 import { withSubjectLock } from '../subject-lock.mjs';
@@ -16,7 +18,7 @@ function cleanEnvironment(source = process.env) { return { ...withoutGitProcessO
 function storedMessage(value) { return value.endsWith('\n') ? value : `${value}\n`; }
 export function observePolicyCommit(root, commit) {
   if (!/^(?:[a-f0-9]{40}|[a-f0-9]{64})$/u.test(commit ?? '')) rcpFailure('RCP_COMMIT_OBJECT_REJECTED', 'Git did not return an exact commit object.');
-  const bytes = run('git', ['cat-file', 'commit', commit], { cwd: root, env: cleanEnvironment(), encoding: 'buffer', maxBuffer: 2 * 1024 * 1024, timeoutMs: 15000 }).stdout;
+  const bytes = exactCommitObject(root, commit, { env: cleanEnvironment(), maxBytes: 2 * 1024 * 1024, timeoutMs: 15000, required: true }).value;
   let raw; try { raw = new TextDecoder('utf-8', { fatal: true }).decode(bytes); } catch { rcpFailure('RCP_COMMIT_OBJECT_REJECTED', 'The actual commit message is not supported UTF-8.'); }
   const separator = raw.indexOf('\n\n');
   if (separator < 0) rcpFailure('RCP_COMMIT_OBJECT_REJECTED', 'The actual Git commit object has no complete message.');
@@ -39,8 +41,8 @@ async function verifyObject(plan, commit, identity, { native = null } = {}) {
   validateCommitMessage(policy, object.message, { ...fields, ...(!native ? { expectedSubject: plan.proposedMessage.split('\n')[0] } : {}) });
   if (policy.signing?.required && object.signature !== 'present-unverified') rcpFailure('RCP_COMMIT_OBJECT_REJECTED', 'The actual commit is missing its required signature.', { commit });
   if (object.signature === 'present-unverified') {
-    const verified = run('git', ['verify-commit', '--raw', commit], { cwd: root, env: cleanEnvironment(), allowFailure: true, timeoutMs: 30000, maxBuffer: 65536 });
-    if (verified.status !== 0) rcpFailure('RCP_COMMIT_OBJECT_REJECTED', 'The created object’s signature could not be verified under its required signing contract.', { commit });
+    const verified = exactCommitSignatureVerified(root, commit, { env: cleanEnvironment(), timeoutMs: 30000, maxBytes: 65536 });
+    if (verified.value !== true) rcpFailure('RCP_COMMIT_OBJECT_REJECTED', 'The created object’s signature could not be verified under its required signing contract.', { commit });
     object.signature = 'verified';
   }
   return object;
@@ -70,7 +72,7 @@ export async function createRepositoryPolicyCommit(root, request, {
     if (operation?.observation) {
       const prior = await readCommitPolicyRecord(root, operation.observation);
       if (prior.messageRedacted) rcpFailure('RCP_OBJECT_RECONCILIATION_REQUIRED', 'The retained object contains unsafe message material and cannot be admitted by a retry.', {operationId,commit:prior.commit});
-      const current = run('git', ['rev-parse', '--verify', '--quiet', plan.ref], { cwd: root, env: cleanEnvironment(), allowFailure: true }).stdout.trim();
+      const current = sourceRevision(root, plan.ref, { env: cleanEnvironment() }).value;
       const refAdvanced = current === prior.commit;
       await assertCommitPlanCurrent(plan, { allowLocalRef: refAdvanced ? prior.commit : null });
       const actual = await verifyObject(plan, prior.commit, operation.identity, { native: operation.native ?? null });
@@ -154,7 +156,7 @@ export async function withRepositoryPolicyRefAdmission(admission, action, { noDe
   let result;
   try {
     result = await withAdmittedCommitGit(root, { kind: 'verified-ref', requestSha256: commitGitRequestDigest(args, { env }) }, action);
-    const actual = run('git', ['rev-parse', '--verify', '--quiet', plan.ref], { cwd: root, env: cleanEnvironment(), allowFailure: true }).stdout.trim();
+    const actual = sourceRevision(root, plan.ref, { env: cleanEnvironment() }).value;
     await writeCommitPolicyOperation(root, operationId, { ...await readCommitPolicyOperation(root, operationId),
       stage: actual === observation.commit ? 'ref-advanced' : 'ref-outcome-unproven', refAdvanced: actual === observation.commit });
     return result;

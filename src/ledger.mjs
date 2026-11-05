@@ -28,6 +28,7 @@ import { storyPointersFromLedger } from './story-state-index.mjs';
 import { compactCanonicalJson } from './records.mjs';
 import { processResultCompleted, processResultSucceeded } from './process-result.mjs';
 import { inheritEnterpriseGitEnvironment } from './git-enterprise-environment.mjs';
+import { sourceRevision } from './source-inspection.mjs';
 import {
   configuredRemoteAuthority, configuredRemoteIdentity, frozenRemoteTransport,
   safeGitDiagnosticReference, stateRefreshError
@@ -1040,8 +1041,14 @@ async function pushLedgerAsync(worktree, config, expectedRemoteSha = undefined, 
   return runRemoteGitAsync([
     'push', ...(enforcePolicy ? [] : ['--no-verify']), lease,
     frozen?.remote ?? config.remote,
-    `${enforcePolicy ? git(worktree, ['rev-parse', 'HEAD'], {env}).stdout.trim() : 'HEAD'}:refs/heads/${config.branch}`
+    `${enforcePolicy ? exactPushHead(worktree, env) : 'HEAD'}:refs/heads/${config.branch}`
   ], { cwd: worktree, operation: 'remote-push', env: frozen?.env ?? env });
+}
+
+function exactPushHead(worktree, env) {
+  const tip = sourceRevision(worktree, 'HEAD', { env });
+  if (tip.status !== 'present') throw new SingularityFlowError('The ledger commit to push cannot be read from its checkout.');
+  return tip.value;
 }
 
 async function observeGuardedRemoteRefs(worktree, config, guards, {

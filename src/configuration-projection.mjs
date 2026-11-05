@@ -17,6 +17,7 @@ import { gitCommonDir, gitTimeouts, runRemoteGitAsync } from './git-execution.mj
 import { failureEvidence, gitFailureDiagnostic } from './git-remote-diagnostics.mjs';
 import { incrementCommandCounter, measureCommandSpan } from './dx-timing-context.mjs';
 import { inheritEnterpriseGitEnvironment } from './git-enterprise-environment.mjs';
+import { exactObjectTypes, exactTreeListing } from './git-exact-reads.mjs';
 import { sourceRevision } from './source-inspection.mjs';
 import { run, SingularityFlowError } from './util.mjs';
 
@@ -33,11 +34,10 @@ function unavailable(message, result = null, details = {}) {
 
 /** No promisor remote is configured in this disposable borrower, even on older Git releases. */
 function projectionObjects(directory, commit, env) {
-  const options = { cwd: directory, env, allowFailure: true, timeoutMs: 15000, maxBuffer: INVENTORY_BYTES };
-  const listed = run('git', ['ls-tree', '-r', '-z', '--format=%(objecttype)%x09%(objectname)', commit], options);
-  if (listed.status !== 0) unavailable('Cannot inventory the exact approved configuration tree. Existing work was preserved.', listed);
+  const listed = exactTreeListing(directory, commit, { env, format: '%(objecttype)%x09%(objectname)', timeoutMs: 15000, maxBytes: INVENTORY_BYTES });
+  if (listed.status !== 'present') unavailable('Cannot inventory the exact approved configuration tree. Existing work was preserved.', listed.result);
   const objects = new Set();
-  for (const row of listed.stdout.split('\0').filter(Boolean)) {
+  for (const row of listed.value.split('\0').filter(Boolean)) {
     const [type, oid, extra] = row.split('\t');
     if (!OBJECT_ID.test(oid ?? '') || extra != null || !['blob', 'commit'].includes(type)) unavailable('Git returned an invalid configuration object inventory.');
     if (type === 'blob') objects.add(oid);
@@ -47,11 +47,9 @@ function projectionObjects(directory, commit, env) {
 
 function missingProjectionObjects(directory, objects, env) {
   if (!objects.length) return [];
-  const checked = run('git', ['cat-file', '--batch-check=%(objectname) %(objecttype)'], {
-    cwd: directory, env, input: `${objects.join('\n')}\n`, allowFailure: true, timeoutMs: 15000, maxBuffer: INVENTORY_BYTES
-  });
-  if (checked.status !== 0) unavailable('Cannot read the approved configuration object store. Existing work was preserved.', checked);
-  const rows = checked.stdout.trimEnd().split(/\r?\n/u);
+  const checked = exactObjectTypes(directory, objects, { env, timeoutMs: 15000, maxBytes: INVENTORY_BYTES });
+  if (checked.status !== 'present') unavailable('Cannot read the approved configuration object store. Existing work was preserved.', checked.result);
+  const rows = checked.value;
   if (rows.length !== objects.length) unavailable('Git did not check every approved configuration file object.');
   return rows.flatMap((row, index) => {
     if (row === `${objects[index]} missing`) return [objects[index]];

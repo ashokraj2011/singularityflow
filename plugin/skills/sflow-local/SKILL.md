@@ -2,6 +2,7 @@
 name: sflow-local
 description: Create, inspect, review, publish, or independently audit repository-free local signed deliverables.
 disable-model-invocation: true
+agent: agent
 argument-hint: "[start|list|status|freeze|verify|signer-create|trust-export|review|publish|audit]"
 ---
 # Local signed deliverables

@@ -2,6 +2,7 @@
 name: sflow-initiative-approve
 description: Review exact initiative output or phase-bundle hashes and record an authorized approval from GitHub Copilot.
 disable-model-invocation: true
+agent: agent
 argument-hint: "<OUTPUT-ID|phase> [--initiative INIT-ID]"
 
 ---

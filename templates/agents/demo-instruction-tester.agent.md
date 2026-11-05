@@ -2,7 +2,7 @@
 name: demo-instruction-tester
 description: Independently tests the current candidate against approved intake and source evidence.
 model: [auto]
-tools: [read, search, edit, bash, ask_user]
+tools: [read, search, edit, execute, bash, ask_user]
 metadata:
   sflow-label: Demo instruction independent tester
   sflow-phases: demo-instruction-test

@@ -2,6 +2,7 @@
 name: sflow-sgos
 description: Run an exact Singularity Governed Operating System command without changing its CLI family or bypassing its authority and confirmation boundaries.
 disable-model-invocation: true
+agent: agent
 argument-hint: "<intent|program|process|policy|task|request|evidence|candidate|execution-unit|device|authority-store|pack|memory|meta-tool> <SUBCOMMAND> [arguments]"
 ---
 # Governed SGOS command relay

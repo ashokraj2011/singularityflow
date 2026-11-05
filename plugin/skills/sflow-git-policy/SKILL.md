@@ -2,6 +2,7 @@
 name: sflow-git-policy
 description: Discover repository commit policy, inspect approved coverage, or validate an exact owner-issued plan without committing or approving.
 disable-model-invocation: true
+agent: agent
 
 ---
 # Repository commit policy

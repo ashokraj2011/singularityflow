@@ -2,6 +2,7 @@
 name: sflow-epic-journey
 description: Explain the configured Epic lifecycle, current stage, governed artifacts, approval boundaries, and developer handoff as a business-readable journey.
 disable-model-invocation: true
+agent: agent
 
 ---
 

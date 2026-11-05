@@ -2,6 +2,7 @@
 name: sflow-evidence
 description: Show each requirement's evidence and the completion label.
 disable-model-invocation: true
+agent: agent
 argument-hint: "[WORK-ID] [--row ID] [--result RESULT]"
 
 ---

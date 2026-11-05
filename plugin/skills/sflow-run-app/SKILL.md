@@ -2,6 +2,7 @@
 name: sflow-run-app
 description: Start, check or stop this capability's application with the start command its capability declares, in the environment the person picks.
 disable-model-invocation: true
+agent: agent
 argument-hint: "[start|status|stop|suggest] [START-ID] [--environment ENV] [--debug]"
 ---
 # Run the application

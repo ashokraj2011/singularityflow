@@ -2,6 +2,7 @@
 name: sflow-import
 description: Import an agent skill, artifact template, agent, or generated-artifact source from a public link or a trusted marketplace after the person reviews its exact content and hash.
 disable-model-invocation: true
+agent: agent
 argument-hint: "[preview LINK|market:ID/ENTRY --as skill|template|agent | add ... --sha256 HASH | list | check | remove IMPORT]"
 
 ---

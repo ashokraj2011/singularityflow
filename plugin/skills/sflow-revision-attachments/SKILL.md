@@ -2,6 +2,7 @@
 name: sflow-revision-attachments
 description: Preview, register, inspect, or exclude Story/phase-bound REV feedback files.
 disable-model-invocation: true
+agent: agent
 argument-hint: "preview FILE | register PLAN | list | status | remove SET"
 ---
 

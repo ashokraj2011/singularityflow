@@ -2,6 +2,7 @@
 name: sflow-factory-reset
 description: Preview and deliberately reset repository-owned Singularity Flow configuration and machine-local runtime state from the currently installed npm package defaults.
 disable-model-invocation: true
+agent: agent
 argument-hint: "[--dry-run]"
 
 ---

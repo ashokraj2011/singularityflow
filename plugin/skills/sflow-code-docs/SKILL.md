@@ -2,6 +2,7 @@
 name: sflow-code-docs
 description: Add missing doc comments to the public functions, methods and classes the current code generation changed, without changing code.
 disable-model-invocation: true
+agent: agent
 argument-hint: "[file or declaration focus]"
 
 ---

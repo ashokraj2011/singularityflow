@@ -2,6 +2,7 @@
 name: sflow-secrets
 description: Scan tracked or staged content for likely credentials and explicitly install repository secret protection.
 disable-model-invocation: true
+agent: agent
 argument-hint: "scan [--staged] | protect"
 ---
 # Scan and protect secrets

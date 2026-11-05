@@ -2,6 +2,7 @@
 name: sflow-about
 description: Show CLI and VS Code versions, build identities, build dates and mismatches, and explain Singularity Flow.
 disable-model-invocation: true
+agent: agent
 
 ---
 # About Singularity Flow

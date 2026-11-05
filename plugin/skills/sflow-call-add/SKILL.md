@@ -2,6 +2,7 @@
 name: sflow-call-add
 description: Add a person's own agent folder (a main agent and the skills it uses) as a user-defined agent, copied unchanged into the reviewed configuration.
 disable-model-invocation: true
+agent: agent
 argument-hint: "<FOLDER> [--name <ID>] [--main <FILE>] [--output code|document] | list | show <NAME>"
 ---
 # Add a user-defined agent

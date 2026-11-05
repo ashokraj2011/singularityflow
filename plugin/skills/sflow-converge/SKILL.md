@@ -2,6 +2,7 @@
 name: sflow-converge
 description: Route a spec-driven Story toward convergence advanced.
 disable-model-invocation: true
+agent: agent
 
 ---
 # Converge — route toward convergence advanced

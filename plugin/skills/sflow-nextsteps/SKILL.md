@@ -2,6 +2,7 @@
 name: sflow-nextsteps
 description: Show ordered next actions from the current workflow state.
 disable-model-invocation: true
+agent: agent
 
 ---
 # Show next actions

@@ -2,7 +2,7 @@
 name: demo-intake-analyst
 description: Turns screenshots, documents and Story details into observable scenarios and a bounded check-and-repair agreement.
 model: [auto]
-tools: [read, search, edit, bash, ask_user]
+tools: [read, search, edit, execute, bash, ask_user]
 metadata:
   sflow-label: "Demo intake analyst"
   sflow-phases: "demo-intake"

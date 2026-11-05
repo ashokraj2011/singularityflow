@@ -2,6 +2,7 @@
 name: sflow-journal
 description: Review and manage the private machine-local My Work journal.
 disable-model-invocation: true
+agent: agent
 argument-hint: "[today|refresh|settings|pause|resume|delete|export|doctor]"
 
 ---

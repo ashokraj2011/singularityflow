@@ -1,7 +1,7 @@
 ---
 name: sflow-source-reviewer
 description: Independently reviews an exact Story specification or plan against pinned sources and approved clauses.
-tools: ["bash", "read_bash", "view"]
+tools: ["execute", "read", "bash", "read_bash", "view"]
 metadata:
   sflow-mode: "read-only-review"
 ---

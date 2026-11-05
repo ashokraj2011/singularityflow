@@ -2,6 +2,7 @@
 name: sflow-epic-status
 description: Show Epic planning phase progress and read-only delivery aggregation across Jira Stories, repositories, branches, checks, conformance, duration, model, tokens, and cost.
 disable-model-invocation: true
+agent: agent
 
 ---
 

@@ -2,6 +2,7 @@
 name: sflow-learn
 description: Explore reviewed Capability Pack lessons in an inert disposable workspace without changing governed work.
 disable-model-invocation: true
+agent: agent
 argument-hint: "[list | show LESSON | start LESSON | materialize LESSON | workspace MISSION-SHA256 | progress MISSION-SHA256 | explain-change LESSON STEP | check LESSON CHECK | reset MISSION-SHA256]"
 ---
 # Learn Singularity Flow safely

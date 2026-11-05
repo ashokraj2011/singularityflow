@@ -2,6 +2,7 @@
 name: sflow-hook
 description: Diagnose or explicitly invoke a Singularity Flow lifecycle hook using its exact host-supplied payload.
 disable-model-invocation: true
+agent: agent
 argument-hint: "turn-intent|turn-end|agent-start|session-start|agent-guard"
 ---
 # Inspect or invoke lifecycle hooks

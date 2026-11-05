@@ -2,6 +2,7 @@
 name: sflow-jira-status
 description: Verify Singularity Flow's direct Jira connection, authenticated Jira identity, deployment type, and visible projects from Copilot CLI. Use only on explicit request.
 disable-model-invocation: true
+agent: agent
 
 ---
 

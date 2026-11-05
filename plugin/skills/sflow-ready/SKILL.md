@@ -2,6 +2,7 @@
 name: sflow-ready
 description: Prove locked packages, installation health, test-framework setup, and existing unit tests before a Story worktree; optionally repair only reviewed dependency/test setup.
 disable-model-invocation: true
+agent: agent
 argument-hint: "[--base-commit <OID>] [--repair] [--full]"
 
 ---

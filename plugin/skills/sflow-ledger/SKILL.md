@@ -2,6 +2,7 @@
 name: sflow-ledger
 description: Inspect, initialize, verify, and reconcile the opt-in Singularity Flow capability ledger without inventing lifecycle state.
 disable-model-invocation: true
+agent: agent
 
 ---
 

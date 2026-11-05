@@ -2,6 +2,7 @@
 name: sflow-report
 description: Generate a read-only Singularity Flow workflow performance report with phase duration, approval waiting, rework, committed model/token telemetry, provider or configured cost, and bottlenecks.
 disable-model-invocation: true
+agent: agent
 argument-hint: "[WORK-ID] [--format md|html|json] [--out FILE]"
 
 ---

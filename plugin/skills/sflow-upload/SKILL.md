@@ -2,6 +2,7 @@
 name: sflow-upload
 description: Attach, inspect, list, or governably detach files, folders, images, PDFs, Figma exports, notes, and HTTPS references for an Epic or Story.
 disable-model-invocation: true
+agent: agent
 argument-hint: "attach <PATH...> [--epic EPIC-ID] | list [OWNER-ID] | view <ID|NAME> [--work-id WORK-ID] | detach <ID|NAME> --reason TEXT [--epic EPIC-ID]"
 
 ---

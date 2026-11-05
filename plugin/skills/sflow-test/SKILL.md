@@ -2,6 +2,7 @@
 name: sflow-test
 description: Run this capability's or Story step's tests with the declared commands, in the environment the person picks, and summarise every test case.
 disable-model-invocation: true
+agent: agent
 argument-hint: "[--work-id <ID> --phase <PHASE>] [--command <ID>]... [--environment ENV]"
 ---
 # Run the tests

@@ -2,6 +2,7 @@
 name: sflow-epic-drift
 description: Observe Jira drift for an Epic and explicitly adopt Jira observations or prepare a reviewed restore plan without automatic two-way overwrite.
 disable-model-invocation: true
+agent: agent
 
 ---
 

@@ -2,6 +2,7 @@
 name: sflow-epic-planning
 description: Compatibility entry point for the canonical sflow-epic-story-draft workflow that creates governed Story plans and specifications.
 disable-model-invocation: true
+agent: agent
 
 ---
 

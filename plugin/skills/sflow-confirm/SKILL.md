@@ -2,6 +2,7 @@
 name: sflow-confirm
 description: Run one reviewed SFlow confirmation exactly as a returned /sf-confirm route carried it, with its digest, once.
 disable-model-invocation: true
+agent: agent
 argument-hint: "<the exact command a returned /sf-confirm route carried>"
 ---
 # Confirm a reviewed result

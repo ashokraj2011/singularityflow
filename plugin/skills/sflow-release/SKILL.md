@@ -2,6 +2,7 @@
 name: sflow-release
 description: Prepare a release-readiness artifact with deployment, observability, rollback, communication and a final readiness decision, for the release step or any step that chose this skill.
 disable-model-invocation: true
+agent: agent
 argument-hint: "[target environment or release window]"
 
 ---

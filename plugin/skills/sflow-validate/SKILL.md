@@ -2,6 +2,7 @@
 name: sflow-validate
 description: Validate the selected Singularity Flow repository without changing workflow or Git state.
 disable-model-invocation: true
+agent: agent
 
 ---
 # Validate the selected repository

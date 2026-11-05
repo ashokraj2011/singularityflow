@@ -2,6 +2,7 @@
 name: sflow-epic-publish
 description: Preview and apply the exact approved Jira and Git Story publication plan with lineage properties, comments, specifications, and branch receipts.
 disable-model-invocation: true
+agent: agent
 
 ---
 

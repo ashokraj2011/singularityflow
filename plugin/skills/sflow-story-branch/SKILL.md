@@ -2,6 +2,7 @@
 name: sflow-story-branch
 description: Create, attach, inspect, or promote a Developer child branch with an explicit canonical Jira Story parent and repository completion policy.
 disable-model-invocation: true
+agent: agent
 
 ---
 

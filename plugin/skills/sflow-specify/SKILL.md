@@ -2,6 +2,7 @@
 name: sflow-specify
 description: Route a spec-driven Story toward an approved specification.
 disable-model-invocation: true
+agent: agent
 
 ---
 # Specify — route toward an approved specification

@@ -2,6 +2,7 @@
 name: sflow-integrations
 description: Show what each workflow step sends to webhooks, logs, Teams, Jira, Git, Confluence or OneDrive after it is submitted, approved or rejected; retry deliveries that did not go out and record receipts for those that did.
 disable-model-invocation: true
+agent: agent
 argument-hint: "[list | status | retry <DELIVERY-KEY...>|--all | record | test <TARGET>]"
 ---
 

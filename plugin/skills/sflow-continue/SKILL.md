@@ -2,6 +2,7 @@
 name: sflow-continue
 description: Review a revision-bound action plan and execute only its selected current action.
 disable-model-invocation: true
+agent: agent
 argument-hint: "[WORK-ID]"
 ---
 # Continue governed work

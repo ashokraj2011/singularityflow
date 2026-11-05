@@ -2,6 +2,7 @@
 name: sflow-agents
 description: Inspect governed Agent Markdown, mappings, and hash-pinned remote Markdown dependencies; agents are instructions, never human approval authorities.
 disable-model-invocation: true
+agent: agent
 
 ---
 

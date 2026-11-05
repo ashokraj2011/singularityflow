@@ -2,6 +2,7 @@
 name: sflow-advise
 description: Guide unclear SFlow situations with grounded safe choices.
 disable-model-invocation: true
+agent: agent
 argument-hint: "[QUESTION | ERROR | WHAT SHOULD I DO?]"
 ---
 

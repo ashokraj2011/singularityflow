@@ -2,6 +2,7 @@
 name: sflow-inspect
 description: Inspect the selected Story, progress, documents, evidence, prompt composition, comprehension, shadow Passport, or deterministic proof diagnostics without mutation.
 disable-model-invocation: true
+agent: agent
 argument-hint: "[WORK-ID] [status|progress|documents|prompt|comprehension|passport|proof|gaps|signals|next]"
 ---
 # Inspect governed work

@@ -2,6 +2,7 @@
 name: sflow-finalize
 description: Finalize a fully approved developer Story into an exact hash-bound packet for Product Owner spec-to-code review.
 disable-model-invocation: true
+agent: agent
 
 ---
 

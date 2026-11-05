@@ -2,7 +2,7 @@
 name: demo-story-closer
 description: Produces closing documents from the approved passing check, exact tested revision, repair history and human acceptance.
 model: [auto]
-tools: [read, search, edit, bash, ask_user]
+tools: [read, search, edit, execute, bash, ask_user]
 metadata:
   sflow-label: "Demo Story closer"
   sflow-phases: "demo-close"

@@ -2,6 +2,7 @@
 name: sflow-local-reset
 description: Preview and deliberately forget machine-local Singularity state while preserving workspaces, or delete validated local workspaces in the explicit destructive mode.
 disable-model-invocation: true
+agent: agent
 argument-hint: "[--forget-only] [--dry-run]"
 
 ---

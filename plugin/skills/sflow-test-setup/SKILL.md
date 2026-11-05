@@ -2,6 +2,7 @@
 name: sflow-test-setup
 description: Inspect repository test tools, suggest exact structured runners, guide reviewed configuration, and help an active Story adopt an approved test command without losing code.
 disable-model-invocation: true
+agent: agent
 argument-hint: "[--source-root <MODULE>] [configure|adopt <WORK-ID>]"
 ---
 # Set up tests for a capability

@@ -2,6 +2,7 @@
 name: sflow-epic-start
 description: Start or resume a Jira-keyed or local Epic planning workspace with an explicitly selected immutable profile and an automatic phase agent.
 disable-model-invocation: true
+agent: agent
 
 ---
 

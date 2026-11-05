@@ -2,6 +2,7 @@
 name: sflow-explain-code
 description: Explain current code changes, or what the whole repository holds, from deterministic records, with an optional advisory walkthrough of changes.
 disable-model-invocation: true
+agent: agent
 argument-hint: "[--narrate] [--hunk H-ID | --symbol SYMBOL-ID | --clause CLAUSE-ID] [--since REVISION] | --repository [--path DIR-OR-FILE]"
 ---
 # Explain current code changes, or the repository

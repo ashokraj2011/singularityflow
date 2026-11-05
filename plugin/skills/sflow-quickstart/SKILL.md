@@ -2,6 +2,7 @@
 name: sflow-quickstart
 description: See a complete governed change in a throwaway repository.
 disable-model-invocation: true
+agent: agent
 
 ---
 # See a governed change, end to end

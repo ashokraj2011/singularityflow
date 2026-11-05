@@ -2,6 +2,7 @@
 name: sflow-gate
 description: Run the final deterministic governance gate and explain every blocking check without bypassing it.
 disable-model-invocation: true
+agent: agent
 argument-hint: "[--terminal]"
 ---
 # Run the governance gate

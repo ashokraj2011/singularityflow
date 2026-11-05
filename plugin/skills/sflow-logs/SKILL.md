@@ -2,6 +2,7 @@
 name: sflow-logs
 description: Explain what a Singularity Flow command actually did.
 disable-model-invocation: true
+agent: agent
 argument-hint: "[--level error|warn|info|debug|all] [--event PATTERN] [--tail N] [--since WHEN]"
 
 ---

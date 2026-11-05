@@ -2,6 +2,7 @@
 name: sflow-epic-complete
 description: Validate every blocking Story against its approved specification and exact delivery evidence, then record the Product Owner's Epic completion decision.
 disable-model-invocation: true
+agent: agent
 
 ---
 

@@ -2,6 +2,7 @@
 name: sflow-call
 description: Run the user-defined agent a Story is attached to, with its own instructions and folder, as that Story's one governed step.
 disable-model-invocation: true
+agent: agent
 argument-hint: "<AGENT-NAME> [focus]"
 ---
 # Call a user-defined agent

@@ -2,6 +2,7 @@
 name: sflow-initiative-start
 description: Start a multi-repository Singularity Flow initiative by selecting its immutable profile and automatically activating the first phase agent.
 disable-model-invocation: true
+agent: agent
 argument-hint: "<INIT-ID> [--jira] [--title TEXT] [--description TEXT]"
 
 ---

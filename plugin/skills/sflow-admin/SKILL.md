@@ -2,6 +2,7 @@
 name: sflow-admin
 description: Diagnose and administer Singularity Flow configuration, workspace upgrades, agents, Jira, state planes, and recovery.
 disable-model-invocation: true
+agent: agent
 argument-hint: "[doctor|configuration|migrate-schemas|reinitialize [WORKSPACE]|consolidate [WORKSPACE]|agents|jira|state|recovery]"
 ---
 # Administer Singularity Flow

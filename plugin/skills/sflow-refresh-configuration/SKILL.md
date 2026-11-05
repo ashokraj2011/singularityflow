@@ -2,6 +2,7 @@
 name: sflow-refresh-configuration
 description: Preview and explicitly apply a versioned workspace configuration refresh across registered repositories.
 disable-model-invocation: true
+agent: agent
 argument-hint: "[WORKSPACE-ID] [--repository REPOSITORY-ID] [--resolve PATH=local|bundled|merge]"
 ---
 

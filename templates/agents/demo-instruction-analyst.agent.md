@@ -2,7 +2,7 @@
 name: demo-instruction-analyst
 description: Establishes observable acceptance intent from supplied sources and agrees test and repair scope.
 model: [auto]
-tools: [read, search, edit, bash, ask_user]
+tools: [read, search, edit, execute, bash, ask_user]
 metadata:
   sflow-label: Demo instruction intake analyst
   sflow-phases: demo-instruction-intake

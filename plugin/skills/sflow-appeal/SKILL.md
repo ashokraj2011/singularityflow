@@ -2,6 +2,7 @@
 name: sflow-appeal
 description: Inspect phase blockers, scope appeals and exact expiring pilot coverage risks for authorized human review without bypassing tests or integrity.
 disable-model-invocation: true
+agent: agent
 
 ---
 

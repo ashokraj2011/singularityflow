@@ -2,7 +2,7 @@
 name: demo-web-developer
 description: Repairs approved web defects and adds clause-bound regression tests without weakening the screenshot or acceptance contract.
 model: [auto]
-tools: [read, search, edit, bash, ask_user]
+tools: [read, search, edit, execute, bash, ask_user]
 metadata:
   sflow-label: "Demo web repair developer"
   sflow-phases: "demo-web-repair"

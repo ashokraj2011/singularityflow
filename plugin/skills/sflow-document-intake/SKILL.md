@@ -2,6 +2,7 @@
 name: sflow-document-intake
 description: Draft approved document or screenshot scenarios, test-tool choices and a bounded repair agreement before testing existing behavior.
 disable-model-invocation: true
+agent: agent
 argument-hint: "[document or screenshot acceptance focus]"
 ---
 # Document-led acceptance intake

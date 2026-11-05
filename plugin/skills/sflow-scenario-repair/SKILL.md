@@ -2,6 +2,7 @@
 name: sflow-scenario-repair
 description: Repair the latest approved document-derived defect through the canonical code-generation and executable-test gate.
 disable-model-invocation: true
+agent: agent
 argument-hint: "[approved scenario defect]"
 ---
 # Repair a scenario defect

@@ -2,6 +2,7 @@
 name: sflow-capability-protect
 description: Propose one path protection and its approval obligation atomically.
 disable-model-invocation: true
+agent: agent
 argument-hint: "<PATH> --approver <GROUP>"
 ---
 # Protect a capability path

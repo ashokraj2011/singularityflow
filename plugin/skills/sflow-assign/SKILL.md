@@ -2,6 +2,7 @@
 name: sflow-assign
 description: Assign a governed workflow phase to a named contributor through the deterministic assignment command.
 disable-model-invocation: true
+agent: agent
 argument-hint: "<phase> <assignee>"
 ---
 # Assign a workflow phase

@@ -2,6 +2,7 @@
 name: sflow-show
 description: Expand one registered Singularity Flow reference handle deterministically, with optional section, pointer, or range selection.
 disable-model-invocation: true
+agent: agent
 argument-hint: "<sfref:v1:...> [--section HEADING | --json-pointer POINTER | --range RANGE] [--max-bytes N]"
 ---
 # Show a governed reference

@@ -2,6 +2,7 @@
 name: sflow-init
 description: Create deterministic smart initialization for a fresh repository, or verify and safely repair existing Singularity Flow assets without overwriting repository customizations.
 disable-model-invocation: true
+agent: agent
 argument-hint: "[WORK-ID] [--base BRANCH] [--fetch]"
 
 ---

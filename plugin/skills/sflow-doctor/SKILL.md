@@ -2,6 +2,7 @@
 name: sflow-doctor
 description: Check whether this repository is healthy, and what to fix.
 disable-model-invocation: true
+agent: agent
 argument-hint: "[work ID] [--offline] [--performance]"
 
 ---

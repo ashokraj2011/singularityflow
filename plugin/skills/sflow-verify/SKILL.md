@@ -2,6 +2,7 @@
 name: sflow-verify
 description: Verify implementation against acceptance criteria, run checks, capture evidence, and register the Singularity Flow verification artifact.
 disable-model-invocation: true
+agent: agent
 argument-hint: "[test scope or environment]"
 
 ---

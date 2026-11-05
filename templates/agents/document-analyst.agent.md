@@ -2,7 +2,7 @@
 name: document-analyst
 description: Turns user documents and screenshots into approved, observable scenarios and a bounded repair plan.
 model: [auto]
-tools: [read, search, edit, bash, ask_user]
+tools: [read, search, edit, execute, bash, ask_user]
 metadata:
   sflow-label: "Document acceptance analyst"
   sflow-phases: "document-intake"

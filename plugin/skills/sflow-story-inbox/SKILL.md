@@ -2,6 +2,7 @@
 name: sflow-story-inbox
 description: List active Jira Stories carrying governed Singularity lineage so a developer can choose work safely.
 disable-model-invocation: true
+agent: agent
 
 ---
 

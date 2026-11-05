@@ -2,6 +2,7 @@
 name: sflow-epic-review-decision
 description: Approve or reject one finalized Epic Story against its exact review-packet hash using Copilot choice receipts and auditable Git publication.
 disable-model-invocation: true
+agent: agent
 argument-hint: "<EPIC-KEY> <STORY-KEY> <approve|reject> <PACKET-SHA256>"
 
 ---

@@ -2,6 +2,7 @@
 name: sflow-workspace
 description: Select a saved Singularity Flow workspace and repository for this Copilot session, optionally binding the visible context to a Story ID.
 disable-model-invocation: true
+agent: agent
 
 ---
 # Switch the active Singularity Flow workspace

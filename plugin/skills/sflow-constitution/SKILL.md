@@ -2,6 +2,7 @@
 name: sflow-constitution
 description: Inspect, deterministically generate, or explicitly record a governed constitution exception.
 disable-model-invocation: true
+agent: agent
 argument-hint: "check|show|generate|except"
 ---
 # Manage the constitution

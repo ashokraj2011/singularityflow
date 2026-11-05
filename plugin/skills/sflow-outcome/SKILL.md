@@ -2,6 +2,7 @@
 name: sflow-outcome
 description: Review a Story delivery and ask which test, local application setup, evidence review or repair to perform next.
 disable-model-invocation: true
+agent: agent
 argument-hint: "[WORK-ID] [--capability ID]"
 
 ---

@@ -2,6 +2,7 @@
 name: sflow-decide
 description: Show everything a step waits for people to decide as one plain-words list and record the person's choices with one confirmation, or answer a workflow decision, a left-out responsibility, a scope statement's disposition or a scope completeness review.
 disable-model-invocation: true
+agent: agent
 argument-hint: "[WORK-ID]"
 
 ---

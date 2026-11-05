@@ -2,6 +2,7 @@
 name: sflow-governance-rebuild
 description: Preview and deliberately rebuild this repository's governance onto the current Singularity Flow model.
 disable-model-invocation: true
+agent: agent
 argument-hint: "[--dry-run]"
 
 ---

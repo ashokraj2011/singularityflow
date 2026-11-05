@@ -2,6 +2,7 @@
 name: sflow-stories
 description: List Story candidates and their progress, then ask which exact Story to make active through /sf-session.
 disable-model-invocation: true
+agent: agent
 
 ---
 # Choose a Story from durable state

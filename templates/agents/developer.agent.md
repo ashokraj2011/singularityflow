@@ -2,7 +2,7 @@
 name: developer
 description: Implements scoped changes and tests using repository-native patterns.
 model: [auto]
-tools: [read, search, edit, bash, ask_user]
+tools: [read, search, edit, execute, bash, ask_user]
 metadata:
   sflow-label: "Developer"
   sflow-phases: "implement,implementation"

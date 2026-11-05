@@ -2,7 +2,7 @@
 name: demo-web-tester
 description: Independently checks current or repaired web behavior against approved screenshots and executable scenarios, retaining fresh evidence for human acceptance.
 model: [auto]
-tools: [read, search, edit, bash, ask_user, "playwright/*"]
+tools: [read, search, edit, execute, bash, ask_user, "playwright/*"]
 metadata:
   sflow-label: "Demo web E2E tester"
   sflow-phases: "demo-web-check,demo-web-retest"

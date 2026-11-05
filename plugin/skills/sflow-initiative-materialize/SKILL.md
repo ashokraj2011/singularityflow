@@ -2,6 +2,7 @@
 name: sflow-initiative-materialize
 description: Preview and explicitly materialize approved initiative stories across registered repositories from GitHub Copilot.
 disable-model-invocation: true
+agent: agent
 argument-hint: "[--initiative INIT-ID]"
 
 ---

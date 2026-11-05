@@ -2,6 +2,7 @@
 name: sflow-workspace-session
 description: Attach the current terminal or Copilot session to a saved Singularity Flow workspace before selecting Story work.
 disable-model-invocation: true
+agent: agent
 
 ---
 # Attach this session to a workspace

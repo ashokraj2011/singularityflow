@@ -2,6 +2,7 @@
 name: sflow-fix-workflow
 description: Say whether a workflow is correct as the platform judges it, why not, and draft every fix as one reviewed Workflow Studio proposal.
 disable-model-invocation: true
+agent: agent
 argument-hint: "[WORKFLOW]"
 
 ---

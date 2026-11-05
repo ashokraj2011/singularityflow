@@ -2,6 +2,7 @@
 name: sflow-docs
 description: Answer Singularity Flow questions from shipped topics.
 disable-model-invocation: true
+agent: agent
 argument-hint: "[QUESTION | TOPIC]"
 
 ---

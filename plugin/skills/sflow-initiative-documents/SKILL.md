@@ -2,6 +2,7 @@
 name: sflow-initiative-documents
 description: Summarize initiative outputs and link their verified Markdown previews for human review outside chat.
 disable-model-invocation: true
+agent: agent
 argument-hint: "[PHASE] [--initiative INIT-ID]"
 ---
 # Show initiative documents

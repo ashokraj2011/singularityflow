@@ -2,6 +2,7 @@
 name: sflow-initiative-checklist
 description: Review an initiative phase checklist, evidence assurance, freshness, applicability decisions, and blocking gates in GitHub Copilot.
 disable-model-invocation: true
+agent: agent
 argument-hint: "[PHASE] [--initiative INIT-ID]"
 ---
 # Review an initiative checklist

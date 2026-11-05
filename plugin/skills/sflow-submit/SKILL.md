@@ -2,6 +2,7 @@
 name: sflow-submit
 description: Validate and submit the active Singularity Flow phase for human approval, registering changed artifacts and running configured quality commands.
 disable-model-invocation: true
+agent: agent
 argument-hint: "[--confirm sha256:<DIGEST> for a reviewed Convergence] [--skip-checks only when explicitly authorized]"
 
 ---

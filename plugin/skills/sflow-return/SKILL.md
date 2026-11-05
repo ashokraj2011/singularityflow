@@ -2,6 +2,7 @@
 name: sflow-return
 description: Safely reconstruct a published Story on this machine from durable remote evidence.
 disable-model-invocation: true
+agent: agent
 argument-hint: "<WORK-ID>"
 
 ---

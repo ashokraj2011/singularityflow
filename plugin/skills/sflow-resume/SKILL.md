@@ -2,6 +2,7 @@
 name: sflow-resume
 description: Resume an existing Singularity Flow work item by ID, check out its branch, load durable workflow state, and identify the correct SDLC phase.
 disable-model-invocation: true
+agent: agent
 argument-hint: "<WORK-ID> [--fetch]"
 
 ---

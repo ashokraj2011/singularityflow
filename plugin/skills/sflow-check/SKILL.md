@@ -2,6 +2,7 @@
 name: sflow-check
 description: Refresh local repository and accepted workflow checks now, without tests or lifecycle changes.
 disable-model-invocation: true
+agent: agent
 
 ---
 # Check now

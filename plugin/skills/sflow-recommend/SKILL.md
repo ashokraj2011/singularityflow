@@ -2,6 +2,7 @@
 name: sflow-recommend
 description: Show one grounded next step from the active SFlow workspace.
 disable-model-invocation: true
+agent: agent
 
 ---
 

@@ -2,7 +2,7 @@
 name: poc-lite-implementer
 description: Guides one bounded POC change while deterministic lifecycle evidence remains kernel-owned.
 model: [auto]
-tools: [read, search, edit, bash, ask_user]
+tools: [read, search, edit, execute, bash, ask_user]
 metadata:
   sflow-label: "POC Lite implementer"
   sflow-phases: "poc-lite-act"

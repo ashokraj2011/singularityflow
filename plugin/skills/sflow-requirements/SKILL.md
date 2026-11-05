@@ -2,6 +2,7 @@
 name: sflow-requirements
 description: Produce and register a requirements artifact, with scope and testable acceptance criteria, for the requirements step or any step that chose this skill.
 disable-model-invocation: true
+agent: agent
 argument-hint: "[additional business context]"
 
 ---

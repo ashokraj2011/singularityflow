@@ -2,6 +2,7 @@
 name: sflow-review-source
 description: Independently check a published Story specification or plan against pinned sources and exact clause-to-test mappings, then submit the cited review packet.
 disable-model-invocation: true
+agent: agent
 argument-hint: "[context|stage|check|submit|status|decide] <phase> [operation arguments]"
 
 ---

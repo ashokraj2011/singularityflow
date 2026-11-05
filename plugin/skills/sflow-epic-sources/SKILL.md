@@ -2,6 +2,7 @@
 name: sflow-epic-sources
 description: List, upload, pin, materialize, and verify governed Epic source files used to generate requirements and Story plans.
 disable-model-invocation: true
+agent: agent
 
 ---
 

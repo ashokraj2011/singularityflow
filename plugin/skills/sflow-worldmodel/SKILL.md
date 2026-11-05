@@ -2,6 +2,7 @@
 name: sflow-worldmodel
 description: Show the Repository brief phase prompts receive and read repository knowledge, AST facts and composed prompts.
 disable-model-invocation: true
+agent: agent
 argument-hint: "[operation] [selectors]"
 
 ---

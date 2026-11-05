@@ -2,6 +2,7 @@
 name: sflow-app-review
 description: Inspect the current delivery, retain feedback, repair in scope and collect human acceptance with automatic local evidence.
 disable-model-invocation: true
+agent: agent
 argument-hint: "[SESSION] [--work-id ID]"
 ---
 # Review the application

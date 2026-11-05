@@ -2,6 +2,7 @@
 name: sflow-explain
 description: Explain one change, clause, test, line, gap or generation from cited, deterministic records.
 disable-model-invocation: true
+agent: agent
 argument-hint: "change | clause --id ID | test --id ID | line --path PATH --line N [--side before|after] | gap | generation --phase PHASE --gen N [--for reviewer|auditor|developer] | TOPIC"
 ---
 # Explain a change from cited records

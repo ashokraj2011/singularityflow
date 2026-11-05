@@ -2,6 +2,7 @@
 name: sflow-inbox
 description: Show what is waiting for your approval.
 disable-model-invocation: true
+agent: agent
 
 ---
 # Open the pending approval inbox

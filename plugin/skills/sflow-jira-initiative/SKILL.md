@@ -2,6 +2,7 @@
 name: sflow-jira-initiative
 description: Browse Jira Epics and child stories, preview their repository mapping, adopt an Epic into a Singularity initiative, or prepare a governed outbound Jira write plan.
 disable-model-invocation: true
+agent: agent
 
 ---
 

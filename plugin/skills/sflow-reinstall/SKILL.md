@@ -2,6 +2,7 @@
 name: sflow-reinstall
 description: Preview and deliberately replace only the locally installed Singularity Flow CLI, VS Code extension, Copilot plugin, managed direct skills, and managed telemetry wrapper.
 disable-model-invocation: true
+agent: agent
 argument-hint: "--checkout <path> [--registry <url>]"
 
 ---

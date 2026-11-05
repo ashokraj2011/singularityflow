@@ -2,6 +2,7 @@
 name: sflow-plan
 description: Route a spec-driven Story toward an approved plan.
 disable-model-invocation: true
+agent: agent
 
 ---
 # Plan

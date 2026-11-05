@@ -2,6 +2,7 @@
 name: sflow-watch
 description: Watch a governed work item for remote lifecycle changes without modifying its branch or state.
 disable-model-invocation: true
+agent: agent
 argument-hint: "[WORK-ID] [--once]"
 ---
 # Watch governed work

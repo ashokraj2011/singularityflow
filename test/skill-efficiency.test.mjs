@@ -258,7 +258,7 @@ test('plugin startup does not inject a model prompt', async () => {
 
 test('utility agent is read-only and delegates mutations to the governed workflow', async () => {
   const content = await readFile(path.join(root, 'plugin', 'agents', 'sflow-utility.agent.md'), 'utf8');
-  assert.match(content, /tools: \["bash", "read_bash", "view"\]/);
+  assert.match(content, /tools: \["execute", "read", "bash", "read_bash", "view"\]/);
   assert.doesNotMatch(content, /"edit"|"write_bash"/);
   assert.match(content, /Run the narrowest named `singularity-flow` command and relay its exact status, warnings and actions/);
   assert.match(content, /not bodies, snippets or diffs/);

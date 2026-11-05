@@ -2,6 +2,7 @@
 name: sflow-jira-assigned
 description: List incomplete Jira Stories assigned to the authenticated Jira user, optionally filtered to a project, from Copilot CLI. Use only on explicit request.
 disable-model-invocation: true
+agent: agent
 argument-hint: "[--project KEY] [--type Story] [--limit 25]"
 
 ---

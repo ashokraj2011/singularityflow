@@ -2,6 +2,7 @@
 name: sflow-workspace-bootstrap
 description: Prepare, diagnose, resume, or abandon a recoverable Singularity Flow workspace setup before governed Story work begins.
 disable-model-invocation: true
+agent: agent
 argument-hint: "[REMOTE-OR-MANIFEST|BOOTSTRAP-ID]"
 ---
 

@@ -2,6 +2,7 @@
 name: sflow-jira-board
 description: List Jira Software boards and show all Stories in active or future sprints while explicitly excluding the backlog. Use only on explicit request.
 disable-model-invocation: true
+agent: agent
 argument-hint: "[BOARD-ID] [--project KEY] [--state active,future]"
 
 ---

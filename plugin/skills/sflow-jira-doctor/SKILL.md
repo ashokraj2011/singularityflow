@@ -2,6 +2,7 @@
 name: sflow-jira-doctor
 description: Diagnose the active Singularity workspace Jira policy, CLI credentials, connection, project permissions, boards, and Epic visibility without changing Jira, Git, or repository files.
 disable-model-invocation: true
+agent: agent
 
 ---
 

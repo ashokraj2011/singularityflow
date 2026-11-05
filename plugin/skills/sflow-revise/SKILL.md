@@ -2,6 +2,7 @@
 name: sflow-revise
 description: Preview and run one exact, bounded revision interval for the active code Candidate.
 disable-model-invocation: true
+agent: agent
 argument-hint: "<feedback> [--criteria <CLAUSE-ID>] [--attachment-set <SHA256>] | status | card [INTERVAL-ID] | show <INTERVAL-ID> | resume [INTERVAL-ID] | capture | abandon <LOOP-ID|INTERVAL-ID>"
 ---
 

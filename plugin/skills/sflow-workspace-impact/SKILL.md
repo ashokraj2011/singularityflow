@@ -2,6 +2,7 @@
 name: sflow-workspace-impact
 description: Run or inspect an advisory impact analysis across the selected workspace without creating a Work ID or lifecycle branch.
 disable-model-invocation: true
+agent: agent
 
 ---
 

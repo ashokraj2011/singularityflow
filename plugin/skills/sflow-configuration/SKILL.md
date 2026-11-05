@@ -2,6 +2,7 @@
 name: sflow-configuration
 description: Inspect, validate, publish, or explicitly recreate and sync governed configuration without Git merge questions.
 disable-model-invocation: true
+agent: agent
 argument-hint: "show|explain [--pointer <JSON-POINTER>]|validate|save <path>|publish|transactions|reconcile <CFT-ID>|recreate-sync [--apply --confirm <digest>]|cleanup-history [--keep-recent 10]"
 ---
 # Manage governed configuration

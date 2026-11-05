@@ -2,7 +2,7 @@
 name: poc-automation
 description: Runs the governed POC regression flow from change analysis through Playwright evidence and publication review.
 model: [auto]
-tools: [read, search, edit, bash, ask_user, "playwright/*"]
+tools: [read, search, edit, execute, bash, ask_user, "playwright/*"]
 metadata:
   sflow-label: "POC automation"
   sflow-phases: "poc-intake,poc-impact-analysis,poc-ui-exploration,poc-test-generation,poc-validation,poc-publication-review"

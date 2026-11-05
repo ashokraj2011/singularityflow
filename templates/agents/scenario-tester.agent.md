@@ -2,7 +2,7 @@
 name: scenario-tester
 description: Tests approved document-derived scenarios on existing or repaired code and records an evidence-backed verdict for human acceptance.
 model: [auto]
-tools: [read, search, edit, bash, ask_user, "playwright/*"]
+tools: [read, search, edit, execute, bash, ask_user, "playwright/*"]
 metadata:
   sflow-label: "Scenario tester and acceptance reviewer"
   sflow-phases: "scenario-check,scenario-retest"

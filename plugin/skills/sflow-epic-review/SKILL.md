@@ -2,6 +2,7 @@
 name: sflow-epic-review
 description: Review hash-bound Story submissions across Epic repositories and record exact-SHA governance, configured repository-check, PR, and conformance evidence.
 disable-model-invocation: true
+agent: agent
 
 ---
 

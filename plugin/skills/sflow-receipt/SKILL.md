@@ -2,6 +2,7 @@
 name: sflow-receipt
 description: Replay compact evidence for a submitted phase.
 disable-model-invocation: true
+agent: agent
 argument-hint: "[WORK-ID]"
 
 ---

@@ -2,6 +2,7 @@
 name: sflow-visual
 description: Inspect visual-assurance status or compare expected and actual governed visual evidence.
 disable-model-invocation: true
+agent: agent
 argument-hint: "status | compare --expected <record> --actual <record> | record"
 ---
 # Inspect visual assurance

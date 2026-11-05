@@ -2,6 +2,7 @@
 name: sflow-instructions
 description: Inspect or propose reusable instruction definitions and explicit skill references through reviewed configuration.
 disable-model-invocation: true
+agent: agent
 argument-hint: "list | show ID | create ID | edit ID | remove ID"
 ---
 

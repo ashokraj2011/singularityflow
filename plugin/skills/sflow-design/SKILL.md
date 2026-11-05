@@ -2,6 +2,7 @@
 name: sflow-design
 description: Produce and register an architecture and design artifact, grounded in approved inputs and the codebase, for the design step or any step that chose this skill.
 disable-model-invocation: true
+agent: agent
 argument-hint: "[design constraints or emphasis]"
 
 ---

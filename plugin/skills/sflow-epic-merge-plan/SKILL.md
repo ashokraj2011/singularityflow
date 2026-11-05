@@ -2,6 +2,7 @@
 name: sflow-epic-merge-plan
 description: Show the dependency-safe merge sequence for finalized Epic Stories and the readiness of the Epic branch.
 disable-model-invocation: true
+agent: agent
 
 ---
 

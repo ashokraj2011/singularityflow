@@ -2,6 +2,7 @@
 name: sflow-story-checks
 description: Record exact-SHA GitHub repository-check, PR, lineage, freshness, and conformance evidence for the current finalized Story packet.
 disable-model-invocation: true
+agent: agent
 
 ---
 

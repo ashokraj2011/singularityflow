@@ -2,6 +2,7 @@
 name: sflow-publish
 description: Publish the current phase's existing authored draft after a fresh governed readiness check. Does not draft, submit, or approve.
 disable-model-invocation: true
+agent: agent
 argument-hint: "[phase]"
 ---
 

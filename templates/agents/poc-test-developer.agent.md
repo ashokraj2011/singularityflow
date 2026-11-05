@@ -2,7 +2,7 @@
 name: poc-test-developer
 description: Implements repository-native Playwright Page Objects and tests on the isolated Story branch.
 model: [auto]
-tools: [read, search, edit, bash, ask_user]
+tools: [read, search, edit, execute, bash, ask_user]
 metadata:
   sflow-label: "POC test developer"
   sflow-phases: "poc-test-generation"

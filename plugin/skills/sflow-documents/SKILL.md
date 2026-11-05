@@ -2,6 +2,7 @@
 name: sflow-documents
 description: Attach, list, view, and governably detach Singularity Flow supporting documents, images, Figma packages, and external design links while preserving audit history.
 disable-model-invocation: true
+agent: agent
 argument-hint: "list [WORK-ID] [--phase PHASE] | view <ID|NAME> [--work-id ID] | upload <PATH...> --name TEXT... | scope <ID|NAME> --phases PHASE,... | detach <ID|NAME> --reason TEXT | epic sources ... --epic EPIC-ID"
 
 ---

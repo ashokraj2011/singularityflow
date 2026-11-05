@@ -2,6 +2,7 @@
 name: sflow-phase
 description: Generate and publish configured artifacts for the active Singularity Flow phase.
 disable-model-invocation: true
+agent: agent
 argument-hint: "[generation focus]"
 
 ---

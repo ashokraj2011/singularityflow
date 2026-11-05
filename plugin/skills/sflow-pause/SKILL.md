@@ -2,6 +2,7 @@
 name: sflow-pause
 description: Pause or resume SFlow Copilot guidance without changing any Story, branch, approval, or repository.
 disable-model-invocation: true
+agent: agent
 argument-hint: "[on|off|status]"
 ---
 # Pause SFlow; use native Copilot

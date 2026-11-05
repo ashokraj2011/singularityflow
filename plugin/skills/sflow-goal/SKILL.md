@@ -2,6 +2,7 @@
 name: sflow-goal
 description: Create personal outcomes or operate repository-owned governed Goal Executions.
 disable-model-invocation: true
+agent: agent
 argument-hint: "[personal|propose|govern|inspect|impact|plan|approve-plan|run-next|verify|change|pause|resume|abandon|trace]"
 
 ---

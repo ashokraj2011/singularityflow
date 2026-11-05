@@ -2,6 +2,7 @@
 name: sflow-capability-doctor
 description: Diagnose workspace capability bindings, approved capability authority, stale proposal history, inherited policy, orphan state branch, ledger chain, and pinned cross-repository world-model context.
 disable-model-invocation: true
+agent: agent
 
 ---
 

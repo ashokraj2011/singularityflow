@@ -2,6 +2,7 @@
 name: sflow-status
 description: Show the current phase, artifacts, checks, and approvals.
 disable-model-invocation: true
+agent: agent
 argument-hint: "[WORK-ID]"
 
 ---

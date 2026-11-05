@@ -2,6 +2,7 @@
 name: sflow-revision
 description: Inspect installed Revision Loop capabilities, activation state, or attachment boundaries without starting a loop.
 disable-model-invocation: true
+agent: agent
 argument-hint: "capabilities | activation | attachments"
 ---
 

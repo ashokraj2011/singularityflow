@@ -35,7 +35,7 @@ const OUTPUTS = new Set(['code', 'document']);
 // The tools the agent file grants Copilot: the developer preset for a step that changes code, the
 // analyst preset otherwise. The main file's own `tools` name another host's tools, so they are
 // reported as not used rather than copied.
-const TOOLS = Object.freeze({ code: ['read', 'search', 'edit', 'bash', 'ask_user'], document: ['read', 'search', 'edit', 'ask_user'] });
+const TOOLS = Object.freeze({ code: ['read', 'search', 'edit', 'execute', 'bash', 'ask_user'], document: ['read', 'search', 'edit', 'ask_user'] });
 
 const fail = (code, message, details) => { throw new SingularityFlowError(message, { code, ...(details ? { details } : {}) }); };
 const sha256 = (bytes) => `sha256:${createHash('sha256').update(bytes).digest('hex')}`;

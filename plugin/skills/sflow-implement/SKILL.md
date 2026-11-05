@@ -2,6 +2,7 @@
 name: sflow-implement
 description: Friendly alias for the canonical task-based Singularity Flow code-generation contract.
 disable-model-invocation: true
+agent: agent
 argument-hint: "[implementation focus]"
 
 ---

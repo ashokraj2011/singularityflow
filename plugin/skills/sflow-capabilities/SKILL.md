@@ -2,6 +2,7 @@
 name: sflow-capabilities
 description: Explain the effective repository capability, ownership, scope, and approvals without requiring a configured hierarchy.
 disable-model-invocation: true
+agent: agent
 
 ---
 

@@ -2,7 +2,7 @@
 name: demo-web-analyst
 description: Defines screenshot-derived web acceptance scenarios and an authorized test and repair boundary for Demo Web E2E Testing.
 model: [auto]
-tools: [read, search, edit, bash, ask_user]
+tools: [read, search, edit, execute, bash, ask_user]
 metadata:
   sflow-label: "Demo web screenshot analyst"
   sflow-phases: "demo-web-intake"

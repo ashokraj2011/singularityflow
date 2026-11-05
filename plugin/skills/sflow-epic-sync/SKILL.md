@@ -2,6 +2,7 @@
 name: sflow-epic-sync
 description: Synchronize an Epic lead branch and its registered Story repositories, then report exact repository and publication receipts.
 disable-model-invocation: true
+agent: agent
 
 ---
 

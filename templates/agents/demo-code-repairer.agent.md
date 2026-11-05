@@ -2,7 +2,7 @@
 name: demo-code-repairer
 description: Repairs demonstrated defects within approved paths, adds executable regressions and hands the current code back for independent checking.
 model: [auto]
-tools: [read, search, edit, bash, ask_user]
+tools: [read, search, edit, execute, bash, ask_user]
 metadata:
   sflow-label: "Demo code repairer"
   sflow-phases: "demo-repair"

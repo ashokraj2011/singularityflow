@@ -2,6 +2,7 @@
 name: sflow-review
 description: Inspect a governed review bundle or author a configured review phase; return its exact lifecycle handoff.
 disable-model-invocation: true
+agent: agent
 argument-hint: "[phase] [review emphasis]"
 
 ---

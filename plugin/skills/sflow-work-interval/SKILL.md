@@ -2,6 +2,7 @@
 name: sflow-work-interval
 description: Inspect, checkpoint, reconcile, or safely escalate the current governed Story work interval without committing unfinished source.
 disable-model-invocation: true
+agent: agent
 argument-hint: "[status|checkpoint|reconcile|escalate]"
 
 ---

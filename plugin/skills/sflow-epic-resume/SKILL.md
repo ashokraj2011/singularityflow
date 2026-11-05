@@ -2,6 +2,7 @@
 name: sflow-epic-resume
 description: Resume an existing governed Epic from its latest published lead branch and reconstruct its phase, repository, and agent context.
 disable-model-invocation: true
+agent: agent
 
 ---
 

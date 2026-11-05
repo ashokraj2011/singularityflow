@@ -2,6 +2,7 @@
 name: sflow-repositories
 description: List or search repositories already known to SFlow, and guide an explicit GitHub provider search without cloning or mapping anything.
 disable-model-invocation: true
+agent: agent
 argument-hint: "[QUERY] [--provider github --host HOST]"
 ---
 # Find repositories

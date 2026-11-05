@@ -2,6 +2,7 @@
 name: sflow-session
 description: Select an exact Story, open its managed local checkout or attach from remote, and bind its phase agent.
 disable-model-invocation: true
+agent: agent
 
 ---
 # Attach the Copilot session to durable Git state

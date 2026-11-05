@@ -2,6 +2,7 @@
 name: sflow-revision-checks
 description: Inspect and plan exact Candidate-bound browser checks without claiming test, publication, or lifecycle authority.
 disable-model-invocation: true
+agent: agent
 argument-hint: "capabilities | plan | status [RUN-ID] | result <RUN-ID> | run <PLAN-SHA256>"
 ---
 

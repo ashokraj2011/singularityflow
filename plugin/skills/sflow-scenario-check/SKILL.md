@@ -2,6 +2,7 @@
 name: sflow-scenario-check
 description: Test approved document-derived scenarios before repair or after a Code publication, retain fresh evidence, and request human acceptance of the agent verdict.
 disable-model-invocation: true
+agent: agent
 argument-hint: "[scenario test or retest focus]"
 ---
 # Scenario testing/retesting

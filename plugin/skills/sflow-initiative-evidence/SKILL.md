@@ -2,6 +2,7 @@
 name: sflow-initiative-evidence
 description: List or register content-addressed initiative checklist evidence with explicit assurance and provenance in GitHub Copilot.
 disable-model-invocation: true
+agent: agent
 argument-hint: "list [CHECK-ID] | add <CHECK-ID> --assurance <LEVEL> [--path FILE | --url URL]"
 
 ---

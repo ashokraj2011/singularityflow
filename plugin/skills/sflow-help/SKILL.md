@@ -2,6 +2,7 @@
 name: sflow-help
 description: Answer questions about Singularity Flow and its workflow.
 disable-model-invocation: true
+agent: agent
 argument-hint: "[WORK-ID | TOPIC | QUESTION]"
 
 ---

@@ -2,6 +2,7 @@
 name: sflow-code
 description: Author a code-generation phase with executable tests and exactly-once publication.
 disable-model-invocation: true
+agent: agent
 argument-hint: "[code-generation focus]"
 
 ---

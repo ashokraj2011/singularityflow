@@ -2,6 +2,7 @@
 name: sflow-agent
 description: Choose or inspect the governed Agent Markdown used for the current phase; agent selection never changes human identity or approval authority.
 disable-model-invocation: true
+agent: agent
 argument-hint: "[WORK-ID]"
 
 ---

@@ -2,6 +2,7 @@
 name: sflow-next
 description: Execute one valid Singularity Flow lifecycle action without chaining later actions.
 disable-model-invocation: true
+agent: agent
 
 ---
 # Execute the next workflow action

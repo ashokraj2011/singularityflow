@@ -2,6 +2,7 @@
 name: sflow-pr
 description: Preview deterministic pull-request text or explicitly create and update the governed Story pull request.
 disable-model-invocation: true
+agent: agent
 argument-hint: "[WORK-ID] [describe|create]"
 ---
 # Prepare or publish a pull request

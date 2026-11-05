@@ -2,6 +2,7 @@
 name: sflow-jira-story
 description: Pull one Jira user story by key through Singularity Flow's direct Jira REST client and present its normalized details without changing Jira or Git.
 disable-model-invocation: true
+agent: agent
 argument-hint: "<JIRA-ID> [--json]"
 
 ---

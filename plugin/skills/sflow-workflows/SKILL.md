@@ -2,6 +2,7 @@
 name: sflow-workflows
 description: List, preview, transfer, duplicate, archive or delete workflows, or explicitly share inert Git-backed workflow drafts.
 disable-model-invocation: true
+agent: agent
 argument-hint: "[list|author list|author where-used SKILL-ID|author preview WFD-ID|author submit WFD-ID --revision N|skills-recipe ID ...|simulate ID|export ...|import FILE|copy SOURCE TARGET ...|archive ID|restore ID|delete ID --dry-run]"
 
 ---

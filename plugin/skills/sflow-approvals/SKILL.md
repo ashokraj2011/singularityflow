@@ -2,6 +2,7 @@
 name: sflow-approvals
 description: Show the phase-by-phase approval chain, document names, authority groups, reviewers, decisions, and outstanding thresholds.
 disable-model-invocation: true
+agent: agent
 argument-hint: "[WORK-ID]"
 ---
 # Show the approval chain

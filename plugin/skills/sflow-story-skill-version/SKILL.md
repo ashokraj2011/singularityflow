@@ -2,6 +2,7 @@
 name: sflow-story-skill-version
 description: Review and adopt an approved new skill package version for an active Story without silently changing its pinned execution snapshot.
 disable-model-invocation: true
+agent: agent
 argument-hint: "status | preview <SKILL-ID> --reason <TEXT> | propose <SKILL-ID> --reason <TEXT> | decide <AMENDMENT-ID> --decision <approve|reject> --reason <TEXT>"
 ---
 

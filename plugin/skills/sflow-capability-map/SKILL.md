@@ -2,6 +2,7 @@
 name: sflow-capability-map
 description: Propose, review, and activate one capability or an atomic team mapping.
 disable-model-invocation: true
+agent: agent
 
 ---
 

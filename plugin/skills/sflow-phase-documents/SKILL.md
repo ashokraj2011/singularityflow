@@ -2,6 +2,7 @@
 name: sflow-phase-documents
 description: Summarize phase documents and link their verified Markdown previews without reproducing bodies in chat.
 disable-model-invocation: true
+agent: agent
 argument-hint: "[PHASE-ID]"
 ---
 # View phase documents

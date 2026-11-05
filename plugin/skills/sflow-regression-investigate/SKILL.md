@@ -2,6 +2,7 @@
 name: sflow-regression-investigate
 description: Investigate a likely bug-causing change using Git ancestry, merge history, focused paths, diffs, and repository grounding.
 disable-model-invocation: true
+agent: agent
 
 ---
 

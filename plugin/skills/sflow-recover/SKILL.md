@@ -2,6 +2,7 @@
 name: sflow-recover
 description: Diagnose publication, artifact, projection, generation, branch, and transport blockers and explicitly apply only hash-bound safe recovery.
 disable-model-invocation: true
+agent: agent
 argument-hint: "[WORK-ID]"
 ---
 # Safe recovery

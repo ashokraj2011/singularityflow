@@ -2,6 +2,7 @@
 name: sflow-mcp
 description: Configure, diagnose, and record governed Figma or Playwright MCP use without exposing credentials.
 disable-model-invocation: true
+agent: agent
 argument-hint: "status | doctor | probe <server> --network | warm <server> --network | verify-offline <server> | auth status|import|remove playwright | attest <server> | smoke playwright --url <url> | scaffold figma|playwright | record <server> --tool <tool> | design-sources status"
 ---
 

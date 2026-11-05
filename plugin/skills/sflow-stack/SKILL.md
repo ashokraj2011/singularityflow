@@ -2,6 +2,7 @@
 name: sflow-stack
 description: Show or synchronize the dependency-safe Story pull-request and merge stack for an Epic.
 disable-model-invocation: true
+agent: agent
 
 ---
 

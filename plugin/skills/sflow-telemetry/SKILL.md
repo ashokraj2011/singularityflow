@@ -2,6 +2,7 @@
 name: sflow-telemetry
 description: Inspect Context X-Ray, Token Ledger, and privacy-safe local Copilot usage without estimating unavailable values.
 disable-model-invocation: true
+agent: agent
 
 ---
 

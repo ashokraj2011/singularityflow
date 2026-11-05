@@ -2,6 +2,7 @@
 name: sflow-fresh-install
 description: Preview and explicitly perform a true fresh Singularity Flow installation from a validated source checkout.
 disable-model-invocation: true
+agent: agent
 argument-hint: "--checkout <path>"
 ---
 # Perform a true fresh installation

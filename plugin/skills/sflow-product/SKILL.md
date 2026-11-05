@@ -2,6 +2,7 @@
 name: sflow-product
 description: Check which build each installed Singularity Flow surface runs, bring every surface to the build this machine installed, and open the build's configuration reviews.
 disable-model-invocation: true
+agent: agent
 argument-hint: "status | align | reviews"
 ---
 # Keep every Singularity Flow surface on one build

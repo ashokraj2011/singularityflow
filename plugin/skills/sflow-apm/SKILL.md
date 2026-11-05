@@ -2,6 +2,7 @@
 name: sflow-apm
 description: Show the repository's APM agent packages - what each deployed, whether its files are still the ones APM wrote, which steps their agents draft - and preview an install, update or publish without changing anything.
 disable-model-invocation: true
+agent: agent
 argument-hint: "[PACKAGE]"
 ---
 # APM agent packages

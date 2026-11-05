@@ -2,6 +2,7 @@
 name: sflow-jira-work
 description: List Jira stories assigned to the authenticated user or retrieve a specific Jira issue using Singularity Flow's direct Jira REST client. Use only on explicit request.
 disable-model-invocation: true
+agent: agent
 argument-hint: "[WORK-ID] [--project KEY] [--type Story]"
 
 ---

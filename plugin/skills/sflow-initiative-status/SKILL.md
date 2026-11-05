@@ -2,6 +2,7 @@
 name: sflow-initiative-status
 description: Display initiative phase progress, evidence readiness, child-story milestones, and current gate state in GitHub Copilot.
 disable-model-invocation: true
+agent: agent
 argument-hint: "[INIT-ID]"
 ---
 # Show initiative status

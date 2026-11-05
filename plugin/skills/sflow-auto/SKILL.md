@@ -2,6 +2,7 @@
 name: sflow-auto
 description: Plan, ratify, inspect, and control one bounded Singularity Flow Auto flight.
 disable-model-invocation: true
+agent: agent
 argument-hint: "plan <requirement> [--until <phase>] | plan --story <STORY-ID> | --goal <GOAL-ID> | adopt --from-adhoc <AHS-ID> | start <PLAN-ID> | list | continue <STORY-ID> | status|report|compare|needs-you|repair|respond|switch-unit|pause|stop|takeover|resume|discard <FLIGHT-ID>"
 
 ---

@@ -232,6 +232,12 @@ export async function doctorSnapshot(root, {
       : 'Every artifact template carries the sections its steps are checked for.',
     sectionGaps.length ? 'Run Upgrade / migrate SFlow (singularity-flow workspace reinitialize) to add the missing sections; your wording is kept.' : null,
     sectionGaps.length ? { gaps: sectionGaps } : {}));
+    const withoutTerminal = await (await import('./agent-file.mjs')).agentFilesWithoutVsCodeTerminal(root).catch(() => []);
+    checks.push(check('agent-vscode-terminal', withoutTerminal.length ? 'warn' : 'pass', withoutTerminal.length
+      ? `${withoutTerminal.length} agent file(s) name their terminal only as bash, which VS Code does not read, so a VS Code chat on them cannot run a command: ${withoutTerminal.join(', ')}.`
+      : 'Every agent with a terminal has it in VS Code too.',
+    withoutTerminal.length ? 'Run Upgrade / migrate SFlow (singularity-flow workspace reinitialize) for unedited packaged agents, and add execute to the tools of the others.' : null,
+    withoutTerminal.length ? { agents: withoutTerminal } : {}));
     const removed = removedSettings(definition);
     if (removed.length) checks.push(check('removed-settings', 'warn',
       `${removed.length} setting(s) of removed features are ignored: ${removed.slice(0, 12).join(', ')}${removed.length > 12 ? ', …' : ''}.`,

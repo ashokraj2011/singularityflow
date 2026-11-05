@@ -2,6 +2,7 @@
 name: sflow-snapshot
 description: Read a bounded revision-aware snapshot of governed work and optional diagnostic timings.
 disable-model-invocation: true
+agent: agent
 argument-hint: "[WORK-ID] [--include <slice>]"
 ---
 # Read a governed snapshot

@@ -2,6 +2,7 @@
 name: sflow-spec-author
 description: Draft a specification in the library with Copilot, which researches the code it relies on and proposes its prose, cited facts, gaps and checklist findings; you accept each one, decide the gaps and publish.
 disable-model-invocation: true
+agent: agent
 argument-hint: "<SPEC-ID> [what to draft, research or check]"
 
 ---

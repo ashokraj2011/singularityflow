@@ -2,7 +2,7 @@
 name: scenario-developer
 description: Repairs only the approved document-derived defect, preserves expectations, and produces executable regression evidence.
 model: [auto]
-tools: [read, search, edit, bash, ask_user]
+tools: [read, search, edit, execute, bash, ask_user]
 metadata:
   sflow-label: "Scenario repair developer"
   sflow-phases: "scenario-repair"

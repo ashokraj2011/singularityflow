@@ -2,6 +2,7 @@
 name: sflow-capability-add
 description: Propose a narrower repository capability for one explicit directory.
 disable-model-invocation: true
+agent: agent
 argument-hint: "<ID> --owns <DIRECTORY>"
 ---
 # Add a capability boundary

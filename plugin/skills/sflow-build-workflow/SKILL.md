@@ -2,6 +2,7 @@
 name: sflow-build-workflow
 description: Grow a workflow a piece at a time from a workflow the repository has, a team's own agents and documents, or a description, or change one you have in place; you accept each piece, and it finishes as one reviewed proposal.
 disable-model-invocation: true
+agent: agent
 argument-hint: "[--build <ID>] [--change <ID> | --from-workflow <ID>] [--folder <DIR>]... [--file <FILE>]... [--describe <TEXT>]"
 
 ---

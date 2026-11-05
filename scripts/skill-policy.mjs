@@ -475,17 +475,25 @@ function estimatedTokens(text) {
   return Math.ceil(String(text ?? '').length / 4);
 }
 
+/**
+ * A skill a person types runs in VS Code's built-in Agent, whichever agent the chat is on. `/clear`
+ * opens a new chat, and VS Code takes that chat's agent from its saved draft or
+ * chat.newSession.defaultMode, not from the chat it replaces; on one with no terminal, the skill's
+ * first command cannot run and the turn ends "this session has no terminal tool". VS Code reads this
+ * line from a slash skill's header (1.145 _applyPromptMetadata). It does not change the skill's words.
+ */
+export const SKILL_CHAT_AGENT = 'agent';
+
 function withAutomaticPolicy(text, automatic, description, file) {
   const skill = splitSkill(text, file);
   let source = skill.frontmatterSource;
   source = source.replace(/^description:\s*.*$/m, `description: ${description ?? skill.frontmatter.description}`);
   source = source.replace(/^disable-model-invocation:\s*true\s*\r?\n?/m, '');
-  if (!automatic) {
-    const lines = source.split(/\r?\n/);
-    const descriptionIndex = lines.findIndex((line) => line.startsWith('description:'));
-    lines.splice(descriptionIndex + 1, 0, 'disable-model-invocation: true');
-    source = lines.join('\n');
-  }
+  source = source.replace(/^agent:\s*.*\r?\n?/m, '');
+  const lines = source.split(/\r?\n/);
+  const descriptionIndex = lines.findIndex((line) => line.startsWith('description:'));
+  lines.splice(descriptionIndex + 1, 0, ...(automatic ? [] : ['disable-model-invocation: true']), `agent: ${SKILL_CHAT_AGENT}`);
+  source = lines.join('\n');
   return `---\n${source}\n---\n${skill.body}`;
 }
 
@@ -777,6 +785,7 @@ export async function auditSkillPolicy(repositoryRoot, { write = false } = {}) {
       errors.push(`${name}: gatewayTools needs a step that names its sflow_* call`);
     }
     if (/`sflow_run`/u.test(skill.body.replace(GATEWAY_TOOLS_CLAUSE, ''))) errors.push(`${name}: a skill step must not name sflow_run`);
+    if (skill.frontmatter.agent !== SKILL_CHAT_AGENT) errors.push(`${name}: a skill must set agent: ${SKILL_CHAT_AGENT}, so a new VS Code chat can run its commands`);
     if (automatic.has(name)) {
       if (skill.frontmatter['disable-model-invocation'] === true) errors.push(`${name}: automatic skill must not disable model invocation`);
       if (descriptionTokens > 15) errors.push(`${name}: automatic description is ${descriptionTokens} estimated tokens; maximum is 15`);

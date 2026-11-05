@@ -1,7 +1,7 @@
 ---
 name: sflow-utility
 description: Relays read-only Singularity Flow status and diagnostics without changing lifecycle state.
-tools: ["bash", "read_bash", "view"]
+tools: ["execute", "read", "bash", "read_bash", "view"]
 metadata:
   sflow-mode: "read-only"
 ---

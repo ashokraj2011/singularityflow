@@ -2,6 +2,7 @@
 name: sflow-plugin
 description: Inspect, verify, install, or uninstall the packaged Singularity Flow Copilot plugin without touching governed repositories.
 disable-model-invocation: true
+agent: agent
 argument-hint: "list|verify [--json]|path|install|uninstall"
 ---
 # Manage the Copilot plugin

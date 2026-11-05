@@ -2,6 +2,7 @@
 name: sflow-grounding
 description: Background grounding rules the workflow agent loads before phase reasoning or repository questions after a Story is attached.
 disable-model-invocation: true
+agent: agent
 user-invocable: false
 ---
 # Singularity Flow grounding

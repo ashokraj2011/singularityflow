@@ -2,6 +2,7 @@
 name: sflow-workflow-rules
 description: Background rules for Singularity Flow-managed SDLC work. Load when a repository has governed Story state at its configured work-item root or when the user discusses Singularity Flow phases, approvals, handoffs, or artifact registration.
 disable-model-invocation: true
+agent: agent
 user-invocable: false
 ---
 # Singularity Flow workflow contract

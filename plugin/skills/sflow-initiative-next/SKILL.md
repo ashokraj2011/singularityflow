@@ -2,6 +2,7 @@
 name: sflow-initiative-next
 description: Show the deterministic next actions for the active multi-repository initiative in GitHub Copilot without changing lifecycle state.
 disable-model-invocation: true
+agent: agent
 argument-hint: "[INIT-ID]"
 ---
 # Show initiative next actions

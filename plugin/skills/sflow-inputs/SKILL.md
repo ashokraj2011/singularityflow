@@ -2,6 +2,7 @@
 name: sflow-inputs
 description: Inspect and render the approved phase-artifact inputs configured for the active Singularity Flow phase.
 disable-model-invocation: true
+agent: agent
 argument-hint: "[phase]"
 
 ---

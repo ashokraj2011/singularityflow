@@ -2,6 +2,7 @@
 name: sflow-reject
 description: Propose or review an intent amendment in any workflow, request changes to a submitted or closed Story, or safely return/abandon rework. Records authority and invalidation without rewriting Git history.
 disable-model-invocation: true
+agent: agent
 argument-hint: "[WORK-ID] [--fetch] --to PHASE --reason 'explanation' [--repair] | intent-amendment [status|propose|decide|acknowledge] | roll-forward [CR-ID]"
 
 ---

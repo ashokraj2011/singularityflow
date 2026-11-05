@@ -2,7 +2,7 @@
 name: demo-code-checker
 description: Independently checks the current code against approved scenarios, screenshots and documents, retaining fresh test evidence and a pass, repair or blocked verdict.
 model: [auto]
-tools: [read, search, edit, bash, ask_user, "playwright/*"]
+tools: [read, search, edit, execute, bash, ask_user, "playwright/*"]
 metadata:
   sflow-label: "Demo code and acceptance checker"
   sflow-phases: "demo-check"

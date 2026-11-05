@@ -2,6 +2,7 @@
 name: sflow-spec
 description: Inspect and maintain specification indexes, claims, coverage, acceptance evidence, and traceability.
 disable-model-invocation: true
+agent: agent
 argument-hint: "analyze|claims|coverage|acceptance|tasks|trace"
 ---
 # Work with specification traceability

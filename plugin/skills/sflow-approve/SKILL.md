@@ -2,6 +2,7 @@
 name: sflow-approve
 description: Review a submitted phase once, accept an explicit phase confirmation, and let the CLI record approval and advance the workflow.
 disable-model-invocation: true
+agent: agent
 argument-hint: "[PHASE-ID] [--work-id WORK-ID] [--fetch]"
 
 ---

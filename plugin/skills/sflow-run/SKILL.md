@@ -2,6 +2,7 @@
 name: sflow-run
 description: Guide one Singularity Flow phase until the next human authoring or approval boundary without automatically approving.
 disable-model-invocation: true
+agent: agent
 argument-hint: "[task focus]"
 
 ---

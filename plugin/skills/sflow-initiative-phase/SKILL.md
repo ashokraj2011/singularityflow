@@ -2,6 +2,7 @@
 name: sflow-initiative-phase
 description: Compose the governed GitHub Copilot prompt, author all configured outputs, and publish the active phase of a multi-repository Singularity Flow initiative.
 disable-model-invocation: true
+agent: agent
 argument-hint: "[PHASE] [--initiative INIT-ID]"
 
 ---

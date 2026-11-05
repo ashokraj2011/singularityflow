@@ -2,6 +2,7 @@
 name: sflow-knowledge
 description: List, inspect, record, harvest, or resolve governed knowledge and remote assets with provenance.
 disable-model-invocation: true
+agent: agent
 argument-hint: "list|show|record|harvest|resolve"
 ---
 # Manage governed knowledge

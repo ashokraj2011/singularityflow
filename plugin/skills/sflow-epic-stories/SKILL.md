@@ -2,6 +2,7 @@
 name: sflow-epic-stories
 description: List, inspect, and validate the editable Stories produced by an approved Epic Planning package.
 disable-model-invocation: true
+agent: agent
 
 ---
 

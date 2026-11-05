@@ -2,6 +2,7 @@
 name: sflow-push
 description: Inspect or safely retry a preserved pre-Story transport intent without force-pushing or guessing remote state.
 disable-model-invocation: true
+agent: agent
 argument-hint: "[status [INTENT-ID] | retry <INTENT-ID>]"
 ---
 

@@ -2,6 +2,7 @@
 name: sflow-workspaces
 description: Show the complete saved-workspace table and active context; workspace selection belongs to /sf-workspace.
 disable-model-invocation: true
+agent: agent
 
 ---
 # Show Singularity Flow workspaces

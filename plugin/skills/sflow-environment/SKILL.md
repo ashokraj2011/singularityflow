@@ -2,6 +2,7 @@
 name: sflow-environment
 description: Inspect declared QA/UAT environment requirements, private binding readiness and environment files without exposing values.
 disable-model-invocation: true
+agent: agent
 argument-hint: "status | audit | unbind <environment> | files [<environment>]"
 ---
 # Inspect environment bindings safely

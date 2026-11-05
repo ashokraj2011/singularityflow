@@ -19,7 +19,7 @@ related:
   - governed-execution
   - revision-loop
   - revision-feedback-attachments
-version: 35
+version: 36
 ---
 CLI, Copilot, and VS Code read the same durable repository and workspace records through shared projections. They do not share an in-memory global store, conversation history, or signed handles. Bundled skills are explicit-only: installing SFlow never opts ordinary Copilot requests into a Story. Invoke an `/sf-*` skill or explicitly select the SFlow workflow agent for natural-language routing. That agent accepts seven closed intents: orient, continue, start, inspect, act, recover, and help. Help retrieves cited packaged documentation; it does not convert an answer into an action.
 
@@ -118,6 +118,7 @@ These commands can change repository or machine-local state: `plugin`. They rema
 - If a command refuses because state moved, refresh and use the newly rendered action instead of replaying an old handle or confirmation.
 - If publication or synchronization is pending, follow the exact recovery command in the refusal and verify with `sflow doctor`.
 - If a Copilot or VS Code action is unavailable, use the displayed CLI fallback; do not guess a command from the label.
+- If Copilot in VS Code says the chat has no terminal or command tool, look at the agent picker in the chat. `/clear` opens a new chat, and VS Code chooses that chat's agent itself, from its saved draft or `chat.newSession.defaultMode`, not from the chat you left. A typed `/sf-*` skill moves the chat to **Agent**; if your installed skills are older than that, choose **Agent** and run it again. An agent file with a terminal must list `execute` for VS Code to give it one, because VS Code does not read `bash`: `sflow doctor` names any that do not, and Upgrade / migrate SFlow updates the unedited packaged ones. If your organization has turned off agent mode (`chat.agent.enabled`), no Copilot chat can run a command: use **Singularity Flow: Continue Safely** or a terminal instead.
 - If an agent says a result was saved to a file it cannot open, run the same command again with `--for-agent --json` and read `agentOutput.path`. Reading the host's saved copy with shell tools is refused in a Story turn. JSON read through a pipe or a file, as VS Code and scripts read it, is always whole.
 - If ordinary language is ambiguous, choose from the displayed Home directions or invoke `/sf-home`; the router deliberately refuses to guess between mutations.
 - If a favorite disappears after an upgrade, reopen **Choose favorites**. Unknown or retired menu IDs are discarded rather than guessed.

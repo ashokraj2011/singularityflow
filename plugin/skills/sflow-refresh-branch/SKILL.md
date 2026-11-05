@@ -2,6 +2,7 @@
 name: sflow-refresh-branch
 description: Safely refresh the checked-out Story or Epic branch from Git using fetch and fast-forward only.
 disable-model-invocation: true
+agent: agent
 
 ---
 

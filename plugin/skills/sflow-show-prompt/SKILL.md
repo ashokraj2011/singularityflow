@@ -2,6 +2,7 @@
 name: sflow-show-prompt
 description: Inspect the exact governed phase prompt and summarize its composition without copying artifacts or source into chat.
 disable-model-invocation: true
+agent: agent
 
 ---
 

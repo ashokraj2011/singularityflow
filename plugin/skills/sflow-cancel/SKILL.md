@@ -2,6 +2,7 @@
 name: sflow-cancel
 description: Cancel an active governed Story, preserve all generated artifacts and approvals, record the human reason and identity, commit and push the decision, and move the Story to Archived.
 disable-model-invocation: true
+agent: agent
 argument-hint: "[WORK-ID] --reason 'explanation'"
 ---
 # Cancel and archive governed work

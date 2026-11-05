@@ -2,6 +2,7 @@
 name: sflow-capability-depend
 description: Propose an exact published-contract dependency discovered from a convenient reference.
 disable-model-invocation: true
+agent: agent
 argument-hint: "<TARGET-CAPABILITY>@<REFERENCE>"
 ---
 # Depend on a capability contract

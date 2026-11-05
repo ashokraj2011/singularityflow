@@ -2,6 +2,7 @@
 name: sflow-sgos-create
 description: Guide and create a bounded core SGOS Workflow Candidate from confirmed Intent.
 disable-model-invocation: true
+agent: agent
 argument-hint: "<INTENT-IR> --policy FILE --registry FILE --storage-profile-sha256 SHA256"
 ---
 # Create an SGOS Workflow Candidate

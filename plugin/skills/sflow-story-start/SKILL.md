@@ -2,6 +2,7 @@
 name: sflow-story-start
 description: Select a Jira Story, workflow, and prompt-only governed agent, then create or resume its canonical governed branch.
 disable-model-invocation: true
+agent: agent
 argument-hint: "<JIRA-STORY-KEY>"
 
 ---

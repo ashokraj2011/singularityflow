@@ -2,6 +2,7 @@
 name: sflow-epic-requirements
 description: Formalize pinned Epic sources into requirements, traceability, and repository impact analysis, then publish one governed Requirements bundle.
 disable-model-invocation: true
+agent: agent
 
 ---
 

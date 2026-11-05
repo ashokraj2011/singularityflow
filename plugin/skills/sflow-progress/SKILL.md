@@ -2,6 +2,7 @@
 name: sflow-progress
 description: Show how far a work item has got.
 disable-model-invocation: true
+agent: agent
 argument-hint: "[WORK-ID]"
 
 ---

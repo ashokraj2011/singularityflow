@@ -2,6 +2,7 @@
 name: sflow-epic-next
 description: Show the single next valid action for a governed Epic without changing Git, Jira, approvals, or lifecycle state.
 disable-model-invocation: true
+agent: agent
 
 ---
 

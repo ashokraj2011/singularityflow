@@ -2,7 +2,7 @@
 name: demo-instruction-developer
 description: Repairs demonstrated defects and adds regression coverage without changing approved intent.
 model: [auto]
-tools: [read, search, edit, bash, ask_user]
+tools: [read, search, edit, execute, bash, ask_user]
 metadata:
   sflow-label: Demo instruction repair developer
   sflow-phases: demo-instruction-repair

@@ -2,6 +2,7 @@
 name: sflow-skill
 description: Inspect local, approved, or exact retained Story skill bytes without execution or phase authority.
 disable-model-invocation: true
+agent: agent
 argument-hint: "inspect <LOCAL-DIRECTORY> | approved <ID> | doctor <ID> --story WORK-ID --phase PHASE-ID [--source LOCAL-DIRECTORY] [--json]"
 ---
 

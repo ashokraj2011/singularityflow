@@ -2,6 +2,7 @@
 name: sflow-home
 description: Guide explicitly requested Singularity Flow work through governed choices.
 disable-model-invocation: true
+agent: agent
 
 ---
 # Singularity Flow home

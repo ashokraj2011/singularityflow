@@ -2,6 +2,7 @@
 name: sflow-epic-story-draft
 description: Create the governed, repository-owned User Story package from approved Epic requirements and impact analysis, then stop for business review in the Singularity Flow UI before any Jira or Git Story publication.
 disable-model-invocation: true
+agent: agent
 
 ---
 

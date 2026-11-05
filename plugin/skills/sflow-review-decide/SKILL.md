@@ -2,6 +2,7 @@
 name: sflow-review-decide
 description: Record a confirmed, hash-bound human disposition for an existing source-review exclusion or test exception; never independently review or approve a phase.
 disable-model-invocation: true
+agent: agent
 argument-hint: "<phase> --finding <ID> --reason <TEXT> [--work-id <WORK-ID>]"
 ---
 

@@ -2,6 +2,7 @@
 name: sflow-story-fetch
 description: Securely fetch a governed Jira Story branch, verify its parent and Story specifications, and start its pinned repository workflow.
 disable-model-invocation: true
+agent: agent
 
 ---
 

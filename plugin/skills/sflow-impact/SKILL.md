@@ -2,6 +2,7 @@
 name: sflow-impact
 description: Inspect, classify, attest, verify, compare, and export governed Story delivery measurements without inventing evidence or causal claims.
 disable-model-invocation: true
+agent: agent
 argument-hint: "[status|study|enroll|exposure|evidence|finalize|verify|compare|export|doctor] [ARGS]"
 
 ---

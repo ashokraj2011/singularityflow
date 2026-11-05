@@ -2,6 +2,7 @@
 name: sflow-jira-update
 description: Safely update one Jira Story's status, assignee, priority, sprint, or comments through Singularity Flow with exact Story-key confirmation. Use only on explicit request.
 disable-model-invocation: true
+agent: agent
 argument-hint: "<STORY-KEY>"
 
 ---

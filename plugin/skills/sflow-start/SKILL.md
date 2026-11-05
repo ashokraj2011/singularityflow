@@ -2,6 +2,7 @@
 name: sflow-start
 description: Explicitly choose a remote base, intake source, and workflow; create and publish the canonical Story branch.
 disable-model-invocation: true
+agent: agent
 argument-hint: "<NEW-ID> [--clone-from <ORIGINAL-ID> | --jira | manual details]"
 
 ---

@@ -2,6 +2,7 @@
 name: sflow-adhoc
 description: Inspect, confirm, verify, and safely land work that began without a Singularity Flow Story.
 disable-model-invocation: true
+agent: agent
 argument-hint: "[start|status|land|intent|claim|preview|publish|promote]"
 ---
 # Land ad hoc work safely

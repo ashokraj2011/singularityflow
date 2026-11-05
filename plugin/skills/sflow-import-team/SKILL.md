@@ -2,6 +2,7 @@
 name: sflow-import-team
 description: Convert a team's agent directory (agents, skills, instructions) into one validated SFlow workflow bundle to import through Workflow Studio.
 disable-model-invocation: true
+agent: agent
 argument-hint: "<team directory> [--entry <agent-or-skill>] [--destination <repository>] [--out <file>]"
 
 ---

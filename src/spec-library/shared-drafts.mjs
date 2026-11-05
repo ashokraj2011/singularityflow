@@ -36,20 +36,29 @@ export function sharedHeadAt(root, view, specId) {
   if (!checkpointBytes) fail('The shared draft checkpoint is missing; preserve the local draft and refresh.', 'SPEC_SHARED_DRAFT_INVALID', { specId });
   const checkpoint = readRecord('spec-shared-draft', checkpointBytes.toString('utf8')).record;
   const { checkpointSha256, ...core } = checkpoint;
-  if (checkpoint.specId !== specId || hash(checkpoint.draft) !== checkpoint.contentSha256 || hash(core) !== checkpointSha256 || checkpointSha256 !== head.checkpointSha256) {
+  if (!checkpoint.draft || typeof checkpoint.draft !== 'object' || checkpoint.specId !== specId || hash(checkpoint.draft) !== checkpoint.contentSha256 || hash(core) !== checkpointSha256 || checkpointSha256 !== head.checkpointSha256) {
     fail('The shared draft checkpoint does not match its identity.', 'SPEC_SHARED_DRAFT_INVALID', { specId });
   }
   return { head, checkpoint, path: file, bytes, commit: view.commit };
 }
 
-export async function sharedDrafts(root, config, { refresh = false, view: pinnedView = null } = {}) {
+/**
+ * Every shared draft at one state commit, or the one named by `only`. One invalid or newer-schema
+ * checkpoint is that entry's problem: it is reported under `unreadable` and the rest still read.
+ */
+export async function sharedDrafts(root, config, { refresh = false, view: pinnedView = null, only = null } = {}) {
   const view = pinnedView ?? await libraryView(root, config, { refresh });
-  if (!view.commit) return { view, drafts: [] };
+  const drafts = [], unreadable = [];
+  if (!view.commit) return { view, drafts, unreadable };
   const ids = committedTreePaths(root, view.commit, [ROOT]).flatMap(file => {
     const match = /^singularity\/specification-drafts\/(SPEC-[A-Z0-9-]+)\/head\.json$/u.exec(file);
-    return match ? [match[1]] : [];
+    return match && (!only || match[1] === only) ? [match[1]] : [];
   });
-  return { view, drafts: ids.map(id => sharedHeadAt(root, view, id)).filter(Boolean) };
+  for (const id of ids) {
+    try { const read = sharedHeadAt(root, view, id); if (read) drafts.push(read); }
+    catch (error) { unreadable.push({ specId: id, code: error.code ?? null, message: error.message }); }
+  }
+  return { view, drafts, unreadable };
 }
 
 async function automaticSlot(root, minimum, now = Date.now()) {
@@ -67,16 +76,37 @@ async function automaticSlot(root, minimum, now = Date.now()) {
   } catch (error) { if (error.code === 'SUBJECT_LOCK_BUSY') return { status: 'deferred', retryAfterMs: minimum }; throw error; }
 }
 
+/**
+ * Whether the shared head is this laptop's own: the same wording, or a snapshot from this draft's
+ * history. Its push landed but the acknowledgement was lost (SPEC-SPA section 5.2), so it is the basis
+ * to continue from and not another writer. Only this rare path reads the whole history.
+ */
+async function ownCheckpoint(root, specId, remote, contentSha256) {
+  if (remote.checkpoint.contentSha256 === contentSha256) return true;
+  const history = await readDraft(root, specId);
+  return Boolean(history?.snapshots.some(snapshot => snapshot.snapshotSha256 === remote.checkpoint.sourceSnapshotSha256));
+}
+
 export async function syncDraft(root, config, specId, { automatic = false, minimumIntervalMs = 30000 } = {}) {
   if (!Number.isSafeInteger(minimumIntervalMs) || minimumIntervalMs < 1000 || minimumIntervalMs > 3600000) fail('The automatic sharing interval must be 1–3600 seconds.', 'SPEC_SYNC_INTERVAL_INVALID');
-  if (automatic) { const deferred = await automaticSlot(root, minimumIntervalMs); if (deferred) return { ...deferred, specId }; }
   const local = await readDraft(root, requireSpecId(specId), { headOnly: true });
   if (!local?.head) fail('Open or restore a draft before sharing it.', 'SPEC_DRAFT_MISSING', { specId });
   const content = portableDraft(local.head.draft);
+  // A shared checkpoint cannot be taken back, so nothing leaves before this; a refusal takes no automatic slot.
+  (await import('./share-check.mjs')).assertDraftShareable(specId, content);
+  if (automatic) { const deferred = await automaticSlot(root, minimumIntervalMs); if (deferred) return { ...deferred, specId }; }
   const contentSha256 = hash(content);
-  const basis = await sharedBasis(root, specId) ?? local.head.draft.sharedDraftBase;
+  let basis = await sharedBasis(root, specId) ?? local.head.draft.sharedDraftBase;
   const view = await libraryView(root, config);
-  const remote = sharedHeadAt(root, view, specId);
+  let remote;
+  try { remote = sharedHeadAt(root, view, specId); }
+  catch (error) {
+    throw new SingularityFlowError('Your writing is saved on this laptop. Sharing did not start: ' + error.message, { code: error.code, cause: error, details: { specId, nextAction: 'singularity-flow spec author status ' + specId + ' --json' } });
+  }
+  if (remote && remote.head.checkpointSha256 !== basis?.checkpointSha256 && await ownCheckpoint(root, specId, remote, contentSha256)) {
+    basis = { checkpointSha256: remote.head.checkpointSha256, contentSha256: remote.checkpoint.contentSha256, localSequence: local.sequence };
+    await recordSharedBasis(root, specId, basis);
+  }
   if (basis?.contentSha256 === contentSha256 && remote?.head.checkpointSha256 === basis.checkpointSha256) {
     await recordSharedBasis(root, specId, { ...basis, localSequence: local.sequence });
     return { status: 'synced', specId, checkpointSha256: basis.checkpointSha256, unchanged: true, commit: view.commit };

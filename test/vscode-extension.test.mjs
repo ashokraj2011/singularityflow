@@ -6530,6 +6530,22 @@ test('a tracked Story is fetched by key', () => {
   ]);
 });
 
+test('the specification selected in Spec Studio reaches Start on every tracker route, as the page promises', () => {
+  const selected = { cloneSpecifications: ['SPEC-CHK-004@2=REQ-001,AC-001'], cloneDependencyReason: 'Delivered with its parent.' };
+  const carried = ['--spec', 'SPEC-CHK-004@2=REQ-001,AC-001', '--allow-partial-dependency', '--reason', 'Delivered with its parent.'];
+  const routes = {
+    jira: intake({ shape: 'story', tracker: 'jira', jiraConfigured: true, key: 'ENG-142', ...selected }),
+    github: intake({ shape: 'story', tracker: 'github', key: 'acme/payments#42', id: 'PAY-42', ...selected }),
+    none: intake({ shape: 'story', tracker: 'none', id: 'checkout-retry', title: 'Retry checkout', description: 'Retry once', acceptanceCriteria: 'It retries.', ...selected })
+  };
+  for (const [tracker, form] of Object.entries(routes)) {
+    const command = intakeCommand(form);
+    assert.deepEqual(command.slice(command.indexOf('--spec'), command.indexOf('--spec') + carried.length), carried, tracker);
+    assert.match(intakeHtml(form), /The exact selected requirements and settled decisions will be attached to this Story\./u, tracker);
+  }
+  assert.equal(intakeCommand(intake({ shape: 'story', tracker: 'jira', jiraConfigured: true, key: 'ENG-142' })).includes('--spec'), false);
+});
+
 test('Story intake refuses to fall through to an interactive workflow prompt', () => {
   const missing = intake({
     shape: 'story', tracker: 'none', id: 'checkout-retry', title: 'Retry checkout',

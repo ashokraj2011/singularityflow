@@ -27,7 +27,7 @@ import { currentSchemaVersion, readRecord } from '../schema-migrations.mjs';
 import { extractClauses } from '../specifications.mjs';
 import { SingularityFlowError, writeAtomic, writeAtomicExclusive } from '../util.mjs';
 import { contradictedClauses, dependencyCycle, dependencyOrder, unallocatedClauses } from './allocation.mjs';
-import { foldGaps } from './draft-model.mjs';
+import { foldGaps, originCoverage } from './draft-model.mjs';
 import { LIBRARY_ROOT, revisionName, validSpecId } from './ids.mjs';
 import { libraryView } from './library.mjs';
 
@@ -422,6 +422,22 @@ export async function publishSplit(root, config, { revision, analysis, operation
  * child's ID with the parent's number, and the parent's decisions on them. A reference to another taken
  * clause follows it into the child; a reference to a clause the child does not take names the parent's.
  */
+/**
+ * The parent's pinned business links that this child's clauses carry: a split must not lose them, or
+ * a Story from the child loses its inherited constraints and their acceptance (SPEC-SPA section 9.2).
+ * Each origin keeps only the requirements mapped to this child, with the parent's stated reason.
+ */
+export function childOrigins(revision, child) {
+  const origins = revision.manifest.origins ?? [];
+  if (!origins.length) return { origins: [], rows: [] };
+  const own = extractClauses(revision.spec, { namespace: revision.specId }).map((clause) => clause.id);
+  const mapped = originCoverage({ spec: revision.spec, origins }, own).rows
+    .map((row) => ({ ...row, targets: row.targets.filter((id) => child.clauses.includes(id)) })).filter((row) => row.targets.length);
+  const sources = new Set(mapped.map((row) => row.source));
+  return { rows: mapped, origins: origins.map((origin) => ({ ...origin, clauses: (origin.clauses ?? []).filter((clause) => sources.has(clause.id)) }))
+    .filter((origin) => origin.clauses.length) };
+}
+
 export function childSpecText(revision, child, { split }) {
   const parent = revision.specId;
   const byId = new Map(extractClauses(revision.spec, { namespace: parent }).map((clause) => [clause.id, clause]));
@@ -435,6 +451,7 @@ export function childSpecText(revision, child, { split }) {
   const [[first, carried]] = moved;
   const requirements = clauses(false);
   const acceptance = clauses(true);
+  const { rows: coverage } = childOrigins(revision, child);
   return [
     `# ${child.title}`, '',
     `Derived from ${parent}@${revision.revision}, split ${split}. Each clause keeps the parent's number: \`${carried}\` carries \`${first}\`.`, '',
@@ -445,7 +462,9 @@ export function childSpecText(revision, child, { split }) {
     '## Requirements', '', ...(requirements.length ? requirements : ['TODO: the requirements this child adds.', '']),
     '## Acceptance', '', ...(acceptance.length ? acceptance : ['TODO: an observable result that proves each requirement.', '']),
     '## Decisions and open questions', '', ...(decisions.length ? [`Decided in ${parent}@${revision.revision}:`, '', ...decisions, ''] : []),
-    'TODO: state each decided or deferred gap of this specification here by its ID and its outcome.', ''
+    'TODO: state each decided or deferred gap of this specification here by its ID and its outcome.', '',
+    ...(coverage.length ? ['## Business coverage', '', '| Source requirement | Technical requirement or disposition | Reason |', '| --- | --- | --- |',
+      ...coverage.map((row) => `| ${row.source} | ${row.targets.map((id) => moved.get(id)).join(', ')} | ${row.reason} |`), ''] : [])
   ].join('\n');
 }
 

@@ -69,6 +69,8 @@ export interface SpecLibrary {
   status: string; commit: string | null; specs: SpecLibraryEntry[];
   shared?: Array<{ specId: string; title: string; kind: string | null; savedAt: string; checkpointSha256: string }>;
   drafts: Array<{ specId: string; sequence: number; title: string | null; basedOn: SpecBasedOn | null }>;
+  /** One record this build cannot read is reported here; the rest of the library still lists. */
+  unreadable?: Array<{ specId: string; record: string; message: string }>;
 }
 export interface SpecRevision {
   specId: string; revision: number; commit: string; manifestSha256: string; spec: string;
@@ -209,7 +211,8 @@ export function libraryFrom(raw: unknown): SpecLibrary | null {
     shared: list(result.shared).map(record).filter(entry => validSpecId(entry.specId)).map(entry => ({ specId: entry.specId as string, title: text(entry.title), kind: typeof entry.kind === 'string' ? entry.kind : null, savedAt: text(entry.savedAt), checkpointSha256: text(entry.checkpointSha256) })),
     drafts: list(result.drafts).map(record).filter((entry) => validSpecId(entry.specId)).map((entry) => ({
       specId: entry.specId as string, sequence: count(entry.sequence), title: typeof entry.title === 'string' ? entry.title : null, basedOn: basedOn(entry.basedOn)
-    }))
+    })),
+    unreadable: list(result.unreadable).map(record).map((entry) => ({ specId: text(entry.specId), record: text(entry.record), message: text(entry.message) }))
   };
 }
 
@@ -378,20 +381,6 @@ export function specBlocks(markdown: string, specId: string, gaps: readonly Spec
   return blocks;
 }
 
-/** The text of one `##` section, for the elicit stage's intent. */
-export function sectionText(markdown: string, title: string): string | null {
-  const kept: string[] = [];
-  let level = 0;
-  for (const line of markdown.split(/\r?\n/u)) {
-    const match = /^(#{1,6})\s+(.+?)\s*#*\s*$/u.exec(line);
-    if (match) {
-      if (level && match[1]!.length <= level) break;
-      if (!level && match[2]!.trim().toLowerCase() === title.toLowerCase()) { level = match[1]!.length; continue; }
-    }
-    if (level) kept.push(line);
-  }
-  return level ? kept.join('\n').trim() : null;
-}
 
 // ---- Commands a person runs elsewhere ------------------------------------------------------
 
@@ -474,36 +463,5 @@ export function gapPipeline(gaps: readonly SpecGap[]): SpecGap[] {
   return [...gaps].sort((left, right) => rank[left.status] - rank[right.status] || left.id.localeCompare(right.id, 'en', { numeric: true }));
 }
 
-/** One line per governed record of the draft, as the revision directory will hold it. */
-export function draftRecords(status: SpecStatus): Array<{ file: string; step: SpecStudioStep; detail: string }> {
-  const stale = status.researchItems.filter((item) => item.standing === 'stale' || item.standing === 'uncited').length;
-  const open = status.gaps.filter((gap) => gap.status === 'open').length;
-  return [
-    { file: 'spec.md', step: 'draft', detail: `${specClauses(status.spec, status.specId).length} clause(s), snapshot ${status.sequence}` },
-    { file: 'research.json', step: 'research', detail: `${status.researchItems.length} item(s)${stale ? `, ${stale} need attention` : ''}` },
-    { file: 'gaps.json', step: 'gaps', detail: `${status.gaps.length} gap(s), ${open} open` },
-    { file: 'quality.json', step: 'check', detail: status.reviewReady ? 'ready to publish as reviewed' : `${status.blocking.length} finding(s) block a reviewed publication` }
-  ];
-}
 
-/** What each step shows beside its name: done, waiting, or nothing to say yet. */
-export function stepStates(status: SpecStatus | null): Record<SpecStudioStep, { state: 'done' | 'open' | 'idle'; note: string }> {
-  const idle = { state: 'idle' as const, note: '' };
-  if (!status) return Object.fromEntries(STEP_IDS.map((step) => [step, idle])) as Record<SpecStudioStep, typeof idle>;
-  const open = status.gaps.filter((gap) => gap.status === 'open').length;
-  const stale = status.researchItems.filter((item) => item.standing === 'stale' || item.standing === 'uncited').length;
-  const placeholders = status.rules.find((rule) => rule.id === 'placeholders');
-  return {
-    elicit: { state: 'done', note: status.areas.length ? status.areas.join(', ') : 'Code scope optional' },
-    research: { state: stale ? 'open' : status.researchItems.length ? 'done' : 'idle', note: stale ? `${stale} need attention` : `${status.researchItems.length} item(s)` },
-    draft: { state: placeholders && !placeholders.passed ? 'open' : 'done', note: `snapshot ${status.sequence}` },
-    gaps: { state: open ? 'open' : 'done', note: open ? `${open} open` : `${status.gaps.length} closed` },
-    check: { state: status.reviewReady ? 'done' : 'open', note: `${status.counts.d.passed}/${status.counts.d.total} checks · ${status.counts.h.open} open decisions` },
-    publish: { state: status.basedOn ? 'done' : 'idle', note: status.basedOn ? `@${status.basedOn.revision} ${status.basedOn.reviewState}` : 'not yet published' },
-    attach: { state: status.basedOn?.reviewState === 'reviewed' ? 'open' : 'idle', note: status.basedOn?.reviewState === 'reviewed' ? `@${status.basedOn.revision} can be attached` : 'needs a reviewed revision' }
-  };
-}
 
-export function gateLine(counts: SpecCounts): string {
-  return `D ${counts.d.passed}/${counts.d.total} rules passed · A ${counts.a.status === 'not-run' ? 'not run' : `${counts.a.pending} pending`} · H ${counts.h.open} open${counts.h.deferred ? `, ${counts.h.deferred} deferred` : ''}`;
-}

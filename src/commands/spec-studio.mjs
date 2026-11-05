@@ -1,5 +1,5 @@
 /** Optional Studio operations, shared by CLI and editor. Never run a model or alter application code. */
-import { readDraft, saveDraft } from '../spec-library/draft-store.mjs';
+import { draftRetentionPreview, readDraft, saveDraft } from '../spec-library/draft-store.mjs';
 import { sharedDrafts, syncDraft, resumeSharedDraft } from '../spec-library/shared-drafts.mjs';
 import { addSpecSource, readSpecSource, copySpecSources, readSpecTextFile } from '../spec-library/sources.mjs';
 import { libraryView, resolveRevision } from '../spec-library/library.mjs';
@@ -7,6 +7,10 @@ import { newDraft, specTemplate } from '../spec-library/draft-model.mjs';
 import { extractClauses } from '../specifications.mjs';
 import { optionBoolean, optionString, optionNumber, optionStrings, SingularityFlowError } from '../util.mjs';
 import { generatedSpecId, parseSpecReference, requireSpecId } from '../spec-library/ids.mjs';
+
+/** One source page: the largest result a host still shows inline, unless the caller shows more. */
+const SOURCE_PAGE_BYTES = 6_000;
+const MAXIMUM_SOURCE_PAGE_BYTES = 48_000;
 
 export async function specStudioCommand(root, positionals, options, { config, actor, operationId }) {
   const action = positionals[2]; let specId = positionals[3] ? (['derive', 'sources', 'source'].includes(action) ? parseSpecReference(positionals[3]).specId : requireSpecId(positionals[3])) : null;
@@ -38,15 +42,16 @@ export async function specStudioCommand(root, positionals, options, { config, ac
       + origins.flatMap(origin => origin.clauses.map(clause => '| ' + clause.id + ' | TODO | TODO |')).join('\n') + '\n';
     const sources = [...new Map(parents.flatMap(parent => parent.manifest.sources ?? []).map(source => [source.id, source])).values()];
     for (const parent of parents) await copySpecSources(root, parent.specId, specId, parent.manifest.sources);
+    // The exact parents name this operation. stateCommit moves with the state branch tip, so a retry would read as another change.
     const saved = await saveDraft(root, specId, { operationId, operation: 'derive', create: true, actor,
-      payload: { origins, kind: 'technical' }, change: () => ({ ...newDraft({ title, spec, kind: 'technical' }), sources, origins }) });
+      payload: { parents: origins.map(({ revision, manifestSha256, relationship }) => ({ revision, manifestSha256, relationship })), kind: 'technical' }, change: () => ({ ...newDraft({ title, spec, kind: 'technical' }), sources, origins }) });
     result = { sequence: saved.snapshot.sequence, replayed: saved.replayed, origins: origins.map(origin => origin.revision) };
   } else if (action === 'shared') {
-    const shared = await sharedDrafts(root, config, { refresh: optionBoolean(options, 'refresh') });
-    result = { drafts: shared.drafts.filter(item => !specId || item.head.specId === specId).map(item => ({
+    const shared = await sharedDrafts(root, config, { refresh: optionBoolean(options, 'refresh'), only: specId });
+    result = { drafts: shared.drafts.map(item => ({
       specId: item.head.specId, checkpointSha256: item.head.checkpointSha256, title: item.checkpoint.draft.title,
       kind: item.checkpoint.draft.kind ?? null, savedAt: item.checkpoint.savedAt,
-      ...(specId ? { draft: item.checkpoint.draft } : {}) })), commit: shared.view.commit };
+      ...(specId ? { draft: item.checkpoint.draft } : {}) })), unreadable: shared.unreadable, commit: shared.view.commit };
   } else {
     requireSpecId(specId);
     let local = await readDraft(root, specId, { headOnly: !['history', 'restore-version'].includes(action) });
@@ -80,8 +85,7 @@ export async function specStudioCommand(root, positionals, options, { config, ac
       const previous = specId; specId = generatedSpecId('fork:' + operationId);
       const current = local.head.draft;
       const file = optionString(options, 'file');
-      const prose = file ? await readSpecTextFile(file) : current.spec;
-      if (Buffer.byteLength(prose) > 256 * 1024) throw new SingularityFlowError('The recovered draft is over 256 KiB. Copy a smaller section into another draft.', { code: 'SPEC_DRAFT_TOO_LARGE' });
+      const prose = file ? await readSpecTextFile(file, { tooLarge: 'The recovered draft is over 256 KiB. Copy a smaller section into another draft.' }) : current.spec;
       const spec = prose.replaceAll(previous + ':', specId + ':');
       await copySpecSources(root, previous, specId, current.sources);
       const copied = newDraft({ title: current.title.slice(0, 220) + ' (another draft)', spec, areas: current.areas, kind: current.kind ?? null });
@@ -96,7 +100,7 @@ export async function specStudioCommand(root, positionals, options, { config, ac
       const expectedSequence = optionNumber(options, 'expected-seq');
       if (!Number.isSafeInteger(expectedSequence) || expectedSequence < 1) throw new SingularityFlowError('Compare the current draft before restoring wording; supply --expected-seq N.', { code: 'SPEC_DRAFT_STALE' });
       const saved = await saveDraft(root, specId, { operationId, operation: 'restore-wording', actor,
-        expectedSequence, payload: { sequence: selected.sequence },
+        expectedSequence, wordingBasis: true, payload: { sequence: selected.sequence },
         change: current => ({ ...current, spec: selected.draft.spec, title: selected.draft.title, kind: selected.draft.kind ?? null }) });
       result = { sequence: saved.snapshot.sequence };
     } else if (action === 'history') {
@@ -105,7 +109,8 @@ export async function specStudioCommand(root, positionals, options, { config, ac
       if (sequence != null && !selected) throw new SingularityFlowError('That saved version is unavailable on this laptop.', { code: 'SPEC_DRAFT_VERSION_MISSING' });
       result = { versions: local.snapshots.slice(-100).reverse().map(item => ({ sequence: item.sequence, title: item.draft.title,
         savedAt: item.savedAt, savedBy: item.savedBy, operation: item.operation })),
-        ...(selected ? { draft: selected.draft, sequence: selected.sequence } : {}) };
+        ...(selected ? { draft: selected.draft, sequence: selected.sequence } : {}),
+        ...(optionBoolean(options, 'retention') ? { retention: await draftRetentionPreview(root, specId, local) } : {}) };
     } else if (action === 'sources') {
       const id = optionString(options, 'source');
       const selected = (local.head.draft.sources ?? []).filter(item => !id || item.id === id);
@@ -116,28 +121,32 @@ export async function specStudioCommand(root, positionals, options, { config, ac
         if (typeof viewed.text === 'string') {
           const from = optionNumber(options, 'from') ?? 1;
           if (!Number.isSafeInteger(from) || from < 1) throw new SingularityFlowError('Source line numbers start at 1.', { code: 'SPEC_SOURCE_RANGE_INVALID' });
+          const pageBytes = optionNumber(options, 'max-bytes') ?? SOURCE_PAGE_BYTES;
+          if (!Number.isSafeInteger(pageBytes) || pageBytes < 1000 || pageBytes > MAXIMUM_SOURCE_PAGE_BYTES) throw new SingularityFlowError(`Choose a page of 1000 to ${MAXIMUM_SOURCE_PAGE_BYTES} bytes.`, { code: 'SPEC_SOURCE_RANGE_INVALID' });
           const lines = viewed.text.split(/\r?\n/u); let used = 0; const shown = [];
           const column = optionNumber(options, 'column') ?? 0;
           if (!Number.isSafeInteger(column) || column < 0 || column > (lines[from - 1]?.length ?? 0)) throw new SingularityFlowError('The source range changed. Read from its beginning again.', { code: 'SPEC_SOURCE_RANGE_INVALID' });
+          // Sized as printed: a result's escapes count toward what a host shows inline.
+          const printed = text => Buffer.byteLength(JSON.stringify(text)) - 2;
           let next, nextColumn;
           for (let index = from - 1; index < lines.length; index++) {
             const line = index === from - 1 ? lines[index].slice(column) : lines[index];
-            const bytes = Buffer.byteLength(line) + 1;
-            if (used + bytes > 48000) {
+            const bytes = printed(line) + 2;
+            if (used + bytes > pageBytes) {
               if (!shown.length) {
-                const buffer = Buffer.from(line); let end = 47000;
-                while ((buffer[end] & 0xc0) === 0x80) end--;
-                const chunk = buffer.subarray(0, end).toString('utf8'); shown.push(chunk); next = index + 1; nextColumn = column + chunk.length;
+                let room = pageBytes, end = 0;
+                for (const character of line) { room -= printed(character); if (room < 0) break; end += character.length; }
+                shown.push(line.slice(0, end)); next = index + 1; nextColumn = column + end;
               } else next = index + 1;
               break;
             }
             shown.push(line); used += bytes;
           }
-          viewed.text = shown.join('\n'); viewed.from = from; viewed.column = column; viewed.totalLines = lines.length;
-          if (next !== undefined) viewed.next = next;
-          if (nextColumn !== undefined) viewed.nextColumn = nextColumn;
-        }
-        result = { sources: [viewed] };
+          // The continuation comes before the text: a host may show only the start of a long result.
+          const { text: _whole, ...descriptor } = viewed;
+          result = { sources: [{ status: viewed.status, from, column, totalLines: lines.length,
+            ...(next !== undefined ? { next } : {}), ...(nextColumn !== undefined ? { nextColumn } : {}), ...descriptor, text: shown.join('\n') }] };
+        } else result = { sources: [viewed] };
       }
     } else {
       const remove = optionString(options, 'remove');

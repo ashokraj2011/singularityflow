@@ -10,7 +10,9 @@ This branch implements the core **Write together** experience described in [SPEC
 - Focused Copilot proposals that preserve unrelated edits, explicit person acceptance, parent decisions and source readers with bounded line/character continuation. The native image-part integration is conditional on the host API.
 - Derivation from one or more exact reviewed parents, explicit business coverage, Story intake handoff and relevant inherited business constraints/acceptance. Existing allocation, split, usage, signing and current-phase repair services remain in use.
 - Exact-sequence review, saving during review/publication, and publication acknowledgement that leaves newer writing as unpublished draft changes. Existing v1 draft and reviewed revision bytes are retained.
-- A private, rebuildable snapshot index for current-draft reads and autosave. Operation retries verify their original snapshot; missing, torn or stale indices fall back to immutable history. Explicit history and backup readers still inspect saved versions.
+- A private, rebuildable snapshot index for current-draft reads and autosave. Operation retries verify their original snapshot; missing, torn or stale indices fall back to immutable history. Explicit history and backup readers still inspect saved versions. Older plain autosaves are thinned behind a bound with a preview; nothing recovery needs is removed.
+- A check before anything is shared or published, using the repository's secret scanner and covering links with a credential parameter. Sources take the environment-local and secret refusals of every other document input, when added, restored and read.
+- A wording save survives snapshots that changed only something else, a live page never replaces its editor, automatic sharing retries a passing failure with backoff, and one unreadable record is reported as that entry while the rest of the library lists.
 
 ## macOS qualification
 
@@ -19,8 +21,8 @@ Qualification uses isolated repositories, local bare remotes and mocked VS Code/
 | Area | Cases |
 | --- | ---: |
 | Snapshot index, crash recovery and original save evidence | 5 |
-| Write together services, sources, derivation, takeover, phase delivery and publication concurrency | 18 |
-| VS Code Studio, saving, human review, repository binding and recovery | 19 |
+| Write together services, sources, derivation, takeover, phase delivery, publication concurrency, sharing checks and retention | 37 |
+| VS Code Studio, saving, human review, repository binding, sharing and recovery | 34 |
 | Bounded source/prose/metadata readers | 3 |
 | Shared CLI read scheduling and nonblocking draft sync | 6 |
 | Existing specification library | 11 |
@@ -34,7 +36,9 @@ The document-source test exercises specification, planning, implementation, conv
 
 Additional document/local-handoff regressions recorded 48 passes and one Windows-only skip on macOS. That skip is disclosed; these results do not satisfy a release policy requiring zero skipped tests.
 
-The explicit browser check passes rich/Markdown round trips, escaping, editing metadata, save acknowledgements, sharing error/retry display, creation routing and light/dark/320 px layouts. VS Code typechecking, VS Code compilation, the CLI bundle build and repository checks also pass.
+The explicit browser check passes rich/Markdown round trips, edited lines keeping inline code and emphasis, text typed into a blank line, region updates that leave the caret, unsent request and Markdown mode alone, escaping, editing metadata, save acknowledgements, sharing error/retry display, creation routing and light/dark/320 px layouts.
+
+The review fixes were also driven in a real, isolated VS Code over CDP, with no signed-in Copilot, so Copilot's proposal came through the CLI while the Studio was open, the route the skill uses: a proposal staged under unsaved typing, keystrokes crossing 23 autosaves, the edited line's Markdown on disk, Save keeping the editor element, caret, unsent request and Markdown mode, a blank line typed into, research and questions opened from the page, a secret stopping sharing and sharing resuming once it was gone, a real wording conflict and its discard, and sharing retrying by itself after a remote came back. VS Code typechecking, VS Code compilation, the CLI bundle build and repository checks also pass.
 
 The refresh from main through `d30c79f59` additionally qualified 119 distinct macOS integration cases across the Studio, workspace intake, compact agent output and skill contracts. Two stale upstream skill assertions were updated to the current single-packet approval flow and reduced token count. The two agent-output slow-lane cases were explicitly run and passed; the final combined integration results have no failed or skipped cases. This is targeted integration qualification, not the full release suite.
 

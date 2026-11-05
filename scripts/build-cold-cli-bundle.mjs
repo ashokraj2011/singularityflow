@@ -101,8 +101,14 @@ const FAMILIES = Object.freeze([
     // every `spec author status` loaded compatibility and models. A Story's slice and its usage records
     // (S2) are imported only by start --spec, spec attach, approval and coverage.
     // A split (S5) is imported only by spec split and coverage.
-    'commands/spec-author.mjs', 'commands/spec-attach.mjs', 'spec-library/slice.mjs', 'spec-library/usage.mjs',
-    'commands/spec-split.mjs', 'spec-library/split.mjs', 'spec-library/allocation.mjs']],
+    'commands/spec-entry.mjs', 'commands/spec-author.mjs', 'commands/spec-attach.mjs', 'spec-library/slice.mjs', 'spec-library/usage.mjs',
+    'commands/spec-split.mjs', 'spec-library/split.mjs', 'spec-library/allocation.mjs',
+    // Spec Studio, imported only dynamically too: status reads the sharing basis and issues the proposal file,
+    // each autosave reads its file through sources, and list reads the shared drafts and each revision's
+    // SF Guard standing. Unclaimed, each loaded compatibility and models.
+    'commands/spec-studio.mjs', 'spec-library/shared-drafts.mjs', 'spec-library/shared-basis.mjs',
+    'spec-library/sources.mjs', 'spec-library/share-check.mjs', 'spec-library/presence.mjs',
+    'presence/repository-steps.mjs', 'presence/repository-seals.mjs', 'workflow-build/store.mjs']],
   ['models', ['commands/wm.mjs', 'commands/comprehension.mjs']]
 ]);
 

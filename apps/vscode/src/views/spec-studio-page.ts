@@ -5,8 +5,8 @@
  */
 import { brandLockup, escape, icon } from './webview.ts';
 import {
-  CHECKLIST_DECISIONS, copilotPrompt, draftRecords, FINDING_OUTCOMES, gapPipeline, gateLine, GAP_KINDS, MAXIMUM_OPTIONS, nextRevision, sectionText, shortClause, sliceOption,
-  SPEC_STUDIO_STEPS, specBlocks, specClauses, startCommand, stepStates,
+  CHECKLIST_DECISIONS, copilotPrompt, FINDING_OUTCOMES, GAP_KINDS, MAXIMUM_OPTIONS, nextRevision, shortClause, sliceOption,
+  SPEC_STUDIO_STEPS, specBlocks, specClauses, startCommand,
   type SpecCoverage, type SpecGap, type SpecGapImpact, type SpecLibrary, type SpecProposal, type SpecResearchItem, type SpecRevision, type SpecStatus,
   type SpecStudioStep, type SpecStudioTarget
 } from './spec-studio-model.ts';
@@ -35,6 +35,8 @@ export interface SpecStudioPageState {
   creation?: { title: string; intent: string; areas: string[] };
   /** Unsaved text belongs to this panel and the snapshot it was edited from. */
   workingDraft?: { text: string; sequence: number; title?: string; kind?: string | null };
+  /** Why sharing has not happened: kept here so it outlives the next render, until sharing succeeds. */
+  sharing?: { message: string; next: string | null } | null;
   saveState?: string; syncState?: string; shared?: Record<string, unknown> | null; history?: Array<{ sequence: number; savedAt: string; operation: string }>; sourceViews?: Array<Record<string, unknown>>;
 }
 
@@ -48,7 +50,7 @@ const statusPill = (status: string): string => `<span class="pill ${status === '
 function controls(step: SpecStudioStep, { cancel = true } = {}): string {
   return `<div class="ss-controls">
     <button type="button" class="secondary" data-message="spec.back">${icon('up')}Back</button>
-    ${cancel ? `<button type="button" class="secondary" data-message="spec.cancel" data-cancel>${step === 'draft' ? 'Discard unsaved changes' : 'Cancel'}</button>` : ''}
+    ${cancel ? `<button type="button" class="secondary" data-message="spec.cancel" data-cancel>Cancel</button>` : ''}
     <span class="muted">${escape(SPEC_STUDIO_STEPS.find((entry) => entry.id === step)?.detail ?? '')}</span></div>`;
 }
 
@@ -57,7 +59,7 @@ function notices(state: SpecStudioPageState): string {
     state.busy ? `<div class="notice warning" role="status" data-busy>${icon('wait')}${escape(state.busy)}</div>` : '',
     state.notice ? `<div class="notice ok" role="status" data-notice>${icon('ok')}${escape(state.notice)}</div>` : '',
     state.workingDraft && state.step !== 'draft' ? '<div class="notice warning" role="status">Unsaved writing is kept in this panel. <button type="button" class="secondary" data-message="spec.step" data-step="draft">Return to Write</button></div>' : '',
-    state.workingDraft && state.error ? '<div class="notice warning"><span>Your writing is kept here.</span><button class="secondary" data-message="spec.copyEdits">Copy my writing</button><button class="secondary" data-message="spec.fork">Keep mine as another draft</button></div>' : '',
+    state.workingDraft && state.error ? '<div class="notice warning"><span>Your writing is kept here.</span><button class="secondary" data-message="spec.copyEdits">Copy my writing</button><button class="secondary" data-message="spec.fork">Keep mine as another draft</button><button class="secondary" data-message="spec.discardEdits">Discard only my unsaved text and reload</button></div>' : '',
     state.error ? `<div class="notice error" role="alert" data-error>${icon('blocked')}<span>${escape(state.error.message)}</span>${state.error.next
       ? `<span class="ss-next">Next: <code>${escape(state.error.next)}</code>
         <button type="button" class="secondary compact-action" data-message="spec.copy" data-text="${escape(state.error.next)}">Copy</button></span>` : ''}</div>` : ''
@@ -98,39 +100,12 @@ function libraryHtml(state: SpecStudioPageState): string {
         <section data-library-group><h3 class="ss-group-heading">Ready to use <span class="pill">${ready.length}</span></h3>
           ${ready.length ? ready.map((spec) => card(spec.specId, spec.latest.title, `Revision ${spec.latest.revision} · reviewed`, spec.latest.revision)).join('') : '<p class="muted">Reviewed versions will appear here.</p>'}</section>
         ${publishedDrafts.length ? `<section data-library-group><h3 class="ss-group-heading">Published drafts <span class="pill">${publishedDrafts.length}</span></h3>${publishedDrafts.map(spec => card(spec.specId, spec.latest.title, `Revision ${spec.latest.revision} · unreviewed`, spec.latest.revision)).join('')}</section>` : ''}
+        ${library?.unreadable?.length ? `<div class="notice warning" role="status" data-library-unreadable><span>Some entries could not be read, so they are not listed. Everything else is here, and your drafts are unchanged.</span><ul>${library.unreadable.map(entry => `<li><code>${escape(entry.specId)}</code> (${escape(entry.record)}): ${escape(entry.message)}</li>`).join('')}</ul></div>` : ''}
         ${library?.status === 'not-fetched' ? '<p class="muted" role="status">Shared specifications have not been loaded on this laptop. <button type="button" class="secondary" data-message="spec.refresh">Load shared specifications</button> Your local drafts are available.</p>' : ''}
         <p class="muted" data-search-empty hidden>No specifications match your search.</p>
         ${library ? `<details class="ss-details"><summary>Library details</summary><p class="muted">${library.status === 'not-fetched' ? 'The state branch has not been fetched on this clone.' : library.status === 'absent' ? 'No published library on the state branch yet.' : `State branch: ${escape((library.commit ?? '').slice(0, 12))}`}</p></details>` : ''}
       </div>
     </div></section>`;
-}
-
-// ---- The left column -----------------------------------------------------------------------
-
-function leftHtml(state: SpecStudioPageState): string {
-  const status = state.status;
-  const revision = state.revision;
-  const gate = status ? `<div class="ss-gate" data-gate>
-      <div class="${status.counts.d.passed === status.counts.d.total ? 'ok' : 'bad'}"><strong>D ${status.counts.d.passed}/${status.counts.d.total}</strong><small>rules passed</small></div>
-      <div><strong>A</strong><small>${status.counts.a.status === 'not-run' ? 'not run' : `${status.counts.a.pending} pending`}</small></div>
-      <div class="${status.counts.h.open ? 'bad' : 'ok'}"><strong>H ${status.counts.h.open}</strong><small>open${status.counts.h.deferred ? `, ${status.counts.h.deferred} deferred` : ''}</small></div></div>
-      <p class="muted" data-gate-line>${escape(gateLine(status.counts))}</p>`
-    : revision ? `<p class="muted">${escape(revision.specId)}@${revision.revision} is ${escape(String(revision.manifest.reviewState ?? ''))}; no draft on this clone.</p>` : '';
-  const records = status ? draftRecords(status).map((entry) => `<li><button type="button" class="ss-link" data-message="spec.step" data-step="${entry.step}">
-      <code>${escape(entry.file)}</code><small>${escape(entry.detail)}</small></button></li>`).join('')
-    : revision ? ['spec.md', 'gaps.json', 'research.json', 'quality.json', 'manifest.json'].map((file) => `<li><code>${file}</code><small>${file === 'gaps.json' ? `${revision.gaps} event(s)` : file === 'research.json' ? `${revision.research} item(s)` : file === 'manifest.json' ? escape(revision.manifestSha256.slice(0, 19)) : ''}</small></li>`).join('') : '';
-  const states = stepStates(status);
-  const steps = SPEC_STUDIO_STEPS.map((step, index) => `<li><button type="button" class="ss-step ${states[step.id].state}" data-message="spec.step" data-step="${step.id}"${state.step === step.id ? ' aria-current="step"' : ''}>
-      <span class="ss-step-number">${index + 1}</span><span><strong>${escape(step.label)}</strong><small>${escape(states[step.id].note || step.detail)}</small></span></button></li>`).join('');
-  const pipeline = status ? gapPipeline(status.gaps).map((gap) => `<li><button type="button" class="ss-gap-row${state.selectedGap === gap.id ? ' selected' : ''}" data-message="spec.gap" data-gap="${escape(gap.id)}">
-      <span>${escape(gap.id)} ${statusPill(gap.status)}</span><small>${escape(kindLabel(gap.kind))}: ${escape(gap.question)}</small></button></li>`).join('') : '';
-  return `<aside class="ss-left" aria-label="Specification steps and quality">
-    <h2>Steps</h2><ol class="ss-steps">${steps}</ol>
-    <div class="ss-quality-summary"><h2>Quality</h2>${status ? `<p>${status.counts.d.passed}/${status.counts.d.total} checks passed</p><p>${status.counts.a.status === 'not-run' ? 'Assisted review not run' : `${status.counts.a.pending} review findings pending`}</p><p>${status.counts.h.open} open decisions</p>` : ''}
-      <details class="ss-details"><summary>Check details</summary>${gate}</details></div>
-    ${status ? `<details class="ss-details"${state.step === 'gaps' ? ' open' : ''}><summary>Open questions (${status.counts.h.open})</summary>${pipeline ? `<ul class="ss-pipeline" data-pipeline>${pipeline}</ul>` : '<p class="muted">No gaps yet.</p>'}</details>` : ''}
-    <details class="ss-details"><summary>Draft records</summary><ul class="ss-records">${records}</ul></details>
-  </aside>`;
 }
 
 // ---- The right column ----------------------------------------------------------------------
@@ -172,17 +147,6 @@ function standing(item: SpecResearchItem): string {
   return `<span class="pill">${escape(item.basis)}</span>`;
 }
 
-function elicitStage(status: SpecStatus): string {
-  const outcome = sectionText(status.spec, 'Outcome');
-  return `<h2>${icon('edit')}Overview</h2>
-    <dl class="ss-facts"><dt>Title</dt><dd>${escape(status.title)}</dd>
-      <dt>Area of code</dt><dd>${status.areas.length ? status.areas.map((area) => `<code>${escape(area || '.')}</code>`).join(' ') : '<span class="muted">none named; research names its own paths</span>'}</dd>
-      <dt>Intent (Outcome)</dt><dd>${outcome ? `<pre class="ss-pre">${escape(outcome)}</pre>` : '<span class="muted">The specification has no Outcome section yet.</span>'}</dd>
-      <dt>Based on</dt><dd>${status.basedOn ? `@${status.basedOn.revision} (${escape(status.basedOn.reviewState)})` : 'the library template; never published'}</dd></dl>
-    <p class="muted">Change the prose in Write. The title and code scope are set when the draft starts.</p>
-    ${controls('elicit', { cancel: false })}`;
-}
-
 function researchStage(status: SpecStatus): string {
   const rows = status.researchItems.map((item) => `<tr data-research="${escape(item.id)}"><td><code>${escape(item.id)}</code></td><td>${standing(item)}</td>
     <td>${escape(item.summary)}<br>${citation(item)}${item.standing === 'stale' && item.staleReason ? `<br><small class="muted">${escape(item.staleReason)}</small>` : ''}</td>
@@ -199,23 +163,6 @@ function researchStage(status: SpecStatus): string {
       <label class="field"><span>Stated by</span><input name="source" required></label>
       <div class="ss-controls"><button type="submit">${icon('add')}Add the fact</button></div></form>
     ${controls('research')}`;
-}
-
-function draftStage(status: SpecStatus, workingDraft?: SpecStudioPageState['workingDraft']): string {
-  const content = workingDraft?.text ?? status.spec;
-  const sequence = workingDraft?.sequence ?? status.sequence;
-  return `<h2>${icon('document')}Write your specification</h2>
-    <p class="muted">Describe the behavior, boundaries and evidence that will prove it works.</p>
-    ${workingDraft && sequence !== status.sequence ? '<div class="notice warning" role="alert">A newer snapshot was saved. Your unsaved text is preserved. Copy it, discard unsaved changes to load the latest snapshot, then merge your edits with the saved preview. <button type="button" class="secondary" data-message="spec.copyEdits">Copy unsaved text</button></div>' : ''}
-    <form class="ss-form" data-form="spec.save">
-      <input type="hidden" name="sequence" value="${sequence}">
-      <div class="ss-editor-meta"><span data-edit-status role="status">${workingDraft ? 'Unsaved changes' : 'All changes saved'}</span><span data-word-count>${content.trim().split(/\s+/u).filter(Boolean).length} words</span></div>
-      <label class="field"><span class="sr-only">Specification text</span>
-        <textarea name="text" class="ss-editor" rows="24" spellcheck="true">${escape(content)}</textarea>
-        </label>
-      <details class="ss-details"><summary>Writing requirements and acceptance criteria</summary><p class="muted">Use the section headings in the draft. Give each requirement a stable reference, for example [${escape(status.specId)}:REQ-002], and an acceptance criterion that proves it. Copilot can help structure the draft. Saving keeps a new snapshot.</p></details>
-      <div class="ss-controls"><button type="submit">${icon('ok')}Save draft</button></div></form>
-    ${controls('draft')}`;
 }
 
 function impactLines(impact: SpecGapImpact | null, option: string, changesCode: boolean): string {
@@ -366,9 +313,7 @@ function stageHtml(state: SpecStudioPageState): string {
   let body: string;
   if (state.step === 'attach') body = attachStage(state);
   else if (!status) body = noDraftStage(state);
-  else if (state.step === 'elicit') body = elicitStage(status);
   else if (state.step === 'research') body = researchStage(status);
-  else if (state.step === 'draft') body = draftStage(status, state.workingDraft);
   else if (state.step === 'gaps') body = gapsStage(state, status);
   else if (state.step === 'check') body = checkStage(status);
   else body = publishStage(state, status);
@@ -440,46 +385,69 @@ function tabsHtml(state: SpecStudioPageState): string {
     ${status ? `<div role="tabpanel" data-panel="copilot" hidden>${copilotHtml(state, status)}</div>` : ''}</section></details>`;
 }
 
-/** A lossless line surface: unchanged Markdown, including anchors and tables, stays byte-for-byte. */
+/**
+ * A lossless line surface: unchanged Markdown, including anchors and tables, stays byte-for-byte, and an
+ * edited line turns back into the Markdown it came from (inline() in the page script). A code span is
+ * taken whole first, so emphasis can never overlap it and come back in another order.
+ */
 export function studioDocumentHtml(markdown: string): string {
   return markdown.split(/\r?\n/u).map(line => {
     const match = /^(#{1,6})\s+(.*)$/u.exec(line);
     const tag = match ? `h${match[1]!.length}` : 'p';
     const value = match ? match[2]! : line;
-    const safe = escape(value).replace(/\*\*([^*]+)\*\*/gu, '<strong>$1</strong>').replace(/`([^`]+)`/gu, '<code>$1</code>').replace(/\[([A-Z0-9._-]+:(?:REQ|AC|CON|BEH|IFC)-\d{3,})\]/gu,
-      '<span class="ss-clause-anchor" contenteditable="false">[$1]</span>');
+    const spans: string[] = [];
+    const safe = escape(value).replace(/`([^`]+)`/gu, (_whole, code: string) => `\u0000${spans.push(code) - 1}\u0000`)
+      .replace(/\*\*([^*]+)\*\*/gu, '<strong>$1</strong>')
+      .replace(/\u0000(\d+)\u0000/gu, (_whole, index: string) => `<code>${spans[Number(index)]}</code>`)
+      .replace(/\[([A-Z0-9._-]+:(?:REQ|AC|CON|BEH|IFC)-\d{3,})\]/gu, '<span class="ss-clause-anchor" contenteditable="false">[$1]</span>');
     return `<${tag} data-original-line="${escape(line)}">${safe || '<br>'}</${tag}>`;
   }).join('');
 }
 
-function composePage(state: SpecStudioPageState, status: SpecStatus): string {
-  const working = state.workingDraft;
+/**
+ * The parts of the writing page that change without touching what the person is writing. A live page
+ * takes these as a message (`spec.regions`), so saving, a Copilot proposal or a sharing result never
+ * replaces the editor: its caret, undo, scroll, Markdown mode and an unsent Copilot request all stay.
+ */
+export function composeRegions(state: SpecStudioPageState, status: SpecStatus): Record<string, string> {
   const sources = status.sources ?? [];
   const gap = status.gaps.find(item => item.status === 'open');
-  const text = working?.text ?? status.spec;
   const tray = state.step !== 'draft' && state.step !== 'elicit' ? `<section class="ss-compose-tray"><button type="button" class="secondary ss-close-tray" data-message="spec.step" data-step="draft">Back to writing</button>${stageHtml(state)}</section>` : '';
+  return {
+    notices: `${notices(state)}<div class="notice warning" data-sync-problem${state.sharing ? '' : ' hidden'} role="status"><span data-sync-error>${escape(state.sharing?.message ?? '')}</span><code data-sync-next${state.sharing?.next ? '' : ' hidden'}>${escape(state.sharing?.next ?? '')}</code><button type="button" class="secondary" data-message="spec.sync">Retry sharing</button></div>${tray}`,
+    sources: sources.map(source => `<button type="button" class="secondary compact-action" data-message="spec.viewSource" data-item="${escape(String(source.id))}">${escape(String(source.name))}<small>Not yet inspected</small></button>`).join(''),
+    below: `<details class="ss-details"><summary>Details and review</summary><p><code>${escape(status.specId)}</code> · saved version ${status.sequence}</p><p>${escape(state.syncState ?? 'No shared checkpoint confirmed yet.')}</p><button class="secondary" data-message="spec.step" data-step="research">Research the code</button><button class="secondary" data-message="spec.step" data-step="gaps">Questions to answer</button><button class="secondary" data-message="spec.step" data-step="check">Check this draft</button><button class="secondary" data-message="spec.derive">Work out the technical details</button><button class="secondary" data-message="spec.step" data-step="attach">Break into smaller parts</button>${tabsHtml(state)}</details>
+      ${state.history ? `<section class="ss-version-list"><h2>Earlier versions</h2>${state.history.map(version => `<div><span>Saved ${escape(when(version.savedAt))}</span><span><button class="secondary" data-message="spec.version" data-revision="${version.sequence}">View version ${version.sequence}</button><button class="ss-link" data-message="spec.restoreVersion" data-revision="${version.sequence}">Restore wording</button></span></div>`).join('')}</section>` : ''}
+      ${state.shared ? `<section class="ss-compose-tray"><h2>There is a shared draft</h2><p>Your local versions remain available in Earlier versions.</p><pre>${escape(String((state.shared.draft as Record<string, unknown>)?.spec ?? ''))}</pre><button data-message="spec.resumeShared">Use the shared draft</button><button class="secondary" data-message="spec.fork">Keep mine as another draft</button></section>` : ''}
+      ${state.sourceViews ? `<section class="ss-compose-tray"><h2>Selected source</h2>${state.sourceViews.map(view => `<p>${escape(String((view.source as Record<string, unknown>)?.name ?? 'Source'))} · ${escape(String(view.status))}</p>${view.message ? `<p>${escape(String(view.message))}</p>` : ''}${view.text ? `<pre>${escape(String(view.text))}</pre>` : ''}${view.next ? `<button class="ss-link" data-message="spec.viewSource" data-item="${escape(String((view.source as Record<string, unknown>)?.id))}" data-line="${Number(view.next)}" data-column="${Number(view.nextColumn ?? 0)}">Read more</button>` : ''}${view.instruction ? `<p class="muted">${escape(String(view.instruction))}</p>` : ''}<button class="ss-link" data-message="spec.removeSource" data-item="${escape(String((view.source as Record<string, unknown>)?.id))}">Remove from this draft</button>${view.status === 'upload-required' ? `<button class="secondary" data-message="spec.restoreSource" data-item="${escape(String((view.source as Record<string, unknown>)?.id))}">Add this file again</button>` : ''}`).join('')}</section>` : ''}`,
+    cowriter: `${gap ? `<section class="ss-question-card"><h3>One thing to confirm</h3>${gapDetail(status, gap, state.impact)}</section>` : '<p>Bring your notes, documents and selected code. Copilot can suggest a first draft, explain gaps and help improve a section.</p>'}
+      ${copilotHtml(state, status)}`,
+    send: `<button type="submit"${state.copilot?.available ? '' : ' disabled'}>Send to Copilot</button>`
+  };
+}
+
+function composePage(state: SpecStudioPageState, status: SpecStatus): string {
+  const working = state.workingDraft;
+  const regions = composeRegions(state, status);
+  const text = working?.text ?? status.spec;
   return `<div class="ss-root ss-compose" data-view="spec" data-spec="${escape(status.specId)}">
     <header class="ss-compose-top"><button class="ss-link" data-message="spec.home">Spec Studio</button><span class="muted">Your draft</span>
       <div class="ss-compose-actions"><span data-save-state role="status">${escape(state.saveState ?? 'Saved on this laptop')}</span><button class="secondary" data-message="spec.sync">Sync now</button>
       <button class="secondary" data-message="spec.step" data-step="publish">Make ready to use</button><button data-message="spec.step" data-step="attach">Create a Story</button></div></header>
-    ${notices(state)}<div class="notice warning" data-sync-problem hidden role="status"><span data-sync-error></span><code data-sync-next hidden></code><button type="button" class="secondary" data-message="spec.sync">Retry sharing</button></div>${tray}
+    <div data-region="notices">${regions.notices}</div>
     <div class="ss-compose-grid"><main class="ss-paper"><form data-form="spec.save" class="ss-writing-form">
       <input type="hidden" name="sequence" value="${working?.sequence ?? status.sequence}">
       <p class="eyebrow">Your specification · Draft</p><label class="sr-only" for="ss-title">Specification title</label><textarea id="ss-title" class="ss-writing-title" name="title" maxlength="240" rows="1">${escape(working?.title ?? status.title)}</textarea>
       <label class="ss-kind-label">This describes <select name="kind" aria-label="Specification kind"><option value="">Choose when you’re ready</option><option value="business"${(working?.kind ?? status.kind) === 'business' ? ' selected' : ''}>Business needs</option><option value="technical"${(working?.kind ?? status.kind) === 'technical' ? ' selected' : ''}>Technical details</option></select></label>
-      <section class="ss-sources" aria-label="Files and links"><p class="muted">Files and links · originals stay on this laptop</p><div class="ss-source-list">${sources.map(source => `<button type="button" class="secondary compact-action" data-message="spec.viewSource" data-item="${escape(String(source.id))}">${escape(String(source.name))}<small>Not yet inspected</small></button>`).join('')}</div>
+      <section class="ss-sources" aria-label="Files and links"><p class="muted">Files and links · originals stay on this laptop</p><div class="ss-source-list" data-region="sources">${regions.sources}</div>
       <div class="ss-source-actions"><button type="button" class="ss-link" data-message="spec.addFiles">+ Add files or images</button><button type="button" class="ss-link" data-message="spec.addLink">Add a link</button><button type="button" class="ss-link" data-message="spec.chooseCode">Choose code</button><button type="button" class="ss-link" data-message="spec.addSpecification">Use a specification</button></div></section>
       <div class="ss-writing-tools" role="toolbar" aria-label="Writing tools"><button type="button" class="secondary" data-format="bold"><strong>B</strong><span class="sr-only">Bold</span></button><button type="button" class="secondary" data-format="heading">Heading</button><button type="button" class="secondary" data-format="list">List</button><button type="button" class="secondary" data-message="spec.insertLink">Link</button><button type="button" class="secondary" data-format="undo">Undo</button><button type="button" class="secondary" data-format="redo">Redo</button><button type="button" class="ss-link" data-source-toggle>Markdown</button></div>
       <label class="sr-only" for="ss-prose">Specification text</label><textarea id="ss-prose" name="text" class="ss-editor ss-markdown" rows="24">${escape(text)}</textarea>
       <article class="ss-rich-editor" contenteditable="true" role="textbox" aria-label="Specification text" aria-multiline="true" hidden>${studioDocumentHtml(text)}</article>
       <footer class="ss-writing-foot"><span data-word-count>${text.trim().split(/\s+/u).filter(Boolean).length} words</span><span data-edit-status role="status">${working ? 'Saving your changes…' : 'Write freely. Changes save automatically.'}</span><button type="button" class="ss-link" data-message="spec.history">Earlier versions</button><button type="submit" class="secondary">Save</button></footer></form>
-      <details class="ss-details"><summary>Details and review</summary><p><code>${escape(status.specId)}</code> · saved version ${status.sequence}</p><p>${escape(state.syncState ?? 'No shared checkpoint confirmed yet.')}</p><button class="secondary" data-message="spec.step" data-step="check">Check this draft</button><button class="secondary" data-message="spec.derive">Work out the technical details</button><button class="secondary" data-message="spec.step" data-step="attach">Break into smaller parts</button>${tabsHtml(state)}</details>
-      ${state.history ? `<section class="ss-version-list"><h2>Earlier versions</h2>${state.history.map(version => `<div><span>Saved ${escape(when(version.savedAt))}</span><span><button class="secondary" data-message="spec.version" data-revision="${version.sequence}">View version ${version.sequence}</button><button class="ss-link" data-message="spec.restoreVersion" data-revision="${version.sequence}">Restore wording</button></span></div>`).join('')}</section>` : ''}
-      ${state.shared ? `<section class="ss-compose-tray"><h2>There is a shared draft</h2><p>Your local versions remain available in Earlier versions.</p><pre>${escape(String((state.shared.draft as Record<string, unknown>)?.spec ?? ''))}</pre><button data-message="spec.resumeShared">Use the shared draft</button><button class="secondary" data-message="spec.fork">Keep mine as another draft</button></section>` : ''}
-      ${state.sourceViews ? `<section class="ss-compose-tray"><h2>Selected source</h2>${state.sourceViews.map(view => `<p>${escape(String((view.source as Record<string, unknown>)?.name ?? 'Source'))} · ${escape(String(view.status))}</p>${view.message ? `<p>${escape(String(view.message))}</p>` : ''}${view.text ? `<pre>${escape(String(view.text))}</pre>` : ''}${view.next ? `<button class="ss-link" data-message="spec.viewSource" data-item="${escape(String((view.source as Record<string, unknown>)?.id))}" data-line="${Number(view.next)}" data-column="${Number(view.nextColumn ?? 0)}">Read more</button>` : ''}${view.instruction ? `<p class="muted">${escape(String(view.instruction))}</p>` : ''}<button class="ss-link" data-message="spec.removeSource" data-item="${escape(String((view.source as Record<string, unknown>)?.id))}">Remove from this draft</button>${view.status === 'upload-required' ? `<button class="secondary" data-message="spec.restoreSource" data-item="${escape(String((view.source as Record<string, unknown>)?.id))}">Add this file again</button>` : ''}`).join('')}</section>` : ''}
+      <div data-region="below">${regions.below}</div>
     </main><aside class="ss-cowriter" aria-label="Write with Copilot"><h2>${icon('agent')}Write with Copilot</h2><p class="muted">Your idea, made clearer together.</p>
-      ${gap ? `<section class="ss-question-card"><h3>One thing to confirm</h3>${gapDetail(status, gap, state.impact)}</section>` : '<p>Bring your notes, documents and selected code. Copilot can suggest a first draft, explain gaps and help improve a section.</p>'}
-      ${copilotHtml(state, status)}<div class="ss-ask-box"><div class="ss-quick-prompts"><button class="ss-link" data-prompt="Make this clearer while keeping the intended meaning.">Make this clearer</button><button class="ss-link" data-prompt="Find missing failure cases, boundaries and dependencies. Explain their implications.">What could go wrong?</button></div><form data-form="spec.ask"><label class="sr-only" for="ss-request">Ask Copilot</label><textarea id="ss-request" name="request" rows="4" placeholder="Ask a question or describe a change…"></textarea><p class="muted">Changes are yours to keep.</p><button type="submit"${state.copilot?.available ? '' : ' disabled'}>Send to Copilot</button></form></div>
+      <div data-region="cowriter">${regions.cowriter}</div><div class="ss-ask-box"><div class="ss-quick-prompts"><button class="ss-link" data-prompt="Make this clearer while keeping the intended meaning.">Make this clearer</button><button class="ss-link" data-prompt="Find missing failure cases, boundaries and dependencies. Explain their implications.">What could go wrong?</button></div><form data-form="spec.ask"><label class="sr-only" for="ss-request">Ask Copilot</label><textarea id="ss-request" name="request" rows="4" placeholder="Ask a question or describe a change…"></textarea><p class="muted">Changes are yours to keep.</p><span data-region="send">${regions.send}</span></form></div>
     </aside></div></div>`;
 }
 
@@ -498,8 +466,6 @@ body:has(.ss-root) { max-width:none; }
 .ss-details { margin:.8rem 0; }
 .ss-details > summary { cursor:pointer; color:var(--sf-dim); padding:.4rem 0; }
 .ss-details[open] > summary { margin-bottom:.6rem; }
-.ss-quality-summary { margin-top:1.4rem; border-top:var(--sf-border); }
-.ss-quality-summary p { margin:.45rem 0; font-size:.9em; }
 .ss-library .ss-columns-2 { align-items:start; gap:2.5rem; }
 .ss-create { margin:0; padding:1.1rem; background:var(--vscode-editor-background); border:var(--sf-border); border-radius:var(--sf-radius); }
 .ss-create h2, .ss-library-list h2 { margin:0 0 .6rem; }
@@ -520,24 +486,10 @@ body:has(.ss-root) { max-width:none; }
 .ss-grid { display:grid; grid-template-columns:minmax(13rem,16rem) minmax(0,1fr); gap:1rem; margin:1rem 0; align-items:start; }
 @media (max-width: 1100px) { .ss-grid { grid-template-columns:minmax(13rem,16rem) minmax(0,1fr); } .ss-right { grid-column:1 / -1; } }
 @media (max-width: 720px) { .ss-grid { grid-template-columns:minmax(0,1fr); } }
-.ss-left, .ss-stage, .ss-right, .ss-tabs, .ss-library { padding:.9rem; border:var(--sf-border); border-radius:var(--sf-radius); background:var(--sf-surface); min-width:0; }
-.ss-left h2, .ss-right h2 { font-size:.8rem; text-transform:uppercase; letter-spacing:.08em; color:var(--sf-dim); margin:1rem 0 .4rem; }
-.ss-left h2:first-child, .ss-right h2:first-child { margin-top:0; }
-.ss-gate { display:grid; grid-template-columns:repeat(3,1fr); gap:.4rem; }
-.ss-gate > div { display:grid; gap:.1rem; padding:.45rem; border:var(--sf-border); border-radius:var(--sf-radius); text-align:center; }
-.ss-gate > div.ok strong { color:var(--sf-ok); } .ss-gate > div.bad strong { color:var(--sf-bad); }
-.ss-gate small, .ss-step small, .ss-records small, .ss-gap-row small { color:var(--sf-dim); overflow-wrap:anywhere; }
-.ss-records, .ss-steps, .ss-pipeline { list-style:none; margin:0; padding:0; display:grid; gap:.25rem; }
-.ss-records li { display:grid; gap:.1rem; }
+.ss-stage, .ss-right, .ss-tabs, .ss-library { padding:.9rem; border:var(--sf-border); border-radius:var(--sf-radius); background:var(--sf-surface); min-width:0; }
+.ss-right h2 { font-size:.8rem; text-transform:uppercase; letter-spacing:.08em; color:var(--sf-dim); margin:1rem 0 .4rem; }
+.ss-right h2:first-child { margin-top:0; }
 .ss-link { display:inline-grid; justify-items:start; justify-content:start; gap:.1rem; padding:.15rem 0; border:0; background:none; color:var(--vscode-textLink-foreground); text-align:left; cursor:pointer; font:inherit; min-height:0; }
-.ss-records .ss-link { width:100%; }
-.ss-step, .ss-gap-row { display:flex; gap:.5rem; align-items:flex-start; width:100%; padding:.4rem .5rem; border:var(--sf-border); border-radius:var(--sf-radius);
-  background:var(--vscode-editor-background); color:var(--vscode-foreground); text-align:left; font:inherit; cursor:pointer; min-height:0; justify-content:flex-start; }
-.ss-step span:last-child, .ss-gap-row { display:grid; }
-.ss-step[aria-current="step"], .ss-gap-row.selected { border:2px solid var(--sf-accent); background:var(--sf-accent-quiet); }
-.ss-step-number { display:grid; place-items:center; flex:0 0 1.4rem; height:1.4rem; border-radius:50%; border:var(--sf-border); font-size:.75rem; }
-.ss-step.done .ss-step-number { background:var(--sf-accent); color:var(--sf-on-accent); border-color:var(--sf-accent); }
-.ss-step.open .ss-step-number { border-color:var(--sf-wait); color:var(--sf-wait); }
 .ss-stage h2 { margin-top:0; display:flex; gap:.4rem; align-items:center; }
 .ss-controls { display:flex; flex-wrap:wrap; gap:.5rem; align-items:center; margin-top:.75rem; }
 .ss-form { display:grid; gap:.6rem; margin:1rem 0; }
@@ -588,7 +540,7 @@ body:has(.ss-root) { max-width:none; }
 .ss-children { padding-left:1.1rem; display:grid; gap:.25rem; }
 .ss-tabs [role=tab][aria-selected="true"] { border-color:var(--sf-accent); background:var(--sf-accent-quiet); }
 
-.ss-compose{max-width:1440px;margin:auto}.ss-compose-top{display:flex;align-items:center;gap:12px;padding:16px 24px;border-bottom:1px solid var(--vscode-panel-border)}.ss-compose-actions{display:flex;align-items:center;flex-wrap:wrap;gap:10px;margin-left:auto}.ss-compose-actions [data-save-state]{font-size:12px;color:var(--vscode-descriptionForeground)}.ss-compose-grid{display:grid;grid-template-columns:minmax(0,1fr) 300px}.ss-paper{padding:36px clamp(20px,4vw,64px);min-width:0;background:var(--vscode-editor-background)}.ss-writing-title{resize:none;overflow:hidden;field-sizing:content;min-height:44px;width:100%;padding:0;border:0!important;background:transparent!important;color:var(--vscode-foreground);font-size:30px!important;font-weight:600;line-height:1.3;letter-spacing:-.6px}.ss-kind-label{display:flex;align-items:center;gap:10px;color:var(--vscode-descriptionForeground);font-size:12px;margin:15px 0 24px}.ss-kind-label select{width:auto;max-width:230px}.ss-sources{margin-bottom:22px}.ss-source-list,.ss-source-actions{display:flex;flex-wrap:wrap;gap:12px}.ss-source-list button{display:grid;text-align:left;gap:2px}.ss-source-list small{display:block;font-size:10px;color:var(--vscode-descriptionForeground)}.ss-source-actions{margin-top:12px}.ss-writing-tools{display:flex;gap:4px;flex-wrap:wrap;border-block:1px solid var(--vscode-panel-border);padding:9px 0;margin-bottom:20px}.ss-writing-tools button{font-size:12px;padding:5px 8px;min-height:30px}.ss-rich-editor{outline:none;min-height:420px;line-height:1.8;overflow-wrap:anywhere;font-size:14px}.ss-rich-editor h1{font-size:24px}.ss-rich-editor h2{font-size:18px;margin:24px 0 8px}.ss-rich-editor h3{font-size:16px}.ss-rich-editor p{margin:0 0 9px;white-space:pre-wrap}.ss-rich-editor [data-original-line=""]{height:6px;min-height:6px;line-height:6px;margin:0}.ss-clause-anchor{font-size:10px;color:var(--vscode-descriptionForeground);opacity:.65}.ss-writing-foot{display:flex;flex-wrap:wrap;align-items:center;gap:14px;font-size:11px;color:var(--vscode-descriptionForeground);border-top:1px solid var(--vscode-panel-border);margin-top:24px;padding-top:14px}.ss-writing-foot [data-word-count]{margin-right:auto}.ss-cowriter{display:flex;flex-direction:column;gap:16px;border-left:1px solid var(--vscode-panel-border);background:var(--vscode-sideBar-background,var(--vscode-editor-background));padding:30px 22px;min-width:0}.ss-cowriter h2{display:flex;align-items:center;gap:8px;font-size:16px;margin:0}.ss-cowriter p{font-size:13px;line-height:1.7}.ss-question-card{padding:14px;background:var(--vscode-editor-background);border:1px solid var(--vscode-panel-border);border-radius:10px}.ss-question-card h3{font-size:13px}.ss-question-card .ss-controls,.ss-cowriter .ss-controls{flex-wrap:wrap}.ss-cowriter .ss-pre{max-height:260px;overflow:auto}.ss-cowriter .ss-proposals{padding:0;list-style:none}.ss-cowriter .ss-proposals>li{padding:12px 0;border-bottom:1px solid var(--vscode-panel-border)}.ss-ask-box{margin-top:auto;padding-top:20px}.ss-ask-box form{padding:12px;border:1px solid var(--vscode-panel-border);border-radius:10px;background:var(--vscode-editor-background)}.ss-ask-box textarea{width:100%;resize:vertical;min-height:80px;border:0}.ss-quick-prompts{display:flex;gap:10px;font-size:11px;margin-bottom:10px}.ss-compose-tray{margin:18px 24px;padding:20px;border:1px solid var(--vscode-panel-border);border-radius:10px;overflow:auto}.ss-compose-tray .ss-stage{padding:10px;border:0}.ss-close-tray{float:right}.ss-compose-tray pre{white-space:pre-wrap;max-height:280px;overflow:auto}.ss-version-list>div{display:flex;justify-content:space-between;gap:12px;margin:10px 0}.ss-create textarea{font-size:16px;line-height:1.7;min-height:130px}.ss-create h2{font-size:27px;line-height:1.35;letter-spacing:-.5px}.ss-compose [hidden]{display:none!important}.ss-compose button:focus-visible,.ss-rich-editor:focus-visible{outline:2px solid var(--vscode-focusBorder);outline-offset:3px}@media(max-width:860px){.ss-compose-grid{grid-template-columns:minmax(0,1fr)}.ss-cowriter{border-left:0;border-top:1px solid var(--vscode-panel-border)}.ss-compose-top{flex-wrap:wrap;padding:14px 18px}.ss-compose-actions{margin-left:0}.ss-paper{padding:24px 20px}}@media(max-width:420px){.ss-writing-title{font-size:25px!important}.ss-compose-tray{margin:12px 0}.ss-compose-actions button{min-height:38px}.ss-kind-label{flex-wrap:wrap}}
+.ss-compose{max-width:1440px;margin:auto}.ss-compose-top{display:flex;align-items:center;gap:12px;padding:16px 24px;border-bottom:1px solid var(--vscode-panel-border)}.ss-compose-actions{display:flex;align-items:center;flex-wrap:wrap;gap:10px;margin-left:auto}.ss-compose-actions [data-save-state]{font-size:12px;color:var(--vscode-descriptionForeground)}.ss-compose-grid{display:grid;grid-template-columns:minmax(0,1fr) 300px}.ss-paper{padding:36px clamp(20px,4vw,64px);min-width:0;background:var(--vscode-editor-background)}.ss-writing-title{resize:none;overflow:hidden;field-sizing:content;min-height:44px;width:100%;padding:0;border:0!important;background:transparent!important;color:var(--vscode-foreground);font-size:30px!important;font-weight:600;line-height:1.3;letter-spacing:-.6px}.ss-kind-label{display:flex;align-items:center;gap:10px;color:var(--vscode-descriptionForeground);font-size:12px;margin:15px 0 24px}.ss-kind-label select{width:auto;max-width:230px}.ss-sources{margin-bottom:22px}.ss-source-list,.ss-source-actions{display:flex;flex-wrap:wrap;gap:12px}.ss-source-list button{display:grid;text-align:left;gap:2px}.ss-source-list small{display:block;font-size:10px;color:var(--vscode-descriptionForeground)}.ss-source-actions{margin-top:12px}.ss-writing-tools{display:flex;gap:4px;flex-wrap:wrap;border-block:1px solid var(--vscode-panel-border);padding:9px 0;margin-bottom:20px}.ss-writing-tools button{font-size:12px;padding:5px 8px;min-height:30px}.ss-rich-editor{outline:none;min-height:420px;line-height:1.8;overflow-wrap:anywhere;font-size:14px}.ss-rich-editor h1{font-size:24px}.ss-rich-editor h2{font-size:18px;margin:24px 0 8px}.ss-rich-editor h3{font-size:16px}.ss-rich-editor p{margin:0 0 9px;white-space:pre-wrap}.ss-rich-editor [data-original-line=""]{height:6px;min-height:6px;line-height:6px;margin:0}.ss-compose [data-region]:not(.ss-source-list){display:contents}.ss-clause-anchor{font-size:10px;color:var(--vscode-descriptionForeground);opacity:.65}.ss-writing-foot{display:flex;flex-wrap:wrap;align-items:center;gap:14px;font-size:11px;color:var(--vscode-descriptionForeground);border-top:1px solid var(--vscode-panel-border);margin-top:24px;padding-top:14px}.ss-writing-foot [data-word-count]{margin-right:auto}.ss-cowriter{display:flex;flex-direction:column;gap:16px;border-left:1px solid var(--vscode-panel-border);background:var(--vscode-sideBar-background,var(--vscode-editor-background));padding:30px 22px;min-width:0}.ss-cowriter h2{display:flex;align-items:center;gap:8px;font-size:16px;margin:0}.ss-cowriter p{font-size:13px;line-height:1.7}.ss-question-card{padding:14px;background:var(--vscode-editor-background);border:1px solid var(--vscode-panel-border);border-radius:10px}.ss-question-card h3{font-size:13px}.ss-question-card .ss-controls,.ss-cowriter .ss-controls{flex-wrap:wrap}.ss-cowriter .ss-pre{max-height:260px;overflow:auto}.ss-cowriter .ss-proposals{padding:0;list-style:none}.ss-cowriter .ss-proposals>li{padding:12px 0;border-bottom:1px solid var(--vscode-panel-border)}.ss-ask-box{margin-top:auto;padding-top:20px}.ss-ask-box form{padding:12px;border:1px solid var(--vscode-panel-border);border-radius:10px;background:var(--vscode-editor-background)}.ss-ask-box textarea{width:100%;resize:vertical;min-height:80px;border:0}.ss-quick-prompts{display:flex;gap:10px;font-size:11px;margin-bottom:10px}.ss-compose-tray{margin:18px 24px;padding:20px;border:1px solid var(--vscode-panel-border);border-radius:10px;overflow:auto}.ss-compose-tray .ss-stage{padding:10px;border:0}.ss-close-tray{float:right}.ss-compose-tray pre{white-space:pre-wrap;max-height:280px;overflow:auto}.ss-version-list>div{display:flex;justify-content:space-between;gap:12px;margin:10px 0}.ss-create textarea{font-size:16px;line-height:1.7;min-height:130px}.ss-create h2{font-size:27px;line-height:1.35;letter-spacing:-.5px}.ss-compose [hidden]{display:none!important}.ss-compose button:focus-visible,.ss-rich-editor:focus-visible{outline:2px solid var(--vscode-focusBorder);outline-offset:3px}@media(max-width:860px){.ss-compose-grid{grid-template-columns:minmax(0,1fr)}.ss-cowriter{border-left:0;border-top:1px solid var(--vscode-panel-border)}.ss-compose-top{flex-wrap:wrap;padding:14px 18px}.ss-compose-actions{margin-left:0}.ss-paper{padding:24px 20px}}@media(max-width:420px){.ss-writing-title{font-size:25px!important}.ss-compose-tray{margin:12px 0}.ss-compose-actions button{min-height:38px}.ss-kind-label{flex-wrap:wrap}}
 `;
 
 export const SPEC_STUDIO_SCRIPT = `
@@ -612,13 +564,13 @@ export const SPEC_STUDIO_SCRIPT = `
   if (writing) {
     const raw = writing.querySelector('textarea[name=text]'), rich = writing.querySelector('.ss-rich-editor');
     const originals = new WeakMap();
-    for (const child of rich.children) originals.set(child, { html: child.innerHTML, raw: child.dataset.originalLine });
     function inline(node) {
       if (node.nodeType === 3) return node.textContent;
       if (node.nodeName === 'BR') return '\\n';
       const value = Array.from(node.childNodes).map(inline).join('');
-      if (['B','STRONG'].includes(node.nodeName)) return '**' + value + '**';
-      if (['I','EM'].includes(node.nodeName)) return '*' + value + '*';
+      if (['B','STRONG'].includes(node.nodeName)) return value ? '**' + value + '**' : '';
+      if (['I','EM'].includes(node.nodeName)) return value ? '*' + value + '*' : '';
+      if (node.nodeName === 'CODE') return value ? '\x60' + value + '\x60' : '';
       if (node.nodeName === 'A') { const href=node.getAttribute('href')||'';return /^(https?:|mailto:|#)/i.test(href)?'['+value+']('+href+')':value; }
       return value;
     }
@@ -631,15 +583,21 @@ export const SPEC_STUDIO_SCRIPT = `
       if (node.nodeName === 'DIV' && Array.from(node.children).some(child=>['DIV','P','UL','OL'].includes(child.nodeName))) return Array.from(node.childNodes).map(block).join('\\n');
       return inline(node).replace(/\\n$/,'');
     }
-    let titleLine = /^# /.test(raw.value.split('\\n')[0]) ? raw.value.split('\\n')[0] : null;
-    if(titleLine && rich.firstElementChild?.tagName === 'H1')rich.firstElementChild.remove();
+    let titleLine = null;
+    function adoptDocument() {
+      for (const child of rich.children) originals.set(child, { html: child.innerHTML, raw: child.dataset.originalLine });
+      titleLine = /^# /.test(raw.value.split('\\n')[0]) ? raw.value.split('\\n')[0] : null;
+      if(titleLine && rich.firstElementChild?.tagName === 'H1')rich.firstElementChild.remove();
+    }
+    adoptDocument();
     const serialize = () => { if (!rich.hidden) raw.value = (titleLine === null ? '' : titleLine+'\\n') + Array.from(rich.childNodes).map(block).join('\\n'); };
     const title = writing.querySelector('[name=title]');
     const sizeTitle = () => {title.style.height='auto';title.style.height=title.scrollHeight+'px';};
     title.addEventListener('input',()=>{if(titleLine!==null){const previous=titleLine;titleLine='# '+title.value;if(rich.hidden&&raw.value.startsWith(previous+'\\n'))raw.value=titleLine+raw.value.slice(previous.length);else serialize();}sizeTitle();});
     sizeTitle();
     rich.hidden=false; raw.hidden=true;
-    rich.addEventListener('input',event=>{event.stopPropagation();serialize();raw.dispatchEvent(new Event('input',{bubbles:true}));});
+    // A blank line sits small until someone types in it: its attribute records the line it started as, not what it holds now.
+    rich.addEventListener('input',event=>{event.stopPropagation();for(const line of rich.querySelectorAll('[data-original-line=""]'))if(line.textContent)line.removeAttribute('data-original-line');serialize();raw.dispatchEvent(new Event('input',{bubbles:true}));});
     rich.addEventListener('paste',event=>{event.preventDefault();document.execCommand('insertText',false,event.clipboardData.getData('text/plain'));});
     rich.addEventListener('drop',event=>event.preventDefault());
     let selection=null;
@@ -653,6 +611,35 @@ export const SPEC_STUDIO_SCRIPT = `
     window.addEventListener('message',event=>{const message=event.data;if(message.type!=='spec.syncState')return;const problem=root.querySelector('[data-sync-problem]');problem.hidden=!message.message;root.querySelector('[data-sync-error]').textContent=message.message||'';const next=root.querySelector('[data-sync-next]');next.textContent=message.next||'';next.hidden=!message.next;});
     window.addEventListener('message',event=>{const message=event.data;if(message.type==='spec.saved'){writing.querySelector('button[type=submit]').disabled=false;writing.querySelector('[name=sequence]').value=String(message.sequence);root.querySelector('[data-save-state]').textContent=message.dirty?'Saving your changes…':message.synced?'Synced':'Saved on this laptop';root.querySelector('[data-edit-status]').textContent=message.dirty?'Changes waiting to save':'Changes saved';}if(message.type==='spec.saveFailed'){writing.querySelector('button[type=submit]').disabled=false;root.querySelector('[data-save-state]').textContent='Could not save — your text is kept here';root.querySelector('[data-edit-status]').textContent=message.message;}if(message.type==='spec.syncState')root.querySelector('[data-save-state]').textContent=message.text;if(message.type==='spec.link'){rich.focus();if(selection){const selected=window.getSelection();selected.removeAllRanges();selected.addRange(selection);}document.execCommand('createLink',false,message.url);serialize();raw.dispatchEvent(new Event('input',{bubbles:true}));}});
     document.addEventListener('keydown',event=>{if((event.metaKey||event.ctrlKey)&&event.key.toLowerCase()==='s'){event.preventDefault();serialize();post(Object.assign({type:'spec.save'},fields(writing),{sequence:Number(fields(writing).sequence)}));}});
+    // What changed around the editor arrives as a message; the editor keeps its caret, undo, scroll and mode.
+    function patchRegion(element, html) {
+      const fields = () => Array.from(element.querySelectorAll('textarea[name],select[name],input[name]:not([type=hidden])'));
+      const key = field => field.name + (field.type === 'checkbox' ? '=' + field.value : '');
+      const typed = new Map(fields().map(field => [key(field), { value: field.value, checked: field.checked, focused: field === document.activeElement, start: field.selectionStart, end: field.selectionEnd }]));
+      const opened = Array.from(element.querySelectorAll('details')).map(item => item.open);
+      const tab = element.querySelector('[data-tab][aria-selected="true"]')?.dataset.tab;
+      element.innerHTML = html;
+      for (const field of fields()) {
+        const before = typed.get(key(field));
+        if (!before) continue;
+        if (field.type === 'checkbox') field.checked = before.checked; else field.value = before.value;
+        if (before.focused) { field.focus(); if (typeof before.start === 'number' && field.setSelectionRange) field.setSelectionRange(before.start, before.end); }
+      }
+      const details = Array.from(element.querySelectorAll('details'));
+      if (details.length === opened.length) details.forEach((item, index) => { item.open = opened[index]; });
+      else if (details.length && opened.length) details[0].open = opened[0];
+      const selected = tab && element.querySelector('[data-tab="' + tab + '"]');
+      if (selected) selected.click();
+    }
+    window.addEventListener('message',event=>{const message=event.data;if(message.type!=='spec.regions')return;
+      for(const [name,html] of Object.entries(message.regions||{})){const element=root.querySelector('[data-region="'+name+'"]');if(element)patchRegion(element,html);}
+      if(message.document){raw.value=message.document.text;rich.innerHTML=message.document.html;adoptDocument();title.value=message.document.title;writing.querySelector('[name=kind]').value=message.document.kind||'';sizeTitle();selection=null;root.querySelector('[data-word-count]').textContent=message.document.text.trim().split(/\\s+/).filter(Boolean).length+' words';}
+      if(typeof message.sequence==='number')writing.querySelector('[name=sequence]').value=String(message.sequence);
+      if(typeof message.saveState==='string')root.querySelector('[data-save-state]').textContent=message.saveState;
+      syncDecide();for(const form of root.querySelectorAll('form[data-form="spec.slice"]'))syncSlice(form);
+      window.dispatchEvent(new Event('sf-spec-regions'));
+    });
+    post({type:'spec.ready'});
     selectedWording = () => raw.hidden ? (selection?.toString() || '') : raw.value.slice(raw.selectionStart, raw.selectionEnd);
     for(const button of root.querySelectorAll('[data-prompt]'))button.addEventListener('click',()=>post({type:'spec.ask',request:button.dataset.prompt,selection:selectedWording()}));
   }
@@ -727,7 +714,7 @@ export const SPEC_STUDIO_SCRIPT = `
     if (message.revision !== undefined) message.revision = Number(message.revision);
     if (message.line !== undefined) message.line = Number(message.line);
     if (message.column !== undefined) message.column = Number(message.column);
-    if (button.hasAttribute('data-cancel')) for (const form of root.querySelectorAll('form')) form.reset();
+    if (button.hasAttribute('data-cancel')) for (const form of (button.closest('.ss-compose-tray') || root).querySelectorAll('form')) form.reset();
     post(message);
   });
   root.addEventListener('submit', (event) => {

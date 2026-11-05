@@ -361,8 +361,11 @@ async function planDocuments(root, backup) {
       const here = await readDraft(root, workId);
       const draft = here?.head?.draft ?? backup.manifest.specDrafts.find(item => item.specId === workId)?.draft;
       for (const entry of entries) {
-        const record = draft?.sources?.find(source => source.storage?.kind === 'local' && source.storage.key === entry.key && source.sha256 === entry.sha256);
-        if (!record) { items.push({ workId, key: entry.key, sha256: entry.sha256, status: 'superseded' }); continue; }
+        // An original can outlive its place in the draft: a reviewed revision still pins it after it
+        // is removed there, and it may have no draft on this clone at all. Its bytes stay local, so it comes back.
+        const name = entry.key.split('/').at(-1);
+        const record = draft?.sources?.find(source => source.storage?.kind === 'local' && source.storage.key === entry.key && source.sha256 === entry.sha256)
+          ?? { id: null, name, sourceName: name, sha256: entry.sha256, size: entry.size, storage: { kind: 'local', key: entry.key } };
         const available = await localDocumentAvailability(root, workId, record, { verify: true }) === 'available';
         items.push({ workId, key: entry.key, sha256: entry.sha256, documentId: record.id, name: record.name,
           status: available ? 'already-present' : 'to-restore', restore: available ? null : { checkout: root, specification: workId, record } });

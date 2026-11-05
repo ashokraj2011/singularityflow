@@ -9,9 +9,10 @@ import { currentSchemaVersion, readRecord } from './schema-migrations.mjs';
 import { documentOfferedToPhase, resolveDocumentRecord } from './document-identity.mjs';
 import { agentBriefReviewDocuments } from './agent-briefs.mjs';
 import { exactFileAtObject, head, withEnvironmentFilesRegistry } from './git.mjs';
-import { SOURCE_TEXT_EXTRACTOR_VERSION, TEXT_SOURCE_EXTENSIONS, documentMimeType as mimeTypeForName, effectiveDocumentMimeType, extractSourceText, hasTextExtractor } from './source-text.mjs';
+import { SOURCE_TEXT_EXTRACTOR_VERSION, TEXT_SOURCE_EXTENSIONS, TEXT_RENDITION_SUFFIX, documentMimeType as mimeTypeForName, effectiveDocumentMimeType, extractSourceText, hasTextExtractor } from './source-text.mjs';
 import { isLocalDocument, localDocumentAvailability, readLocalDocument } from './document-storage.mjs';
 import { loadEnvironmentDeclarationSync, matchEnvironmentLocalPath } from './environment-declaration.mjs';
+import { scannablePath, scanEntries, secretRefusal } from './secrets.mjs';
 
 export const DOCUMENT_MANIFEST_SCHEMA_VERSION = currentSchemaVersion('document-manifest');
 const readFile = (...args) => measurePerformance('file', 'file.read-document', () => rawReadFile(...args));
@@ -77,6 +78,135 @@ export function environmentLocalRefusal(candidate, match) {
   );
 }
 
+export function safeName(value) {
+  let candidate = path.basename(value).replace(/[^A-Za-z0-9._-]+/g, '-').replace(/^-+|-+$/g, '');
+  candidate = candidate.replace(/[. ]+$/gu, '') || 'document';
+  // A name written only in non-Latin letters (要件.md) sanitizes to its extension alone, which Node
+  // then reads as an extensionless dotfile; keep a stem so its type, text and preview survive.
+  if (/^\.[A-Za-z0-9]+$/u.test(candidate) && path.extname(path.basename(value))) candidate = `document${candidate}`;
+  // Git treats a component named `.git` specially on every platform. Windows additionally refuses
+  // DOS device names even when they carry an extension. Preserve human-recognizable source paths,
+  // but make those reserved components ordinary portable directory/file names.
+  if (candidate.toLowerCase() === '.git'
+      || /^(?:con|prn|aux|nul|com[1-9]|lpt[1-9])(?:\..*)?$/iu.test(candidate)) {
+    candidate = `document-${candidate.replace(/^\.+/u, '') || 'file'}`;
+  }
+  return candidate;
+}
+
+export async function repositoryRelativeSource(root, source) {
+  // Compare canonical filesystem locations rather than caller spellings. macOS commonly exposes
+  // the same file through /var and /private/var, while Windows drive casing and junctions create
+  // equivalent aliases. A lexical comparison could treat a repository-local environment file as
+  // external and thereby skip its path-specific localFiles rule.
+  const [canonicalRoot, canonicalSource] = await Promise.all([
+    realpath(path.resolve(root)), realpath(path.resolve(source))
+  ]);
+  const relative = path.relative(canonicalRoot, canonicalSource);
+  if (!relative || relative === '..' || relative.startsWith(`..${path.sep}`)
+      || path.isAbsolute(relative)) return null;
+  return posix(relative);
+}
+
+/**
+ * The source's own repository path with its last link not followed: a placed environment file is a
+ * link into the private store, so only this spelling names it. Also refuse a real environment file
+ * by where it lives (the store or a linked file) [ENVF].
+ */
+export async function environmentFileSourceCandidates(root, declaration, source) {
+  const absolute = path.resolve(source);
+  const [canonicalRoot, parent] = await Promise.all([realpath(path.resolve(root)), realpath(path.dirname(absolute))]).catch(() => []);
+  const relative = parent ? path.relative(canonicalRoot, path.join(parent, path.basename(absolute))) : '';
+  const lexical = relative && relative !== '..' && !relative.startsWith(`..${path.sep}`) && !path.isAbsolute(relative) ? posix(relative) : null;
+  const match = lexical ? matchEnvironmentLocalPath(declaration, lexical) : null;
+  if (match) throw environmentLocalRefusal(lexical, match);
+  const canonical = await realpath(absolute).catch(() => null);
+  if (canonical && (declaration?.environmentFileLocations ?? []).some((location) => canonical === location || canonical.startsWith(`${location}${path.sep}`))) {
+    throw environmentLocalRefusal(source, { kind: 'environment-file', pattern: 'a private environment-file location' });
+  }
+  return lexical ? [lexical] : [];
+}
+
+export function assertDocumentInputContainsNoSecret(input, captured) {
+  const logicalPath = input.sourceRelativePath ? posix(input.sourceRelativePath) : safeName(input.source);
+  // An Office document's text reaches prompts through its rendition, so that text is scanned too.
+  const type = mimeType(input.source);
+  if (hasTextExtractor(type)) {
+    const extracted = extractSourceText(captured.bytes, type);
+    if (extracted.status === 'extracted') {
+      const refusal = secretRefusal(scanEntries([{ path: `${logicalPath}${TEXT_RENDITION_SUFFIX}`, content: extracted.text }]));
+      if (refusal) throw new SingularityFlowError(`Document upload was refused before any bytes were copied.\n\n${refusal}`, { code: 'SECRET_DETECTED' });
+    } else if (!extracted.empty) {
+      throw new SingularityFlowError(
+        `Document upload was refused before any bytes were copied: the text of '${logicalPath}' could not be read to scan it for secrets (${extracted.reason}).`,
+        { code: 'DOCUMENT_CONTENT_UNSCANNABLE', details: { path: logicalPath } }
+      );
+    }
+    return;
+  }
+  if (!scannablePath(logicalPath)) return;
+  let content;
+  try {
+    if (captured.bytes.includes(0)) throw new TypeError('NUL byte');
+    content = new TextDecoder('utf-8', { fatal: true }).decode(captured.bytes);
+  } catch {
+    throw new SingularityFlowError(
+      `Document upload was refused before any bytes were copied: '${logicalPath}' is not valid NUL-free UTF-8 text.`,
+      { code: 'DOCUMENT_CONTENT_UNSCANNABLE', details: { path: logicalPath } }
+    );
+  }
+  const refusal = secretRefusal(scanEntries([{ path: logicalPath, content }]));
+  if (!refusal) return;
+  throw new SingularityFlowError(
+    `Document upload was refused before any bytes were copied.\n\n${refusal}`,
+    { code: 'SECRET_DETECTED' }
+  );
+}
+
+/**
+ * The two refusals every document input takes, for a specification source: its path against the
+ * repository's environment-local rules, then its content through the secret scanner. A source's
+ * originals stay on this laptop, but `spec author sources` and a phase's read hand their text to a model.
+ */
+export async function assertSpecSourceAdmissible(root, { file = null, repositoryPath = null, name = null, bytes = null } = {}) {
+  const declaration = withEnvironmentFilesRegistry(root, loadEnvironmentDeclarationSync(root, { optional: true }));
+  if (declaration) {
+    const candidates = [repositoryPath, name && safeName(name),
+      ...(file ? [await repositoryRelativeSource(root, file).catch(() => null), ...await environmentFileSourceCandidates(root, declaration, file)] : [])];
+    for (const candidate of new Set(candidates.filter(Boolean))) {
+      const match = matchEnvironmentLocalPath(declaration, candidate);
+      if (match) throw environmentLocalRefusal(candidate, match);
+    }
+  }
+  if (bytes) assertDocumentInputContainsNoSecret({ source: name ?? repositoryPath ?? file }, { bytes });
+}
+
+/** A Story's pinned specification originals as document records, each once, including inherited specifications'. */
+function pinnedSourceRecords(slices, seen = new Set()) {
+  return slices.flatMap(slice => [...(slice.sources ?? []).flatMap(source => {
+    if (source.type !== 'file' || source.storage?.kind !== 'local') return [];
+    const specId = /^SPEC-[A-Z0-9]+(?:-[A-Z0-9]+)*@[1-9]\d*$/u.test(slice.revision ?? '') ? slice.revision.split('@')[0] : null;
+    if (!specId) throw new SingularityFlowError('A pinned specification source has an invalid revision.', { code: 'SPEC_SOURCE_BINDING_INVALID' });
+    const key = specId + ':' + source.id;
+    if (seen.has(key)) return [];
+    seen.add(key);
+    return [{ ...source, id: 'SPEC-SRC-' + createHash('sha256').update(key).digest('hex').slice(0, 16), label: source.name + ' · ' + slice.revision, mimeType: source.mediaType, phase: null,
+      specificationSource: { specId, revision: slice.revision, sourceId: source.id }, availability: null }];
+  }), ...pinnedSourceRecords(slice.inheritedSpecifications ?? [], seen)]);
+}
+
+/**
+ * The first query or fragment parameter of a parsed URL that conventionally carries authentication
+ * material, or null. Only the name is judged: query strings are legitimate parts of durable references
+ * (Figma node-id, GitHub line anchors), so a blanket refusal would make normal links unusable.
+ */
+export function credentialUrlParameter(parsed) {
+  const sensitive = (name) => /^(?:access[-_]?token|refresh[-_]?token|id[-_]?token|share[-_]?token|token|sig|signature|secret|password|passwd|credential|authorization|auth|api[-_]?key|apikey|awsaccesskeyid|x-amz-credential|x-amz-security-token|x-amz-signature|x-goog-credential|x-goog-signature)$/iu.test(name);
+  const query = [...parsed.searchParams.keys()].find(sensitive);
+  if (query) return query;
+  return parsed.hash.includes('=') ? [...new URLSearchParams(parsed.hash.replace(/^#/u, '')).keys()].find(sensitive) ?? null : null;
+}
+
 export async function governedDocumentPath(root, config, workflow, record) {
   if (!record.path) throw new SingularityFlowError(`Document '${record.id}' has no repository path.`);
   // Published code/test artifacts belong to the repository, not the Story's document folder.
@@ -128,31 +258,10 @@ export async function documentCatalog(root, config, workflow, { includeDetached 
       ? { ...record, availability: await localDocumentAvailability(root, workflow.workItem.id, record) }
       : record);
   }
-  // Pinned specification originals remain in their local source store. Offer their verified
-  // descriptors through the existing document pipeline, including images in automated runs.
-  const sourceFile = path.join(workDir(root, config, workflow.workItem.id), 'source.json');
-  const sourceText = await readFile(sourceFile, 'utf8').catch(error => error.code === 'ENOENT' ? null : Promise.reject(error));
-  const slices = sourceText ? JSON.parse(sourceText).specification ?? [] : [];
-  const seenSources = new Set();
-  function collectSources(entries) {
-    for (const slice of entries) {
-      for (const source of slice.sources ?? []) {
-        if (source.type !== 'file' || source.storage?.kind !== 'local') continue;
-        const specId = /^SPEC-[A-Z0-9]+(?:-[A-Z0-9]+)*@[1-9]\d*$/u.test(slice.revision ?? '') ? slice.revision.split('@')[0] : null;
-        if (!specId) throw new SingularityFlowError('A pinned specification source has an invalid revision.', { code: 'SPEC_SOURCE_BINDING_INVALID' });
-        const key = specId + ':' + source.id;
-        if (seenSources.has(key)) continue;
-        seenSources.add(key);
-        records.push({ ...source, id: 'SPEC-SRC-' + createHash('sha256').update(key).digest('hex').slice(0, 16),
-          label: source.name + ' · ' + slice.revision, mimeType: source.mediaType, phase: null,
-          specificationSource: { specId, revision: slice.revision, sourceId: source.id },
-          availability: null });
-      }
-      collectSources(slice.inheritedSpecifications ?? []);
-    }
-  }
-  collectSources(slices);
-  for (const record of records.filter(item => item.specificationSource)) record.availability = await localDocumentAvailability(root, workflow.workItem.id, record);
+  // Pinned specification originals remain in their local source store, offered through this same pipeline.
+  const sourceText = await readFile(path.join(workDir(root, config, workflow.workItem.id), 'source.json'), 'utf8').catch(error => error.code === 'ENOENT' ? null : Promise.reject(error));
+  const slices = sourceText ? JSON.parse(sourceText).specification : null;
+  for (const record of pinnedSourceRecords(slices ?? [])) records.push({ ...record, availability: await localDocumentAvailability(root, workflow.workItem.id, record) });
   for (const packageRecord of manifest.packages ?? []) {
     if (!includeDetached && !evidenceIsActive(packageRecord)) continue;
     for (const [suffix, label, kind, filePath, type] of [['INVENTORY', `${packageRecord.name} inventory`, 'package-inventory', packageRecord.inventoryPath, 'text/markdown'], ['GALLERY', `${packageRecord.name} gallery`, 'package-gallery', packageRecord.galleryPath, 'text/html'], ['MANIFEST', `${packageRecord.name} manifest`, 'package-manifest', packageRecord.manifestPath, 'application/json']]) {
@@ -260,6 +369,8 @@ async function viewDocumentRecord(root, config, workflow, record) {
   if (isLocalDocument(record)) {
     // Verified against the committed SHA-256, or refused with who has it and how to share it.
     ({ bytes, absolutePath: absolute } = await readLocalDocument(root, workflow.workItem.id, record));
+    // A pinned specification original took these refusals at upload only if it was added after them.
+    if (record.specificationSource) await assertSpecSourceAdmissible(root, { name: record.sourceName ?? record.name, bytes });
     current = { sha256: record.sha256, size: bytes.length };
   } else {
     absolute = await governedDocumentPath(root, config, workflow, record);

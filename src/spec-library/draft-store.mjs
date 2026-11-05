@@ -191,13 +191,18 @@ export async function readDraft(root, specId, { headOnly = false } = {}) {
   return view.head || view.damaged.length ? view : null;
 }
 
-/** Every draft on this clone, by specification ID. */
-export async function listDrafts(root, options = {}) {
+/** Every draft on this clone, by specification ID. With `unreadable`, a draft that cannot be read goes there instead of failing the list. */
+export async function listDrafts(root, { unreadable = null, ...options } = {}) {
   const names = await readdir(draftsRoot(root)).catch((error) => (missing(error) ? [] : Promise.reject(error)));
   const drafts = [];
   for (const name of names.filter(validSpecId).sort()) {
-    const draft = await readDraft(root, name, options);
-    if (draft) drafts.push(draft);
+    try {
+      const draft = await readDraft(root, name, options);
+      if (draft) drafts.push(draft);
+    } catch (error) {
+      if (!unreadable) throw error;
+      unreadable.push({ specId: name, record: 'local draft', code: error.code ?? null, message: error.message });
+    }
   }
   return drafts;
 }
@@ -228,13 +233,67 @@ async function withDraftLock(root, specId, work) {
 }
 
 /**
+ * Local history retention (SPEC-SPA section 5.4). Autosave writes a whole snapshot per save, so a long
+ * draft's history would grow without bound. Only ordinary wording saves are ever removed, and only
+ * after these protections: the head, every other kind of snapshot (decisions, accepted proposals,
+ * sources, publications), the sequence the shared basis names, the newest saves, and the last save of
+ * each older hour. The head holds the wording, so no unsynchronized work is lost by removing the rest.
+ */
+const RETAINED_RECENT_SAVES = 200;
+const RETENTION_BATCH = 50;
+const retainedRecentSaves = (env = process.env) => {
+  const configured = Number(env.SINGULARITY_FLOW_SPEC_HISTORY_RECENT);
+  return Number.isSafeInteger(configured) && configured >= 20 ? configured : RETAINED_RECENT_SAVES;
+};
+export function retentionPlan(snapshots, { protectedSequences = [], recent = retainedRecentSaves() } = {}) {
+  const head = snapshots.at(-1)?.sequence;
+  const saves = snapshots.filter((snapshot) => snapshot.operation === 'edit');
+  const newest = new Set(saves.slice(-recent).map((snapshot) => snapshot.sequence));
+  const lastOfHour = new Map(saves.map((snapshot) => [String(snapshot.savedAt).slice(0, 13), snapshot.sequence]));
+  const hourly = new Set(lastOfHour.values());
+  const retain = [], remove = [];
+  for (const { sequence, operation, savedAt } of snapshots) {
+    const reason = sequence === head ? 'current version' : operation !== 'edit' ? operation
+      : protectedSequences.includes(sequence) ? 'shared basis' : newest.has(sequence) ? 'recent save' : hourly.has(sequence) ? 'last save of its hour' : null;
+    if (reason) retain.push({ sequence, reason }); else remove.push({ sequence, savedAt });
+  }
+  return { recent, retain, remove };
+}
+
+async function protectedDraftSequences(root, specId) {
+  const basis = await (await import('./shared-basis.mjs')).sharedBasis(root, specId);
+  return Number.isSafeInteger(basis?.localSequence) ? [basis.localSequence] : [];
+}
+
+/** What the next retention pass would remove from this draft and what it keeps: a read. */
+export async function draftRetentionPreview(root, specId, view) {
+  return retentionPlan(view.snapshots, { protectedSequences: await protectedDraftSequences(root, specId) });
+}
+
+/** One pass, every RETENTION_BATCH saves past the bound, holding the draft lock. Its failure never undoes a save. */
+async function thinDraftHistory(root, specId, directory, rows) {
+  if (rows.length < retainedRecentSaves() + RETENTION_BATCH || rows.at(-1).sequence % RETENTION_BATCH) return;
+  const read = await readSnapshots(directory, specId);
+  if (read.some((entry) => entry.damaged)) return;
+  const { remove } = retentionPlan(read.map((entry) => entry.record), { protectedSequences: await protectedDraftSequences(root, specId) });
+  for (const { sequence } of remove) await rm(path.join(directory, snapshotName(sequence)), { force: true });
+  if (remove.length) await syncDirectory(directory);
+}
+
+/** The fields a person's wording save replaces. Staged proposals, sources, research and decisions are others. */
+export const sameWording = (left, right) => left.spec === right.spec && left.title === right.title && (left.kind ?? null) === (right.kind ?? null);
+
+/**
  * Save the next snapshot of a draft.
  *
  * `change(draft)` receives a copy of the head's draft (null when `create`) and returns the whole new
  * draft; it may refuse by throwing. A replayed operation returns the snapshot it saved before.
+ * `wordingBasis` is for a change that only replaces wording: an expected sequence that is behind the
+ * head is not stale while the wording at it still matches the head's, because every snapshot since
+ * changed something this save keeps.
  */
 export async function saveDraft(root, specId, {
-  operationId, operation, payload = null, expectedSequence = null, create = false, actor = null, change
+  operationId, operation, payload = null, expectedSequence = null, wordingBasis = false, create = false, actor = null, change
 }) {
   requireSpecId(specId);
   requireOperationId(operationId);
@@ -264,7 +323,9 @@ export async function saveDraft(root, specId, {
       fail(`${specId} has no draft on this clone.`, 'SPEC_DRAFT_MISSING',
         { specId, nextAction: `singularity-flow spec author new ${specId} --title "TITLE"` });
     }
-    if (expectedSequence !== null && expectedSequence !== view.sequence) {
+    const basis = expectedSequence !== null && expectedSequence !== view.sequence && wordingBasis && Number.isSafeInteger(expectedSequence) && expectedSequence > 0 && expectedSequence < view.sequence
+      ? await readSnapshot(path.join(directory, snapshotName(expectedSequence)), specId) : null;
+    if (expectedSequence !== null && expectedSequence !== view.sequence && !(basis?.record && sameWording(basis.record.draft, view.head.draft))) {
       fail(`${specId}'s draft is at snapshot ${view.sequence}, not ${expectedSequence}; someone saved it since you read it. Nothing was saved. Read it again and redo your change on top.`,
         'SPEC_DRAFT_STALE', { specId, expected: expectedSequence, current: view.sequence, nextAction: `singularity-flow spec author status ${specId}` });
     }
@@ -287,6 +348,7 @@ export async function saveDraft(root, specId, {
     // The snapshot is already durable. A failed optimization cache write cannot undo that fact;
     // the next writer rebuilds it from the immutable history instead.
     await writeDraftIndex(directory, specId, { rows, damaged: view.damaged }, indexed.names, record).catch(() => undefined);
+    await thinDraftHistory(root, specId, directory, [...rows, indexRow(record)]).catch(() => undefined);
     return { snapshot: record, replayed: false, head: record };
   });
 }

@@ -796,20 +796,20 @@ export function intakeCommand(form: IntakeForm): string[] {
     '--gate-mode', form.qualityGateMode,
     ...(!form.testRecovery?.enabled ? ['--test-execution-mode', form.testExecutionMode] : []),
     ...testRecoveryArguments(form, true)];
+  // Every route carries the selected specification: the engine reads --spec after the source, whichever tracker it came from.
+  const specifications = form.cloneSpecifications?.length ? [...form.cloneSpecifications.flatMap(spec => ['--spec', spec]),
+    ...(form.cloneDependencyReason ? ['--allow-partial-dependency', '--reason', form.cloneDependencyReason] : [])] : [];
   if (tracked) return ['story', 'start', identifier, '--json', '--fetch', '--work-type', form.workType!,
-    ...isolated, ...target, ...capabilityBase, ...storyBranchArguments(form), ...references, ...attachments];
+    ...isolated, ...target, ...capabilityBase, ...storyBranchArguments(form), ...references, ...attachments, ...specifications];
   if (form.tracker === 'github') {
     return ['start', identifier, '--json', '--fetch', '--github', form.key.trim(),
-      '--work-type', form.workType!, ...isolated, ...target, ...capabilityBase, ...storyBranchArguments(form), ...references, ...attachments];
+      '--work-type', form.workType!, ...isolated, ...target, ...capabilityBase, ...storyBranchArguments(form), ...references, ...attachments, ...specifications];
   }
   const args = ['start', identifier, '--json', '--fetch',
     '--title', form.title.trim(), '--description', form.description.trim(),
     '--work-type', form.workType!, ...isolated, ...target, ...capabilityBase, ...storyBranchArguments(form), ...references, ...attachments];
   if (form.cloneFrom) args.push('--clone-from', form.cloneFrom, '--clone-source-commit', form.cloneSourceCommit!);
-  if (form.cloneSpecifications?.length) {
-    args.push(...form.cloneSpecifications.flatMap(spec => ['--spec', spec]));
-    if (form.cloneDependencyReason) args.push('--allow-partial-dependency', '--reason', form.cloneDependencyReason);
-  }
+  args.push(...specifications);
   if (form.acceptanceCriteria.trim() || form.cloneFrom) {
     args.push('--acceptance-criteria', form.acceptanceCriteria.trim());
   }

@@ -625,6 +625,23 @@ export async function load(url, context, next) {
     if (args[0] !== '--version') assert.ok(source.modules.length > 35, `${args.join(' ')} from the sources opened ${source.modules.length}`);
   }
 
+  // Spec Studio saves on every pause in typing: its reads and saves stay out of the compatibility and model chunks,
+  // whose legacy dispatcher they once ran through.
+  const specFile = path.join(base, 'spec-prose.md');
+  await writeFile(specFile, 'Words.\n');
+  for (const args of [['spec', 'author', 'new', 'SPEC-BUNDLE-001', '--title', 'Bundled', '--kind', 'business', '--local', '--json'],
+    ['spec', 'author', 'status', 'SPEC-BUNDLE-001', '--quick', '--json'], ['spec', 'author', 'status', 'SPEC-BUNDLE-001', '--json'],
+    ['spec', 'author', 'edit', 'SPEC-BUNDLE-001', '--file', specFile, '--expected-seq', '1', '--json'],
+    ['spec', 'author', 'list', '--local', '--json'], ['spec', 'author', 'check', 'SPEC-BUNDLE-001', '--json'],
+    ['spec', 'author', 'source', 'SPEC-BUNDLE-001', '--file', specFile, '--json'], ['spec', 'author', 'sources', 'SPEC-BUNDLE-001', '--json'],
+    ['spec', 'author', 'history', 'SPEC-BUNDLE-001', '--json'], ['spec', 'author', 'sync', 'SPEC-BUNDLE-001', '--json']]) {
+    const bundled = await runWith(args, true);
+    assert.equal(bundled.status, 0, `${args.join(' ')}: ${bundled.stdout}`);
+    for (const name of ['cold-compatibility.mjs', 'cold-models.mjs']) {
+      assert.ok(!bundled.modules.some(url => url.endsWith('/' + name)), `${args.slice(0, 3).join(' ')} must not load ${name}`);
+    }
+  }
+
   // Classified capture must share the timer through the coarse lazy chunks, not just source ESM.
   const traceAction = randomUUID();
   for (const bundled of [false, true]) {

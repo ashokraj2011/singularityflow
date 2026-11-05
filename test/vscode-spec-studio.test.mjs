@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
-import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
+import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { register } from 'node:module';
 import os from 'node:os';
 import path from 'node:path';
@@ -56,9 +56,12 @@ register('data:text/javascript,' + encodeURIComponent(`
 `));
 
 const model = await import('../apps/vscode/src/views/spec-studio-model.ts');
-const { specStudioHtml, SPEC_STUDIO_SCRIPT } = await import('../apps/vscode/src/views/spec-studio-page.ts');
+const pageModule = await import('../apps/vscode/src/views/spec-studio-page.ts');
+const { specStudioHtml, SPEC_STUDIO_SCRIPT } = pageModule;
+const pageSource = await readFile(new URL('../apps/vscode/src/views/spec-studio-page.ts', import.meta.url), 'utf8');
 const { SpecStudioPanel } = await import('../apps/vscode/src/views/spec-studio.ts');
 const { commandClass } = await import('../apps/vscode/src/cli/client.ts');
+const { safeDisplayDiagnosticText } = await import('../apps/vscode/src/cli/runner.ts');
 const { storyIntakeBody } = await import('../apps/vscode/src/views/story-intake-page.ts');
 const tool = await import('../apps/vscode/src/views/spec-studio-tool.ts');
 
@@ -596,19 +599,21 @@ test('navigation flushes local writing; stale saves preserve text with explicit 
   studio.post({ type: 'spec.open', spec: SPEC }); await settled(client, studio);
   assert.match(studio.webview.html, /Manual detail &lt;script&gt; remains text/u);
   const current = json(root, ['spec', 'author', 'status', SPEC]);
-  json(root, ['spec', 'author', 'research', SPEC, '--fact', 'Another window saved', '--source', 'Product owner']);
+  const elsewhere = prose + '\nAnother window saved this wording.\n';
+  const otherFile = path.join(path.dirname(root), 'another-window.md'); await writeFile(otherFile, elsewhere);
+  json(root, ['spec', 'author', 'edit', SPEC, '--file', otherFile, '--expected-seq', String(current.sequence)]);
   const pending = prose + '\nPending change from this window.\n';
   studio.post({ type: 'spec.save', sequence: current.sequence, text: pending }); await settled(client, studio);
   assert.match(studio.webview.html, /someone saved it since you read it/u);
   assert.match(studio.webview.html, /Pending change from this window/u);
   assert.match(studio.webview.html, /Keep mine as another draft/u);
-  assert.equal(json(root, ['spec', 'author', 'status', SPEC]).spec, prose);
+  assert.equal(json(root, ['spec', 'author', 'status', SPEC]).spec, elsewhere);
   const before = writes(client.calls).length;
   studio.post({ type: 'spec.publish', state: 'draft' }); await settled(client, studio);
   assert.ok(!writes(client.calls).slice(before).some(argv => argv[2] === 'publish'), 'no publication on a failed save');
   studio.post({ type: 'spec.cancel' }); await settled(client, studio);
   assert.doesNotMatch(studio.webview.html, /Pending change from this window/u);
-  assert.equal(json(root, ['spec', 'author', 'status', SPEC]).spec, prose);
+  assert.equal(json(root, ['spec', 'author', 'status', SPEC]).spec, elsewhere);
   studio.dispose();
 });
 
@@ -789,4 +794,364 @@ test('choosing code uses separate native file and folder modes and keeps selecti
   assert.equal(options.every(option => option.defaultUri.fsPath === root), true);
   const status = json(root, ['spec', 'author', 'status', SPEC, '--quick']);
   assert.deepEqual(status.sources.map(source => source.path), ['src/pricing.mjs', 'src']);
+});
+
+// ---- Review findings on the writing page ---------------------------------------------------------
+
+const quiet = (t, overrides) => {
+  const saved = Object.fromEntries(Object.keys(overrides).map(key => [key, settings[key]]));
+  Object.assign(settings, overrides);
+  t.after(() => { for (const [key, value] of Object.entries(saved)) { if (value === undefined) delete settings[key]; else settings[key] = value; } });
+};
+const live = async (client, root, hooks = {}, { keep = false } = {}) => {
+  SpecStudioPanel.show(client, SPEC, { root: () => root, ...hooks });
+  const studio = panels.at(-1); await settled(client, studio);
+  // The page's script reports itself; until then every change is a whole page.
+  studio.post({ type: 'spec.ready' }); await settled(client, studio);
+  if (!keep) studio.webview.messages.length = 0;
+  return studio;
+};
+const posted = (studio, type) => studio.webview.messages.filter(message => message.type === type);
+
+test('Copilot staging a proposal while the person types neither blocks the save nor the read', async t => {
+  const { root, directory } = await storefront(t); const client = recordingClient(root);
+  SpecStudioPanel.show(client, SPEC, { root: () => root }); const studio = panels.at(-1); await settled(client, studio);
+  t.after(() => studio.dispose());
+  const status = json(root, ['spec', 'author', 'status', SPEC, '--quick']);
+  const typed = status.spec + '\nTyping while Copilot works.\n';
+  studio.post({ type: 'spec.editing', spec: SPEC, sequence: status.sequence, text: typed });
+  // The skill's CLI route moves the head with nothing but a proposal.
+  const proposal = path.join(directory, 'proposal.json');
+  await writeFile(proposal, JSON.stringify({ proposals: [{ kind: 'finding', article: 'completeness', message: 'Say who pays.', clauses: [] }] }));
+  json(root, ['spec', 'author', 'propose', SPEC, '--file', proposal]);
+  // The next guarded action saves first, as the tool's recorded() does.
+  studio.post({ type: 'spec.refresh' }); await settled(client, studio);
+  const after = json(root, ['spec', 'author', 'status', SPEC, '--quick']);
+  assert.equal(after.spec, typed, 'the prose never conflicted');
+  assert.equal(after.findings.length, 1, 'and what Copilot staged is kept');
+  assert.doesNotMatch(studio.webview.html, /data-error/u);
+  assert.match(studio.webview.html, /1 assisted finding\(s\) to settle/u, 'the read ran, so the page shows it');
+  // Later actions keep working.
+  const later = typed + 'And more.\n';
+  studio.post({ type: 'spec.save', sequence: after.sequence, text: later }); await settled(client, studio);
+  assert.equal(json(root, ['spec', 'author', 'status', SPEC, '--quick']).spec, later);
+});
+
+test('a keystroke that crossed a save on its way carries an old sequence and still saves; only this window wrote', async t => {
+  const { root } = await storefront(t); const client = recordingClient(root);
+  const studio = await live(client, root); t.after(() => studio.dispose());
+  const status = json(root, ['spec', 'author', 'status', SPEC, '--quick']);
+  const first = status.spec + '\nFirst.\n', second = first + 'Second.\n', third = second + 'Third.\n';
+  studio.post({ type: 'spec.save', sequence: status.sequence, text: first }); await settled(client, studio);
+  assert.equal(json(root, ['spec', 'author', 'status', SPEC, '--quick']).sequence, status.sequence + 1);
+  // Sent before the page heard `spec.saved`: the sequence the page still held.
+  studio.post({ type: 'spec.editing', spec: SPEC, sequence: status.sequence, text: second });
+  studio.post({ type: 'spec.save', sequence: status.sequence, text: second }); await settled(client, studio);
+  const saved = json(root, ['spec', 'author', 'status', SPEC, '--quick']);
+  assert.equal(saved.spec, second);
+  assert.equal(posted(studio, 'spec.saveFailed').length, 0);
+  // A failed save does not put the old sequence back: the retry and the next keystroke both save.
+  const run = client.run; let failing = true;
+  client.run = async argv => { if (argv[2] === 'edit' && failing) { failing = false; throw new Error('Disk was busy'); } return run(argv); };
+  studio.webview.messages.length = 0;
+  studio.post({ type: 'spec.save', sequence: status.sequence, text: third }); await settled(client, studio);
+  assert.match(posted(studio, 'spec.saveFailed').at(-1).message, /Disk was busy/u);
+  assert.equal(posted(studio, 'spec.regions').at(-1).sequence, saved.sequence, 'the failure render keeps the current sequence');
+  studio.post({ type: 'spec.save', sequence: status.sequence, text: third }); await settled(client, studio);
+  assert.equal(json(root, ['spec', 'author', 'status', SPEC, '--quick']).spec, third);
+});
+
+test('a real wording conflict offers all three recoveries, and discarding reloads only what was saved', async t => {
+  const { root, directory } = await storefront(t); const client = recordingClient(root);
+  const data = new Map(); const memento = { get: key => data.get(key), update: async (key, value) => value === undefined ? data.delete(key) : data.set(key, structuredClone(value)) };
+  const studio = await live(client, root, { memento }); t.after(() => studio.dispose());
+  const status = json(root, ['spec', 'author', 'status', SPEC, '--quick']);
+  const other = path.join(directory, 'other.md'); await writeFile(other, status.spec + '\nAnother window saved this.\n');
+  json(root, ['spec', 'author', 'edit', SPEC, '--file', other, '--expected-seq', String(status.sequence)]);
+  studio.post({ type: 'spec.save', sequence: status.sequence, text: status.spec + '\nMine.\n' }); await settled(client, studio);
+  const notices = posted(studio, 'spec.regions').at(-1).regions.notices;
+  assert.match(notices, /someone saved it since you read it/u);
+  assert.match(notices, /Copy my writing/u); assert.match(notices, /Keep mine as another draft/u);
+  assert.match(notices, /data-message="spec\.discardEdits"/u);
+  assert.equal(data.size, 1, 'a private copy is kept until the person chooses');
+  studio.webview.messages.length = 0;
+  studio.post({ type: 'spec.discardEdits' }); await settled(client, studio);
+  const reloaded = posted(studio, 'spec.regions').at(-1);
+  assert.match(reloaded.document.text, /Another window saved this\./u);
+  assert.doesNotMatch(reloaded.document.text, /Mine\./u);
+  assert.match(reloaded.document.html, /Another window saved this\./u);
+  assert.doesNotMatch(reloaded.regions.notices, /someone saved it/u);
+  assert.match(reloaded.regions.notices, /unsaved text was discarded/u);
+  assert.equal(data.size, 0);
+  assert.equal(json(root, ['spec', 'author', 'status', SPEC, '--quick']).spec, status.spec + '\nAnother window saved this.\n');
+  // Writing continues from what was saved.
+  const next = reloaded.document.text + 'Continuing.\n';
+  studio.post({ type: 'spec.save', sequence: reloaded.sequence, text: next }); await settled(client, studio);
+  assert.equal(json(root, ['spec', 'author', 'status', SPEC, '--quick']).spec, next);
+});
+
+test('a live page keeps its editor: saving and reloading send messages, and only saved wording it lacks replaces the document', async t => {
+  const { root, directory } = await storefront(t); const client = recordingClient(root);
+  const studio = await live(client, root); t.after(() => studio.dispose());
+  const page = studio.webview.html;
+  const status = json(root, ['spec', 'author', 'status', SPEC, '--quick']);
+  const typed = status.spec + '\nKept in the editor.\n';
+  studio.post({ type: 'spec.save', sequence: status.sequence, text: typed }); await settled(client, studio);
+  assert.equal(studio.webview.html, page, 'Save replaced nothing: caret, undo, scroll, Markdown mode and an unsent request stay');
+  assert.equal(posted(studio, 'spec.saved').at(-1).sequence, status.sequence + 1);
+  // Save with nothing to save is still answered, or the button would stay disabled.
+  studio.webview.messages.length = 0;
+  studio.post({ type: 'spec.save', sequence: status.sequence + 1, text: typed }); await settled(client, studio);
+  assert.equal(posted(studio, 'spec.saved').at(-1).dirty, false);
+  // Other reads arrive around the editor. A staged proposal does not touch the document.
+  studio.post({ type: 'spec.editing', spec: SPEC, sequence: status.sequence + 1, text: typed + 'Still typing.\n' });
+  const proposal = path.join(directory, 'proposal.json');
+  await writeFile(proposal, JSON.stringify({ proposals: [{ kind: 'finding', article: 'completeness', message: 'Say who pays.', clauses: [] }] }));
+  json(root, ['spec', 'author', 'propose', SPEC, '--file', proposal]);
+  studio.webview.messages.length = 0;
+  studio.post({ type: 'spec.refresh' }); await settled(client, studio);
+  assert.equal(studio.webview.html, page);
+  const regions = posted(studio, 'spec.regions');
+  assert.ok(regions.length > 0); assert.ok(regions.every(message => !message.document), 'the person’s text is not replaced');
+  assert.ok(regions.some(message => /1 assisted finding\(s\) to settle/u.test(message.regions.cowriter ?? '')), 'the proposal arrives');
+  assert.ok(regions.every(message => !('send' in message.regions)), 'and an unchanged region is not sent again');
+  // Wording saved elsewhere, with nothing unsaved here, replaces the document and resets the basis.
+  const saved = json(root, ['spec', 'author', 'status', SPEC, '--quick']);
+  assert.equal(saved.spec, typed + 'Still typing.\n');
+  const other = path.join(directory, 'other.md'); await writeFile(other, saved.spec + 'Restored elsewhere.\n');
+  json(root, ['spec', 'author', 'edit', SPEC, '--file', other, '--expected-seq', String(saved.sequence)]);
+  studio.webview.messages.length = 0;
+  studio.post({ type: 'spec.refresh' }); await settled(client, studio);
+  const replaced = posted(studio, 'spec.regions').at(-1);
+  assert.match(replaced.document.text, /Restored elsewhere\./u);
+  assert.equal(replaced.sequence, saved.sequence + 1);
+  // A second report from the script means the page reloaded from older HTML: it is given the current page whole.
+  const before = studio.webview.html;
+  studio.post({ type: 'spec.ready' }); await settled(client, studio);
+  assert.notEqual(studio.webview.html, before);
+  assert.match(studio.webview.html, /Restored elsewhere\./u);
+});
+
+test('the page takes regions without losing what is typed in them, and rebinds what arrives later', () => {
+  assert.match(SPEC_STUDIO_SCRIPT, /post\(\{type:'spec\.ready'\}\)/u);
+  assert.match(SPEC_STUDIO_SCRIPT, /message\.type!=='spec\.regions'/u);
+  assert.match(SPEC_STUDIO_SCRIPT, /new Event\('sf-spec-regions'\)/u);
+  const { composeRegions } = pageModule;
+  const status = model.statusFrom({ resultType: 'sflow-spec-author', action: 'status', specId: SPEC, title: 'T', kind: 'business', sequence: 1, spec: '# T\n', areas: [], gaps: [], researchItems: [],
+    counts: { d: { passed: 0, total: 0 }, a: { status: 'not-run', pending: 0 }, h: { open: 0, deferred: 0 } }, proposals: [], findings: [], sources: [], origins: [], rules: [], articles: [], clauseIds: [], blocking: [] });
+  const state = { target: { specId: SPEC, revision: null, clauses: null, step: null }, step: 'draft', library: null, status, revision: null, coverage: null, split: null, splitDraft: null, selectedGap: null, impact: null, notice: null, error: null, busy: null, copilot: { available: true, tool: true } };
+  const html = specStudioHtml(state);
+  const regions = composeRegions(state, status);
+  for (const [name, content] of Object.entries(regions)) assert.ok(html.includes(`data-region="${name}">${content}<`), name + ' is the same text on the page and in a message');
+  assert.doesNotMatch(regions.below + regions.cowriter + regions.notices, /name="(?:text|title|kind|sequence)"/u, 'the editor is in no region');
+  assert.doesNotMatch(regions.cowriter, /id="ss-request"/u, 'an unsent Copilot request is in no region');
+});
+
+test('an edited line goes back to the Markdown it came from, for everything the renderer can produce', () => {
+  const inlineSource = /function inline\(node\) \{[\s\S]*?\n {4}\}\n/u.exec(SPEC_STUDIO_SCRIPT)?.[0];
+  assert.ok(inlineSource);
+  // A small parser for what studioDocumentHtml writes, so this exercises the real render and the real serializer.
+  const decode = text => text.replace(/&lt;/gu, '<').replace(/&gt;/gu, '>').replace(/&quot;/gu, '"').replace(/&#39;/gu, "'").replace(/&amp;/gu, '&');
+  const parse = html => {
+    const root = { nodeType: 1, nodeName: 'ROOT', childNodes: [], getAttribute: () => null };
+    const stack = [root];
+    for (const [token] of html.matchAll(/<[^>]+>|[^<]+/gu)) {
+      const open = /^<([a-z0-9]+)/iu.exec(token);
+      if (/^<\//u.test(token)) stack.pop();
+      else if (open) {
+        const node = { nodeType: 1, nodeName: open[1].toUpperCase(), childNodes: [], getAttribute: name => new RegExp(`${name}="([^"]*)"`, 'u').exec(token)?.[1] ?? null };
+        stack.at(-1).childNodes.push(node);
+        if (node.nodeName !== 'BR') stack.push(node);
+      } else stack.at(-1).childNodes.push({ nodeType: 3, nodeName: '#text', textContent: decode(token), childNodes: [] });
+    }
+    return root;
+  };
+  const inline = runInNewContext(`${inlineSource}; inline`);
+  for (const line of [
+    'Run `npm test` before you push.',
+    '**Bold words** and `code` and plain.',
+    '**bold with `code` inside**',
+    '`**not bold**` stays code',
+    '**a`b**c`',
+    'Two `one` and `two` spans.',
+    'A clause. [SPEC-CHK-004:REQ-001]',
+    'See `[SPEC-CHK-004:REQ-001]` written as code.',
+    'Escapes: a < b && c > d, "quoted" and \'single\'.',
+    '`<script>` stays text',
+    '- A list item with `code`',
+    '| A | `table` cell |',
+    '*one star* stays literal',
+    'A stray ` backtick and ** stars'
+  ]) {
+    const block = parse(pageModule.studioDocumentHtml(line));
+    const paragraph = block.childNodes[0];
+    assert.equal(paragraph.childNodes.map(inline).join(''), line, line);
+  }
+  // A heading's inline code, as block() rebuilds it from inline().
+  const heading = parse(pageModule.studioDocumentHtml('## Use `sflow` here')).childNodes[0];
+  assert.equal(heading.nodeName, 'H2'); assert.equal(heading.childNodes.map(inline).join(''), 'Use `sflow` here');
+  // What the toolbar and the browser add.
+  const element = (nodeName, ...childNodes) => ({ nodeType: 1, nodeName, childNodes, getAttribute: () => 'https://example.test/' });
+  const text = textContent => ({ nodeType: 3, nodeName: '#text', textContent, childNodes: [] });
+  assert.equal(inline(element('EM', text('so'))), '*so*');
+  assert.equal(inline(element('A', text('there'))), '[there](https://example.test/)');
+  assert.equal(inline(element('CODE')), '', 'emptied code leaves no stray backticks');
+  assert.equal(inline(element('B')), '');
+});
+
+test('a blank line stops sitting small once text is typed into it', () => {
+  assert.match(pageModule.studioDocumentHtml('a\n\nb'), /<p data-original-line=""><br><\/p>/u);
+  assert.match(SPEC_STUDIO_SCRIPT, /querySelectorAll\('\[data-original-line=""\]'\)\)if\(line\.textContent\)line\.removeAttribute\('data-original-line'\)/u);
+});
+
+test('research and questions open from the writing page, and the stages that replaced it are gone', async t => {
+  const { root } = await storefront(t); const client = recordingClient(root);
+  SpecStudioPanel.show(client, SPEC, { root: () => root }); const studio = panels.at(-1); await settled(client, studio);
+  t.after(() => studio.dispose());
+  assert.match(studio.webview.html, /data-message="spec\.step" data-step="research"/u);
+  assert.match(studio.webview.html, /data-message="spec\.step" data-step="gaps"/u);
+  studio.post({ type: 'spec.step', step: 'research' }); await settled(client, studio);
+  assert.match(studio.webview.html, /data-stage="research"/u); assert.match(studio.webview.html, /Collect from the code/u);
+  studio.post({ type: 'spec.step', step: 'draft' }); await settled(client, studio);
+  // A gap can be opened directly once none is selected.
+  studio.post({ type: 'spec.step', step: 'gaps' }); await settled(client, studio);
+  assert.match(studio.webview.html, /data-form="spec\.openGap"/u);
+  assert.doesNotMatch(pageSource, /function leftHtml|function draftStage|function elicitStage/u);
+});
+
+test('one sharing failure does not end automatic sharing: a transient one retries by itself, and its warning survives a render', async t => {
+  const { root } = await storefront(t); const original = recordingClient(root);
+  quiet(t, { 'singularityFlow.specStudio.automaticSync': true, 'singularityFlow.specStudio.syncQuietMs': 50, 'singularityFlow.specStudio.syncMinIntervalMs': 1000 });
+  let failures = 1; const syncs = [];
+  const client = { ...original, run: async argv => {
+    if (argv[2] === 'sync') { syncs.push(argv); if (failures-- > 0) throw Object.assign(new Error('Could not reach the remote'), { result: { error: { code: 'SPEC_SHARED_DRAFT_PENDING', message: 'Could not reach the remote', details: {} } } }); }
+    return original.run(argv);
+  } };
+  const studio = await live(client, root, {}, { keep: true }); t.after(() => studio.dispose());
+  const status = json(root, ['spec', 'author', 'status', SPEC, '--quick']);
+  for (let attempt = 0; !syncs.length && attempt < 500; attempt++) await new Promise(resolve => setTimeout(resolve, 10));
+  await settled(original, studio);
+  assert.equal(syncs.length, 1);
+  // The warning is the page's state, not a message that the next render loses.
+  const notices = () => posted(studio, 'spec.regions').map(message => message.regions.notices).filter(value => value !== undefined).at(-1) ?? studio.webview.html;
+  assert.match(notices(), /Could not reach the remote/u);
+  studio.post({ type: 'spec.step', step: 'research' }); await settled(original, studio);
+  assert.match(notices(), /data-stage="research"/u); assert.match(notices(), /Could not reach the remote/u);
+  studio.post({ type: 'spec.step', step: 'draft' }); await settled(original, studio);
+  assert.match(notices(), /Could not reach the remote/u);
+  for (let attempt = 0; syncs.length < 2 && attempt < 800; attempt++) await new Promise(resolve => setTimeout(resolve, 10));
+  assert.ok(syncs.length >= 2, 'it tried again without anyone pressing Sync');
+  assert.ok(syncs[1].includes('--automatic'));
+  await settled(original, studio);
+  assert.match(notices(), /data-sync-problem hidden/u, 'and the warning clears when sharing works');
+  assert.equal(json(root, ['spec', 'author', 'shared', SPEC]).drafts.length, 1);
+  assert.equal(json(root, ['spec', 'author', 'status', SPEC, '--quick']).sequence, status.sequence);
+});
+
+test('Studio says plainly when a secret stopped sharing, keeps writing, and shares again once it is gone', async t => {
+  const { root } = await storefront(t); const client = recordingClient(root);
+  quiet(t, { 'singularityFlow.specStudio.automaticSync': true, 'singularityFlow.specStudio.syncQuietMs': 50, 'singularityFlow.specStudio.syncMinIntervalMs': 1000 });
+  const studio = await live(client, root); t.after(() => studio.dispose());
+  const syncCalls = () => client.calls.filter(argv => argv[2] === 'sync').length;
+  const status = json(root, ['spec', 'author', 'status', SPEC, '--quick']);
+  const token = 'ghp_' + 'Z9y8'.repeat(9);
+  studio.post({ type: 'spec.save', sequence: status.sequence, text: status.spec + '\nUse ' + token + ' to deploy.\n' }); await settled(client, studio);
+  for (let attempt = 0; !posted(studio, 'spec.syncState').some(message => /Not shared/u.test(message.message ?? '')) && attempt < 800; attempt++) await new Promise(resolve => setTimeout(resolve, 10));
+  await settled(client, studio);
+  const problem = posted(studio, 'spec.syncState').find(message => /Not shared/u.test(message.message ?? ''));
+  assert.match(problem.message, /GitHub token/u); assert.match(problem.message, /saved on this laptop/u);
+  assert.equal(problem.text, 'Saved on this laptop · not shared');
+  // The real host passes a refusal through its diagnostic scrubber, which once blanked most of this sentence.
+  assert.equal(safeDisplayDiagnosticText(problem.message), problem.message);
+  assert.ok(!JSON.stringify(studio.webview.messages).includes(token), 'the value is never echoed');
+  assert.ok(!(json(root, ['spec', 'author', 'shared', SPEC, '--refresh']).drafts[0]?.draft.spec ?? '').includes(token), 'nothing of it was shared');
+  assert.match(json(root, ['spec', 'author', 'status', SPEC, '--quick']).spec, /to deploy/u, 'the writing is saved');
+  // The same text is refused the same way, so it is not tried again.
+  const tried = syncCalls();
+  await new Promise(resolve => setTimeout(resolve, 1500));
+  assert.equal(syncCalls(), tried);
+  const clean = status.spec + '\nUse the deploy key from the store.\n';
+  studio.post({ type: 'spec.save', sequence: status.sequence + 1, text: clean }); await settled(client, studio);
+  for (let attempt = 0; json(root, ['spec', 'author', 'shared', SPEC, '--refresh']).drafts[0]?.draft.spec !== clean && attempt < 40; attempt++) await new Promise(resolve => setTimeout(resolve, 100));
+  await settled(client, studio);
+  assert.equal(json(root, ['spec', 'author', 'shared', SPEC, '--refresh']).drafts[0].draft.spec, clean);
+});
+
+test('a sharing refusal that arrives after a reload is still shown, and opening the draft again asks again', async t => {
+  const { root } = await storefront(t); const original = recordingClient(root);
+  let release; const held = new Promise(resolve => { release = resolve; }); let entered = false; let refusing = true;
+  const client = { ...original, run: async argv => {
+    if (argv[2] === 'sync' && refusing) { entered = true; await held; throw Object.assign(new Error('Not shared: a secret.'), { result: { error: { code: 'SPEC_SHARED_DRAFT_SECRET', message: 'Not shared: a secret.', details: {} } } }); }
+    return original.run(argv);
+  } };
+  SpecStudioPanel.show(client, SPEC, { root: () => root }); const studio = panels.at(-1); await settled(original, studio);
+  t.after(() => studio.dispose());
+  studio.post({ type: 'spec.sync' });
+  for (let attempt = 0; !entered && attempt < 200; attempt++) await new Promise(resolve => setTimeout(resolve, 10));
+  studio.post({ type: 'spec.refresh' }); await settled(original, studio);
+  release();
+  for (let attempt = 0; !/Not shared: a secret\./u.test(studio.webview.html) && attempt < 300; attempt++) await new Promise(resolve => setTimeout(resolve, 10));
+  assert.match(studio.webview.html, /Not shared: a secret\./u);
+  assert.match(studio.webview.html, /Saved on this laptop · not shared/u);
+  // Leaving and coming back loses the page's warning, so the hold goes too and the next attempt says why again.
+  quiet(t, { 'singularityFlow.specStudio.automaticSync': true, 'singularityFlow.specStudio.syncQuietMs': 20, 'singularityFlow.specStudio.syncMinIntervalMs': 1000 });
+  const syncs = original.calls.filter(argv => argv[2] === 'sync').length;
+  refusing = false;
+  studio.post({ type: 'spec.home' }); await settled(original, studio);
+  studio.post({ type: 'spec.open', spec: SPEC }); await settled(original, studio);
+  for (let attempt = 0; original.calls.filter(argv => argv[2] === 'sync').length === syncs && attempt < 400; attempt++) await new Promise(resolve => setTimeout(resolve, 10));
+  assert.ok(original.calls.filter(argv => argv[2] === 'sync').length > syncs, 'sharing is not left silently off');
+});
+
+test('opening a target while the panel is busy opens it once the work finishes', async t => {
+  const { root } = await storefront(t); const original = recordingClient(root);
+  json(root, ['spec', 'author', 'new', 'SPEC-OTHER-002', '--title', 'The other specification', '--kind', 'business', '--local']);
+  let release; const held = new Promise(resolve => { release = resolve; }); let holding = false;
+  const client = { ...original, run: async argv => { if (holding && argv[2] === 'list') { holding = false; await held; } return original.run(argv); } };
+  const hooks = { root: () => root };
+  SpecStudioPanel.show(client, SPEC, hooks); const studio = panels.at(-1); await settled(original, studio);
+  t.after(() => studio.dispose());
+  holding = true; studio.post({ type: 'spec.refresh' });
+  for (let attempt = 0; holding && attempt < 200; attempt++) await new Promise(resolve => setTimeout(resolve, 5));
+  assert.equal(holding, false);
+  SpecStudioPanel.show(client, 'SPEC-OTHER-002', hooks);
+  release(); await settled(original, studio);
+  for (let attempt = 0; !/The other specification/u.test(studio.webview.html) && attempt < 300; attempt++) await new Promise(resolve => setTimeout(resolve, 10));
+  assert.match(studio.webview.html, /data-spec="SPEC-OTHER-002"/u, 'the opened target is not dropped');
+});
+
+test('a blocked save holds a queued target and says why, instead of dropping it quietly', async t => {
+  const { root, directory } = await storefront(t); const client = recordingClient(root);
+  json(root, ['spec', 'author', 'new', 'SPEC-OTHER-003', '--title', 'Another', '--kind', 'business', '--local']);
+  const hooks = { root: () => root };
+  SpecStudioPanel.show(client, SPEC, hooks); const studio = panels.at(-1); await settled(client, studio);
+  t.after(() => studio.dispose());
+  const status = json(root, ['spec', 'author', 'status', SPEC, '--quick']);
+  const other = path.join(directory, 'other.md'); await writeFile(other, 'Another window.');
+  json(root, ['spec', 'author', 'edit', SPEC, '--file', other, '--expected-seq', String(status.sequence)]);
+  studio.post({ type: 'spec.editing', spec: SPEC, sequence: status.sequence, text: 'This window.' });
+  SpecStudioPanel.show(client, 'SPEC-OTHER-003', hooks); await settled(client, studio);
+  for (let attempt = 0; !/stayed here/u.test(studio.webview.html) && attempt < 300; attempt++) await new Promise(resolve => setTimeout(resolve, 10));
+  assert.match(studio.webview.html, /stayed here because your writing could not be saved/u);
+  assert.match(studio.webview.html, /Keep mine as another draft/u);
+});
+
+test('one unreadable library entry is named on the library page and the rest still shows', () => {
+  const library = model.libraryFrom({ resultType: 'sflow-spec-author', action: 'list', state: { status: 'present', commit: 'a'.repeat(40) }, specs: [], drafts: [{ specId: SPEC, sequence: 1, title: 'Mine', basedOn: null }], shared: [],
+    unreadable: [{ specId: 'SPEC-NEWER-001', record: 'shared draft', code: 'SCHEMA_VERSION_FUTURE', message: 'Written by a newer <SFlow>.' }] });
+  const html = specStudioHtml({ target: model.specStudioTarget(null), step: 'elicit', library, status: null, revision: null, coverage: null, split: null, splitDraft: null, selectedGap: null, impact: null, notice: null, error: null, busy: null });
+  assert.match(html, /data-library-unreadable/u); assert.match(html, /SPEC-NEWER-001/u); assert.match(html, /Written by a newer &lt;SFlow&gt;\./u);
+  assert.match(html, /Mine/u);
+});
+
+test('the source viewer asks for a full page, and Copilot’s tool keeps the small default', async t => {
+  const { root, directory } = await storefront(t); const client = recordingClient(root);
+  const file = path.join(directory, 'notes.txt'); await writeFile(file, 'Some notes.\n');
+  const source = json(root, ['spec', 'author', 'source', SPEC, '--file', file]).sources.at(-1);
+  SpecStudioPanel.show(client, SPEC, { root: () => root }); const studio = panels.at(-1); await settled(client, studio);
+  t.after(() => studio.dispose());
+  studio.post({ type: 'spec.viewSource', item: source.id }); await settled(client, studio);
+  const call = client.calls.find(argv => argv[2] === 'sources' && argv.includes('--source'));
+  assert.equal(call[call.indexOf('--max-bytes') + 1], '48000');
+  assert.match(studio.webview.html, /Some notes\./u);
 });

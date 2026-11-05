@@ -188,7 +188,12 @@ export async function resolveSlices(root, config, values, { dependencyReason = n
       const parentClauses = extractClauses(parent.spec, { namespace: parent.specId });
       const acceptance = parentClauses.filter(clause => clause.id.includes(':AC-') &&
         (clause.dependsOn.some(id => wanted.includes(id)) || parentClauses.filter(item => item.id.includes(':REQ-')).length === 1));
-      const parentSelected = [...new Set([...wanted, ...acceptance.map(clause => clause.id)])];
+      // The selected requirement closure (SPEC-SPA section 9.2): what a carried clause depends on comes
+      // with it. These are inherited constraints, so the Story is not asked to deliver the parent.
+      const byId = new Map(parentClauses.map(clause => [clause.id, clause]));
+      const closure = new Set([...wanted, ...acceptance.map(clause => clause.id)]);
+      for (const id of closure) for (const dependency of byId.get(id)?.dependsOn ?? []) if (byId.has(dependency)) closure.add(dependency);
+      const parentSelected = [...closure];
       const slice = buildSlice(parent, { ...reference, clauses: parentSelected }, { dependencyReason });
       const key = parent.specId + '@' + parent.revision;
       const existing = inheritedByRevision.get(key);

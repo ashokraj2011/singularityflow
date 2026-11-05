@@ -66,6 +66,64 @@ try {
   await page.evaluate(() => window.postMessage({ type: 'spec.syncState', text: 'Synced' }, '*'));
   await page.waitForFunction(() => document.querySelector('[data-sync-problem]').hidden);
   results.push('rich/source round trip, escaping, editing metadata, save acknowledgement');
+
+  // Editing a line keeps what the renderer drew from its Markdown: code spans, emphasis and clause anchors.
+  const lines = '# T\n\nRun `npm test` and **read** it. [SPEC-DEMO-001:REQ-001]\n\nNext.\n';
+  const inlineState = { ...state, status: { ...status, spec: lines } };
+  const inlinePage = webviewPage('Spec Studio', specStudioHtml(inlineState), '', 'studio-test', SPEC_STUDIO_SCRIPT, { styles: SPEC_STUDIO_STYLE });
+  const openInline = async () => {
+    await page.goto('about:blank');
+    await page.evaluate(() => { window.__sfMessages = []; window.__sfVscode = { postMessage: message => window.__sfMessages.push(message) }; });
+    await page.setContent(inlinePage.replace('<head>', '<head><style>:root{' + themes.light + '}body{margin:0;font-family:system-ui}</style>'));
+  };
+  await openInline();
+  assert.ok((await page.evaluate(() => window.__sfMessages)).some(message => message.type === 'spec.ready'), 'the page reports its script is running');
+  await page.locator('.ss-rich-editor p', { hasText: 'Run' }).click();
+  await page.keyboard.press('End'); await page.keyboard.type(' Done.');
+  const edited = (await page.evaluate(() => window.__sfMessages.filter(m => m.type === 'spec.editing'))).at(-1).text;
+  assert.ok(edited.includes('Run `npm test` and **read** it. [SPEC-DEMO-001:REQ-001] Done.'), 'an edited line keeps its Markdown: ' + edited);
+  results.push('editing a line keeps inline code, emphasis and clause anchors');
+
+  // A blank line sits small until someone types in it.
+  const blank = page.locator('.ss-rich-editor p[data-original-line=""]').first();
+  assert.ok((await blank.boundingBox()).height <= 8, 'an empty line is a small gap');
+  await blank.click(); await page.keyboard.type('Typed into a blank line.');
+  const typedLine = page.locator('.ss-rich-editor p', { hasText: 'Typed into a blank line.' });
+  assert.ok((await typedLine.boundingBox()).height >= 16, 'text typed into a blank line is readable');
+  assert.ok((await page.evaluate(() => window.__sfMessages.filter(m => m.type === 'spec.editing'))).at(-1).text.includes('Typed into a blank line.'));
+  results.push('text typed into a blank line renders at full size');
+
+  // What changes around the editor arrives as a message and leaves the editor alone.
+  await page.locator('#ss-request').fill('An unsent Copilot request');
+  await page.locator('.ss-rich-editor p', { hasText: 'Next.' }).click();
+  await page.keyboard.press('End');
+  await page.evaluate(() => { window.__sfEditor = document.querySelector('.ss-rich-editor'); window.__sfLine = window.__sfEditor.querySelector('p:last-of-type'); });
+  await page.evaluate(() => window.postMessage({ type: 'spec.regions', sequence: 9, saveState: 'Saved on this laptop',
+    regions: { notices: '<div class="notice ok" data-notice>A proposal arrived.</div><div class="notice warning" data-sync-problem hidden><span data-sync-error></span><code data-sync-next hidden></code></div>', cowriter: '<p data-new>One new proposal.</p>' } }, '*'));
+  await page.waitForSelector('[data-new]');
+  assert.equal(await page.evaluate(() => document.querySelector('.ss-rich-editor') === window.__sfEditor), true, 'the editor element is the same one');
+  assert.equal(await page.locator('#ss-request').inputValue(), 'An unsent Copilot request');
+  assert.equal(await page.locator('[name=sequence]').inputValue(), '9');
+  await page.keyboard.type('!');
+  assert.ok((await page.evaluate(() => window.__sfMessages.filter(m => m.type === 'spec.editing'))).at(-1).text.includes('Next.!'), 'the caret stayed where the person left it');
+  // A typed reason in a replaced region survives the replacement, and Markdown mode survives too.
+  await page.evaluate(() => { document.querySelector('[data-region="below"]').innerHTML = '<details open><summary>D</summary><textarea name="reason"></textarea></details>'; });
+  await page.locator('[name=reason]').fill('A reason typed here');
+  await page.locator('[data-source-toggle]').click();
+  await page.evaluate(() => window.postMessage({ type: 'spec.regions', regions: { below: '<details><summary>D</summary><textarea name="reason"></textarea><p data-below-new>Later.</p></details>' } }, '*'));
+  await page.waitForSelector('[data-below-new]', { state: 'attached' });
+  assert.equal(await page.locator('[name=reason]').inputValue(), 'A reason typed here');
+  assert.equal(await page.locator('[data-region="below"] details').evaluate(node => node.open), true);
+  assert.equal(await page.locator('#ss-prose').isVisible(), true, 'Markdown mode is still on');
+  // Saved wording the page lacks, with nothing unsaved, replaces the document in the mode it is in.
+  await page.evaluate(() => window.postMessage({ type: 'spec.regions', regions: {}, sequence: 10, document: { text: '# New title\n\nFresh words.\n', html: '<h1 data-original-line="# New title">New title</h1><p data-original-line=""><br></p><p data-original-line="Fresh words.">Fresh words.</p><p data-original-line=""><br></p>', title: 'New title', kind: 'technical' } }, '*'));
+  await page.waitForFunction(() => document.querySelector('#ss-prose').value.includes('Fresh words.'));
+  assert.equal(await page.locator('#ss-title').inputValue(), 'New title');
+  assert.equal(await page.locator('[name=kind]').inputValue(), 'technical');
+  await page.locator('[data-source-toggle]').click();
+  await page.locator('.ss-writing-form button[type=submit]').click();
+  assert.equal((await page.evaluate(() => window.__sfMessages)).at(-1).text, '# New title\n\nFresh words.\n', 'the replaced document saves losslessly');
+  results.push('regions and a replaced document leave the caret, unsent request, typed reasons and Markdown mode alone');
   results.push('sharing failures expose the original diagnostic and retry without replacing the editor');
   for (const theme of ['light', 'dark']) {
     await load(theme);

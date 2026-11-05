@@ -1,7 +1,7 @@
 import { nextPhaseGeneration } from './phase-generation.mjs';
 import { createHash } from 'node:crypto';
 import { constants as fsConstants } from 'node:fs';
-import { lstat, mkdir, open, readFile, readdir, realpath, stat, writeFile } from 'node:fs/promises';
+import { lstat, mkdir, open, readFile, readdir, stat, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import { workDir, workDirRelative } from './story-paths.mjs';
 import { assertNoPendingPublication, saveStoryDraft } from './state-stores.mjs';
@@ -15,11 +15,9 @@ import { epicSourceById, pinnedStorySource, readStoryEpicSource, storyEpicSource
 import { currentSchemaVersion } from './schema-migrations.mjs';
 import { DOCUMENT_MEMBER_NAME_MAXIMUM_LENGTH, assertAvailableDocumentNames, assignDocumentNames, documentOfferedToPhase, normalizeDocumentPhases, resolveDocumentRecord, validateDocumentName } from './document-identity.mjs';
 import { head, withEnvironmentFilesRegistry } from './git.mjs';
-import { TEXT_RENDITION_SUFFIX, extractSourceText, hasTextExtractor } from './source-text.mjs';
 import { isLocalDocument, localDocumentOwner, readLocalDocument, resolveDocumentStorage, storeLocalDocument } from './document-storage.mjs';
 import { loadEnvironmentDeclarationSync, matchEnvironmentLocalPath } from './environment-declaration.mjs';
-import { scannablePath, scanEntries, secretRefusal } from './secrets.mjs';
-import { loadManifest, documentCatalog, manifestPath, evidenceIsActive, mimeType, governedDocumentPath, environmentLocalRefusal, viewDocument, documentPolicy } from './documents-read.mjs';
+import { assertDocumentInputContainsNoSecret, credentialUrlParameter, environmentFileSourceCandidates, loadManifest, documentCatalog, manifestPath, evidenceIsActive, mimeType, governedDocumentPath, environmentLocalRefusal, repositoryRelativeSource, safeName, viewDocument, documentPolicy } from './documents-read.mjs';
 export { documentCatalog, evidenceIsActive, governedDocumentPath, viewDocument } from './documents-read.mjs';
 
 export const STORY_DOCUMENT_RESOURCE_LIMITS = Object.freeze({
@@ -114,35 +112,12 @@ export function validateDocumentUrl(value) {
       { code: 'STORY_DOCUMENT_URL_CREDENTIALS' }
     );
   }
-  // Query strings and fragments are legitimate parts of durable references (for example Figma
-  // node-id and GitHub line anchors). Refuse only names that conventionally carry authentication
-  // material; blanket query/fragment rejection would make normal Story intake unusable.
-  const sensitiveParameter = (name) => /^(?:access[-_]?token|refresh[-_]?token|id[-_]?token|share[-_]?token|token|sig|signature|secret|password|passwd|credential|authorization|auth|api[-_]?key|apikey|awsaccesskeyid|x-amz-credential|x-amz-security-token|x-amz-signature|x-goog-credential|x-goog-signature)$/iu.test(name);
-  const unsafeQueryKey = [...parsed.searchParams.keys()].find(sensitiveParameter);
-  const fragmentParameters = parsed.hash.includes('=')
-    ? new URLSearchParams(parsed.hash.replace(/^#/u, '')) : null;
-  const unsafeFragmentKey = fragmentParameters
-    ? [...fragmentParameters.keys()].find(sensitiveParameter) : null;
-  if (unsafeQueryKey || unsafeFragmentKey) {
+  const unsafeParameter = credentialUrlParameter(parsed);
+  if (unsafeParameter) {
     throw new SingularityFlowError(
-      `Document URL must not contain credential parameter '${unsafeQueryKey ?? unsafeFragmentKey}'. Use a stable credential-free reference.`,
+      `Document URL must not contain credential parameter '${unsafeParameter}'. Use a stable credential-free reference.`,
       { code: 'STORY_DOCUMENT_URL_CREDENTIALS' }
     );
-  }
-  return candidate;
-}
-function safeName(value) {
-  let candidate = path.basename(value).replace(/[^A-Za-z0-9._-]+/g, '-').replace(/^-+|-+$/g, '');
-  candidate = candidate.replace(/[. ]+$/gu, '') || 'document';
-  // A name written only in non-Latin letters (要件.md) sanitizes to its extension alone, which Node
-  // then reads as an extensionless dotfile; keep a stem so its type, text and preview survive.
-  if (/^\.[A-Za-z0-9]+$/u.test(candidate) && path.extname(path.basename(value))) candidate = `document${candidate}`;
-  // Git treats a component named `.git` specially on every platform. Windows additionally refuses
-  // DOS device names even when they carry an extension. Preserve human-recognizable source paths,
-  // but make those reserved components ordinary portable directory/file names.
-  if (candidate.toLowerCase() === '.git'
-      || /^(?:con|prn|aux|nul|com[1-9]|lpt[1-9])(?:\..*)?$/iu.test(candidate)) {
-    candidate = `document-${candidate.replace(/^\.+/u, '') || 'file'}`;
   }
   return candidate;
 }
@@ -759,39 +734,6 @@ function assertCapabilityMime(workflow, type, label) {
   }
 }
 
-async function repositoryRelativeSource(root, source) {
-  // Compare canonical filesystem locations rather than caller spellings. macOS commonly exposes
-  // the same file through /var and /private/var, while Windows drive casing and junctions create
-  // equivalent aliases. A lexical comparison could treat a repository-local environment file as
-  // external and thereby skip its path-specific localFiles rule.
-  const [canonicalRoot, canonicalSource] = await Promise.all([
-    realpath(path.resolve(root)), realpath(path.resolve(source))
-  ]);
-  const relative = path.relative(canonicalRoot, canonicalSource);
-  if (!relative || relative === '..' || relative.startsWith(`..${path.sep}`)
-      || path.isAbsolute(relative)) return null;
-  return posix(relative);
-}
-
-/**
- * The source's own repository path with its last link not followed: a placed environment file is a
- * link into the private store, so only this spelling names it. Also refuse a real environment file
- * by where it lives (the store or a linked file) [ENVF].
- */
-async function environmentFileSourceCandidates(root, declaration, source) {
-  const absolute = path.resolve(source);
-  const [canonicalRoot, parent] = await Promise.all([realpath(path.resolve(root)), realpath(path.dirname(absolute))]).catch(() => []);
-  const relative = parent ? path.relative(canonicalRoot, path.join(parent, path.basename(absolute))) : '';
-  const lexical = relative && relative !== '..' && !relative.startsWith(`..${path.sep}`) && !path.isAbsolute(relative) ? posix(relative) : null;
-  const match = lexical ? matchEnvironmentLocalPath(declaration, lexical) : null;
-  if (match) throw environmentLocalRefusal(lexical, match);
-  const canonical = await realpath(absolute).catch(() => null);
-  if (canonical && (declaration?.environmentFileLocations ?? []).some((location) => canonical === location || canonical.startsWith(`${location}${path.sep}`))) {
-    throw environmentLocalRefusal(source, { kind: 'environment-file', pattern: 'a private environment-file location' });
-  }
-  return lexical ? [lexical] : [];
-}
-
 /** Refuse environment-local input before the first byte is copied into governed Story state. */
 async function assertDocumentInputNotEnvironmentLocal(root, declaration, input, workflow, config, {
   additionalCandidates = [], sourceIsLocalPath = true
@@ -832,43 +774,6 @@ export async function assertStartDocumentNotEnvironmentLocal(root, declaration, 
     if (match) throw environmentLocalRefusal(relative, match);
   }
 }
-
-function assertDocumentInputContainsNoSecret(input, captured) {
-  const logicalPath = input.sourceRelativePath ? posix(input.sourceRelativePath) : safeName(input.source);
-  // An Office document's text reaches prompts through its rendition, so that text is scanned too.
-  const type = mimeType(input.source);
-  if (hasTextExtractor(type)) {
-    const extracted = extractSourceText(captured.bytes, type);
-    if (extracted.status === 'extracted') {
-      const refusal = secretRefusal(scanEntries([{ path: `${logicalPath}${TEXT_RENDITION_SUFFIX}`, content: extracted.text }]));
-      if (refusal) throw new SingularityFlowError(`Document upload was refused before any bytes were copied.\n\n${refusal}`, { code: 'SECRET_DETECTED' });
-    } else if (!extracted.empty) {
-      throw new SingularityFlowError(
-        `Document upload was refused before any bytes were copied: the text of '${logicalPath}' could not be read to scan it for secrets (${extracted.reason}).`,
-        { code: 'DOCUMENT_CONTENT_UNSCANNABLE', details: { path: logicalPath } }
-      );
-    }
-    return;
-  }
-  if (!scannablePath(logicalPath)) return;
-  let content;
-  try {
-    if (captured.bytes.includes(0)) throw new TypeError('NUL byte');
-    content = new TextDecoder('utf-8', { fatal: true }).decode(captured.bytes);
-  } catch {
-    throw new SingularityFlowError(
-      `Document upload was refused before any bytes were copied: '${logicalPath}' is not valid NUL-free UTF-8 text.`,
-      { code: 'DOCUMENT_CONTENT_UNSCANNABLE', details: { path: logicalPath } }
-    );
-  }
-  const refusal = secretRefusal(scanEntries([{ path: logicalPath, content }]));
-  if (!refusal) return;
-  throw new SingularityFlowError(
-    `Document upload was refused before any bytes were copied.\n\n${refusal}`,
-    { code: 'SECRET_DETECTED' }
-  );
-}
-
 
 /**
  * The statuses a document action accepts on the current step. A step awaiting approval keeps its

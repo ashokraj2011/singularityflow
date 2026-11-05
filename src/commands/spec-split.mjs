@@ -14,7 +14,7 @@ import { crashPoint, readDraft, requireOperationId, saveDraft } from '../spec-li
 import { parseSpecReference } from '../spec-library/ids.mjs';
 import { libraryView, resolveRevision } from '../spec-library/library.mjs';
 import {
-  analyzeSplit, childClauses, childSpecText, proposeCommand, publishSplit, readPlanFile, readProposal, readSplits, refuseFindings,
+  analyzeSplit, childClauses, childOrigins, childSpecText, proposeCommand, publishSplit, readPlanFile, readProposal, readSplits, refuseFindings,
   removeProposal, stageProposal
 } from '../spec-library/split.mjs';
 import { optionBoolean, optionString, SingularityFlowError } from '../util.mjs';
@@ -83,11 +83,13 @@ async function publishAction(root, config, name, read, options, { actor, print, 
   for (const child of analysis.plan.children) {
     const derivedFrom = { specId: read.specId, revision: read.revision, manifestSha256: read.manifestSha256, split, operationId, clauses: childClauses(read, child) };
     const spec = childSpecText(read, child, { split });
+    const { origins } = childOrigins(read, child);
     await (await import('../spec-library/sources.mjs')).copySpecSources(root, read.specId, child.specId, read.manifest.sources);
     const saved = await saveDraft(root, child.specId, {
       operationId: `${operationId}.${child.specId}`, operation: 'new', create: true, actor: who,
       payload: { title: child.title, from: `split ${split} of ${name}`, spec, derivedFrom },
-      change: () => ({ ...newDraft({ title: child.title, spec, kind: read.manifest.kind ?? null }), sources: read.manifest.sources ?? [], derivedFrom })
+      change: () => ({ ...newDraft({ title: child.title, spec, kind: read.manifest.kind ?? null }), sources: read.manifest.sources ?? [], derivedFrom,
+        ...(origins.length ? { origins } : {}) })
     });
     drafted.push({ specId: child.specId, sequence: saved.snapshot.sequence, replayed: saved.replayed });
   }

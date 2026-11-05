@@ -200,8 +200,11 @@ export const SPEC_STUDIO_SPLIT_STYLE = `
 export const SPEC_STUDIO_SPLIT_SCRIPT = `
 (() => {
   const api = window.__sfVscode;
+  // The planner can arrive after the page has loaded, in a region the writing page takes as a message.
+  const bind = () => {
   const form = document.querySelector('form[data-split-form]');
-  if (!form) return;
+  if (!form || form.dataset.splitBound) return;
+  form.dataset.splitBound = 'true';
   const groups = form.querySelector('[data-split-groups]');
   const value = (group, name) => (group.querySelector('[name="' + name + '"]') || { value: '' }).value.trim();
   function showKind(group) {
@@ -245,5 +248,8 @@ export const SPEC_STUDIO_SPLIT_SCRIPT = `
   form.addEventListener('input', sync);
   form.addEventListener('submit', (event) => event.preventDefault());
   sync();
+  };
+  bind();
+  window.addEventListener?.('sf-spec-regions', bind);
 })();
 `;

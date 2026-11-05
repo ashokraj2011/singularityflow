@@ -34,6 +34,10 @@ export const SPEC_AUTHOR_READ_ACTIONS = Object.freeze(['gaps', 'check', 'status'
 /** The person's own steps: refused for agents, whatever the turn. */
 export const SPEC_AUTHOR_PERSON_ACTIONS = Object.freeze(['accept', 'reject', 'decide', 'settle', 'publish', 'discard']);
 
+/** How a person confirms a draft's kind, which making a new revision ready requires (SPEC-SPA section 2.3). */
+const setKindCommand = (specId, sequence) => `singularity-flow spec author edit ${specId} --kind <business|technical> --expected-seq ${sequence}`;
+const kindUnconfirmed = (report) => report.blocking.some((finding) => finding.code === 'spec.kind-unconfirmed');
+
 const USAGE = `Usage: singularity-flow spec author <${SPEC_AUTHOR_ACTIONS.join('|')}> …  (singularity-flow help spec)`;
 const fail = (message, code, details = {}) => { throw new SingularityFlowError(message, { code, details }); };
 
@@ -159,15 +163,15 @@ async function editAction(root, positionals, options) {
   const specId = requireSpecId(specArgument(positionals, 'edit'));
   const file = optionString(options, 'file');
   const expected = optionNumber(options, 'expected-seq');
-  if (!file || expected === undefined) fail(`spec author edit ${specId} needs --file FILE and --expected-seq N (the snapshot you edited from).`, 'SPEC_EDIT_INCOMPLETE', { specId, nextAction: `singularity-flow spec author status ${specId}` });
-  const spec = await (await import('../spec-library/sources.mjs')).readSpecTextFile(file);
-  if (Buffer.byteLength(spec) > 256 * 1024) fail('This draft exceeds 256 KiB. Keep your text, export it or split it into smaller specifications.', 'SPEC_DRAFT_TOO_LARGE');
+  const hasMetadata = optionString(options, 'title') !== undefined || optionString(options, 'kind') !== undefined;
+  if ((!file && !hasMetadata) || expected === undefined) fail(`spec author edit ${specId} needs --expected-seq N (the snapshot you edited from) with --file FILE, --title TEXT or --kind business|technical.`, 'SPEC_EDIT_INCOMPLETE', { specId, nextAction: `singularity-flow spec author status ${specId}` });
+  const wording = file ? { spec: await (await import('../spec-library/sources.mjs')).readSpecTextFile(file) } : {};
   const metadata = {};
   if (optionString(options, 'title') !== undefined) { metadata.title = optionString(options, 'title').trim() || 'Untitled specification'; if (metadata.title.length > 240) fail('Use a title of 1 to 240 characters.', 'SPEC_TITLE_INVALID'); }
   if (optionString(options, 'kind') !== undefined) metadata.kind = (await import('../spec-library/draft-model.mjs')).normalizeSpecKind(optionString(options, 'kind'));
   const saved = await saveDraft(root, specId, {
-    operationId: operation(options), operation: 'edit', expectedSequence: expected, actor: actor(root), payload: { spec, ...metadata },
-    change: (draft) => ({ ...draft, spec, ...metadata })
+    operationId: operation(options), operation: 'edit', expectedSequence: expected, wordingBasis: true, actor: actor(root), payload: { ...wording, ...metadata },
+    change: (draft) => ({ ...draft, ...wording, ...metadata })
   });
   return print(options, { action: 'edit', specId, sequence: saved.snapshot.sequence, replayed: saved.replayed, operationId: saved.snapshot.operationId },
     `${saved.replayed ? 'Already saved: ' : 'Saved '}${headLine(specId, saved.snapshot)}.`);
@@ -403,7 +407,7 @@ async function rejectAction(root, positionals, options) {
 
 async function checkAction(root, positionals, options) {
   const specId = requireSpecId(specArgument(positionals, 'check'));
-  const draft = await requireDraft(root, specId);
+  const draft = await requireDraft(root, specId, { headOnly: true });
   const report = await reportFor(root, specId, draft);
   return print(options, { action: 'check', specId, sequence: draft.head.sequence, report }, `${headLine(specId, draft.head)}\n${summarizeCheck(report)}`);
 }
@@ -428,7 +432,7 @@ async function statusAction(root, positionals, options) {
   } : await reportFor(root, specId, draft);
   const next = report.reviewReady ? `singularity-flow spec author publish ${specId} --reviewed`
     : report.human.gaps.open.length ? `singularity-flow spec author gaps ${specId} ${report.human.gaps.open[0]}`
-      : `singularity-flow spec author check ${specId}`;
+      : kindUnconfirmed(report) ? setKindCommand(specId, draft.head.sequence) : `singularity-flow spec author check ${specId}`;
   const standing = new Map(report.research.map((entry) => [entry.id, entry]));
   const { spec, areas, research } = draft.head.draft;
   const sharedDraft = await (await import('../spec-library/shared-basis.mjs')).sharedBasis(root, specId) ?? draft.head.draft.sharedDraftBase ?? null;
@@ -455,7 +459,7 @@ async function publishAction(root, positionals, options) {
   const states = REVIEW_STATES.filter((state) => optionBoolean(options, state));
   if (states.length !== 1) fail(`spec author publish ${specId} needs exactly one of --reviewed or --draft.`, 'SPEC_PUBLISH_STATE_MISSING', { specId, nextAction: `singularity-flow spec author status ${specId}` });
   const [reviewState] = states;
-  const draft = await requireDraft(root, specId);
+  const draft = await requireDraft(root, specId, { headOnly: true });
   const expectedSequence = optionNumber(options, 'expected-seq');
   if (expectedSequence !== undefined && expectedSequence !== draft.sequence) fail('The specification changed during review. Your writing is saved; review the current version before making it ready.', 'SPEC_DRAFT_STALE', { specId, expected: expectedSequence, current: draft.sequence, nextAction: 'singularity-flow spec author status ' + specId });
   const basedOn = draft.head.draft.basedOn;
@@ -464,10 +468,13 @@ async function publishAction(root, positionals, options) {
     return print(options, { action: 'publish', specId, revision: basedOn.revision, reviewState, replayed: true, manifestSha256: basedOn.manifestSha256, unchanged: true },
       `Nothing changed since ${specId}@${basedOn.revision} (${reviewState}); no new revision was published.`);
   }
+  // A revision is immutable on the state branch, so what cannot be shared cannot be published either.
+  (await import('../spec-library/share-check.mjs')).assertDraftShareable(specId, draft.head.draft, { verb: 'published', code: 'SPEC_PUBLISH_SECRET' });
   const report = await reportFor(root, specId, draft);
   if (reviewState === 'reviewed' && !report.reviewReady) {
-    fail(`${specId} cannot be published as reviewed: ${report.blocking.map((finding) => `${finding.part} ${finding.message}`).join('; ')}. Nothing was published; --draft publishes it as a draft revision.`,
-      'SPEC_LIBRARY_REVIEW_INCOMPLETE', { specId, blocking: report.blocking, nextAction: `singularity-flow spec author status ${specId}` });
+    const setKind = kindUnconfirmed(report) ? setKindCommand(specId, draft.sequence) : null;
+    fail(`${specId} cannot be published as reviewed: ${report.blocking.map((finding) => finding.message.replace(/\.$/u, '')).join('; ')}.${setKind ? ` Confirm the kind with ${setKind}.` : ''} Nothing was published; --draft publishes it as a draft revision.`,
+      'SPEC_LIBRARY_REVIEW_INCOMPLETE', { specId, blocking: report.blocking, nextAction: setKind ?? `singularity-flow spec author status ${specId}` });
   }
   // The same draft head published in the same state is the same operation, so a retry after a lost
   // acknowledgement returns the revision it already published.
@@ -507,21 +514,29 @@ async function showAction(root, positionals, options) {
 async function listAction(root, options) {
   const view = await libraryView(root, await libraryConfig(root), { refresh: !optionBoolean(options, 'local') });
   const presence = await (await import('../spec-library/presence.mjs')).libraryPresence(root);
+  // One record this build cannot read (damaged, or from a newer schema) is that entry's problem; the
+  // rest of the library, and every local draft, still lists (SPEC-SPA AC-031).
+  const unreadable = [];
   const specs = [];
   for (const [specId, revisions] of [...view.specs.entries()].sort(([left], [right]) => left.localeCompare(right))) {
-    const latest = readManifest(root, view, specId, revisions.at(-1));
-    const standing = presence.revision(view, latest);
-    specs.push({ specId, revisions, latest: { revision: latest.revision, reviewState: latest.manifest.reviewState, title: latest.manifest.title,
-      ...(standing.state === 'not-required' ? {} : { presence: { counts: standing.counts, state: standing.state, label: standing.label } }) } });
+    try {
+      const latest = readManifest(root, view, specId, revisions.at(-1));
+      const standing = presence.revision(view, latest);
+      specs.push({ specId, revisions, latest: { revision: latest.revision, reviewState: latest.manifest.reviewState, title: latest.manifest.title,
+        ...(standing.state === 'not-required' ? {} : { presence: { counts: standing.counts, state: standing.state, label: standing.label } }) } });
+    } catch (error) { unreadable.push({ specId, record: 'revision', code: error.code ?? null, message: error.message }); }
   }
   const { sharedDrafts } = await import('../spec-library/shared-drafts.mjs');
-  const shared = (await sharedDrafts(root, null, { view })).drafts.map(item => ({ specId: item.head.specId, title: item.checkpoint.draft.title, kind: item.checkpoint.draft.kind ?? null, savedAt: item.checkpoint.savedAt, checkpointSha256: item.head.checkpointSha256 }));
-  const drafts = (await listDrafts(root, { headOnly: true })).map((draft) => ({ specId: draft.specId, sequence: draft.sequence, title: draft.head?.draft.title ?? null, basedOn: draft.head?.draft.basedOn ?? null }));
-  return print(options, { action: 'list', state: { status: view.status, commit: view.commit }, specs, drafts, shared }, [
+  const library = await sharedDrafts(root, null, { view });
+  unreadable.push(...library.unreadable.map((entry) => ({ ...entry, record: 'shared draft' })));
+  const shared = library.drafts.map(item => ({ specId: item.head.specId, title: item.checkpoint.draft.title, kind: item.checkpoint.draft.kind ?? null, savedAt: item.checkpoint.savedAt, checkpointSha256: item.head.checkpointSha256 }));
+  const drafts = (await listDrafts(root, { headOnly: true, unreadable })).map((draft) => ({ specId: draft.specId, sequence: draft.sequence, title: draft.head?.draft.title ?? null, basedOn: draft.head?.draft.basedOn ?? null }));
+  return print(options, { action: 'list', state: { status: view.status, commit: view.commit }, specs, drafts, shared, unreadable }, [
     view.status === 'not-fetched' ? 'Shared specifications have not been fetched on this clone. Run singularity-flow spec author list to refresh; local drafts remain available.'
       : view.status === 'absent' ? 'The specification library is empty: nothing has been published to the state branch yet.' : `Specification library at ${view.commit.slice(0, 12)}:`,
     ...specs.map((entry) => `  ${entry.specId}@${entry.latest.revision} (${entry.latest.reviewState}) ${entry.latest.title}${entry.latest.presence?.counts === false ? ` — SF Guard: ${entry.latest.presence.label}` : ''}`),
-    ...(drafts.length ? ['Drafts on this clone:', ...drafts.map((entry) => `  ${entry.specId} snapshot ${entry.sequence}${entry.basedOn ? ` (based on @${entry.basedOn.revision})` : ''} ${entry.title ?? ''}`)] : [])
+    ...(drafts.length ? ['Drafts on this clone:', ...drafts.map((entry) => `  ${entry.specId} snapshot ${entry.sequence}${entry.basedOn ? ` (based on @${entry.basedOn.revision})` : ''} ${entry.title ?? ''}`)] : []),
+    ...(unreadable.length ? ['Could not be read, so not listed:', ...unreadable.map((entry) => `  ${entry.specId} (${entry.record}): ${entry.message}`)] : [])
   ].join('\n'));
 }
 

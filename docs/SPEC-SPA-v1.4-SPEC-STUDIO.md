@@ -145,6 +145,8 @@ Default behaviour is local autosave after 750 ms of idle time, background synchr
 
 If publication succeeds but its acknowledgement is lost, SFlow reconciles the original operation before retrying. If a push is retained for recovery, the pending save stays bound to that checkpoint and commit. Retrying must not create another specification or reviewed version.
 
+A checkpoint or revision cannot be retracted once pushed, so each MUST pass the repository's secret scan first, including links carrying a credential parameter. A finding, or a scan that fails, shares nothing, keeps the writing saved locally and tells the person where to look without repeating the value. It never stops them writing.
+
 ### 5.3 Another laptop and concurrent changes
 
 Another laptop MUST be able to list synchronized drafts, open their content and continue from a known checkpoint without the original conversation. Pending changes that exist only on the first laptop are reported there as local; they must not be represented as available elsewhere. When two edits share an older basis, neither may silently overwrite the other. Both remain recoverable while the person compares or combines them. [SPA4:REQ-012]
@@ -154,6 +156,8 @@ The editor does not expose a Git merge. It shows **There is a newer draft** and 
 ### 5.4 Retention and backup
 
 Drafts, pending synchronization, accepted revisions and local sources MUST participate in the existing backup, restore and cleanup model. Cleanup cannot remove the only local copy of unsynchronized work, an active recovery operation, a referenced source or a snapshot needed to resolve a concurrent edit. Retention is configurable and applies only after those protections. A preview must identify what can be removed and what is retained. [SPA4:REQ-013]
+
+The default retains every snapshot except ordinary wording saves older than the newest 200, of which the last of each hour stays. The head holds the wording, so no unsynchronized work is lost. Immutable checkpoints stay on the state branch, because removing one from its tip would leave its bytes in Git history.
 
 ## 6. Co-creation with Copilot
 
@@ -189,7 +193,7 @@ On another laptop, a missing local source offers **Add this file again**. A matc
 
 The phase or authoring context MUST offer the assistant the actual readable material, not only a file name. Text sources receive bounded readable excerpts and references; supported images receive a native image input or an exact readable image path that the host supports. CLI-issued files and read ranges are authoritative. Readers must preserve real missing-file, permission, unsupported-media and timeout errors and offer the applicable upload, access or reader-recovery route. [SPA4:REQ-019]
 
-Links store their permitted canonical address and source metadata. Access credentials and secret-bearing addresses stay out of shared records. A link is not treated as readable until retrieval succeeds. Code facts bind to repository identity, commit or observed working-copy basis, path and cited span. Source changes invalidate the affected observation rather than erasing the draft.
+Links store their permitted canonical address and source metadata. Access credentials and secret-bearing addresses stay out of shared records: a link carrying a credential parameter is refused. Files and code take the environment-local and secret refusals of every other document input, when added, restored and read. A link is not treated as readable until retrieval succeeds. Code facts bind to repository identity, commit or observed working-copy basis, path and cited span. Source changes invalidate the affected observation rather than erasing the draft.
 
 ## 8. From business needs to technical details
 
@@ -364,9 +368,11 @@ Every unsuccessful operation MUST preserve the current writing and distinguish a
 
 | Situation | Product behaviour |
 | --- | --- |
-| Connection is unavailable | Saved on this laptop. Reconnect or use Sync now; writing continues. |
+| Connection is unavailable | Saved on this laptop. Sharing retries by itself with backoff, or use Sync now; writing continues. |
+| The writing holds a secret | Saved on this laptop and not shared. Remove the value, or waive it on its line; sharing resumes. |
 | Publication acknowledgement is lost | Reconcile the same operation; do not publish a replacement automatically. |
 | Another laptop saved newer work | Keep both versions, compare, and use an expected-basis update. |
+| Only metadata moved the head | Not a conflict: a save replaces wording, title and kind, and keeps what moved it. |
 | Copilot proposes against old text | Keep the suggestion; compare or rebase it on the current draft. |
 | A local attachment is missing | Ask for that source again only when the current operation needs it. |
 | A link cannot be opened | Keep its unread status; offer access repair or a local file/excerpt. |

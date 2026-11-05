@@ -183,10 +183,14 @@ export function revisionFiles({ specId, revision, parent, reviewState, operation
  * published since this draft was based; returns the revision already published by this same
  * operation (a lost acknowledgement) instead of publishing twice.
  */
+async function ownSnapshot(root, specId, draft, snapshotSha256) {
+  const history = draft.historyChecked === false ? await (await import('./draft-store.mjs')).readDraft(root, specId) : draft;
+  return (history?.snapshots ?? []).some((snapshot) => snapshot.snapshotSha256 === snapshotSha256);
+}
+
 export async function publishRevision(root, config, { specId, draft, report, reviewState, operationId, actor, command, seal = null, env = process.env }) {
   const { publishToStateBranch } = await import('../ledger.mjs');
   const head = draft.head;
-  const ours = new Set(draft.snapshots.map((snapshot) => snapshot.snapshotSha256));
   // The revision's files and its SF Guard seal are made once: a retry after another specification
   // moved the branch publishes the same bytes, so the person is asked for one touch.
   let prepared = null;
@@ -212,7 +216,8 @@ export async function publishRevision(root, config, { specId, draft, report, rev
     }
     // A revision published from one of this draft's own snapshots is this draft's own, even when
     // the acknowledgement that should have recorded it here was lost.
-    if (latest && latest.revision !== basedOn && !ours.has(latest.manifest.draft?.snapshotSha256)) {
+    // Only this rare path reads the whole history; publishing itself needs the head.
+    if (latest && latest.revision !== basedOn && !await ownSnapshot(root, specId, draft, latest.manifest.draft?.snapshotSha256)) {
       fail(`${specId}@${latest.revision} was published by ${latest.manifest.publishedBy?.name ?? 'someone else'} after this draft was ${basedOn ? `based on @${basedOn}` : 'started'}. Nothing was published and your draft is unchanged: read @${latest.revision}, bring your changes over, then publish again.`,
         'SPEC_LIBRARY_REVISION_CONFLICT', { specId, latest: latest.revision, basedOn, nextAction: `singularity-flow spec author show ${specId}@${latest.revision}` });
     }

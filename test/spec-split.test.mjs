@@ -5,6 +5,7 @@ import os from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
 import { fileURLToPath } from 'node:url';
+import { environment } from './helpers/run-and-test-fixture.mjs';
 
 import { ownTerminalStep } from '../src/command-skills.mjs';
 import { resolveOperation } from '../src/command-registry.mjs';
@@ -209,7 +210,7 @@ const git = (cwd, ...args) => {
 function sf(cwd, args, { fail = false } = {}) {
   const result = spawnSync(process.execPath, [bin, ...args], {
     cwd, encoding: 'utf8', timeout: childTimeout(120_000), maxBuffer: 16 * 1024 * 1024,
-    env: { ...process.env, NODE_ENV: 'test', SINGULARITY_FLOW_NO_MODEL: '1', SINGULARITY_FLOW_DISABLE_TIMING_LOG: '1' }
+    env: { ...environment(path.join(path.dirname(cwd), 'context-' + path.basename(cwd))), SINGULARITY_FLOW_DISABLE_TIMING_LOG: '1' }
   });
   if (fail) assert.notEqual(result.status, 0, `${args.join(' ')} was expected to be refused:\n${result.stdout}`);
   else assert.equal(result.status, 0, `${args.join(' ')}\n${result.stdout}\n${result.stderr}`);
@@ -240,7 +241,7 @@ async function publishReviewed(root, directory, spec, { first = false } = {}) {
   const file = path.join(directory, `spec-${Date.now()}.md`);
   await writeFile(file, spec);
   if (first) {
-    sf(root, ['spec', 'author', 'new', SPEC, '--title', 'Order discount threshold']);
+    sf(root, ['spec', 'author', 'new', SPEC, '--kind', 'business', '--title', 'Order discount threshold']);
     sf(root, ['spec', 'author', 'gap', SPEC, '--kind', 'vague-term', '--question', 'Is INR 5000.00 itself discounted?', '--clause', `${SPEC}:REQ-001`]);
     sf(root, ['spec', 'author', 'decide', SPEC, 'GAP-001', '--choice', 'Only totals strictly above INR 5000.00 qualify.', '--reason', 'Finance.']);
   }
@@ -286,7 +287,7 @@ test('a person splits a reviewed revision: the plan is checked when proposed, th
   const child = json(root, ['spec', 'author', 'status', CHILD]);
   assert.deepEqual(child.clauseIds, [`${CHILD}:REQ-001`, `${CHILD}:AC-001`]);
   const draftDirectory = path.join(root, '.git', 'singularity-flow', 'spec-drafts', CHILD);
-  assert.deepEqual(await readdir(draftDirectory), ['000001.json']);
+  assert.deepEqual(await readdir(draftDirectory), ['000001.json', 'index.json']);
 
   // No Story was started: no work item, and the remote holds only main and the state branch.
   assert.equal(git(root, 'ls-tree', '--name-only', 'HEAD', 'singularity'), '');
@@ -307,7 +308,7 @@ test('a person splits a reviewed revision: the plan is checked when proposed, th
   const moved = json(root, ['spec', 'author', 'coverage', `${SPEC}@2`]);
   assert.deepEqual(moved.children.map((entry) => [entry.specId, entry.status, entry.changed]), [[CHILD, 'parent-moved', [`${SPEC}:REQ-001`]]]);
   assert.equal(moved.split, null);
-  assert.deepEqual(await readdir(draftDirectory), ['000001.json'], 'the child draft is unchanged');
+  assert.deepEqual(await readdir(draftDirectory), ['000001.json', 'index.json'], 'the child draft is unchanged');
   assert.match(sf(root, ['spec', 'author', 'coverage', `${SPEC}@2`]).stdout, /child SPEC-CHK-004-INR \(split 1 of @1\): parent moved; SPEC-CHK-004:REQ-001 changed since @1/u);
 });
 
@@ -417,7 +418,7 @@ test('a slice\'s start command runs as written: the Story starts with that slice
     beforeStart: async ({ directory, cli }) => {
       const file = path.join(directory, 'library-spec.md');
       await writeFile(file, librarySpec());
-      cli('spec', 'author', 'new', SPEC, '--title', 'Order discount threshold');
+      cli('spec', 'author', 'new', SPEC, '--kind', 'business', '--title', 'Order discount threshold');
       cli('spec', 'author', 'edit', SPEC, '--file', file, '--expected-seq', '1');
       cli('spec', 'author', 'gap', SPEC, '--kind', 'vague-term', '--question', 'Is INR 5000.00 itself discounted?', '--clause', `${SPEC}:REQ-001`);
       cli('spec', 'author', 'decide', SPEC, 'GAP-001', '--choice', 'Only totals strictly above INR 5000.00 qualify.', '--reason', 'Finance.');

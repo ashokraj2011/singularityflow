@@ -61,11 +61,13 @@ export interface SpecStatus {
   specId: string; sequence: number; title: string; basedOn: SpecBasedOn | null; gaps: SpecGap[]; counts: SpecCounts;
   blocking: SpecFinding[]; reviewReady: boolean; next: string; spec: string; areas: string[]; researchItems: SpecResearchItem[];
   rules: SpecRule[]; articles: Array<{ article: string; decision: string | null; reason: string | null }>; clauseIds: string[];
+  kind?: string | null; sources?: Array<Record<string, unknown>>; origins?: Array<Record<string, unknown>>; qualityChecked?: boolean; sharedDraft?: Record<string, unknown> | null;
   damagedSnapshots: number; proposals: SpecProposal[]; findings: SpecAssistedFinding[];
 }
 export interface SpecLibraryEntry { specId: string; revisions: number[]; latest: { revision: number; reviewState: string; title: string } }
 export interface SpecLibrary {
   status: string; commit: string | null; specs: SpecLibraryEntry[];
+  shared?: Array<{ specId: string; title: string; kind: string | null; savedAt: string; checkpointSha256: string }>;
   drafts: Array<{ specId: string; sequence: number; title: string | null; basedOn: SpecBasedOn | null }>;
 }
 export interface SpecRevision {
@@ -118,8 +120,8 @@ export function specStudioTarget(raw: unknown): SpecStudioTarget {
 // ---- Command lines -------------------------------------------------------------------------
 
 const author = (...args: string[]): string[] => ['spec', 'author', ...args, '--json'];
-export const libraryArgv = (): string[] => author('list');
-export const statusArgv = (specId: string): string[] => author('status', specId);
+export const libraryArgv = (refresh = false): string[] => author('list', ...(refresh ? [] : ['--local']));
+export const statusArgv = (specId: string, checked = false): string[] => author('status', specId, ...(checked ? [] : ['--quick']));
 /** Without a revision, the highest reviewed one: only a reviewed revision can be attached. */
 export const showArgv = (specId: string, revision: number | null): string[] => author('show', revision ? `${specId}@${revision}` : specId);
 export const gapImpactArgv = (specId: string, gap: string): string[] => author('gaps', specId, gap);
@@ -129,8 +131,8 @@ export function newArgv(specId: string | null, { title, intent, areas = [], revi
   return author('new', ...(specId ? [specId] : []), ...(revise ? ['--revise'] : []), ...(title ? ['--title', title] : []), ...(intent ? ['--intent', intent] : []),
     ...areas.flatMap((area) => ['--area', area]), '--operation-id', operationId);
 }
-export const editArgv = (specId: string, file: string, sequence: number, operationId: string): string[] =>
-  author('edit', specId, '--file', file, '--expected-seq', String(sequence), '--operation-id', operationId);
+export const editArgv = (specId: string, file: string, sequence: number, operationId: string, metadata: { title?: string; kind?: string | null } = {}): string[] =>
+  author('edit', specId, '--file', file, '--expected-seq', String(sequence), '--operation-id', operationId, ...(metadata.title ? ['--title', metadata.title] : []), ...(metadata.kind !== undefined ? ['--kind', metadata.kind ?? ''] : []));
 export function researchArgv(specId: string, { paths = [], refresh = false }: { paths?: string[]; refresh?: boolean }, operationId: string): string[] {
   return author('research', specId, ...paths.flatMap((entry) => ['--path', entry]), ...(refresh ? ['--refresh'] : []), '--operation-id', operationId);
 }
@@ -155,7 +157,7 @@ export function settleArgv(specId: string, decisions: Record<string, string>, re
  * No `--operation-id`: the engine derives publication's own from the draft head and the state, so a
  * retry after a lost acknowledgement is the same publication, never a second revision.
  */
-export const publishArgv = (specId: string, state: 'reviewed' | 'draft'): string[] => author('publish', specId, `--${state}`);
+export const publishArgv = (specId: string, state: 'reviewed' | 'draft', sequence?: number): string[] => author('publish', specId, `--${state}`, ...(sequence !== undefined ? ['--expected-seq', String(sequence)] : []));
 export const discardArgv = (specId: string): string[] => author('discard', specId);
 export function acceptArgv(specId: string, proposals: string[], editedFile: string | null, operationId: string): string[] {
   return author('accept', specId, ...proposals, ...(editedFile ? ['--edit', editedFile] : []), '--operation-id', operationId);
@@ -189,7 +191,7 @@ export function findingsRequest(message: Record<string, unknown>, status: SpecSt
 }
 
 /** What a person types into Copilot Chat to have this specification drafted with the Studio's tool. */
-export const copilotPrompt = (specId: string, tool: boolean): string => `/sf-spec-author ${specId} ${tool ? '#sflowSpecStudio ' : ''}`;
+export const copilotPrompt = (specId: string, tool: boolean, request = "Help me improve this specification."): string => `/sf-spec-author ${specId} ${tool ? "#sflowSpecStudio " : ""}\n${request}\nRead the current saved draft and selected sources. Reuse settled answers. Suggest focused wording changes, source-backed research and the next material question. Keep business needs separate from technical design. Do not assume a browser UI for backend work. Repair malformed proposals at most twice in this turn; preserve genuine access or human-decision routes. Stage proposals for my review; do not accept, approve, publish or create work. Summarize in chat; do not paste the specification or code.`;
 
 // ---- Engine answers ------------------------------------------------------------------------
 
@@ -204,6 +206,7 @@ export function libraryFrom(raw: unknown): SpecLibrary | null {
       return { specId: entry.specId as string, revisions: list(entry.revisions).filter((value): value is number => typeof value === 'number'),
         latest: { revision: count(latest.revision), reviewState: text(latest.reviewState), title: text(latest.title) } };
     }),
+    shared: list(result.shared).map(record).filter(entry => validSpecId(entry.specId)).map(entry => ({ specId: entry.specId as string, title: text(entry.title), kind: typeof entry.kind === 'string' ? entry.kind : null, savedAt: text(entry.savedAt), checkpointSha256: text(entry.checkpointSha256) })),
     drafts: list(result.drafts).map(record).filter((entry) => validSpecId(entry.specId)).map((entry) => ({
       specId: entry.specId as string, sequence: count(entry.sequence), title: typeof entry.title === 'string' ? entry.title : null, basedOn: basedOn(entry.basedOn)
     }))
@@ -234,7 +237,7 @@ export function statusFrom(raw: unknown): SpecStatus | null {
   const counts = record(result.counts);
   const d = record(counts.d); const a = record(counts.a); const h = record(counts.h);
   return {
-    specId: result.specId, sequence: count(result.sequence), title: text(result.title), basedOn: basedOn(result.basedOn),
+    specId: result.specId, sequence: count(result.sequence), kind: typeof result.kind === 'string' ? result.kind : null, sources: list(result.sources).map(record), origins: list(result.origins).map(record), qualityChecked: result.qualityChecked !== false, sharedDraft: result.sharedDraft ? record(result.sharedDraft) : null, title: text(result.title), basedOn: basedOn(result.basedOn),
     gaps: list(result.gaps).map(gapFrom),
     counts: { d: { passed: count(d.passed), total: count(d.total) }, a: { status: text(a.status) || 'not-run', pending: count(a.pending) }, h: { open: count(h.open), deferred: count(h.deferred) } },
     blocking: list(result.blocking).map(record).map((entry) => ({ ...entry, part: (['D', 'A', 'H'].includes(text(entry.part)) ? entry.part : 'D') as SpecFinding['part'], code: text(entry.code), message: text(entry.message) })),

@@ -20,7 +20,7 @@ import path from 'node:path';
 import { prepareSharedPublicationStorage, sharedPublicationStorageDirectory } from '../publication-storage.mjs';
 import { canonicalJson } from '../records.mjs';
 import { currentSchemaVersion, readRecord } from '../schema-migrations.mjs';
-import { SingularityFlowError } from '../util.mjs';
+import { SingularityFlowError, writeAtomic } from '../util.mjs';
 import { requireSpecId, validSpecId } from './ids.mjs';
 
 export const DRAFT_FAMILY = 'spec-draft';
@@ -102,7 +102,7 @@ async function readSnapshot(file, specId) {
   let text;
   try { text = await readFile(file, 'utf8'); } catch (error) { if (missing(error)) return null; throw error; }
   let record;
-  try { record = readRecord(DRAFT_FAMILY, text).record; }
+  try { readRecord(DRAFT_FAMILY, text); record = JSON.parse(text); } // Verify the original signed/hash-bound bytes, not a migrated projection.
   catch (error) {
     // A snapshot a newer build wrote is refused with the upgrade, never treated as damaged.
     if (error?.code === 'SCHEMA_VERSION_FUTURE') throw error;
@@ -127,6 +127,47 @@ async function readSnapshots(directory, specId) {
   return snapshots;
 }
 
+/** Rebuildable local index, never an alternative to the immutable snapshot bytes. */
+const INDEX_FILE = 'index.json';
+const indexRow = record => ({ sequence: record.sequence, operationId: record.operationId,
+  payloadDigest: record.payloadDigest, snapshotSha256: record.snapshotSha256 });
+const snapshotName = sequence => String(sequence).padStart(6, '0') + '.json';
+const inventoryDigest = names => sha256(names.join('\n'));
+async function indexedDraft(directory, specId) {
+  const names = (await readdir(directory).catch(error => missing(error) ? [] : Promise.reject(error))).filter(name => SNAPSHOT.test(name)).sort();
+  let text;
+  try { text = await readFile(path.join(directory, INDEX_FILE), 'utf8'); }
+  catch (error) { if (missing(error) || ['EACCES', 'EPERM', 'EISDIR'].includes(error?.code)) return { names, index: null }; throw error; }
+  try {
+    const index = readRecord('spec-draft-index', text).record;
+    const { indexSha256, ...core } = index;
+    if (index.specId !== specId || indexSha256 !== sha256(canonicalJson(core)) || index.inventorySha256 !== inventoryDigest(names)
+        || !Array.isArray(index.rows) || !Array.isArray(index.damaged) || index.rows.length + index.damaged.length !== names.length
+        || !index.rows.every(row => Number.isSafeInteger(row.sequence) && row.sequence > 0 && OPERATION_ID.test(row.operationId)
+          && /^sha256:[a-f0-9]{64}$/u.test(row.snapshotSha256) && /^sha256:[a-f0-9]{64}$/u.test(row.payloadDigest))
+        || !index.damaged.every(item => SNAPSHOT.test(item.name) && typeof item.reason === 'string')) return { names, index: null };
+    const latest = index.rows.at(-1);
+    const read = latest ? await readSnapshot(path.join(directory, snapshotName(latest.sequence)), specId) : null;
+    if (latest && (!read || read.damaged || read.record.snapshotSha256 !== latest.snapshotSha256 || read.record.sequence !== latest.sequence)) return { names, index: null };
+    const head = read?.record ?? null;
+    return { names, index, view: { specId, head, sequence: head?.sequence ?? 0, historyChecked: false,
+      highestFile: names.length ? Number(SNAPSHOT.exec(names.at(-1))[1]) : 0,
+      snapshots: head ? [head] : [], damaged: index.damaged.map(item => ({ file: path.join(directory, item.name), reason: item.reason })) } };
+  } catch (error) {
+    // An absent, torn or newer cache is ignored. Real snapshot read/permission errors remain errors.
+    if (missing(error) || error instanceof SyntaxError || typeof error?.code === 'string' && error.code.startsWith('SCHEMA_')) return { names, index: null };
+    throw error;
+  }
+}
+
+async function writeDraftIndex(directory, specId, view, previousNames, record) {
+  const core = { schemaVersion: currentSchemaVersion('spec-draft-index'), specId,
+    inventorySha256: inventoryDigest([...previousNames, snapshotName(record.sequence)].sort()),
+    rows: [...view.rows, indexRow(record)],
+    damaged: view.damaged.map(item => ({ name: path.basename(item.file), reason: item.reason })) };
+  await writeAtomic(path.join(directory, INDEX_FILE), canonicalJson({ ...core, indexSha256: sha256(canonicalJson(core)) }), { mode: 0o600 });
+}
+
 function draftView(specId, snapshots) {
   const valid = snapshots.filter((entry) => !entry.damaged && entry.record.sequence === entry.sequence);
   const head = valid.at(-1)?.record ?? null;
@@ -142,18 +183,20 @@ function draftView(specId, snapshots) {
 }
 
 /** One draft on this clone, or null when there is none. */
-export async function readDraft(root, specId) {
+export async function readDraft(root, specId, { headOnly = false } = {}) {
   requireSpecId(specId);
-  const view = draftView(specId, await readSnapshots(path.join(draftsRoot(root), specId), specId));
+  const directory = path.join(draftsRoot(root), specId);
+  const indexed = headOnly ? await indexedDraft(directory, specId) : null;
+  const view = indexed?.view ?? draftView(specId, await readSnapshots(directory, specId));
   return view.head || view.damaged.length ? view : null;
 }
 
 /** Every draft on this clone, by specification ID. */
-export async function listDrafts(root) {
+export async function listDrafts(root, options = {}) {
   const names = await readdir(draftsRoot(root)).catch((error) => (missing(error) ? [] : Promise.reject(error)));
   const drafts = [];
   for (const name of names.filter(validSpecId).sort()) {
-    const draft = await readDraft(root, name);
+    const draft = await readDraft(root, name, options);
     if (draft) drafts.push(draft);
   }
   return drafts;
@@ -197,8 +240,17 @@ export async function saveDraft(root, specId, {
   requireOperationId(operationId);
   const digest = payloadDigest(operation, payload);
   return withDraftLock(root, specId, async (directory) => {
-    const view = draftView(specId, await readSnapshots(directory, specId));
-    const earlier = view.snapshots.find((record) => record.operationId === operationId);
+    const indexed = await indexedDraft(directory, specId);
+    const view = indexed.view ?? draftView(specId, await readSnapshots(directory, specId));
+    const rows = indexed.index?.rows ?? view.snapshots.map(indexRow);
+    const earlierRow = rows.find(record => record.operationId === operationId);
+    let earlier = null;
+    if (earlierRow) {
+      const read = await readSnapshot(path.join(directory, snapshotName(earlierRow.sequence)), specId);
+      if (!read || read.damaged || read.record.snapshotSha256 !== earlierRow.snapshotSha256 || read.record.operationId !== operationId
+          || read.record.payloadDigest !== earlierRow.payloadDigest) fail('The original save receipt cannot be verified. Preserve your text and inspect Earlier versions or restore the backup.', 'SPEC_DRAFT_OPERATION_UNAVAILABLE', { specId, operationId });
+      earlier = read.record;
+    }
     if (earlier) {
       if (earlier.payloadDigest === digest) return { snapshot: earlier, replayed: true, head: view.head };
       fail(`Operation ${operationId} already saved a different change to ${specId} (snapshot ${earlier.sequence}); nothing was saved. Use a new operation ID for a new change.`,
@@ -232,6 +284,9 @@ export async function saveDraft(root, specId, {
     };
     record.snapshotSha256 = snapshotDigest(record);
     await publishSnapshotFile(directory, `${String(sequence).padStart(6, '0')}.json`, canonicalJson(record));
+    // The snapshot is already durable. A failed optimization cache write cannot undo that fact;
+    // the next writer rebuilds it from the immutable history instead.
+    await writeDraftIndex(directory, specId, { rows, damaged: view.damaged }, indexed.names, record).catch(() => undefined);
     return { snapshot: record, replayed: false, head: record };
   });
 }

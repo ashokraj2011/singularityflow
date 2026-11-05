@@ -6655,6 +6655,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     guidedStart?: boolean;
     workspaceName?: string | null;
     repositoryPath?: string;
+    specifications?: string[];
     clone?: import('./views/intake-panel.ts').IntakeDefaults['clone'];
   } = {}): Promise<void> => {
     // An Initiative or an Epic starts in this checkout, so asked for directly it refreshes before
@@ -9719,7 +9720,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     },
     // The specification library's Studio: `{ specId, revision, clauses, step }`, 'SPEC-ID@N', or the library [SPEC-SPA v1.3 S3].
     'singularityFlow.openSpecStudio': async (target?: unknown) => lazyPanels().SpecStudioPanel.show(client, target,
-      { root: () => repository, refresh: refreshAfterKnownMutation, output, signRequired: sfGuardSignRequired }),
+      { root: () => repository, memento: context.globalState, refresh: refreshAfterKnownMutation, output, signRequired: sfGuardSignRequired }),
     // SF Guard: on or off, keys and expiry, exceptions, branch protection, recording, and labels by Story (SPEC-PSS-v1 M5, SPEC-SFG-v1 G5).
     'singularityFlow.sfGuard': async () => lazyPanels().SfGuardPanel.show(client, { memento: context.globalState, output, refresh: refreshAfterKnownMutation }),
     'singularityFlow.inspectCompositionCache': async () => {

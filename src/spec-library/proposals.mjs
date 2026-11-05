@@ -73,8 +73,28 @@ function citedSpan(root, ref, citation) {
  * The closed operation table: each kind's validation, returning the staged body and its findings
  * (`{ field, code, message }`). A finding refuses the whole proposal file.
  */
+export function applyFocusedEdits(spec, patches) {
+  if (!Array.isArray(patches) || !patches.length || patches.length > 16) fail('Use 1 to 16 exact text changes.', 'SPEC_PROPOSAL_PATCH_INVALID');
+  let next = spec;
+  for (const patch of patches) {
+    if (!plain(patch) || Object.keys(patch).some(key => !['before', 'after'].includes(key))
+        || typeof patch.before !== 'string' || !patch.before || typeof patch.after !== 'string'
+        || patch.before === patch.after) fail('Every change needs different before and after text.', 'SPEC_PROPOSAL_PATCH_INVALID');
+    const at = next.indexOf(patch.before);
+    if (at < 0 || next.indexOf(patch.before, at + 1) >= 0) fail('The selected wording changed or is ambiguous. Compare the proposal with the current draft.', 'SPEC_PROPOSAL_STALE');
+    next = next.slice(0, at) + patch.after + next.slice(at + patch.before.length);
+    if (Buffer.byteLength(next) > MAXIMUM_SPEC_BYTES) fail('The changed draft exceeds 256 KiB. Split the specification before accepting it.', 'SPEC_PROPOSAL_TOO_LARGE');
+  }
+  return next;
+}
+
 const KINDS = Object.freeze({
   edit(entry, at, { draft }) {
+    if (entry.patches !== undefined) {
+      if (entry.spec !== undefined) return { findings: [{ field: at, code: 'SPEC_PROPOSAL_PATCH_INVALID', message: 'Use patches or a whole specification, not both.' }] };
+      try { return { body: { patches: entry.patches, spec: applyFocusedEdits(draft.spec, entry.patches) } }; }
+      catch (error) { return { findings: [{ field: at + '.patches', code: error.code, message: error.message }] }; }
+    }
     if (typeof entry.spec !== 'string' || !entry.spec.trim()) return { findings: [{ field: `${at}.spec`, code: 'SPEC_PROPOSAL_EDIT_EMPTY', message: 'an edit proposal carries the whole prose as spec' }] };
     if (Buffer.byteLength(entry.spec) > MAXIMUM_SPEC_BYTES) return { findings: [{ field: `${at}.spec`, code: 'SPEC_PROPOSAL_TOO_LARGE', message: `the prose is over ${MAXIMUM_SPEC_BYTES / 1024} KiB` }] };
     if (entry.spec === draft.spec) return { findings: [{ field: `${at}.spec`, code: 'SPEC_PROPOSAL_EDIT_UNCHANGED', message: 'the proposed prose is the draft as it is' }] };
@@ -110,7 +130,7 @@ const KINDS = Object.freeze({
 
 const SHARED_FIELDS = new Set(['kind', 'summary']);
 const FIELDS = Object.freeze({
-  edit: new Set(['spec']), research: new Set(['citation']), gap: new Set(['gapKind', 'question', 'evidence', 'clauses', 'options']),
+  edit: new Set(['spec', 'patches']), research: new Set(['citation']), gap: new Set(['gapKind', 'question', 'evidence', 'clauses', 'options']),
   finding: new Set(['article', 'message', 'clauses'])
 });
 
@@ -184,11 +204,11 @@ export function acceptProposals(root, draft, ids, { edited = null }, { actor, at
   const results = {};
   for (const proposal of proposals) {
     if (proposal.kind === 'edit') {
-      if (edited === null && specDigest(draft.spec) !== proposal.basis.specSha256) {
+      if (edited === null && !proposal.patches && specDigest(draft.spec) !== proposal.basis.specSha256) {
         fail(`${proposal.id} was proposed against snapshot ${proposal.basis.sequence}, and the prose has changed since; nothing was accepted. Ask for a new proposal on the draft as it is, or take it with your own merge: --edit FILE.`,
           'SPEC_PROPOSAL_STALE', { proposal: proposal.id, basis: proposal.basis.sequence });
       }
-      draft.spec = edited ?? proposal.spec;
+      draft.spec = edited ?? (proposal.patches ? applyFocusedEdits(draft.spec, proposal.patches) : proposal.spec);
       results[proposal.id] = 'the prose';
     } else if (proposal.kind === 'research') {
       let citation = null;
@@ -257,9 +277,10 @@ export function assistedReport(draft) {
 /** The open (staged) proposals for a host: every field a person needs to judge each one. */
 export function stagedProposals(draft) {
   const current = specDigest(draft.spec);
+  const stale = proposal => { if (!proposal.patches) return proposal.basis.specSha256 !== current; try { applyFocusedEdits(draft.spec, proposal.patches); return false; } catch { return true; } };
   return draftProposals(draft).filter((proposal) => proposal.status === 'staged').map(({ id, kind, summary, notes, basis, proposedBy, at, ...body }) => ({
     id, kind, summary, notes, basis, proposedBy, at,
-    ...(kind === 'edit' ? { spec: body.spec, stale: basis.specSha256 !== current } : {}),
+    ...(kind === 'edit' ? { spec: body.spec, ...(body.patches ? { patches: body.patches } : {}), stale: stale({ ...body, basis }) } : {}),
     ...(kind === 'research' ? { citation: body.citation, verified: Boolean(body.citation) } : {}),
     ...(kind === 'gap' ? { gapKind: body.gapKind, question: body.question, evidence: body.evidence, clauses: body.clauses, options: body.options } : {})
   }));

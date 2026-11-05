@@ -83,6 +83,7 @@ export interface IntakeTarget {
 }
 
 export interface IntakeDefaults {
+  specifications?: string[];
   shape?: Shape | null;
   source?: 'jira' | 'github-issue' | 'manual' | null;
   workType?: string | null;
@@ -348,6 +349,7 @@ export class IntakePanel {
       approvalAuthorityMissing: target.approvalAuthorityMissing === true,
       inFlight: target.inFlight,
       favouriteWorkflows: [],
+      ...(this.defaults.specifications?.length ? { cloneSpecifications: this.defaults.specifications } : {}),
       showSampleWorkflows: preferences.get(SAMPLE_WORKFLOWS_KEY + ':' + target.repository) === true,
       ...(this.defaults.source ? {
         tracker: this.defaults.source === 'github-issue' ? 'github'

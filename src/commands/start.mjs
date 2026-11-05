@@ -1493,6 +1493,23 @@ async function startCommandAtRoot(positionals, options) {
       dependencyReason: optionBoolean(options, 'allow-partial-dependency') ? optionString(options, 'reason') ?? '' : null
     }));
     source = { ...source, specification };
+    // Isolated Story bases can have another Git common directory on this same laptop. Carry
+    // available originals from the verified launch clone before the existing phase reader needs
+    // them; another laptop still receives descriptors and the matching-file restore route.
+    const launchRepository = optionString(options, 'story-launch-repository');
+    if (launchRepository && path.resolve(launchRepository) !== path.resolve(root)) {
+      const { copySpecSources } = await import('../spec-library/sources.mjs');
+      const copied = new Set();
+      const copySources = async slices => {
+        for (const slice of slices) {
+          const owner = slice.revision.split('@')[0];
+          if (!copied.has(owner)) { await copySpecSources(launchRepository, owner, owner, slice.sources ?? [], { targetRoot: root }); copied.add(owner); }
+          await copySources(slice.inheritedSpecifications ?? []);
+        }
+      };
+      await copySources(specification);
+    }
+
   }
   const retainedCapabilityMapBeforeEnrollment = validateConfigurationSnapshotCapabilities(
     approvedConfigurationSnapshot, { capabilityId: workflowCapabilityId }

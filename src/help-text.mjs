@@ -663,10 +663,10 @@ Usage:
   singularity-flow spec drift [--work-id WORK-ID] [--ref REV] [--all] [--json]
   singularity-flow spec drift decide CLAUSE-ID (--accept | --adopt --story WORK-ID | --restore --story WORK-ID) --reason TEXT [--json]
   singularity-flow spec drift decide --revoke DRD-ID --work-id WORK-ID --reason TEXT [--json]
-  singularity-flow spec author new [SPEC-ID] --title TEXT [--intent TEXT | --from FILE] [--area PATH]... [--json]
+  singularity-flow spec author new [SPEC-ID] [--title TEXT] [--kind business|technical] [--intent TEXT | --from FILE] [--area PATH]... [--json]
   singularity-flow spec author new SPEC-ID --revise [--title TEXT] [--json]
   # New drafts get a unique ID automatically; use the returned specId for later commands.
-  singularity-flow spec author edit SPEC-ID --file FILE --expected-seq N [--json]
+  singularity-flow spec author edit SPEC-ID --file FILE --expected-seq N [--title TEXT] [--kind business|technical] [--json]
   singularity-flow spec author research SPEC-ID [--path PATH]... [--symbol NAME]... [--refresh] [--json]
   singularity-flow spec author research SPEC-ID (--fact TEXT --source NAME | [--remove R-NNN]...) [--json]
   singularity-flow spec author gap SPEC-ID --kind KIND --question TEXT [--research R-NNN,...] [--clause ID]...
@@ -680,9 +680,21 @@ Usage:
   singularity-flow spec author settle SPEC-ID ([--article ARTICLE=DECISION]... | --all-articles DECISION | [--finding A-NNN=gap|fixed|dismissed]...)
     [--reason TEXT] [--json]
     repeat --article or --finding once per value, or give one comma-separated list; a value without its flag is refused
-  singularity-flow spec author check|status SPEC-ID [--json]
-  singularity-flow spec author publish SPEC-ID (--reviewed | --draft) [--json]
-  singularity-flow spec author show SPEC-ID[@N] [--any] [--json] | list [--json] | discard SPEC-ID [--json]
+  singularity-flow spec author sync SPEC-ID [--automatic --min-interval-ms N] [--json]
+  singularity-flow spec author shared [SPEC-ID] [--refresh] [--json]
+  singularity-flow spec author resume SPEC-ID --checkpoint SHA256 --expected-seq N [--json]
+  singularity-flow spec author history SPEC-ID [--sequence N] [--json]
+  singularity-flow spec author restore-version SPEC-ID --sequence N --expected-seq N [--json]
+  singularity-flow spec author fork SPEC-ID [--file FILE] [--json]
+  singularity-flow spec author derive SPEC-ID@N [--parent SPEC-ID@N]... [--json]
+  singularity-flow spec author source SPEC-ID (--file FILE... | --url URL | --path CODE | --specification SPEC-ID@N | --remove SRC-ID) [--restore SRC-ID] [--json]
+  singularity-flow spec author sources SPEC-ID[@N] [--source SRC-ID --from LINE --column N] [--json]
+    shared drafts are unreviewed checkpoints; local files/images never go into Git;
+    resume compares exact versions and retains local history; derive pins a reviewed parent's requirements
+  singularity-flow spec author check SPEC-ID [--json] | status SPEC-ID [--quick] [--json]
+  singularity-flow spec author publish SPEC-ID (--reviewed | --draft) [--expected-seq N] [--json]
+  singularity-flow spec author show SPEC-ID[@N] [--any] [--json] | list [--local] [--json] | discard SPEC-ID [--json]
+    saves accept --operation-id ID; reuse the same ID to reconcile an interrupted operation
     the specification library: one draft per specification on this clone, research cited from the
     code, gaps a person decides, a check with no model, immutable revisions on the state branch;
     accepting, rejecting, deciding, settling, publishing and discarding are the person's own steps; writes take --operation-id ID

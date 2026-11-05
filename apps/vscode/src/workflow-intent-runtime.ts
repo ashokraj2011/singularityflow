@@ -1,6 +1,6 @@
 /** Optional native-chat tools. Loaded only by an explicitly opened workflow designer, workflow build or Spec Studio draft. */
 import * as vscode from 'vscode';
-import { randomUUID } from 'node:crypto';
+import { randomUUID, createHash } from 'node:crypto';
 export { workflowIntentPrompt } from './views/workflow-intent-prompt.ts';
 import { WORKFLOW_BUILDER_TOOL, answerBuilderTool, builderInvocationMessage, builderToolInput, type BuilderRunner, type BuilderToolInput } from './views/workflow-builder-tool.ts';
 import { SPEC_STUDIO_TOOL, answerSpecStudioTool, specToolInput, specToolInvocationMessage, type SpecToolRunner } from './views/spec-studio-tool.ts';
@@ -9,6 +9,7 @@ export const WORKFLOW_INTENT_TOOL = 'singularityFlow_workflowAuthoring';
 interface Input { action: string; session: string; revision: number; source?: string; kind?: string; id?: string; query?: string; cursor?: number }
 interface OptionalTools {
   lm?: { registerTool(name: string, tool: unknown): vscode.Disposable };
+  LanguageModelDataPart?: new (data: Uint8Array, mimeType: string) => unknown;
   LanguageModelTextPart?: new (text: string) => unknown;
   LanguageModelToolResult?: new (parts: unknown[]) => unknown;
 }
@@ -99,7 +100,17 @@ export function attachSpecStudioTool(spec: string, runner: SpecToolRunner): { av
       const request = specToolInput(options.input);
       const target = specs.get(request.spec);
       if (!target) throw new Error(`${request.spec}'s draft is not open in the Spec Studio. Open it there first.`);
-      return new host.LanguageModelToolResult!([new host.LanguageModelTextPart!(JSON.stringify(await answerSpecStudioTool(request, target)))]);
+      const value = await answerSpecStudioTool(request, target);
+      const parts: unknown[] = [];
+      if (request.action === 'source' && value.status === 'image-ready' && typeof value.path === 'string' && typeof value.mediaType === 'string') {
+        if (host.LanguageModelDataPart) {
+          const bytes = await vscode.workspace.fs.readFile(vscode.Uri.file(value.path));
+          if (bytes.length > 20 * 1024 * 1024 || createHash('sha256').update(bytes).digest('hex') !== value.sha256) throw new Error('The source image changed after its read. Upload the matching original again.');
+          parts.push(new host.LanguageModelDataPart(bytes, value.mediaType));
+          value.imageDelivered = true;
+        } else value.instruction = 'This host cannot deliver an image part. Read the exact issued path with the native image tool, or ask the person to describe it. Do not claim visual review from the filename.';
+      }
+      return new host.LanguageModelToolResult!([new host.LanguageModelTextPart!(JSON.stringify(value)), ...parts]);
     }
   });
   specs.set(spec, runner);

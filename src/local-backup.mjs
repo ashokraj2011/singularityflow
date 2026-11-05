@@ -354,6 +354,21 @@ async function planDocuments(root, backup) {
   for (const entry of backup.manifest.documents) byStory.set(entry.workId, [...(byStory.get(entry.workId) ?? []), entry]);
   const items = [];
   for (const [workId, entries] of byStory) {
+    // Specification attachments use the same local store, but are bound to a draft, not a Story.
+    if (/^SPEC-[A-Z0-9]+(?:-[A-Z0-9]+)*$/u.test(workId)) {
+      const { readDraft } = await import('./spec-library/draft-store.mjs');
+      const { localDocumentAvailability } = await import('./document-storage.mjs');
+      const here = await readDraft(root, workId);
+      const draft = here?.head?.draft ?? backup.manifest.specDrafts.find(item => item.specId === workId)?.draft;
+      for (const entry of entries) {
+        const record = draft?.sources?.find(source => source.storage?.kind === 'local' && source.storage.key === entry.key && source.sha256 === entry.sha256);
+        if (!record) { items.push({ workId, key: entry.key, sha256: entry.sha256, status: 'superseded' }); continue; }
+        const available = await localDocumentAvailability(root, workId, record, { verify: true }) === 'available';
+        items.push({ workId, key: entry.key, sha256: entry.sha256, documentId: record.id, name: record.name,
+          status: available ? 'already-present' : 'to-restore', restore: available ? null : { checkout: root, specification: workId, record } });
+      }
+      continue;
+    }
     const checkout = await storyCheckout(root, workId);
     if (!checkout) {
       items.push(...entries.map((entry) => ({ workId, key: entry.key, sha256: entry.sha256, status: 'story-not-here',
@@ -521,9 +536,16 @@ export async function restoreBackup(root, directory) {
   for (const item of plan.documents) {
     if (item.status !== 'to-restore') { documents.push(publicItem(item)); continue; }
     try {
-      const { restoreLocalDocument } = await import('./documents.mjs');
-      await restoreLocalDocument(item.restore.checkout, item.restore.config, item.restore.workflow,
-        { documentId: item.documentId, file: path.join(plan.backup.directory, OBJECTS, item.sha256) });
+      if (item.restore.specification) {
+        const { storeLocalDocument } = await import('./document-storage.mjs');
+        const bytes = await readRegular(path.join(plan.backup.directory, OBJECTS, item.sha256), { limit: MAXIMUM_BYTES });
+        if (!bytes) fail('The backup source file cannot be read. Nothing was replaced.', 'BACKUP_OBJECT_INVALID');
+        await storeLocalDocument(root, item.restore.specification, { bytes, sha256: item.sha256, filename: item.restore.record.sourceName, replaceChanged: true });
+      } else {
+        const { restoreLocalDocument } = await import('./documents.mjs');
+        await restoreLocalDocument(item.restore.checkout, item.restore.config, item.restore.workflow,
+          { documentId: item.documentId, file: path.join(plan.backup.directory, OBJECTS, item.sha256) });
+      }
       documents.push({ ...publicItem(item), status: 'restored' });
     } catch (error) { documents.push({ ...publicItem(item), status: 'refused', refusal: refusal(error) }); }
   }

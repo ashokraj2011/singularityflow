@@ -1,0 +1,133 @@
+/** Local originals reuse the document store; portable drafts contain only source descriptors. */
+import { constants } from 'node:fs';
+import { open } from 'node:fs/promises';
+import { createHash } from 'node:crypto';
+import path from 'node:path';
+import { storeLocalDocument, readLocalDocument } from '../document-storage.mjs';
+import { documentMimeType, extractSourceText, isTextualSource } from '../source-text.mjs';
+import { normalizeArea } from './research.mjs';
+import { secureRepositoryPath, SingularityFlowError } from '../util.mjs';
+
+const digest = bytes => createHash('sha256').update(bytes).digest('hex');
+const fail = (message, code) => { throw new SingularityFlowError(message, { code }); };
+export const MAXIMUM_SPEC_SOURCE_BYTES = 20 * 1024 * 1024;
+const MAXIMUM = MAXIMUM_SPEC_SOURCE_BYTES;
+
+/** Read at most the statted size plus one byte; a growing file never allocates without a bound. */
+async function boundedRead(handle, maximum) {
+  const info = await handle.stat();
+  if (!info.isFile() || info.size > maximum) fail('Select a regular file no larger than ' + maximum + ' bytes.', 'SPEC_SOURCE_FILE_INVALID');
+  const bytes = Buffer.alloc(info.size + 1);
+  let used = 0;
+  while (used < bytes.length) {
+    const read = await handle.read(bytes, used, bytes.length - used, null);
+    if (!read.bytesRead) break;
+    used += read.bytesRead;
+  }
+  const after = await handle.stat();
+  if (used !== info.size || after.size !== info.size || after.mtimeMs !== info.mtimeMs) fail('The file changed while it was read. Choose it again.', 'SPEC_SOURCE_FILE_CHANGED');
+  return bytes.subarray(0, used);
+}
+
+export async function addSpecSource(root, specId, draft, { file, url, code, specification, restore, purpose = '' }) {
+  if ([file, url, code, specification].filter(Boolean).length !== 1) fail('Choose one file, link or code location.', 'SPEC_SOURCE_SELECTION_INVALID');
+  if (typeof purpose !== 'string' || purpose.length > 2000) fail('Keep the source note within 2000 characters.', 'SPEC_SOURCE_PURPOSE_INVALID');
+  const sources = draft.sources ?? [];
+  if (sources.length >= 32 && !restore) fail('This draft already has 32 sources. Remove an unneeded source before adding another.', 'SPEC_SOURCE_LIMIT');
+  let source;
+  if (specification) {
+    const reference = specification.revision;
+    source = { id: 'SRC-' + digest(Buffer.from(reference + ':' + specification.manifestSha256)).slice(0, 16), type: 'specification', name: specification.title, revision: reference, manifestSha256: specification.manifestSha256, purpose, standing: 'not-read' };
+  } else if (url) {
+    let parsed;
+    try { parsed = new URL(url); } catch { fail('Use a complete http or https link.', 'SPEC_SOURCE_URL_INVALID'); }
+    if (parsed.href.length > 2048) fail('Use a link no longer than 2048 characters.', 'SPEC_SOURCE_URL_INVALID');
+    if (!['http:', 'https:'].includes(parsed.protocol) || parsed.username || parsed.password) fail('Use an http or https link without credentials.', 'SPEC_SOURCE_URL_INVALID');
+    source = { id: 'SRC-' + digest(Buffer.from(parsed.href)).slice(0, 16), type: 'url', name: parsed.hostname,
+      url: parsed.href, purpose, standing: 'not-read' };
+  } else if (code) {
+    const selected = normalizeArea(code);
+    await secureRepositoryPath(root, selected, { mustExist: true, label: 'Selected code' });
+    source = { id: 'SRC-' + digest(Buffer.from('code:' + selected)).slice(0, 16), type: 'code', name: selected, path: selected, purpose, standing: 'not-read' };
+  } else {
+    let handle;
+    let bytes;
+    try {
+      handle = await open(path.resolve(file), constants.O_RDONLY | (constants.O_NOFOLLOW ?? 0));
+      bytes = await boundedRead(handle, MAXIMUM);
+    } finally { await handle?.close(); }
+    const name = path.basename(file).replace(/[\u0000-\u001f]/gu, '').slice(0, 240);
+    const filename = name.replace(/[^A-Za-z0-9._-]/gu, '_') || 'source.bin';
+    const sha256 = digest(bytes);
+    const previous = restore ? sources.find(item => item.id === restore) : null;
+    if (restore && (!previous || previous.sha256 !== sha256)) fail('This is a different file. The original source was preserved; add this as a new source or choose the matching original.', 'SPEC_SOURCE_REPLACEMENT_REQUIRED');
+    const storage = await storeLocalDocument(root, specId, { bytes, sha256, filename: previous?.sourceName ?? filename, replaceChanged: Boolean(restore) });
+    source = previous ?? { id: 'SRC-' + sha256.slice(0, 16), type: 'file', name, sourceName: filename,
+      mediaType: documentMimeType(name), size: bytes.length, sha256, storage: { kind: 'local', key: storage.key }, purpose, standing: 'not-read' };
+  }
+  return { ...draft, sources: [...sources.filter(item => item.id !== source.id), source] };
+}
+
+/** The exact local path/text is an ephemeral tool result; never include it in synchronized drafts. */
+export async function readSpecSource(root, specId, source, { config = {} } = {}) {
+  if (source.type === 'specification') {
+    const { libraryView, resolveRevision } = await import('./library.mjs');
+    const { parseSpecReference } = await import('./ids.mjs');
+    const reference = parseSpecReference(source.revision);
+    const revision = resolveRevision(root, await libraryView(root, config, { refresh: false }), reference.specId, reference.revision);
+    if (revision.manifestSha256 !== source.manifestSha256) fail('The referenced specification does not match its pinned version.', 'SPEC_SOURCE_BINDING_INVALID');
+    return { source, status: 'available', text: revision.spec, sha256: revision.manifestSha256, basis: source.revision, instruction: 'This is a pinned reference. It does not silently add requirements or change this draft’s parent links.' };
+  }
+  if (source.type === 'url') return { source, status: 'not-read', instruction: 'Open this link using the host research tools. If unavailable, ask for an excerpt; never claim its contents were read.' };
+  if (source.type === 'code') {
+    const located = await secureRepositoryPath(root, source.path, { mustExist: true, label: 'Selected code' });
+    if (!located.entry.isFile()) return { source, status: 'selected-folder', path: located.absolute,
+      instruction: 'Read only this selected area using native tools; existing code is observed behaviour, not desired requirements.' };
+    const handle = await open(located.absolute, constants.O_RDONLY | (constants.O_NOFOLLOW ?? 0));
+    try {
+      const info = await handle.stat();
+      if (info.size > 256 * 1024) return { source, status: 'native-read-required', path: located.absolute };
+      const bytes = await boundedRead(handle, 256 * 1024);
+      return { source, status: 'available', path: located.absolute, text: bytes.toString('utf8'), sha256: digest(bytes), basis: 'selected-working-code' };
+    } finally { await handle.close(); }
+  }
+  try {
+    const read = await readLocalDocument(root, specId, source);
+    const mime = source.mediaType;
+    const image = ['image/png', 'image/jpeg', 'image/gif', 'image/webp'].includes(mime);
+    if (image) {
+      const valid = mime === 'image/png' ? read.bytes.subarray(0, 8).toString('hex') === '89504e470d0a1a0a'
+        : mime === 'image/jpeg' ? read.bytes.subarray(0, 2).toString('hex') === 'ffd8'
+          : mime === 'image/gif' ? /^GIF8/u.test(read.bytes.subarray(0, 6).toString())
+            : read.bytes.subarray(0, 4).toString() === 'RIFF' && read.bytes.subarray(8, 12).toString() === 'WEBP';
+      if (!valid) fail('This image does not match its media type. Choose the original image again.', 'SPEC_SOURCE_IMAGE_INVALID');
+      return { source, status: 'image-ready', path: read.absolutePath, mediaType: mime, sha256: source.sha256,
+        instruction: 'Read the image through the native image tool or delivered image part; its filename is not visual evidence.' };
+    }
+    const extracted = isTextualSource(mime, source.name) ? { status: 'extracted', text: read.bytes.toString('utf8') } : extractSourceText(read.bytes, mime);
+    if (extracted.status !== 'extracted') return { source, status: 'native-read-required', path: read.absolutePath, reason: extracted.reason };
+    return { source, status: 'available', path: read.absolutePath, text: extracted.text, sha256: source.sha256 };
+  } catch (error) {
+    if (!['DOCUMENT_LOCAL_UNAVAILABLE', 'DOCUMENT_LOCAL_CHANGED'].includes(error.code)) throw error;
+    return { source, status: 'upload-required', code: error.code, message: error.message,
+      nextAction: 'singularity-flow spec author source ' + specId + ' --restore ' + source.id + ' --file <LOCAL-FILE> --json' };
+  }
+}
+
+/** Copy only verified local originals when creating another draft. Missing originals stay missing. */
+export async function copySpecSources(root, fromSpecId, toSpecId, sources = [], { targetRoot = root } = {}) {
+  for (const source of sources.filter(item => item.type === 'file')) {
+    try {
+      const original = await readLocalDocument(root, fromSpecId, source);
+      await storeLocalDocument(targetRoot, toSpecId, { bytes: original.bytes, sha256: source.sha256, filename: source.sourceName });
+    } catch (error) {
+      if (!['DOCUMENT_LOCAL_UNAVAILABLE', 'DOCUMENT_LOCAL_CHANGED'].includes(error.code)) throw error;
+    }
+  }
+}
+
+export async function readSpecTextFile(file) {
+  const handle = await open(path.resolve(file), constants.O_RDONLY | (constants.O_NOFOLLOW ?? 0));
+  try { return new TextDecoder('utf-8', { fatal: true }).decode(await boundedRead(handle, 256 * 1024)); }
+  finally { await handle.close(); }
+}

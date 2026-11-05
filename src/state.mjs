@@ -427,13 +427,16 @@ function sourceSection(label, value, fallback = null) {
 }
 
 /** An attached specification slice (SPEC-SPA v1.3 §6.2): the clauses delivered, the decisions settled, the rest. */
-function specificationSection(slices) {
+function specificationSection(slices, inherited = false) {
   if (!Array.isArray(slices) || !slices.length) return '';
-  return `\n## Specification slice\n\n${slices.map((slice) => [
+  return `\n## ${inherited ? 'Inherited specification constraints' : 'Specification slice'}\n\n${slices.map((slice) => [
     `### ${slice.revision}${slice.title ? ` — ${slice.title}` : ''}`, '',
     `Manifest \`${slice.manifestSha256}\` at state commit \`${String(slice.stateCommit ?? '').slice(0, 12)}\`.`, '',
-    'Delivered by this Story:', '', ...(slice.clauses ?? []).map((clause) => `- ${clause.anchor} ${String(clause.text).replace(/\s+/gu, ' ')}`),
+    inherited ? 'Required constraints from the parent specification:' : 'Delivered by this Story:', '', ...(slice.clauses ?? []).map((clause) => `- ${clause.anchor} ${String(clause.text).replace(/\s+/gu, ' ')}`),
     ...(slice.decisions?.length ? ['', 'Settled decisions:', '', ...slice.decisions.map((entry) => `- ${entry.gap}: ${entry.outcome}`)] : []),
+    ...(slice.originBindings?.length ? ['', 'Pinned parent links:', '', ...slice.originBindings.map(origin => '- ' + origin.revision + ' (' + origin.relationship + ')')] : []),
+    ...(slice.inheritedSpecifications?.length ? ['', 'Inherited requirements (constraints, not a delivery claim):', specificationSection(slice.inheritedSpecifications, true)] : []),
+    ...(slice.sources?.length ? ['', 'Supporting sources (original files stay local; upload the matching original if unavailable):', '', ...slice.sources.map(source => '- ' + source.name + ': `' + source.readCommand + '`')] : []),
     ...(slice.notThisStory?.length ? ['', 'Not this Story:', '', ...slice.notThisStory.map((entry) => `- ${entry.anchor} ${entry.firstLine}`)] : [])
   ].join('\n')).join('\n\n')}\n`;
 }

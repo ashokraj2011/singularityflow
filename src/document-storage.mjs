@@ -197,7 +197,15 @@ async function readVerified(file, { size, sha256: expected }) {
   }
 }
 
+export function localDocumentOwner(workId, record) {
+  const owner = record?.specificationSource?.specId;
+  if (owner == null) return workId;
+  if (!/^SPEC-[A-Z0-9]+(?:-[A-Z0-9]+)*$/u.test(owner)) fail('The specification source owner is invalid.', 'DOCUMENT_LOCAL_STORE_INVALID');
+  return owner;
+}
+
 async function locate(root, workId, record) {
+  workId = localDocumentOwner(workId, record);
   if (!validLocalDocumentKey(record?.storage?.key)) return { status: 'unavailable', reason: 'invalid-key' };
   const base = await localStore(root);
   if (!base) return { status: 'unavailable', reason: 'missing' };

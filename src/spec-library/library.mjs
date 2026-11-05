@@ -35,9 +35,9 @@ const REVISION_PATH = new RegExp(`^${LIBRARY_ROOT}/(SPEC-[A-Z0-9]+(?:-[A-Z0-9]+)
 const digest = (bytes) => `sha256:${createHash('sha256').update(bytes).digest('hex')}`;
 const fail = (message, code, details = {}) => { throw new SingularityFlowError(message, { code, details }); };
 
-function unavailable(ledger, detail) {
+function unavailable(ledger, detail, result = null) {
   return new SingularityFlowError(`The specification library on the ${ledger.branch} branch of ${ledger.remote} cannot be read: ${detail}. Nothing is shown rather than an empty library; try again once the remote answers.`, {
-    code: 'SPEC_LIBRARY_UNAVAILABLE', details: { branch: ledger.branch, remote: ledger.remote, nextAction: 'singularity-flow spec author list' }
+    code: 'SPEC_LIBRARY_UNAVAILABLE', details: { branch: ledger.branch, remote: ledger.remote, ...(result ? { diagnostic: { status: result.status, signal: result.signal ?? null, errorCode: result.error?.code ?? null, timeout: result.timedOut === true || result.error?.code === 'ETIMEDOUT' } } : {}), nextAction: 'singularity-flow spec author list' }
   });
 }
 
@@ -45,7 +45,7 @@ function unavailable(ledger, detail) {
  * Pin the library: refresh the configured state branch from its remote (or read the local branch when
  * the repository has no such remote) and list every revision at that one commit.
  */
-export async function libraryView(root, config, { env = process.env } = {}) {
+export async function libraryView(root, config, { env = process.env, refresh = true } = {}) {
   const ledger = normalizeLedgerConfig(config?.ledger ?? {});
   let ref = `refs/heads/${ledger.branch}`;
   const [{ configuredRemoteIdentity, frozenRemoteTransport }, { runRemoteGitAsync }] = await Promise.all([
@@ -56,17 +56,19 @@ export async function libraryView(root, config, { env = process.env } = {}) {
     // The frozen transport's environment carries an attestation the Git boundary checks: pass it as is.
     const transport = frozenRemoteTransport(identity.url, { env });
     ref = `refs/remotes/${ledger.remote}/${ledger.branch}`;
-    const fetched = await runRemoteGitAsync(['fetch', '--no-tags', '--', transport.remote, `+refs/heads/${ledger.branch}:${ref}`],
-      { cwd: root, operation: 'remote-configuration', env: transport.env });
-    if (fetched.status !== 0) {
-      const listed = await runRemoteGitAsync(['ls-remote', '--heads', '--', transport.remote, `refs/heads/${ledger.branch}`],
+    if (refresh) {
+      const fetched = await runRemoteGitAsync(['fetch', '--no-tags', '--', transport.remote, `+refs/heads/${ledger.branch}:${ref}`],
         { cwd: root, operation: 'remote-configuration', env: transport.env });
-      if (listed.status === 0 && !listed.stdout.trim()) return { ledger, ref, commit: null, status: 'absent', specs: new Map() };
-      throw unavailable(ledger, String(fetched.stderr || fetched.stdout || 'the fetch failed').trim().split(/\r?\n/u).at(-1));
+      if (fetched.status !== 0) {
+        const listed = await runRemoteGitAsync(['ls-remote', '--heads', '--', transport.remote, `refs/heads/${ledger.branch}`],
+          { cwd: root, operation: 'remote-configuration', env: transport.env });
+        if (listed.status === 0 && !listed.stdout.trim()) return { ledger, ref, commit: null, status: 'absent', specs: new Map() };
+        throw unavailable(ledger, String(fetched.stderr || fetched.stdout || 'the fetch failed').trim().split(/\r?\n/u).at(-1), fetched);
+      }
     }
   }
   const commit = refCommit(root, ref, { env });
-  if (!commit) return { ledger, ref, commit: null, status: 'absent', specs: new Map() };
+  if (!commit) return { ledger, ref, commit: null, status: identity.configured && !refresh ? 'not-fetched' : 'absent', specs: new Map() };
   const specs = new Map();
   for (const file of committedTreePaths(root, commit, [LIBRARY_ROOT], { env })) {
     const match = REVISION_PATH.exec(file);
@@ -160,7 +162,9 @@ export function revisionFiles({ specId, revision, parent, reviewState, operation
   const research = Buffer.from(canonicalJson(stamp(RESEARCH_FAMILY, { specId, revision, items: head.draft.research })), 'utf8');
   const quality = Buffer.from(canonicalJson(stamp(QUALITY_FAMILY, { ...report, specId, revision })), 'utf8');
   const manifest = stamp(MANIFEST_FAMILY, {
-    specId, revision, title: head.draft.title, reviewState, operationId,
+    specId, revision, title: head.draft.title, kind: head.draft.kind ?? null, reviewState, operationId,
+    ...(head.draft.origins?.length ? { origins: head.draft.origins, originCoverage: report.originCoverage ?? [] } : {}),
+    ...(head.draft.sources?.length ? { sources: head.draft.sources } : {}),
     parentRevision: parent?.revision ?? null, parentManifestSha256: parent?.manifestSha256 ?? null,
     // A split's child (split.mjs).
     ...(head.draft.derivedFrom ? { derivedFrom: head.draft.derivedFrom } : {}),

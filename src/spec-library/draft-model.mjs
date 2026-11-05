@@ -10,6 +10,7 @@
  * Nothing here reads files, Git or a model.
  */
 import { CHECKLIST_DECISIONS, STARTER_CHECKLIST } from '../specification-quality.mjs';
+import { canonicalJson } from '../records.mjs';
 import { SingularityFlowError } from '../util.mjs';
 import { formatGapId, GAP_ID, nextNumber } from './ids.mjs';
 
@@ -24,6 +25,12 @@ const OPTION_ID = /^O[1-9]$/u;
 const fail = (message, code, details = {}) => { throw new SingularityFlowError(message, { code, details }); };
 const text = (value) => String(value ?? '').trim();
 const who = (actor) => (actor ? { name: actor.name ?? null, email: actor.email ?? null } : null);
+
+/** A publication acknowledges only its reviewed content; newer local writing stays unreviewed. */
+export function publicationContinuation(current, reviewed, basedOn) {
+  return { ...current, basedOn: { ...basedOn,
+    ...(canonicalJson(current) !== canonicalJson(reviewed) ? { pendingChanges: true } : {}) } };
+}
 
 /** The library template: every required section, one literal anchor per clause kind it starts with. */
 export function specTemplate(specId, title, intent = '') {
@@ -59,8 +66,15 @@ TODO: state each decided or deferred gap here by its ID and its outcome.
 `;
 }
 
-export function newDraft({ title, spec, areas = [] }) {
-  return { title: text(title), basedOn: null, areas: [...new Set(areas)].sort(), spec, gaps: [], research: [], checklist: [] };
+export const SPEC_KINDS = Object.freeze(['business', 'technical']);
+export function normalizeSpecKind(kind) {
+  if (kind == null || kind === '') return null;
+  if (!SPEC_KINDS.includes(kind)) fail('Choose Business needs or Technical details.', 'SPEC_KIND_INVALID');
+  return kind;
+}
+
+export function newDraft({ title, spec, areas = [], kind = null }) {
+  return { title: text(title), kind: normalizeSpecKind(kind), basedOn: null, areas: [...new Set(areas)].sort(), spec, gaps: [], research: [], checklist: [] };
 }
 
 /** Each gap's current state from its events, in ID order. */
@@ -171,4 +185,35 @@ export function settleArticles(draft, decisions, { reason = null }, { actor, at 
     draft.checklist.push({ event: 'settled', article, decision, reason: text(reason) || null, by: who(actor), at });
   }
   return draft;
+}
+
+/** Explicit derivation coverage. Parent IDs are references, never new anchors in the child. */
+export function originCoverage(draft, ownClauseIds) {
+  const origins = draft.origins ?? [];
+  if (!origins.length) return { rows: [], findings: [] };
+  const own = new Set(ownClauseIds);
+  const expected = new Set(origins.flatMap(origin => (origin.clauses ?? []).map(clause => clause.id)));
+  const rows = [], findings = [];
+  const add = (message, clause) => findings.push({ code: 'spec.origin-coverage', message, ...(clause ? { clause } : {}) });
+  if (origins.length > 16 || origins.some(origin => !/^SPEC-[A-Z0-9-]+@[1-9]\d*$/u.test(origin.revision ?? '') || !/^sha256:[a-f0-9]{64}$/u.test(origin.manifestSha256 ?? ''))) {
+    add('The parent specification references are incomplete. Derive again from an exact reviewed version.');
+    return { rows, findings };
+  }
+  let inCoverage = false;
+  for (const line of String(draft.spec).split(/\r?\n/u)) {
+    if (/^##\s+/u.test(line)) inCoverage = /^##\s+Business coverage\s*$/iu.test(line);
+    if (!inCoverage || !/^\s*\|/u.test(line)) continue;
+    const [source, target, reason] = line.trim().replace(/^\||\|$/gu, '').split('|').map(cell => cell.trim().replace(/`/gu, ''));
+    if (!/^SPEC-[A-Z0-9-]+:(?:REQ|BEH|IFC|AC|CON)-\d{3,}$/u.test(source)) continue;
+    if (!expected.has(source)) { add('Coverage names a requirement outside the pinned parent versions: ' + source, source); continue; }
+    if (rows.some(row => row.source === source)) { add('Give one coverage outcome for ' + source, source); continue; }
+    const disposition = /^(excluded|deferred)$/iu.test(target) ? target.toLowerCase() : null;
+    const targets = disposition ? [] : (target ?? '').split(/[,\s]+/u).filter(Boolean);
+    if ((!disposition && (!targets.length || targets.some(id => !own.has(id)))) || !reason || /\bTODO\b/u.test(reason)) {
+      add('Map ' + source + ' to this specification’s requirement IDs, or explicitly exclude/defer it, with a reason.', source); continue;
+    }
+    rows.push({ source, targets, ...(disposition ? { disposition } : {}), reason });
+  }
+  for (const id of expected) if (!rows.some(row => row.source === id)) add('The technical draft does not account for ' + id + ' in Business coverage.', id);
+  return { rows, findings };
 }

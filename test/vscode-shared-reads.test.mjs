@@ -84,3 +84,22 @@ test('identical overlapping Store refreshes share the active read', async () => 
   assert.equal(count, 1); finish(); await Promise.all([first, second, third]);
   assert.equal(count, 1); assert.equal(store.current.snapshot.marker, 'live'); store.dispose();
 });
+
+test('unreviewed specification sync keeps mutation supervision without holding local draft reads', async t => {
+  const f = await fixture(t); const release = path.join(f.directory, 'release');
+  await writeFile(path.join(f.directory, 'fixture.mjs'), `import { appendFileSync, existsSync } from 'node:fs';
+    const args = process.argv.slice(2);
+    appendFileSync(${JSON.stringify(path.join(f.directory, 'calls.jsonl'))}, JSON.stringify({args})+'\\n');
+    if (args[0] === 'spec' && args[2] === 'sync') while (!existsSync(${JSON.stringify(release)})) await new Promise(resolve=>setTimeout(resolve,20));
+    console.log(JSON.stringify({args}));`);
+  const client = f.make({ warmReads: false });
+  const pending = client.run(['spec', 'author', 'sync', 'SPEC-ONE', '--json']);
+  try {
+    for (let i = 0; !(await f.calls()).length && i < 100; i++) await new Promise(resolve => setTimeout(resolve, 10));
+    assert.equal(client.mutating, false, 'only the unreviewed sync operation is outside the repository read barrier');
+    const read = client.run(['spec', 'author', 'status', 'SPEC-ONE', '--quick', '--json']);
+    const completed = await Promise.race([read.then(() => true), new Promise(resolve => setTimeout(() => resolve(false), 5000))]);
+    assert.equal(completed, true, 'local status completed before the simulated remote push was released');
+    assert.equal((await f.calls()).length, 2);
+  } finally { await writeFile(release, 'continue'); await pending; }
+});

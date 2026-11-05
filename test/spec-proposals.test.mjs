@@ -5,6 +5,7 @@ import os from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
 import { fileURLToPath } from 'node:url';
+import { environment } from './helpers/run-and-test-fixture.mjs';
 
 import { ownTerminalStep, skillForCommandLine } from '../src/command-skills.mjs';
 import { resolveOperation } from '../src/command-registry.mjs';
@@ -95,7 +96,7 @@ const git = (cwd, ...args) => {
 function sf(cwd, args, { env = {}, fail = false } = {}) {
   const result = spawnSync(process.execPath, [bin, ...args], {
     cwd, encoding: 'utf8', timeout: childTimeout(120_000), maxBuffer: 16 * 1024 * 1024,
-    env: { ...process.env, NODE_ENV: 'test', SINGULARITY_FLOW_NO_MODEL: '1', SINGULARITY_FLOW_DISABLE_TIMING_LOG: '1', ...env }
+    env: { ...environment(path.join(path.dirname(cwd), 'context-' + path.basename(cwd))), SINGULARITY_FLOW_DISABLE_TIMING_LOG: '1', ...env }
   });
   if (fail) assert.notEqual(result.status, 0, `${args.join(' ')} was expected to be refused:\n${result.stdout}`);
   else assert.equal(result.status, 0, `${args.join(' ')}\n${result.stdout}\n${result.stderr}`);
@@ -131,7 +132,7 @@ async function clone(directory, remote, name) {
 
 /** Draft, research, a decided code-disagrees gap and settled checklist: ready to publish as reviewed. */
 async function readySpec(root, directory) {
-  sf(root, ['spec', 'author', 'new', SPEC, '--title', 'Order discount threshold', '--area', 'src/pricing.mjs']);
+  sf(root, ['spec', 'author', 'new', SPEC, '--kind', 'business', '--title', 'Order discount threshold', '--area', 'src/pricing.mjs']);
   const file = path.join(directory, `spec-${path.basename(root)}.md`);
   await writeFile(file, finishedSpec());
   sf(root, ['spec', 'author', 'edit', SPEC, '--file', file, '--expected-seq', '1']);

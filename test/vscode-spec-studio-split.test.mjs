@@ -6,6 +6,7 @@ import os from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
 import { fileURLToPath } from 'node:url';
+import { environment } from './helpers/run-and-test-fixture.mjs';
 
 import { childTimeout } from './helpers/child-timeout.mjs';
 
@@ -57,7 +58,6 @@ const engine = fileURLToPath(new URL('..', import.meta.url));
 const bin = path.join(engine, 'bin', 'singularity-flow.mjs');
 const SPEC = 'SPEC-CHK-004';
 const CHILD = 'SPEC-CHK-004-INR';
-const env = { ...process.env, NODE_ENV: 'test', SINGULARITY_FLOW_NO_MODEL: '1', SINGULARITY_FLOW_DISABLE_TIMING_LOG: '1' };
 
 const SPEC_TEXT = `# Order discount threshold
 
@@ -100,7 +100,7 @@ function git(cwd, ...args) {
   return result.stdout.trim();
 }
 function cli(cwd, args) {
-  const result = spawnSync(process.execPath, [bin, ...args], { cwd, env, encoding: 'utf8', timeout: childTimeout(180_000), maxBuffer: 16 * 1024 * 1024 });
+  const result = spawnSync(process.execPath, [bin, ...args], { cwd, env: { ...environment(path.join(path.dirname(cwd), 'context-' + path.basename(cwd))), SINGULARITY_FLOW_DISABLE_TIMING_LOG: '1' }, encoding: 'utf8', timeout: childTimeout(180_000), maxBuffer: 16 * 1024 * 1024 });
   return { status: result.status, stdout: result.stdout, stderr: result.stderr };
 }
 const json = (cwd, args) => {
@@ -126,7 +126,7 @@ async function library(t) {
   git(root, 'commit', '-qm', 'Storefront');
   git(root, 'remote', 'add', 'origin', remote);
   git(root, 'push', '-q', 'origin', 'main');
-  json(root, ['spec', 'author', 'new', SPEC, '--title', 'Order discount threshold']);
+  json(root, ['spec', 'author', 'new', SPEC, '--kind', 'business', '--title', 'Order discount threshold']);
   const file = path.join(directory, 'spec.md');
   await writeFile(file, SPEC_TEXT);
   json(root, ['spec', 'author', 'edit', SPEC, '--file', file, '--expected-seq', '1']);

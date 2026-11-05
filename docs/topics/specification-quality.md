@@ -19,7 +19,7 @@ related:
   - approvals
   - artifacts-and-generation
   - rejection-and-rework
-version: 14
+version: 15
 ---
 Specification quality asks "is the requirement good enough?", which is a different question from verification ("does the implementation satisfy it?") and from conformance ("does the evidence trace to approved intent?"). `sflow spec analyze` answers the deterministic part without a model: unresolved clarification markers, duplicate requirement text, missing scenario sections, and defects the clause extractor refuses. It never claims prose is complete, clear, consistent or correct, and it says so in its own report — a clean run means nothing checkable is wrong, not that the specification is good. `--assisted` adds semantic candidates through one model turn with no tools; candidates are observations for a reviewer, are recorded separately with the model, prompt hash and usage, and change no deterministic finding and no gate. Running it again for the same specification, findings and model shows the recorded candidates without another model call; `--refresh` asks again.
 
@@ -136,3 +136,7 @@ These commands can change repository or machine-local state: `spec`, `approve`, 
 ## Related topics
 
 Continue with `sflow explain fast-path-verbs`, `sflow explain approvals`, `sflow explain artifacts-and-generation`, `sflow explain rejection-and-rework`.
+
+## Write together in Spec Studio
+
+Open **Spec Studio** in the sidebar to start with an idea, write continuously, save incomplete drafts locally, attach local files/images and co-write with Copilot. Business needs and Technical details have explicit types and a pinned derivation link. Unreviewed shared checkpoints stay separate from reviewed immutable versions. Create a Story from an exact reviewed clause selection. See the [Spec Studio guide](../SPEC-STUDIO.md) for sources, takeover, recovery and settings.

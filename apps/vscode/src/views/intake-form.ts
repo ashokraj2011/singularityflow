@@ -806,7 +806,7 @@ export function intakeCommand(form: IntakeForm): string[] {
     '--title', form.title.trim(), '--description', form.description.trim(),
     '--work-type', form.workType!, ...isolated, ...target, ...capabilityBase, ...storyBranchArguments(form), ...references, ...attachments];
   if (form.cloneFrom) args.push('--clone-from', form.cloneFrom, '--clone-source-commit', form.cloneSourceCommit!);
-  if (form.cloneFrom && form.cloneSpecifications?.length) {
+  if (form.cloneSpecifications?.length) {
     args.push(...form.cloneSpecifications.flatMap(spec => ['--spec', spec]));
     if (form.cloneDependencyReason) args.push('--allow-partial-dependency', '--reason', form.cloneDependencyReason);
   }
@@ -1626,7 +1626,7 @@ function inFlightHtml(form: IntakeForm): string {
 }
 
 export function intakeHtml(form: IntakeForm, journey: StartWizardProgress | null = null): string {
-  return `${form.cloneFrom ? `<section class="note" role="note"><strong>Clone of ${escape(form.cloneFrom)}</strong><p>Give this Story a new name and ID. Review its workflow and base branches. It starts at the first phase with fresh evidence and approvals.</p>${form.cloneDocuments?.length ? `<p>Attach these documents again if needed: ${form.cloneDocuments.map(escape).join(', ')}. Their files stay with the original Story.</p>` : ''}</section>` : ''}<div class="intake-view" data-intake-wizard-root aria-busy="${form.busy ? 'true' : 'false'}">${
+  return `${form.cloneSpecifications?.length && !form.cloneFrom ? `<section class="note" role="note"><strong>From a reviewed specification</strong><p>${form.cloneSpecifications.map(escape).join(', ')}</p><p>The exact selected requirements and settled decisions will be attached to this Story.</p></section>` : ''}${form.cloneFrom ? `<section class="note" role="note"><strong>Clone of ${escape(form.cloneFrom)}</strong><p>Give this Story a new name and ID. Review its workflow and base branches. It starts at the first phase with fresh evidence and approvals.</p>${form.cloneDocuments?.length ? `<p>Attach these documents again if needed: ${form.cloneDocuments.map(escape).join(', ')}. Their files stay with the original Story.</p>` : ''}</section>` : ''}<div class="intake-view" data-intake-wizard-root aria-busy="${form.busy ? 'true' : 'false'}">${
     intakeWizardLayout(intakeRegions(form, journey), form.shape === 'story')}</div>`;
 }
 

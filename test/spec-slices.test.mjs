@@ -191,7 +191,7 @@ const WORK = 'SPS-1';
 async function publishLibrary({ directory, cli }) {
   const file = path.join(directory, 'library-spec.md');
   await writeFile(file, librarySpec());
-  cli('spec', 'author', 'new', SPEC, '--title', 'Order discount threshold');
+  cli('spec', 'author', 'new', SPEC, '--kind', 'business', '--title', 'Order discount threshold');
   cli('spec', 'author', 'edit', SPEC, '--file', file, '--expected-seq', '1');
   cli('spec', 'author', 'gap', SPEC, '--kind', 'vague-term', '--question', 'Is INR 5000.00 itself discounted?');
   cli('spec', 'author', 'decide', SPEC, 'GAP-001', '--choice', 'Only totals strictly above INR 5000.00 qualify.', '--reason', 'Finance.');

@@ -16,10 +16,10 @@ import { currentSchemaVersion } from './schema-migrations.mjs';
 import { DOCUMENT_MEMBER_NAME_MAXIMUM_LENGTH, assertAvailableDocumentNames, assignDocumentNames, documentOfferedToPhase, normalizeDocumentPhases, resolveDocumentRecord, validateDocumentName } from './document-identity.mjs';
 import { head, withEnvironmentFilesRegistry } from './git.mjs';
 import { TEXT_RENDITION_SUFFIX, extractSourceText, hasTextExtractor } from './source-text.mjs';
-import { isLocalDocument, readLocalDocument, resolveDocumentStorage, storeLocalDocument } from './document-storage.mjs';
+import { isLocalDocument, localDocumentOwner, readLocalDocument, resolveDocumentStorage, storeLocalDocument } from './document-storage.mjs';
 import { loadEnvironmentDeclarationSync, matchEnvironmentLocalPath } from './environment-declaration.mjs';
 import { scannablePath, scanEntries, secretRefusal } from './secrets.mjs';
-import { loadManifest, manifestPath, evidenceIsActive, mimeType, governedDocumentPath, environmentLocalRefusal, viewDocument, documentPolicy } from './documents-read.mjs';
+import { loadManifest, documentCatalog, manifestPath, evidenceIsActive, mimeType, governedDocumentPath, environmentLocalRefusal, viewDocument, documentPolicy } from './documents-read.mjs';
 export { documentCatalog, evidenceIsActive, governedDocumentPath, viewDocument } from './documents-read.mjs';
 
 export const STORY_DOCUMENT_RESOURCE_LIMITS = Object.freeze({
@@ -663,8 +663,8 @@ export async function storeDocumentInGit(root, config, workflow, { documentId } 
 
 /** Restore an existing pinned document on a new laptop: local bytes only, never a new Story input. */
 export async function restoreLocalDocument(root, config, workflow, { documentId, file } = {}) {
-  const manifest = await loadManifest(root, config, workflow);
-  const record = resolveDocumentRecord(manifest.documents, documentId);
+  const records = await documentCatalog(root, config, workflow);
+  const record = resolveDocumentRecord(records, documentId);
   if (!isLocalDocument(record) || !evidenceIsActive(record)) throw new SingularityFlowError(
     'Only an active machine-local document can be restored.', { code: 'DOCUMENT_RESTORE_INVALID' });
   if (typeof file !== 'string' || !file.trim()) throw new SingularityFlowError(
@@ -678,7 +678,7 @@ export async function restoreLocalDocument(root, config, workflow, { documentId,
   const declaration = withEnvironmentFilesRegistry(root, loadEnvironmentDeclarationSync(root, { optional: true }));
   await assertDocumentInputNotEnvironmentLocal(root, declaration, { source }, workflow, config);
   assertDocumentInputContainsNoSecret({ source: record.sourceName ?? source }, captured);
-  const restored = await storeLocalDocument(root, workflow.workItem.id, { bytes: captured.bytes, sha256: record.sha256,
+  const restored = await storeLocalDocument(root, localDocumentOwner(workflow.workItem.id, record), { bytes: captured.bytes, sha256: record.sha256,
     filename: record.storage.key.split('/').at(-1), replaceChanged: true });
   const viewed = await readLocalDocument(root, workflow.workItem.id, record);
   return { resultType: 'document-restored', status: 'restored', workId: workflow.workItem.id,

@@ -12,7 +12,7 @@
  */
 import { normalizeMarkdownHeading } from '../markdown-structure.mjs';
 import { analyzeSpecification } from '../specification-quality.mjs';
-import { foldChecklist, foldGaps } from './draft-model.mjs';
+import { foldChecklist, foldGaps, originCoverage } from './draft-model.mjs';
 import { verifyResearch } from './research.mjs';
 
 /** Sections the library adds to the analyzer's own (Actors, User scenarios, Requirements). */
@@ -33,7 +33,8 @@ const RULES = Object.freeze([
   ['placeholders', 'No template placeholders left'],
   ['decisions-stated', 'Every decided or deferred gap is stated'],
   ['research-current', 'Cited code still matches'],
-  ['citations', 'Every code fact is cited']
+  ['citations', 'Every code fact is cited'],
+  ['origin-coverage', 'Every parent requirement has an explicit outcome']
 ]);
 
 function headings(markdown) {
@@ -106,6 +107,8 @@ export function checkDraft(root, specId, draft, { ref = 'HEAD', commit = null, s
     if (entry.status === 'uncited') findings.citations.push({ code: 'spec.citation-unverified', message: `${entry.id} is a code fact with no verifiable citation`, item: entry.id });
   }
 
+  const coverage = originCoverage(draft, analysis?.clauseIds ?? []);
+  findings['origin-coverage'].push(...coverage.findings);
   const rules = RULES.map(([id, label]) => ({ id, label, passed: findings[id].length === 0, findings: findings[id] }));
   const articles = foldChecklist(draft.checklist);
   const human = {
@@ -118,6 +121,7 @@ export function checkDraft(root, specId, draft, { ref = 'HEAD', commit = null, s
     undecided: articles.filter((entry) => !entry.decision).map((entry) => entry.article)
   };
   const blocking = [
+    ...(Object.hasOwn(draft, 'kind') && !['business', 'technical'].includes(draft.kind) ? [{ part: 'H', code: 'spec.kind-unconfirmed', message: 'Choose Business needs or Technical details before making this version ready.' }] : []),
     ...rules.flatMap((rule) => rule.findings.map((finding) => ({ part: 'D', rule: rule.id, ...finding }))),
     ...(assisted.pending ?? []).map((finding) => ({ part: 'A', code: 'spec.assisted-pending', message: `assisted finding ${finding.id} is not settled`, finding: finding.id })),
     ...human.gaps.open.map((gap) => ({ part: 'H', code: 'spec.gap-open', message: `${gap} is open`, gap })),
@@ -127,6 +131,7 @@ export function checkDraft(root, specId, draft, { ref = 'HEAD', commit = null, s
     specId,
     draftSequence: sequence,
     verifiedAt: commit,
+    originCoverage: coverage.rows,
     analyzer: analysis ? {
       mode: analysis.mode, clauseCount: analysis.clauseCount, clauseIds: analysis.clauseIds,
       advisories: (analysis.advisories ?? []).map((entry) => entry.message), disclaimer: analysis.disclaimer

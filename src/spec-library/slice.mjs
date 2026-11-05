@@ -16,7 +16,7 @@ import { scopeItemId } from '../scope/extract.mjs';
 import { countedRecords, inDecisionOrder, isWithdrawn } from '../presence/counted.mjs';
 import { extractClauses } from '../specifications.mjs';
 import { SingularityFlowError } from '../util.mjs';
-import { foldGaps } from './draft-model.mjs';
+import { foldGaps, originCoverage } from './draft-model.mjs';
 import { parseSpecReference } from './ids.mjs';
 import { libraryView, resolveRevision } from './library.mjs';
 
@@ -100,6 +100,8 @@ export function buildSlice(revision, { specId, clauses: named }, { dependencyRea
       'SPEC_SLICE_DEPENDENCY_MISSING', { specId, revision: revision.revision, missing, nextAction: `singularity-flow spec author show ${name}` });
   }
   return {
+    ...(revision.manifest.sources?.length ? { sources: revision.manifest.sources.map(source => ({ ...source, readCommand: 'singularity-flow spec author sources ' + name + ' --source ' + source.id + ' --json' })) } : {}),
+    ...(revision.manifest.origins?.length ? { originBindings: revision.manifest.origins.map(origin => ({ revision: origin.revision, manifestSha256: origin.manifestSha256, relationship: origin.relationship })) } : {}),
     revision: name, title: revision.manifest.title ?? null, manifestSha256: revision.manifestSha256, stateCommit: revision.commit,
     clauses: chosen.map((clause) => ({ anchor: `[${clause.id}]`, text: clause.body })),
     decisions: revisionDecisions(revision.gaps),
@@ -156,13 +158,57 @@ export async function resolveSlices(root, config, values, { dependencyReason = n
   // SF Guard (SPEC-PSS-v1 §10.9): a revision recorded while SF Guard was on counts only with its seal.
   const { libraryPresence, revisionRoute } = await import('./presence.mjs');
   const presence = await libraryPresence(root, { env });
-  const slices = requests.map((request) => {
-    const revision = countedRevision(root, view, request, presence, revisionRoute, { env });
-    if (revision.manifest.reviewState !== 'reviewed') {
-      fail(`${request.specId}@${revision.revision} is a draft revision; only a reviewed revision can be attached to a Story.`, 'SPEC_LIBRARY_NOT_REVIEWED',
-        { specId: request.specId, revision: revision.revision, nextAction: `singularity-flow spec author show ${request.specId}` });
-    }
-    return buildSlice(revision, request, { dependencyReason: dependencyReason === null ? null : String(dependencyReason).trim() });
+  const resolved = new Map();
+  const selectedVersions = new Map();
+  const inheritedByRevision = new Map();
+  const read = request => {
+    const key = request.specId + '@' + (request.revision ?? 'latest');
+    if (!resolved.has(key)) resolved.set(key, countedRevision(root, view, request, presence, revisionRoute, { env }));
+    const revision = resolved.get(key);
+    const previous = selectedVersions.get(request.specId);
+    if (previous && previous !== revision.revision) fail('Two selected paths require different versions of ' + request.specId + '. Choose one version or update the technical derivation before creating work.', 'SPEC_ORIGIN_VERSION_CONFLICT', { specId: request.specId, versions: [previous, revision.revision], nextAction: 'singularity-flow spec author show ' + request.specId });
+    selectedVersions.set(request.specId, revision.revision);
+    if (revision.manifest.reviewState !== 'reviewed') fail(request.specId + '@' + revision.revision + ' is a draft revision; choose a reviewed version.', 'SPEC_LIBRARY_NOT_REVIEWED');
+    return revision;
+  };
+  const inherited = (revision, selected, ancestors = []) => {
+    const name = revision.specId + '@' + revision.revision;
+    if (ancestors.includes(name) || ancestors.length >= 8) fail('The parent specification chain is cyclic or too deep. Nothing was attached.', 'SPEC_ORIGIN_CHAIN_INVALID');
+    const origins = revision.manifest.origins ?? [];
+    if (!origins.length) return [];
+    const coverage = originCoverage({ spec: revision.spec, origins }, extractClauses(revision.spec, { namespace: revision.specId }).map(clause => clause.id));
+    if (coverage.findings.length) fail('The reviewed technical version has incomplete parent coverage. Create a corrected revision before using it.', 'SPEC_ORIGIN_COVERAGE_INVALID');
+    return origins.flatMap(origin => {
+      const parentIds = new Set(origin.clauses.map(clause => clause.id));
+      const wanted = coverage.rows.filter(row => parentIds.has(row.source) && row.targets.some(id => selected.includes(id))).map(row => row.source);
+      if (!wanted.length) return [];
+      const reference = parseSpecReference(origin.revision);
+      const parent = read(reference);
+      if (parent.manifestSha256 !== origin.manifestSha256) fail('The exact parent specification no longer matches its pinned digest.', 'SPEC_ORIGIN_BINDING_INVALID');
+      const parentClauses = extractClauses(parent.spec, { namespace: parent.specId });
+      const acceptance = parentClauses.filter(clause => clause.id.includes(':AC-') &&
+        (clause.dependsOn.some(id => wanted.includes(id)) || parentClauses.filter(item => item.id.includes(':REQ-')).length === 1));
+      const parentSelected = [...new Set([...wanted, ...acceptance.map(clause => clause.id)])];
+      const slice = buildSlice(parent, { ...reference, clauses: parentSelected }, { dependencyReason });
+      const key = parent.specId + '@' + parent.revision;
+      const existing = inheritedByRevision.get(key);
+      if (existing) {
+        const union = new Set([...existing.clauses.map(sliceClauseId), ...parentSelected]);
+        Object.assign(existing, buildSlice(parent, { ...reference, clauses: [...union] }, { dependencyReason }));
+        existing.inheritedSpecifications.push(...inherited(parent, parentSelected, [...ancestors, name]));
+        return [];
+      }
+      const retained = { ...slice, standing: 'inherited-constraint', relationship: origin.relationship, inheritedSpecifications: [] };
+      inheritedByRevision.set(key, retained);
+      retained.inheritedSpecifications = inherited(parent, parentSelected, [...ancestors, name]);
+      return [retained];
+    });
+  };
+  const slices = requests.map(request => {
+    const revision = read(request);
+    const slice = buildSlice(revision, request, { dependencyReason: dependencyReason === null ? null : String(dependencyReason).trim() });
+    const origins = inherited(revision, slice.clauses.map(sliceClauseId));
+    return { ...slice, ...(origins.length ? { inheritedSpecifications: origins } : {}) };
   });
   assertSliceSize(slices);
   return slices;

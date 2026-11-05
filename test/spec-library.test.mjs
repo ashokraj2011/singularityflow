@@ -9,6 +9,7 @@ import { fileURLToPath } from 'node:url';
 import { ownTerminalStep } from '../src/command-skills.mjs';
 import { resolveOperation } from '../src/command-registry.mjs';
 import { childTimeout } from './helpers/child-timeout.mjs';
+import { environment as isolatedEnvironment } from './helpers/run-and-test-fixture.mjs';
 
 // SPEC-SPA v1.3 S1: the specification library, model-free. Every command runs as a child CLI with
 // models disabled, so a model call anywhere in the flow fails the test (SPA:AC-025).
@@ -16,6 +17,7 @@ import { childTimeout } from './helpers/child-timeout.mjs';
 const engine = fileURLToPath(new URL('..', import.meta.url));
 const bin = path.join(engine, 'bin', 'singularity-flow.mjs');
 const SPEC = 'SPEC-CHK-004';
+const contextEnv = cwd => isolatedEnvironment(path.join(path.dirname(cwd), '.test-context-' + path.basename(cwd)));
 
 const PRICING = `// Cart pricing. All amounts are integers in paise (INR minor units).
 
@@ -95,7 +97,7 @@ const git = (cwd, ...args) => {
 function sf(cwd, args, { env = {}, fail = false } = {}) {
   const result = spawnSync(process.execPath, [bin, ...args], {
     cwd, encoding: 'utf8', timeout: childTimeout(120_000), maxBuffer: 16 * 1024 * 1024,
-    env: { ...process.env, NODE_ENV: 'test', SINGULARITY_FLOW_NO_MODEL: '1', SINGULARITY_FLOW_DISABLE_TIMING_LOG: '1', ...env }
+    env: { ...contextEnv(cwd), NODE_ENV: 'test', SINGULARITY_FLOW_NO_MODEL: '1', SINGULARITY_FLOW_DISABLE_TIMING_LOG: '1', ...env }
   });
   if (fail) assert.notEqual(result.status, 0, `${args.join(' ')} was expected to be refused:\n${result.stdout}`);
   else assert.equal(result.status, 0, `${args.join(' ')}\n${result.stdout}\n${result.stderr}`);
@@ -139,7 +141,7 @@ async function clone(directory, remote, name) {
 
 /** Draft, research, a decided code-disagrees gap and settled checklist: ready to publish as reviewed. */
 async function readySpec(root, directory) {
-  sf(root, ['spec', 'author', 'new', SPEC, '--title', 'Order discount threshold', '--area', 'src/pricing.mjs']);
+  sf(root, ['spec', 'author', 'new', SPEC, '--kind', 'business', '--title', 'Order discount threshold', '--area', 'src/pricing.mjs']);
   const file = path.join(directory, `spec-${path.basename(root)}.md`);
   await writeFile(file, finishedSpec());
   sf(root, ['spec', 'author', 'edit', SPEC, '--file', file, '--expected-seq', '1']);
@@ -148,7 +150,7 @@ async function readySpec(root, directory) {
 
 test('a new draft from the template has literal unique clauses; escaped anchors and an empty file are reported (SPA:AC-001)', async (t) => {
   const { root, directory } = await repository(t);
-  json(root, ['spec', 'author', 'new', SPEC, '--title', 'Order discount threshold']);
+  json(root, ['spec', 'author', 'new', SPEC, '--kind', 'business', '--title', 'Order discount threshold']);
   const { report } = json(root, ['spec', 'author', 'check', SPEC]);
   assert.deepEqual(report.analyzer.clauseIds, [`${SPEC}:REQ-001`, `${SPEC}:AC-001`]);
   assert.ok(report.blocking.some((finding) => finding.code === 'spec.placeholder'), 'the template\'s TODOs block a reviewed publication');
@@ -168,7 +170,7 @@ test('a new draft from the template has literal unique clauses; escaped anchors 
 
 test('the template gives no example decision; a draft still carrying the old one is blocked, and it does not state GAP-001 (S4 live run)', async (t) => {
   const { root, directory } = await repository(t);
-  json(root, ['spec', 'author', 'new', SPEC, '--title', 'Order discount threshold']);
+  json(root, ['spec', 'author', 'new', SPEC, '--kind', 'business', '--title', 'Order discount threshold']);
   const { spec } = json(root, ['spec', 'author', 'status', SPEC]);
   const decisions = spec.slice(spec.indexOf('## Decisions and open questions'));
   assert.doesNotMatch(spec, /GAP-\d{3}|INR/u, 'nothing in the template reads as a decision');
@@ -197,13 +199,13 @@ test('the template gives no example decision; a draft still carrying the old one
 
 test('a save is whole or absent after a crash, a retried save is the same snapshot, a stale save is refused (SPA:AC-002)', async (t) => {
   const { root, directory } = await repository(t);
-  json(root, ['spec', 'author', 'new', SPEC, '--title', 'Order discount threshold']);
+  json(root, ['spec', 'author', 'new', SPEC, '--kind', 'business', '--title', 'Order discount threshold']);
   const file = path.join(directory, 'spec.md');
   await writeFile(file, finishedSpec());
 
   const crashed = spawnSync(process.execPath, [bin, 'spec', 'author', 'edit', SPEC, '--file', file, '--expected-seq', '1'], {
     cwd: root, encoding: 'utf8', timeout: childTimeout(60_000),
-    env: { ...process.env, NODE_ENV: 'test', SINGULARITY_FLOW_NO_MODEL: '1', SINGULARITY_FLOW_TEST_CRASH_AT: 'spec-draft-publish' }
+    env: { ...contextEnv(root), NODE_ENV: 'test', SINGULARITY_FLOW_NO_MODEL: '1', SINGULARITY_FLOW_TEST_CRASH_AT: 'spec-draft-publish' }
   });
   assertCrash(crashed, 'the save died between its temporary file and its link');
   const store = path.join(root, '.git', 'singularity-flow', 'spec-drafts', SPEC);
@@ -212,12 +214,12 @@ test('a save is whole or absent after a crash, a retried save is the same snapsh
   const pending = JSON.parse(await readFile(path.join(store, temporary[0]), 'utf8'));
   assert.equal(pending.sequence, 2);
   assert.equal(pending.draft.spec, finishedSpec(), 'the process reached the requested crash boundary');
-  assert.deepEqual((await readdir(store)).filter((name) => !name.startsWith('.')), ['000001.json'], 'only the complete first snapshot is visible');
+  assert.deepEqual((await readdir(store)).filter((name) => !name.startsWith('.')), ['000001.json', 'index.json'], 'only the complete first snapshot and its rebuildable index are visible');
   assert.equal(json(root, ['spec', 'author', 'status', SPEC]).sequence, 1);
 
   const saved = json(root, ['spec', 'author', 'edit', SPEC, '--file', file, '--expected-seq', '1', '--operation-id', 'edit-1']);
   assert.equal(saved.sequence, 2);
-  assert.deepEqual(await readdir(store), ['000001.json', '000002.json'], 'the next save swept the orphaned temporary file');
+  assert.deepEqual(await readdir(store), ['000001.json', '000002.json', 'index.json'], 'the next save swept the orphaned temporary file');
   const again = json(root, ['spec', 'author', 'edit', SPEC, '--file', file, '--expected-seq', '1', '--operation-id', 'edit-1']);
   assert.deepEqual([again.sequence, again.replayed], [2, true], 'the same operation returns the snapshot it saved');
 
@@ -356,7 +358,7 @@ test('two clones: the same specification conflicts, different ones both land, a 
   json(root, ['spec', 'author', 'edit', SPEC, '--file', file, '--expected-seq', String(json(root, ['spec', 'author', 'status', SPEC]).sequence)]);
   const command = ['spec', 'author', 'publish', SPEC, '--reviewed', '--operation-id', 'publish-second'];
   const crashed = spawnSync(process.execPath, [bin, ...command], { cwd: root, encoding: 'utf8', timeout: childTimeout(60_000),
-    env: { ...process.env, NODE_ENV: 'test', SINGULARITY_FLOW_NO_MODEL: '1', SINGULARITY_FLOW_TEST_CRASH_AT: 'spec-library-published' } });
+    env: { ...contextEnv(root), NODE_ENV: 'test', SINGULARITY_FLOW_NO_MODEL: '1', SINGULARITY_FLOW_TEST_CRASH_AT: 'spec-library-published' } });
   assertCrash(crashed, 'the process died after publication, before recording its acknowledgement');
   const retried = json(root, command);
   assert.deepEqual([retried.revision, retried.replayed], [2, true], 'the retry finds its own revision');
@@ -384,7 +386,7 @@ test('a backup carries specification drafts; restore puts back a missing one and
 
 test('every linked worktree of the clone shares its specification drafts (v1.2 AC-020)', async (t) => {
   const { root, directory } = await repository(t);
-  json(root, ['spec', 'author', 'new', SPEC, '--title', 'Order discount threshold']);
+  json(root, ['spec', 'author', 'new', SPEC, '--kind', 'business', '--title', 'Order discount threshold']);
   const linked = path.join(directory, 'linked');
   git(root, 'worktree', 'add', '-q', '-b', 'side', linked);
   assert.equal(json(linked, ['spec', 'author', 'status', SPEC]).title, 'Order discount threshold');

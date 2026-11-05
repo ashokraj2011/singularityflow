@@ -497,7 +497,7 @@ export function commandClass(args: string[]): 'read' | 'mutation' | 'unknown' {
     if (action === 'coverage' || action === 'trace') return 'read';
     // The specification library's reads; `coverage --repair` writes the usage records a Story proves.
     if (action === 'author') {
-      return ['show', 'list', 'status', 'check', 'gaps'].includes(args[2] ?? '')
+      return ['show', 'list', 'status', 'check', 'gaps', 'shared', 'history', 'sources'].includes(args[2] ?? '')
         || (args[2] === 'coverage' && !enabledBooleanOption(args, 'repair')) ? 'read' : 'mutation';
     }
     // A split is read without a flag; --propose keeps a plan on this clone and --publish writes the state branch.
@@ -935,6 +935,16 @@ export class SingularityFlowClient {
       this.invalidateReads();
       const key = mutationKey(repository);
       repositoryMutationEpochs.set(key, (repositoryMutationEpochs.get(key) ?? 0) + 1);
+      // Unreviewed specification sharing writes only its CAS-protected state-branch checkpoint
+      // and a private acknowledgement. It cannot alter application files, document sequences or
+      // reviewed versions. Keep mutation supervision and invalidation, without holding local draft
+      // reads behind a slow network push. Every other write retains the repository barrier.
+      if (args[0] === 'spec' && args[1] === 'author' && args[2] === 'sync') {
+        return invokeCli<T>({ ...invocation, ...(onProgress ? { onProgress } : {}) }).finally(() => {
+          repositoryMutationEpochs.set(key, (repositoryMutationEpochs.get(key) ?? 0) + 1);
+          this.invalidateReadResults();
+        });
+      }
       const active = repositoryMutations.get(key) ?? new Set<Promise<unknown>>();
       repositoryMutations.set(key, active);
       const operation = invokeCli<T>({ ...invocation, ...(onProgress ? { onProgress } : {}) });

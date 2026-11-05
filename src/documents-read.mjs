@@ -128,6 +128,31 @@ export async function documentCatalog(root, config, workflow, { includeDetached 
       ? { ...record, availability: await localDocumentAvailability(root, workflow.workItem.id, record) }
       : record);
   }
+  // Pinned specification originals remain in their local source store. Offer their verified
+  // descriptors through the existing document pipeline, including images in automated runs.
+  const sourceFile = path.join(workDir(root, config, workflow.workItem.id), 'source.json');
+  const sourceText = await readFile(sourceFile, 'utf8').catch(error => error.code === 'ENOENT' ? null : Promise.reject(error));
+  const slices = sourceText ? JSON.parse(sourceText).specification ?? [] : [];
+  const seenSources = new Set();
+  function collectSources(entries) {
+    for (const slice of entries) {
+      for (const source of slice.sources ?? []) {
+        if (source.type !== 'file' || source.storage?.kind !== 'local') continue;
+        const specId = /^SPEC-[A-Z0-9]+(?:-[A-Z0-9]+)*@[1-9]\d*$/u.test(slice.revision ?? '') ? slice.revision.split('@')[0] : null;
+        if (!specId) throw new SingularityFlowError('A pinned specification source has an invalid revision.', { code: 'SPEC_SOURCE_BINDING_INVALID' });
+        const key = specId + ':' + source.id;
+        if (seenSources.has(key)) continue;
+        seenSources.add(key);
+        records.push({ ...source, id: 'SPEC-SRC-' + createHash('sha256').update(key).digest('hex').slice(0, 16),
+          label: source.name + ' · ' + slice.revision, mimeType: source.mediaType, phase: null,
+          specificationSource: { specId, revision: slice.revision, sourceId: source.id },
+          availability: null });
+      }
+      collectSources(slice.inheritedSpecifications ?? []);
+    }
+  }
+  collectSources(slices);
+  for (const record of records.filter(item => item.specificationSource)) record.availability = await localDocumentAvailability(root, workflow.workItem.id, record);
   for (const packageRecord of manifest.packages ?? []) {
     if (!includeDetached && !evidenceIsActive(packageRecord)) continue;
     for (const [suffix, label, kind, filePath, type] of [['INVENTORY', `${packageRecord.name} inventory`, 'package-inventory', packageRecord.inventoryPath, 'text/markdown'], ['GALLERY', `${packageRecord.name} gallery`, 'package-gallery', packageRecord.galleryPath, 'text/html'], ['MANIFEST', `${packageRecord.name} manifest`, 'package-manifest', packageRecord.manifestPath, 'application/json']]) {

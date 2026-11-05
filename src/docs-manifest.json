@@ -1,9 +1,9 @@
 {
   "schemaVersion": 2,
   "generatedFrom": "docs/topics",
-  "sourceCommit": "d30c79f59f47ce5624d36b7a9e3ead58c333a258",
+  "sourceCommit": "7e473c60eb143066cd716f5b304108f83ed2e707",
   "topicCount": 90,
-  "contentSha256": "3888037906184ad4698065e65de73afcb00e0450d58e2b903387dbc131e38c80",
+  "contentSha256": "663e05029691ce0518548be75c7ae36beca4ece126e1a22b2d8922573d2fabf1",
   "topics": [
     {
       "id": "activity-and-prompt-audit",
@@ -48,9 +48,9 @@
     {
       "id": "app-review",
       "title": "Application review and acceptance",
-      "version": 5,
-      "sha256": "aae05f253e380c6e1470a2d2d73e584f22fdaa6efe06637880f235b8df58551e",
-      "routingSha256": "a025f23b9e1e24124bea8efcccb2631b7b586ca95dd8aebf1130723d9ab42c60",
+      "version": 6,
+      "sha256": "d0078564acd5de9636146b8712ce8478c7536305410afcd5f5475b188f2630c1",
+      "routingSha256": "7233cace9c391da0615fd4184f64c0128d693f8e100469243f30f3f20fa4de98",
       "file": "app-review.md"
     },
     {
@@ -488,8 +488,8 @@
     {
       "id": "repository-commit-policy",
       "title": "Repository commit policy and hook compatibility",
-      "version": 1,
-      "sha256": "3993445d98aa0d072c608761632b2c2a87481c9dabe9a2c318ecbcc1aa31dd26",
+      "version": 2,
+      "sha256": "ae6abe26c2200d6c3a2cdddd742ec2ad690a66a53d38f886891aa1de3fb92df9",
       "routingSha256": "606ed128d60c6d508f62ae7fc167bcd02289cc3b32a1ba20924c7d52cd9777c4",
       "file": "repository-commit-policy.md"
     },

@@ -1,6 +1,7 @@
 # Environment files (ENVF) — v1
 
-Status: owner decisions recorded 2026-10-20; implementation in progress. It extends
+Status: owner decisions recorded 2026-10-20; implementation in progress. `docs/SPEC-ENVIRONMENT-FILES-v2.md`
+adds what is private with no setup. It extends
 `docs/ENVIRONMENT-BINDINGS.md` (bound values) and `docs/SPEC-RUN-AND-TEST-v1.md` (starting the
 application and running tests per environment).
 

@@ -176,7 +176,7 @@ function environmentSourcePolicies(...declarations) {
 }
 
 function matchesEnvironmentSourcePolicy(declarations, file) {
-  return declarations.some((declaration) => Boolean(matchEnvironmentLocalPath(declaration, file)));
+  return [null, ...declarations].some((declaration) => Boolean(matchEnvironmentLocalPath(declaration, file)));
 }
 
 async function currentEnvironmentSourcePolicies(root) {

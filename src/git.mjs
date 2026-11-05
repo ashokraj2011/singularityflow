@@ -5,7 +5,7 @@ import { createHash } from 'node:crypto';
 import { lstat, mkdir, mkdtemp, readdir, rm } from 'node:fs/promises';
 // Synchronous, because `identity()` is synchronous and called from synchronous code throughout.
 import {
-  accessSync, constants as FS_CONSTANTS, existsSync, lstatSync, mkdirSync, mkdtempSync, readFileSync,
+  accessSync, appendFileSync, constants as FS_CONSTANTS, existsSync, lstatSync, mkdirSync, mkdtempSync, readFileSync,
   realpathSync, rmSync, statSync, writeFileSync
 } from 'node:fs';
 import { SingularityFlowError, gitReadOutput, invariant, isGitRefName, run, writeAtomic, removeTemporaryTree, SUBPROCESS_MAX_BUFFER_BYTES } from './util.mjs';
@@ -26,7 +26,8 @@ import {
 import { withoutGitProcessOverrides } from './git-enterprise-environment.mjs';
 import { inWorktreeReadScope, scopedReadSync } from './read-scope.mjs';
 import { freshGitFactsRequired } from './git-fact-cache.mjs';
-import { scannablePath, scannedAsExtractedText, scanEntries, secretRefusal } from './secrets.mjs';
+import { ALWAYS_LOCAL_EXCLUDE_COMMENT, ALWAYS_LOCAL_EXCLUDES, alwaysLocalName } from './local-config-policy.mjs';
+import { configValueWarning, scannablePath, scannedAsExtractedText, scanEntries, secretRefusal } from './secrets.mjs';
 import { extractSourceTextForPath } from './source-text.mjs';
 import {
   ENVIRONMENT_DECLARATION_PATH, ENVIRONMENT_IDENTIFIER, isExactEnvironmentFilePath, loadEnvironmentDeclarationSync,
@@ -2727,16 +2728,21 @@ export function add(root, paths) {
  * second gate. The declaration contains names and path rules only, so diagnostics can identify the
  * offending path and rule without ever reading or printing an environment value.
  */
-function assertNoEnvironmentLocalPaths(root, declarations, paths, { label }) {
+function assertNoEnvironmentLocalPaths(root, declarations, paths, { label, changed }) {
   const policies = [declarations, environmentFilesRegistryPolicySync(root)].flat().filter(Boolean);
-  if (!policies.length) return;
-  const findings = [...new Set((paths ?? []).filter(Boolean).map((item) => item.replaceAll('\\', '/')))]
+  const candidates = [...new Set((paths ?? []).filter(Boolean).map((item) => item.replaceAll('\\', '/')))]
     // The names-only declaration is the policy source, not environment-local content. A broad
     // safety pattern must not make it impossible to tighten or repair the declaration itself.
-    .filter((item) => item !== ENVIRONMENT_DECLARATION_PATH)
-    .flatMap((item) => policies.flatMap((declaration) => {
+    .filter((item) => item !== ENVIRONMENT_DECLARATION_PATH);
+  // A declared rule covers the whole tree. A name covers only what this change adds, so a file a team
+  // already tracks never stops a commit or a merge: its values are read as shared config, and `env audit` reports it.
+  const named = candidates.some((item) => alwaysLocalName(item));
+  if (!policies.length && !named) return;
+  const added = new Set(named ? changed?.() ?? [] : []);
+  const findings = candidates
+    .flatMap((item) => (policies.length ? policies : [null]).flatMap((declaration) => {
       const match = matchEnvironmentLocalPath(declaration, item);
-      return match ? [{ path: item, match }] : [];
+      return match && (match.kind !== 'always-local' || added.has(item)) ? [{ path: item, match }] : [];
     }))
     .filter((entry, index, entries) => entries.findIndex((candidate) =>
       candidate.path === entry.path
@@ -2745,13 +2751,13 @@ function assertNoEnvironmentLocalPaths(root, declarations, paths, { label }) {
   if (!findings.length) return;
   const rendered = findings.map(({ path: item, match }) => {
     const rule = match.pattern ?? match.rule ?? match.source ?? 'environment-local';
-    const owner = match.kind === 'environment-file' ? `this machine's env files registry (${match.environmentId})`
+    const owner = match.kind === 'always-local' ? 'the always-local name' : match.kind === 'environment-file' ? `this machine's env files registry (${match.environmentId})`
       : match.environmentId ? `environments.${match.environmentId}.localFiles` : 'neverCommit';
     return `- ${item} matches ${owner} rule '${rule}'`;
   }).join('\n');
   throw new SingularityFlowError(
     `${label} was refused because environment-local content must never enter Git:\n\n${rendered}\n\n`
-      + 'Remove the path from the index and keep its value in a machine-local environment binding.',
+      + 'Remove the path from the index with git rm --cached (your copy stays) and keep its value in a machine-local environment binding.',
     {
       code: 'ENVIRONMENT_LOCAL_CONTENT_REFUSED',
       details: { paths: findings.map((entry) => entry.path) }
@@ -2910,6 +2916,11 @@ export function exactIndexedEnvironmentDeclaration(root, env = immutableLocalGit
   return environmentDeclarationBlob(root, match[2], env, 'Exact candidate index');
 }
 
+/** The paths the index adds against HEAD. */
+function stagedAdditions(root, env, paths = []) {
+  return nullList(git(['diff', '--cached', '--name-only', '-z', '--diff-filter=ACR', ...(paths.length ? ['--', ...paths] : [])], { cwd: root, env }).stdout);
+}
+
 function indexPaths(root, env = immutableLocalGitEnvironment()) {
   return nullList(git(['ls-files', '-z'], { cwd: root, env }).stdout);
 }
@@ -2968,14 +2979,16 @@ export function admitExactProspectiveTree(root, {
   }
   const baselineTree = trees[0].split(' ')[0];
 
-  assertNoEnvironmentLocalPaths(root, [
-    exactEnvironmentDeclarationAtRef(root, baselineCommit, env),
-    exactEnvironmentDeclarationAtRef(root, candidateTree, env)
-  ], treePaths(root, candidateTree, env), { label });
-
   const listed = nullList(git([
     'diff', '--name-only', '-z', '--diff-filter=ACMRT', baselineCommit, candidateTree, '--'
   ], { cwd: root, env }).stdout);
+  assertNoEnvironmentLocalPaths(root, [
+    exactEnvironmentDeclarationAtRef(root, baselineCommit, env),
+    exactEnvironmentDeclarationAtRef(root, candidateTree, env)
+  ], treePaths(root, candidateTree, env), { label, changed: () => nullList(git([
+    'diff', '--name-only', '-z', '--diff-filter=ACR', baselineCommit, candidateTree, '--'
+  ], { cwd: root, env }).stdout) });
+
   if (!listed.length) return remember(Object.freeze({ tree: candidateTree, baselineTree, paths: Object.freeze([]), scan: null }));
 
   const expectedPaths = new Set(listed);
@@ -3072,6 +3085,7 @@ export function admitExactProspectiveTree(root, {
       code: 'SECRET_DETECTED'
     });
   }
+  warnOfConfigValues(scan);
   return remember(Object.freeze({ tree: candidateTree, baselineTree, paths: Object.freeze([...listed]), scan }));
 }
 
@@ -3087,7 +3101,7 @@ function assertCommitEnvironmentPolicy(root, paths, { label }) {
   if (!paths?.length) {
     const env = immutableLocalGitEnvironment();
     const prospective = exactIndexedEnvironmentDeclaration(root, env);
-    assertNoEnvironmentLocalPaths(root, [baseline, prospective], indexPaths(root, env), { label });
+    assertNoEnvironmentLocalPaths(root, [baseline, prospective], indexPaths(root, env), { label, changed: () => stagedAdditions(root, env) });
     return;
   }
 
@@ -3109,13 +3123,22 @@ function assertCommitEnvironmentPolicy(root, paths, { label }) {
         code: 'ENVIRONMENT_POLICY_UNAVAILABLE'
       });
     }
-    git(['add', '-A', '--', ...paths], { cwd: root, env });
+    const named = paths.filter((item) => alwaysLocalName(item));
+    try { git(['add', '-A', '--', ...paths], { cwd: root, env }); }
+    catch (error) {
+      // Git itself refuses an ignored path, in its own words, and an always-local name is excluded.
+      if (!named.length) throw error;
+      throw new SingularityFlowError(`${label} was refused because ${named.join(', ')} ${named.length === 1 ? 'is' : 'are'} named to stay on this laptop. `
+        + 'To take a committed copy out of Git, run git rm --cached on it and commit without naming paths; your copy stays.', {
+        code: 'ENVIRONMENT_LOCAL_CONTENT_REFUSED', details: { paths: named }
+      });
+    }
     const prospective = exactIndexedEnvironmentDeclaration(root, env);
     // `commit --only` also takes paths force-added to the index that the clone ignores (a placed
-    // environment file is excluded), which `add -A` skips; list them only when a policy exists.
-    const forced = baseline || prospective || environmentFilesRegistryPolicySync(root)
-      ? nullList(git(['ls-files', '-z', '--', ...paths], { cwd: root, env: baselineEnv }).stdout) : [];
-    assertNoEnvironmentLocalPaths(root, [baseline, prospective], [...indexPaths(root, env), ...forced], { label });
+    // environment file, or an always-local name), which `add -A` skips.
+    const forced = nullList(git(['ls-files', '-z', '--', ...paths], { cwd: root, env: baselineEnv }).stdout);
+    assertNoEnvironmentLocalPaths(root, [baseline, prospective], [...indexPaths(root, env), ...forced], { label,
+      changed: () => [...stagedAdditions(root, env), ...stagedAdditions(root, baselineEnv, paths)] });
   } finally {
     rmSync(scratch, { recursive: true, force: true });
   }
@@ -3198,7 +3221,36 @@ function refuseSecrets(entries, label) {
   if (refusal) {
     throw new SingularityFlowError(`${label} was refused.\n\n${refusal}`, { code: 'SECRET_DETECTED' });
   }
+  warnOfConfigValues(scan);
   return scan;
+}
+
+const warnedConfigValues = new Set();
+
+/** On stderr, once per file and line: results stay clean JSON, and several gates can see one commit. */
+function warnOfConfigValues(scan) {
+  const fresh = scan.warnings.filter((finding) => !warnedConfigValues.has(`${finding.path}:${finding.line}`));
+  fresh.forEach((finding) => warnedConfigValues.add(`${finding.path}:${finding.line}`));
+  const warning = configValueWarning(fresh);
+  if (warning) process.stderr.write(`${warning}\n`);
+}
+
+/** Git never offers an always-local file, so nothing has to account for it. Best effort: the gates refuse one regardless. */
+export function excludeAlwaysLocalNames(root) {
+  try {
+    const file = path.join(gitCommonDir(root), 'info', 'exclude');
+    let text = '';
+    try {
+      if (!lstatSync(file).isFile()) return false;
+      text = readFileSync(file, 'utf8');
+    } catch (error) {
+      if (error?.code !== 'ENOENT') return false;
+      mkdirSync(path.dirname(file), { recursive: true });
+    }
+    if (text.split(/\r?\n/u).includes(ALWAYS_LOCAL_EXCLUDE_COMMENT)) return false;
+    appendFileSync(file, `${text && !text.endsWith('\n') ? '\n' : ''}${[ALWAYS_LOCAL_EXCLUDE_COMMENT, ...ALWAYS_LOCAL_EXCLUDES].join('\n')}\n`);
+    return true;
+  } catch { return false; }
 }
 
 /**

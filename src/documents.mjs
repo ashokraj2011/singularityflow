@@ -739,8 +739,8 @@ async function assertDocumentInputNotEnvironmentLocal(root, declaration, input, 
   additionalCandidates = [], sourceIsLocalPath = true
 } = {}) {
   const { assertNotPrivateEnvironmentName, environmentFileSourceCandidates, repositoryRelativeSource } = await import('./document-admission.mjs');
-  assertNotPrivateEnvironmentName(declaration, input.sourceRelativePath ?? input.source);
-  if (!declaration) return;
+  // A declared rule names itself first; matchEnvironmentLocalPath below reaches the same names.
+  if (!declaration) return assertNotPrivateEnvironmentName(input.sourceRelativePath ?? input.source);
   const filename = safeName(input.source);
   const preservedPath = input.sourceRelativePath
     ? path.posix.join(input.packageName, ...input.sourceRelativePath.split('/').map(safeName))
@@ -771,8 +771,7 @@ async function assertDocumentInputNotEnvironmentLocal(root, declaration, input, 
  */
 export async function assertStartDocumentNotEnvironmentLocal(root, declaration, source) {
   const { assertNotPrivateEnvironmentName, environmentFileSourceCandidates, repositoryRelativeSource } = await import('./document-admission.mjs');
-  assertNotPrivateEnvironmentName(declaration, source);
-  if (!declaration) return;
+  if (!declaration) return assertNotPrivateEnvironmentName(source);
   for (const relative of [await repositoryRelativeSource(root, source), ...await environmentFileSourceCandidates(root, declaration, source)]) {
     const match = relative ? matchEnvironmentLocalPath(declaration, relative) : null;
     if (match) throw environmentLocalRefusal(relative, match);

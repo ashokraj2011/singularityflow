@@ -47,7 +47,7 @@ import { scanJavaScriptDeclarations } from './verification/javascript-declaratio
 import { bindingsDigest, clauseTagExplanation, EXPLANATION_LIMITS, implementationBindings } from './implementation-bindings.mjs';
 import { inferRepositoryTestCommands } from './repository-test-command-inference.mjs';
 import { SingularityFlowError, posix, run, secureRepositoryPath, snapshot, SUBPROCESS_MAX_BUFFER_BYTES } from './util.mjs';
-import { committedChangedPaths, mergedBaseChanges, trackedPaths, worktreePatchMatching } from './git.mjs';
+import { committedChangedPaths, excludeAlwaysLocalNames, mergedBaseChanges, trackedPaths, worktreePatchMatching } from './git.mjs';
 import {
   applicationChangeSetProjection, applicationPathContext, isApplicationChangeEntry, isApplicationPath,
   isGeneratedOutputPath, verifyWorkIntervalBaseline
@@ -1216,6 +1216,7 @@ function assertPublishedDocumentationBaseline(root, config, workflow, phase, pri
 /** Refuse a code phase before generation state or telemetry is mutated. */
 export async function evaluateCodeDeliveryPreflight(root, config, workflow, phase, { strictCoverage = false, ignoreDisputes = false, requireReconciled = false } = {}) {
   if (!phaseRequiresCodeDelivery(phase)) return null;
+  excludeAlwaysLocalNames(root);
   if ((phase.writeScope ?? 'artifact-only') !== 'source-and-artifact') {
     throw new SingularityFlowError(
       `Phase '${phase.id}' is a code-generation phase but its write scope does not permit source changes.`,

@@ -3,16 +3,16 @@
   "specification": "SDA-v1 M0 inventory",
   "summary": {
     "gitSites": {
-      "total": 1438,
+      "total": 1439,
       "read": 819,
       "write": 352,
       "remote": 158,
-      "dynamic": 109
+      "dynamic": 110
     },
     "gitModules": 185,
-    "directLocalGitSitesOutsideGitModules": 987,
-    "localGitReadsOutsideGitModules": 620,
-    "writeSites": 1120,
+    "directLocalGitSitesOutsideGitModules": 986,
+    "localGitReadsOutsideGitModules": 618,
+    "writeSites": 1125,
     "yamlReadModules": 115,
     "lifetimes": 55,
     "timeouts": 187,
@@ -53,22 +53,22 @@
         "writeSites": 108
       },
       "source-control": {
-        "modules": 70,
-        "gitSites": 547,
+        "modules": 71,
+        "gitSites": 549,
         "gitWrites": 128,
         "gitRemote": 46,
-        "writeSites": 194
+        "writeSites": 196
       },
       "local-authored": {
-        "modules": 15,
+        "modules": 16,
         "gitSites": 31,
         "gitWrites": 8,
         "gitRemote": 4,
-        "writeSites": 66
+        "writeSites": 69
       },
       "surface": {
         "modules": 42,
-        "gitSites": 55,
+        "gitSites": 54,
         "gitWrites": 14,
         "gitRemote": 8,
         "writeSites": 89
@@ -946,10 +946,11 @@
       "module": "commands/secrets.mjs",
       "class": "surface",
       "git": {
-        "read": 3,
-        "write": 1
+        "read": 1,
+        "write": 1,
+        "dynamic": 1
       },
-      "localReads": 3,
+      "localReads": 1,
       "writes": 0,
       "yamlReads": 0,
       "lifetimes": []
@@ -2398,14 +2399,14 @@
       "module": "git.mjs",
       "class": "source-control",
       "git": {
-        "read": 129,
+        "read": 131,
         "write": 60,
         "remote": 12,
         "dynamic": 6,
         "unknown": 1
       },
-      "localReads": 129,
-      "writes": 9,
+      "localReads": 131,
+      "writes": 10,
       "yamlReads": 0,
       "lifetimes": [
         {
@@ -4677,7 +4678,7 @@
       "module": "spec-library/draft-store.mjs",
       "class": "local-authored",
       "git": {},
-      "writes": 5,
+      "writes": 7,
       "yamlReads": 0,
       "lifetimes": []
     },
@@ -4688,6 +4689,22 @@
         "remote": 2
       },
       "writes": 0,
+      "yamlReads": 0,
+      "lifetimes": []
+    },
+    {
+      "module": "spec-library/shared-basis.mjs",
+      "class": "source-control",
+      "git": {},
+      "writes": 1,
+      "yamlReads": 0,
+      "lifetimes": []
+    },
+    {
+      "module": "spec-library/shared-drafts.mjs",
+      "class": "local-authored",
+      "git": {},
+      "writes": 1,
       "yamlReads": 0,
       "lifetimes": []
     },

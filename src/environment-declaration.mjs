@@ -5,6 +5,7 @@
  * endpoint value or flag default, but it cannot carry a secret value, provider reference, command,
  * or other private material which could be mistaken for repository authority.
  */
+import { alwaysLocalName } from './local-config-policy.mjs';
 import {
   closeSync, constants as fsConstants, fstatSync, lstatSync, openSync, readSync, realpathSync
 } from 'node:fs';
@@ -538,7 +539,6 @@ export function isExactEnvironmentFilePath(value) {
 
 /** Return the exact declaration rule which makes a repository-relative path environment-local. */
 export function matchEnvironmentLocalPath(declaration, relativePath) {
-  if (!declaration) return null;
   const candidate = String(relativePath ?? '').replaceAll('\\', '/').replace(/^\.\//, '');
   if (!candidate || path.posix.isAbsolute(candidate) || path.win32.isAbsolute(candidate)
       || candidate.split('/').includes('..')) return null;
@@ -546,12 +546,12 @@ export function matchEnvironmentLocalPath(declaration, relativePath) {
   // macOS filesystems. Match the strictest supported filesystem identity so case aliases,
   // compatibility folds, and Win32 trailing-dot/space aliases cannot bypass a local-file rule.
   const candidateIdentity = portableFilesystemPathIdentity(candidate);
-  for (const pattern of declaration.neverCommit ?? []) {
+  for (const pattern of declaration?.neverCommit ?? []) {
     if (globRegex(portableFilesystemPathIdentity(pattern)).test(candidateIdentity)) {
       return Object.freeze({ environmentId: null, kind: 'never-commit', pattern });
     }
   }
-  for (const environmentId of Object.keys(declaration.environments ?? {}).sort()) {
+  for (const environmentId of Object.keys(declaration?.environments ?? {}).sort()) {
     for (const pattern of declaration.environments[environmentId].localFiles ?? []) {
       if (globRegex(portableFilesystemPathIdentity(pattern)).test(candidateIdentity)) {
         return Object.freeze({ environmentId, kind: 'local-file', pattern });
@@ -559,11 +559,13 @@ export function matchEnvironmentLocalPath(declaration, relativePath) {
     }
   }
   // This machine's environment-file registry paths (git.mjs withEnvironmentFilesRegistry), exact.
-  for (const [environmentId, paths] of Object.entries(declaration.environmentFiles ?? {})) {
+  for (const [environmentId, paths] of Object.entries(declaration?.environmentFiles ?? {})) {
     const pattern = paths.find((entry) => portableFilesystemPathIdentity(entry) === candidateIdentity);
     if (pattern) return Object.freeze({ environmentId, kind: 'environment-file', pattern });
   }
-  return null;
+  // Needs no declaration, and a repository cannot remove it [SPEC-ENVF v2].
+  const named = alwaysLocalName(candidate);
+  return named ? Object.freeze({ environmentId: null, kind: 'always-local', pattern: named }) : null;
 }
 
 /** Stable JSON form used by schema and audit tests without exposing parser internals. */

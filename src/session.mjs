@@ -8,7 +8,7 @@ import { normalizeSessionPolicy } from './config.mjs';
 import { currentSchemaVersion, readRecord, stampCurrentRecord } from './schema-migrations.mjs';
 import { resolveStoryExecutionCatalog } from './story-execution-context.mjs';
 import { phaseKernelOwned } from './code-delivery-policy.mjs';
-import { identity, gitDir } from './git.mjs';
+import { excludeAlwaysLocalNames, identity, gitDir } from './git.mjs';
 import { inReadScope } from './read-scope.mjs';
 
 const SESSION_FAMILY = 'session-registry';
@@ -329,6 +329,7 @@ export async function recordStartedWorkItemSelection(root, definition, workflow)
 }
 
 export async function activateWorkItemSession(root, definition, workflow) {
+  excludeAlwaysLocalNames(root);
   const catalog = await resolveStoryExecutionCatalog(root, definition, workflow);
   definition = catalog.effectiveDefinition;
   const copilot = await loadCopilotSession(root);

@@ -100,7 +100,7 @@ function environmentPolicySet(...declarations) {
 }
 
 function environmentPathMatches(declarations, relative) {
-  const matches = declarations.map((declaration) => (
+  const matches = (declarations.length ? declarations : [null]).map((declaration) => (
     matchEnvironmentLocalPath(declaration, relative)
   )).filter(Boolean);
   return matches.filter((entry, index) => matches.findIndex((candidate) => (
@@ -111,7 +111,7 @@ function environmentPathMatches(declarations, relative) {
 }
 
 async function auditEnvironment(root) {
-  const worktreeDeclaration = await loadEnvironmentDeclaration(root, { optional: false });
+  const worktreeDeclaration = await loadEnvironmentDeclaration(root, { optional: true });
   const gitSnapshot = environmentAuditGitSnapshot(root, {
     maximumObjectBytes: MAXIMUM_AUDIT_FILE_BYTES,
     maximumTotalBytes: MAXIMUM_AUDIT_BYTES
@@ -199,9 +199,11 @@ async function auditEnvironment(root) {
   for (const [source, entries] of scans) {
     const secretScan = scanEntries(entries);
     scanned += secretScan.scanned;
-    findings.push(...secretScan.blocking.map((entry) => Object.freeze({
+    findings.push(...[...secretScan.blocking, ...secretScan.warnings].map((entry) => Object.freeze({
       code: 'environment.possible-secret', source,
-      path: entry.path, line: entry.line, rule: entry.rule, severity: entry.severity
+      path: entry.path, line: entry.line, rule: entry.rule, severity: entry.severity,
+      // Removing it from the file leaves it on every clone, so the value itself has to change.
+      ...(source === 'last-publication' ? { advice: 'Already in Git history: rotate it. History is never rewritten automatically.' } : {})
     })));
   }
   const coverageComplete = skipped.length === 0;
@@ -209,7 +211,7 @@ async function auditEnvironment(root) {
     schemaVersion: 1,
     resultType: 'environment-audit',
     status: findings.length ? 'findings' : coverageComplete ? 'clean' : 'unavailable',
-    declarationSha256: worktreeDeclaration.declarationSha256,
+    declarationSha256: worktreeDeclaration?.declarationSha256 ?? null,
     findings: Object.freeze(findings.sort((left, right) => left.path.localeCompare(right.path)
       || left.code.localeCompare(right.code))),
     localFiles: Object.freeze(localFiles.sort((left, right) => left.path.localeCompare(right.path))),
@@ -225,7 +227,7 @@ function emit(value, json) {
   else if (value.resultType === 'environment-audit') {
     console.log(`Environment audit: ${value.status} · ${value.findings.length} finding(s) · ${value.localFiles.length} ignored local file(s)`);
     for (const finding of value.findings) {
-      console.log(`- ${finding.path}: ${finding.code}${finding.pattern ? ` (${finding.pattern})` : ''}`);
+      console.log(`- ${finding.path}: ${finding.code}${finding.pattern ? ` (${finding.pattern})` : ''}${finding.advice ? ` ${finding.advice}` : ''}`);
     }
   } else if (value.environments) {
     console.log(`Environment declaration: ${value.declaration.status} · ${value.storageAssurance}`);

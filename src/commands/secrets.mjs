@@ -153,7 +153,7 @@ export async function secretsCommand(positionals, options) {
     throw new SingularityFlowError(`Unknown secrets subcommand '${subcommand}'. Use ${SECRETS_SUBCOMMANDS.join(' or ')}.`);
   }
   const root = repoRoot();
-  const { scanEntries, secretRefusal } = await import('../secrets.mjs');
+  const { configValueWarning, scanEntries, secretRefusal } = await import('../secrets.mjs');
 
   if (subcommand === 'protect') {
     const location = hookLocation(root);
@@ -234,9 +234,17 @@ export async function secretsCommand(positionals, options) {
 
   // `--staged` judges the index, which is what a commit will use. Without it, the working tree.
   const staged = optionBoolean(options, 'staged');
-  const listed = staged
-    ? run('git', ['diff', '--cached', '--name-only', '-z', '--diff-filter=ACMR'], { cwd: root }).stdout.split('\0').filter(Boolean)
-    : run('git', ['ls-files', '-z'], { cwd: root }).stdout.split('\0').filter(Boolean);
+  const output = run('git', staged ? ['diff', '--cached', '--name-status', '-z', '--diff-filter=ACMRT'] : ['ls-files', '-z'], { cwd: root }).stdout.split('\0').filter(Boolean);
+  const listed = [], added = [];
+  if (!staged) listed.push(...output);
+  // `A path`, `M path`, and `R100 old new`: a rename or a copy adds its second path.
+  else for (let index = 0; index < output.length; index += 1) {
+    const status = output[index];
+    if (/^[RC]/u.test(status)) index += 1;
+    const file = output[++index];
+    listed.push(file);
+    if (/^[ACR]/u.test(status)) added.push(file);
+  }
 
   const entries = [];
   if (staged) {
@@ -248,15 +256,17 @@ export async function secretsCommand(positionals, options) {
     }
   }
 
-  const scan = scanEntries(entries);
+  // A name refuses what a commit adds. A file already tracked is read as shared config, and `env audit` reports it.
+  const { alwaysLocalName } = await import('../local-config-policy.mjs');
+  const scan = scanEntries(entries, { alwaysLocal: added.filter((item) => alwaysLocalName(item)) });
   const scope = staged ? 'staged' : 'tracked';
-  const slots = { scanned: scan.scanned, scope, blocking: scan.blocking.length };
+  const slots = { scanned: scan.scanned, scope, blocking: scan.blocking.length, warnings: scan.warnings.length };
   const narration = commandResult({
     operation: { id: 'secrets.scan', classification: 'read' },
     // A scan that finds something has not failed — it did its job. `noop` with the detected message
     // keeps "the command worked" and "the commit must not proceed" as separate facts; the exit code
     // below is what stops the commit.
-    outcome: scan.blocking.length ? noop('secrets.detected', slots) : succeeded('secrets.clean', slots),
+    outcome: scan.blocking.length ? noop('secrets.detected', slots) : scan.warnings.length ? noop('secrets.warned', slots) : succeeded('secrets.clean', slots),
     effects: noEffects(),
     restState: 'informational',
     data: { ...scan, scope }
@@ -265,6 +275,8 @@ export async function secretsCommand(positionals, options) {
     // The detail goes to stderr, where the pre-commit hook shows it, and where it cannot be piped
     // into something that records it by accident.
     const refusal = secretRefusal(scan);
+    const warning = configValueWarning(scan.warnings);
+    if (warning) console.error(warning);
     if (refusal) console.error(refusal);
     else if (scan.waived.length) console.log(`${scan.waived.length} waived finding(s) were allowed.`);
   }

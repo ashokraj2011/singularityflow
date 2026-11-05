@@ -22,6 +22,7 @@
  * assignments that look like `password = "..."`. Broad guessing produces noise, and a check people
  * routinely override is a check that is not running.
  */
+import { configValueFindings, configValuesRefused, entropy, reservedExampleHost } from './config-values.mjs';
 import { SingularityFlowError } from './util.mjs';
 
 /**
@@ -30,6 +31,11 @@ import { SingularityFlowError } from './util.mjs';
  * A reason is required rather than optional: `sflow-allow-secret` alone would become a reflex, and
  * the reason is what a reviewer reads when deciding whether the line is really an example.
  */
+const CONFIG_VALUE_RULE = 'config-value';
+const ALWAYS_LOCAL_RULE = 'always-local';
+const ALWAYS_LOCAL_ROUTE = 'Run git rm --cached <path>: your copy stays on this laptop and the commit leaves it out.';
+const MOVE_THE_VALUE_OUT = 'Replace it with ${NAME} and keep the value in an always-local file such as application-local.yml or .env, or in singularity-flow env bind. If it is only an example, put the waiver marker sflow-allow-secret, a colon and why on that line or the line above it.';
+
 export const WAIVER = /sflow-allow-secret:\s*(\S.*?)\s*$/;
 
 /**
@@ -46,18 +52,7 @@ export function redact(value) {
 }
 
 /** Shannon entropy in bits per character: high for random secrets, low for prose and identifiers. */
-export function entropy(value) {
-  const text = String(value ?? '');
-  if (!text.length) return 0;
-  const counts = new Map();
-  for (const character of text) counts.set(character, (counts.get(character) ?? 0) + 1);
-  let bits = 0;
-  for (const count of counts.values()) {
-    const probability = count / text.length;
-    bits -= probability * Math.log2(probability);
-  }
-  return bits;
-}
+export { entropy };
 
 /**
  * The rules.
@@ -101,7 +96,7 @@ export const SECRET_RULES = Object.freeze([
      * still caught however innocuous it looks.
      */
     accept(host) {
-      return !/(?:^|\.)(?:example\.(?:com|net|org)|example|test|invalid|localhost)$/i.test(String(host ?? ''));
+      return !reservedExampleHost(host);
     }
   },
   {
@@ -220,6 +215,16 @@ export function scanText(content, { path: filePath = '<input>' } = {}) {
       }
     }
   });
+  // A shared config file's settings, which people write unquoted. A line a rule already found is one finding.
+  const flagged = new Set(findings.map((finding) => finding.line));
+  for (const { name, value, line } of configValueFindings(filePath, content)) {
+    if (flagged.has(line)) continue;
+    // The line above counts too: a marker on the line itself becomes part of a .properties value, and JSON has no comments.
+    const waiver = WAIVER.exec(lines[line - 1]) ?? (line > 1 ? WAIVER.exec(lines[line - 2]) : null);
+    // Its length and no more: a model sees this output, and a short value's first characters are most of it.
+    findings.push(Object.freeze({ rule: CONFIG_VALUE_RULE, label: `a value for ${name}`, severity: 'likely', path: filePath, line,
+      preview: `(${value.length} chars)`, waived: Boolean(waiver), reason: waiver?.[1] ?? null }));
+  }
   return findings;
 }
 
@@ -230,9 +235,12 @@ export function scanText(content, { path: filePath = '<input>' } = {}) {
  * staged blob, the working tree, a commit's tree — and the scanner cannot be pointed at the wrong
  * one by accident.
  */
-export function scanEntries(entries = []) {
-  const findings = [];
+export function scanEntries(entries = [], { alwaysLocal = [], env = process.env } = {}) {
+  const findings = alwaysLocal.map((file) => Object.freeze({ rule: ALWAYS_LOCAL_RULE, label: 'a file that stays on this laptop',
+    severity: 'certain', path: file, line: 0, preview: '', waived: false, reason: null }));
   const skipped = [];
+  const refused = configValuesRefused(env);
+  const warnOnly = (finding) => finding.rule === CONFIG_VALUE_RULE && !refused;
   for (const entry of entries) {
     const filePath = String(entry?.path ?? '');
     // Git admission sets `forceScan` for non-regular entries such as symbolic links. A filename
@@ -256,12 +264,22 @@ export function scanEntries(entries = []) {
     schemaVersion: 1,
     findings: Object.freeze(findings),
     /** What must stop a commit, as opposed to what was reviewed and excused on the line. */
-    blocking: Object.freeze(findings.filter((finding) => !finding.waived)),
+    blocking: Object.freeze(findings.filter((finding) => !finding.waived && !warnOnly(finding))),
+    /** A value in shared config during its rollout: said out loud, and not yet refused. */
+    warnings: Object.freeze(findings.filter((finding) => !finding.waived && warnOnly(finding))),
     waived: Object.freeze(findings.filter((finding) => finding.waived)),
     skipped: Object.freeze(skipped),
     scanned: entries.length - skipped.length,
-    clean: findings.every((finding) => finding.waived)
+    clean: findings.every((finding) => finding.waived || warnOnly(finding))
   });
+}
+
+/** The warning a commit carries while a value in shared config is not yet refused, or null. */
+export function configValueWarning(findings = []) {
+  if (!findings.length) return null;
+  return ['Warning: this change holds what look like real values in shared config:',
+    ...findings.map((finding) => `  ${finding.path}:${finding.line} — ${finding.label} ${finding.preview}`),
+    `This does not stop the commit yet. A later release refuses it, because a value in a commit is in every clone's history. ${MOVE_THE_VALUE_OUT}`].join('\n');
 }
 
 /**
@@ -278,8 +296,11 @@ export function secretRefusal(scan) {
     ''
   ];
   for (const finding of scan.blocking) {
-    lines.push(`  ${finding.path}:${finding.line} — ${finding.label} [${finding.rule}] ${finding.preview}`);
+    lines.push(finding.rule === ALWAYS_LOCAL_RULE ? `  ${finding.path} — ${finding.label} [${finding.rule}]`
+      : `  ${finding.path}:${finding.line} — ${finding.label} [${finding.rule}] ${finding.preview}`);
   }
+  if (scan.blocking.some((finding) => finding.rule === ALWAYS_LOCAL_RULE)) lines.push('', ALWAYS_LOCAL_ROUTE);
+  if (scan.blocking.some((finding) => finding.rule === CONFIG_VALUE_RULE)) lines.push('', MOVE_THE_VALUE_OUT);
   lines.push(
     '',
     'A credential in a commit is in the history on every clone, and deleting it later does not remove it.',

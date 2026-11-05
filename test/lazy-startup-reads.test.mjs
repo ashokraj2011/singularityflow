@@ -189,7 +189,8 @@ test('the Copilot edit guard, run on every tool call, stays clear of the configu
   // util.mjs; SDA M1 (fa3094b83) added it without a recorded raise.
   // 63: lease-liveness.mjs, the shared lease owner proof every subject lock reads (SDA M3). The commit
   // policy (4c79a2b8d) took git-isolation-paths.mjs out and put package-root.mjs in, through util.mjs.
-  assert.ok(closure.size <= 63, `the edit guard loads ${closure.size} static modules; ceiling is 63`);
+  // 65: SPEC-ENVF v2's local-config-policy.mjs and config-values.mjs, the names and the scanner's value check. Neither imports a graph.
+  assert.ok(closure.size <= 65, `the edit guard loads ${closure.size} static modules; ceiling is 65`);
 });
 
 test('commands that load the legacy CLI leave the SQLite build and the ACP SDK to first use', () => {

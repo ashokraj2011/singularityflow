@@ -7,65 +7,13 @@
  * a documentation address. A refusal names where to look, how to clear it, and never the value. It fails
  * closed: a scan that breaks shares nothing, and the writing stays saved either way.
  */
-import { entropy, redact, SECRET_RULES, scanEntries, WAIVER } from '../secrets.mjs';
+import { linkCredentials } from '../config-values.mjs';
+import { redact, SECRET_RULES, scanEntries, WAIVER } from '../secrets.mjs';
 import { SingularityFlowError } from '../util.mjs';
 
+export { linkCredentials };
 const SHOWN_FINDINGS = 3;
-/** The scanner's own exemption: a credential pointed at a reserved example host is documentation. */
-const reservedExampleHost = (host) => !SECRET_RULES.find((rule) => rule.id === 'url-credentials').accept(host);
 export const WITHHELD = '[withheld: looks like a secret]';
-
-/** A parameter named for a credential. Pagination cursors are named for tokens too, and mean nothing to anyone else. */
-const CREDENTIAL_WORDS = new Set(['token', 'secret', 'password', 'passwd', 'pwd', 'credential', 'credentials', 'signature', 'sig', 'jwt', 'auth', 'authorization', 'bearer', 'apikey']);
-const NOT_A_CREDENTIAL = new Set(['page', 'next', 'prev', 'continuation', 'cursor', 'sync', 'csrf']);
-function credentialName(name) {
-  const words = String(name).replace(/([a-z0-9])([A-Z])/gu, '$1_$2').toLowerCase().split(/[-_.]+/u).filter(Boolean);
-  if (words.some((word) => NOT_A_CREDENTIAL.has(word))) return false;
-  if (words.some((word) => CREDENTIAL_WORDS.has(word))) return true;
-  // `key` alone, or an API, access or private key: `?key=PROJ-1` is judged by its value, `?keyboard=` never is.
-  const key = words.lastIndexOf('key');
-  return key >= 0 && (words.length === 1 || ['api', 'access', 'private', 'secret', 'auth', 'x'].includes(words[key - 1]));
-}
-
-/** Whether a value could be a credential: not a placeholder, a plain word or a short flag. */
-function credentialShaped(raw) {
-  const value = String(raw ?? '').trim();
-  if (value.length < 8) return false;
-  if (/^(?:<.*>|\{.*\}|\[.*\]|\$.*|%.*%|[.*x_-]+)$/iu.test(value)) return false;
-  if (/example|placeholder|redacted|changeme|your[-_]|dummy|sample|fake/iu.test(value)) return false;
-  if (/^[a-z]+(?:[-_. ][a-z]+)*$/iu.test(value) && value.length < 20) return false;
-  if (/^\d+$/u.test(value) && value.length < 16) return false;
-  return entropy(value) >= 2.5;
-}
-
-/** An address's parameters, however they were written: repeated, separated by `;` or `&amp;`, in the query or the fragment. */
-function linkParameters(link) {
-  const at = link.search(/[?#]/u);
-  if (at < 0) return [];
-  return link.slice(at + 1).replaceAll('&amp;', '&').split(/[&;?#]/u).flatMap((pair) => {
-    const equals = pair.indexOf('=');
-    if (equals <= 0) return [];
-    let value = pair.slice(equals + 1);
-    try { value = decodeURIComponent(value); } catch { /* the raw value is what ships */ }
-    return [{ name: pair.slice(0, equals), value, raw: pair.slice(equals + 1) }];
-  });
-}
-
-/** Secrets in the path of a known webhook address: the address is the credential. */
-const PATH_SECRET = /^(?:hooks\.slack\.com\/services\/|(?:[a-z0-9-]+\.)?discord(?:app)?\.com\/api\/webhooks\/|[a-z0-9-]+\.webhook\.office\.com\/webhookb2\/|outlook\.office(?:365)?\.com\/webhook\/)/iu;
-
-/** Every credential a link carries, as `{ label, value }`; a reserved example host carries none. */
-export function linkCredentials(link) {
-  const shape = /^[a-z][a-z0-9+.-]*:\/\/(?:([^\s/?#@]*)@)?([^\s/?#:@]*)/iu.exec(link);
-  if (!shape || reservedExampleHost(shape[2])) return [];
-  const found = [];
-  if (shape[1] && !shape[1].includes(':') && credentialShaped(shape[1])) found.push({ label: 'an access credential in a link’s address', value: shape[1] });
-  if (PATH_SECRET.test(link.slice(link.indexOf('://') + 3))) found.push({ label: 'a webhook address, which is itself a credential', value: link.slice(link.indexOf('://') + 3).split(/[?#]/u)[0].split('/').slice(1).join('/') });
-  for (const { name, value, raw } of linkParameters(link)) {
-    if (credentialName(name) && credentialShaped(value)) found.push({ label: `an access credential in a link’s '${name}' parameter`, value: raw });
-  }
-  return found;
-}
 
 /** The links in a line. Stops only at what ends an address in prose, and gives back closing punctuation it does not own. */
 function linksIn(line) {

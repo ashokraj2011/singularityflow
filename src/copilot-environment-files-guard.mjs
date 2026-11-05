@@ -7,20 +7,25 @@
  * command that names one is refused, whatever the turn mode. The `env files` reads and
  * `env files create --from-template` / `place` stay allowed: they print locations, never contents.
  *
+ * Two kinds need no setup at all (docs/SPEC-ENVIRONMENT-FILES-v2.md): a file with an always-local name,
+ * and a shared config file holding what looks like a real value, until the value is moved out.
+ *
  * Cheap on purpose: the guard runs before every tool call of an explicit turn. A repository with no
- * `singularity/environments.yml`, no registry and no workspace-level state costs a few `lstat` calls
- * and loads nothing else (its one local import, copilot-mode.mjs, every hook has loaded already).
+ * `singularity/environments.yml`, no registry and no workspace-level state costs a few `lstat` calls,
+ * and only a call that names a config file reads that file and loads the scanner.
  */
-import { lstatSync, readFileSync, realpathSync } from 'node:fs';
+import { lstatSync, readFileSync, realpathSync, statSync } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { asSflowCommand } from './copilot-mode.mjs';
+import { alwaysLocalName, configShapedPath } from './local-config-policy.mjs';
 
 const DECLARATION = path.join('singularity', 'environments.yml');
-const TERMINALS = new Set(['bash', 'powershell', 'run_in_terminal', 'execute', 'exec_command', 'write_stdin']);
-const SEARCH_TOOLS = new Set(['grep', 'rg', 'glob', 'search_code_subagent']);
+const TERMINALS = new Set(['bash', 'powershell', 'run_in_terminal', 'execute', 'exec_command', 'write_stdin', 'write_bash']);
+const SEARCH_TOOLS = new Set(['grep', 'rg', 'glob', 'search_code_subagent', 'grep_search']);
 const MAXIMUM_RECORD_BYTES = 262_144;
+const MAXIMUM_SCANNED_BYTES = 262_144;
 // `env files` subcommands Copilot may run: they print paths and statuses, or create from a template.
 const ALLOWED_ENV_FILES = new Set(['', 'list', 'path', 'suggest', 'create', 'place', 'override']);
 const KNOWN_ENV_FILES = Object.freeze(['list', 'path', 'suggest', 'override', 'create', 'place', 'link', 'unlink', 'adopt', 'add', 'remove', 'root']);
@@ -171,7 +176,7 @@ function pathArguments(args) {
   visit(args);
   // A patch names its files in its headers: `*** Update File: x`, `+++ b/x`, `--- a/x`.
   for (const text of [args.patch, args.input].filter((value) => typeof value === 'string')) {
-    for (const match of text.matchAll(/^(?:\*\*\* (?:Add|Update|Delete) File: |\+\+\+ b\/|--- a\/)(.+)$/gmu)) found.push(match[1].trim());
+    for (const match of text.matchAll(/^(?:\*\*\* (?:Add|Update|Delete) File: |\*\*\* Move to: |\+\+\+ (?:b\/)?|--- (?:a\/)?)([^\t\n]+)/gmu)) found.push(match[1].trim());
   }
   return found;
 }
@@ -192,6 +197,121 @@ function environmentFilesCommandVerdict(command) {
   return subcommand !== 'create' || words.includes('--from-template');
 }
 
+function absoluteOf(target, cwd) {
+  try { return path.resolve(cwd || process.cwd(), target.startsWith('file:') ? fileURLToPath(target) : target); }
+  catch { return null; }
+}
+
+// A glob that would take in one of these names: `.env*`, `.env.*`.
+function globTakesLocalName(target) {
+  const name = String(target).replaceAll('\\', '/').split('/').at(-1);
+  if (!/[*?[]/u.test(name)) return false;
+  try {
+    const glob = new RegExp(`^${name.replace(/[.+^${}()|\\]/gu, '\\$&').replaceAll('*', '.*').replaceAll('?', '.')}$`, 'u');
+    return ['.env', '.env.local'].some((candidate) => glob.test(candidate));
+  } catch { return true; }
+}
+
+async function trackedInGit(absolute) {
+  const repository = repositoryOf(path.dirname(absolute));
+  if (!repository) return false;
+  try {
+    const relative = path.relative(canonical(repository.root), canonical(absolute)).split(path.sep).join('/');
+    return (await import('./git.mjs')).trackedPaths(repository.root, [relative]).length > 0;
+  } catch { return false; }
+}
+
+/**
+ * An always-local name, or a link to one. A file the team already tracks is in Git for anyone to read,
+ * so it is judged by its values like any shared config.
+ */
+async function alwaysLocalTarget(target, cwd) {
+  if (typeof target !== 'string' || target.startsWith('-')) return null;
+  const absolute = absoluteOf(target, cwd);
+  const named = alwaysLocalName(target) || globTakesLocalName(target) || (absolute && alwaysLocalName(canonical(absolute)));
+  if (!named) return null;
+  return absolute && exists(absolute) && await trackedInGit(absolute) ? null : target;
+}
+
+// What a shell line shows of a file: nothing, for these. Their words are text or a question about the file.
+const SHOWS_NOTHING = new Set(['echo', 'printf', 'ls', 'stat', 'test', '[', 'true', 'false', 'mkdir']);
+const SEARCHES = new Set(['grep', 'egrep', 'fgrep', 'rg', 'ag', 'ack']);
+const SEARCH_PATH_OPTIONS = new Set(['-g', '--glob', '--iglob', '--include', '--exclude', '-f', '--file']);
+const quoteless = (word) => word.replace(/^['"]|['"]$/gu, '');
+
+/** The words one simple shell command could open, split so `HEAD:.env`, `if=.env` and `open('.env')` show their paths. */
+function openedTokens(simple) {
+  const words = simple.match(/"[^"]*"|'[^']*'|\S+/gu) ?? [];
+  const start = words.findIndex((word) => !/^[A-Za-z_]\w*=/u.test(word));
+  const verb = start >= 0 ? quoteless(words[start]).split('/').at(-1) : null;
+  const redirected = [...simple.matchAll(/>>?\s*(["']?)([^\s"'&|;]+)\1/gu)].map((match) => match[2]);
+  let operands = words;
+  if (SHOWS_NOTHING.has(verb)) return redirected;
+  if (verb === 'git' && (['status', 'check-ignore'].includes(words[start + 1]) || (words[start + 1] === 'rm' && words.includes('--cached')))) return redirected;
+  const search = SEARCHES.has(verb) ? start : verb === 'git' && words[start + 1] === 'grep' ? start + 1 : -1;
+  if (search >= 0) {
+    // A search's first plain word is what it looks for, and the rest are where it looks.
+    let pattern = -1;
+    for (let index = search + 1; index < words.length; index += 1) {
+      if (['-e', '--regexp'].includes(words[index])) { pattern = index + 1; break; }
+      if (SEARCH_PATH_OPTIONS.has(words[index])) { index += 1; continue; }
+      if (!words[index].startsWith('-')) { pattern = index; break; }
+    }
+    operands = words.filter((_, index) => index !== pattern);
+  }
+  return [...operands.flatMap((word) => word.split(/[\s'"`=:(),;&|<>]+/u)), ...redirected].filter(Boolean);
+}
+
+/** A shell line's refusal, or null. It reads what the line says, not what an expansion or a script would open. */
+async function shellLineRefusal(command, cwd) {
+  for (const simple of command.split(/&&|\|\||[;|\n]/u)) {
+    for (const token of openedTokens(simple)) {
+      const local = await alwaysLocalTarget(token, cwd);
+      if (local) return alwaysLocalDenial(local);
+      const held = await heldValue(token, cwd);
+      if (held) return valueDenial(held);
+    }
+  }
+  return null;
+}
+
+/** The first real value in a shared config file this call would open, or null. A file it cannot read is left to the other rules. */
+async function heldValue(target, cwd) {
+  if (typeof target !== 'string' || target.startsWith('-') || !configShapedPath(target)) return null;
+  let content;
+  try {
+    const absolute = absoluteOf(target, cwd);
+    const info = statSync(absolute);
+    if (!info.isFile() || info.size > MAXIMUM_SCANNED_BYTES) return null;
+    content = readFileSync(absolute, 'utf8');
+  } catch { return null; }
+  const { scanText } = await import('./secrets.mjs');
+  const lines = content.split('\n');
+  // A compose file's `postgres://postgres:postgres@db` names a service on its own network: the commit gate judges it, this does not hide the file.
+  const onItsOwnNetwork = (entry) => entry.rule === 'url-credentials'
+    && !/:\/\/[^\s/:@]*:[^\s/@]+@[^\s/:?#]*\./u.test(lines[entry.line - 1] ?? '');
+  const finding = scanText(content, { path: target }).find((entry) => !entry.waived && !onItsOwnNetwork(entry));
+  return finding ? { target, finding } : null;
+}
+
+function alwaysLocalDenial(target) {
+  return {
+    permissionDecision: 'deny', next: [],
+    permissionDecisionReason: `ENVIRONMENT_FILE_PRIVATE: ${target} is named to stay on this laptop, so Copilot does not read or edit it. `
+      + 'A template such as .env.example shows what it needs. Keep working without its contents, and tell the person anything that has to change in it. '
+      + 'If it was committed by mistake, git rm --cached takes it out of Git and leaves their copy.'
+  };
+}
+
+function valueDenial({ target, finding }) {
+  return {
+    permissionDecision: 'deny', next: [],
+    permissionDecisionReason: `CONFIG_VALUE_PRIVATE: ${target} holds what looks like a real value (${finding.label}, line ${finding.line}), so Copilot does not read or edit it. `
+      + 'Ask the person to move it out: replace it with ${NAME} and keep the value in an always-local file such as application-local.yml or .env. '
+      + 'If it is only an example, the person ends that line with the waiver marker sflow-allow-secret, a colon and why. Keep working without its contents.'
+  };
+}
+
 function denial(target) {
   return {
     permissionDecision: 'deny', next: [],
@@ -205,7 +325,6 @@ function denial(target) {
 /** The refusal for the first tool call that touches an environment file, or null. */
 export async function environmentFilesToolGuard(payload = {}, { env = process.env } = {}) {
   const protection = await environmentFileProtection(payload.cwd, { env });
-  if (!protection) return null;
   for (const call of callsOf(payload)) {
     const cwd = call.args?.cwd ?? payload.cwd;
     if (TERMINALS.has(call.name)) {
@@ -220,14 +339,20 @@ export async function environmentFilesToolGuard(payload = {}, { env = process.en
         const hit = protectedTarget(protection, word.replace(/^['"]|['"]$/gu, ''), cwd);
         if (hit) return denial(hit);
       }
+      const refused = await shellLineRefusal(command, cwd);
+      if (refused) return refused;
       continue;
     }
     const targets = SEARCH_TOOLS.has(call.name)
-      ? [call.args.path, call.args.paths, call.args.cwd, call.args.include].flat().filter((value) => typeof value === 'string')
+      ? [call.args.path, call.args.paths, call.args.cwd, call.args.include, call.args.glob, call.args.includePattern].flat().filter((value) => typeof value === 'string')
       : pathArguments(call.args);
     for (const target of targets) {
       const hit = protectedTarget(protection, target, cwd);
       if (hit) return denial(hit);
+      const local = await alwaysLocalTarget(target, cwd);
+      if (local) return alwaysLocalDenial(local);
+      const held = await heldValue(target, cwd);
+      if (held) return valueDenial(held);
     }
   }
   return null;

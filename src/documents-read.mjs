@@ -65,7 +65,7 @@ export function documentPolicy(workflow, config) {
 
 export function environmentLocalRefusal(candidate, match, { refused = 'Document upload was refused', becoming = 'Story documents' } = {}) {
   const rule = match.pattern ?? match.rule ?? match.source ?? 'environment-local';
-  const owner = match.kind === 'environment-file' ? `this machine's env files registry${match.environmentId ? ` (${match.environmentId})` : ''}`
+  const owner = match.kind === 'always-local' ? 'the always-local name' : match.kind === 'environment-file' ? `this machine's env files registry${match.environmentId ? ` (${match.environmentId})` : ''}`
     : match.environmentId ? `environments.${match.environmentId}.localFiles` : 'neverCommit';
   return new SingularityFlowError(
     `${refused}: '${candidate}' matches ${owner} rule '${rule}'. `

@@ -443,6 +443,10 @@ export const MESSAGES = Object.freeze({
     headline: (s) => `${slot(s.blocking)} possible secret(s) found in ${slot(s.scanned)} ${slot(s.scope)} file(s).`,
     preserves: true
   },
+  'secrets.warned': {
+    headline: (s) => `${slot(s.warnings)} real-looking value(s) in shared config, in ${slot(s.scanned)} ${slot(s.scope)} file(s). Not refused yet.`,
+    preserves: true
+  },
   'secrets.protected': {
     headline: (s) => `Installed the pre-commit secret check at ${slot(s.hook)}.`,
     preserves: true

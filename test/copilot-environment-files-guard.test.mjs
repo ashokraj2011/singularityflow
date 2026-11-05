@@ -109,14 +109,15 @@ test('personal files, linked files and workspace folders are protected too, and 
   // The guard reads the same workspace-level location the engine writes.
   assert.equal(workspaceEnvironmentFilesBase(repo.env), workspaceFilesBase(repo.env));
 
-  // No declaration, no registry, no workspace state: nothing to protect and nothing loaded.
+  // No declaration, no registry, no workspace state: nothing to load, and an always-local name is still private.
   const bare = await realpath(await mkdtemp(path.join(tmpdir(), 'sflow-envf-bare-')));
   t.after(() => rm(bare, { recursive: true, force: true }));
   git(bare, ['init', '-q', '-b', 'main', path.join(bare, 'repo')]);
   await writeFiles(path.join(bare, 'repo'), { 'README.md': 'x\n' });
   const env = { ...repo.env, SINGULARITY_FLOW_WORKSPACE_REGISTRY: path.join(bare, 'state', 'workspaces.json') };
   assert.equal(await environmentFileProtection(path.join(bare, 'repo'), { env }), null);
-  assert.equal(await environmentFilesToolGuard(call(path.join(bare, 'repo'), 'read', { path: '.env' }), { env }), null);
+  assert.equal(await environmentFilesToolGuard(call(path.join(bare, 'repo'), 'read', { path: 'README.md' }), { env }), null);
+  assert.match((await environmentFilesToolGuard(call(path.join(bare, 'repo'), 'read', { path: '.env' }), { env })).permissionDecisionReason, /^ENVIRONMENT_FILE_PRIVATE/u);
 });
 
 test('a linked worktree is protected through the shared registry', async (t) => {

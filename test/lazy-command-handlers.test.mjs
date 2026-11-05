@@ -65,7 +65,8 @@ test('frequent lifecycle handlers do not reach the legacy dispatcher and stay un
     // 466: SDA M4's lifecycle authority adapter (sda/story-branch-authority.mjs, sda/lifecycle-authority-contract.mjs, sda/shared-state-contract.mjs), through which recovery and test-recovery reads observe the subject branch; the publication writer it wraps loads only on a transition.
     // 467: SF Guard M3's presence/counted.mjs, the import-free leaf each person-step family reader counts through,
     // joined submit.mjs's graph through evidence/risk-decisions.mjs, scope/decisions.mjs and the other family modules.
-    assert.ok(closure.files.size <= 467, `${file} loads ${closure.files.size} local files (budget 467; retired graph 597)`);
+    // 468: SPEC-ENVF v2's config-values.mjs and local-config-policy.mjs, both import-light leaves, on the entry that was one under.
+    assert.ok(closure.files.size <= 468, `${file} loads ${closure.files.size} local files (budget 468; retired graph 597)`);
     // 9,005,000 (next 5,000 boundary): phase-lifecycle.mjs grew from 8,993,692 (main 4a8e6c42) to 9,004,129 with the
     // capability application block's per-environment arguments and debug validation in capabilities.mjs and the
     // launcher rules it reads (RUN amendment), together with 2ca46d6d's conformance issue ownership; no new file.
@@ -307,7 +308,9 @@ test('frequent lifecycle handlers do not reach the legacy dispatcher and stay un
     // document catalog (documents-read.mjs and documents.mjs, +3,089 net), inherited constraints in USER-STORY.md (state.mjs
     // +734), the shared-draft record families (schema-migrations.mjs +716), a specification's own document owner
     // (document-storage.mjs +347), start.mjs +271, spec author's routes (command-registry.mjs +134) and an option (util.mjs +13). No new eager file.
-    assert.ok(closure.bytes <= 9_442_450, `${file} exceeds the 9 MB eager-source budget (${closure.bytes} bytes)`);
+    // 9,457,600 (measured 9,457,577): SPEC-ENVF v2. The scanner is synchronous and every gate needs its value check, so
+    // config-values.mjs (with the link helpers from the lazy share-check.mjs) and local-config-policy.mjs are new eager files.
+    assert.ok(closure.bytes <= 9_457_600, `${file} exceeds the 9 MB eager-source budget (${closure.bytes} bytes)`);
     assert.equal(closure.files.has(path.join(sourceRoot, 'workflow-task.mjs')), false, `${file} eagerly loads the workflow task record`);
   }
 });
@@ -457,7 +460,8 @@ test('the common session projection does not import attach, state stores or publ
   // util.mjs +14,078 (commit policy admission, see root dispatch), code-delivery-policy.mjs +7,561, config.mjs +3,330,
   // git.mjs +2,731, schema-migrations.mjs +2,382, command-registry.mjs +2,052 and smaller. No new eager file.
   // 4,077,050 (measured 4,077,020): the same schema-migrations.mjs +716, command-registry.mjs +134 and util.mjs +13 as root dispatch.
-  assert.ok(current.bytes <= 4_077_050, `session current loads ${current.bytes} source bytes`);
+  // 4,096,300 (measured 4,096,296): SPEC-ENVF v2, the same two eager files as start, the gates in git.mjs and the scanner's value check.
+  assert.ok(current.bytes <= 4_096_300, `session current loads ${current.bytes} source bytes`);
 });
 
 test('early phase and grounding-path entries exclude the deferred authoring and review graphs', async () => {

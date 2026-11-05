@@ -1779,9 +1779,9 @@
     },
     "src/commands/secrets.mjs": {
       "counts": {
-        "command-run": 4
+        "command-run": 3
       },
-      "digest": "b2f839dbe8578e51c1609848843de1487e78a88ec7e5ef4e087d6c3d96c1981d"
+      "digest": "7143023b66129a7d41047c4a4dd6b45fe53aab4c40e1cad6c1439fda793b8aac"
     },
     "scripts/benchmark-git-probe.mjs": {
       "counts": {

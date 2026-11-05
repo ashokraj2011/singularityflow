@@ -535,13 +535,13 @@ test('no answer to a model carries a secret-shaped value, on any route; the pers
   await writeFile(asked, 'Make this clearer.'); assert.equal(repo.sf('screen', '--file', asked).findings.length, 0);
 });
 
-test('with no declaration, .env is refused by name for sources and document upload alike, and says what to do', async t => {
+test('.env is refused by name for sources and document upload alike, and says what to do', async t => {
   const repo = await fixture(t); repo.create();
   await mkdir(path.join(repo.root, 'config'), { recursive: true });
   for (const name of ['.env', 'config/.env.local', '.env.production', '.env.example', '.env.sample', '.env.template', 'config/notes.env']) await writeFile(path.join(repo.root, name), 'LOG_LEVEL=debug\n');
   for (const refused of ['.env', 'config/.env.local', '.env.production']) {
     const failure = repo.fail('source', specId, '--path', refused);
-    assert.equal(failure.code, 'ENVIRONMENT_LOCAL_CONTENT_REFUSED', refused); assert.match(failure.message, /rename it \.env\.example/u); assert.match(failure.message, /singularity\/environments\.yml/u);
+    assert.equal(failure.code, 'ENVIRONMENT_LOCAL_CONTENT_REFUSED', refused); assert.match(failure.message, /name it as a template such as \.env\.example/u); assert.match(failure.message, /singularity-flow env files/u);
     assert.equal(repo.fail('source', specId, '--file', path.join(repo.root, refused)).code, 'ENVIRONMENT_LOCAL_CONTENT_REFUSED', refused);
   }
   for (const allowed of ['.env.example', '.env.sample', '.env.template', 'config/notes.env']) assert.equal(repo.cli(repo.root, 'spec', 'author', 'source', specId, '--path', allowed).status, 0, allowed);
@@ -549,10 +549,10 @@ test('with no declaration, .env is refused by name for sources and document uplo
   const documents = await import('../src/documents.mjs');
   await assert.rejects(documents.assertStartDocumentNotEnvironmentLocal(repo.root, null, path.join(repo.root, '.env')), { code: 'ENVIRONMENT_LOCAL_CONTENT_REFUSED' });
   await documents.assertStartDocumentNotEnvironmentLocal(repo.root, null, path.join(repo.root, '.env.example'));
-  // A repository with rules decides for itself.
+  // A repository can add to the names and cannot remove from them.
   await mkdir(path.join(repo.root, 'singularity'), { recursive: true });
   await writeFile(path.join(repo.root, 'singularity', 'environments.yml'), 'schemaVersion: 1\nenvironments:\n  qa:\n    requires:\n      - name: API_TOKEN\n        kind: secret\n    localFiles:\n      - secrets.txt\nchecks: {}\nneverCommit: []\n');
-  assert.equal(repo.cli(repo.root, 'spec', 'author', 'source', specId, '--path', '.env').status, 0, 'declared rules are the rules');
+  assert.equal(repo.fail('source', specId, '--path', '.env').code, 'ENVIRONMENT_LOCAL_CONTENT_REFUSED', 'declared rules do not switch the name off');
   await rm(path.join(repo.root, 'singularity', 'environments.yml'));
   // Unquoted values in an env-style file are secrets; a placeholder or an ordinary setting is not.
   const example = path.join(repo.root, '.env.example');

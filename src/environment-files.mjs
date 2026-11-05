@@ -1092,8 +1092,9 @@ export async function adoptEnvironmentFile(scope, environment, relative, { platf
 /** `env files add --personal`: a file only this person uses, protected exactly like a declared one. */
 export async function addPersonalEnvironmentFile(scope, environment, relative) {
   const declaration = scope.kind === 'workspace' ? null : await loadEnvironmentDeclaration(scope.checkout, { optional: true });
-  if (scope.kind === 'repository' && !Object.hasOwn(declaration?.environments ?? {}, environment)) {
-    fail(`Environment '${environment}' is not declared in singularity/environments.yml of ${scope.label}. Declared: ${Object.keys(declaration?.environments ?? {}).sort().join(', ') || 'none'}.`,
+  // With no declaration there is no list to be on, and moving a private file out of Git's way needs no setup [SPEC-ENVF v2].
+  if (scope.kind === 'repository' && declaration && !Object.hasOwn(declaration.environments ?? {}, environment)) {
+    fail(`Environment '${environment}' is not declared in singularity/environments.yml of ${scope.label}. Declared: ${Object.keys(declaration.environments ?? {}).sort().join(', ') || 'none'}.`,
       'ENVIRONMENT_UNKNOWN', { environment });
   }
   if (declaredEnvironmentFiles(declaration, environment).includes(relative)) {

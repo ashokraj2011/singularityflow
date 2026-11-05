@@ -12,8 +12,9 @@ export async function assertApprovalSubmitted(root, config, workflow, { phaseId 
     command,
     skill: readiness.nextSkill ?? undefined
   }) ?? safeCommandGuidance(command) ?? safeCommandGuidance('singularity-flow nextsteps --json');
+  const { approverCloneBehindHint } = await import('./sequence.mjs');
   throw new SingularityFlowError(
-    `Phase '${phaseId}' has not been submitted for approval. Preserve the existing draft and follow its authoring, review or submission route in a new turn. No approval was prepared; draft cleanup is not required by this approval attempt.`, {
+    `Phase '${phaseId}' has not been submitted for approval. ${approverCloneBehindHint(workflow, phase)} Preserve the existing draft and follow its authoring, review or submission route in a new turn. No approval was prepared; draft cleanup is not required by this approval attempt.`, {
       code: 'PHASE_NOT_AWAITING_APPROVAL', details: { workId: workflow.workItem.id, phase: phaseId,
         phaseStatus: phase.status, classification: readiness.classification, preserveDraft: true,
         nextAction }

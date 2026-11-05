@@ -22,9 +22,17 @@ export async function decisionWorkflow(positionals, options, action) {
     if (await storyPublicationPending(root, config, workflow.workItem.id)) await assertNoPendingPublication(root, config, workflow, action);
     await assertPhaseSequence(root, workflow, action, { requestedPhase });
   }
-  if (action === 'approve') await assertApprovalSubmitted(root, config, workflow, { phaseId: requestedPhase ?? workflow.currentPhase });
-  if (receiptToken) assertLifecycleWorktreeClean(root, null, null, { workId: optionString(options, 'work-id') ?? branch(root) });
-  if (action === 'approve') assertLifecycleWorktreeClean(root, config, workflow);
+  try {
+    if (receiptToken) assertLifecycleWorktreeClean(root, null, null, { workId: optionString(options, 'work-id') ?? branch(root) });
+    if (action === 'approve') assertLifecycleWorktreeClean(root, config, workflow);
+  } catch (error) {
+    // A draft of a step not yet submitted is authoring work, not cleanup. A clean checkout goes on
+    // to the sequence gate, whose refusal or confirmed soft gate decides a premature approval.
+    if (action === 'approve' && error.code === 'LIFECYCLE_WORKTREE_REVIEW_REQUIRED') {
+      await assertApprovalSubmitted(root, config, workflow, { phaseId: requestedPhase ?? workflow.currentPhase });
+    }
+    throw error;
+  }
   const workId = workflow.workItem.id;
   const overridesBefore = workflow.sequenceOverrides?.length ?? 0;
   await assertNoPendingPublication(root, config, workflow, action);

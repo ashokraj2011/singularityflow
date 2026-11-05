@@ -311,7 +311,7 @@ function valueDenial({ target, finding }) {
     permissionDecision: 'deny', next: [],
     permissionDecisionReason: `CONFIG_VALUE_PRIVATE: ${target} holds what looks like a real value (${finding.label}, line ${finding.line}), so Copilot does not read or edit it. `
       + 'Ask the person to move it out: replace it with ${NAME} and keep the value in an always-local file such as application-local.yml or .env. '
-      + 'If it is only an example, the person ends that line with the waiver marker sflow-allow-secret, a colon and why. Keep working without its contents.'
+      + 'If it is only an example, the person puts the waiver marker sflow-allow-secret, a colon and why on that line or the line above it. Keep working without its contents.'
   };
 }
 

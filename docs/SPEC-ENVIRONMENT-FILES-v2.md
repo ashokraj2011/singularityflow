@@ -114,7 +114,10 @@ decision cannot drift from a list kept elsewhere.
 
 ### What the Copilot check cannot see
 
-It reads what a call says, like the rest of the guard. These still get through, and the spec does not claim otherwise:
+It runs only in a `/sf-` turn, as the rest of the guard does. A plain Copilot chat is not checked, and a real run on
+2026-11-05 showed `.env` and `application.yml` values reaching the model there. Whether to close that is an open decision.
+
+Inside a turn it reads what a call says. These still get through, and the spec does not claim otherwise:
 
 - A recursive search over a folder, such as `grep -r password src` or `git grep`. Search tools skip hidden and
   excluded files by default, which covers `.env` once it is excluded, but not a value in a shared config file.

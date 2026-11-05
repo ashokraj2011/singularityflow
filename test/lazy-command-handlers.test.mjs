@@ -294,7 +294,16 @@ test('frequent lifecycle handlers do not reach the legacy dispatcher and stay un
     // +213, capability-context.mjs +81, test-recovery-runtime.mjs +80, counted.mjs +31) and the pin taken before
     // intake (state.mjs +85): 9,357,969 measured. The seals, signer and verifier, the counted convergence view and
     // the intake reviews stay lazy.
-    assert.ok(closure.bytes <= 9_358_000, `${file} exceeds the 9 MB eager-source budget (${closure.bytes} bytes)`);
+    // 9,437,100 (measured): main f2bfd18d measures 9,454,120 on commands/start.mjs, up 96,151 from 4ab1905f's 9,357,969.
+    // workflow-task.mjs (17,115, eager through state.mjs since 4f7fe732) now loads only when a commit is classified as
+    // a decision, and assertApprovalSubmitted moved out of lifecycle-worktree.mjs, which leaves 77,916 of real growth:
+    // repository commit policy (4c79a2b8 +23,659, mostly util.mjs, ledger.mjs and git.mjs), bounded repair and its
+    // routes (e3020349 +6,795, bb27049e +15,121, phase-finding-policy.mjs +16,043 in all), opt-in application review
+    // and code delivery's hand-off (6843eef5 +11,793, 638b83ce +1,767, code-delivery-policy.mjs +7,561 in all) and
+    // smaller. Where each repository's base came from adds 1,181 (capability-branches.mjs +1,034,
+    // commands/start.mjs +79, state.mjs +68), for 9,437,066. No new eager file on this entry.
+    assert.ok(closure.bytes <= 9_437_100, `${file} exceeds the 9 MB eager-source budget (${closure.bytes} bytes)`);
+    assert.equal(closure.files.has(path.join(sourceRoot, 'workflow-task.mjs')), false, `${file} eagerly loads the workflow task record`);
   }
 });
 
@@ -344,7 +353,13 @@ test('root dispatch stays small and orchestration entrypoints load their handler
   // 837,000: main 4fcc9bcde measures 835,305; SF Guard's --author and --github-login flags (util.mjs +82) and the
   // repository person-step gate at dispatch (cli-entry.mjs +924, a command and verb check before any SF Guard module
   // loads, SPEC-PSS-v1 §10.6) give 836,311. No new file.
-  assert.ok(root.bytes <= 837_000, `root dispatch loads ${root.bytes} source bytes`);
+  // 856,100 (measured): main f2bfd18d measures 856,068, up 19,581 from 4ab1905f's 836,487. Repository commit policy
+  // (4c79a2b8, 3d1925e3) is most of it: util.mjs +14,078, because every Git mutation passes its admission check
+  // inside the synchronous run(), so it cannot be a lazy import (its writers already are); platform-process.mjs +1,533,
+  // git-execution.mjs +665, package-root.mjs +594 replacing git-isolation-paths.mjs -1,808 in the graph. Then
+  // schema-migrations.mjs +2,382 and command-registry.mjs +2,052 from the commands and records added since. The file
+  // count holds at 39.
+  assert.ok(root.bytes <= 856_100, `root dispatch loads ${root.bytes} source bytes`);
   assert.equal(root.files.has(path.join(sourceRoot, 'git.mjs')), false);
   assert.equal(root.files.has(path.join(sourceRoot, 'config.mjs')), false);
   // Only the pause-checking entries and Story creation read these; most commands never do.
@@ -358,7 +373,8 @@ test('root dispatch stays small and orchestration entrypoints load their handler
 
 test('the common session projection does not import attach, state stores or publication writers', async () => {
   const current = await graph('commands/session-current.mjs');
-  for (const file of ['commands/session.mjs', 'state-stores.mjs', 'state.mjs', 'workspace.mjs', 'story-publication-service.mjs']) {
+  for (const file of ['commands/session.mjs', 'state-stores.mjs', 'state.mjs', 'workspace.mjs', 'story-publication-service.mjs',
+    'phase-finding-policy.mjs', 'lifecycle-worktree.mjs']) {
     assert.equal(current.files.has(path.join(sourceRoot, file)), false, `session current eagerly loads ${file}`);
   }
   assert.ok(current.files.size <= 220, `session current reaches ${current.files.size} files; old session handler reached 429`);
@@ -424,7 +440,15 @@ test('the common session projection does not import attach, state stores or publ
   // block (convergence.mjs +759, schema-migrations.mjs -323), the repair authorization's in-record touch
   // (fault-repair.mjs +574) and the exported counting predicate (counted.mjs +31) add 1,041 for 4,036,294.
   // The counted convergence view and every signer load only where SF Guard applies; no new eager file.
-  assert.ok(current.bytes <= 4_036_300, `session current loads ${current.bytes} source bytes`);
+  // 4,076,200 (measured): main f2bfd18d measures 4,102,083, up 65,789 from 4ab1905f's 4,036,294. Two modules joined only
+  // through one small use each and have left again: phase-finding-policy.mjs (21,180, bb27049e, for the four-line
+  // phaseCorrectionTargets, now in approval-fallback.mjs) and lifecycle-worktree.mjs (5,097, f2bfd18d, now imported
+  // by the one async route that reads it), for 4,076,144. A dynamically imported module keeps every export in the
+  // VS Code bundles, so assertApprovalSubmitted moved to approval-submitted.mjs first: left there, its import of
+  // submission-readiness.mjs cost gateway-runtime.cjs 10 modules and 222,023 bytes. The remaining 39,850 is real:
+  // util.mjs +14,078 (commit policy admission, see root dispatch), code-delivery-policy.mjs +7,561, config.mjs +3,330,
+  // git.mjs +2,731, schema-migrations.mjs +2,382, command-registry.mjs +2,052 and smaller. No new eager file.
+  assert.ok(current.bytes <= 4_076_200, `session current loads ${current.bytes} source bytes`);
 });
 
 test('early phase and grounding-path entries exclude the deferred authoring and review graphs', async () => {

@@ -170,7 +170,6 @@ import { configuredRemoteAuthority, redactDiagnosticText } from './git-remote-di
 import { prefetchRemoteBranchObservation, takeRemoteBranchObservation } from './remote-observation-prefetch.mjs';
 import { executeGitQuery } from './git-query.mjs';
 import { LIFECYCLE_EVENT, lifecycleEvent, projectedLedgerIntentFile, recordPublicationProjection } from './lifecycle-event.mjs';
-import { workflowTaskDeltaSafe } from './workflow-task.mjs';
 import { lifecycleAuthority } from './sda/story-branch-authority.mjs';
 import { captureAggregateRecovery, restoreAggregateRecovery } from './aggregate-recovery.mjs';
 import { validateDocumentPublicationTree } from './document-publication.mjs';
@@ -686,7 +685,7 @@ export function witnessEvidenceFile(item, record, committedBytes) {
  * nothing a review saw, so it may sit between a phase's submission and its approval. Anything more
  * in the commit fails closed.
  */
-function applicabilityDecisionCommit(root, config, workflow, commit) {
+function applicabilityDecisionCommit(root, config, workflow, commit, workflowTaskDeltaSafe) {
   const change = governedStateChange(root, config, workflow, commit);
   if (!change) return false;
   const { identity, before, after } = change;
@@ -728,18 +727,19 @@ function applicabilityDecisionCommit(root, config, workflow, commit) {
  * those. The range must be a straight line from `from`; anything else, or any other commit,
  * returns null and the flight stays stopped.
  */
-export function onlyHumanDecisionCommits(root, config, workflow, from, to) {
+export async function onlyHumanDecisionCommits(root, config, workflow, from, to) {
   if (!from || !to || from === to) return null;
   let commits;
   try {
     commits = storyHistoryCommits(root, ['rev-list', '--reverse', '--topo-order', `${from}..${to}`], 'Auto decision range');
   } catch { return null; }
   if (!commits.length) return null;
+  const { workflowTaskDeltaSafe } = await import('./workflow-task.mjs');
   let parent = from;
   for (const commit of commits) {
     const identity = governedCommitIdentity(root, commit);
     if (identity?.parents.length !== 1 || identity.parents[0] !== parent) return null;
-    if (!applicabilityDecisionCommit(root, config, workflow, commit)) return null;
+    if (!applicabilityDecisionCommit(root, config, workflow, commit, workflowTaskDeltaSafe)) return null;
     parent = commit;
   }
   return parent === to ? commits : null;
@@ -6167,8 +6167,11 @@ export async function reviewHistoryCommits(root, config, workflow, phase, submit
       allowedReviewCommits.add(commit);
     }
   }
-  for (const commit of unallowed()) {
-    if (applicabilityDecisionCommit(root, config, workflow, commit)) allowedReviewCommits.add(commit);
+  if (unallowed().length) {
+    const { workflowTaskDeltaSafe } = await import('./workflow-task.mjs');
+    for (const commit of unallowed()) {
+      if (applicabilityDecisionCommit(root, config, workflow, commit, workflowTaskDeltaSafe)) allowedReviewCommits.add(commit);
+    }
   }
   if (workflow.applicationReviews?.length && unallowed().length) {
     const { applicationReviewCommit } = await import(pathToFileURL(path.join(PACKAGE_ROOT, 'src', 'application-review-history.mjs')).href);

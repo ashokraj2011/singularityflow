@@ -75,7 +75,7 @@ test('a review-safe decision names its lists, and the history check reads them f
     for (const [list, event] of Object.entries(entry.lists)) assert.match(`${list} ${event}`, /^[a-zA-Z]+ [a-z_]+$/u, key);
   }
   const state = await readFile(new URL('state.mjs', SOURCE), 'utf8');
-  const classifier = state.slice(state.indexOf('function applicabilityDecisionCommit('), state.indexOf('export function onlyHumanDecisionCommits('));
+  const classifier = state.slice(state.indexOf('function applicabilityDecisionCommit('), state.indexOf('export async function onlyHumanDecisionCommits('));
   assert.ok(classifier.includes('REVIEW_SAFE_DECISION_LISTS'), 'applicabilityDecisionCommit reads the registry');
   assert.doesNotMatch(classifier, /scopeDispositions|testRunRisks|'risk_decided'/u, 'and keeps no list of its own');
 });

@@ -148,7 +148,7 @@ export async function verifyAutoFlightContinuation(root, state) {
     // disposition, a risk); recording them must not strand the flight. Exactly those append-only
     // governance commits are adopted on resume; any other change still stops it.
     const { onlyHumanDecisionCommits } = await import('../state.mjs');
-    humanDecisions = onlyHumanDecisionCommits(state.worktree, definition, workflow,
+    humanDecisions = await onlyHumanDecisionCommits(state.worktree, definition, workflow,
       state.lastSuccessfulStoryRevision, currentHead);
     if (!humanDecisions) {
       throw new SingularityFlowError('The Story revision changed after the last Auto checkpoint.', {

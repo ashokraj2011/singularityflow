@@ -1,5 +1,6 @@
 /** Installed gate policy. Repository/error text cannot register a waiver or executable repair. */
 import { createHash } from 'node:crypto';
+import { phaseCorrectionTargets } from './approval-fallback.mjs';
 
 /** Installed lifecycle predicates. Projections and mutations use the same rules, never error text. */
 export const PHASE_REPAIR_POLICY_REVISION = 'phase-local-repair-v2';
@@ -19,12 +20,7 @@ export function findingOwnedByPhase(workflow, phase, finding) {
   return !affected || affected === phase.id;
 }
 
-/** Technical correction is always same-phase. Business send-back targets remain as configured. */
-export function phaseCorrectionTargets(phase) {
-  const policy = phase?.approvalPolicy ?? phase?.approval;
-  if (!phase?.id || policy?.mode === 'none') return [];
-  return [...new Set([phase.id, ...(policy?.rejectTo ?? [])])];
-}
+export { phaseCorrectionTargets };
 
 /** Runtime overlay also applies to older pinned Stories; it does not rewrite their policy bytes. */
 export function phaseRepairCapabilities(phase) {

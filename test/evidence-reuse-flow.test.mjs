@@ -121,7 +121,7 @@ test('a verify approver reuses the run implement recorded, and it always reads a
   // step's submission and its approval, and Auto stops at it rather than treating it as foreign work.
   const decisionCommit = must('git', ['rev-parse', 'HEAD']).trim();
   const { onlyHumanDecisionCommits } = await import('../src/state.mjs');
-  assert.deepEqual(onlyHumanDecisionCommits(root, YAML.parse(await readFile(configPath, 'utf8')), stored, beforeDecision, decisionCommit), [decisionCommit]);
+  assert.deepEqual(await onlyHumanDecisionCommits(root, YAML.parse(await readFile(configPath, 'utf8')), stored, beforeDecision, decisionCommit), [decisionCommit]);
 
   // The consuming step's evidence: its own run is absent, the reuse names whose run it is.
   const entry = JSON.parse(sflow('phase', 'enter', 'verify', '--json'));

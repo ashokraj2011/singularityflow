@@ -80,8 +80,8 @@ test('the escalation step carries every route field, so the text plan names its 
   for (let count = 0; count < ESCALATION_THRESHOLD; count += 1) envelope = escalateRefusalEnvelope(refusalEnvelope(error, argv), error, root);
   const [step] = envelope.remediationPlan.steps;
   assert.equal(step.id, 'escalate-repeated-finding');
-  assert.equal(step.copilotCommand, '/sf-docs');
+  assert.equal(step.copilotCommand, '/sf-docs findings');
   const text = renderRefusalPlan(envelope.remediationPlan);
   assert.doesNotMatch(text, /undefined/u);
-  assert.match(text, /- Copilot: \/sf-docs\n\s+- Shell: singularity-flow explain findings --section/u);
+  assert.match(text, /- Copilot: \/sf-docs findings\n\s+- Shell: singularity-flow explain findings --section/u);
 });

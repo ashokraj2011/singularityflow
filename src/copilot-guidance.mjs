@@ -174,6 +174,11 @@ function skillRouteForCommand(command, skill, fallback) {
     const match = value.match(/^(?:singularity-flow|sflow)\s+auto(?:\s+(.+))?$/u);
     return match?.[1] ? `${selected} ${match[1]}` : selected;
   }
+  if (selected === '/sf-docs') {
+    // A bare /sf-docs lists the topics: the topic the route names travels with it.
+    const match = value.match(/^(?:singularity-flow|sflow)\s+explain\s+([a-z0-9][a-z0-9-]*)(?:\s|$)/u);
+    return match ? `${selected} ${match[1]}` : selected;
+  }
   if (selected === '/sf-explain') {
     // `/sf-explain <subject> ...` receives the exact subject and selectors of the CLI route.
     const match = value.match(/^(?:singularity-flow|sflow)\s+explain\s+--subject\s+(.+)$/u);

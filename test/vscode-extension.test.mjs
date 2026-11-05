@@ -5889,7 +5889,7 @@ test('a failure shows the sentence, not the log line that carries it', () => {
     resultType: 'sflow-refusal-plan',
     error: { message: 'Auto mode is disabled.' },
     remediationPlan: { steps: [{ command: 'singularity-flow explain auto-mode', skill: '/sf-docs' }] }
-  })), 'Auto mode is disabled.\n- Copilot: /sf-docs\n- Shell: singularity-flow explain auto-mode\n- VS Code (model-free): not available for this action');
+  })), 'Auto mode is disabled.\n- Copilot: /sf-docs auto-mode\n- Shell: singularity-flow explain auto-mode\n- VS Code (model-free): not available for this action');
   assert.equal(humanError(JSON.stringify({
     resultType: 'sflow-refusal-plan',
     error: {

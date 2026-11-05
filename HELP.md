@@ -3540,7 +3540,9 @@ judge them; `--subject line` adds the commit that last changed the line at the b
 `--subject generation` this machine's invocation and prompt-log records, never who wrote a line.
 Exact links are the implementation bindings a code-delivery step recorded, joined to a change unit
 only while the file holds the delivered bytes. In Copilot use `/sf-explain`; in VS Code open **Change Explorer**. See
-[Explain for humans](docs/XPL2-EXPLAIN-FOR-HUMANS.md).
+[Explain for humans](docs/XPL2-EXPLAIN-FOR-HUMANS.md). A word that is no subject is refused with the route to the
+documentation topic it matches (`/sf-docs <topic>`, `singularity-flow explain <topic>`); `/sf-explain <topic>` reads
+that topic directly.
 
 ### Reference expansion
 

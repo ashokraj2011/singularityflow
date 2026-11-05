@@ -2,7 +2,7 @@
 name: sflow-explain
 description: Explain one change, clause, test, line, gap or generation from cited, deterministic records.
 disable-model-invocation: true
-argument-hint: "change | clause --id ID | test --id ID | line --path PATH --line N [--side before|after] | gap | generation --phase PHASE --gen N [--for reviewer|auditor|developer]"
+argument-hint: "change | clause --id ID | test --id ID | line --path PATH --line N [--side before|after] | gap | generation --phase PHASE --gen N [--for reviewer|auditor|developer] | TOPIC"
 ---
 # Explain a change from cited records
 
@@ -14,10 +14,15 @@ Reuse a verified pause-aware entry supplied in this invocation before any mutati
 <!-- sflow-execution-boundary -->
 **Boundary:** reuse entry `ready`/`workId`, cwd=`repositoryPath`, or as is from a non-Git (chat) folder: SFlow finds the bound checkout; never refuse or wrap for it; CLI/`workItemRoot` paths only; never `$HOME`. No duplicate lookup. Use exact CLI-returned paths. `repositoryPath` is command cwd, not a prefix for absolute file paths. Never rebase paths or strip `.git/worktrees`. Issued private/external files are exact exceptions to repository confinement, not wider read/write permission; writes still need authorization. Resolve relative paths only against their declared base. On failure, preserve the path and error; never search or recreate it.
 
-1. In the Boundary repository, use the first word of `$ARGUMENTS` as the subject. Run exactly one subject command:
+1. In the Boundary repository, when the first word of `$ARGUMENTS` is `change`, `clause`, `test`, `line`, `gap` or
+   `generation`, it is the subject. Run exactly one subject command:
    `singularity-flow explain --subject <SUBJECT> <REMAINING ARGUMENTS> --json`.
    Never guess a missing `--id`, `--path`, `--line` or `--gen`; ask the user for the exact value instead.
-2. Relay the returned statements with their citation IDs, the `Needs attention` items, availability reasons, the
+   Any other words are a documentation topic or question, answered in this turn: run
+   `singularity-flow explain '$ARGUMENTS' --json`, one single-quoted argument with each inner `'` as `'\''` (PowerShell
+   `''`) so nothing expands. Answer only from its `data.served.text`, ending with `data.citation` verbatim. When it
+   returns `data.candidates` or `data.nearest` instead, list those topic ids and ask which one.
+2. For a subject, relay the returned statements with their citation IDs, the `Needs attention` items, availability reasons, the
    `authority: none` label and the next actions unchanged. When `subject.status` is `ambiguous`, list its exact
    `choices` and ask which one; when it is `unavailable`, relay its reason code.
 3. Stop. Never read or summarize source files yourself, call a clause satisfied, call a change mergeable, treat a

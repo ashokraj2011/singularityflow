@@ -27,6 +27,12 @@ function boundedSelector(value, label) {
   return text;
 }
 
+/** The refusal for a word that is no subject. The CLI adds the routes to the topic that word names. */
+export function unknownXpl2Subject(subject, details = null) {
+  return new SingularityFlowError(`Unknown explanation subject '${subject}'. Use one of: ${XPL2_SUBJECTS.join(', ')}. `
+    + 'A documentation topic is read with /sf-docs <topic> or sflow explain <topic>.', { code: 'XPL2_SUBJECT_UNKNOWN', details });
+}
+
 /**
  * Validate the subject query before any repository read [XPL2-AC-017, XPL2-AC-018].
  * Paths and lines are separate fields; there is no `path:line` parser to misread a drive letter,
@@ -34,9 +40,7 @@ function boundedSelector(value, label) {
  */
 export function normalizeXpl2Query(query = {}) {
   const subject = String(query.subject ?? '');
-  if (!XPL2_SUBJECTS.includes(subject)) {
-    refuse(`Unknown explanation subject '${subject}'. Use one of: ${XPL2_SUBJECTS.join(', ')}.`, 'XPL2_SUBJECT_UNKNOWN');
-  }
+  if (!XPL2_SUBJECTS.includes(subject)) throw unknownXpl2Subject(subject);
   const audience = query.audience ?? 'reviewer';
   if (!XPL2_AUDIENCES.includes(audience)) {
     refuse(`Unknown audience '${audience}'. Use one of: ${XPL2_AUDIENCES.join(', ')}.`);

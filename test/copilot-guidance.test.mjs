@@ -79,6 +79,16 @@ test('exact relay skills retain their command families, subcommands, and argumen
   );
 });
 
+test('a documentation route keeps its topic, since a bare /sf-docs only lists the topics', () => {
+  assert.equal(copilotCommandForCommand('singularity-flow explain environment-bindings'), '/sf-docs environment-bindings');
+  assert.equal(copilotCommandForCommand('sflow explain secrets --json'), '/sf-docs secrets');
+  assert.equal(copilotCommandForCommand('singularity-flow explain findings --section SOME_CODE'), '/sf-docs findings');
+  for (const catalog of ['singularity-flow explain', 'sflow explain --json', 'singularity-flow explain <topic>']) {
+    assert.equal(copilotCommandForCommand(catalog), '/sf-docs', catalog);
+  }
+  assert.equal(copilotCommandForCommand('singularity-flow explain code --json'), '/sf-explain-code --json');
+});
+
 test('continuation handoffs retain the exact operation, phase, Story and confirmation', () => {
   for (const action of ['resolve', 'resolve-run', 'resolve-resume']) {
     const suffix = action === 'resolve-run' ? ` --confirm sha256:${'a'.repeat(64)}` : '';

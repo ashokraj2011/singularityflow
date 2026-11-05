@@ -54,11 +54,11 @@ XPL2 is a *subject view* layer over the existing comprehension capture (`CMP`), 
 
 | Form | Behavior |
 |---|---|
-| `explain <topic>` | Unchanged documentation service. An unknown `--subject` is refused, never sent to documentation search. |
+| `explain <topic>` | Unchanged documentation service. An unknown `--subject` is refused (`XPL2_SUBJECT_UNKNOWN`), never answered from documentation: the refusal names the topic those words match (`/sf-docs <topic>`, `singularity-flow explain <topic>`), the closest ones, and the topic list. In Copilot, `/sf-explain <topic>` reads the topic itself. |
 | `explain code …` | Unchanged route, operation (`explain.code`), schema and skill (`/sf-explain-code`). |
 | `explain code --narrate` | Unchanged. |
 | `explain --subject S …` | New operation `explain.subject`. |
-| `explain TOPIC --subject S` | Refused: a topic and a subject are never combined silently. |
+| `explain TOPIC --subject S` | Refused: a topic and a subject are never combined silently. The refusal names the route to the topic. |
 | `explain --subject S --narrate` | Optional operation `explain.subject.narrate`; with models off it falls back to `explain.subject` and reports the narration unavailable (`model-disabled-fallback`). |
 | `--length` or `--commentary` without `--narrate` | Refused (`XPL2_NARRATION_LENGTH_INVALID`, `XPL2_NARRATION_OPTION_INVALID`). |
 | `explain --subject S --snapshot …` | Refused with `XPL2_SNAPSHOT_UNAVAILABLE`: a retained snapshot keeps only what a comparison needs and cannot be shown as a view; the refusal names `--compare`, and `--since REVISION` sets an explicit baseline. |

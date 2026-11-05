@@ -312,10 +312,10 @@ test('a deterministic refusal plan becomes safe reviewable VS Code actions', () 
   assert.equal(card.actions.length, 1);
   assert.equal(card.actions[0].command, 'singularity-flow explain auto-mode');
   assert.equal(card.actions[0].skill, '/sf-docs');
-  assert.equal(card.actions[0].copilotCommand, '/sf-docs');
+  assert.equal(card.actions[0].copilotCommand, '/sf-docs auto-mode');
   const html = resultCardHtml(card);
   assert.match(html, /Shell:.*singularity-flow explain auto-mode/s);
-  assert.match(html, /Copilot:.*\/sf-docs/s);
+  assert.match(html, /Copilot:.*\/sf-docs auto-mode/s);
   assert.equal(card.actions[0].executable, false);
   assert.match(card.actions[0].detail, /never runs/);
   assert.doesNotMatch(JSON.stringify(card), /office-secret/);

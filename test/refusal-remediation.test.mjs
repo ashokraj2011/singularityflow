@@ -409,12 +409,12 @@ test('an Auto policy refusal gives a capability-aware bounded plan without execu
     '/sf-docs', '/sf-configuration', '/sf-capabilities'
   ]);
   assert.deepEqual(plan.steps.map((entry) => entry.copilotCommand), [
-    '/sf-docs', '/sf-configuration', '/sf-capabilities'
+    '/sf-docs auto-mode', '/sf-configuration', '/sf-capabilities'
   ]);
   const rendered = renderRefusalPlan(plan);
   assert.match(rendered, /Recovery plan:/);
   assert.match(rendered, /Shell: singularity-flow explain auto-mode/);
-  assert.match(rendered, /Copilot: \/sf-docs/);
+  assert.match(rendered, /Copilot: \/sf-docs auto-mode/);
 });
 
 test('an unreadable enterprise Git snapshot never advises a blind credential reset', () => {

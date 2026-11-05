@@ -310,7 +310,8 @@ test('frequent lifecycle handlers do not reach the legacy dispatcher and stay un
     // (document-storage.mjs +347), start.mjs +271, spec author's routes (command-registry.mjs +134) and an option (util.mjs +13). No new eager file.
     // 9,460,900 (measured 9,460,870): SPEC-ENVF v2. The scanner is synchronous and every gate needs its value check, so
     // config-values.mjs (with the link helpers from the lazy share-check.mjs) and local-config-policy.mjs are new eager files.
-    assert.ok(closure.bytes <= 9_460_900, `${file} exceeds the 9 MB eager-source budget (${closure.bytes} bytes)`);
+    // 9,461,200 (measured 9,461,152): a /sf-docs route keeps its topic (copilot-guidance.mjs +282). No new eager file.
+    assert.ok(closure.bytes <= 9_461_200, `${file} exceeds the 9 MB eager-source budget (${closure.bytes} bytes)`);
     assert.equal(closure.files.has(path.join(sourceRoot, 'workflow-task.mjs')), false, `${file} eagerly loads the workflow task record`);
   }
 });
@@ -462,7 +463,8 @@ test('the common session projection does not import attach, state stores or publ
   // git.mjs +2,731, schema-migrations.mjs +2,382, command-registry.mjs +2,052 and smaller. No new eager file.
   // 4,077,050 (measured 4,077,020): the same schema-migrations.mjs +716, command-registry.mjs +134 and util.mjs +13 as root dispatch.
   // 4,099,600 (measured 4,099,593): SPEC-ENVF v2, the same two eager files as start, the gates in git.mjs and the scanner's value check.
-  assert.ok(current.bytes <= 4_099_600, `session current loads ${current.bytes} source bytes`);
+  // 4,099,900 (measured 4,099,875): the same copilot-guidance.mjs +282 as start.
+  assert.ok(current.bytes <= 4_099_900, `session current loads ${current.bytes} source bytes`);
 });
 
 test('early phase and grounding-path entries exclude the deferred authoring and review graphs', async () => {

@@ -10,6 +10,8 @@ import { fileURLToPath } from 'node:url';
 import { resolveOperation } from '../src/command-registry.mjs';
 import { skillForCommandLine } from '../src/command-skills.mjs';
 import { normalizeXpl2Query } from '../src/comprehension/xpl2/subjects.mjs';
+import { argvAllowed } from '../src/copilot-mutation-guard.mjs';
+import { mutationTurnMode } from '../src/phase-mutation-contract.mjs';
 import { XPL2_SUBJECTS } from '../src/comprehension/xpl2/vocabulary.mjs';
 import { git } from './helpers/xpl2-fixture.mjs';
 
@@ -67,6 +69,64 @@ test('XPL2-AC-017 the explicit selector reaches all six subjects and refuses unk
   assert.notEqual(unknown.status, 0);
   assert.match(unknown.stdout + unknown.stderr, /Unknown explanation subject 'proof'/u);
   assert.doesNotMatch(unknown.stdout, /docs\.served/u, 'an unknown subject never falls back to documentation');
+});
+
+function refusal(result) {
+  assert.notEqual(result.status, 0, result.stdout);
+  const refused = JSON.parse(result.stdout);
+  assert.equal(refused.resultType, 'sflow-refusal-plan');
+  return refused;
+}
+
+test('a documentation topic given as a subject is refused with the route that reaches it', async (t) => {
+  const fixture = await repository(t);
+  for (const [word, topic] of [['environment-bindings', 'environment-bindings'], ['secrets', 'secrets'], ['env', 'environment-bindings']]) {
+    const { error, remediationPlan: plan } = refusal(cli(fixture, 'explain', '--subject', word, '--json'));
+    assert.equal(error.code, 'XPL2_SUBJECT_UNKNOWN');
+    assert.match(error.message, /\/sf-docs <topic> or sflow explain <topic>/u);
+    assert.equal(plan.steps[0].command, `singularity-flow explain ${topic}`, word);
+    assert.equal(plan.steps[0].skill, '/sf-docs', word);
+    assert.equal(plan.steps[0].copilotCommand, `/sf-docs ${topic}`, word);
+    assert.deepEqual(plan.steps.map((entry) => entry.skill), ['/sf-docs', '/sf-docs', '/sf-help'], 'no repository diagnostics for a wrong word');
+    assert.match(plan.retry.label, /same subject again is refused/u);
+    // The route is followed exactly as the refusal gave it, and it serves the topic.
+    const served = json(cli(fixture, ...plan.steps[0].argv, '--json'));
+    assert.equal(served.operation.id, 'explain');
+    assert.equal(served.data.topic.id, topic);
+    assert.ok(served.data.served.text.length > 0);
+    assert.match(served.data.citation, new RegExp(`topic ${topic} v\\d+`, 'u'));
+  }
+  const agent = refusal(cli(fixture, 'explain', '--subject', 'secrets', '--for-agent', '--json'));
+  assert.equal(agent.act.do.copilot, '/sf-docs secrets');
+  assert.equal(agent.act.do.shell, 'singularity-flow explain secrets');
+  const text = cli(fixture, 'explain', '--subject', 'secrets');
+  assert.match(text.stdout + text.stderr, /Copilot: \/sf-docs secrets\n\s+- Shell: singularity-flow explain secrets/u);
+});
+
+test('words given as a subject reach only catalogued topics, and the refusal stands without one', async (t) => {
+  const fixture = await repository(t);
+  const commands = (...args) => refusal(cli(fixture, 'explain', ...args, '--json')).remediationPlan.steps.map((entry) => entry.command);
+  // /sf-explain with a question: only its first word is the subject of the command a model would run.
+  assert.equal(commands('--subject', 'how', 'do', 'approvals', 'work')[0], 'singularity-flow explain approvals');
+  assert.deepEqual(commands('--subject', 'xyzzy'), ['singularity-flow explain', 'singularity-flow help explain']);
+  assert.deepEqual(commands('--subject', 'work'), ['singularity-flow explain work-intervals', 'singularity-flow explain workflow-authoring', 'singularity-flow explain']);
+  assert.deepEqual(commands('--subject', 'x'.repeat(513)), ['singularity-flow explain', 'singularity-flow help explain']);
+  const hostile = refusal(cli(fixture, 'explain', '--subject', '$(touch pwned)', '--json')).remediationPlan;
+  for (const entry of hostile.steps) assert.doesNotMatch(entry.command, /pwned|\$/u);
+  const both = refusal(cli(fixture, 'explain', 'approvals', '--subject', 'change', '--json'));
+  assert.equal(both.error.code, 'XPL2_SUBJECT_INVALID');
+  assert.equal(both.remediationPlan.steps[0].copilotCommand, '/sf-docs approvals');
+});
+
+test('/sf-explain answers a topic in its own turn, with the command its turn admits', async () => {
+  const skill = await readFile(path.join(root, 'plugin/skills/sflow-explain/SKILL.md'), 'utf8');
+  const [first] = skill.match(/^1\. [\s\S]*?(?=^2\. )/mu);
+  for (const subject of XPL2_SUBJECTS) assert.ok(first.includes(`\`${subject}\``), `${subject} is listed, so it is never read as a topic`);
+  assert.ok(first.includes(`\`singularity-flow explain '$ARGUMENTS' --json\``));
+  assert.match(first.replace(/\s+/gu, ' '), /answered in this turn/u);
+  assert.match(first, /`data\.served\.text`/u);
+  assert.match(first, /`data\.citation`/u);
+  assert.equal(argvAllowed(['explain', 'environment-bindings', '--json'], mutationTurnMode('sf-explain')), true);
 });
 
 test('XPL2-AC-018 path, line and side are separate portable fields', async (t) => {

@@ -792,6 +792,12 @@ function activePublicationSteps(_argv, error) {
 }
 
 const KNOWN = Object.freeze({
+  // A documentation topic or question given to `explain --subject`. The refusal names the topic it
+  // matches first; these stay for words that match none. Repository diagnostics cannot help here.
+  XPL2_SUBJECT_UNKNOWN: () => [
+    step('list-documentation-topics', 'List every documentation topic.', 'singularity-flow explain', 'help'),
+    step('command-help', 'Review the supported explain forms before retrying.', 'singularity-flow help explain', 'help')
+  ],
   // An upstream issue about a step with no approval group: never decidable there. Raise it, or a
   // superseding issue, at the nearest earlier step whose approvers can decide it.
   UPSTREAM_ISSUE_AUTHORITY_UNAVAILABLE: (argv, error) => {
@@ -1773,7 +1779,7 @@ export function refusalRemediationPlan(error, argv = []) {
   const approvalTerminalBlocked = code === 'APPROVAL_CONFIRMATION_REQUIRED';
   // Configuration drafts and approval name their own next step; generic help would only bury it.
   const selfGuidedBlocked = ['CONFIGURATION_APPROVE_CONFIRMATION_REQUIRED', 'CONFIGURATION_APPROVE_PROPOSAL_REQUIRED',
-    'CONFIGURATION_APPROVE_NOTHING', 'CONFIGURATION_DRAFTS_EMPTY'].includes(code);
+    'CONFIGURATION_APPROVE_NOTHING', 'CONFIGURATION_DRAFTS_EMPTY', 'XPL2_SUBJECT_UNKNOWN'].includes(code);
   const unknownRecoveryPhase = code === 'RECOVERY_PHASE_UNKNOWN';
   const historyRewritten = code === 'STORY_HISTORY_REWRITTEN' && explicitInstructions(error).length > 0;
   // Refused for who decides, or for an answer the approver still owes: no phase repair, rejection or diagnostics.
@@ -1910,6 +1916,8 @@ export function refusalRemediationPlan(error, argv = []) {
     ? 'Run it again with the override added, or take the Story\'s next step; repeating it unchanged is refused the same way.'
     : configurationProblemsBlocked
       ? 'Retry the original command once the configuration check reports no problems.'
+    : code === 'XPL2_SUBJECT_UNKNOWN'
+      ? 'Nothing was changed. Running the same subject again is refused the same way.'
     : selfGuidedBlocked
       ? 'Nothing was changed. Follow the step above when you are ready.'
     : authoringIncomplete

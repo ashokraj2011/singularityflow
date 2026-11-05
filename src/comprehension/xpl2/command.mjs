@@ -8,6 +8,7 @@
  */
 import path from 'node:path';
 
+import { loadTopics, resolveTopic, TOPICS_DIRECTORY } from '../../docs-topics.mjs';
 import { gitDir, isAncestor, lineCommitAt, repoRoot, worktreeBytesAtRevision } from '../../git.mjs';
 import {
   action, commandResult, noEffects, succeeded
@@ -15,7 +16,8 @@ import {
 import { emitCommandResult } from '../../narration/emit.mjs';
 import { optionBoolean, optionNumber, optionString, SingularityFlowError } from '../../util.mjs';
 import { loadComprehensionIdeSlice } from '../ide-slice.mjs';
-import { explainXpl2Subject, normalizeXpl2Query, xpl2LineHistoryRequest } from './subjects.mjs';
+import { explainXpl2Subject, normalizeXpl2Query, unknownXpl2Subject, xpl2LineHistoryRequest } from './subjects.mjs';
+import { XPL2_SUBJECTS } from './vocabulary.mjs';
 
 /**
  * The initial wire payload goal [XPL2 18]: a bounded, labelled page rather than a silently truncated
@@ -46,6 +48,30 @@ function narrationFollowup(options) {
 
 function refuse(message, code = 'XPL2_SUBJECT_INVALID', details = null) {
   throw new SingularityFlowError(message, { code, ...(details ? { details } : {}) });
+}
+
+const MAXIMUM_TOPIC_WORDS_BYTES = 512;
+
+/**
+ * The routes a refusal names for words that read as a documentation topic or question. This route
+ * never serves documentation [XPL2-AC-017]: the topics' own resolver only says where the words
+ * belong, and a route carries a catalogued topic ID, never the words themselves.
+ */
+async function documentationActions(words) {
+  const text = words.join(' ');
+  if (Buffer.byteLength(text, 'utf8') > MAXIMUM_TOPIC_WORDS_BYTES) return [];
+  try {
+    const found = resolveTopic(await loadTopics(TOPICS_DIRECTORY), text);
+    const ids = found.status === 'resolved' ? [found.topic.id] : found.candidates;
+    // Two at most: the plan shows three steps, and the last lists every topic.
+    return ids.slice(0, 2).map((id) => ({
+      label: found.status === 'resolved' ? `Read the documentation topic ${id}.` : `Read the closest documentation topic, ${id}.`,
+      command: `singularity-flow explain ${id}`
+    }));
+  } catch {
+    // The refusal stands whether or not the documentation can be read; its plan lists the topics.
+    return [];
+  }
 }
 
 const COMPARE_NEXT_ACTION = 'singularity-flow explain --subject change --compare previous --json';
@@ -130,8 +156,14 @@ function boundedModel(input, query, extra, maximumBytes) {
 }
 
 export async function runExplanationSubject(_argv, { positionals, options, operation }) {
-  if (positionals.length !== 1) {
-    refuse(`Choose either a documentation topic or --subject, not both. ${USAGE}`);
+  const subject = optionString(options, 'subject');
+  const words = positionals.slice(1);
+  if (!XPL2_SUBJECTS.includes(subject)) {
+    throw unknownXpl2Subject(subject, { actions: await documentationActions([subject, ...words]) });
+  }
+  if (words.length) {
+    refuse(`Choose either a documentation topic or --subject, not both. ${USAGE}`, 'XPL2_SUBJECT_INVALID',
+      { actions: await documentationActions(words) });
   }
   // Narration is optional and separate [XPL2 13.2]: its options are checked before any read, so a
   // typo is a refusal, never a provider outage.

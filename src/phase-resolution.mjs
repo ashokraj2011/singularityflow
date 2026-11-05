@@ -308,7 +308,8 @@ export function phaseResolutionChoices(workflow, phase, finding) {
     `If the author cannot fix this because the check misreads correct work, give the workflow maintainer the exact finding, its entry (${findingDocumentation(finding).command}) and this output; the check is then the defect. Nothing is waived and the work is preserved.`,
     '/sf-doctor'));
   if (activeRepairPhase(workflow, phase)) choices.push(preserve);
-  const admitted = choices.filter(choice => !routeRefusedForStory(workflow, choice, phase))
+  // A gap's return routes run once this step is submitted. They say so, and their admission says not yet.
+  const admitted = choices.filter(choice => gapRoutes.includes(choice) || !routeRefusedForStory(workflow, choice, phase))
     .map(choice => ({ ...choice, admission: phaseRepairActionAdmission(workflow, phase, choice,
       { codeDelivery: phaseRequiresCodeDelivery(phase) }) }));
   return { code: finding.code ?? 'unknown', canonicalCode: phaseFindingCode(finding), findingIdentity: phaseFindingIdentity(finding), path: finding.path ?? null, policy,

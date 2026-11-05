@@ -822,6 +822,10 @@ test('exact-diff appeal preserves source/drafts/index, blocks transitions, and h
     }
     run('git', ['config', 'core.autocrlf', 'false'], clone);
     await f.write('test/value.test.mjs', `import test from 'node:test';\nimport assert from 'node:assert/strict';\nimport {value} from '../src/value.mjs';\n// @ac:${WORK}:AC-001\ntest('value', () => assert.equal(value,999));\n`);
+    // An unrelated note holds publication until someone decides about it; nothing is excluded silently.
+    const unaccounted = run(process.execPath, [CLI, '--no-model', 'phase', 'publish', 'implementation', '--authored', 'human', '--channel', 'manual-in-place', '--json'], f.root, true);
+    assert.notEqual(unaccounted.status, 0); assert.match(unaccounted.stdout + unaccounted.stderr, /GENERATION_EXCLUDED_CHANGES_UNRESOLVED/);
+    await rm(path.join(f.root, 'NOTES.md'));
     const refused = run(process.execPath, [CLI, '--no-model', 'phase', 'publish', 'implementation', '--authored', 'human', '--channel', 'manual-in-place', '--json'], f.root, true);
     assert.notEqual(refused.status, 0); assert.match(refused.stdout + refused.stderr, /CODE_TEST_FAILED/);
     assert.equal(f.git('ls-files', '--', 'src/helper.mjs').stdout, '');

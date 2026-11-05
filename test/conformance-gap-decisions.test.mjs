@@ -130,6 +130,14 @@ test('a decided gap stays visible but is no longer required before approval', ()
   assert.ok(projection.advisories.every((entry) => entry.blocking === false));
 });
 
+test('before the step is submitted, a gap still offers its return routes, marked not yet', () => {
+  const drafting = story({ status: 'in_progress' });
+  const advisories = inspectConformanceVerdictAdvisories(REPORT, { workflow: drafting, phaseId: 'release', now: NOW });
+  const { choices } = phaseResolutionProjection(drafting, drafting.phases.release, [], { advisories }).advisories.find((entry) => entry.requiredBefore === 'approve');
+  assert.deepEqual(choices.map((choice) => choice.kind), ['upstream-issue', 'repair-return', 'evidence-reuse', 'fresh-recorded-run']);
+  assert.deepEqual(choices.filter((choice) => !choice.admission.allowed).map((choice) => choice.kind), ['repair-return', 'fresh-recorded-run']);
+});
+
 test('a table that contradicts its own discrepancy text is called out, conservatively', () => {
   const report = [
     '| Clause | Evidence | Verdict |', '|---|---|---|',

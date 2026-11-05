@@ -75,6 +75,7 @@ const FAMILIES = Object.freeze([
     'copilot-story-follow.mjs',
     'evidence-consistency-read.mjs', 'scope/authoring.mjs', 'owed-decisions.mjs',
     'phase-repair-journal.mjs', 'phase-appeals.mjs', 'phase-quality-risk.mjs', 'source-review-lifecycle.mjs',
+    'workflow-task-store.mjs', 'workflow-task.mjs',
     'verification/witness-decisions.mjs', 'evidence/terminal.mjs', 'evidence/graph.mjs',
     'evidence/evaluate.mjs', 'verification/contracts.mjs',
     'first-run-pass.mjs', 'configuration-review-pass.mjs',

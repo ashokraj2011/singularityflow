@@ -121,7 +121,8 @@ test('an overflow read counts the same in the checkout\'s .sflow/out and the old
 test('only the offline audit script reaches the session analyzer and the host logs', async () => {
   const roots = ['src', 'bin', 'plugin', 'templates', 'scripts', 'apps/vscode/src', 'apps/intellij/src'];
   // Fresh-install reset removes SFlow's own `singularity-*` session folders; it never reads a session log.
-  const hostLogReaders = new Set(['src/fresh-install-reset.mjs']);
+  // The Copilot extensions page is opened by a person, reads at most 4,000 lines of a chat, and no work command loads it.
+  const hostLogReaders = new Set(['src/fresh-install-reset.mjs', 'apps/vscode/src/views/copilot-extensions-model.ts']);
   const files = [];
   const walk = async (directory) => {
     let entries;

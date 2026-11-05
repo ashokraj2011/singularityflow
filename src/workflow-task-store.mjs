@@ -9,7 +9,7 @@ import { readRecord } from './schema-migrations.mjs';
 import { readPrivateSidecar, writeMutablePrivateSidecar, writeImmutablePrivateSidecar } from './private-sidecar.mjs';
 import { withSubjectLock } from './subject-lock.mjs';
 import { workflowTaskIdentity, workflowTaskInputSha256, validateWorkflowTask, updateWorkflowTask,
-  mergeWorkflowTasks, workflowTaskResume, workflowTaskApplies } from './workflow-task.mjs';
+  mergeWorkflowTasks, workflowTaskResume, workflowTaskApplies, workflowTaskHasGeneration } from './workflow-task.mjs';
 import { recordSha256 } from './records.mjs';
 import { SingularityFlowError } from './util.mjs';
 import { LIFECYCLE_EVENT } from './lifecycle-event.mjs';
@@ -211,7 +211,8 @@ export async function importSharedWorkflowTaskProgress(root, workflow, phase, { 
   if (!phase || !workflow.resolution?.ledger?.enabled) return { status: 'not-required', imported: 0 };
   if (refresh) await (await import('./ledger.mjs')).refreshLedgerRemoteView(root, workflow.resolution.ledger);
   const identities = ['author', ...(phase.generation > 0 ? ['source-reviewer'] : [])]
-    .filter(role => workflowTaskApplies(phase, role)).map(role => workflowTaskIdentity(workflow, phase, role));
+    .filter(role => workflowTaskApplies(phase, role) && workflowTaskHasGeneration(workflow, phase, role))
+    .map(role => workflowTaskIdentity(workflow, phase, role));
   const records = await sharedTaskRecords(root, workflow, identities);
   let imported = 0;
   const warnings = [];
@@ -276,6 +277,7 @@ export async function observeWorkflowTask(root, workflow, phase, observation, { 
 export async function readWorkflowTaskResume(root, workflow, phase, options = {}) {
   if (!workflowTaskApplies(phase, options.role)) return null;
   if (options.published === true && phase.generation > 0 && options.generation == null) options = { ...options, generation: phase.generation };
+  if (!workflowTaskHasGeneration(workflow, phase, options.role, options.generation)) return null;
   const record = await readWorkflowTask(root, workflow, phase, options);
   return workflowTaskResume(workflow, phase, { ...options, record });
 }
@@ -284,6 +286,7 @@ export async function readWorkflowTaskResume(root, workflow, phase, options = {}
 export async function resumeWorkflowTask(root, workflow, phase, options = {}) {
   if (!workflowTaskApplies(phase, options.role)) return null;
   if (options.published === true && phase.generation > 0 && options.generation == null) options = { ...options, generation: phase.generation };
+  if (!workflowTaskHasGeneration(workflow, phase, options.role, options.generation)) return null;
   const previous = await readWorkflowTask(root, workflow, phase, options);
   const resume = workflowTaskResume(workflow, phase, { ...options, record: previous });
   const record = await observeWorkflowTask(root, workflow, phase, {

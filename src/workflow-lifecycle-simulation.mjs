@@ -443,7 +443,9 @@ export function simulateResolvedWorkflowLifecycle(resolved) {
           conditions: ['verified-accepted-lineage', 'separate-reviewed-package-adoption', 'fresh-publication-and-required-human-approval',
             'qualified-host-before-real-skill-execution'] });
     }
-    for (const phase of captured.phases) for (const targetId of phaseCorrectionTargets(phase)) {
+    // Every normalized edge, or a step with no review would drop out of the report: it has no
+    // correction route, so its configured edge is simulated as the refusal it gets.
+    for (const phase of captured.phases) for (const targetId of new Set([...phaseCorrectionTargets(phase), ...(phase.approval.rejectTo ?? [])])) {
       if (!validId(targetId)) throw failure('WCA_SIMULATION_INVALID');
       const targetIndex = order.indexOf(targetId);
       if (targetIndex < 0 || targetIndex > phase.order || phase.approval.mode === 'none') {

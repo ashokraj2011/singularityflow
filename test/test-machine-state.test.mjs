@@ -90,6 +90,19 @@ test('the suite runner and the VS Code host tests apply the whole list and a hom
   assert.match(host, /isolatedHomeEnvironment\(machineState\)/u);
 });
 
+test('a test run still finds the browsers Playwright installed, and only those', async (t) => {
+  const state = await mkdtemp(path.join(os.tmpdir(), 'sflow-test-browsers-'));
+  t.after(() => rm(state, { recursive: true, force: true }));
+  const developer = path.join(state, 'developer');
+  const env = (extra = {}) => isolatedTestEnvironment(path.join(state, 'run'), { PATH: process.env.PATH, HOME: developer, ...extra });
+  assert.equal(Object.hasOwn(env(), 'PLAYWRIGHT_BROWSERS_PATH'), false, 'nothing installed, nothing to find');
+  assert.equal(env({ PLAYWRIGHT_BROWSERS_PATH: path.join(state, 'chosen') }).PLAYWRIGHT_BROWSERS_PATH, path.join(state, 'chosen'));
+  if (process.platform === 'win32') return; // LOCALAPPDATA, where they live on Windows, does not move with HOME.
+  const browsers = path.join(developer, ...(process.platform === 'darwin' ? ['Library', 'Caches'] : ['.cache']), 'ms-playwright');
+  await mkdir(browsers, { recursive: true });
+  assert.equal(env().PLAYWRIGHT_BROWSERS_PATH, browsers);
+});
+
 test('a test run gets a home of its own, and nothing points back into the developer\'s', async (t) => {
   const state = await mkdtemp(path.join(os.tmpdir(), 'sflow-test-home-'));
   t.after(() => rm(state, { recursive: true, force: true }));

@@ -1,9 +1,9 @@
 {
   "schemaVersion": 2,
   "generatedFrom": "docs/topics",
-  "sourceCommit": "2c3c45a6641fa39cf67c80e74ee15c40592868d0",
+  "sourceCommit": "74719200eb94fcc7b77e810368357c009524f51e",
   "topicCount": 90,
-  "contentSha256": "97866020af77545dec06942840f39234d7784f4cb0197cf12055180c9379ca3b",
+  "contentSha256": "4f50861856e107595ee0d8de80a435ea24bc3fb17fdd14c73baea027ca540486",
   "topics": [
     {
       "id": "activity-and-prompt-audit",
@@ -48,9 +48,9 @@
     {
       "id": "app-review",
       "title": "Application review and acceptance",
-      "version": 5,
-      "sha256": "aae05f253e380c6e1470a2d2d73e584f22fdaa6efe06637880f235b8df58551e",
-      "routingSha256": "a025f23b9e1e24124bea8efcccb2631b7b586ca95dd8aebf1130723d9ab42c60",
+      "version": 6,
+      "sha256": "d0078564acd5de9636146b8712ce8478c7536305410afcd5f5475b188f2630c1",
+      "routingSha256": "7233cace9c391da0615fd4184f64c0128d693f8e100469243f30f3f20fa4de98",
       "file": "app-review.md"
     },
     {
@@ -416,8 +416,8 @@
     {
       "id": "phase-appeals",
       "title": "Phase appeals and recoverable blockers",
-      "version": 7,
-      "sha256": "314067ecc571cdf789e005ad137ddd6b0d1514fabb0a989d6df6ba8fd74dd62a",
+      "version": 8,
+      "sha256": "36cbd69c8c77477275f49234d45376e5bf9d877df2cf9b0deae1e35e4949f0c8",
       "routingSha256": "e2a804ba23d067717ab94a3b915334324e81bcc4ec14f67c09990e97295fed67",
       "file": "phase-appeals.md"
     },
@@ -488,8 +488,8 @@
     {
       "id": "repository-commit-policy",
       "title": "Repository commit policy and hook compatibility",
-      "version": 1,
-      "sha256": "3993445d98aa0d072c608761632b2c2a87481c9dabe9a2c318ecbcc1aa31dd26",
+      "version": 2,
+      "sha256": "ae6abe26c2200d6c3a2cdddd742ec2ad690a66a53d38f886891aa1de3fb92df9",
       "routingSha256": "606ed128d60c6d508f62ae7fc167bcd02289cc3b32a1ba20924c7d52cd9777c4",
       "file": "repository-commit-policy.md"
     },

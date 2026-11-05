@@ -163,10 +163,12 @@ test('startup read entrypoints do not statically reach the legacy monolith', asy
   // through git-fact-cache.mjs, a third. Keep the ceiling at that verified baseline so new eager
   // startup imports still fail this test. Capability leads gained outcome-classes.mjs (constants with
   // no import, through util.mjs) in SDA M1; the workspace graph had headroom for it and the source facade.
+  // They gained package-root.mjs (Node built-ins only, through util.mjs) with the commit policy (4c79a2b8d):
+  // run()'s check is synchronous, so what it finds from the package root cannot be imported lazily.
   assert.ok(workspaceClosure.size <= 27,
     `workspace startup reads load ${workspaceClosure.size} static modules; ceiling is 27`);
-  assert.ok(capabilityClosure.size <= 13,
-    `capability leads loads ${capabilityClosure.size} static modules; ceiling is 13`);
+  assert.ok(capabilityClosure.size <= 14,
+    `capability leads loads ${capabilityClosure.size} static modules; ceiling is 14`);
   for (const file of [...workspaceClosure, ...capabilityClosure]) {
     assert.doesNotMatch(path.basename(file), /^(?:cli|jira|initiative|visual|model-runner|model-provider)\.mjs$/,
       `startup read graph reaches unrelated heavyweight domain ${file}`);
@@ -185,7 +187,8 @@ test('the Copilot edit guard, run on every tool call, stays clear of the configu
   // the guard corrects misread result paths to and application-paths.mjs keeps out of application edits.
   // 62: outcome-classes.mjs, constants with no import, gives every error its SDA outcome class through
   // util.mjs; SDA M1 (fa3094b83) added it without a recorded raise.
-  // 63: lease-liveness.mjs, the shared lease owner proof every subject lock reads (SDA M3).
+  // 63: lease-liveness.mjs, the shared lease owner proof every subject lock reads (SDA M3). The commit
+  // policy (4c79a2b8d) took git-isolation-paths.mjs out and put package-root.mjs in, through util.mjs.
   assert.ok(closure.size <= 63, `the edit guard loads ${closure.size} static modules; ceiling is 63`);
 });
 

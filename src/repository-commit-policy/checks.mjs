@@ -1,7 +1,8 @@
 import { TextDecoder } from 'node:util';
 import {createHash} from 'node:crypto';
 import { readLocalGitBlobs } from '../git-blob-batch.mjs';
-import { run, secureRepositoryPath } from '../util.mjs';
+import { exactTreeListing } from '../git-exact-reads.mjs';
+import { secureRepositoryPath } from '../util.mjs';
 import { withoutGitProcessOverrides } from '../git-enterprise-environment.mjs';
 import { readFile, writeFile } from 'node:fs/promises';
 import { issuedCommitPolicyPlan, assertCommitPlanCurrent } from './plan.mjs';
@@ -14,8 +15,8 @@ function protectedPath(file) { return /^(?:\.git(?:\/|$)|\.husky(?:\/|$)|\.pre-c
 function utf8(bytes) { try { return new TextDecoder('utf-8', { fatal: true }).decode(bytes); } catch { return null; } }
 export function commitPlanFiles(plan) {
   const { root } = issuedCommitPolicyPlan(plan);
-  const listed = run('git', ['ls-tree', '-r', '-z', plan.prospectiveTree], { cwd: root, timeoutMs: 15000, maxBuffer: 16 * 1024 * 1024,
-    env: { ...withoutGitProcessOverrides(process.env), GIT_NO_LAZY_FETCH: '1', GIT_NO_REPLACE_OBJECTS: '1' } }).stdout;
+  const listed = exactTreeListing(root, plan.prospectiveTree, { timeoutMs: 15000, maxBytes: 16 * 1024 * 1024, required: true,
+    env: { ...withoutGitProcessOverrides(process.env), GIT_NO_LAZY_FETCH: '1', GIT_NO_REPLACE_OBJECTS: '1' } }).value;
   const selected = [];
   for (const entry of listed.split('\0').filter(Boolean)) {
     const match = /^(100644|100755|120000|160000) (blob|commit) ([a-f0-9]{40}(?:[a-f0-9]{24})?)\t([\s\S]+)$/u.exec(entry);

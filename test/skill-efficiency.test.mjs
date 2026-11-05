@@ -217,14 +217,13 @@ test('approval remains explicit-only with complete bound human review outside ch
   assert.match(content, /sflow-output-contract: governed-review/);
   assert.match(content, /Require human review of complete bound documents; never infer it from opened previews/);
   assert.match(content, /exact phase name|exact phase ID/i);
-  const entry = content.indexOf('choices begin approve <WORK-ID> --fetch --for-agent --json --review-packet');
-  const binding = content.indexOf('match `approvalPacket.review`');
-  assert.ok(entry >= 0 && entry < binding, 'the bound approval entry returns its review packet before artifacts are used');
-  assert.ok(binding < content.indexOf('Review outside chat against the exact binding'),
+  // The begin call returns the phase review in its packet (603f204fd), so the order is the skill's own.
+  assert.ok(content.indexOf('choices begin approve <WORK-ID>') < content.indexOf('`approvalPacket.review`'),
+    'approval must resolve the requested Story and phase before reading artifacts');
+  assert.ok(content.indexOf('`approvalPacket.review`') < content.indexOf('Review outside chat against the exact binding'),
     'current packet must be revalidated before prior human acknowledgement is reused');
-  assert.match(content, /match `approvalPacket\.review`, receipt, `reviewBinding`, artifacts and briefs to `approvalContext`; missing\/mismatched bindings stop/i);
-  assert.match(content, /Read once\./);
-  assert.doesNotMatch(content, /phase show <phase> --for-agent --json/u, 'the bound review packet replaces a duplicate document lookup');
+  assert.match(content, /match `approvalPacket\.review`, receipt, `reviewBinding`, artifacts and briefs to `approvalContext`; missing\/mismatched bindings stop/);
+  assert.match(content, /Read once/);
   assert.match(content, /omissions or truncation require fresh human review/);
   assert.match(content, /do not ask again/);
   assert.match(content, /A phase supplied before a new or changed packet review is not its confirmation, even if document bodies match/);

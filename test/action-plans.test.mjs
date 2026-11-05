@@ -44,6 +44,17 @@ function lifecycle(actions = null) {
   };
 }
 
+test('a step\'s resume note is progress, not lifecycle: a new checkpoint leaves a plan fresh', async () => {
+  // `action plan --operation publish` inspects the publication, which records a checkpoint on the
+  // step's task, so every plan with a resumable task was stale before anyone could authorize it.
+  const root = await repository();
+  const resume = (checkpoints) => ({ authority: 'progress-only', state: 'repair-draft', checkpoints });
+  const plan = await createActionPlan(root, { ...lifecycle(), taskResume: resume(['prepared']) });
+  assert.doesNotThrow(() => assertActionPlanFresh(root, plan, { ...lifecycle(), taskResume: resume(['prepared', 'validation']) }));
+  assert.throws(() => assertActionPlanFresh(root, plan, { ...lifecycle(), currentPhase: 'delivery', taskResume: resume(['prepared']) }),
+    /stale because lifecycleSha256 changed/, 'the lifecycle itself still binds the plan');
+});
+
 test('read-only action previews disclose effects without writing a plan', () => {
   const gate = previewAction({ timing: 'now', command: 'singularity-flow gate --terminal' });
   const preview = previewAction({ timing: 'then', command: 'singularity-flow pr STORY-1' });

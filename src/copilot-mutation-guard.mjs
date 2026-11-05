@@ -17,7 +17,6 @@ import { DECISION_LIST_CHAT_OPTIONS, liveTerminalReviewStep, OWN_TERMINAL_STEPS,
 import { currentSchemaVersion, readRecord } from './schema-migrations.mjs';
 import { CLI_PATH_REFERENCE, safeCommandGuidance, validateSflowExecutionCommand } from './safe-command-guidance.mjs';
 import { isTestRunnerOutputPath, isTransientTestResultPath } from './application-paths.mjs';
-import { hasPublishedPhaseGeneration } from './phase-inspection-generation.mjs';
 
 const MAX_AGE = 30 * 60 * 1000;
 
@@ -199,7 +198,7 @@ async function createRecord(payload, record, root, accepted, previous = null) {
   const taskOperation = previous?.taskOperation && previous.contract?.workId === contract.workId
     && previous.contract?.phaseId === contract.phaseId ? { ...previous.taskOperation } : null;
   if (taskOperation && Number(phase?.generation) >= taskOperation.generation
-      && hasPublishedPhaseGeneration(phase) && !contract.policy.editable) {
+      && !contract.policy.editable && (await import('./phase-inspection-generation.mjs')).hasPublishedPhaseGeneration(phase)) {
     taskOperation.complete = true;
     taskOperation.publicationVerified = true;
     taskOperation.state = 'complete';

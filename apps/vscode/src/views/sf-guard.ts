@@ -233,7 +233,11 @@ export class SfGuardSignPanel implements vscode.Disposable {
     this.panel = panel;
     this.request = request;
     this.hooks = hooks;
-    panel.webview.onDidReceiveMessage((raw: unknown) => void this.router.route(raw), null, this.subscriptions);
+    panel.webview.onDidReceiveMessage((raw: unknown) => {
+      const navigation = navigationTarget(raw);
+      if (navigation) return void navigateTo(navigation);
+      void this.router.route(raw);
+    }, null, this.subscriptions);
     panel.onDidDispose(() => this.dispose(), null, this.subscriptions);
   }
 
@@ -289,7 +293,7 @@ export class SfGuardSignPanel implements vscode.Disposable {
     const token = nonce();
     const view: SignCardView = { request: this.request, firstRun: !this.hooks.memento.get<boolean>(SF_GUARD_FIRST_RUN_KEY, false), state: this.state };
     this.panel.webview.html = page('SF Guard · sign', signCardHtml(view), contentSecurityPolicy(this.panel.webview, token), token, SIGN_CARD_SCRIPT,
-      { styles: SF_GUARD_STYLE, nav: false });
+      { styles: SF_GUARD_STYLE });
   }
 
   dispose(): void {

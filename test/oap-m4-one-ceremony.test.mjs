@@ -149,8 +149,9 @@ test('a review this terminal showed confirms `approve <PHASE>` for that review, 
 
 /** The VS Code approval page, loaded with a stub `vscode`: its validation and arguments are pure. */
 async function approvalPage() {
-  const [{ default: vm }, { default: ts }, messages, webview, approvalsModel] = await Promise.all([import('node:vm'), import('typescript'),
-    import('../apps/vscode/src/views/messages.ts'), import('../apps/vscode/src/views/webview.ts'), import('../apps/vscode/src/views/approvals-model.ts')]);
+  const [{ default: vm }, { default: ts }, messages, webview, approvalsModel, sfGuardModel] = await Promise.all([import('node:vm'), import('typescript'),
+    import('../apps/vscode/src/views/messages.ts'), import('../apps/vscode/src/views/webview.ts'), import('../apps/vscode/src/views/approvals-model.ts'),
+    import('../apps/vscode/src/views/sf-guard-model.ts')]);
   const source = await readFile(new URL('../apps/vscode/src/views/approval-review.ts', import.meta.url), 'utf8');
   const exports = {};
   const context = vm.createContext({ exports, Date, require(name) {
@@ -159,6 +160,7 @@ async function approvalPage() {
     if (name === './webview.ts') return webview;
     if (name === './navigate.ts') return { navigateTo() {} };
     if (name === './approvals-model.ts') return approvalsModel;
+    if (name === './sf-guard-model.ts') return sfGuardModel;
     throw new Error(`Unexpected dependency: ${name}`);
   } });
   vm.runInContext(ts.transpileModule(source, { compilerOptions: { target: ts.ScriptTarget.ES2022, module: ts.ModuleKind.CommonJS } }).outputText, context);

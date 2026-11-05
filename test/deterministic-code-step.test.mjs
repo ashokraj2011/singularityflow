@@ -101,5 +101,7 @@ test('a quick-fix implement step is coded by its agent and published with an eng
   const published = JSON.parse(sflow('phase', 'prepublish', 'implement', '--for-agent', '--json', '--publish-if-ready'));
   assert.equal(published.status, 'ready', JSON.stringify(published.findings));
   assert.equal(published.publishIfReady.published, true);
-  assert.equal(published.publishIfReady.next.commandGuidance.copilotCommand, '/sf-submit');
+  // Code goes to the person's outcome review first (638b83ce4); submission is the step after it.
+  assert.match(published.publishIfReady.next.commandGuidance.copilotCommand, /^\/sf-outcome /u);
+  assert.equal(published.publishIfReady.afterReview.commandGuidance.copilotCommand, '/sf-submit');
 });

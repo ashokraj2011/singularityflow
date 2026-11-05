@@ -87,19 +87,20 @@ async function story(t) {
   await write(TEST_PATH, testSource(2, true));
   const summary = path.join(item, 'artifacts/implementation/implementation-summary.md');
   await writeFile(summary, (await readFile(summary, 'utf8')).replace(/TODO:[^\n]*/gu, 'The value module returns the approved value.'));
-  // The evidence a person would attach: the test ran and passed.
+  // The evidence a person would attach: the test ran and passed. It stays in the test results folder,
+  // because any other changed file outside the plan now holds publication until reconciled (f2bfd18d4).
   // Outside this test runner's own child protocol, so the output is the ordinary report.
   const plain = { ...ENV }; delete plain.NODE_TEST_CONTEXT;
   const output = spawnSync(process.execPath, ['--test', TEST_PATH], { cwd: root, encoding: 'utf8', env: plain });
   assert.equal(output.status, 0, output.stdout + output.stderr);
-  await write('.sflow/dispute/test-output.txt', output.stdout);
+  await write('.sflow/results/dispute-test-output.txt', output.stdout);
   return { root, run, cli, attempt, write, testSource };
 }
 
 const EXPIRES = new Date(Date.now() + 20 * 86400000).toISOString().slice(0, 10);
 const REASON = 'The acceptance test exists and passes; the gate does not recognise the checks folder.';
 const disputeArgs = ['--phase', 'implementation', '--finding', 'CODE_DELIVERY_EVIDENCE_REQUIRED',
-  '--evidence-file', '.sflow/dispute/test-output.txt', '--evidence-file', TEST_PATH, '--expires', EXPIRES, '--reason', REASON];
+  '--evidence-file', '.sflow/results/dispute-test-output.txt', '--evidence-file', TEST_PATH, '--expires', EXPIRES, '--reason', REASON];
 
 /** One of the step's approvers accepts the exact packet in a live terminal. */
 function acceptLive(root, id, confirm) {
@@ -128,7 +129,7 @@ test('a disputed code-delivery finding is accepted live and honoured for exactly
   // Each problem is keyed by its canonical finding ID; the sentence is for the reviewer [SDA-AC-022].
   assert.ok(prepared.problems.some((problem) => /^FND-[a-f0-9]{24} no acceptance test is available/u.test(problem)));
   assert.ok(prepared.problems.every((problem) => /^FND-[a-f0-9]{24} /u.test(problem)), JSON.stringify(prepared.problems));
-  assert.deepEqual(prepared.evidence.map((item) => item.path), ['.sflow/dispute/test-output.txt', TEST_PATH]);
+  assert.deepEqual(prepared.evidence.map((item) => item.path), ['.sflow/results/dispute-test-output.txt', TEST_PATH]);
   assert.match(prepared.evidence[0].excerpt, /pass 1/u);
   const id = `PQR-${prepared.packetSha256.slice(7, 31)}`;
 

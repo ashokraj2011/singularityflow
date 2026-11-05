@@ -74,7 +74,7 @@ export const SDA_NAMES = Object.freeze({
   INSPECTION_READ: ['src/approved-configuration-reader.mjs', 'src/cli.mjs', 'src/editor.mjs', 'src/commands/workflow-list.mjs'],
   'configuration.exact-object-transfer': ['src/configuration-branch.mjs'],
   // M3: configuration editing without a clone, with its typed intent
-  CONFIGURATION_PROJECTION_BASE_UNAVAILABLE: ['src/configuration-projection.mjs', 'src/refusal-remediation.mjs'],
+  CONFIGURATION_PROJECTION_BASE_UNAVAILABLE: ['src/configuration-people.mjs', 'src/configuration-projection.mjs', 'src/refusal-remediation.mjs'],
   'configuration-projection/base': ['src/configuration-projection.mjs'],
   CONFIGURATION_PROPOSAL_INTENT_INVALID: ['src/configuration-proposal.mjs'],
   'Sflow-Intent-Kind': ['src/configuration-people.mjs', 'src/configuration-proposal.mjs'],

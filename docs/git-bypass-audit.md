@@ -299,3 +299,11 @@ refs mirror only reconciled remote objects and create no validation receipt. Por
 projected through the existing ledger, outside their source candidate. New call sites and changed
 configuration/ledger callback contexts are reviewed explicitly; no general process owner, hook-skip
 permission, history/branch scan, arbitrary executable or approval exemption is registered.
+
+`git-exact-reads.mjs` takes over the configuration projection's and the commit policy's reads of one
+exact tree, object or commit (`ls-tree -r -z`, `cat-file --batch-check`, `cat-file commit`,
+`verify-commit --raw` and `rev-parse --absolute-git-dir --git-common-dir`), with their exact arguments,
+environments, bounds and failures, and the commit policy's and the ledger's reads of a ref go through
+the source inspection facade. Those owners lose eight `run` sites and one `git` site for this module's
+one. No new call is made and no permission changes. `util.mjs` keeps its three approved-configuration
+hint reads: `run()`'s commit policy check is synchronous and sits below these modules, which import it.

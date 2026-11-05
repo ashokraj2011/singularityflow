@@ -165,13 +165,16 @@ function normalizeAction(item, index, revision, decisionValues = {}, usedDecisio
 
 export function repositoryActionRevision(root, lifecycleSnapshot) {
   const workingTree = worktreeFingerprint(root);
+  // A step's resume note is progress only, never lifecycle authority: inspecting a publication adds a
+  // checkpoint to it, which must not make the plan that inspection was for stale before it is authorized.
+  const { taskResume: _progressOnly, ...lifecycle } = lifecycleSnapshot;
   return {
     branch: branch(root),
     head: head(root),
     workingTree,
     // Kept as a compatibility field for existing action-plan consumers. It is now content-aware.
     worktreeHash: workingTree.sha256,
-    lifecycleSha256: recordSha256(lifecycleSnapshot)
+    lifecycleSha256: recordSha256(lifecycle)
   };
 }
 

@@ -9,7 +9,7 @@ import { workflowTaskIdentity, workflowTaskInputSha256, updateWorkflowTask, work
   validateWorkflowTask, mergeWorkflowTasks, workflowTaskDeltaSafe } from '../src/workflow-task.mjs';
 import { observeWorkflowTask, readWorkflowTask, readWorkflowTaskResume, reserveWorkflowTaskContinuation,
   batchWorkflowTaskProgress, resumeWorkflowTask, observeWorkflowTaskCheck } from '../src/workflow-task-store.mjs';
-import { quarantineWorkflowTaskProgress, shareWorkflowTaskProgress } from '../src/workflow-task-store.mjs';
+import { importSharedWorkflowTaskProgress, quarantineWorkflowTaskProgress, shareWorkflowTaskProgress } from '../src/workflow-task-store.mjs';
 import { publishToStateBranch } from '../src/ledger.mjs';
 import { phaseRepairLoopSummary } from '../src/phase-repair-journal.mjs';
 import { LIFECYCLE_EVENT } from '../src/lifecycle-event.mjs';
@@ -37,6 +37,21 @@ async function fixture(t) {
   await writeFile(path.join(root, 'README.md'), 'Fixture\n'); git('add', '.'); git('commit', '-qm', 'Fixture');
   return { root, git, ...story() };
 }
+
+test('a phase neither being authored nor ever published has no task, so reading it refuses nothing', async t => {
+  const f = await fixture(t);
+  f.phase.status = 'awaiting_approval';
+  assert.equal(await readWorkflowTaskResume(f.root, f.workflow, f.phase), null);
+  assert.equal(await readWorkflowTaskResume(f.root, f.workflow, f.phase, { generation: 0 }), null);
+  assert.equal(await resumeWorkflowTask(f.root, f.workflow, f.phase), null);
+  assert.equal(await observeWorkflowTaskCheck(f.root, f.workflow, f.phase, { status: 'ready', generation: 0 }), null);
+  f.workflow.resolution.ledger = { enabled: true, remote: 'origin', branch: 'state' };
+  assert.deepEqual(await importSharedWorkflowTaskProgress(f.root, f.workflow, f.phase), { status: 'imported', imported: 0 });
+  // Asking for this task by name is still a refusal: there is nothing to share or repair.
+  await assert.rejects(shareWorkflowTaskProgress(f.root, f.workflow, f.phase), { code: 'WORKFLOW_TASK_RECORD_INVALID' });
+  f.phase.status = 'in_progress';
+  assert.equal((await readWorkflowTaskResume(f.root, f.workflow, f.phase)).generation, 1, 'authoring it names its next generation');
+});
 
 for (const id of ['planning', 'implementation', 'verification', 'release', 'copied-user-phase', 'future-task']) {
   test(`${id} uses the same portable task identity, independent of a chat or checkout path`, () => {

@@ -4,10 +4,11 @@
   "status": "contract-only",
   "baselineCommit": "70db564e59224b03729bab0f9a340807f3086c61",
   "lastReview": {
-    "reviewedAtCommit": "5959c12fdacc844dc04399e41737195d6c16c496",
-    "evidence": "docs/contracts/gdp/COMPANION-LOCK-REVIEW-2026-11-02-SF-GUARD-ADJUDICATIONS.md",
+    "reviewedAtCommit": "7e473c60eb143066cd716f5b304108f83ed2e707",
+    "evidence": "docs/contracts/gdp/COMPANION-LOCK-REVIEW-2026-11-05-COMMIT-POLICY-AND-TASK-RECORDS.md",
     "companionIds": [
-      "migration-registry"
+      "migration-registry",
+      "publication-unit-of-work"
     ]
   },
   "companions": [
@@ -84,7 +85,7 @@
     {
       "id": "publication-unit-of-work",
       "path": "src/publication-unit-of-work.mjs",
-      "sha256": "sha256:6cc1ff7c45e3b1d332a0186dc8e915426306f2c39a83999a3b13d03247594493"
+      "sha256": "sha256:ef278fb532ff04e216d4d2cac62ebf2199d0ce1b285cb12c3184419048aeb4e8"
     },
     {
       "id": "action-authorization",
@@ -94,7 +95,7 @@
     {
       "id": "migration-registry",
       "path": "src/schema-migrations.mjs",
-      "sha256": "sha256:86d02a68f3ed08ae0448431f3c0f4cccf971459fb4725da014b423c1fd1e5bfe"
+      "sha256": "sha256:333fa1b274189858f19bd4e0d549b6015ca035da0d0a9cdb5798aa2628188d3a"
     },
     {
       "id": "smart-initialization-v1",

@@ -18,7 +18,7 @@
  * Everything else under the home directory is covered by giving the run a home of its own (see
  * isolatedHomeEnvironment).
  */
-import { mkdirSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, writeFileSync } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 
@@ -71,6 +71,18 @@ function insideDirectory(value, directory) {
 }
 
 /**
+ * Playwright's installed browsers under the developer's home, when there are any. A browser is a
+ * program pinned by Playwright's own version, not state a test could read or leave behind, and no test
+ * installs one, so moving HOME must not hide it: a test needing one would never run on any machine.
+ */
+function installedBrowsers(env, home) {
+  if (env.PLAYWRIGHT_BROWSERS_PATH || process.platform === 'win32') return {};
+  const cache = process.platform === 'darwin' ? path.join(home, 'Library', 'Caches') : env.XDG_CACHE_HOME || path.join(home, '.cache');
+  const browsers = path.join(cache, 'ms-playwright');
+  return existsSync(browsers) ? { PLAYWRIGHT_BROWSERS_PATH: browsers } : {};
+}
+
+/**
  * A home directory of the run's own, created empty under `root` apart from a Git identity.
  *
  * Paths Singularity Flow does not own default under the home directory too: Copilot skills and MCP
@@ -87,7 +99,7 @@ export function isolatedHomeEnvironment(root, env = process.env) {
   writeFileSync(gitConfig, TEST_GIT_CONFIG);
   const previousHome = env.HOME || env.USERPROFILE || os.homedir();
   const unset = Object.keys(env).filter((name) => HOME_POINTERS.test(name) && insideDirectory(env[name], previousHome));
-  return { set: { HOME: home, USERPROFILE: home, GIT_CONFIG_GLOBAL: gitConfig }, unset };
+  return { set: { HOME: home, USERPROFILE: home, GIT_CONFIG_GLOBAL: gitConfig, ...installedBrowsers(env, previousHome) }, unset };
 }
 
 /**

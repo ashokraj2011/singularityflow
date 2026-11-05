@@ -1,7 +1,7 @@
 import { createHash } from 'node:crypto';
 import { lstat, readdir, readFile, readlink, realpath } from 'node:fs/promises';
 import path from 'node:path';
-import { run } from '../util.mjs';
+import { exactGitDirectories } from '../git-exact-reads.mjs';
 import { withoutGitProcessOverrides } from '../git-enterprise-environment.mjs';
 import { rcpDigest, rcpFailure } from './policy.mjs';
 
@@ -31,7 +31,7 @@ export async function captureCommitEffects(root, limits) {
     entries.set(logical, `${info.mode & 0o777}:${digest}`);
   }
   await walk(actual, '', { rootTree: true });
-  const directories = run('git', ['rev-parse', '--absolute-git-dir', '--git-common-dir'], { cwd: actual, env: withoutGitProcessOverrides(), timeoutMs: 15000 }).stdout.trim().split(/\r?\n/u);
+  const directories = exactGitDirectories(actual, { env: withoutGitProcessOverrides(), timeoutMs: 15000, required: true }).value;
   for (const [index, directory] of directories.entries()) {
     const base = path.resolve(actual, directory);
     for (const name of ['HEAD', 'index', 'config', 'config.worktree', 'packed-refs', 'commondir', 'refs']) {

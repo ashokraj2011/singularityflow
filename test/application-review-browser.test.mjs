@@ -31,7 +31,12 @@ test('static adapter builds the checked snapshot and captures the actual inspect
   const subject = { kind: 'story-phase', workId: 'web-review', phaseId: 'deliver', generation: 1 };
   const workflow = { workItem: { id: subject.workId }, resolution: { capability: { id: 'web' } } };
   const snapshot = await applicationReviewSnapshot(root, {}, workflow);
-  const preview = await prepareStaticReview(root, {}, workflow, { policy }, { headless: true });
+  // Only the machine lacking the pinned browser is a reason not to go on; any other refusal fails.
+  const preview = await prepareStaticReview(root, {}, workflow, { policy }, { headless: true }).catch((error) => {
+    if (error?.code === 'ARA_CAPTURE_UNAVAILABLE' && /Executable doesn't exist/u.test(String(error.details?.cause))) return null;
+    throw error;
+  });
+  if (!preview) return t.skip('The pinned review browser is not installed here: run singularity-flow app-review browser install');
   t.after(() => preview.close());
   assert.equal(preview.binding.sourceDigest, snapshot.digest);
   assert.equal(preview.binding.adapter, 'static-web');

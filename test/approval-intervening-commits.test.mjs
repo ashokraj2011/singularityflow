@@ -230,7 +230,9 @@ test('approving a submitted phase names each later commit, and an undecided amen
   // the scope decides it, seen before the review with who decides and its route.
   const readiness = JSON.parse(cli('status', WORK, '--submission-readiness', '--json').stdout);
   assert.equal(readiness.classification, 'already-submitted');
-  assert.equal(readiness.nextCommand, `singularity-flow approve planning --work-id ${WORK} --fetch`);
+  // A known hold replaces the refusing approval route with the owner's list (79e0fefa5).
+  assert.equal(readiness.reasonCode, 'APPROVAL_HOLDS_REQUIRED');
+  assert.equal(readiness.nextCommand, `singularity-flow decisions ${WORK} --for-agent --json`);
   assert.equal(readiness.blockingCommits, undefined, 'no commit is named as stale');
   assert.equal(readiness.approvalCheck.ready, false);
   assert.deepEqual(readiness.approvalCheck.holds.map((hold) => [hold.code, hold.owner, hold.action?.command, hold.summary]),
@@ -242,7 +244,8 @@ test('approving a submitted phase names each later commit, and an undecided amen
   assert.ok(!(next.actions ?? next.data?.actions ?? []).some((entry) => entry.command?.startsWith('singularity-flow approve planning ')),
     'no approval is offered into a refusal');
   const packet = JSON.parse(cli('choices', 'begin', 'approve', WORK, '--json', '--review-packet').stdout);
-  assert.equal(packet.ready, false, 'the receipt is begun as before; nothing is answered');
+  assert.equal(packet.begun, false, 'a known hold returns before any receipt or document packet (79e0fefa5)');
+  assert.equal(packet.approvalPacket.review, null);
   assert.deepEqual(packet.approvalPacket.readiness.approvalCheck.holds, readiness.approvalCheck.holds);
   const shown = cli('phase', 'show', 'planning');
   assert.ok(shown.stderr.includes('Someone else decides: Approving planning waits for intent amendment AMD-001 to be decided.'), shown.stderr);

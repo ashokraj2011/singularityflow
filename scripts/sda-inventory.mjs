@@ -95,6 +95,8 @@ const OVERRIDES = {
   'repository-check-cache.mjs': 'projection',
   'session-listing-cache.mjs': 'projection',
   'session-state-index.mjs': 'projection',
+  // A review's disposable static preview and its machine-local captures, kept under the Git directory.
+  'application-review-preview.mjs': 'local-operational',
   // Configuration drafts are the one place a configuration edit is saved before it is proposed.
   'configuration-drafts.mjs': 'local-authored',
   // A backup holds a laptop's drafts and local documents, carried to another laptop (SDA M5).

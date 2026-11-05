@@ -1279,7 +1279,7 @@ export async function createWorkflow(root, config, {
   // SF Guard's policy as this Story starts (SPEC-PSS-v1 REQ-040): a later change never affects it.
   // A repository that never opted in has no policy file, and the Story carries no pin. Pinned before the
   // test-recovery intake review, which is signed on it (§10.10).
-  const presencePin = await (await import('./presence/person-records.mjs')).presencePinForStart(root);
+  const presencePin = await (await import('./presence/person-records.mjs')).presencePinForStart(root, { configurationSnapshot: approvedConfigurationSnapshot });
   if (presencePin) workflow.resolution.presence = presencePin;
   if (presencePin?.status === 'required' && workflow.resolution.applicationReview && workflow.resolution.applicationReview.mode !== 'off') {
     throw new SingularityFlowError('Application review needs a signed person-presence adapter for this repository. This build does not provide it; use a compatible workflow or runtime. No unsigned acceptance was enabled.', { code: 'ARA_AUTHORITY_ADAPTER_UNAVAILABLE' });

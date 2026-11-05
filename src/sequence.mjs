@@ -137,6 +137,16 @@ function gateGuidance(workflow, gate, { setAside = null } = {}) {
         actions: [copilotAction({ command: 'singularity-flow sync' })] };
 }
 
+/**
+ * An approver whose clone is behind saw only the author's prepare and publish (2026-10-28): a step
+ * in progress here may have been submitted from another clone.
+ */
+export function approverCloneBehindHint(workflow, phase) {
+  return phase?.status === 'in_progress'
+    ? `If ${phase.id} was submitted from another clone, bring that in first: singularity-flow refresh-branch, or approve with --fetch (singularity-flow approve ${phase.id} --work-id ${workflow.workItem.id} --fetch).`
+    : null;
+}
+
 function sequenceMessage(workflow, gate, action, { requestedPhase = null, reason = null, mode = sequenceGateMode(workflow, gate), guidance: withGuidance = true, setAside = null } = {}) {
   const phase = activePhase(workflow);
   const target = requestedPhase ?? phase?.id ?? null;
@@ -144,12 +154,7 @@ function sequenceMessage(workflow, gate, action, { requestedPhase = null, reason
     ? `phase '${phase.id}' is ${phase.status} at generation ${phase.generation ?? 0}`
     : `workflow '${workflow.workItem.id}' is complete`;
   const guidance = gateGuidance(workflow, gate, { setAside });
-  // An approver whose clone is behind saw only the author's prepare and publish (2026-10-28): a step
-  // in progress here may have been submitted from another clone.
-  const approving = action === 'approve' && gate === 'phaseStatus' ? workflow.phases?.[target] : null;
-  const behind = approving?.status === 'in_progress'
-    ? `If ${approving.id} was submitted from another clone, bring that in first: singularity-flow refresh-branch, or approve with --fetch (singularity-flow approve ${approving.id} --work-id ${workflow.workItem.id} --fetch).`
-    : null;
+  const behind = action === 'approve' && gate === 'phaseStatus' ? approverCloneBehindHint(workflow, workflow.phases?.[target]) : null;
   return [
     `${mode === 'soft' ? 'Soft sequence warning' : 'Out of sequence'} [${gate}]: cannot ${action}${target ? ` for phase '${target}'` : ''}.`,
     `Current state: ${current}.`,

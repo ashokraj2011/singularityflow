@@ -144,6 +144,16 @@ test('a question the documentation cannot answer, or a choice, comes back as the
   }
 });
 
+// The first `now` action, repeated in `taskResume`, took a plain nextsteps answer over the tool limit (4f7fe7329).
+test('the agent view says the next step once, and keeps a different one the resume state names', () => {
+  const now = { timing: 'now', command: 'singularity-flow prepare planning' };
+  const view = (nextAction) => agentNextStepsView({ workId: 'W', actions: [now], taskResume: { operationId: 'WT-1', nextAction } }).taskResume;
+  assert.deepEqual(view({ ...now }), { operationId: 'WT-1' });
+  const inspect = { timing: 'now', command: 'singularity-flow phase draft-check planning' };
+  assert.deepEqual(view(inspect), { operationId: 'WT-1', nextAction: inspect }, 'an interrupted operation is inspected first');
+  assert.equal(agentNextStepsView({ workId: 'W', actions: [now] }).taskResume, undefined);
+});
+
 test('/sf-progress and /sf-nextsteps read their CLI JSON through the tools, field by field', async (t) => {
   const { root } = await approvedSpecificationStory(t, WORK);
   const { kernel } = createHostGateway({ root, hostSessionId: 'skill-reads-story', planners: gatewayPlanners() });

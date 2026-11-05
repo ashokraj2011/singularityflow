@@ -17,8 +17,8 @@ const fail = message => { throw new SingularityFlowError(message, { code: 'WORKF
 
 export function workflowTaskIdentity(workflow, phase, role = 'author', generation = null) {
   if (!workflow?.workItem?.id || !phase?.id || !ROLES.has(role)) fail('A workflow task needs an exact Story, phase and role.');
+  if (!workflowTaskHasGeneration(workflow, phase, role, generation)) fail('A workflow task needs a positive generation.');
   generation ??= role === 'source-reviewer' ? Number(phase.generation) : phaseInspectionGeneration(workflow, phase);
-  if (!Number.isSafeInteger(generation) || generation < 1) fail('A workflow task needs a positive generation.');
   const bases = workflow.workItem.repositoryBases;
   const repositories = Array.isArray(bases) ? bases.map(entry => entry?.repositoryId ?? entry?.id)
     : bases && typeof bases === 'object' ? Object.keys(bases) : [];
@@ -34,6 +34,12 @@ export function workflowTaskIdentity(workflow, phase, role = 'author', generatio
 export function workflowTaskApplies(phase, role = 'author') {
   return Boolean(phase) && (role !== 'author' || phase.generationPolicy?.requirement !== 'none'
     && phase.generationPolicy?.task !== 'none');
+}
+
+/** A phase neither being authored nor ever published has no generation, so no task to read yet. */
+export function workflowTaskHasGeneration(workflow, phase, role = 'author', generation = null) {
+  generation ??= role === 'source-reviewer' ? Number(phase?.generation) : phaseInspectionGeneration(workflow, phase);
+  return Number.isSafeInteger(generation) && generation >= 1;
 }
 
 /** Current pins and predecessors: editing this task's draft does not create a new operation. */

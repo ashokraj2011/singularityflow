@@ -1,6 +1,6 @@
 ---
 id: phase-appeals
-version: 7
+version: 8
 title: Phase appeals and recoverable blockers
 summary: Preserve and review exact extra work without silently bypassing tests, intent or configuration authority.
 audience: [developer, approver, administrator]
@@ -56,7 +56,7 @@ Inspect a returned ID with `singularity-flow appeal checkpoint-show PCP-ID --pha
 
 ### A check that misreads correct work (dispute)
 
-When a code step has delivered everything a finding lists and `CODE_DELIVERY_EVIDENCE_REQUIRED` still returns unchanged, the check is misreading the work, and repeating the repair cannot pass. Dispute it instead: `singularity-flow appeal risk-prepare --phase PHASE --finding CODE_DELIVERY_EVIDENCE_REQUIRED --evidence-file PATH --expires YYYY-MM-DD --reason TEXT` previews a packet bound to the exact problems, the open candidate and up to five evidence files (their hashes and a short excerpt are retained). One of the step's own approvers, never the author or an agent, reviews it live with `singularity-flow appeal risk-accept` and the same arguments plus `--confirm PACKET_SHA256`. The gate then publishes exactly that candidate with the finding recorded as an accepted exception; it is shown in the Flow Gate results at submission, approval and the end of the Story, and it is never counted as passing evidence. Tests still run. A changed candidate, a new problem, a new generation, the expiry or `singularity-flow appeal risk-revoke` ends it. `singularity-flow explain findings --section CODE_DELIVERY_EVIDENCE_REQUIRED` describes the finding.
+When a code step has delivered everything a finding lists and `CODE_DELIVERY_EVIDENCE_REQUIRED` still returns unchanged, the check is misreading the work, and repeating the repair cannot pass. Dispute it instead: `singularity-flow appeal risk-prepare --phase PHASE --finding CODE_DELIVERY_EVIDENCE_REQUIRED --evidence-file PATH --expires YYYY-MM-DD --reason TEXT` previews a packet bound to the exact problems, the open candidate and up to five evidence files (their hashes and a short excerpt are retained). Keep evidence in the test results folder `.sflow/results/` or a Git-ignored path: any other changed file outside the plan holds publication until it is accounted for or set aside. One of the step's own approvers, never the author or an agent, reviews it live with `singularity-flow appeal risk-accept` and the same arguments plus `--confirm PACKET_SHA256`. The gate then publishes exactly that candidate with the finding recorded as an accepted exception; it is shown in the Flow Gate results at submission, approval and the end of the Story, and it is never counted as passing evidence. Tests still run. A changed candidate, a new problem, a new generation, the expiry or `singularity-flow appeal risk-revoke` ends it. `singularity-flow explain findings --section CODE_DELIVERY_EVIDENCE_REQUIRED` describes the finding.
 
 ### Extra work within an existing requirement
 

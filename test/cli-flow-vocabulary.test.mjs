@@ -28,7 +28,6 @@ const KEPT = {
   'src/harness-imports.mjs': ['content is governed evidence'],
   'src/initiative-context.mjs': ['# Governed Copilot prompt', '## Selected governed agent', 'Review the governed file', 'from earlier governed work'],
   'src/mcp.mjs': ['# Governed MCP tools'],
-  'src/phase-authoring-contract.mjs': ['governed configuration still'],
   'src/phase-draft-check.mjs': ['the existing governed prompt'],
   'src/phase-execution-evidence.mjs': ['a failed governed run', 'for governed command outcomes'],
   'src/phase-mutation-contract.mjs': ['protected and governed state'],

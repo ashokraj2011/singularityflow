@@ -143,10 +143,15 @@ export function personBatchStatement(presence, { chainId, workId }) {
 /**
  * The Story pin for a Story starting now: SF Guard's state in the approved configuration, or null
  * when the repository never opted in (no policy file), so a Story there is exactly as before.
+ * A start that holds a verified `configurationSnapshot` reads it from there: the policy of the very
+ * configuration the Story pins, and no further look at the remote between the publication preflight
+ * and the Story's first commit, which a lost connection would turn into no Story to recover.
  */
-export async function presencePinForStart(root) {
+export async function presencePinForStart(root, { configurationSnapshot = null } = {}) {
   const { readPresencePolicy } = await import('./store.mjs');
-  const policy = await readPresencePolicy(root);
+  const policy = configurationSnapshot
+    ? await (await import('../configuration-branch.mjs')).withStoryConfigurationSnapshotRead(root, configurationSnapshot, () => readPresencePolicy(root))
+    : await readPresencePolicy(root);
   if (!policy.present || !policy.chain) return null;
   const valid = policy.chain.events.slice(0, policy.folded.validLength);
   return {

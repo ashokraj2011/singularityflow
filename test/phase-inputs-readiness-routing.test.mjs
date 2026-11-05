@@ -85,7 +85,7 @@ const drifted = { mode: 'enforce', errors: ['planning input from specification n
 
 function routedWorkflow(planningStatus = 'in_progress') {
   return {
-    workItem: { id: 'ROUTE-1' }, currentPhase: 'planning', phaseOrder: ['specification', 'planning', 'implementation'],
+    workItem: { id: 'ROUTE-1' }, status: 'in_progress', currentPhase: 'planning', phaseOrder: ['specification', 'planning', 'implementation'],
     resolution: { obligationGraph: { nodes: [{ id: 'specification', responsibilities: ['scope'] },
       { id: 'planning', responsibilities: ['plan'] }] } },
     phases: {
@@ -225,7 +225,9 @@ test('an input finding resolves to the producer\'s restore and return routes, no
     details: { sourceCode: 'PHASE_INPUTS_NOT_READY', upstreamPhase: 'specification', status: 'hash_mismatch', restorable: true } };
   const result = phaseResolutionChoices(workflow, workflow.phases.planning, finding);
   assert.equal(result.choices[0].kind, 'restore-upstream-input');
-  assert.equal(result.choices[0].owner, 'specification');
+  // The consumer restores the approved bytes; their producer stays named and owns any change to them.
+  assert.equal(result.choices[0].owner, 'planning');
+  assert.equal(result.affectedPhase, 'specification');
   assert.equal(result.choices[0].command, 'singularity-flow inputs restore planning');
   assert.match(result.choices[0].detail, /comes from specification and must not be edited by planning/);
   assert.equal(result.choices[1].kind, 'upstream-return');

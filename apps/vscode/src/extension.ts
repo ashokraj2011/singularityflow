@@ -6765,7 +6765,8 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     const intakeRepository = defaults.repositoryPath ?? repositoryState?.root ?? repository;
     const intakeCommonDirectory = defaults.clone?.repository?.commonDirectory ?? intakeCatalogKey();
     const { IntakePanel, intakeInFlight } = lazyPanels();
-    IntakePanel.show(context, defaults.repositoryPath ? client.forkForRepository(intakeRepository) : client, output, async (started) => {
+    const intakeClient = defaults.repositoryPath ? client.forkForRepository(intakeRepository) : client;
+    IntakePanel.show(context, intakeClient, output, async (started) => {
       if (defaults.guidedStart) await context.globalState.update(START_WIZARD_KEY, undefined);
       if (started.shape === 'story' && started.repositoryPath
           && await storyCheckoutNeedsWindowSwitch(started.repositoryPath,
@@ -6800,7 +6801,12 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       else if (open === 'Open the journey') await vscode.commands.executeCommand('singularityFlow.openJourney');
       else if (open === 'Show status') await vscode.commands.executeCommand('singularityFlow.openDashboard');
     }, {
-      workspace: workspaceLabel,
+      // Painted at once, then replaced by what the repository's own membership says.
+      workspace: defaults.workspaceName ?? (defaults.repositoryPath ? null : workspaceLabel),
+      readWorkspace: async () => {
+        const owner = await intakeClient.run<{ active?: boolean; workspaceName?: string }>(['workspace', 'current', '--json']);
+        return owner.active === false ? null : owner.workspaceName;
+      },
       repository: intakeRepository,
       workflowPreferenceScope: () => {
         const observed = store.current.snapshot?.executionContext;

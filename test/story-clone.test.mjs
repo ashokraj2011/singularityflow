@@ -180,3 +180,58 @@ test('CLI clones through a fresh isolated start and preserves the original Story
   assert.equal(pinned.source.commit, beforeHead, 'phase progress cannot invalidate a committed request snapshot');
   assert.equal(pinned.request.desiredOutcome, request.desiredOutcome);
 });
+
+// A new workspace is a partial clone: fetching the Story's branch brings commits and trees, not files.
+// "Could not read the Story to clone" appeared right after mapping, 2026-11-05.
+test('a new workspace can clone a Story it has never downloaded, fetching only that Story\'s records', { timeout: 180000 }, async t => {
+  const f = await createSessionListingFixture(); t.after(f.cleanup);
+  const id = 'REMOTE-CLONE', branch = 'team/custom-source';
+  const state = { schemaVersion: 11, workItem: { id, title: 'Remote request', branch, workType: 'feature', baseBranch: 'main',
+    createdAt: '2026-11-03T00:00:00Z', createdBy: { name: 'Fixture' } },
+    lineage: { canonicalBranch: branch }, status: 'in_progress', currentPhase: 'intake', phaseOrder: ['intake'],
+    phases: { intake: { id: 'intake', label: 'Intake', status: 'in_progress', generation: 0, artifacts: [], checks: [], approvals: [],
+      approvalPolicy: { minimum: 1, authorities: ['quality-reviewers'] }, requiredArtifact: { path: 'intake.md' } } },
+    resolution: { phases: [{ id: 'intake', label: 'Intake' }] }, history: [] };
+  f.git(f.source, 'switch', '--quiet', '-c', branch, 'main');
+  const directory = path.join(f.source, f.definition.workItemRoot, id);
+  await mkdir(directory, { recursive: true });
+  await writeFile(path.join(directory, 'workflow.json'), JSON.stringify(state));
+  await writeFile(path.join(directory, 'source.json'), JSON.stringify({ type: 'manual', title: 'Remote request', description: 'Clone this input.' }));
+  await writeFile(path.join(f.source, 'application-only.txt'), 'Nothing about cloning needs this file.\n');
+  // A changed definition makes its blob missing too: the first thing the index reads.
+  await writeFile(path.join(f.source, 'singularity/workflow.yml'), YAML.stringify({ ...f.definition, description: 'Changed on the Story branch.' }));
+  f.git(f.source, 'add', '.'); f.git(f.source, 'commit', '--quiet', '-m', 'Retain remote Story');
+  f.git(f.source, 'push', '--quiet', 'origin', branch);
+  const revision = f.git(f.source, 'rev-parse', 'HEAD');
+  await appendLedgerIntent(f.source, { ...f.definition.ledger, pinTransport: 'none' }, createLedgerIntent({
+    eventType: 'binding', capabilityId: 'fixture', actor: { name: 'Fixture', email: 'fixture@example.test' },
+    subject: { kind: 'story', workId: id, branch }
+  }), revision);
+  f.git(f.remote, 'config', 'uploadpack.allowFilter', 'true');
+  f.git(f.remote, 'config', 'uploadpack.allowAnySHA1InWant', 'true');
+  const sandbox = await mkdtemp(path.join(os.tmpdir(), 'sflow-story-clone-partial-'));
+  t.after(() => rm(sandbox, { recursive: true, force: true, maxRetries: 6, retryDelay: 100 }));
+  const clone = path.join(sandbox, 'workspace-clone');
+  run('git', ['clone', '--quiet', '--filter=blob:none', '--branch', 'main', `file://${f.remote}`, clone], sandbox);
+  run('git', ['config', 'user.name', 'Clone Fixture'], clone);
+  run('git', ['config', 'user.email', 'clone@example.test'], clone);
+  run('git', ['fetch', '--quiet', 'origin', 'refs/heads/state:refs/remotes/origin/state'], clone);
+  run('git', ['archive', 'refs/remotes/origin/state', '-o', path.join(sandbox, 'state.tar')], clone);
+  const missing = () => run('git', ['-c', 'fetch.negotiationAlgorithm=noop', 'rev-list', '--objects', '--missing=print', `origin/${branch}`], clone).stdout
+    .split('\n').filter(line => line.startsWith('?')).map(line => line.slice(1));
+  const blob = (file) => run('git', ['rev-parse', `origin/${branch}:${file}`], clone).stdout.trim();
+  const record = `${f.definition.workItemRoot}/${id}`;
+  for (const file of ['singularity/workflow.yml', `${record}/workflow.json`, `${record}/source.json`, 'application-only.txt']) {
+    assert.ok(missing().includes(blob(file)), `${file} is not here yet`);
+  }
+
+  const draft = await readStoryClone(clone, id);
+  assert.equal(draft.source.commit, revision);
+  assert.equal(draft.request.description, 'Clone this input.');
+  const after = missing();
+  for (const file of ['singularity/workflow.yml', `${record}/workflow.json`, `${record}/source.json`]) assert.ok(!after.includes(blob(file)), `${file} came down`);
+  assert.ok(after.includes(blob('application-only.txt')), 'nothing else is downloaded');
+
+  const preview = JSON.parse(flow(clone, ['story', 'clone', id, '--preview', '--json']).stdout);
+  assert.equal(preview.source.commit, revision);
+});

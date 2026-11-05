@@ -4,7 +4,7 @@ import { createHash } from 'node:crypto';
 import { readFile } from 'node:fs/promises';
 import YAML from 'yaml';
 import { buildRepositorySubjectIndex, buildRepositorySubjectIndexFromRefs, resolveContext } from './repository-subject-index.mjs';
-import { committedFilesAtRevisions, fetchRemote, gitCommonDir, head, refHead } from './git.mjs';
+import { committedFilesAtRevisions, fetchMissingBlobs, fetchRemote, gitCommonDir, head, refHead } from './git.mjs';
 import { normalizeWorkSource } from './work-source.mjs';
 import { assertCredentialFreeRemote } from './git-remote-diagnostics.mjs';
 import { SingularityFlowError } from './util.mjs';
@@ -48,6 +48,17 @@ export function storyCloneDraft(workflow, source, { commit, documents = [] } = {
   };
 }
 
+/**
+ * A new workspace is a partial clone. Fetching a Story's branch brings its commits and trees, not its
+ * files, and the index below reads without downloading, so Clone Story failed right after mapping.
+ * Exactly the files this read uses come down: the two definitions and the Story's own records.
+ */
+function fetchStoryRecords(root, commit, workId) {
+  const records = new Set(['workflow.json', 'source.json', 'documents.json'].map(file => `/${workId}/${file}`));
+  fetchMissingBlobs(root, commit, file => file === 'singularity/workflow.yml' || file === 'singularity/portfolio.yml'
+    || records.has(file.slice(file.lastIndexOf('/', file.lastIndexOf('/') - 1))));
+}
+
 export async function readStoryClone(root, reference, { expectedCommit = null } = {}) {
   const definitionText = await readFile(path.join(root, 'singularity/workflow.yml'), 'utf8')
     .catch(error => error.code === 'ENOENT' ? null : Promise.reject(error));
@@ -69,6 +80,7 @@ export async function readStoryClone(root, reference, { expectedCommit = null } 
     if (!refHead(root, `${pointer.commitOid}^{commit}`)) await fetchRemote(root, ledger.remote, {
       branches: [pointer.branch], respectPartialClone: true
     });
+    fetchStoryRecords(root, pointer.commitOid, pointer.id);
     const index = await buildRepositorySubjectIndexFromRefs(root, {
       definition, refs: [{ ref: pointer.commitOid, branch: pointer.branch }]
     });
@@ -84,6 +96,7 @@ export async function readStoryClone(root, reference, { expectedCommit = null } 
   // A phase can advance while this form is open. Its committed request snapshot stays usable;
   // copying input never carries old lifecycle authority into the fresh Story.
   if (commit !== observedCommit) {
+    fetchStoryRecords(root, commit, selected.id);
     const index = await buildRepositorySubjectIndexFromRefs(root, { definition,
       refs: [{ ref: commit, branch: selected.canonicalBranch }] });
     selected = resolveContext(index, { reference: selected.id, kind: 'story', required: false });
@@ -94,6 +107,7 @@ export async function readStoryClone(root, reference, { expectedCommit = null } 
   if (path.posix.basename(directory) !== selected.id || directory.split('/').some(part => part === '..')
       || path.posix.isAbsolute(directory)) throw new SingularityFlowError('The selected Story has a noncanonical request location.',
     { code: 'STORY_CLONE_SOURCE_UNAVAILABLE' });
+  fetchStoryRecords(root, commit, selected.id);
   const files = committedFilesAtRevisions(root, ['source.json', 'workflow.json', 'documents.json'].map(file => ({
     key: file, ref: commit, path: `${directory}/${file}`
   })), { requireCompleteRead: true });

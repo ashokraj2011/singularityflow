@@ -45,7 +45,7 @@ import { LifecycleTreeProvider } from './views/lifecycle.ts';
 import type { JourneyMessage } from './views/journey.ts';
 import { buildJourney } from './views/journey-model.ts';
 import {
-  phaseGenerationChatPrefill, submissionCommandArgv
+  phaseGenerationChatPrefill, startsFreshChat, submissionCommandArgv
 } from './views/submission-presentation.ts';
 import { phasePrepublishDecision } from './views/phase-prepublish.ts';
 import { testRecoveryPreviewArgs, testRecoveryReviewActions, type TestRecoveryAction } from './views/story-test-recovery.ts';
@@ -9151,6 +9151,8 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       }
       // This is deliberately a partial query. Clicking the lifecycle action cannot prepare,
       // review, author, publish, or submit anything; the contributor reviews the engine-selected skill.
+      // Advice, not a gate: with chat features off this command may not exist, and the prefill still runs.
+      if (startsFreshChat(prefill.query)) await vscode.commands.executeCommand('workbench.action.chat.newChat').then(undefined, () => undefined);
       await vscode.commands.executeCommand('workbench.action.chat.open', prefill);
     },
     'singularityFlow.approve': runNode as never,

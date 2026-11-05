@@ -131,6 +131,7 @@ test('prepublish --publish-if-ready returns the unchanged check, and publishes w
   // What follows comes first, with its routes: an agent reading from the top ended at "published"
   // without offering the next step. The prepublish fields after it describe the draft before publication.
   assert.deepEqual(Object.keys(published).slice(0, 2), ['act', 'publishIfReady']);
+  assert.match(published.publishIfReady.next.instruction, /Say to run it in a new chat: it needs nothing from this one\./u, 'a /sf-submit route starts fresh');
   assert.deepEqual(published.act.do, { reason: published.publishIfReady.next.reason, copilot: '/sf-submit',
     shell: 'singularity-flow submit intake --work-id READY-1', vscode: '@sflow /submit intake --work-id READY-1' });
   assert.match(published.publishIfReady.next.instruction, /^Published\. End the reply with this next action/u);

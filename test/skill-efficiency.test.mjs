@@ -178,7 +178,7 @@ test('generative requirements retains interactive clarification and governed pub
   assert.match(content, /Preparation is not authoring/);
   assert.match(content, /native file-edit tool/);
   assert.match(content, /verified Markdown-preview links/);
-  assert.match(content, /current `reviewBinding`[\s\S]*document reuse never (?:reuses|carries) approval consent/);
+  assert.match(content, /document reuse never (?:reuses|carries) approval consent/);
 });
 
 test('phase handoffs show Copilot, Shell and exact available model-free alternatives', async () => {

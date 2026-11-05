@@ -70,7 +70,7 @@ test('no fixed instruction a result repeats is over 200 bytes', async (t) => {
     assert.ok(bytes(text) <= 200, `${field}: ${bytes(text)} bytes`);
   }
   // The skill layer still holds what the short forms name.
-  assert.match(COMPLETE_OUTPUT_CONTRACT, /agentOutput\.read[^.]*omittedFields[^.]*read all in one response/u);
+  assert.match(COMPLETE_OUTPUT_CONTRACT, /agentOutput\.read[^;]*need[^;]*in one response[^;]*;[^.]*omittedFields[^.]*optional/u);
   assert.match(session.agentInstruction, /literally[^.]*never in artifacts or approval identity/u);
 });
 

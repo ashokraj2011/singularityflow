@@ -229,6 +229,9 @@ export function agentAct(result) {
     return withRoute({ state: 'blocked', do: null, read: ['approvalPacket.readiness', 'nextAction'],
       said: 'This phase is not awaiting approval. Preserve the existing draft. End this approval turn; follow the returned route in a new turn. No receipt or approval exists; do not set aside the draft.' }, result.nextAction);
   }
+  // A review packet's action context is its approval context again, word for word.
+  if (result.approvalPacket && result.approvalContext && result.ready !== undefined && !result.resultType) return { state: 'read', do: null, said: null,
+    read: ['approvalPacket', 'approvalContext', 'choiceSets'] };
   if (result.resultType === 'sflow-submission-readiness' && result.approvalContinuation) {
     return withRoute({ state: 'blocked', do: null, read: ['approvalCheck', 'owedDecisions', 'pending'],
       said: 'The phase is submitted, but its known approval holds must be cleared by their named owners. Open the returned decision list; do not retry approval or rewrite submitted work. Owed evidence is separate and blocks only where the gate says so.' }, result.approvalContinuation);
@@ -280,7 +283,10 @@ export function agentAct(result) {
       how: 'Ask now using the native tool or host question tool. Execute only the selected returned route if this skill permits it; otherwise relay its exact skill. Cancellation records nothing; do not repeat the question unchanged.' } } : {}),
     said: 'Show actual retained test results, diagnostic runs separately, application readiness and outstanding human checks. Ask the returned validation question now. Start or configure the app, run tests, or open evidence only after the person chooses. Continue preserves all existing sign-offs; never accept, submit or approve from this choice.' };
   const done = result.publishIfReady?.published ? result.publishIfReady.next : result.submitIfReady?.submitted ? result.submitIfReady.next : null;
+  // The commit, hashes and artifact list. The review packet below them is the person's, and /sf-approve reads it.
   if (done) return { state: 'next', said: oneLine(done.instruction?.split('. ')[0] ?? 'Done.'),
+    read: result.publishIfReady?.published ? ['publishIfReady.next', 'publishIfReady.output', 'publishIfReady.review.handoff', ...(result.publishIfReady.review?.testEvidence ? ['publishIfReady.review.testEvidence'] : [])]
+      : ['submitIfReady.next', 'submitIfReady.result'],
     do: done.commandGuidance ? { reason: oneLine(done.reason), copilot: done.commandGuidance.copilotCommand ?? null,
       shell: done.commandGuidance.command ?? null, vscode: done.commandGuidance.modelFreeCommand ?? null } : null };
   if (result.resultType === 'sflow-phase-entry') {
@@ -290,7 +296,8 @@ export function agentAct(result) {
     if (result.status === 'documents-required') return { state: 'ask-person', do: null,
       read: ['documentReadiness', 'next'],
       said: 'Ask the person to upload the missing original documents on this laptop. Restore the existing IDs with the exact returned commands and an explicitly chosen file; then resume this phase. Never recreate the Story, duplicate documents or repeat settled requirements questions.' };
-    if (result.status === 'authoring-entry') return { state: 'author', do: null, read: ['mutationContract', ...(result.taskCompletion ? ['taskCompletion'] : []), ...(result.taskResume ? ['taskResume'] : []), 'authoringProgress', 'scopeReview', 'context', ...(result.applicationReviewRepair ? ['applicationReviewRepair'] : [])],
+    if (result.status === 'authoring-entry') return { state: 'author', do: null, read: ['mutationContract', ...(result.taskCompletion ? ['taskCompletion'] : []), ...(result.taskResume ? ['taskResume'] : []), 'authoringProgress', 'scopeReview', 'context', ...(result.applicationReviewRepair ? ['applicationReviewRepair'] : []),
+      ...(result.recovery?.requiresRecovery ? ['recovery'] : result.generatesCode ? ['recovery.testExecution'] : []), ...(result.generatesCode ? ['intent'] : [])],
       said: `Authoring ${result.phase ?? 'this step'} is admitted: do this step's own drafting now, inside mutationContract. It is not a next action to relay.` };
     if (result.status === 'clarification-required') return { state: 'ask-person', do: null, read: ['clarification', 'context'],
       said: oneLine(`Ask the unanswered questions now, as clarification.checkpoint says${result.context ? '' : ' after composing the context once'}; this is this skill's own step.`) };
@@ -332,7 +339,8 @@ export function agentAct(result) {
         ...correctionList(result.findings) }, { ...next, reason: oneLine(result.correction.guidance ?? '') });
     }
     const count = Array.isArray(result.findings) ? result.findings.length : null;
-    return { state: 'correct', do: null, read: ['findings', 'correction', 'resolution', 'traceabilityRepair', 'repairLoop'],
+    // Not `resolution`: every finding's choices and repair task, 124 KB of a 150 KB result in a live run.
+    return { state: 'correct', do: null, read: ['findings', 'correction', 'traceabilityRepair', 'repairLoop'],
       said: oneLine(`${result.status}${count == null ? '' : ` with ${count} finding${count === 1 ? '' : 's'}`}: ${result.correction?.guidance ?? 'fix the listed findings in this draft, then recheck once.'}`),
       ...correctionList(result.findings) };
   }
@@ -344,18 +352,18 @@ export function agentAct(result) {
     if (progress?.state === 'read-error' || progress?.state === 'reload-context') return { state: 'blocked', do: null,
       read: ['progress'], said: progress.instruction };
     return { state: progress?.state === 'repair-report' ? 'correct' : 'review', do: null,
-      read: ['progress', ...(result.taskResume ? ['taskResume'] : []), 'reviewGuide', 'citationGuide', 'sources', 'clarifications', 'artifact', 'reportTemplate', 'stagingProtocol'],
+      read: ['progress', ...(result.taskResume ? ['taskResume'] : []), 'reviewGuide', 'reviewer', 'citationGuide', 'sources', 'upstreamSpec', 'clarifications', 'clarificationGuidance', 'artifact', 'reportTemplate', 'reportSchema', 'stagingProtocol'],
       said: progress?.instruction ?? 'Perform the independent review now. Read pinned source text files with native file tools; their 1-based lines are citation lines. Stage, check, repair the changed packet within the bounded budget, then retain. Reading and summarising is not the review: end only after the filled report is staged and checked. Do not stop at a repairable packet error or invent coverage.' };
   }
   if (result.resultType === 'source-review-check') {
     if (result.repair?.status === 'reload-context') return withRoute({ state: 'next', do: null,
       read: ['repair'], said: result.repair.instruction }, result.continuation?.nextAction);
     if (result.retentionReady && result.repair?.mappingTasks?.length) return {
-      state: 'review', do: null, read: ['repair', 'evaluation', 'stagingProtocol'],
+      state: 'review', do: null, read: ['repair', 'evaluation'],
       said: 'Review missing scenario/clause mappings now. Add only genuinely supported rows and recheck within the repair budget; otherwise retain reviewed genuine gaps using stagingProtocol.retain. Do not invent coverage or require a new author generation for a reviewer omission.' };
     if (result.retentionReady) return withRoute({ state: 'retain', do: null,
       read: ['repair', 'evaluation'], said: 'Packet valid: retain it now, including honest correction-required findings. Retention is not approval.' }, result.continuation?.nextAction);
-    return { state: 'correct', do: null, read: ['repair', 'findings', 'stagingProtocol'],
+    return { state: 'correct', do: null, read: ['repair', 'findings'],
       said: 'Repair this staged packet now using exact citation fields and pinned text, then check the changed packet. At most two changed-packet repair attempts; never retry unchanged bytes or invent coverage.',
       ...correctionList(result.findings) };
   }
@@ -381,7 +389,9 @@ export function agentAct(result) {
   }
   const state = result.classification === 'convergence-advance-required' ? 'confirm-review' : 'next';
   const said = oneLine(result.reason ?? result.agentInstruction ?? (result.classification ? `Classification: ${result.classification}.` : '')) || null;
-  return withRoute({ state: action ? state : 'read', said, do: null }, action);
+  const nextsteps = result.resultType === 'sflow-nextsteps'
+    ? { read: ['contextBoundary', 'actions', 'pending', ...(/^\/sf(?:low)?-inputs(?:\s|$)/u.test(action?.commandGuidance?.copilotCommand ?? action?.copilotCommand ?? '') ? ['inputs'] : [])] } : {};
+  return withRoute({ state: action ? state : 'read', said, do: null, ...nextsteps }, action);
 }
 
 /**
@@ -439,7 +449,10 @@ export function observeAgentLoop(root, result, act, { now = Date.now() } = {}) {
 async function externalize(value, directory, base, trail, written, reviewSources = false) {
   const citationText = reviewSources && trail.length === 3 && trail[0] === 'sources' && trail[2] === 'text';
   if (typeof value === 'string' && (citationText || bytes(value) > LARGE_TEXT_BYTES)) {
-    const file = path.join(directory, `${base}.${trail.join('.').replace(/[^A-Za-z0-9_.-]/gu, '_').slice(0, 80)}.txt`);
+    // A second entry in one chat composes the same prompt, and a new name got it read again (17.7K
+    // tokens of a recorded specification): the same bytes keep one path, and a read path is not re-read.
+    const name = trail.join('.') === 'context.text' ? resultBase('context-text', value) : `${base}.${trail.join('.').replace(/[^A-Za-z0-9_.-]/gu, '_').slice(0, 80)}`;
+    const file = path.join(directory, `${name}.txt`);
     await writeAtomic(file, value, { mode: 0o600 });
     const entry = { textFile: file, bytes: bytes(value), lines: value.split('\n').length, sha256: sha256(value) };
     written.push({ field: trail.join('.'), ...entry });
@@ -537,6 +550,34 @@ function topLevelRanges(text) {
   return ranges;
 }
 
+/** The 1-based lines of a field below the top level in two-space indented JSON, or null without it. */
+function nestedRange(lines, trail) {
+  let [from, to] = [0, lines.length - 1];
+  for (const [depth, key] of trail.entries()) {
+    const indent = ' '.repeat(2 * (depth + 1));
+    const at = lines.slice(from, to + 1).findIndex((line) => line.startsWith(`${indent}${JSON.stringify(key)}:`));
+    if (at < 0) return null;
+    from += at;
+    if (/[{[]$/u.test(lines[from])) {
+      const close = lines.slice(from + 1, to + 1).findIndex((line) => /^ *[}\]]/u.test(line) && line.startsWith(indent) && line[indent.length] !== ' ');
+      if (close < 0) return null;
+      to = from + 1 + close;
+    } else to = from;
+  }
+  return [from + 1, to + 1];
+}
+
+// Saved results keep their line structure, which is what a host pages by, without the indentation
+// that made up a fifth of their bytes. A JSON string holds no raw line break, so this only strips indents.
+const unindented = (text) => text.replace(/^ +/gmu, '');
+
+/**
+ * What this result asks to be read. A result whose act names fields needs those, and one that names
+ * none (`read: []`) needs only its act. Any other result is itself the answer, so all of it is read.
+ * 73% of the JSON a recorded Story read was outside the fields its acts named (2026-11-05). `[OUT:REQ-031]`
+ */
+const neededFields = (act, omitted) => (Array.isArray(act?.read) ? act.read : omitted);
+
 /** Consecutive line ranges of a text, each at most `chunkBytes` (a longer line is its own range). */
 /**
  * A file SFlow names for an agent to read whole (a prepared draft), as `start-end` line ranges the
@@ -557,9 +598,14 @@ function readPlan(text, ranges, fields, { chunkBytes = READ_CHUNK_BYTES, chunks 
   const plan = [];
   let open = null;
   const close = () => { if (open) plan.push({ lines: [open.start, open.end], bytes: open.bytes }); open = null; };
-  for (const field of fields) {
-    const [start, end] = ranges[field] ?? [];
-    if (!start || !end) continue;
+  // In file order: a range runs through every line between its ends, so fields apart never share one.
+  const inFile = fields.map((field) => ranges[field]).filter((range) => range?.[0] && range[1]).sort((left, right) => left[0] - right[0]);
+  let reached = 0;
+  for (const [first, end] of inFile) {
+    const start = Math.max(first, reached + 1);
+    if (start > end) continue;
+    reached = end;
+    if (open && start !== open.end + 1) close();
     let fieldBytes = 0;
     for (let line = start; line <= end; line++) fieldBytes += lineBytes(line);
     // A field that does not fit beside the open range starts its own; only a field larger than a
@@ -876,7 +922,7 @@ async function keptAgentOutput(text, { cwd = process.cwd(), budget = agentOutput
   const file = path.join(target.directory, `${base}.json`);
   const relative = path.relative(target.root, file);
   const write = async (value) => {
-    const fullText = `${JSON.stringify(value, null, 2)}\n`;
+    const fullText = unindented(`${JSON.stringify(value, null, 2)}\n`);
     await writeAtomic(file, fullText, { mode: 0o600 });
     await registerReadFiles(target.root, [file, ...texts.map(entry => entry.textFile)]);
     await prune(target.directory, base, now);
@@ -898,13 +944,15 @@ async function keptAgentOutput(text, { cwd = process.cwd(), budget = agentOutput
       if (bytes(rendered) <= budget) return `${rendered}\n`;
     }
   }
-  const instruction = catalog ? catalogInstruction : 'Bounded result: request every agentOutput.read line range (1-based, inclusive) and every omittedFields textFiles path, by its read ranges when given, together in one response; nothing was truncated.';
+  const instruction = catalog ? catalogInstruction : 'Bounded result: view every agentOutput.read line range (1-based, inclusive) and every textFiles entry marked need, in one response; the other omittedFields are optional. Nothing was truncated.';
+  const actAlone = 'Bounded result: act is all this step needs; omittedFields lists the rest, to view by its lines only if something asks for it. Nothing was truncated.';
   const keys = Object.keys(ordered).filter((key) => key !== 'act');
   const size = Object.fromEntries(keys.map((key) => [key, bytes(JSON.stringify(ordered[key]) ?? 'null')]));
   const textFiles = Object.fromEntries(keys.map((key) => [key, texts.filter((entry) => entry.field === key || entry.field.startsWith(`${key}.`))
     .map(({ field, textFile, bytes: length, lines }) => ({ field, path: textFile, bytes: length, lines,
       ...(length > READ_CHUNK_BYTES ? { read: lineRanges(readFileSync(textFile, 'utf8')) } : {}) }))]));
-  const reference = (ranges, document = null) => {
+  const isNeeded = (needs, field) => needs === null || needs.some((path) => field === path || field.startsWith(`${path}.`));
+  const reference = (ranges, document = null, needs = null, planned = Infinity) => {
     const lines = document?.split('\n');
     return Object.fromEntries(keys.map((key) => {
       const range = ranges[key];
@@ -912,11 +960,15 @@ async function keptAgentOutput(text, { cwd = process.cwd(), budget = agentOutput
       // schema occupied 9 KB on disk and its advertised whole-field range was refused by the hook.
       const text = lines && range ? `${lines.slice(range[0] - 1, range[1]).join('\n')}\n`
         : `${JSON.stringify(full[key], null, 2)}\n`;
-      const chunks = bytes(text) > READ_CHUNK_BYTES ? lineRanges(text) : [];
+      // Listing a field's own ranges beside the read plan got one result read twice in one response.
+      // They remain only for a needed field the plan's ten ranges did not reach.
+      const unplanned = !document || (isNeeded(needs, key) && range && range[1] > planned);
+      const chunks = unplanned && bytes(text) > READ_CHUNK_BYTES ? lineRanges(text) : [];
+      const files = textFiles[key].map((entry) => (isNeeded(needs, entry.field) ? { ...entry, need: true } : entry));
       return [key, { field: key, bytes: bytes(text), lines: range ?? null,
         ...(chunks.length ? { read: chunks.map(([start, end]) => document
           ? [range[0] + start - 1, range[0] + end - 1] : [range?.[0] ?? start, range?.[1] ?? end]) } : {}),
-        ...(textFiles[key].length ? { textFiles: textFiles[key] } : {}) }];
+        ...(files.length ? { textFiles: files } : {}) }];
     }));
   };
   const render = (kept, agentOutput, references, order = keys, values = ordered, index = null) => agentJson({ act: { ...(act ?? {}), complete: false }, agentOutput,
@@ -936,7 +988,7 @@ async function keptAgentOutput(text, { cwd = process.cwd(), budget = agentOutput
   // The file keeps the command's own field order as its last entry, outside every read range, so
   // completeAgentResult() returns the result exactly as the command produced it.
   const fieldOrder = Object.keys(full);
-  const wholeText = `${JSON.stringify({ ...full, [FIELD_ORDER]: fieldOrder }, null, 2)}\n`;
+  const wholeText = unindented(`${JSON.stringify({ ...full, [FIELD_ORDER]: fieldOrder }, null, 2)}\n`);
   // A text moved to a reference file adds at most six lines (its object) and saves bytes.
   const widest = wholeText.split('\n').length - 1 + 6 * longStrings(full, [], DUPLICATE_TEXT_BYTES).length + texts.length;
   // A text file already written gains only its reason when it becomes a reference.
@@ -953,15 +1005,24 @@ async function keptAgentOutput(text, { cwd = process.cwd(), budget = agentOutput
   const { fields, references } = await referenceTexts(full, ordered, omitted, [...kept], seen, { directory: target.directory, base, texts });
   for (const key of omitted) textFiles[key] = textFiles[key].filter((entry) => !references.has(entry.path));
   const fileOrder = [...omitted, ...Object.keys(fields).filter((key) => !omitted.includes(key))];
-  const fullText = await write({ ...Object.fromEntries(fileOrder.map((key) => [key, fields[key]])), [FIELD_ORDER]: fieldOrder });
-  const ranges = topLevelRanges(fullText);
-  const read = readPlan(fullText, ranges, omitted);
-  const agentOutput = { ...describe(fullText, instruction), ...(read.length ? { read } : {}) };
-  const placed = reference(ranges, fullText);
+  const fileFields = { ...Object.fromEntries(fileOrder.map((key) => [key, fields[key]])), [FIELD_ORDER]: fieldOrder };
+  const fullText = await write(fileFields);
+  // Line numbers come from the indented form, which has the same lines as the file.
+  const indentedLines = `${JSON.stringify(fileFields, null, 2)}\n`.split('\n');
+  const ranges = topLevelRanges(indentedLines.join('\n'));
+  const needs = neededFields(act, omitted);
+  for (const need of needs) if (need.includes('.') && !ranges[need]) {
+    const range = nestedRange(indentedLines, need.split('.'));
+    if (range) ranges[need] = range;
+  }
+  const read = readPlan(fullText, ranges, needs.filter((need) => omitted.includes(need.split('.')[0])));
+  const needsNothing = !read.length && !omitted.some((key) => textFiles[key].some((entry) => isNeeded(needs, entry.field)));
+  const agentOutput = { ...describe(fullText, needsNothing ? actAlone : instruction), ...(read.length ? { read } : {}) };
+  const placed = reference(ranges, fullText, needs, read.at(-1)?.lines[1] ?? 0);
   let index = null;
   if (omitted.length > OMITTED_FIELDS_SHOWN) {
     // Every omitted field's reference, in a file of its own the agent pages through when it needs one.
-    const indexText = `${JSON.stringify(omitted.map((key) => placed[key]), null, 2)}\n`;
+    const indexText = unindented(`${JSON.stringify(omitted.map((key) => placed[key]), null, 2)}\n`);
     const indexFile = path.join(target.directory, `${base}.omitted.json`);
     await writeAtomic(indexFile, indexText, { mode: 0o600 });
     await registerReadFiles(target.root, [indexFile]);
